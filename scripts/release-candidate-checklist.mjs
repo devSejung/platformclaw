@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { stripLeadingPackageManagerSeparator } from "./lib/arg-utils.mjs";
 import { readBoundedResponseText } from "./lib/bounded-response.mjs";
 import {
@@ -320,7 +321,7 @@ export function reconcileReleaseCandidateState(saved, expected) {
     throw new Error("release candidate state has an unsupported schema");
   }
   for (const key of RELEASE_CANDIDATE_STATE_KEYS) {
-    if (saved[key] !== expected[key]) {
+    if (!isDeepStrictEqual(saved[key], expected[key])) {
       throw new Error(
         `release candidate state mismatch for ${key}: saved=${JSON.stringify(saved[key])} current=${JSON.stringify(expected[key])}`,
       );
