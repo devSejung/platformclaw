@@ -20,9 +20,10 @@ The goals are to:
 - Company transfer: `docker save` to `docker load`
 - `origin`: `https://github.com/devSejung/platformclaw`
 - `upstream`: `https://github.com/openclaw/openclaw.git`
-- Baseline commit: `730cfd774d6e453e8be90c8f823c5ead675abee9`
+- Baseline commit: `17c2ce05d8021b969f9e822a34e92535145922d5`
 - No previous PlatformClaw capability has been migrated.
-- Source changes, refactoring, Docker changes, and build/test baseline validation have not started.
+- No PlatformClaw capability source changes, refactoring, branding changes, or Docker structure changes have started.
+- The clean OpenClaw Linux Docker build and focused credential-free test baseline has been validated.
 
 ## Why This Rebuild Exists
 
@@ -68,7 +69,7 @@ The current phase is repository and development-environment baseline establishme
 Next steps:
 
 1. Establish project guidance and state documentation.
-2. Validate the clean OpenClaw Linux Docker build/test baseline.
+2. Validate each upstream sync against the Linux Docker build/test baseline.
 3. Inventory previous PlatformClaw capabilities and core changes.
 4. Decide migration order and architecture boundaries.
 5. Migrate capabilities through small PRs.

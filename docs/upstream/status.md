@@ -4,8 +4,8 @@
 
 - Upstream repository: `https://github.com/openclaw/openclaw.git`
 - Origin repository: `https://github.com/devSejung/platformclaw`
-- Baseline commit: `730cfd774d6e453e8be90c8f823c5ead675abee9`
-- Last upstream sync: initial repository setup
+- Baseline commit: `17c2ce05d8021b969f9e822a34e92535145922d5`
+- Last upstream sync: 2026-07-17 on `sync/upstream-20260717`
 - Initial sync state: local `main`, `origin/main`, and `upstream/main` identical
 
 ## Current Phase
@@ -21,10 +21,11 @@ Environment setup complete. Project guidance documentation in progress.
 - Official upstream configured
 - Clean OpenClaw `main` pushed to origin
 - `main` tracks `origin/main`
+- Clean upstream Linux Docker image build and Gateway health smoke validated
+- Focused credential-free Linux Docker tests validated
 
 ## Not Started
 
-- Clean upstream Linux Docker build/test baseline
 - Previous PlatformClaw capability inventory
 - Previous core modification inventory
 - Architecture migration plan
