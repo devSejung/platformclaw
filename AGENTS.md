@@ -1,3 +1,15 @@
+# PlatformClaw Overlay
+
+- This repository is PlatformClaw, a private downstream of OpenClaw.
+- Read `PLATFORMCLAW.md` before PlatformClaw planning or implementation. Read `docs/upstream/status.md` before upstream sync or feature migration.
+- `origin` is the private PlatformClaw repository; `upstream` is the official OpenClaw repository. Preserve OpenClaw Git ancestry and the common ancestor; minimize upstream divergence.
+- Use `feature/*` for features, `fix/*` for fixes, and `refactor/*` for refactors. Perform upstream integration on a temporary `sync/upstream-YYYYMMDD` branch; never apply unverified upstream changes directly to `main`.
+- Windows is the development host; Ubuntu Linux Docker is the final runtime and validation authority. Do not depend on Windows-only paths or commands, CRLF, or case-insensitive filesystem behavior.
+- PlatformClaw features prefer existing plugin, provider, adapter, hook, registry, or SDK boundaries. Do not spread enterprise-only logic across OpenClaw core.
+- Migrate the previous PlatformClaw one small capability at a time; never copy it wholesale.
+- Never commit credentials, internal data, private URLs, user workspaces, logs, or runtime databases.
+- If this overlay conflicts with the OpenClaw rules below, preserve the OpenClaw rule and report the conflict to the user.
+
 # AGENTS.MD
 
 Telegraph style. Root rules only. Read scoped `AGENTS.md` before subtree work.
