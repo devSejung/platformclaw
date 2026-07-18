@@ -21,6 +21,7 @@ import { MANIFEST_KEY } from "../compat/legacy-names.js";
 import type { OpenClawConfig, ConfigFileSnapshot } from "../config/config.js";
 import { collectIncludePathsRecursive } from "../config/includes-scan.js";
 import { resolveOAuthDir } from "../config/paths.js";
+import { readRegularFile, statRegularFile } from "../infra/fs-safe.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { getOrCreatePromise } from "../shared/lazy-promise.js";
 import { createLazyRuntimeModule, createLazyRuntimeNamedExport } from "../shared/lazy-runtime.js";
@@ -97,9 +98,25 @@ function expandTilde(p: string, env: NodeJS.ProcessEnv): string | null {
   return null;
 }
 
+const MAX_PLUGIN_MANIFEST_BYTES = 1024 * 1024;
+
 async function readPluginManifestExtensions(pluginPath: string): Promise<string[]> {
   const manifestPath = path.join(pluginPath, "package.json");
-  const raw = await fs.readFile(manifestPath, "utf-8").catch(() => "");
+  const statResult = await statRegularFile(manifestPath);
+  if (statResult.missing) {
+    return [];
+  }
+  if (statResult.stat.size > MAX_PLUGIN_MANIFEST_BYTES) {
+    throw new Error(
+      `Plugin manifest at ${manifestPath} is too large (${statResult.stat.size} bytes, max ${MAX_PLUGIN_MANIFEST_BYTES})`,
+    );
+  }
+
+  const { buffer } = await readRegularFile({
+    filePath: manifestPath,
+    maxBytes: MAX_PLUGIN_MANIFEST_BYTES,
+  });
+  const raw = buffer.toString("utf-8");
   if (!raw.trim()) {
     return [];
   }
@@ -165,6 +182,35 @@ async function getCodeSafetySummary(params: {
   return params.summaryCache
     ? ((await getOrCreatePromise(params.summaryCache, cacheKey, scan)) as SkillScanSummary)
     : await scan();
+}
+
+async function getSkillCodeSafetySummary(params: {
+  dirPath: string;
+  skillFilePath: string;
+  summaryCache?: CodeSafetySummaryCache;
+}): Promise<SkillScanSummary> {
+  const [summary, skillContent, skillScanner] = await Promise.all([
+    getCodeSafetySummary({
+      dirPath: params.dirPath,
+      summaryCache: params.summaryCache,
+    }),
+    fs.readFile(params.skillFilePath, "utf-8"),
+    loadSkillScannerModule(),
+  ]);
+  const skillFindings = [
+    ...skillScanner.scanSkillContent(skillContent, params.skillFilePath),
+    ...skillScanner.scanSource(skillContent, params.skillFilePath),
+  ];
+
+  return {
+    ...summary,
+    scannedFiles: summary.scannedFiles + 1,
+    critical:
+      summary.critical + skillFindings.filter((finding) => finding.severity === "critical").length,
+    warn: summary.warn + skillFindings.filter((finding) => finding.severity === "warn").length,
+    info: summary.info + skillFindings.filter((finding) => finding.severity === "info").length,
+    findings: [...summary.findings, ...skillFindings],
+  };
 }
 
 // --------------------------------------------------------------------------
@@ -877,8 +923,9 @@ export async function collectInstalledSkillsCodeSafetyFindings(params: {
       scannedSkillDirs.add(skillDir);
 
       const skillName = entry.skill.name;
-      const summary = await getCodeSafetySummary({
+      const summary = await getSkillCodeSafetySummary({
         dirPath: skillDir,
+        skillFilePath: entry.skill.filePath,
         summaryCache: params.summaryCache,
       }).catch((err: unknown) => {
         findings.push({

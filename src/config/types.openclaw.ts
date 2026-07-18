@@ -129,6 +129,10 @@ export type OpenClawConfig = {
       | undefined;
   };
   wizard?: {
+    /** Guided-onboarding discovery consent: "full" scans silently, "guarded" asks first. */
+    accessMode?: "full" | "guarded";
+    /** Offer installed-application plugin and skill recommendations during onboarding. */
+    appRecommendations?: boolean;
     /** Last setup wizard completion timestamp. */
     lastRunAt?: string;
     /** OpenClaw version used by the last completed wizard run. */
@@ -181,6 +185,27 @@ export type OpenClawConfig = {
       name?: string;
       /** Assistant avatar (emoji, short text, or image URL/data URI). */
       avatar?: string;
+    };
+    /**
+     * Operator display preferences. Canonical config home so agents can
+     * change them through the approval gate and clients stay in sync; the
+     * Control UI mirrors them into browser storage for instant boot.
+     */
+    prefs?: {
+      /** Control UI theme. */
+      theme?: "claw" | "knot" | "dash" | "custom";
+      /** Light/dark preference. */
+      themeMode?: "light" | "dark" | "system";
+      /** Text scale percentage stop. */
+      textScale?: 90 | 100 | 110 | 125 | 140;
+      /** BCP 47 UI locale, e.g. "en" or "pt-BR". */
+      locale?: string;
+      /** Show model thinking output in chat. */
+      chatShowThinking?: boolean;
+      /** Show tool call cards in chat. */
+      chatShowToolCalls?: boolean;
+      /** Chat send shortcut: Enter sends, or modifier+Enter sends. */
+      chatSendShortcut?: "enter" | "modifier-enter";
     };
   };
   /** Terminal UI display settings. */

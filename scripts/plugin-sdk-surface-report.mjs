@@ -162,8 +162,9 @@ const defaultPublicDeprecatedExportsByEntrypointBudget = Object.freeze({
   "channel-lifecycle": 23,
   // Registry sweep: 77 packages, zero fetch failures; channel-ingress and dead aliases
   // had zero consumers.
-  "channel-message": 230,
-  "channel-message-runtime": 227,
+  // +11 each: durable channel-ingress drain seam (drain/lifecycle/claim/retry) mirrored by compat (#108656).
+  "channel-message": 241,
+  "channel-message-runtime": 238,
   "channel-pairing-paths": 1,
   // Deprecated pairing/conversation exports from the SQLite pairing migration
   // landed on main (#105802) without entrypoint pins; not touched by this PR.
@@ -212,7 +213,9 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       "OPENCLAW_PLUGIN_SDK_MAX_PUBLIC_ENTRYPOINTS",
       // Registry sweep: 77 packages, zero fetch failures; retired dead channel-ingress facade.
       // +1: speech-settings keeps agent prompt imports off the synthesis/runtime graph.
-      329,
+      // +1: meeting-runtime barrel: browser meeting-bot core behind MeetingPlatformAdapter.
+      // +1: question-gateway-runtime resolves ask_user choices for channel plugins.
+      331,
       env,
     ),
     // ScopeTree adds six channel-policy exports, mirrored by compat, including three functions.
@@ -234,7 +237,7 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // Harvest: retired qa-live-transport-scenarios subpath -6.
       // +12: typed plan step/status and checklist formatter across channel barrels.
       // +8: plan-step ingress union and normalizer across channel barrels.
-      // +4: dual-field plan payload builder for the steps deprecation window.
+      // Harvest: retired dual-field plan payload builder -1.
       // +12: active plan-step consumers pinned through channel-outbound and mirrors.
       // +6: app-guided provider setup types retained by plugin-entry and mirrors.
       // +3: widget HTML validation helpers and tool input error.
@@ -252,7 +255,19 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: selectPreferredLocalModelId shares app-guided local model ranking across providers.
       // +4: shared audio-energy stats and speech-threshold gate through realtime-voice.
       // +2: supplemental sender decision and outbound text chunk sequencer.
-      8012,
+      // +2: shared realtime voice session harness through realtime-voice.
+      // +24: narrowed durable channel-ingress drain seam — factory, lifecycle binding,
+      // tuning constants, and telegram-consumed claim helpers with compat mirrors,
+      // after harvesting exports orphaned by the split-out WhatsApp adapter (#108656).
+      // +10: supplemental sender helpers plus host-owned SQLite lease contracts.
+      // Harvest: retired dual-field plan payload builder -1.
+      // +23: core channel, envelope, direct-DM, feedback, legacy-payload, and memory contracts.
+      // +81: meeting-runtime barrel: browser meeting-bot core behind MeetingPlatformAdapter.
+      // +3: question-gateway-runtime resolver plus request/result types.
+      // +1: async memory prompt preparation registration.
+      // +4: gateway-backed harness question runner, claim/cancel helpers, and caller type.
+      // Harvest: internal question runtime exports -2.
+      8155,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -265,7 +280,7 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // Harvest: retired qa-live-transport-scenarios subpath -3.
       // +4: shared plan checklist formatter across channel barrels.
       // +4: plan-step normalizer across channel barrels.
-      // +4: dual-field plan payload builder for the steps deprecation window.
+      // Harvest: retired dual-field plan payload builder -1.
       // +6: active plan-step helpers pinned through channel-outbound and mirrors.
       // +2: widget HTML document detection and size assertion.
       // Used-union narrowing of the 31 wildcard barrels.
@@ -279,7 +294,18 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: selectPreferredLocalModelId shares app-guided local model ranking across providers.
       // +3: PCM16/mu-law energy readers and speech-threshold gate factory.
       // +2: supplemental sender decision and outbound text chunk sequencer.
-      4478,
+      // +1: shared realtime voice session harness through realtime-voice.
+      // +9: narrowed drain seam functions and compat mirrors after the
+      // WhatsApp-split harvest (#108656).
+      // +3: supplemental sender helpers plus the PluginStateLeaseRunner callback.
+      // Harvest: retired dual-field plan payload builder -1.
+      // +13: core channel, envelope, direct-DM, feedback, legacy-payload, and memory operations.
+      // +32: meeting-runtime barrel: browser meeting-bot core behind MeetingPlatformAdapter.
+      // +1: question-gateway-runtime resolver.
+      // +1: async memory prompt preparation registration.
+      // +3: gateway-backed harness question runner and claim/cancel helpers.
+      // Harvest: internal question runtime callable -1.
+      4537,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
@@ -289,21 +315,23 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +77: five zero-consumer subpaths enter their removal window.
       // +9: typed plan exports and formatter through deprecated channel barrels.
       // +6: plan-step ingress union and normalizer through deprecated channel barrels.
-      // +3: dual-field plan payload builder through deprecated channel barrels.
       // +8: channel-outbound plan pins mirrored through deprecated barrels.
       // Used-union narrowing drops inherited deprecated exports.
       // +1: Telegram runner alias retained for plugin SDK compatibility.
       // +8: shared channel helpers mirrored by deprecated barrels.
       // +3: receipt/snapshot exports through deprecated channel barrels.
       // +1: unified implicit-mention config type through deprecated config-types.
-      2990,
+      // +24: narrowed drain seam compat mirrors in the channel-message
+      // deprecation-window barrels (#108656).
+      // Harvest: retired dual-field plan payload builder -1; lower-only drift -8.
+      3005,
       env,
     ),
     publicWildcardReexports: readPluginSdkSurfaceBudgetEnv(
       "OPENCLAW_PLUGIN_SDK_MAX_PUBLIC_WILDCARD_REEXPORTS",
       // Used-union narrowing removes 103 wildcard re-exports.
       // Harvest: freeze the compat config-schema barrel to explicit exports -1.
-      105,
+      104,
       env,
     ),
   };

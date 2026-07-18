@@ -10,6 +10,7 @@ import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { redactSensitiveText } from "openclaw/plugin-sdk/logging-core";
 import { transcodeAudioBuffer } from "openclaw/plugin-sdk/media-runtime";
 import { clampTimerTimeoutMs } from "openclaw/plugin-sdk/number-runtime";
+import { mergeDeep } from "openclaw/plugin-sdk/plugin-config-runtime";
 import {
   markReplyPayloadAsTtsSupplement,
   resolveSendableOutboundReplyParts,
@@ -454,17 +455,40 @@ export function getTtsProvider(config: ResolvedTtsConfig, prefsPath: string): Tt
 
   const effectiveCfg = config.sourceConfig;
   for (const provider of sortSpeechProvidersForAutoSelection(effectiveCfg)) {
-    if (
-      provider.isConfigured({
-        cfg: effectiveCfg,
-        providerConfig: config.providerConfigs[provider.id] ?? {},
-        timeoutMs: resolveSpeechProviderTimeoutMs({ config, provider }),
-      })
-    ) {
+    if (isTtsProviderConfigured(config, provider.id, effectiveCfg)) {
       return provider.id;
     }
   }
   return config.provider;
+}
+
+export type PreparedTtsRequest = {
+  cfg: OpenClawConfig;
+  directives: TtsDirectiveParseResult;
+};
+
+/** Merge a surface TTS override and resolve its inline synthesis directives. */
+export function prepareTtsRequest(params: {
+  cfg: OpenClawConfig;
+  override?: TtsConfig;
+  text: string;
+}): PreparedTtsRequest {
+  const cfg = params.override
+    ? {
+        ...params.cfg,
+        messages: {
+          ...params.cfg.messages,
+          tts: mergeDeep(params.cfg.messages?.tts ?? {}, params.override) as TtsConfig,
+        },
+      }
+    : params.cfg;
+  const config = resolveTtsConfig(cfg);
+  const directives = parseTtsDirectives(params.text, config.modelOverrides, {
+    cfg,
+    providerConfigs: config.providerConfigs,
+    preferredProviderId: getTtsProvider(config, resolveTtsPrefsPath(config)),
+  });
+  return { cfg, directives };
 }
 
 export function resolveExplicitTtsOverrides(params: {
@@ -649,18 +673,24 @@ export function isTtsProviderConfigured(
   provider: TtsProvider,
   cfg?: OpenClawConfig,
 ): boolean {
-  const effectiveCfg = cfg ? resolveTtsRuntimeConfig(cfg) : config.sourceConfig;
-  const resolvedProvider = getSpeechProvider(provider, effectiveCfg);
-  if (!resolvedProvider) {
+  try {
+    const effectiveCfg = cfg ? resolveTtsRuntimeConfig(cfg) : config.sourceConfig;
+    const resolvedProvider = getSpeechProvider(provider, effectiveCfg);
+    if (!resolvedProvider) {
+      return false;
+    }
+    return (
+      resolvedProvider.isConfigured({
+        cfg: effectiveCfg,
+        providerConfig: getResolvedSpeechProviderConfig(config, resolvedProvider.id, effectiveCfg),
+        timeoutMs: resolveSpeechProviderTimeoutMs({ config, provider: resolvedProvider }),
+      }) ?? false
+    );
+  } catch {
+    // Configuration probes drive provider selection and status catalogs. A
+    // malformed provider config must not hide other usable providers.
     return false;
   }
-  return (
-    resolvedProvider.isConfigured({
-      cfg: effectiveCfg,
-      providerConfig: getResolvedSpeechProviderConfig(config, resolvedProvider.id, effectiveCfg),
-      timeoutMs: resolveSpeechProviderTimeoutMs({ config, provider: resolvedProvider }),
-    }) ?? false
-  );
 }
 
 function formatTtsProviderError(provider: TtsProvider, err: unknown): string {

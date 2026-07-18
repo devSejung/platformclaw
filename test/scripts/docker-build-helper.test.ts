@@ -1336,9 +1336,12 @@ docker() {
   return 125
 }
 
-mkfifo() {
-  umask >"$TMPDIR/mkfifo-umask"
-  /usr/bin/mkfifo "$@"
+mktemp() {
+  local dir=""
+  dir="$(/usr/bin/mktemp "$@")" || return
+  printf "%s\\n" "$*" >"$TMPDIR/mktemp-seen"
+  printf "%s\\n" "$dir" >"$TMPDIR/diagnostic-dir"
+  printf "%s\\n" "$dir"
 }
 
 tail() {
@@ -1366,7 +1369,8 @@ stderr="$(<"$TMPDIR/stderr")"
 [[ "$stderr" = *"OPENCLAW_DOCKER_E2E_DISABLE_RESOURCE_LIMITS=1"* ]]
 [[ "$(grep -c '^run ' "$TMPDIR/docker-seen")" = "1" ]]
 [[ "$(<"$TMPDIR/tail-seen")" = "-c 65536" ]]
-[[ "$(<"$TMPDIR/mkfifo-umask")" = "0077" ]]
+[[ "$(<"$TMPDIR/mktemp-seen")" = -d* ]]
+[[ ! -e "$(<"$TMPDIR/diagnostic-dir")" ]]
 `;
 
       execFileSync("bash", ["-lc", script], { encoding: "utf8" });
@@ -3691,6 +3695,14 @@ heartbeat_elapsed="\${BASH_REMATCH[1]}"
     );
   });
 
+  it("keeps private bundled plugins discoverable in the functional Docker E2E image", () => {
+    const dockerfile = readFileSync("scripts/e2e/Dockerfile", "utf8");
+
+    expect(dockerfile).toContain(
+      "OPENCLAW_DISABLE_PLUGIN_REGISTRY_MIGRATION=1 node /app/scripts/postinstall-bundled-plugins.mjs",
+    );
+  });
+
   it("keeps onboarding Docker E2E resource-guarded", () => {
     const runner = readFileSync(ONBOARD_DOCKER_E2E_PATH, "utf8");
 
@@ -4194,6 +4206,9 @@ heartbeat_elapsed="\${BASH_REMATCH[1]}"
     expect(helper).toContain("--allow-unreleased-changelog");
     expect(helper).toContain(
       '-v "$ROOT_DIR/scripts/windows-cmd-helpers.mjs:/app/scripts/windows-cmd-helpers.mjs:ro"',
+    );
+    expect(helper).toContain(
+      '-v "$ROOT_DIR/packages/normalization-core/src:/app/packages/normalization-core/src:ro"',
     );
     expect(helper).toContain('-v "$ROOT_DIR/test/e2e/qa-lab:/app/test/e2e/qa-lab:ro"');
     expect(helper).toContain('-v "$ROOT_DIR/test/helpers:/app/test/helpers:ro"');
