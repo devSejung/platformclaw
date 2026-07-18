@@ -67,7 +67,11 @@ import {
   parseCatalogSessionKey,
   type CatalogSessionKey,
 } from "../../lib/sessions/catalog-key.ts";
-import { resolveSessionKey, scopedAgentParamsForSession } from "../../lib/sessions/index.ts";
+import {
+  resolveSessionKey,
+  scopedAgentParamsForSession,
+  visibleSessionMatches,
+} from "../../lib/sessions/index.ts";
 import {
   areUiSessionKeysEquivalent,
   buildAgentMainSessionKey,
@@ -87,6 +91,7 @@ import {
   clearChatHistory,
   loadChatHistory,
   loadOlderChatHistoryPage,
+  rewindChatHistory,
   resolveChatHistoryPagination,
   syncSelectedSessionMessageSubscription,
 } from "./chat-history.ts";
@@ -161,6 +166,7 @@ import { WIDGET_PROMPT_EVENT, type WidgetPromptEventDetail } from "./components/
 import {
   CHAT_COMPOSER_DRAFT_STORAGE_ERROR,
   loadChatComposerSnapshot,
+  persistChatComposerState,
   resolveStoredChatOutboxScope,
   storedChatOutboxScopeKey,
 } from "./composer-persistence.ts";
@@ -656,6 +662,29 @@ class ChatPane extends OpenClawLightDomElement {
       // publishes the actionable error for the owning page.
       this.unreadPatchGuard.patchFailed(guardKey);
     });
+  }
+
+  private async restoreArchivedSession(sessionKey: string) {
+    const scope = this.captureConnectionScope();
+    if (!scope || scope.state.sessionKey !== sessionKey) {
+      return;
+    }
+    const agentId = parseAgentSessionKey(sessionKey)?.agentId ?? resolveChatAgentId(scope.state);
+    let failure: string | null = null;
+    try {
+      // The patch can resolve falsy on failure; the capability error explains it.
+      const patched = await scope.sessions.patch(sessionKey, { archived: false }, { agentId });
+      if (!patched) {
+        failure = scope.sessions.state.error;
+      }
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+    }
+    if (failure && this.isConnectionScopeCurrent(scope) && scope.state.sessionKey === sessionKey) {
+      scope.state.lastError = failure;
+      scope.state.chatError = failure;
+      scope.state.requestUpdate?.();
+    }
   }
 
   private setPaneSessionKey(sessionKey: string): string | null {
@@ -1285,6 +1314,49 @@ class ChatPane extends OpenClawLightDomElement {
     }
   }
 
+  private async rewindToMessage(entryId: string): Promise<boolean> {
+    const state = this.state;
+    if (!state) {
+      return false;
+    }
+    const result = await rewindChatHistory(state, entryId);
+    if (!result) {
+      state.requestUpdate?.();
+      return false;
+    }
+    state.requestUpdate?.();
+    return true;
+  }
+
+  private async forkFromMessage(entryId: string): Promise<void> {
+    const state = this.state;
+    if (!state) {
+      return;
+    }
+    const sourceKey = state.sessionKey;
+    const agentParams = scopedAgentParamsForSession(state, sourceKey);
+    try {
+      const result = await state.sessions.forkAtMessage(sourceKey, entryId, agentParams);
+      const editorText = result.editorText ?? "";
+      const draftPersisted = persistChatComposerState(state, result.sessionKey, {
+        agentId: parseAgentSessionKey(result.sessionKey)?.agentId,
+        draft: editorText,
+      });
+      if (this.state !== state || !visibleSessionMatches(state, sourceKey, agentParams.agentId)) {
+        return;
+      }
+      this.onPaneSessionChange?.(this.paneId, result.sessionKey);
+      this.switchPaneSession(result.sessionKey);
+      if (!draftPersisted) {
+        state.handleChatDraftChange(editorText);
+      }
+    } catch (error) {
+      state.lastError = error instanceof Error ? error.message : String(error);
+      state.chatError = state.lastError;
+      state.requestUpdate?.();
+    }
+  }
+
   private readonly handleCommandPaletteSlashCommand = (command: string) => {
     const state = this.state;
     if (!state) {
@@ -1861,6 +1933,9 @@ class ChatPane extends OpenClawLightDomElement {
       state.realtimeTalkSession = null;
       state.realtimeTalkActive = false;
       state.realtimeTalkVideoStream = null;
+      state.realtimeTalkVideoCapable = false;
+      state.realtimeTalkVideoPending = false;
+      state.realtimeTalkCameraError = false;
       state.realtimeTalkStatus = "idle";
       state.realtimeTalkInputLevel.set(0);
       state.resetToolStream();
@@ -2334,9 +2409,18 @@ class ChatPane extends OpenClawLightDomElement {
       realtimeTalkInputLevel: state.realtimeTalkInputLevel,
       realtimeTalkConversation: state.realtimeTalkConversation,
       realtimeTalkVideoStream: state.realtimeTalkVideoStream,
+      realtimeTalkVideoCapable: state.realtimeTalkVideoCapable,
+      realtimeTalkVideoPending: state.realtimeTalkVideoPending,
+      realtimeTalkCameraError: state.realtimeTalkCameraError,
       connected: state.connected,
       canSend: catalogKey ? this.catalogSession?.canContinue === true : !selectedSessionArchived,
       disabledReason: catalogDisabledReason ?? disabledReason,
+      disabledActionLabel:
+        selectedSessionArchived && !catalogDisabledReason ? t("common.restore") : null,
+      onDisabledAction:
+        selectedSessionArchived && !catalogDisabledReason
+          ? () => void this.restoreArchivedSession(state.sessionKey)
+          : null,
       error: state.lastError,
       sessions: state.sessionsResult,
       sessionHost: {
@@ -2451,7 +2535,7 @@ class ChatPane extends OpenClawLightDomElement {
         this.context.navigate("sessions", { search: `?${search.toString()}` });
       },
       onToggleRealtimeTalk: () => void state.toggleRealtimeTalk(),
-      onToggleRealtimeVideo: () => void state.toggleRealtimeTalk({ video: true }),
+      onToggleRealtimeCamera: () => void state.toggleRealtimeTalkCamera(),
       onDismissError: () => {
         dismissChatError(state as never);
         state.requestUpdate?.();
@@ -2506,6 +2590,8 @@ class ChatPane extends OpenClawLightDomElement {
         state.chatReplyTarget = target;
         state.requestUpdate?.();
       },
+      onRewindMessage: (entryId) => this.rewindToMessage(entryId),
+      onForkMessage: (entryId) => this.forkFromMessage(entryId),
       onNewSession: () => void this.createSession(),
       onClearHistory: () => void clearChatHistory(state),
       agentsList: state.agentsList,
