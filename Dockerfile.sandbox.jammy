@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1.7
+
+ARG PLATFORMCLAW_JAMMY_IMAGE="docker.io/library/ubuntu:22.04@sha256:0e0a0fc6d18feda9db1590da249ac93e8d5abfea8f4c3c0c849ce512b5ef8982"
+FROM ${PLATFORMCLAW_JAMMY_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive \
+  LANG=ko_KR.UTF-8 \
+  LANGUAGE=ko_KR:ko:en_US:en \
+  LC_ALL=ko_KR.UTF-8 \
+  TZ=Asia/Seoul
+
+RUN --mount=type=secret,id=platformclaw_apt_sources \
+    set -eux; \
+    cp /etc/apt/sources.list /tmp/ubuntu.sources.list; \
+    if [ -f /run/secrets/platformclaw_apt_sources ]; then \
+      cp /run/secrets/platformclaw_apt_sources /etc/apt/sources.list; \
+      rm -f /etc/apt/sources.list.d/*.list; \
+    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      bash build-essential ca-certificates curl git jq less libssl-dev locales \
+      make pkg-config python3 python3-pip python3-venv ripgrep unzip vim xz-utils zip; \
+    locale-gen ko_KR.UTF-8; \
+    ln -snf /usr/share/zoneinfo/Asia/Seoul /etc/localtime; \
+    echo Asia/Seoul >/etc/timezone; \
+    cp /tmp/ubuntu.sources.list /etc/apt/sources.list; \
+    rm -f /tmp/ubuntu.sources.list; \
+    rm -rf /var/lib/apt/lists/*; \
+    useradd --create-home --shell /bin/bash sandbox
+
+USER sandbox
+WORKDIR /home/sandbox
+CMD ["sleep", "infinity"]
