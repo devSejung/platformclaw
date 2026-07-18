@@ -1,0 +1,170 @@
+# syntax=docker/dockerfile:1.7
+
+# PlatformClaw runtime overlay. The application assets come from the current
+# upstream Dockerfile's runtime-assets target; this file owns only the Jammy
+# runtime and the tools required in the disconnected company environment.
+ARG PLATFORMCLAW_JAMMY_IMAGE="docker.io/library/ubuntu:22.04@sha256:0e0a0fc6d18feda9db1590da249ac93e8d5abfea8f4c3c0c849ce512b5ef8982"
+FROM ${PLATFORMCLAW_JAMMY_IMAGE} AS platformclaw-jammy-node
+
+ARG OPENCLAW_BUNDLED_PLUGIN_DIR=extensions
+ARG PLATFORMCLAW_NODE_VERSION="24.18.0"
+ARG PLATFORMCLAW_NODE_SHA256_AMD64="55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742"
+ARG PLATFORMCLAW_NODE_SHA256_ARM64="58c9520501f6ae2b52d5b210444e24b9d0c029a58c5011b797bc1fe7105886f6"
+ARG PLATFORMCLAW_GH_VERSION="2.96.0"
+ARG PLATFORMCLAW_GH_SHA256_AMD64="11a731f4e0ca8c3db96ef6d2cc404dcab3d78247ce0e07c53e07117e7627d6a1"
+ARG PLATFORMCLAW_GH_SHA256_ARM64="334dd9c6704fc1656a48e475c5a3a9aa32bbadb87fa1777513bc626af4a99e89"
+ARG PLATFORMCLAW_CODEX_ACP_VERSION="1.1.4"
+ARG PLATFORMCLAW_CLAUDE_ACP_VERSION="0.59.0"
+ARG PLATFORMCLAW_CLAUDE_CODE_VERSION="2.1.212"
+ARG PLATFORMCLAW_NANO_PDF_VERSION="0.2.1"
+ARG PLATFORMCLAW_MARKDOWN_VERSION="3.10.2"
+ARG PLATFORMCLAW_PYGMENTS_VERSION="2.20.0"
+ARG OPENCLAW_IMAGE_APT_PACKAGES=""
+ARG OPENCLAW_IMAGE_PIP_PACKAGES=""
+ARG OPENCLAW_INSTALL_BROWSER=""
+
+LABEL org.opencontainers.image.source="https://github.com/devSejung/platformclaw" \
+  org.opencontainers.image.licenses="MIT" \
+  org.opencontainers.image.title="PlatformClaw" \
+  org.opencontainers.image.description="PlatformClaw gateway and enterprise tool runtime on Ubuntu 22.04 Jammy" \
+  org.opencontainers.image.base.name="docker.io/library/ubuntu:22.04" \
+  org.opencontainers.image.base.digest="sha256:0e0a0fc6d18feda9db1590da249ac93e8d5abfea8f4c3c0c849ce512b5ef8982"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+  LANG=ko_KR.UTF-8 \
+  LANGUAGE=ko_KR:ko:en_US:en \
+  LC_ALL=ko_KR.UTF-8 \
+  TZ=Asia/Seoul
+
+# An optional private apt sources file is supplied only at build time:
+#   --secret id=platformclaw_apt_sources,src=<path>
+# The source URLs never become repository content or image layers.
+RUN --mount=type=secret,id=platformclaw_apt_sources \
+    set -eux; \
+    cp /etc/apt/sources.list /tmp/ubuntu.sources.list; \
+    if [ -f /run/secrets/platformclaw_apt_sources ]; then \
+      cp /run/secrets/platformclaw_apt_sources /etc/apt/sources.list; \
+      rm -f /etc/apt/sources.list.d/*.list; \
+    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      bash ca-certificates curl ffmpeg file git git-review gnupg hostname jq less \
+      libssl-dev locales lsof make openssh-client openssl pkg-config poppler-utils \
+      procps python3 python3-openpyxl python3-pip python3-venv ripgrep tini tzdata \
+      unzip vim xlsx2csv xz-utils zip docker.io; \
+    compose_package=""; \
+    for candidate in docker-compose-v2 docker-compose-plugin docker-compose; do \
+      if apt-cache show "$candidate" >/dev/null 2>&1; then compose_package="$candidate"; break; fi; \
+    done; \
+    test -n "$compose_package"; \
+    apt-get install -y --no-install-recommends "$compose_package"; \
+    locale-gen ko_KR.UTF-8; \
+    ln -snf /usr/share/zoneinfo/Asia/Seoul /etc/localtime; \
+    echo Asia/Seoul >/etc/timezone; \
+    cp /tmp/ubuntu.sources.list /etc/apt/sources.list; \
+    rm -f /tmp/ubuntu.sources.list; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) node_arch=x64; node_sha="$PLATFORMCLAW_NODE_SHA256_AMD64"; gh_arch=amd64; gh_sha="$PLATFORMCLAW_GH_SHA256_AMD64" ;; \
+      arm64) node_arch=arm64; node_sha="$PLATFORMCLAW_NODE_SHA256_ARM64"; gh_arch=arm64; gh_sha="$PLATFORMCLAW_GH_SHA256_ARM64" ;; \
+      *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    node_archive="node-v${PLATFORMCLAW_NODE_VERSION}-linux-${node_arch}.tar.xz"; \
+    curl -fsSL --retry 5 --retry-all-errors \
+      "https://nodejs.org/dist/v${PLATFORMCLAW_NODE_VERSION}/${node_archive}" -o "/tmp/${node_archive}"; \
+    printf '%s  %s\n' "$node_sha" "/tmp/${node_archive}" | sha256sum -c -; \
+    tar -xJf "/tmp/${node_archive}" -C /usr/local --strip-components=1; \
+    rm -f "/tmp/${node_archive}"; \
+    gh_deb="gh_${PLATFORMCLAW_GH_VERSION}_linux_${gh_arch}.deb"; \
+    curl -fsSL --retry 5 --retry-all-errors \
+      "https://github.com/cli/cli/releases/download/v${PLATFORMCLAW_GH_VERSION}/${gh_deb}" -o "/tmp/${gh_deb}"; \
+    printf '%s  %s\n' "$gh_sha" "/tmp/${gh_deb}" | sha256sum -c -; \
+    dpkg -i "/tmp/${gh_deb}"; \
+    rm -f "/tmp/${gh_deb}"; \
+    rm -rf /var/lib/apt/lists/*; \
+    groupadd --gid 1000 node; \
+    useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash node; \
+    node --version; npm --version; gh --version
+
+FROM platformclaw-jammy-node
+
+WORKDIR /app
+
+# openclaw-runtime is a named BuildKit context produced from Dockerfile's
+# runtime-assets target by scripts/platformclaw-build.mjs.
+COPY --from=openclaw-runtime --chown=1000:1000 /app/dist ./dist
+COPY --from=openclaw-runtime --chown=1000:1000 /app/node_modules ./node_modules
+COPY --from=openclaw-runtime --chown=1000:1000 /app/package.json .
+COPY --from=openclaw-runtime --chown=1000:1000 /app/pnpm-workspace.yaml .
+COPY --from=openclaw-runtime --chown=1000:1000 /app/patches ./patches
+COPY --from=openclaw-runtime --chown=1000:1000 /app/openclaw.mjs .
+COPY --from=openclaw-runtime --chown=1000:1000 /app/src/agents/templates ./src/agents/templates
+COPY --from=openclaw-runtime --chown=1000:1000 /app/${OPENCLAW_BUNDLED_PLUGIN_DIR} ./${OPENCLAW_BUNDLED_PLUGIN_DIR}
+COPY --from=openclaw-runtime --chown=1000:1000 /app/skills ./skills
+COPY --from=openclaw-runtime --chown=1000:1000 /app/docs ./docs
+COPY --from=openclaw-runtime --chown=1000:1000 /app/qa ./qa
+
+RUN set -eux; \
+    npm install -g --omit=dev --no-fund --no-audit \
+      "@agentclientprotocol/codex-acp@${PLATFORMCLAW_CODEX_ACP_VERSION}" \
+      "@agentclientprotocol/claude-agent-acp@${PLATFORMCLAW_CLAUDE_ACP_VERSION}" \
+      "@anthropic-ai/claude-code@${PLATFORMCLAW_CLAUDE_CODE_VERSION}"; \
+    npm cache clean --force; \
+    pip_flags=""; \
+    if python3 -m pip install --help | grep -q -- --break-system-packages; then pip_flags="--break-system-packages"; fi; \
+    python3 -m pip install --no-cache-dir $pip_flags \
+      "nano-pdf==${PLATFORMCLAW_NANO_PDF_VERSION}" \
+      "Markdown==${PLATFORMCLAW_MARKDOWN_VERSION}" \
+      "Pygments==${PLATFORMCLAW_PYGMENTS_VERSION}"; \
+    codex-acp --version; \
+    claude-agent-acp --help >/dev/null; \
+    claude --version; \
+    docker --version; \
+    (docker compose version || docker-compose --version); \
+    nano-pdf --help >/dev/null; \
+    python3 -c 'import markdown, pygments'; \
+    ln -sf /app/openclaw.mjs /usr/local/bin/openclaw; \
+    chmod 755 /app/openclaw.mjs; \
+    chown -R node:node /app /home/node
+
+ENV COREPACK_HOME=/usr/local/share/corepack
+RUN set -eux; \
+    install -d -m 0755 "$COREPACK_HOME"; \
+    corepack enable; \
+    corepack prepare "$(node -p "require('./package.json').packageManager")" --activate; \
+    chmod -R a+rX "$COREPACK_HOME"; \
+    if [ -n "$OPENCLAW_IMAGE_APT_PACKAGES" ]; then \
+      apt-get update; \
+      apt-get install -y --no-install-recommends $OPENCLAW_IMAGE_APT_PACKAGES; \
+      rm -rf /var/lib/apt/lists/*; \
+    fi; \
+    if [ -n "$OPENCLAW_IMAGE_PIP_PACKAGES" ]; then \
+      python3 -m pip install --no-cache-dir $OPENCLAW_IMAGE_PIP_PACKAGES; \
+    fi
+
+RUN --mount=type=cache,id=platformclaw-jammy-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=platformclaw-jammy-apt-lists,target=/var/lib/apt,sharing=locked \
+    if [ -n "$OPENCLAW_INSTALL_BROWSER" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends xvfb && \
+      mkdir -p /home/node/.cache/ms-playwright && \
+      PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright \
+        node /app/node_modules/playwright-core/cli.js install --with-deps chromium && \
+      chown -R node:node /home/node/.cache/ms-playwright; \
+    fi
+
+RUN install -d -m 0755 -o node -g node /home/node/.config && \
+    install -d -m 0700 -o node -g node \
+      /home/node/.openclaw /home/node/.openclaw/workspace /home/node/.config/openclaw
+
+ENV NODE_ENV=production \
+  PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
+USER node
+
+HEALTHCHECK --interval=3m --timeout=10s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+ENTRYPOINT ["tini", "-s", "--"]
+CMD ["node", "openclaw.mjs", "gateway"]
