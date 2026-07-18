@@ -1,0 +1,16 @@
+services:
+  openclaw-gateway:
+    image: ${PLATFORMCLAW_JAMMY_IMAGE:-platformclaw:jammy}
+    build:
+      context: ../..
+      dockerfile: docker/platformclaw-jammy/Dockerfile
+      args:
+        OPENCLAW_SOURCE_IMAGE: ${OPENCLAW_SOURCE_IMAGE:-openclaw:local}
+        PLATFORMCLAW_APT_PACKAGES: ${PLATFORMCLAW_APT_PACKAGES:-}
+        PLATFORMCLAW_PIP_PACKAGES: ${PLATFORMCLAW_PIP_PACKAGES:-markdown pygments}
+      secrets:
+        - company_apt_sources
+
+secrets:
+  company_apt_sources:
+    file: ${PLATFORMCLAW_COMPANY_APT_SOURCES:-company-jammy.list}

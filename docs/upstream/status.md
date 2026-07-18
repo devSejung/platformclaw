@@ -30,7 +30,7 @@ Environment setup complete. Project guidance documentation in progress.
 - Previous core modification inventory
 - Architecture migration plan
 - PlatformClaw feature migration
-- Production Docker deployment configuration
+- Company Jammy image validation with the approved internal APT source
 
 ## Migration Status
 
@@ -45,7 +45,7 @@ Environment setup complete. Project guidance documentation in progress.
 | Remote execution and filesystem bridge | Not started | - |
 | Operations UI, retry and recovery | Not started | - |
 | Cron and automation | Not started | - |
-| Production Docker deployment | Not started | - |
+| Production Docker deployment | In progress | `feature/jammy-company-build` |
 
 ## Update Rule
 

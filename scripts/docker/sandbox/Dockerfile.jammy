@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1.7
+
+FROM ubuntu:22.04
+
+ARG PLATFORMCLAW_SANDBOX_APT_PACKAGES=""
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN --mount=type=secret,id=company_apt_sources,required=false \
+    set -eux; \
+    if [ -f /run/secrets/company_apt_sources ]; then \
+      rm -f /etc/apt/sources.list.d/*.list; \
+      cp /run/secrets/company_apt_sources /etc/apt/sources.list; \
+    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      bash ca-certificates curl git jq locales python3 ripgrep tzdata \
+      ${PLATFORMCLAW_SANDBOX_APT_PACKAGES}; \
+    locale-gen ko_KR.UTF-8; \
+    ln -snf /usr/share/zoneinfo/Asia/Seoul /etc/localtime; \
+    echo Asia/Seoul >/etc/timezone; \
+    rm -rf /var/lib/apt/lists/*
+
+ENV LANG=ko_KR.UTF-8 \
+    LANGUAGE=ko_KR:ko:en_US:en \
+    LC_ALL=ko_KR.UTF-8 \
+    TZ=Asia/Seoul
+
+RUN useradd --create-home --shell /bin/bash sandbox
+USER sandbox
+WORKDIR /home/sandbox
+CMD ["sleep", "infinity"]

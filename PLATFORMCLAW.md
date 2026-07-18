@@ -21,8 +21,8 @@ The goals are to:
 - `origin`: `https://github.com/devSejung/platformclaw`
 - `upstream`: `https://github.com/openclaw/openclaw.git`
 - Baseline commit: `17c2ce05d8021b969f9e822a34e92535145922d5`
-- No previous PlatformClaw capability has been migrated.
-- No PlatformClaw capability source changes, refactoring, branding changes, or Docker structure changes have started.
+- The Jammy company deployment profile is the first capability being migrated.
+- No PlatformClaw application source changes, refactoring, or branding changes have started.
 - The clean OpenClaw Linux Docker build and focused credential-free test baseline has been validated.
 
 ## Why This Rebuild Exists
@@ -64,7 +64,7 @@ Bring upstream changes from `upstream/main` into a sync branch, validate them th
 
 ## Current Phase
 
-The current phase is repository and development-environment baseline establishment.
+The current phase is production Docker deployment migration and validation.
 
 Next steps:
 
