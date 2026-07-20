@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { GatewayAdminRpcError, HttpGatewayAdminRpcClient } from "./gateway-admin-rpc-client.js";
 
+function parseJsonRequestBody(body: BodyInit | null | undefined): Record<string, unknown> {
+  if (typeof body !== "string") {
+    throw new Error("expected a JSON string request body");
+  }
+  return JSON.parse(body) as Record<string, unknown>;
+}
+
 function createClient(
   responder: (request: Record<string, unknown>) => { status?: number; body: unknown },
 ) {
   const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-    const request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    const request = parseJsonRequestBody(init?.body);
     const response = responder(request);
     return new Response(JSON.stringify(response.body), {
       status: response.status ?? 200,
@@ -47,7 +54,7 @@ describe("HttpGatewayAdminRpcClient", () => {
     const [, init] = fetchImpl.mock.calls[0] ?? [];
     expect(init?.method).toBe("POST");
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer test-bearer-token");
-    expect(JSON.parse(String(init?.body))).toMatchObject({ method: "agents.list", params: {} });
+    expect(parseJsonRequestBody(init?.body)).toMatchObject({ method: "agents.list", params: {} });
   });
 
   it("returns bounded Gateway errors without exposing response bodies", async () => {

@@ -39,7 +39,7 @@ function request(
   };
 }
 
-function createRpc(handler: (method: string, params: unknown) => unknown | Promise<unknown>): {
+function createRpc(handler: (method: string, params: unknown) => unknown): {
   rpc: GatewayAdminRpc;
   call: Mock<(method: string, params: unknown) => Promise<unknown>>;
 } {
