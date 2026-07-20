@@ -191,6 +191,20 @@ disabled in the private origin. Workflow enablement is audited after every
 upstream sync; OpenClaw credentials are never copied into PlatformClaw merely
 to satisfy unrelated upstream automation.
 
+### PC-115 Provision personal agents through Admin HTTP RPC
+
+`platformclaw-control` uses the private authenticated `admin-http-rpc` plugin
+for existing `agents.list` and `agents.create` methods. It does not import
+OpenClaw core or write agent configuration directly. Agent adoption requires
+the reserved control-plane agent ID and exact expected workspace. The Gateway
+operator bearer stays in the deployment secret store and never enters browser
+or workspace state.
+
+Initial `USER.md` profile injection is not part of this decision. Whole-file
+read/write RPC composition cannot safely preserve concurrent user edits or
+enforce the expected workspace before mutation. That feature requires a later
+atomic Gateway/plugin contract decision.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs

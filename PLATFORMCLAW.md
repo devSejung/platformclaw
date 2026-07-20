@@ -23,7 +23,9 @@ The goals are to:
 - Baseline commit: `17c2ce05d8021b969f9e822a34e92535145922d5`
 - The Jammy company deployment profile is the first capability being migrated.
 - The first control-plane contract slice now lives in
-  `packages/platformclaw-control-plane` with an in-memory implementation.
+  `packages/platformclaw-control-plane` with in-memory and SQLite stores,
+  employee browser-session runtime assembly, and Gateway-backed personal-agent
+  provisioning.
 - The clean OpenClaw Linux Docker build and focused credential-free test baseline has been validated.
 
 ## Why This Rebuild Exists

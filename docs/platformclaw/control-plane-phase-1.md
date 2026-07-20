@@ -34,12 +34,15 @@ After Phase 1:
 
 ## Implementation status
 
-Slices 1 through 3 are implemented in `packages/platformclaw-control-plane`. They
+Slices 1 through 4 are implemented in `packages/platformclaw-control-plane`. They
 define the identity, browser-session, personal-agent provisioning, Knox room
 binding, authenticated Knox DM routing, managed group/part contracts,
 employee-auth HTTP adapter, opaque-session login service, and framework-neutral
-browser-auth HTTP boundary. The in-memory store covers contract behavior, and
-the SQLite store persists the approved schema version 1.
+browser-auth HTTP boundary. The employee browser-auth runtime now assembles the
+LDAP-phase adapter and SQLite session store, and the personal-agent provisioner
+calls the Gateway Admin HTTP RPC boundary to create or adopt the exact agent and
+workspace. The in-memory store covers contract behavior, and the SQLite store
+persists the approved schema version 1.
 
 Focused tests cover LDAP metadata refresh, LDAP-to-SAML identity linking,
 employee ID correction conflicts, concurrent personal and room provisioning,
@@ -53,8 +56,11 @@ requires its host process to inject bounded JSON parsing, a trusted client IP,
 TLS state, and an auth rate limiter.
 
 These slices do not contain credential encryption, SAML protocol handling,
-Knox transport code, OpenClaw agent creation, workspace file writes, or Gateway
-mutations.
+Knox transport code, or the deployable HTTP listener/Gateway proxy. OpenClaw
+agent creation now occurs only through the private Admin HTTP RPC plugin;
+PlatformClaw still does not import OpenClaw core. Initial `USER.md` profile
+injection remains deferred until an atomic, ownership-aware Gateway/plugin
+contract is approved.
 
 ## Process boundary
 

@@ -88,6 +88,36 @@ operator credential. The server enforces the 12-hour idle timeout, seven-day
 absolute timeout, three-session limit, logout revocation, and account-disable
 revocation.
 
+`createEmployeeBrowserAuthRuntime` now assembles the deployment-configured
+employee authenticator, SQLite store, browser session service, and injected
+personal-agent provisioner. The host process still owns its HTTP listener,
+trusted client-IP resolution, exact origin policy, TLS termination state, JSON
+body limits, and rate limiter. Closing the runtime closes its SQLite handle.
+
+## OpenClaw agent provisioning
+
+`GatewayPersonalAgentProvisioner` uses the private, authenticated Admin HTTP RPC
+plugin instead of importing OpenClaw core. It lists or creates the reserved
+personal agent and verifies the exact returned agent ID and workspace. Once the
+binding is active, later logins refresh mutable directory metadata in SQLite but
+perform no Gateway discovery or workspace mutation.
+
+The provisioner requires an injected Admin RPC URL, bearer, and workspace root.
+The bearer is a Gateway operator secret and must come from the deployment secret
+store. It must never enter the browser session, workspace, SQLite database, logs,
+or source control. The Admin HTTP RPC route remains private and uses only its
+existing `agents.list` and `agents.create` allowlist entries.
+
+Provisioning fails closed when an existing agent has a different workspace. A
+concurrent `agents.create` winner is adopted only after a new `agents.list`
+result proves the exact reserved agent ID and expected workspace.
+
+Initial `USER.md` profile injection remains deferred. Existing whole-file RPCs
+cannot atomically preserve user content, enforce binding ownership, and verify
+the expected workspace before mutation. Implementing this safely requires a
+separate approved atomic Gateway/plugin contract; PlatformClaw does not add a
+racy downstream write merely to complete the bootstrap snapshot.
+
 Schema v1 has not shipped as a tagged PlatformClaw release. Development
 databases created before the employee-auth adapter introduced a distinct
 `accountId` contract must be recreated; PC-109 deliberately provides no runtime
