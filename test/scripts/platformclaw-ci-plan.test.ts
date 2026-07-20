@@ -18,12 +18,21 @@ describe("classifyPlatformClawChanges", () => {
   it("runs focused control-plane checks without upstream fanout", () => {
     const plan = classifyPlatformClawChanges([
       "packages/platformclaw-control-plane/src/browser-auth-http.ts",
+      "pnpm-lock.yaml",
+      "scripts/mock_employee_auth.py",
     ]);
 
     expect(plan.mode).toBe("platformclaw");
     expect(plan.needs_package_checks).toBe(true);
     expect(plan.needs_overlay_lint).toBe(true);
     expect(plan.needs_changed_surface_checks).toBe(false);
+  });
+
+  it("keeps lockfile-only changes on upstream checks", () => {
+    const plan = classifyPlatformClawChanges(["pnpm-lock.yaml"]);
+
+    expect(plan.mode).toBe("upstream");
+    expect(plan.needs_changed_surface_checks).toBe(true);
   });
 
   it("validates workflow and planner changes", () => {
