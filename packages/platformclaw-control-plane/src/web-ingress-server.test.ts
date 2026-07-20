@@ -1,7 +1,7 @@
 import type { AddressInfo } from "node:net";
 import type { EventFrame, HelloOk } from "@openclaw/gateway-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WebSocket } from "ws";
+import { WebSocket, type RawData } from "ws";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import type { BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
@@ -104,17 +104,32 @@ function deferred<T>() {
 
 function createPolicy() {
   let active = true;
+  const resolveAccess = vi.fn(async () => {
+    if (!active) {
+      throw new Error("revoked");
+    }
+    return access;
+  });
+  const request = vi.fn(async (_token: string, method: string, params?: unknown) => ({
+    method,
+    params,
+  }));
   const policy: PlatformClawBrowserGatewayPolicy = {
-    resolveAccess: vi.fn(async () => {
-      if (!active) {
-        throw new Error("revoked");
-      }
-      return access;
-    }),
-    request: vi.fn(async (_token, method, params) => ({ method, params })),
+    resolveAccess,
+    request,
     filterEvent: vi.fn(async (_token, event) => event),
   };
-  return { policy, revoke: () => (active = false) };
+  return { policy, request, resolveAccess, revoke: () => (active = false) };
+}
+
+function decodeTestFrame(data: RawData): string {
+  if (Buffer.isBuffer(data)) {
+    return data.toString("utf8");
+  }
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data).toString("utf8");
+  }
+  return Buffer.concat(data).toString("utf8");
 }
 
 function createFrameQueue(websocket: WebSocket) {
@@ -124,7 +139,7 @@ function createFrameQueue(websocket: WebSocket) {
     resolve: (frame: unknown) => void;
   }> = [];
   websocket.on("message", (data) => {
-    const frame = JSON.parse(data.toString()) as unknown;
+    const frame = JSON.parse(decodeTestFrame(data)) as unknown;
     const waiterIndex = waiters.findIndex((waiter) => waiter.predicate(frame));
     if (waiterIndex >= 0) {
       waiters.splice(waiterIndex, 1)[0]?.resolve(frame);
@@ -160,7 +175,7 @@ describe("PlatformClawWebIngressServer", () => {
 
   it("speaks the Gateway wire protocol while enforcing browser session ownership", async () => {
     const gateway = new FakeGateway();
-    const { policy, revoke } = createPolicy();
+    const { policy, request, revoke } = createPolicy();
     server = new PlatformClawWebIngressServer({
       publicOrigin: PUBLIC_ORIGIN,
       authService: {} as BrowserAuthService,
@@ -232,7 +247,7 @@ describe("PlatformClawWebIngressServer", () => {
       ok: true,
       payload: { method: "agents.list", params: {} },
     });
-    expect(policy.request).toHaveBeenCalledWith(TEST_SESSION, "agents.list", {});
+    expect(request).toHaveBeenCalledWith(TEST_SESSION, "agents.list", {});
 
     gateway.emit({
       type: "event",
@@ -259,7 +274,7 @@ describe("PlatformClawWebIngressServer", () => {
 
   it("rejects WebSocket upgrades without the exact public origin", async () => {
     const gateway = new FakeGateway();
-    const { policy } = createPolicy();
+    const { policy, resolveAccess } = createPolicy();
     server = new PlatformClawWebIngressServer({
       publicOrigin: PUBLIC_ORIGIN,
       authService: {} as BrowserAuthService,
@@ -284,7 +299,7 @@ describe("PlatformClawWebIngressServer", () => {
       websocket?.once("error", reject);
     });
     expect(responseStatus).toBe(403);
-    expect(policy.resolveAccess).not.toHaveBeenCalled();
+    expect(resolveAccess).not.toHaveBeenCalled();
   });
 
   it("closes browsers so they resynchronize after the private Gateway disconnects", async () => {
@@ -322,9 +337,13 @@ describe("PlatformClawWebIngressServer", () => {
   it("bounds queued browser requests and cancels them after disconnect", async () => {
     const gateway = new FakeGateway();
     const blockedRequest = deferred<unknown>();
+    let requestCalls = 0;
     const policy: PlatformClawBrowserGatewayPolicy = {
       resolveAccess: vi.fn(async () => access),
-      request: vi.fn(async () => blockedRequest.promise),
+      request: vi.fn(async () => {
+        requestCalls += 1;
+        return blockedRequest.promise;
+      }),
       filterEvent: vi.fn(async (_token, event) => event),
     };
     server = new PlatformClawWebIngressServer({
@@ -378,7 +397,7 @@ describe("PlatformClawWebIngressServer", () => {
 
     await expect(closed).resolves.toBe(1013);
     blockedRequest.resolve({});
-    await vi.waitFor(() => expect(policy.request).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(requestCalls).toBe(1));
   });
 
   it("does not retain a Gateway subscription when the browser closes during connect", async () => {
@@ -432,7 +451,7 @@ describe("PlatformClawWebIngressServer", () => {
         },
       }),
     );
-    await vi.waitFor(() => expect(policy.resolveAccess).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(accessCalls).toBe(2));
     const closed = new Promise<void>((resolve) => {
       websocket?.once("close", () => resolve());
     });
