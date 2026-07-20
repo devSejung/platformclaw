@@ -1,5 +1,6 @@
 export * from "./browser-auth-service.js";
 export * from "./browser-auth-http.js";
+export * from "./browser-auth-runtime.js";
 export * from "./contracts.js";
 export * from "./employee-auth-client.js";
 export * from "./ids.js";
