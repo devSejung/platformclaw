@@ -25,6 +25,7 @@ and Knox direct or group conversations:
 - [Architecture decisions](/platformclaw/decisions)
 - [Employee authentication](/platformclaw/employee-auth)
 - [Web ingress runtime](/platformclaw/web-ingress-runtime)
+- [Web login bootstrap plan](/platformclaw/web-login-bootstrap-plan)
 - [Private downstream CI](/platformclaw/private-downstream-ci)
 
 The first five implementation slices are in the private
