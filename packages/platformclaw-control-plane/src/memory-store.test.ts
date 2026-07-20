@@ -284,7 +284,9 @@ describe("InMemoryControlPlaneStore provisioning", () => {
     ]);
 
     expect(first.binding).toEqual(second.binding);
-    expect([first.created, second.created].sort()).toEqual([false, true]);
+    expect(
+      [first.created, second.created].toSorted((left, right) => Number(left) - Number(right)),
+    ).toEqual([false, true]);
     expect(first.binding).toMatchObject({
       kind: "personal",
       userId: user.id,
@@ -301,7 +303,9 @@ describe("InMemoryControlPlaneStore provisioning", () => {
       store.reserveKnoxRoomAgent(params),
     ]);
     expect(first.binding).toEqual(second.binding);
-    expect([first.created, second.created].sort()).toEqual([false, true]);
+    expect(
+      [first.created, second.created].toSorted((left, right) => Number(left) - Number(right)),
+    ).toEqual([false, true]);
     expect(first.binding.agentId).toBe(deriveKnoxRoomAgentId("room/123"));
     expect(first.binding.agentId).toMatch(/^group-[a-z0-9_-]+$/u);
     expect(first.binding.agentId.length).toBeLessThanOrEqual(64);

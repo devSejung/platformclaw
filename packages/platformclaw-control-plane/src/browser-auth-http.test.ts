@@ -28,7 +28,7 @@ function responseHarness() {
     setHeader: (name: string, value: string | string[]) => headers.set(name, value),
     getHeader: (name: string) => headers.get(name),
     end: (value?: unknown) => {
-      body = String(value ?? "");
+      body = typeof value === "string" ? value : "";
     },
   } as unknown as ServerResponse;
   return { res, headers, body: () => body };

@@ -232,11 +232,11 @@ export class HttpEmployeeAuthenticator implements EmployeeAuthenticator {
       return { status: "unavailable", message: "employee authentication service unavailable" };
     }
 
-    let parsed: ExternalAuthResponse | null = null;
+    let parsed: ExternalAuthResponse | null;
     try {
       parsed = parseResponse(await response.json());
     } catch {
-      parsed = null;
+      return { status: "unavailable", message: "employee authentication response was invalid" };
     }
     if (!parsed) {
       return { status: "unavailable", message: "employee authentication response was invalid" };
