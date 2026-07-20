@@ -182,14 +182,19 @@ not the authentication adapter.
 
 ### PC-114 Use a dedicated private-downstream CI workflow
 
-PlatformClaw uses a small GitHub-hosted Ubuntu workflow for pull requests and
-`main` pushes. It runs changed-surface checks, focused control-plane tests, and
-the control-plane package build with a read-only repository token. OpenClaw
-workflows that require OpenClaw organization runners, GitHub Apps, release
-secrets, external services, or private-repository CodeQL licensing remain
-disabled in the private origin. Workflow enablement is audited after every
-upstream sync; OpenClaw credentials are never copied into PlatformClaw merely
-to satisfy unrelated upstream automation.
+PlatformClaw uses GitHub-hosted Ubuntu workflows with read-only repository
+tokens. The required fast workflow classifies changed paths: private overlay
+changes run focused owner checks, while any OpenClaw-owned path falls back to
+the upstream changed-surface gate. Control-plane changes always run the entire
+control-plane package test suite, typecheck, lint, and build. Lightweight
+repository policy guards remain mandatory on the fast path. A separate full
+workflow runs broad changed-surface validation after `main` pushes, on manual
+dispatch, and before merging `sync/upstream-*` pull requests. OpenClaw workflows
+that require OpenClaw organization runners, GitHub Apps, release secrets,
+external services, or private-repository CodeQL licensing remain disabled in
+the private origin. Workflow enablement is audited after every upstream sync;
+OpenClaw credentials are never copied into PlatformClaw merely to satisfy
+unrelated upstream automation.
 
 ### PC-115 Provision personal agents through Admin HTTP RPC
 

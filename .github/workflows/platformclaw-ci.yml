@@ -22,27 +22,139 @@ jobs:
     name: PlatformClaw CI
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          fetch-depth: 0
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
           persist-credentials: false
 
       - name: Setup Node environment
         uses: ./.github/actions/setup-node-env
         with:
           install-bun: "false"
+          install-deps: "false"
+
+      - name: Plan validation scope
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: >-
+          node scripts/platformclaw-ci-plan.mjs
+          --base "$BASE_SHA"
+          --head "$HEAD_SHA"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Check patch whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA="${HEAD_SHA}^"
+          fi
+          git diff --check "$BASE_SHA...$HEAD_SHA"
+
+      - name: Check PlatformClaw docs inventory
+        if: steps.plan.outputs.needs_docs_checks == 'true'
+        run: node scripts/docs-list.js
+
+      - name: Audit PlatformClaw documentation links
+        if: steps.plan.outputs.needs_docs_checks == 'true'
+        run: node scripts/docs-link-audit.mjs
+
+      - name: Install dependencies
+        if: steps.plan.outputs.needs_dependencies == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Run repository policy guards
+        if: steps.plan.outputs.needs_policy_guards == 'true'
+        run: |
+          pnpm check:no-conflict-markers
+          pnpm check:changelog-attributions
+          pnpm lint:extensions:no-guarded-wildcard-reexports
+          pnpm lint:extensions:no-plugin-sdk-wildcard-reexports
+          pnpm dup:check:coverage
+          pnpm deps:pins:check
+          pnpm deps:patches:check
+
+      - name: Check max-lines suppression ratchet
+        if: steps.plan.outputs.needs_package_checks == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA="${HEAD_SHA}^"
+          fi
+          pnpm check:max-lines-ratchet --base "$BASE_SHA"
+
+      - name: Check PlatformClaw formatting
+        if: steps.plan.outputs.needs_format_check == 'true'
+        run: >-
+          ./node_modules/.bin/oxfmt --check
+          packages/platformclaw-control-plane
+          scripts/platformclaw-*.mjs
+          test/scripts/platformclaw-*.test.ts
+          .github/workflows/platformclaw-*.yml
+          docs/platformclaw
+
+      - name: Lint PlatformClaw CI planner
+        if: steps.plan.outputs.needs_planner_tests == 'true'
+        run: >-
+          node scripts/run-oxlint.mjs
+          --tsconfig config/tsconfig/oxlint.core.json
+          scripts/platformclaw-ci-plan.mjs
+          test/scripts/platformclaw-ci-plan.test.ts
+
+      - name: Lint PlatformClaw control plane
+        if: steps.plan.outputs.needs_package_checks == 'true'
+        run: >-
+          node scripts/run-oxlint.mjs
+          --tsconfig config/tsconfig/oxlint.core.json
+          packages/platformclaw-control-plane/src
 
       - name: Typecheck PlatformClaw control plane
+        if: steps.plan.outputs.needs_package_checks == 'true'
         run: node scripts/run-tsgo.mjs -p packages/platformclaw-control-plane/tsconfig.json --noEmit
 
       - name: Test PlatformClaw control plane
+        if: steps.plan.outputs.needs_package_checks == 'true'
         run: node scripts/run-vitest.mjs packages/platformclaw-control-plane/src
 
       - name: Build PlatformClaw control plane
+        if: steps.plan.outputs.needs_package_checks == 'true'
         run: pnpm --dir packages/platformclaw-control-plane build
 
-      - name: Run changed-surface checks
-        run: pnpm check:changed
+      - name: Test PlatformClaw CI planner
+        if: steps.plan.outputs.needs_planner_tests == 'true'
+        run: node scripts/run-vitest.mjs test/scripts/platformclaw-ci-plan.test.ts
+
+      - name: Validate PlatformClaw UI
+        if: steps.plan.outputs.needs_ui_checks == 'true'
+        run: |
+          node scripts/run-tsgo.mjs -p tsconfig.ui.json --noEmit
+          node scripts/run-oxlint.mjs --tsconfig config/tsconfig/oxlint.core.json ui/src/platformclaw
+          node scripts/run-vitest.mjs ui/src/platformclaw
+
+      - name: Validate PlatformClaw deployment files
+        if: steps.plan.outputs.needs_deployment_checks == 'true'
+        env:
+          PLATFORMCLAW_COMPANY_APT_SOURCES: /tmp/platformclaw-empty-apt-sources
+        run: |
+          touch "$PLATFORMCLAW_COMPANY_APT_SOURCES"
+          node --check scripts/platformclaw-build.mjs
+          docker compose -f docker/platformclaw-jammy/compose.yaml config --quiet
+
+      - name: Validate workflow contracts
+        if: steps.plan.outputs.needs_workflow_checks == 'true'
+        run: node scripts/check-workflows.mjs
+
+      - name: Run upstream changed-surface checks
+        if: steps.plan.outputs.needs_changed_surface_checks == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: pnpm check:changed --base "$BASE_SHA" --head "$HEAD_SHA"
