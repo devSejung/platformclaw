@@ -35,7 +35,7 @@ describe("employee auth client config", () => {
 
 describe("HttpEmployeeAuthenticator", () => {
   it("normalizes the full legacy profile while control-plane owns agent routing", async () => {
-    const fetchImpl = vi.fn(
+    const fetchImpl = vi.fn<typeof fetch>(
       async () =>
         new Response(
           JSON.stringify({

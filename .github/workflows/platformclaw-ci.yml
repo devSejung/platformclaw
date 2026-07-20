@@ -35,11 +35,14 @@ jobs:
         with:
           install-bun: "false"
 
-      - name: Run changed-surface checks
-        run: pnpm check:changed
+      - name: Typecheck PlatformClaw control plane
+        run: node scripts/run-tsgo.mjs -p packages/platformclaw-control-plane/tsconfig.json --noEmit
 
       - name: Test PlatformClaw control plane
         run: node scripts/run-vitest.mjs packages/platformclaw-control-plane/src
 
       - name: Build PlatformClaw control plane
         run: pnpm --dir packages/platformclaw-control-plane build
+
+      - name: Run changed-surface checks
+        run: pnpm check:changed
