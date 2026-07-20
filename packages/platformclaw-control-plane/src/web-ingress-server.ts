@@ -136,6 +136,17 @@ function proxyErrorShape(error: unknown): ErrorShape {
     case "upstream-result-denied":
       return { code: "FORBIDDEN", message: error.message };
   }
+  return { code: "UNAVAILABLE", message: "Gateway request failed", retryable: true };
+}
+
+function decodeTextFrame(data: RawData): string {
+  if (Buffer.isBuffer(data)) {
+    return data.toString("utf8");
+  }
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data).toString("utf8");
+  }
+  return Buffer.concat(data).toString("utf8");
 }
 
 function responseError(id: string, error: unknown): ResponseFrame {
@@ -471,7 +482,7 @@ export class PlatformClawWebIngressServer {
           }
           let parsed: unknown;
           try {
-            parsed = JSON.parse(data.toString());
+            parsed = JSON.parse(decodeTextFrame(data));
           } catch {
             websocket.close(1008, "invalid JSON frame");
             return;

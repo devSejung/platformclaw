@@ -66,7 +66,7 @@ export function createPlatformClawWebIngressRuntime(
     auditWriter: auth.store,
     gateway,
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
-    resolveAgentIdFromSessionKey: options.resolveAgentIdFromSessionKey,
+    resolveAgentIdFromSessionKey: (sessionKey) => options.resolveAgentIdFromSessionKey(sessionKey),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
   const server = new PlatformClawWebIngressServer({
