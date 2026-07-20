@@ -1,12 +1,22 @@
 #!/usr/bin/env node
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import process from "node:process";
 
 const repoRoot = resolve(import.meta.dirname, "..");
+
+/**
+ * @typedef {object} BuildOptions
+ * @property {boolean} allowDirty
+ * @property {string | undefined} aptSources
+ * @property {boolean} exportImage
+ * @property {string} extensions
+ * @property {string} outputDir
+ * @property {string | undefined} version
+ */
 
 function run(command, args, options = {}) {
   console.log(`> ${command} ${args.join(" ")}`);
@@ -28,6 +38,7 @@ function run(command, args, options = {}) {
 }
 
 function readArgs(argv) {
+  /** @type {BuildOptions} */
   const options = {
     allowDirty: false,
     aptSources: undefined,
@@ -94,8 +105,9 @@ const options = readArgs(process.argv.slice(2));
 if (options.allowDirty && options.exportImage) {
   throw new Error("--allow-dirty requires --no-export; dirty transfer artifacts are forbidden");
 }
-if (options.aptSources && !existsSync(options.aptSources)) {
-  throw new Error(`APT sources file does not exist: ${options.aptSources}`);
+const aptSources = options.aptSources;
+if (typeof aptSources === "string" && !existsSync(aptSources)) {
+  throw new Error(`APT sources file does not exist: ${aptSources}`);
 }
 
 run("docker", ["version"]);
@@ -127,9 +139,10 @@ const runtimeVersionTag = `platformclaw:${version}`;
 const runtimeShaTag = `platformclaw:${shortSha}`;
 const sandboxVersionTag = `platformclaw-sandbox:${version}`;
 const sandboxShaTag = `platformclaw-sandbox:${shortSha}`;
-const secretArgs = options.aptSources
-  ? ["--secret", `id=platformclaw_apt_sources,src=${options.aptSources}`]
-  : [];
+const secretArgs =
+  typeof aptSources === "string"
+    ? ["--secret", `id=platformclaw_apt_sources,src=${aptSources}`]
+    : [];
 
 run("docker", [
   "buildx",

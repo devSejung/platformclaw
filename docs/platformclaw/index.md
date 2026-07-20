@@ -24,6 +24,7 @@ and Knox direct or group conversations:
 - [Control plane phase 1](/platformclaw/control-plane-phase-1)
 - [Architecture decisions](/platformclaw/decisions)
 - [Employee authentication](/platformclaw/employee-auth)
+- [Private downstream CI](/platformclaw/private-downstream-ci)
 
 The first three implementation slices are in the private
 `packages/platformclaw-control-plane` package. They contain contracts, an

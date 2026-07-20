@@ -180,6 +180,17 @@ groups, and explicitly supplied extensible attributes. The session cookie never
 contains those fields. Workspace `USER.md` rendering belongs to the provisioner,
 not the authentication adapter.
 
+### PC-114 Use a dedicated private-downstream CI workflow
+
+PlatformClaw uses a small GitHub-hosted Ubuntu workflow for pull requests and
+`main` pushes. It runs changed-surface checks, focused control-plane tests, and
+the control-plane package build with a read-only repository token. OpenClaw
+workflows that require OpenClaw organization runners, GitHub Apps, release
+secrets, external services, or private-repository CodeQL licensing remain
+disabled in the private origin. Workflow enablement is audited after every
+upstream sync; OpenClaw credentials are never copied into PlatformClaw merely
+to satisfy unrelated upstream automation.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs
