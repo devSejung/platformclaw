@@ -9,6 +9,7 @@ const EXACT_OVERLAY_PATHS = new Set([
   ".github/workflows/platformclaw-ci.yml",
   ".github/workflows/platformclaw-full-ci.yml",
   "PLATFORMCLAW.md",
+  "scripts/platformclaw-ci-plan.d.mts",
   "scripts/platformclaw-ci-plan.mjs",
   "test/scripts/platformclaw-ci-plan.test.ts",
 ]);
@@ -47,6 +48,7 @@ export function classifyPlatformClawChanges(inputFiles) {
   const hasPlannerChanges = files.some(
     (file) =>
       file === "scripts/platformclaw-ci-plan.mjs" ||
+      file === "scripts/platformclaw-ci-plan.d.mts" ||
       file === "test/scripts/platformclaw-ci-plan.test.ts",
   );
   const hasWorkflowChanges = files.some((file) =>

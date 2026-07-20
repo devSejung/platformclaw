@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error The dependency-free CI entrypoint intentionally remains plain ESM.
 import {
   classifyPlatformClawChanges,
   parseGitNameStatus,
@@ -30,7 +29,7 @@ describe("classifyPlatformClawChanges", () => {
   it("validates workflow and planner changes", () => {
     const plan = classifyPlatformClawChanges([
       ".github/workflows/platformclaw-ci.yml",
-      "scripts/platformclaw-ci-plan.mjs",
+      "scripts/platformclaw-ci-plan.d.mts",
     ]);
 
     expect(plan.needs_workflow_checks).toBe(true);
