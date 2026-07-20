@@ -237,6 +237,37 @@ The final authority is an Ubuntu Linux container. The production image runs one
 control process and one OpenClaw Gateway process under supervision; it does not
 start a process for each employee.
 
+## UI development and validation loop
+
+Use Windows for the short visual feedback loop and Ubuntu Docker for release
+authority. Rebuilding the production image after each layout or copy adjustment
+is not required.
+
+The implementation loop is:
+
+1. Start `scripts/mock_employee_auth.py`, the local PlatformClaw Web runtime,
+   and the Control UI development server on Windows. Use only synthetic mock
+   accounts and credentials.
+2. Open the login and authenticated app routes in a Windows browser. Adjust the
+   layout, responsive states, copy, loading behavior, and errors while observing
+   the actual page. Check at least the login, preparing-workspace, chat-ready,
+   session-expired, and unavailable states affected by the change.
+3. During iteration, run formatting, UI typecheck, and only the focused Vitest
+   or mocked Playwright scenario covering the changed state. Keep visual
+   iteration independent from the production image build.
+4. At the end of each functional slice, run the complete focused control-plane
+   and UI test set, then build the UI assets. Record screenshots when a review
+   needs visual comparison.
+5. After all four slices are integrated, build the Ubuntu image with
+   `pnpm platformclaw:build` and run the final Playwright E2E against the
+   containerized Web runtime, mock employee-auth service, and private Gateway.
+
+Windows proves development behavior and visual intent. The container E2E proves
+Linux path casing, asset hosting, process composition, cookie behavior,
+WebSocket routing, and browser flows in the deployable artifact. A Windows-only
+pass cannot replace that final proof, and UI implementation must not introduce
+Windows-only paths or runtime dependencies.
+
 ## Non-goals
 
 This slice does not implement SAML, Knox routing, VM selection, SafeConnect
@@ -296,7 +327,9 @@ The UI implementation must not reintroduce the legacy whole-file mutation path.
 - Build and smoke-test the Ubuntu image with the loopback mock auth service.
 
 Each slice should be a reviewable commit. Heavy Linux build and browser proof
-runs in the background after focused local tests pass.
+runs in the background after the Windows visual loop and focused local tests
+pass. Routine CSS, layout, and copy changes stay in the Windows loop until a
+functional checkpoint is ready.
 
 ## Verification matrix
 
