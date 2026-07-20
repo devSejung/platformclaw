@@ -34,7 +34,9 @@ function isOverlayPath(file) {
 }
 
 export function classifyPlatformClawChanges(inputFiles) {
-  const files = [...new Set(inputFiles.map(normalizePath).filter(Boolean))].toSorted();
+  const files = [...new Set(inputFiles.map(normalizePath).filter(Boolean))].toSorted(
+    (left, right) => left.localeCompare(right),
+  );
   const hasChanges = files.length > 0;
   const hasDocsChanges = files.some(
     (file) => file === "PLATFORMCLAW.md" || file.startsWith("docs/platformclaw/"),
