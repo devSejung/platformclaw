@@ -24,15 +24,16 @@ and Knox direct or group conversations:
 - [Control plane phase 1](/platformclaw/control-plane-phase-1)
 - [Architecture decisions](/platformclaw/decisions)
 - [Employee authentication](/platformclaw/employee-auth)
+- [Web ingress runtime](/platformclaw/web-ingress-runtime)
 - [Private downstream CI](/platformclaw/private-downstream-ci)
 
 The first five implementation slices are in the private
 `packages/platformclaw-control-plane` package. They contain contracts, an
 in-memory store, the approved SQLite v1 persistent store, the employee-auth
 adapter, opaque browser-session service, browser-auth HTTP boundary, personal
-agent provisioning adapter, and fail-closed Web Gateway policy proxy. The
-deployable ingress process that hosts the HTTP and WebSocket boundaries remains
-later work.
+agent provisioning adapter, fail-closed Web Gateway policy proxy, and the
+protocol-compatible Web ingress listener. Production deployment composition
+and Control UI employee-login bootstrap remain later work.
 
 The VM execution backend is a later phase. It depends on Phase 1 because the
 sandbox must resolve an authenticated agent owner before selecting a VM profile

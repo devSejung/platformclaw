@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error The dependency-free CI entrypoint intentionally remains plain ESM.
 import {
   classifyPlatformClawChanges,
   parseGitNameStatus,
@@ -19,6 +18,8 @@ describe("classifyPlatformClawChanges", () => {
   it("runs focused control-plane checks without upstream fanout", () => {
     const plan = classifyPlatformClawChanges([
       "packages/platformclaw-control-plane/src/browser-auth-http.ts",
+      "pnpm-lock.yaml",
+      "scripts/mock_employee_auth.py",
     ]);
 
     expect(plan.mode).toBe("platformclaw");
@@ -27,10 +28,17 @@ describe("classifyPlatformClawChanges", () => {
     expect(plan.needs_changed_surface_checks).toBe(false);
   });
 
+  it("keeps lockfile-only changes on upstream checks", () => {
+    const plan = classifyPlatformClawChanges(["pnpm-lock.yaml"]);
+
+    expect(plan.mode).toBe("upstream");
+    expect(plan.needs_changed_surface_checks).toBe(true);
+  });
+
   it("validates workflow and planner changes", () => {
     const plan = classifyPlatformClawChanges([
       ".github/workflows/platformclaw-ci.yml",
-      "scripts/platformclaw-ci-plan.mjs",
+      "scripts/platformclaw-ci-plan.d.mts",
     ]);
 
     expect(plan.needs_workflow_checks).toBe(true);

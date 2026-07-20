@@ -25,7 +25,9 @@ The goals are to:
 - The first control-plane contract slice now lives in
   `packages/platformclaw-control-plane` with in-memory and SQLite stores,
   employee browser-session runtime assembly, and Gateway-backed personal-agent
-  provisioning.
+  provisioning. A protocol-compatible Web ingress listener now composes browser
+  authentication with the fail-closed Gateway policy; production secret and
+  process wiring remain pending.
 - The clean OpenClaw Linux Docker build and focused credential-free test baseline has been validated.
 
 ## Why This Rebuild Exists

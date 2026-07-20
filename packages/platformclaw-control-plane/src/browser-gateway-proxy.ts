@@ -160,8 +160,9 @@ const SESSION_KEY_METHODS = new Map<string, string>([
   ["sessions.patch", "key"],
   ["tools.effective", "sessionKey"],
 ]);
-const SAFE_GLOBAL_EVENTS = new Set(["shutdown", "tick"]);
-const SESSION_SCOPED_EVENTS = new Set([
+export const PLATFORMCLAW_WEB_GATEWAY_EVENTS = [
+  "shutdown",
+  "tick",
   "chat",
   "chat.send_timing",
   "chat.side_result",
@@ -169,7 +170,12 @@ const SESSION_SCOPED_EVENTS = new Set([
   "session.operation",
   "session.tool",
   "sessions.changed",
-]);
+] as const;
+
+const SAFE_GLOBAL_EVENTS = new Set<string>(["shutdown", "tick"]);
+const SESSION_SCOPED_EVENTS = new Set<string>(
+  PLATFORMCLAW_WEB_GATEWAY_EVENTS.filter((event) => event !== "shutdown" && event !== "tick"),
+);
 const SESSION_KEY_FIELDS = new Set([
   "sessionKey",
   "parentSessionKey",

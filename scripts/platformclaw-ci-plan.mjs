@@ -9,6 +9,8 @@ const EXACT_OVERLAY_PATHS = new Set([
   ".github/workflows/platformclaw-ci.yml",
   ".github/workflows/platformclaw-full-ci.yml",
   "PLATFORMCLAW.md",
+  "scripts/mock_employee_auth.py",
+  "scripts/platformclaw-ci-plan.d.mts",
   "scripts/platformclaw-ci-plan.mjs",
   "test/scripts/platformclaw-ci-plan.test.ts",
 ]);
@@ -18,6 +20,8 @@ const OVERLAY_PREFIXES = [
   "packages/platformclaw-control-plane/",
   "ui/src/platformclaw/",
 ];
+
+const SHARED_METADATA_PATHS = new Set(["pnpm-lock.yaml"]);
 
 function normalizePath(file) {
   return file.replaceAll("\\", "/").replace(/^\.\//, "");
@@ -47,6 +51,7 @@ export function classifyPlatformClawChanges(inputFiles) {
   const hasPlannerChanges = files.some(
     (file) =>
       file === "scripts/platformclaw-ci-plan.mjs" ||
+      file === "scripts/platformclaw-ci-plan.d.mts" ||
       file === "test/scripts/platformclaw-ci-plan.test.ts",
   );
   const hasWorkflowChanges = files.some((file) =>
@@ -59,7 +64,11 @@ export function classifyPlatformClawChanges(inputFiles) {
     (file) => file.startsWith("docker/platformclaw-") || file === "scripts/platformclaw-build.mjs",
   );
   const hasOverlayChanges = files.some(isOverlayPath);
-  const hasUpstreamSurface = files.some((file) => !isOverlayPath(file));
+  // A lockfile updated alongside an overlay-owned package is validated by the
+  // frozen install and dependency guards. Lockfile-only changes stay upstream-wide.
+  const hasUpstreamSurface = files.some(
+    (file) => !isOverlayPath(file) && (!SHARED_METADATA_PATHS.has(file) || !hasOverlayChanges),
+  );
   const hasCodeChanges = files.some(
     (file) => file !== "PLATFORMCLAW.md" && !file.startsWith("docs/platformclaw/"),
   );
