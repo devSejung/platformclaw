@@ -116,13 +116,15 @@ describe("PlatformClaw workflow checkout", () => {
       const workflow = parse(
         readFileSync(new URL(`../../.github/workflows/${workflowName}`, import.meta.url), "utf8"),
       ) as {
+        permissions: { contents: string };
         jobs: { validate: { steps: Array<{ name?: string; with?: Record<string, unknown> }> } };
       };
       const checkout = workflow.jobs.validate.steps.find((step) => step.name === "Checkout");
 
+      expect(workflow.permissions.contents).toBe("read");
       expect(checkout?.with?.filter).toBe("blob:none");
       expect(checkout?.with?.["fetch-depth"]).toBe(0);
-      expect(checkout?.with?.["persist-credentials"]).toBe(false);
+      expect(checkout?.with?.["persist-credentials"]).toBe(true);
     });
   }
 });

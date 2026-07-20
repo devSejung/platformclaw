@@ -35,7 +35,7 @@ patch, export-boundary, duplicate-scan, and max-lines suppression guards remain
 in the fast workflow. Both workflows use a blob-filtered full-history checkout:
 commit history stays available for merge-base comparison after a pull request
 base changes, while historical file contents are fetched only when Git needs
-them. Checkout credentials are not persisted.
+them. Read-only checkout credentials remain available for those lazy fetches.
 
 Docker image construction remains a release or deployment validation step. It
 is not part of every pull request.
