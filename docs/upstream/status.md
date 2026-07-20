@@ -10,7 +10,7 @@
 
 ## Current Phase
 
-Environment setup complete. Project guidance documentation in progress.
+Environment setup complete. Control-plane Phase 1 implementation in progress.
 
 ## Completed
 
@@ -23,29 +23,34 @@ Environment setup complete. Project guidance documentation in progress.
 - `main` tracks `origin/main`
 - Clean upstream Linux Docker image build and Gateway health smoke validated
 - Focused credential-free Linux Docker tests validated
+- Control-plane identity, session, provisioning, and Knox binding contracts
+  implemented with an in-memory store and focused tests
+- Approved control-plane SQLite v1 store implemented for identities, roles,
+  directory groups, managed groups/parts, agent bindings, browser sessions, and
+  audit events
 
 ## Not Started
 
 - Previous PlatformClaw capability inventory
 - Previous core modification inventory
-- Architecture migration plan
-- PlatformClaw feature migration
+- Remaining architecture migration plan
+- Control-plane runtime adapters
 - Company Jammy image validation with the approved internal APT source
 
 ## Migration Status
 
-| Capability | Status | Related PR/commit |
-| --- | --- | --- |
-| Branding and product boundary | Not started | - |
-| Account/session/workspace isolation | Not started | - |
-| Enterprise authentication | Not started | - |
-| Credential runtime and policy | Not started | - |
-| Skill Hub | Not started | - |
-| Knox adapter | Not started | - |
-| Remote execution and filesystem bridge | Not started | - |
-| Operations UI, retry and recovery | Not started | - |
-| Cron and automation | Not started | - |
-| Production Docker deployment | In progress | `feature/jammy-company-build` |
+| Capability                             | Status                              | Related PR/commit                     |
+| -------------------------------------- | ----------------------------------- | ------------------------------------- |
+| Branding and product boundary          | Not started                         | -                                     |
+| Account/session/workspace isolation    | Persistent store implemented        | `packages/platformclaw-control-plane` |
+| Enterprise authentication              | Contracts implemented               | `packages/platformclaw-control-plane` |
+| Credential runtime and policy          | Not started                         | -                                     |
+| Skill Hub                              | Not started                         | -                                     |
+| Knox adapter                           | Control-plane contracts implemented | `packages/platformclaw-control-plane` |
+| Remote execution and filesystem bridge | Not started                         | -                                     |
+| Operations UI, retry and recovery      | Not started                         | -                                     |
+| Cron and automation                    | Not started                         | -                                     |
+| Production Docker deployment           | In progress                         | `feature/jammy-company-build`         |
 
 ## Update Rule
 

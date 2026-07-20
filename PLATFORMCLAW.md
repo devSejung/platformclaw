@@ -22,7 +22,8 @@ The goals are to:
 - `upstream`: `https://github.com/openclaw/openclaw.git`
 - Baseline commit: `17c2ce05d8021b969f9e822a34e92535145922d5`
 - The Jammy company deployment profile is the first capability being migrated.
-- No PlatformClaw application source changes, refactoring, or branding changes have started.
+- The first control-plane contract slice now lives in
+  `packages/platformclaw-control-plane` with an in-memory implementation.
 - The clean OpenClaw Linux Docker build and focused credential-free test baseline has been validated.
 
 ## Why This Rebuild Exists
@@ -64,7 +65,13 @@ Bring upstream changes from `upstream/main` into a sync branch, validate them th
 
 ## Current Phase
 
-The current phase is production Docker deployment migration and validation.
+Production Docker deployment migration and validation remains in progress.
+Control-plane Phase 1 implementation is now also in progress for enterprise
+identity, server sessions, idempotent agent provisioning, and Web and Knox
+ingress authorization. The contract, in-memory store, and approved SQLite v1
+store slices are complete; runtime adapters have not started. See
+`docs/platformclaw/control-plane-phase-1.md` and
+`docs/platformclaw/decisions.md`.
 
 Next steps:
 
