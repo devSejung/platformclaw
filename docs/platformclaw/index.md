@@ -26,11 +26,13 @@ and Knox direct or group conversations:
 - [Employee authentication](/platformclaw/employee-auth)
 - [Private downstream CI](/platformclaw/private-downstream-ci)
 
-The first three implementation slices are in the private
+The first five implementation slices are in the private
 `packages/platformclaw-control-plane` package. They contain contracts, an
 in-memory store, the approved SQLite v1 persistent store, the employee-auth
-adapter, opaque browser-session service, and browser-auth HTTP boundary. The
-deployable ingress process and Gateway proxy remain later work.
+adapter, opaque browser-session service, browser-auth HTTP boundary, personal
+agent provisioning adapter, and fail-closed Web Gateway policy proxy. The
+deployable ingress process that hosts the HTTP and WebSocket boundaries remains
+later work.
 
 The VM execution backend is a later phase. It depends on Phase 1 because the
 sandbox must resolve an authenticated agent owner before selecting a VM profile

@@ -10,7 +10,9 @@ import {
   type BrowserSession,
   type BrowserSessionPolicy,
   type BrowserSessionResolution,
+  type ControlAuditEvent,
   type ControlPlaneIdFactory,
+  type ControlPlaneAuditWriter,
   type ControlPlaneStore,
   type CreateBrowserSessionResult,
   type EnterpriseIdentity,
@@ -91,7 +93,7 @@ function normalizeEmployeeId(employeeId: string): string {
   return requireNonEmpty(employeeId, "principal.employeeId").toLowerCase();
 }
 
-export class InMemoryControlPlaneStore implements ControlPlaneStore {
+export class InMemoryControlPlaneStore implements ControlPlaneStore, ControlPlaneAuditWriter {
   private readonly buildAgentMainSessionKey: MainSessionKeyBuilder;
   private readonly idFactory: ControlPlaneIdFactory;
   private readonly sessionPolicy: BrowserSessionPolicy;
@@ -107,6 +109,7 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly sessionIdByTokenHash = new Map<string, string>();
   private readonly sessionIdsByUserId = new Map<string, Set<string>>();
+  private readonly auditEvents: ControlAuditEvent[] = [];
 
   constructor(options: MemoryStoreOptions) {
     this.buildAgentMainSessionKey = options.buildAgentMainSessionKey;
@@ -212,6 +215,32 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     const userId = this.userIdByEmployeeId.get(employeeId.trim().toLowerCase());
     const user = userId ? this.users.get(userId) : undefined;
     return user ? cloneUser(user) : null;
+  }
+
+  async getPersonalAgentBinding(userId: string): Promise<PersonalAgentBinding | null> {
+    const bindingId = this.personalBindingIdByUserId.get(userId);
+    return bindingId ? cloneBinding(this.requirePersonalBinding(bindingId)) : null;
+  }
+
+  async recordAuditEvent(params: {
+    actorUserId?: string;
+    eventType: string;
+    targetType: string;
+    targetId: string;
+    details?: Record<string, unknown>;
+    createdAt: number;
+  }): Promise<ControlAuditEvent> {
+    const event: ControlAuditEvent = {
+      id: this.idFactory.nextAuditEventId(),
+      ...(params.actorUserId ? { actorUserId: params.actorUserId } : {}),
+      eventType: requireNonEmpty(params.eventType, "eventType"),
+      targetType: requireNonEmpty(params.targetType, "targetType"),
+      targetId: requireNonEmpty(params.targetId, "targetId"),
+      ...(params.details ? { details: structuredClone(params.details) } : {}),
+      createdAt: params.createdAt,
+    };
+    this.auditEvents.push(event);
+    return structuredClone(event);
   }
 
   async setManagedUserStatus(params: {

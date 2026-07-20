@@ -252,6 +252,28 @@ describe("InMemoryControlPlaneStore enterprise identity", () => {
 });
 
 describe("InMemoryControlPlaneStore provisioning", () => {
+  it("resolves the owned personal binding and records proxy audit events", async () => {
+    const store = createStore();
+    const { user, binding } = await createActivePersonalAgent(store);
+
+    await expect(store.getPersonalAgentBinding(user.id)).resolves.toEqual(binding);
+    await expect(
+      store.recordAuditEvent({
+        actorUserId: user.id,
+        eventType: "browser.gateway.denied",
+        targetType: "agent-binding",
+        targetId: binding.id,
+        details: { method: "config.get", reason: "method-not-allowed" },
+        createdAt: 4_000,
+      }),
+    ).resolves.toMatchObject({
+      actorUserId: user.id,
+      eventType: "browser.gateway.denied",
+      targetId: binding.id,
+      details: { method: "config.get", reason: "method-not-allowed" },
+    });
+  });
+
   it("converges concurrent personal-agent reservations on one record", async () => {
     const store = createStore();
     const { user } = await store.upsertPrincipal(ldapPrincipal(), 1_000);
@@ -262,7 +284,9 @@ describe("InMemoryControlPlaneStore provisioning", () => {
     ]);
 
     expect(first.binding).toEqual(second.binding);
-    expect([first.created, second.created].sort()).toEqual([false, true]);
+    expect(
+      [first.created, second.created].toSorted((left, right) => Number(left) - Number(right)),
+    ).toEqual([false, true]);
     expect(first.binding).toMatchObject({
       kind: "personal",
       userId: user.id,
@@ -279,7 +303,9 @@ describe("InMemoryControlPlaneStore provisioning", () => {
       store.reserveKnoxRoomAgent(params),
     ]);
     expect(first.binding).toEqual(second.binding);
-    expect([first.created, second.created].sort()).toEqual([false, true]);
+    expect(
+      [first.created, second.created].toSorted((left, right) => Number(left) - Number(right)),
+    ).toEqual([false, true]);
     expect(first.binding.agentId).toBe(deriveKnoxRoomAgentId("room/123"));
     expect(first.binding.agentId).toMatch(/^group-[a-z0-9_-]+$/u);
     expect(first.binding.agentId.length).toBeLessThanOrEqual(64);

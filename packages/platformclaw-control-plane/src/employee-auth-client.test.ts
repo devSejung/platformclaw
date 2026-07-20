@@ -100,7 +100,11 @@ describe("HttpEmployeeAuthenticator", () => {
       Authorization: "Bearer test-bearer-token",
     });
     expect(request?.redirect).toBe("error");
-    expect(JSON.parse(String(request?.body))).toEqual({
+    expect(typeof request?.body).toBe("string");
+    if (typeof request?.body !== "string") {
+      throw new Error("employee auth request body must be JSON text");
+    }
+    expect(JSON.parse(request.body)).toEqual({
       identifier: "seungon.jung",
       password: "test-password",
       clientIp: "192.0.2.10",

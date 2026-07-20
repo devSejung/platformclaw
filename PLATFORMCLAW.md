@@ -70,8 +70,9 @@ Bring upstream changes from `upstream/main` into a sync branch, validate them th
 Production Docker deployment migration and validation remains in progress.
 Control-plane Phase 1 implementation is now also in progress for enterprise
 identity, server sessions, idempotent agent provisioning, and Web and Knox
-ingress authorization. The contract, in-memory store, and approved SQLite v1
-store slices are complete; runtime adapters have not started. See
+ingress authorization. The contract, in-memory store, approved SQLite v1 store,
+employee auth, personal-agent provisioner, and Web Gateway policy proxy slices
+are complete. The deployable ingress host remains pending. See
 `docs/platformclaw/control-plane-phase-1.md` and
 `docs/platformclaw/decisions.md`.
 

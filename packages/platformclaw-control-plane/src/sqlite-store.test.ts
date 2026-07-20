@@ -208,6 +208,43 @@ describe("SqliteControlPlaneStore", () => {
     store.close();
   });
 
+  it("resolves the owned personal binding and persists proxy audit events", async () => {
+    const databasePath = createDatabasePath();
+    const store = createStore(databasePath);
+    const { user } = await store.upsertPrincipal(principal("member.user"), 1_000);
+    const reserved = await store.reservePersonalAgent(user.id, 2_000);
+    const binding = await store.transitionAgent({
+      bindingId: reserved.binding.id,
+      state: "active",
+      changedAt: 3_000,
+    });
+
+    await expect(store.getPersonalAgentBinding(user.id)).resolves.toEqual(binding);
+    const audit = await store.recordAuditEvent({
+      actorUserId: user.id,
+      eventType: "browser.gateway.denied",
+      targetType: "agent-binding",
+      targetId: binding.id,
+      details: { method: "config.get", reason: "method-not-allowed" },
+      createdAt: 4_000,
+    });
+    store.close();
+
+    const database = new DatabaseSync(databasePath, { readOnly: true });
+    expect(
+      database
+        .prepare(
+          "SELECT event_type, target_id, details_json FROM control_audit_events WHERE id = ?",
+        )
+        .get(audit.id),
+    ).toEqual({
+      event_type: "browser.gateway.denied",
+      target_id: binding.id,
+      details_json: JSON.stringify({ method: "config.get", reason: "method-not-allowed" }),
+    });
+    database.close();
+  });
+
   it("persists server-side sessions and revokes them when a user is disabled", async () => {
     const store = createStore();
     const { user } = await store.upsertPrincipal(principal("member.user"), 1_000);
