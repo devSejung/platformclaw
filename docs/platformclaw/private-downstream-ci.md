@@ -32,7 +32,9 @@ isolation code, runs the whole control-plane test suite plus package typecheck,
 lint, and build. It avoids only unrelated OpenClaw core fanout.
 Repository-wide conflict-marker, changelog attribution, dependency pin, package
 patch, export-boundary, duplicate-scan, and max-lines suppression guards remain
-in the fast workflow.
+in the fast workflow. Both workflows use a blob-filtered full-history checkout:
+the planner keeps merge-base and rename history while Git avoids downloading
+unneeded historical file contents.
 
 Docker image construction remains a release or deployment validation step. It
 is not part of every pull request.
