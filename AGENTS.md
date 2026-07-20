@@ -177,7 +177,10 @@ Skills own workflows; root owns hard policy and routing.
 - If local proof fans out or becomes expensive, stop it and lazily acquire the remote box.
 - Before handoff/push: prove touched surface. Before landing to `main`: proof matches actual risk. Bounded behavior-neutral refactor: focused tests/checks enough; no issue proof or full/broad suite by default.
 - Release-branch full validation: freeze the product-complete **Code SHA**, then use `node scripts/full-release-validation-at-sha.mjs --sha <code-sha> --target-ref release/YYYY.M.PATCH`; no raw dispatch without `target_context_ref`.
-- Pre-land/pre-commit code changes: mandatory fresh `$autoreview` until no accepted/actionable findings remain. Do not land code on CI, ClawSweeper, prior review comments, or your own manual review alone unless user explicitly opts out or scope is truly trivial/docs-only. If findings want refactor, refactor; no ugly fixes.
+- Run `$autoreview` only at a stable review checkpoint: after one feature is implementation-complete, immediately before creating or merging a PR, or after completing authentication, authorization, session, credential, or user-isolation changes. The security trigger does not mean rerunning after every edit; finish the coherent change and focused proof first.
+- During ordinary implementation, use formatting/lint, typecheck, and relevant focused tests. Do not run `$autoreview` for each intermediate patch or accepted-finding fix.
+- At most two `$autoreview` invocations per task. Reruns after findings count toward the limit. Before a third invocation, stop and obtain explicit user confirmation; security-sensitive work does not waive the cap.
+- Before landing code, address accepted/actionable findings from the latest allowed `$autoreview`. Do not loop until clean beyond the two-run cap; report remaining findings and ask before another run. Do not land based only on CI, ClawSweeper, prior review comments, or manual review unless the user explicitly opts out or the scope is truly trivial/docs-only.
 - Autoreview uncommitted changes: `--mode uncommitted`; no `dirty` mode.
 - Autoreview staged/uncommitted diff: use `--mode uncommitted`; no `staged` mode.
 - If proof is blocked, say exactly what is missing and why.
