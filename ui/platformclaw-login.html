@@ -3,58 +3,71 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#faf9f5" />
     <meta name="robots" content="noindex,nofollow" />
     <base href="/platformclaw/" />
     <title>PlatformClaw 로그인</title>
+    <link rel="icon" type="image/svg+xml" href="/src/platformclaw/favicon-employee.svg" />
     <link rel="stylesheet" href="/src/platformclaw/login.css" />
   </head>
   <body>
     <main class="login-page" data-platformclaw-login>
-      <div class="login-brand" aria-label="PlatformClaw">
-        <div class="login-mark" aria-hidden="true">PC</div>
-        <div>
-          <div class="login-brand__name">PlatformClaw</div>
-          <div class="login-brand__label">Enterprise AI workspace</div>
-        </div>
-      </div>
+      <section class="login-story" aria-labelledby="welcome-title">
+        <p class="login-eyebrow">PlatformClaw</p>
+        <h1 id="welcome-title">업무를 이해하는<br />나만의 AI 동료.</h1>
+        <p class="login-story__intro">
+          할당된 에이전트와 함께 사내 지식을 찾고,<br class="desktop-only" />
+          Knox Teams에서 이어진 업무를 한곳에서 처리하세요.
+        </p>
+        <ul class="login-capabilities" aria-label="연결된 업무 환경">
+          <li>Knox Teams</li>
+          <li>사내 지식</li>
+          <li>업무 자동화</li>
+        </ul>
+      </section>
+
       <section class="login-card" aria-labelledby="login-title">
-        <h1 id="login-title">업무 계정으로 로그인</h1>
-        <p class="login-intro">회사 계정으로 개인 AI workspace에 안전하게 접속하세요.</p>
+        <div class="login-card__brand" aria-hidden="true">
+          <img src="/src/platformclaw/favicon-employee.svg" alt="" />
+        </div>
+        <div class="login-card__heading">
+          <h2 id="login-title">PlatformClaw</h2>
+          <p>업무 계정으로 워크스페이스에 로그인하세요.</p>
+        </div>
         <form data-login-form novalidate>
           <label>
-            아이디
+            <span>계정</span>
             <input
               name="identifier"
               type="text"
               autocomplete="username"
               autocapitalize="none"
               spellcheck="false"
+              placeholder="AD ID"
               required
               disabled
             />
           </label>
           <label>
-            비밀번호
+            <span>비밀번호</span>
             <input
               name="password"
               type="password"
               autocomplete="current-password"
+              placeholder="비밀번호"
               required
               disabled
             />
           </label>
           <p class="login-error" data-login-error role="alert" hidden></p>
-          <button type="submit" disabled>세션 확인 중…</button>
+          <button type="submit" disabled>세션 확인 중</button>
         </form>
         <p class="login-status" data-login-status aria-live="polite">
           기존 로그인 상태를 확인하고 있습니다.
         </p>
+        <p class="login-privacy">인증 정보는 브라우저에 저장되지 않습니다.</p>
       </section>
-      <p class="login-footer">
-        인증 정보는 브라우저에 저장되지 않습니다.<br />접속 문제가 계속되면 PlatformClaw 관리자에게
-        문의하세요.
-      </p>
     </main>
     <script type="module" src="/src/platformclaw/login.ts"></script>
   </body>

@@ -1,5 +1,5 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family:
     Inter,
     Pretendard,
@@ -8,8 +8,9 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  color: #f6f7fb;
-  background: #090b11;
+  color: #141413;
+  background: #faf9f5;
+  font-synthesis: none;
 }
 
 * {
@@ -25,72 +26,128 @@ body {
 body {
   display: grid;
   min-height: 100dvh;
-  place-items: center;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 16% 12%, rgba(88, 115, 220, 0.2), transparent 34rem),
-    radial-gradient(circle at 92% 88%, rgba(77, 183, 183, 0.11), transparent 30rem), #090b11;
+    radial-gradient(circle at 8% 12%, rgba(15, 124, 114, 0.08), transparent 32rem), #faf9f5;
+}
+
+button,
+input {
+  font: inherit;
 }
 
 .login-page {
-  width: min(100%, 31rem);
-  padding: 2rem 1.25rem;
-}
-
-.login-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  margin: 0 0 1.5rem 0.25rem;
-}
-
-.login-mark {
   display: grid;
-  width: 2.4rem;
-  height: 2.4rem;
-  place-items: center;
-  border: 1px solid rgba(151, 174, 255, 0.35);
-  border-radius: 0.8rem;
-  color: #dce4ff;
-  background: linear-gradient(145deg, rgba(124, 156, 255, 0.28), rgba(71, 94, 176, 0.08));
-  box-shadow: 0 0 28px rgba(90, 122, 235, 0.16);
-  font-weight: 750;
-  letter-spacing: -0.06em;
+  width: min(100% - 3rem, 72rem);
+  margin: auto;
+  padding: 4rem 0;
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) minmax(24rem, 29rem);
+  gap: clamp(4rem, 9vw, 8.5rem);
 }
 
-.login-brand__name {
-  font-size: 1.02rem;
-  font-weight: 680;
-  letter-spacing: -0.02em;
+.login-story {
+  padding: 1rem 0;
 }
 
-.login-brand__label {
-  margin-top: 0.12rem;
-  color: #9da7bc;
-  font-size: 0.73rem;
+.login-eyebrow {
+  display: inline-flex;
+  min-height: 2rem;
+  margin: 0 0 2rem;
+  padding: 0 0.85rem;
+  align-items: center;
+  border: 1px solid #d8e5e1;
+  border-radius: 9999px;
+  color: #0f7c72;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.login-story h1 {
+  margin: 0;
+  max-width: 42rem;
+  font-family:
+    "Cormorant Garamond", "EB Garamond", "Noto Serif KR", "Nanum Myeongjo", Batang, Garamond,
+    "Times New Roman", serif;
+  font-size: clamp(3.4rem, 5vw, 4.5rem);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.login-story__intro {
+  margin: 2rem 0 0;
+  max-width: 36rem;
+  color: #3d3d3a;
+  font-size: clamp(1rem, 1.5vw, 1.12rem);
+  line-height: 1.7;
+}
+
+.login-capabilities {
+  display: flex;
+  margin: 2rem 0 0;
+  padding: 0;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  list-style: none;
+}
+
+.login-capabilities li {
+  padding: 0.52rem 0.85rem;
+  border-radius: 9999px;
+  color: #3d3d3a;
+  background: #efe9de;
+  font-size: 0.78rem;
+  font-weight: 500;
 }
 
 .login-card {
-  padding: clamp(1.5rem, 5vw, 2.25rem);
-  border: 1px solid rgba(160, 174, 207, 0.15);
-  border-radius: 1.35rem;
-  background: rgba(18, 21, 30, 0.88);
-  box-shadow: 0 1.5rem 5rem rgba(0, 0, 0, 0.36);
-  backdrop-filter: blur(18px);
+  padding: clamp(2rem, 4vw, 2.75rem);
+  border: 1px solid #e6dfd8;
+  border-radius: 1rem;
+  background: #f5f0e8;
 }
 
-h1 {
+.login-card__brand {
+  display: grid;
+  width: 5rem;
+  height: 5rem;
+  margin: 0 auto 1.35rem;
+  place-items: center;
+  border-radius: 1rem;
+  background: #e8e0d2;
+}
+
+.login-card__brand img {
+  display: block;
+  width: 3.6rem;
+  height: 3.6rem;
+}
+
+.login-card__heading {
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.login-card__heading h2 {
   margin: 0;
-  font-size: clamp(1.65rem, 6vw, 2rem);
-  line-height: 1.25;
-  letter-spacing: -0.045em;
+  font-family:
+    "Cormorant Garamond", "EB Garamond", "Noto Serif KR", "Nanum Myeongjo", Batang, Garamond,
+    "Times New Roman", serif;
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
 }
 
-.login-intro {
-  margin: 0.65rem 0 1.8rem;
-  color: #9da7bc;
-  font-size: 0.93rem;
-  line-height: 1.6;
+.login-card__heading p {
+  margin: 0.5rem 0 0;
+  color: #6c6a64;
+  font-size: 0.85rem;
+  line-height: 1.55;
 }
 
 form {
@@ -101,107 +158,140 @@ form {
 label {
   display: grid;
   gap: 0.5rem;
-  color: #cbd1df;
-  font-size: 0.82rem;
-  font-weight: 620;
+  color: #3d3d3a;
+  font-size: 0.8rem;
+  font-weight: 500;
 }
 
 input {
   width: 100%;
-  min-height: 3.15rem;
-  padding: 0 0.95rem;
-  border: 1px solid rgba(160, 174, 207, 0.2);
-  border-radius: 0.78rem;
+  min-height: 2.75rem;
+  padding: 0 0.9rem;
+  border: 1px solid #d7d0c7;
+  border-radius: 0.5rem;
   outline: none;
-  color: #f6f7fb;
-  background: rgba(8, 10, 16, 0.72);
-  font: inherit;
+  color: #141413;
+  background: #faf9f5;
   transition:
-    border-color 140ms ease,
-    box-shadow 140ms ease,
-    background 140ms ease;
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
-input:hover {
-  border-color: rgba(160, 174, 207, 0.38);
+input::placeholder {
+  color: #8e8b82;
 }
 
 input:focus {
-  border-color: #7c9cff;
-  background: #0b0e16;
-  box-shadow: 0 0 0 3px rgba(124, 156, 255, 0.15);
+  border-color: #0f7c72;
+  box-shadow: 0 0 0 3px rgba(15, 124, 114, 0.15);
 }
 
 input:disabled,
 button:disabled {
   cursor: wait;
-  opacity: 0.68;
+  opacity: 0.62;
 }
 
 button {
-  min-height: 3.2rem;
+  min-height: 2.75rem;
   margin-top: 0.25rem;
   border: 0;
-  border-radius: 0.78rem;
+  border-radius: 0.5rem;
   color: #fff;
-  background: linear-gradient(135deg, #7c9cff, #5f7ff0);
-  box-shadow: 0 0.7rem 1.8rem rgba(68, 96, 202, 0.22);
-  font: inherit;
-  font-weight: 700;
+  background: #0f7c72;
+  font-size: 0.875rem;
+  font-weight: 600;
   cursor: pointer;
-  transition:
-    transform 120ms ease,
-    filter 120ms ease;
-}
-
-button:hover:not(:disabled) {
-  filter: brightness(1.07);
-  transform: translateY(-1px);
+  transition: background-color 120ms ease;
 }
 
 button:active:not(:disabled) {
-  transform: translateY(0);
+  background: #0b625a;
 }
 
 button:focus-visible {
-  outline: 3px solid rgba(124, 156, 255, 0.35);
+  outline: 3px solid rgba(15, 124, 114, 0.25);
   outline-offset: 2px;
 }
 
 .login-error {
   margin: 0;
-  padding: 0.78rem 0.9rem;
-  border: 1px solid rgba(255, 116, 116, 0.24);
-  border-radius: 0.7rem;
-  color: #ffb4b4;
-  background: rgba(130, 37, 45, 0.13);
-  font-size: 0.82rem;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid rgba(198, 69, 69, 0.24);
+  border-radius: 0.5rem;
+  color: #8d3030;
+  background: rgba(198, 69, 69, 0.07);
+  font-size: 0.8rem;
   line-height: 1.5;
 }
 
 .login-status {
   min-height: 1.25rem;
-  margin: 1.1rem 0 0;
-  color: #9da7bc;
-  font-size: 0.76rem;
+  margin: 1rem 0 0;
+  color: #6c6a64;
+  font-size: 0.75rem;
   text-align: center;
 }
 
-.login-footer {
-  margin: 1.25rem 0 0;
-  color: #727d93;
+.login-privacy {
+  margin: 1.15rem 0 0;
+  padding-top: 1.15rem;
+  border-top: 1px solid #e6dfd8;
+  color: #8e8b82;
   font-size: 0.72rem;
   line-height: 1.5;
   text-align: center;
 }
 
+@media (max-width: 1050px) and (min-width: 801px) {
+  .login-page {
+    grid-template-columns: minmax(0, 1fr) minmax(22rem, 24rem);
+    gap: 3rem;
+  }
+
+  .login-story h1 {
+    font-size: 3.4rem;
+  }
+}
+
+@media (max-width: 800px) {
+  .login-page {
+    width: min(100% - 2rem, 31rem);
+    padding: 2.5rem 0;
+    grid-template-columns: 1fr;
+    gap: 2.75rem;
+  }
+
+  .login-story {
+    padding: 0;
+  }
+
+  .login-eyebrow {
+    margin-bottom: 1.35rem;
+  }
+
+  .login-story h1 {
+    font-size: clamp(3rem, 13vw, 4.2rem);
+  }
+
+  .login-story__intro {
+    margin-top: 1.4rem;
+  }
+}
+
 @media (max-width: 420px) {
   .login-page {
-    padding: 1.25rem 0.9rem;
+    width: min(100% - 1.5rem, 31rem);
+    padding: 1.5rem 0;
+    gap: 2.25rem;
+  }
+
+  .desktop-only {
+    display: none;
   }
 
   .login-card {
-    border-radius: 1.05rem;
+    padding: 1.6rem 1.25rem;
   }
 }
 
