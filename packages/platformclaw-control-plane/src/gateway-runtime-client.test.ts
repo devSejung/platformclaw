@@ -27,7 +27,7 @@ describe("PlatformClawGatewayRuntimeClient", () => {
     const stop = vi.fn();
     const request = vi.fn(async () => ({ ok: true }));
     const backend = new PlatformClawGatewayRuntimeClient({
-      client: { url: "ws://127.0.0.1:18789", token: "operator-secret" },
+      client: { url: "ws://127.0.0.1:18789", token: "test-auth-token" },
       createClient: (options) => {
         configured = options;
         return { start, stop, request };

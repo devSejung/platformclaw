@@ -30,7 +30,7 @@ function upstreamHello(): HelloOk {
     auth: {
       role: "operator",
       scopes: ["operator.admin"],
-      deviceToken: "private-device-token",
+      deviceToken: "test-auth-token",
     },
     policy: { maxPayload: 1_024, maxBufferedBytes: 2_048, tickIntervalMs: 30_000 },
   };
