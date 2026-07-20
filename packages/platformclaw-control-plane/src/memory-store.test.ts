@@ -79,16 +79,38 @@ describe("personal agent id", () => {
   it("preserves the deployed account-id dot replacement", async () => {
     const store = createStore();
     const principal = await store.upsertPrincipal(
-      ldapPrincipal({ employeeId: "seungon.jung" }),
+      ldapPrincipal({ accountId: "seungon.jung", employeeId: "employee-123" }),
       1_000,
     );
     const reservation = await store.reservePersonalAgent(principal.user.id, 2_000);
 
     expect(reservation.binding.agentId).toBe("seungon_jung");
+    expect(principal.user).toMatchObject({
+      accountId: "seungon.jung",
+      employeeId: "employee-123",
+    });
   });
 });
 
 describe("InMemoryControlPlaneStore enterprise identity", () => {
+  it("preserves the canonical account when a linked provider omits accountId", async () => {
+    const store = createStore();
+    const ldap = await store.upsertPrincipal(
+      ldapPrincipal({ accountId: "account.name", employeeId: "employee-123" }),
+      1_000,
+    );
+    const saml = await store.upsertPrincipal(
+      ldapPrincipal({
+        provider: "saml",
+        subject: "saml-subject-1",
+        employeeId: "employee-123",
+      }),
+      2_000,
+    );
+
+    expect(saml.user).toMatchObject({ id: ldap.user.id, accountId: "account.name" });
+  });
+
   it("keeps one user while mutable LDAP attributes change", async () => {
     const store = createStore();
     const first = await store.upsertPrincipal(ldapPrincipal(), 1_000);

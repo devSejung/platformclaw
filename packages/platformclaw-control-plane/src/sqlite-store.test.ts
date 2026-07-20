@@ -63,6 +63,37 @@ afterEach(() => {
 });
 
 describe("SqliteControlPlaneStore", () => {
+  it("keeps account and employee IDs distinct when deriving a personal agent", async () => {
+    const store = createStore();
+    const created = await store.upsertPrincipal(
+      principal("employee-123", { accountId: "seungon.jung" }),
+      1_000,
+    );
+    const reservation = await store.reservePersonalAgent(created.user.id, 2_000);
+
+    expect(created.user).toMatchObject({
+      accountId: "seungon.jung",
+      employeeId: "employee-123",
+    });
+    expect(reservation.binding.agentId).toBe("seungon_jung");
+    store.close();
+  });
+
+  it("preserves the canonical account when a linked provider omits accountId", async () => {
+    const store = createStore();
+    const ldap = await store.upsertPrincipal(
+      principal("employee-123", { accountId: "account.name" }),
+      1_000,
+    );
+    const saml = await store.upsertPrincipal(
+      principal("employee-123", { provider: "saml", subject: "saml-subject-1" }),
+      2_000,
+    );
+
+    expect(saml.user).toMatchObject({ id: ldap.user.id, accountId: "account.name" });
+    store.close();
+  });
+
   it.skipIf(process.platform === "win32")(
     "secures the database directory and WAL files before storing control-plane data",
     () => {

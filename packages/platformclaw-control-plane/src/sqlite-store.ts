@@ -171,6 +171,10 @@ function normalizeEmployeeId(employeeId: string): string {
   return required(employeeId, "principal.employeeId").toLowerCase();
 }
 
+function normalizeAccountId(accountId: string): string {
+  return required(accountId, "principal.accountId").toLowerCase();
+}
+
 function normalizeScopeName(name: string): string {
   return required(name, "scope.name").toLocaleLowerCase("en-US");
 }
@@ -315,6 +319,9 @@ export class SqliteControlPlaneStore implements ControlPlaneStore, ControlPlaneM
     return runImmediateTransaction(this.db, () => {
       const subject = required(principal.subject, "principal.subject");
       const employeeId = normalizeEmployeeId(principal.employeeId);
+      const requestedAccountId = principal.accountId
+        ? normalizeAccountId(principal.accountId)
+        : undefined;
       const identity = this.selectIdentity(principal.provider, subject);
       if (identity) {
         if (
@@ -328,6 +335,12 @@ export class SqliteControlPlaneStore implements ControlPlaneStore, ControlPlaneM
           );
         }
         const user = this.requireUserRow(identity.user_id);
+        if (requestedAccountId && requestedAccountId !== user.account_id) {
+          throw new ControlPlaneConflictError(
+            "account_id_mismatch",
+            `identity account id disagrees with the canonical user: ${principal.provider}:${subject}`,
+          );
+        }
         if (employeeId !== user.employee_id) {
           if (identity.employee_id !== user.employee_id) {
             throw new ControlPlaneConflictError(
@@ -362,11 +375,21 @@ export class SqliteControlPlaneStore implements ControlPlaneStore, ControlPlaneM
         };
       }
 
-      let user = this.selectUserByEmployeeId(employeeId);
+      const accountOwner = requestedAccountId
+        ? this.selectUserByAccountId(requestedAccountId)
+        : undefined;
+      const employeeOwner = this.selectUserByEmployeeId(employeeId);
+      if (accountOwner && employeeOwner && accountOwner.id !== employeeOwner.id) {
+        throw new ControlPlaneConflictError(
+          "account_id_conflict",
+          `account id and employee id belong to different users: ${requestedAccountId}`,
+        );
+      }
+      let user = accountOwner ?? employeeOwner;
+      const accountId = requestedAccountId ?? user?.account_id ?? employeeId;
       const createdUser = !user;
       if (!user) {
         const id = this.idFactory.nextUserId();
-        const accountId = employeeId.toLowerCase();
         executeSync(
           this.db,
           this.query.insertInto("platform_users").values({
@@ -386,6 +409,12 @@ export class SqliteControlPlaneStore implements ControlPlaneStore, ControlPlaneM
         );
         user = this.requireUserRow(id);
       } else {
+        if (requestedAccountId && user.account_id !== requestedAccountId) {
+          throw new ControlPlaneConflictError(
+            "account_id_mismatch",
+            `account id disagrees with the canonical user: ${requestedAccountId}`,
+          );
+        }
         this.updateUserFromPrincipal(user.id, employeeId, principal, authenticatedAt);
         this.bootstrapExistingAdminIfNeeded(user.id, authenticatedAt);
       }
@@ -1104,6 +1133,13 @@ export class SqliteControlPlaneStore implements ControlPlaneStore, ControlPlaneM
     return takeFirstSync(
       this.db,
       this.query.selectFrom("platform_users").selectAll().where("employee_id", "=", employeeId),
+    );
+  }
+
+  private selectUserByAccountId(accountId: string): PlatformUserRow | undefined {
+    return takeFirstSync(
+      this.db,
+      this.query.selectFrom("platform_users").selectAll().where("account_id", "=", accountId),
     );
   }
 

@@ -158,11 +158,33 @@ account ID supplied by deployment configuration backed by a Docker secret.
 There is no source-code fallback administrator. After bootstrap, administrator
 role changes use the control-plane management API and audit log.
 
+### PC-112 Reject a fourth browser session
+
+When a user already has three active browser sessions, a new login returns a
+session-limit response and does not silently terminate another device. Expired
+and revoked sessions do not count toward the limit. This policy needs no schema
+migration if product policy later changes.
+
+### PC-113 Normalize employee authentication outside OpenClaw core
+
+`platformclaw-control` calls the current employee authentication service using
+the URL in `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`. The optional service bearer
+uses `PLATFORMCLAW_EMPLOYEE_AUTH_BEARER_TOKEN`. LDAP results normalize into the
+provider-independent principal contract; SAML can replace the adapter later.
+External `agentId` and `sessionKey` fields are ignored because the control-plane
+binding is routing authority.
+
+The directory profile passed to personal-agent provisioning includes employee
+ID, display name, email, department, part, Confluence space, notes, directory
+groups, and explicitly supplied extensible attributes. The session cookie never
+contains those fields. Workspace `USER.md` rendering belongs to the provisioner,
+not the authentication adapter.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs
-backup frequency and retention, behavior when a fourth browser session is
-created, and any named workflow that requires browser control.
+backup frequency and retention and any named workflow that requires browser
+control.
 
 ## Decision procedure
 
