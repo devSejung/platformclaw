@@ -32,9 +32,10 @@ isolation code, runs the whole control-plane test suite plus package typecheck,
 lint, and build. It avoids only unrelated OpenClaw core fanout.
 Repository-wide conflict-marker, changelog attribution, dependency pin, package
 patch, export-boundary, duplicate-scan, and max-lines suppression guards remain
-in the fast workflow. Pull requests fetch only the synthetic merge commit and
-its base/head parents; push and manual runs retain full history. Checkout
-credentials are not persisted.
+in the fast workflow. Both workflows use a blob-filtered full-history checkout:
+commit history stays available for merge-base comparison after a pull request
+base changes, while historical file contents are fetched only when Git needs
+them. Checkout credentials are not persisted.
 
 Docker image construction remains a release or deployment validation step. It
 is not part of every pull request.

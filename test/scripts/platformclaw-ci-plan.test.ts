@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import {
   classifyPlatformClawChanges,
   parseGitNameStatus,
@@ -106,4 +108,21 @@ describe("parseGitNameStatus", () => {
       "Missing destination path for R100",
     );
   });
+});
+
+describe("PlatformClaw workflow checkout", () => {
+  for (const workflowName of ["platformclaw-ci.yml", "platformclaw-full-ci.yml"]) {
+    it(`keeps merge-base history available in ${workflowName}`, () => {
+      const workflow = parse(
+        readFileSync(new URL(`../../.github/workflows/${workflowName}`, import.meta.url), "utf8"),
+      ) as {
+        jobs: { validate: { steps: Array<{ name?: string; with?: Record<string, unknown> }> } };
+      };
+      const checkout = workflow.jobs.validate.steps.find((step) => step.name === "Checkout");
+
+      expect(checkout?.with?.filter).toBe("blob:none");
+      expect(checkout?.with?.["fetch-depth"]).toBe(0);
+      expect(checkout?.with?.["persist-credentials"]).toBe(false);
+    });
+  }
 });
