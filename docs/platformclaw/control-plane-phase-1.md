@@ -34,11 +34,14 @@ After Phase 1:
 
 ## Implementation status
 
-Slices 1 through 4 are implemented in `packages/platformclaw-control-plane`. They
+Slices 1 through 5 are implemented in `packages/platformclaw-control-plane`. They
 define the identity, browser-session, personal-agent provisioning, Knox room
 binding, authenticated Knox DM routing, managed group/part contracts,
 employee-auth HTTP adapter, opaque-session login service, and framework-neutral
-browser-auth HTTP boundary. The employee browser-auth runtime now assembles the
+browser-auth HTTP boundary. The Web Gateway policy proxy resolves the opaque
+browser session for every request, pins it to the active personal agent binding,
+and filters requests, responses, and events through fail-closed method and
+parameter allowlists. The employee browser-auth runtime now assembles the
 LDAP-phase adapter and SQLite session store, and the personal-agent provisioner
 calls the Gateway Admin HTTP RPC boundary to create or adopt the exact agent and
 workspace. The in-memory store covers contract behavior, and the SQLite store
@@ -48,7 +51,8 @@ Focused tests cover LDAP metadata refresh, LDAP-to-SAML identity linking,
 employee ID correction conflicts, concurrent personal and room provisioning,
 room agent ID compatibility, browser session limits and expiry, account
 disablement, Knox DM ownership checks, restart persistence, administrator
-bootstrap, managed group/part permissions, and audit events.
+bootstrap, managed group/part permissions, cross-agent Gateway denial,
+response and event filtering, revoked-session rejection, and audit events.
 
 The LDAP-compatible adapter calls the existing employee-auth HTTP service. The
 HTTP boundary exposes login, logout, and current-session handlers, but still
@@ -56,11 +60,11 @@ requires its host process to inject bounded JSON parsing, a trusted client IP,
 TLS state, and an auth rate limiter.
 
 These slices do not contain credential encryption, SAML protocol handling,
-Knox transport code, or the deployable HTTP listener/Gateway proxy. OpenClaw
-agent creation now occurs only through the private Admin HTTP RPC plugin;
-PlatformClaw still does not import OpenClaw core. Initial `USER.md` profile
-injection remains deferred until an atomic, ownership-aware Gateway/plugin
-contract is approved.
+Knox transport code, or the deployable HTTP/WebSocket listener that hosts the
+implemented Gateway policy proxy. OpenClaw agent creation now occurs only
+through the private Admin HTTP RPC plugin; PlatformClaw still does not import
+OpenClaw core. Initial `USER.md` profile injection remains deferred until an
+atomic, ownership-aware Gateway/plugin contract is approved.
 
 ## Process boundary
 
@@ -190,10 +194,23 @@ The proxy must:
 - ignore browser-supplied agent IDs when the operation is user-scoped;
 - construct or validate session keys against the owned agent;
 - expose an explicit allowlist of user-facing Gateway methods;
+- expose an explicit per-method parameter allowlist so new upstream operator
+  parameters fail closed until reviewed;
 - deny configuration, channel administration, node administration, Gateway
   lifecycle, and other operator-only methods;
 - filter response rows and asynchronous events by the owned agent and session;
 - record an audit event for denied cross-agent attempts.
+
+The operator Gateway credential remains only in the hosting control process.
+It is never returned to the browser. The current package implements this policy
+boundary independently of an HTTP or WebSocket framework; the deployable
+listener will inject the private Gateway client and browser cookie extraction.
+Until Gateway provides a least-privilege downstream identity, browser messages
+use only command-suppressed `chat.send`; session creation cannot carry an
+initial message or task. Browsers cannot request approval replay or deliver to
+an external channel through the control process credential.
+Browsers also cannot supply abort run IDs; cancellation is resolved from their
+owned session key.
 
 UI hiding is not authorization. The proxy enforces the rule even when a client
 sends a hand-crafted Gateway frame.

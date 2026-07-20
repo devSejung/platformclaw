@@ -205,6 +205,37 @@ read/write RPC composition cannot safely preserve concurrent user edits or
 enforce the expected workspace before mutation. That feature requires a later
 atomic Gateway/plugin contract decision.
 
+### PC-116 Proxy browser Gateway access through fail-closed policy
+
+Browsers never receive an OpenClaw operator credential and never connect to the
+private Gateway directly. `platformclaw-control` resolves the opaque browser
+session on every request and event, requires its active personal agent binding,
+and uses its own private Gateway client behind the control-plane package.
+
+The proxy maintains explicit method and per-method parameter allowlists. New
+upstream methods or parameters are denied until reviewed, preventing an
+upstream operator feature from silently becoming browser-accessible. Agent IDs
+are pinned server-side, session keys are checked against the owned agent, and
+agent/session collections, direct session results, and asynchronous events are
+filtered again on return. Denials are audited without request payloads or
+credentials. The deployable HTTP/WebSocket listener is a separate hosting
+slice; it must use this policy boundary rather than reimplement authorization.
+Events without an owned session key, including raw agent-run events, are
+dropped; session-scoped chat and tool events are the browser streaming surface.
+
+Because the private Gateway client currently has operator authority, browser
+messages use only `chat.send`, with command interpretation and external
+delivery forced off. Session creation cannot include an initial message or
+task, approval replay is not exposed, and operator command catalogs are not
+advertised. Browser commands require a later least-privilege Gateway identity
+or a separately approved command policy; they must not inherit the control
+process credential.
+Model selection is limited to the configured catalog and cannot carry a raw
+model/auth-profile override. Browser session patches cannot archive sessions
+because the operator path would also disable bound administrator cron jobs.
+Abort requests target the authenticated session only; browsers cannot select a
+run ID because the shared operator connection cannot prove ownership of it.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs

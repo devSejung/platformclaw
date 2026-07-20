@@ -16,6 +16,7 @@ import {
   type BrowserSessionResolution,
   type ControlAuditEvent,
   type ControlPlaneIdFactory,
+  type ControlPlaneAuditWriter,
   type ControlPlaneManagementStore,
   type ControlPlaneStore,
   type CreateBrowserSessionResult,
@@ -252,7 +253,9 @@ function rowToMembership(row: ManagedScopeMembershipRow): ManagedScopeMembership
   };
 }
 
-export class SqliteControlPlaneStore implements ControlPlaneStore, ControlPlaneManagementStore {
+export class SqliteControlPlaneStore
+  implements ControlPlaneStore, ControlPlaneManagementStore, ControlPlaneAuditWriter
+{
   private readonly db: DatabaseSync;
   private readonly query: Kysely<ControlPlaneDatabase>;
   private readonly buildAgentMainSessionKey: MainSessionKeyBuilder;
@@ -447,6 +450,50 @@ export class SqliteControlPlaneStore implements ControlPlaneStore, ControlPlaneM
   async getUserByEmployeeId(employeeId: string): Promise<PlatformUser | null> {
     const row = this.selectUserByEmployeeId(employeeId.trim().toLowerCase());
     return row ? this.rowToUser(row) : null;
+  }
+
+  async getPersonalAgentBinding(userId: string): Promise<PersonalAgentBinding | null> {
+    const row = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("agent_bindings")
+        .selectAll()
+        .where("kind", "=", "personal")
+        .where("user_id", "=", userId),
+    );
+    return row ? (rowToBinding(row) as PersonalAgentBinding) : null;
+  }
+
+  async recordAuditEvent(params: {
+    actorUserId?: string;
+    eventType: string;
+    targetType: string;
+    targetId: string;
+    details?: Record<string, unknown>;
+    createdAt: number;
+  }): Promise<ControlAuditEvent> {
+    const event: ControlAuditEvent = {
+      id: this.idFactory.nextAuditEventId(),
+      ...(params.actorUserId ? { actorUserId: params.actorUserId } : {}),
+      eventType: required(params.eventType, "eventType"),
+      targetType: required(params.targetType, "targetType"),
+      targetId: required(params.targetId, "targetId"),
+      ...(params.details ? { details: params.details } : {}),
+      createdAt: params.createdAt,
+    };
+    executeSync(
+      this.db,
+      this.query.insertInto("control_audit_events").values({
+        id: event.id,
+        actor_user_id: event.actorUserId ?? null,
+        event_type: event.eventType,
+        target_type: event.targetType,
+        target_id: event.targetId,
+        details_json: event.details ? JSON.stringify(event.details) : null,
+        created_at: event.createdAt,
+      }),
+    );
+    return event;
   }
 
   async reservePersonalAgent(

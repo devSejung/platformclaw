@@ -169,6 +169,7 @@ export interface ControlPlaneStore {
   ): Promise<UpsertPrincipalResult>;
   getUserById(userId: string): Promise<PlatformUser | null>;
   getUserByEmployeeId(employeeId: string): Promise<PlatformUser | null>;
+  getPersonalAgentBinding(userId: string): Promise<PersonalAgentBinding | null>;
   reservePersonalAgent(
     userId: string,
     reservedAt: number,
@@ -200,6 +201,17 @@ export interface ControlPlaneStore {
     agentId: string;
     sessionKey: string;
   }): Promise<KnoxDmRouteResolution>;
+}
+
+export interface ControlPlaneAuditWriter {
+  recordAuditEvent(params: {
+    actorUserId?: string;
+    eventType: string;
+    targetType: string;
+    targetId: string;
+    details?: Record<string, unknown>;
+    createdAt: number;
+  }): Promise<ControlAuditEvent>;
 }
 
 export interface ControlPlaneManagementStore {

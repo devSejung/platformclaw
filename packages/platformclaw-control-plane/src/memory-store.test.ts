@@ -252,6 +252,28 @@ describe("InMemoryControlPlaneStore enterprise identity", () => {
 });
 
 describe("InMemoryControlPlaneStore provisioning", () => {
+  it("resolves the owned personal binding and records proxy audit events", async () => {
+    const store = createStore();
+    const { user, binding } = await createActivePersonalAgent(store);
+
+    await expect(store.getPersonalAgentBinding(user.id)).resolves.toEqual(binding);
+    await expect(
+      store.recordAuditEvent({
+        actorUserId: user.id,
+        eventType: "browser.gateway.denied",
+        targetType: "agent-binding",
+        targetId: binding.id,
+        details: { method: "config.get", reason: "method-not-allowed" },
+        createdAt: 4_000,
+      }),
+    ).resolves.toMatchObject({
+      actorUserId: user.id,
+      eventType: "browser.gateway.denied",
+      targetId: binding.id,
+      details: { method: "config.get", reason: "method-not-allowed" },
+    });
+  });
+
   it("converges concurrent personal-agent reservations on one record", async () => {
     const store = createStore();
     const { user } = await store.upsertPrincipal(ldapPrincipal(), 1_000);
