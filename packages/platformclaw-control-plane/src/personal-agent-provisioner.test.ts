@@ -1,5 +1,5 @@
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 import type { PersonalAgentProvisioningRequest } from "./browser-auth-service.js";
 import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import { GatewayPersonalAgentProvisioner } from "./personal-agent-provisioner.js";
@@ -39,29 +39,35 @@ function request(
   };
 }
 
-function createRpc(
-  handler: (method: string, params: unknown) => unknown | Promise<unknown>,
-): GatewayAdminRpc & { call: ReturnType<typeof vi.fn> } {
-  const call = vi.fn(async <T>(method: string, params: unknown) => handler(method, params) as T);
-  return { call };
+function createRpc(handler: (method: string, params: unknown) => unknown | Promise<unknown>): {
+  rpc: GatewayAdminRpc;
+  call: Mock<(method: string, params: unknown) => Promise<unknown>>;
+} {
+  const call = vi.fn(async (method: string, params: unknown) => handler(method, params));
+  const rpc: GatewayAdminRpc = {
+    async call<T>(method: string, params: unknown): Promise<T> {
+      return (await call(method, params)) as T;
+    },
+  };
+  return { rpc, call };
 }
 
 describe("GatewayPersonalAgentProvisioner", () => {
   it("rejects a blank workspace root at startup", () => {
-    const rpc = createRpc((method) => {
+    const { rpc, call } = createRpc((method) => {
       throw new Error(`unexpected method: ${method}`);
     });
 
     expect(() => new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot: "   " })).toThrow(
       "personal agent workspace root is required",
     );
-    expect(rpc.call).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
   });
 
   it("creates the reserved personal agent in its expected workspace", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
-    const rpc = createRpc((method) => {
+    const { rpc, call } = createRpc((method) => {
       if (method === "agents.list") {
         return { agents: [] };
       }
@@ -74,15 +80,15 @@ describe("GatewayPersonalAgentProvisioner", () => {
 
     await provisioner.provisionOrRefresh(request());
 
-    expect(rpc.call).toHaveBeenNthCalledWith(1, "agents.list", {});
-    expect(rpc.call).toHaveBeenNthCalledWith(2, "agents.create", {
+    expect(call).toHaveBeenNthCalledWith(1, "agents.list", {});
+    expect(call).toHaveBeenNthCalledWith(2, "agents.create", {
       name: "account_name",
       workspace,
     });
   });
 
   it("does no Gateway discovery or mutation after activation", async () => {
-    const rpc = createRpc((method) => {
+    const { rpc, call } = createRpc((method) => {
       throw new Error(`unexpected method: ${method}`);
     });
     const provisioner = new GatewayPersonalAgentProvisioner({
@@ -94,12 +100,12 @@ describe("GatewayPersonalAgentProvisioner", () => {
       request({ binding: { ...request().binding, state: "active" }, createdBinding: false }),
     );
 
-    expect(rpc.call).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
   });
 
   it("fails closed instead of adopting an agent with another workspace", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
-    const rpc = createRpc(() => ({
+    const { rpc, call } = createRpc(() => ({
       agents: [{ id: "account_name", workspace: path.resolve("other-workspace") }],
     }));
     const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
@@ -107,14 +113,14 @@ describe("GatewayPersonalAgentProvisioner", () => {
     await expect(provisioner.provisionOrRefresh(request())).rejects.toThrow(
       "Gateway agent workspace mismatch",
     );
-    expect(rpc.call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledOnce();
   });
 
   it("adopts a concurrent create only after exact id and workspace verification", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
     let listCount = 0;
-    const rpc = createRpc((method) => {
+    const { rpc } = createRpc((method) => {
       if (method === "agents.list") {
         listCount += 1;
         return { agents: listCount === 1 ? [] : [{ id: "account_name", workspace }] };
@@ -131,7 +137,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
   });
 
   it("rejects agent ids outside the upstream canonical contract before RPC", async () => {
-    const rpc = createRpc((method) => {
+    const { rpc, call } = createRpc((method) => {
       throw new Error(`unexpected method: ${method}`);
     });
     const provisioner = new GatewayPersonalAgentProvisioner({
@@ -145,11 +151,11 @@ describe("GatewayPersonalAgentProvisioner", () => {
     await expect(provisioner.provisionOrRefresh(invalid)).rejects.toThrow(
       "invalid personal agent id",
     );
-    expect(rpc.call).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
   });
 
   it("rejects agent ids with non-canonical whitespace before RPC", async () => {
-    const rpc = createRpc((method) => {
+    const { rpc, call } = createRpc((method) => {
       throw new Error(`unexpected method: ${method}`);
     });
     const provisioner = new GatewayPersonalAgentProvisioner({
@@ -163,6 +169,6 @@ describe("GatewayPersonalAgentProvisioner", () => {
     await expect(provisioner.provisionOrRefresh(invalid)).rejects.toThrow(
       "invalid personal agent id",
     );
-    expect(rpc.call).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
   });
 });

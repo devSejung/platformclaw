@@ -14,7 +14,7 @@ describe("createEmployeeBrowserAuthRuntime", () => {
   it("wires employee authentication, persistent sessions, and provisioning", async () => {
     const sessionValue = "test-session-value";
     const provisioner = { provisionOrRefresh: vi.fn(async () => undefined) };
-    const fetchImpl = vi.fn(
+    const fetchImpl = vi.fn<typeof fetch>(
       async () =>
         new Response(
           JSON.stringify({
@@ -63,7 +63,7 @@ describe("createEmployeeBrowserAuthRuntime", () => {
   it("loads the employee login URL from deployment environment", async () => {
     const env: NodeJS.ProcessEnv = {};
     env[EMPLOYEE_AUTH_LOGIN_URL_ENV] = "http://127.0.0.1:18080/login";
-    const fetchImpl = vi.fn(
+    const fetchImpl = vi.fn<typeof fetch>(
       async () =>
         new Response(JSON.stringify({ authenticated: false, message: "no" }), {
           status: 401,
