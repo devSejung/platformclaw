@@ -87,6 +87,11 @@ function normalizeBase(input: string): string {
   return `${trimmed}/`;
 }
 
+export function rewritePlatformClawDevLoginUrl(rawUrl: string | undefined): string | undefined {
+  const url = new URL(rawUrl ?? "/", "http://localhost");
+  return url.pathname === "/platformclaw/login" ? `/platformclaw-login.html${url.search}` : rawUrl;
+}
+
 function readPackageVersion(): string | null {
   try {
     const raw = fs.readFileSync(path.join(repoRoot, "package.json"), "utf8");
@@ -445,6 +450,10 @@ export default function controlUiViteConfig(): UserConfig {
       {
         name: "control-ui-dev-stubs",
         configureServer(server) {
+          server.middlewares.use((req, _res, next) => {
+            req.url = rewritePlatformClawDevLoginUrl(req.url);
+            next();
+          });
           server.middlewares.use(bootstrapConfigPath, (_req, res) => {
             res.setHeader("Content-Type", "application/json");
             res.end(

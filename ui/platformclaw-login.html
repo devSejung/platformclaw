@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="robots" content="noindex,nofollow" />
+    <base href="/platformclaw/" />
+    <title>PlatformClaw 로그인</title>
+    <link rel="stylesheet" href="/src/platformclaw/login.css" />
+  </head>
+  <body>
+    <main class="login-page" data-platformclaw-login>
+      <div class="login-brand" aria-label="PlatformClaw">
+        <div class="login-mark" aria-hidden="true">PC</div>
+        <div>
+          <div class="login-brand__name">PlatformClaw</div>
+          <div class="login-brand__label">Enterprise AI workspace</div>
+        </div>
+      </div>
+      <section class="login-card" aria-labelledby="login-title">
+        <h1 id="login-title">업무 계정으로 로그인</h1>
+        <p class="login-intro">회사 계정으로 개인 AI workspace에 안전하게 접속하세요.</p>
+        <form data-login-form novalidate>
+          <label>
+            아이디
+            <input
+              name="identifier"
+              type="text"
+              autocomplete="username"
+              autocapitalize="none"
+              spellcheck="false"
+              required
+              disabled
+            />
+          </label>
+          <label>
+            비밀번호
+            <input
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              disabled
+            />
+          </label>
+          <p class="login-error" data-login-error role="alert" hidden></p>
+          <button type="submit" disabled>세션 확인 중…</button>
+        </form>
+        <p class="login-status" data-login-status aria-live="polite">
+          기존 로그인 상태를 확인하고 있습니다.
+        </p>
+      </section>
+      <p class="login-footer">
+        인증 정보는 브라우저에 저장되지 않습니다.<br />접속 문제가 계속되면 PlatformClaw 관리자에게
+        문의하세요.
+      </p>
+    </main>
+    <script type="module" src="/src/platformclaw/login.ts"></script>
+  </body>
+</html>

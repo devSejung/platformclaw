@@ -14,6 +14,7 @@ import {
   PlatformClawGatewayRuntimeClient,
   type PlatformClawGatewayRuntimeClientOptions,
 } from "./gateway-runtime-client.js";
+import { createPlatformClawWebAssetHandler } from "./web-assets.js";
 import {
   PlatformClawWebIngressServer,
   type PlatformClawWebIngressListenOptions,
@@ -32,6 +33,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   >;
   gatewayClient: PlatformClawGatewayRuntimeClientOptions;
   publicOrigin: string;
+  controlUiRoot: string;
   loginRateLimiter?: MemoryBrowserLoginRateLimiterOptions;
   ingress?: Pick<
     PlatformClawWebIngressOptions,
@@ -75,6 +77,7 @@ export function createPlatformClawWebIngressRuntime(
     loginRateLimiter: new MemoryBrowserLoginRateLimiter(options.loginRateLimiter),
     gatewayProxy,
     gateway,
+    webAssets: createPlatformClawWebAssetHandler(options.controlUiRoot),
     ...options.ingress,
   });
   let closed = false;

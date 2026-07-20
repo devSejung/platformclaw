@@ -1,3 +1,7 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { GatewayClientOptions } from "@openclaw/gateway-client";
 import type { HelloOk } from "@openclaw/gateway-protocol";
 import { describe, expect, it, vi } from "vitest";
@@ -22,6 +26,9 @@ function hello(): HelloOk {
 
 describe("createPlatformClawWebIngressRuntime", () => {
   it("assembles employee auth, the private Gateway, policy proxy, and listener", async () => {
+    const controlUiRoot = mkdtempSync(join(tmpdir(), "platformclaw-ingress-ui-"));
+    mkdirSync(join(controlUiRoot, "assets"));
+    writeFileSync(join(controlUiRoot, "platformclaw-login.html"), "<!doctype html>Login");
     let clientOptions: GatewayClientOptions | undefined;
     const stop = vi.fn();
     const provisionOrRefresh = vi.fn(async () => undefined);
@@ -58,12 +65,17 @@ describe("createPlatformClawWebIngressRuntime", () => {
         },
       },
       publicOrigin: "http://127.0.0.1:3000",
+      controlUiRoot,
     });
 
     try {
       await runtime.listen({ host: "127.0.0.1", port: 0 });
       expect(clientOptions?.token).toBe("test-auth-token");
       expect(runtime.gateway.getHello()).toEqual(hello());
+      const port = (runtime.server.address() as AddressInfo).port;
+      const loginPage = await fetch(`http://127.0.0.1:${port}/platformclaw/login`);
+      expect(loginPage.status).toBe(200);
+      expect(await loginPage.text()).toContain("<!doctype html>Login");
 
       await expect(
         runtime.auth.service.loginPassword({
@@ -77,6 +89,7 @@ describe("createPlatformClawWebIngressRuntime", () => {
       expect(provisionOrRefresh).toHaveBeenCalledOnce();
     } finally {
       await runtime.close();
+      rmSync(controlUiRoot, { recursive: true, force: true });
     }
     expect(stop).toHaveBeenCalledOnce();
   });
