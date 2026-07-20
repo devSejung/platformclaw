@@ -150,8 +150,14 @@ jobs:
           CHECKOUT_EVENT_REF: ${{ github.ref }}
           CHECKOUT_FALLBACK_REF: ${{ github.sha }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
+          CHECKOUT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          if [[ -z "$CHECKOUT_TOKEN" ]]; then
+            echo "checkout token is missing" >&2
+            exit 1
+          fi
+          auth_header="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
           git init "$GITHUB_WORKSPACE"
           git -C "$GITHUB_WORKSPACE" config gc.auto 0
           git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/${CHECKOUT_REPO}.git"
@@ -161,6 +167,7 @@ jobs:
             for attempt in 1 2 3; do
               timeout --signal=TERM --kill-after=10s 120s git -C "$GITHUB_WORKSPACE" \
                 -c protocol.version=2 \
+                -c "http.extraheader=AUTHORIZATION: basic ${auth_header}" \
                 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin \
                 "+${ref}:refs/remotes/origin/checkout" && return 0
               fetch_status="$?"
@@ -184,6 +191,7 @@ jobs:
             for attempt in 1 2 3; do
               timeout --signal=TERM --kill-after=10s 120s git -C "$GITHUB_WORKSPACE" \
                 -c protocol.version=2 \
+                -c "http.extraheader=AUTHORIZATION: basic ${auth_header}" \
                 fetch --no-tags --prune --no-recurse-submodules --depth=2 \
                 --filter=blob:none origin "$sha" && return 0
               if [ "$attempt" = "3" ]; then
@@ -807,8 +815,14 @@ jobs:
           CHECKOUT_REF: ${{ inputs.target_ref || github.sha }}
           CHECKOUT_FALLBACK_REF: ${{ github.sha }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
+          CHECKOUT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          if [[ -z "$CHECKOUT_TOKEN" ]]; then
+            echo "checkout token is missing" >&2
+            exit 1
+          fi
+          auth_header="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
           git init "$GITHUB_WORKSPACE"
           git -C "$GITHUB_WORKSPACE" config gc.auto 0
           git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/${CHECKOUT_REPO}.git"
@@ -818,6 +832,7 @@ jobs:
             for attempt in 1 2 3; do
               timeout --signal=TERM --kill-after=10s 120s git -C "$GITHUB_WORKSPACE" \
                 -c protocol.version=2 \
+                -c "http.extraheader=AUTHORIZATION: basic ${auth_header}" \
                 fetch --no-tags --prune --no-recurse-submodules --depth=2 origin \
                 "+${ref}:refs/remotes/origin/checkout" && return 0
               fetch_status="$?"
@@ -970,8 +985,15 @@ jobs:
         env:
           CHECKOUT_REPO: ${{ github.repository }}
           CHECKOUT_SHA: ${{ needs.preflight.outputs.checkout_revision }}
+          CHECKOUT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          if [[ -z "$CHECKOUT_TOKEN" ]]; then
+            echo "checkout token is missing" >&2
+            exit 1
+          fi
+          auth_header="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
 
           workdir="$GITHUB_WORKSPACE"
           reset_checkout_dir() {
@@ -990,6 +1012,7 @@ jobs:
 
             timeout --signal=TERM --kill-after=10s 120s git -C "$workdir" \
               -c protocol.version=2 \
+              -c "http.extraheader=AUTHORIZATION: basic ${auth_header}" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin \
               "+${CHECKOUT_SHA}:refs/remotes/origin/ci-target" || return 1
 
@@ -1137,6 +1160,7 @@ jobs:
         id: built_artifact_checks
         if: needs.preflight.outputs.run_checks == 'true' || needs.preflight.outputs.run_checks_node_core_dist == 'true' || needs.preflight.outputs.run_check_additional == 'true'
         env:
+          PARALLEL_GATEWAY_WATCH: ${{ runner.environment != 'github-hosted' && 'true' || 'false' }}
           RUN_CHANNELS: ${{ needs.preflight.outputs.run_checks }}
           RUN_CORE_SUPPORT_BOUNDARY: ${{ needs.preflight.outputs.run_checks_node_core_dist }}
           RUN_GATEWAY_WATCH: ${{ needs.preflight.outputs.run_check_additional }}
@@ -1164,6 +1188,29 @@ jobs:
             pids+=("$!")
           }
 
+          wait_checks() {
+            local index name log pid result
+            for index in "${!pids[@]}"; do
+              name="${names[$index]}"
+              log="${logs[$index]}"
+              pid="${pids[$index]}"
+
+              if wait "$pid"; then
+                result="success"
+              else
+                result="failure"
+              fi
+
+              echo "::group::${name} log"
+              cat "$log"
+              echo "::endgroup::"
+              results["$name"]="$result"
+            done
+            names=()
+            pids=()
+            logs=()
+          }
+
           if [ "$RUN_CHANNELS" = "true" ]; then
             start_check "channels" env \
               NODE_OPTIONS=--max-old-space-size=8192 \
@@ -1178,36 +1225,19 @@ jobs:
               node scripts/run-vitest.mjs run --config test/vitest/vitest.full-core-support-boundary.config.ts
           fi
 
-          for index in "${!pids[@]}"; do
-            name="${names[$index]}"
-            log="${logs[$index]}"
-            pid="${pids[$index]}"
+          if [ "$RUN_GATEWAY_WATCH" = "true" ] && [ "$PARALLEL_GATEWAY_WATCH" = "true" ]; then
+            start_check "gateway-watch" \
+              node scripts/check-gateway-watch-regression.mjs --skip-build
+          fi
 
-            if wait "$pid"; then
-              result="success"
-            else
-              result="failure"
-            fi
+          wait_checks
 
-            echo "::group::${name} log"
-            cat "$log"
-            echo "::endgroup::"
-            results["$name"]="$result"
-          done
-
-          if [ "$RUN_GATEWAY_WATCH" = "true" ]; then
-            log="${RUNNER_TEMP}/gateway-watch.log"
-            echo "starting gateway-watch: node scripts/check-gateway-watch-regression.mjs --skip-build"
-            if node scripts/check-gateway-watch-regression.mjs --skip-build >"$log" 2>&1; then
-              result="success"
-            else
-              result="failure"
-            fi
-
-            echo "::group::gateway-watch log"
-            cat "$log"
-            echo "::endgroup::"
-            results["gateway-watch"]="$result"
+          # Preserve the low-core hosted path; concurrent Vitest can otherwise
+          # starve the Gateway readiness deadline used by this regression gate.
+          if [ "$RUN_GATEWAY_WATCH" = "true" ] && [ "$PARALLEL_GATEWAY_WATCH" != "true" ]; then
+            start_check "gateway-watch" \
+              node scripts/check-gateway-watch-regression.mjs --skip-build
+            wait_checks
           fi
 
           for name in channels core-support-boundary gateway-watch; do
@@ -2564,8 +2594,14 @@ jobs:
         env:
           CHECKOUT_REPO: ${{ github.repository }}
           CHECKOUT_SHA: ${{ needs.preflight.outputs.checkout_revision }}
+          CHECKOUT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          if [[ -z "$CHECKOUT_TOKEN" ]]; then
+            echo "checkout token is missing" >&2
+            exit 1
+          fi
+          auth_header="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
           git init "$GITHUB_WORKSPACE"
           git -C "$GITHUB_WORKSPACE" config gc.auto 0
           git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/${CHECKOUT_REPO}.git"
@@ -2574,6 +2610,7 @@ jobs:
             for attempt in 1 2 3; do
               timeout --signal=TERM --kill-after=10s 120s git -C "$GITHUB_WORKSPACE" \
                 -c protocol.version=2 \
+                -c "http.extraheader=AUTHORIZATION: basic ${auth_header}" \
                 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin \
                 "+${CHECKOUT_SHA}:refs/remotes/origin/checkout" && return 0
               fetch_status="$?"
@@ -2632,8 +2669,14 @@ jobs:
         env:
           CHECKOUT_REPO: ${{ github.repository }}
           CHECKOUT_SHA: ${{ needs.preflight.outputs.checkout_revision }}
+          CHECKOUT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          if [[ -z "$CHECKOUT_TOKEN" ]]; then
+            echo "checkout token is missing" >&2
+            exit 1
+          fi
+          auth_header="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
           git init "$GITHUB_WORKSPACE"
           git -C "$GITHUB_WORKSPACE" config gc.auto 0
           git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/${CHECKOUT_REPO}.git"
@@ -2641,6 +2684,7 @@ jobs:
           fetch_checkout_ref_once() {
             git -C "$GITHUB_WORKSPACE" \
               -c protocol.version=2 \
+              -c "http.extraheader=AUTHORIZATION: basic ${auth_header}" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin \
               "+${CHECKOUT_SHA}:refs/remotes/origin/checkout" &
             local fetch_pid="$!"
@@ -3110,8 +3154,15 @@ jobs:
         env:
           CHECKOUT_REPO: ${{ github.repository }}
           CHECKOUT_SHA: ${{ needs.preflight.outputs.checkout_revision }}
+          CHECKOUT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          if [[ -z "$CHECKOUT_TOKEN" ]]; then
+            echo "checkout token is missing" >&2
+            exit 1
+          fi
+          auth_header="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
 
           workdir="$GITHUB_WORKSPACE"
           reset_checkout_dir() {
@@ -3130,6 +3181,7 @@ jobs:
 
             timeout --signal=TERM --kill-after=10s 120s git -C "$workdir" \
               -c protocol.version=2 \
+              -c "http.extraheader=AUTHORIZATION: basic ${auth_header}" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin \
               "+${CHECKOUT_SHA}:refs/remotes/origin/ci-target" || return 1
 

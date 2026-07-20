@@ -5,7 +5,7 @@
 - Upstream repository: `https://github.com/openclaw/openclaw.git`
 - Origin repository: `https://github.com/devSejung/platformclaw`
 - Baseline commit: `17c2ce05d8021b969f9e822a34e92535145922d5`
-- Last upstream sync: 2026-07-18 on `sync/upstream-20260718` through upstream commit `5057fd9e597eff5b6eec3669059a751727874ea8`
+- Last upstream sync: 2026-07-18 on `sync/upstream-20260718-refresh` through upstream commit `0acece4591248099a6c58296143adf4d24db3d1e`
 - Initial sync state: local `main`, `origin/main`, and `upstream/main` identical
 
 ## Current Phase

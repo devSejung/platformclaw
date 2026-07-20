@@ -74,7 +74,7 @@ type ExternalAuthSuccess = {
   confluenceSpace?: string;
   notes?: string;
   groups?: string[];
-  attributes?: Record<string, string | string[]>;
+  attributes?: EmployeeDirectoryProfile["attributes"];
 };
 
 type ExternalAuthResponse = ExternalAuthFailure | ExternalAuthSuccess;

@@ -111,17 +111,22 @@ export class BrowserAuthService {
     }
 
     const sessionAt = (this.options.now ?? Date.now)();
-    const currentSession = params.currentSession
+    const currentSessionToken = params.currentSession?.value;
+    const currentSession = currentSessionToken
       ? await this.options.store.resolveBrowserSession({
-          tokenHash: hashBrowserSessionToken(params.currentSession.value),
+          tokenHash: hashBrowserSessionToken(currentSessionToken),
           resolvedAt: sessionAt,
           touch: true,
         })
       : undefined;
-    if (currentSession?.status === "active" && currentSession.user.id === upserted.user.id) {
+    if (
+      currentSessionToken &&
+      currentSession?.status === "active" &&
+      currentSession.user.id === upserted.user.id
+    ) {
       return {
         status: "authenticated",
-        token: params.currentSession.value,
+        token: currentSessionToken,
         session: currentSession.session,
         user: upserted.user,
         binding,
