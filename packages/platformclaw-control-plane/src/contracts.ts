@@ -9,6 +9,7 @@ export type EnterpriseAuthProvider = "ldap" | "saml";
 export type EnterprisePrincipal = {
   provider: EnterpriseAuthProvider;
   subject: string;
+  accountId?: string;
   employeeId: string;
   displayName?: string;
   email?: string;
@@ -245,6 +246,8 @@ export interface ControlPlaneManagementStore {
 }
 
 export type ControlPlaneConflictCode =
+  | "account_id_conflict"
+  | "account_id_mismatch"
   | "employee_id_conflict"
   | "employee_id_mismatch"
   | "stale_authentication"

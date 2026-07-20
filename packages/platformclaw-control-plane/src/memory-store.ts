@@ -97,6 +97,7 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private readonly sessionPolicy: BrowserSessionPolicy;
   private readonly initialAdminAccountIds: ReadonlySet<string>;
   private readonly users = new Map<string, PlatformUser>();
+  private readonly userIdByAccountId = new Map<string, string>();
   private readonly userIdByEmployeeId = new Map<string, string>();
   private readonly identities = new Map<string, EnterpriseIdentity>();
   private readonly bindings = new Map<string, AgentBinding>();
@@ -124,11 +125,20 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   ): Promise<UpsertPrincipalResult> {
     const subject = requireNonEmpty(principal.subject, "principal.subject");
     const employeeId = normalizeEmployeeId(principal.employeeId);
+    const requestedAccountId = principal.accountId
+      ? normalizeEmployeeId(principal.accountId)
+      : undefined;
     const key = identityKey(principal.provider, subject);
     const existingIdentity = this.identities.get(key);
 
     if (existingIdentity) {
       const user = this.requireUser(existingIdentity.userId);
+      if (requestedAccountId && requestedAccountId !== user.accountId) {
+        throw new ControlPlaneConflictError(
+          "account_id_mismatch",
+          `identity account id disagrees with the canonical user: ${principal.provider}:${subject}`,
+        );
+      }
       if (
         authenticatedAt < existingIdentity.lastAuthenticatedAt ||
         (authenticatedAt === existingIdentity.lastAuthenticatedAt &&
@@ -150,11 +160,29 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
       };
     }
 
-    const existingUserId = this.userIdByEmployeeId.get(employeeId);
+    const accountOwnerId = requestedAccountId
+      ? this.userIdByAccountId.get(requestedAccountId)
+      : undefined;
+    const employeeOwnerId = this.userIdByEmployeeId.get(employeeId);
+    if (accountOwnerId && employeeOwnerId && accountOwnerId !== employeeOwnerId) {
+      throw new ControlPlaneConflictError(
+        "account_id_conflict",
+        `account id and employee id belong to different users: ${requestedAccountId}`,
+      );
+    }
+    const existingUserId = accountOwnerId ?? employeeOwnerId;
+    const existingUser = existingUserId ? this.requireUser(existingUserId) : undefined;
+    const accountId = requestedAccountId ?? existingUser?.accountId ?? employeeId;
     const user = existingUserId
-      ? this.requireUser(existingUserId)
-      : this.createUser(employeeId, principal, authenticatedAt);
-    if (existingUserId) {
+      ? existingUser!
+      : this.createUser(accountId, employeeId, principal, authenticatedAt);
+    if (existingUser) {
+      if (requestedAccountId && user.accountId !== requestedAccountId) {
+        throw new ControlPlaneConflictError(
+          "account_id_mismatch",
+          `account id disagrees with the canonical user: ${requestedAccountId}`,
+        );
+      }
       this.updateUserFromPrincipal(user, principal, authenticatedAt);
     }
 
@@ -412,22 +440,24 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   }
 
   private createUser(
+    accountId: string,
     employeeId: string,
     principal: EnterprisePrincipal,
     createdAt: number,
   ): PlatformUser {
     const user: PlatformUser = {
       id: this.idFactory.nextUserId(),
-      accountId: employeeId,
+      accountId,
       employeeId,
       status: "active",
-      globalRole: this.initialAdminAccountIds.has(employeeId.toLowerCase()) ? "admin" : "member",
+      globalRole: this.initialAdminAccountIds.has(accountId) ? "admin" : "member",
       groups: normalizeGroups(principal.groups),
       createdAt,
       updatedAt: createdAt,
       ...this.profileFields(principal),
     };
     this.users.set(user.id, user);
+    this.userIdByAccountId.set(accountId, user.id);
     this.userIdByEmployeeId.set(employeeId, user.id);
     return user;
   }

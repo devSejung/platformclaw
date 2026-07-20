@@ -34,11 +34,12 @@ After Phase 1:
 
 ## Implementation status
 
-Slices 1 and 2 are implemented in `packages/platformclaw-control-plane`. They
+Slices 1 through 3 are implemented in `packages/platformclaw-control-plane`. They
 define the identity, browser-session, personal-agent provisioning, Knox room
-binding, authenticated Knox DM routing, and managed group/part contracts. The
-in-memory store covers contract behavior, and the SQLite store persists the
-approved schema version 1.
+binding, authenticated Knox DM routing, managed group/part contracts,
+employee-auth HTTP adapter, opaque-session login service, and framework-neutral
+browser-auth HTTP boundary. The in-memory store covers contract behavior, and
+the SQLite store persists the approved schema version 1.
 
 Focused tests cover LDAP metadata refresh, LDAP-to-SAML identity linking,
 employee ID correction conflicts, concurrent personal and room provisioning,
@@ -46,8 +47,13 @@ room agent ID compatibility, browser session limits and expiry, account
 disablement, Knox DM ownership checks, restart persistence, administrator
 bootstrap, managed group/part permissions, and audit events.
 
-These slices do not contain credential encryption, LDAP or SAML network calls,
-HTTP endpoints, Knox transport code, OpenClaw agent creation, or Gateway
+The LDAP-compatible adapter calls the existing employee-auth HTTP service. The
+HTTP boundary exposes login, logout, and current-session handlers, but still
+requires its host process to inject bounded JSON parsing, a trusted client IP,
+TLS state, and an auth rate limiter.
+
+These slices do not contain credential encryption, SAML protocol handling,
+Knox transport code, OpenClaw agent creation, workspace file writes, or Gateway
 mutations.
 
 ## Process boundary
@@ -86,6 +92,7 @@ Authentication adapters normalize provider-specific results into one shape:
 type EnterprisePrincipal = {
   provider: "ldap" | "saml";
   subject: string;
+  accountId?: string;
   employeeId: string;
   displayName?: string;
   email?: string;
