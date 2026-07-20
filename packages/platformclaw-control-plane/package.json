@@ -22,6 +22,7 @@
     "@openclaw/gateway-client": "workspace:*",
     "@openclaw/gateway-protocol": "workspace:*",
     "@openclaw/normalization-core": "workspace:*",
-    "kysely": "0.29.2"
+    "kysely": "0.29.2",
+    "ws": "8.21.0"
   }
 }

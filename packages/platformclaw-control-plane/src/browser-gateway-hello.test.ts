@@ -65,6 +65,7 @@ describe("projectPlatformClawBrowserHello", () => {
       upstream: upstreamHello(),
       access,
       connectionId: "browser-1",
+      maxPayloadBytes: 512,
     });
 
     expect(projected.server).toEqual({ version: "2026.7.20", connId: "browser-1" });
@@ -88,5 +89,6 @@ describe("projectPlatformClawBrowserHello", () => {
       role: "operator",
       scopes: ["operator.read", "operator.write"],
     });
+    expect(projected.policy.maxPayload).toBe(512);
   });
 });

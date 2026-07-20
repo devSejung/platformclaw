@@ -11,6 +11,7 @@ export function projectPlatformClawBrowserHello(params: {
   upstream: HelloOk;
   access: BrowserGatewayAccess;
   connectionId: string;
+  maxPayloadBytes?: number;
 }): HelloOk {
   const upstreamMethods = new Set(params.upstream.features.methods);
   const upstreamEvents = new Set(params.upstream.features.events);
@@ -41,6 +42,12 @@ export function projectPlatformClawBrowserHello(params: {
       role: "operator",
       scopes: [...BROWSER_OPERATOR_SCOPES],
     },
-    policy: params.upstream.policy,
+    policy: {
+      ...params.upstream.policy,
+      maxPayload:
+        params.maxPayloadBytes === undefined
+          ? params.upstream.policy.maxPayload
+          : Math.min(params.upstream.policy.maxPayload, params.maxPayloadBytes),
+    },
   };
 }

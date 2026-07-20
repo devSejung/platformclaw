@@ -218,10 +218,18 @@ upstream operator feature from silently becoming browser-accessible. Agent IDs
 are pinned server-side, session keys are checked against the owned agent, and
 agent/session collections, direct session results, and asynchronous events are
 filtered again on return. Denials are audited without request payloads or
-credentials. The deployable HTTP/WebSocket listener is a separate hosting
-slice; it must use this policy boundary rather than reimplement authorization.
+credentials. The HTTP/WebSocket listener is a separate hosting slice and uses
+this policy boundary rather than reimplementing authorization. It speaks the
+upstream Gateway frame protocol, reuses the public Gateway client for the
+private connection, replaces the operator hello with a browser-safe projection,
+and regenerates event sequence numbers after filtering.
 Events without an owned session key, including raw agent-run events, are
 dropped; session-scoped chat and tool events are the browser streaming surface.
+
+The listener requires one configured public origin and does not infer external
+authority from forwarded headers. Operator secret resolution, persistent path
+selection, process supervision, reverse-proxy routing, and Control UI login
+bootstrap remain deployment composition responsibilities.
 
 Because the private Gateway client currently has operator authority, browser
 messages use only `chat.send`, with command interpretation and external
