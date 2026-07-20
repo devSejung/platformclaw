@@ -58,6 +58,7 @@ const access: BrowserGatewayAccess = {
 
 class FakeGateway implements PlatformClawGatewayBackend {
   private readonly listeners = new Set<(event: EventFrame) => void>();
+  private readonly disconnectListeners = new Set<() => void>();
   readonly start = vi.fn();
   readonly stop = vi.fn();
   readonly request = vi.fn(async () => ({ upstream: true }));
@@ -71,6 +72,11 @@ class FakeGateway implements PlatformClawGatewayBackend {
     return () => this.listeners.delete(listener);
   }
 
+  subscribeDisconnect(listener: () => void): () => void {
+    this.disconnectListeners.add(listener);
+    return () => this.disconnectListeners.delete(listener);
+  }
+
   emit(event: EventFrame): void {
     for (const listener of this.listeners) {
       listener(event);
@@ -79,6 +85,12 @@ class FakeGateway implements PlatformClawGatewayBackend {
 
   listenerCount(): number {
     return this.listeners.size;
+  }
+
+  disconnect(): void {
+    for (const listener of this.disconnectListeners) {
+      listener();
+    }
   }
 }
 
@@ -273,6 +285,100 @@ describe("PlatformClawWebIngressServer", () => {
     });
     expect(responseStatus).toBe(403);
     expect(policy.resolveAccess).not.toHaveBeenCalled();
+  });
+
+  it("closes browsers so they resynchronize after the private Gateway disconnects", async () => {
+    const gateway = new FakeGateway();
+    const { policy } = createPolicy();
+    server = new PlatformClawWebIngressServer({
+      publicOrigin: PUBLIC_ORIGIN,
+      authService: {} as BrowserAuthService,
+      loginRateLimiter: {
+        check: () => ({ allowed: true, retryAfterMs: 0 }),
+        recordFailure: vi.fn(),
+      },
+      gatewayProxy: policy,
+      gateway,
+    });
+    await server.listen({ host: "127.0.0.1", port: 0 });
+    const port = (server.address() as AddressInfo).port;
+    websocket = new WebSocket(`ws://127.0.0.1:${port}/platformclaw/gateway`, {
+      origin: PUBLIC_ORIGIN,
+      headers: { Cookie: `platformclaw_session=${TEST_SESSION}` },
+    });
+    await new Promise<void>((resolve, reject) => {
+      websocket?.once("open", resolve);
+      websocket?.once("error", reject);
+    });
+    const closed = new Promise<number>((resolve) => {
+      websocket?.once("close", resolve);
+    });
+
+    gateway.disconnect();
+
+    await expect(closed).resolves.toBe(1012);
+  });
+
+  it("bounds queued browser requests and cancels them after disconnect", async () => {
+    const gateway = new FakeGateway();
+    const blockedRequest = deferred<unknown>();
+    const policy: PlatformClawBrowserGatewayPolicy = {
+      resolveAccess: vi.fn(async () => access),
+      request: vi.fn(async () => blockedRequest.promise),
+      filterEvent: vi.fn(async (_token, event) => event),
+    };
+    server = new PlatformClawWebIngressServer({
+      publicOrigin: PUBLIC_ORIGIN,
+      authService: {} as BrowserAuthService,
+      loginRateLimiter: {
+        check: () => ({ allowed: true, retryAfterMs: 0 }),
+        recordFailure: vi.fn(),
+      },
+      gatewayProxy: policy,
+      gateway,
+    });
+    await server.listen({ host: "127.0.0.1", port: 0 });
+    const port = (server.address() as AddressInfo).port;
+    websocket = new WebSocket(`ws://127.0.0.1:${port}/platformclaw/gateway`, {
+      origin: PUBLIC_ORIGIN,
+      headers: { Cookie: `platformclaw_session=${TEST_SESSION}` },
+    });
+    const nextFrame = createFrameQueue(websocket);
+    await new Promise<void>((resolve, reject) => {
+      websocket?.once("open", resolve);
+      websocket?.once("error", reject);
+    });
+    await nextFrame((frame) => isRecord(frame) && frame.event === "connect.challenge");
+    websocket.send(
+      JSON.stringify({
+        type: "req",
+        id: "connect-queue",
+        method: "connect",
+        params: {
+          minProtocol: 4,
+          maxProtocol: 4,
+          client: {
+            id: "openclaw-control-ui",
+            version: "test",
+            platform: "web",
+            mode: "webchat",
+          },
+        },
+      }),
+    );
+    await nextFrame((frame) => isRecord(frame) && frame.id === "connect-queue");
+    const closed = new Promise<number>((resolve) => {
+      websocket?.once("close", resolve);
+    });
+    for (let index = 0; index < 9; index += 1) {
+      websocket.send(
+        JSON.stringify({ type: "req", id: `queued-${index}`, method: "agents.list", params: {} }),
+      );
+    }
+
+    await expect(closed).resolves.toBe(1013);
+    blockedRequest.resolve({});
+    await vi.waitFor(() => expect(policy.request).toHaveBeenCalledOnce());
   });
 
   it("does not retain a Gateway subscription when the browser closes during connect", async () => {

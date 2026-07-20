@@ -1,7 +1,4 @@
-import {
-  GatewayClient,
-  type GatewayClientOptions,
-} from "@openclaw/gateway-client";
+import { GatewayClient, type GatewayClientOptions } from "@openclaw/gateway-client";
 import type { EventFrame, HelloOk } from "@openclaw/gateway-protocol";
 import type { BrowserGatewayRpc } from "./browser-gateway-proxy.js";
 
@@ -10,6 +7,7 @@ export type PlatformClawGatewayBackend = BrowserGatewayRpc & {
   stop(): void;
   getHello(): HelloOk | null;
   subscribe(listener: (event: EventFrame) => void): () => void;
+  subscribeDisconnect(listener: () => void): () => void;
 };
 
 type GatewayClientLike = {
@@ -27,10 +25,12 @@ export type PlatformClawGatewayRuntimeClientOptions = {
 export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBackend {
   private readonly client: GatewayClientLike;
   private readonly listeners = new Set<(event: EventFrame) => void>();
+  private readonly disconnectListeners = new Set<() => void>();
   private hello: HelloOk | null = null;
 
   constructor(options: PlatformClawGatewayRuntimeClientOptions) {
-    const createClient = options.createClient ?? ((clientOptions) => new GatewayClient(clientOptions));
+    const createClient =
+      options.createClient ?? ((clientOptions) => new GatewayClient(clientOptions));
     const configuredOnEvent = options.client.onEvent;
     const configuredOnHello = options.client.onHelloOk;
     const configuredOnClose = options.client.onClose;
@@ -48,6 +48,9 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
       },
       onClose: (code, reason, info) => {
         this.hello = null;
+        for (const listener of this.disconnectListeners) {
+          listener();
+        }
         configuredOnClose?.(code, reason, info);
       },
     });
@@ -69,6 +72,11 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
   subscribe(listener: (event: EventFrame) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  subscribeDisconnect(listener: () => void): () => void {
+    this.disconnectListeners.add(listener);
+    return () => this.disconnectListeners.delete(listener);
   }
 
   async request<T = unknown>(method: string, params?: unknown): Promise<T> {

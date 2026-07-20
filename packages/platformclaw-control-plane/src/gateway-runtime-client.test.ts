@@ -34,7 +34,9 @@ describe("PlatformClawGatewayRuntimeClient", () => {
       },
     });
     const listener = vi.fn();
+    const disconnectListener = vi.fn();
     const unsubscribe = backend.subscribe(listener);
+    const unsubscribeDisconnect = backend.subscribeDisconnect(disconnectListener);
 
     backend.start();
     expect(start).toHaveBeenCalledOnce();
@@ -53,6 +55,8 @@ describe("PlatformClawGatewayRuntimeClient", () => {
 
     configured?.onClose?.(1006, "closed");
     expect(backend.getHello()).toBeNull();
+    expect(disconnectListener).toHaveBeenCalledOnce();
+    unsubscribeDisconnect();
     backend.stop();
     expect(stop).toHaveBeenCalledOnce();
   });

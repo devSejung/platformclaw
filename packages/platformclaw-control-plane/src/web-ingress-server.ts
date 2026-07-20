@@ -33,6 +33,7 @@ export const PLATFORMCLAW_HEALTH_PATH = "/platformclaw/health";
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
+const MAX_PENDING_BROWSER_REQUESTS = 8;
 
 export type PlatformClawBrowserGatewayPolicy = {
   resolveAccess(token: string, touch?: boolean): Promise<BrowserGatewayAccess>;
@@ -160,6 +161,7 @@ export class PlatformClawWebIngressServer {
     void this.handleHttpRequest(req, res);
   });
   private started = false;
+  private unsubscribeGatewayDisconnect = () => {};
 
   constructor(private readonly options: PlatformClawWebIngressOptions) {
     this.publicOrigin = normalizePublicOrigin(options.publicOrigin);
@@ -181,8 +183,13 @@ export class PlatformClawWebIngressServer {
       throw new Error("PlatformClaw web ingress is already listening");
     }
     this.started = true;
-    this.options.gateway.start();
+    this.unsubscribeGatewayDisconnect = this.options.gateway.subscribeDisconnect(() => {
+      for (const socket of this.websocketServer.clients) {
+        socket.close(1012, "private Gateway disconnected");
+      }
+    });
     try {
+      this.options.gateway.start();
       await new Promise<void>((resolve, reject) => {
         const onError = (error: Error) => {
           this.httpServer.off("listening", onListening);
@@ -198,6 +205,8 @@ export class PlatformClawWebIngressServer {
       });
     } catch (error) {
       this.started = false;
+      this.unsubscribeGatewayDisconnect();
+      this.unsubscribeGatewayDisconnect = () => {};
       this.options.gateway.stop();
       throw error;
     }
@@ -212,6 +221,8 @@ export class PlatformClawWebIngressServer {
       return;
     }
     this.started = false;
+    this.unsubscribeGatewayDisconnect();
+    this.unsubscribeGatewayDisconnect = () => {};
     for (const socket of this.websocketServer.clients) {
       socket.close(1001, "PlatformClaw web ingress stopping");
     }
@@ -306,6 +317,7 @@ export class PlatformClawWebIngressServer {
     let eventSeq = 0;
     let unsubscribe = () => {};
     let messageChain = Promise.resolve();
+    let pendingRequestCount = 0;
     let eventChain = Promise.resolve();
 
     const send = (frame: unknown): void => {
@@ -440,8 +452,19 @@ export class PlatformClawWebIngressServer {
     };
 
     websocket.on("message", (data: RawData, isBinary) => {
+      if (connectionClosed) {
+        return;
+      }
+      if (pendingRequestCount >= MAX_PENDING_BROWSER_REQUESTS) {
+        websocket.close(1013, "too many pending browser requests");
+        return;
+      }
+      pendingRequestCount += 1;
       messageChain = messageChain
         .then(async () => {
+          if (connectionClosed) {
+            return;
+          }
           if (isBinary) {
             websocket.close(1003, "binary frames are not supported");
             return;
@@ -459,7 +482,10 @@ export class PlatformClawWebIngressServer {
           }
           await handleRequest(parsed);
         })
-        .catch(() => websocket.close(1011, "request handling failed"));
+        .catch(() => websocket.close(1011, "request handling failed"))
+        .finally(() => {
+          pendingRequestCount -= 1;
+        });
     });
 
     // `ws` forwards transport/protocol failures as EventEmitter errors; consume them per client.

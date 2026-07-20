@@ -30,7 +30,7 @@ export function projectPlatformClawBrowserHello(params: {
     snapshot: {
       presence: [],
       health: {},
-      stateVersion: params.upstream.snapshot.stateVersion,
+      stateVersion: { presence: 0, health: 0 },
       uptimeMs: params.upstream.snapshot.uptimeMs,
       sessionDefaults: {
         defaultAgentId: params.access.binding.agentId,

@@ -77,7 +77,7 @@ describe("projectPlatformClawBrowserHello", () => {
     expect(projected.snapshot).toEqual({
       presence: [],
       health: {},
-      stateVersion: { presence: 7, health: 8 },
+      stateVersion: { presence: 0, health: 0 },
       uptimeMs: 9,
       sessionDefaults: {
         defaultAgentId: "person_one",
