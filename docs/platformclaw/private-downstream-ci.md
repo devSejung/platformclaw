@@ -13,13 +13,28 @@ its private origin repository. The upstream suite depends on OpenClaw
 organization runners, GitHub Apps, release credentials, and public-repository
 CodeQL behavior that are not PlatformClaw dependencies.
 
-The repository instead runs `.github/workflows/platformclaw-ci.yml` on pull
-requests, pushes to `main`, and manual dispatches. It uses a GitHub-hosted Ubuntu
-runner with the repository-scoped read-only `GITHUB_TOKEN` and performs:
+The repository uses two GitHub-hosted Ubuntu workflows with a repository-scoped
+read-only `GITHUB_TOKEN`:
 
-- changed-surface OpenClaw checks;
-- focused PlatformClaw control-plane tests; and
-- the PlatformClaw control-plane package build.
+- `.github/workflows/platformclaw-ci.yml` is the required fast PR gate. A
+  repository-owned planner classifies the changed paths. PlatformClaw-only
+  changes run focused formatting, lint, typecheck, tests, build, workflow, UI,
+  documentation, or deployment checks. Any path outside the private overlay
+  automatically falls back to the upstream changed-surface gate.
+- `.github/workflows/platformclaw-full-ci.yml` runs the broad upstream
+  changed-surface gate after pushes to `main`, on manual dispatch, and on
+  non-draft `sync/upstream-*` pull requests. It is background assurance for
+  normal feature work and a pre-merge gate for upstream synchronization.
+
+The fast path does not weaken control-plane coverage. Any control-plane change,
+including authentication, authorization, session, credential, and tenant
+isolation code, runs the whole control-plane test suite plus package typecheck,
+lint, and build. It avoids only unrelated OpenClaw core fanout.
+Repository-wide conflict-marker, changelog attribution, dependency pin, package
+patch, export-boundary, duplicate-scan, and max-lines suppression guards remain
+in the fast workflow. Pull requests fetch only the synthetic merge commit and
+its base/head parents; push and manual runs retain full history. Checkout
+credentials are not persisted.
 
 Docker image construction remains a release or deployment validation step. It
 is not part of every pull request.
@@ -51,6 +66,7 @@ After every upstream sync:
 4. Re-enable an upstream workflow only after proving its runner, secret,
    permission, and private-repository contracts.
 5. Run PlatformClaw CI on the sync pull request.
+6. Require PlatformClaw Full CI to pass on the `sync/upstream-*` pull request.
 
 Do not copy OpenClaw GitHub App private keys or release secrets into the
 PlatformClaw repository to make an unrelated upstream workflow pass.
