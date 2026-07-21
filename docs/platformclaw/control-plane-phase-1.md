@@ -50,8 +50,10 @@ persists the approved schema version 1.
 The Web ingress runtime now hosts the browser-auth HTTP handlers and a
 Gateway-protocol-compatible WebSocket boundary. It reuses the public Gateway
 client for the private operator connection, projects a browser-safe hello, and
-regenerates event sequence numbers after filtering. Production deployment
-composition and the Control UI employee-login bootstrap are not yet complete.
+regenerates event sequence numbers after filtering. It also serves the employee
+login and gates the upstream Control UI document on the active browser session.
+Production deployment composition and the restricted Control UI adapter are
+not yet complete.
 
 Focused tests cover LDAP metadata refresh, LDAP-to-SAML identity linking,
 employee ID correction conflicts, concurrent personal and room provisioning,

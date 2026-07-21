@@ -1,13 +1,30 @@
-import { readdirSync, realpathSync, statSync, type Dirent } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, readdirSync, realpathSync, statSync, type Dirent } from "node:fs";
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
 
 export const PLATFORMCLAW_WEB_LOGIN_PATH = "/platformclaw/login";
+export const PLATFORMCLAW_WEB_APP_PATH = "/platformclaw/app";
 export const PLATFORMCLAW_WEB_ASSET_PREFIX = "/platformclaw/assets/";
+export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descriptor";
+
+export const PLATFORMCLAW_WEB_DESCRIPTOR = {
+  mode: "platformclaw",
+  gatewayPath: "/platformclaw/gateway",
+  loginPath: PLATFORMCLAW_WEB_LOGIN_PATH,
+  logoutPath: "/platformclaw/api/auth/logout",
+  sessionPath: "/platformclaw/api/auth/session",
+  enabledRoutes: ["chat", "new-session", "sessions"],
+} as const;
 
 export type PlatformClawWebAssetHandler = {
-  handle(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
+  handlePublic(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
+  handleApplication(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
+};
+
+export type PlatformClawWebAssetOptions = {
+  publicOrigin: string;
 };
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
@@ -24,16 +41,13 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".webp": "image/webp",
 };
 
-const DOCUMENT_SECURITY_POLICY = [
+const DOCUMENT_SECURITY_POLICY_BASE = [
   "default-src 'self'",
-  "base-uri 'none'",
-  "connect-src 'self' ws: wss:",
   "form-action 'self'",
   "frame-ancestors 'none'",
   "img-src 'self' data:",
-  "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-].join("; ");
+];
 
 type WebAsset = {
   filePath: string;
@@ -84,11 +98,99 @@ function setSecurityHeaders(res: ServerResponse): void {
   res.setHeader("X-Frame-Options", "DENY");
 }
 
+function documentSecurityPolicy(
+  inlineScriptHashes: readonly string[] = [],
+  allowSameOriginBase = false,
+  websocketOrigin?: string,
+): string {
+  const scriptSources = ["'self'", ...inlineScriptHashes.map((hash) => `'sha256-${hash}'`)];
+  const connectSources = ["'self'", ...(websocketOrigin ? [websocketOrigin] : [])];
+  return [
+    ...DOCUMENT_SECURITY_POLICY_BASE,
+    `connect-src ${connectSources.join(" ")}`,
+    `base-uri ${allowSameOriginBase ? "'self'" : "'none'"}`,
+    `script-src ${scriptSources.join(" ")}`,
+  ].join("; ");
+}
+
+function resolveWebSocketOrigin(publicOrigin: string): string {
+  const url = new URL(publicOrigin);
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error("PlatformClaw web asset public origin is invalid");
+  }
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.origin;
+}
+
+export function isPlatformClawApplicationPath(pathname: string): boolean {
+  return (
+    pathname === PLATFORMCLAW_WEB_APP_PATH || pathname.startsWith(`${PLATFORMCLAW_WEB_APP_PATH}/`)
+  );
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function prepareApplicationDocument(source: string): {
+  content: Buffer;
+  inlineScriptHashes: string[];
+} {
+  // Browsers normalize HTML newlines before CSP hashes are checked. Normalize the
+  // served document too so Windows-built assets keep the same inline-script hashes.
+  const normalizedSource = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  if (/<base\b/i.test(normalizedSource)) {
+    throw new Error("PlatformClaw Control UI document already contains a base element");
+  }
+  const headOpen = /<head(?:\s[^>]*)?>/i.exec(normalizedSource);
+  if (!headOpen?.[0] || headOpen.index < 0) {
+    throw new Error("PlatformClaw Control UI document is missing <head>");
+  }
+  const descriptor = escapeHtmlAttribute(JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR));
+  const injection = [
+    '<base href="/platformclaw/" />',
+    `<meta name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}" content="${descriptor}" />`,
+  ].join("\n    ");
+  // Base must precede every upstream URL-bearing element or the browser may
+  // start fetching relative assets against the deep application route.
+  const injectionIndex = headOpen.index + headOpen[0].length;
+  const document = `${normalizedSource.slice(0, injectionIndex)}\n    ${injection}${normalizedSource.slice(injectionIndex)}`;
+  const inlineScriptHashes = [...document.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+    .filter((match) => !/\bsrc\s*=/i.test(match[1] ?? ""))
+    .map((match) =>
+      createHash("sha256")
+        .update(match[2] ?? "")
+        .digest("base64"),
+    );
+  return { content: Buffer.from(document), inlineScriptHashes };
+}
+
+function methodNotAllowed(res: ServerResponse): void {
+  res.statusCode = 405;
+  res.setHeader("Allow", "GET, HEAD");
+  res.end("Method Not Allowed");
+}
+
 export function createPlatformClawWebAssetHandler(
   rootDirectory: string,
+  options: PlatformClawWebAssetOptions,
 ): PlatformClawWebAssetHandler {
   const root = realpathSync(resolve(rootDirectory));
   const loginFile = assertRegularFileInsideRoot(root, join(root, "platformclaw-login.html"));
+  const applicationFile = assertRegularFileInsideRoot(root, join(root, "index.html"));
+  const applicationDocument = prepareApplicationDocument(readFileSync(applicationFile, "utf8"));
+  const websocketOrigin = resolveWebSocketOrigin(options.publicOrigin);
   const assetsDirectory = realpathSync(join(root, "assets"));
   if (!assetsDirectory.startsWith(`${root}${sep}`)) {
     throw new Error("PlatformClaw web assets directory escapes root");
@@ -96,7 +198,7 @@ export function createPlatformClawWebAssetHandler(
   const assets = collectAssetFiles(root, assetsDirectory);
 
   return {
-    async handle(req, res) {
+    async handlePublic(req, res) {
       const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
       const isLogin = pathname === PLATFORMCLAW_WEB_LOGIN_PATH;
       const asset = assets.get(pathname);
@@ -108,9 +210,7 @@ export function createPlatformClawWebAssetHandler(
         return false;
       }
       if (req.method !== "GET" && req.method !== "HEAD") {
-        res.statusCode = 405;
-        res.setHeader("Allow", "GET, HEAD");
-        res.end("Method Not Allowed");
+        methodNotAllowed(res);
         return true;
       }
 
@@ -118,7 +218,7 @@ export function createPlatformClawWebAssetHandler(
       if (isLogin) {
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.setHeader("Cache-Control", "no-store");
-        res.setHeader("Content-Security-Policy", DOCUMENT_SECURITY_POLICY);
+        res.setHeader("Content-Security-Policy", documentSecurityPolicy());
       } else if (asset) {
         res.setHeader("Content-Type", asset.contentType);
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
@@ -129,6 +229,26 @@ export function createPlatformClawWebAssetHandler(
         return true;
       }
       res.end(await readFile(filePath));
+      return true;
+    },
+    async handleApplication(req, res) {
+      const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+      if (!isPlatformClawApplicationPath(pathname)) {
+        return false;
+      }
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        methodNotAllowed(res);
+        return true;
+      }
+      setSecurityHeaders(res);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader(
+        "Content-Security-Policy",
+        documentSecurityPolicy(applicationDocument.inlineScriptHashes, true, websocketOrigin),
+      );
+      res.statusCode = 200;
+      res.end(req.method === "HEAD" ? undefined : applicationDocument.content);
       return true;
     },
   };

@@ -33,8 +33,10 @@ The first five implementation slices are in the private
 in-memory store, the approved SQLite v1 persistent store, the employee-auth
 adapter, opaque browser-session service, browser-auth HTTP boundary, personal
 agent provisioning adapter, fail-closed Web Gateway policy proxy, and the
-protocol-compatible Web ingress listener. Production deployment composition
-and Control UI employee-login bootstrap remain later work.
+protocol-compatible Web ingress listener. The employee login shell and
+session-gated upstream Control UI document host are also implemented.
+Production deployment composition and the restricted Control UI adapter remain
+later work.
 
 The VM execution backend is a later phase. It depends on Phase 1 because the
 sandbox must resolve an authenticated agent owner before selecting a VM profile

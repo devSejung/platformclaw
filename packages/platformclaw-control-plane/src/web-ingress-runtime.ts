@@ -77,7 +77,9 @@ export function createPlatformClawWebIngressRuntime(
     loginRateLimiter: new MemoryBrowserLoginRateLimiter(options.loginRateLimiter),
     gatewayProxy,
     gateway,
-    webAssets: createPlatformClawWebAssetHandler(options.controlUiRoot),
+    webAssets: createPlatformClawWebAssetHandler(options.controlUiRoot, {
+      publicOrigin: options.publicOrigin,
+    }),
     ...options.ingress,
   });
   let closed = false;
