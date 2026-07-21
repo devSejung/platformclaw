@@ -10,7 +10,11 @@ import { renderEmployeeProfileArtifact } from "./employee-profile-artifact.js";
 import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
 type AgentSummary = { id: string; workspace?: string };
-type AgentsListResult = { agents: AgentSummary[] };
+type ConfigGetResult = {
+  config?: { agents?: { list?: AgentSummary[] } };
+  configRevisionHash?: string;
+  appliedConfigHash?: string | null;
+};
 type AgentCreateResult = { ok: true; agentId: string; workspace: string };
 type ProfileSeedResult = {
   ok: true;
@@ -34,6 +38,12 @@ export type GatewayPersonalAgentProvisionerOptions = {
   rpc: GatewayAdminRpc;
   workspaceRoot: string;
 };
+
+const CONFIG_APPLY_RETRY_DELAYS_MS = [0, 250, 500, 1_000, 2_000, 2_000, 2_000] as const;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner {
   private readonly workspaceRoot: string;
@@ -97,12 +107,21 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
     return workspace;
   }
 
-  private async listAgent(agentId: string): Promise<AgentSummary | undefined> {
-    const result = await this.options.rpc.call<AgentsListResult>("agents.list", {});
-    if (!Array.isArray(result.agents)) {
-      throw new Error("Gateway agents.list returned an invalid payload");
+  private async getConfiguredAgent(agentId: string): Promise<{
+    agent: AgentSummary | undefined;
+    applied: boolean;
+  }> {
+    const result = await this.options.rpc.call<ConfigGetResult>("config.get", {});
+    const agents = result.config?.agents?.list ?? [];
+    if (!Array.isArray(agents)) {
+      throw new Error("Gateway config.get returned an invalid agents list");
     }
-    return result.agents.find((agent) => agent.id === agentId);
+    return {
+      agent: agents.find((agent) => agent.id === agentId),
+      applied:
+        typeof result.configRevisionHash === "string" &&
+        result.configRevisionHash === result.appliedConfigHash,
+    };
   }
 
   private verifyWorkspace(agentId: string, actual: string | undefined, expected: string): void {
@@ -112,6 +131,11 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
   }
 
   private async ensureAgent(agentId: string, workspace: string): Promise<void> {
+    const current = await this.getConfiguredAgent(agentId);
+    if (current.agent && current.applied) {
+      this.verifyWorkspace(agentId, current.agent.workspace, workspace);
+      return;
+    }
     try {
       const created = await this.options.rpc.call<AgentCreateResult>("agents.create", {
         name: agentId,
@@ -125,15 +149,33 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
       if (!(error instanceof GatewayAdminRpcError) || error.code !== "INVALID_REQUEST") {
         throw error;
       }
-      // agents.list may include a disk-only agent that chat routing still rejects.
-      // Creating first proves the canonical agents.list registration; a concurrent or
-      // already-configured creator is then verified through the read surface.
-      const existing = await this.listAgent(agentId);
-      if (!existing) {
+      // Another control process may win creation after this process reads config.
+      const existing = await this.getConfiguredAgent(agentId);
+      if (!existing.agent) {
         throw error;
       }
-      this.verifyWorkspace(agentId, existing.workspace, workspace);
+      this.verifyWorkspace(agentId, existing.agent.workspace, workspace);
+      if (existing.applied) {
+        return;
+      }
     }
+    for (const retryDelayMs of CONFIG_APPLY_RETRY_DELAYS_MS) {
+      if (retryDelayMs > 0) {
+        await delay(retryDelayMs);
+      }
+      try {
+        const configured = await this.getConfiguredAgent(agentId);
+        if (configured.agent && configured.applied) {
+          this.verifyWorkspace(agentId, configured.agent.workspace, workspace);
+          return;
+        }
+      } catch (error) {
+        if (!(error instanceof GatewayAdminRpcError) || error.code !== "UNAVAILABLE") {
+          throw error;
+        }
+      }
+    }
+    throw new Error(`Gateway agent configuration did not become active: ${agentId}`);
   }
 
   private async seedEmployeeProfile(
