@@ -1,6 +1,8 @@
 import type { RouteLocation } from "@openclaw/uirouter";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
+import type { SidebarNavRoute } from "../app-navigation.ts";
 import {
+  APP_ROUTE_IDS,
   createApplicationRouter,
   locationForRoute,
   pathForRoute,
@@ -25,6 +27,7 @@ import { resolveApprovalDocumentMode, type ApprovalDocumentMode } from "./approv
 import { createBrowserHistory, resolveControlUiBasePath } from "./browser.ts";
 import { createApplicationConfigCapability } from "./config.ts";
 import type {
+  ApplicationAccessMode,
   ApplicationNavigationOptions,
   ApplicationContext,
   ApplicationNavigationPreferences,
@@ -236,13 +239,37 @@ export type ApplicationRuntime = {
     readonly gatewayUrl: string;
     readonly token: string;
   } | null;
+  readonly enabledRouteIds: readonly RouteId[];
+  readonly shellSession: ApplicationShellSession | null;
   readonly confirmPendingGatewayConnection: () => void;
   readonly cancelPendingGatewayConnection: () => void;
   start: () => Promise<void>;
   stop: () => void;
 };
 
-export function bootstrapApplication(): ApplicationRuntime {
+export type ApplicationShellSession = {
+  readonly primaryLabel: string;
+  readonly secondaryLabel?: string;
+  readonly onLogout: () => Promise<void>;
+};
+
+export type ApplicationBootstrapOptions = {
+  readonly accessMode?: ApplicationAccessMode;
+  readonly enabledRouteIds?: readonly RouteId[];
+  readonly gateway?: {
+    readonly url: string;
+    readonly browserDeviceAuth?: boolean;
+    readonly onClose?: (info: { code: number; reason: string; willRetry: boolean }) => void;
+  };
+  readonly shellSession?: ApplicationShellSession;
+  readonly navigation?: {
+    readonly sidebarPinnedRoutes?: readonly SidebarNavRoute[];
+  };
+};
+
+export function bootstrapApplication(
+  options: ApplicationBootstrapOptions = {},
+): ApplicationRuntime {
   const history = createBrowserHistory();
   const startupLocation = history.location();
   const initialBasePath = resolveControlUiBasePath(
@@ -253,7 +280,28 @@ export function bootstrapApplication(): ApplicationRuntime {
   const initialSettings = documentMode
     ? resolvePageGatewaySettings(persistedSettings)
     : persistedSettings;
-  const startup = resolveApplicationStartupSettings(initialSettings, startupLocation);
+  const resolvedStartup = resolveApplicationStartupSettings(initialSettings, startupLocation);
+  const startup = options.gateway
+    ? {
+        ...resolvedStartup,
+        changed: false,
+        password: "",
+        pendingBootstrapToken: null,
+        pendingGatewayToken: null,
+        pendingGatewayUrl: null,
+        settings: {
+          ...resolvedStartup.settings,
+          gatewayUrl: options.gateway.url,
+          token: "",
+          sessionKey: "main",
+          lastActiveSessionKey: "main",
+          sidebarPinnedRoutes:
+            options.navigation?.sidebarPinnedRoutes !== undefined
+              ? [...options.navigation.sidebarPinnedRoutes]
+              : resolvedStartup.settings.sidebarPinnedRoutes,
+        },
+      }
+    : resolvedStartup;
   if (startup.changed) {
     if (documentMode) {
       persistSessionToken(startup.settings.gatewayUrl, startup.settings.token);
@@ -264,9 +312,19 @@ export function bootstrapApplication(): ApplicationRuntime {
   const basePath = resolveControlUiBasePath(
     startup.location.pathname || globalThis.location?.pathname || "/",
   );
+  const enabledRouteIds = options.enabledRouteIds ?? APP_ROUTE_IDS;
+  const startupRouteId = routeIdFromPath(startup.location.pathname, basePath);
+  const enabledStartupLocation =
+    startupRouteId !== null && !enabledRouteIds.includes(startupRouteId)
+      ? { ...startup.location, pathname: pathForRoute("chat", basePath), search: "" }
+      : startup.location;
   const initialLocation = documentMode
-    ? startup.location
-    : normalizeInitialApplicationLocation(startup.location, basePath, startup.settings.sessionKey);
+    ? enabledStartupLocation
+    : normalizeInitialApplicationLocation(
+        enabledStartupLocation,
+        basePath,
+        startup.settings.sessionKey,
+      );
   const firstRunDefaultLanding =
     documentMode === null && isDefaultChatLanding(startup.location, basePath, routeIdFromPath);
   const expectedDefaultLanding = {
@@ -288,7 +346,11 @@ export function bootstrapApplication(): ApplicationRuntime {
     startup.password ?? "",
     startup.pendingBootstrapToken ?? "",
     undefined,
-    { persistDefaultConnectionSettings: documentMode === null },
+    {
+      persistDefaultConnectionSettings: options.gateway ? false : documentMode === null,
+      browserDeviceAuth: options.gateway?.browserDeviceAuth,
+      onClose: options.gateway?.onClose,
+    },
   );
   const agents = createAgentCapability(gateway);
   const agentIdentity = createAgentIdentityCapability(gateway);
@@ -324,7 +386,7 @@ export function bootstrapApplication(): ApplicationRuntime {
   const webPush = createWebPushCapability(gateway);
   const skillWorkshopRevision = createSkillWorkshopRevisionHandoff();
   applyStartupPresentation(settings);
-  const router = createApplicationRouter();
+  const router = createApplicationRouter(enabledRouteIds);
   let pendingGatewayConnection =
     startup.pendingGatewayUrl !== null
       ? {
@@ -351,13 +413,13 @@ export function bootstrapApplication(): ApplicationRuntime {
       },
     });
   });
-  const routeLocation = (routeId: RouteId, options?: ApplicationNavigationOptions) => {
+  const routeLocation = (routeId: RouteId, navigationOptions?: ApplicationNavigationOptions) => {
     const location = locationForRoute(routeId, basePath);
-    if (options?.search !== undefined || options?.hash !== undefined) {
+    if (navigationOptions?.search !== undefined || navigationOptions?.hash !== undefined) {
       return {
         ...location,
-        search: options?.search ?? "",
-        hash: options?.hash ?? "",
+        search: navigationOptions?.search ?? "",
+        hash: navigationOptions?.hash ?? "",
       };
     }
     return location;
@@ -379,6 +441,7 @@ export function bootstrapApplication(): ApplicationRuntime {
   };
   const context: ApplicationContext<RouteId> = {
     basePath,
+    accessMode: options.accessMode ?? "operator",
     gateway,
     agents,
     agentIdentity,
@@ -395,16 +458,28 @@ export function bootstrapApplication(): ApplicationRuntime {
     nativeNotifications,
     webPush,
     skillWorkshopRevision,
-    navigate: (routeId, options) => {
+    navigate: (routeId, navigationOptions) => {
+      const allowedRouteId = enabledRouteIds.includes(routeId) ? routeId : "chat";
       void router
-        .navigate(routeId, context, { history: "push" }, routeLocation(routeId, options))
+        .navigate(
+          allowedRouteId,
+          context,
+          { history: "push" },
+          routeLocation(allowedRouteId, navigationOptions),
+        )
         .catch((error: unknown) => {
           console.error("[openclaw] route navigation failed", error);
         });
     },
-    replace: (routeId, options) => {
+    replace: (routeId, navigationOptions) => {
+      const allowedRouteId = enabledRouteIds.includes(routeId) ? routeId : "chat";
       void router
-        .navigate(routeId, context, { history: "replace" }, routeLocation(routeId, options))
+        .navigate(
+          allowedRouteId,
+          context,
+          { history: "replace" },
+          routeLocation(allowedRouteId, navigationOptions),
+        )
         .catch((error: unknown) => {
           console.error("[openclaw] route replacement failed", error);
         });
@@ -422,6 +497,8 @@ export function bootstrapApplication(): ApplicationRuntime {
     context,
     router,
     documentMode,
+    enabledRouteIds,
+    shellSession: options.shellSession ?? null,
     get pendingGatewayConnection() {
       return pendingGatewayConnection;
     },
@@ -431,7 +508,7 @@ export function bootstrapApplication(): ApplicationRuntime {
       void config.refresh({ skipWithoutAuthCandidate: true });
       const routerStart = documentMode
         ? Promise.resolve()
-        : startApplicationRouter(router, history, basePath, context);
+        : startApplicationRouter(router, history, basePath, context, enabledRouteIds);
       gateway.start();
       await routerStart;
     },

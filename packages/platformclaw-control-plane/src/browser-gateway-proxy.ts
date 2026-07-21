@@ -1,8 +1,23 @@
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import {
+  PLATFORMCLAW_WEB_AGENT_ONLY_METHODS,
+  PLATFORMCLAW_WEB_ALLOWED_METHODS,
+  PLATFORMCLAW_WEB_ALLOWED_PARAMS,
+  PLATFORMCLAW_WEB_SESSION_KEY_METHODS,
+} from "./browser-gateway-policy.js";
+import {
   projectBrowserAgentSummary,
   projectBrowserModelChoice,
 } from "./browser-gateway-projections.js";
+export {
+  PLATFORMCLAW_WEB_GATEWAY_METHODS,
+  type PlatformClawWebGatewayMethod,
+} from "./browser-gateway-policy.js";
+import {
+  isConfiguredBrowserModel,
+  projectBrowserAgentFiles,
+  projectBrowserSkillsStatus,
+} from "./browser-gateway-self-service-projections.js";
 import type {
   ControlPlaneAuditWriter,
   ControlPlaneStore,
@@ -10,156 +25,6 @@ import type {
   PlatformUser,
 } from "./contracts.js";
 
-export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
-  "agent.identity.get",
-  "agents.list",
-  "chat.abort",
-  "chat.history",
-  "chat.message.get",
-  "chat.metadata",
-  "chat.send",
-  "chat.startup",
-  "chat.toolTitles",
-  "models.list",
-  "sessions.abort",
-  "sessions.create",
-  "sessions.describe",
-  "sessions.list",
-  "sessions.messages.subscribe",
-  "sessions.messages.unsubscribe",
-  "sessions.patch",
-  "sessions.preview",
-  "sessions.resolve",
-  "sessions.search",
-  "tools.catalog",
-  "tools.effective",
-] as const;
-
-export type PlatformClawWebGatewayMethod = (typeof PLATFORMCLAW_WEB_GATEWAY_METHODS)[number];
-
-const ALLOWED_METHODS = new Set<string>(PLATFORMCLAW_WEB_GATEWAY_METHODS);
-const ALLOWED_PARAMS = new Map<string, ReadonlySet<string>>([
-  ["agent.identity.get", new Set(["agentId", "sessionKey"])],
-  ["agents.list", new Set()],
-  ["chat.abort", new Set(["sessionKey", "agentId", "preserveSideRuns"])],
-  [
-    "chat.history",
-    new Set(["sessionKey", "agentId", "limit", "offset", "messageId", "sessionId", "maxChars"]),
-  ],
-  ["chat.message.get", new Set(["sessionKey", "agentId", "messageId", "maxChars"])],
-  ["chat.metadata", new Set(["agentId"])],
-  [
-    "chat.send",
-    new Set([
-      "sessionKey",
-      "agentId",
-      "sessionId",
-      "message",
-      "thinking",
-      "fastMode",
-      "fastAutoOnSeconds",
-      "queueMode",
-      "deliver",
-      "attachments",
-      "timeoutMs",
-      "idempotencyKey",
-      "__controlUiReconnectResume",
-    ]),
-  ],
-  [
-    "chat.startup",
-    new Set(["sessionKey", "agentId", "limit", "offset", "messageId", "sessionId", "maxChars"]),
-  ],
-  ["chat.toolTitles", new Set(["sessionKey", "agentId", "items"])],
-  ["models.list", new Set(["view"])],
-  ["sessions.abort", new Set(["key", "agentId"])],
-  [
-    "sessions.create",
-    new Set([
-      "key",
-      "agentId",
-      "label",
-      "thinkingLevel",
-      "catalogId",
-      "parentSessionKey",
-      "fork",
-      "emitCommandHooks",
-      "succeedsParent",
-    ]),
-  ],
-  ["sessions.describe", new Set(["key", "includeDerivedTitles", "includeLastMessage"])],
-  [
-    "sessions.list",
-    new Set([
-      "limit",
-      "offset",
-      "activeMinutes",
-      "requireLastInteraction",
-      "sortBy",
-      "includeGlobal",
-      "includeUnknown",
-      "configuredAgentsOnly",
-      "includeDerivedTitles",
-      "includeLastMessage",
-      "label",
-      "spawnedBy",
-      "agentId",
-      "search",
-      "archived",
-    ]),
-  ],
-  ["sessions.messages.subscribe", new Set(["key", "agentId"])],
-  ["sessions.messages.unsubscribe", new Set(["key", "agentId"])],
-  [
-    "sessions.patch",
-    new Set([
-      "key",
-      "agentId",
-      "label",
-      "category",
-      "pinned",
-      "unread",
-      "thinkingLevel",
-      "fastMode",
-      "verboseLevel",
-      "traceLevel",
-      "reasoningLevel",
-      "responseUsage",
-    ]),
-  ],
-  ["sessions.preview", new Set(["keys", "limit", "maxChars"])],
-  [
-    "sessions.resolve",
-    new Set([
-      "key",
-      "sessionId",
-      "label",
-      "agentId",
-      "spawnedBy",
-      "includeGlobal",
-      "includeUnknown",
-      "allowMissing",
-    ]),
-  ],
-  ["sessions.search", new Set(["agentId", "sessionKeys", "query", "limit"])],
-  ["tools.catalog", new Set(["agentId", "includePlugins"])],
-  ["tools.effective", new Set(["agentId", "sessionKey"])],
-]);
-const AGENT_ONLY_METHODS = new Set(["agent.identity.get", "chat.metadata", "tools.catalog"]);
-const SESSION_KEY_METHODS = new Map<string, string>([
-  ["chat.abort", "sessionKey"],
-  ["chat.history", "sessionKey"],
-  ["chat.message.get", "sessionKey"],
-  ["chat.send", "sessionKey"],
-  ["chat.startup", "sessionKey"],
-  ["chat.toolTitles", "sessionKey"],
-  ["sessions.abort", "key"],
-  ["sessions.describe", "key"],
-  ["sessions.messages.subscribe", "key"],
-  ["sessions.messages.unsubscribe", "key"],
-  ["sessions.patch", "key"],
-  ["tools.effective", "sessionKey"],
-]);
 export const PLATFORMCLAW_WEB_GATEWAY_EVENTS = [
   "shutdown",
   "tick",
@@ -272,6 +137,16 @@ export class BrowserGatewayProxy {
     let prepared: JsonObject;
     try {
       prepared = this.prepareRequest(access, method, params);
+      if (
+        method === "sessions.patch" &&
+        typeof prepared.model === "string" &&
+        !(await isConfiguredBrowserModel(this.options.gateway, prepared.model))
+      ) {
+        throw new BrowserGatewayProxyError(
+          "method-not-allowed",
+          "browser model selection is limited to configured models",
+        );
+      }
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
         await this.auditDeniedRequest(access, method, error.code);
@@ -317,7 +192,7 @@ export class BrowserGatewayProxy {
     method: string,
     rawParams: unknown,
   ): JsonObject {
-    if (!ALLOWED_METHODS.has(method)) {
+    if (!PLATFORMCLAW_WEB_ALLOWED_METHODS.has(method)) {
       throw new BrowserGatewayProxyError(
         "method-not-allowed",
         `Gateway method is not available to browser users: ${method}`,
@@ -382,14 +257,14 @@ export class BrowserGatewayProxy {
       }
       return { ...params, agentId: access.binding.agentId, emitCommandHooks: false };
     }
-    if (AGENT_ONLY_METHODS.has(method)) {
+    if (PLATFORMCLAW_WEB_AGENT_ONLY_METHODS.has(method)) {
       this.assertOptionalAgentId(access, params.agentId, method);
       if (params.sessionKey !== undefined) {
         this.assertOwnedSessionKey(access, params.sessionKey, "sessionKey");
       }
       return { ...params, agentId: access.binding.agentId };
     }
-    const keyField = SESSION_KEY_METHODS.get(method);
+    const keyField = PLATFORMCLAW_WEB_SESSION_KEY_METHODS.get(method);
     if (keyField) {
       this.assertOptionalAgentId(access, params.agentId, method);
       this.assertOwnedSessionKey(access, params[keyField], keyField);
@@ -417,6 +292,25 @@ export class BrowserGatewayProxy {
     prepared: JsonObject,
     result: unknown,
   ): unknown {
+    if (method.startsWith("agents.files.")) {
+      return projectBrowserAgentFiles({
+        agentId: access.binding.agentId,
+        method,
+        result,
+        fail: (message) => {
+          throw new BrowserGatewayProxyError("upstream-result-denied", message);
+        },
+      });
+    }
+    if (method === "skills.status") {
+      return projectBrowserSkillsStatus({
+        agentId: access.binding.agentId,
+        result,
+        fail: (message) => {
+          throw new BrowserGatewayProxyError("upstream-result-denied", message);
+        },
+      });
+    }
     if (method === "models.list") {
       const payload = asObject(result, "models.list result");
       const models = Array.isArray(payload.models)
@@ -694,7 +588,7 @@ export class BrowserGatewayProxy {
   }
 
   private assertAllowedParams(method: string, params: JsonObject): void {
-    const allowed = ALLOWED_PARAMS.get(method);
+    const allowed = PLATFORMCLAW_WEB_ALLOWED_PARAMS.get(method);
     if (!allowed) {
       throw new BrowserGatewayProxyError(
         "method-not-allowed",

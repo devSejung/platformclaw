@@ -28,6 +28,9 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 - Approved control-plane SQLite v1 store implemented for identities, roles,
   directory groups, managed groups/parts, agent bindings, browser sessions, and
   audit events
+- PlatformClaw Web login, authenticated Control UI hosting, fixed same-origin
+  Gateway adapter, restricted employee routes, identity/logout shell, and
+  Windows mocked-browser proof implemented
 
 ## Not Started
 
@@ -48,7 +51,7 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 | Skill Hub                              | Not started                         | -                                     |
 | Knox adapter                           | Control-plane contracts implemented | `packages/platformclaw-control-plane` |
 | Remote execution and filesystem bridge | Not started                         | -                                     |
-| Operations UI, retry and recovery      | Not started                         | -                                     |
+| Operations UI, retry and recovery      | Employee Web shell implemented      | `ui/src/platformclaw`                 |
 | Cron and automation                    | Not started                         | -                                     |
 | Production Docker deployment           | In progress                         | `feature/jammy-company-build`         |
 

@@ -185,6 +185,41 @@ describe("renderAgents", () => {
     expect(panel?.agentId).toBe("beta");
   });
 
+  it("limits personal-agent access to editable files and read-only skills", () => {
+    const container = document.createElement("div");
+    render(
+      renderAgents(
+        createProps({
+          activePanel: "skills",
+          personalAccess: true,
+          agentSkills: {
+            report: {
+              workspaceDir: "personal workspace",
+              managedSkillsDir: "managed skills",
+              agentId: "beta",
+              skills: [createSkill() as never],
+            },
+            loading: false,
+            error: null,
+            agentId: "beta",
+            filter: "",
+          },
+        }),
+      ),
+      container,
+    );
+
+    const tabs = [...container.querySelectorAll(".agent-tab")].map((tab) => directText(tab));
+    expect(tabs).toEqual([t("agents.tabs.files"), t("agents.tabs.skills")]);
+    const buttons = [...container.querySelectorAll("button")].map((button) =>
+      button.textContent?.trim(),
+    );
+    expect(buttons).not.toContain(t("agents.setDefault"));
+    expect(buttons).not.toContain(t("common.save"));
+    expect(buttons).not.toContain(t("common.reloadConfig"));
+    expect(container.textContent).toContain("Repo Skill");
+  });
+
   it("renders the custom agent select with the provided agents and selected label", async () => {
     const container = document.createElement("div");
     document.body.append(container);

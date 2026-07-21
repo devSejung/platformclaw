@@ -46,6 +46,8 @@ export type ApplicationNavigationPreferences = {
 
 export type ApplicationNavigationOptions = Partial<Pick<RouteLocation, "search" | "hash">>;
 
+export type ApplicationAccessMode = "operator" | "personal-agent";
+
 type SkillWorkshopRevisionHandoff = {
   sessionKey: string;
   instructions: string;
@@ -61,6 +63,7 @@ export type ApplicationSkillWorkshopRevisionHandoff = {
 
 export type ApplicationContext<TRouteId extends string = string> = {
   readonly basePath: string;
+  readonly accessMode?: ApplicationAccessMode;
   readonly gateway: ApplicationGateway;
   readonly agents: AgentCapability;
   readonly agentIdentity: AgentIdentityCapability;

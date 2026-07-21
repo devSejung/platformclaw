@@ -19,9 +19,11 @@ branches are on `main`. Detailed visual design, branding, animation, and final
 copy are intentionally deferred. The functional states and security boundary
 defined here are not deferred.
 
-Implementation status: the login shell and authenticated application-document
-host are complete. The Control UI adapter, restricted application shell, and
-container proof remain open.
+Implementation status: the login shell, authenticated application-document
+host, Control UI adapter, and restricted application shell are implemented.
+Focused Windows Chrome proof covers the fixed proxy URL, disabled-route
+fallback, account shell, and session-expiry redirect. Deployable composition
+and final Linux container proof remain open.
 
 ## Outcome
 
@@ -349,6 +351,9 @@ functional checkpoint is ready.
 | Private Gateway restart       | UI reconnects without employee reauthentication            |
 | Disabled route deep link      | UI returns to chat; no operator RPC is sent                |
 | Stale browser device token    | It is neither sent nor used as PlatformClaw authority      |
+| Personal Agent page           | Only owned files and read-only Skills are available        |
+| Workspace file response       | Host filesystem paths are removed by the BFF               |
+| Session model selection       | Only a model in the configured catalog is accepted         |
 
 ## Deferred UI decisions
 
@@ -358,7 +363,7 @@ These do not block functional implementation:
 - Korean or English final copy and localization policy;
 - announcement, documentation, and release-note presentation;
 - administrator screen placement;
-- expanded user-facing routes after their BFF policy exists;
+- additional user-facing routes after their BFF policy exists;
 - SAML redirect and callback presentation;
 - VM profile, SafeConnect credential, and sandbox status presentation.
 

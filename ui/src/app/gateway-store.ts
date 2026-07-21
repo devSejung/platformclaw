@@ -26,7 +26,11 @@ export function createApplicationGateway(
   initialPassword = "",
   initialBootstrapToken = "",
   createClient: GatewayClientFactory = defaultClientFactory,
-  options: { persistDefaultConnectionSettings?: boolean } = {},
+  options: {
+    persistDefaultConnectionSettings?: boolean;
+    browserDeviceAuth?: boolean;
+    onClose?: (info: { code: number; reason: string; willRetry: boolean }) => void;
+  } = {},
 ): ApplicationGateway {
   let settings = initialSettings;
   let persistConnectionSettings = options.persistDefaultConnectionSettings !== false;
@@ -146,6 +150,7 @@ export function createApplicationGateway(
       clientVersion: "dev",
       mode: "webchat",
       instanceId: generateUUID(),
+      browserDeviceAuth: options.browserDeviceAuth,
       onHello: (hello: GatewayHelloOk) => {
         if (client !== nextClient) {
           return;
@@ -198,6 +203,7 @@ export function createApplicationGateway(
           lastError: error?.message ?? `disconnected (${code}): ${reason || "no reason"}`,
           lastErrorCode: error?.code ?? null,
         });
+        options.onClose?.({ code, reason, willRetry });
       },
       onGap: ({ expected, received }) => {
         if (client !== nextClient) {

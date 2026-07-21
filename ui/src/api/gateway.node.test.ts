@@ -435,6 +435,19 @@ describe("GatewayBrowserClient", () => {
     expect(connectFrame.params?.scopes).toEqual([...CONTROL_UI_OPERATOR_SCOPES]);
   });
 
+  it("can disable browser device identity for an authenticating same-origin proxy", async () => {
+    const client = new GatewayBrowserClient({
+      url: "wss://platformclaw.example/platformclaw/gateway",
+      browserDeviceAuth: false,
+    });
+
+    const { connectFrame } = await startConnect(client);
+
+    expect(loadOrCreateDeviceIdentityMock).not.toHaveBeenCalled();
+    expect(signDevicePayloadMock).not.toHaveBeenCalled();
+    expect(connectFrame.params?.auth).toBeUndefined();
+  });
+
   it("requests handoff scopes with bootstrap token auth", async () => {
     const client = new GatewayBrowserClient({
       url: "wss://gateway.example",

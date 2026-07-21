@@ -90,6 +90,7 @@ type AgentsProps = {
   agentsList: AgentsListResult | null;
   selectedAgentId: string | null;
   activePanel: AgentsPanel;
+  personalAccess?: boolean;
   config: ConfigState;
   channels: ChannelsState;
   cron: CronState;
@@ -187,25 +188,29 @@ export function renderAgents(props: AgentsProps) {
                   >
                     ${t("agents.copyId")}
                   </button>
-                  <button
-                    type="button"
-                    class="btn btn--sm btn--ghost"
-                    ?disabled=${Boolean(defaultId && selectedAgent.id === defaultId)}
-                    @click=${() => props.onSetDefault(selectedAgent.id)}
-                  >
-                    ${defaultId && selectedAgent.id === defaultId
-                      ? t("agents.default")
-                      : t("agents.setDefault")}
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn--sm btn--ghost"
-                    @click=${() => props.onTogglePinnedAgent(selectedAgent.id)}
-                  >
-                    ${props.pinnedAgentIds.includes(selectedAgent.id)
-                      ? t("agents.unpinFromSwitcher")
-                      : t("agents.pinToSwitcher")}
-                  </button>
+                  ${props.personalAccess
+                    ? nothing
+                    : html`
+                        <button
+                          type="button"
+                          class="btn btn--sm btn--ghost"
+                          ?disabled=${Boolean(defaultId && selectedAgent.id === defaultId)}
+                          @click=${() => props.onSetDefault(selectedAgent.id)}
+                        >
+                          ${defaultId && selectedAgent.id === defaultId
+                            ? t("agents.default")
+                            : t("agents.setDefault")}
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn--sm btn--ghost"
+                          @click=${() => props.onTogglePinnedAgent(selectedAgent.id)}
+                        >
+                          ${props.pinnedAgentIds.includes(selectedAgent.id)
+                            ? t("agents.unpinFromSwitcher")
+                            : t("agents.pinToSwitcher")}
+                        </button>
+                      `}
                 `
               : nothing}
             <button
@@ -232,6 +237,7 @@ export function renderAgents(props: AgentsProps) {
                 props.activePanel,
                 (panel) => props.onSelectPanel(panel),
                 tabCounts,
+                props.personalAccess,
               )}
               ${props.activePanel === "overview"
                 ? keyed(
@@ -320,6 +326,7 @@ export function renderAgents(props: AgentsProps) {
                     onDisableAll: props.onAgentSkillsDisableAll,
                     onConfigReload: props.onConfigReload,
                     onConfigSave: props.onConfigSave,
+                    readOnly: props.personalAccess,
                   })
                 : nothing}
               ${props.activePanel === "channels"
@@ -383,8 +390,9 @@ function renderAgentTabs(
   active: AgentsPanel,
   onSelect: (panel: AgentsPanel) => void,
   counts: Record<string, number | null>,
+  personalAccess = false,
 ) {
-  const tabs: Array<{ id: AgentsPanel; label: string }> = [
+  const allTabs: Array<{ id: AgentsPanel; label: string }> = [
     { id: "overview", label: t("agents.tabs.overview") },
     { id: "files", label: t("agents.tabs.files") },
     { id: "tools", label: t("agents.tabs.tools") },
@@ -393,6 +401,9 @@ function renderAgentTabs(
     { id: "cron", label: t("agents.tabs.cronJobs") },
     { id: "memory", label: t("agents.tabs.memory") },
   ];
+  const tabs = personalAccess
+    ? allTabs.filter((tab) => tab.id === "files" || tab.id === "skills")
+    : allTabs;
   return html`
     <div class="agent-tabs">
       ${tabs.map(

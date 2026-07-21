@@ -51,6 +51,9 @@ export abstract class AppSidebarBase extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) draftSessionAgentId = "";
   @property({ attribute: false }) onUpdatePinnedRoutes?: (routes: SidebarNavRoute[]) => void;
   @property({ attribute: false }) onPairMobile?: () => void;
+  @property({ attribute: false }) accountPrimaryLabel = "";
+  @property({ attribute: false }) accountSecondaryLabel = "";
+  @property({ attribute: false }) onLogout?: () => Promise<void>;
   @property({ attribute: false })
   onNavigate?: (routeId: NavigationRouteId, options?: ApplicationNavigationOptions) => void;
   @property({ attribute: false }) onPreloadRoute?: (routeId: NavigationRouteId) => Promise<void>;
