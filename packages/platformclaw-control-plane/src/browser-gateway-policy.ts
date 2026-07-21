@@ -80,6 +80,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "fork",
       "emitCommandHooks",
       "succeedsParent",
+      "message",
     ]),
   ],
   ["sessions.describe", new Set(["key", "includeDerivedTitles", "includeLastMessage"])],

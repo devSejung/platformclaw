@@ -374,19 +374,125 @@ describe("BrowserGatewayProxy", () => {
     expect(request.mock.calls[0]?.[1]).not.toHaveProperty("__controlUiReconnectResume");
   });
 
-  it("removes operator command metadata from browser responses", async () => {
+  it("advertises user commands while removing operator command metadata", async () => {
     const { proxy, request, token } = await setup();
     request.mockResolvedValueOnce({
       models: [{ id: "company/qwen" }],
-      commands: [{ name: "config" }],
+      commands: [
+        { name: "new", textAliases: ["/new"], source: "native", category: "session" },
+        {
+          name: "config",
+          textAliases: ["/config"],
+          source: "native",
+          category: "management",
+        },
+        {
+          name: "plugins",
+          textAliases: ["/plugins", "/plugin"],
+          source: "native",
+          category: "management",
+        },
+        { name: "phone", textAliases: ["/phone"], source: "plugin", category: "tools" },
+      ],
     });
 
     await expect(proxy.request(token, "chat.metadata", {})).resolves.toEqual({
       models: [{ id: "company/qwen" }],
+      commands: [{ name: "new", textAliases: ["/new"], source: "native", category: "session" }],
     });
   });
 
-  it("rejects message relay methods that cannot suppress Gateway commands", async () => {
+  it("allows user slash commands and rejects Gateway administration commands", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const key = `agent:${binding.agentId}:main`;
+    request
+      .mockResolvedValueOnce({
+        commands: [{ name: "new", textAliases: ["/new"], source: "native", category: "session" }],
+      })
+      .mockResolvedValue({ status: "started" });
+
+    await proxy.request(token, "chat.send", {
+      sessionKey: key,
+      message: "/new",
+      idempotencyKey: "request-safe",
+    });
+    expect(request).toHaveBeenNthCalledWith(1, "chat.metadata", { agentId: binding.agentId });
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "chat.send",
+      expect.objectContaining({ suppressCommandInterpretation: false }),
+    );
+
+    await proxy.request(token, "chat.send", {
+      sessionKey: key,
+      message: "Explain why /config is restricted",
+      idempotencyKey: "request-plain-text",
+    });
+    expect(request).toHaveBeenLastCalledWith(
+      "chat.send",
+      expect.objectContaining({ suppressCommandInterpretation: true }),
+    );
+
+    for (const message of [
+      "/config show",
+      "/plugin: list",
+      "/elev@browser on",
+      "/bash pwd",
+      "/pair qr",
+      "/phone arm",
+      "/codex status",
+      "/think low /exec host=gateway security=full",
+    ]) {
+      await expect(
+        proxy.request(token, "chat.send", {
+          sessionKey: key,
+          message,
+          idempotencyKey: `request-${message}`,
+        }),
+      ).rejects.toMatchObject({ code: "method-not-allowed" });
+    }
+    expect(request).toHaveBeenCalledTimes(3);
+  });
+
+  it("starts a browser-created session through the command-suppressed chat path", async () => {
+    const { binding, proxy, request, token } = await setup();
+    request
+      .mockImplementationOnce(async (_method, params) => ({
+        ok: true,
+        key: (params as { key: string }).key,
+      }))
+      .mockResolvedValueOnce({ status: "started", runId: "private-run-id" });
+
+    await expect(
+      proxy.request(token, "sessions.create", {
+        agentId: binding.agentId,
+        message: "hello",
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      key: expect.stringMatching(`^agent:${binding.agentId}:dashboard:`),
+      runStarted: true,
+    });
+    const createdKey = (request.mock.calls[0]?.[1] as { key?: unknown } | undefined)?.key;
+    if (typeof createdKey !== "string") {
+      throw new Error("expected browser-created session key");
+    }
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.create", {
+      agentId: binding.agentId,
+      emitCommandHooks: false,
+      key: createdKey,
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "chat.send", {
+      sessionKey: createdKey,
+      agentId: binding.agentId,
+      message: "hello",
+      idempotencyKey: expect.any(String),
+      deliver: false,
+      suppressCommandInterpretation: true,
+    });
+  });
+
+  it("keeps unsafe session message relay methods blocked", async () => {
     const { binding, proxy, request, token } = await setup();
     const key = `agent:${binding.agentId}:main`;
 
@@ -394,10 +500,10 @@ describe("BrowserGatewayProxy", () => {
       proxy.request(token, "sessions.send", { key, message: "hello" }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     await expect(
-      proxy.request(token, "sessions.create", { agentId: binding.agentId, message: "hello" }),
+      proxy.request(token, "sessions.create", { agentId: binding.agentId, task: "run a task" }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     await expect(
-      proxy.request(token, "sessions.create", { agentId: binding.agentId, task: "run a task" }),
+      proxy.request(token, "sessions.create", { agentId: binding.agentId, message: "/restart" }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     expect(request).not.toHaveBeenCalled();
   });
