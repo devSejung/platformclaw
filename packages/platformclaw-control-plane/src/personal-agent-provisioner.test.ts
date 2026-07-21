@@ -83,7 +83,7 @@ function configResponse(agents: Array<{ id: string; workspace: string }>, applie
 
 describe("GatewayPersonalAgentProvisioner", () => {
   it("rejects a blank workspace root at startup", () => {
-    const { rpc, call } = createRpc((method) => {
+    const { rpc, call } = createRpc((_method) => {
       throw new Error(`unexpected method: ${method}`);
     });
 

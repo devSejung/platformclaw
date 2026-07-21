@@ -42,7 +42,9 @@ export type GatewayPersonalAgentProvisionerOptions = {
 const CONFIG_APPLY_RETRY_DELAYS_MS = [0, 250, 500, 1_000, 2_000, 2_000, 2_000] as const;
 
 function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner {
