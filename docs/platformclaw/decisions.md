@@ -177,7 +177,7 @@ binding is routing authority.
 The directory profile passed to personal-agent provisioning includes employee
 ID, display name, email, department, part, Confluence space, notes, directory
 groups, and explicitly supplied extensible attributes. The session cookie never
-contains those fields. Workspace `USER.md` rendering belongs to the provisioner,
+contains those fields. Profile payload rendering belongs to the provisioner,
 not the authentication adapter.
 
 ### PC-114 Use a dedicated private-downstream CI workflow
@@ -205,10 +205,23 @@ the reserved control-plane agent ID and exact expected workspace. The Gateway
 operator bearer stays in the deployment secret store and never enters browser
 or workspace state.
 
-Initial `USER.md` profile injection is not part of this decision. Whole-file
-read/write RPC composition cannot safely preserve concurrent user edits or
-enforce the expected workspace before mutation. That feature requires a later
-atomic Gateway/plugin contract decision.
+Initial profile provisioning uses the plugin-owned
+`platformclaw.profile.seed` method. It verifies the configured agent and exact
+workspace, validates the bounded JSON payload, and atomically claims an
+immutable agent-ID entry in the shared plugin SQLite store. It never writes
+`USER.md` or another workspace file. An existing safe entry for the same
+employee is preserved; malformed state or a different employee owner fails
+closed.
+
+The enabled `admin-http-rpc` plugin looks up the profile by the run's agent ID
+and adds it as explicitly data-only prompt context. Agents without a profile
+entry, including Knox room agents, receive no employee profile context. Active
+bindings are not refreshed on later login, so directory changes do not silently
+rewrite an established profile. Workspace moves cannot strand profile data in
+an old user directory because profile state is not workspace-owned. The
+namespace uses the plugin-state backend's 50,000-row plugin ceiling with
+`reject-new`, well above the initial 150-user operating target; reaching that
+ceiling fails provisioning rather than evicting another employee's identity.
 
 ### PC-116 Proxy browser Gateway access through fail-closed policy
 
