@@ -27,6 +27,7 @@ import {
   type BrowserGatewayEvent,
 } from "./browser-gateway-proxy.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
+import type { PlatformClawWebAssetHandler } from "./web-assets.js";
 
 export const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
 export const PLATFORMCLAW_HEALTH_PATH = "/platformclaw/health";
@@ -47,6 +48,7 @@ export type PlatformClawWebIngressOptions = {
   loginRateLimiter: BrowserLoginRateLimiter;
   gatewayProxy: PlatformClawBrowserGatewayPolicy;
   gateway: PlatformClawGatewayBackend;
+  webAssets?: PlatformClawWebAssetHandler;
   gatewayPath?: string;
   healthPath?: string;
   maxPayloadBytes?: number;
@@ -267,6 +269,9 @@ export class PlatformClawWebIngressServer {
         rateLimiter: this.options.loginRateLimiter,
       });
       if (handled) {
+        return;
+      }
+      if (this.options.webAssets && (await this.options.webAssets.handle(req, res))) {
         return;
       }
       const pathname = new URL(req.url ?? "/", this.publicOrigin).pathname;

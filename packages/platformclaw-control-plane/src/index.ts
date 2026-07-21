@@ -7,6 +7,7 @@ export * from "./browser-login-rate-limiter.js";
 export * from "./gateway-runtime-client.js";
 export * from "./web-ingress-server.js";
 export * from "./web-ingress-runtime.js";
+export * from "./web-assets.js";
 export * from "./contracts.js";
 export * from "./employee-auth-client.js";
 export * from "./gateway-admin-rpc-client.js";
