@@ -231,12 +231,96 @@ describe("BrowserGatewayProxy", () => {
       proxy.request(token, "sessions.patch", { key, archived: true }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     await expect(
-      proxy.request(token, "sessions.patch", { key, model: "company/qwen@operator" }),
-    ).rejects.toMatchObject({ code: "method-not-allowed" });
-    await expect(
       proxy.request(token, "sessions.create", { key, model: "company/qwen@operator" }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("allows configured model selection only for an owned session", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const key = `agent:${binding.agentId}:main`;
+    request
+      .mockResolvedValueOnce({
+        models: [{ id: "company/qwen", name: "Qwen", provider: "company", available: true }],
+      })
+      .mockResolvedValueOnce({ ok: true, key });
+
+    await expect(
+      proxy.request(token, "sessions.patch", { key, model: "company/qwen" }),
+    ).resolves.toEqual({ ok: true, key });
+    expect(request).toHaveBeenNthCalledWith(1, "models.list", { view: "configured" });
+    expect(request).toHaveBeenNthCalledWith(2, "sessions.patch", {
+      key,
+      agentId: binding.agentId,
+      model: "company/qwen",
+    });
+
+    request.mockResolvedValueOnce({ models: [{ id: "company/qwen" }] });
+    await expect(
+      proxy.request(token, "sessions.patch", { key, model: "company/other" }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+  });
+
+  it("projects owned workspace files and read-only skills without host paths", async () => {
+    const { binding, proxy, request, token } = await setup();
+    request
+      .mockResolvedValueOnce({
+        agentId: binding.agentId,
+        workspace: "/srv/platformclaw/users/person_one",
+        files: [
+          {
+            name: "USER.md",
+            path: "/srv/platformclaw/users/person_one/USER.md",
+            missing: false,
+            size: 12,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        agentId: binding.agentId,
+        workspace: "/srv/platformclaw/users/person_one",
+        file: {
+          name: "USER.md",
+          path: "/srv/platformclaw/users/person_one/USER.md",
+          missing: false,
+          content: "# Person One",
+        },
+      })
+      .mockResolvedValueOnce({
+        workspaceDir: "/srv/platformclaw/users/person_one",
+        managedSkillsDir: "/srv/platformclaw/skills",
+        agentId: binding.agentId,
+        skills: [
+          {
+            name: "reports",
+            skillKey: "reports",
+            source: "managed",
+            filePath: "/srv/platformclaw/skills/reports/SKILL.md",
+            baseDir: "/srv/platformclaw/skills/reports",
+          },
+        ],
+      });
+
+    await expect(proxy.request(token, "agents.files.list", {})).resolves.toEqual({
+      agentId: binding.agentId,
+      workspace: "personal workspace",
+      files: [{ name: "USER.md", path: "USER.md", missing: false, size: 12 }],
+    });
+    await expect(proxy.request(token, "agents.files.get", { name: "USER.md" })).resolves.toEqual({
+      agentId: binding.agentId,
+      workspace: "personal workspace",
+      file: { name: "USER.md", path: "USER.md", missing: false, content: "# Person One" },
+    });
+    await expect(proxy.request(token, "skills.status", {})).resolves.toEqual({
+      workspaceDir: "personal workspace",
+      managedSkillsDir: "managed skills",
+      agentId: binding.agentId,
+      agentSkillFilter: undefined,
+      skills: [{ name: "reports", skillKey: "reports", source: "managed" }],
+    });
+    expect(request).toHaveBeenNthCalledWith(1, "agents.files.list", {
+      agentId: binding.agentId,
+    });
   });
 
   it("limits model discovery to a projected configured catalog", async () => {

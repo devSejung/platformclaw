@@ -716,8 +716,10 @@ export function renderAgentSkills(params: {
   onDisableAll: (agentId: string) => void;
   onConfigReload: () => void;
   onConfigSave: () => void;
+  readOnly?: boolean;
 }) {
-  const editable = Boolean(params.configForm) && !params.configLoading && !params.configSaving;
+  const editable =
+    !params.readOnly && Boolean(params.configForm) && !params.configLoading && !params.configSaving;
   const config = resolveAgentConfig(params.configForm, params.agentId);
   const allowlist = Array.isArray(config.entry?.skills) ? config.entry?.skills : undefined;
   const allowSet = new Set(normalizeStringEntries(allowlist ?? []));
@@ -739,12 +741,14 @@ export function renderAgentSkills(params: {
   const totalCount = rawSkills.length;
 
   return html`
-    ${!params.configForm
+    ${!params.readOnly && !params.configForm
       ? html`<div class="callout info">${t("agents.skillsPanel.loadConfig")}</div>`
       : nothing}
-    ${usingAllowlist
-      ? html`<div class="callout info">${t("agents.skillsPanel.customAllowlist")}</div>`
-      : html`<div class="callout info">${t("agents.skillsPanel.allEnabled")}</div>`}
+    ${params.readOnly
+      ? nothing
+      : usingAllowlist
+        ? html`<div class="callout info">${t("agents.skillsPanel.customAllowlist")}</div>`
+        : html`<div class="callout info">${t("agents.skillsPanel.allEnabled")}</div>`}
     ${!reportReady && !params.loading
       ? html`<div class="callout info">${t("agents.skillsPanel.loadAgent")}</div>`
       : nothing}
@@ -754,46 +758,52 @@ export function renderAgentSkills(params: {
         title: t("agents.skillsPanel.title"),
         description: html`${t("agents.skillsPanel.subtitle")}
         ${totalCount > 0 ? html`<span class="mono">${enabledCount}/${totalCount}</span>` : nothing}`,
-        actions: html`
-          <button
-            class="btn btn--sm"
-            ?disabled=${!editable}
-            @click=${() => params.onClear(params.agentId)}
-          >
-            ${t("agentTools.enableAll")}
-          </button>
-          <button
-            class="btn btn--sm"
-            ?disabled=${!editable}
-            @click=${() => params.onDisableAll(params.agentId)}
-          >
-            ${t("agentTools.disableAll")}
-          </button>
-          <button
-            class="btn btn--sm"
-            ?disabled=${!editable || !usingAllowlist}
-            @click=${() => params.onClear(params.agentId)}
-          >
-            ${t("common.reset")}
-          </button>
-          <button
-            class="btn btn--sm"
-            ?disabled=${params.configLoading}
-            @click=${params.onConfigReload}
-          >
-            ${t("common.reloadConfig")}
-          </button>
-          <button class="btn btn--sm" ?disabled=${params.loading} @click=${params.onRefresh}>
-            ${params.loading ? t("common.loading") : t("common.refresh")}
-          </button>
-          <button
-            class="btn btn--sm primary"
-            ?disabled=${params.configSaving || !params.configDirty}
-            @click=${params.onConfigSave}
-          >
-            ${params.configSaving ? t("common.saving") : t("common.save")}
-          </button>
-        `,
+        actions: params.readOnly
+          ? html`
+              <button class="btn btn--sm" ?disabled=${params.loading} @click=${params.onRefresh}>
+                ${params.loading ? t("common.loading") : t("common.refresh")}
+              </button>
+            `
+          : html`
+              <button
+                class="btn btn--sm"
+                ?disabled=${!editable}
+                @click=${() => params.onClear(params.agentId)}
+              >
+                ${t("agentTools.enableAll")}
+              </button>
+              <button
+                class="btn btn--sm"
+                ?disabled=${!editable}
+                @click=${() => params.onDisableAll(params.agentId)}
+              >
+                ${t("agentTools.disableAll")}
+              </button>
+              <button
+                class="btn btn--sm"
+                ?disabled=${!editable || !usingAllowlist}
+                @click=${() => params.onClear(params.agentId)}
+              >
+                ${t("common.reset")}
+              </button>
+              <button
+                class="btn btn--sm"
+                ?disabled=${params.configLoading}
+                @click=${params.onConfigReload}
+              >
+                ${t("common.reloadConfig")}
+              </button>
+              <button class="btn btn--sm" ?disabled=${params.loading} @click=${params.onRefresh}>
+                ${params.loading ? t("common.loading") : t("common.refresh")}
+              </button>
+              <button
+                class="btn btn--sm primary"
+                ?disabled=${params.configSaving || !params.configDirty}
+                @click=${params.onConfigSave}
+              >
+                ${params.configSaving ? t("common.saving") : t("common.save")}
+              </button>
+            `,
       },
       html`
         ${renderSettingsRow({

@@ -82,7 +82,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await server?.close();
   });
 
-  it("uses the cookie-authenticated proxy and falls back from disabled routes", async () => {
+  it("opens the owned-agent self-service surface through the cookie-authenticated proxy", async () => {
     const { page } = await newPage();
     await installPlatformClawDocument(page);
     await page.route("**/platformclaw/api/auth/session", (route) =>
@@ -90,19 +90,78 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     );
     const gateway = await installMockGateway(page, {
       basePath: "/platformclaw/app",
+      assistantName: "Person One Agent",
       defaultAgentId: "person_one",
       sessionKey: "agent:person_one:main",
+      methodResponses: {
+        "agents.files.list": {
+          agentId: "person_one",
+          workspace: "personal workspace",
+          files: [
+            { name: "USER.md", path: "USER.md", missing: false, size: 38 },
+            { name: "MEMORY.md", path: "MEMORY.md", missing: false, size: 24 },
+          ],
+        },
+        "agents.files.get": {
+          agentId: "person_one",
+          workspace: "personal workspace",
+          file: {
+            name: "USER.md",
+            path: "USER.md",
+            missing: false,
+            content: "# Person One\n\nPlatform Lab employee.",
+          },
+        },
+        "skills.status": {
+          workspaceDir: "personal workspace",
+          managedSkillsDir: "managed skills",
+          agentId: "person_one",
+          skills: [
+            {
+              name: "Reports",
+              description: "Create and review technical reports.",
+              source: "managed",
+              skillKey: "reports",
+              bundled: false,
+              always: false,
+              disabled: false,
+              blockedByAllowlist: false,
+              blockedByAgentFilter: false,
+              eligible: true,
+              platformIncompatible: false,
+              modelVisible: true,
+              userInvocable: true,
+              commandVisible: true,
+              requirements: { anyBins: [], bins: [], env: [], config: [], os: [] },
+              missing: { bins: [], env: [], config: [], os: [] },
+              configChecks: [],
+              install: [],
+            },
+          ],
+        },
+      },
     });
 
     await page.goto(`${server.baseUrl}platformclaw/app/agents`);
-    await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/chat");
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/agents");
     await expect.poll(() => page.getByText("Person One").isVisible()).toBe(true);
     await expect.poll(() => page.getByText("Platform Lab").isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("button", { name: "Files" }).isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("button", { name: "Skills" }).isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("button", { name: "Overview" }).count()).toBe(0);
+    await expect.poll(() => page.getByRole("button", { name: "Tools" }).count()).toBe(0);
+    await expect.poll(() => page.getByRole("button", { name: "Channels" }).count()).toBe(0);
+    await page.getByRole("button", { name: "USER" }).click();
     await expect
-      .poll(() => page.locator(".agent-chat__composer-combobox textarea").isVisible())
-      .toBe(true);
+      .poll(() => page.locator(".agent-file-textarea").inputValue())
+      .toContain("Platform Lab employee.");
+    await page.getByRole("button", { name: "Skills" }).click();
+    await expect.poll(() => page.getByText("Reports").first().isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("button", { name: "Save" }).count()).toBe(0);
+    await page.getByRole("button", { name: "Files" }).click();
     await expect.poll(() => page.getByRole("link", { name: "Sessions" }).isVisible()).toBe(true);
     await expect.poll(() => page.getByRole("button", { name: "Settings" }).count()).toBe(0);
+    expect(await gateway.getRequests("config.get")).toHaveLength(0);
 
     const connect = (await gateway.getRequests("connect"))[0];
     expect(connect).toBeDefined();
@@ -116,7 +175,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       await mkdir(proofDir, { recursive: true });
       await page.screenshot({
         fullPage: true,
-        path: path.join(proofDir, "01-chat-ready.png"),
+        path: path.join(proofDir, "02-personal-agent.png"),
       });
     }
   });

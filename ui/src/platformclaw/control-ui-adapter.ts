@@ -111,6 +111,7 @@ export class PlatformClawControlUiAdapter {
       onLogout,
     };
     return {
+      accessMode: "personal-agent",
       enabledRouteIds: this.descriptor.enabledRoutes as readonly RouteId[],
       gateway: {
         url: websocketUrl(this.location, this.descriptor.gatewayPath),
@@ -151,12 +152,12 @@ export class PlatformClawControlUiAdapter {
   }
 
   private checkSession(): Promise<PlatformClawSessionCheck> {
-    this.sessionCheck ??= this.fetchImpl(this.descriptor.sessionPath, {
+    const check = (this.sessionCheck ??= this.fetchImpl(this.descriptor.sessionPath, {
       method: "GET",
       credentials: "same-origin",
       headers: { Accept: "application/json" },
     })
-      .then(async (response) => {
+      .then(async (response): Promise<PlatformClawSessionCheck> => {
         if (!response.ok) {
           return { status: "unavailable" };
         }
@@ -169,8 +170,8 @@ export class PlatformClawControlUiAdapter {
           ? { status: "inactive" }
           : { status: "unavailable" };
       })
-      .catch((): PlatformClawSessionCheck => ({ status: "unavailable" }));
-    return this.sessionCheck;
+      .catch((): PlatformClawSessionCheck => ({ status: "unavailable" })));
+    return check;
   }
 
   private redirectToLogin(includeReturnTo: boolean): void {

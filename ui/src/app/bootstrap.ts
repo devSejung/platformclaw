@@ -27,6 +27,7 @@ import { resolveApprovalDocumentMode, type ApprovalDocumentMode } from "./approv
 import { createBrowserHistory, resolveControlUiBasePath } from "./browser.ts";
 import { createApplicationConfigCapability } from "./config.ts";
 import type {
+  ApplicationAccessMode,
   ApplicationNavigationOptions,
   ApplicationContext,
   ApplicationNavigationPreferences,
@@ -253,6 +254,7 @@ export type ApplicationShellSession = {
 };
 
 export type ApplicationBootstrapOptions = {
+  readonly accessMode?: ApplicationAccessMode;
   readonly enabledRouteIds?: readonly RouteId[];
   readonly gateway?: {
     readonly url: string;
@@ -294,7 +296,9 @@ export function bootstrapApplication(
           sessionKey: "main",
           lastActiveSessionKey: "main",
           sidebarPinnedRoutes:
-            options.navigation?.sidebarPinnedRoutes ?? resolvedStartup.settings.sidebarPinnedRoutes,
+            options.navigation?.sidebarPinnedRoutes !== undefined
+              ? [...options.navigation.sidebarPinnedRoutes]
+              : resolvedStartup.settings.sidebarPinnedRoutes,
         },
       }
     : resolvedStartup;
@@ -437,6 +441,7 @@ export function bootstrapApplication(
   };
   const context: ApplicationContext<RouteId> = {
     basePath,
+    accessMode: options.accessMode ?? "operator",
     gateway,
     agents,
     agentIdentity,

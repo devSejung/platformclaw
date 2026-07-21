@@ -1186,7 +1186,12 @@ class OpenClawShell extends OpenClawLightDomElement {
   ) {
     // The sidebar hides config-gated routes (Workboard), so the snapshot must
     // load eagerly instead of waiting for a page that happens to fetch it.
-    if (!snapshot.connected || !snapshot.client || !runtimeConfig) {
+    if (
+      this.context?.accessMode === "personal-agent" ||
+      !snapshot.connected ||
+      !snapshot.client ||
+      !runtimeConfig
+    ) {
       this.runtimeConfigClient = null;
       return;
     }
@@ -1325,7 +1330,8 @@ class OpenClawShell extends OpenClawLightDomElement {
         ? pluginTabRefFromSearch(this.routeState.location?.search ?? "")
         : null;
     const activePluginTabId = activePluginRef ? pluginTabKey(activePluginRef) : "";
-    const settingsTakeover = isSettingsNavigationRoute(activeRoute);
+    const settingsTakeover =
+      context.accessMode === "operator" && isSettingsNavigationRoute(activeRoute);
     const runtimeConfig = context.runtimeConfig.state;
     const settingsSearchBlocks = findSettingsSearchBlocks({
       query: this.settingsSearchQuery,

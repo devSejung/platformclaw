@@ -53,7 +53,8 @@ describe("PlatformClawControlUiAdapter", () => {
     });
     const options = adapter!.applicationOptions(identity!, vi.fn());
     expect(options).toMatchObject({
-      enabledRouteIds: ["chat", "new-session", "sessions"],
+      accessMode: "personal-agent",
+      enabledRouteIds: ["chat", "new-session", "sessions", "agents"],
       gateway: {
         url: "wss://platformclaw.example/platformclaw/gateway",
         browserDeviceAuth: false,

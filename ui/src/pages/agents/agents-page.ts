@@ -430,6 +430,7 @@ class AgentsPage extends OpenClawLightDomElement implements AgentsState {
       return;
     }
     if (
+      this.context.accessMode === "operator" &&
       !this.context.runtimeConfig.state.configSnapshot &&
       !this.context.runtimeConfig.state.configLoading
     ) {
@@ -754,6 +755,7 @@ class AgentsPage extends OpenClawLightDomElement implements AgentsState {
           agentsList: this.agentsList,
           selectedAgentId,
           activePanel: this.agentsPanel,
+          personalAccess: this.context.accessMode === "personal-agent",
           config: {
             form: config,
             loading: configState.configLoading,
