@@ -8,6 +8,12 @@
 - PlatformClaw features prefer existing plugin, provider, adapter, hook, registry, or SDK boundaries. Do not spread enterprise-only logic across OpenClaw core.
 - Migrate the previous PlatformClaw one small capability at a time; never copy it wholesale.
 - Never commit credentials, internal data, private URLs, user workspaces, logs, or runtime databases.
+- At a functional checkpoint, start autoreview and the relevant lint, typecheck,
+  and focused tests concurrently when the repository lock and available runner
+  permit it. Collect both result sets before patching so one fix cycle addresses
+  review and verification findings together.
+- After that fix cycle, rerun only the affected checks before PR creation. Do
+  not repeatedly alternate autoreview and broad CI for each small edit.
 - If this overlay conflicts with the OpenClaw rules below, preserve the OpenClaw rule and report the conflict to the user.
 
 # AGENTS.MD
