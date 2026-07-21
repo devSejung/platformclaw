@@ -4,6 +4,7 @@ import { parse } from "yaml";
 import {
   classifyPlatformClawChanges,
   parseGitNameStatus,
+  resolvePlatformClawBase,
 } from "../../scripts/platformclaw-ci-plan.mjs";
 
 describe("classifyPlatformClawChanges", () => {
@@ -30,6 +31,17 @@ describe("classifyPlatformClawChanges", () => {
     expect(plan.needs_changed_surface_checks).toBe(false);
   });
 
+  it("runs focused Admin HTTP RPC checks without upstream fanout", () => {
+    const plan = classifyPlatformClawChanges([
+      "extensions/admin-http-rpc/index.ts",
+      "extensions/admin-http-rpc/src/employee-profile.test.ts",
+    ]);
+
+    expect(plan.mode).toBe("platformclaw");
+    expect(plan.needs_admin_http_rpc_checks).toBe(true);
+    expect(plan.needs_changed_surface_checks).toBe(false);
+  });
+
   it("keeps lockfile-only changes on upstream checks", () => {
     const plan = classifyPlatformClawChanges(["pnpm-lock.yaml"]);
 
@@ -41,6 +53,7 @@ describe("classifyPlatformClawChanges", () => {
     const plan = classifyPlatformClawChanges([
       ".github/workflows/platformclaw-ci.yml",
       "scripts/platformclaw-ci-plan.d.mts",
+      "scripts/platformclaw-check.d.mts",
     ]);
 
     expect(plan.needs_workflow_checks).toBe(true);
@@ -115,23 +128,30 @@ describe("classifyPlatformClawChanges", () => {
 
 describe("parseGitNameStatus", () => {
   it("keeps both sides of renames and copies", () => {
-    expect(
-      parseGitNameStatus(
-        "M\0docs/platformclaw/ci.md\0R100\0src/gateway.ts\0scripts/platformclaw-gateway.mjs\0C75\0src/a.ts\0src/b.ts\0",
-      ),
-    ).toEqual([
+    const files = parseGitNameStatus(
+      "M\0docs/platformclaw/ci.md\0R100\0src/gateway.ts\0scripts/platformclaw-gateway.mjs\0C75\0src/a.ts\0src/b.ts\0",
+    );
+
+    expect(files).toEqual([
       "docs/platformclaw/ci.md",
       "src/gateway.ts",
       "scripts/platformclaw-gateway.mjs",
       "src/a.ts",
       "src/b.ts",
     ]);
+    expect(classifyPlatformClawChanges(files).needs_changed_surface_checks).toBe(true);
   });
 
   it("rejects truncated rename records", () => {
     expect(() => parseGitNameStatus("R100\0src/gateway.ts\0")).toThrow(
       "Missing destination path for R100",
     );
+  });
+});
+
+describe("resolvePlatformClawBase", () => {
+  it("uses the parent commit for a branch's first push", () => {
+    expect(resolvePlatformClawBase("0000000000", "head-sha")).toBe("head-sha^");
   });
 });
 
@@ -152,4 +172,19 @@ describe("PlatformClaw workflow checkout", () => {
       expect(checkout?.with?.["persist-credentials"]).toBe(true);
     });
   }
+});
+
+describe("PlatformClaw shared check workflow", () => {
+  it("uses one shared runner for changed code surfaces", () => {
+    const workflow = parse(
+      readFileSync(new URL("../../.github/workflows/platformclaw-ci.yml", import.meta.url), "utf8"),
+    ) as { jobs: { validate: { steps: Array<{ name?: string; run?: string }> } } };
+    const commands = new Map(
+      workflow.jobs.validate.steps.map((step) => [step.name, step.run]).filter(([name]) => name),
+    );
+
+    expect(commands.get("Validate changed PlatformClaw surfaces")).toBe(
+      'node scripts/platformclaw-check.mjs --changed --base "$BASE_SHA" --head "$HEAD_SHA"',
+    );
+  });
 });

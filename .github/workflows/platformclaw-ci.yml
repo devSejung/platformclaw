@@ -48,16 +48,6 @@ jobs:
           --head "$HEAD_SHA"
           --github-output "$GITHUB_OUTPUT"
 
-      - name: Check patch whitespace
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.sha }}
-        run: |
-          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
-            BASE_SHA="${HEAD_SHA}^"
-          fi
-          git diff --check "$BASE_SHA...$HEAD_SHA"
-
       - name: Check PlatformClaw docs inventory
         if: steps.plan.outputs.needs_docs_checks == 'true'
         run: node scripts/docs-list.js
@@ -92,67 +82,15 @@ jobs:
           fi
           pnpm check:max-lines-ratchet --base "$BASE_SHA"
 
-      - name: Check PlatformClaw formatting
-        if: steps.plan.outputs.needs_format_check == 'true'
+      - name: Validate changed PlatformClaw surfaces
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
         run: >-
-          ./node_modules/.bin/oxfmt --check
-          packages/platformclaw-control-plane
-          scripts/platformclaw-ci-plan.d.mts
-          scripts/platformclaw-*.mjs
-          test/scripts/platformclaw-*.test.ts
-          .github/workflows/platformclaw-*.yml
-          docs/platformclaw
-          ui/platformclaw-*.html
-          ui/src/platformclaw
-          ui/vite.platformclaw-login.config.ts
-
-      - name: Lint PlatformClaw CI planner
-        if: steps.plan.outputs.needs_planner_tests == 'true'
-        run: >-
-          node scripts/run-oxlint.mjs
-          --tsconfig config/tsconfig/oxlint.core.json
-          scripts/platformclaw-ci-plan.d.mts
-          scripts/platformclaw-ci-plan.mjs
-          test/scripts/platformclaw-ci-plan.test.ts
-
-      - name: Validate PlatformClaw script declarations
-        if: steps.plan.outputs.needs_planner_tests == 'true'
-        run: node scripts/check-script-declarations.mjs
-
-      - name: Lint PlatformClaw control plane
-        if: steps.plan.outputs.needs_package_checks == 'true'
-        run: >-
-          node scripts/run-oxlint.mjs
-          --tsconfig config/tsconfig/oxlint.core.json
-          packages/platformclaw-control-plane/src
-
-      - name: Typecheck PlatformClaw control plane
-        if: steps.plan.outputs.needs_package_checks == 'true'
-        run: node scripts/run-tsgo.mjs -p packages/platformclaw-control-plane/tsconfig.json --noEmit
-
-      - name: Test PlatformClaw control plane
-        if: steps.plan.outputs.needs_package_checks == 'true'
-        run: node scripts/run-vitest.mjs packages/platformclaw-control-plane/src
-
-      - name: Build PlatformClaw control plane
-        if: steps.plan.outputs.needs_package_checks == 'true'
-        run: pnpm --dir packages/platformclaw-control-plane build
-
-      - name: Test PlatformClaw CI planner
-        if: steps.plan.outputs.needs_planner_tests == 'true'
-        run: >-
-          node scripts/run-vitest.mjs
-          test/scripts/platformclaw-ci-plan.test.ts
-          test/scripts/platformclaw-runtime-docker.test.ts
-
-      - name: Validate PlatformClaw UI
-        if: steps.plan.outputs.needs_ui_checks == 'true'
-        run: |
-          pnpm ui:i18n:verify
-          node scripts/run-tsgo.mjs -p tsconfig.ui.json --noEmit
-          node scripts/run-oxlint.mjs --tsconfig config/tsconfig/oxlint.core.json ui/src/platformclaw ui/vite.config.ts ui/vite.platformclaw-login.config.ts
-          node scripts/run-vitest.mjs ui/src/platformclaw
-          pnpm --dir ui build
+          node scripts/platformclaw-check.mjs
+          --changed
+          --base "$BASE_SHA"
+          --head "$HEAD_SHA"
 
       - name: Validate PlatformClaw deployment files
         if: steps.plan.outputs.needs_deployment_checks == 'true'
@@ -177,10 +115,3 @@ jobs:
       - name: Validate workflow contracts
         if: steps.plan.outputs.needs_workflow_checks == 'true'
         run: node scripts/check-workflows.mjs
-
-      - name: Run upstream changed-surface checks
-        if: steps.plan.outputs.needs_changed_surface_checks == 'true'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.sha }}
-        run: pnpm check:changed --base "$BASE_SHA" --head "$HEAD_SHA"
