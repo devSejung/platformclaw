@@ -8,6 +8,7 @@ import {
 import type { PluginStateKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
 
 export const PLATFORMCLAW_PROFILE_SEED_METHOD = "platformclaw.profile.seed";
+export const PLATFORMCLAW_PROFILE_STATUS_METHOD = "platformclaw.profile.status";
 export const PLATFORMCLAW_PROFILE_STORE_NAMESPACE = "platformclaw.employee-profiles";
 
 const PROFILE_SCHEMA = "platformclaw.employee-profile.v1";
@@ -100,6 +101,85 @@ function invalidRequest(respond: GatewayRequestHandlerOptions["respond"], messag
   respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, message));
 }
 
+function canonicalEmployeeId(employeeId: string): string {
+  return employeeId.trim().toLocaleLowerCase("en-US");
+}
+
+function configuredWorkspace(
+  context: GatewayRequestHandlerOptions["context"],
+  agentId: string,
+  expectedWorkspace: string,
+): string | undefined {
+  const config = context.getRuntimeConfig();
+  if (!listAgentIds(config).includes(agentId)) {
+    return undefined;
+  }
+  const workspace = path.resolve(resolveAgentWorkspaceDir(config, agentId));
+  return workspace === expectedWorkspace ? workspace : undefined;
+}
+
+export async function handleEmployeeProfileStatus(
+  { params, respond, context }: GatewayRequestHandlerOptions,
+  store: EmployeeProfileStore,
+): Promise<void> {
+  if (!isRecord(params)) {
+    invalidRequest(respond, "profile status params must be an object");
+    return;
+  }
+  const agentId = typeof params.agentId === "string" ? params.agentId.trim() : "";
+  const workspace =
+    typeof params.workspace === "string" && path.isAbsolute(params.workspace)
+      ? path.resolve(params.workspace)
+      : undefined;
+  const employeeId = typeof params.employeeId === "string" ? params.employeeId.trim() : "";
+  if (!agentId || !workspace || !employeeId) {
+    invalidRequest(respond, "profile status requires agentId, workspace, and employeeId");
+    return;
+  }
+  if (!configuredWorkspace(context, agentId, workspace)) {
+    invalidRequest(respond, `agent or workspace mismatch: ${agentId}`);
+    return;
+  }
+  let stored: unknown;
+  try {
+    stored = await store.lookup(agentId);
+  } catch {
+    respond(
+      false,
+      undefined,
+      errorShape(ErrorCodes.UNAVAILABLE, "failed to inspect employee profile"),
+    );
+    return;
+  }
+  const artifact = stored === undefined ? undefined : parseProfileArtifact(stored);
+  if (stored !== undefined && !artifact) {
+    respond(
+      false,
+      undefined,
+      errorShape(ErrorCodes.UNAVAILABLE, "stored employee profile is not a safe valid profile"),
+    );
+    return;
+  }
+  if (!configuredWorkspace(context, agentId, workspace)) {
+    invalidRequest(respond, `agent workspace changed during profile status: ${agentId}`);
+    return;
+  }
+  respond(
+    true,
+    {
+      ok: true,
+      agentId,
+      workspace,
+      status: !artifact
+        ? "missing"
+        : canonicalEmployeeId(artifact.profile.employeeId) === canonicalEmployeeId(employeeId)
+          ? "matched"
+          : "mismatch",
+    },
+    undefined,
+  );
+}
+
 export async function handleEmployeeProfileSeed(
   { params, respond, context }: GatewayRequestHandlerOptions,
   store: EmployeeProfileStore,
@@ -131,13 +211,8 @@ export async function handleEmployeeProfileSeed(
     return;
   }
 
-  const currentConfig = context.getRuntimeConfig();
-  if (!listAgentIds(currentConfig).includes(agentId)) {
-    invalidRequest(respond, `agent not found: ${agentId}`);
-    return;
-  }
-  const workspaceDir = path.resolve(resolveAgentWorkspaceDir(currentConfig, agentId));
-  if (workspaceDir !== expectedWorkspace) {
+  const workspaceDir = configuredWorkspace(context, agentId, expectedWorkspace);
+  if (!workspaceDir) {
     invalidRequest(respond, `agent workspace mismatch: ${agentId}`);
     return;
   }
@@ -152,7 +227,10 @@ export async function handleEmployeeProfileSeed(
       invalidRequest(respond, "stored employee profile is not a safe valid profile");
       return;
     }
-    if (persisted.profile.employeeId !== artifact.profile.employeeId) {
+    if (
+      canonicalEmployeeId(persisted.profile.employeeId) !==
+      canonicalEmployeeId(artifact.profile.employeeId)
+    ) {
       invalidRequest(respond, `agent profile belongs to another employee: ${agentId}`);
       return;
     }
@@ -165,11 +243,7 @@ export async function handleEmployeeProfileSeed(
     return;
   }
 
-  const latestConfig = context.getRuntimeConfig();
-  if (
-    !listAgentIds(latestConfig).includes(agentId) ||
-    path.resolve(resolveAgentWorkspaceDir(latestConfig, agentId)) !== expectedWorkspace
-  ) {
+  if (!configuredWorkspace(context, agentId, expectedWorkspace)) {
     invalidRequest(respond, `agent workspace changed during profile seed: ${agentId}`);
     return;
   }
