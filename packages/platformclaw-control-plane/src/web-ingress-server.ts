@@ -28,6 +28,7 @@ import {
 } from "./browser-gateway-proxy.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import type { PlatformClawWebAssetHandler } from "./web-assets.js";
+import { isPlatformClawApplicationPath, PLATFORMCLAW_WEB_LOGIN_PATH } from "./web-assets.js";
 
 export const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
 export const PLATFORMCLAW_HEALTH_PATH = "/platformclaw/health";
@@ -271,10 +272,37 @@ export class PlatformClawWebIngressServer {
       if (handled) {
         return;
       }
-      if (this.options.webAssets && (await this.options.webAssets.handle(req, res))) {
+      const requestUrl = new URL(req.url ?? "/", this.publicOrigin);
+      if (this.options.webAssets && isPlatformClawApplicationPath(requestUrl.pathname)) {
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          if (await this.options.webAssets.handleApplication(req, res)) {
+            return;
+          }
+        }
+        const token = readPlatformClawSessionCookie(req);
+        const authentication = token
+          ? await this.options.authService.authenticateToken(token)
+          : undefined;
+        if (authentication?.status !== "active") {
+          const returnTo = `${requestUrl.pathname}${requestUrl.search}`;
+          res.statusCode = 302;
+          res.setHeader(
+            "Location",
+            `${PLATFORMCLAW_WEB_LOGIN_PATH}?returnTo=${encodeURIComponent(returnTo)}`,
+          );
+          res.setHeader("Cache-Control", "no-store");
+          res.setHeader("Referrer-Policy", "no-referrer");
+          res.end();
+          return;
+        }
+        if (await this.options.webAssets.handleApplication(req, res)) {
+          return;
+        }
+      }
+      if (this.options.webAssets && (await this.options.webAssets.handlePublic(req, res))) {
         return;
       }
-      const pathname = new URL(req.url ?? "/", this.publicOrigin).pathname;
+      const pathname = requestUrl.pathname;
       if (pathname === this.healthPath && (req.method === "GET" || req.method === "HEAD")) {
         const ready = this.options.gateway.getHello() !== null;
         sendJson(res, ready ? 200 : 503, req.method === "HEAD" ? undefined : { ready });

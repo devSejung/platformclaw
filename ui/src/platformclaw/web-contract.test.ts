@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { PLATFORMCLAW_DEFAULT_APP_PATH, resolvePlatformClawReturnTo } from "./web-contract.ts";
+import {
+  parsePlatformClawWebDescriptor,
+  PLATFORMCLAW_DEFAULT_APP_PATH,
+  PLATFORMCLAW_WEB_DESCRIPTOR,
+  readPlatformClawWebDescriptor,
+  resolvePlatformClawReturnTo,
+} from "./web-contract.ts";
 
 function locationFor(returnTo?: string): Pick<Location, "href" | "origin"> {
   const url = new URL("https://platformclaw.example/platformclaw/login");
@@ -31,5 +37,26 @@ describe("resolvePlatformClawReturnTo", () => {
     "not a valid app route",
   ])("falls back for unsafe returnTo %s", (returnTo) => {
     expect(resolvePlatformClawReturnTo(locationFor(returnTo))).toBe(PLATFORMCLAW_DEFAULT_APP_PATH);
+  });
+});
+
+describe("PlatformClaw Web descriptor", () => {
+  it("accepts only the fixed browser bootstrap contract", () => {
+    expect(parsePlatformClawWebDescriptor({ ...PLATFORMCLAW_WEB_DESCRIPTOR })).toBe(
+      PLATFORMCLAW_WEB_DESCRIPTOR,
+    );
+    document.head.innerHTML = `<meta name="platformclaw-web-descriptor" content='${JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR)}'>`;
+    expect(readPlatformClawWebDescriptor(document)).toBe(PLATFORMCLAW_WEB_DESCRIPTOR);
+  });
+
+  it.each([
+    { ...PLATFORMCLAW_WEB_DESCRIPTOR, agentId: "person_one" },
+    { ...PLATFORMCLAW_WEB_DESCRIPTOR, gatewayPath: "wss://gateway.example" },
+    { ...PLATFORMCLAW_WEB_DESCRIPTOR, enabledRoutes: ["chat", "agents"] },
+    { ...PLATFORMCLAW_WEB_DESCRIPTOR, mode: "operator" },
+  ])("rejects expanded or changed browser authority", (descriptor) => {
+    expect(() => parsePlatformClawWebDescriptor(descriptor)).toThrow(
+      /descriptor (fields|values) are invalid/,
+    );
   });
 });

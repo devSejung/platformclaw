@@ -19,6 +19,10 @@ branches are on `main`. Detailed visual design, branding, animation, and final
 copy are intentionally deferred. The functional states and security boundary
 defined here are not deferred.
 
+Implementation status: the login shell and authenticated application-document
+host are complete. The Control UI adapter, restricted application shell, and
+container proof remain open.
+
 ## Outcome
 
 After this slice:
@@ -360,6 +364,12 @@ These do not block functional implementation:
 
 Any later `design.md` rules apply to those surfaces without changing the
 identity, session, Gateway, or authorization boundary in this plan.
+
+PlatformClaw visual rules belong in `ui/src/platformclaw/` and in narrow shell
+inputs consumed by upstream components. Do not copy upstream views or spread
+PlatformClaw CSS and product conditionals through individual Control UI pages.
+If a design needs a missing shared primitive, add the smallest generic upstream
+hook and keep the PlatformClaw theme, assets, and composition in the overlay.
 
 ## See also
 
