@@ -26,8 +26,9 @@ The goals are to:
   `packages/platformclaw-control-plane` with in-memory and SQLite stores,
   employee browser-session runtime assembly, and Gateway-backed personal-agent
   provisioning. A protocol-compatible Web ingress listener now composes browser
-  authentication with the fail-closed Gateway policy; production secret and
-  process wiring remain pending.
+  authentication with the fail-closed Gateway policy. The control-process
+  entry point now wires deployment secrets and persistent paths; Linux process
+  supervision and container proof remain pending.
 - The clean OpenClaw Linux Docker build and focused credential-free test baseline has been validated.
 
 ## Why This Rebuild Exists
@@ -73,8 +74,9 @@ Production Docker deployment migration and validation remains in progress.
 Control-plane Phase 1 implementation is now also in progress for enterprise
 identity, server sessions, idempotent agent provisioning, and Web and Knox
 ingress authorization. The contract, in-memory store, approved SQLite v1 store,
-employee auth, personal-agent provisioner, and Web Gateway policy proxy slices
-are complete. The deployable ingress host remains pending. See
+employee auth, personal-agent provisioner, Web Gateway policy proxy, restricted
+Control UI, and deployable ingress entry point are complete. Linux process
+supervision and container proof remain pending. See
 `docs/platformclaw/control-plane-phase-1.md` and
 `docs/platformclaw/decisions.md`.
 

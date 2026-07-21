@@ -4,6 +4,8 @@ export * from "./browser-auth-runtime.js";
 export * from "./browser-gateway-proxy.js";
 export * from "./browser-gateway-hello.js";
 export * from "./browser-login-rate-limiter.js";
+export * from "./deployment-config.js";
+export * from "./deployment-runtime.js";
 export * from "./gateway-runtime-client.js";
 export * from "./web-ingress-server.js";
 export * from "./web-ingress-runtime.js";

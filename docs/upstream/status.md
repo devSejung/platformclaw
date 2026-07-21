@@ -31,13 +31,14 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 - PlatformClaw Web login, authenticated Control UI hosting, fixed same-origin
   Gateway adapter, restricted employee routes, identity/logout shell, and
   Windows mocked-browser proof implemented
+- Secret-backed `platformclaw-control` deployment entry point implemented
 
 ## Not Started
 
 - Previous PlatformClaw capability inventory
 - Previous core modification inventory
 - Remaining architecture migration plan
-- Control-plane runtime adapters
+- Linux control-process supervision and container browser proof
 - Company Jammy image validation with the approved internal APT source
 
 ## Migration Status
@@ -45,8 +46,8 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 | Capability                             | Status                              | Related PR/commit                     |
 | -------------------------------------- | ----------------------------------- | ------------------------------------- |
 | Branding and product boundary          | Not started                         | -                                     |
-| Account/session/workspace isolation    | Persistent store implemented        | `packages/platformclaw-control-plane` |
-| Enterprise authentication              | Contracts implemented               | `packages/platformclaw-control-plane` |
+| Account/session/workspace isolation    | Web runtime implemented             | `packages/platformclaw-control-plane` |
+| Enterprise authentication              | LDAP-phase adapter implemented      | `packages/platformclaw-control-plane` |
 | Credential runtime and policy          | Not started                         | -                                     |
 | Skill Hub                              | Not started                         | -                                     |
 | Knox adapter                           | Control-plane contracts implemented | `packages/platformclaw-control-plane` |

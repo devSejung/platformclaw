@@ -122,13 +122,48 @@ Never put real employee records or passwords in a committed fixture.
 - Unknown methods and newly added upstream parameters fail closed until the
   browser policy is reviewed.
 
+## Deployment entry point
+
+The private control-plane package exposes `platformclaw-control`. From a source
+checkout, the equivalent development command is:
+
+```bash
+pnpm platformclaw:control
+```
+
+The process requires these deployment-owned values:
+
+| Environment variable                          | Purpose                                    |
+| --------------------------------------------- | ------------------------------------------ |
+| `PLATFORMCLAW_PUBLIC_ORIGIN`                  | Exact browser HTTP(S) origin               |
+| `PLATFORMCLAW_LISTEN_HOST`                    | Listener host; defaults to `127.0.0.1`     |
+| `PLATFORMCLAW_LISTEN_PORT`                    | Listener port; defaults to `19001`         |
+| `PLATFORMCLAW_DATABASE_PATH`                  | Persistent control-plane SQLite path       |
+| `PLATFORMCLAW_CONTROL_UI_ROOT`                | Built Control UI asset directory           |
+| `PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT`        | Parent directory for personal workspaces   |
+| `PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE` | Initial administrator IDs secret file      |
+| `PLATFORMCLAW_GATEWAY_URL`                    | Private Gateway WS(S) origin               |
+| `PLATFORMCLAW_GATEWAY_TOKEN_FILE`             | Private Gateway operator-token secret file |
+| `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`        | Employee-auth login endpoint               |
+| `PLATFORMCLAW_EMPLOYEE_AUTH_BEARER_TOKEN`     | Optional employee-auth service bearer      |
+
+The Gateway token is shared with the loopback-only `admin-http-rpc` endpoint
+used for personal-agent provisioning. The control process derives that HTTP
+endpoint from the private Gateway origin. It does not accept a second endpoint
+or token that could drift from the WebSocket connection.
+
+Initial administrator IDs and the Gateway operator token are read from bounded
+regular files. Production mounts those files as Docker secrets. No default
+administrator or operator credential exists.
+
 ## Current boundary
 
-The package now provides the runtime composition, Gateway adapter, protocol
-listener, mock auth service, and focused tests. Production is not ready until
-the host deployment supplies secrets and persistent paths, process supervision,
-reverse-proxy routing, and the Control UI employee-login bootstrap. Knox ingress
-and VM sandbox execution remain separate capabilities.
+The package now provides the runtime composition, deployment configuration,
+executable control listener, Gateway adapter, protocol listener, mock auth
+service, Control UI employee-login bootstrap, and focused tests. Production is
+not ready until the Linux image supplies secret mounts, persistent volumes,
+process supervision, reverse-proxy routing, and container-level browser proof.
+Knox ingress and VM sandbox execution remain separate capabilities.
 
 ## See also
 
