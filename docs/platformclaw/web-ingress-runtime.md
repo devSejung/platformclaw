@@ -147,10 +147,10 @@ The process requires these deployment-owned values:
 | `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`        | Employee-auth login endpoint               |
 | `PLATFORMCLAW_EMPLOYEE_AUTH_BEARER_TOKEN`     | Optional employee-auth service bearer      |
 
-The Gateway token is shared with the loopback-only `admin-http-rpc` endpoint
-used for personal-agent provisioning. The control process derives that HTTP
-endpoint from the private Gateway origin. It does not accept a second endpoint
-or token that could drift from the WebSocket connection.
+The Gateway token is shared with the private `admin-http-rpc` endpoint used for
+personal-agent provisioning. The control process derives that HTTP endpoint
+from the Gateway origin on the internal Docker backplane. It does not accept a
+second endpoint or token that could drift from the WebSocket connection.
 
 Initial administrator IDs and the Gateway operator token are read from bounded
 regular files. Production mounts those files as Docker secrets. No default
@@ -160,9 +160,13 @@ administrator or operator credential exists.
 
 The package now provides the runtime composition, deployment configuration,
 executable control listener, Gateway adapter, protocol listener, mock auth
-service, Control UI employee-login bootstrap, and focused tests. Production is
-not ready until the Linux image supplies secret mounts, persistent volumes,
-process supervision, reverse-proxy routing, and container-level browser proof.
+service, Control UI employee-login bootstrap, and focused tests. The Linux
+composition supplies Docker secret mounts, separate persistent state volumes,
+a shared personal-workspace volume, Compose process supervision, and a
+deterministic container smoke. Gateway binds to an internal backplane with no
+published port; only PlatformClaw Web is published. Separate egress networks
+preserve model API and employee-auth access without exposing the backplane.
+Final browser Playwright proof behind the deployment reverse proxy remains open.
 Knox ingress and VM sandbox execution remain separate capabilities.
 
 ## See also

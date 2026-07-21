@@ -51,6 +51,7 @@ describe("classifyPlatformClawChanges", () => {
   it("recognizes deployment and future private UI surfaces", () => {
     const plan = classifyPlatformClawChanges([
       "docker/platformclaw-jammy/Dockerfile",
+      "scripts/e2e/platformclaw-runtime-docker.sh",
       "ui/src/platformclaw/login.ts",
     ]);
 

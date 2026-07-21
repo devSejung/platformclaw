@@ -1,0 +1,60 @@
+name: PlatformClaw Docker Smoke
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - .github/workflows/platformclaw-docker-smoke.yml
+      - Dockerfile.jammy
+      - docker/platformclaw-runtime/**
+      - packages/platformclaw-control-plane/**
+      - scripts/e2e/fixtures/platformclaw-login.json
+      - scripts/e2e/platformclaw-runtime-docker.sh
+      - scripts/mock_employee_auth.py
+      - scripts/platformclaw-build.mjs
+      - ui/**
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/platformclaw-docker-smoke.yml
+      - Dockerfile.jammy
+      - docker/platformclaw-runtime/**
+      - packages/platformclaw-control-plane/**
+      - scripts/e2e/fixtures/platformclaw-login.json
+      - scripts/e2e/platformclaw-runtime-docker.sh
+      - scripts/mock_employee_auth.py
+      - scripts/platformclaw-build.mjs
+      - ui/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  smoke:
+    name: PlatformClaw Docker Smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          filter: blob:none
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: "false"
+          install-deps: "false"
+
+      - name: Run deterministic runtime smoke
+        run: bash scripts/e2e/platformclaw-runtime-docker.sh

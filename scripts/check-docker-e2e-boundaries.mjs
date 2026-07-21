@@ -28,6 +28,7 @@ const livePackageBackedLanes = new Set([
 // consuming the shared package E2E images.
 const sourceCheckoutImageLanes = new Set([
   "docker-selected-plugins",
+  "platformclaw-runtime",
   "plugin-binding-command-escape",
 ]);
 

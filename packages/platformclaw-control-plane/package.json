@@ -19,7 +19,7 @@
     }
   },
   "scripts": {
-    "build": "tsdown src/index.ts src/server-main.ts --no-config --platform node --format esm --dts --out-dir dist --clean"
+    "build": "tsdown --config tsdown.config.ts"
   },
   "dependencies": {
     "@openclaw/gateway-client": "workspace:*",

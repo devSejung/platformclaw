@@ -1,0 +1,19 @@
+{
+  "gateway": {
+    "mode": "local",
+    "bind": "lan",
+    "auth": {
+      "mode": "token"
+    },
+    "controlUi": {
+      "enabled": false
+    }
+  },
+  "plugins": {
+    "entries": {
+      "admin-http-rpc": {
+        "enabled": true
+      }
+    }
+  }
+}

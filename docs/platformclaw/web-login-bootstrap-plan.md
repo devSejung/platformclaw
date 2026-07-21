@@ -23,7 +23,8 @@ Implementation status: the login shell, authenticated application-document
 host, Control UI adapter, restricted application shell, and deployable control
 process entry point are implemented. Focused Windows Chrome proof covers the
 fixed proxy URL, disabled-route fallback, account shell, and session-expiry
-redirect. Linux secret/volume composition and final container proof remain
+redirect. Linux secret/volume composition and deterministic container smoke are
+implemented. Final Playwright proof behind the deployment reverse proxy remains
 open.
 
 ## Outcome
@@ -331,7 +332,7 @@ The UI implementation must not reintroduce the legacy whole-file mutation path.
 - Run focused control-plane and UI tests.
 - Run Control UI Playwright proof for login, chat bootstrap, logout, expiry,
   cross-agent denial, deep links, and private Gateway restart.
-- Build and smoke-test the Ubuntu image with the loopback mock auth service.
+- Build and smoke-test the Ubuntu image with an isolated mock auth service.
 
 Each slice should be a reviewable commit. Heavy Linux build and browser proof
 runs in the background after the Windows visual loop and focused local tests

@@ -10,6 +10,7 @@ const EXACT_OVERLAY_PATHS = new Set([
   ".github/workflows/platformclaw-full-ci.yml",
   "PLATFORMCLAW.md",
   "scripts/mock_employee_auth.py",
+  "scripts/e2e/platformclaw-runtime-docker.sh",
   "scripts/platformclaw-ci-plan.d.mts",
   "scripts/platformclaw-ci-plan.mjs",
   "test/scripts/platformclaw-ci-plan.test.ts",
@@ -34,6 +35,7 @@ function isOverlayPath(file) {
     OVERLAY_PREFIXES.some((prefix) => file.startsWith(prefix)) ||
     file.startsWith("docker/platformclaw-") ||
     file.startsWith("scripts/platformclaw-") ||
+    file.startsWith("test/scripts/platformclaw-") ||
     file.startsWith("ui/platformclaw-")
   );
 }
@@ -53,7 +55,7 @@ export function classifyPlatformClawChanges(inputFiles) {
     (file) =>
       file === "scripts/platformclaw-ci-plan.mjs" ||
       file === "scripts/platformclaw-ci-plan.d.mts" ||
-      file === "test/scripts/platformclaw-ci-plan.test.ts",
+      file.startsWith("test/scripts/platformclaw-"),
   );
   const hasWorkflowChanges = files.some((file) =>
     file.startsWith(".github/workflows/platformclaw-"),
@@ -65,7 +67,10 @@ export function classifyPlatformClawChanges(inputFiles) {
       file === "ui/vite.platformclaw-login.config.ts",
   );
   const hasDeploymentChanges = files.some(
-    (file) => file.startsWith("docker/platformclaw-") || file === "scripts/platformclaw-build.mjs",
+    (file) =>
+      file.startsWith("docker/platformclaw-") ||
+      file === "scripts/platformclaw-build.mjs" ||
+      file === "scripts/e2e/platformclaw-runtime-docker.sh",
   );
   const hasOverlayChanges = files.some(isOverlayPath);
   // A lockfile updated alongside an overlay-owned package is validated by the
