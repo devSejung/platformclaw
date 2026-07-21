@@ -300,6 +300,15 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore, ControlPlan
     return { binding: cloneBinding(binding), created: true };
   }
 
+  async listAgentBindingsByState(state: AgentProvisioningState): Promise<AgentBinding[]> {
+    return [...this.bindings.values()]
+      .filter((binding) => binding.state === state)
+      .toSorted(
+        (left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+      )
+      .map((binding) => cloneBinding(binding));
+  }
+
   async reserveKnoxRoomAgent(params: {
     accountId: string;
     roomId: string;

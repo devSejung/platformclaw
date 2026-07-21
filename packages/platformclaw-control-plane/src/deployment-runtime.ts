@@ -54,6 +54,7 @@ export function createPlatformClawDeploymentRuntime(
     buildAgentMainSessionKey: buildPersonalMainSessionKey,
     resolveAgentIdFromSessionKey: resolvePersonalAgentId,
     provisioner,
+    restartRecoveryProbe: provisioner,
     employeeAuth: { env: options.env ?? process.env },
     gatewayClient: {
       client: {

@@ -205,6 +205,49 @@ describe("GatewayPersonalAgentProvisioner", () => {
     );
   });
 
+  it.each([
+    ["matched", { status: "active" }],
+    ["missing", { status: "retry-required", reason: "profile-missing" }],
+    ["mismatch", { status: "conflict", reason: "profile-mismatch" }],
+  ] as const)("reconciles a restart profile with %s ownership", async (status, expected) => {
+    const workspaceRoot = path.resolve("test-workspaces");
+    const workspace = path.join(workspaceRoot, "account_name");
+    const { rpc, call } = createRpc((method) => {
+      if (method === "agents.list") {
+        return { agents: [{ id: "account_name", workspace }] };
+      }
+      if (method === "platformclaw.profile.status") {
+        return { ok: true, agentId: "account_name", workspace, status };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
+    const current = request();
+
+    await expect(
+      provisioner.reconcileAfterRestart({ user: current.user, binding: current.binding }),
+    ).resolves.toEqual(expected);
+    expect(call).toHaveBeenNthCalledWith(2, "platformclaw.profile.status", {
+      agentId: "account_name",
+      workspace,
+      employeeId: "employee-1",
+    });
+  });
+
+  it("requires login retry when restart recovery finds no agent", async () => {
+    const { rpc, call } = createRpc(() => ({ agents: [] }));
+    const provisioner = new GatewayPersonalAgentProvisioner({
+      rpc,
+      workspaceRoot: path.resolve("test-workspaces"),
+    });
+    const current = request();
+
+    await expect(
+      provisioner.reconcileAfterRestart({ user: current.user, binding: current.binding }),
+    ).resolves.toEqual({ status: "retry-required", reason: "agent-missing" });
+    expect(call).toHaveBeenCalledOnce();
+  });
+
   it("rejects agent ids outside the upstream canonical contract before RPC", async () => {
     const { rpc, call } = createRpc((method) => {
       throw new Error(`unexpected method: ${method}`);

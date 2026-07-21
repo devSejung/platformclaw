@@ -62,6 +62,16 @@ The restricted Control UI adapter and the secret-backed control-process entry
 point are implemented. Linux process supervision, persistent volume mounts,
 and container-level browser proof are not yet complete.
 
+Restart reconciliation now runs before the public listener. It reads every
+SQLite binding left in `PROVISIONING`, verifies personal-agent identity,
+workspace, and immutable employee-profile ownership through the private Admin
+HTTP RPC plugin, and activates only a complete match. Incomplete or conflicting
+records become explicit `FAILED` rows for authenticated retry or administrator
+inspection. A transient private Gateway failure aborts startup without changing
+the unresolved row. Incomplete Knox room rows are reported as failed until the
+room provisioning runtime lands; no agent, workspace, or profile is deleted or
+overwritten during recovery.
+
 Focused tests cover LDAP metadata refresh, LDAP-to-SAML identity linking,
 employee ID correction conflicts, concurrent personal and room provisioning,
 room agent ID compatibility, browser session limits and expiry, account
@@ -373,7 +383,9 @@ Phase 1 should land in bounded slices:
 4. Implement idempotent `agents.create` provisioning.
 5. Implement the web session and Gateway proxy allowlist.
 6. Implement verified Knox direct ingress and dedicated room-agent bindings.
-7. Add restart reconciliation for records left in `PROVISIONING`.
+7. Add restart reconciliation for records left in `PROVISIONING`. Implemented
+   for personal agents; room rows fail explicitly until the Knox room runtime
+   owns their retry path.
 8. Add SAML without changing the downstream identity or provisioning contract.
 
 Each slice requires focused tests for duplicate login, cross-agent denial,

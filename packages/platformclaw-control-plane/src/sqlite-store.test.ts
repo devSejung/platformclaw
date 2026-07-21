@@ -245,6 +245,23 @@ describe("SqliteControlPlaneStore", () => {
     database.close();
   });
 
+  it("finds crash-left provisioning bindings after reopening the database", async () => {
+    const databasePath = createDatabasePath();
+    const store = createStore(databasePath);
+    const { user } = await store.upsertPrincipal(
+      principal("member.user", { accountId: "member.user" }),
+      1_000,
+    );
+    const reserved = await store.reservePersonalAgent(user.id, 2_000);
+    store.close();
+
+    const reopened = createStore(databasePath);
+    await expect(reopened.listAgentBindingsByState("provisioning")).resolves.toEqual([
+      reserved.binding,
+    ]);
+    reopened.close();
+  });
+
   it("persists server-side sessions and revokes them when a user is disabled", async () => {
     const store = createStore();
     const { user } = await store.upsertPrincipal(principal("member.user"), 1_000);

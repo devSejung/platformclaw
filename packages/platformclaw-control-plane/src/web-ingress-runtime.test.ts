@@ -36,12 +36,14 @@ describe("createPlatformClawWebIngressRuntime", () => {
     let clientOptions: GatewayClientOptions | undefined;
     const stop = vi.fn();
     const provisionOrRefresh = vi.fn(async () => undefined);
+    const reconcileAfterRestart = vi.fn(async () => ({ status: "active" }) as const);
     const runtime = createPlatformClawWebIngressRuntime({
       databasePath: ":memory:",
       initialAdminAccountIds: ["admin.user"],
       buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
       resolveAgentIdFromSessionKey: (sessionKey) => /^agent:([^:]+):/.exec(sessionKey)?.[1] ?? null,
       provisioner: { provisionOrRefresh },
+      restartRecoveryProbe: { reconcileAfterRestart },
       employeeAuth: {
         employeeAuthConfig: { loginUrl: "http://127.0.0.1:18080/login" },
         fetchImpl: async () =>
@@ -73,6 +75,23 @@ describe("createPlatformClawWebIngressRuntime", () => {
     });
 
     try {
+      const { user } = await runtime.auth.store.upsertPrincipal(
+        {
+          provider: "ldap",
+          subject: "person.one",
+          accountId: "person.one",
+          employeeId: "1001",
+        },
+        1,
+      );
+      await runtime.auth.store.reservePersonalAgent(user.id, 2);
+      await expect(runtime.prepare()).resolves.toEqual({
+        found: 1,
+        activated: 1,
+        failed: 0,
+        disabled: 0,
+      });
+      expect(reconcileAfterRestart).toHaveBeenCalledOnce();
       await runtime.listen({ host: "127.0.0.1", port: 0 });
       expect(clientOptions?.token).toBe("test-auth-token");
       expect(runtime.gateway.getHello()).toEqual(hello());

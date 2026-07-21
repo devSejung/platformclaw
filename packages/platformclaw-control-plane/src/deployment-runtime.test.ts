@@ -42,6 +42,7 @@ describe("createPlatformClawDeploymentRuntime", () => {
         },
       },
     });
+    expect(options?.restartRecoveryProbe).toBe(options?.provisioner);
     expect(options?.buildAgentMainSessionKey({ agentId: "person_one" })).toBe(
       "agent:person_one:main",
     );

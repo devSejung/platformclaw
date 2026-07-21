@@ -17,5 +17,6 @@ export * from "./gateway-admin-rpc-client.js";
 export * from "./ids.js";
 export * from "./memory-store.js";
 export * from "./personal-agent-provisioner.js";
+export * from "./restart-reconciler.js";
 export * from "./sqlite-schema.js";
 export * from "./sqlite-store.js";
