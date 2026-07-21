@@ -83,7 +83,7 @@ function configResponse(agents: Array<{ id: string; workspace: string }>, applie
 
 describe("GatewayPersonalAgentProvisioner", () => {
   it("rejects a blank workspace root at startup", () => {
-    const { rpc, call } = createRpc((_method) => {
+    const { rpc, call } = createRpc((method) => {
       throw new Error(`unexpected method: ${method}`);
     });
 
@@ -187,7 +187,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
 
   it("fails closed instead of adopting an agent with another workspace", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
-    const { rpc, call } = createRpc((method) => {
+    const { rpc, call } = createRpc(() => {
       return configResponse([{ id: "account_name", workspace: path.resolve("other-workspace") }]);
     });
     const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
