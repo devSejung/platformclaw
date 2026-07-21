@@ -22,7 +22,7 @@ jobs:
     name: PlatformClaw CI
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -102,6 +102,9 @@ jobs:
           test/scripts/platformclaw-*.test.ts
           .github/workflows/platformclaw-*.yml
           docs/platformclaw
+          ui/platformclaw-*.html
+          ui/src/platformclaw
+          ui/vite.platformclaw-login.config.ts
 
       - name: Lint PlatformClaw CI planner
         if: steps.plan.outputs.needs_planner_tests == 'true'
@@ -143,8 +146,9 @@ jobs:
         if: steps.plan.outputs.needs_ui_checks == 'true'
         run: |
           node scripts/run-tsgo.mjs -p tsconfig.ui.json --noEmit
-          node scripts/run-oxlint.mjs --tsconfig config/tsconfig/oxlint.core.json ui/src/platformclaw
+          node scripts/run-oxlint.mjs --tsconfig config/tsconfig/oxlint.core.json ui/src/platformclaw ui/vite.config.ts ui/vite.platformclaw-login.config.ts
           node scripts/run-vitest.mjs ui/src/platformclaw
+          pnpm --dir ui build
 
       - name: Validate PlatformClaw deployment files
         if: steps.plan.outputs.needs_deployment_checks == 'true'

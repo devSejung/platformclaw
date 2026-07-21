@@ -60,6 +60,30 @@ describe("classifyPlatformClawChanges", () => {
     expect(plan.needs_changed_surface_checks).toBe(false);
   });
 
+  it("keeps private login integration files on focused UI checks", () => {
+    const plan = classifyPlatformClawChanges([
+      "ui/vite.platformclaw-login.config.ts",
+      "ui/platformclaw-login.html",
+      "ui/src/platformclaw/login.ts",
+    ]);
+
+    expect(plan.mode).toBe("platformclaw");
+    expect(plan.needs_ui_checks).toBe(true);
+    expect(plan.needs_changed_surface_checks).toBe(false);
+  });
+
+  it("keeps shared UI integration files on upstream checks", () => {
+    const plan = classifyPlatformClawChanges([
+      "ui/package.json",
+      "ui/vite.config.ts",
+      "ui/src/platformclaw/login.ts",
+    ]);
+
+    expect(plan.mode).toBe("upstream");
+    expect(plan.needs_ui_checks).toBe(true);
+    expect(plan.needs_changed_surface_checks).toBe(true);
+  });
+
   it("falls back to upstream checks for core changes", () => {
     const plan = classifyPlatformClawChanges(["src/gateway/server.ts"]);
 

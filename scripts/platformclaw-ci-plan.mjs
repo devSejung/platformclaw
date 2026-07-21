@@ -13,6 +13,7 @@ const EXACT_OVERLAY_PATHS = new Set([
   "scripts/platformclaw-ci-plan.d.mts",
   "scripts/platformclaw-ci-plan.mjs",
   "test/scripts/platformclaw-ci-plan.test.ts",
+  "ui/vite.platformclaw-login.config.ts",
 ]);
 
 const OVERLAY_PREFIXES = [
@@ -58,7 +59,10 @@ export function classifyPlatformClawChanges(inputFiles) {
     file.startsWith(".github/workflows/platformclaw-"),
   );
   const hasUiChanges = files.some(
-    (file) => file.startsWith("ui/src/platformclaw/") || file.startsWith("ui/platformclaw-"),
+    (file) =>
+      file.startsWith("ui/src/platformclaw/") ||
+      file.startsWith("ui/platformclaw-") ||
+      file === "ui/vite.platformclaw-login.config.ts",
   );
   const hasDeploymentChanges = files.some(
     (file) => file.startsWith("docker/platformclaw-") || file === "scripts/platformclaw-build.mjs",
