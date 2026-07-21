@@ -57,6 +57,7 @@ These areas are candidates for future evaluation and migration. They are not an 
 - When a core change is unavoidable, keep it generic and minimal.
 - Treat Windows only as the development host; judge final behavior in Linux Docker.
 - Do not introduce Windows-only runtime dependencies.
+- Run `node scripts/platformclaw-check.mjs --changed --quick` during PlatformClaw development. Before push or PR, run it without `--quick`; GitHub uses the same surface command groups. Keep upstream-wide checks for shared or core paths.
 - Do not freeze unconfirmed interface names or directory structures in documentation.
 
 ## Git Workflow

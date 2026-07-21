@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "tsBuildInfoFile": "../../.artifacts/tsgo-cache/platformclaw-admin-http-rpc.tsbuildinfo"
+  },
+  "include": ["../../src/**/*.d.ts", "./*.ts", "./src/**/*.ts"],
+  "exclude": ["./**/*.test.ts", "./dist/**", "./node_modules/**"]
+}

@@ -37,6 +37,33 @@ commit history stays available for merge-base comparison after a pull request
 base changes, while historical file contents are fetched only when Git needs
 them. Read-only checkout credentials remain available for those lazy fetches.
 
+The private `admin-http-rpc` plugin is also an overlay-owned surface. Changes
+there run targeted lint, production and test typechecks, and the complete plugin
+test directory. They do not trigger unrelated OpenClaw core fanout. If the same
+pull request changes a shared or core path, the planner still adds the upstream
+changed-surface gate.
+
+GitHub and local development use `scripts/platformclaw-check.mjs` for the same
+control-plane, Admin HTTP RPC, planner, and UI command groups. During an edit
+loop, run:
+
+```bash
+node scripts/platformclaw-check.mjs --changed --quick
+```
+
+For overlay-owned surfaces, quick mode retains patch whitespace, formatting,
+lint, typecheck, and focused tests; it skips only production builds. Shared or
+core changes defer the upstream-wide gate to the full form. Before push or pull
+request creation, run:
+
+```bash
+node scripts/platformclaw-check.mjs --changed
+```
+
+Repository policy, documentation, deployment, workflow, and genuine
+upstream-path gates remain separate workflow checks. Security and architecture
+coverage therefore remains visible and mandatory.
+
 The login UI's private source, HTML entry point, and dedicated Vite configuration
 stay on the focused path. That path runs the complete UI typecheck, lints both
 Vite configurations, runs the private Vite regression tests, and performs the

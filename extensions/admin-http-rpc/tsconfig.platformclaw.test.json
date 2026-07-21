@@ -1,0 +1,12 @@
+{
+  "extends": "../../test/tsconfig/tsconfig.test.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../../.artifacts/tsgo-cache/platformclaw-admin-http-rpc-test.tsbuildinfo"
+  },
+  "include": [
+    "../../src/**/*.d.ts",
+    "../../ui/**/*.d.ts",
+    "../../packages/**/*.d.ts",
+    "./**/*.test.ts"
+  ]
+}

@@ -13,12 +13,16 @@ const EXACT_OVERLAY_PATHS = new Set([
   "scripts/e2e/platformclaw-runtime-docker.sh",
   "scripts/platformclaw-ci-plan.d.mts",
   "scripts/platformclaw-ci-plan.mjs",
+  "scripts/platformclaw-check.d.mts",
+  "scripts/platformclaw-check.mjs",
+  "test/scripts/platformclaw-check.test.ts",
   "test/scripts/platformclaw-ci-plan.test.ts",
   "ui/vite.platformclaw-login.config.ts",
 ]);
 
 const OVERLAY_PREFIXES = [
   "docs/platformclaw/",
+  "extensions/admin-http-rpc/",
   "packages/platformclaw-control-plane/",
   "ui/src/platformclaw/",
 ];
@@ -51,10 +55,15 @@ export function classifyPlatformClawChanges(inputFiles) {
   const hasPackageChanges = files.some((file) =>
     file.startsWith("packages/platformclaw-control-plane/"),
   );
+  const hasAdminHttpRpcChanges = files.some((file) =>
+    file.startsWith("extensions/admin-http-rpc/"),
+  );
   const hasPlannerChanges = files.some(
     (file) =>
       file === "scripts/platformclaw-ci-plan.mjs" ||
       file === "scripts/platformclaw-ci-plan.d.mts" ||
+      file === "scripts/platformclaw-check.mjs" ||
+      file === "scripts/platformclaw-check.d.mts" ||
       file.startsWith("test/scripts/platformclaw-"),
   );
   const hasWorkflowChanges = files.some((file) =>
@@ -97,6 +106,7 @@ export function classifyPlatformClawChanges(inputFiles) {
     needs_format_check: hasOverlayChanges,
     needs_overlay_lint: hasPackageChanges || hasPlannerChanges,
     needs_package_checks: hasPackageChanges,
+    needs_admin_http_rpc_checks: hasAdminHttpRpcChanges,
     needs_planner_tests: hasPlannerChanges,
     needs_workflow_checks: hasWorkflowChanges,
     needs_ui_checks: hasUiChanges,
@@ -140,7 +150,7 @@ function parseArgs(argv) {
   return options;
 }
 
-function resolveBase(base, head) {
+export function resolvePlatformClawBase(base, head) {
   if (!base || /^0+$/.test(base)) {
     return `${head}^`;
   }
@@ -154,6 +164,26 @@ function changedFiles(base, head) {
   return parseGitNameStatus(output);
 }
 
+export function classifyPlatformClawRange(base, head) {
+  return classifyPlatformClawChanges(changedFiles(resolvePlatformClawBase(base, head), head));
+}
+
+export function classifyPlatformClawWorktree(base = "origin/main") {
+  const tracked = parseGitNameStatus(
+    execFileSync("git", ["diff", "--name-status", "-z", base], { encoding: "utf8" }),
+  );
+  const untracked = listPlatformClawUntrackedFiles();
+  return classifyPlatformClawChanges([...tracked, ...untracked]);
+}
+
+export function listPlatformClawUntrackedFiles() {
+  return gitPathList(["ls-files", "--others", "--exclude-standard", "-z"]);
+}
+
+function gitPathList(args) {
+  return execFileSync("git", args, { encoding: "utf8" }).split("\0").filter(Boolean);
+}
+
 function githubOutputs(plan) {
   return Object.entries(plan)
     .filter(([key]) => key !== "files")
@@ -164,7 +194,7 @@ function githubOutputs(plan) {
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const head = options.head || "HEAD";
-  const base = resolveBase(options.base, head);
+  const base = resolvePlatformClawBase(options.base, head);
   const plan = classifyPlatformClawChanges(changedFiles(base, head));
   const output = githubOutputs(plan);
 
