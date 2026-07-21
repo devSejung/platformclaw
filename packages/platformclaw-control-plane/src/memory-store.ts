@@ -43,7 +43,7 @@ const ALLOWED_AGENT_TRANSITIONS: Record<
   ReadonlySet<AgentProvisioningState>
 > = {
   provisioning: new Set(["active", "failed", "disabled"]),
-  active: new Set(["disabled"]),
+  active: new Set(["failed", "disabled"]),
   failed: new Set(["provisioning", "disabled"]),
   disabled: new Set(),
 };

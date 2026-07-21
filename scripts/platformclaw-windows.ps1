@@ -6,6 +6,7 @@ param(
     [int]$EmployeeAuthPort = 18080,
     [int]$GatewayPort = 18790,
     [int]$Port = 19001,
+    [string]$SourceRef = "origin/main",
     [switch]$NoFetch,
     [switch]$Rebuild
 )
@@ -85,16 +86,16 @@ function Get-PythonCommand {
     throw "A working Python 3.9+ interpreter is required for scripts/mock_employee_auth.py"
 }
 
-function Get-OriginMainSha {
+function Get-SourceSha {
     Push-Location $repoRoot
     try {
-        if (-not $NoFetch) {
+        if (-not $NoFetch -and $SourceRef -eq "origin/main") {
             Write-Step "Fetching origin/main"
             Invoke-Checked -Command git -Arguments @("fetch", "origin", "--prune")
         }
-        $sha = (& git rev-parse origin/main).Trim()
+        $sha = (& git rev-parse --verify "$SourceRef`^{commit}").Trim()
         if ($LASTEXITCODE -ne 0 -or -not $sha) {
-            throw "Unable to resolve origin/main"
+            throw "Unable to resolve source ref: $SourceRef"
         }
         return $sha
     }
@@ -119,14 +120,14 @@ function Show-Doctor {
         $status = @(& git status --porcelain)
         $nodeVersion = (& node --version).Trim()
         $pnpmVersion = (& corepack pnpm --version).Trim()
-        $mainSha = Get-OriginMainSha
+        $mainSha = Get-SourceSha
         Write-Host ""
         Write-Host "  checkout  $repoRoot"
         Write-Host "  branch    $branch"
         Write-Host "  clean     $($status.Count -eq 0)"
         Write-Host "  node      $nodeVersion"
         Write-Host "  pnpm      $pnpmVersion (repository-pinned through Corepack)"
-        Write-Host "  main      $mainSha"
+        Write-Host "  source    $SourceRef ($mainSha)"
     }
     finally {
         Pop-Location
@@ -243,7 +244,9 @@ function Initialize-Runtime {
   }
 }
 '@
-    Write-Utf8NoBom $configFile $gatewayConfig
+    if (-not (Test-Path $configFile)) {
+        Write-Utf8NoBom $configFile $gatewayConfig
+    }
 
     $env:OPENCLAW_STATE_DIR = $gatewayRoot
     $env:OPENCLAW_CONFIG_PATH = $configFile
@@ -314,7 +317,7 @@ function Start-PlatformClaw {
     Assert-Command node
     Assert-Command corepack
     $python = Get-PythonCommand
-    $sha = Get-OriginMainSha
+    $sha = Get-SourceSha
     $sourceRoot = Initialize-SourceSnapshot $sha
     Initialize-DependenciesAndUi $sourceRoot
     $previousEnvironment = @{}
@@ -351,7 +354,7 @@ function Start-PlatformClaw {
         Write-Host "  URL:      $loginUrl"
         Write-Host "  User:     person.one / test-password"
         Write-Host "  Admin:    admin.user / test-password"
-        Write-Host "  Main SHA: $sha"
+        Write-Host "  Source:   $SourceRef ($sha)"
         Write-Host "  PIDs:     auth=$($auth.Id), gateway=$($gateway.Id), control=$($control.Id)"
         Write-Host "  Stop:     press Ctrl+C or close the three process windows"
         Start-Process $loginUrl

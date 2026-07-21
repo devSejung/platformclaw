@@ -187,6 +187,26 @@ describe("BrowserAuthService", () => {
     expect(binding.binding).toMatchObject({ state: "failed", failureCode: "provisioner_error" });
   });
 
+  it("marks a stale active binding failed when Gateway revalidation fails", async () => {
+    const { service, store, provisioner } = createHarness();
+    await expect(
+      service.loginPassword({
+        login: { identifier: "seungon.jung", password: "test-password" },
+      }),
+    ).resolves.toMatchObject({ status: "authenticated" });
+    provisioner.provisionOrRefresh.mockRejectedValueOnce(new Error("Gateway agent missing"));
+
+    await expect(
+      service.loginPassword({
+        login: { identifier: "seungon.jung", password: "test-password" },
+      }),
+    ).resolves.toEqual({ status: "provisioning-failed", message: "Gateway agent missing" });
+
+    const user = await store.getUserByEmployeeId("employee-123");
+    const binding = await store.getPersonalAgentBinding(user!.id);
+    expect(binding).toMatchObject({ state: "failed", failureCode: "provisioner_error" });
+  });
+
   it("creates the browser session at the post-provisioning time", async () => {
     const store = new InMemoryControlPlaneStore({
       idFactory: createIdFactory(),

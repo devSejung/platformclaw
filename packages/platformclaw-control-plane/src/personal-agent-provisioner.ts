@@ -27,8 +27,8 @@ type ProfileStatusResult = {
 
 export type PersonalAgentRestartRecoveryResult =
   | { status: "active" }
-  | { status: "retry-required"; reason: "agent-missing" | "profile-missing" }
-  | { status: "conflict"; reason: "workspace-mismatch" | "profile-mismatch" };
+  | { status: "retry-required"; reason: "profile-missing" }
+  | { status: "conflict"; reason: "profile-mismatch" };
 
 export type GatewayPersonalAgentProvisionerOptions = {
   rpc: GatewayAdminRpc;
@@ -47,9 +47,6 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
   }
 
   async provisionOrRefresh(request: PersonalAgentProvisioningRequest): Promise<void> {
-    if (request.binding.state === "active") {
-      return;
-    }
     const workspace = this.workspaceForAgent(request.binding.agentId);
     await this.ensureAgent(request.binding.agentId, workspace);
     await this.seedEmployeeProfile(request.binding.agentId, workspace, request.profile);
@@ -60,13 +57,7 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
     binding: PersonalAgentBinding;
   }): Promise<PersonalAgentRestartRecoveryResult> {
     const workspace = this.workspaceForAgent(params.binding.agentId);
-    const agent = await this.listAgent(params.binding.agentId);
-    if (!agent) {
-      return { status: "retry-required", reason: "agent-missing" };
-    }
-    if (!agent.workspace || path.resolve(agent.workspace) !== workspace) {
-      return { status: "conflict", reason: "workspace-mismatch" };
-    }
+    await this.ensureAgent(params.binding.agentId, workspace);
     const profile = await this.options.rpc.call<ProfileStatusResult>(
       "platformclaw.profile.status",
       {
@@ -121,11 +112,6 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
   }
 
   private async ensureAgent(agentId: string, workspace: string): Promise<void> {
-    const existing = await this.listAgent(agentId);
-    if (existing) {
-      this.verifyWorkspace(agentId, existing.workspace, workspace);
-      return;
-    }
     try {
       const created = await this.options.rpc.call<AgentCreateResult>("agents.create", {
         name: agentId,
@@ -139,12 +125,14 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
       if (!(error instanceof GatewayAdminRpcError) || error.code !== "INVALID_REQUEST") {
         throw error;
       }
-      // Another control process may win agents.create after this process lists agents.
-      const raced = await this.listAgent(agentId);
-      if (!raced) {
+      // agents.list may include a disk-only agent that chat routing still rejects.
+      // Creating first proves the canonical agents.list registration; a concurrent or
+      // already-configured creator is then verified through the read surface.
+      const existing = await this.listAgent(agentId);
+      if (!existing) {
         throw error;
       }
-      this.verifyWorkspace(agentId, raced.workspace, workspace);
+      this.verifyWorkspace(agentId, existing.workspace, workspace);
     }
   }
 
