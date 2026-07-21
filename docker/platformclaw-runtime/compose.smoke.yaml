@@ -1,14 +1,13 @@
 services:
   employee-auth-mock:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
-    networks:
-      platformclaw-control-egress: {}
+    network_mode: service:platformclaw-control
     volumes:
       - ${PLATFORMCLAW_REPO_ROOT:?set PLATFORMCLAW_REPO_ROOT}/scripts/mock_employee_auth.py:/smoke/mock_employee_auth.py:ro
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     init: true
-    command: ["python3", "/smoke/mock_employee_auth.py", "--bind", "0.0.0.0", "--port", "18080"]
+    command: ["python3", "/smoke/mock_employee_auth.py", "--bind", "127.0.0.1", "--port", "18080"]
     healthcheck:
       test:
         [
@@ -22,8 +21,5 @@ services:
       retries: 20
 
   platformclaw-control:
-    depends_on:
-      employee-auth-mock:
-        condition: service_healthy
     environment:
-      PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: http://employee-auth-mock:18080/login
+      PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: http://127.0.0.1:18080/login

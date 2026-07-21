@@ -84,6 +84,21 @@ describe("PlatformClaw Docker runtime", () => {
     expect(smoke).not.toContain('chmod 0600 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
   });
 
+  it("keeps the HTTP employee auth mock on the control loopback", () => {
+    const smokeCompose = parse(
+      readRepoFile("docker/platformclaw-runtime/compose.smoke.yaml"),
+    ) as ComposeConfig;
+    const mock = smokeCompose.services["employee-auth-mock"];
+    const control = smokeCompose.services["platformclaw-control"];
+
+    expect(mock?.network_mode).toBe("service:platformclaw-control");
+    expect(mock?.command).toContain("127.0.0.1");
+    expect(control?.environment?.PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL).toBe(
+      "http://127.0.0.1:18080/login",
+    );
+    expect(control?.depends_on).toBeUndefined();
+  });
+
   it("documents the production file-secret ownership contract", () => {
     const readme = readRepoFile("docker/platformclaw-runtime/README.md");
 
