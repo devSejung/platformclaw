@@ -22,7 +22,7 @@ function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
 }
 
-async function start(fetchImpl: ReturnType<typeof vi.fn>, timeout?: number) {
+async function start(fetchImpl: typeof fetch, timeout?: number) {
   const root = fixture();
   const navigate = vi.fn();
   new PlatformClawLoginController(root, {
@@ -52,7 +52,7 @@ describe("PlatformClawLoginController", () => {
   afterEach(() => document.body.replaceChildren());
 
   it("checks the opaque session before enabling sign-in", async () => {
-    const fetchImpl = vi.fn(async () => response({ authenticated: false }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => response({ authenticated: false }));
     const { root } = await start(fetchImpl);
     expect(fetchImpl).toHaveBeenCalledWith(
       PLATFORMCLAW_SESSION_API_PATH,
@@ -62,7 +62,7 @@ describe("PlatformClawLoginController", () => {
   });
 
   it("enables sign-in when session bootstrap stalls", async () => {
-    const fetchImpl = vi.fn(
+    const fetchImpl = vi.fn<typeof fetch>(
       async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> =>
         await new Promise((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted")), {
@@ -76,7 +76,7 @@ describe("PlatformClawLoginController", () => {
 
   it("clears the secret field after rejected credentials", async () => {
     const fetchImpl = vi
-      .fn()
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(response({ authenticated: false }))
       .mockResolvedValueOnce(response({ authenticated: false }, 401));
     const { root, navigate } = await start(fetchImpl);
@@ -99,7 +99,7 @@ describe("PlatformClawLoginController", () => {
       "/platformclaw/login?returnTo=%2Fplatformclaw%2Fapp%2Fsessions",
     );
     const fetchImpl = vi
-      .fn()
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(response({ authenticated: false }))
       .mockResolvedValueOnce(response({ authenticated: true }));
     const { root, navigate } = await start(fetchImpl);
