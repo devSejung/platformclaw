@@ -13,8 +13,10 @@ services:
       - platformclaw-workspaces:/var/lib/platformclaw/workspaces
     secrets:
       - platformclaw_gateway_token
-    ports:
-      - "127.0.0.1:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"
+    networks:
+      platformclaw-gateway-backplane:
+        aliases: [gateway.platformclaw.local]
+      platformclaw-gateway-egress: {}
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     init: true
@@ -36,7 +38,6 @@ services:
   platformclaw-control:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
     user: "1000:1000"
-    network_mode: service:openclaw-gateway
     depends_on:
       openclaw-gateway:
         condition: service_healthy
@@ -49,7 +50,7 @@ services:
       PLATFORMCLAW_CONTROL_UI_ROOT: /app/ui/dist
       PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT: /var/lib/platformclaw/workspaces
       PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE: /run/secrets/platformclaw_initial_admin_ids
-      PLATFORMCLAW_GATEWAY_URL: ws://127.0.0.1:18789
+      PLATFORMCLAW_GATEWAY_URL: ws://gateway.platformclaw.local:18789
       PLATFORMCLAW_GATEWAY_TOKEN_FILE: /run/secrets/platformclaw_gateway_token
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL}
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
@@ -59,6 +60,11 @@ services:
     secrets:
       - platformclaw_gateway_token
       - platformclaw_initial_admin_ids
+    networks:
+      platformclaw-gateway-backplane: {}
+      platformclaw-control-egress: {}
+    ports:
+      - "127.0.0.1:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     init: true
@@ -81,6 +87,12 @@ volumes:
   platformclaw-gateway-state:
   platformclaw-control-state:
   platformclaw-workspaces:
+
+networks:
+  platformclaw-gateway-backplane:
+    internal: true
+  platformclaw-gateway-egress:
+  platformclaw-control-egress:
 
 secrets:
   platformclaw_gateway_token:

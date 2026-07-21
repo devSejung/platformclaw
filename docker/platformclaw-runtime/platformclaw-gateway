@@ -20,4 +20,4 @@ if [[ ! -e "$config_path" ]]; then
   install -D -m 0600 "$template_path" "$config_path"
 fi
 
-exec node /app/openclaw.mjs gateway --bind loopback --port 18789 "$@"
+exec node /app/openclaw.mjs gateway --bind lan --port 18789 "$@"

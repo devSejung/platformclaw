@@ -5,10 +5,13 @@ This composition runs one OpenClaw Gateway process and one
 process restart and shutdown. It never creates a process or Gateway connection
 per employee.
 
-The control container shares only the Gateway network namespace. Gateway port
-`18789` stays on loopback; the host publishes only PlatformClaw Web port
-`19001`. Both services share the personal-workspace volume, while Gateway and
-control-plane state use separate persistent volumes.
+The two containers share a dedicated internal backplane. Gateway port `18789`
+binds only inside that backplane and is never published; the host publishes only
+PlatformClaw Web port `19001` from the control container. Separate egress
+networks let Gateway call model APIs and the control service call employee auth
+without exposing the private backplane. Both services share the
+personal-workspace volume, while Gateway and control-plane state use separate
+persistent volumes.
 
 Required deployment inputs:
 

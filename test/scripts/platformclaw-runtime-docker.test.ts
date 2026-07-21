@@ -7,6 +7,7 @@ type ComposeService = {
   command?: string[];
   depends_on?: Record<string, { condition?: string }>;
   environment?: Record<string, string>;
+  networks?: Record<string, { aliases?: string[] }>;
   network_mode?: string;
   ports?: string[];
   secrets?: string[];
@@ -30,12 +31,18 @@ describe("PlatformClaw Docker runtime", () => {
     const gateway = compose.services["openclaw-gateway"];
     const control = compose.services["platformclaw-control"];
 
-    expect(gateway?.ports).toEqual(["127.0.0.1:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"]);
+    expect(gateway?.ports).toBeUndefined();
     expect(gateway?.user).toBe("1000:1000");
-    expect(control?.ports).toBeUndefined();
+    expect(control?.ports).toEqual(["127.0.0.1:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"]);
     expect(control?.user).toBe("1000:1000");
-    expect(control?.network_mode).toBe("service:openclaw-gateway");
-    expect(control?.environment?.PLATFORMCLAW_GATEWAY_URL).toBe("ws://127.0.0.1:18789");
+    expect(control?.network_mode).toBeUndefined();
+    expect(gateway?.networks?.["platformclaw-gateway-backplane"]?.aliases).toEqual([
+      "gateway.platformclaw.local",
+    ]);
+    expect(control?.networks).toHaveProperty("platformclaw-gateway-backplane");
+    expect(control?.environment?.PLATFORMCLAW_GATEWAY_URL).toBe(
+      "ws://gateway.platformclaw.local:18789",
+    );
     expect(control?.secrets).toEqual([
       "platformclaw_gateway_token",
       "platformclaw_initial_admin_ids",
@@ -49,7 +56,7 @@ describe("PlatformClaw Docker runtime", () => {
     const serialized = JSON.stringify(config);
 
     expect(config).toMatchObject({
-      gateway: { mode: "local", bind: "loopback", auth: { mode: "token" } },
+      gateway: { mode: "local", bind: "lan", auth: { mode: "token" } },
       plugins: { entries: { "admin-http-rpc": { enabled: true } } },
     });
     expect(serialized).not.toContain("OPENCLAW_GATEWAY_TOKEN");
