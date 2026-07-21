@@ -70,7 +70,7 @@ describe("projectPlatformClawBrowserHello", () => {
 
     expect(projected.server).toEqual({ version: "2026.7.20", connId: "browser-1" });
     expect(projected.features).toEqual({
-      methods: ["agents.list", "chat.send"],
+      methods: ["agents.list", "chat.send", "commands.list"],
       events: ["tick", "chat"],
       capabilities: [],
     });

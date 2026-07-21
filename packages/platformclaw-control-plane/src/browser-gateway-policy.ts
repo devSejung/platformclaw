@@ -11,6 +11,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "chat.send",
   "chat.startup",
   "chat.toolTitles",
+  "commands.list",
   "models.list",
   "sessions.abort",
   "sessions.create",
@@ -66,6 +67,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     new Set(["sessionKey", "agentId", "limit", "offset", "messageId", "sessionId", "maxChars"]),
   ],
   ["chat.toolTitles", new Set(["sessionKey", "agentId", "items"])],
+  ["commands.list", new Set(["agentId", "includeArgs", "scope"])],
   ["models.list", new Set(["view"])],
   ["sessions.abort", new Set(["key", "agentId"])],
   [
@@ -150,6 +152,7 @@ export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
   "agents.files.list",
   "agents.files.set",
   "chat.metadata",
+  "commands.list",
   "skills.status",
   "tools.catalog",
 ]);

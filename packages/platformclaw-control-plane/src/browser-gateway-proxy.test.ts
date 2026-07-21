@@ -402,6 +402,44 @@ describe("BrowserGatewayProxy", () => {
     });
   });
 
+  it("filters the upstream command-list compatibility path", async () => {
+    const { binding, proxy, request, token } = await setup();
+    request.mockResolvedValueOnce({
+      commands: [
+        { name: "status", textAliases: ["/status"], source: "native", category: "status" },
+        {
+          name: "diagnostics",
+          textAliases: ["/diagnostics"],
+          source: "native",
+          category: "status",
+        },
+        { name: "agents", textAliases: ["/agents"], source: "native", category: "management" },
+        { name: "tts", textAliases: ["/tts"], source: "native", category: "media" },
+      ],
+    });
+
+    await expect(
+      proxy.request(token, "commands.list", {
+        agentId: binding.agentId,
+        includeArgs: true,
+        scope: "text",
+      }),
+    ).resolves.toEqual({
+      commands: [
+        { name: "status", textAliases: ["/status"], source: "native", category: "status" },
+        {
+          name: "diagnostics",
+          textAliases: ["/diagnostics"],
+          source: "native",
+          category: "status",
+        },
+        { name: "agents", textAliases: ["/agents"], source: "native", category: "management" },
+        { name: "tts", textAliases: ["/tts"], source: "native", category: "media" },
+      ],
+    });
+    expect(request).toHaveBeenCalledWith("chat.metadata", { agentId: binding.agentId });
+  });
+
   it("allows user slash commands and rejects Gateway administration commands", async () => {
     const { binding, proxy, request, token } = await setup();
     const key = `agent:${binding.agentId}:main`;

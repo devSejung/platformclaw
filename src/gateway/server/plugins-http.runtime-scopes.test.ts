@@ -210,6 +210,7 @@ describe("plugin HTTP route runtime scopes", () => {
           pluginId: string | undefined;
           pluginSource: string | undefined;
           gatewayMethodDispatchAllowed: boolean | undefined;
+          registryRoutePaths: string[] | undefined;
         }
       | undefined;
     const handler = createPluginRequestHandler({
@@ -224,6 +225,7 @@ describe("plugin HTTP route runtime scopes", () => {
               pluginId: scope?.pluginId,
               pluginSource: scope?.pluginSource,
               gatewayMethodDispatchAllowed: scope?.gatewayMethodDispatchAllowed,
+              registryRoutePaths: scope?.pluginRegistry?.httpRoutes.map((entry) => entry.path),
             };
             return true;
           },
@@ -245,6 +247,7 @@ describe("plugin HTTP route runtime scopes", () => {
       pluginId: "route",
       pluginSource: "route",
       gatewayMethodDispatchAllowed: true,
+      registryRoutePaths: [SECURE_HOOK_PATH],
     });
   });
 

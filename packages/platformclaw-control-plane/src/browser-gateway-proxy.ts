@@ -176,7 +176,11 @@ export class BrowserGatewayProxy {
         throw error;
       }
     }
-    const result = await this.options.gateway.request(method, prepared);
+    // Keep the upstream commands.list compatibility path on the same filtered metadata source,
+    // otherwise browser command visibility and execution policy can drift apart.
+    const upstreamMethod = method === "commands.list" ? "chat.metadata" : method;
+    const upstreamParams = method === "commands.list" ? { agentId: prepared.agentId } : prepared;
+    const result = await this.options.gateway.request(upstreamMethod, upstreamParams);
     try {
       return this.filterResult(access, method, prepared, result) as T;
     } catch (error) {
@@ -425,12 +429,12 @@ export class BrowserGatewayProxy {
         : [];
       return { models };
     }
-    if (method === "chat.metadata") {
-      const payload = asObject(result, "chat.metadata result");
-      return {
-        ...(payload.models === undefined ? {} : { models: payload.models }),
-        commands: projectBrowserCommands(payload.commands),
-      };
+    if (method === "chat.metadata" || method === "commands.list") {
+      const payload = asObject(result, `${method} result`);
+      const commands = projectBrowserCommands(payload.commands);
+      return method === "chat.metadata" && payload.models !== undefined
+        ? { models: payload.models, commands }
+        : { commands };
     }
     if (method === "agents.list") {
       const payload = asObject(result, "agents.list result");

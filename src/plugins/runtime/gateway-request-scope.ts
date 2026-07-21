@@ -6,6 +6,7 @@ import type {
 } from "../../gateway/server-methods/types.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import type { PluginOrigin } from "../plugin-origin.types.js";
+import type { PluginRegistry } from "../registry-types.js";
 
 type PluginRuntimeGatewayRequestScope = {
   context?: GatewayRequestContext;
@@ -16,6 +17,8 @@ type PluginRuntimeGatewayRequestScope = {
   pluginOrigin?: PluginOrigin;
   pluginTrustedOfficialInstall?: boolean;
   gatewayMethodDispatchAllowed?: boolean;
+  /** Registry that owns the active HTTP route and its gateway methods. */
+  pluginRegistry?: PluginRegistry;
 };
 
 type PluginRuntimePluginScope = {

@@ -308,6 +308,7 @@ export async function dispatchGatewayMethodInProcessRaw(
     context,
     expectFinal: options?.expectFinal,
     isWebchatConnect,
+    ...(scope?.pluginRegistry ? { pluginRegistry: scope.pluginRegistry } : {}),
     onAccepted: options?.onAccepted,
     requestIdPrefix: "plugin-subagent",
     timeoutMs: options?.timeoutMs,

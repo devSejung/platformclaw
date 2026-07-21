@@ -306,7 +306,12 @@ export class PlatformClawWebIngressServer {
           res.end();
           return;
         }
-        if (await this.options.webAssets.handleApplication(req, res)) {
+        // Mounted public files such as sw.js share the authenticated application
+        // prefix and must be resolved before the SPA document fallback.
+        if (
+          (await this.options.webAssets.handlePublic(req, res)) ||
+          (await this.options.webAssets.handleApplication(req, res))
+        ) {
           return;
         }
       }

@@ -5,14 +5,12 @@ type JsonObject = Record<string, unknown>;
 const BLOCKED_BROWSER_COMMANDS = new Set([
   "acp",
   "activation",
-  "agents",
   "allowlist",
   "approve",
   "bash",
   "codex",
   "config",
   "debug",
-  "diagnostics",
   "elev",
   "elevated",
   "exec",
@@ -26,11 +24,10 @@ const BLOCKED_BROWSER_COMMANDS = new Set([
   "plugins",
   "restart",
   "send",
-  "tts",
   "unfocus",
 ]);
-const SAFE_MANAGEMENT_COMMANDS = new Set(["steer", "subagents", "tell"]);
-const SAFE_NATIVE_CATEGORIES = new Set(["options", "session", "status", "tools"]);
+const SAFE_MANAGEMENT_COMMANDS = new Set(["agents", "steer", "subagents", "tell"]);
+const SAFE_NATIVE_CATEGORIES = new Set(["media", "options", "session", "status", "tools"]);
 
 function commandNames(command: JsonObject): string[] {
   const values = [command.name, command.nativeName];

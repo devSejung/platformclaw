@@ -106,6 +106,7 @@ function canRunPluginHttpRouteWithoutAdmission(route: PluginHttpRouteRegistratio
 }
 
 function createPluginRouteRuntimeScope(params: {
+  registry: PluginRegistry;
   route: PluginHttpRouteRegistration;
   req: IncomingMessage;
   gatewayRequestContext?: GatewayRequestContext;
@@ -138,6 +139,7 @@ function createPluginRouteRuntimeScope(params: {
     ...(params.route.gatewayMethodDispatchAllowed === true
       ? { gatewayMethodDispatchAllowed: true }
       : {}),
+    pluginRegistry: params.registry,
   };
 }
 
@@ -253,6 +255,7 @@ export function createGatewayPluginRequestHandler(params: {
         const runRoute = async () =>
           (await withPluginRuntimeGatewayRequestScope(
             createPluginRouteRuntimeScope({
+              registry,
               route,
               req,
               gatewayRequestContext,
@@ -338,6 +341,7 @@ export function createGatewayPluginUpgradeHandler(params: {
           async () =>
             (await withPluginRuntimeGatewayRequestScope(
               createPluginRouteRuntimeScope({
+                registry,
                 route,
                 req,
                 gatewayRequestContext,

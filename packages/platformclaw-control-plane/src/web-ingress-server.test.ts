@@ -225,7 +225,7 @@ describe("PlatformClawWebIngressServer", () => {
       ok: true,
       payload: {
         type: "hello-ok",
-        features: { methods: ["agents.list", "chat.send"] },
+        features: { methods: ["agents.list", "chat.send", "commands.list"] },
         snapshot: {
           presence: [],
           sessionDefaults: {
