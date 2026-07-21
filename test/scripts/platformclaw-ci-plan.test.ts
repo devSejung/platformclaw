@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error The dependency-free CI entrypoint intentionally remains plain ESM.
+import { parse } from "yaml";
 import {
   classifyPlatformClawChanges,
   parseGitNameStatus,
@@ -19,6 +20,8 @@ describe("classifyPlatformClawChanges", () => {
   it("runs focused control-plane checks without upstream fanout", () => {
     const plan = classifyPlatformClawChanges([
       "packages/platformclaw-control-plane/src/browser-auth-http.ts",
+      "pnpm-lock.yaml",
+      "scripts/mock_employee_auth.py",
     ]);
 
     expect(plan.mode).toBe("platformclaw");
@@ -27,10 +30,17 @@ describe("classifyPlatformClawChanges", () => {
     expect(plan.needs_changed_surface_checks).toBe(false);
   });
 
+  it("keeps lockfile-only changes on upstream checks", () => {
+    const plan = classifyPlatformClawChanges(["pnpm-lock.yaml"]);
+
+    expect(plan.mode).toBe("upstream");
+    expect(plan.needs_changed_surface_checks).toBe(true);
+  });
+
   it("validates workflow and planner changes", () => {
     const plan = classifyPlatformClawChanges([
       ".github/workflows/platformclaw-ci.yml",
-      "scripts/platformclaw-ci-plan.mjs",
+      "scripts/platformclaw-ci-plan.d.mts",
     ]);
 
     expect(plan.needs_workflow_checks).toBe(true);
@@ -98,4 +108,23 @@ describe("parseGitNameStatus", () => {
       "Missing destination path for R100",
     );
   });
+});
+
+describe("PlatformClaw workflow checkout", () => {
+  for (const workflowName of ["platformclaw-ci.yml", "platformclaw-full-ci.yml"]) {
+    it(`keeps merge-base history available in ${workflowName}`, () => {
+      const workflow = parse(
+        readFileSync(new URL(`../../.github/workflows/${workflowName}`, import.meta.url), "utf8"),
+      ) as {
+        permissions: { contents: string };
+        jobs: { validate: { steps: Array<{ name?: string; with?: Record<string, unknown> }> } };
+      };
+      const checkout = workflow.jobs.validate.steps.find((step) => step.name === "Checkout");
+
+      expect(workflow.permissions.contents).toBe("read");
+      expect(checkout?.with?.filter).toBe("blob:none");
+      expect(checkout?.with?.["fetch-depth"]).toBe(0);
+      expect(checkout?.with?.["persist-credentials"]).toBe(true);
+    });
+  }
 });

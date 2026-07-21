@@ -27,8 +27,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
-          persist-credentials: false
+          filter: blob:none
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Setup Node environment
         uses: ./.github/actions/setup-node-env
@@ -96,6 +97,7 @@ jobs:
         run: >-
           ./node_modules/.bin/oxfmt --check
           packages/platformclaw-control-plane
+          scripts/platformclaw-ci-plan.d.mts
           scripts/platformclaw-*.mjs
           test/scripts/platformclaw-*.test.ts
           .github/workflows/platformclaw-*.yml
@@ -106,8 +108,13 @@ jobs:
         run: >-
           node scripts/run-oxlint.mjs
           --tsconfig config/tsconfig/oxlint.core.json
+          scripts/platformclaw-ci-plan.d.mts
           scripts/platformclaw-ci-plan.mjs
           test/scripts/platformclaw-ci-plan.test.ts
+
+      - name: Validate PlatformClaw script declarations
+        if: steps.plan.outputs.needs_planner_tests == 'true'
+        run: node scripts/check-script-declarations.mjs
 
       - name: Lint PlatformClaw control plane
         if: steps.plan.outputs.needs_package_checks == 'true'
