@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1.7
+
+# openclaw-build is the cached, pre-prune upstream build stage. Keeping this
+# downstream build separate avoids adding PlatformClaw commands to Dockerfile.
+FROM openclaw-build AS build
+
+RUN pnpm_config_verify_deps_before_run=false \
+    pnpm --dir packages/platformclaw-control-plane build
+
+FROM scratch
+
+COPY --from=build /app/packages/platformclaw-control-plane/package.json /app/packages/platformclaw-control-plane/package.json
+COPY --from=build /app/packages/platformclaw-control-plane/dist /app/packages/platformclaw-control-plane/dist
+COPY --from=build /app/ui/dist /app/ui/dist

@@ -433,6 +433,18 @@ export const mainLanes = [
     },
   ),
   serviceLane("gateway-network", "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:gateway-network"),
+  lane(
+    "platformclaw-runtime",
+    "OPENCLAW_SKIP_DOCKER_BUILD=0 pnpm test:docker:platformclaw-runtime",
+    {
+      e2eImageKind: false,
+      estimateSeconds: 900,
+      resources: ["docker", "service"],
+      stateScenario: "empty",
+      timeoutMs: 45 * 60 * 1000,
+      weight: 5,
+    },
+  ),
   serviceLane("browser-cdp-snapshot", "pnpm test:docker:browser-cdp-snapshot", {
     stateScenario: "empty",
     timeoutMs: 20 * 60 * 1000,

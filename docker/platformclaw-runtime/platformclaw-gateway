@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_path="${OPENCLAW_CONFIG_PATH:-/home/node/.openclaw/openclaw.json}"
+template_path="/etc/platformclaw/openclaw.initial.json"
+gateway_token_path="/run/secrets/platformclaw_gateway_token"
+
+if [[ ! -f "$gateway_token_path" || -L "$gateway_token_path" || ! -r "$gateway_token_path" ]]; then
+  echo "Gateway token secret must be a readable regular file" >&2
+  exit 1
+fi
+OPENCLAW_GATEWAY_TOKEN="$(<"$gateway_token_path")"
+if [[ -z "$OPENCLAW_GATEWAY_TOKEN" ]]; then
+  echo "Gateway token secret is empty" >&2
+  exit 1
+fi
+export OPENCLAW_GATEWAY_TOKEN
+
+if [[ ! -e "$config_path" ]]; then
+  install -D -m 0600 "$template_path" "$config_path"
+fi
+
+exec node /app/openclaw.mjs gateway --bind loopback --port 18789 "$@"

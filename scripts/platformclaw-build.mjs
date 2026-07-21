@@ -134,7 +134,9 @@ if (!/^[0-9A-Za-z][0-9A-Za-z._-]*$/.test(version)) {
 const shortSha = gitCommit.slice(0, 12);
 const timestamp = new Date().toISOString();
 const jammyBuildImage = `platformclaw-jammy-build:${shortSha}`;
+const openclawBuildImage = `platformclaw-openclaw-build:${shortSha}`;
 const assetsImage = `platformclaw-runtime-assets:${shortSha}`;
+const controlAssetsImage = `platformclaw-control-assets:${shortSha}`;
 const runtimeVersionTag = `platformclaw:${version}`;
 const runtimeShaTag = `platformclaw:${shortSha}`;
 const sandboxVersionTag = `platformclaw-sandbox:${version}`;
@@ -143,6 +145,9 @@ const secretArgs =
   typeof aptSources === "string"
     ? ["--secret", `id=platformclaw_apt_sources,src=${aptSources}`]
     : [];
+const extensions = [...new Set(["admin-http-rpc", ...options.extensions.split(/[\s,]+/u)])]
+  .filter(Boolean)
+  .join(",");
 
 run("docker", [
   "buildx",
@@ -169,13 +174,49 @@ run("docker", [
   "--build-arg",
   "OPENCLAW_BUILD_IMAGE=platformclaw-jammy-build",
   "--build-arg",
-  `OPENCLAW_EXTENSIONS=${options.extensions}`,
+  `OPENCLAW_EXTENSIONS=${extensions}`,
   "--build-arg",
   `GIT_COMMIT=${gitCommit}`,
   "--build-arg",
   `OPENCLAW_BUILD_TIMESTAMP=${timestamp}`,
   "-t",
   assetsImage,
+  ".",
+]);
+
+// Reuse the cached pre-prune build stage so PlatformClaw private packages can
+// be built without adding downstream commands to the upstream Dockerfile.
+run("docker", [
+  "buildx",
+  "build",
+  "--load",
+  "--target",
+  "build",
+  "--build-context",
+  `platformclaw-jammy-build=docker-image://${jammyBuildImage}`,
+  "--build-arg",
+  "OPENCLAW_BUILD_IMAGE=platformclaw-jammy-build",
+  "--build-arg",
+  `OPENCLAW_EXTENSIONS=${extensions}`,
+  "--build-arg",
+  `GIT_COMMIT=${gitCommit}`,
+  "--build-arg",
+  `OPENCLAW_BUILD_TIMESTAMP=${timestamp}`,
+  "-t",
+  openclawBuildImage,
+  ".",
+]);
+
+run("docker", [
+  "buildx",
+  "build",
+  "--load",
+  "--build-context",
+  `openclaw-build=docker-image://${openclawBuildImage}`,
+  "-f",
+  "docker/platformclaw-runtime/Dockerfile.assets",
+  "-t",
+  controlAssetsImage,
   ".",
 ]);
 
@@ -187,6 +228,8 @@ run("docker", [
   "Dockerfile.jammy",
   "--build-context",
   `openclaw-runtime=docker-image://${assetsImage}`,
+  "--build-context",
+  `platformclaw-control-assets=docker-image://${controlAssetsImage}`,
   ...secretArgs,
   "-t",
   runtimeVersionTag,
@@ -228,6 +271,9 @@ run("docker", [
     "claude --version",
     "nano-pdf --help >/dev/null",
     "openclaw --version",
+    "test -x /usr/local/bin/platformclaw-control",
+    "test -f /app/ui/dist/platformclaw-login.html",
+    "node -e \"import('/app/packages/platformclaw-control-plane/dist/index.mjs')\"",
   ].join(" && "),
 ]);
 run("docker", [

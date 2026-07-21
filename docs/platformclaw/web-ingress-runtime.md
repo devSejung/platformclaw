@@ -160,10 +160,13 @@ administrator or operator credential exists.
 
 The package now provides the runtime composition, deployment configuration,
 executable control listener, Gateway adapter, protocol listener, mock auth
-service, Control UI employee-login bootstrap, and focused tests. Production is
-not ready until the Linux image supplies secret mounts, persistent volumes,
-process supervision, reverse-proxy routing, and container-level browser proof.
-Knox ingress and VM sandbox execution remain separate capabilities.
+service, Control UI employee-login bootstrap, and focused tests. The Linux
+composition supplies Docker secret mounts, separate persistent state volumes,
+a shared personal-workspace volume, Compose process supervision, and a
+deterministic container smoke. Gateway stays loopback-only inside the shared
+network namespace; only PlatformClaw Web is published. Final browser Playwright
+proof behind the deployment reverse proxy remains open. Knox ingress and VM
+sandbox execution remain separate capabilities.
 
 ## See also
 

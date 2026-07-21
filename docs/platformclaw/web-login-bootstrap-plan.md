@@ -23,7 +23,8 @@ Implementation status: the login shell, authenticated application-document
 host, Control UI adapter, restricted application shell, and deployable control
 process entry point are implemented. Focused Windows Chrome proof covers the
 fixed proxy URL, disabled-route fallback, account shell, and session-expiry
-redirect. Linux secret/volume composition and final container proof remain
+redirect. Linux secret/volume composition and deterministic container smoke are
+implemented. Final Playwright proof behind the deployment reverse proxy remains
 open.
 
 ## Outcome

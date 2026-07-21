@@ -1,0 +1,31 @@
+services:
+  employee-auth-mock:
+    image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    network_mode: service:openclaw-gateway
+    depends_on:
+      openclaw-gateway:
+        condition: service_healthy
+    volumes:
+      - ${PLATFORMCLAW_REPO_ROOT:?set PLATFORMCLAW_REPO_ROOT}/scripts/mock_employee_auth.py:/smoke/mock_employee_auth.py:ro
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    command: ["python3", "/smoke/mock_employee_auth.py", "--bind", "127.0.0.1", "--port", "18080"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18080/healthz', timeout=2)",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  platformclaw-control:
+    depends_on:
+      employee-auth-mock:
+        condition: service_healthy
+    environment:
+      PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: http://127.0.0.1:18080/login

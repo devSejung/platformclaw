@@ -140,7 +140,10 @@ jobs:
 
       - name: Test PlatformClaw CI planner
         if: steps.plan.outputs.needs_planner_tests == 'true'
-        run: node scripts/run-vitest.mjs test/scripts/platformclaw-ci-plan.test.ts
+        run: >-
+          node scripts/run-vitest.mjs
+          test/scripts/platformclaw-ci-plan.test.ts
+          test/scripts/platformclaw-runtime-docker.test.ts
 
       - name: Validate PlatformClaw UI
         if: steps.plan.outputs.needs_ui_checks == 'true'
@@ -155,10 +158,21 @@ jobs:
         if: steps.plan.outputs.needs_deployment_checks == 'true'
         env:
           PLATFORMCLAW_COMPANY_APT_SOURCES: /tmp/platformclaw-empty-apt-sources
+          PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: https://auth.example.test/login
+          PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_PUBLIC_ORIGIN: https://platformclaw.example.test
+          PLATFORMCLAW_REPO_ROOT: ${{ github.workspace }}
         run: |
           touch "$PLATFORMCLAW_COMPANY_APT_SOURCES"
+          touch "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"
           node --check scripts/platformclaw-build.mjs
+          bash -n scripts/e2e/platformclaw-runtime-docker.sh
           docker compose -f docker/platformclaw-jammy/compose.yaml config --quiet
+          docker compose \
+            -f docker/platformclaw-runtime/compose.yaml \
+            -f docker/platformclaw-runtime/compose.smoke.yaml \
+            config --quiet
 
       - name: Validate workflow contracts
         if: steps.plan.outputs.needs_workflow_checks == 'true'
