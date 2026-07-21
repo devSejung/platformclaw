@@ -282,10 +282,9 @@ This slice does not implement SAML, Knox routing, VM selection, SafeConnect
 credential storage, or sandbox execution. Those capabilities consume the same
 identity and agent binding later but do not change browser bootstrap.
 
-Initial `USER.md` profile injection also remains outside this slice. The login
-service already retains the approved directory profile, but PC-115 requires a
-separate atomic, workspace-owned Gateway or plugin contract before writing it.
-The UI implementation must not reintroduce the legacy whole-file mutation path.
+The follow-on PC-115 profile slice uses an immutable, agent-ID-keyed plugin
+SQLite entry and prompt hook. It does not mutate `USER.md` or another workspace
+file; the UI must not reintroduce the legacy whole-file mutation path.
 
 ## Security requirements
 

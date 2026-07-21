@@ -4,11 +4,19 @@ import type {
   PersonalAgentProvisioner,
   PersonalAgentProvisioningRequest,
 } from "./browser-auth-service.js";
+import type { EmployeeDirectoryProfile } from "./employee-auth-client.js";
+import { renderEmployeeProfileArtifact } from "./employee-profile-artifact.js";
 import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
 type AgentSummary = { id: string; workspace?: string };
 type AgentsListResult = { agents: AgentSummary[] };
 type AgentCreateResult = { ok: true; agentId: string; workspace: string };
+type ProfileSeedResult = {
+  ok: true;
+  agentId: string;
+  workspace: string;
+  created: boolean;
+};
 
 export type GatewayPersonalAgentProvisionerOptions = {
   rpc: GatewayAdminRpc;
@@ -32,6 +40,7 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
     }
     const workspace = this.workspaceForAgent(request.binding.agentId);
     await this.ensureAgent(request.binding.agentId, workspace);
+    await this.seedEmployeeProfile(request.binding.agentId, workspace, request.profile);
   }
 
   private workspaceForAgent(agentId: string): string {
@@ -88,6 +97,22 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
         throw error;
       }
       this.verifyWorkspace(agentId, raced.workspace, workspace);
+    }
+  }
+
+  private async seedEmployeeProfile(
+    agentId: string,
+    workspace: string,
+    profile: EmployeeDirectoryProfile,
+  ): Promise<void> {
+    const seeded = await this.options.rpc.call<ProfileSeedResult>("platformclaw.profile.seed", {
+      agentId,
+      workspace,
+      content: renderEmployeeProfileArtifact(profile),
+    });
+    this.verifyWorkspace(agentId, seeded.workspace, workspace);
+    if (seeded.agentId !== agentId) {
+      throw new Error(`Gateway seeded an unexpected agent profile: ${seeded.agentId}`);
     }
   }
 }

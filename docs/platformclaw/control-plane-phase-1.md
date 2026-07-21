@@ -47,6 +47,12 @@ calls the Gateway Admin HTTP RPC boundary to create or adopt the exact agent and
 workspace. The in-memory store covers contract behavior, and the SQLite store
 persists the approved schema version 1.
 
+New personal-agent provisioning also seeds approved directory profile fields
+into an immutable, agent-ID-keyed plugin SQLite entry. The atomic identity claim
+never overwrites existing state, and active agents are not rewritten on later
+login. The enabled plugin validates and injects the entry as data-only prompt
+context without changing `USER.md` or another workspace file.
+
 The Web ingress runtime now hosts the browser-auth HTTP handlers and a
 Gateway-protocol-compatible WebSocket boundary. It reuses the public Gateway
 client for the private operator connection, projects a browser-safe hello, and
@@ -70,10 +76,11 @@ TLS state, and an auth rate limiter.
 
 These slices do not contain credential encryption, SAML protocol handling,
 Knox transport code, or the deployable HTTP/WebSocket listener that hosts the
-implemented Gateway policy proxy. OpenClaw agent creation now occurs only
-through the private Admin HTTP RPC plugin; PlatformClaw still does not import
-OpenClaw core. Initial `USER.md` profile injection remains deferred until an
-atomic, ownership-aware Gateway/plugin contract is approved.
+implemented Gateway policy proxy. OpenClaw agent creation and profile
+initialization now occur only through the private Admin HTTP RPC plugin;
+PlatformClaw still does not import OpenClaw core. Profile initialization is
+plugin-owned and create-only, so no OpenClaw protocol or core workspace
+mutation contract is changed.
 
 ## Process boundary
 

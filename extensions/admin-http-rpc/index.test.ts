@@ -16,9 +16,29 @@ describe("admin-http-rpc plugin entry", () => {
 
   it("registers one trusted gateway HTTP route", () => {
     const routes: Array<Record<string, unknown>> = [];
+    const gatewayMethods: Array<{ method: string; options: unknown }> = [];
+    const hooks: string[] = [];
+    const stores: unknown[] = [];
     plugin.register({
+      runtime: {
+        state: {
+          openKeyedStore(options) {
+            stores.push(options);
+            return {
+              registerIfAbsent: async () => true,
+              lookup: async () => undefined,
+            };
+          },
+        },
+      },
       registerHttpRoute(route) {
         routes.push(route as unknown as Record<string, unknown>);
+      },
+      registerGatewayMethod(method, _handler, options) {
+        gatewayMethods.push({ method, options });
+      },
+      on(hook) {
+        hooks.push(hook);
       },
     } as Parameters<typeof plugin.register>[0]);
 
@@ -29,5 +49,16 @@ describe("admin-http-rpc plugin entry", () => {
       match: "exact",
       gatewayRuntimeScopeSurface: "trusted-operator",
     });
+    expect(gatewayMethods).toEqual([
+      { method: "platformclaw.profile.seed", options: { scope: "operator.admin" } },
+    ]);
+    expect(hooks).toEqual(["before_prompt_build"]);
+    expect(stores).toEqual([
+      {
+        namespace: "platformclaw.employee-profiles",
+        maxEntries: 50_000,
+        overflowPolicy: "reject-new",
+      },
+    ]);
   });
 });

@@ -2,7 +2,7 @@
 summary: "PlatformClaw employee authentication, browser session, and profile provisioning contract"
 read_when:
   - Integrating the current LDAP-compatible employee login service
-  - Implementing the PlatformClaw web BFF or USER.md provisioning
+  - Implementing the PlatformClaw web BFF or employee-profile provisioning
 title: "PlatformClaw employee authentication"
 ---
 
@@ -63,8 +63,12 @@ Successful authentication produces two different objects:
   part, Confluence space, notes, groups, and explicit extensible attributes.
 
 The personal-agent provisioner receives the profile after the binding is
-reserved. It owns OpenClaw `agents.create`, workspace validation, and the
-managed block in `USER.md`. Authentication code does not write workspaces.
+reserved. It owns OpenClaw `agents.create`, exact workspace validation, and the
+initial profile claim. The `admin-http-rpc` plugin atomically creates an
+immutable agent-ID-keyed entry in plugin SQLite and never rewrites `USER.md` or
+another workspace file. The same plugin validates the entry and injects it as
+data-only prompt context. Active agents are not rewritten on later login.
+Authentication code does not write workspaces.
 Provisioning failure marks a new binding `failed` and does not issue a browser
 session. A later login retries the failed binding idempotently.
 
@@ -105,18 +109,24 @@ perform no Gateway discovery or workspace mutation.
 The provisioner requires an injected Admin RPC URL, bearer, and workspace root.
 The bearer is a Gateway operator secret and must come from the deployment secret
 store. It must never enter the browser session, workspace, SQLite database, logs,
-or source control. The Admin HTTP RPC route remains private and uses only its
-existing `agents.list` and `agents.create` allowlist entries.
+or source control. The Admin HTTP RPC route remains private and uses
+`agents.list`, `agents.create`, and the plugin-owned
+`platformclaw.profile.seed` method.
 
 Provisioning fails closed when an existing agent has a different workspace. A
 concurrent `agents.create` winner is adopted only after a new `agents.list`
 result proves the exact reserved agent ID and expected workspace.
 
-Initial `USER.md` profile injection remains deferred. Existing whole-file RPCs
-cannot atomically preserve user content, enforce binding ownership, and verify
-the expected workspace before mutation. Implementing this safely requires a
-separate approved atomic Gateway/plugin contract; PlatformClaw does not add a
-racy downstream write merely to complete the bootstrap snapshot.
+Profile initialization deliberately does not modify `USER.md`. The plugin-owned
+seed method verifies the configured agent workspace, then uses SQLite
+`registerIfAbsent` to claim the agent ID atomically. An existing safe profile
+for the same employee is retained; malformed state or another employee owner
+fails provisioning. The profile remains bound to agent identity across a
+workspace move, avoiding file races with SSH editors, agents, or another
+Gateway process. The immutable namespace supports up to 50,000 entries, matching
+the plugin-state backend ceiling and exceeding the initial 150-user target.
+Capacity exhaustion fails closed and requires an explicit administrative
+lifecycle operation; profiles are never evicted implicitly.
 
 Schema v1 has not shipped as a tagged PlatformClaw release. Development
 databases created before the employee-auth adapter introduced a distinct

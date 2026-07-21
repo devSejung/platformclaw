@@ -1,5 +1,7 @@
 {
   "id": "admin-http-rpc",
+  "name": "Admin HTTP RPC",
+  "description": "Expose selected admin RPC and PlatformClaw profile context",
   "activation": {
     "onStartup": false,
     "onConfigPaths": ["plugins.entries.admin-http-rpc"]

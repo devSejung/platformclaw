@@ -12,6 +12,7 @@ export * from "./web-ingress-runtime.js";
 export * from "./web-assets.js";
 export * from "./contracts.js";
 export * from "./employee-auth-client.js";
+export * from "./employee-profile-artifact.js";
 export * from "./gateway-admin-rpc-client.js";
 export * from "./ids.js";
 export * from "./memory-store.js";
