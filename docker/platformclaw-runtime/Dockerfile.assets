@@ -11,4 +11,4 @@ FROM scratch
 
 COPY --from=build /app/packages/platformclaw-control-plane/package.json /app/packages/platformclaw-control-plane/package.json
 COPY --from=build /app/packages/platformclaw-control-plane/dist /app/packages/platformclaw-control-plane/dist
-COPY --from=build /app/ui/dist /app/ui/dist
+COPY --from=build /app/dist/control-ui /app/ui/dist

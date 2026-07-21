@@ -56,6 +56,12 @@ describe("PlatformClaw Docker runtime", () => {
     expect(serialized).not.toContain("platformclaw_gateway_token");
   });
 
+  it("copies the upstream Control UI output into the runtime asset path", () => {
+    const assetsDockerfile = readRepoFile("docker/platformclaw-runtime/Dockerfile.assets");
+
+    expect(assetsDockerfile).toContain("COPY --from=build /app/dist/control-ui /app/ui/dist");
+  });
+
   it("keeps ephemeral secret mounts readable only through the private smoke directory", () => {
     const smoke = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
 
