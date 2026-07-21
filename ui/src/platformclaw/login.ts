@@ -88,7 +88,10 @@ export class PlatformClawLoginController {
 
   constructor(root: ParentNode, options: PlatformClawLoginOptions = {}) {
     this.elements = readElements(root);
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    const fetchImpl = options.fetchImpl;
+    this.fetchImpl = fetchImpl
+      ? (input, init) => fetchImpl(input, init)
+      : (input, init) => globalThis.fetch(input, init);
     const location = options.location ?? window.location;
     this.returnTo = resolvePlatformClawReturnTo(location);
     this.navigate = options.navigate ?? ((path) => window.location.assign(path));
