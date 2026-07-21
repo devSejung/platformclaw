@@ -22,7 +22,7 @@ function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
 }
 
-async function start(fetchImpl: typeof fetch, timeout?: number) {
+async function start(fetchImpl?: typeof fetch, timeout?: number) {
   const root = fixture();
   const navigate = vi.fn();
   new PlatformClawLoginController(root, {
@@ -49,7 +49,10 @@ function submit(root: ParentNode): void {
 
 describe("PlatformClawLoginController", () => {
   beforeEach(() => window.history.replaceState({}, "", "/platformclaw/login"));
-  afterEach(() => document.body.replaceChildren());
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.unstubAllGlobals();
+  });
 
   it("checks the opaque session before enabling sign-in", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => response({ authenticated: false }));
@@ -105,5 +108,22 @@ describe("PlatformClawLoginController", () => {
     const { root, navigate } = await start(fetchImpl);
     submit(root);
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/platformclaw/app/sessions"));
+  });
+
+  it("calls the browser fetch function with the browser global receiver", async () => {
+    let callCount = 0;
+    const fetchImpl = function (this: unknown): Promise<Response> {
+      if (this !== globalThis) {
+        throw new TypeError("invalid fetch receiver");
+      }
+      callCount += 1;
+      return Promise.resolve(response({ authenticated: callCount === 2 }));
+    } as typeof fetch;
+    vi.stubGlobal("fetch", fetchImpl);
+    const { root, navigate } = await start();
+
+    submit(root);
+
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/platformclaw/app/chat"));
   });
 });
