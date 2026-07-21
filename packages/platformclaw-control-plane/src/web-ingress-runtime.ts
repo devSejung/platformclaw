@@ -14,6 +14,11 @@ import {
   PlatformClawGatewayRuntimeClient,
   type PlatformClawGatewayRuntimeClientOptions,
 } from "./gateway-runtime-client.js";
+import {
+  AgentRestartReconciler,
+  type PersonalAgentRestartRecoveryProbe,
+  type RestartReconciliationSummary,
+} from "./restart-reconciler.js";
 import { createPlatformClawWebAssetHandler } from "./web-assets.js";
 import {
   PlatformClawWebIngressServer,
@@ -27,6 +32,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   buildAgentMainSessionKey: MainSessionKeyBuilder;
   resolveAgentIdFromSessionKey(sessionKey: string): string | null;
   provisioner: PersonalAgentProvisioner;
+  restartRecoveryProbe: PersonalAgentRestartRecoveryProbe;
   employeeAuth?: Pick<
     EmployeeBrowserAuthRuntimeOptions,
     "employeeAuthConfig" | "env" | "fetchImpl" | "now" | "tokenFactory"
@@ -45,6 +51,7 @@ export type PlatformClawWebIngressRuntime = {
   auth: EmployeeBrowserAuthRuntime;
   gateway: PlatformClawGatewayRuntimeClient;
   server: PlatformClawWebIngressServer;
+  prepare(): Promise<RestartReconciliationSummary>;
   listen(options: PlatformClawWebIngressListenOptions): Promise<void>;
   close(): Promise<void>;
 };
@@ -61,6 +68,11 @@ export function createPlatformClawWebIngressRuntime(
     ...options.employeeAuth,
   });
   const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
+  const restartReconciler = new AgentRestartReconciler({
+    store: auth.store,
+    personalAgentProbe: options.restartRecoveryProbe,
+    ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+  });
   // Browser connections share this proxy; the session token resolves agent-scoped access per call.
   const gatewayProxy = new BrowserGatewayProxy({
     authService: auth.service,
@@ -83,11 +95,21 @@ export function createPlatformClawWebIngressRuntime(
     ...options.ingress,
   });
   let closed = false;
+  let preparing: Promise<RestartReconciliationSummary> | undefined;
+  const prepare = (): Promise<RestartReconciliationSummary> => {
+    preparing ??= restartReconciler.reconcile();
+    return preparing;
+  };
   return {
     auth,
     gateway,
     server,
-    listen: (listenOptions) => server.listen(listenOptions),
+    prepare,
+    async listen(listenOptions) {
+      // No ingress may race a crash-left provisioning row during startup.
+      await prepare();
+      await server.listen(listenOptions);
+    },
     async close() {
       if (closed) {
         return;

@@ -57,6 +57,7 @@ describe("admin-http-rpc plugin entry", () => {
     });
     expect(gatewayMethods).toEqual([
       { method: "platformclaw.profile.seed", options: { scope: "operator.admin" } },
+      { method: "platformclaw.profile.status", options: { scope: "operator.admin" } },
     ]);
     expect(hooks).toEqual(["before_prompt_build"]);
     expect(stores).toEqual([

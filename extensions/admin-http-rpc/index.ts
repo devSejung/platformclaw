@@ -5,8 +5,10 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import {
   handleEmployeeProfileSeed,
+  handleEmployeeProfileStatus,
   loadEmployeeProfilePromptContext,
   PLATFORMCLAW_PROFILE_SEED_METHOD,
+  PLATFORMCLAW_PROFILE_STATUS_METHOD,
   PLATFORMCLAW_PROFILE_STORE_NAMESPACE,
 } from "./src/employee-profile.js";
 import { handleAdminHttpRpcRequest } from "./src/handler.js";
@@ -35,6 +37,11 @@ export default definePluginEntry({
     api.registerGatewayMethod(
       PLATFORMCLAW_PROFILE_SEED_METHOD,
       async (options) => await handleEmployeeProfileSeed(options, employeeProfiles),
+      { scope: "operator.admin" },
+    );
+    api.registerGatewayMethod(
+      PLATFORMCLAW_PROFILE_STATUS_METHOD,
+      async (options) => await handleEmployeeProfileStatus(options, employeeProfiles),
       { scope: "operator.admin" },
     );
     api.on("before_prompt_build", async (_event, context) => {

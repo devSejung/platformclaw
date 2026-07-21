@@ -4,6 +4,7 @@ import type {
   PersonalAgentProvisioner,
   PersonalAgentProvisioningRequest,
 } from "./browser-auth-service.js";
+import type { PersonalAgentBinding, PlatformUser } from "./contracts.js";
 import type { EmployeeDirectoryProfile } from "./employee-auth-client.js";
 import { renderEmployeeProfileArtifact } from "./employee-profile-artifact.js";
 import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
@@ -17,6 +18,17 @@ type ProfileSeedResult = {
   workspace: string;
   created: boolean;
 };
+type ProfileStatusResult = {
+  ok: true;
+  agentId: string;
+  workspace: string;
+  status: "matched" | "missing" | "mismatch";
+};
+
+export type PersonalAgentRestartRecoveryResult =
+  | { status: "active" }
+  | { status: "retry-required"; reason: "agent-missing" | "profile-missing" }
+  | { status: "conflict"; reason: "workspace-mismatch" | "profile-mismatch" };
 
 export type GatewayPersonalAgentProvisionerOptions = {
   rpc: GatewayAdminRpc;
@@ -41,6 +53,42 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
     const workspace = this.workspaceForAgent(request.binding.agentId);
     await this.ensureAgent(request.binding.agentId, workspace);
     await this.seedEmployeeProfile(request.binding.agentId, workspace, request.profile);
+  }
+
+  async reconcileAfterRestart(params: {
+    user: PlatformUser;
+    binding: PersonalAgentBinding;
+  }): Promise<PersonalAgentRestartRecoveryResult> {
+    const workspace = this.workspaceForAgent(params.binding.agentId);
+    const agent = await this.listAgent(params.binding.agentId);
+    if (!agent) {
+      return { status: "retry-required", reason: "agent-missing" };
+    }
+    if (!agent.workspace || path.resolve(agent.workspace) !== workspace) {
+      return { status: "conflict", reason: "workspace-mismatch" };
+    }
+    const profile = await this.options.rpc.call<ProfileStatusResult>(
+      "platformclaw.profile.status",
+      {
+        agentId: params.binding.agentId,
+        workspace,
+        employeeId: params.user.employeeId,
+      },
+    );
+    if (
+      profile.agentId !== params.binding.agentId ||
+      path.resolve(profile.workspace) !== workspace ||
+      !["matched", "missing", "mismatch"].includes(profile.status)
+    ) {
+      throw new Error("Gateway profile status returned an invalid payload");
+    }
+    if (profile.status === "missing") {
+      return { status: "retry-required", reason: "profile-missing" };
+    }
+    if (profile.status === "mismatch") {
+      return { status: "conflict", reason: "profile-mismatch" };
+    }
+    return { status: "active" };
   }
 
   private workspaceForAgent(agentId: string): string {

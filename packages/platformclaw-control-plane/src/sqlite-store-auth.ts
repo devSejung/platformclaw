@@ -256,6 +256,18 @@ export abstract class SqliteControlPlaneAuthStore extends SqliteControlPlaneStor
     });
   }
 
+  async listAgentBindingsByState(state: AgentProvisioningState): Promise<AgentBinding[]> {
+    return executeSync(
+      this.db,
+      this.query
+        .selectFrom("agent_bindings")
+        .selectAll()
+        .where("state", "=", state)
+        .orderBy("created_at", "asc")
+        .orderBy("id", "asc"),
+    ).rows.map((row) => rowToBinding(row));
+  }
+
   async reserveKnoxRoomAgent(params: {
     accountId: string;
     roomId: string;

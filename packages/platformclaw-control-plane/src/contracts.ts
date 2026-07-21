@@ -170,6 +170,7 @@ export interface ControlPlaneStore {
   getUserById(userId: string): Promise<PlatformUser | null>;
   getUserByEmployeeId(employeeId: string): Promise<PlatformUser | null>;
   getPersonalAgentBinding(userId: string): Promise<PersonalAgentBinding | null>;
+  listAgentBindingsByState(state: AgentProvisioningState): Promise<AgentBinding[]>;
   reservePersonalAgent(
     userId: string,
     reservedAt: number,

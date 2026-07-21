@@ -286,6 +286,23 @@ The legacy employee entry is behavioral reference only. Its browser bootstrap
 token, browser-provided agent/session routing, and broad per-page employee-mode
 branches are not migrated.
 
+### PC-118 Reconcile incomplete provisioning before public ingress
+
+`platformclaw-control` reconciles every binding left in `provisioning` before
+its public listener accepts traffic. A personal binding becomes active only
+when the Gateway still has the exact agent and workspace and the plugin-owned
+profile claim matches the binding owner. Missing agent or profile state becomes
+an explicit failed binding so the next authenticated login can retry with fresh
+directory data. Workspace or profile ownership conflicts fail closed and are
+never overwritten or deleted automatically.
+
+A transient Gateway or profile-store failure leaves the current binding
+unchanged and fails process startup; container supervision retries later.
+Existing active bindings are not scanned during this startup pass. Until the
+Knox room runtime owns room retry, an incomplete room binding becomes failed
+with a distinct reason instead of being guessed active. This policy uses SQLite
+schema v1 unchanged.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs
