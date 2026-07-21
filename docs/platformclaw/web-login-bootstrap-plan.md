@@ -20,10 +20,11 @@ copy are intentionally deferred. The functional states and security boundary
 defined here are not deferred.
 
 Implementation status: the login shell, authenticated application-document
-host, Control UI adapter, and restricted application shell are implemented.
-Focused Windows Chrome proof covers the fixed proxy URL, disabled-route
-fallback, account shell, and session-expiry redirect. Deployable composition
-and final Linux container proof remain open.
+host, Control UI adapter, restricted application shell, and deployable control
+process entry point are implemented. Focused Windows Chrome proof covers the
+fixed proxy URL, disabled-route fallback, account shell, and session-expiry
+redirect. Linux secret/volume composition and final container proof remain
+open.
 
 ## Outcome
 

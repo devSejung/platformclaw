@@ -8,6 +8,9 @@
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
+  "bin": {
+    "platformclaw-control": "./dist/server-main.mjs"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
@@ -16,7 +19,7 @@
     }
   },
   "scripts": {
-    "build": "tsdown src/index.ts --no-config --platform node --format esm --dts --out-dir dist --clean"
+    "build": "tsdown src/index.ts src/server-main.ts --no-config --platform node --format esm --dts --out-dir dist --clean"
   },
   "dependencies": {
     "@openclaw/gateway-client": "workspace:*",

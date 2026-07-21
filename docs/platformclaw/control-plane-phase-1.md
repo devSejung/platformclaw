@@ -52,8 +52,9 @@ Gateway-protocol-compatible WebSocket boundary. It reuses the public Gateway
 client for the private operator connection, projects a browser-safe hello, and
 regenerates event sequence numbers after filtering. It also serves the employee
 login and gates the upstream Control UI document on the active browser session.
-Production deployment composition and the restricted Control UI adapter are
-not yet complete.
+The restricted Control UI adapter and the secret-backed control-process entry
+point are implemented. Linux process supervision, persistent volume mounts,
+and container-level browser proof are not yet complete.
 
 Focused tests cover LDAP metadata refresh, LDAP-to-SAML identity linking,
 employee ID correction conflicts, concurrent personal and room provisioning,
