@@ -23,9 +23,13 @@ export type PlatformClawLoginOptions = {
   sessionCheckTimeoutMs?: number;
 };
 
-function requiredElement<T extends Element>(root: ParentNode, selector: string): T {
-  const element = root.querySelector<T>(selector);
-  if (!element) {
+function requiredElement<T extends Element>(
+  root: ParentNode,
+  selector: string,
+  constructor: new () => T,
+): T {
+  const element = root.querySelector(selector);
+  if (!(element instanceof constructor)) {
     throw new Error(`PlatformClaw login element missing: ${selector}`);
   }
   return element;
@@ -33,12 +37,12 @@ function requiredElement<T extends Element>(root: ParentNode, selector: string):
 
 function readElements(root: ParentNode): LoginElements {
   return {
-    form: requiredElement(root, "[data-login-form]"),
-    identifier: requiredElement(root, 'input[name="identifier"]'),
-    secretInput: requiredElement(root, 'input[name="password"]'),
-    submit: requiredElement(root, 'button[type="submit"]'),
-    error: requiredElement(root, "[data-login-error]"),
-    status: requiredElement(root, "[data-login-status]"),
+    form: requiredElement(root, "[data-login-form]", HTMLFormElement),
+    identifier: requiredElement(root, 'input[name="identifier"]', HTMLInputElement),
+    secretInput: requiredElement(root, 'input[name="password"]', HTMLInputElement),
+    submit: requiredElement(root, 'button[type="submit"]', HTMLButtonElement),
+    error: requiredElement(root, "[data-login-error]", HTMLElement),
+    status: requiredElement(root, "[data-login-status]", HTMLElement),
   };
 }
 
