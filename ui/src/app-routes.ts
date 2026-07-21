@@ -1,6 +1,6 @@
 import { createRouter } from "@openclaw/uirouter";
 import type { PageDefinition, Router, RouterHistory } from "@openclaw/uirouter";
-import { routeIdFromPath, type RouteId } from "./app-route-paths.ts";
+import { APP_ROUTE_IDS, routeIdFromPath, type RouteId } from "./app-route-paths.ts";
 import type { ApplicationContext } from "./app/context.ts";
 import { page as aboutPage } from "./pages/about/route.ts";
 import { page as activityPage } from "./pages/activity/route.ts";
@@ -76,9 +76,12 @@ const APP_ROUTE_TREE = [
 
 const appRoutes = APP_ROUTE_TREE as readonly AppRoute[];
 
-export function createApplicationRouter(): ApplicationRouter {
+export function createApplicationRouter(
+  enabledRouteIds: readonly RouteId[] = APP_ROUTE_IDS,
+): ApplicationRouter {
+  const enabled = new Set(enabledRouteIds);
   return createRouter<RouteId, ApplicationContext<RouteId>, AppRouteModule>({
-    routes: appRoutes,
+    routes: appRoutes.filter((route) => enabled.has(route.id)),
   });
 }
 
@@ -87,11 +90,13 @@ export async function startApplicationRouter(
   history: RouterHistory,
   basePath: string,
   context: ApplicationContext<RouteId>,
+  enabledRouteIds: readonly RouteId[] = APP_ROUTE_IDS,
 ): Promise<void> {
   const location = history.location();
+  const routeId = routeIdFromPath(location.pathname, basePath);
   // Unknown paths (including retired routes like /overview) land on chat, so
   // removed pages need no legacy aliases for stale bookmarks or history.
-  if (routeIdFromPath(location.pathname, basePath) === null) {
+  if (routeId === null || !enabledRouteIds.includes(routeId)) {
     history.replace({
       ...location,
       pathname: router.pathForRoute("chat", basePath),

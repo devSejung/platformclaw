@@ -136,7 +136,9 @@ class AppSidebar extends AppSidebarSessionListElement {
           .menuOpen=${this.agentMenuPosition !== null}
           .menuUnread=${menuUnread}
           .switcherAvailable=${cardAgents.length > 1}
-          .onToggleMenu=${(trigger: HTMLElement) => this.toggleAgentMenu(trigger)}
+          .onToggleMenu=${this.accountPrimaryLabel
+            ? undefined
+            : (trigger: HTMLElement) => this.toggleAgentMenu(trigger)}
         ></openclaw-sidebar-agent-card>
         <div class="sidebar-brand__actions">
           ${this.renderSearch()}
@@ -224,6 +226,27 @@ class AppSidebar extends AppSidebarSessionListElement {
     const gatewayStatus = t("chat.gatewayStatus", {
       status: this.connected ? t("common.online") : t("common.offline"),
     });
+    if (this.accountPrimaryLabel && this.onLogout) {
+      return html`
+        <div class="sidebar-footer-bar sidebar-footer-bar--account">
+          <span class="sidebar-account" title=${this.accountSecondaryLabel}>
+            <span class="sidebar-account__primary">${this.accountPrimaryLabel}</span>
+            ${this.accountSecondaryLabel
+              ? html`<span class="sidebar-account__secondary">${this.accountSecondaryLabel}</span>`
+              : nothing}
+          </span>
+          <button
+            type="button"
+            class="sidebar-footer-bar__settings"
+            aria-label="Sign out"
+            title="Sign out"
+            @click=${() => void this.onLogout?.()}
+          >
+            ${icons.arrowLeft}
+          </button>
+        </div>
+      `;
+    }
     return html`
       <div class="sidebar-footer-bar">
         <span class="sidebar-brand__logo-slot sidebar-footer-bar__logo">
@@ -266,6 +289,9 @@ class AppSidebar extends AppSidebarSessionListElement {
   }
 
   private renderSearch() {
+    if (this.accountPrimaryLabel) {
+      return nothing;
+    }
     const tooltip = `${t("chat.openCommandPalette")} (${PALETTE_SHORTCUT})`;
     return html`
       <openclaw-tooltip .content=${tooltip}>
@@ -302,15 +328,17 @@ class AppSidebar extends AppSidebarSessionListElement {
             ${this.renderSessions()}
           </div>
           <div class="sidebar-shell__footer">
-            <openclaw-sidebar-attention
-              .onNavigate=${(routeId: NavigationRouteId) => this.onNavigate?.(routeId)}
-              .onOpenApprovals=${() => this.onOpenApprovals?.()}
-            ></openclaw-sidebar-attention>
-            <openclaw-sidebar-update-card
-              .updateAvailable=${this.updateAvailable}
-              .updateRunning=${this.updateRunning}
-              .onUpdate=${this.onUpdate}
-            ></openclaw-sidebar-update-card>
+            ${this.accountPrimaryLabel
+              ? nothing
+              : html`<openclaw-sidebar-attention
+                    .onNavigate=${(routeId: NavigationRouteId) => this.onNavigate?.(routeId)}
+                    .onOpenApprovals=${() => this.onOpenApprovals?.()}
+                  ></openclaw-sidebar-attention>
+                  <openclaw-sidebar-update-card
+                    .updateAvailable=${this.updateAvailable}
+                    .updateRunning=${this.updateRunning}
+                    .onUpdate=${this.onUpdate}
+                  ></openclaw-sidebar-update-card>`}
             <openclaw-lobster-pet
               .seed=${lobsterPetSeed(this.sessionKey)}
               .mode=${resolveLobsterPetMode(this.connected, this.sessionsResult?.sessions)}

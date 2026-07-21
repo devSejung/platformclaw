@@ -326,6 +326,16 @@ describe("compiled settings routes", () => {
   );
 });
 
+describe("route availability", () => {
+  it("compiles only routes enabled by the application host", () => {
+    const router = createApplicationRouter(["chat", "new-session", "sessions"]);
+
+    expect(router.routeIdFromPath("/chat")).toBe("chat");
+    expect(router.routeIdFromPath("/sessions")).toBe("sessions");
+    expect(router.routeIdFromPath("/settings/agents")).toBeNull();
+  });
+});
+
 describe("inferBasePathFromPathname", () => {
   it("handles direct routes, nested mounts, mount roots, and index.html", () => {
     expect(inferBasePathFromPathname("/")).toBe("");

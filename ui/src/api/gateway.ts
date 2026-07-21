@@ -184,6 +184,9 @@ export type GatewayBrowserClientOptions = {
   onRequestTiming?: (timing: GatewayProtocolRequestTiming) => void;
   onConnectTiming?: (timing: GatewayConnectTiming) => void;
   onRecoveryScopeChange?: () => void;
+  /** Disable browser device identity and stored device-token auth for trusted
+   * same-origin proxies that authenticate the WebSocket upgrade themselves. */
+  browserDeviceAuth?: boolean;
 };
 
 export type GatewayEventListener = (evt: GatewayEventFrame) => void;
@@ -415,7 +418,12 @@ export class GatewayBrowserClient {
     // crypto.subtle is only available in secure contexts (HTTPS, localhost).
     // Over plain HTTP, we skip device identity and fall back to token-only auth.
     // Gateways may reject this unless gateway.controlUi.allowInsecureAuth is enabled.
-    const isSecureContext = typeof crypto !== "undefined" && Boolean(crypto.subtle);
+    const isSecureContext =
+      this.opts.browserDeviceAuth !== false &&
+      typeof crypto !== "undefined" &&
+      Boolean(crypto.subtle);
+    // With browser device auth disabled, no identity exists to sign or retain
+    // credentials returned by hello; the upgrade-authenticating proxy owns trust.
     let deviceIdentity: Awaited<ReturnType<typeof loadOrCreateDeviceIdentity>> | null = null;
     let selectedAuth: GatewayConnectAuthSelection = {
       authToken: explicitGatewayToken,

@@ -19,9 +19,11 @@ branches are on `main`. Detailed visual design, branding, animation, and final
 copy are intentionally deferred. The functional states and security boundary
 defined here are not deferred.
 
-Implementation status: the login shell and authenticated application-document
-host are complete. The Control UI adapter, restricted application shell, and
-container proof remain open.
+Implementation status: the login shell, authenticated application-document
+host, Control UI adapter, and restricted application shell are implemented.
+Focused Windows Chrome proof covers the fixed proxy URL, disabled-route
+fallback, account shell, and session-expiry redirect. Deployable composition
+and final Linux container proof remain open.
 
 ## Outcome
 

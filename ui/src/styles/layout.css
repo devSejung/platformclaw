@@ -2569,6 +2569,35 @@ wa-dropdown.sidebar-session-sort-menu::part(menu) {
   stroke-linejoin: round;
 }
 
+.sidebar-footer-bar--account {
+  gap: 8px;
+}
+
+.sidebar-account {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.2;
+}
+
+.sidebar-account__primary,
+.sidebar-account__secondary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-account__primary {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sidebar-account__secondary {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 /* Groups zone: quiet compact rows. Coding zone: muted until expanded. */
 .sidebar-recent-sessions__group--zone-groups .sidebar-recent-session__link {
   padding-top: 3px;

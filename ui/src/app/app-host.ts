@@ -55,6 +55,11 @@ import { findSettingsSearchBlocks } from "../pages/config/settings-search.ts";
 import { newSessionSearch, type NewSessionTarget } from "../pages/new-session/location.ts";
 import { renderDevicePairSetup } from "../pages/nodes/view-pairing.ts";
 import { pluginTabKey, pluginTabRefFromSearch } from "../pages/plugin/route.ts";
+import {
+  createPlatformClawControlUiAdapter,
+  type PlatformClawControlUiAdapter,
+  type PlatformClawSessionIdentity,
+} from "../platformclaw/control-ui-adapter.ts";
 import { bootstrapApplication, type ApplicationRuntime } from "./bootstrap.ts";
 import {
   applicationContext,
@@ -206,6 +211,7 @@ class OpenClawApp extends OpenClawLightDomElement {
   @state() private loginShowGatewayPassword = false;
   @state() private pendingGatewayUrl: string | null = null;
   @state() private onboarding = resolveOnboardingMode(globalThis.location?.search ?? "");
+  @state() private platformClawStartupError = false;
 
   private readonly terminalOnly = isTerminalOnlyView();
   // Fixed at page load: whether this browser held credentials (token,
@@ -219,6 +225,8 @@ class OpenClawApp extends OpenClawLightDomElement {
   private readonly subscriptions = new SubscriptionsController(this);
   private loginGatewaySource: ApplicationContext["gateway"] | null = null;
   private loginConnectionClient: GatewayBrowserClient | null = null;
+  private platformClawAdapter: PlatformClawControlUiAdapter | null = null;
+  private connectionEpoch = 0;
 
   private get context(): ApplicationContext<RouteId> | undefined {
     return this.runtime?.context;
@@ -241,16 +249,58 @@ class OpenClawApp extends OpenClawLightDomElement {
   override connectedCallback() {
     super.connectedCallback();
     this.resetLoginSensitivePresentation();
-    this.runtime = bootstrapApplication();
+    const epoch = ++this.connectionEpoch;
+    this.platformClawAdapter = createPlatformClawControlUiAdapter();
+    if (this.platformClawAdapter) {
+      void this.startPlatformClawApplication(epoch);
+      return;
+    }
+    this.mountRuntime(bootstrapApplication());
+  }
+
+  private async startPlatformClawApplication(epoch: number): Promise<void> {
+    const adapter = this.platformClawAdapter;
+    if (!adapter) {
+      return;
+    }
+    this.platformClawStartupError = false;
+    let identity: PlatformClawSessionIdentity | null;
+    try {
+      identity = await adapter.loadSession(true);
+    } catch {
+      if (epoch === this.connectionEpoch && this.isConnected) {
+        this.platformClawStartupError = true;
+      }
+      return;
+    }
+    if (!identity || epoch !== this.connectionEpoch || !this.isConnected) {
+      return;
+    }
+    const runtime = bootstrapApplication(
+      adapter.applicationOptions(identity, async () => adapter.logout(() => runtime.stop())),
+    );
+    this.mountRuntime(runtime);
+  }
+
+  private retryPlatformClawStartup(): void {
+    if (!this.platformClawAdapter) {
+      return;
+    }
+    void this.startPlatformClawApplication(++this.connectionEpoch);
+  }
+
+  private mountRuntime(runtime: ApplicationRuntime): void {
+    this.runtime = runtime;
     if (this.terminalOnly) {
       preloadOptionalElement(this, TERMINAL_PANEL_ELEMENT);
     }
-    if (this.runtime.documentMode?.kind === "approval") {
+    if (runtime.documentMode?.kind === "approval") {
       preloadOptionalElement(this, APPROVAL_PAGE_ELEMENT);
     }
-    const context = this.runtime.context;
-    this.initialAuthPresent = hasStoredGatewayAuth(context.gateway.connection);
-    this.pendingGatewayUrl = this.runtime.pendingGatewayConnection?.gatewayUrl ?? null;
+    const context = runtime.context;
+    this.initialAuthPresent =
+      runtime.shellSession !== null || hasStoredGatewayAuth(context.gateway.connection);
+    this.pendingGatewayUrl = runtime.pendingGatewayConnection?.gatewayUrl ?? null;
     // Context identity changes only across a full app-tree connection epoch;
     // descendants reconnect and rebuild their controller-owned state afterward.
     this.contextProvider.setValue(context);
@@ -258,16 +308,19 @@ class OpenClawApp extends OpenClawLightDomElement {
     // The runtime is created after controller hostConnected hooks run. Ensure
     // their lazy source getters bind on both the initial mount and reconnect.
     this.requestUpdate();
-    void this.runtime.start().catch((error: unknown) => {
+    void runtime.start().catch((error: unknown) => {
       console.error("[openclaw] application start failed", error);
     });
   }
 
   override disconnectedCallback() {
+    this.connectionEpoch += 1;
     // Stop reactive subscriptions before disposing their application sources.
     this.subscriptions.clear();
     this.runtime?.stop();
     this.runtime = undefined;
+    this.platformClawAdapter = null;
+    this.platformClawStartupError = false;
     this.loginGatewaySource = null;
     this.loginConnectionClient = null;
     this.pendingGatewayUrl = null;
@@ -315,6 +368,14 @@ class OpenClawApp extends OpenClawLightDomElement {
     const context = this.context;
     const runtime = this.runtime;
     if (!context || !runtime) {
+      if (this.platformClawStartupError) {
+        return html`
+          <main class="connect-splash" role="alert">
+            <span>PlatformClaw is temporarily unavailable.</span>
+            <button type="button" @click=${() => this.retryPlatformClawStartup()}>Retry</button>
+          </main>
+        `;
+      }
       return html`<main class="app-shell app-shell--booting" aria-busy="true"></main>`;
     }
     const gatewaySnapshot = context.gateway.snapshot;
@@ -379,7 +440,9 @@ class OpenClawApp extends OpenClawLightDomElement {
       `;
     }
     const showLoginGate =
-      !gatewaySnapshot.connected && (this.loginGatePinned || !gatewaySnapshot.reconnecting);
+      runtime.shellSession === null &&
+      !gatewaySnapshot.connected &&
+      (this.loginGatePinned || !gatewaySnapshot.reconnecting);
     if (showLoginGate) {
       return html`
         <openclaw-tooltip-provider>
@@ -1139,9 +1202,13 @@ class OpenClawShell extends OpenClawLightDomElement {
   }
 
   private enabledRouteIds(): readonly RouteId[] {
-    return isWorkboardEnabledInConfigSnapshot(this.context?.runtimeConfig.state.configSnapshot)
+    const configured = isWorkboardEnabledInConfigSnapshot(
+      this.context?.runtimeConfig.state.configSnapshot,
+    )
       ? APP_ROUTE_IDS
       : ROUTE_IDS_WITHOUT_WORKBOARD;
+    const runtimeEnabled = this.runtime?.enabledRouteIds ?? APP_ROUTE_IDS;
+    return configured.filter((routeId) => runtimeEnabled.includes(routeId));
   }
 
   /** Sidebar draft-row hint while the new-session page is open, keyed off its ?agent param. */
@@ -1286,6 +1353,7 @@ class OpenClawShell extends OpenClawLightDomElement {
     const shellWidth = Math.max(globalThis.innerWidth || 0, NAV_WIDTH_MAX);
     // One storage read per render; theme.refresh() re-renders on pref changes.
     const uiSettings = loadSettings();
+    const operatorChrome = runtime.shellSession === null;
     // The new-session draft shares the chat layout: full-height pane that owns
     // its scrolling and pins the composer dock to the bottom.
     const chatLikeRoute =
@@ -1293,7 +1361,7 @@ class OpenClawShell extends OpenClawLightDomElement {
     // Optional tags stay mounted before definition. Lit replays their properties on upgrade,
     // and the upgraded panels catch the first toggle instead of dropping the event.
     return html`
-      ${isOptionalElementDefined(this.commandPaletteElement)
+      ${operatorChrome && isOptionalElementDefined(this.commandPaletteElement)
         ? html`<openclaw-command-palette
             .onNavigate=${(routeId: RouteId) => this.navigate(routeId)}
             .onSelectSession=${(sessionKey: string) => {
@@ -1337,7 +1405,7 @@ class OpenClawShell extends OpenClawLightDomElement {
           : nothing}
         <openclaw-app-topbar
           .basePath=${context.basePath}
-          .searchDisabled=${false}
+          .searchDisabled=${!operatorChrome}
           .navDrawerOpen=${navDrawerOpen}
           .onboarding=${onboarding}
           .onOpenPalette=${this.openPalette}
@@ -1406,8 +1474,8 @@ class OpenClawShell extends OpenClawLightDomElement {
                 .updateAvailable=${navigationSurfaceHidden ? null : overlaySnapshot.updateAvailable}
                 .updateRunning=${overlaySnapshot.updateRunning}
                 .onUpdate=${() => void context.overlays.runUpdate()}
-                .onOpenPalette=${this.openPalette}
-                .onOpenApprovals=${() => this.approvalOverlay?.show()}
+                .onOpenPalette=${operatorChrome ? this.openPalette : undefined}
+                .onOpenApprovals=${operatorChrome ? () => this.approvalOverlay?.show() : undefined}
                 .onToggleSidebar=${() => this.toggleNavigationSurface()}
                 .onOpenNewSession=${(agentId: string, target?: NewSessionTarget) => {
                   const search = newSessionSearch(agentId, target);
@@ -1421,6 +1489,9 @@ class OpenClawShell extends OpenClawLightDomElement {
                   this.navigate(routeId, options)}
                 .onPreloadRoute=${(routeId: string) =>
                   isRouteId(routeId) ? context.preload(routeId) : Promise.resolve()}
+                .accountPrimaryLabel=${runtime.shellSession?.primaryLabel ?? ""}
+                .accountSecondaryLabel=${runtime.shellSession?.secondaryLabel ?? ""}
+                .onLogout=${runtime.shellSession?.onLogout}
               ></openclaw-app-sidebar>`}
         </div>
         ${!navCollapsed && !onboarding && !settingsTakeover
