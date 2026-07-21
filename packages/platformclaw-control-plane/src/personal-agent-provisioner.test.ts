@@ -179,7 +179,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
   it("fails closed when the profile seed response points at another workspace", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
-    const call = vi.fn(async (method: string) => {
+    const call = vi.fn(async (method: string, _params: unknown) => {
       if (method === "agents.list") {
         return { agents: [{ id: "account_name", workspace }] };
       }
