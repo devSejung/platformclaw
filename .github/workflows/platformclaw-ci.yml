@@ -145,6 +145,7 @@ jobs:
       - name: Validate PlatformClaw UI
         if: steps.plan.outputs.needs_ui_checks == 'true'
         run: |
+          pnpm ui:i18n:verify
           node scripts/run-tsgo.mjs -p tsconfig.ui.json --noEmit
           node scripts/run-oxlint.mjs --tsconfig config/tsconfig/oxlint.core.json ui/src/platformclaw ui/vite.config.ts ui/vite.platformclaw-login.config.ts
           node scripts/run-vitest.mjs ui/src/platformclaw

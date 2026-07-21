@@ -238,8 +238,8 @@ class AppSidebar extends AppSidebarSessionListElement {
           <button
             type="button"
             class="sidebar-footer-bar__settings"
-            aria-label="Sign out"
-            title="Sign out"
+            aria-label=${t("common.logout")}
+            title=${t("common.logout")}
             @click=${() => void this.onLogout?.()}
           >
             ${icons.arrowLeft}

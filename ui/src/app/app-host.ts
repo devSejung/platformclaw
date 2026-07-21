@@ -371,8 +371,10 @@ class OpenClawApp extends OpenClawLightDomElement {
       if (this.platformClawStartupError) {
         return html`
           <main class="connect-splash" role="alert">
-            <span>PlatformClaw is temporarily unavailable.</span>
-            <button type="button" @click=${() => this.retryPlatformClawStartup()}>Retry</button>
+            <span>${t("platformClaw.startupUnavailable")}</span>
+            <button type="button" @click=${() => this.retryPlatformClawStartup()}>
+              ${t("common.retry")}
+            </button>
           </main>
         `;
       }

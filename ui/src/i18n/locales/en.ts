@@ -89,6 +89,9 @@ export const en: TranslationMap = {
     logout: "Logout",
     skipToMainContent: "Skip to main content",
   },
+  platformClaw: {
+    startupUnavailable: "PlatformClaw is temporarily unavailable.",
+  },
   optionCard: {
     recommended: "Recommended",
     skip: "Skip for now",
