@@ -37,6 +37,14 @@ commit history stays available for merge-base comparison after a pull request
 base changes, while historical file contents are fetched only when Git needs
 them. Read-only checkout credentials remain available for those lazy fetches.
 
+The login UI's private source, HTML entry point, and dedicated Vite configuration
+stay on the focused path. That path runs the complete UI typecheck, lints both
+Vite configurations, runs the private Vite regression tests, and performs the
+production UI build. The upstream-owned `ui/package.json` and `ui/vite.config.ts`
+always fall back to upstream changed-surface checks, even when a diff also changes
+private UI files. The job keeps a 60-minute safety ceiling for that genuine
+upstream work; focused PlatformClaw changes do not run the expensive fallback.
+
 Docker image construction remains a release or deployment validation step. It
 is not part of every pull request.
 
