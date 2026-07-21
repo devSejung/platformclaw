@@ -224,7 +224,7 @@ export class BrowserAuthService {
       }
       return transitioned;
     } catch (error) {
-      if (binding.state === "provisioning") {
+      if (binding.state === "provisioning" || binding.state === "active") {
         await this.options.store.transitionAgent({
           bindingId: binding.id,
           state: "failed",

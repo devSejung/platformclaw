@@ -6,6 +6,7 @@ param(
     [int]$EmployeeAuthPort = 18080,
     [int]$GatewayPort = 18790,
     [int]$Port = 19001,
+    [string]$SourceRef = "origin/main",
     [switch]$NoFetch,
     [switch]$Rebuild
 )
@@ -85,16 +86,16 @@ function Get-PythonCommand {
     throw "A working Python 3.9+ interpreter is required for scripts/mock_employee_auth.py"
 }
 
-function Get-OriginMainSha {
+function Get-SourceSha {
     Push-Location $repoRoot
     try {
-        if (-not $NoFetch) {
+        if (-not $NoFetch -and $SourceRef -eq "origin/main") {
             Write-Step "Fetching origin/main"
             Invoke-Checked -Command git -Arguments @("fetch", "origin", "--prune")
         }
-        $sha = (& git rev-parse origin/main).Trim()
+        $sha = (& git rev-parse --verify "$SourceRef`^{commit}").Trim()
         if ($LASTEXITCODE -ne 0 -or -not $sha) {
-            throw "Unable to resolve origin/main"
+            throw "Unable to resolve source ref: $SourceRef"
         }
         return $sha
     }
@@ -119,18 +120,50 @@ function Show-Doctor {
         $status = @(& git status --porcelain)
         $nodeVersion = (& node --version).Trim()
         $pnpmVersion = (& corepack pnpm --version).Trim()
-        $mainSha = Get-OriginMainSha
+        $mainSha = Get-SourceSha
         Write-Host ""
         Write-Host "  checkout  $repoRoot"
         Write-Host "  branch    $branch"
         Write-Host "  clean     $($status.Count -eq 0)"
         Write-Host "  node      $nodeVersion"
         Write-Host "  pnpm      $pnpmVersion (repository-pinned through Corepack)"
-        Write-Host "  main      $mainSha"
+        Write-Host "  source    $SourceRef ($mainSha)"
+        if ($SourceRef -eq "origin/main" -and $branch -ne "main") {
+            Write-Host "  hint      use -SourceRef HEAD to test the current checkout" -ForegroundColor Yellow
+        }
     }
     finally {
         Pop-Location
     }
+
+    $runtimeRoot = Join-Path $DataRoot "runtime"
+    $configFile = Join-Path $runtimeRoot "gateway\openclaw.json"
+    Write-Host ""
+    Write-Host "  data      $DataRoot"
+    Write-Host "  runtime   $runtimeRoot"
+    if (Test-Path $configFile) {
+        try {
+            $config = Get-Content -Raw -LiteralPath $configFile | ConvertFrom-Json
+            $agentIds = @($config.agents.list | ForEach-Object { $_.id })
+            Write-Host "  agents    $(if ($agentIds.Count -gt 0) { $agentIds -join ', ' } else { '(none)' })"
+        }
+        catch {
+            Write-Host "  agents    config unreadable: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+    else {
+        Write-Host "  agents    runtime not initialized"
+    }
+    foreach ($endpoint in @(
+        @{ Name = "auth"; Url = "http://127.0.0.1:$EmployeeAuthPort/healthz" },
+        @{ Name = "gateway"; Url = "http://127.0.0.1:$GatewayPort/healthz" },
+        @{ Name = "control"; Url = "http://127.0.0.1:$Port/platformclaw/health" }
+    )) {
+        $status = if (Test-HttpEndpoint $endpoint.Url) { "ready" } else { "down" }
+        Write-Host ("  {0,-9} {1} ({2})" -f $endpoint.Name, $status, $endpoint.Url)
+    }
+    $logFile = Join-Path (Join-Path $env:TEMP "openclaw") "openclaw-$((Get-Date).ToString('yyyy-MM-dd')).log"
+    Write-Host "  log       $logFile"
 }
 
 function New-RandomToken {
@@ -243,7 +276,9 @@ function Initialize-Runtime {
   }
 }
 '@
-    Write-Utf8NoBom $configFile $gatewayConfig
+    if (-not (Test-Path $configFile)) {
+        Write-Utf8NoBom $configFile $gatewayConfig
+    }
 
     $env:OPENCLAW_STATE_DIR = $gatewayRoot
     $env:OPENCLAW_CONFIG_PATH = $configFile
@@ -314,7 +349,7 @@ function Start-PlatformClaw {
     Assert-Command node
     Assert-Command corepack
     $python = Get-PythonCommand
-    $sha = Get-OriginMainSha
+    $sha = Get-SourceSha
     $sourceRoot = Initialize-SourceSnapshot $sha
     Initialize-DependenciesAndUi $sourceRoot
     $previousEnvironment = @{}
@@ -351,7 +386,7 @@ function Start-PlatformClaw {
         Write-Host "  URL:      $loginUrl"
         Write-Host "  User:     person.one / test-password"
         Write-Host "  Admin:    admin.user / test-password"
-        Write-Host "  Main SHA: $sha"
+        Write-Host "  Source:   $SourceRef ($sha)"
         Write-Host "  PIDs:     auth=$($auth.Id), gateway=$($gateway.Id), control=$($control.Id)"
         Write-Host "  Stop:     press Ctrl+C or close the three process windows"
         Start-Process $loginUrl
@@ -367,14 +402,18 @@ if ($Action -eq "Menu") {
     Write-Host ""
     Write-Host "PlatformClaw Windows main preview" -ForegroundColor Green
     Write-Host "  1. Start latest main"
-    Write-Host "  2. Check environment"
-    Write-Host "  3. Rebuild and start latest main"
+    Write-Host "  2. Start current checkout"
+    Write-Host "  3. Check environment and runtime"
+    Write-Host "  4. Rebuild and start latest main"
+    Write-Host "  5. Rebuild and start current checkout"
     Write-Host "  Q. Quit"
     $choice = (Read-Host "Select").Trim().ToUpperInvariant()
     switch ($choice) {
         "1" { $Action = "Start" }
-        "2" { $Action = "Doctor" }
-        "3" { $Action = "Start"; $Rebuild = $true }
+        "2" { $Action = "Start"; $SourceRef = "HEAD" }
+        "3" { $Action = "Doctor" }
+        "4" { $Action = "Start"; $Rebuild = $true }
+        "5" { $Action = "Start"; $SourceRef = "HEAD"; $Rebuild = $true }
         "Q" { return }
         default { throw "Unknown selection: $choice" }
     }

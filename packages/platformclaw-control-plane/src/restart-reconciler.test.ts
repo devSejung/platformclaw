@@ -43,6 +43,50 @@ describe("AgentRestartReconciler", () => {
     });
   });
 
+  it("revalidates an active personal binding without changing its state", async () => {
+    const store = createStore();
+    const { binding } = await reservePersonal(store);
+    await store.transitionAgent({ bindingId: binding.id, state: "active", changedAt: 2_500 });
+    const reconcileAfterRestart = vi.fn(async () => ({ status: "active" }) as const);
+    const reconciler = new AgentRestartReconciler({
+      store,
+      personalAgentProbe: { reconcileAfterRestart },
+      now: () => 3_000,
+    });
+
+    await expect(reconciler.reconcile()).resolves.toEqual({
+      found: 1,
+      activated: 0,
+      failed: 0,
+      disabled: 0,
+    });
+    expect(reconcileAfterRestart).toHaveBeenCalledOnce();
+    await expect(store.getPersonalAgentBinding(binding.userId)).resolves.toMatchObject({
+      state: "active",
+    });
+  });
+
+  it("fails an active binding whose Gateway ownership cannot be recovered", async () => {
+    const store = createStore();
+    const { binding } = await reservePersonal(store);
+    await store.transitionAgent({ bindingId: binding.id, state: "active", changedAt: 2_500 });
+    const reconciler = new AgentRestartReconciler({
+      store,
+      personalAgentProbe: {
+        async reconcileAfterRestart() {
+          return { status: "retry-required", reason: "profile-missing" };
+        },
+      },
+      now: () => 3_000,
+    });
+
+    await expect(reconciler.reconcile()).resolves.toMatchObject({ found: 1, failed: 1 });
+    await expect(store.getPersonalAgentBinding(binding.userId)).resolves.toMatchObject({
+      state: "failed",
+      failureCode: "restart_profile_missing",
+    });
+  });
+
   it("marks incomplete personal and room bindings for an explicit retry", async () => {
     const store = createStore();
     const { binding } = await reservePersonal(store);

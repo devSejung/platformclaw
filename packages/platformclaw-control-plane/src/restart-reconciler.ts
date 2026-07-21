@@ -15,7 +15,7 @@ export type RestartReconciliationSummary = {
   disabled: number;
 };
 
-/** Resolves crash-left provisioning rows before public ingress starts accepting traffic. */
+/** Reconciles persisted bindings with Gateway state before public ingress accepts traffic. */
 export class AgentRestartReconciler {
   constructor(
     private readonly options: {
@@ -26,14 +26,20 @@ export class AgentRestartReconciler {
   ) {}
 
   async reconcile(): Promise<RestartReconciliationSummary> {
-    const pending = await this.options.store.listAgentBindingsByState("provisioning");
+    const [pending, active] = await Promise.all([
+      this.options.store.listAgentBindingsByState("provisioning"),
+      this.options.store.listAgentBindingsByState("active"),
+    ]);
+    // Knox room agents run in the local PlatformClaw workspace and have no
+    // Gateway personal-agent ownership contract to revalidate here.
+    const bindings = [...pending, ...active.filter((binding) => binding.kind === "personal")];
     const summary: RestartReconciliationSummary = {
-      found: pending.length,
+      found: bindings.length,
       activated: 0,
       failed: 0,
       disabled: 0,
     };
-    for (const binding of pending) {
+    for (const binding of bindings) {
       const changedAt = (this.options.now ?? Date.now)();
       if (binding.kind === "knox-room") {
         await this.fail(binding.id, changedAt, "restart_room_runtime_pending");
@@ -55,12 +61,14 @@ export class AgentRestartReconciler {
       }
       const result = await this.options.personalAgentProbe.reconcileAfterRestart({ user, binding });
       if (result.status === "active") {
-        await this.options.store.transitionAgent({
-          bindingId: binding.id,
-          state: "active",
-          changedAt,
-        });
-        summary.activated += 1;
+        if (binding.state === "provisioning") {
+          await this.options.store.transitionAgent({
+            bindingId: binding.id,
+            state: "active",
+            changedAt,
+          });
+          summary.activated += 1;
+        }
         continue;
       }
       await this.fail(binding.id, changedAt, `restart_${result.reason.replaceAll("-", "_")}`);
