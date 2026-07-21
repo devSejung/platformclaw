@@ -62,6 +62,13 @@ describe("PlatformClaw Docker runtime", () => {
     expect(assetsDockerfile).toContain("COPY --from=build /app/dist/control-ui /app/ui/dist");
   });
 
+  it("bundles private workspace runtime dependencies into the control artifact", () => {
+    const buildConfig = readRepoFile("packages/platformclaw-control-plane/tsdown.config.ts");
+
+    expect(buildConfig).toContain("alwaysBundle: [/^@openclaw\\//u]");
+    expect(buildConfig).toContain("dts: { neverBundle: [/^@openclaw\\//u] }");
+  });
+
   it("keeps ephemeral secret mounts readable only through the private smoke directory", () => {
     const smoke = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
 
