@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import plugin from "./index.js";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
 
+type PluginApi = Parameters<typeof plugin.register>[0];
+
 describe("admin-http-rpc plugin entry", () => {
   it("stays startup-off until the plugin entry is explicitly enabled", () => {
     expect(manifest.activation).toEqual({
@@ -22,7 +24,7 @@ describe("admin-http-rpc plugin entry", () => {
     plugin.register({
       runtime: {
         state: {
-          openKeyedStore(options) {
+          openKeyedStore(options: Parameters<PluginApi["runtime"]["state"]["openKeyedStore"]>[0]) {
             stores.push(options);
             return {
               registerIfAbsent: async () => true,
@@ -31,16 +33,20 @@ describe("admin-http-rpc plugin entry", () => {
           },
         },
       },
-      registerHttpRoute(route) {
+      registerHttpRoute(route: Parameters<PluginApi["registerHttpRoute"]>[0]) {
         routes.push(route as unknown as Record<string, unknown>);
       },
-      registerGatewayMethod(method, _handler, options) {
+      registerGatewayMethod(
+        method: Parameters<PluginApi["registerGatewayMethod"]>[0],
+        _handler: Parameters<PluginApi["registerGatewayMethod"]>[1],
+        options: Parameters<PluginApi["registerGatewayMethod"]>[2],
+      ) {
         gatewayMethods.push({ method, options });
       },
-      on(hook) {
+      on(hook: Parameters<PluginApi["on"]>[0]) {
         hooks.push(hook);
       },
-    } as Parameters<typeof plugin.register>[0]);
+    } as unknown as Parameters<typeof plugin.register>[0]);
 
     expect(routes).toHaveLength(1);
     expect(routes[0]).toMatchObject({
