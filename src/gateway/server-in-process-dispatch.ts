@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { GatewayClientRequestError } from "../../packages/gateway-client/src/index.js";
 import type { ErrorShape } from "../../packages/gateway-protocol/src/schema/frames.js";
+import type { PluginRegistry } from "../plugins/registry-types.js";
 import { resolveSafeTimeoutDelayMs } from "../utils/timer-delay.js";
 import type { GatewayMethodRegistry } from "./methods/registry.js";
 import type { GatewayRequestOptions } from "./server-methods/types.js";
@@ -18,6 +19,7 @@ type InProcessGatewayDispatchOptions = {
   expectFinal?: boolean;
   isWebchatConnect?: GatewayRequestOptions["isWebchatConnect"];
   methodRegistry?: GatewayMethodRegistry;
+  pluginRegistry?: PluginRegistry;
   onAccepted?: (payload: unknown) => void;
   requestIdPrefix?: string;
   timeoutMs?: number;
@@ -96,7 +98,13 @@ export async function dispatchGatewayRequestInProcessRaw(
     rejectFirstResponse = reject;
   });
   const deadlineMs = resolveDispatchDeadlineMs(options.timeoutMs);
-  const { handleGatewayRequest } = await import("./server-methods.js");
+  const { createRequestGatewayMethodRegistry, handleGatewayRequest } =
+    await import("./server-methods.js");
+  const methodRegistry =
+    options.methodRegistry ??
+    (options.pluginRegistry
+      ? createRequestGatewayMethodRegistry(undefined, options.pluginRegistry)
+      : undefined);
   void handleGatewayRequest({
     req: {
       type: "req",
@@ -119,7 +127,7 @@ export async function dispatchGatewayRequestInProcessRaw(
       }
     },
     context: options.context,
-    methodRegistry: options.methodRegistry,
+    methodRegistry,
   })
     .then(() => {
       if (!firstResponse) {

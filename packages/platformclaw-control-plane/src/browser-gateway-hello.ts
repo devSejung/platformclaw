@@ -23,7 +23,9 @@ export function projectPlatformClawBrowserHello(params: {
       connId: params.connectionId,
     },
     features: {
-      methods: PLATFORMCLAW_WEB_GATEWAY_METHODS.filter((method) => upstreamMethods.has(method)),
+      methods: PLATFORMCLAW_WEB_GATEWAY_METHODS.filter(
+        (method) => method === "commands.list" || upstreamMethods.has(method),
+      ),
       events: PLATFORMCLAW_WEB_GATEWAY_EVENTS.filter((event) => upstreamEvents.has(event)),
       capabilities: [],
     },

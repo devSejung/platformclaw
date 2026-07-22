@@ -38,6 +38,7 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".png": "image/png",
   ".svg": "image/svg+xml",
   ".wasm": "application/wasm",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".webp": "image/webp",
 };
 
@@ -65,7 +66,11 @@ function assertRegularFileInsideRoot(root: string, filePath: string): string {
   return resolved;
 }
 
-function collectAssetFiles(root: string, directory: string): Map<string, WebAsset> {
+function collectAssetFiles(
+  root: string,
+  directory: string,
+  publicPrefix = PLATFORMCLAW_WEB_ASSET_PREFIX,
+): Map<string, WebAsset> {
   const assets = new Map<string, WebAsset>();
   const visit = (current: string, entries: Dirent[]): void => {
     for (const entry of entries) {
@@ -82,13 +87,44 @@ function collectAssetFiles(root: string, directory: string): Map<string, WebAsse
       }
       const filePath = assertRegularFileInsideRoot(root, candidate);
       const assetPath = relative(directory, filePath).split(sep).join("/");
-      assets.set(`${PLATFORMCLAW_WEB_ASSET_PREFIX}${assetPath}`, {
+      assets.set(`${publicPrefix}${assetPath}`, {
         filePath,
         contentType: CONTENT_TYPES[extname(filePath).toLowerCase()] ?? "application/octet-stream",
       });
     }
   };
   visit(directory, readdirSync(directory, { withFileTypes: true }));
+  return assets;
+}
+
+function collectApplicationPublicFiles(root: string): Map<string, WebAsset> {
+  const assets = new Map<string, WebAsset>();
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (entry.name === "assets" || entry.name.endsWith(".html")) {
+      continue;
+    }
+    const candidate = join(root, entry.name);
+    if (entry.isSymbolicLink()) {
+      throw new Error(`PlatformClaw web assets must not contain symlinks: ${entry.name}`);
+    }
+    if (entry.isDirectory()) {
+      for (const [pathname, asset] of collectAssetFiles(
+        root,
+        candidate,
+        `${PLATFORMCLAW_WEB_APP_PATH}/${entry.name}/`,
+      )) {
+        assets.set(pathname, asset);
+      }
+      continue;
+    }
+    if (entry.isFile()) {
+      const filePath = assertRegularFileInsideRoot(root, candidate);
+      assets.set(`${PLATFORMCLAW_WEB_APP_PATH}/${entry.name}`, {
+        filePath,
+        contentType: CONTENT_TYPES[extname(filePath).toLowerCase()] ?? "application/octet-stream",
+      });
+    }
+  }
   return assets;
 }
 
@@ -104,7 +140,7 @@ function documentSecurityPolicy(
   websocketOrigin?: string,
 ): string {
   const scriptSources = ["'self'", ...inlineScriptHashes.map((hash) => `'sha256-${hash}'`)];
-  const connectSources = ["'self'", ...(websocketOrigin ? [websocketOrigin] : [])];
+  const connectSources = ["'self'", "data:", ...(websocketOrigin ? [websocketOrigin] : [])];
   return [
     ...DOCUMENT_SECURITY_POLICY_BASE,
     `connect-src ${connectSources.join(" ")}`,
@@ -196,6 +232,9 @@ export function createPlatformClawWebAssetHandler(
     throw new Error("PlatformClaw web assets directory escapes root");
   }
   const assets = collectAssetFiles(root, assetsDirectory);
+  for (const [pathname, asset] of collectApplicationPublicFiles(root)) {
+    assets.set(pathname, asset);
+  }
 
   return {
     async handlePublic(req, res) {
@@ -218,10 +257,15 @@ export function createPlatformClawWebAssetHandler(
       if (isLogin) {
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.setHeader("Cache-Control", "no-store");
-        res.setHeader("Content-Security-Policy", documentSecurityPolicy());
+        res.setHeader("Content-Security-Policy", documentSecurityPolicy([], true));
       } else if (asset) {
         res.setHeader("Content-Type", asset.contentType);
-        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        res.setHeader(
+          "Cache-Control",
+          pathname.startsWith(PLATFORMCLAW_WEB_ASSET_PREFIX)
+            ? "public, max-age=31536000, immutable"
+            : "no-cache",
+        );
       }
       res.statusCode = 200;
       if (req.method === "HEAD") {

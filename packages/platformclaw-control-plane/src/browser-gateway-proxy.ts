@@ -1,4 +1,10 @@
+import { randomUUID } from "node:crypto";
 import type { BrowserAuthService } from "./browser-auth-service.js";
+import {
+  hasBlockedBrowserDirective,
+  projectBrowserCommands,
+  resolveBrowserCommandPolicy,
+} from "./browser-command-policy.js";
 import {
   PLATFORMCLAW_WEB_AGENT_ONLY_METHODS,
   PLATFORMCLAW_WEB_ALLOWED_METHODS,
@@ -135,8 +141,15 @@ export class BrowserGatewayProxy {
   async request<T = unknown>(token: string, method: string, params?: unknown): Promise<T> {
     const access = await this.resolveAccess(token);
     let prepared: JsonObject;
+    let initialCommandSuppressed = true;
     try {
       prepared = this.prepareRequest(access, method, params);
+      if (method === "chat.send" || method === "sessions.create") {
+        initialCommandSuppressed = await this.resolveCommandSuppression(access, prepared.message);
+        if (method === "chat.send") {
+          prepared = { ...prepared, suppressCommandInterpretation: initialCommandSuppressed };
+        }
+      }
       if (
         method === "sessions.patch" &&
         typeof prepared.model === "string" &&
@@ -153,7 +166,21 @@ export class BrowserGatewayProxy {
       }
       throw error;
     }
-    const result = await this.options.gateway.request(method, prepared);
+    if (method === "sessions.create") {
+      try {
+        return (await this.createBrowserSession(access, prepared, initialCommandSuppressed)) as T;
+      } catch (error) {
+        if (error instanceof BrowserGatewayProxyError) {
+          await this.auditDeniedRequest(access, method, error.code);
+        }
+        throw error;
+      }
+    }
+    // Keep the upstream commands.list compatibility path on the same filtered metadata source,
+    // otherwise browser command visibility and execution policy can drift apart.
+    const upstreamMethod = method === "commands.list" ? "chat.metadata" : method;
+    const upstreamParams = method === "commands.list" ? { agentId: prepared.agentId } : prepared;
+    const result = await this.options.gateway.request(upstreamMethod, upstreamParams);
     try {
       return this.filterResult(access, method, prepared, result) as T;
     } catch (error) {
@@ -162,6 +189,90 @@ export class BrowserGatewayProxy {
       }
       throw error;
     }
+  }
+
+  private async createBrowserSession(
+    access: BrowserGatewayAccess,
+    prepared: JsonObject,
+    suppressCommandInterpretation: boolean,
+  ): Promise<unknown> {
+    const message =
+      typeof prepared.message === "string" && prepared.message.trim()
+        ? prepared.message
+        : undefined;
+    const createParams = { ...prepared };
+    delete createParams.message;
+    if (message && createParams.key === undefined && createParams.catalogId === undefined) {
+      // Upstream normally mints a dashboard key when an initial turn is present. Because the
+      // browser turn is relayed separately below, mint it here to avoid resetting the main session.
+      createParams.key = `agent:${access.binding.agentId}:dashboard:${randomUUID()}`;
+    }
+    const rawCreated = await this.options.gateway.request("sessions.create", createParams);
+    const created = asObject(
+      this.filterResult(access, "sessions.create", createParams, rawCreated),
+      "sessions.create result",
+    );
+    if (!message || created.ok === false) {
+      return created;
+    }
+    const key = optionalString(created.key);
+    if (!key) {
+      throw new BrowserGatewayProxyError(
+        "upstream-result-denied",
+        "Gateway returned an invalid browser-created session",
+      );
+    }
+    try {
+      const sendParams = this.prepareRequest(access, "chat.send", {
+        sessionKey: key,
+        message,
+        idempotencyKey: randomUUID(),
+      });
+      sendParams.suppressCommandInterpretation = suppressCommandInterpretation;
+      const run = asObject(
+        await this.options.gateway.request("chat.send", sendParams),
+        "chat.send result",
+      );
+      return { ...created, runStarted: run.status === "started" };
+    } catch (error) {
+      return {
+        ...created,
+        runStarted: false,
+        runError: {
+          message:
+            error instanceof Error && error.message.trim()
+              ? error.message
+              : "The session was created, but its first message could not be sent.",
+        },
+      };
+    }
+  }
+
+  private async resolveCommandSuppression(
+    access: BrowserGatewayAccess,
+    message: unknown,
+  ): Promise<boolean> {
+    if (typeof message !== "string" || !message.trim().startsWith("/")) {
+      return true;
+    }
+    if (hasBlockedBrowserDirective(message)) {
+      throw new BrowserGatewayProxyError(
+        "method-not-allowed",
+        "Gateway administration commands are not available to browser users",
+      );
+    }
+    const metadata = asObject(
+      await this.options.gateway.request("chat.metadata", { agentId: access.binding.agentId }),
+      "chat.metadata result",
+    );
+    const policy = resolveBrowserCommandPolicy(message, metadata.commands);
+    if (policy === "block") {
+      throw new BrowserGatewayProxyError(
+        "method-not-allowed",
+        "Gateway administration commands are not available to browser users",
+      );
+    }
+    return policy === "suppress";
   }
 
   async filterEvent(
@@ -318,10 +429,12 @@ export class BrowserGatewayProxy {
         : [];
       return { models };
     }
-    if (method === "chat.metadata") {
-      const payload = asObject(result, "chat.metadata result");
-      // Browser users may choose configured models, but operator-only slash commands stay hidden.
-      return payload.models === undefined ? {} : { models: payload.models };
+    if (method === "chat.metadata" || method === "commands.list") {
+      const payload = asObject(result, `${method} result`);
+      const commands = projectBrowserCommands(payload.commands);
+      return method === "chat.metadata" && payload.models !== undefined
+        ? { models: payload.models, commands }
+        : { commands };
     }
     if (method === "agents.list") {
       const payload = asObject(result, "agents.list result");

@@ -35,7 +35,18 @@ export const PLATFORMCLAW_HEALTH_PATH = "/platformclaw/health";
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
-const MAX_PENDING_BROWSER_REQUESTS = 8;
+const MAX_CONCURRENT_BROWSER_REQUESTS = 8;
+// The upstream Control UI opens a burst of independent RPCs after connect. Keep enough
+// headroom for that supported client while bounding work retained by an untrusted browser.
+const MAX_PENDING_BROWSER_REQUESTS = 64;
+const MUTATING_BROWSER_METHODS = new Set([
+  "agents.files.set",
+  "chat.abort",
+  "chat.send",
+  "sessions.abort",
+  "sessions.create",
+  "sessions.patch",
+]);
 
 export type PlatformClawBrowserGatewayPolicy = {
   resolveAccess(token: string, touch?: boolean): Promise<BrowserGatewayAccess>;
@@ -150,6 +161,16 @@ function decodeTextFrame(data: RawData): string {
     return Buffer.from(data).toString("utf8");
   }
   return Buffer.concat(data).toString("utf8");
+}
+
+function rawDataByteLength(data: RawData): number {
+  if (Buffer.isBuffer(data)) {
+    return data.byteLength;
+  }
+  if (data instanceof ArrayBuffer) {
+    return data.byteLength;
+  }
+  return data.reduce((total, chunk) => total + chunk.byteLength, 0);
 }
 
 function responseError(id: string, error: unknown): ResponseFrame {
@@ -295,7 +316,12 @@ export class PlatformClawWebIngressServer {
           res.end();
           return;
         }
-        if (await this.options.webAssets.handleApplication(req, res)) {
+        // Mounted public files such as sw.js share the authenticated application
+        // prefix and must be resolved before the SPA document fallback.
+        if (
+          (await this.options.webAssets.handlePublic(req, res)) ||
+          (await this.options.webAssets.handleApplication(req, res))
+        ) {
           return;
         }
       }
@@ -360,8 +386,14 @@ export class PlatformClawWebIngressServer {
     let connectionClosed = false;
     let eventSeq = 0;
     let unsubscribe = () => {};
-    let messageChain = Promise.resolve();
+    let handshakeChain = Promise.resolve();
+    let handshakePendingCount = 0;
     let pendingRequestCount = 0;
+    let pendingRequestBytes = 0;
+    let activeRequestCount = 0;
+    const maxPendingRequestBytes = 2 * (this.options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES);
+    const requestQueue: Array<{ handle: () => Promise<void>; byteLength: number }> = [];
+    let mutationBarrier = Promise.resolve();
     let eventChain = Promise.resolve();
 
     const send = (frame: unknown): void => {
@@ -495,40 +527,98 @@ export class PlatformClawWebIngressServer {
       }
     };
 
+    const discardQueuedRequests = (): void => {
+      pendingRequestCount -= requestQueue.length;
+      pendingRequestBytes -= requestQueue.reduce((total, request) => total + request.byteLength, 0);
+      requestQueue.length = 0;
+    };
+
+    const drainRequestQueue = (): void => {
+      if (connectionClosed || websocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      while (activeRequestCount < MAX_CONCURRENT_BROWSER_REQUESTS) {
+        const queuedRequest = requestQueue.shift();
+        if (!queuedRequest) {
+          return;
+        }
+        activeRequestCount += 1;
+        void queuedRequest
+          .handle()
+          .catch(() => websocket.close(1011, "request handling failed"))
+          .finally(() => {
+            activeRequestCount -= 1;
+            pendingRequestCount -= 1;
+            pendingRequestBytes -= queuedRequest.byteLength;
+            drainRequestQueue();
+          });
+      }
+    };
+
+    const handleOrderedRequest = async (frame: RequestFrame): Promise<void> => {
+      const priorMutations = mutationBarrier;
+      if (MUTATING_BROWSER_METHODS.has(frame.method)) {
+        const current = priorMutations.then(async () => {
+          if (!connectionClosed) {
+            await handleRequest(frame);
+          }
+        });
+        mutationBarrier = current.catch(() => undefined);
+        await current;
+        return;
+      }
+      await priorMutations;
+      if (!connectionClosed) {
+        await handleRequest(frame);
+      }
+    };
+
     websocket.on("message", (data: RawData, isBinary) => {
       if (connectionClosed) {
         return;
       }
-      if (pendingRequestCount >= MAX_PENDING_BROWSER_REQUESTS) {
+      if (isBinary) {
+        websocket.close(1003, "binary frames are not supported");
+        return;
+      }
+      const messageBytes = rawDataByteLength(data);
+      if (
+        pendingRequestCount >= MAX_PENDING_BROWSER_REQUESTS ||
+        pendingRequestBytes + messageBytes > maxPendingRequestBytes
+      ) {
+        discardQueuedRequests();
         websocket.close(1013, "too many pending browser requests");
         return;
       }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(decodeTextFrame(data));
+      } catch {
+        websocket.close(1008, "invalid JSON frame");
+        return;
+      }
+      if (!validateRequestFrame(parsed)) {
+        websocket.close(1008, "invalid request frame");
+        return;
+      }
       pendingRequestCount += 1;
-      messageChain = messageChain
-        .then(async () => {
-          if (connectionClosed) {
-            return;
-          }
-          if (isBinary) {
-            websocket.close(1003, "binary frames are not supported");
-            return;
-          }
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(decodeTextFrame(data));
-          } catch {
-            websocket.close(1008, "invalid JSON frame");
-            return;
-          }
-          if (!validateRequestFrame(parsed)) {
-            websocket.close(1008, "invalid request frame");
-            return;
-          }
-          await handleRequest(parsed);
-        })
+      pendingRequestBytes += messageBytes;
+      const handleMessage = () => handleOrderedRequest(parsed);
+      if (connected && handshakePendingCount === 0) {
+        // Match upstream's independent RPC progress while bounding in-flight Gateway work.
+        // Queued closures are discarded below when the browser disconnects.
+        requestQueue.push({ handle: handleMessage, byteLength: messageBytes });
+        drainRequestQueue();
+        return;
+      }
+      handshakePendingCount += 1;
+      handshakeChain = handshakeChain
+        .then(handleMessage)
         .catch(() => websocket.close(1011, "request handling failed"))
         .finally(() => {
+          handshakePendingCount -= 1;
           pendingRequestCount -= 1;
+          pendingRequestBytes -= messageBytes;
         });
     });
 
@@ -537,6 +627,7 @@ export class PlatformClawWebIngressServer {
 
     websocket.once("close", () => {
       connectionClosed = true;
+      discardQueuedRequests();
       clearTimeout(handshakeTimer);
       unsubscribe();
     });

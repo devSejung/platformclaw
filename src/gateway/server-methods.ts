@@ -3,6 +3,7 @@ import {
   gatewayStartupUnavailableDetails,
   GATEWAY_STARTUP_RETRY_AFTER_MS,
 } from "../../packages/gateway-protocol/src/startup-unavailable.js";
+import type { PluginRegistry } from "../plugins/registry-types.js";
 import { getPluginRegistryState } from "../plugins/runtime-state.js";
 import { withPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
 import {
@@ -791,10 +792,11 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
 };
 
 /** Builds the per-request method registry from core, plugin, and explicit extra handlers. */
-function createRequestGatewayMethodRegistry(
+export function createRequestGatewayMethodRegistry(
   extraHandlers?: GatewayRequestHandlers,
+  pluginRegistryOverride?: PluginRegistry,
 ): GatewayMethodRegistry {
-  const activePluginRegistry = getPluginRegistryState()?.activeRegistry;
+  const activePluginRegistry = pluginRegistryOverride ?? getPluginRegistryState()?.activeRegistry;
   const activePluginHandlers = activePluginRegistry?.gatewayHandlers ?? {};
   const extraHandlerEntries = Object.entries(extraHandlers ?? {});
   const pluginMethodNames = new Set(Object.keys(activePluginHandlers));

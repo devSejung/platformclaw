@@ -26,6 +26,8 @@ function fixtureRoot(): string {
   );
   writeFileSync(join(root, "assets", "login-ABC123.js"), "export const ready = true;");
   writeFileSync(join(root, "assets", "app-ABC123.js"), "export const app = true;");
+  writeFileSync(join(root, "sw.js"), "self.addEventListener('install', () => undefined);");
+  writeFileSync(join(root, "manifest.webmanifest"), '{"name":"OpenClaw"}');
   return root;
 }
 
@@ -102,7 +104,27 @@ describe("createPlatformClawWebAssetHandler", () => {
       expect(await response.text()).toContain("<title>Login</title>");
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+      expect(response.headers.get("content-security-policy")).toContain("base-uri 'self'");
       expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("serves upstream root assets from the mounted application path", async () => {
+    const fixture = await serveFixture(fixtureRoot());
+    try {
+      const serviceWorker = await fetch(`${fixture.origin}${PLATFORMCLAW_WEB_APP_PATH}/sw.js`);
+      expect(serviceWorker.status).toBe(200);
+      expect(serviceWorker.headers.get("content-type")).toContain("text/javascript");
+      expect(serviceWorker.headers.get("cache-control")).toBe("no-cache");
+      expect(await serviceWorker.text()).toContain("addEventListener");
+
+      const manifest = await fetch(
+        `${fixture.origin}${PLATFORMCLAW_WEB_APP_PATH}/manifest.webmanifest`,
+      );
+      expect(manifest.status).toBe(200);
+      expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
     } finally {
       await fixture.close();
     }
@@ -136,7 +158,9 @@ describe("createPlatformClawWebAssetHandler", () => {
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(contentSecurityPolicy).toContain("'sha256-");
       expect(contentSecurityPolicy).toContain("base-uri 'self'");
-      expect(contentSecurityPolicy).toContain("connect-src 'self' wss://platformclaw.example");
+      expect(contentSecurityPolicy).toContain(
+        "connect-src 'self' data: wss://platformclaw.example",
+      );
       expect(contentSecurityPolicy).not.toContain("ws:");
       expect(contentSecurityPolicy).not.toMatch(/script-src[^;]*'unsafe-inline'/);
       expect(body).toContain('<base href="/platformclaw/" />');
