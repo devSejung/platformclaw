@@ -17,6 +17,7 @@ import {
   buildChangedCheckCrabboxArgs,
   changedCheckLocalDependenciesReady,
   changedCheckRequiresRemote,
+  chunkChangedFormatPaths,
   cleanupCorepackPnpmShimDir,
   createChangedCheckChildEnv,
   createChangedCheckPlan,
@@ -584,6 +585,43 @@ describe("scripts/changed-lanes", () => {
         "src/untracked.test.ts",
       ],
     });
+  });
+
+  it("chunks large changed format path sets below command-line limits", () => {
+    const paths = Array.from({ length: 501 }, (_, index) => `f/${index}.ts`);
+
+    const chunks = chunkChangedFormatPaths(paths);
+
+    expect(chunks).toHaveLength(3);
+    expect(chunks.map((chunk) => chunk.length)).toEqual([250, 250, 1]);
+    expect(chunks.flat()).toEqual(paths);
+    const plan = createChangedCheckPlan(detectChangedLanes(paths));
+    expect(
+      plan.commands
+        .filter((command) => command.name.startsWith("format changed files"))
+        .map((command) => command.name),
+    ).toEqual([
+      "format changed files (1/3)",
+      "format changed files (2/3)",
+      "format changed files (3/3)",
+    ]);
+  });
+
+  it("chunks changed format paths below the Windows command-line character limit", () => {
+    const paths = Array.from(
+      { length: 100 },
+      (_, index) => `src/generated/${"long-directory/".repeat(8)}changed-file-${index}.ts`,
+    );
+
+    const chunks = chunkChangedFormatPaths(paths);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.flat()).toEqual(paths);
+    expect(
+      chunks.every(
+        (chunk) => chunk.reduce((sum, filePath) => sum + filePath.length + 3, 0) <= 4_000,
+      ),
+    ).toBe(true);
   });
 
   it("includes staged added, modified, and deleted files in the changed format check", () => {
