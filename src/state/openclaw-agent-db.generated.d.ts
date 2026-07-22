@@ -30,6 +30,38 @@ export interface AuthProfileStore {
   updated_at: number;
 }
 
+export interface BoardTabs {
+  chat_dock: Generated<string>;
+  created_by: string;
+  position: number;
+  revision: number;
+  session_key: string;
+  tab_id: string;
+  title: string;
+}
+
+export interface BoardWidgets {
+  content_kind: string;
+  created_at: number;
+  created_by: string;
+  descriptor_json: string | null;
+  grant_state: Generated<string>;
+  granted_sha: string | null;
+  html: Uint8Array | null;
+  manifest: Generated<string>;
+  name: string;
+  position: number;
+  revision: number;
+  session_key: string;
+  sha256: string;
+  size_h: number;
+  size_w: number;
+  tab_id: string;
+  title: string | null;
+  updated_at: number;
+  view_generation: string | null;
+}
+
 export interface CacheEntries {
   blob: Uint8Array | null;
   expires_at: number | null;
@@ -154,6 +186,7 @@ export interface SessionConversations {
 }
 
 export interface SessionEntries {
+  created_by_json: string | null;
   entry_json: string;
   session_id: string;
   session_key: string;
@@ -210,6 +243,12 @@ export interface SessionTranscriptFtsIdx {
   pgno: string | null;
   segid: string;
   term: string;
+}
+
+export interface SessionTranscriptGenerations {
+  generation: string;
+  session_id: string;
+  updated_at: number;
 }
 
 export interface SessionTranscriptIndexState {
@@ -289,6 +328,8 @@ export interface DB {
   acp_parent_stream_events: AcpParentStreamEvents;
   auth_profile_state: AuthProfileState;
   auth_profile_store: AuthProfileStore;
+  board_tabs: BoardTabs;
+  board_widgets: BoardWidgets;
   cache_entries: CacheEntries;
   conversation_deliveries: ConversationDeliveries;
   conversations: Conversations;
@@ -309,6 +350,7 @@ export interface DB {
   session_transcript_fts_data: SessionTranscriptFtsData;
   session_transcript_fts_docsize: SessionTranscriptFtsDocsize;
   session_transcript_fts_idx: SessionTranscriptFtsIdx;
+  session_transcript_generations: SessionTranscriptGenerations;
   session_transcript_index_state: SessionTranscriptIndexState;
   sessions: Sessions;
   state_leases: StateLeases;

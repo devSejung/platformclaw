@@ -47,10 +47,16 @@ import {
   detectLegacyCommitments,
   migrateLegacyCommitments,
 } from "./state-migrations.commitments.js";
+import { migrateLegacyConfigMachineState } from "./state-migrations.config-machine-state.js";
 import {
   detectLegacyDebugProxyCaptureSidecar,
   migrateLegacyDebugProxyCaptureSidecar,
 } from "./state-migrations.debug-proxy.js";
+import { detectLegacyDeviceAuth, migrateLegacyDeviceAuth } from "./state-migrations.device-auth.js";
+import {
+  detectLegacyDeviceIdentity,
+  migrateLegacyDeviceIdentity,
+} from "./state-migrations.device-identity.js";
 import {
   existsDir,
   fileExists,
@@ -166,13 +172,13 @@ function describeStateSchemaMigration(migration: OpenClawStateDatabaseSchemaMigr
   return migration.kind satisfies never;
 }
 
-let autoMigrateChecked = false;
+const autoMigrateChecked = new Set<string>();
 
 const PLUGIN_DOCTOR_MIGRATION_LOCK_TIMEOUT_MS = 250;
 const PLUGIN_DOCTOR_MIGRATION_LOCK_POLL_INTERVAL_MS = 25;
 
 export function resetAutoMigrateLegacyStateForTest(): void {
-  autoMigrateChecked = false;
+  autoMigrateChecked.clear();
   resetAutoMigrateLegacyTaskStateSidecarsForTest();
   resetLegacySessionSurfacesForTest();
 }
@@ -442,6 +448,15 @@ export async function detectLegacyStateMigrations(params: {
     stateDir,
     doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
   });
+  const deviceAuth = detectLegacyDeviceAuth({
+    stateDir,
+    doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
+  });
+  const deviceIdentity = detectLegacyDeviceIdentity({
+    stateDir,
+    env,
+    doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
+  });
   const mcpOauth = detectLegacyMcpOAuthStores({
     stateDir,
     doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
@@ -630,6 +645,15 @@ export async function detectLegacyStateMigrations(params: {
   if (apns.hasLegacy) {
     preview.push("- APNs registrations: legacy JSON → shared SQLite state");
   }
+  if (deviceAuth.hasLegacy) {
+    preview.push("- Device auth tokens: legacy JSON → shared SQLite state");
+  }
+  if (deviceIdentity.hasLegacy) {
+    preview.push("- Primary device identity: legacy JSON → shared SQLite state");
+  }
+  if (deviceIdentity.hasInvalidCanonical && !deviceIdentity.hasLegacy) {
+    preview.push("- Primary device identity: invalid SQLite row → new device identity");
+  }
   if (mcpOauth.hasLegacy) {
     preview.push("- MCP OAuth credentials: legacy JSON → shared SQLite state");
   }
@@ -740,6 +764,8 @@ export async function detectLegacyStateMigrations(params: {
     acpReplayLedger,
     managedOutgoingImages,
     apns,
+    deviceAuth,
+    deviceIdentity,
     mcpOauth,
     restartSentinel,
     workspace,
@@ -934,6 +960,7 @@ export async function runLegacyStateMigrations(params: {
   env?: NodeJS.ProcessEnv;
   now?: () => number;
   recoverCorruptTargetStore?: boolean;
+  doctorOnlyStateMigrations?: boolean;
 }): Promise<MigrationMessages> {
   const now = params.now ?? (() => Date.now());
   const detected = params.detected;
@@ -1002,6 +1029,17 @@ export async function runLegacyStateMigrations(params: {
     detected: detected.apns,
     env,
     stateDir: detected.stateDir,
+  });
+  const deviceAuth = await migrateLegacyDeviceAuth({
+    detected: detected.deviceAuth,
+    env,
+    stateDir: detected.stateDir,
+  });
+  const deviceIdentity = await migrateLegacyDeviceIdentity({
+    detected: detected.deviceIdentity,
+    env,
+    stateDir: detected.stateDir,
+    doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
   });
   const mcpOauth = await migrateLegacyMcpOAuthStores({
     detected: detected.mcpOauth,
@@ -1072,6 +1110,8 @@ export async function runLegacyStateMigrations(params: {
     acpReplayLedger,
     managedOutgoingImages,
     apns,
+    deviceAuth,
+    deviceIdentity,
     mcpOauth,
     restartSentinel,
     workspace,
@@ -1099,6 +1139,8 @@ export async function runLegacyStateMigrations(params: {
       ...acpReplayLedger.changes,
       ...managedOutgoingImages.changes,
       ...apns.changes,
+      ...deviceAuth.changes,
+      ...deviceIdentity.changes,
       ...mcpOauth.changes,
       ...restartSentinel.changes,
       ...workspace.changes,
@@ -1133,6 +1175,8 @@ export async function runLegacyStateMigrations(params: {
       ...acpReplayLedger.warnings,
       ...managedOutgoingImages.warnings,
       ...apns.warnings,
+      ...deviceAuth.warnings,
+      ...deviceIdentity.warnings,
       ...mcpOauth.warnings,
       ...restartSentinel.warnings,
       ...workspace.warnings,
@@ -1171,6 +1215,7 @@ export async function autoMigrateLegacyState(params: {
   log?: MigrationLogger;
   now?: () => number;
   recoverCorruptTargetStore?: boolean;
+  doctorOnlyStateMigrations?: boolean;
 }): Promise<{
   migrated: boolean;
   skipped: boolean;
@@ -1178,18 +1223,23 @@ export async function autoMigrateLegacyState(params: {
   warnings: string[];
   notices?: string[];
 }> {
-  if (autoMigrateChecked) {
+  const env = params.env ?? process.env;
+  const homedir = params.homedir ?? os.homedir;
+  const migrationMode = params.doctorOnlyStateMigrations === true ? "doctor-repair" : "automatic";
+  const initialStateDir = resolveStateDir(env, homedir);
+  const checkKey = `${path.resolve(initialStateDir)}\0${migrationMode}`;
+  if (autoMigrateChecked.has(checkKey)) {
     return { migrated: false, skipped: true, changes: [], warnings: [] };
   }
-  autoMigrateChecked = true;
+  autoMigrateChecked.add(checkKey);
 
-  const env = params.env ?? process.env;
   const stateDirResult = await autoMigrateLegacyStateDir({
     env,
-    homedir: params.homedir,
+    homedir,
     log: params.log,
   });
-  const stateDir = resolveStateDir(env, params.homedir ?? os.homedir);
+  const stateDir = resolveStateDir(env, homedir);
+  autoMigrateChecked.add(`${path.resolve(stateDir)}\0${migrationMode}`);
   const stateSchema = repairOpenClawStateDatabaseSchema({
     env: { ...env, OPENCLAW_STATE_DIR: stateDir },
   });
@@ -1203,6 +1253,10 @@ export async function autoMigrateLegacyState(params: {
     };
   }
   const pluginDoctorConfig = params.pluginDoctorConfig ?? params.cfg;
+  const configMachineState = migrateLegacyConfigMachineState({
+    config: pluginDoctorConfig,
+    env: { ...env, OPENCLAW_STATE_DIR: stateDir },
+  });
   const pluginSessionStoreAgentIds = listPluginDoctorSessionStoreAgentIds({
     config: pluginDoctorConfig,
     env,
@@ -1258,6 +1312,18 @@ export async function autoMigrateLegacyState(params: {
     sessionStoreOwnership,
     env,
     homedir: params.homedir,
+    doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
+  });
+  const deviceAuth = await migrateLegacyDeviceAuth({
+    detected: detected.deviceAuth,
+    env,
+    stateDir: detected.stateDir,
+  });
+  const deviceIdentity = await migrateLegacyDeviceIdentity({
+    detected: detected.deviceIdentity,
+    env,
+    stateDir: detected.stateDir,
+    doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
   });
   const hasCustomAgentDir = env.OPENCLAW_AGENT_DIR?.trim() || env.PI_CODING_AGENT_DIR?.trim();
   if (hasCustomAgentDir) {
@@ -1317,6 +1383,7 @@ export async function autoMigrateLegacyState(params: {
     const changes = [
       ...stateDirResult.changes,
       ...stateSchema.changes,
+      ...configMachineState.changes,
       ...orphanKeys.changes,
       ...acpSessionMetadata.changes,
       ...pluginStateSidecar.changes,
@@ -1329,6 +1396,8 @@ export async function autoMigrateLegacyState(params: {
       ...configHealth.changes,
       ...pluginBindingApprovals.changes,
       ...currentConversationBindings.changes,
+      ...deviceAuth.changes,
+      ...deviceIdentity.changes,
       ...restartSentinel.changes,
       ...channelPairing.changes,
       ...preSessionChannelPlans.changes,
@@ -1337,6 +1406,7 @@ export async function autoMigrateLegacyState(params: {
     const warnings = [
       ...stateDirResult.warnings,
       ...stateSchema.warnings,
+      ...configMachineState.warnings,
       ...detected.warnings,
       ...orphanKeys.warnings,
       ...acpSessionMetadata.warnings,
@@ -1350,6 +1420,8 @@ export async function autoMigrateLegacyState(params: {
       ...configHealth.warnings,
       ...pluginBindingApprovals.warnings,
       ...currentConversationBindings.warnings,
+      ...deviceAuth.warnings,
+      ...deviceIdentity.warnings,
       ...restartSentinel.warnings,
       ...channelPairing.warnings,
       ...preSessionChannelPlans.warnings,
@@ -1360,6 +1432,8 @@ export async function autoMigrateLegacyState(params: {
       detected,
       pluginInstallIndex,
       updateCheck,
+      deviceAuth,
+      deviceIdentity,
       restartSentinel,
       pluginPlans,
     ];
@@ -1369,6 +1443,7 @@ export async function autoMigrateLegacyState(params: {
       migrated:
         stateDirResult.migrated ||
         stateSchema.changes.length > 0 ||
+        configMachineState.changes.length > 0 ||
         orphanKeys.changes.length > 0 ||
         acpSessionMetadata.changes.length > 0 ||
         pluginStateSidecar.changes.length > 0 ||
@@ -1381,6 +1456,8 @@ export async function autoMigrateLegacyState(params: {
         configHealth.changes.length > 0 ||
         pluginBindingApprovals.changes.length > 0 ||
         currentConversationBindings.changes.length > 0 ||
+        deviceAuth.changes.length > 0 ||
+        deviceIdentity.changes.length > 0 ||
         restartSentinel.changes.length > 0 ||
         channelPairing.changes.length > 0 ||
         preSessionChannelPlans.changes.length > 0 ||
@@ -1407,6 +1484,7 @@ export async function autoMigrateLegacyState(params: {
     !detected.configHealth.hasLegacy &&
     !detected.pluginBindingApprovals.hasLegacy &&
     !detected.currentConversationBindings.hasLegacy &&
+    !detected.deviceAuth.hasLegacy &&
     !detected.restartSentinel?.hasLegacy &&
     !detected.workspace.hasLegacy &&
     !detected.channelPairing.hasLegacy
@@ -1414,24 +1492,38 @@ export async function autoMigrateLegacyState(params: {
     const changes = [
       ...stateDirResult.changes,
       ...stateSchema.changes,
+      ...configMachineState.changes,
       ...orphanKeys.changes,
       ...acpSessionMetadata.changes,
+      ...deviceAuth.changes,
+      ...deviceIdentity.changes,
     ];
     const warnings = [
       ...stateDirResult.warnings,
       ...stateSchema.warnings,
+      ...configMachineState.warnings,
       ...detected.warnings,
       ...orphanKeys.warnings,
       ...acpSessionMetadata.warnings,
+      ...deviceAuth.warnings,
+      ...deviceIdentity.warnings,
     ];
-    const notices = [...(stateDirResult.notices ?? []), ...detected.notices];
+    const notices = [
+      ...(stateDirResult.notices ?? []),
+      ...detected.notices,
+      ...(deviceAuth.notices ?? []),
+      ...(deviceIdentity.notices ?? []),
+    ];
     logMigrationResults(changes, warnings, notices);
     return {
       migrated:
         stateDirResult.migrated ||
         stateSchema.changes.length > 0 ||
+        configMachineState.changes.length > 0 ||
         orphanKeys.changes.length > 0 ||
-        acpSessionMetadata.changes.length > 0,
+        acpSessionMetadata.changes.length > 0 ||
+        deviceAuth.changes.length > 0 ||
+        deviceIdentity.changes.length > 0,
       skipped: false,
       changes,
       warnings,
@@ -1509,6 +1601,7 @@ export async function autoMigrateLegacyState(params: {
   const changes = [
     ...stateDirResult.changes,
     ...stateSchema.changes,
+    ...configMachineState.changes,
     ...orphanKeys.changes,
     ...acpSessionMetadata.changes,
     ...pluginStateSidecar.changes,
@@ -1521,6 +1614,8 @@ export async function autoMigrateLegacyState(params: {
     ...configHealth.changes,
     ...pluginBindingApprovals.changes,
     ...currentConversationBindings.changes,
+    ...deviceAuth.changes,
+    ...deviceIdentity.changes,
     ...restartSentinel.changes,
     ...channelPairing.changes,
     ...preSessionChannelPlans.changes,
@@ -1533,6 +1628,7 @@ export async function autoMigrateLegacyState(params: {
   const warnings = [
     ...stateDirResult.warnings,
     ...stateSchema.warnings,
+    ...configMachineState.warnings,
     ...detected.warnings,
     ...orphanKeys.warnings,
     ...acpSessionMetadata.warnings,
@@ -1546,6 +1642,8 @@ export async function autoMigrateLegacyState(params: {
     ...configHealth.warnings,
     ...pluginBindingApprovals.warnings,
     ...currentConversationBindings.warnings,
+    ...deviceAuth.warnings,
+    ...deviceIdentity.warnings,
     ...restartSentinel.warnings,
     ...channelPairing.warnings,
     ...preSessionChannelPlans.warnings,
@@ -1560,6 +1658,8 @@ export async function autoMigrateLegacyState(params: {
     detected,
     pluginInstallIndex,
     updateCheck,
+    deviceAuth,
+    deviceIdentity,
     restartSentinel,
     pluginPlans,
   ];

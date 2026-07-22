@@ -53,6 +53,8 @@ const CORE_OXLINT_TS_CONFIG = "config/tsconfig/oxlint.core.json";
 const EXTENSIONS_OXLINT_TS_CONFIG = "config/tsconfig/oxlint.extensions.json";
 const SCRIPTS_OXLINT_TS_CONFIG = "config/tsconfig/oxlint.scripts.json";
 const TARGETED_LINT_PATH_LIMIT = 8;
+const FORMAT_PATH_CHUNK_MAX_COUNT = 250;
+const FORMAT_PATH_CHUNK_MAX_CHARS = 4_000;
 const LINTABLE_CORE_PATH_RE = /^(?:src|ui|packages)\/.+\.[cm]?[jt]sx?$/u;
 const LINTABLE_EXTENSION_PATH_RE = /^extensions\/[^/]+\/.+\.[cm]?[jt]sx?$/u;
 const LINTABLE_SCRIPT_PATH_RE = /^scripts\/.+\.[cm]?[jt]sx?$/u;
@@ -74,6 +76,30 @@ const MACOS_APP_CI_PATH_RE =
 let corepackPnpmShimDir;
 let corepackPnpmShimCleanupRegistered = false;
 let shrinkwrapPackageDirsForChangedPaths;
+
+export function chunkChangedFormatPaths(paths) {
+  const chunks = [];
+  let chunk = [];
+  let chunkChars = 0;
+  for (const filePath of paths) {
+    const pathChars = filePath.length + 3;
+    if (
+      chunk.length > 0 &&
+      (chunk.length >= FORMAT_PATH_CHUNK_MAX_COUNT ||
+        chunkChars + pathChars > FORMAT_PATH_CHUNK_MAX_CHARS)
+    ) {
+      chunks.push(chunk);
+      chunk = [];
+      chunkChars = 0;
+    }
+    chunk.push(filePath);
+    chunkChars += pathChars;
+  }
+  if (chunk.length > 0) {
+    chunks.push(chunk);
+  }
+  return chunks;
+}
 
 async function ensureChangedCheckRuntimeDependencies(paths) {
   if (!shouldRunShrinkwrapGuard(paths) || shrinkwrapPackageDirsForChangedPaths) {
@@ -409,6 +435,20 @@ export function createChangedCheckPlan(result, options = {}) {
   add("conflict markers", ["check:no-conflict-markers"]);
   if (
     result.paths.some((filePath) =>
+      /^(?:src\/|packages\/|extensions\/|config\/env-var-count-budget\.txt$|scripts\/check-env-var-count\.mjs$)/u.test(
+        filePath,
+      ),
+    )
+  ) {
+    add("environment variable count ratchet", [
+      "check:env-var-count",
+      ...(options.staged ? ["--staged"] : []),
+      "--base",
+      options.staged ? "HEAD" : (options.base ?? "origin/main"),
+    ]);
+  }
+  if (
+    result.paths.some((filePath) =>
       /^(?:src\/|ui\/src\/|packages\/|extensions\/|\.oxlintrc\.json$|config\/max-lines-baseline\.txt$|scripts\/check-max-lines-ratchet\.mjs$)/u.test(
         filePath,
       ),
@@ -427,12 +467,15 @@ export function createChangedCheckPlan(result, options = {}) {
   add("duplicate scan target coverage", ["dup:check:coverage"]);
   add("dependency pin guard", ["deps:pins:check"]);
   if (result.paths.length > 0) {
-    add("format changed files", [
-      "format:check",
-      "--no-error-on-unmatched-pattern",
-      "--",
-      ...result.paths,
-    ]);
+    const formatChunks = chunkChangedFormatPaths(result.paths);
+    for (const [index, paths] of formatChunks.entries()) {
+      add(
+        formatChunks.length === 1
+          ? "format changed files"
+          : `format changed files (${index + 1}/${formatChunks.length})`,
+        ["format:check", "--no-error-on-unmatched-pattern", "--", ...paths],
+      );
+    }
   }
   const shrinkwrapGuardCommand = createShrinkwrapGuardCommand(result.paths);
   if (shrinkwrapGuardCommand) {
@@ -633,6 +676,14 @@ export function createChangedCheckPlan(result, options = {}) {
   }
   if (hasMacosAppCiPath(result.paths)) {
     add("macOS app CI tests", ["test:macos:ci"], baseEnv);
+  }
+  if (lanes.apps || lanes.core) {
+    addCommand(
+      "native state schema version guard",
+      "node",
+      ["scripts/check-native-state-schema-version.mjs"],
+      baseEnv,
+    );
   }
 
   if (lanes.core || lanes.extensions) {

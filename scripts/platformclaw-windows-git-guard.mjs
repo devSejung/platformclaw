@@ -88,7 +88,7 @@ function getProtectedEntries(repoRoot) {
       protectedPaths.add(entryPath);
     }
   }
-  const paths = [...protectedPaths].toSorted();
+  const paths = [...protectedPaths].toSorted((left, right) => left.localeCompare(right));
   const mismatches = paths.filter((entryPath) => {
     const head = headEntries.get(entryPath);
     const index = indexEntries.get(entryPath);

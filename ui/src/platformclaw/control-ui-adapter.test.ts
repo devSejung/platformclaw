@@ -55,7 +55,7 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(options).toMatchObject({
       accessMode: "personal-agent",
       enabledRouteIds: ["chat", "new-session", "sessions", "agents", "tasks", "appearance"],
-      navigation: { sidebarPinnedRoutes: ["sessions", "tasks"] },
+      navigation: { sidebarEntries: ["route:sessions", "route:tasks"] },
       gateway: {
         url: "wss://platformclaw.example/platformclaw/gateway",
         browserDeviceAuth: false,

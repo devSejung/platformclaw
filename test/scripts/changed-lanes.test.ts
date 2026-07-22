@@ -17,6 +17,7 @@ import {
   buildChangedCheckCrabboxArgs,
   changedCheckLocalDependenciesReady,
   changedCheckRequiresRemote,
+  chunkChangedFormatPaths,
   cleanupCorepackPnpmShimDir,
   createChangedCheckChildEnv,
   createChangedCheckPlan,
@@ -584,6 +585,43 @@ describe("scripts/changed-lanes", () => {
         "src/untracked.test.ts",
       ],
     });
+  });
+
+  it("chunks large changed format path sets below command-line limits", () => {
+    const paths = Array.from({ length: 501 }, (_, index) => `f/${index}.ts`);
+
+    const chunks = chunkChangedFormatPaths(paths);
+
+    expect(chunks).toHaveLength(3);
+    expect(chunks.map((chunk) => chunk.length)).toEqual([250, 250, 1]);
+    expect(chunks.flat()).toEqual(paths);
+    const plan = createChangedCheckPlan(detectChangedLanes(paths));
+    expect(
+      plan.commands
+        .filter((command) => command.name.startsWith("format changed files"))
+        .map((command) => command.name),
+    ).toEqual([
+      "format changed files (1/3)",
+      "format changed files (2/3)",
+      "format changed files (3/3)",
+    ]);
+  });
+
+  it("chunks changed format paths below the Windows command-line character limit", () => {
+    const paths = Array.from(
+      { length: 100 },
+      (_, index) => `src/generated/${"long-directory/".repeat(8)}changed-file-${index}.ts`,
+    );
+
+    const chunks = chunkChangedFormatPaths(paths);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.flat()).toEqual(paths);
+    expect(
+      chunks.every(
+        (chunk) => chunk.reduce((sum, filePath) => sum + filePath.length + 3, 0) <= 4_000,
+      ),
+    ).toBe(true);
   });
 
   it("includes staged added, modified, and deleted files in the changed format check", () => {
@@ -1439,6 +1477,7 @@ describe("scripts/changed-lanes", () => {
     });
     expect(plan.commands.map((command) => command.name)).toEqual([
       "conflict markers",
+      "environment variable count ratchet",
       "max-lines suppression ratchet",
       "changelog attributions",
       "guarded extension wildcard re-exports",
@@ -1715,6 +1754,7 @@ describe("scripts/changed-lanes", () => {
       "apps/android/version.json",
       "apps/ios/CHANGELOG.md",
       "apps/macos/Sources/OpenClaw/Resources/Info.plist",
+      "docs/.generated/config-baseline.counts.json",
       "docs/.generated/config-baseline.sha256",
       "package.json",
     ]);
@@ -2092,6 +2132,27 @@ describe("scripts/changed-lanes", () => {
     }
   });
 
+  it("runs the native state schema guard for either contract owner", () => {
+    for (const changedPath of [
+      "apps/shared/OpenClawKit/Sources/OpenClawNativeState/OpenClawNativeStateSQLite.swift",
+      "src/state/openclaw-state-db-contract.ts",
+    ]) {
+      const plan = createChangedCheckPlan(detectChangedLanes([changedPath]), {
+        env: { PATH: "/usr/bin" },
+        platform: "linux",
+        swiftlintAvailable: false,
+      });
+
+      expect(plan.commands).toContainEqual(
+        expect.objectContaining({
+          name: "native state schema version guard",
+          bin: "node",
+          args: ["scripts/check-native-state-schema-version.mjs"],
+        }),
+      );
+    }
+  });
+
   it("runs macOS app CI tests for macOS packaging scripts and owner tests", () => {
     for (const changedPath of [
       "scripts/codesign-mac-app.sh",
@@ -2290,6 +2351,21 @@ describe("scripts/changed-lanes", () => {
     expect(
       stagedPlan.commands.find((command) => command.name === "max-lines suppression ratchet"),
     ).toMatchObject({ args: ["check:max-lines-ratchet", "--staged", "--base", "HEAD"] });
+  });
+
+  it("adds the environment variable count ratchet for production source", () => {
+    const result = detectChangedLanes(["src/runtime.ts"]);
+    const worktreePlan = createChangedCheckPlan(result, { base: "main" });
+    const stagedPlan = createChangedCheckPlan(result, { staged: true });
+
+    expect(
+      worktreePlan.commands.find(
+        (command) => command.name === "environment variable count ratchet",
+      ),
+    ).toMatchObject({ args: ["check:env-var-count", "--base", "main"] });
+    expect(
+      stagedPlan.commands.find((command) => command.name === "environment variable count ratchet"),
+    ).toMatchObject({ args: ["check:env-var-count", "--staged", "--base", "HEAD"] });
   });
 
   it("keeps the temp creation report out of non-test changed paths", () => {

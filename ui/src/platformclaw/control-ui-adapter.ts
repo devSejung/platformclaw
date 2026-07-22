@@ -122,7 +122,7 @@ export class PlatformClawControlUiAdapter {
           }
         },
       },
-      navigation: { sidebarPinnedRoutes: ["sessions", "tasks"] },
+      navigation: { sidebarEntries: ["route:sessions", "route:tasks"] },
       shellSession,
     };
   }

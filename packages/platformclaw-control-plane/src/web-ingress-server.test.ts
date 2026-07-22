@@ -24,7 +24,7 @@ function upstreamHello(): HelloOk {
     },
     snapshot: {
       presence: [{ host: "private-host", ts: 1 }],
-      health: { private: true },
+      health: { ok: true, ts: 2 },
       stateVersion: { presence: 1, health: 1 },
       uptimeMs: 10,
     },

@@ -179,8 +179,10 @@ describe("PlatformClaw shared check workflow", () => {
     const workflow = parse(
       readFileSync(new URL("../../.github/workflows/platformclaw-ci.yml", import.meta.url), "utf8"),
     ) as { jobs: { validate: { steps: Array<{ name?: string; run?: string }> } } };
-    const commands = new Map(
-      workflow.jobs.validate.steps.map((step) => [step.name, step.run]).filter(([name]) => name),
+    const commands = new Map<string, string>(
+      workflow.jobs.validate.steps.flatMap((step) =>
+        step.name && step.run ? ([[step.name, step.run]] as const) : [],
+      ),
     );
 
     expect(commands.get("Validate changed PlatformClaw surfaces")).toBe(

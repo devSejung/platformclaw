@@ -3578,6 +3578,73 @@ describe("runCodexAppServerAttempt", () => {
     });
   });
 
+  it("captures the complete mirrored branch through a settled tool-result boundary", async () => {
+    const storePath = path.join(tempDir, "settled-finalization-context.sqlite");
+    const sessionId = "session-settled-finalization-context";
+    const sessionFile = `sqlite:main:${sessionId}:${storePath}`;
+    const workspaceDir = path.join(tempDir, "workspace-settled-finalization-context");
+    const harness = createStartedThreadHarness();
+    const params = createParams(sessionFile, workspaceDir);
+    attachSqliteSessionTarget(params, storePath, sessionId);
+    params.prompt = "Send the update to Alice.";
+
+    const run = runCodexAppServerAttempt(params);
+    await harness.waitForMethod("turn/start");
+    await harness.notify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        item: {
+          type: "commandExecution",
+          id: "tool-settled",
+          command: "echo sent-to-alice",
+          cwd: workspaceDir,
+          processId: null,
+          source: "agent",
+          status: "inProgress",
+          commandActions: [],
+          aggregatedOutput: null,
+          exitCode: null,
+          durationMs: null,
+        },
+      },
+    });
+    await harness.notify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        item: {
+          type: "commandExecution",
+          id: "tool-settled",
+          command: "echo sent-to-alice",
+          cwd: workspaceDir,
+          processId: 42,
+          source: "agent",
+          status: "completed",
+          commandActions: [],
+          aggregatedOutput: "sent-to-alice\n",
+          exitCode: 0,
+          durationMs: 12,
+        },
+      },
+    });
+    await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+
+    const result = await run;
+
+    expect(result.settledTurnFinalizationContext).toMatchObject({
+      source: "openclaw-transcript",
+      messages: [
+        expect.objectContaining({ role: "user" }),
+        expect.objectContaining({ role: "assistant" }),
+        expect.objectContaining({ role: "toolResult", toolCallId: "tool-settled" }),
+      ],
+    });
+    expect(Object.isFrozen(result.settledTurnFinalizationContext?.messages)).toBe(true);
+  });
+
   it("preserves every command failure from official app-server events", async () => {
     const sessionFile = path.join(tempDir, "session-multi-command-failure.jsonl");
     const workspaceDir = path.join(tempDir, "workspace-multi-command-failure");
@@ -3678,6 +3745,32 @@ describe("runCodexAppServerAttempt", () => {
     const startParams = startRequest?.params as Record<string, unknown> | undefined;
     expect(startParams?.approvalPolicy).toBe("never");
     expect(startParams?.sandbox).toBe("danger-full-access");
+  });
+
+  it("applies stored session permissions to resumed harness turns", async () => {
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace");
+    await writeExistingBinding(sessionFile, workspaceDir, {
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+    });
+    const harness = createResumeHarness();
+
+    const run = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir), {
+      pluginConfig: { appServer: { mode: "guardian" } },
+    });
+    await harness.waitForMethod("turn/start");
+    await harness.completeTurn({ threadId: "thread-existing", turnId: "turn-1" });
+    await run;
+
+    const resumeParams = harness.requests.find((request) => request.method === "thread/resume")
+      ?.params as Record<string, unknown> | undefined;
+    const turnParams = harness.requests.find((request) => request.method === "turn/start")
+      ?.params as Record<string, unknown> | undefined;
+    expect(resumeParams?.approvalPolicy).toBe("never");
+    expect(resumeParams?.sandbox).toBe("danger-full-access");
+    expect(turnParams?.approvalPolicy).toBe("never");
+    expect(turnParams?.sandboxPolicy).toEqual({ type: "dangerFullAccess" });
   });
 
   it("keeps normalized full exec mode unpromoted when OpenClaw tool policy exists", async () => {
@@ -4123,39 +4216,40 @@ describe("runCodexAppServerAttempt", () => {
   });
 
   it("surfaces Codex-native image generation saved paths as reply media", async () => {
-    const harness = createStartedThreadHarness();
-    const params = createParams(
-      path.join(tempDir, "session.jsonl"),
-      path.join(tempDir, "workspace"),
-    );
-
-    const run = runCodexAppServerAttempt(params);
-    await harness.waitForMethod("turn/start");
-    await harness.notify({
-      method: "turn/completed",
-      params: {
-        threadId: "thread-1",
-        turnId: "turn-1",
-        turn: {
-          id: "turn-1",
-          status: "completed",
-          items: [
-            {
-              type: "imageGeneration",
-              id: "ig_123",
-              status: "completed",
-              revisedPrompt: "A tiny blue square",
-              result: "Zm9v",
-              savedPath: "/tmp/codex-home/generated_images/session-1/ig_123.png",
-            },
-          ],
-        },
-      },
+    const savedPath = "/tmp/codex-home/generated_images/session-1/ig_123.png";
+    const harness = createAppServerHarness(async (method) => {
+      if (method === "thread/start") {
+        return threadStartResult();
+      }
+      if (method === "turn/start") {
+        return {
+          turn: {
+            id: "turn-1",
+            status: "completed",
+            items: [
+              {
+                type: "imageGeneration",
+                id: "ig_123",
+                status: "completed",
+                revisedPrompt: "A tiny blue square",
+                result: "Zm9v",
+                savedPath,
+              },
+            ],
+          },
+        };
+      }
+      return {};
     });
 
-    const result = await run;
+    const result = await runCodexAppServerAttempt(
+      createParams(path.join(tempDir, "session.jsonl"), path.join(tempDir, "workspace")),
+    );
+
+    expect(harness.requests.map((entry) => entry.method)).toContain("turn/start");
     expect(result.assistantTexts).toEqual([]);
-    expect(result.toolMediaUrls).toEqual(["/tmp/codex-home/generated_images/session-1/ig_123.png"]);
+    expect(result.toolMediaUrls).toEqual([savedPath]);
+    expect(result.hostOwnedToolMediaUrls).toEqual([savedPath]);
   });
 
   it("does not complete on unscoped turn/completed notifications", async () => {
@@ -6109,7 +6203,10 @@ describe("runCodexAppServerAttempt", () => {
         pluginConfig: { supervision: { enabled: true } },
         clientFactory,
       }),
-    ).rejects.toThrow("Codex session generation is no longer current");
+    ).rejects.toMatchObject({
+      name: "AgentHarnessSessionSupersededError",
+      message: "Codex session generation is no longer current: session-current",
+    });
     expect(clientFactory).not.toHaveBeenCalled();
 
     registerCodexTestSessionIdentity(sessionFile, "session-previous", sessionKey);

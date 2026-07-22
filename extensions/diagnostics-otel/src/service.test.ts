@@ -62,6 +62,7 @@ const logShutdown = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const traceExporterCtor = vi.hoisted(() => vi.fn());
 const metricExporterCtor = vi.hoisted(() => vi.fn());
 const logExporterCtor = vi.hoisted(() => vi.fn());
+const logProcessorCtor = vi.hoisted(() => vi.fn());
 const spanProcessorCtor = vi.hoisted(() => vi.fn());
 const nodeProxyAgent = vi.hoisted(() => ({ kind: "node-proxy-agent" }));
 const createNodeProxyAgentMock = vi.hoisted(() => vi.fn());
@@ -138,7 +139,9 @@ vi.mock("openclaw/plugin-sdk/fetch-runtime", () => ({
 }));
 
 vi.mock("@opentelemetry/sdk-logs", () => ({
-  BatchLogRecordProcessor: function BatchLogRecordProcessor() {},
+  BatchLogRecordProcessor: function BatchLogRecordProcessor(options?: unknown) {
+    logProcessorCtor(options);
+  },
   LoggerProvider: class {
     getLogger = vi.fn(() => ({
       emit: logEmit,
@@ -210,6 +213,7 @@ const PROTO_KEY = "__proto__";
 const MAX_TEST_OTEL_CONTENT_ATTRIBUTE_CHARS = 128 * 1024;
 const OTEL_TRUNCATED_SUFFIX_MAX_CHARS = 20;
 const ORIGINAL_OPENCLAW_OTEL_PRELOADED = process.env.OPENCLAW_OTEL_PRELOADED;
+const ORIGINAL_OTEL_EXPORTER_OTLP_PROTOCOL = process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
 const ORIGINAL_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
 const ORIGINAL_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT =
   process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT;
@@ -390,6 +394,13 @@ function firstSpanProcessorOptions(): { scheduledDelayMillis?: number } {
   return mockCallArg(spanProcessorCtor, 1) as { scheduledDelayMillis?: number };
 }
 
+function firstLogProcessorOptions(): { exporter?: unknown; scheduledDelayMillis?: number } {
+  return mockCallArg(logProcessorCtor, 0) as {
+    exporter?: unknown;
+    scheduledDelayMillis?: number;
+  };
+}
+
 function firstSetSpanContext(): Record<string, unknown> {
   return mockCallArg(telemetryState.tracer.setSpanContext, 1) as Record<string, unknown>;
 }
@@ -563,6 +574,7 @@ describe("diagnostics-otel service", () => {
   beforeEach(() => {
     resetDiagnosticEventsForTest();
     delete process.env.OPENCLAW_OTEL_PRELOADED;
+    delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
     delete process.env.OTEL_SEMCONV_STABILITY_OPT_IN;
     telemetryState.counters.clear();
     telemetryState.histograms.clear();
@@ -578,6 +590,7 @@ describe("diagnostics-otel service", () => {
     traceExporterCtor.mockClear();
     metricExporterCtor.mockClear();
     logExporterCtor.mockClear();
+    logProcessorCtor.mockClear();
     spanProcessorCtor.mockClear();
     createNodeProxyAgentMock.mockReset();
     createNodeProxyAgentMock.mockReturnValue(undefined);
@@ -597,6 +610,11 @@ describe("diagnostics-otel service", () => {
       delete process.env.OPENCLAW_OTEL_PRELOADED;
     } else {
       process.env.OPENCLAW_OTEL_PRELOADED = ORIGINAL_OPENCLAW_OTEL_PRELOADED;
+    }
+    if (ORIGINAL_OTEL_EXPORTER_OTLP_PROTOCOL === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_PROTOCOL = ORIGINAL_OTEL_EXPORTER_OTLP_PROTOCOL;
     }
     if (ORIGINAL_OTEL_SEMCONV_STABILITY_OPT_IN === undefined) {
       delete process.env.OTEL_SEMCONV_STABILITY_OPT_IN;
@@ -1224,6 +1242,44 @@ describe("diagnostics-otel service", () => {
     }
   });
 
+  test("ignores blank OTLP protocol env overrides", async () => {
+    process.env.OTEL_EXPORTER_OTLP_PROTOCOL = "   ";
+    const service = createDiagnosticsOtelService();
+    const ctx = createOtelContext(OTEL_TEST_ENDPOINT, { traces: true, metrics: true });
+    if (ctx.config.diagnostics?.otel) {
+      delete ctx.config.diagnostics.otel.protocol;
+    }
+
+    try {
+      await service.start(ctx);
+
+      expect(traceExporterCtor).toHaveBeenCalledOnce();
+      expect(metricExporterCtor).toHaveBeenCalledOnce();
+      expect(ctx.logger.warn).not.toHaveBeenCalledWith(
+        "diagnostics-otel: unsupported protocol    ",
+      );
+    } finally {
+      await service.stop?.(ctx);
+    }
+  });
+
+  test("preserves nonblank OTLP protocol env overrides", async () => {
+    process.env.OTEL_EXPORTER_OTLP_PROTOCOL = " http/protobuf ";
+    const service = createDiagnosticsOtelService();
+    const ctx = createOtelContext(OTEL_TEST_ENDPOINT, { traces: true, metrics: true });
+    if (ctx.config.diagnostics?.otel) {
+      delete ctx.config.diagnostics.otel.protocol;
+    }
+
+    await service.start(ctx);
+
+    expect(traceExporterCtor).not.toHaveBeenCalled();
+    expect(metricExporterCtor).not.toHaveBeenCalled();
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      "diagnostics-otel: unsupported protocol  http/protobuf ",
+    );
+  });
+
   test("exports trusted security events as stdout JSONL logs", async () => {
     const service = createDiagnosticsOtelService();
     const ctx = createOtelContext("", { logs: true, logsExporter: "stdout" });
@@ -1733,6 +1789,20 @@ describe("diagnostics-otel service", () => {
 
     expect(spanProcessorCtor).toHaveBeenCalledTimes(1);
     expect(firstSpanProcessorOptions().scheduledDelayMillis).toBe(1000);
+    await service.stop?.(ctx);
+  });
+
+  test("applies flush interval to log batching", async () => {
+    const service = createDiagnosticsOtelService();
+    const ctx = createOtelContext(OTEL_TEST_ENDPOINT, { logs: true });
+    ctx.config.diagnostics!.otel!.flushIntervalMs = 250;
+
+    await service.start(ctx);
+
+    expect(logProcessorCtor).toHaveBeenCalledTimes(1);
+    const options = firstLogProcessorOptions();
+    expect(options.exporter).toBeDefined();
+    expect(options.scheduledDelayMillis).toBe(1000);
     await service.stop?.(ctx);
   });
 
@@ -2836,7 +2906,7 @@ describe("diagnostics-otel service", () => {
     expect(Object.hasOwn(modelOptions?.attributes ?? {}, "openclaw.runId")).toBe(false);
     expect(Object.hasOwn(modelOptions?.attributes ?? {}, "openclaw.sessionKey")).toBe(false);
     expect(modelOptions?.startTime).toBeTypeOf("number");
-    expect(Object.hasOwn(modelOptions ?? {}, "kind")).toBe(false);
+    expect(modelOptions?.kind).toBe(2);
     expect(modelCall?.[2]).toBeUndefined();
 
     const harnessCall = startedSpanCall("openclaw.harness.run");
@@ -2873,6 +2943,7 @@ describe("diagnostics-otel service", () => {
     expect(Object.hasOwn(toolOptions?.attributes ?? {}, "openclaw.runId")).toBe(false);
     expect(Object.hasOwn(toolOptions?.attributes ?? {}, "openclaw.sessionKey")).toBe(false);
     expect(toolOptions?.startTime).toBeTypeOf("number");
+    expect(Object.hasOwn(toolOptions ?? {}, "kind")).toBe(false);
     expect(toolCall?.[2]).toBeUndefined();
 
     const modelCallDuration = lastHistogramRecord("openclaw.model_call.duration_ms");

@@ -1,6 +1,5 @@
 import type { RouteLocation } from "@openclaw/uirouter";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
-import type { SidebarNavRoute } from "../app-navigation.ts";
 import {
   APP_ROUTE_IDS,
   createApplicationRouter,
@@ -16,7 +15,10 @@ import { createAgentCapability } from "../lib/agents/index.ts";
 import { createChannelCapability } from "../lib/channels/index.ts";
 import { createRuntimeConfigCapability } from "../lib/config/index.ts";
 import { createSessionCapability } from "../lib/sessions/index.ts";
+import { areUiSessionKeysEquivalentForHost } from "../lib/sessions/session-key.ts";
 import { createWorkboardCapability } from "../lib/workboard/capability.ts";
+import { loadChatObserverDisplayPreference } from "../pages/chat/chat-observer-display.ts";
+import { sendSessionObserverVisibility } from "../pages/chat/chat-observer.ts";
 import {
   isDefaultChatLanding,
   locationsMatch,
@@ -37,6 +39,7 @@ import type {
 } from "./context.ts";
 import { syncCustomThemeStyleTag } from "./custom-theme.ts";
 import { createApplicationGateway } from "./gateway-store.ts";
+import { createInitialUserMessageHandoff } from "./initial-user-message-handoff.ts";
 import { createNativeChatDrafts } from "./native-bridge.ts";
 import { startNativeLinkRouting } from "./native-link-routing.ts";
 import { createNativeNotificationsCapability } from "./native-notifications.ts";
@@ -174,7 +177,7 @@ function createApplicationNavigationPreferences(
   let snapshot: ApplicationNavigationPreferencesSnapshot = {
     navCollapsed: settings.navCollapsed,
     navWidth: settings.navWidth,
-    sidebarPinnedRoutes: settings.sidebarPinnedRoutes,
+    sidebarEntries: settings.sidebarEntries,
     pinnedAgentIds: settings.pinnedAgentIds ?? [],
   };
   const listeners = new Set<(next: ApplicationNavigationPreferencesSnapshot) => void>();
@@ -188,7 +191,7 @@ function createApplicationNavigationPreferences(
       if (
         nextSnapshot.navCollapsed === snapshot.navCollapsed &&
         nextSnapshot.navWidth === snapshot.navWidth &&
-        nextSnapshot.sidebarPinnedRoutes === snapshot.sidebarPinnedRoutes &&
+        nextSnapshot.sidebarEntries === snapshot.sidebarEntries &&
         nextSnapshot.pinnedAgentIds === snapshot.pinnedAgentIds
       ) {
         return;
@@ -196,7 +199,7 @@ function createApplicationNavigationPreferences(
       settings = patchSettings({
         navCollapsed: nextSnapshot.navCollapsed,
         navWidth: nextSnapshot.navWidth,
-        sidebarPinnedRoutes: [...nextSnapshot.sidebarPinnedRoutes],
+        sidebarEntries: [...nextSnapshot.sidebarEntries],
         pinnedAgentIds: [...nextSnapshot.pinnedAgentIds],
       });
       snapshot = nextSnapshot;
@@ -263,7 +266,7 @@ export type ApplicationBootstrapOptions = {
   };
   readonly shellSession?: ApplicationShellSession;
   readonly navigation?: {
-    readonly sidebarPinnedRoutes?: readonly SidebarNavRoute[];
+    readonly sidebarEntries?: readonly string[];
   };
 };
 
@@ -295,10 +298,10 @@ export function bootstrapApplication(
           token: "",
           sessionKey: "main",
           lastActiveSessionKey: "main",
-          sidebarPinnedRoutes:
-            options.navigation?.sidebarPinnedRoutes !== undefined
-              ? [...options.navigation.sidebarPinnedRoutes]
-              : resolvedStartup.settings.sidebarPinnedRoutes,
+          sidebarEntries:
+            options.navigation?.sidebarEntries !== undefined
+              ? [...options.navigation.sidebarEntries]
+              : resolvedStartup.settings.sidebarEntries,
         },
       }
     : resolvedStartup;
@@ -385,6 +388,7 @@ export function bootstrapApplication(
   const nativeNotifications = createNativeNotificationsCapability();
   const webPush = createWebPushCapability(gateway);
   const skillWorkshopRevision = createSkillWorkshopRevisionHandoff();
+  const initialUserMessage = createInitialUserMessageHandoff();
   applyStartupPresentation(settings);
   const router = createApplicationRouter(enabledRouteIds);
   let pendingGatewayConnection =
@@ -395,16 +399,16 @@ export function bootstrapApplication(
           bootstrapToken: startup.pendingBootstrapToken ?? "",
         }
       : null;
-  let lastConfigRefreshClient: GatewayBrowserClient | null = null;
-  const stopConfigRefresh = gateway.subscribe((snapshot) => {
+  let lastPostConnectClient: GatewayBrowserClient | null = null;
+  const stopPostConnect = gateway.subscribe((snapshot) => {
     if (!snapshot.connected || !snapshot.client) {
-      lastConfigRefreshClient = null;
+      lastPostConnectClient = null;
       return;
     }
-    if (lastConfigRefreshClient === snapshot.client) {
+    if (lastPostConnectClient === snapshot.client) {
       return;
     }
-    lastConfigRefreshClient = snapshot.client;
+    lastPostConnectClient = snapshot.client;
     void config.refresh({
       auth: {
         hello: snapshot.hello,
@@ -412,12 +416,26 @@ export function bootstrapApplication(
         password: gateway.connection.password,
       },
     });
+    void sendSessionObserverVisibility(
+      snapshot.client,
+      loadChatObserverDisplayPreference() !== "off",
+    ).catch(() => undefined);
   });
   const routeLocation = (routeId: RouteId, navigationOptions?: ApplicationNavigationOptions) => {
     const location = locationForRoute(routeId, basePath);
-    if (navigationOptions?.search !== undefined || navigationOptions?.hash !== undefined) {
+    const activeMatch = router.getState().matches[0];
+    const activeDynamicPath =
+      activeMatch?.routeId === routeId && routeId === "workboard"
+        ? activeMatch.location.pathname
+        : null;
+    if (
+      navigationOptions?.pathname !== undefined ||
+      navigationOptions?.search !== undefined ||
+      navigationOptions?.hash !== undefined
+    ) {
       return {
         ...location,
+        pathname: navigationOptions?.pathname ?? activeDynamicPath ?? location.pathname,
         search: navigationOptions?.search ?? "",
         hash: navigationOptions?.hash ?? "",
       };
@@ -458,6 +476,7 @@ export function bootstrapApplication(
     nativeNotifications,
     webPush,
     skillWorkshopRevision,
+    initialUserMessage,
     navigate: (routeId, navigationOptions) => {
       const allowedRouteId = enabledRouteIds.includes(routeId) ? routeId : "chat";
       void router
@@ -490,7 +509,10 @@ export function bootstrapApplication(
   const stopModelSetupRedirect = firstRunDefaultLanding
     ? startModelSetupFirstRunRedirect({
         context,
-        isStillDefaultLanding: () => locationsMatch(history.location(), expectedDefaultLanding),
+        isStillDefaultLanding: () =>
+          locationsMatch(history.location(), expectedDefaultLanding, (left, right) =>
+            areUiSessionKeysEquivalentForHost({ hello: gateway.snapshot.hello }, left, right),
+          ),
       })
     : () => undefined;
   return {
@@ -514,7 +536,7 @@ export function bootstrapApplication(
     },
     stop: () => {
       stopModelSetupRedirect();
-      stopConfigRefresh();
+      stopPostConnect();
       router.stop();
       gateway.stop();
       agents.dispose();
@@ -530,6 +552,7 @@ export function bootstrapApplication(
       nativeNotifications?.dispose();
       webPush.dispose();
       skillWorkshopRevision.clear();
+      initialUserMessage.clear();
     },
   };
 }

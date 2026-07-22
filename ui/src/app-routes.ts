@@ -1,6 +1,12 @@
 import { createRouter } from "@openclaw/uirouter";
 import type { PageDefinition, Router, RouterHistory } from "@openclaw/uirouter";
-import { APP_ROUTE_IDS, routeIdFromPath, type RouteId } from "./app-route-paths.ts";
+import {
+  APP_ROUTE_IDS,
+  pathForRoute,
+  routeIdFromPath,
+  workboardBoardIdFromPath,
+  type RouteId,
+} from "./app-route-paths.ts";
 import type { ApplicationContext } from "./app/context.ts";
 import { page as aboutPage } from "./pages/about/route.ts";
 import { page as activityPage } from "./pages/activity/route.ts";
@@ -14,6 +20,7 @@ import { page as connectionPage } from "./pages/connection/route.ts";
 import { page as cronPage } from "./pages/cron/route.ts";
 import { page as custodianPage } from "./pages/custodian/route.ts";
 import { page as debugPage } from "./pages/debug/route.ts";
+import { page as labsPage } from "./pages/labs/route.ts";
 import { page as logsPage } from "./pages/logs/route.ts";
 import { page as memoryImportPage } from "./pages/memory-import/route.ts";
 import { page as modelProvidersPage } from "./pages/model-providers/route.ts";
@@ -53,6 +60,7 @@ const APP_ROUTE_TREE = [
   approvalsPage,
   channelsPage,
   connectionPage,
+  labsPage,
   aboutPage,
   ...configPages,
   modelSetupPage,
@@ -80,9 +88,32 @@ export function createApplicationRouter(
   enabledRouteIds: readonly RouteId[] = APP_ROUTE_IDS,
 ): ApplicationRouter {
   const enabled = new Set(enabledRouteIds);
-  return createRouter<RouteId, ApplicationContext<RouteId>, AppRouteModule>({
+  const router = createRouter<RouteId, ApplicationContext<RouteId>, AppRouteModule>({
     routes: appRoutes.filter((route) => enabled.has(route.id)),
   });
+  // The shared router intentionally matches exact paths only. Workboard board
+  // ids are runtime data, so the app owns this one dynamic path family.
+  return {
+    ...router,
+    routeIdFromPath: (pathname, basePath = "") => {
+      const routeId = routeIdFromPath(pathname, basePath);
+      return routeId !== null && enabled.has(routeId) ? routeId : null;
+    },
+  };
+}
+
+function routerHistoryLocation(location: ReturnType<RouterHistory["location"]>, basePath: string) {
+  const boardId = workboardBoardIdFromPath(location.pathname, basePath);
+  if (!boardId) {
+    return location;
+  }
+  const search = new URLSearchParams(location.search);
+  search.set("board", boardId);
+  return {
+    ...location,
+    pathname: pathForRoute("workboard", basePath),
+    search: `?${search.toString()}`,
+  };
 }
 
 export async function startApplicationRouter(
@@ -92,7 +123,7 @@ export async function startApplicationRouter(
   context: ApplicationContext<RouteId>,
   enabledRouteIds: readonly RouteId[] = APP_ROUTE_IDS,
 ): Promise<void> {
-  const location = history.location();
+  let location = history.location();
   const routeId = routeIdFromPath(location.pathname, basePath);
   // Unknown paths (including retired routes like /overview) land on chat, so
   // removed pages need no legacy aliases for stale bookmarks or history.
@@ -101,8 +132,32 @@ export async function startApplicationRouter(
       ...location,
       pathname: router.pathForRoute("chat", basePath),
     });
+    location = history.location();
   }
-  await router.start(history, basePath, context);
+  const initialBoardId = workboardBoardIdFromPath(location.pathname, basePath);
+  const applicationHistory: RouterHistory = {
+    location: () => routerHistoryLocation(history.location(), basePath),
+    push: (next) => history.push(next),
+    replace: (next) => history.replace(next),
+    listen: (listener) =>
+      history.listen((next) => {
+        if (workboardBoardIdFromPath(next.pathname, basePath)) {
+          void router
+            .navigate("workboard", context, { history: "none" }, next)
+            .catch((error: unknown) => {
+              console.error("[openclaw] Workboard route navigation failed", error);
+            });
+          return;
+        }
+        listener(next);
+      }),
+  };
+  await router.start(applicationHistory, basePath, context);
+  if (initialBoardId) {
+    // Replace the synthetic exact-match location with the real browser path
+    // before the shell renders; the matching board data is already cached.
+    await router.navigate("workboard", context, { history: "none", revalidate: true }, location);
+  }
 }
 
 export {
