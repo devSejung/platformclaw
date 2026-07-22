@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("Menu", "Start", "Doctor")]
+    [ValidateSet("Menu", "Start", "Doctor", "GitGuard")]
     [string]$Action = "Menu",
     [string]$DataRoot = (Join-Path $env:LOCALAPPDATA "PlatformClaw\windows-main-preview"),
     [int]$EmployeeAuthPort = 18080,
@@ -51,6 +51,12 @@ function Assert-Command {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
         throw "Required command not found: $Name"
     }
+}
+
+function Invoke-GitJunctionGuard {
+    param([ValidateSet("install", "check")][string]$Mode)
+    $guardScript = Join-Path $PSScriptRoot "platformclaw-windows-git-guard.mjs"
+    Invoke-Checked -Command node -Arguments @($guardScript, $Mode, "--repo", $repoRoot)
 }
 
 function Test-PythonCommand {
@@ -113,6 +119,7 @@ function Show-Doctor {
     }
     $python = Get-PythonCommand
     Write-Host ("  {0,-9} {1}" -f "python", (Get-Command $python.Command).Source)
+    Invoke-GitJunctionGuard "check"
 
     Push-Location $repoRoot
     try {
@@ -348,6 +355,7 @@ function Start-PlatformClaw {
     Assert-Command git
     Assert-Command node
     Assert-Command corepack
+    Invoke-GitJunctionGuard "install"
     $python = Get-PythonCommand
     $sha = Get-SourceSha
     $sourceRoot = Initialize-SourceSnapshot $sha
@@ -406,6 +414,7 @@ if ($Action -eq "Menu") {
     Write-Host "  3. Check environment and runtime"
     Write-Host "  4. Rebuild and start latest main"
     Write-Host "  5. Rebuild and start current checkout"
+    Write-Host "  6. Install Windows Git junction guard"
     Write-Host "  Q. Quit"
     $choice = (Read-Host "Select").Trim().ToUpperInvariant()
     switch ($choice) {
@@ -414,6 +423,7 @@ if ($Action -eq "Menu") {
         "3" { $Action = "Doctor" }
         "4" { $Action = "Start"; $Rebuild = $true }
         "5" { $Action = "Start"; $SourceRef = "HEAD"; $Rebuild = $true }
+        "6" { $Action = "GitGuard" }
         "Q" { return }
         default { throw "Unknown selection: $choice" }
     }
@@ -422,4 +432,9 @@ if ($Action -eq "Menu") {
 switch ($Action) {
     "Start" { Start-PlatformClaw }
     "Doctor" { Show-Doctor }
+    "GitGuard" {
+        Assert-Command git
+        Assert-Command node
+        Invoke-GitJunctionGuard "install"
+    }
 }
