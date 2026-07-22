@@ -2,6 +2,7 @@
 
 import { render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SettingsSearchBlock } from "../app-navigation.ts";
 import { i18n } from "../i18n/index.ts";
 import { renderSettingsSidebar } from "./settings-sidebar.ts";
 
@@ -19,7 +20,10 @@ afterEach(() => {
 
 describe("settings sidebar search", () => {
   it("keeps disabled settings routes out of navigation and search", () => {
-    const renderSidebar = (searchQuery: string, searchBlockMatches = []) => {
+    const renderSidebar = (
+      searchQuery: string,
+      searchBlockMatches: readonly SettingsSearchBlock[] = [],
+    ) => {
       render(
         renderSettingsSidebar({
           basePath: "",
