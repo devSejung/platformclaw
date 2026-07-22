@@ -52,6 +52,7 @@ const hoisted = vi.hoisted(() => {
     closeActiveMemorySearchManager: vi.fn(async () => {}),
     cleanupSessionLifecycleArtifacts: vi.fn(),
     patchSessionEntry: vi.fn(),
+    rawDeltaReads: [] as Array<{ maxBytes?: number; maxEvents?: number; sessionId: string }>,
     runtimeTranscriptFiles: {} as Record<string, string>,
     sessionStore,
     updateSessionStore: vi.fn(
@@ -87,6 +88,52 @@ vi.mock("openclaw/plugin-sdk/session-transcript-runtime", async () => {
   >("openclaw/plugin-sdk/session-transcript-runtime");
   return {
     ...actual,
+    readSessionTranscriptRawDelta: async (
+      params: Parameters<typeof actual.readSessionTranscriptRawDelta>[0],
+    ) => {
+      hoisted.rawDeltaReads.push({
+        maxBytes: params.maxBytes,
+        maxEvents: params.maxEvents,
+        sessionId: params.sessionId,
+      });
+      const testSessionFile = hoisted.runtimeTranscriptFiles[params.sessionId];
+      if (!testSessionFile) {
+        return await actual.readSessionTranscriptRawDelta(params);
+      }
+      try {
+        const lines = (await fs.readFile(testSessionFile, "utf8"))
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const maxEvents = params.maxEvents ?? lines.length;
+        const maxBytes = params.maxBytes ?? Number.MAX_SAFE_INTEGER;
+        const events: Array<{ event: unknown; seq: number }> = [];
+        let serializedBytes = 0;
+        for (const [seq, line] of lines.entries()) {
+          const nextBytes = Buffer.byteLength(`${line}\n`, "utf8");
+          if (events.length >= maxEvents || serializedBytes + nextBytes > maxBytes) {
+            break;
+          }
+          events.push({ event: JSON.parse(line) as unknown, seq });
+          serializedBytes += nextBytes;
+        }
+        const requiredBytes =
+          events.length === 0 && lines[0] ? Buffer.byteLength(`${lines[0]}\n`, "utf8") : undefined;
+        return {
+          kind: "page" as const,
+          cursor: `test-runtime:${String(events.length)}`,
+          events,
+          hasMore: events.length < lines.length,
+          ...(requiredBytes !== undefined ? { requiredBytes } : {}),
+          serializedBytes,
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+      }
+      return await actual.readSessionTranscriptRawDelta(params);
+    },
     readSessionTranscriptEvents: async (
       target: Parameters<typeof actual.readSessionTranscriptEvents>[0],
     ) => {
@@ -538,6 +585,7 @@ describe("active-memory plugin", () => {
     for (const key of Object.keys(hoisted.runtimeTranscriptFiles)) {
       delete hoisted.runtimeTranscriptFiles[key];
     }
+    hoisted.rawDeltaReads.length = 0;
     hoisted.sessionStore["agent:main:main"] = {
       sessionId: "s-main",
       updatedAt: 0,
@@ -636,8 +684,8 @@ describe("active-memory plugin", () => {
       hasRememberAcrossConversationsAgent({
         agents: {
           list: [
-            { id: "personal", memorySearch: { rememberAcrossConversations: false } },
-            { id: "support", memorySearch: { rememberAcrossConversations: false } },
+            { id: "personal", memory: { search: { rememberAcrossConversations: false } } },
+            { id: "support", memory: { search: { rememberAcrossConversations: false } } },
           ],
         },
       }),
@@ -848,7 +896,7 @@ describe("active-memory plugin", () => {
             workspace: "/tmp/live-personal-workspace",
             agentDir: "/tmp/live-personal-agent",
             model: { primary: "openai/gpt-5.5" },
-            memorySearch: { rememberAcrossConversations: true },
+            memory: { search: { rememberAcrossConversations: true } },
           },
         ],
       },
@@ -887,7 +935,7 @@ describe("active-memory plugin", () => {
             workspace: "/tmp/live-personal-workspace",
             agentDir: "/tmp/live-personal-agent",
             model: { primary: "openai/gpt-5.5" },
-            memorySearch: { rememberAcrossConversations: true },
+            memory: { search: { rememberAcrossConversations: true } },
           },
         ],
       },
@@ -903,7 +951,7 @@ describe("active-memory plugin", () => {
           {
             id: "personal",
             model: { primary: "github-copilot/gpt-5.4-mini" },
-            memorySearch: { rememberAcrossConversations: true },
+            memory: { search: { rememberAcrossConversations: true } },
           },
         ],
       },
@@ -1009,7 +1057,7 @@ describe("active-memory plugin", () => {
     configFile = {
       ...configFile,
       agents: {
-        list: [{ id: "personal", memorySearch: { rememberAcrossConversations: true } }],
+        list: [{ id: "personal", memory: { search: { rememberAcrossConversations: true } } }],
       },
     };
     hoisted.sessionStore[testCase.sessionKey] = { sessionId: "s-personal", updatedAt: 0 };
@@ -1074,7 +1122,7 @@ describe("active-memory plugin", () => {
           {
             id: "personal",
             model: { primary: "github-copilot/gpt-5.4-mini" },
-            memorySearch: { rememberAcrossConversations: true },
+            memory: { search: { rememberAcrossConversations: true } },
           },
         ],
       },
@@ -1116,7 +1164,7 @@ describe("active-memory plugin", () => {
     configFile = {
       ...configFile,
       agents: {
-        list: [{ id: "personal", memorySearch: { rememberAcrossConversations: true } }],
+        list: [{ id: "personal", memory: { search: { rememberAcrossConversations: true } } }],
       },
     };
     const sessionKey = "agent:personal:telegram:direct:owner";
@@ -3783,6 +3831,12 @@ describe("active-memory plugin", () => {
     );
 
     expectPrependContextContains(result, "sqlite partial recall summary");
+    expect(hoisted.rawDeltaReads).toContainEqual(
+      expect.objectContaining({
+        maxBytes: 50 * 1024 * 1024,
+        maxEvents: 2_000,
+      }),
+    );
     if (artifactSessionFile) {
       await expectPathMissing(artifactSessionFile);
     }

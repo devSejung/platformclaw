@@ -3,8 +3,9 @@ import { state } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import {
   cancelRoutePreload,
-  DEFAULT_SIDEBAR_PINNED_ROUTES,
+  DEFAULT_SIDEBAR_ENTRIES,
   scheduleRoutePreload,
+  serializeSidebarEntry,
   type NavigationRouteId,
 } from "../app-navigation.ts";
 import { pathForRoute } from "../app-route-paths.ts";
@@ -15,6 +16,7 @@ import { openExternalUrlSafe } from "../lib/open-external-url.ts";
 import { searchForSession } from "../lib/sessions/index.ts";
 import {
   canArchiveSessionRow,
+  normalizeAgentId,
   parseAgentSessionKey,
   resolveUiConfiguredMainKey,
 } from "../lib/sessions/session-key.ts";
@@ -27,7 +29,6 @@ import {
   renderSidebarMoreRow,
   renderSidebarNavRoute,
   sidebarMoreMenuHoldsActiveRoute,
-  sidebarPluginTabs,
 } from "./app-sidebar-nav-menus.ts";
 import { AppSidebarSessionGroupsElement } from "./app-sidebar-session-groups.ts";
 import {
@@ -314,8 +315,10 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
     const trigger = this.customizeMenuTrigger;
     return renderSidebarCustomizeMenu({
       position,
-      pinnedRoutes: this.sidebarPinnedRoutes,
+      sidebarEntries: this.sidebarEntries,
       isRouteEnabled: (routeId) => this.isRouteEnabled(routeId),
+      workboardBoards: this.workboardBoards,
+      workboardRenderers: this.workboardRenderers,
       onTabAway: () => trigger?.focus(),
       onClose: (restoreFocus) => {
         if (this.customizeMenuPosition !== position) {
@@ -324,14 +327,28 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
         this.closeCustomizeMenu({ restoreFocus });
       },
       onToggleRoute: (routeId) => {
-        const pinned = this.sidebarPinnedRoutes;
-        const next = pinned.includes(routeId)
-          ? pinned.filter((route) => route !== routeId)
-          : [...pinned, routeId];
-        this.onUpdatePinnedRoutes?.(next);
+        const entry = serializeSidebarEntry({ type: "route", route: routeId });
+        const canonical = this.reconciledSidebarZone().sidebarEntries;
+        const next = canonical.includes(entry)
+          ? canonical.filter((candidate) => candidate !== entry)
+          : [...canonical, entry];
+        this.onUpdateSidebarEntries?.(next);
+      },
+      onToggleWorkboardBoard: (boardId) => {
+        const entry = serializeSidebarEntry({ type: "workboard", boardId });
+        const canonical = this.reconciledSidebarZone().sidebarEntries;
+        const next = canonical.includes(entry)
+          ? canonical.filter((candidate) => candidate !== entry)
+          : [...canonical, entry];
+        this.onUpdateSidebarEntries?.(next);
       },
       onReset: () => {
-        this.onUpdatePinnedRoutes?.([...DEFAULT_SIDEBAR_PINNED_ROUTES]);
+        // Canonical list, not the render list: unknown-state session slots
+        // (other agents, still-loading caches) must survive a route reset.
+        const sessions = this.reconciledSidebarZone().sidebarEntries.filter((entry) =>
+          entry.startsWith("session:"),
+        );
+        this.onUpdateSidebarEntries?.([...DEFAULT_SIDEBAR_ENTRIES, ...sessions]);
         this.closeCustomizeMenu({ restoreFocus: true });
       },
     });
@@ -355,6 +372,8 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
       themeMode: this.themeMode,
       isRouteEnabled: (routeId) => this.isRouteEnabled(routeId),
       agentUnreadCount: (agentId) => this.agentUnreadCount(agentId),
+      agentApprovalCount: (agentId) =>
+        this.approvalBadgeSnapshot().agentCounts.get(normalizeAgentId(agentId)) ?? 0,
       onFilterChange: (next) => {
         this.agentMenuFilter = next;
       },
@@ -389,6 +408,7 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
     const rows = batchRows ?? [session];
     const archiveAllowed = rows.every((row) => canArchiveSessionRow(row, mainKey));
     const allUnread = rows.every((row) => row.unread);
+    const allArchived = rows.every((row) => row.archived === true);
     const sharedCategory = rows.every(
       (row) => (row.category ?? null) === (rows[0]?.category ?? null),
     )
@@ -400,9 +420,10 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
         <openclaw-session-menu
           .session=${{
             label: session.label,
+            icon: session.icon,
             pinned: session.pinned,
             unread: batchRows ? allUnread : session.unread,
-            archived: false,
+            archived: allArchived,
             category: batchRows ? sharedCategory : (session.category ?? null),
           }}
           .selectionCount=${rows.length}
@@ -446,6 +467,9 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
               case "toggle-pin":
                 void this.patchSession(session, { pinned: !session.pinned });
                 break;
+              case "set-icon":
+                void this.patchSession(session, { icon: action.icon });
+                break;
               case "toggle-unread":
                 void this.patchSession(session, { unread: !session.unread });
                 break;
@@ -466,7 +490,11 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
                 this.createSessionGroup([session]);
                 break;
               case "toggle-archived":
-                void this.archiveSessionWithUndo(session);
+                if (session.archived) {
+                  void this.patchSession(session, { archived: false });
+                } else {
+                  void this.archiveSessionWithUndo(session);
+                }
                 break;
               case "stop-cloud-worker":
                 void this.stopCloudWorker(session);
@@ -517,6 +545,7 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
       trigger: this.sessionSortMenuTrigger,
       grouping: this.sessionsGrouping,
       sortMode: this.sessionSortMode,
+      statusFilter: this.sessionsStatusFilter,
       showCron: this.sessionsShowCron,
       onGroupingChange: (grouping) => {
         this.setSessionsGrouping(grouping);
@@ -524,6 +553,10 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
       },
       onSortModeChange: (mode) => {
         this.sessionSortMode = mode;
+        this.closeSessionSortMenu({ restoreFocus: true });
+      },
+      onStatusFilterChange: (statusFilter) => {
+        this.setSessionsStatusFilter(statusFilter);
         this.closeSessionSortMenu({ restoreFocus: true });
       },
       onShowCronChange: (show) => {
@@ -551,7 +584,9 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
       href: chatSearch
         ? `${pathForRoute("chat", this.basePath)}${chatSearch}`
         : pathForRoute(routeId, this.basePath),
-      active: isSidebarRouteActive(this.activeRouteId, routeId),
+      active:
+        isSidebarRouteActive(this.activeRouteId, routeId) &&
+        !(routeId === "workboard" && this.activeWorkboardBoardIsPinned()),
       onNavigate: () => {
         this.onNavigate?.(routeId, chatSearch ? { search: chatSearch } : undefined);
       },
@@ -565,7 +600,10 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
       open: this.moreMenuPosition !== null,
       active: sidebarMoreMenuHoldsActiveRoute({
         activeRouteId: this.activeRouteId,
-        pinnedRoutes: this.sidebarPinnedRoutes,
+        activeWorkboardBoardId: this.activeWorkboardBoardIsPinned()
+          ? this.activeWorkboardBoardId
+          : "",
+        sidebarEntries: this.sidebarEntries,
         isRouteEnabled: (routeId) => this.isRouteEnabled(routeId),
       }),
       onToggle: (trigger) => this.toggleMoreMenu(trigger),
@@ -579,9 +617,10 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
       position,
       basePath: this.basePath,
       activeRouteId: this.activeRouteId,
-      activePluginTabId: this.activePluginTabId,
-      pinnedRoutes: this.sidebarPinnedRoutes,
-      pluginTabs: sidebarPluginTabs(this.context?.gateway.snapshot.hello?.controlUiTabs),
+      activeWorkboardBoardId: this.activeWorkboardBoardIsPinned()
+        ? this.activeWorkboardBoardId
+        : "",
+      sidebarEntries: this.sidebarEntries,
       isRouteEnabled: (routeId) => this.isRouteEnabled(routeId),
       onTabAway: () => trigger?.focus(),
       onClose: (restoreFocus) => {
@@ -594,10 +633,6 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
         this.closeMoreMenu({ restoreFocus: true });
         this.onNavigate?.(routeId);
       },
-      onNavigatePluginTab: (search) => {
-        this.closeMoreMenu({ restoreFocus: true });
-        this.onNavigate?.("plugin", { search });
-      },
       onPreloadRoute: (routeId, event) => this.preloadRoute(routeId, event),
       onCancelPreload: this.cancelPreload,
       onEditPinnedItems: () => {
@@ -608,5 +643,14 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
         }
       },
     });
+  }
+
+  private activeWorkboardBoardIsPinned(): boolean {
+    return Boolean(
+      this.activeWorkboardBoardId &&
+      this.reconciledSidebarZone().entries.some(
+        (entry) => entry.type === "workboard" && entry.boardId === this.activeWorkboardBoardId,
+      ),
+    );
   }
 }

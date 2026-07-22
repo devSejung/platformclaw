@@ -25,6 +25,7 @@ import {
 import {
   normalizeSqliteStatus,
   parseSqliteSessionEntryJson as parseSessionEntryRow,
+  serializeSqliteSessionCreatorIdentity,
 } from "./session-accessor.sqlite-status.js";
 import {
   readTranscriptMutationStateInTransaction,
@@ -38,6 +39,8 @@ import {
 import type { SessionEntry } from "./types.js";
 
 // Canonical owner for session_entries row selection, alias snapshots, and writes.
+
+type OpenClawAgentDatabaseReader = Pick<OpenClawAgentDatabase, "db">;
 
 type SessionEntryRow = Selectable<OpenClawAgentKyselyDatabase["session_entries"]>;
 export type ResolvedSessionEntryRow = {
@@ -82,7 +85,7 @@ export function createSqliteSessionIdentitySnapshot(
 }
 
 export function readSessionEntryRow(
-  database: OpenClawAgentDatabase,
+  database: OpenClawAgentDatabaseReader,
   sessionKey: string,
 ): ResolvedSessionEntryRow | undefined {
   const db = getSessionKysely(database.db);
@@ -157,7 +160,7 @@ export function assertSqliteSessionEntrySelectionUnchanged(
 }
 
 export function collectSessionEntryLookupKeys(
-  database: OpenClawAgentDatabase,
+  database: OpenClawAgentDatabaseReader,
   sessionKey: string,
 ): string[] {
   const trimmedKey = sessionKey.trim();
@@ -184,7 +187,7 @@ export function collectSessionEntryLookupKeys(
 }
 
 export function readExactSessionEntryRow(
-  database: OpenClawAgentDatabase,
+  database: OpenClawAgentDatabaseReader,
   sessionKey: string,
 ): ResolvedSessionEntryRow | undefined {
   const db = getSessionKysely(database.db);
@@ -225,6 +228,15 @@ export function readSqliteSessionEntryCount(database: OpenClawAgentDatabase): nu
   );
   const count = row?.entry_count;
   return count === undefined || count === null ? 0 : normalizeSqliteNumber(count);
+}
+
+/** Lists persisted session keys without materializing their entry payloads. */
+export function readSqliteSessionEntryKeys(database: OpenClawAgentDatabaseReader): string[] {
+  const db = getSessionKysely(database.db);
+  return executeSqliteQuerySync(
+    database.db,
+    db.selectFrom("session_entries").select("session_key").orderBy("session_key", "asc"),
+  ).rows.map((row) => row.session_key);
 }
 
 export function resolveSqliteLifecyclePrimaryEntry(
@@ -476,6 +488,7 @@ export function writeSessionEntry(
         entry_json: JSON.stringify(normalizedEntry),
         updated_at: updatedAt,
         status: normalizeSqliteStatus(normalizedEntry.status),
+        created_by_json: serializeSqliteSessionCreatorIdentity(normalizedEntry.createdBy),
       })
       .onConflict((conflict) =>
         conflict.column("session_key").doUpdateSet({
@@ -483,6 +496,7 @@ export function writeSessionEntry(
           entry_json: JSON.stringify(normalizedEntry),
           updated_at: updatedAt,
           status: normalizeSqliteStatus(normalizedEntry.status),
+          created_by_json: serializeSqliteSessionCreatorIdentity(normalizedEntry.createdBy),
         }),
       ),
   );

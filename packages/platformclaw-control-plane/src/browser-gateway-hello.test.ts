@@ -15,7 +15,7 @@ function upstreamHello(): HelloOk {
     },
     snapshot: {
       presence: [{ host: "private-host", ts: 1 }],
-      health: { providers: ["private-provider"] },
+      health: { ok: true, ts: 2 },
       stateVersion: { presence: 7, health: 8 },
       uptimeMs: 9,
       configPath: "/private/openclaw.json",

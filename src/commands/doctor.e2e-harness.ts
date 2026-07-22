@@ -208,6 +208,18 @@ function createLegacyStateMigrationDetectionResult(params?: {
     targetScope: undefined,
     stateDir: "/tmp/state",
     oauthDir: "/tmp/oauth",
+    deviceAuth: {
+      sourcePath: "/tmp/state/identity/device-auth.json",
+      sourcePresent: false,
+      hasLegacy: false,
+    },
+    deviceIdentity: {
+      sourcePath: "/tmp/state/identity/device.json",
+      claimPath: "/tmp/state/identity/device.json.doctor-importing",
+      nativeClaimPath: "/tmp/state/identity/device.json.native-importing",
+      hasLegacy: false,
+      hasInvalidCanonical: false,
+    },
     mcpOauth: {
       sourceDir: "/tmp/state/mcp-oauth",
       sourcePaths: [],

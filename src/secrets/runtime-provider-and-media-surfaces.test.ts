@@ -204,9 +204,13 @@ describe("secrets runtime provider and media surfaces", () => {
         getActiveSecretsRuntimeSnapshot,
         refreshActiveProviderAuthRuntimeSnapshot,
       } = await import("./runtime.js");
-      const { getRuntimeConfigSnapshot, setRuntimeConfigSnapshot } =
+      const { getRuntimeConfigSourceSnapshot, getRuntimeConfigSnapshot, setRuntimeConfigSnapshot } =
         await import("../config/runtime-snapshot.js");
       activateSecretsRuntimeSnapshot(initial);
+      const runtimeSourceConfig: OpenClawConfig = {
+        ...initial.sourceConfig,
+        logging: { level: "debug" },
+      };
       setRuntimeConfigSnapshot(
         {
           ...initial.config,
@@ -220,7 +224,7 @@ describe("secrets runtime provider and media surfaces", () => {
             pricing: { enabled: true },
           },
         },
-        initial.sourceConfig,
+        runtimeSourceConfig,
       );
 
       await writeSecrets(undefined, "model-new");
@@ -235,6 +239,7 @@ describe("secrets runtime provider and media surfaces", () => {
       expect(active?.config.models?.pricing?.enabled).toBe(true);
       expect(active?.config.models?.providers?.openai?.apiKey).toBe("model-new");
       expect(getRuntimeConfigSnapshot()).toEqual(active?.config);
+      expect(getRuntimeConfigSourceSnapshot()).toEqual(runtimeSourceConfig);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -291,6 +296,65 @@ describe("secrets runtime provider and media surfaces", () => {
     expect(getActiveSecretsRuntimeSnapshot()?.config.models?.providers?.openai?.apiKey).toBe(
       "sk-env-current",
     );
+  });
+
+  it("retries provider auth publication after a queued runtime config mutation", async () => {
+    const initialConfig = asConfig({ gateway: { port: 19_040 } });
+    const initial = await prepareSecretsRuntimeSnapshot({
+      config: initialConfig,
+      agentDirs: ["/tmp/openclaw-agent-main"],
+      loadAuthStore: () => ({ version: 1, profiles: {} }),
+    });
+    const {
+      activateSecretsRuntimeSnapshot,
+      getActiveSecretsRuntimeSnapshot,
+      refreshActiveProviderAuthRuntimeSnapshot,
+    } = await import("./runtime.js");
+    const { registerProviderAuthRuntimeSnapshotActivationOwner } =
+      await import("./runtime-provider-auth-activation.js");
+    const { getRuntimeConfigSnapshot, setRuntimeConfigSnapshot } =
+      await import("../config/runtime-snapshot.js");
+    activateSecretsRuntimeSnapshot(initial);
+
+    let releaseFirstActivation!: () => void;
+    const firstActivationBlocked = new Promise<void>((resolve) => {
+      releaseFirstActivation = resolve;
+    });
+    let reportFirstActivationQueued!: () => void;
+    const firstActivationQueued = new Promise<void>((resolve) => {
+      reportFirstActivationQueued = resolve;
+    });
+    let activationCalls = 0;
+    registerProviderAuthRuntimeSnapshotActivationOwner({
+      runExclusive: async (operation) => {
+        activationCalls += 1;
+        if (activationCalls === 1) {
+          reportFirstActivationQueued();
+          await firstActivationBlocked;
+        }
+        return await operation();
+      },
+      isCurrent: () => true,
+      assertValid: () => undefined,
+      publish: async () => undefined,
+      onError: (error) => {
+        throw error;
+      },
+    });
+
+    const refresh = refreshActiveProviderAuthRuntimeSnapshot();
+    await firstActivationQueued;
+    const concurrentConfig = asConfig({
+      ...initial.config,
+      logging: { level: "debug" },
+    });
+    setRuntimeConfigSnapshot(concurrentConfig, initial.sourceConfig);
+    releaseFirstActivation();
+
+    await expect(refresh).resolves.toBe(true);
+    expect(activationCalls).toBe(2);
+    expect(getActiveSecretsRuntimeSnapshot()?.config.logging?.level).toBe("debug");
+    expect(getRuntimeConfigSnapshot()?.logging?.level).toBe("debug");
   });
 
   it("fails when file provider payload is not a JSON object", async () => {
@@ -466,31 +530,26 @@ describe("secrets runtime provider and media surfaces", () => {
     );
   });
 
-  it("treats section media model request refs as inactive when model capabilities exclude the section", async () => {
-    const sectionTokenRef = {
-      source: "env" as const,
-      provider: "default" as const,
-      id: "MEDIA_AUDIO_SECTION_FILTERED_TOKEN",
-    };
+  it("treats shared media model request refs as inactive when their capabilities are disabled", async () => {
+    const fixtureRef = envTokenRef("config-token");
     const snapshot = await prepareSecretsRuntimeSnapshot({
       config: asConfig({
         tools: {
           media: {
-            audio: {
-              enabled: true,
-              models: [
-                {
-                  provider: "openai",
-                  capabilities: ["video"],
-                  request: {
-                    auth: {
-                      mode: "authorization-bearer",
-                      token: sectionTokenRef,
-                    },
+            audio: { enabled: true },
+            video: { enabled: false },
+            models: [
+              {
+                provider: "openai",
+                capabilities: ["video"],
+                request: {
+                  auth: {
+                    mode: "authorization-bearer",
+                    token: fixtureRef,
                   },
                 },
-              ],
-            },
+              },
+            ],
           },
         },
       }),
@@ -499,12 +558,12 @@ describe("secrets runtime provider and media surfaces", () => {
       loadAuthStore: () => ({ version: 1, profiles: {} }),
     });
 
-    expect(snapshot.config.tools?.media?.audio?.models?.[0]?.request?.auth).toEqual({
+    expect(snapshot.config.tools?.media?.models?.[0]?.request?.auth).toEqual({
       mode: "authorization-bearer",
-      token: sectionTokenRef,
+      token: fixtureRef,
     });
     expect(snapshot.warnings.map((warning) => warning.path)).toContain(
-      "tools.media.audio.models.0.request.auth.token",
+      "tools.media.models.0.request.auth.token",
     );
   });
 
@@ -554,23 +613,27 @@ describe("secrets runtime provider and media surfaces", () => {
   it("treats defaults memorySearch ref as inactive when all enabled agents disable memorySearch", async () => {
     const snapshot = await prepareSecretsRuntimeSnapshot({
       config: asConfig({
-        agents: {
-          defaults: {
-            memorySearch: {
-              remote: {
-                apiKey: {
-                  source: "env",
-                  provider: "default",
-                  id: "DEFAULT_MEMORY_REMOTE_API_KEY",
-                },
+        memory: {
+          search: {
+            remote: {
+              apiKey: {
+                source: "env",
+                provider: "default",
+                id: "DEFAULT_MEMORY_REMOTE_API_KEY",
               },
             },
           },
+        },
+
+        agents: {
+          defaults: {},
           list: [
             {
               enabled: true,
-              memorySearch: {
-                enabled: false,
+              memory: {
+                search: {
+                  enabled: false,
+                },
               },
             },
           ],
@@ -581,13 +644,13 @@ describe("secrets runtime provider and media surfaces", () => {
       loadAuthStore: () => ({ version: 1, profiles: {} }),
     });
 
-    expect(snapshot.config.agents?.defaults?.memorySearch?.remote?.apiKey).toEqual({
+    expect(snapshot.config.memory?.search?.remote?.apiKey).toEqual({
       source: "env",
       provider: "default",
       id: "DEFAULT_MEMORY_REMOTE_API_KEY",
     });
     expect(snapshot.warnings.map((warning) => warning.path)).toContain(
-      "agents.defaults.memorySearch.remote.apiKey",
+      "memory.search.remote.apiKey",
     );
   });
 
@@ -597,21 +660,25 @@ describe("secrets runtime provider and media surfaces", () => {
     const healthyRef = envTokenRef("HEALTHY_TEST_VALUE");
     const snapshot = await prepareSecretsRuntimeSnapshot({
       config: asConfig({
-        agents: {
-          defaults: {
-            memorySearch: {
-              remote: {
-                apiKey: missingRef,
-                headers: { "X-Memory-Value": missingRef },
-              },
+        memory: {
+          search: {
+            remote: {
+              apiKey: missingRef,
+              headers: { "X-Memory-Value": missingRef },
             },
           },
+        },
+
+        agents: {
+          defaults: {},
           list: [
             { id: "cold", default: true },
             {
               id: "healthy",
-              memorySearch: {
-                remote: { apiKey: healthyRef, headers: { "X-Memory-Value": healthyRef } },
+              memory: {
+                search: {
+                  remote: { apiKey: healthyRef, headers: { "X-Memory-Value": healthyRef } },
+                },
               },
             },
           ],
@@ -623,8 +690,8 @@ describe("secrets runtime provider and media surfaces", () => {
       allowUnavailableSecretOwners: true,
     });
 
-    expect(snapshot.config.agents?.list?.[1]?.memorySearch?.remote?.apiKey).toBe(healthyValue);
-    expect(snapshot.config.agents?.list?.[1]?.memorySearch?.remote?.headers).toEqual({
+    expect(snapshot.config.agents?.list?.[1]?.memory?.search?.remote?.apiKey).toBe(healthyValue);
+    expect(snapshot.config.agents?.list?.[1]?.memory?.search?.remote?.headers).toEqual({
       "X-Memory-Value": healthyValue,
     });
     expect(snapshot.degradedOwners).toMatchObject([
@@ -632,10 +699,7 @@ describe("secrets runtime provider and media surfaces", () => {
         ownerKind: "capability",
         ownerId: "memory-provider:cold",
         state: "unavailable",
-        paths: [
-          "agents.defaults.memorySearch.remote.apiKey",
-          "agents.defaults.memorySearch.remote.headers.X-Memory-Value",
-        ],
+        paths: ["memory.search.remote.apiKey", "memory.search.remote.headers.X-Memory-Value"],
       },
     ]);
   });

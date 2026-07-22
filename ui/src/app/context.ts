@@ -1,6 +1,5 @@
 import { createContext } from "@lit/context";
 import type { RouteLocation } from "@openclaw/uirouter";
-import type { SidebarNavRoute } from "../app-navigation.ts";
 import type { RouteId } from "../app-route-paths.ts";
 import type { AgentIdentityCapability } from "../lib/agents/identity.ts";
 import type { AgentCapability } from "../lib/agents/index.ts";
@@ -34,7 +33,7 @@ export type ApplicationTheme = {
 export type ApplicationNavigationPreferencesSnapshot = {
   navCollapsed: boolean;
   navWidth: number;
-  sidebarPinnedRoutes: readonly SidebarNavRoute[];
+  sidebarEntries: readonly string[];
   pinnedAgentIds: readonly string[];
 };
 
@@ -44,7 +43,9 @@ export type ApplicationNavigationPreferences = {
   subscribe: (listener: (snapshot: ApplicationNavigationPreferencesSnapshot) => void) => () => void;
 };
 
-export type ApplicationNavigationOptions = Partial<Pick<RouteLocation, "search" | "hash">>;
+export type ApplicationNavigationOptions = Partial<
+  Pick<RouteLocation, "pathname" | "search" | "hash">
+>;
 
 export type ApplicationAccessMode = "operator" | "personal-agent";
 
@@ -59,6 +60,24 @@ export type ApplicationSkillWorkshopRevisionHandoff = {
   prepare: (handoff: SkillWorkshopRevisionHandoff) => void;
   consume: (sessionKey: string) => SkillWorkshopRevisionHandoff | null;
   clear: () => void;
+};
+
+export type ApplicationInitialUserMessage = {
+  role: "user";
+  content: unknown[];
+  timestamp: number;
+};
+
+type InitialUserMessageHandoff = {
+  message: ApplicationInitialUserMessage;
+  owner: object;
+  sessionKey: string;
+};
+
+export type ApplicationInitialUserMessageHandoff = {
+  prepare: (handoff: InitialUserMessageHandoff) => void;
+  read: (sessionKey: string, owner: object | null) => ApplicationInitialUserMessage | null;
+  clear: (sessionKey?: string) => void;
 };
 
 export type ApplicationContext<TRouteId extends string = string> = {
@@ -80,6 +99,7 @@ export type ApplicationContext<TRouteId extends string = string> = {
   readonly nativeNotifications: NativeNotificationsCapability | null;
   readonly webPush: WebPushCapability;
   readonly skillWorkshopRevision: ApplicationSkillWorkshopRevisionHandoff;
+  readonly initialUserMessage: ApplicationInitialUserMessageHandoff;
   readonly navigate: (routeId: TRouteId, options?: ApplicationNavigationOptions) => void;
   readonly replace: (routeId: TRouteId, options?: ApplicationNavigationOptions) => void;
   readonly revalidate: (routeId?: TRouteId) => Promise<void>;

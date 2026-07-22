@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Control UI tests cover workboard behavior.
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -3181,7 +3182,7 @@ describe("workboard controller", () => {
     expect(client.request).toHaveBeenNthCalledWith(3, "workboard.cards.create", {
       title: "Fix login",
       notes: [
-        `Session: ${sampleSession.key}`,
+        `Thread: ${sampleSession.key}`,
         "",
         "Recent user prompt: Please fix login",
         "",
@@ -3543,7 +3544,7 @@ describe("workboard controller", () => {
       "workboard.cards.create",
       expect.objectContaining({
         title: `${titlePrefix}...`,
-        notes: [`Session: ${sampleSession.key}`, "", `Recent user prompt: ${textPrefix}...`].join(
+        notes: [`Thread: ${sampleSession.key}`, "", `Recent user prompt: ${textPrefix}...`].join(
           "\n",
         ),
       }),
@@ -6003,7 +6004,7 @@ describe("workboard controller", () => {
             stale: {
               detectedAt: 1,
               lastSessionUpdatedAt: staleUpdatedAt,
-              reason: "Linked session has not reported recent activity.",
+              reason: "Linked thread has not reported recent activity.",
             },
           },
         },
@@ -6024,7 +6025,7 @@ describe("workboard controller", () => {
           lifecycleStatusSourceUpdatedAt: staleUpdatedAt,
           stale: expect.objectContaining({
             lastSessionUpdatedAt: staleUpdatedAt,
-            reason: "Linked session has not reported recent activity.",
+            reason: "Linked thread has not reported recent activity.",
           }),
         },
       },
@@ -6043,7 +6044,7 @@ describe("workboard controller", () => {
         stale: {
           detectedAt: 1,
           lastSessionUpdatedAt: 1,
-          reason: "Linked session has not reported recent activity.",
+          reason: "Linked thread has not reported recent activity.",
         },
       },
     } satisfies WorkboardCard;
@@ -6082,7 +6083,7 @@ describe("workboard controller", () => {
         stale: {
           detectedAt: 1,
           lastSessionUpdatedAt: 1,
-          reason: "Linked session has not reported recent activity.",
+          reason: "Linked thread has not reported recent activity.",
         },
       },
       events: [
@@ -6135,7 +6136,7 @@ describe("workboard controller", () => {
         stale: {
           detectedAt: 1,
           lastSessionUpdatedAt: staleUpdatedAt,
-          reason: "Linked session has not reported recent activity.",
+          reason: "Linked thread has not reported recent activity.",
         },
       },
     } satisfies WorkboardCard;

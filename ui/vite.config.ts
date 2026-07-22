@@ -128,6 +128,20 @@ function readGitBranch(): string | null {
   }
 }
 
+function readGitCommitTimestamp(commit: string): string | null {
+  try {
+    const raw = execFileSync("git", ["-C", repoRoot, "show", "-s", "--format=%ct", commit], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const seconds = Number.parseInt(raw.trim(), 10);
+    const date = new Date(seconds * 1000);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  } catch {
+    return null;
+  }
+}
+
 function readGitDirty(): boolean | null {
   try {
     const raw = execFileSync("git", ["-C", repoRoot, "status", "--porcelain"], {
@@ -145,6 +159,7 @@ type ControlUiBuildInfoSources = {
   now?: () => Date;
   readPackageVersion?: () => string | null;
   readGitCommit?: () => string | null;
+  readGitCommitTimestamp?: (commit: string) => string | null;
   readGitBranch?: () => string | null;
   readGitDirty?: () => boolean | null;
 };
@@ -192,6 +207,14 @@ export function resolveControlUiBuildInfo(
     throw new Error("GITHUB_SHA must be a full 40-character hexadecimal SHA");
   }
   const commit = envCommit ?? normalizedGitCommit ?? normalizedGithubCommit;
+  // Commit time is advisory identity like branch/dirty: read from the local
+  // object store for the exact embedded commit, null when no checkout has it
+  // (e.g. GITHUB_SHA-only builds). It must never block a build.
+  const commitAt = commit
+    ? normalizeControlUiBuildInfo({
+        commitAt: (sources.readGitCommitTimestamp ?? readGitCommitTimestamp)(commit),
+      }).commitAt
+    : null;
   const builtAt = normalizeBuildTimestamp(
     env.OPENCLAW_BUILD_TIMESTAMP,
     sources.now ?? (() => new Date()),
@@ -209,6 +232,7 @@ export function resolveControlUiBuildInfo(
   const explicitBuildId = env.OPENCLAW_CONTROL_UI_BUILD_ID?.trim();
   return {
     ...metadata,
+    commitAt,
     branch,
     dirty,
     buildId: normalizeControlUiBuildInfo(
@@ -282,6 +306,7 @@ function sourcePackageAlias(packageId: string, subpath?: string): ControlUiViteA
 export function resolveSourcePackageAliasesForVite(): ControlUiViteAlias[] {
   return [
     sourcePackageAlias("normalization-core", "number-coercion"),
+    sourcePackageAlias("normalization-core", "phone-presentation"),
     sourcePackageAlias("normalization-core", "record-coerce"),
     sourcePackageAlias("normalization-core", "string-coerce"),
     sourcePackageAlias("normalization-core", "string-normalization"),
@@ -291,22 +316,19 @@ export function resolveSourcePackageAliasesForVite(): ControlUiViteAlias[] {
   ];
 }
 
-export function resolveExternalPackageAliasesForVite(): ControlUiViteAlias[] {
+export function resolveExternalPackageAliasesForVite(
+  resolvePackage: (specifier: string) => string = require.resolve,
+): ControlUiViteAlias[] {
+  const packageRoot = (specifier: string) =>
+    path.dirname(resolvePackage(`${specifier}/package.json`));
   return [
     {
       find: "@openclaw/libterminal/browser",
-      replacement: path.join(
-        repoRoot,
-        "node_modules",
-        "@openclaw",
-        "libterminal",
-        "dist",
-        "browser.js",
-      ),
+      replacement: path.join(packageRoot("@openclaw/libterminal"), "dist/browser.js"),
     },
     {
       find: "@openclaw/uirouter",
-      replacement: path.join(repoRoot, "node_modules", "@openclaw", "uirouter", "dist", "index.js"),
+      replacement: path.join(packageRoot("@openclaw/uirouter"), "dist/index.js"),
     },
   ];
 }
