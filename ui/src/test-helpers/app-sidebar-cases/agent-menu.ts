@@ -118,6 +118,54 @@ describe("AppSidebar agent chip", () => {
     expect(sidebar.querySelector(".sidebar-agent-menu")).toBeNull();
   });
 
+  it("hides utility links whose routes are disabled by the embedding app", async () => {
+    const gateway = createGateway({} as GatewayBrowserClient);
+    const { sidebar } = await mountSidebar(
+      gateway,
+      createSessions("main", ["agent:main:main"]),
+      "panel",
+      TWO_AGENTS,
+    );
+    sidebar.connected = true;
+    sidebar.accountPrimaryLabel = "Person One";
+    sidebar.enabledRouteIds = ["chat", "agents"];
+    await sidebar.updateComplete;
+
+    sidebar.querySelector<HTMLButtonElement>(".sidebar-agent-card__main")?.click();
+    await sidebar.updateComplete;
+
+    const menu = sidebar.querySelector(".sidebar-agent-menu");
+    expect(menu?.querySelector('[value="command:agent-settings"]')).not.toBeNull();
+    expect(menu?.querySelector('[value="command:settings"]')).toBeNull();
+    expect(menu?.querySelector('[value="command:apps"]')).toBeNull();
+    expect(menu?.querySelector("openclaw-sidebar-build-chip")).toBeNull();
+    expect(menu?.querySelector("openclaw-theme-mode-toggle")).not.toBeNull();
+  });
+
+  it("links personal-agent settings to Appearance without exposing device pairing", async () => {
+    const gateway = createGateway({} as GatewayBrowserClient);
+    const { sidebar } = await mountSidebar(
+      gateway,
+      createSessions("main", ["agent:main:main"]),
+      "panel",
+      TWO_AGENTS,
+    );
+    sidebar.connected = true;
+    sidebar.accountPrimaryLabel = "Person One";
+    sidebar.enabledRouteIds = ["chat", "agents", "appearance"];
+    sidebar.onNavigate = vi.fn();
+    await sidebar.updateComplete;
+
+    sidebar.querySelector<HTMLButtonElement>(".sidebar-agent-card__main")?.click();
+    await sidebar.updateComplete;
+    const menu = sidebar.querySelector(".sidebar-agent-menu");
+    expect(menu?.querySelector('[value="command:settings"]')).not.toBeNull();
+    expect(menu?.querySelector('[value="command:pair-mobile"]')).toBeNull();
+
+    menu?.querySelector<HTMLElement>('[value="command:settings"]')?.click();
+    expect(sidebar.onNavigate).toHaveBeenCalledWith("appearance", undefined);
+  });
+
   it("keeps the plain roster without a filter at ten agents or fewer", async () => {
     const gateway = createGateway({} as GatewayBrowserClient);
     const { sidebar } = await mountSidebar(

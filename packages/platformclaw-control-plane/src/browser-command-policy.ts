@@ -1,5 +1,9 @@
 type JsonObject = Record<string, unknown>;
 
+type GatewayRequest = {
+  request(method: string, params?: unknown): Promise<unknown>;
+};
+
 // These commands cross the personal-agent boundary into Gateway administration,
 // host execution, credentials, device control, or channel-owned bindings.
 const BLOCKED_BROWSER_COMMANDS = new Set([
@@ -95,6 +99,25 @@ export function resolveBrowserCommandPolicy(
   return safeNames.has(leading) && tokens.every((token) => safeNames.has(token))
     ? "allow"
     : "block";
+}
+
+export async function resolveBrowserCommandSuppression(params: {
+  gateway: GatewayRequest;
+  agentId: string;
+  message: unknown;
+}): Promise<"allow" | "block" | "suppress"> {
+  if (typeof params.message !== "string" || !params.message.trim().startsWith("/")) {
+    return "suppress";
+  }
+  if (hasBlockedBrowserDirective(params.message)) {
+    return "block";
+  }
+  const metadata = await params.gateway.request("chat.metadata", { agentId: params.agentId });
+  const commands =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as JsonObject).commands
+      : undefined;
+  return resolveBrowserCommandPolicy(params.message, commands);
 }
 
 export function projectBrowserCommands(value: unknown): JsonObject[] {

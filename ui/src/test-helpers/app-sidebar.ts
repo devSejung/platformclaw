@@ -25,9 +25,11 @@ type SessionState = SessionCapability["state"];
 
 export type SidebarLifecycleState = HTMLElement & {
   connected: boolean;
+  accountPrimaryLabel: string;
   terminalAvailable: boolean;
   catalogOpenTarget: "viewer" | "terminal";
   canPairDevice: boolean;
+  enabledRouteIds?: readonly string[];
   pinnedAgentIds: readonly string[];
   sessionKey: string;
   onNavigate: (routeId: string, options?: { search?: string }) => void;

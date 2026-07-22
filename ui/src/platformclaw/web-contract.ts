@@ -7,7 +7,14 @@ export const PLATFORMCLAW_SESSION_API_PATH = "/platformclaw/api/auth/session";
 export const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
 export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descriptor";
 
-export const PLATFORMCLAW_ENABLED_ROUTES = ["chat", "new-session", "sessions", "agents"] as const;
+export const PLATFORMCLAW_ENABLED_ROUTES = [
+  "chat",
+  "new-session",
+  "sessions",
+  "agents",
+  "tasks",
+  "appearance",
+] as const;
 
 export type PlatformClawWebDescriptor = {
   mode: "platformclaw";

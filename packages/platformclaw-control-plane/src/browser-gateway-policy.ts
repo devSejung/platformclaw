@@ -24,6 +24,9 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "sessions.resolve",
   "sessions.search",
   "skills.status",
+  "tasks.cancel",
+  "tasks.get",
+  "tasks.list",
   "tools.catalog",
   "tools.effective",
 ] as const;
@@ -142,6 +145,9 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ],
   ["sessions.search", new Set(["agentId", "sessionKeys", "query", "limit"])],
   ["skills.status", new Set(["agentId"])],
+  ["tasks.cancel", new Set(["taskId", "reason"])],
+  ["tasks.get", new Set(["taskId"])],
+  ["tasks.list", new Set(["status", "agentId", "sessionKey", "limit", "cursor"])],
   ["tools.catalog", new Set(["agentId", "includePlugins"])],
   ["tools.effective", new Set(["agentId", "sessionKey"])],
 ]);
@@ -154,6 +160,7 @@ export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
   "chat.metadata",
   "commands.list",
   "skills.status",
+  "tasks.list",
   "tools.catalog",
 ]);
 

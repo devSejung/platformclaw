@@ -170,7 +170,7 @@ describe("createPlatformClawWebAssetHandler", () => {
       expect(body).toContain(`name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}"`);
       expect(body).toContain("&quot;enabledRoutes&quot;");
       expect(body).toContain(
-        "&quot;enabledRoutes&quot;:[&quot;chat&quot;,&quot;new-session&quot;,&quot;sessions&quot;,&quot;agents&quot;]",
+        "&quot;enabledRoutes&quot;:[&quot;chat&quot;,&quot;new-session&quot;,&quot;sessions&quot;,&quot;agents&quot;,&quot;tasks&quot;,&quot;appearance&quot;]",
       );
       expect(body).not.toContain("agentId");
       expect(body).not.toContain("sessionKey");

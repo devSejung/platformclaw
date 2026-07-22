@@ -137,7 +137,7 @@ type PlatformClawWebDescriptor = {
   loginPath: "/platformclaw/login";
   logoutPath: "/platformclaw/api/auth/logout";
   sessionPath: "/platformclaw/api/auth/session";
-  enabledRoutes: ["chat", "new-session", "sessions"];
+  enabledRoutes: ["chat", "new-session", "sessions", "agents", "tasks", "appearance"];
 };
 ```
 

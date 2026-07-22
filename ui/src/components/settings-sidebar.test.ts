@@ -18,6 +18,45 @@ afterEach(() => {
 });
 
 describe("settings sidebar search", () => {
+  it("keeps disabled settings routes out of navigation and search", () => {
+    const renderSidebar = (searchQuery: string, searchBlockMatches = []) => {
+      render(
+        renderSettingsSidebar({
+          basePath: "",
+          activeRouteId: "appearance",
+          connected: true,
+          version: "",
+          updateAvailable: null,
+          updateRunning: false,
+          onUpdate: vi.fn(),
+          searchQuery,
+          searchBlockMatches,
+          onExit: vi.fn(),
+          onNavigate: vi.fn(),
+          onSearchQueryChange: vi.fn(),
+          preloadTimers: new Map(),
+          isRouteEnabled: (routeId) => routeId === "appearance",
+        }),
+        container,
+      );
+    };
+    const labels = () =>
+      [...container.querySelectorAll(".settings-sidebar__item-label")].map((item) =>
+        item.textContent?.trim(),
+      );
+
+    renderSidebar("");
+    expect(labels()).toEqual(["Appearance"]);
+
+    renderSidebar("connections");
+    expect(labels()).toEqual([]);
+
+    renderSidebar("channel", [
+      { routeId: "channels", label: "Channels", hash: "#settings-channels" },
+    ]);
+    expect(labels()).toEqual([]);
+  });
+
   it("links Ask OpenClaw to the shared custodian route", () => {
     const onNavigate = vi.fn();
     render(

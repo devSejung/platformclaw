@@ -46,10 +46,11 @@ import {
   renderSettingsToggleRow,
   renderSettingsValue,
 } from "../../components/settings-ui.ts";
-import { t } from "../../i18n/index.ts";
+import { t, type Locale } from "../../i18n/index.ts";
 import type { ConfigAutoSaveStatus } from "../../lib/config/index.ts";
 import { isJson5Warm, parseJson5Text, warmJson5 } from "../../lib/json5-runtime.ts";
 import type { RealtimeTalkInputDevice } from "../chat/realtime-talk-input.ts";
+import { renderLanguageSelect } from "./language-select.ts";
 import { renderNotificationsSection, type WebPushUiState } from "./notifications-section.ts";
 import { renderSettingsSelectRow } from "./settings-select-row.ts";
 import { APPEARANCE_SETTINGS_TARGET_IDS } from "./settings-targets.ts";
@@ -156,6 +157,8 @@ export type ConfigProps = {
   themeMode: ThemeMode;
   setTheme: (theme: ThemeName, context?: ThemeTransitionContext) => void;
   setThemeMode: (mode: ThemeMode, context?: ThemeTransitionContext) => void;
+  locale?: Locale;
+  setLocale?: (locale: Locale) => void;
   hasCustomTheme: boolean;
   customThemeLabel: string | null;
   customThemeSourceUrl: string | null;
@@ -1149,6 +1152,21 @@ function renderAppearanceSection(props: ConfigProps) {
   ];
   return html`
     <div class="settings-page">
+      ${props.locale && props.setLocale
+        ? html`
+            <section class="settings-section">
+              <div class="settings-section__header">
+                <h2 class="settings-section__heading">${t("quickSettings.language")}</h2>
+              </div>
+              <div class="settings-group">
+                ${renderSettingsRow({
+                  title: t("quickSettings.language"),
+                  control: renderLanguageSelect(props.locale, props.setLocale),
+                })}
+              </div>
+            </section>
+          `
+        : nothing}
       <section id=${APPEARANCE_SETTINGS_TARGET_IDS.theme} class="settings-section">
         <div class="settings-section__header">
           <h2 class="settings-section__heading">${t("configView.appearance.theme")}</h2>

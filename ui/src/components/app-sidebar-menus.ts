@@ -353,6 +353,7 @@ export abstract class AppSidebarMenusElement extends AppSidebarSessionGroupsElem
       basePath: this.basePath,
       gatewayVersion: this.gatewayVersion,
       themeMode: this.themeMode,
+      isRouteEnabled: (routeId) => this.isRouteEnabled(routeId),
       agentUnreadCount: (agentId) => this.agentUnreadCount(agentId),
       onFilterChange: (next) => {
         this.agentMenuFilter = next;

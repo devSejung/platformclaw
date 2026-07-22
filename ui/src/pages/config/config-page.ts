@@ -421,6 +421,11 @@ export class ConfigPage extends OpenClawLightDomElement {
       this.runtimeConfigSource = runtimeConfig;
       this.resetConfigViewState();
     }
+    // Personal-agent deployments expose Appearance as browser-local preferences.
+    // They must not probe the operator config capability just to render that page.
+    if (this.usesBrowserOnlyPreferences()) {
+      return;
+    }
     const config = runtimeConfig.state;
     if (!config.configSnapshot && !config.configLoading) {
       void runtimeConfig
@@ -698,7 +703,14 @@ export class ConfigPage extends OpenClawLightDomElement {
   }
 
   private includeSections(): readonly string[] | undefined {
+    if (this.usesBrowserOnlyPreferences()) {
+      return ["__appearance__"];
+    }
     return configSectionKeysForPage(this.pageId);
+  }
+
+  private usesBrowserOnlyPreferences(): boolean {
+    return this.context?.accessMode === "personal-agent" && this.pageId === "appearance";
   }
 
   private isUpdateBusy(): boolean {
@@ -764,6 +776,14 @@ export class ConfigPage extends OpenClawLightDomElement {
       themeMode: this.settings.themeMode,
       setTheme: (theme, transitionContext) => this.setTheme(theme, transitionContext),
       setThemeMode: (mode, transitionContext) => this.setThemeMode(mode, transitionContext),
+      ...(this.usesBrowserOnlyPreferences()
+        ? {
+            locale: isSupportedLocale(this.settings.locale)
+              ? this.settings.locale
+              : i18n.getLocale(),
+            setLocale: (locale: Locale) => this.setLocale(locale),
+          }
+        : {}),
       hasCustomTheme: Boolean(this.settings.customTheme),
       customThemeLabel: this.settings.customTheme?.label ?? null,
       customThemeSourceUrl: this.settings.customTheme?.sourceUrl ?? null,

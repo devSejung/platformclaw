@@ -261,6 +261,87 @@ describe("BrowserGatewayProxy", () => {
     ).rejects.toMatchObject({ code: "method-not-allowed" });
   });
 
+  it("accepts the provider-qualified model value produced by the upstream picker", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const key = `agent:${binding.agentId}:main`;
+    request
+      .mockResolvedValueOnce({
+        models: [{ id: "qwen", name: "Qwen", provider: "company", available: true }],
+      })
+      .mockResolvedValueOnce({ ok: true, key });
+
+    await expect(
+      proxy.request(token, "sessions.patch", { key, model: "company/qwen" }),
+    ).resolves.toEqual({ ok: true, key });
+  });
+
+  it("scopes background task reads to the authenticated agent", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const ownedTask = {
+      id: "task-owned",
+      status: "running",
+      agentId: binding.agentId,
+      sessionKey: `agent:${binding.agentId}:main`,
+    };
+    request
+      .mockResolvedValueOnce({ tasks: [ownedTask] })
+      .mockResolvedValueOnce({ task: { ...ownedTask, prompt: "Inspect the workspace" } });
+
+    await expect(
+      proxy.request(token, "tasks.list", {
+        agentId: binding.agentId,
+        status: ["queued", "running"],
+        limit: 50,
+      }),
+    ).resolves.toEqual({ tasks: [ownedTask] });
+    expect(request).toHaveBeenNthCalledWith(1, "tasks.list", {
+      agentId: binding.agentId,
+      status: ["queued", "running"],
+      limit: 50,
+    });
+    await expect(proxy.request(token, "tasks.get", { taskId: ownedTask.id })).resolves.toEqual({
+      task: { ...ownedTask, prompt: "Inspect the workspace" },
+    });
+  });
+
+  it("filters cross-agent task rows and verifies ownership before cancellation", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const ownedListTask = {
+      id: "task-owned-list",
+      status: "running",
+      agentId: binding.agentId,
+    };
+    request.mockResolvedValueOnce({
+      tasks: [ownedListTask, { id: "task-other", status: "running", agentId: "other" }],
+      nextCursor: "cursor-2",
+    });
+
+    await expect(proxy.request(token, "tasks.list", {})).resolves.toEqual({
+      tasks: [ownedListTask],
+      nextCursor: "cursor-2",
+    });
+
+    const ownedTask = {
+      id: "task-owned",
+      status: "running",
+      agentId: binding.agentId,
+      sessionKey: `agent:${binding.agentId}:main`,
+    };
+    request.mockResolvedValueOnce({ task: ownedTask }).mockResolvedValueOnce({
+      found: true,
+      cancelled: true,
+      task: { ...ownedTask, status: "cancelled" },
+    });
+
+    await expect(proxy.request(token, "tasks.cancel", { taskId: ownedTask.id })).resolves.toEqual({
+      found: true,
+      cancelled: true,
+      task: { ...ownedTask, status: "cancelled" },
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "tasks.get", { taskId: ownedTask.id });
+    expect(request).toHaveBeenNthCalledWith(3, "tasks.cancel", { taskId: ownedTask.id });
+  });
+
   it("projects owned workspace files and read-only skills without host paths", async () => {
     const { binding, proxy, request, token } = await setup();
     request
@@ -721,6 +802,31 @@ describe("BrowserGatewayProxy", () => {
       }),
     ).resolves.toBeNull();
     await expect(proxy.filterEvent(token, { event: "presence", payload: {} })).resolves.toBeNull();
+    const ownedTaskEvent = {
+      event: "task",
+      payload: {
+        action: "upserted",
+        task: {
+          id: "task-owned",
+          status: "running",
+          agentId: binding.agentId,
+          sessionKey: `agent:${binding.agentId}:main`,
+        },
+      },
+    };
+    await expect(proxy.filterEvent(token, ownedTaskEvent)).resolves.toEqual(ownedTaskEvent);
+    await expect(
+      proxy.filterEvent(token, {
+        event: "task",
+        payload: {
+          action: "upserted",
+          task: { id: "task-other", status: "running", agentId: "other" },
+        },
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      proxy.filterEvent(token, { event: "task", payload: { action: "deleted", taskId: "opaque" } }),
+    ).resolves.toBeNull();
     await expect(
       proxy.filterEvent(token, { event: "tick", payload: { ts: NOW } }),
     ).resolves.toEqual({

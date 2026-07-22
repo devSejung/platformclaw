@@ -36,6 +36,7 @@ type SettingsSidebarProps = {
   onPreload?: (routeId: RouteId) => Promise<void> | void;
   onSearchQueryChange: (query: string) => void;
   preloadTimers: Map<EventTarget, ReturnType<typeof globalThis.setTimeout>>;
+  isRouteEnabled?: (routeId: RouteId) => boolean;
 };
 
 type SettingsNavigationGroupView = {
@@ -58,15 +59,20 @@ function isRedundantRouteBlock(routeId: RouteId, block: SettingsSearchBlock): bo
 function filterSettingsNavigationGroups(
   searchQuery: string,
   blockMatches: readonly SettingsSearchBlock[],
+  isRouteEnabled: (routeId: RouteId) => boolean,
 ): readonly SettingsNavigationGroupView[] {
   const query = normalizeLowercaseStringOrEmpty(searchQuery);
   if (!query) {
     return SETTINGS_NAVIGATION_GROUPS.map((group) => ({
       labelKey: group.labelKey,
-      items: group.routes.map((routeId) => ({ routeId, blocks: [] })),
-    }));
+      items: group.routes
+        .filter((routeId) => isRouteEnabled(routeId))
+        .map((routeId) => ({ routeId, blocks: [] })),
+    })).filter((group) => group.items.length > 0);
   }
-  const allRoutes = SETTINGS_NAVIGATION_GROUPS.flatMap((group) => group.routes);
+  const allRoutes = SETTINGS_NAVIGATION_GROUPS.flatMap((group) => group.routes).filter((routeId) =>
+    isRouteEnabled(routeId),
+  );
   const directRoutes = allRoutes.filter((routeId) =>
     [
       settingsNavigationLabelForRoute(routeId),
@@ -81,6 +87,9 @@ function filterSettingsNavigationGroups(
       return [];
     }
     return group.routes.filter((routeId) => {
+      if (!isRouteEnabled(routeId)) {
+        return false;
+      }
       if (includedRoutes.has(routeId)) {
         return false;
       }
@@ -91,6 +100,9 @@ function filterSettingsNavigationGroups(
   const blocksByRoute = new Map<RouteId, SettingsSearchBlock[]>();
   const seenBlocks = new Set<string>();
   for (const block of blockMatches) {
+    if (!isRouteEnabled(block.routeId)) {
+      continue;
+    }
     const blockKey = `${block.routeId}\u0000${block.search ?? ""}\u0000${block.hash}`;
     if (seenBlocks.has(blockKey)) {
       continue;
@@ -205,6 +217,7 @@ export function renderSettingsSidebar(props: SettingsSidebarProps) {
   const navigationGroups = filterSettingsNavigationGroups(
     props.searchQuery,
     props.searchBlockMatches ?? [],
+    props.isRouteEnabled ?? (() => true),
   );
   return html`
     <aside class="settings-sidebar">
