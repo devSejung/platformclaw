@@ -321,6 +321,37 @@ uses a credential-free `SSH_ASKPASS` helper and a one-shot inherited descriptor
 or IPC channel. `sshpass` may be used only with `-d <fd>` if deployment proof
 shows it is more reliable; `-p`, `-e`, and password-file modes are forbidden.
 
+### PC-121 Select one explicit personal-agent execution target
+
+Every personal agent has one active execution target: `platform_server` or
+`assigned_vm`. This is an execution-location choice, not a user-visible
+"local" or "sandbox" mode. VM registration and allocation do not prevent the
+same personal agent from selecting the PlatformClaw server later, and a server
+user may select an assigned VM after its allocation and credential are ready.
+Only one target is active at a time; per-command target selection is not
+supported.
+
+The browser login flow never changes this target. It reads and displays the
+current target only. An explicit execution-settings action changes the target
+after active-run, allocation, credential, and connectivity checks. A failed
+change leaves the previous target active. Server and VM workspaces remain
+separate and are not copied or synchronized automatically.
+
+### PC-122 Give server and VM personal agents the same tool policy
+
+Personal agents using `platform_server` retain the same `exec` and `process`
+permissions as personal agents using `assigned_vm`. Server execution uses the
+agent's PlatformClaw-server workspace with `sandbox.mode: "off"`; VM execution
+uses `sandbox.mode: "all"`, backend `platformclaw-vm`, and agent scope. The
+control plane reconciles this small policy projection automatically instead of
+requiring operators to edit every agent configuration.
+
+PlatformClaw-server personal workspaces, like Knox room workspaces, provide
+operational separation and are not a security boundary. The UI and operator
+documentation must state where commands execute. Knox room agents remain
+server-only and never receive a personal execution profile, VM allocation, or
+AD credential.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs

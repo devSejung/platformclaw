@@ -20,21 +20,59 @@ approval below.
 
 ## Fixed policy
 
-| Ingress or agent                | Agent and session                      | Execution location                         |
-| ------------------------------- | -------------------------------------- | ------------------------------------------ |
-| PlatformClaw Web personal agent | Personal agent, selected owned session | Assigned VM/Linux account                  |
-| Knox direct message             | Same personal agent and `main` session | Same assigned VM/Linux account             |
-| Knox group                      | `group-<chatroomId>`, room session     | PlatformClaw server workspace, sandbox off |
+| Ingress or agent                | Agent and session                      | Execution target                                      |
+| ------------------------------- | -------------------------------------- | ----------------------------------------------------- |
+| PlatformClaw Web personal agent | Personal agent, selected owned session | Active personal target: PlatformClaw server or VM     |
+| Knox direct message             | Same personal agent and `main` session | Same active target as PlatformClaw Web                |
+| Knox group                      | `group-<chatroomId>`, room session     | PlatformClaw server workspace, no personal VM profile |
 
 Knox room workspaces provide organization, not security isolation. Room agents
 never receive a VM allocation or employee credential. Their per-agent
 `sandbox.mode: "off"` override remains the enforcement point; no Knox branch is
 added to sandbox core.
 
+Personal agents use one explicit execution target. `platform_server` runs
+commands with `exec` and `process` in the personal workspace on the
+PlatformClaw server. `assigned_vm` keeps the same tool policy but runs commands
+through SafeConnect in the assigned Linux account. PlatformClaw-server personal
+workspaces are also operational separation, not security isolation.
+
+VM registration is separate from target selection. A user with an assigned VM
+may select the PlatformClaw server, and a server user may select an assigned VM
+after its allocation and credential are ready. Only one target is active for a
+personal agent at a time. Workspaces at the two targets remain independent and
+are not copied or synchronized automatically.
+
 PlatformClaw Web continues to use one `platformclaw-control` BFF, one shared
 `BrowserGatewayProxy` policy layer, and one shared private Gateway client. VM
 sandbox selection happens inside the one Gateway process after normal agent and
 session routing.
+
+## Execution target UI and reconciliation
+
+Login authenticates the employee and reads the current execution target. It
+does not ask for, infer, or change the target. The authenticated application
+provides a separate execution-settings surface with the user-facing choices
+"PlatformClaw server" and "Personal VM". The term "local mode" is not used.
+
+An explicit change checks for an active run and, for a VM target, requires an
+active administrator-approved allocation, a current employee credential, and a
+successful SafeConnect connection check. The change commits atomically; any
+failed prerequisite leaves the previous target active. The UI always shows the
+active target and, when applicable, the assigned VM and Linux account.
+
+The control plane is the target source of truth. Its reconciler projects only
+the required generic agent policy:
+
+```text
+platform_server -> sandbox.mode: off
+assigned_vm     -> sandbox.mode: all, backend: platformclaw-vm, scope: agent
+```
+
+Operators do not hand-edit agent configuration. VM address, SafeConnect
+gateway, Linux account, and credential never enter the agent configuration;
+the backend resolves them from the prepared `agentId` through the private
+allocation client.
 
 ## Verified upstream execution boundary
 
@@ -142,10 +180,15 @@ socket path land with the approved schema slice.
 
 ## Approval required before persistence
 
-Schema version 1 cannot represent VM hosts, Linux-account allocation, or
-encrypted AD passwords. The recommended schema version 2 adds:
+Schema version 1 cannot represent execution-target selection, VM hosts,
+Linux-account allocation, or encrypted AD passwords. The recommended schema
+version 2 adds:
 
 ```text
+personal_execution_profiles
+  id, personal_binding_id UNIQUE,
+  active_target, revision, updated_by_user_id, created_at, updated_at
+
 vm_sandbox_hosts
   id, host, port, known_hosts_entry, remote_workspace_root, state,
   created_at, updated_at
@@ -173,7 +216,7 @@ per personal agent.
 
 Do not implement either option until the operator approves:
 
-- schema version 2 and its three tables;
+- schema version 2 and its execution-profile and VM tables;
 - encrypted-database credentials or external secret references;
 - Unix-domain credential broker ownership and master-key placement;
 - backup, restore, key rotation, and credential rotation policy.
@@ -184,6 +227,12 @@ The implementation checkpoint requires:
 
 - two personal agents resolve different allocations and cannot reuse each
   other's backend handle, scope, Linux account, workspace, or credential;
+- login reads but never changes the active execution target;
+- a target change fails atomically while a run is active or a VM prerequisite
+  is unavailable, leaving the previous target active;
+- server and VM targets retain equal `exec` and `process` policy while commands
+  execute in the selected location;
+- switching targets never copies, merges, or deletes either workspace;
 - concurrent allocation cannot assign one `(host_id, linux_account)` pair to
   more than one personal binding;
 - Web and Knox DM calls for one personal agent resolve the same allocation;
