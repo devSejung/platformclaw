@@ -10,11 +10,7 @@ import { renderEmployeeProfileArtifact } from "./employee-profile-artifact.js";
 import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
 type AgentSummary = { id: string; workspace?: string };
-type ConfigGetResult = {
-  config?: { agents?: { list?: AgentSummary[] } };
-  configRevisionHash?: string;
-  appliedConfigHash?: string | null;
-};
+type AgentsListResult = { agents?: AgentSummary[] };
 type AgentCreateResult = { ok: true; agentId: string; workspace: string };
 type ProfileSeedResult = {
   ok: true;
@@ -109,21 +105,15 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
     return workspace;
   }
 
-  private async getConfiguredAgent(agentId: string): Promise<{
-    agent: AgentSummary | undefined;
-    applied: boolean;
-  }> {
-    const result = await this.options.rpc.call<ConfigGetResult>("config.get", {});
-    const agents = result.config?.agents?.list ?? [];
+  private async getConfiguredAgent(agentId: string): Promise<AgentSummary | undefined> {
+    // agents.list reads the live runtime snapshot. config.get resolves the full operator config
+    // and is several seconds slower on Windows while still requiring an applied-hash check.
+    const result = await this.options.rpc.call<AgentsListResult>("agents.list", {});
+    const agents = result.agents ?? [];
     if (!Array.isArray(agents)) {
-      throw new Error("Gateway config.get returned an invalid agents list");
+      throw new Error("Gateway agents.list returned an invalid agents list");
     }
-    return {
-      agent: agents.find((agent) => agent.id === agentId),
-      applied:
-        typeof result.configRevisionHash === "string" &&
-        result.configRevisionHash === result.appliedConfigHash,
-    };
+    return agents.find((agent) => agent.id === agentId);
   }
 
   private verifyWorkspace(agentId: string, actual: string | undefined, expected: string): void {
@@ -134,8 +124,8 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
 
   private async ensureAgent(agentId: string, workspace: string): Promise<void> {
     const current = await this.getConfiguredAgent(agentId);
-    if (current.agent && current.applied) {
-      this.verifyWorkspace(agentId, current.agent.workspace, workspace);
+    if (current) {
+      this.verifyWorkspace(agentId, current.workspace, workspace);
       return;
     }
     try {
@@ -148,16 +138,32 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
       }
       this.verifyWorkspace(agentId, created.workspace, workspace);
     } catch (error) {
-      if (!(error instanceof GatewayAdminRpcError) || error.code !== "INVALID_REQUEST") {
+      if (
+        !(error instanceof GatewayAdminRpcError) ||
+        (error.code !== "INVALID_REQUEST" && error.code !== "UNAVAILABLE")
+      ) {
         throw error;
       }
-      // Another control process may win creation after this process reads config.
-      const existing = await this.getConfiguredAgent(agentId);
-      if (!existing.agent) {
-        throw error;
+      // Creation timeouts have an ambiguous outcome, while another control process may also
+      // win the create race. Adopt only the exact live agent and workspace in either case.
+      let existing: AgentSummary | undefined;
+      try {
+        existing = await this.getConfiguredAgent(agentId);
+      } catch (lookupError) {
+        if (
+          error.code === "INVALID_REQUEST" ||
+          !(lookupError instanceof GatewayAdminRpcError) ||
+          lookupError.code !== "UNAVAILABLE"
+        ) {
+          throw lookupError;
+        }
       }
-      this.verifyWorkspace(agentId, existing.agent.workspace, workspace);
-      if (existing.applied) {
+      if (!existing) {
+        if (error.code === "INVALID_REQUEST") {
+          throw error;
+        }
+      } else {
+        this.verifyWorkspace(agentId, existing.workspace, workspace);
         return;
       }
     }
@@ -167,8 +173,8 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
       }
       try {
         const configured = await this.getConfiguredAgent(agentId);
-        if (configured.agent && configured.applied) {
-          this.verifyWorkspace(agentId, configured.agent.workspace, workspace);
+        if (configured) {
+          this.verifyWorkspace(agentId, configured.workspace, workspace);
           return;
         }
       } catch (error) {

@@ -37,7 +37,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["agents.files.list", new Set(["agentId"])],
   ["agents.files.set", new Set(["agentId", "name", "content"])],
   ["agents.list", new Set()],
-  ["chat.abort", new Set(["sessionKey", "agentId", "preserveSideRuns"])],
+  ["chat.abort", new Set(["sessionKey", "agentId", "preserveSideRuns", "runId"])],
   [
     "chat.history",
     new Set(["sessionKey", "agentId", "limit", "offset", "messageId", "sessionId", "maxChars"]),

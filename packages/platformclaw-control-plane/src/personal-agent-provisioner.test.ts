@@ -73,12 +73,8 @@ function createProfileSeedResponder(workspace: string) {
   };
 }
 
-function configResponse(agents: Array<{ id: string; workspace: string }>, applied = true): unknown {
-  return {
-    config: { agents: { list: agents } },
-    configRevisionHash: "config-hash",
-    appliedConfigHash: applied ? "config-hash" : "previous-hash",
-  };
+function agentsResponse(agents: Array<{ id: string; workspace: string }>): unknown {
+  return { agents };
 }
 
 describe("GatewayPersonalAgentProvisioner", () => {
@@ -98,8 +94,8 @@ describe("GatewayPersonalAgentProvisioner", () => {
     const workspace = path.join(workspaceRoot, "account_name");
     const profileSeed = createProfileSeedResponder(workspace);
     const { rpc, call } = createRpc((method, params) => {
-      if (method === "config.get") {
-        return configResponse([{ id: "account_name", workspace }]);
+      if (method === "agents.list") {
+        return agentsResponse([{ id: "account_name", workspace }]);
       }
       if (method === "agents.create") {
         return { ok: true, agentId: "account_name", workspace };
@@ -114,7 +110,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
 
     await provisioner.provisionOrRefresh(request());
 
-    expect(call).toHaveBeenNthCalledWith(1, "config.get", {});
+    expect(call).toHaveBeenNthCalledWith(1, "agents.list", {});
     expect(call).toHaveBeenNthCalledWith(2, "platformclaw.profile.seed", {
       agentId: "account_name",
       workspace,
@@ -126,17 +122,17 @@ describe("GatewayPersonalAgentProvisioner", () => {
     });
   });
 
-  it("creates and waits for a disk-only agent to enter the applied configuration", async () => {
+  it("creates and waits for a new agent to enter the live runtime configuration", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
     const profileSeed = createProfileSeedResponder(workspace);
     let configRead = 0;
     const { rpc, call } = createRpc((method, params) => {
-      if (method === "config.get") {
+      if (method === "agents.list") {
         configRead += 1;
         return configRead === 1
-          ? configResponse([])
-          : configResponse([{ id: "account_name", workspace }]);
+          ? agentsResponse([])
+          : agentsResponse([{ id: "account_name", workspace }]);
       }
       if (method === "agents.create") {
         return { ok: true, agentId: "account_name", workspace };
@@ -151,12 +147,12 @@ describe("GatewayPersonalAgentProvisioner", () => {
 
     await provisioner.provisionOrRefresh(request());
 
-    expect(call).toHaveBeenNthCalledWith(1, "config.get", {});
+    expect(call).toHaveBeenNthCalledWith(1, "agents.list", {});
     expect(call).toHaveBeenNthCalledWith(2, "agents.create", {
       name: "account_name",
       workspace,
     });
-    expect(call).toHaveBeenNthCalledWith(3, "config.get", {});
+    expect(call).toHaveBeenNthCalledWith(3, "agents.list", {});
   });
 
   it("revalidates and refreshes an active binding instead of trusting stale database state", async () => {
@@ -164,8 +160,8 @@ describe("GatewayPersonalAgentProvisioner", () => {
     const workspace = path.join(workspaceRoot, "account_name");
     const profileSeed = createProfileSeedResponder(workspace);
     const { rpc, call } = createRpc((method, params) => {
-      if (method === "config.get") {
-        return configResponse([{ id: "account_name", workspace }]);
+      if (method === "agents.list") {
+        return agentsResponse([{ id: "account_name", workspace }]);
       }
       const fileResponse = profileSeed.handle(method, params);
       if (fileResponse) {
@@ -188,7 +184,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
   it("fails closed instead of adopting an agent with another workspace", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const { rpc, call } = createRpc(() => {
-      return configResponse([{ id: "account_name", workspace: path.resolve("other-workspace") }]);
+      return agentsResponse([{ id: "account_name", workspace: path.resolve("other-workspace") }]);
     });
     const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
 
@@ -204,11 +200,11 @@ describe("GatewayPersonalAgentProvisioner", () => {
     const profileSeed = createProfileSeedResponder(workspace);
     let configRead = 0;
     const { rpc, call } = createRpc((method, params) => {
-      if (method === "config.get") {
+      if (method === "agents.list") {
         configRead += 1;
         return configRead === 1
-          ? configResponse([])
-          : configResponse([{ id: "account_name", workspace }]);
+          ? agentsResponse([])
+          : agentsResponse([{ id: "account_name", workspace }]);
       }
       if (method === "agents.create") {
         throw new GatewayAdminRpcError("agent already exists", "INVALID_REQUEST", 400);
@@ -228,12 +224,39 @@ describe("GatewayPersonalAgentProvisioner", () => {
     });
   });
 
+  it("confirms an agent after an ambiguous create timeout", async () => {
+    const workspaceRoot = path.resolve("test-workspaces");
+    const workspace = path.join(workspaceRoot, "account_name");
+    const profileSeed = createProfileSeedResponder(workspace);
+    let agentRead = 0;
+    const { rpc } = createRpc((method, params) => {
+      if (method === "agents.list") {
+        agentRead += 1;
+        return agentRead < 3
+          ? agentsResponse([])
+          : agentsResponse([{ id: "account_name", workspace }]);
+      }
+      if (method === "agents.create") {
+        throw new GatewayAdminRpcError("Gateway Admin RPC unavailable", "UNAVAILABLE");
+      }
+      const fileResponse = profileSeed.handle(method, params);
+      if (fileResponse) {
+        return fileResponse;
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
+
+    await expect(provisioner.provisionOrRefresh(request())).resolves.toBeUndefined();
+    expect(agentRead).toBe(3);
+  });
+
   it("fails closed when the profile seed response points at another workspace", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
     const call = vi.fn(async (method: string, _params: unknown) => {
-      if (method === "config.get") {
-        return configResponse([{ id: "account_name", workspace }]);
+      if (method === "agents.list") {
+        return agentsResponse([{ id: "account_name", workspace }]);
       }
       if (method === "platformclaw.profile.seed") {
         return {
@@ -265,8 +288,8 @@ describe("GatewayPersonalAgentProvisioner", () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
     const { rpc, call } = createRpc((method) => {
-      if (method === "config.get") {
-        return configResponse([{ id: "account_name", workspace }]);
+      if (method === "agents.list") {
+        return agentsResponse([{ id: "account_name", workspace }]);
       }
       if (method === "platformclaw.profile.status") {
         return { ok: true, agentId: "account_name", workspace, status };
@@ -288,8 +311,8 @@ describe("GatewayPersonalAgentProvisioner", () => {
 
   it("fails restart recovery when agent creation cannot be confirmed", async () => {
     const { rpc, call } = createRpc((method) => {
-      if (method === "config.get") {
-        return configResponse([]);
+      if (method === "agents.list") {
+        return agentsResponse([]);
       }
       if (method === "agents.create") {
         throw new GatewayAdminRpcError("agent create failed", "INVALID_REQUEST", 400);

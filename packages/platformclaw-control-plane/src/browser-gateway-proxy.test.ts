@@ -585,17 +585,22 @@ describe("BrowserGatewayProxy", () => {
     });
   });
 
-  it("rejects browser-selected run IDs for both abort methods", async () => {
+  it("rejects session run IDs and strips chat run IDs before aborting an owned session", async () => {
     const { binding, proxy, request, token } = await setup();
     const key = `agent:${binding.agentId}:main`;
 
     await expect(
       proxy.request(token, "sessions.abort", { key, runId: "foreign-run" }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
+    request.mockResolvedValueOnce({ ok: true });
     await expect(
       proxy.request(token, "chat.abort", { sessionKey: key, runId: "foreign-run" }),
-    ).rejects.toMatchObject({ code: "method-not-allowed" });
-    expect(request).not.toHaveBeenCalled();
+    ).resolves.toEqual({ ok: true });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith("chat.abort", {
+      sessionKey: key,
+      agentId: binding.agentId,
+    });
   });
 
   it("requires owned session keys for search and accepts a missing describe result", async () => {
