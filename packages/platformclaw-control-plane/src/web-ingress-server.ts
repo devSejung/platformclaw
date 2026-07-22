@@ -163,6 +163,16 @@ function decodeTextFrame(data: RawData): string {
   return Buffer.concat(data).toString("utf8");
 }
 
+function rawDataByteLength(data: RawData): number {
+  if (Buffer.isBuffer(data)) {
+    return data.byteLength;
+  }
+  if (data instanceof ArrayBuffer) {
+    return data.byteLength;
+  }
+  return data.reduce((total, chunk) => total + chunk.byteLength, 0);
+}
+
 function responseError(id: string, error: unknown): ResponseFrame {
   return { type: "res", id, ok: false, error: proxyErrorShape(error) };
 }
@@ -379,8 +389,10 @@ export class PlatformClawWebIngressServer {
     let handshakeChain = Promise.resolve();
     let handshakePendingCount = 0;
     let pendingRequestCount = 0;
+    let pendingRequestBytes = 0;
     let activeRequestCount = 0;
-    const requestQueue: Array<() => Promise<void>> = [];
+    const maxPendingRequestBytes = 2 * (this.options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES);
+    const requestQueue: Array<{ handle: () => Promise<void>; byteLength: number }> = [];
     let mutationBarrier = Promise.resolve();
     let eventChain = Promise.resolve();
 
@@ -517,6 +529,7 @@ export class PlatformClawWebIngressServer {
 
     const discardQueuedRequests = (): void => {
       pendingRequestCount -= requestQueue.length;
+      pendingRequestBytes -= requestQueue.reduce((total, request) => total + request.byteLength, 0);
       requestQueue.length = 0;
     };
 
@@ -525,16 +538,18 @@ export class PlatformClawWebIngressServer {
         return;
       }
       while (activeRequestCount < MAX_CONCURRENT_BROWSER_REQUESTS) {
-        const request = requestQueue.shift();
-        if (!request) {
+        const queuedRequest = requestQueue.shift();
+        if (!queuedRequest) {
           return;
         }
         activeRequestCount += 1;
-        void request()
+        void queuedRequest
+          .handle()
           .catch(() => websocket.close(1011, "request handling failed"))
           .finally(() => {
             activeRequestCount -= 1;
             pendingRequestCount -= 1;
+            pendingRequestBytes -= queuedRequest.byteLength;
             drainRequestQueue();
           });
       }
@@ -566,6 +581,15 @@ export class PlatformClawWebIngressServer {
         websocket.close(1003, "binary frames are not supported");
         return;
       }
+      const messageBytes = rawDataByteLength(data);
+      if (
+        pendingRequestCount >= MAX_PENDING_BROWSER_REQUESTS ||
+        pendingRequestBytes + messageBytes > maxPendingRequestBytes
+      ) {
+        discardQueuedRequests();
+        websocket.close(1013, "too many pending browser requests");
+        return;
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(decodeTextFrame(data));
@@ -577,17 +601,13 @@ export class PlatformClawWebIngressServer {
         websocket.close(1008, "invalid request frame");
         return;
       }
-      if (pendingRequestCount >= MAX_PENDING_BROWSER_REQUESTS) {
-        discardQueuedRequests();
-        websocket.close(1013, "too many pending browser requests");
-        return;
-      }
       pendingRequestCount += 1;
+      pendingRequestBytes += messageBytes;
       const handleMessage = () => handleOrderedRequest(parsed);
       if (connected && handshakePendingCount === 0) {
         // Match upstream's independent RPC progress while bounding in-flight Gateway work.
         // Queued closures are discarded below when the browser disconnects.
-        requestQueue.push(handleMessage);
+        requestQueue.push({ handle: handleMessage, byteLength: messageBytes });
         drainRequestQueue();
         return;
       }
@@ -598,6 +618,7 @@ export class PlatformClawWebIngressServer {
         .finally(() => {
           handshakePendingCount -= 1;
           pendingRequestCount -= 1;
+          pendingRequestBytes -= messageBytes;
         });
     });
 

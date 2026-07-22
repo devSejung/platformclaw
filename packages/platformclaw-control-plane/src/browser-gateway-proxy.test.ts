@@ -471,6 +471,18 @@ describe("BrowserGatewayProxy", () => {
       expect.objectContaining({ suppressCommandInterpretation: true }),
     );
 
+    request.mockResolvedValueOnce({
+      commands: [{ name: "status", description: "Show status", acceptsArgs: false }],
+    });
+    await expect(
+      proxy.request(token, "chat.send", {
+        sessionKey: key,
+        message: "/status /danger",
+        idempotencyKey: "request-unadvertised-embedded-command",
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    expect(request).toHaveBeenLastCalledWith("chat.metadata", { agentId: binding.agentId });
+
     for (const message of [
       "/config show",
       "/plugin: list",
@@ -489,7 +501,7 @@ describe("BrowserGatewayProxy", () => {
         }),
       ).rejects.toMatchObject({ code: "method-not-allowed" });
     }
-    expect(request).toHaveBeenCalledTimes(3);
+    expect(request).toHaveBeenCalledTimes(4);
   });
 
   it("starts a browser-created session through the command-suppressed chat path", async () => {

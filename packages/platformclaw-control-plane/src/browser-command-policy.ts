@@ -89,9 +89,10 @@ export function resolveBrowserCommandPolicy(
   if (!leading) {
     return "block";
   }
-  return projectBrowserCommands(advertisedCommands).some((command) =>
-    commandNames(command).includes(leading),
-  )
+  const safeNames = new Set(projectBrowserCommands(advertisedCommands).flatMap(commandNames));
+  // Every slash token can be interpreted by Gateway, not only the leading one.
+  // Fail closed when any embedded directive was omitted from the safe projection.
+  return safeNames.has(leading) && tokens.every((token) => safeNames.has(token))
     ? "allow"
     : "block";
 }

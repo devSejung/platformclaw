@@ -621,6 +621,75 @@ describe("PlatformClawWebIngressServer", () => {
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(8));
   });
 
+  it("closes a browser that exceeds the pending request byte budget", async () => {
+    const gateway = new FakeGateway();
+    const blockedRequest = deferred<unknown>();
+    const request = vi.fn(async () => blockedRequest.promise);
+    const policy: PlatformClawBrowserGatewayPolicy = {
+      resolveAccess: vi.fn(async () => access),
+      request,
+      filterEvent: vi.fn(async (_token, event) => event),
+    };
+    server = new PlatformClawWebIngressServer({
+      publicOrigin: PUBLIC_ORIGIN,
+      authService: {} as BrowserAuthService,
+      loginRateLimiter: {
+        check: () => ({ allowed: true, retryAfterMs: 0 }),
+        recordFailure: vi.fn(),
+      },
+      gatewayProxy: policy,
+      gateway,
+      maxPayloadBytes: 1024,
+    });
+    await server.listen({ host: "127.0.0.1", port: 0 });
+    const port = (server.address() as AddressInfo).port;
+    websocket = new WebSocket(`ws://127.0.0.1:${port}/platformclaw/gateway`, {
+      origin: PUBLIC_ORIGIN,
+      headers: { Cookie: `platformclaw_session=${TEST_SESSION}` },
+    });
+    const nextFrame = createFrameQueue(websocket);
+    await new Promise<void>((resolve, reject) => {
+      websocket?.once("open", resolve);
+      websocket?.once("error", reject);
+    });
+    await nextFrame((frame) => isRecord(frame) && frame.event === "connect.challenge");
+    websocket.send(
+      JSON.stringify({
+        type: "req",
+        id: "connect-byte-limit",
+        method: "connect",
+        params: {
+          minProtocol: 4,
+          maxProtocol: 4,
+          client: {
+            id: "openclaw-control-ui",
+            version: "test",
+            platform: "web",
+            mode: "webchat",
+          },
+        },
+      }),
+    );
+    await nextFrame((frame) => isRecord(frame) && frame.id === "connect-byte-limit");
+    const closed = new Promise<number>((resolve) => {
+      websocket?.once("close", resolve);
+    });
+    for (let index = 0; index < 3; index += 1) {
+      websocket.send(
+        JSON.stringify({
+          type: "req",
+          id: `pending-bytes-${index}`,
+          method: "agents.list",
+          params: { padding: "x".repeat(700) },
+        }),
+      );
+    }
+
+    await expect(closed).resolves.toBe(1013);
+    blockedRequest.resolve({});
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  });
+
   it("does not retain a Gateway subscription when the browser closes during connect", async () => {
     const gateway = new FakeGateway();
     const connectAccess = deferred<BrowserGatewayAccess>();
