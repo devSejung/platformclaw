@@ -1195,6 +1195,7 @@ function renderChatThreadContents(
     return nothing;
   });
   const collapsedItems = collapseCompletedTurnWork(coalesceStreamRuns(chatItems), {
+    sessionKey: props.sessionKey,
     runWorking: Boolean(props.runWorking),
     searchActive: state.searchOpen && Boolean(state.searchQuery.trim()),
   });

@@ -136,9 +136,7 @@ class AppSidebar extends AppSidebarSessionListElement {
           .menuOpen=${this.agentMenuPosition !== null}
           .menuUnread=${menuUnread}
           .switcherAvailable=${cardAgents.length > 1}
-          .onToggleMenu=${this.accountPrimaryLabel
-            ? undefined
-            : (trigger: HTMLElement) => this.toggleAgentMenu(trigger)}
+          .onToggleMenu=${(trigger: HTMLElement) => this.toggleAgentMenu(trigger)}
         ></openclaw-sidebar-agent-card>
         <div class="sidebar-brand__actions">
           ${this.renderSearch()}

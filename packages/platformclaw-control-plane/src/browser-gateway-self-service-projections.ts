@@ -92,14 +92,28 @@ export async function isConfiguredBrowserModel(
     return false;
   }
   const models = (result as JsonObject).models;
-  return (
-    Array.isArray(models) &&
-    models.some(
-      (model) =>
-        Boolean(model) &&
-        typeof model === "object" &&
-        !Array.isArray(model) &&
-        (model as JsonObject).id === modelId,
-    )
-  );
+  if (!Array.isArray(models)) {
+    return false;
+  }
+  const selected = modelId.trim();
+  return models.some((model) => {
+    if (!model || typeof model !== "object" || Array.isArray(model)) {
+      return false;
+    }
+    const entry = model as JsonObject;
+    const id = typeof entry.id === "string" ? entry.id.trim() : "";
+    const provider = typeof entry.provider === "string" ? entry.provider.trim() : "";
+    if (!id) {
+      return false;
+    }
+    if (selected === id) {
+      return true;
+    }
+    const providerPrefix = provider ? `${provider}/` : "";
+    const qualified =
+      providerPrefix && !id.toLowerCase().startsWith(providerPrefix.toLowerCase())
+        ? `${providerPrefix}${id}`
+        : id;
+    return selected === qualified;
+  });
 }

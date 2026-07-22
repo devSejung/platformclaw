@@ -15,7 +15,7 @@ export const PLATFORMCLAW_WEB_DESCRIPTOR = {
   loginPath: PLATFORMCLAW_WEB_LOGIN_PATH,
   logoutPath: "/platformclaw/api/auth/logout",
   sessionPath: "/platformclaw/api/auth/session",
-  enabledRoutes: ["chat", "new-session", "sessions", "agents"],
+  enabledRoutes: ["chat", "new-session", "sessions", "agents", "tasks", "appearance"],
 } as const;
 
 export type PlatformClawWebAssetHandler = {

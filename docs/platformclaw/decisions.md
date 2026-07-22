@@ -269,18 +269,30 @@ from the same public origin as `platformclaw-control`. The authenticated app
 uses the opaque browser cookie and the shared Web Gateway policy proxy. It does
 not receive a Gateway credential or use a per-user proxy or Gateway client.
 
-The first post-login surface reuses upstream chat, session, and Agent components.
-Browser users can open chat, new-session, personal-session, and their bound
-Agent page. Personal Agent access is limited to the upstream allowlisted
-workspace files and a read-only skill inventory. Session model selection is
-limited to models returned by the configured catalog. Filesystem paths,
-cross-agent results, system configuration, Agent policy mutations, and operator
-surfaces stay behind the BFF policy.
+The first post-login surface reuses upstream chat, session, task, and Agent
+components. Browser users can open chat, new-session, personal-session,
+agent-scoped background-task, and their bound Agent page. Personal Agent access
+is limited to the upstream allowlisted workspace files and a read-only skill
+inventory. Session model selection is limited to models returned by the
+configured catalog. Background task reads and cancellation are forced to the
+authenticated Agent, and task results are revalidated before they cross the
+shared Gateway boundary. Filesystem paths, cross-agent results, system
+configuration, Agent policy mutations, and operator surfaces stay behind the
+BFF policy.
 
 A single PlatformClaw UI adapter owns the fixed same-origin Gateway URL,
 personal-agent access mode, session-expiry redirect, route availability,
 identity summary, and logout. Detailed visual design is deferred. UI hiding is
 not authorization; PC-116 remains the request/event security boundary.
+
+Personal users may open upstream Appearance preferences for browser-local
+theme, text, chat, and language choices. This page must not read or mutate the
+operator Gateway configuration. Other Settings routes remain hidden unless
+their BFF capability and user ownership policy are explicitly approved.
+
+Administrator Control UI remains a separate private deployment surface. It
+must not share the employee BFF endpoint, cookie authority, or browser method
+allowlist; its listener and administrator authentication are deployment work.
 
 The legacy employee entry is behavioral reference only. Its browser bootstrap
 token, browser-provided agent/session routing, and broad per-page employee-mode

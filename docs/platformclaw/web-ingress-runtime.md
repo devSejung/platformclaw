@@ -121,6 +121,10 @@ Never put real employee records or passwords in a committed fixture.
   are not exposed.
 - Unknown methods and newly added upstream parameters fail closed until the
   browser policy is reviewed.
+- Background task list, detail, cancellation, and live upsert events are
+  restricted to the authenticated personal Agent. Ownership-free task deletion
+  and registry restoration events are not forwarded through the shared Gateway
+  stream; reconnect or explicit refresh rebuilds the Agent-scoped snapshot.
 
 ## Deployment entry point
 

@@ -1458,6 +1458,7 @@ class OpenClawShell extends OpenClawLightDomElement {
                   void this.handleSettingsSearchQueryChange(nextQuery);
                 },
                 preloadTimers: this.settingsPreloadTimers,
+                isRouteEnabled: (routeId) => this.enabledRouteIds().includes(routeId),
               })
             : html`<openclaw-app-sidebar
                 .basePath=${context.basePath}

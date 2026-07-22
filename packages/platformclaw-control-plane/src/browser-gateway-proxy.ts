@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import {
-  hasBlockedBrowserDirective,
   projectBrowserCommands,
-  resolveBrowserCommandPolicy,
+  resolveBrowserCommandSuppression,
 } from "./browser-command-policy.js";
+import {
+  browserEventPayloadBelongsToAccess,
+  browserPayloadBelongsToAccess,
+} from "./browser-gateway-ownership.js";
 import {
   PLATFORMCLAW_WEB_AGENT_ONLY_METHODS,
   PLATFORMCLAW_WEB_ALLOWED_METHODS,
@@ -24,6 +27,10 @@ import {
   projectBrowserAgentFiles,
   projectBrowserSkillsStatus,
 } from "./browser-gateway-self-service-projections.js";
+import {
+  browserTaskEventBelongsToAccess,
+  projectBrowserTaskResult,
+} from "./browser-gateway-task-policy.js";
 import type {
   ControlPlaneAuditWriter,
   ControlPlaneStore,
@@ -41,19 +48,13 @@ export const PLATFORMCLAW_WEB_GATEWAY_EVENTS = [
   "session.operation",
   "session.tool",
   "sessions.changed",
+  "task",
 ] as const;
 
 const SAFE_GLOBAL_EVENTS = new Set<string>(["shutdown", "tick"]);
 const SESSION_SCOPED_EVENTS = new Set<string>(
   PLATFORMCLAW_WEB_GATEWAY_EVENTS.filter((event) => event !== "shutdown" && event !== "tick"),
 );
-const SESSION_KEY_FIELDS = new Set([
-  "sessionKey",
-  "parentSessionKey",
-  "childSessionKey",
-  "spawnedBy",
-]);
-
 type JsonObject = Record<string, unknown>;
 
 export type BrowserGatewayEvent = {
@@ -160,6 +161,9 @@ export class BrowserGatewayProxy {
           "browser model selection is limited to configured models",
         );
       }
+      if (method === "tasks.cancel") {
+        await this.assertOwnedTask(access, prepared.taskId);
+      }
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
         await this.auditDeniedRequest(access, method, error.code);
@@ -252,20 +256,11 @@ export class BrowserGatewayProxy {
     access: BrowserGatewayAccess,
     message: unknown,
   ): Promise<boolean> {
-    if (typeof message !== "string" || !message.trim().startsWith("/")) {
-      return true;
-    }
-    if (hasBlockedBrowserDirective(message)) {
-      throw new BrowserGatewayProxyError(
-        "method-not-allowed",
-        "Gateway administration commands are not available to browser users",
-      );
-    }
-    const metadata = asObject(
-      await this.options.gateway.request("chat.metadata", { agentId: access.binding.agentId }),
-      "chat.metadata result",
-    );
-    const policy = resolveBrowserCommandPolicy(message, metadata.commands);
+    const policy = await resolveBrowserCommandSuppression({
+      gateway: this.options.gateway,
+      agentId: access.binding.agentId,
+      message,
+    });
     if (policy === "block") {
       throw new BrowserGatewayProxyError(
         "method-not-allowed",
@@ -288,6 +283,11 @@ export class BrowserGatewayProxy {
     }
     if (SAFE_GLOBAL_EVENTS.has(event.event)) {
       return event;
+    }
+    if (event.event === "task") {
+      return browserTaskEventBelongsToAccess(this.browserTaskAccess(access), event.payload)
+        ? event
+        : null;
     }
     if (
       !SESSION_SCOPED_EVENTS.has(event.event) ||
@@ -368,6 +368,9 @@ export class BrowserGatewayProxy {
       }
       return { ...params, agentId: access.binding.agentId, emitCommandHooks: false };
     }
+    if (method === "tasks.get" || method === "tasks.cancel") {
+      return params;
+    }
     if (PLATFORMCLAW_WEB_AGENT_ONLY_METHODS.has(method)) {
       this.assertOptionalAgentId(access, params.agentId, method);
       if (params.sessionKey !== undefined) {
@@ -405,6 +408,16 @@ export class BrowserGatewayProxy {
     prepared: JsonObject,
     result: unknown,
   ): unknown {
+    if (method === "tasks.list" || method === "tasks.get" || method === "tasks.cancel") {
+      return projectBrowserTaskResult({
+        access: this.browserTaskAccess(access),
+        method,
+        result,
+        fail: (message) => {
+          throw new BrowserGatewayProxyError("upstream-result-denied", message);
+        },
+      });
+    }
     if (method.startsWith("agents.files.")) {
       return projectBrowserAgentFiles({
         agentId: access.binding.agentId,
@@ -569,76 +582,29 @@ export class BrowserGatewayProxy {
     return result;
   }
 
+  private async assertOwnedTask(access: BrowserGatewayAccess, rawTaskId: unknown): Promise<void> {
+    const taskId = optionalString(rawTaskId);
+    if (!taskId) {
+      throw new BrowserGatewayProxyError("invalid-params", "tasks.cancel requires a task id");
+    }
+    const result = await this.options.gateway.request("tasks.get", { taskId });
+    this.filterResult(access, "tasks.get", { taskId }, result);
+  }
+
+  private browserTaskAccess(access: BrowserGatewayAccess) {
+    return {
+      agentId: access.binding.agentId,
+      resolveAgentIdFromSessionKey: (sessionKey: string) =>
+        this.options.resolveAgentIdFromSessionKey(sessionKey),
+    };
+  }
+
   private payloadBelongsToAccess(access: BrowserGatewayAccess, payload: unknown): boolean {
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      return false;
-    }
-    const record = payload as JsonObject;
-    if (this.hasForeignOwnershipFields(access, record)) {
-      return false;
-    }
-    const agentId = optionalString(record.agentId);
-    const sessionKey = optionalString(record.sessionKey) ?? optionalString(record.key);
-    if (agentId && agentId !== access.binding.agentId) {
-      return false;
-    }
-    if (sessionKey) {
-      return this.options.resolveAgentIdFromSessionKey(sessionKey) === access.binding.agentId;
-    }
-    return agentId === access.binding.agentId;
+    return browserPayloadBelongsToAccess(this.browserTaskAccess(access), payload);
   }
 
   private eventPayloadBelongsToAccess(access: BrowserGatewayAccess, payload: unknown): boolean {
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      return false;
-    }
-    const record = payload as JsonObject;
-    const sessionKey = optionalString(record.sessionKey) ?? optionalString(record.key);
-    if (
-      !sessionKey ||
-      this.options.resolveAgentIdFromSessionKey(sessionKey) !== access.binding.agentId
-    ) {
-      return false;
-    }
-    return !this.hasForeignOwnershipFields(access, record);
-  }
-
-  private hasForeignOwnershipFields(access: BrowserGatewayAccess, record: JsonObject): boolean {
-    const agentId = optionalString(record.agentId);
-    if (agentId && agentId !== access.binding.agentId) {
-      return true;
-    }
-    for (const field of SESSION_KEY_FIELDS) {
-      const sessionKey = optionalString(record[field]);
-      if (
-        sessionKey &&
-        this.options.resolveAgentIdFromSessionKey(sessionKey) !== access.binding.agentId
-      ) {
-        return true;
-      }
-    }
-    const rowKey = optionalString(record.key);
-    if (rowKey) {
-      const resolvedAgentId = this.options.resolveAgentIdFromSessionKey(rowKey);
-      if (resolvedAgentId && resolvedAgentId !== access.binding.agentId) {
-        return true;
-      }
-    }
-    if (record.childSessions !== undefined) {
-      if (!Array.isArray(record.childSessions)) {
-        return true;
-      }
-      for (const childSession of record.childSessions) {
-        const sessionKey = optionalString(childSession);
-        if (
-          !sessionKey ||
-          this.options.resolveAgentIdFromSessionKey(sessionKey) !== access.binding.agentId
-        ) {
-          return true;
-        }
-      }
-    }
-    return false;
+    return browserEventPayloadBelongsToAccess(this.browserTaskAccess(access), payload);
   }
 
   private assertOptionalAgentId(

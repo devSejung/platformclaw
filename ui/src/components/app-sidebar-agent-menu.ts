@@ -54,6 +54,7 @@ type SidebarAgentMenuParams = {
   basePath: string;
   gatewayVersion: string | null;
   themeMode: ThemeMode;
+  isRouteEnabled: (routeId: NavigationRouteId) => boolean;
   agentUnreadCount: (agentId: string) => number;
   onFilterChange: (next: string) => void;
   onSwitchAgent: (agentId: string) => void;
@@ -188,6 +189,11 @@ export function renderSidebarAgentMenu(params: SidebarAgentMenuParams) {
   }
   const { activeId, activeName, agents } = params;
   const { rows, showFilter } = sidebarAgentMenuRows(params);
+  const settingsRoute = params.isRouteEnabled("config")
+    ? "config"
+    : params.isRouteEnabled("appearance")
+      ? "appearance"
+      : null;
   return html`
     <openclaw-menu-surface>
       <wa-dropdown
@@ -225,7 +231,9 @@ export function renderSidebarAgentMenu(params: SidebarAgentMenuParams) {
               params.onNavigate("agents", { search: `?agent=${encodeURIComponent(activeId)}` });
               break;
             case `${COMMAND_VALUE_PREFIX}settings`:
-              params.onNavigate("config");
+              if (settingsRoute) {
+                params.onNavigate(settingsRoute);
+              }
               break;
             case `${COMMAND_VALUE_PREFIX}pair-mobile`:
               params.onPairMobile();
@@ -316,28 +324,39 @@ export function renderSidebarAgentMenu(params: SidebarAgentMenuParams) {
             ${t("agentChip.whatCanAgentDo", { name: activeName })}
           </span>
         </wa-dropdown-item>
-        <wa-dropdown-item class="sidebar-customize-menu__item" value="command:agent-settings">
-          <span slot="icon" class="nav-item__icon" aria-hidden="true">${icons.users}</span>
-          <span class="sidebar-customize-menu__text">${t("agentChip.agentSettings")}</span>
-        </wa-dropdown-item>
+        ${params.isRouteEnabled("agents")
+          ? html`<wa-dropdown-item
+              class="sidebar-customize-menu__item"
+              value="command:agent-settings"
+            >
+              <span slot="icon" class="nav-item__icon" aria-hidden="true">${icons.users}</span>
+              <span class="sidebar-customize-menu__text">${t("agentChip.agentSettings")}</span>
+            </wa-dropdown-item>`
+          : nothing}
         <div class="sidebar-customize-menu__separator" role="separator"></div>
-        <wa-dropdown-item class="sidebar-customize-menu__item" value="command:settings">
-          <span slot="icon" class="nav-item__icon" aria-hidden="true">${icons.settings}</span>
-          <span class="sidebar-customize-menu__text">${titleForRoute("config")}</span>
-        </wa-dropdown-item>
-        <wa-dropdown-item
-          class="sidebar-customize-menu__item sidebar-pair-mobile"
-          value="command:pair-mobile"
-          ?disabled=${!params.canPairDevice}
-          title=${params.canPairDevice ? nothing : t("nodes.pairing.adminRequired")}
-        >
-          <span slot="icon" class="nav-item__icon" aria-hidden="true">${icons.smartphone}</span>
-          <span class="sidebar-customize-menu__text">${t("nodes.pairing.button")}</span>
-        </wa-dropdown-item>
-        <wa-dropdown-item class="sidebar-customize-menu__item" value="command:apps">
-          <span slot="icon" class="nav-item__icon" aria-hidden="true">${icons.smartphone}</span>
-          <span class="sidebar-customize-menu__text">${t("agentChip.getApps")}</span>
-        </wa-dropdown-item>
+        ${settingsRoute
+          ? html`<wa-dropdown-item class="sidebar-customize-menu__item" value="command:settings">
+              <span slot="icon" class="nav-item__icon" aria-hidden="true">${icons.settings}</span>
+              <span class="sidebar-customize-menu__text">${titleForRoute("config")}</span>
+            </wa-dropdown-item>`
+          : nothing}
+        ${params.isRouteEnabled("nodes")
+          ? html`<wa-dropdown-item
+              class="sidebar-customize-menu__item sidebar-pair-mobile"
+              value="command:pair-mobile"
+              ?disabled=${!params.canPairDevice}
+              title=${params.canPairDevice ? nothing : t("nodes.pairing.adminRequired")}
+            >
+              <span slot="icon" class="nav-item__icon" aria-hidden="true">${icons.smartphone}</span>
+              <span class="sidebar-customize-menu__text">${t("nodes.pairing.button")}</span>
+            </wa-dropdown-item>`
+          : nothing}
+        ${params.isRouteEnabled("apps")
+          ? html`<wa-dropdown-item class="sidebar-customize-menu__item" value="command:apps">
+              <span slot="icon" class="nav-item__icon" aria-hidden="true">${icons.smartphone}</span>
+              <span class="sidebar-customize-menu__text">${t("agentChip.getApps")}</span>
+            </wa-dropdown-item>`
+          : nothing}
         <wa-dropdown-item
           class="sidebar-customize-menu__item sidebar-agent-menu__help"
           value="command:help"
@@ -350,14 +369,16 @@ export function renderSidebarAgentMenu(params: SidebarAgentMenuParams) {
         </wa-dropdown-item>
         <div class="sidebar-customize-menu__separator" role="separator"></div>
         <div class="sidebar-agent-menu__footer">
-          <openclaw-sidebar-build-chip
-            .basePath=${params.basePath}
-            .gatewayVersion=${params.gatewayVersion}
-            .onNavigate=${(routeId: "about") => {
-              params.onClose();
-              params.onNavigate(routeId);
-            }}
-          ></openclaw-sidebar-build-chip>
+          ${params.isRouteEnabled("about")
+            ? html`<openclaw-sidebar-build-chip
+                .basePath=${params.basePath}
+                .gatewayVersion=${params.gatewayVersion}
+                .onNavigate=${(routeId: "about") => {
+                  params.onClose();
+                  params.onNavigate(routeId);
+                }}
+              ></openclaw-sidebar-build-chip>`
+            : nothing}
           <span class="sidebar-mode-switch">
             <openclaw-theme-mode-toggle .mode=${params.themeMode}></openclaw-theme-mode-toggle>
           </span>
