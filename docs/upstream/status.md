@@ -5,12 +5,14 @@
 - Upstream repository: `https://github.com/openclaw/openclaw.git`
 - Origin repository: `https://github.com/devSejung/platformclaw`
 - Baseline commit: `17c2ce05d8021b969f9e822a34e92535145922d5`
-- Last upstream sync: 2026-07-18 on `sync/upstream-20260718-refresh` through upstream commit `0acece4591248099a6c58296143adf4d24db3d1e`
+- Last upstream sync: 2026-07-18 on `sync/upstream-20260718-refresh` through upstream commit `0acece45912de43a7c29638babcb70afce59652c`
+- Latest upstream inspection: 2026-07-22 at `8d3d472cbeb68f00cdae9df411b5cb0d6b4fab42`; this was an investigation only, not a sync
 - Initial sync state: local `main`, `origin/main`, and `upstream/main` identical
 
 ## Current Phase
 
 Environment setup complete. Control-plane Phase 1 implementation in progress.
+VM sandbox Phase 2 design and prerequisite backend-contract work started.
 
 ## Completed
 
@@ -52,6 +54,7 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 | Skill Hub                              | Not started                         | -                                     |
 | Knox adapter                           | Control-plane contracts implemented | `packages/platformclaw-control-plane` |
 | Remote execution and filesystem bridge | Not started                         | -                                     |
+| Personal-agent VM sandbox              | Design and prerequisite seam        | `feature/vm-sandbox-phase-2`          |
 | Operations UI, retry and recovery      | Employee Web shell implemented      | `ui/src/platformclaw`                 |
 | Cron and automation                    | Not started                         | -                                     |
 | Production Docker deployment           | In progress                         | `feature/jammy-company-build`         |

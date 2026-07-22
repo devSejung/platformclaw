@@ -303,11 +303,31 @@ Knox room runtime owns room retry, an incomplete room binding becomes failed
 with a distinct reason instead of being guessed active. This policy uses SQLite
 schema v1 unchanged.
 
+### PC-119 Route personal execution through a plugin sandbox backend
+
+Personal agents use a private `platformclaw-vm` sandbox backend registered
+through `openclaw/plugin-sdk/sandbox`. The Gateway supplies the resolved agent
+ID as a prepared ownership fact and the exact opaque sandbox `scopeKey` as the
+lifecycle key. The plugin does not parse session or scope-key text to discover
+the owner. Knox room agents retain their per-agent `sandbox.mode: "off"`
+override and never enter this backend.
+
+### PC-120 Keep SafeConnect passwords out of process metadata
+
+SafeConnect uses keyboard-interactive AD password authentication. Password
+bytes never enter command arguments, environment variables, logs, workspace
+files, browser state, model input, or audit details. The preferred OpenSSH path
+uses a credential-free `SSH_ASKPASS` helper and a one-shot inherited descriptor
+or IPC channel. `sshpass` may be used only with `-d <fd>` if deployment proof
+shows it is more reliable; `-p`, `-e`, and password-file modes are forbidden.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs
 backup frequency and retention and any named workflow that requires browser
-control.
+control. VM sandbox Phase 2 additionally requires explicit approval for schema
+version 2, the encrypted credential or external-secret-reference model, the
+private credential broker, master-key placement, and credential/key rotation.
 
 ## Decision procedure
 

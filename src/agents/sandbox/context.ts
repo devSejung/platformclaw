@@ -170,6 +170,7 @@ function resolveSandboxSession(params: {
 
 function resolveSandboxWorkspaceInfoWorkdir(params: {
   cfg: ReturnType<typeof resolveSandboxConfigForAgent>;
+  agentId: string;
   rawSessionKey: string;
   scopeKey: string;
   workspaceDir: string;
@@ -177,6 +178,7 @@ function resolveSandboxWorkspaceInfoWorkdir(params: {
   skillsWorkspaceDir: string;
 }): string | undefined {
   return getSandboxBackendWorkdirResolver(params.cfg.backend)?.({
+    agentId: params.agentId,
     sessionKey: params.rawSessionKey,
     scopeKey: params.scopeKey,
     workspaceDir: params.workspaceDir,
@@ -228,6 +230,7 @@ export async function resolveSandboxContext(params: {
 
   const backendFactory = requireSandboxBackendFactory(resolvedCfg.backend);
   const backend = await backendFactory({
+    agentId: runtime.agentId,
     sessionKey: rawSessionKey,
     scopeKey,
     workspaceDir,
@@ -347,6 +350,7 @@ export async function ensureSandboxWorkspaceForSession(params: {
 
   const containerWorkdir = resolveSandboxWorkspaceInfoWorkdir({
     cfg,
+    agentId: runtime.agentId,
     rawSessionKey,
     scopeKey,
     workspaceDir,

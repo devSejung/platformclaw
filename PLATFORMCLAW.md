@@ -82,6 +82,11 @@ are complete. Reverse-proxy browser proof remains pending. See
 `docs/platformclaw/control-plane-phase-1.md` and
 `docs/platformclaw/decisions.md`.
 
+VM sandbox Phase 2 design and prerequisite backend-contract work has started.
+Allocation persistence and credential handling remain behind an explicit SQLite
+version 2 and encryption-policy approval gate. See
+`docs/platformclaw/vm-sandbox-phase-2.md`.
+
 Next steps:
 
 1. Establish project guidance and state documentation.
