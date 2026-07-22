@@ -138,16 +138,34 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
       }
       this.verifyWorkspace(agentId, created.workspace, workspace);
     } catch (error) {
-      if (!(error instanceof GatewayAdminRpcError) || error.code !== "INVALID_REQUEST") {
+      if (
+        !(error instanceof GatewayAdminRpcError) ||
+        (error.code !== "INVALID_REQUEST" && error.code !== "UNAVAILABLE")
+      ) {
         throw error;
       }
-      // Another control process may win creation after this process reads config.
-      const existing = await this.getConfiguredAgent(agentId);
+      // Creation timeouts have an ambiguous outcome, while another control process may also
+      // win the create race. Adopt only the exact live agent and workspace in either case.
+      let existing: AgentSummary | undefined;
+      try {
+        existing = await this.getConfiguredAgent(agentId);
+      } catch (lookupError) {
+        if (
+          error.code === "INVALID_REQUEST" ||
+          !(lookupError instanceof GatewayAdminRpcError) ||
+          lookupError.code !== "UNAVAILABLE"
+        ) {
+          throw lookupError;
+        }
+      }
       if (!existing) {
-        throw error;
+        if (error.code === "INVALID_REQUEST") {
+          throw error;
+        }
+      } else {
+        this.verifyWorkspace(agentId, existing.workspace, workspace);
+        return;
       }
-      this.verifyWorkspace(agentId, existing.workspace, workspace);
-      return;
     }
     for (const retryDelayMs of CONFIG_APPLY_RETRY_DELAYS_MS) {
       if (retryDelayMs > 0) {

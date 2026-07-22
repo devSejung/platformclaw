@@ -224,6 +224,33 @@ describe("GatewayPersonalAgentProvisioner", () => {
     });
   });
 
+  it("confirms an agent after an ambiguous create timeout", async () => {
+    const workspaceRoot = path.resolve("test-workspaces");
+    const workspace = path.join(workspaceRoot, "account_name");
+    const profileSeed = createProfileSeedResponder(workspace);
+    let agentRead = 0;
+    const { rpc } = createRpc((method, params) => {
+      if (method === "agents.list") {
+        agentRead += 1;
+        return agentRead < 3
+          ? agentsResponse([])
+          : agentsResponse([{ id: "account_name", workspace }]);
+      }
+      if (method === "agents.create") {
+        throw new GatewayAdminRpcError("Gateway Admin RPC unavailable", "UNAVAILABLE");
+      }
+      const fileResponse = profileSeed.handle(method, params);
+      if (fileResponse) {
+        return fileResponse;
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
+
+    await expect(provisioner.provisionOrRefresh(request())).resolves.toBeUndefined();
+    expect(agentRead).toBe(3);
+  });
+
   it("fails closed when the profile seed response points at another workspace", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
