@@ -92,3 +92,18 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 - After an upstream sync, update the baseline or last synced commit.
 - After a capability migration PR is complete, record its status and related PR/commit.
 - Do not mark unconfirmed plans as complete.
+
+## PlatformClaw policy invariants during sync
+
+Before resolving sandbox, process, filesystem, prompt-hook, plugin-state, or
+Control UI conflicts, read the
+[VM execution policy](/platformclaw/vm-execution-policy). Its product and
+security decisions remain fixed across an upstream sync. A sync may replace a
+private implementation sketch with a better upstream seam, but it must record
+the affected contract and must not silently change execution targets, channel
+routing, fallback, workspace, Core File, employee-profile, credential, or
+background-process behavior.
+
+Keep upstream integration and VM implementation in separate pull requests.
+Validate the synchronization first, then reapply only the smallest required
+PlatformClaw prerequisite to the synchronized `main`.

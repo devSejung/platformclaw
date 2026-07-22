@@ -315,6 +315,23 @@ Knox room runtime owns room retry, an incomplete room binding becomes failed
 with a distinct reason instead of being guessed active. This policy uses SQLite
 schema v1 unchanged.
 
+### PC-119 Freeze personal execution-target policy before upstream sync
+
+The [VM execution policy](/platformclaw/vm-execution-policy) is the canonical
+product and security contract for personal execution on the PlatformClaw basic
+workspace or one administrator-assigned VM/Linux account. It approves a static
+private `platformclaw-execution` backend, run-boundary atomic target changes,
+shared canonical Core Files, mutable managed employee-profile projection,
+credential-free per-run runtime context, no automatic VM fallback, independent
+target workspaces, and environment-scoped background-process reconciliation.
+
+It also approves SQLite schema version 2 for execution profiles, hosts,
+allocations, and AES-256-GCM credentials; a Docker-secret master key; and a
+private Unix-domain one-shot credential broker. The latest upstream must be
+synchronized and its sandbox, filesystem, process, prompt-hook, plugin-state,
+and Control UI contracts rechecked before implementation. Upstream integration
+and VM implementation remain separate changes.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs
