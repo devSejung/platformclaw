@@ -8,6 +8,35 @@
 - Last upstream sync: 2026-07-18 on `sync/upstream-20260718-refresh` through upstream commit `0acece4591248099a6c58296143adf4d24db3d1e`
 - Initial sync state: local `main`, `origin/main`, and `upstream/main` identical
 
+## Legacy Comparison Baseline
+
+- Previous PlatformClaw reference repository: sibling `../platform-agent`
+- Reference branch: `origin/platformclaw/upstream-forward-port-2026-06`
+- Pinned comparison commit: `6662f049a1f792800b646b9d25681c90bb7f3967`
+- Do not use the legacy repository's `main` branch as the migration or Docker
+  comparison baseline.
+- Treat this repository as behavioral evidence only. Migrate capabilities into
+  the current PlatformClaw incrementally through the supported OpenClaw seams.
+
+### Jammy image comparison (2026-07-22)
+
+The legacy baseline above and current candidate `34dd1b139653a4eb19f2a28dbea1039699e75be4`
+were built with their default Jammy Docker profiles on the same Linux Docker
+engine. Docker reports compressed content separately from unpacked local layer
+usage:
+
+| Image | Compressed content | Local layer usage |
+| --- | ---: | ---: |
+| Legacy `platform-agent` | 1.46 GB | 5.80 GB |
+| Current PlatformClaw | 915 MB | 4.03 GB |
+
+The current image therefore has no size regression against this legacy
+baseline. Its bundled Claude and Codex tools are larger, but its pruned
+application dependencies are much smaller: the legacy `node_modules` layer is
+2.01 GB and includes 703 MB of `@node-llama-cpp` variants, while the current
+layer is 489 MB. Do not add intermediate build-stage and cache sizes to the
+deployable image size.
+
 ## Current Phase
 
 Environment setup complete. Control-plane Phase 1 implementation in progress.
