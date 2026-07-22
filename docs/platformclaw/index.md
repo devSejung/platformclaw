@@ -24,6 +24,7 @@ and Knox direct or group conversations:
 - [Control plane phase 1](/platformclaw/control-plane-phase-1)
 - [Architecture decisions](/platformclaw/decisions)
 - [Employee authentication](/platformclaw/employee-auth)
+- [VM execution policy](/platformclaw/vm-execution-policy)
 - [Web ingress runtime](/platformclaw/web-ingress-runtime)
 - [Web login bootstrap plan](/platformclaw/web-login-bootstrap-plan)
 - [Private downstream CI](/platformclaw/private-downstream-ci)
@@ -39,9 +40,11 @@ session-gated upstream Control UI document host are also implemented.
 Production deployment composition and the restricted Control UI adapter remain
 later work.
 
-The VM execution backend is a later phase. It depends on Phase 1 because the
-sandbox must resolve an authenticated agent owner before selecting a VM profile
-or credential.
+The VM execution backend is a later phase. Its product and security behavior is
+frozen in the [VM execution policy](/platformclaw/vm-execution-policy). It
+depends on Phase 1 because the backend must resolve an authenticated agent owner
+before selecting a VM profile or credential. Runtime implementation starts only
+after the next verified upstream synchronization.
 
 ## Maintenance rules
 
