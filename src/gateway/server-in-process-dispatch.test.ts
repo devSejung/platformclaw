@@ -17,7 +17,7 @@ describe("in-process Gateway dispatch", () => {
         "test.route.echo",
         {},
         {
-          client: undefined,
+          client: null,
           context: {} as GatewayRequestContext,
           pluginRegistry,
         },
