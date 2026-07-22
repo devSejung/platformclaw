@@ -49,4 +49,16 @@ describe("agent selection", () => {
 
     expect(selection.state).toEqual({ selectedId: "ops", scopeId: "ops" });
   });
+
+  it("adopts the hello default agent when the connected client is unchanged", () => {
+    const harness = createGateway();
+    const client = { request() {} } as unknown as GatewayBrowserClient;
+    harness.publish({ client, assistantAgentId: "Main" });
+    const selection = createAgentSelectionCapability(harness.gateway);
+    selection.setScope(null);
+
+    harness.publish({ client, assistantAgentId: "Person_One" });
+
+    expect(selection.state).toEqual({ selectedId: "person_one", scopeId: "person_one" });
+  });
 });

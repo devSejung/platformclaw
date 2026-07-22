@@ -30,6 +30,7 @@ export function createAgentSelectionCapability(
     : null;
   let state: AgentSelectionState = { selectedId: initialId, scopeId: initialId };
   let client = gateway.snapshot.client;
+  let assistantAgentId = initialId;
   const listeners = new Set<(next: AgentSelectionState) => void>();
 
   const publish = (next: AgentSelectionState) => {
@@ -43,10 +44,15 @@ export function createAgentSelectionCapability(
   };
 
   gateway.subscribe((next) => {
-    if (next.client !== client) {
+    const nextAssistantAgentId = next.assistantAgentId
+      ? normalizeAgentId(next.assistantAgentId)
+      : null;
+    if (next.client !== client || nextAssistantAgentId !== assistantAgentId) {
       client = next.client;
-      const selectedId = next.assistantAgentId ? normalizeAgentId(next.assistantAgentId) : null;
-      publish({ selectedId, scopeId: selectedId });
+      assistantAgentId = nextAssistantAgentId;
+      // The client exists before hello supplies its real default agent. Adopt that
+      // identity once so agent-scoped pages never issue requests for stale `main`.
+      publish({ selectedId: nextAssistantAgentId, scopeId: nextAssistantAgentId });
     }
   });
 
