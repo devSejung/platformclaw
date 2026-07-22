@@ -309,7 +309,7 @@ export class BrowserGatewayProxy {
         `Gateway method is not available to browser users: ${method}`,
       );
     }
-    const params = asObject(rawParams, `${method} params`);
+    const params = { ...asObject(rawParams, `${method} params`) };
     this.assertAllowedParams(method, params);
     if (method === "models.list") {
       if (params.view !== undefined && params.view !== "configured") {
@@ -389,6 +389,8 @@ export class BrowserGatewayProxy {
           suppressCommandInterpretation: true,
         };
       }
+      // Never let a browser-selected run id cross the shared Gateway client.
+      delete params.runId;
       return { ...params, agentId: access.binding.agentId };
     }
     throw new BrowserGatewayProxyError(
