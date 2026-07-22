@@ -34,8 +34,10 @@ The current image therefore has no size regression against this legacy
 baseline. Its bundled Claude and Codex tools are larger, but its pruned
 application dependencies are much smaller: the legacy `node_modules` layer is
 2.01 GB and includes 703 MB of `@node-llama-cpp` variants, while the current
-layer is 489 MB. Do not add intermediate build-stage and cache sizes to the
-deployable image size.
+layer is 489 MB. The current dependency lock still records `node-llama-cpp` and
+LanceDB for their optional plugin workspaces, but the default runtime does not
+bundle those plugin-owned dependencies. Do not add intermediate build-stage
+and cache sizes to the deployable image size.
 
 ## Current Phase
 
