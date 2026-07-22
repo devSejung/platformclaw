@@ -25,10 +25,10 @@ were built with their default Jammy Docker profiles on the same Linux Docker
 engine. Docker reports compressed content separately from unpacked local layer
 usage:
 
-| Image | Compressed content | Local layer usage |
-| --- | ---: | ---: |
-| Legacy `platform-agent` | 1.46 GB | 5.80 GB |
-| Current PlatformClaw | 915 MB | 4.03 GB |
+| Image                   | Compressed content | Local layer usage |
+| ----------------------- | -----------------: | ----------------: |
+| Legacy `platform-agent` |            1.46 GB |           5.80 GB |
+| Current PlatformClaw    |             915 MB |           4.03 GB |
 
 The current image therefore has no size regression against this legacy
 baseline. Its bundled Claude and Codex tools are larger, but its pruned
