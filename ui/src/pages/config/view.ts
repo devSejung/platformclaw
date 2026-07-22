@@ -159,6 +159,7 @@ export type ConfigProps = {
   setThemeMode: (mode: ThemeMode, context?: ThemeTransitionContext) => void;
   locale?: Locale;
   setLocale?: (locale: Locale) => void;
+  browserLocalPreferences?: boolean;
   hasCustomTheme: boolean;
   customThemeLabel: string | null;
   customThemeSourceUrl: string | null;
@@ -981,7 +982,8 @@ function renderChatPreferencesSection(props: ConfigProps) {
         <h2 class="settings-section__heading">${t("configView.chatPrefs.title")}</h2>
       </div>
       <p class="settings-section__desc">
-        ${t("configView.chatPrefs.hint")} ${t("configView.syncedHint")}
+        ${t("configView.chatPrefs.hint")}
+        ${props.browserLocalPreferences ? nothing : t("configView.syncedHint")}
       </p>
       <div class="settings-group">
         ${renderSettingsSelectRow({
@@ -1172,7 +1174,8 @@ function renderAppearanceSection(props: ConfigProps) {
           <h2 class="settings-section__heading">${t("configView.appearance.theme")}</h2>
         </div>
         <p class="settings-section__desc">
-          ${t("configView.appearance.chooseTheme")} ${t("configView.syncedHint")}
+          ${t("configView.appearance.chooseTheme")}
+          ${props.browserLocalPreferences ? nothing : t("configView.syncedHint")}
         </p>
         <div class="settings-group">
           <div class="settings-row settings-row--stacked">

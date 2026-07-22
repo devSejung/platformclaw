@@ -778,6 +778,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       setThemeMode: (mode, transitionContext) => this.setThemeMode(mode, transitionContext),
       ...(this.usesBrowserOnlyPreferences()
         ? {
+            browserLocalPreferences: true,
             locale: isSupportedLocale(this.settings.locale)
               ? this.settings.locale
               : i18n.getLocale(),

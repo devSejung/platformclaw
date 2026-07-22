@@ -1226,6 +1226,7 @@ describe("config view", () => {
       includeSections: ["__appearance__"],
       locale: "en",
       setLocale: vi.fn(),
+      browserLocalPreferences: true,
     });
 
     const select = queryRequired(container, "wa-select.settings-select", HTMLElement);
@@ -1233,6 +1234,7 @@ describe("config view", () => {
     expect(
       [...select.querySelectorAll("wa-option")].map((option) => option.getAttribute("value")),
     ).toContain("ko");
+    expect(container.textContent).not.toContain("Synced across your devices");
   });
 
   it("shows the tweakcn importer once the custom slot is opened", () => {
