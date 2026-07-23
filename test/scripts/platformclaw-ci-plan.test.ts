@@ -189,4 +189,26 @@ describe("PlatformClaw shared check workflow", () => {
       'node scripts/platformclaw-check.mjs --changed --base "$BASE_SHA" --head "$HEAD_SHA"',
     );
   });
+
+  it("supplies every required runtime secret during deployment validation", () => {
+    const workflow = parse(
+      readFileSync(new URL("../../.github/workflows/platformclaw-ci.yml", import.meta.url), "utf8"),
+    ) as {
+      jobs: {
+        validate: {
+          steps: Array<{ env?: Record<string, string>; name?: string }>;
+        };
+      };
+    };
+    const deployment = workflow.jobs.validate.steps.find(
+      (step) => step.name === "Validate PlatformClaw deployment files",
+    );
+
+    expect(deployment?.env).toMatchObject({
+      PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE: "/tmp/platformclaw-empty-secret",
+      PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE: "/tmp/platformclaw-empty-secret",
+      PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE: "/tmp/platformclaw-empty-secret",
+      PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE: "/tmp/platformclaw-empty-secret",
+    });
+  });
 });
