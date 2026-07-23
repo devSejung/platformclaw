@@ -206,24 +206,26 @@ describe("resolveSandboxContext", () => {
 
   it("resolves a registered non-docker backend", async () => {
     resolveNodeExecEligibilityMock.mockClear();
-    const restore = registerSandboxBackend("test-backend", {
-      factory: async () => ({
-        id: "test-backend",
-        runtimeId: "test-runtime",
-        runtimeLabel: "Test Runtime",
-        workdir: "/runtime/workspace",
-        buildExecSpec: async () => ({
-          argv: ["test-backend", "exec"],
-          env: process.env,
-          stdinMode: "pipe-closed",
-        }),
-        runShellCommand: async () => ({
-          stdout: Buffer.alloc(0),
-          stderr: Buffer.alloc(0),
-          code: 0,
-        }),
+    const backendFactory = vi.fn(async () => ({
+      id: "test-backend",
+      runtimeId: "test-runtime",
+      runtimeLabel: "Test Runtime",
+      workdir: "/runtime/workspace",
+      buildExecSpec: async () => ({
+        argv: ["test-backend", "exec"],
+        env: process.env,
+        stdinMode: "pipe-closed" as const,
       }),
-      resolveWorkdir: () => "/runtime/workspace",
+      runShellCommand: async () => ({
+        stdout: Buffer.alloc(0),
+        stderr: Buffer.alloc(0),
+        code: 0,
+      }),
+    }));
+    const resolveWorkdir = vi.fn(() => "/runtime/workspace");
+    const restore = registerSandboxBackend("test-backend", {
+      factory: backendFactory,
+      resolveWorkdir,
     });
     try {
       const cfg: OpenClawConfig = {
@@ -251,6 +253,13 @@ describe("resolveSandboxContext", () => {
       expect(result?.runtimeId).toBe("test-runtime");
       expect(result?.containerName).toBe("test-runtime");
       expect(result?.backend?.id).toBe("test-backend");
+      expect(backendFactory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "worker",
+          sessionKey: "agent:worker:task",
+          scopeKey: "agent:worker:task",
+        }),
+      );
       expect(resolveNodeExecEligibilityMock).toHaveBeenCalledWith(
         expect.objectContaining({
           execOverrides: { host: "node", node: "build-node", security: "allowlist" },
@@ -263,6 +272,58 @@ describe("resolveSandboxContext", () => {
         workspaceDir: "/tmp/openclaw-test",
       });
       expect(workspace?.containerWorkdir).toBe("/runtime/workspace");
+      expect(resolveWorkdir).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "worker",
+          sessionKey: "agent:worker:task",
+          scopeKey: "agent:worker:task",
+        }),
+      );
+    } finally {
+      restore();
+    }
+  }, 15_000);
+
+  it("keeps a Knox room agent outside the personal execution backend", async () => {
+    const backendFactory = vi.fn(async () => ({
+      id: "platformclaw-execution",
+      runtimeId: "unexpected-runtime",
+      runtimeLabel: "Unexpected Runtime",
+      workdir: "/workspace",
+      buildExecSpec: async () => ({
+        argv: ["unexpected"],
+        env: process.env,
+        stdinMode: "pipe-closed" as const,
+      }),
+      runShellCommand: async () => ({
+        stdout: Buffer.alloc(0),
+        stderr: Buffer.alloc(0),
+        code: 0,
+      }),
+    }));
+    const restore = registerSandboxBackend("platformclaw-execution", backendFactory);
+    try {
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: {
+            sandbox: {
+              mode: "all",
+              backend: "platformclaw-execution",
+              scope: "session",
+            },
+          },
+          list: [{ id: "group-room-123", sandbox: { mode: "off" } }],
+        },
+      };
+
+      await expect(
+        resolveSandboxContext({
+          config: cfg,
+          sessionKey: "agent:group-room-123:main",
+          workspaceDir: "/tmp/openclaw-test",
+        }),
+      ).resolves.toBeNull();
+      expect(backendFactory).not.toHaveBeenCalled();
     } finally {
       restore();
     }

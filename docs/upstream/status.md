@@ -82,7 +82,7 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 | Credential runtime and policy          | Not started                         | -                                     |
 | Skill Hub                              | Not started                         | -                                     |
 | Knox adapter                           | Control-plane contracts implemented | `packages/platformclaw-control-plane` |
-| Remote execution and filesystem bridge | Not started                         | -                                     |
+| Remote execution and filesystem bridge | Backend foundation in progress      | `extensions/platformclaw-execution`   |
 | Operations UI, retry and recovery      | Employee Web shell implemented      | `ui/src/platformclaw`                 |
 | Cron and automation                    | Not started                         | -                                     |
 | Production Docker deployment           | In progress                         | `feature/jammy-company-build`         |

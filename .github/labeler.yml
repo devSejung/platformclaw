@@ -680,6 +680,10 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/openshell/**"
+"extensions: platformclaw-execution":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/platformclaw-execution/**"
 "extensions: parallel":
   - changed-files:
       - any-glob-to-any-file:
