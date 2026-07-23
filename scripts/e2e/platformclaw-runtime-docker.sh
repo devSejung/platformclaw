@@ -32,14 +32,18 @@ export PLATFORMCLAW_PUBLIC_ORIGIN="http://127.0.0.1:$PLATFORMCLAW_PUBLIC_PORT"
 export PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL="http://127.0.0.1:18080/login"
 export PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE="$work_dir/gateway-token"
 export PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE="$work_dir/initial-admin-ids"
+export PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE="$work_dir/ssh-credential-master-key"
 
 ephemeral_probe="$(openssl rand -hex 32)"
 printf '%s\n' "$ephemeral_probe" >"$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"
 printf '%s\n' "admin.user" >"$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE"
+openssl rand -base64 32 >"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
+credential_key_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE")"
 # Compose bind-mounts these files without remapping ownership. The mktemp directory
 # remains host-private; read-only file mode lets the non-root containers read them.
 chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE" \
-  "$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE"
+  "$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE" \
+  "$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
 
 dump_logs() {
   "${compose[@]}" ps || true
@@ -113,6 +117,14 @@ if grep -Fq "$ephemeral_probe" <<<"$runtime_logs"; then
 fi
 if grep -Fq "$ephemeral_probe" "$app_document"; then
   echo "Gateway token leaked into browser document" >&2
+  exit 1
+fi
+if grep -Fq "$credential_key_probe" <<<"$runtime_logs"; then
+  echo "SSH credential master key leaked into container logs" >&2
+  exit 1
+fi
+if grep -Fq "$credential_key_probe" "$app_document"; then
+  echo "SSH credential master key leaked into browser document" >&2
   exit 1
 fi
 

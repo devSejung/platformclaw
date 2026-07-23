@@ -52,6 +52,7 @@ services:
       PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE: /run/secrets/platformclaw_initial_admin_ids
       PLATFORMCLAW_GATEWAY_URL: ws://gateway.platformclaw.local:18789
       PLATFORMCLAW_GATEWAY_TOKEN_FILE: /run/secrets/platformclaw_gateway_token
+      PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE: /run/secrets/platformclaw_ssh_credential_master_key
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL}
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
     volumes:
@@ -60,6 +61,7 @@ services:
     secrets:
       - platformclaw_gateway_token
       - platformclaw_initial_admin_ids
+      - platformclaw_ssh_credential_master_key
     networks:
       platformclaw-gateway-backplane: {}
       platformclaw-control-egress: {}
@@ -99,3 +101,5 @@ secrets:
     file: ${PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE:?set PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE}
   platformclaw_initial_admin_ids:
     file: ${PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE:?set PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE}
+  platformclaw_ssh_credential_master_key:
+    file: ${PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE:?set PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE}

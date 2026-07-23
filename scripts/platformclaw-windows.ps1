@@ -26,6 +26,7 @@ $runtimeEnvironmentNames = @(
     "PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE",
     "PLATFORMCLAW_GATEWAY_URL",
     "PLATFORMCLAW_GATEWAY_TOKEN_FILE",
+    "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
     "PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL"
 )
 
@@ -185,6 +186,18 @@ function New-RandomToken {
     return (($bytes | ForEach-Object { $_.ToString("x2") }) -join "")
 }
 
+function New-RandomBase64Key {
+    $bytes = New-Object byte[] 32
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $rng.GetBytes($bytes)
+    }
+    finally {
+        $rng.Dispose()
+    }
+    return [Convert]::ToBase64String($bytes)
+}
+
 function Write-Utf8NoBom {
     param([string]$Path, [string]$Value)
     [IO.File]::WriteAllText($Path, $Value, (New-Object Text.UTF8Encoding($false)))
@@ -262,11 +275,15 @@ function Initialize-Runtime {
 
     $tokenFile = Join-Path $runtimeRoot "gateway-token"
     $adminFile = Join-Path $runtimeRoot "initial-admin-ids"
+    $credentialKeyFile = Join-Path $runtimeRoot "ssh-credential-master-key"
     $configFile = Join-Path $gatewayRoot "openclaw.json"
     if (-not (Test-Path $tokenFile)) {
         Write-Utf8NoBom $tokenFile (New-RandomToken)
     }
     Write-Utf8NoBom $adminFile "admin.user"
+    if (-not (Test-Path $credentialKeyFile)) {
+        Write-Utf8NoBom $credentialKeyFile (New-RandomBase64Key)
+    }
 
     $gatewayConfig = @'
 {
@@ -299,6 +316,7 @@ function Initialize-Runtime {
     $env:PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE = $adminFile
     $env:PLATFORMCLAW_GATEWAY_URL = "ws://127.0.0.1:$GatewayPort"
     $env:PLATFORMCLAW_GATEWAY_TOKEN_FILE = $tokenFile
+    $env:PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE = $credentialKeyFile
     $env:PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL = "http://127.0.0.1:$EmployeeAuthPort/login"
 }
 

@@ -1,5 +1,6 @@
 import { lstatSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 
 const DEFAULT_LISTEN_HOST = "127.0.0.1";
 const DEFAULT_LISTEN_PORT = 19_001;
@@ -15,6 +16,7 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   initialAdminAccountIdsFile: "PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE",
   gatewayUrl: "PLATFORMCLAW_GATEWAY_URL",
   gatewayAuthFile: "PLATFORMCLAW_GATEWAY_TOKEN_FILE",
+  sshCredentialMasterKeyFile: "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
 } as const;
 
 export type PlatformClawDeploymentConfig = {
@@ -28,6 +30,7 @@ export type PlatformClawDeploymentConfig = {
   gatewayUrl: string;
   gatewayAdminRpcUrl: string;
   gatewayAuth: string;
+  sshCredentialCipher: SshCredentialCipher;
 };
 
 function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -139,6 +142,12 @@ export function loadPlatformClawDeploymentConfig(
     gatewayAuth: readDeploymentSecret(
       requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile),
       PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile,
+    ),
+    sshCredentialCipher: SshCredentialCipher.fromBase64(
+      readDeploymentSecret(
+        requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile),
+        PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile,
+      ),
     ),
   };
 }

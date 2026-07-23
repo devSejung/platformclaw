@@ -20,9 +20,10 @@ Required deployment inputs:
 - `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`
 - `PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE`
 - `PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE`
+- `PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE`
 
 Both containers intentionally run as UID/GID `1000:1000`. Compose file-backed
-secrets preserve host ownership and mode, so prepare the two files as UID 1000
+secrets preserve host ownership and mode, so prepare the three files as UID 1000
 readable without making them readable to other users. Keep their parent
 directory root-only, for example:
 
@@ -32,10 +33,13 @@ sudo install -o 1000 -g 1000 -m 0400 gateway-token \
   /etc/platformclaw/secrets/gateway-token
 sudo install -o 1000 -g 1000 -m 0400 initial-admin-ids \
   /etc/platformclaw/secrets/initial-admin-ids
+openssl rand -base64 32 | sudo install -o 1000 -g 1000 -m 0400 /dev/stdin \
+  /etc/platformclaw/secrets/ssh-credential-master-key
 ```
 
-Point the two `*_SECRET_FILE` inputs at those installed files. Do not store
-either value in Compose YAML or an environment file.
+Point the three `*_SECRET_FILE` inputs at those installed files. Do not store
+their values in Compose YAML or an environment file. Back up the SSH credential
+master key separately; losing it makes stored AD credentials undecryptable.
 
 The first Gateway start seeds a canonical config that enables the private
 `admin-http-rpc` plugin. Its entry point reads Gateway authentication from the

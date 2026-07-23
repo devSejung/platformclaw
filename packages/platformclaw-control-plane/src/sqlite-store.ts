@@ -16,11 +16,11 @@ import {
 import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
 import { executeSync, runImmediateTransaction } from "./kysely-sync.js";
 import { normalizeScopeName, required, rowToMembership, rowToScope } from "./sqlite-store-core.js";
-import { SqliteControlPlaneExecutionStore } from "./sqlite-store-execution.js";
+import { SqliteControlPlaneCredentialStore } from "./sqlite-store-credentials.js";
 import type { ManagedScopeRow } from "./sqlite-store-types.js";
 
 export class SqliteControlPlaneStore
-  extends SqliteControlPlaneExecutionStore
+  extends SqliteControlPlaneCredentialStore
   implements
     ControlPlaneStore,
     ControlPlaneManagementStore,

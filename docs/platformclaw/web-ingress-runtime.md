@@ -148,6 +148,7 @@ The process requires these deployment-owned values:
 | `PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE` | Initial administrator IDs secret file      |
 | `PLATFORMCLAW_GATEWAY_URL`                    | Private Gateway WS(S) origin               |
 | `PLATFORMCLAW_GATEWAY_TOKEN_FILE`             | Private Gateway operator-token secret file |
+| `PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE` | 32-byte Base64 SSH credential key file     |
 | `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`        | Employee-auth login endpoint               |
 | `PLATFORMCLAW_EMPLOYEE_AUTH_BEARER_TOKEN`     | Optional employee-auth service bearer      |
 
@@ -156,9 +157,10 @@ personal-agent provisioning. The control process derives that HTTP endpoint
 from the Gateway origin on the internal Docker backplane. It does not accept a
 second endpoint or token that could drift from the WebSocket connection.
 
-Initial administrator IDs and the Gateway operator token are read from bounded
-regular files. Production mounts those files as Docker secrets. No default
-administrator or operator credential exists.
+Initial administrator IDs, the Gateway operator token, and the SSH credential
+master key are read from bounded regular files. Production mounts those files
+as Docker secrets. No default administrator, operator credential, or encryption
+key exists.
 
 ## Current boundary
 

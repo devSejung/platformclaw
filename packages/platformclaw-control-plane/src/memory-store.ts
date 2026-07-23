@@ -39,6 +39,7 @@ import {
   deriveKnoxRoomAgentId,
   derivePersonalAgentId,
 } from "./ids.js";
+import { InMemorySshCredentialStoreBase } from "./ssh-credential-memory-store.js";
 
 type MemoryStoreOptions = {
   buildAgentMainSessionKey: MainSessionKeyBuilder;
@@ -103,6 +104,7 @@ function normalizeEmployeeId(employeeId: string): string {
 }
 
 export class InMemoryControlPlaneStore
+  extends InMemorySshCredentialStoreBase
   implements
     ControlPlaneStore,
     ControlPlaneAuditWriter,
@@ -129,6 +131,7 @@ export class InMemoryControlPlaneStore
   private readonly executionManagement: InMemoryExecutionManagementStore;
 
   constructor(options: MemoryStoreOptions) {
+    super(options.idFactory ?? defaultControlPlaneIdFactory);
     this.buildAgentMainSessionKey = options.buildAgentMainSessionKey;
     this.idFactory = options.idFactory ?? defaultControlPlaneIdFactory;
     this.sessionPolicy = options.sessionPolicy ?? BROWSER_SESSION_POLICY;
@@ -312,6 +315,21 @@ export class InMemoryControlPlaneStore
       .toReversed()
       .slice(0, boundedLimit)
       .map((event) => structuredClone(event));
+  }
+
+  protected isActiveCredentialUser(userId: string): boolean {
+    return this.users.get(userId)?.status === "active";
+  }
+
+  protected recordCredentialAudit(params: {
+    actorUserId?: string;
+    eventType: string;
+    targetType: string;
+    targetId: string;
+    createdAt: number;
+    details?: Record<string, unknown>;
+  }): void {
+    this.appendAuditEvent(params);
   }
 
   private appendAuditEvent(params: {
