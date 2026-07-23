@@ -31,6 +31,8 @@ export type SandboxBackendManager = {
 
 /** Inputs needed to create a sandbox backend handle for one session scope. */
 export type CreateSandboxBackendParams = {
+  /** Resolved agent owner when the runtime entry point can identify it. */
+  agentId?: string;
   sessionKey: string;
   scopeKey: string;
   workspaceDir: string;

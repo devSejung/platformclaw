@@ -40,11 +40,13 @@ session-gated upstream Control UI document host are also implemented.
 Production deployment composition and the restricted Control UI adapter remain
 later work.
 
-The VM execution backend is a later phase. Its product and security behavior is
-frozen in the [VM execution policy](/platformclaw/vm-execution-policy). It
-depends on Phase 1 because the backend must resolve an authenticated agent owner
-before selecting a VM profile or credential. Runtime implementation starts only
-after the next verified upstream synchronization.
+The VM execution backend foundation follows the verified 2026-07-23 upstream
+synchronization. Its product and security behavior is frozen in the
+[VM execution policy](/platformclaw/vm-execution-policy). The additive upstream
+seam now supplies the prepared agent owner to private sandbox backends, and the
+private `platformclaw-execution` plugin pins one target snapshot per backend
+handle. Persistent allocation, credential, SSH, and UI work remain later
+implementation slices.
 
 ## Maintenance rules
 

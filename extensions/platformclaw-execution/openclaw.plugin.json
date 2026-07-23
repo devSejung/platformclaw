@@ -1,0 +1,13 @@
+{
+  "id": "platformclaw-execution",
+  "name": "PlatformClaw Execution",
+  "description": "Private execution-target router for PlatformClaw personal agents.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
