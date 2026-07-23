@@ -112,6 +112,14 @@ export type BrowserSession = {
   revokedAt?: number;
 };
 
+export type PersonalExecutionProfile = {
+  agentBindingId: string;
+  activeTarget: "platform_server" | "assigned_vm";
+  activeAllocationId?: string;
+  targetRevision: number;
+  updatedAt: number;
+};
+
 export type UpsertPrincipalResult = {
   user: PlatformUser;
   identity: EnterpriseIdentity;
@@ -152,6 +160,7 @@ export type ControlPlaneIdFactory = {
   nextSessionId(): string;
   nextManagedScopeId(): string;
   nextAuditEventId(): string;
+  nextExecutionResourceId?(kind: import("./execution-contracts.js").ExecutionResourceKind): string;
 };
 
 export type MainSessionKeyBuilder = (params: { agentId: string }) => string;
@@ -170,6 +179,7 @@ export interface ControlPlaneStore {
   getUserById(userId: string): Promise<PlatformUser | null>;
   getUserByEmployeeId(employeeId: string): Promise<PlatformUser | null>;
   getPersonalAgentBinding(userId: string): Promise<PersonalAgentBinding | null>;
+  getPersonalExecutionProfile(agentId: string): Promise<PersonalExecutionProfile | null>;
   listAgentBindingsByState(state: AgentProvisioningState): Promise<AgentBinding[]>;
   reservePersonalAgent(
     userId: string,
@@ -213,6 +223,10 @@ export interface ControlPlaneAuditWriter {
     details?: Record<string, unknown>;
     createdAt: number;
   }): Promise<ControlAuditEvent>;
+}
+
+export interface ControlPlaneAuditReader {
+  listAuditEvents(limit?: number): Promise<ControlAuditEvent[]>;
 }
 
 export interface ControlPlaneManagementStore {
@@ -265,6 +279,9 @@ export type ControlPlaneConflictCode =
   | "employee_id_mismatch"
   | "stale_authentication"
   | "agent_id_conflict"
+  | "safeconnect_endpoint_conflict"
+  | "vm_host_conflict"
+  | "vm_allocation_conflict"
   | "managed_scope_name_conflict"
   | "session_token_conflict";
 

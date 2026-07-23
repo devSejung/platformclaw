@@ -11,6 +11,7 @@ import {
   type BrowserSessionPolicy,
   type BrowserSessionResolution,
   type ControlAuditEvent,
+  type ControlPlaneAuditReader,
   type ControlPlaneIdFactory,
   type ControlPlaneAuditWriter,
   type ControlPlaneStore,
@@ -21,10 +22,18 @@ import {
   type KnoxRoomAgentBinding,
   type MainSessionKeyBuilder,
   type PersonalAgentBinding,
+  type PersonalExecutionProfile,
   type PlatformUser,
   type PlatformUserStatus,
   type UpsertPrincipalResult,
 } from "./contracts.js";
+import type {
+  ControlPlaneExecutionManagementStore,
+  SafeConnectEndpoint,
+  VmAllocation,
+  VmHost,
+} from "./execution-contracts.js";
+import { InMemoryExecutionManagementStore } from "./execution-memory-store.js";
 import {
   defaultControlPlaneIdFactory,
   deriveKnoxRoomAgentId,
@@ -93,7 +102,13 @@ function normalizeEmployeeId(employeeId: string): string {
   return requireNonEmpty(employeeId, "principal.employeeId").toLowerCase();
 }
 
-export class InMemoryControlPlaneStore implements ControlPlaneStore, ControlPlaneAuditWriter {
+export class InMemoryControlPlaneStore
+  implements
+    ControlPlaneStore,
+    ControlPlaneAuditWriter,
+    ControlPlaneAuditReader,
+    ControlPlaneExecutionManagementStore
+{
   private readonly buildAgentMainSessionKey: MainSessionKeyBuilder;
   private readonly idFactory: ControlPlaneIdFactory;
   private readonly sessionPolicy: BrowserSessionPolicy;
@@ -106,10 +121,12 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore, ControlPlan
   private readonly personalBindingIdByUserId = new Map<string, string>();
   private readonly roomBindingIdByKey = new Map<string, string>();
   private readonly bindingIdByAgentId = new Map<string, string>();
+  private readonly executionProfiles = new Map<string, PersonalExecutionProfile>();
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly sessionIdByTokenHash = new Map<string, string>();
   private readonly sessionIdsByUserId = new Map<string, Set<string>>();
   private readonly auditEvents: ControlAuditEvent[] = [];
+  private readonly executionManagement: InMemoryExecutionManagementStore;
 
   constructor(options: MemoryStoreOptions) {
     this.buildAgentMainSessionKey = options.buildAgentMainSessionKey;
@@ -120,6 +137,54 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore, ControlPlan
         .map((value) => value.trim().toLowerCase())
         .filter(Boolean),
     );
+    this.executionManagement = new InMemoryExecutionManagementStore({
+      idFactory: this.idFactory,
+      requireAdmin: (actorUserId) => {
+        const actor = this.requireUser(actorUserId);
+        if (actor.status !== "active" || actor.globalRole !== "admin") {
+          throw new ControlPlaneAuthorizationError("active administrator required");
+        }
+      },
+      getPersonalBinding: (agentId) => {
+        const bindingId = this.bindingIdByAgentId.get(agentId);
+        if (!bindingId) {
+          return null;
+        }
+        const binding = this.bindings.get(bindingId);
+        return binding?.kind === "personal" ? cloneBinding(binding) : null;
+      },
+      recordAudit: (params) => {
+        this.appendAuditEvent(params);
+      },
+    });
+  }
+
+  createSafeConnectEndpoint(
+    params: Parameters<ControlPlaneExecutionManagementStore["createSafeConnectEndpoint"]>[0],
+  ): Promise<SafeConnectEndpoint> {
+    return this.executionManagement.createSafeConnectEndpoint(params);
+  }
+
+  approveSafeConnectHostKey(
+    params: Parameters<ControlPlaneExecutionManagementStore["approveSafeConnectHostKey"]>[0],
+  ): Promise<SafeConnectEndpoint> {
+    return this.executionManagement.approveSafeConnectHostKey(params);
+  }
+
+  createVmHost(
+    params: Parameters<ControlPlaneExecutionManagementStore["createVmHost"]>[0],
+  ): Promise<VmHost> {
+    return this.executionManagement.createVmHost(params);
+  }
+
+  assignVmToPersonalAgent(
+    params: Parameters<ControlPlaneExecutionManagementStore["assignVmToPersonalAgent"]>[0],
+  ): Promise<VmAllocation> {
+    return this.executionManagement.assignVmToPersonalAgent(params);
+  }
+
+  getVmAllocationForAgent(agentId: string): Promise<VmAllocation | null> {
+    return this.executionManagement.getVmAllocationForAgent(agentId);
   }
 
   async upsertPrincipal(
@@ -222,6 +287,12 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore, ControlPlan
     return bindingId ? cloneBinding(this.requirePersonalBinding(bindingId)) : null;
   }
 
+  async getPersonalExecutionProfile(agentId: string): Promise<PersonalExecutionProfile | null> {
+    const bindingId = this.bindingIdByAgentId.get(agentId);
+    const profile = bindingId ? this.executionProfiles.get(bindingId) : undefined;
+    return profile ? { ...profile } : null;
+  }
+
   async recordAuditEvent(params: {
     actorUserId?: string;
     eventType: string;
@@ -230,6 +301,27 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore, ControlPlan
     details?: Record<string, unknown>;
     createdAt: number;
   }): Promise<ControlAuditEvent> {
+    return this.appendAuditEvent(params);
+  }
+
+  async listAuditEvents(limit = 100): Promise<ControlAuditEvent[]> {
+    const boundedLimit = Number.isFinite(limit)
+      ? Math.max(1, Math.min(Math.trunc(limit), 500))
+      : 100;
+    return this.auditEvents
+      .toReversed()
+      .slice(0, boundedLimit)
+      .map((event) => structuredClone(event));
+  }
+
+  private appendAuditEvent(params: {
+    actorUserId?: string;
+    eventType: string;
+    targetType: string;
+    targetId: string;
+    details?: Record<string, unknown>;
+    createdAt: number;
+  }): ControlAuditEvent {
     const event: ControlAuditEvent = {
       id: this.idFactory.nextAuditEventId(),
       ...(params.actorUserId ? { actorUserId: params.actorUserId } : {}),
@@ -297,6 +389,12 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore, ControlPlan
     };
     this.insertBinding(binding);
     this.personalBindingIdByUserId.set(userId, binding.id);
+    this.executionProfiles.set(binding.id, {
+      agentBindingId: binding.id,
+      activeTarget: "platform_server",
+      targetRevision: 0,
+      updatedAt: reservedAt,
+    });
     return { binding: cloneBinding(binding), created: true };
   }
 

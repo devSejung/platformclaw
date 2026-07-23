@@ -12,7 +12,15 @@ export const defaultControlPlaneIdFactory: ControlPlaneIdFactory = {
   nextSessionId: () => `session-${randomUUID()}`,
   nextManagedScopeId: () => `scope-${randomUUID()}`,
   nextAuditEventId: () => `audit-${randomUUID()}`,
+  nextExecutionResourceId: (kind) => `${kind}-${randomUUID()}`,
 };
+
+export function nextExecutionResourceId(
+  idFactory: ControlPlaneIdFactory,
+  kind: import("./execution-contracts.js").ExecutionResourceKind,
+): string {
+  return idFactory.nextExecutionResourceId?.(kind) ?? `${kind}-${randomUUID()}`;
+}
 
 /** Preserve the deployed personal-agent naming contract while validating its output. */
 export function derivePersonalAgentId(accountId: string): string {

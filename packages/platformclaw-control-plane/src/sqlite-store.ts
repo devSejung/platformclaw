@@ -13,14 +13,19 @@ import {
   type PlatformUserGlobalRole,
   type PlatformUserStatus,
 } from "./contracts.js";
+import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
 import { executeSync, runImmediateTransaction } from "./kysely-sync.js";
-import { SqliteControlPlaneAuthStore } from "./sqlite-store-auth.js";
 import { normalizeScopeName, required, rowToMembership, rowToScope } from "./sqlite-store-core.js";
+import { SqliteControlPlaneExecutionStore } from "./sqlite-store-execution.js";
 import type { ManagedScopeRow } from "./sqlite-store-types.js";
 
 export class SqliteControlPlaneStore
-  extends SqliteControlPlaneAuthStore
-  implements ControlPlaneStore, ControlPlaneManagementStore, ControlPlaneAuditWriter
+  extends SqliteControlPlaneExecutionStore
+  implements
+    ControlPlaneStore,
+    ControlPlaneManagementStore,
+    ControlPlaneAuditWriter,
+    ControlPlaneExecutionManagementStore
 {
   async setUserGlobalRole(params: {
     actorUserId: string;

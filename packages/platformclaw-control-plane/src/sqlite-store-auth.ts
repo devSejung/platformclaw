@@ -12,6 +12,7 @@ import {
   type KnoxDmRouteResolution,
   type KnoxRoomAgentBinding,
   type PersonalAgentBinding,
+  type PersonalExecutionProfile,
   type PlatformUser,
   type UpsertPrincipalResult,
 } from "./contracts.js";
@@ -180,6 +181,32 @@ export abstract class SqliteControlPlaneAuthStore extends SqliteControlPlaneStor
     return row ? (rowToBinding(row) as PersonalAgentBinding) : null;
   }
 
+  async getPersonalExecutionProfile(agentId: string): Promise<PersonalExecutionProfile | null> {
+    const row = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("personal_execution_profiles")
+        .innerJoin(
+          "agent_bindings",
+          "agent_bindings.id",
+          "personal_execution_profiles.agent_binding_id",
+        )
+        .selectAll("personal_execution_profiles")
+        .where("agent_bindings.agent_id", "=", agentId)
+        .where("agent_bindings.kind", "=", "personal"),
+    );
+    if (!row) {
+      return null;
+    }
+    return {
+      agentBindingId: row.agent_binding_id,
+      activeTarget: row.active_target,
+      ...(row.active_allocation_id ? { activeAllocationId: row.active_allocation_id } : {}),
+      targetRevision: row.target_revision,
+      updatedAt: row.updated_at,
+    };
+  }
+
   async recordAuditEvent(params: {
     actorUserId?: string;
     eventType: string;
@@ -247,6 +274,16 @@ export abstract class SqliteControlPlaneAuthStore extends SqliteControlPlaneStor
         updated_at: reservedAt,
       };
       executeSync(this.db, this.query.insertInto("agent_bindings").values(row));
+      executeSync(
+        this.db,
+        this.query.insertInto("personal_execution_profiles").values({
+          agent_binding_id: row.id,
+          active_target: "platform_server",
+          active_allocation_id: null,
+          target_revision: 0,
+          updated_at: reservedAt,
+        }),
+      );
       this.insertAudit(null, "agent.binding.created", "agent-binding", row.id, reservedAt, {
         kind: row.kind,
         agentId: row.agent_id,
