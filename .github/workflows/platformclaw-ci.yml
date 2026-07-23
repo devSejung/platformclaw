@@ -99,6 +99,7 @@ jobs:
           PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: https://auth.example.test/login
           PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE: /tmp/platformclaw-empty-secret
           PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE: /tmp/platformclaw-empty-secret
           PLATFORMCLAW_PUBLIC_ORIGIN: https://platformclaw.example.test
           PLATFORMCLAW_REPO_ROOT: ${{ github.workspace }}
         run: |
