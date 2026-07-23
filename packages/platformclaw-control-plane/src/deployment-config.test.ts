@@ -33,6 +33,10 @@ function fixtureEnv(): NodeJS.ProcessEnv {
     [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayUrl]: "ws://127.0.0.1:18789",
     [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile]: tokenFile,
     [PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile]: credentialKeyFile,
+    [PLATFORMCLAW_DEPLOYMENT_ENV.credentialBrokerAddress]:
+      process.platform === "win32"
+        ? String.raw`\\.\pipe\platformclaw-test-broker`
+        : join(root, "broker.sock"),
   };
 }
 
@@ -49,6 +53,10 @@ describe("loadPlatformClawDeploymentConfig", () => {
       gatewayUrl: "ws://127.0.0.1:18789",
       gatewayAdminRpcUrl: "http://127.0.0.1:18789/api/v1/admin/rpc",
       gatewayAuth: "test-gateway-token",
+      credentialBrokerAddress:
+        process.platform === "win32"
+          ? String.raw`\\.\pipe\platformclaw-test-broker`
+          : resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.credentialBrokerAddress] ?? ""),
     });
     expect(config.databasePath).toBe(resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.databasePath] ?? ""));
     expect(config.sshCredentialCipher.keyId).toMatch(/^sha256:/u);

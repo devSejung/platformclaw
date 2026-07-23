@@ -6,7 +6,7 @@ import type {
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 
 export type ResolvedUserSshCredential = {
-  password: string;
+  password: Buffer;
   revision: number;
 };
 
@@ -47,7 +47,7 @@ export class SshCredentialVault {
       throw new ControlPlaneStateError("SSH credential requires an update");
     }
     return {
-      password: this.cipher.decrypt(userId, stored),
+      password: this.cipher.decryptBytes(userId, stored),
       revision: stored.revision,
     };
   }

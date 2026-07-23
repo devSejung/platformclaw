@@ -89,10 +89,10 @@ describe.each([
     });
     expect(first).toMatchObject({ revision: 1, status: "current" });
     expect(first).not.toHaveProperty("ciphertext");
-    await expect(vault.resolveForBroker(owner.id)).resolves.toEqual({
-      password: "first secret",
-      revision: 1,
-    });
+    const resolvedFirst = await vault.resolveForBroker(owner.id);
+    expect(resolvedFirst.password.toString("utf8")).toBe("first secret");
+    expect(resolvedFirst.revision).toBe(1);
+    resolvedFirst.password.fill(0);
     await expect(
       vault.replace({
         actorUserId: other.id,
@@ -214,9 +214,10 @@ describe("SQLite SSH credential persistence", () => {
     }
 
     const secondStore = createStore();
-    await expect(
-      new SshCredentialVault(secondStore, cipher).resolveForBroker(owner.id),
-    ).resolves.toEqual({ password, revision: 1 });
+    const resolved = await new SshCredentialVault(secondStore, cipher).resolveForBroker(owner.id);
+    expect(resolved.password.toString("utf8")).toBe(password);
+    expect(resolved.revision).toBe(1);
+    resolved.password.fill(0);
     await expect(
       new SshCredentialVault(
         secondStore,

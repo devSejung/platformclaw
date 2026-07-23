@@ -86,6 +86,11 @@ are complete. Reverse-proxy browser proof remains pending. See
 `docs/platformclaw/control-plane-phase-1.md` and
 `docs/platformclaw/decisions.md`.
 
+VM execution groundwork now includes schema v2, encrypted user SSH credential
+storage, and a one-shot local credential broker. The broker does not yet expose
+VM execution; authenticated Gateway handoff and `sshpass -d` remain the next
+bounded slice.
+
 Next steps:
 
 1. Establish project guidance and state documentation.

@@ -81,5 +81,6 @@ The 32-byte master key is strict Base64 in a separate Docker secret. Its SHA-256
 identifier is stored with each envelope, but the key is never stored in SQLite,
 an environment variable, logs, browser state, or Gateway state. The current
 runtime loads one key: do not replace it until a later rotation workflow has
-reencrypted all rows. The credential broker, SSH process, and `sshpass`
-dependency remain later bounded changes.
+reencrypted all rows. The one-shot local broker transport is implemented, but
+its authenticated Gateway handoff, SSH process, and `sshpass` dependency remain
+later bounded changes.

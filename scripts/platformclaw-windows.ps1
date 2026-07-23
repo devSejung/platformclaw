@@ -27,6 +27,7 @@ $runtimeEnvironmentNames = @(
     "PLATFORMCLAW_GATEWAY_URL",
     "PLATFORMCLAW_GATEWAY_TOKEN_FILE",
     "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
+    "PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS",
     "PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL"
 )
 
@@ -317,6 +318,7 @@ function Initialize-Runtime {
     $env:PLATFORMCLAW_GATEWAY_URL = "ws://127.0.0.1:$GatewayPort"
     $env:PLATFORMCLAW_GATEWAY_TOKEN_FILE = $tokenFile
     $env:PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE = $credentialKeyFile
+    $env:PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = "\\.\pipe\platformclaw-credential-broker-$Port"
     $env:PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL = "http://127.0.0.1:$EmployeeAuthPort/login"
 }
 

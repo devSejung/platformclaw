@@ -84,6 +84,15 @@ export class SshCredentialCipher {
   }
 
   decrypt(userId: string, envelope: SshCredentialEnvelope): string {
+    const plaintext = this.decryptBytes(userId, envelope);
+    try {
+      return utf8Decoder.decode(plaintext);
+    } finally {
+      plaintext.fill(0);
+    }
+  }
+
+  decryptBytes(userId: string, envelope: SshCredentialEnvelope): Buffer {
     if (envelope.formatVersion !== FORMAT_VERSION) {
       throw new ControlPlaneStateError(
         `unsupported SSH credential format version: ${String(envelope.formatVersion)}`,
@@ -100,12 +109,7 @@ export class SshCredentialCipher {
       });
       decipher.setAAD(additionalAuthenticatedData(userId, envelope.keyId));
       decipher.setAuthTag(envelope.authTag);
-      const plaintext = Buffer.concat([decipher.update(envelope.ciphertext), decipher.final()]);
-      try {
-        return utf8Decoder.decode(plaintext);
-      } finally {
-        plaintext.fill(0);
-      }
+      return Buffer.concat([decipher.update(envelope.ciphertext), decipher.final()]);
     } catch (error) {
       if (error instanceof ControlPlaneStateError) {
         throw error;

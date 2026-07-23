@@ -63,6 +63,8 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
   and encrypted-envelope schema implemented
 - User-scoped AES-256-GCM SSH credential vault, Docker-secret master key, and
   matching-key restart proof implemented
+- One-shot credential grants and bounded local Unix-socket/Windows named-pipe
+  broker implemented; authenticated Gateway handoff remains pending
 - PlatformClaw Web login, authenticated Control UI hosting, fixed same-origin
   Gateway adapter, restricted employee routes, identity/logout shell, and
   Windows mocked-browser proof implemented
@@ -83,7 +85,7 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 | Branding and product boundary          | Not started                         | -                                     |
 | Account/session/workspace isolation    | Web runtime implemented             | `packages/platformclaw-control-plane` |
 | Enterprise authentication              | LDAP-phase adapter implemented      | `packages/platformclaw-control-plane` |
-| Credential runtime and policy          | Encrypted vault implemented         | `packages/platformclaw-control-plane` |
+| Credential runtime and policy          | Vault and local broker implemented  | `packages/platformclaw-control-plane` |
 | Skill Hub                              | Not started                         | -                                     |
 | Knox adapter                           | Control-plane contracts implemented | `packages/platformclaw-control-plane` |
 | Remote execution and filesystem bridge | Backend foundation in progress      | `extensions/platformclaw-execution`   |

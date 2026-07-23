@@ -53,11 +53,14 @@ services:
       PLATFORMCLAW_GATEWAY_URL: ws://gateway.platformclaw.local:18789
       PLATFORMCLAW_GATEWAY_TOKEN_FILE: /run/secrets/platformclaw_gateway_token
       PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE: /run/secrets/platformclaw_ssh_credential_master_key
+      PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL}
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
     volumes:
       - platformclaw-control-state:/var/lib/platformclaw/control
       - platformclaw-workspaces:/var/lib/platformclaw/workspaces
+    tmpfs:
+      - /run/platformclaw-credential-broker:uid=1000,gid=1000,mode=0700
     secrets:
       - platformclaw_gateway_token
       - platformclaw_initial_admin_ids

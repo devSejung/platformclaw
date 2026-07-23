@@ -17,6 +17,7 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   gatewayUrl: "PLATFORMCLAW_GATEWAY_URL",
   gatewayAuthFile: "PLATFORMCLAW_GATEWAY_TOKEN_FILE",
   sshCredentialMasterKeyFile: "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
+  credentialBrokerAddress: "PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS",
 } as const;
 
 export type PlatformClawDeploymentConfig = {
@@ -31,6 +32,7 @@ export type PlatformClawDeploymentConfig = {
   gatewayAdminRpcUrl: string;
   gatewayAuth: string;
   sshCredentialCipher: SshCredentialCipher;
+  credentialBrokerAddress: string;
 };
 
 function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -149,5 +151,6 @@ export function loadPlatformClawDeploymentConfig(
         PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile,
       ),
     ),
+    credentialBrokerAddress: requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.credentialBrokerAddress),
   };
 }
