@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PlatformClawDeploymentConfig } from "./deployment-config.js";
 import { createPlatformClawDeploymentRuntime } from "./deployment-runtime.js";
+import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 import type {
   PlatformClawWebIngressRuntime,
   PlatformClawWebIngressRuntimeOptions,
@@ -17,6 +18,7 @@ const config: PlatformClawDeploymentConfig = {
   gatewayUrl: "ws://127.0.0.1:18789",
   gatewayAdminRpcUrl: "http://127.0.0.1:18789/api/v1/admin/rpc",
   gatewayAuth: "test-gateway-token",
+  sshCredentialCipher: SshCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
 };
 
 describe("createPlatformClawDeploymentRuntime", () => {
@@ -43,6 +45,7 @@ describe("createPlatformClawDeploymentRuntime", () => {
       },
     });
     expect(options?.restartRecoveryProbe).toBe(options?.provisioner);
+    expect(options?.employeeAuth?.sshCredentialCipher).toBe(config.sshCredentialCipher);
     expect(options?.buildAgentMainSessionKey({ agentId: "person_one" })).toBe(
       "agent:person_one:main",
     );

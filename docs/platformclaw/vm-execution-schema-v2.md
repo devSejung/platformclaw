@@ -67,6 +67,19 @@ master key is never stored in the database. Restoring only the database or only
 the key makes credential envelopes unusable and must not trigger plaintext or
 server-execution fallback.
 
-Schema v2 only establishes persistence and allocation policy. AES-256-GCM
-encryption, key rotation, credential broker, SSH process, and Docker dependency
-land in later bounded changes.
+The credential vault encrypts each password with AES-256-GCM, a fresh 96-bit
+nonce, a 128-bit authentication tag, and authenticated data binding the owner,
+format version, and master-key identifier. Users can replace or delete only
+their own credential. Authentication failure changes its state to
+`update_required`; replacement increments its revision and returns it to
+`current`. Authentication failures use compare-and-set on the revision used by
+the failed SSH attempt, so a late failure cannot invalidate a newer password.
+Broker resolution checks the owning employee is still active before decrypting,
+so account disablement immediately blocks queued or background SSH work.
+
+The 32-byte master key is strict Base64 in a separate Docker secret. Its SHA-256
+identifier is stored with each envelope, but the key is never stored in SQLite,
+an environment variable, logs, browser state, or Gateway state. The current
+runtime loads one key: do not replace it until a later rotation workflow has
+reencrypted all rows. The credential broker, SSH process, and `sshpass`
+dependency remain later bounded changes.

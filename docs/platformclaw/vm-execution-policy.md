@@ -203,8 +203,8 @@ schema version 2 with personal execution profiles, VM hosts, allocations, and
 encrypted credentials.
 
 Credentials use AES-256-GCM with a fresh 96-bit nonce per write and additional
-authenticated data binding the ciphertext to its credential, owner, and format
-version. The master key is a separate Docker secret. It is not stored in
+authenticated data binding the ciphertext to its owner, key identifier, and
+format version. The master key is a separate Docker secret. It is not stored in
 SQLite, Compose configuration, environment variables, Gateway configuration,
 or the Gateway container.
 
@@ -222,9 +222,10 @@ forbidden. Password bytes must not enter arguments, ordinary environment
 variables, files, logs, browser state, workspaces, audit details, or model
 input.
 
-Backup, restore, credential rotation, and master-key rotation must preserve the
-authenticated encryption and broker boundaries. Exact operational runbooks
-land with the schema implementation.
+Backup and restore must keep the database and matching master key together.
+The current runtime loads one key and fails closed on a mismatched key;
+master-key rotation requires a later explicit re-encryption workflow before an
+operator replaces that secret.
 
 ## Background processes
 
@@ -295,7 +296,9 @@ After the upstream gate passes:
 1. Prove the static `platformclaw-execution` backend can preserve local and SSH
    execution and can pin one target per run.
 2. Add schema version 2 and in-memory target/allocation policy tests.
-3. Add AES-256-GCM persistence, backup, restore, and key-rotation tests.
+3. Add AES-256-GCM persistence and matching-key restart/restore tests.
+   Add online master-key rotation as a later bounded operation before rotation
+   is needed in production.
 4. Add the Unix credential broker and one-shot askpass path.
 5. Add local and SSH backend handles with filesystem and process support.
 6. Add employee-profile refresh and runtime-context projection.

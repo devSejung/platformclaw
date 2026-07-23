@@ -20,8 +20,10 @@ function fixtureEnv(): NodeJS.ProcessEnv {
   fixtureRoots.push(root);
   const tokenFile = join(root, "gateway-token");
   const adminFile = join(root, "initial-admins");
+  const credentialKeyFile = join(root, "ssh-credential-master-key");
   writeFileSync(tokenFile, "test-gateway-token\n", { mode: 0o600 });
   writeFileSync(adminFile, "Person.One\nperson.two,person.one\n", { mode: 0o600 });
+  writeFileSync(credentialKeyFile, Buffer.alloc(32, 7).toString("base64"), { mode: 0o600 });
   return {
     [PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin]: "http://127.0.0.1:19001",
     [PLATFORMCLAW_DEPLOYMENT_ENV.databasePath]: join(root, "state", "control.sqlite"),
@@ -30,6 +32,7 @@ function fixtureEnv(): NodeJS.ProcessEnv {
     [PLATFORMCLAW_DEPLOYMENT_ENV.initialAdminAccountIdsFile]: adminFile,
     [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayUrl]: "ws://127.0.0.1:18789",
     [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile]: tokenFile,
+    [PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile]: credentialKeyFile,
   };
 }
 
@@ -48,6 +51,15 @@ describe("loadPlatformClawDeploymentConfig", () => {
       gatewayAuth: "test-gateway-token",
     });
     expect(config.databasePath).toBe(resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.databasePath] ?? ""));
+    expect(config.sshCredentialCipher.keyId).toMatch(/^sha256:/u);
+  });
+
+  it("rejects an invalid SSH credential master key", () => {
+    const env = fixtureEnv();
+    const keyPath = env[PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile] ?? "";
+    writeFileSync(keyPath, Buffer.alloc(31).toString("base64"));
+
+    expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("must decode to 32 bytes");
   });
 
   it("fails closed when a required deployment value is missing", () => {

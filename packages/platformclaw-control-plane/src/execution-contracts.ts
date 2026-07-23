@@ -47,7 +47,11 @@ export type VmAllocation = {
   revokedAt?: number;
 };
 
-export type ExecutionResourceKind = "safeconnect-endpoint" | "vm-host" | "vm-allocation";
+export type ExecutionResourceKind =
+  | "safeconnect-endpoint"
+  | "vm-host"
+  | "vm-allocation"
+  | "ssh-credential";
 
 export interface ControlPlaneExecutionManagementStore {
   createSafeConnectEndpoint(params: {

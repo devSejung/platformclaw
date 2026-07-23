@@ -35,7 +35,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   restartRecoveryProbe: PersonalAgentRestartRecoveryProbe;
   employeeAuth?: Pick<
     EmployeeBrowserAuthRuntimeOptions,
-    "employeeAuthConfig" | "env" | "fetchImpl" | "now" | "tokenFactory"
+    "employeeAuthConfig" | "env" | "fetchImpl" | "now" | "tokenFactory" | "sshCredentialCipher"
   >;
   gatewayClient: PlatformClawGatewayRuntimeClientOptions;
   publicOrigin: string;

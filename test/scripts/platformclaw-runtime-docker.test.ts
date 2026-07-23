@@ -46,7 +46,9 @@ describe("PlatformClaw Docker runtime", () => {
     expect(control?.secrets).toEqual([
       "platformclaw_gateway_token",
       "platformclaw_initial_admin_ids",
+      "platformclaw_ssh_credential_master_key",
     ]);
+    expect(gateway?.secrets).toEqual(["platformclaw_gateway_token"]);
   });
 
   it("seeds the required private admin RPC without storing a token", () => {
@@ -81,6 +83,7 @@ describe("PlatformClaw Docker runtime", () => {
 
     expect(smoke).toContain('work_dir="$(mktemp -d)"');
     expect(smoke).toContain('chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
+    expect(smoke).toContain("SSH credential master key leaked into container logs");
     expect(smoke).not.toContain('chmod 0600 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
   });
 
@@ -104,7 +107,7 @@ describe("PlatformClaw Docker runtime", () => {
 
     expect(readme).toContain("UID/GID `1000:1000`");
     expect(readme).toContain("-o 1000 -g 1000 -m 0400 gateway-token");
-    expect(readme).toContain("Do not store\neither value in Compose YAML or an environment file.");
+    expect(readme).toContain("Do not store\ntheir values in Compose YAML or an environment file.");
   });
 
   it("registers a deterministic Docker scheduler lane", () => {

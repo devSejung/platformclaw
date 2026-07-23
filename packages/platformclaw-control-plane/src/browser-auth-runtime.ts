@@ -6,6 +6,8 @@ import {
   type EmployeeAuthClientConfig,
 } from "./employee-auth-client.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
+import { SshCredentialCipher } from "./ssh-credential-crypto.js";
+import { SshCredentialVault } from "./ssh-credential-vault.js";
 
 export type EmployeeBrowserAuthRuntimeOptions = {
   databasePath: string;
@@ -17,11 +19,13 @@ export type EmployeeBrowserAuthRuntimeOptions = {
   fetchImpl?: typeof globalThis.fetch;
   now?: () => number;
   tokenFactory?: () => string;
+  sshCredentialCipher?: SshCredentialCipher;
 };
 
 export type EmployeeBrowserAuthRuntime = {
   store: SqliteControlPlaneStore;
   service: BrowserAuthService;
+  credentialVault?: SshCredentialVault;
   close(): void;
 };
 
@@ -46,10 +50,14 @@ export function createEmployeeBrowserAuthRuntime(
     ...(options.now ? { now: options.now } : {}),
     ...(options.tokenFactory ? { tokenFactory: options.tokenFactory } : {}),
   });
+  const credentialVault = options.sshCredentialCipher
+    ? new SshCredentialVault(store, options.sshCredentialCipher)
+    : undefined;
   let closed = false;
   return {
     store,
     service,
+    ...(credentialVault ? { credentialVault } : {}),
     close() {
       if (closed) {
         return;
