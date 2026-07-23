@@ -26,7 +26,12 @@ async function runPlatformClawControlServer(env: NodeJS.ProcessEnv = process.env
     console.log(
       `PlatformClaw restart recovery: found=${recovery.found} activated=${recovery.activated} failed=${recovery.failed} disabled=${recovery.disabled}`,
     );
-    await runtime.listen({ host: config.listenHost, port: config.listenPort });
+    await runtime.listen({
+      host: config.listenHost,
+      port: config.listenPort,
+      internalHost: config.internalListenHost,
+      internalPort: config.internalListenPort,
+    });
     console.log(`PlatformClaw control listening on ${config.publicOrigin}`);
     await stopped;
   } finally {

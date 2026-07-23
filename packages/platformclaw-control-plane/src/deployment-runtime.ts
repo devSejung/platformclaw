@@ -72,5 +72,6 @@ export function createPlatformClawDeploymentRuntime(
     publicOrigin: config.publicOrigin,
     controlUiRoot: config.controlUiRoot,
     credentialBrokerAddress: config.credentialBrokerAddress,
+    executionServiceToken: config.executionServiceToken,
   });
 }

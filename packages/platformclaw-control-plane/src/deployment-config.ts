@@ -4,12 +4,16 @@ import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 
 const DEFAULT_LISTEN_HOST = "127.0.0.1";
 const DEFAULT_LISTEN_PORT = 19_001;
+export const DEFAULT_INTERNAL_LISTEN_HOST = "127.0.0.1";
+export const DEFAULT_INTERNAL_LISTEN_PORT = 19_002;
 const MAX_SECRET_FILE_BYTES = 16 * 1024;
 
 export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   publicOrigin: "PLATFORMCLAW_PUBLIC_ORIGIN",
   listenHost: "PLATFORMCLAW_LISTEN_HOST",
   listenPort: "PLATFORMCLAW_LISTEN_PORT",
+  internalListenHost: "PLATFORMCLAW_INTERNAL_LISTEN_HOST",
+  internalListenPort: "PLATFORMCLAW_INTERNAL_LISTEN_PORT",
   databasePath: "PLATFORMCLAW_DATABASE_PATH",
   controlUiRoot: "PLATFORMCLAW_CONTROL_UI_ROOT",
   workspaceRoot: "PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT",
@@ -18,12 +22,15 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   gatewayAuthFile: "PLATFORMCLAW_GATEWAY_TOKEN_FILE",
   sshCredentialMasterKeyFile: "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
   credentialBrokerAddress: "PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS",
+  executionServiceTokenFile: "PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE",
 } as const;
 
 export type PlatformClawDeploymentConfig = {
   publicOrigin: string;
   listenHost: string;
   listenPort: number;
+  internalListenHost: string;
+  internalListenPort: number;
   databasePath: string;
   controlUiRoot: string;
   workspaceRoot: string;
@@ -33,6 +40,7 @@ export type PlatformClawDeploymentConfig = {
   gatewayAuth: string;
   sshCredentialCipher: SshCredentialCipher;
   credentialBrokerAddress: string;
+  executionServiceToken: string;
 };
 
 function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -76,18 +84,31 @@ function parseGatewayUrl(raw: string): { websocketUrl: string; adminRpcUrl: stri
   return { websocketUrl, adminRpcUrl: url.toString() };
 }
 
-function parsePort(raw: string | undefined): number {
+function parsePort(raw: string | undefined, name: string, defaultPort: number): number {
   if (!raw?.trim()) {
-    return DEFAULT_LISTEN_PORT;
+    return defaultPort;
   }
   if (!/^\d+$/.test(raw.trim())) {
-    throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.listenPort} must be an integer`);
+    throw new Error(`${name} must be an integer`);
   }
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.listenPort} must be between 1 and 65535`);
+    throw new Error(`${name} must be between 1 and 65535`);
   }
   return port;
+}
+
+function readExecutionServiceToken(filePath: string): string {
+  const token = readDeploymentSecret(
+    filePath,
+    PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile,
+  );
+  if (Buffer.byteLength(token, "utf8") < 32 || Buffer.byteLength(token, "utf8") > 512) {
+    throw new Error(
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile} must contain 32 to 512 bytes`,
+    );
+  }
+  return token;
 }
 
 function readDeploymentSecret(filePath: string, label: string): string {
@@ -131,10 +152,26 @@ export function loadPlatformClawDeploymentConfig(
       PLATFORMCLAW_DEPLOYMENT_ENV.initialAdminAccountIdsFile,
     ),
   );
+  const listenPort = parsePort(
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.listenPort],
+    PLATFORMCLAW_DEPLOYMENT_ENV.listenPort,
+    DEFAULT_LISTEN_PORT,
+  );
+  const internalListenPort = parsePort(
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.internalListenPort],
+    PLATFORMCLAW_DEPLOYMENT_ENV.internalListenPort,
+    DEFAULT_INTERNAL_LISTEN_PORT,
+  );
+  if (listenPort === internalListenPort) {
+    throw new Error("PlatformClaw public and internal listen ports must differ");
+  }
   return {
     publicOrigin: parsePublicOrigin(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin)),
     listenHost: env[PLATFORMCLAW_DEPLOYMENT_ENV.listenHost]?.trim() || DEFAULT_LISTEN_HOST,
-    listenPort: parsePort(env[PLATFORMCLAW_DEPLOYMENT_ENV.listenPort]),
+    listenPort,
+    internalListenHost:
+      env[PLATFORMCLAW_DEPLOYMENT_ENV.internalListenHost]?.trim() || DEFAULT_INTERNAL_LISTEN_HOST,
+    internalListenPort,
     databasePath: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.databasePath)),
     controlUiRoot: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.controlUiRoot)),
     workspaceRoot: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.workspaceRoot)),
@@ -152,5 +189,8 @@ export function loadPlatformClawDeploymentConfig(
       ),
     ),
     credentialBrokerAddress: requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.credentialBrokerAddress),
+    executionServiceToken: readExecutionServiceToken(
+      requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile),
+    ),
   };
 }

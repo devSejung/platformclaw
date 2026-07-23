@@ -53,6 +53,39 @@ export type ExecutionResourceKind =
   | "vm-allocation"
   | "ssh-credential";
 
+export type PlatformServerExecutionTarget = {
+  kind: "platform_server";
+  agentId: string;
+  userId: string;
+  targetId: "platform-server";
+  revision: number;
+};
+
+export type AssignedVmExecutionTarget = {
+  kind: "assigned_vm";
+  agentId: string;
+  userId: string;
+  targetId: string;
+  revision: number;
+  allocationId: string;
+  endpointHost: string;
+  endpointPort: number;
+  adDomain: string;
+  adAccount: string;
+  targetAddress: string;
+  linuxAccount: string;
+  remoteWorkspaceDir: string;
+  hostKeyAlgorithm: string;
+  hostKeyPublicKey: string;
+  hostKeyFingerprint: string;
+};
+
+export type PersonalExecutionTarget = PlatformServerExecutionTarget | AssignedVmExecutionTarget;
+
+export interface ControlPlaneExecutionRuntimeStore {
+  resolvePersonalExecutionTarget(agentId: string): Promise<PersonalExecutionTarget>;
+}
+
 export interface ControlPlaneExecutionManagementStore {
   createSafeConnectEndpoint(params: {
     actorUserId: string;
