@@ -19,6 +19,7 @@ const config: PlatformClawDeploymentConfig = {
   gatewayAdminRpcUrl: "http://127.0.0.1:18789/api/v1/admin/rpc",
   gatewayAuth: "test-gateway-token",
   sshCredentialCipher: SshCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
+  credentialBrokerAddress: "/run/platformclaw-credential-broker/credential.sock",
 };
 
 describe("createPlatformClawDeploymentRuntime", () => {
@@ -36,6 +37,7 @@ describe("createPlatformClawDeploymentRuntime", () => {
       initialAdminAccountIds: config.initialAdminAccountIds,
       publicOrigin: config.publicOrigin,
       controlUiRoot: config.controlUiRoot,
+      credentialBrokerAddress: config.credentialBrokerAddress,
       gatewayClient: {
         client: {
           url: config.gatewayUrl,

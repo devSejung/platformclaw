@@ -19,6 +19,7 @@ import {
   type PersonalAgentRestartRecoveryProbe,
   type RestartReconciliationSummary,
 } from "./restart-reconciler.js";
+import { SshCredentialBroker } from "./ssh-credential-broker.js";
 import { createPlatformClawWebAssetHandler } from "./web-assets.js";
 import {
   PlatformClawWebIngressServer,
@@ -41,6 +42,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   publicOrigin: string;
   controlUiRoot: string;
   loginRateLimiter?: MemoryBrowserLoginRateLimiterOptions;
+  credentialBrokerAddress?: string;
   ingress?: Pick<
     PlatformClawWebIngressOptions,
     "gatewayPath" | "healthPath" | "maxPayloadBytes" | "resolveClientIp"
@@ -51,6 +53,7 @@ export type PlatformClawWebIngressRuntime = {
   auth: EmployeeBrowserAuthRuntime;
   gateway: PlatformClawGatewayRuntimeClient;
   server: PlatformClawWebIngressServer;
+  credentialBroker?: SshCredentialBroker;
   prepare(): Promise<RestartReconciliationSummary>;
   listen(options: PlatformClawWebIngressListenOptions): Promise<void>;
   close(): Promise<void>;
@@ -67,6 +70,13 @@ export function createPlatformClawWebIngressRuntime(
     initialAdminAccountIds: options.initialAdminAccountIds,
     ...options.employeeAuth,
   });
+  if (options.credentialBrokerAddress && !auth.credentialVault) {
+    throw new Error("credential broker requires an SSH credential vault");
+  }
+  const credentialBroker =
+    options.credentialBrokerAddress && auth.credentialVault
+      ? new SshCredentialBroker(options.credentialBrokerAddress, auth.credentialVault)
+      : undefined;
   const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
   const restartReconciler = new AgentRestartReconciler({
     store: auth.store,
@@ -104,11 +114,18 @@ export function createPlatformClawWebIngressRuntime(
     auth,
     gateway,
     server,
+    ...(credentialBroker ? { credentialBroker } : {}),
     prepare,
     async listen(listenOptions) {
       // No ingress may race a crash-left provisioning row during startup.
       await prepare();
-      await server.listen(listenOptions);
+      await credentialBroker?.listen();
+      try {
+        await server.listen(listenOptions);
+      } catch (error) {
+        await credentialBroker?.close();
+        throw error;
+      }
     },
     async close() {
       if (closed) {
@@ -118,7 +135,11 @@ export function createPlatformClawWebIngressRuntime(
       try {
         await server.close();
       } finally {
-        auth.close();
+        try {
+          await credentialBroker?.close();
+        } finally {
+          auth.close();
+        }
       }
     },
   };

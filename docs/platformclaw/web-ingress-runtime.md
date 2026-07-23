@@ -149,6 +149,7 @@ The process requires these deployment-owned values:
 | `PLATFORMCLAW_GATEWAY_URL`                    | Private Gateway WS(S) origin               |
 | `PLATFORMCLAW_GATEWAY_TOKEN_FILE`             | Private Gateway operator-token secret file |
 | `PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE` | 32-byte Base64 SSH credential key file     |
+| `PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS`      | Unix socket or Windows named-pipe address  |
 | `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`        | Employee-auth login endpoint               |
 | `PLATFORMCLAW_EMPLOYEE_AUTH_BEARER_TOKEN`     | Optional employee-auth service bearer      |
 

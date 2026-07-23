@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -5,6 +6,8 @@ import { join } from "node:path";
 import type { GatewayClientOptions } from "@openclaw/gateway-client";
 import type { HelloOk } from "@openclaw/gateway-protocol";
 import { describe, expect, it, vi } from "vitest";
+import { redeemLocalCredentialGrant } from "./credential-broker-local.js";
+import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 import { createPlatformClawWebIngressRuntime } from "./web-ingress-runtime.js";
 
 function hello(): HelloOk {
@@ -33,6 +36,10 @@ describe("createPlatformClawWebIngressRuntime", () => {
       join(controlUiRoot, "index.html"),
       "<!doctype html><html><head><title>Control</title></head><body>App</body></html>",
     );
+    const credentialBrokerAddress =
+      process.platform === "win32"
+        ? String.raw`\\.\pipe\platformclaw-runtime-${process.pid}-${randomUUID()}`
+        : join(controlUiRoot, "credential.sock");
     let clientOptions: GatewayClientOptions | undefined;
     const stop = vi.fn();
     const provisionOrRefresh = vi.fn(async () => undefined);
@@ -58,6 +65,7 @@ describe("createPlatformClawWebIngressRuntime", () => {
             { status: 200, headers: { "Content-Type": "application/json" } },
           ),
         tokenFactory: () => "browser-session",
+        sshCredentialCipher: SshCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
       },
       gatewayClient: {
         client: { url: "ws://127.0.0.1:18789", token: "test-auth-token" },
@@ -72,6 +80,7 @@ describe("createPlatformClawWebIngressRuntime", () => {
       },
       publicOrigin: "http://127.0.0.1:3000",
       controlUiRoot,
+      credentialBrokerAddress,
     });
 
     try {
@@ -85,6 +94,12 @@ describe("createPlatformClawWebIngressRuntime", () => {
         1,
       );
       await runtime.auth.store.reservePersonalAgent(user.id, 2);
+      await runtime.auth.credentialVault?.replace({
+        actorUserId: user.id,
+        userId: user.id,
+        password: "runtime broker secret",
+        replacedAt: 3,
+      });
       await expect(runtime.prepare()).resolves.toEqual({
         found: 1,
         activated: 1,
@@ -93,6 +108,17 @@ describe("createPlatformClawWebIngressRuntime", () => {
       });
       expect(reconcileAfterRestart).toHaveBeenCalledOnce();
       await runtime.listen({ host: "127.0.0.1", port: 0 });
+      const credentialGrant = runtime.credentialBroker?.issueForUser(user.id);
+      if (!credentialGrant) {
+        throw new Error("credential broker was not assembled");
+      }
+      const credential = await redeemLocalCredentialGrant({
+        address: credentialBrokerAddress,
+        token: credentialGrant.token,
+      });
+      expect(credential.password.toString("utf8")).toBe("runtime broker secret");
+      expect(credential.revision).toBe(1);
+      credential.password.fill(0);
       expect(clientOptions?.token).toBe("test-auth-token");
       expect(runtime.gateway.getHello()).toEqual(hello());
       const port = (runtime.server.address() as AddressInfo).port;
