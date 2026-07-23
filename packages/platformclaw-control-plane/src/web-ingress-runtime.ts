@@ -10,6 +10,8 @@ import {
   type MemoryBrowserLoginRateLimiterOptions,
 } from "./browser-login-rate-limiter.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
+import { PlatformClawExecutionHandoffServer } from "./execution-handoff-http.js";
+import { ExecutionHandoffService } from "./execution-handoff-service.js";
 import {
   PlatformClawGatewayRuntimeClient,
   type PlatformClawGatewayRuntimeClientOptions,
@@ -43,6 +45,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   controlUiRoot: string;
   loginRateLimiter?: MemoryBrowserLoginRateLimiterOptions;
   credentialBrokerAddress?: string;
+  executionServiceToken?: string;
   ingress?: Pick<
     PlatformClawWebIngressOptions,
     "gatewayPath" | "healthPath" | "maxPayloadBytes" | "resolveClientIp"
@@ -54,8 +57,14 @@ export type PlatformClawWebIngressRuntime = {
   gateway: PlatformClawGatewayRuntimeClient;
   server: PlatformClawWebIngressServer;
   credentialBroker?: SshCredentialBroker;
+  executionHandoff?: PlatformClawExecutionHandoffServer;
   prepare(): Promise<RestartReconciliationSummary>;
-  listen(options: PlatformClawWebIngressListenOptions): Promise<void>;
+  listen(
+    options: PlatformClawWebIngressListenOptions & {
+      internalHost?: string;
+      internalPort?: number;
+    },
+  ): Promise<void>;
   close(): Promise<void>;
 };
 
@@ -76,6 +85,16 @@ export function createPlatformClawWebIngressRuntime(
   const credentialBroker =
     options.credentialBrokerAddress && auth.credentialVault
       ? new SshCredentialBroker(options.credentialBrokerAddress, auth.credentialVault)
+      : undefined;
+  if (options.executionServiceToken && !credentialBroker) {
+    throw new Error("execution handoff requires a credential broker");
+  }
+  const executionHandoff =
+    options.executionServiceToken && credentialBroker
+      ? new PlatformClawExecutionHandoffServer(
+          options.executionServiceToken,
+          new ExecutionHandoffService(auth.store, credentialBroker),
+        )
       : undefined;
   const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
   const restartReconciler = new AgentRestartReconciler({
@@ -115,14 +134,20 @@ export function createPlatformClawWebIngressRuntime(
     gateway,
     server,
     ...(credentialBroker ? { credentialBroker } : {}),
+    ...(executionHandoff ? { executionHandoff } : {}),
     prepare,
     async listen(listenOptions) {
       // No ingress may race a crash-left provisioning row during startup.
       await prepare();
       await credentialBroker?.listen();
       try {
+        await executionHandoff?.listen({
+          host: listenOptions.internalHost ?? "127.0.0.1",
+          port: listenOptions.internalPort ?? 0,
+        });
         await server.listen(listenOptions);
       } catch (error) {
+        await executionHandoff?.close();
         await credentialBroker?.close();
         throw error;
       }
@@ -136,9 +161,13 @@ export function createPlatformClawWebIngressRuntime(
         await server.close();
       } finally {
         try {
-          await credentialBroker?.close();
+          await executionHandoff?.close();
         } finally {
-          auth.close();
+          try {
+            await credentialBroker?.close();
+          } finally {
+            auth.close();
+          }
         }
       }
     },

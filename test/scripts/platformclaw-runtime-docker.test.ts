@@ -43,12 +43,18 @@ describe("PlatformClaw Docker runtime", () => {
     expect(control?.environment?.PLATFORMCLAW_GATEWAY_URL).toBe(
       "ws://gateway.platformclaw.local:18789",
     );
+    expect(control?.environment?.PLATFORMCLAW_INTERNAL_LISTEN_PORT).toBe("19002");
     expect(control?.secrets).toEqual([
       "platformclaw_gateway_token",
+      "platformclaw_execution_service_token",
       "platformclaw_initial_admin_ids",
       "platformclaw_ssh_credential_master_key",
     ]);
     expect(gateway?.secrets).toEqual(["platformclaw_gateway_token"]);
+    expect(gateway?.environment).not.toHaveProperty("PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE");
+    expect(gateway?.volumes).not.toContain(
+      "platformclaw-credential-broker:/run/platformclaw-credential-broker:ro",
+    );
   });
 
   it("seeds the required private admin RPC without storing a token", () => {
@@ -84,6 +90,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(smoke).toContain('work_dir="$(mktemp -d)"');
     expect(smoke).toContain('chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
     expect(smoke).toContain("SSH credential master key leaked into container logs");
+    expect(smoke).toContain("Execution service token leaked into container logs");
     expect(smoke).not.toContain('chmod 0600 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
   });
 

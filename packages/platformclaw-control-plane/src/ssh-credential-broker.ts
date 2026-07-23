@@ -52,9 +52,12 @@ export class SshCredentialBroker {
     this.server = new LocalCredentialBrokerServer({ address: this.address, grants: this.grants });
   }
 
-  issueForUser(userId: string): CredentialBrokerGrant {
+  issueForUser(userId: string, validate?: () => Promise<void>): CredentialBrokerGrant {
     this.server.assertAvailable();
-    return this.grants.issue(async () => this.vault.resolveForBroker(userId));
+    return this.grants.issue(async () => {
+      await validate?.();
+      return this.vault.resolveForBroker(userId);
+    });
   }
 
   listen(): Promise<void> {

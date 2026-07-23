@@ -11,7 +11,6 @@ services:
     volumes:
       - platformclaw-gateway-state:/home/node/.openclaw
       - platformclaw-workspaces:/var/lib/platformclaw/workspaces
-      - platformclaw-credential-broker:/run/platformclaw-credential-broker:ro
     secrets:
       - platformclaw_gateway_token
     networks:
@@ -47,6 +46,8 @@ services:
       PLATFORMCLAW_PUBLIC_ORIGIN: ${PLATFORMCLAW_PUBLIC_ORIGIN:?set PLATFORMCLAW_PUBLIC_ORIGIN}
       PLATFORMCLAW_LISTEN_HOST: 0.0.0.0
       PLATFORMCLAW_LISTEN_PORT: "19001"
+      PLATFORMCLAW_INTERNAL_LISTEN_HOST: 0.0.0.0
+      PLATFORMCLAW_INTERNAL_LISTEN_PORT: "19002"
       PLATFORMCLAW_DATABASE_PATH: /var/lib/platformclaw/control/platformclaw-control.sqlite
       PLATFORMCLAW_CONTROL_UI_ROOT: /app/ui/dist
       PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT: /var/lib/platformclaw/workspaces
@@ -55,6 +56,7 @@ services:
       PLATFORMCLAW_GATEWAY_TOKEN_FILE: /run/secrets/platformclaw_gateway_token
       PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE: /run/secrets/platformclaw_ssh_credential_master_key
       PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
+      PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_execution_service_token
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL}
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
     volumes:
@@ -63,6 +65,7 @@ services:
       - platformclaw-credential-broker:/run/platformclaw-credential-broker
     secrets:
       - platformclaw_gateway_token
+      - platformclaw_execution_service_token
       - platformclaw_initial_admin_ids
       - platformclaw_ssh_credential_master_key
     networks:
@@ -108,6 +111,8 @@ networks:
 secrets:
   platformclaw_gateway_token:
     file: ${PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE:?set PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE}
+  platformclaw_execution_service_token:
+    file: ${PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE:?set PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE}
   platformclaw_initial_admin_ids:
     file: ${PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE:?set PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE}
   platformclaw_ssh_credential_master_key:

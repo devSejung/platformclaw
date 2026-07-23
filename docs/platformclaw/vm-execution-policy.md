@@ -299,7 +299,7 @@ After the upstream gate passes:
 3. Add AES-256-GCM persistence and matching-key restart/restore tests.
    Add online master-key rotation as a later bounded operation before rotation
    is needed in production.
-4. Add the Unix credential broker and one-shot askpass path.
+4. Add the Unix credential broker and authenticated one-shot handoff.
 5. Add local and SSH backend handles with filesystem and process support.
 6. Add employee-profile refresh and runtime-context projection.
 7. Add employee and administrator execution UI.

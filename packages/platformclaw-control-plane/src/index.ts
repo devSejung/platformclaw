@@ -16,6 +16,8 @@ export * from "./credential-broker-local.js";
 export * from "./employee-auth-client.js";
 export * from "./employee-profile-artifact.js";
 export * from "./execution-contracts.js";
+export * from "./execution-handoff-http.js";
+export * from "./execution-handoff-service.js";
 export * from "./execution-memory-store.js";
 export * from "./execution-validation.js";
 export * from "./gateway-admin-rpc-client.js";

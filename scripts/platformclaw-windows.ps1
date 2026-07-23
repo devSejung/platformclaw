@@ -3,9 +3,9 @@ param(
     [ValidateSet("Menu", "Start", "Doctor", "GitGuard")]
     [string]$Action = "Menu",
     [string]$DataRoot = (Join-Path $env:LOCALAPPDATA "PlatformClaw\windows-main-preview"),
-    [int]$EmployeeAuthPort = 18080,
-    [int]$GatewayPort = 18790,
-    [int]$Port = 19001,
+    [ValidateRange(1, 65535)][int]$EmployeeAuthPort = 18080,
+    [ValidateRange(1, 65535)][int]$GatewayPort = 18790,
+    [ValidateRange(1, 65534)][int]$Port = 19001,
     [string]$SourceRef = "origin/main",
     [switch]$NoFetch,
     [switch]$Rebuild
@@ -20,6 +20,8 @@ $runtimeEnvironmentNames = @(
     "PLATFORMCLAW_PUBLIC_ORIGIN",
     "PLATFORMCLAW_LISTEN_HOST",
     "PLATFORMCLAW_LISTEN_PORT",
+    "PLATFORMCLAW_INTERNAL_LISTEN_HOST",
+    "PLATFORMCLAW_INTERNAL_LISTEN_PORT",
     "PLATFORMCLAW_DATABASE_PATH",
     "PLATFORMCLAW_CONTROL_UI_ROOT",
     "PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT",
@@ -28,6 +30,7 @@ $runtimeEnvironmentNames = @(
     "PLATFORMCLAW_GATEWAY_TOKEN_FILE",
     "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
     "PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS",
+    "PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE",
     "PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL"
 )
 
@@ -275,11 +278,15 @@ function Initialize-Runtime {
     New-Item -ItemType Directory -Force $gatewayRoot, $workspaceRoot, $controlRoot | Out-Null
 
     $tokenFile = Join-Path $runtimeRoot "gateway-token"
+    $executionServiceTokenFile = Join-Path $runtimeRoot "execution-service-token"
     $adminFile = Join-Path $runtimeRoot "initial-admin-ids"
     $credentialKeyFile = Join-Path $runtimeRoot "ssh-credential-master-key"
     $configFile = Join-Path $gatewayRoot "openclaw.json"
     if (-not (Test-Path $tokenFile)) {
         Write-Utf8NoBom $tokenFile (New-RandomToken)
+    }
+    if (-not (Test-Path $executionServiceTokenFile)) {
+        Write-Utf8NoBom $executionServiceTokenFile (New-RandomToken)
     }
     Write-Utf8NoBom $adminFile "admin.user"
     if (-not (Test-Path $credentialKeyFile)) {
@@ -311,6 +318,8 @@ function Initialize-Runtime {
     $env:PLATFORMCLAW_PUBLIC_ORIGIN = "http://127.0.0.1:$Port"
     $env:PLATFORMCLAW_LISTEN_HOST = "127.0.0.1"
     $env:PLATFORMCLAW_LISTEN_PORT = "$Port"
+    $env:PLATFORMCLAW_INTERNAL_LISTEN_HOST = "127.0.0.1"
+    $env:PLATFORMCLAW_INTERNAL_LISTEN_PORT = "$($Port + 1)"
     $env:PLATFORMCLAW_DATABASE_PATH = Join-Path $controlRoot "platformclaw-control.sqlite"
     $env:PLATFORMCLAW_CONTROL_UI_ROOT = Join-Path $SourceRoot "dist\control-ui"
     $env:PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT = $workspaceRoot
@@ -319,6 +328,7 @@ function Initialize-Runtime {
     $env:PLATFORMCLAW_GATEWAY_TOKEN_FILE = $tokenFile
     $env:PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE = $credentialKeyFile
     $env:PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = "\\.\pipe\platformclaw-credential-broker-$Port"
+    $env:PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = $executionServiceTokenFile
     $env:PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL = "http://127.0.0.1:$EmployeeAuthPort/login"
 }
 
@@ -387,6 +397,11 @@ function Start-PlatformClaw {
 
     try {
         Initialize-Runtime $sourceRoot
+        $internalPort = $Port + 1
+        $configuredPorts = @($EmployeeAuthPort, $GatewayPort, $Port, $internalPort)
+        if (($configuredPorts | Sort-Object -Unique).Count -ne $configuredPorts.Count) {
+            throw "Employee auth, Gateway, Control/UI, and internal execution ports must be distinct"
+        }
         $loginUrl = "http://127.0.0.1:$Port/platformclaw/login"
         if (Test-HttpEndpoint "http://127.0.0.1:$Port/platformclaw/health") {
             Write-Step "PlatformClaw is already running"
@@ -397,6 +412,7 @@ function Start-PlatformClaw {
         Assert-PortAvailable $EmployeeAuthPort "Employee auth mock"
         Assert-PortAvailable $GatewayPort "Gateway"
         Assert-PortAvailable $Port "Control/UI"
+        Assert-PortAvailable $internalPort "Control internal execution"
 
         $pythonPrefix = ($python.Prefix | ForEach-Object { "'$_'" }) -join " "
         $pythonCommand = "& '$($python.Command)' $pythonPrefix 'scripts\mock_employee_auth.py' --bind 127.0.0.1 --port $EmployeeAuthPort"

@@ -31,17 +31,21 @@ PY
 export PLATFORMCLAW_PUBLIC_ORIGIN="http://127.0.0.1:$PLATFORMCLAW_PUBLIC_PORT"
 export PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL="http://127.0.0.1:18080/login"
 export PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE="$work_dir/gateway-token"
+export PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE="$work_dir/execution-service-token"
 export PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE="$work_dir/initial-admin-ids"
 export PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE="$work_dir/ssh-credential-master-key"
 
 ephemeral_probe="$(openssl rand -hex 32)"
 printf '%s\n' "$ephemeral_probe" >"$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"
 printf '%s\n' "admin.user" >"$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE"
+openssl rand -hex 32 >"$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE"
 openssl rand -base64 32 >"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
 credential_key_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE")"
+execution_service_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE")"
 # Compose bind-mounts these files without remapping ownership. The mktemp directory
 # remains host-private; read-only file mode lets the non-root containers read them.
 chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE" \
+  "$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE" \
   "$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE" \
   "$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
 
@@ -75,6 +79,21 @@ curl --fail --silent --show-error \
   "$origin/platformclaw/api/auth/login" >"$login_response"
 jq -e '.authenticated == true and .agent.agentId == "person_one"' \
   "$login_response" >/dev/null
+
+"${compose[@]}" exec -T platformclaw-control node -e '
+  const { readFileSync } = require("node:fs");
+  const token = readFileSync("/run/secrets/platformclaw_execution_service_token", "utf8").trim();
+  fetch("http://127.0.0.1:19002/platformclaw/internal/execution/target", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ agentId: "person_one" }),
+  }).then(async (response) => {
+    const body = await response.json();
+    if (!response.ok || body.kind !== "platform_server" || body.agentId !== "person_one") {
+      throw new Error(`unexpected execution handoff: ${response.status}`);
+    }
+  });
+'
 
 curl --fail --silent --show-error --cookie "$cookie_jar" \
   "$origin/platformclaw/api/auth/session" >"$session_response"
@@ -125,6 +144,14 @@ if grep -Fq "$credential_key_probe" <<<"$runtime_logs"; then
 fi
 if grep -Fq "$credential_key_probe" "$app_document"; then
   echo "SSH credential master key leaked into browser document" >&2
+  exit 1
+fi
+if grep -Fq "$execution_service_probe" <<<"$runtime_logs"; then
+  echo "Execution service token leaked into container logs" >&2
+  exit 1
+fi
+if grep -Fq "$execution_service_probe" "$app_document"; then
+  echo "Execution service token leaked into browser document" >&2
   exit 1
 fi
 

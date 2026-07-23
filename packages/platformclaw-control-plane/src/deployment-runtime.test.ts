@@ -11,6 +11,8 @@ const config: PlatformClawDeploymentConfig = {
   publicOrigin: "http://127.0.0.1:19001",
   listenHost: "127.0.0.1",
   listenPort: 19001,
+  internalListenHost: "127.0.0.1",
+  internalListenPort: 19002,
   databasePath: "/state/platformclaw-control.sqlite",
   controlUiRoot: "/app/ui-dist",
   workspaceRoot: "/state/workspaces",
@@ -20,6 +22,7 @@ const config: PlatformClawDeploymentConfig = {
   gatewayAuth: "test-gateway-token",
   sshCredentialCipher: SshCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
   credentialBrokerAddress: "/run/platformclaw-credential-broker/credential.sock",
+  executionServiceToken: "e".repeat(32),
 };
 
 describe("createPlatformClawDeploymentRuntime", () => {
@@ -38,6 +41,7 @@ describe("createPlatformClawDeploymentRuntime", () => {
       publicOrigin: config.publicOrigin,
       controlUiRoot: config.controlUiRoot,
       credentialBrokerAddress: config.credentialBrokerAddress,
+      executionServiceToken: config.executionServiceToken,
       gatewayClient: {
         client: {
           url: config.gatewayUrl,

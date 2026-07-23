@@ -21,9 +21,11 @@ function fixtureEnv(): NodeJS.ProcessEnv {
   const tokenFile = join(root, "gateway-token");
   const adminFile = join(root, "initial-admins");
   const credentialKeyFile = join(root, "ssh-credential-master-key");
+  const executionServiceTokenFile = join(root, "execution-service-token");
   writeFileSync(tokenFile, "test-gateway-token\n", { mode: 0o600 });
   writeFileSync(adminFile, "Person.One\nperson.two,person.one\n", { mode: 0o600 });
   writeFileSync(credentialKeyFile, Buffer.alloc(32, 7).toString("base64"), { mode: 0o600 });
+  writeFileSync(executionServiceTokenFile, "e".repeat(32), { mode: 0o600 });
   return {
     [PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin]: "http://127.0.0.1:19001",
     [PLATFORMCLAW_DEPLOYMENT_ENV.databasePath]: join(root, "state", "control.sqlite"),
@@ -37,6 +39,7 @@ function fixtureEnv(): NodeJS.ProcessEnv {
       process.platform === "win32"
         ? String.raw`\\.\pipe\platformclaw-test-broker`
         : join(root, "broker.sock"),
+    [PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile]: executionServiceTokenFile,
   };
 }
 
@@ -49,6 +52,8 @@ describe("loadPlatformClawDeploymentConfig", () => {
       publicOrigin: "http://127.0.0.1:19001",
       listenHost: "127.0.0.1",
       listenPort: 19001,
+      internalListenHost: "127.0.0.1",
+      internalListenPort: 19002,
       initialAdminAccountIds: ["person.one", "person.two"],
       gatewayUrl: "ws://127.0.0.1:18789",
       gatewayAdminRpcUrl: "http://127.0.0.1:18789/api/v1/admin/rpc",
@@ -57,6 +62,7 @@ describe("loadPlatformClawDeploymentConfig", () => {
         process.platform === "win32"
           ? String.raw`\\.\pipe\platformclaw-test-broker`
           : resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.credentialBrokerAddress] ?? ""),
+      executionServiceToken: "e".repeat(32),
     });
     expect(config.databasePath).toBe(resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.databasePath] ?? ""));
     expect(config.sshCredentialCipher.keyId).toMatch(/^sha256:/u);
@@ -79,10 +85,26 @@ describe("loadPlatformClawDeploymentConfig", () => {
     );
   });
 
+  it("rejects a short execution-service token", () => {
+    const env = fixtureEnv();
+    const tokenPath = env[PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile] ?? "";
+    writeFileSync(tokenPath, "too-short");
+
+    expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("must contain 32 to 512 bytes");
+  });
+
+  it("keeps the public and internal listeners on separate ports", () => {
+    const env = fixtureEnv();
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.internalListenPort] = "19001";
+
+    expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("listen ports must differ");
+  });
+
   it.each([
     [PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin, "http://example.test/path"],
     [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayUrl, "ws://user@example.test"],
     [PLATFORMCLAW_DEPLOYMENT_ENV.listenPort, "70000"],
+    [PLATFORMCLAW_DEPLOYMENT_ENV.internalListenPort, "0"],
   ])("rejects invalid %s", (name, value) => {
     const env = fixtureEnv();
     env[name] = value;

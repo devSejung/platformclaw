@@ -1,6 +1,8 @@
 import { ControlPlaneConflictError, ControlPlaneStateError } from "./contracts.js";
 import type {
   ControlPlaneExecutionManagementStore,
+  ControlPlaneExecutionRuntimeStore,
+  PersonalExecutionTarget,
   SafeConnectEndpoint,
   VmAllocation,
   VmHost,
@@ -76,8 +78,105 @@ function rowToAllocation(row: VmAllocationRow): VmAllocation {
 
 export abstract class SqliteControlPlaneExecutionStore
   extends SqliteControlPlaneAuthStore
-  implements ControlPlaneExecutionManagementStore
+  implements ControlPlaneExecutionManagementStore, ControlPlaneExecutionRuntimeStore
 {
+  async resolvePersonalExecutionTarget(agentId: string): Promise<PersonalExecutionTarget> {
+    const owner = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("agent_bindings")
+        .innerJoin("platform_users", "platform_users.id", "agent_bindings.user_id")
+        .innerJoin(
+          "personal_execution_profiles",
+          "personal_execution_profiles.agent_binding_id",
+          "agent_bindings.id",
+        )
+        .select([
+          "agent_bindings.id as binding_id",
+          "agent_bindings.agent_id as agent_id",
+          "agent_bindings.state as binding_state",
+          "platform_users.id as user_id",
+          "platform_users.account_id as account_id",
+          "platform_users.status as user_status",
+          "personal_execution_profiles.active_target as active_target",
+          "personal_execution_profiles.active_allocation_id as active_allocation_id",
+          "personal_execution_profiles.target_revision as target_revision",
+        ])
+        .where("agent_bindings.agent_id", "=", agentId)
+        .where("agent_bindings.kind", "=", "personal"),
+    );
+    if (!owner || owner.binding_state !== "active" || owner.user_status !== "active") {
+      throw new ControlPlaneStateError("active personal execution target is unavailable");
+    }
+    if (owner.active_target === "platform_server") {
+      return {
+        kind: "platform_server",
+        agentId: owner.agent_id,
+        userId: owner.user_id,
+        targetId: "platform-server",
+        revision: owner.target_revision,
+      };
+    }
+    if (!owner.active_allocation_id) {
+      throw new ControlPlaneStateError("assigned VM execution target is incomplete");
+    }
+    const vm = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("vm_allocations")
+        .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
+        .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
+        .select([
+          "vm_allocations.id as allocation_id",
+          "vm_allocations.agent_binding_id as agent_binding_id",
+          "vm_allocations.status as allocation_status",
+          "vm_allocations.linux_account as linux_account",
+          "vm_allocations.remote_workspace_dir as remote_workspace_dir",
+          "vm_hosts.status as host_status",
+          "vm_hosts.target_address as target_address",
+          "safeconnect_endpoints.status as endpoint_status",
+          "safeconnect_endpoints.host as endpoint_host",
+          "safeconnect_endpoints.port as endpoint_port",
+          "safeconnect_endpoints.ad_domain as ad_domain",
+          "safeconnect_endpoints.host_key_algorithm as host_key_algorithm",
+          "safeconnect_endpoints.host_key_public_key as host_key_public_key",
+          "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
+        ])
+        .where("vm_allocations.id", "=", owner.active_allocation_id),
+    );
+    if (
+      !vm ||
+      vm.agent_binding_id !== owner.binding_id ||
+      vm.allocation_status !== "ready" ||
+      vm.host_status !== "active" ||
+      vm.endpoint_status !== "active" ||
+      !vm.remote_workspace_dir ||
+      !vm.host_key_algorithm ||
+      !vm.host_key_public_key ||
+      !vm.host_key_fingerprint
+    ) {
+      throw new ControlPlaneStateError("assigned VM execution target is not ready");
+    }
+    return {
+      kind: "assigned_vm",
+      agentId: owner.agent_id,
+      userId: owner.user_id,
+      targetId: vm.allocation_id,
+      revision: owner.target_revision,
+      allocationId: vm.allocation_id,
+      endpointHost: vm.endpoint_host,
+      endpointPort: vm.endpoint_port,
+      adDomain: vm.ad_domain,
+      adAccount: owner.account_id,
+      targetAddress: vm.target_address,
+      linuxAccount: vm.linux_account,
+      remoteWorkspaceDir: vm.remote_workspace_dir,
+      hostKeyAlgorithm: vm.host_key_algorithm,
+      hostKeyPublicKey: vm.host_key_public_key,
+      hostKeyFingerprint: vm.host_key_fingerprint,
+    };
+  }
+
   async createSafeConnectEndpoint(params: {
     actorUserId: string;
     label: string;

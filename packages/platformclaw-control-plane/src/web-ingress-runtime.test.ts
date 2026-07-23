@@ -81,6 +81,7 @@ describe("createPlatformClawWebIngressRuntime", () => {
       publicOrigin: "http://127.0.0.1:3000",
       controlUiRoot,
       credentialBrokerAddress,
+      executionServiceToken: "execution-service-token-with-32-bytes",
     });
 
     try {
@@ -107,7 +108,7 @@ describe("createPlatformClawWebIngressRuntime", () => {
         disabled: 0,
       });
       expect(reconcileAfterRestart).toHaveBeenCalledOnce();
-      await runtime.listen({ host: "127.0.0.1", port: 0 });
+      await runtime.listen({ host: "127.0.0.1", port: 0, internalPort: 0 });
       const credentialBroker = runtime.credentialBroker;
       if (!credentialBroker) {
         throw new Error("credential broker was not assembled");
@@ -120,6 +121,27 @@ describe("createPlatformClawWebIngressRuntime", () => {
       expect(credential.password.toString("utf8")).toBe("runtime broker secret");
       expect(credential.revision).toBe(1);
       credential.password.fill(0);
+      const executionHandoff = runtime.executionHandoff;
+      if (!executionHandoff) {
+        throw new Error("execution handoff was not assembled");
+      }
+      const internalPort = (executionHandoff.address() as AddressInfo).port;
+      const executionTarget = await fetch(
+        `http://127.0.0.1:${internalPort}/platformclaw/internal/execution/target`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer execution-service-token-with-32-bytes",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ agentId: "person_one" }),
+        },
+      );
+      expect(executionTarget.status).toBe(200);
+      await expect(executionTarget.json()).resolves.toMatchObject({
+        kind: "platform_server",
+        agentId: "person_one",
+      });
       expect(clientOptions?.token).toBe("test-auth-token");
       expect(runtime.gateway.getHello()).toEqual(hello());
       const port = (runtime.server.address() as AddressInfo).port;
