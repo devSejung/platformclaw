@@ -50,7 +50,7 @@ RUN --mount=type=secret,id=platformclaw_apt_sources \
     apt-get install -y --no-install-recommends \
       bash ca-certificates curl ffmpeg file git git-review gnupg hostname jq less \
       libssl-dev locales lsof make openssh-client openssl pkg-config poppler-utils \
-      procps python3 python3-openpyxl python3-pip python3-venv ripgrep tini tzdata \
+      procps python3 python3-openpyxl python3-pip python3-venv ripgrep sshpass tini tzdata \
       unzip vim xlsx2csv xz-utils zip docker.io; \
     compose_package=""; \
     for candidate in docker-compose-v2 docker-compose-plugin docker-compose; do \

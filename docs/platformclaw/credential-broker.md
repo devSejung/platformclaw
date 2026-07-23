@@ -50,11 +50,16 @@ rule.
 ## Deployment
 
 `PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS` is required by the deployable control
-runtime. Compose provides an owner-only, non-persistent `tmpfs` at
-`/run/platformclaw-credential-broker` and uses its `credential.sock`; the
-Windows preview uses a per-port named pipe. The broker starts before public Web
-ingress and stops before the vault database closes.
+runtime and supplies a base name, not one reusable socket inode. Every Control
+process lifetime appends a random nonce and listens on a fresh address. A crash
+can therefore leave only an unreachable old socket; it cannot prevent the next
+Control process from starting. The Windows preview follows the same rule with
+a unique named pipe.
 
-The current Compose file mounts the broker runtime directory only into
-`platformclaw-control`. The Gateway mount and authenticated grant handoff land
-together with the SSH backend, so an unused socket is not exposed early.
+Compose mounts one owner-only, non-persistent memory-backed runtime directory
+at `/run/platformclaw-credential-broker` in both containers. Control has write
+access and Gateway has a read-only mount. The directory is transport only: it
+contains no database, master key, credential file, or durable state. The later
+authenticated handoff returns the current one-shot address to the SSH helper;
+Gateway does not guess or enumerate socket names. The broker starts before
+public Web ingress and stops before the vault database closes.
