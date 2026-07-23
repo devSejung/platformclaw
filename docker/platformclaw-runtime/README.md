@@ -11,7 +11,9 @@ PlatformClaw Web port `19001` from the control container. Separate egress
 networks let Gateway call model APIs and the control service call employee auth
 without exposing the private backplane. Both services share the
 personal-workspace volume, while Gateway and control-plane state use separate
-persistent volumes.
+persistent volumes. They also share one memory-backed runtime directory used
+only for the one-shot VM credential channel. It is erased when the Compose
+stack stops and is never part of backup or restore.
 
 Required deployment inputs:
 
@@ -40,6 +42,19 @@ openssl rand -base64 32 | sudo install -o 1000 -g 1000 -m 0400 /dev/stdin \
 Point the three `*_SECRET_FILE` inputs at those installed files. Do not store
 their values in Compose YAML or an environment file. Back up the SSH credential
 master key separately; losing it makes stored AD credentials undecryptable.
+Back up the control database and its matching master key together. Do not back
+up the credential-broker runtime volume.
+
+The operator still starts and stops one Compose project; the two containers are
+an internal process boundary, not two separately configured products. The host
+publishes only Control port `19001`. Normal health checks require both
+`openclaw-gateway` and `platformclaw-control` to be healthy. Control-only
+restarts create a fresh broker socket automatically and do not require deleting
+runtime files.
+
+The Jammy runtime includes OpenSSH and `sshpass`. PlatformClaw permits only
+`sshpass -d <fd>` for SafeConnect password delivery; password arguments,
+environment variables, and password files remain forbidden.
 
 The first Gateway start seeds a canonical config that enables the private
 `admin-http-rpc` plugin. Its entry point reads Gateway authentication from the

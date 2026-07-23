@@ -108,12 +108,13 @@ describe("createPlatformClawWebIngressRuntime", () => {
       });
       expect(reconcileAfterRestart).toHaveBeenCalledOnce();
       await runtime.listen({ host: "127.0.0.1", port: 0 });
-      const credentialGrant = runtime.credentialBroker?.issueForUser(user.id);
-      if (!credentialGrant) {
+      const credentialBroker = runtime.credentialBroker;
+      if (!credentialBroker) {
         throw new Error("credential broker was not assembled");
       }
+      const credentialGrant = credentialBroker.issueForUser(user.id);
       const credential = await redeemLocalCredentialGrant({
-        address: credentialBrokerAddress,
+        address: credentialBroker.address,
         token: credentialGrant.token,
       });
       expect(credential.password.toString("utf8")).toBe("runtime broker secret");

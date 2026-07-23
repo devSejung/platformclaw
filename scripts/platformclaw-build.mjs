@@ -266,6 +266,8 @@ run("docker", [
     "gh --version",
     "docker --version",
     "(docker compose version || docker-compose --version)",
+    "ssh -V 2>&1 | grep -q OpenSSH",
+    "sshpass -V | grep -q 'sshpass 1.'",
     "codex-acp --version",
     "claude-agent-acp --help >/dev/null",
     "claude --version",

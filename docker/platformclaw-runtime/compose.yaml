@@ -11,6 +11,7 @@ services:
     volumes:
       - platformclaw-gateway-state:/home/node/.openclaw
       - platformclaw-workspaces:/var/lib/platformclaw/workspaces
+      - platformclaw-credential-broker:/run/platformclaw-credential-broker:ro
     secrets:
       - platformclaw_gateway_token
     networks:
@@ -59,8 +60,7 @@ services:
     volumes:
       - platformclaw-control-state:/var/lib/platformclaw/control
       - platformclaw-workspaces:/var/lib/platformclaw/workspaces
-    tmpfs:
-      - /run/platformclaw-credential-broker:uid=1000,gid=1000,mode=0700
+      - platformclaw-credential-broker:/run/platformclaw-credential-broker
     secrets:
       - platformclaw_gateway_token
       - platformclaw_initial_admin_ids
@@ -92,6 +92,12 @@ volumes:
   platformclaw-gateway-state:
   platformclaw-control-state:
   platformclaw-workspaces:
+  platformclaw-credential-broker:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=1000,gid=1000,mode=0700
 
 networks:
   platformclaw-gateway-backplane:

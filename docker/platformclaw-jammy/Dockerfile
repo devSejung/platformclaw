@@ -26,7 +26,7 @@ RUN --mount=type=secret,id=company_apt_sources,required=false \
     fi; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-      ca-certificates curl git hostname jq locales lsof openssl procps \
+      ca-certificates curl git hostname jq locales lsof openssh-client openssl procps sshpass \
       python3 python3-pip python3-venv ripgrep tini tzdata xz-utils \
       ${PLATFORMCLAW_APT_PACKAGES}; \
     locale-gen ko_KR.UTF-8; \
