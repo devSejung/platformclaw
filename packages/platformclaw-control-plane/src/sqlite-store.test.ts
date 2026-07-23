@@ -152,7 +152,7 @@ describe("SqliteControlPlaneStore", () => {
     recovery.close();
   });
 
-  it("creates schema v1 and persists identity, role, and directory groups", async () => {
+  it("creates current schema and persists identity, role, and directory groups", async () => {
     const databasePath = createDatabasePath();
     const store = createStore(databasePath);
     const first = await store.upsertPrincipal(principal("admin.user"), 1_000);

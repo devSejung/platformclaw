@@ -44,8 +44,9 @@ and filters requests, responses, and events through fail-closed method and
 parameter allowlists. The employee browser-auth runtime now assembles the
 LDAP-phase adapter and SQLite session store, and the personal-agent provisioner
 calls the Gateway Admin HTTP RPC boundary to create or adopt the exact agent and
-workspace. The in-memory store covers contract behavior, and the SQLite store
-persists the approved schema version 1.
+workspace. The in-memory store covers contract behavior. The SQLite store
+preserves the approved phase-1 tables and advances the control database to
+schema version 2 for personal VM execution metadata.
 
 New personal-agent provisioning also seeds approved directory profile fields
 into an immutable, agent-ID-keyed plugin SQLite entry. The atomic identity claim
@@ -358,7 +359,7 @@ The control-plane store does not duplicate OpenClaw transcripts or runtime
 state. OpenClaw configuration does not store employee passwords, VM passwords,
 or mutable PlatformClaw session records.
 
-`platformclaw-control` stores schema version 1 in
+`platformclaw-control` stores schema version 2 in
 `state/platformclaw-control.sqlite`. It uses WAL, foreign keys, a five-second
 busy timeout, Kysely-compiled runtime queries, synchronous write transactions,
 and owner-only file permissions on Linux. New personal agents preserve the
@@ -366,9 +367,10 @@ deployed account-ID convention: replace `.` with `_`, canonicalize case, and
 fail closed on collisions. The legacy database and activation JSON are not
 runtime fallback sources.
 
-AD and VM passwords remain outside schema version 1. A later approved schema
-stores them encrypted with a master key supplied as a Docker secret. The
-credential-encryption key is separate from browser-session signing keys.
+Schema v2 adds the approved VM execution tables and accepts only encrypted SSH
+credential envelopes. Plaintext AD passwords remain outside SQLite. Encryption
+and the Docker-secret master key land in the next bounded implementation slice;
+the credential-encryption key stays separate from browser-session signing keys.
 
 ## Implementation slices
 

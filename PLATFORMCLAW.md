@@ -31,6 +31,10 @@ The goals are to:
   supervision, persistent volumes, secret mounts, and deterministic runtime
   smoke are implemented; reverse-proxy browser proof remains pending.
 - The clean OpenClaw Linux Docker build and focused credential-free test baseline has been validated.
+- Personal VM execution uses a private plugin boundary. Schema v2 stores
+  SafeConnect endpoints, VM hosts, personal allocations, execution profiles,
+  and encrypted credential envelopes; encryption and SSH runtime remain
+  separate follow-up slices.
 
 ## Why This Rebuild Exists
 

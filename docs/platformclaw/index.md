@@ -25,6 +25,7 @@ and Knox direct or group conversations:
 - [Architecture decisions](/platformclaw/decisions)
 - [Employee authentication](/platformclaw/employee-auth)
 - [VM execution policy](/platformclaw/vm-execution-policy)
+- [VM execution schema v2](/platformclaw/vm-execution-schema-v2)
 - [Web ingress runtime](/platformclaw/web-ingress-runtime)
 - [Web login bootstrap plan](/platformclaw/web-login-bootstrap-plan)
 - [Private downstream CI](/platformclaw/private-downstream-ci)
@@ -45,8 +46,9 @@ synchronization. Its product and security behavior is frozen in the
 [VM execution policy](/platformclaw/vm-execution-policy). The additive upstream
 seam now supplies the prepared agent owner to private sandbox backends, and the
 private `platformclaw-execution` plugin pins one target snapshot per backend
-handle. Persistent allocation, credential, SSH, and UI work remain later
-implementation slices.
+handle. Schema v2 adds SafeConnect endpoint, VM host, personal allocation,
+server-default execution profile, and encrypted-envelope tables. Credential
+cryptography, broker, SSH, and UI remain later implementation slices.
 
 ## Maintenance rules
 

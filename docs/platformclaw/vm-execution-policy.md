@@ -214,12 +214,13 @@ provides it to one local SSH authentication process over one-shot file
 descriptor or equivalent IPC. The VM does not call this broker.
 
 SafeConnect uses OpenSSH keyboard-interactive authentication, strict host-key
-verification, one password attempt, and no agent or key fallback. The preferred
-path is a credential-free `SSH_ASKPASS` helper with
-`SSH_ASKPASS_REQUIRE=force`. `sshpass` is permitted only with `-d <fd>`;
-`-p`, `-e`, and password-file modes are forbidden. Password bytes must not
-enter arguments, ordinary environment variables, files, logs, browser state,
-workspaces, audit details, or model input.
+verification, one password attempt, and no agent or key fallback. The primary
+operational path is `sshpass -d <fd>` with password bytes supplied through an
+anonymous one-shot descriptor. A credential-free `SSH_ASKPASS` helper remains
+a diagnostic fallback. `sshpass -p`, `-e`, and password-file modes are
+forbidden. Password bytes must not enter arguments, ordinary environment
+variables, files, logs, browser state, workspaces, audit details, or model
+input.
 
 Backup, restore, credential rotation, and master-key rotation must preserve the
 authenticated encryption and broker boundaries. Exact operational runbooks
