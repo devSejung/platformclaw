@@ -210,6 +210,7 @@ describe("PlatformClaw Docker runtime", () => {
 
     expect(smoke).toContain('work_dir="$(mktemp -d)"');
     expect(smoke).toContain("chmod 0777");
+    expect(smoke).toContain('chmod 0444 "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR"');
     expect(smoke).toContain('chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
     expect(smoke).toContain("SSH credential master key leaked into container logs");
     expect(smoke).toContain("Execution service token leaked into container logs");

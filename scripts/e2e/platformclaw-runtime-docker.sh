@@ -32,6 +32,9 @@ mkdir -p \
 # Linux CI caller, Gateway UID, and nested rootless UID namespace are identical.
 chmod 0777 "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR"
 docker save --output "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR" "$PLATFORMCLAW_SANDBOX_IMAGE"
+# Docker creates archive output with an implementation-defined mode. The
+# non-root image loader only needs immutable read access to this ephemeral file.
+chmod 0444 "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR"
 export PLATFORMCLAW_PUBLIC_PORT="$(python3 - <<'PY'
 import socket
 with socket.socket() as sock:
