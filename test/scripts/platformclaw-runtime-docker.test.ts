@@ -23,6 +23,10 @@ type ComposeConfig = {
   services: Record<string, ComposeService>;
 };
 
+type WorkflowConfig = {
+  jobs: Record<string, { "runs-on"?: string }>;
+};
+
 function readRepoFile(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 }
@@ -248,6 +252,14 @@ describe("PlatformClaw Docker runtime", () => {
     expect(smoke.services["openclaw-gateway"]?.volumes).toContain(
       `${runtimeMount}:/run/platformclaw-sandbox-docker:ro`,
     );
+  });
+
+  it("runs the rootless Docker smoke on the Jammy kernel policy", () => {
+    const workflow = parse(
+      readRepoFile(".github/workflows/platformclaw-docker-smoke.yml"),
+    ) as WorkflowConfig;
+
+    expect(workflow.jobs.smoke?.["runs-on"]).toBe("ubuntu-22.04");
   });
 
   it("provides an explicit one-shot migration for the legacy workspace volume", () => {
