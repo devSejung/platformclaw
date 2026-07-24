@@ -8,9 +8,26 @@ work_dir="$(mktemp -d)"
 project_name="platformclaw-smoke-$$"
 compose=(docker compose --project-name "$project_name" -f "$compose_file" -f "$smoke_compose_file")
 
+cleanup_work_dir() {
+  if rm -rf "$work_dir" 2>/dev/null; then
+    return
+  fi
+
+  # Rootless sandbox UID mappings can leave synthetic workspace files owned by
+  # subordinate host UIDs. Delete only this mktemp payload through the host daemon.
+  if [[ -n "${PLATFORMCLAW_IMAGE:-}" ]] && docker image inspect "$PLATFORMCLAW_IMAGE" >/dev/null 2>&1; then
+    docker run --rm --network none --read-only --user 0:0 \
+      --cap-drop ALL --cap-add DAC_OVERRIDE --security-opt no-new-privileges:true \
+      --volume "$work_dir:/cleanup" \
+      --entrypoint find "$PLATFORMCLAW_IMAGE" \
+      /cleanup -mindepth 1 -depth -delete
+  fi
+  rm -rf "$work_dir"
+}
+
 cleanup() {
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
-  rm -rf "$work_dir"
+  cleanup_work_dir
 }
 trap cleanup EXIT
 

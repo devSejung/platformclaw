@@ -209,6 +209,10 @@ describe("PlatformClaw Docker runtime", () => {
     const smoke = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
 
     expect(smoke).toContain('work_dir="$(mktemp -d)"');
+    expect(smoke).toContain('docker image inspect "$PLATFORMCLAW_IMAGE"');
+    expect(smoke).toContain("docker run --rm --network none --read-only --user 0:0");
+    expect(smoke).toContain("--cap-drop ALL --cap-add DAC_OVERRIDE");
+    expect(smoke).toContain("/cleanup -mindepth 1 -depth -delete");
     expect(smoke).toContain("chmod 0777");
     expect(smoke).toContain('chmod 0444 "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR"');
     expect(smoke).toContain('chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
