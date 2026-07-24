@@ -1,5 +1,4 @@
-// Gateway plugin runtime adapter.
-// Loads plugin registries and builds fallback request context for non-WS paths.
+// Gateway plugin adapter loads registries and builds fallback context for non-WS paths.
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { parseModelCatalogRef } from "@openclaw/model-catalog-core/model-catalog-refs";
@@ -250,7 +249,7 @@ type DispatchGatewayMethodInProcessOptions = {
   requireScopedClient?: boolean;
   syntheticScopes?: string[];
   timeoutMs?: number;
-};
+} & Pick<NonNullable<Parameters<typeof createSyntheticPluginRuntimeClient>[0]>, "sessionCreation">;
 
 export type { GatewayMethodDispatchResponse } from "./server-in-process-dispatch.js";
 
@@ -288,6 +287,7 @@ export async function dispatchGatewayMethodInProcessRaw(
       ? { runtimePluginToolGrant: options.runtimePluginToolGrant }
       : {}),
     delegatedToolPolicyHandoff: options?.delegatedToolPolicyHandoff === true,
+    ...(options?.sessionCreation ? { sessionCreation: options.sessionCreation } : {}),
     scopes: options?.syntheticScopes,
   });
   const scopedClient = mergePluginRuntimeClientInternal(

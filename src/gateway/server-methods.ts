@@ -45,6 +45,10 @@ import type {
   GatewayRequestHandlers,
   GatewayRequestOptions,
 } from "./server-methods/types.js";
+import {
+  resolveSessionMutationAuthorization,
+  SessionMutationAuthorizationChangedError,
+} from "./session-sharing.js";
 
 const loadAgentHandlers = lazyHandlerModule(
   () => import("./server-methods/agent.js"),
@@ -458,6 +462,8 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "cron.list",
       "cron.status",
       "cron.get",
+      "cron.scratch.get",
+      "cron.scratch.set",
       "cron.add",
       "cron.update",
       "cron.remove",
@@ -747,6 +753,14 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "sessions.groups.delete",
       "sessions.dispatch",
       "sessions.reclaim",
+      "session.visibility.set",
+      "session.members.list",
+      "session.members.add",
+      "session.members.remove",
+      "session.suggestions.add",
+      "session.suggestions.list",
+      "session.suggestions.resolve",
+      "session.typing",
     ],
     loadHandlers: loadSessionsHandlers,
   }),
@@ -932,6 +946,16 @@ export async function handleGatewayRequest(
     respond(false, undefined, authError);
     return;
   }
+  const sessionMutation = resolveSessionMutationAuthorization({
+    client: client ?? null,
+    method: req.method,
+    requestParams: req.params,
+    context,
+  });
+  if (sessionMutation.error) {
+    respond(false, undefined, sessionMutation.error);
+    return;
+  }
   if (
     client?.connect.role === "node" &&
     (!client.connId || !(await context.nodeRegistry.isConnectionCurrentPairingState(client.connId)))
@@ -1056,16 +1080,28 @@ export async function handleGatewayRequest(
       isWebchatConnect,
       respond,
       context,
+      ...(sessionMutation.authorization
+        ? { sessionMutationAuthorization: sessionMutation.authorization }
+        : {}),
     });
   // All handlers run inside a request scope so that plugin runtime
   // subagent methods (e.g. context engine tools spawning sub-agents
   // during tool execution) can dispatch back into the gateway.
   // The scope also carries caller identity into plugin-owned gateway methods.
-  const invokeWithRequestScope = async () =>
-    await withPluginRuntimeGatewayRequestScope(
-      { context, client, isWebchatConnect },
-      invokeHandler,
-    );
+  const invokeWithRequestScope = async () => {
+    try {
+      await withPluginRuntimeGatewayRequestScope(
+        { context, client, isWebchatConnect },
+        invokeHandler,
+      );
+    } catch (error) {
+      if (error instanceof SessionMutationAuthorizationChangedError) {
+        respond(false, undefined, error.error);
+        return;
+      }
+      throw error;
+    }
+  };
   if (!rootWorkAdmission) {
     await invokeWithRequestScope();
     return;
