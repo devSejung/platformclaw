@@ -19,6 +19,8 @@ keeps the normal `main` checkout clean and avoids Windows junction changes to
 tracked workspace links.
 
 The launcher also installs a local Git index guard for tracked workspace links.
+Tracked post-checkout and post-merge hooks apply the same guard automatically to
+new linked worktrees and refreshed checkouts.
 pnpm represents these links as NTFS junctions when Windows symbolic-link support
 is unavailable. Without the guard, older Git for Windows operations such as
 `stash` can traverse a junction and remove files from the checkout it targets.
@@ -71,6 +73,12 @@ or dependency installation in the main checkout. `Start` installs it
 automatically, while `Doctor` verifies it without changing it. The guard is not
 a safe wrapper for switching or resetting to a commit that changes the tracked
 link definitions; keep dependency installs in the launcher's isolated snapshot.
+
+Never run `pnpm install` in a Windows linked worktree. Never target tracked
+`node_modules` paths with `git restore`, `git checkout`, or `git reset`. pnpm can
+materialize recursive workspace junctions there, and a later Git operation can
+follow a junction back into the worktree root. Dependency-less worktrees use
+the primary checkout toolchain through repository wrappers or remote checks.
 
 Close the three service windows to stop the local stack. Actual model replies
 still require an approved OpenAI-compatible provider configuration; login,

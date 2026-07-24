@@ -103,6 +103,9 @@ jobs:
           PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE: /tmp/platformclaw-empty-secret
           PLATFORMCLAW_PUBLIC_ORIGIN: https://platformclaw.example.test
           PLATFORMCLAW_REPO_ROOT: ${{ github.workspace }}
+          PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR: /tmp/platformclaw-sandbox-docker
+          PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR: /tmp/platformclaw-sandbox.tar
+          PLATFORMCLAW_SMOKE_WORKSPACE_DIR: /tmp/platformclaw-workspaces
         run: |
           touch "$PLATFORMCLAW_COMPANY_APT_SOURCES"
           touch "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"

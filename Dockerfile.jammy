@@ -109,7 +109,9 @@ COPY --from=openclaw-runtime --chown=1000:1000 /app/qa ./qa
 COPY --from=platformclaw-control-assets --chown=1000:1000 /app/packages/platformclaw-control-plane ./packages/platformclaw-control-plane
 COPY --from=platformclaw-control-assets --chown=1000:1000 /app/ui/dist ./ui/dist
 COPY --chown=root:root docker/platformclaw-runtime/openclaw.initial.json /etc/platformclaw/openclaw.initial.json
+COPY --chown=root:root docker/platformclaw-runtime/validate-managed-config.mjs /etc/platformclaw/validate-managed-config.mjs
 COPY --chown=root:root docker/platformclaw-runtime/platformclaw-gateway /usr/local/bin/platformclaw-gateway
+COPY --chown=root:root docker/platformclaw-runtime/migrate-workspaces /usr/local/bin/platformclaw-migrate-workspaces
 
 RUN set -eux; \
     npm install -g --omit=dev --no-fund --no-audit \
@@ -164,7 +166,7 @@ RUN install -d -m 0755 -o node -g node /home/node/.config && \
     install -d -m 0700 -o node -g node \
       /home/node/.openclaw /home/node/.openclaw/workspace /home/node/.config/openclaw \
       /var/lib/platformclaw/control /var/lib/platformclaw/workspaces && \
-    chmod 755 /usr/local/bin/platformclaw-gateway \
+    chmod 755 /usr/local/bin/platformclaw-gateway /usr/local/bin/platformclaw-migrate-workspaces \
       /app/packages/platformclaw-control-plane/dist/server-main.mjs \
       /app/packages/platformclaw-control-plane/dist/sshpass-main.mjs && \
     ln -s /app/packages/platformclaw-control-plane/dist/server-main.mjs \

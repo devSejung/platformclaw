@@ -1611,6 +1611,7 @@
     "plugins:sync:check": "node --import tsx scripts/sync-plugin-versions.ts --check",
     "postinstall": "node scripts/postinstall-bundled-plugins.mjs",
     "postpack": "node scripts/package-changelog.mjs restore",
+    "pnpm:devPreinstall": "node scripts/platformclaw-windows-worktree-install-guard.mjs",
     "preinstall": "node scripts/preinstall-package-manager-warning.mjs",
     "prepack": "node --import tsx scripts/openclaw-prepack.ts",
     "prepare": "node scripts/prepare-git-hooks.mjs",

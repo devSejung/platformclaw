@@ -145,7 +145,9 @@ const secretArgs =
   typeof aptSources === "string"
     ? ["--secret", `id=platformclaw_apt_sources,src=${aptSources}`]
     : [];
-const extensions = [...new Set(["admin-http-rpc", ...options.extensions.split(/[\s,]+/u)])]
+const extensions = [
+  ...new Set(["admin-http-rpc", "platformclaw-execution", ...options.extensions.split(/[\s,]+/u)]),
+]
   .filter(Boolean)
   .join(",");
 

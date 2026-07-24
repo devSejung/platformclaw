@@ -5,6 +5,7 @@
 - `origin` is the private PlatformClaw repository; `upstream` is the official OpenClaw repository. Preserve OpenClaw Git ancestry and the common ancestor; minimize upstream divergence.
 - Use `feature/*` for features, `fix/*` for fixes, and `refactor/*` for refactors. Perform upstream integration on a temporary `sync/upstream-YYYYMMDD` branch; never apply unverified upstream changes directly to `main`.
 - Windows is the development host; Ubuntu Linux Docker is the final runtime and validation authority. Do not depend on Windows-only paths or commands, CRLF, or case-insensitive filesystem behavior.
+- On Windows linked worktrees, never run `pnpm install` and never run Git restore/checkout/reset against tracked `node_modules` paths. pnpm creates recursive workspace junctions there; Git can follow them and delete the worktree root. Reuse the primary checkout toolchain through repository wrappers or validate remotely. The tracked post-checkout/post-merge hook must install the junction guard in every worktree before other Git operations.
 - PlatformClaw features prefer existing plugin, provider, adapter, hook, registry, or SDK boundaries. Do not spread enterprise-only logic across OpenClaw core.
 - Migrate the previous PlatformClaw one small capability at a time; never copy it wholesale.
 - Never commit credentials, internal data, private URLs, user workspaces, logs, or runtime databases.

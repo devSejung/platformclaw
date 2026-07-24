@@ -4236,6 +4236,7 @@ heartbeat_elapsed="\${BASH_REMATCH[1]}"
       "scripts/preinstall-package-manager-warning.mjs",
       "scripts/postinstall-bundled-plugins.mjs",
       "scripts/prepare-git-hooks.mjs",
+      "scripts/platformclaw-windows-worktree-install-guard.mjs",
     ]) {
       const copyIndex = dockerfile.indexOf(script);
 

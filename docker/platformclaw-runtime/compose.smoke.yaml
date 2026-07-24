@@ -1,4 +1,67 @@
 services:
+  # Named volumes start root-owned. Hand them to the rootless daemon before it
+  # starts so RootlessKit can secure both its runtime and persistent data paths.
+  sandbox-docker-init:
+    image: docker.io/library/docker:27.5.1-dind-rootless@sha256:e2ac8e8f66ae21a060b0a8e3005c70f6ed9441aabf409434463d1f6eecd38026
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ceu"]
+    command: ["chown -R 1000:1000 /run/user/1000 /home/rootless/.local/share/docker"]
+    network_mode: none
+    volumes:
+      - platformclaw-smoke-docker-run:/run/user/1000
+      - platformclaw-smoke-docker-data:/home/rootless/.local/share/docker
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+
+  sandbox-docker:
+    image: docker.io/library/docker:27.5.1-dind-rootless@sha256:e2ac8e8f66ae21a060b0a8e3005c70f6ed9441aabf409434463d1f6eecd38026
+    privileged: true
+    depends_on:
+      sandbox-docker-init:
+        condition: service_completed_successfully
+    environment:
+      DOCKER_HOST: unix:///run/user/1000/docker.sock
+      DOCKER_TLS_CERTDIR: ""
+    volumes:
+      - platformclaw-smoke-docker-run:/run/user/1000
+      - platformclaw-smoke-docker-data:/home/rootless/.local/share/docker
+      - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:/var/lib/platformclaw/workspaces
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+
+  sandbox-image-loader:
+    image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    user: "1000:1000"
+    entrypoint: ["bash", "-ceu"]
+    depends_on:
+      sandbox-docker:
+        condition: service_healthy
+    environment:
+      DOCKER_HOST: unix:///run/platformclaw-sandbox-docker/docker.sock
+      PLATFORMCLAW_SANDBOX_IMAGE: ${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:local}
+    volumes:
+      - platformclaw-smoke-docker-run:/run/platformclaw-sandbox-docker:ro
+      - ${PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR:?set PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR}:/smoke/platformclaw-sandbox.tar:ro
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command:
+      - |
+        docker load --input /smoke/platformclaw-sandbox.tar
+        docker image inspect "$${PLATFORMCLAW_SANDBOX_IMAGE}" >/dev/null
+
+  openclaw-gateway:
+    depends_on:
+      sandbox-image-loader:
+        condition: service_completed_successfully
+    volumes:
+      - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:/var/lib/platformclaw/workspaces
+      - platformclaw-smoke-docker-run:/run/platformclaw-sandbox-docker:ro
+
   employee-auth-mock:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
     network_mode: service:platformclaw-control
@@ -23,3 +86,9 @@ services:
   platformclaw-control:
     environment:
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: http://127.0.0.1:18080/login
+    volumes:
+      - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:/var/lib/platformclaw/workspaces
+
+volumes:
+  platformclaw-smoke-docker-run:
+  platformclaw-smoke-docker-data:

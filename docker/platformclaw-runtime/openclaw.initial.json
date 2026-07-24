@@ -9,9 +9,27 @@
       "enabled": false
     }
   },
+  "agents": {
+    "defaults": {
+      "sandbox": {
+        "mode": "all",
+        "backend": "platformclaw-execution",
+        "scope": "agent",
+        "workspaceAccess": "rw",
+        "docker": {
+          "image": "__PLATFORMCLAW_SANDBOX_IMAGE__",
+          "network": "bridge",
+          "user": "0:0"
+        }
+      }
+    }
+  },
   "plugins": {
     "entries": {
       "admin-http-rpc": {
+        "enabled": true
+      },
+      "platformclaw-execution": {
         "enabled": true
       }
     }

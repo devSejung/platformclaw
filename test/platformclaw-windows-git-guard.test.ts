@@ -8,6 +8,7 @@ import {
   installGuard,
   removeGuard,
 } from "../scripts/platformclaw-windows-git-guard.mjs";
+import { assertSafeWindowsInstall } from "../scripts/platformclaw-windows-worktree-install-guard.mjs";
 
 const cleanupPaths: string[] = [];
 
@@ -47,6 +48,17 @@ afterEach(() => {
 });
 
 describe("PlatformClaw Windows Git junction guard", () => {
+  it("blocks dependency installation before a Windows linked worktree can create junctions", () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), "platformclaw-worktree-install-"));
+    cleanupPaths.push(repoRoot);
+    writeFileSync(path.join(repoRoot, ".git"), "gitdir: C:/shared/worktrees/example\n");
+
+    expect(() => assertSafeWindowsInstall({ platform: "win32", repoRoot })).toThrow(
+      "pnpm install is blocked in Windows linked worktrees",
+    );
+    expect(() => assertSafeWindowsInstall({ platform: "linux", repoRoot })).not.toThrow();
+  });
+
   it("protects a tracked workspace junction during git stash", () => {
     const { linkPath, repoRoot } = createFixture();
     expect(installGuard(repoRoot)).toEqual(["packages/example/node_modules/openclaw"]);
@@ -54,6 +66,19 @@ describe("PlatformClaw Windows Git junction guard", () => {
 
     writeFileSync(path.join(repoRoot, "sentinel.txt"), "changed\n");
     git(repoRoot, ["stash", "push", "--quiet"]);
+
+    expect(existsSync(path.join(repoRoot, ".git", "HEAD"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "sentinel.txt"))).toBe(true);
+    expect(existsSync(linkPath)).toBe(true);
+  });
+
+  it("keeps an explicit parent-directory restore away from guarded junctions", () => {
+    const { linkPath, repoRoot } = createFixture();
+    installGuard(repoRoot);
+
+    expect(() => git(repoRoot, ["restore", "--", "packages/example/node_modules"])).toThrow(
+      "did not match any file",
+    );
 
     expect(existsSync(path.join(repoRoot, ".git", "HEAD"))).toBe(true);
     expect(existsSync(path.join(repoRoot, "sentinel.txt"))).toBe(true);

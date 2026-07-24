@@ -5,14 +5,21 @@ services:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
     user: "1000:1000"
     environment:
+      DOCKER_HOST: unix:///run/platformclaw-sandbox-docker/docker.sock
       HOME: /home/node
       OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
+      PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_execution_service_token
+      PLATFORMCLAW_SANDBOX_IMAGE: ${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:local}
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
     volumes:
       - platformclaw-gateway-state:/home/node/.openclaw
-      - platformclaw-workspaces:/var/lib/platformclaw/workspaces
+      - /var/lib/platformclaw/workspaces:/var/lib/platformclaw/workspaces
+      - ${PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR:?set PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR}:/run/platformclaw-sandbox-docker:ro
+      - platformclaw-credential-broker:/run/platformclaw-credential-broker:ro
     secrets:
       - platformclaw_gateway_token
+      - platformclaw_execution_service_token
     networks:
       platformclaw-gateway-backplane:
         aliases: [gateway.platformclaw.local]
@@ -59,7 +66,7 @@ services:
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
     volumes:
       - platformclaw-control-state:/var/lib/platformclaw/control
-      - platformclaw-workspaces:/var/lib/platformclaw/workspaces
+      - /var/lib/platformclaw/workspaces:/var/lib/platformclaw/workspaces
       - platformclaw-credential-broker:/run/platformclaw-credential-broker
     secrets:
       - platformclaw_gateway_token
@@ -88,6 +95,17 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+
+  platformclaw-workspace-migration:
+    image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    profiles: [migration]
+    user: "0:0"
+    network_mode: none
+    volumes:
+      - platformclaw-workspaces:/source:ro
+      - /var/lib/platformclaw/workspaces:/target
+    entrypoint: ["platformclaw-migrate-workspaces"]
+    restart: "no"
 
 volumes:
   platformclaw-gateway-state:

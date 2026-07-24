@@ -6,7 +6,9 @@ on:
     paths:
       - .github/workflows/platformclaw-docker-smoke.yml
       - Dockerfile.jammy
+      - Dockerfile.sandbox.jammy
       - docker/platformclaw-runtime/**
+      - extensions/platformclaw-execution/**
       - packages/platformclaw-control-plane/**
       - scripts/e2e/fixtures/platformclaw-login.json
       - scripts/e2e/platformclaw-runtime-docker.sh
@@ -18,7 +20,9 @@ on:
     paths:
       - .github/workflows/platformclaw-docker-smoke.yml
       - Dockerfile.jammy
+      - Dockerfile.sandbox.jammy
       - docker/platformclaw-runtime/**
+      - extensions/platformclaw-execution/**
       - packages/platformclaw-control-plane/**
       - scripts/e2e/fixtures/platformclaw-login.json
       - scripts/e2e/platformclaw-runtime-docker.sh
@@ -40,7 +44,9 @@ env:
 jobs:
   smoke:
     name: PlatformClaw Docker Smoke
-    runs-on: ubuntu-24.04
+    # Ubuntu 24.04 restricts unprivileged user namespaces, which prevents the
+    # rootless DinD daemon from starting. Jammy also matches the production image.
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
       - name: Checkout
