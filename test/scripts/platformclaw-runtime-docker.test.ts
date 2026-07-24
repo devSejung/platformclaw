@@ -204,7 +204,9 @@ describe("PlatformClaw Docker runtime", () => {
     const smoke = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
 
     expect(smoke).toContain('work_dir="$(mktemp -d)"');
-    expect(smoke).toContain('chmod 0777 "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR"');
+    expect(smoke).toContain('"$PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR"');
+    expect(smoke).toContain('"$PLATFORMCLAW_SMOKE_DOCKER_DATA_DIR"');
+    expect(smoke).toContain("chmod 0777");
     expect(smoke).toContain('chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
     expect(smoke).toContain("SSH credential master key leaked into container logs");
     expect(smoke).toContain("Execution service token leaked into container logs");
@@ -240,8 +242,13 @@ describe("PlatformClaw Docker runtime", () => {
     expect(smoke.services["openclaw-gateway"]?.depends_on).toMatchObject({
       "sandbox-image-loader": { condition: "service_completed_successfully" },
     });
+    const runtimeMount =
+      "${PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR:?set PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR}";
+    expect(smoke.services["sandbox-docker"]?.volumes).toContain(
+      `${runtimeMount}:/run/user/1000`,
+    );
     expect(smoke.services["openclaw-gateway"]?.volumes).toContain(
-      "platformclaw-smoke-docker-run:/run/platformclaw-sandbox-docker:ro",
+      `${runtimeMount}:/run/platformclaw-sandbox-docker:ro`,
     );
   });
 

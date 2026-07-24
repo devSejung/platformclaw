@@ -6,8 +6,8 @@ services:
       DOCKER_HOST: unix:///run/user/1000/docker.sock
       DOCKER_TLS_CERTDIR: ""
     volumes:
-      - platformclaw-smoke-docker-run:/run/user/1000
-      - platformclaw-smoke-docker-data:/home/rootless/.local/share/docker
+      - ${PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR:?set PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR}:/run/user/1000
+      - ${PLATFORMCLAW_SMOKE_DOCKER_DATA_DIR:?set PLATFORMCLAW_SMOKE_DOCKER_DATA_DIR}:/home/rootless/.local/share/docker
       - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:/var/lib/platformclaw/workspaces
     healthcheck:
       test: ["CMD", "docker", "info"]
@@ -27,7 +27,7 @@ services:
       DOCKER_HOST: unix:///run/platformclaw-sandbox-docker/docker.sock
       PLATFORMCLAW_SANDBOX_IMAGE: ${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:local}
     volumes:
-      - platformclaw-smoke-docker-run:/run/platformclaw-sandbox-docker:ro
+      - ${PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR:?set PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR}:/run/platformclaw-sandbox-docker:ro
       - ${PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR:?set PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR}:/smoke/platformclaw-sandbox.tar:ro
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -42,7 +42,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:/var/lib/platformclaw/workspaces
-      - platformclaw-smoke-docker-run:/run/platformclaw-sandbox-docker:ro
+      - ${PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR:?set PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR}:/run/platformclaw-sandbox-docker:ro
 
   employee-auth-mock:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
@@ -70,7 +70,3 @@ services:
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: http://127.0.0.1:18080/login
     volumes:
       - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:/var/lib/platformclaw/workspaces
-
-volumes:
-  platformclaw-smoke-docker-run:
-  platformclaw-smoke-docker-data:

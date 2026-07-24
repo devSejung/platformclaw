@@ -24,11 +24,20 @@ export PLATFORMCLAW_SANDBOX_IMAGE="${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sa
 export PLATFORMCLAW_REPO_ROOT="$repo_root"
 export PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR="$work_dir/unused-sandbox-docker-runtime"
 export PLATFORMCLAW_SMOKE_WORKSPACE_DIR="$work_dir/workspaces"
+export PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR="$work_dir/sandbox-docker-runtime"
+export PLATFORMCLAW_SMOKE_DOCKER_DATA_DIR="$work_dir/sandbox-docker-data"
 export PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR="$work_dir/platformclaw-sandbox.tar"
-mkdir -p "$PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR" "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR"
+mkdir -p \
+  "$PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR" \
+  "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR" \
+  "$PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR" \
+  "$PLATFORMCLAW_SMOKE_DOCKER_DATA_DIR"
 # Synthetic smoke state contains no secrets. World-write avoids assuming the
 # Linux CI caller, Gateway UID, and nested rootless UID namespace are identical.
-chmod 0777 "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR"
+chmod 0777 \
+  "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR" \
+  "$PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR" \
+  "$PLATFORMCLAW_SMOKE_DOCKER_DATA_DIR"
 docker save --output "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR" "$PLATFORMCLAW_SANDBOX_IMAGE"
 export PLATFORMCLAW_PUBLIC_PORT="$(python3 - <<'PY'
 import socket
