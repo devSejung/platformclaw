@@ -102,7 +102,7 @@ describe("agent selection", () => {
     const harness = createGateway();
     const client = { request() {} } as unknown as GatewayBrowserClient;
     harness.publish({ client, assistantAgentId: "Main" });
-    const selection = createAgentSelectionCapability(harness.gateway);
+    const selection = createAgentSelectionCapability(harness.gateway, createRoster().roster);
 
     harness.publish({ client, assistantAgentId: "Person_One" });
 
@@ -113,7 +113,7 @@ describe("agent selection", () => {
     const harness = createGateway();
     const client = { request() {} } as unknown as GatewayBrowserClient;
     harness.publish({ client, assistantAgentId: "Main" });
-    const selection = createAgentSelectionCapability(harness.gateway);
+    const selection = createAgentSelectionCapability(harness.gateway, createRoster().roster);
     selection.setScope("Ops");
 
     harness.publish({ client, assistantAgentId: "Person_One" });
