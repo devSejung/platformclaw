@@ -244,9 +244,7 @@ describe("PlatformClaw Docker runtime", () => {
     });
     const runtimeMount =
       "${PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR:?set PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR}";
-    expect(smoke.services["sandbox-docker"]?.volumes).toContain(
-      `${runtimeMount}:/run/user/1000`,
-    );
+    expect(smoke.services["sandbox-docker"]?.volumes).toContain(`${runtimeMount}:/run/user/1000`);
     expect(smoke.services["openclaw-gateway"]?.volumes).toContain(
       `${runtimeMount}:/run/platformclaw-sandbox-docker:ro`,
     );
