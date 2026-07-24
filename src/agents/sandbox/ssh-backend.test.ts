@@ -34,8 +34,12 @@ vi.mock("./ssh.js", async () => {
   };
 });
 
-const { createSshSandboxBackend, resolveSshRuntimePaths, sshSandboxBackendManager } =
-  await import("./ssh-backend.js");
+const {
+  createSshSandboxBackend,
+  createSshSandboxBackendWithSessionFactory,
+  resolveSshRuntimePaths,
+  sshSandboxBackendManager,
+} = await import("./ssh-backend.js");
 const tempDirs: string[] = [];
 
 async function createTempDir(prefix: string): Promise<string> {
@@ -479,6 +483,38 @@ describe("ssh sandbox backend", () => {
     });
     expect(sshMocks.createSshSandboxSessionFromSettings).toHaveBeenCalledTimes(2);
     expect(sshMocks.disposeSshSandboxSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves an existing remote workspace without uploading local files or skills", async () => {
+    const createInjectedSession = vi.fn(async () => createSession());
+    const backend = await createSshSandboxBackendWithSessionFactory(
+      {
+        sessionKey: "agent:worker:task",
+        scopeKey: "agent:worker",
+        workspaceDir: "/tmp/local-workspace",
+        agentWorkspaceDir: "/tmp/local-agent",
+        skillsWorkspaceDir: "/tmp/local-skills",
+        cfg: createBackendSandboxConfig(),
+      },
+      {
+        targetLabel: "assigned-vm",
+        workspaceRoot: "/users/worker/.platformclaw/workspace",
+        workspaceMode: "existing",
+        createSession: createInjectedSession,
+      },
+    );
+
+    const execSpec = await backend.buildExecSpec({
+      command: "pwd",
+      env: {},
+      usePty: false,
+    });
+
+    expect(backend.workdir).toBe("/users/worker/.platformclaw/workspace");
+    expect(execSpec.argv.at(-1)).toContain("/users/worker/.platformclaw/workspace");
+    expect(requireSshRunCommandParams().remoteCommand).toContain("openclaw-sandbox-existing");
+    expect(sshMocks.uploadDirectoryToSshTarget).not.toHaveBeenCalled();
+    expect(createInjectedSession).toHaveBeenCalledTimes(2);
   });
 
   it("validates remote workdirs before exec accepts backend-owned cwd", async () => {

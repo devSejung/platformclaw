@@ -7,6 +7,8 @@ import type { GatewayClientOptions } from "@openclaw/gateway-client";
 import type { HelloOk } from "@openclaw/gateway-protocol";
 import { describe, expect, it, vi } from "vitest";
 import { redeemLocalCredentialGrant } from "./credential-broker-local.js";
+import { ExecutionHandoffClient } from "./execution-handoff-client.js";
+import { deriveExecutionHandoffAddress } from "./execution-handoff-http.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 import { createPlatformClawWebIngressRuntime } from "./web-ingress-runtime.js";
 
@@ -108,7 +110,7 @@ describe("createPlatformClawWebIngressRuntime", () => {
         disabled: 0,
       });
       expect(reconcileAfterRestart).toHaveBeenCalledOnce();
-      await runtime.listen({ host: "127.0.0.1", port: 0, internalPort: 0 });
+      await runtime.listen({ host: "127.0.0.1", port: 0 });
       const credentialBroker = runtime.credentialBroker;
       if (!credentialBroker) {
         throw new Error("credential broker was not assembled");
@@ -125,20 +127,11 @@ describe("createPlatformClawWebIngressRuntime", () => {
       if (!executionHandoff) {
         throw new Error("execution handoff was not assembled");
       }
-      const internalPort = (executionHandoff.address() as AddressInfo).port;
-      const executionTarget = await fetch(
-        `http://127.0.0.1:${internalPort}/platformclaw/internal/execution/target`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: "Bearer execution-service-token-with-32-bytes",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ agentId: "person_one" }),
-        },
-      );
-      expect(executionTarget.status).toBe(200);
-      await expect(executionTarget.json()).resolves.toMatchObject({
+      const executionTarget = await new ExecutionHandoffClient(
+        deriveExecutionHandoffAddress(credentialBrokerAddress),
+        "execution-service-token-with-32-bytes",
+      ).resolveTarget("person_one");
+      expect(executionTarget).toMatchObject({
         kind: "platform_server",
         agentId: "person_one",
       });

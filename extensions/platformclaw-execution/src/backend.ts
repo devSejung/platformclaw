@@ -20,6 +20,15 @@ export type AssignedVmTargetSnapshot = ExecutionTargetBase & {
   kind: "assigned_vm";
   allocationId: string;
   remoteWorkspaceDir: string;
+  endpointHost: string;
+  endpointPort: number;
+  adDomain: string;
+  adAccount: string;
+  targetAddress: string;
+  linuxAccount: string;
+  hostKeyAlgorithm: string;
+  hostKeyPublicKey: string;
+  hostKeyFingerprint: string;
 };
 
 export type PlatformClawExecutionTargetSnapshot =

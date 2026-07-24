@@ -165,9 +165,12 @@ RUN install -d -m 0755 -o node -g node /home/node/.config && \
       /home/node/.openclaw /home/node/.openclaw/workspace /home/node/.config/openclaw \
       /var/lib/platformclaw/control /var/lib/platformclaw/workspaces && \
     chmod 755 /usr/local/bin/platformclaw-gateway \
-      /app/packages/platformclaw-control-plane/dist/server-main.mjs && \
+      /app/packages/platformclaw-control-plane/dist/server-main.mjs \
+      /app/packages/platformclaw-control-plane/dist/sshpass-main.mjs && \
     ln -s /app/packages/platformclaw-control-plane/dist/server-main.mjs \
-      /usr/local/bin/platformclaw-control
+      /usr/local/bin/platformclaw-control && \
+    ln -s /app/packages/platformclaw-control-plane/dist/sshpass-main.mjs \
+      /usr/local/bin/platformclaw-sshpass
 
 ENV NODE_ENV=production \
   PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright

@@ -4,16 +4,12 @@ import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 
 const DEFAULT_LISTEN_HOST = "127.0.0.1";
 const DEFAULT_LISTEN_PORT = 19_001;
-export const DEFAULT_INTERNAL_LISTEN_HOST = "127.0.0.1";
-export const DEFAULT_INTERNAL_LISTEN_PORT = 19_002;
 const MAX_SECRET_FILE_BYTES = 16 * 1024;
 
 export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   publicOrigin: "PLATFORMCLAW_PUBLIC_ORIGIN",
   listenHost: "PLATFORMCLAW_LISTEN_HOST",
   listenPort: "PLATFORMCLAW_LISTEN_PORT",
-  internalListenHost: "PLATFORMCLAW_INTERNAL_LISTEN_HOST",
-  internalListenPort: "PLATFORMCLAW_INTERNAL_LISTEN_PORT",
   databasePath: "PLATFORMCLAW_DATABASE_PATH",
   controlUiRoot: "PLATFORMCLAW_CONTROL_UI_ROOT",
   workspaceRoot: "PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT",
@@ -29,8 +25,6 @@ export type PlatformClawDeploymentConfig = {
   publicOrigin: string;
   listenHost: string;
   listenPort: number;
-  internalListenHost: string;
-  internalListenPort: number;
   databasePath: string;
   controlUiRoot: string;
   workspaceRoot: string;
@@ -157,21 +151,10 @@ export function loadPlatformClawDeploymentConfig(
     PLATFORMCLAW_DEPLOYMENT_ENV.listenPort,
     DEFAULT_LISTEN_PORT,
   );
-  const internalListenPort = parsePort(
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.internalListenPort],
-    PLATFORMCLAW_DEPLOYMENT_ENV.internalListenPort,
-    DEFAULT_INTERNAL_LISTEN_PORT,
-  );
-  if (listenPort === internalListenPort) {
-    throw new Error("PlatformClaw public and internal listen ports must differ");
-  }
   return {
     publicOrigin: parsePublicOrigin(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin)),
     listenHost: env[PLATFORMCLAW_DEPLOYMENT_ENV.listenHost]?.trim() || DEFAULT_LISTEN_HOST,
     listenPort,
-    internalListenHost:
-      env[PLATFORMCLAW_DEPLOYMENT_ENV.internalListenHost]?.trim() || DEFAULT_INTERNAL_LISTEN_HOST,
-    internalListenPort,
     databasePath: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.databasePath)),
     controlUiRoot: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.controlUiRoot)),
     workspaceRoot: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.workspaceRoot)),

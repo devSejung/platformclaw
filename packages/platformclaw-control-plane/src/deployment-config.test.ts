@@ -52,8 +52,6 @@ describe("loadPlatformClawDeploymentConfig", () => {
       publicOrigin: "http://127.0.0.1:19001",
       listenHost: "127.0.0.1",
       listenPort: 19001,
-      internalListenHost: "127.0.0.1",
-      internalListenPort: 19002,
       initialAdminAccountIds: ["person.one", "person.two"],
       gatewayUrl: "ws://127.0.0.1:18789",
       gatewayAdminRpcUrl: "http://127.0.0.1:18789/api/v1/admin/rpc",
@@ -93,18 +91,10 @@ describe("loadPlatformClawDeploymentConfig", () => {
     expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("must contain 32 to 512 bytes");
   });
 
-  it("keeps the public and internal listeners on separate ports", () => {
-    const env = fixtureEnv();
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.internalListenPort] = "19001";
-
-    expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("listen ports must differ");
-  });
-
   it.each([
     [PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin, "http://example.test/path"],
     [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayUrl, "ws://user@example.test"],
     [PLATFORMCLAW_DEPLOYMENT_ENV.listenPort, "70000"],
-    [PLATFORMCLAW_DEPLOYMENT_ENV.internalListenPort, "0"],
   ])("rejects invalid %s", (name, value) => {
     const env = fixtureEnv();
     env[name] = value;

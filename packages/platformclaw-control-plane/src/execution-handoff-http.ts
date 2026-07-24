@@ -1,6 +1,10 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { chmod, lstat, rm } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createConnection } from "node:net";
+import { dirname, isAbsolute, join } from "node:path";
 import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
+import lockfile from "proper-lockfile";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
 
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
@@ -8,11 +12,71 @@ export const PLATFORMCLAW_EXECUTION_GRANT_PATH = "/platformclaw/internal/executi
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
-type InternalListenOptions = { host: string; port: number };
 type ExecutionHandoffHandler = Pick<
   ExecutionHandoffService,
   "resolveTarget" | "issueCredentialGrant"
 >;
+
+export function deriveExecutionHandoffAddress(credentialBrokerAddress: string): string {
+  if (process.platform === "win32") {
+    if (!credentialBrokerAddress.startsWith("\\\\.\\pipe\\")) {
+      throw new Error("Windows credential broker address must be a named pipe");
+    }
+    return `${credentialBrokerAddress}-execution`;
+  }
+  if (!isAbsolute(credentialBrokerAddress)) {
+    throw new Error("credential broker socket path must be absolute");
+  }
+  return join(dirname(credentialBrokerAddress), "execution.sock");
+}
+
+async function existingSocket(path: string) {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+type SocketIdentity = {
+  dev: number | bigint;
+  ino: number | bigint;
+};
+
+function socketIdentity(stats: Awaited<ReturnType<typeof lstat>>): SocketIdentity {
+  return { dev: stats.dev, ino: stats.ino };
+}
+
+function sameSocket(stats: Awaited<ReturnType<typeof lstat>>, identity: SocketIdentity): boolean {
+  return stats.dev === identity.dev && stats.ino === identity.ino;
+}
+
+async function socketAcceptsConnections(path: string): Promise<boolean> {
+  return await new Promise<boolean>((resolve, reject) => {
+    const socket = createConnection(path);
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ECONNREFUSED" || error.code === "ENOENT") {
+        resolve(false);
+        return;
+      }
+      reject(error);
+    });
+  });
+}
+
+async function removeSocketIfUnchanged(path: string, identity: SocketIdentity): Promise<void> {
+  const current = await existingSocket(path);
+  if (current && sameSocket(current, identity)) {
+    await rm(path);
+  }
+}
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
   res.statusCode = statusCode;
@@ -75,10 +139,12 @@ export class PlatformClawExecutionHandoffServer {
     });
   });
   private started = false;
+  private ownedSocket: SocketIdentity | undefined;
 
   constructor(
     serviceToken: string,
     private readonly service: ExecutionHandoffHandler,
+    private readonly socketPath: string,
   ) {
     this.expectedTokenDigest = tokenDigest(serviceToken);
     this.server.headersTimeout = 5_000;
@@ -87,12 +153,44 @@ export class PlatformClawExecutionHandoffServer {
     this.server.maxHeadersCount = 32;
   }
 
-  async listen(options: InternalListenOptions): Promise<void> {
+  async listen(): Promise<void> {
     if (this.started) {
       throw new Error("PlatformClaw execution handoff is already listening");
     }
     this.started = true;
+    let ownedSocket: SocketIdentity | undefined;
+    let releaseStartupLock: (() => Promise<void>) | undefined;
     try {
+      if (process.platform !== "win32") {
+        // Serializes stale-socket recovery and bind so concurrent Control starts
+        // cannot unlink a successor's newly bound handoff endpoint.
+        releaseStartupLock = await lockfile.lock(this.socketPath, {
+          realpath: false,
+          retries: {
+            retries: 120,
+            factor: 1,
+            minTimeout: 100,
+            maxTimeout: 100,
+            randomize: true,
+          },
+          stale: 10_000,
+        });
+        const existing = await existingSocket(this.socketPath);
+        if (existing) {
+          if (!existing.isSocket() || existing.uid !== process.getuid?.()) {
+            throw new Error("execution handoff path is not an owner-owned socket");
+          }
+          const identity = socketIdentity(existing);
+          if (await socketAcceptsConnections(this.socketPath)) {
+            throw new Error("execution handoff socket is already active");
+          }
+          const current = await existingSocket(this.socketPath);
+          if (!current || !sameSocket(current, identity)) {
+            throw new Error("execution handoff socket changed during startup");
+          }
+          await rm(this.socketPath);
+        }
+      }
       await new Promise<void>((resolve, reject) => {
         const onError = (error: Error) => {
           this.server.off("listening", onListening);
@@ -104,11 +202,29 @@ export class PlatformClawExecutionHandoffServer {
         };
         this.server.once("error", onError);
         this.server.once("listening", onListening);
-        this.server.listen(options.port, options.host);
+        this.server.listen(this.socketPath);
       });
+      if (process.platform !== "win32") {
+        const created = await lstat(this.socketPath);
+        ownedSocket = socketIdentity(created);
+        this.ownedSocket = ownedSocket;
+        await chmod(this.socketPath, 0o600);
+      }
     } catch (error) {
+      if (this.server.listening) {
+        await new Promise<void>((resolve) => {
+          this.server.close(() => resolve());
+          this.server.closeAllConnections();
+        });
+      }
+      if (ownedSocket && process.platform !== "win32") {
+        await removeSocketIfUnchanged(this.socketPath, ownedSocket);
+      }
+      this.ownedSocket = undefined;
       this.started = false;
       throw error;
+    } finally {
+      await releaseStartupLock?.();
     }
   }
 
@@ -126,6 +242,12 @@ export class PlatformClawExecutionHandoffServer {
       this.server.close((error) => (error ? reject(error) : resolve()));
       this.server.closeAllConnections();
     });
+    if (process.platform !== "win32") {
+      if (this.ownedSocket) {
+        await removeSocketIfUnchanged(this.socketPath, this.ownedSocket);
+      }
+      this.ownedSocket = undefined;
+    }
   }
 
   private isAuthorized(req: IncomingMessage): boolean {
