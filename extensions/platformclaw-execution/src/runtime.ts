@@ -26,8 +26,15 @@ function requireSingleLine(value: string, label: string): string {
   return trimmed;
 }
 
+function requireString(value: unknown, label: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`${label} is invalid`);
+  }
+  return requireSingleLine(value, label);
+}
+
 function requireSshToken(value: unknown, label: string): string {
-  const token = requireSingleLine(String(value ?? ""), label);
+  const token = requireString(value, label);
   if (/\s/u.test(token)) {
     throw new Error(`${label} is invalid`);
   }
@@ -120,8 +127,8 @@ function parseTarget(value: unknown): PlatformClawExecutionTargetSnapshot {
   const target = value as Record<string, unknown>;
   const base = {
     kind: target.kind,
-    agentId: requireSingleLine(String(target.agentId ?? ""), "agent id"),
-    targetId: requireSingleLine(String(target.targetId ?? ""), "target id"),
+    agentId: requireString(target.agentId, "agent id"),
+    targetId: requireString(target.targetId, "target id"),
     revision: Number(target.revision),
   };
   if (target.kind === "platform_server") {
@@ -133,23 +140,17 @@ function parseTarget(value: unknown): PlatformClawExecutionTargetSnapshot {
   return {
     ...base,
     kind: "assigned_vm",
-    allocationId: requireSingleLine(String(target.allocationId ?? ""), "allocation id"),
+    allocationId: requireString(target.allocationId, "allocation id"),
     endpointHost: requireSshToken(target.endpointHost, "endpoint host"),
     endpointPort: Number(target.endpointPort),
     adDomain: requireSshToken(target.adDomain, "AD domain"),
     adAccount: requireSshToken(target.adAccount, "AD account"),
     targetAddress: requireSshToken(target.targetAddress, "VM address"),
     linuxAccount: requireSshToken(target.linuxAccount, "Linux account"),
-    remoteWorkspaceDir: requireSingleLine(
-      String(target.remoteWorkspaceDir ?? ""),
-      "remote workspace",
-    ),
+    remoteWorkspaceDir: requireString(target.remoteWorkspaceDir, "remote workspace"),
     hostKeyAlgorithm: requireSshToken(target.hostKeyAlgorithm, "host key algorithm"),
     hostKeyPublicKey: requireSshToken(target.hostKeyPublicKey, "host public key"),
-    hostKeyFingerprint: requireSingleLine(
-      String(target.hostKeyFingerprint ?? ""),
-      "host key fingerprint",
-    ),
+    hostKeyFingerprint: requireString(target.hostKeyFingerprint, "host key fingerprint"),
   };
 }
 
