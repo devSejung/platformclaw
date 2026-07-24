@@ -29,8 +29,6 @@ async function runPlatformClawControlServer(env: NodeJS.ProcessEnv = process.env
     await runtime.listen({
       host: config.listenHost,
       port: config.listenPort,
-      internalHost: config.internalListenHost,
-      internalPort: config.internalListenPort,
     });
     console.log(`PlatformClaw control listening on ${config.publicOrigin}`);
     await stopped;

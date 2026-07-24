@@ -274,6 +274,7 @@ run("docker", [
     "nano-pdf --help >/dev/null",
     "openclaw --version",
     "test -x /usr/local/bin/platformclaw-control",
+    "test -x /usr/local/bin/platformclaw-sshpass",
     "test -f /app/ui/dist/platformclaw-login.html",
     "node -e \"import('/app/packages/platformclaw-control-plane/dist/index.mjs')\"",
   ].join(" && "),

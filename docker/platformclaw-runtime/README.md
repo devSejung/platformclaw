@@ -55,13 +55,13 @@ publishes only Control port `19001`. Normal health checks require both
 restarts create a fresh broker socket automatically and do not require deleting
 runtime files.
 
-Control also listens on port `19002` only inside the private backplane. A later
-privileged executor will use that listener to resolve a prepared execution
-target and request a short-lived credential grant. The employee-facing Gateway
-does not receive the execution-service token or credential-broker socket. The
-listener is never published to the host. Once the executor is deployed, rotate
-the token by replacing its secret file and restarting Control and the executor;
-the first release does not keep an old-token grace period.
+Control exposes execution handoff only through an owner-only Unix socket in the
+same memory-backed runtime directory as the credential broker. It never opens a
+TCP handoff listener. Gateway receives that directory and the execution-service
+token only after every server and Knox tool route uses an agent Docker sandbox;
+neither enters an agent sandbox. Rotate the token by replacing its secret file
+and restarting Control and Gateway; the first release has no old-token grace
+period.
 
 The Jammy runtime includes OpenSSH and `sshpass`. PlatformClaw permits only
 `sshpass -d <fd>` for SafeConnect password delivery; password arguments,

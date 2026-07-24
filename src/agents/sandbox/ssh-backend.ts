@@ -48,6 +48,15 @@ type ResolvedSshRuntimePaths = {
   remoteSkillsWorkspaceDir: string;
 };
 
+export type SshSandboxSessionFactory = () => Promise<SshSandboxSession>;
+
+export type CreateSshSandboxBackendWithSessionFactoryOptions = {
+  targetLabel: string;
+  workspaceRoot: string;
+  createSession: SshSandboxSessionFactory;
+  workspaceMode?: "mirror" | "existing";
+};
+
 /** SSH backend lifecycle hooks for probing and removing remote sandbox copies. */
 export const sshSandboxBackendManager: SandboxBackendManager = {
   async describeRuntime({ entry, config, agentId }) {
@@ -136,11 +145,39 @@ export async function createSshSandboxBackend(
     throw new Error('Sandbox backend "ssh" requires agents.defaults.sandbox.ssh.target.');
   }
 
-  const runtimePaths = resolveSshRuntimePaths(params.cfg.ssh.workspaceRoot, params.scopeKey);
+  return await createSshSandboxBackendWithSessionFactory(params, {
+    targetLabel: target,
+    workspaceRoot: params.cfg.ssh.workspaceRoot,
+    createSession: async () =>
+      await createSshSandboxSessionFromSettings({
+        ...params.cfg.ssh,
+        target,
+      }),
+  });
+}
+
+/** Create the standard SSH backend with caller-owned authentication/session setup. */
+export async function createSshSandboxBackendWithSessionFactory(
+  params: CreateSandboxBackendParams,
+  options: CreateSshSandboxBackendWithSessionFactoryOptions,
+): Promise<SandboxBackendHandle> {
+  if ((params.cfg.docker.binds?.length ?? 0) > 0) {
+    throw new Error("SSH sandbox backend does not support sandbox.docker.binds.");
+  }
+  const targetLabel = options.targetLabel.trim();
+  const workspaceRoot = options.workspaceRoot.trim();
+  if (!targetLabel || !workspaceRoot) {
+    throw new Error("SSH sandbox session factory requires a target label and workspace root.");
+  }
   const impl = new SshSandboxBackendImpl({
     createParams: params,
-    target,
-    runtimePaths,
+    target: targetLabel,
+    runtimePaths:
+      options.workspaceMode === "existing"
+        ? resolveExistingSshRuntimePaths(workspaceRoot, params.scopeKey)
+        : resolveSshRuntimePaths(workspaceRoot, params.scopeKey),
+    createSession: options.createSession,
+    workspaceMode: options.workspaceMode ?? "mirror",
   });
   return impl.asHandle();
 }
@@ -154,6 +191,8 @@ class SshSandboxBackendImpl {
       createParams: CreateSandboxBackendParams;
       target: string;
       runtimePaths: ResolvedSshRuntimePaths;
+      createSession: SshSandboxSessionFactory;
+      workspaceMode: "mirror" | "existing";
     },
   ) {}
 
@@ -220,10 +259,7 @@ class SshSandboxBackendImpl {
   }
 
   private async createSession(): Promise<SshSandboxSession> {
-    return await createSshSandboxSessionFromSettings({
-      ...this.params.createParams.cfg.ssh,
-      target: this.params.target,
-    });
+    return await this.params.createSession();
   }
 
   private async ensureRuntime(): Promise<void> {
@@ -244,6 +280,21 @@ class SshSandboxBackendImpl {
   private async ensureRuntimeInner(): Promise<void> {
     const session = await this.createSession();
     try {
+      if (this.params.workspaceMode === "existing") {
+        await runSshSandboxCommand({
+          session,
+          remoteCommand: buildRemoteCommand([
+            "/bin/sh",
+            "-c",
+            `${ENSURE_REMOTE_REAL_DIRECTORY_SCRIPT}\nmkdir -p -- "$3"`,
+            "openclaw-sandbox-existing",
+            this.params.runtimePaths.remoteWorkspaceDir,
+            this.params.runtimePaths.runtimeRootDir,
+            this.params.runtimePaths.remoteAgentWorkspaceDir,
+          ]),
+        });
+        return;
+      }
       const exists = await runSshSandboxCommand({
         session,
         remoteCommand: buildRemoteCommand([
@@ -342,6 +393,7 @@ class SshSandboxBackendImpl {
 
   private async refreshRemoteSkillsWorkspace(session: SshSandboxSession): Promise<void> {
     if (
+      this.params.workspaceMode === "existing" ||
       this.params.createParams.cfg.workspaceAccess !== "rw" ||
       !this.params.createParams.skillsWorkspaceDir
     ) {
@@ -454,6 +506,20 @@ export function resolveSshRuntimePaths(
       ".openclaw",
       "sandbox-skills",
     ),
+  };
+}
+
+function resolveExistingSshRuntimePaths(
+  workspaceDir: string,
+  scopeKey: string,
+): ResolvedSshRuntimePaths {
+  const normalizedWorkspace = normalizeRemotePath(workspaceDir);
+  return {
+    runtimeId: buildSshSandboxRuntimeId(scopeKey),
+    runtimeRootDir: normalizedWorkspace,
+    remoteWorkspaceDir: normalizedWorkspace,
+    remoteAgentWorkspaceDir: path.posix.join(normalizedWorkspace, ".openclaw", "agent"),
+    remoteSkillsWorkspaceDir: path.posix.join(normalizedWorkspace, ".openclaw", "sandbox-skills"),
   };
 }
 

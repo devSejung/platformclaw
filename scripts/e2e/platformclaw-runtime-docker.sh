@@ -80,19 +80,21 @@ curl --fail --silent --show-error \
 jq -e '.authenticated == true and .agent.agentId == "person_one"' \
   "$login_response" >/dev/null
 
-"${compose[@]}" exec -T platformclaw-control node -e '
-  const { readFileSync } = require("node:fs");
+"${compose[@]}" exec -T platformclaw-control node --input-type=module -e '
+  import { readFileSync } from "node:fs";
+  import {
+    deriveExecutionHandoffAddress,
+    ExecutionHandoffClient,
+  } from "/app/packages/platformclaw-control-plane/dist/index.mjs";
   const token = readFileSync("/run/secrets/platformclaw_execution_service_token", "utf8").trim();
-  fetch("http://127.0.0.1:19002/platformclaw/internal/execution/target", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ agentId: "person_one" }),
-  }).then(async (response) => {
-    const body = await response.json();
-    if (!response.ok || body.kind !== "platform_server" || body.agentId !== "person_one") {
-      throw new Error(`unexpected execution handoff: ${response.status}`);
+  const broker = "/run/platformclaw-credential-broker/credential.sock";
+  const body = await new ExecutionHandoffClient(
+    deriveExecutionHandoffAddress(broker),
+    token,
+  ).resolveTarget("person_one");
+  if (body.kind !== "platform_server" || body.agentId !== "person_one") {
+      throw new Error("unexpected execution handoff response");
     }
-  });
 '
 
 curl --fail --silent --show-error --cookie "$cookie_jar" \

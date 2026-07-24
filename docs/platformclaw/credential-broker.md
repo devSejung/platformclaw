@@ -59,18 +59,18 @@ Control process from starting. The Windows preview follows the same rule with
 a unique named pipe.
 
 Compose mounts one owner-only, non-persistent memory-backed runtime directory
-at `/run/platformclaw-credential-broker` in Control. The later privileged
-executor may receive access, but the employee-facing Gateway must not. The
+at `/run/platformclaw-credential-broker` in Control. Gateway receives access
+only after its agent commands are Docker-isolated. The
 directory is transport only: it contains no database, master key, credential
 file, or durable state. The authenticated handoff returns the current one-shot
 address to the SSH helper; it does not guess or enumerate socket names. The
 broker starts before public Web ingress and stops before the vault database
 closes.
 
-Control port `19002` is reachable only on the Compose private backplane and is
-not host-published. Control reads a dedicated execution-service token; the
-employee-facing Gateway does not receive it. The later privileged executor must
-receive the token through its own secret mount. Rotation replaces that secret
-and restarts Control and the executor; there is no dual-token grace period in
-the first release. The public employee session and Gateway administration token
-cannot call this listener.
+Execution handoff uses a second owner-only Unix socket in that runtime
+directory; no credential-bearing handoff is exposed over TCP. Control reads a
+dedicated execution-service token. Once VM execution is enabled, Gateway reads
+that token through its own secret mount, but agent sandboxes never receive it.
+Rotation replaces the secret and restarts Control and Gateway; there is no
+dual-token grace period in the first release. Public employee sessions and the
+Gateway administration token cannot call the socket.

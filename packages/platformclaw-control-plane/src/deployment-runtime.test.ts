@@ -11,8 +11,6 @@ const config: PlatformClawDeploymentConfig = {
   publicOrigin: "http://127.0.0.1:19001",
   listenHost: "127.0.0.1",
   listenPort: 19001,
-  internalListenHost: "127.0.0.1",
-  internalListenPort: 19002,
   databasePath: "/state/platformclaw-control.sqlite",
   controlUiRoot: "/app/ui-dist",
   workspaceRoot: "/state/workspaces",

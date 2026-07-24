@@ -5,6 +5,7 @@ import {
   createUnavailableExecutionDependencies,
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
 } from "./src/backend.js";
+import { createExecutionDependenciesFromEnvironment } from "./src/runtime.js";
 
 export default definePluginEntry({
   id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
@@ -14,9 +15,16 @@ export default definePluginEntry({
     if (api.registrationMode !== "full") {
       return;
     }
+    const configured =
+      process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS &&
+      process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
+    const dependenciesPromise = configured
+      ? createExecutionDependenciesFromEnvironment()
+      : Promise.resolve(createUnavailableExecutionDependencies());
     registerSandboxBackend(
       PLATFORMCLAW_EXECUTION_BACKEND_ID,
-      createPlatformClawExecutionBackendFactory(createUnavailableExecutionDependencies()),
+      async (params) =>
+        await createPlatformClawExecutionBackendFactory(await dependenciesPromise)(params),
     );
   },
 });

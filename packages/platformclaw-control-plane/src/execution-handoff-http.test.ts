@@ -1,16 +1,23 @@
-import type { AddressInfo } from "node:net";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  PLATFORMCLAW_EXECUTION_GRANT_PATH,
-  PLATFORMCLAW_EXECUTION_TARGET_PATH,
-  PlatformClawExecutionHandoffServer,
-} from "./execution-handoff-http.js";
+import { ExecutionHandoffClient } from "./execution-handoff-client.js";
+import { PlatformClawExecutionHandoffServer } from "./execution-handoff-http.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
 
 const servers: PlatformClawExecutionHandoffServer[] = [];
+const roots: string[] = [];
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map(async (server) => await server.close()));
+  await Promise.all(
+    roots.splice(0).map(async (root) => await rm(root, { recursive: true, force: true })),
+  );
 });
 
 async function startServer() {
@@ -30,91 +37,184 @@ async function startServer() {
       targetRevision: 4,
     })),
   } satisfies Pick<ExecutionHandoffService, "resolveTarget" | "issueCredentialGrant">;
+  const root = await mkdtemp(join(tmpdir(), "platformclaw-handoff-"));
+  roots.push(root);
+  const socketPath =
+    process.platform === "win32"
+      ? String.raw`\\.\pipe\platformclaw-handoff-${randomUUID()}`
+      : join(root, "execution.sock");
   const server = new PlatformClawExecutionHandoffServer(
     "service-token-that-is-at-least-32-bytes",
     service,
+    socketPath,
   );
   servers.push(server);
-  await server.listen({ host: "127.0.0.1", port: 0 });
-  const port = (server.address() as AddressInfo).port;
-  return { service, origin: `http://127.0.0.1:${port}` };
-}
-
-function request(origin: string, path: string, body: unknown, token?: string): Promise<Response> {
-  return fetch(`${origin}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
+  await server.listen();
+  return { service, socketPath };
 }
 
 describe("PlatformClawExecutionHandoffServer", () => {
-  it("rejects missing and incorrect service tokens before dispatch", async () => {
-    const { origin, service } = await startServer();
+  it("rejects an incorrect service token before dispatch", async () => {
+    const { socketPath, service } = await startServer();
+    const client = new ExecutionHandoffClient(socketPath, "wrong-token");
 
-    for (const token of [undefined, "wrong-token"]) {
-      const response = await request(
-        origin,
-        PLATFORMCLAW_EXECUTION_TARGET_PATH,
-        { agentId: "person_one" },
-        token,
-      );
-      expect(response.status).toBe(401);
-      await expect(response.json()).resolves.toEqual({ error: "unauthorized" });
-    }
+    await expect(client.resolveTarget("person_one")).rejects.toThrow("(401)");
     expect(service.resolveTarget).not.toHaveBeenCalled();
   });
 
-  it("serves target and grant calls only to the authenticated internal client", async () => {
-    const { origin, service } = await startServer();
-    const token = "service-token-that-is-at-least-32-bytes";
-
-    const target = await request(
-      origin,
-      PLATFORMCLAW_EXECUTION_TARGET_PATH,
-      { agentId: "person_one" },
-      token,
+  it("serves target and grant calls only to the authenticated local client", async () => {
+    const { socketPath, service } = await startServer();
+    const client = new ExecutionHandoffClient(
+      socketPath,
+      "service-token-that-is-at-least-32-bytes",
     );
-    expect(target.status).toBe(200);
-    await expect(target.json()).resolves.toMatchObject({
+
+    await expect(client.resolveTarget("person_one")).resolves.toMatchObject({
       kind: "platform_server",
       agentId: "person_one",
     });
-
-    const grant = await request(
-      origin,
-      PLATFORMCLAW_EXECUTION_GRANT_PATH,
-      { agentId: "person_one", allocationId: "allocation-one", targetRevision: 4 },
-      token,
-    );
-    expect(grant.status).toBe(200);
-    await expect(grant.json()).resolves.toMatchObject({
+    await expect(
+      client.issueCredentialGrant({
+        agentId: "person_one",
+        allocationId: "allocation-one",
+        targetRevision: 4,
+      }),
+    ).resolves.toMatchObject({
       token: "grant-token",
       allocationId: "allocation-one",
       targetRevision: 4,
     });
     expect(service.resolveTarget).toHaveBeenCalledWith("person_one");
-    expect(service.issueCredentialGrant).toHaveBeenCalledWith({
-      agentId: "person_one",
-      allocationId: "allocation-one",
-      targetRevision: 4,
-    });
   });
 
-  it("returns a redacted failure for malformed or unavailable targets", async () => {
-    const { origin, service } = await startServer();
-    service.resolveTarget.mockRejectedValueOnce(new Error("private database detail"));
+  it.runIf(process.platform !== "win32")(
+    "does not unlink an active handoff socket during overlapping startup",
+    async () => {
+      const { socketPath } = await startServer();
+      const replacement = new PlatformClawExecutionHandoffServer(
+        "replacement-token-that-is-at-least-32-bytes",
+        {
+          resolveTarget: vi.fn(),
+          issueCredentialGrant: vi.fn(),
+        },
+        socketPath,
+      );
 
-    const response = await request(
-      origin,
-      PLATFORMCLAW_EXECUTION_TARGET_PATH,
-      { agentId: "person_one" },
+      await expect(replacement.listen()).rejects.toThrow("already active");
+      const client = new ExecutionHandoffClient(
+        socketPath,
+        "service-token-that-is-at-least-32-bytes",
+      );
+      await expect(client.resolveTarget("person_one")).resolves.toMatchObject({
+        agentId: "person_one",
+      });
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "serializes concurrent recovery of a stale socket",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "platformclaw-handoff-stale-"));
+      roots.push(root);
+      const socketPath = join(root, "execution.sock");
+      const staleOwner = spawn(
+        process.execPath,
+        [
+          "-e",
+          'require("node:net").createServer().listen(process.argv[1], () => process.stdout.write("ready"))',
+          socketPath,
+        ],
+        { stdio: ["ignore", "pipe", "inherit"] },
+      );
+      await once(staleOwner.stdout, "data");
+      staleOwner.kill("SIGKILL");
+      await once(staleOwner, "exit");
+
+      const service = {
+        resolveTarget: vi.fn(async (agentId: string) => ({
+          kind: "platform_server" as const,
+          agentId,
+          targetId: "platform-server" as const,
+          revision: 0,
+        })),
+        issueCredentialGrant: vi.fn(),
+      } satisfies Pick<ExecutionHandoffService, "resolveTarget" | "issueCredentialGrant">;
+      const candidates = [
+        new PlatformClawExecutionHandoffServer(
+          "shared-service-token-that-is-at-least-32-bytes",
+          service,
+          socketPath,
+        ),
+        new PlatformClawExecutionHandoffServer(
+          "shared-service-token-that-is-at-least-32-bytes",
+          service,
+          socketPath,
+        ),
+      ];
+      const results = await Promise.allSettled(
+        candidates.map(async (server) => await server.listen()),
+      );
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      const winnerIndex = results.findIndex((result) => result.status === "fulfilled");
+      const winner = candidates[winnerIndex];
+      if (!winner) {
+        throw new Error("expected one execution handoff startup to succeed");
+      }
+      servers.push(winner);
+
+      const client = new ExecutionHandoffClient(
+        socketPath,
+        "shared-service-token-that-is-at-least-32-bytes",
+      );
+      await expect(client.resolveTarget("person_one")).resolves.toMatchObject({
+        agentId: "person_one",
+      });
+    },
+  );
+
+  it("returns a redacted failure for unavailable targets", async () => {
+    const { socketPath, service } = await startServer();
+    service.resolveTarget.mockRejectedValueOnce(new Error("private database detail"));
+    const client = new ExecutionHandoffClient(
+      socketPath,
       "service-token-that-is-at-least-32-bytes",
     );
-    expect(response.status).toBe(409);
-    await expect(response.text()).resolves.not.toContain("private database detail");
+
+    const failure = client.resolveTarget("person_one");
+    await expect(failure).rejects.toThrow("(409)");
+    await expect(failure).rejects.not.toThrow("private database detail");
+  });
+
+  it("rejects a response that is interrupted before completion", async () => {
+    const root = await mkdtemp(join(tmpdir(), "platformclaw-handoff-abort-"));
+    roots.push(root);
+    const socketPath =
+      process.platform === "win32"
+        ? String.raw`\\.\pipe\platformclaw-handoff-abort-${randomUUID()}`
+        : join(root, "execution.sock");
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.write('{"kind":');
+      setImmediate(() => response.destroy());
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, resolve);
+    });
+
+    try {
+      const client = new ExecutionHandoffClient(
+        socketPath,
+        "service-token-that-is-at-least-32-bytes",
+      );
+      await expect(client.resolveTarget("person_one")).rejects.toThrow(
+        "execution handoff response was aborted",
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
   });
 });

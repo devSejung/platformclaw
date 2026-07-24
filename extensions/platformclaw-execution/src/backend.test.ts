@@ -71,6 +71,15 @@ describe("PlatformClaw execution backend", () => {
             targetId: "vm-allocation",
             allocationId: "allocation-two",
             remoteWorkspaceDir: "/srv/person-two",
+            endpointHost: "safeconnect.example",
+            endpointPort: 44422,
+            adDomain: "example",
+            adAccount: "person.two",
+            targetAddress: "192.0.2.2",
+            linuxAccount: "person.two",
+            hostKeyAlgorithm: "ssh-ed25519",
+            hostKeyPublicKey: "AAAA-test",
+            hostKeyFingerprint: "SHA256:test",
           } satisfies PlatformClawExecutionTargetSnapshot),
     );
     const dependencies = createDependencies(resolveTarget);
@@ -163,6 +172,15 @@ describe("PlatformClaw execution backend", () => {
       targetId: "vm-one",
       allocationId: "allocation-one",
       remoteWorkspaceDir: "/srv/person-one",
+      endpointHost: "safeconnect.example",
+      endpointPort: 44422,
+      adDomain: "example",
+      adAccount: "person.one",
+      targetAddress: "192.0.2.1",
+      linuxAccount: "person.one",
+      hostKeyAlgorithm: "ssh-ed25519",
+      hostKeyPublicKey: "AAAA-test",
+      hostKeyFingerprint: "SHA256:test",
     }));
     vi.mocked(dependencies.createAssignedVmHandle).mockRejectedValueOnce(
       new Error("VM connection unavailable"),

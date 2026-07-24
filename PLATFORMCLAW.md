@@ -33,8 +33,9 @@ The goals are to:
 - The clean OpenClaw Linux Docker build and focused credential-free test baseline has been validated.
 - Personal VM execution uses a private plugin boundary. Schema v2 stores
   SafeConnect endpoints, VM hosts, personal allocations, execution profiles,
-  and encrypted credential envelopes; encryption and SSH runtime remain
-  separate follow-up slices.
+  and encrypted credential envelopes. The authenticated handoff is complete;
+  assigned-VM runtime activation remains gated on Docker-isolating every server
+  and Knox tool route.
 
 ## Why This Rebuild Exists
 
@@ -87,9 +88,10 @@ are complete. Reverse-proxy browser proof remains pending. See
 `docs/platformclaw/decisions.md`.
 
 VM execution groundwork now includes schema v2, encrypted user SSH credential
-storage, and a one-shot local credential broker. The broker does not yet expose
-VM execution; authenticated Gateway handoff and `sshpass -d` remain the next
-bounded slice.
+storage, a one-shot local credential broker, authenticated handoff, and a
+SafeConnect handle built on the upstream SSH backend. Deployment must not grant
+Gateway broker access until server and Knox tools use upstream Docker sandboxes
+through a dedicated rootless daemon.
 
 Next steps:
 

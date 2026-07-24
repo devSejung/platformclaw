@@ -9,7 +9,8 @@
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "bin": {
-    "platformclaw-control": "./dist/server-main.mjs"
+    "platformclaw-control": "./dist/server-main.mjs",
+    "platformclaw-sshpass": "./dist/sshpass-main.mjs"
   },
   "exports": {
     ".": {
@@ -26,6 +27,7 @@
     "@openclaw/gateway-protocol": "workspace:*",
     "@openclaw/normalization-core": "workspace:*",
     "kysely": "0.29.2",
+    "proper-lockfile": "4.1.2",
     "ws": "8.21.0"
   }
 }

@@ -40,11 +40,11 @@ per-user Gateway or proxy instances.
 | ------------------- | ----------------------------------------- | --------------------------- |
 | Employee Web        | Owned personal agent and selected session | Active personal target      |
 | Knox direct message | Same personal agent and main session      | Same active personal target |
-| Knox group          | `group-<roomId>` room agent               | Basic workspace only        |
+| Knox group          | `group-<roomId>` room agent               | Server Docker sandbox       |
 
 Knox room workspaces organize files and sessions but are not security
 boundaries. Room agents never receive a personal VM allocation or AD
-credential.
+credential, but their tools still execute inside an upstream Docker sandbox.
 
 ## Personal execution targets
 
@@ -68,12 +68,24 @@ Personal agents use one statically configured private backend named
 sandbox `scopeKey` as opaque, and resolves one target snapshot at the start of
 each run:
 
-- `platform_server` returns a server-workspace local execution handle;
+- `platform_server` returns the upstream Docker sandbox handle;
 - `assigned_vm` returns a SafeConnect SSH execution handle.
 
 Target changes must not rewrite one OpenClaw agent configuration per employee.
-Knox room agents retain their explicit server-only override and never enter the
+Knox room agents retain their explicit server-only route and never enter the
 personal execution backend.
+
+The Gateway owns both handles. There is no separate VM executor process or VM
+executor image. For VM authentication only, Gateway may read the execution
+service-token file and connect to the one-shot credential-broker socket. It
+never receives the credential master key or durable password storage. The
+broker socket, service token, and password bytes must never enter an agent
+sandbox.
+
+No agent command runs in the Gateway container. Server execution, including
+Knox groups, uses the upstream Docker backend through a dedicated rootless
+Docker daemon endpoint. The host Docker socket is forbidden. Gateway and the
+daemon must see identical absolute workspace paths.
 
 This backend shape is approved policy, subject to focused proof that the latest
 upstream sandbox contract can preserve local `exec`, `process`, and filesystem
@@ -210,8 +222,9 @@ or the Gateway container.
 
 A private Unix-domain credential broker owned by `platformclaw-control`
 authorizes the prepared agent and allocation, decrypts one credential, and
-provides it to one local SSH authentication process over one-shot file
-descriptor or equivalent IPC. The VM does not call this broker.
+provides it to one trusted Gateway-side SSH authentication launcher over local
+IPC. The launcher supplies bytes to `sshpass -d 3`, then zeroes its buffers.
+The VM and agent sandbox never call this broker.
 
 SafeConnect uses OpenSSH keyboard-interactive authentication, strict host-key
 verification, one password attempt, and no agent or key fallback. The primary
@@ -264,6 +277,21 @@ If durable reattachment is unavailable, the first implementation may guarantee
 reattachment only while the Gateway remains alive and must state that limit in
 the UI and operator documentation.
 
+## Skills
+
+Server Docker sandboxes retain upstream discovery and materialization. Gateway
+mounts the prepared snapshot read-only at
+`/workspace/.openclaw/sandbox-skills/skills`.
+
+VM administrators install approved shared skills under
+`/opt/platformclaw/skills/<skill>/SKILL.md`. VM users may also own skills under
+their remote workspace `skills` and `.agents/skills`, plus
+`$HOME/.agents/skills` and `$HOME/.openclaw/skills`. Remote discovery is added
+only to `platformclaw-execution`; generic upstream Docker and SSH behavior stays
+unchanged. Discovery happens at connect/reconnect, cache invalidation, or an
+explicit UI refresh. One immutable snapshot is used per run. The first release
+has no per-agent allowlist because VM global skills are administrator-approved.
+
 ## Upstream synchronization gate
 
 Every `sync/upstream-YYYYMMDD` change must read this page before resolving
@@ -300,13 +328,17 @@ After the upstream gate passes:
    Add online master-key rotation as a later bounded operation before rotation
    is needed in production.
 4. Add the Unix credential broker and authenticated one-shot handoff.
-5. Add local and SSH backend handles with filesystem and process support.
-6. Add employee-profile refresh and runtime-context projection.
-7. Add employee and administrator execution UI.
-8. Run a Docker fake-SafeConnect E2E covering isolation, failure, restart, and
-   Knox-group bypass.
-9. Validate against a real approved enterprise VM without recording secrets or
-   internal host details.
+5. Add the assigned-VM SafeConnect handle while reusing the upstream SSH
+   filesystem and process implementation.
+6. Move all server and Knox-group execution to upstream Docker sandboxes using
+   a dedicated rootless daemon, then enable Gateway broker access.
+7. Add VM remote-skill discovery and explicit refresh.
+8. Add employee-profile refresh and runtime-context projection.
+9. Add employee and administrator execution UI.
+10. Run a Docker fake-SafeConnect E2E covering isolation, failure, restart, and
+    Knox-group routing.
+11. Validate against a real approved enterprise VM without recording secrets or
+    internal host details.
 
 ## See also
 

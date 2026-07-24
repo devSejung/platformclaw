@@ -10,7 +10,10 @@ import {
   type MemoryBrowserLoginRateLimiterOptions,
 } from "./browser-login-rate-limiter.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
-import { PlatformClawExecutionHandoffServer } from "./execution-handoff-http.js";
+import {
+  deriveExecutionHandoffAddress,
+  PlatformClawExecutionHandoffServer,
+} from "./execution-handoff-http.js";
 import { ExecutionHandoffService } from "./execution-handoff-service.js";
 import {
   PlatformClawGatewayRuntimeClient,
@@ -59,12 +62,7 @@ export type PlatformClawWebIngressRuntime = {
   credentialBroker?: SshCredentialBroker;
   executionHandoff?: PlatformClawExecutionHandoffServer;
   prepare(): Promise<RestartReconciliationSummary>;
-  listen(
-    options: PlatformClawWebIngressListenOptions & {
-      internalHost?: string;
-      internalPort?: number;
-    },
-  ): Promise<void>;
+  listen(options: PlatformClawWebIngressListenOptions): Promise<void>;
   close(): Promise<void>;
 };
 
@@ -90,10 +88,11 @@ export function createPlatformClawWebIngressRuntime(
     throw new Error("execution handoff requires a credential broker");
   }
   const executionHandoff =
-    options.executionServiceToken && credentialBroker
+    options.executionServiceToken && credentialBroker && options.credentialBrokerAddress
       ? new PlatformClawExecutionHandoffServer(
           options.executionServiceToken,
           new ExecutionHandoffService(auth.store, credentialBroker),
+          deriveExecutionHandoffAddress(options.credentialBrokerAddress),
         )
       : undefined;
   const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
@@ -141,10 +140,7 @@ export function createPlatformClawWebIngressRuntime(
       await prepare();
       await credentialBroker?.listen();
       try {
-        await executionHandoff?.listen({
-          host: listenOptions.internalHost ?? "127.0.0.1",
-          port: listenOptions.internalPort ?? 0,
-        });
+        await executionHandoff?.listen();
         await server.listen(listenOptions);
       } catch (error) {
         await executionHandoff?.close();

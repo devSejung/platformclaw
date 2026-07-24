@@ -25,6 +25,8 @@ export type {
   SandboxSshConfig,
   SshSandboxSession,
   SshSandboxSettings,
+  SshSandboxSessionFactory,
+  CreateSshSandboxBackendWithSessionFactoryOptions,
 } from "../agents/sandbox.js";
 export type { OpenClawConfig } from "../config/config.js";
 
@@ -38,6 +40,7 @@ export {
   createWritableRenameTargetResolver,
   createSshSandboxSessionFromConfigText,
   createSshSandboxSessionFromSettings,
+  createSshSandboxBackendWithSessionFactory,
   disposeSshSandboxSession,
   getSandboxBackendFactory,
   getSandboxBackendManager,
