@@ -5,6 +5,7 @@ import { validateManagedConfig } from "../../docker/platformclaw-runtime/validat
 import { mainLanes } from "../../scripts/lib/docker-e2e-scenarios.mjs";
 
 type ComposeService = {
+  cap_add?: string[];
   command?: string[];
   depends_on?: Record<string, { condition?: string }>;
   entrypoint?: string[];
@@ -208,8 +209,6 @@ describe("PlatformClaw Docker runtime", () => {
     const smoke = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
 
     expect(smoke).toContain('work_dir="$(mktemp -d)"');
-    expect(smoke).toContain('"$PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR"');
-    expect(smoke).toContain('"$PLATFORMCLAW_SMOKE_DOCKER_DATA_DIR"');
     expect(smoke).toContain("chmod 0777");
     expect(smoke).toContain('chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
     expect(smoke).toContain("SSH credential master key leaked into container logs");
@@ -241,16 +240,24 @@ describe("PlatformClaw Docker runtime", () => {
     ) as ComposeConfig;
 
     expect(production.services).not.toHaveProperty("sandbox-docker");
+    const init = smoke.services["sandbox-docker-init"];
+    expect(init?.user).toBe("0:0");
+    expect(init?.network_mode).toBe("none");
+    expect(init?.cap_add).toEqual(["CHOWN"]);
+    expect(init?.volumes).toContain("platformclaw-smoke-docker-run:/run/user/1000");
     expect(smoke.services["sandbox-docker"]?.privileged).toBe(true);
+    expect(smoke.services["sandbox-docker"]?.depends_on).toMatchObject({
+      "sandbox-docker-init": { condition: "service_completed_successfully" },
+    });
     expect(smoke.services["sandbox-image-loader"]?.entrypoint).toEqual(["bash", "-ceu"]);
     expect(smoke.services["openclaw-gateway"]?.depends_on).toMatchObject({
       "sandbox-image-loader": { condition: "service_completed_successfully" },
     });
-    const runtimeMount =
-      "${PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR:?set PLATFORMCLAW_SMOKE_DOCKER_RUNTIME_DIR}";
-    expect(smoke.services["sandbox-docker"]?.volumes).toContain(`${runtimeMount}:/run/user/1000`);
+    expect(smoke.services["sandbox-docker"]?.volumes).toContain(
+      "platformclaw-smoke-docker-run:/run/user/1000",
+    );
     expect(smoke.services["openclaw-gateway"]?.volumes).toContain(
-      `${runtimeMount}:/run/platformclaw-sandbox-docker:ro`,
+      "platformclaw-smoke-docker-run:/run/platformclaw-sandbox-docker:ro",
     );
   });
 
