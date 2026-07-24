@@ -102,6 +102,7 @@ const requiredPathGroups = [
   ...WORKSPACE_TEMPLATE_PACK_PATHS,
   "scripts/npm-runner.mjs",
   "scripts/prepare-git-hooks.mjs",
+  "scripts/platformclaw-windows-worktree-install-guard.mjs",
   "scripts/preinstall-package-manager-warning.mjs",
   "scripts/lib/official-external-channel-catalog.json",
   "scripts/lib/official-external-plugin-catalog.json",
