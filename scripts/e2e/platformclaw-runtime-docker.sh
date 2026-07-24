@@ -20,7 +20,16 @@ fi
 
 version="$(node -p "require('$repo_root/package.json').version")"
 export PLATFORMCLAW_IMAGE="${PLATFORMCLAW_RUNTIME_IMAGE:-platformclaw:$version}"
+export PLATFORMCLAW_SANDBOX_IMAGE="${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:$version}"
 export PLATFORMCLAW_REPO_ROOT="$repo_root"
+export PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR="$work_dir/unused-sandbox-docker-runtime"
+export PLATFORMCLAW_SMOKE_WORKSPACE_DIR="$work_dir/workspaces"
+export PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR="$work_dir/platformclaw-sandbox.tar"
+mkdir -p "$PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR" "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR"
+# Synthetic smoke state contains no secrets. World-write avoids assuming the
+# Linux CI caller, Gateway UID, and nested rootless UID namespace are identical.
+chmod 0777 "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR"
+docker save --output "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR" "$PLATFORMCLAW_SANDBOX_IMAGE"
 export PLATFORMCLAW_PUBLIC_PORT="$(python3 - <<'PY'
 import socket
 with socket.socket() as sock:
@@ -79,6 +88,24 @@ curl --fail --silent --show-error \
   "$origin/platformclaw/api/auth/login" >"$login_response"
 jq -e '.authenticated == true and .agent.agentId == "person_one"' \
   "$login_response" >/dev/null
+
+sandbox_container="platformclaw-smoke-sandbox-$RANDOM"
+"${compose[@]}" exec -T openclaw-gateway docker run --detach --rm \
+  --name "$sandbox_container" \
+  --label openclaw.sandbox=1 \
+  --network bridge \
+  --user 0:0 \
+  --volume /var/lib/platformclaw/workspaces/person_one:/workspace \
+  "$PLATFORMCLAW_SANDBOX_IMAGE" sleep infinity >/dev/null
+"${compose[@]}" exec -T openclaw-gateway docker inspect \
+  --format '{{.HostConfig.NetworkMode}}' "$sandbox_container" | grep -qx bridge
+"${compose[@]}" exec -T openclaw-gateway docker inspect \
+  --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}' \
+  "$sandbox_container" | grep -q '/var/lib/platformclaw/workspaces/person_one -> /workspace'
+"${compose[@]}" exec -T openclaw-gateway docker exec "$sandbox_container" \
+  bash -ceu 'printf sandbox-ok > /workspace/.platformclaw-sandbox-smoke'
+grep -qx sandbox-ok "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR/person_one/.platformclaw-sandbox-smoke"
+"${compose[@]}" exec -T openclaw-gateway docker rm --force "$sandbox_container" >/dev/null
 
 "${compose[@]}" exec -T platformclaw-control node --input-type=module -e '
   import { readFileSync } from "node:fs";

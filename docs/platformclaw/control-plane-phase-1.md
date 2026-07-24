@@ -17,7 +17,7 @@ OpenClaw agent. It supports two ingress families from the beginning:
 - Knox direct and group conversations authenticated by the Knox adapter.
 
 Phase 1 does not implement VM execution. It produces the stable identity and
-agent binding that the later `platformclaw-vm` sandbox backend will consume.
+agent binding that the `platformclaw-execution` sandbox backend consumes.
 
 ## Outcome
 
@@ -312,22 +312,18 @@ suffix without an explicit operator policy change. Concurrent first messages
 converge on the same record, and inbound agent or session IDs do not override
 the verified room binding.
 
-Room agents use a local workspace on the PlatformClaw server and set
-`sandbox.mode: "off"`. They do not resolve a VM profile, use SafeConnect, or
-receive an employee AD credential. Web personal agents continue to use the
-later `platformclaw-vm` backend.
+Room agents use a workspace on the PlatformClaw server and explicitly select
+the upstream Docker backend. They do not resolve a VM profile, use SafeConnect,
+receive an employee AD credential, or enter the personal execution backend.
 
 Room agents may use `exec`, `process`, filesystem tools, and approved managed
-skills on the PlatformClaw server. Most managed skills require execution, so
-host execution is part of the accepted room-agent contract rather than an
-exception.
+skills inside the upstream Docker sandbox. Most managed skills require
+execution, so the sandbox image provides their runtime dependencies.
 
 Each room still receives a distinct workspace for organization, agent identity,
-and session history. The workspace is not a security boundary. With sandboxing
-off, enabled host tools may reach the Gateway container and another room's
-workspace. PlatformClaw therefore treats all local room agents as one trust
-domain and must not represent workspace separation as filesystem or process
-isolation.
+and session history. Workspace naming alone is not a security boundary. The
+rootless Docker sandbox is the process/filesystem boundary and receives only
+the selected room workspace.
 
 Only PlatformClaw administrators may manually change, disable, or remove a room
 binding. Room agents do not receive `elevated`, Gateway administration,

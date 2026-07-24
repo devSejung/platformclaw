@@ -57,27 +57,28 @@ add Knox-specific routing branches to core.
 
 Each Knox group room has a dedicated room-owned agent. It does not reuse a
 participant's personal agent. The room agent uses a local PlatformClaw server
-workspace with `sandbox.mode: "off"`.
+workspace with upstream Docker sandboxing.
 
 ### PC-008 Keep Knox room agents outside VM credential policy
 
 A Knox room agent has no VM profile and receives no employee AD credential. It
-does not use the `platformclaw-vm` sandbox backend.
+uses upstream Docker directly and never enters the personal
+`platformclaw-execution` backend.
 
 ### PC-009 Treat room workspaces as operational separation
 
 Each Knox room agent has its own workspace for files, agent identity, and
 session organization. This workspace boundary is not a security boundary.
-Room agents running on the PlatformClaw server are one trust domain and may be
-able to access another room workspace through enabled host tools.
+Workspace separation is organizational. Docker supplies the process and
+filesystem security boundary; room provisioning must not mount another room's
+workspace.
 
 ### PC-010 Allow local execution for Knox room agents
 
 Knox room agents may use `exec`, `process`, filesystem tools, and approved
-managed skills, including execution-oriented skills loaded from the shared
-OpenClaw skills directory. Commands run on the PlatformClaw server because the
-room agent uses `sandbox.mode: "off"`. Skill selection and workspace routing do
-not provide process or filesystem isolation.
+managed skills, including execution-oriented skills loaded from the managed
+skill root. Commands run in an upstream Docker sandbox through the dedicated
+rootless daemon. They never run in Gateway.
 
 ### PC-102 Restrict room binding administration
 

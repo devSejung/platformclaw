@@ -1,0 +1,105 @@
+#!/usr/bin/env node
+
+import path from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+const POLICY_ERROR =
+  "Existing OpenClaw config does not match the managed PlatformClaw execution policy; update it before exposing traffic";
+
+function requirePolicy(condition) {
+  if (!condition) {
+    throw new Error(POLICY_ERROR);
+  }
+}
+
+function validateDockerPolicy(docker, sandboxImage) {
+  requirePolicy(docker?.image === sandboxImage);
+  requirePolicy(docker?.network === "bridge");
+  requirePolicy(docker?.user === "0:0");
+  requirePolicy(docker?.readOnlyRoot !== false);
+  requirePolicy(
+    docker?.capDrop === undefined ||
+      (Array.isArray(docker.capDrop) && docker.capDrop.length === 1 && docker.capDrop[0] === "ALL"),
+  );
+  requirePolicy(!Array.isArray(docker?.binds) || docker.binds.length === 0);
+  requirePolicy(docker?.dangerouslyAllowReservedContainerTargets !== true);
+  requirePolicy(docker?.dangerouslyAllowExternalBindSources !== true);
+  requirePolicy(docker?.dangerouslyAllowContainerNamespaceJoin !== true);
+}
+
+function validateSandboxPolicy(sandbox, sandboxImage, allowedBackends) {
+  requirePolicy(sandbox?.mode === "all");
+  requirePolicy(allowedBackends.has(sandbox?.backend));
+  requirePolicy(sandbox?.scope === "agent");
+  requirePolicy(sandbox?.workspaceAccess === "rw");
+  validateDockerPolicy(sandbox?.docker, sandboxImage);
+  requirePolicy(sandbox?.browser?.allowHostControl !== true);
+  requirePolicy(!Array.isArray(sandbox?.browser?.binds) || sandbox.browser.binds.length === 0);
+}
+
+function validateToolPolicy(tools) {
+  requirePolicy(tools?.elevated?.enabled !== true);
+  requirePolicy(
+    tools?.exec?.host === undefined || tools.exec.host === "auto" || tools.exec.host === "sandbox",
+  );
+}
+
+function mergeSandboxPolicy(defaults, override) {
+  return {
+    ...defaults,
+    ...override,
+    docker: {
+      ...defaults?.docker,
+      ...override?.docker,
+    },
+  };
+}
+
+export function validateManagedConfig(config, sandboxImage) {
+  const defaults = config?.agents?.defaults?.sandbox;
+  validateSandboxPolicy(defaults, sandboxImage, new Set(["platformclaw-execution"]));
+  validateToolPolicy(config?.tools);
+
+  const entries = config?.agents?.entries;
+  requirePolicy(entries === undefined || (entries !== null && typeof entries === "object"));
+  const projectedList = config?.agents?.list;
+  requirePolicy(projectedList === undefined || Array.isArray(projectedList));
+  // Current upstream persists `entries` and materializes a non-enumerable `list`
+  // projection. Checking both keeps this gate aligned with the effective runtime.
+  const configuredAgents = [
+    ...Object.values(entries ?? {}),
+    ...(Array.isArray(projectedList) ? projectedList : []),
+  ];
+  for (const agent of configuredAgents) {
+    validateToolPolicy(agent?.tools);
+    if (agent?.sandbox === undefined) {
+      continue;
+    }
+    const effective = mergeSandboxPolicy(defaults, agent.sandbox);
+    // Personal agents use the execution backend; Knox room agents may select
+    // Docker directly. Both remain isolated and share the same bridge policy.
+    validateSandboxPolicy(effective, sandboxImage, new Set(["platformclaw-execution", "docker"]));
+  }
+
+  const plugins = config?.plugins?.entries;
+  requirePolicy(plugins?.["admin-http-rpc"]?.enabled === true);
+  requirePolicy(plugins?.["platformclaw-execution"]?.enabled === true);
+}
+
+async function main() {
+  const [sandboxImage] = process.argv.slice(2);
+  if (!sandboxImage) {
+    throw new Error("usage: validate-managed-config.mjs <sandbox-image>");
+  }
+  const { loadConfig } = await import("/app/dist/config/config.js");
+  validateManagedConfig(loadConfig({ pin: false }), sandboxImage);
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

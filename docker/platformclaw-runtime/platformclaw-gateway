@@ -2,6 +2,7 @@
 set -euo pipefail
 
 config_path="${OPENCLAW_CONFIG_PATH:-/home/node/.openclaw/openclaw.json}"
+export OPENCLAW_CONFIG_PATH="$config_path"
 template_path="/etc/platformclaw/openclaw.initial.json"
 gateway_token_path="/run/secrets/platformclaw_gateway_token"
 
@@ -16,8 +17,39 @@ if [[ -z "$OPENCLAW_GATEWAY_TOKEN" ]]; then
 fi
 export OPENCLAW_GATEWAY_TOKEN
 
-if [[ ! -e "$config_path" ]]; then
-  install -D -m 0600 "$template_path" "$config_path"
+sandbox_image="${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:local}"
+if [[ -z "$sandbox_image" || "$sandbox_image" == -* || "$sandbox_image" == *$'\n'* || "$sandbox_image" == *$'\r'* ]]; then
+  echo "Sandbox image reference is invalid" >&2
+  exit 1
 fi
+
+docker_security_options="$(docker info --format '{{json .SecurityOptions}}')"
+if [[ "$docker_security_options" != *rootless* ]]; then
+  echo "PlatformClaw sandbox Docker endpoint must be rootless" >&2
+  exit 1
+fi
+docker image inspect -- "$sandbox_image" >/dev/null
+
+if [[ ! -e "$config_path" ]]; then
+  config_dir="$(dirname "$config_path")"
+  install -d -m 0700 "$config_dir"
+  config_tmp="$(mktemp "$config_dir/.platformclaw-openclaw.json.XXXXXX")"
+  trap 'rm -f -- "$config_tmp"' EXIT
+  node - "$template_path" "$config_tmp" "$sandbox_image" <<'NODE'
+const [templatePath, configPath, sandboxImage] = process.argv.slice(2);
+const { readFileSync, writeFileSync } = require("node:fs");
+const template = JSON.parse(readFileSync(templatePath, "utf8"));
+if (template?.agents?.defaults?.sandbox?.docker?.image !== "__PLATFORMCLAW_SANDBOX_IMAGE__") {
+  throw new Error("PlatformClaw sandbox image placeholder is missing");
+}
+template.agents.defaults.sandbox.docker.image = sandboxImage;
+writeFileSync(configPath, `${JSON.stringify(template, null, 2)}\n`, { mode: 0o600 });
+NODE
+  chmod 0600 "$config_tmp"
+  mv -- "$config_tmp" "$config_path"
+  trap - EXIT
+fi
+
+node /etc/platformclaw/validate-managed-config.mjs "$sandbox_image"
 
 exec node /app/openclaw.mjs gateway --bind lan --port 18789 "$@"

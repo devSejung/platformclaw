@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+source_dir="${1:-/source}"
+target_dir="${2:-/target}"
+shopt -s dotglob nullglob
+source_entries=("$source_dir"/*)
+target_entries=("$target_dir"/*)
+
+if (( ${#target_entries[@]} != 0 )); then
+  echo "Target workspace directory is not empty; refusing to overwrite it" >&2
+  exit 1
+fi
+if (( ${#source_entries[@]} == 0 )); then
+  echo "Legacy workspace volume is empty; nothing to migrate"
+  exit 0
+fi
+
+cp -a "$source_dir"/. "$target_dir"/
+chown -R 1000:1000 "$target_dir"
+echo "Legacy workspaces migrated to $target_dir"
