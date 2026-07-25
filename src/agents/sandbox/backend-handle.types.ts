@@ -96,6 +96,11 @@ export type SandboxBackendHandle = {
   workdirRoots?: readonly string[];
   /** Replaces gateway-local discovery when the backend owns a remote filesystem. */
   skillCatalog?: SandboxBackendSkillCatalog;
+  /**
+   * Backend-owned, credential-free context pinned to this execution handle.
+   * Embedded runs deliver it as hidden runtime context, never user-authored text.
+   */
+  runtimePromptContext?: string;
   capabilities?: {
     browser?: boolean;
   };

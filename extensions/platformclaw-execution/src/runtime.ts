@@ -143,6 +143,8 @@ function parseTarget(value: unknown): PlatformClawExecutionTargetSnapshot {
     ...base,
     kind: "assigned_vm",
     allocationId: requireString(target.allocationId, "allocation id"),
+    vmLabel: requireString(target.vmLabel, "VM label"),
+    safeConnectLabel: requireString(target.safeConnectLabel, "SafeConnect label"),
     endpointHost: requireSshToken(target.endpointHost, "endpoint host"),
     endpointPort: Number(target.endpointPort),
     adDomain: requireSshToken(target.adDomain, "AD domain"),

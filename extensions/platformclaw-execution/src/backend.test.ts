@@ -71,6 +71,8 @@ describe("PlatformClaw execution backend", () => {
             revision: 7,
             targetId: "vm-allocation",
             allocationId: "allocation-two",
+            vmLabel: "Person Two VM",
+            safeConnectLabel: "Corporate access",
             remoteWorkspaceDir: "/srv/person-two",
             endpointHost: "safeconnect.example",
             endpointPort: 44422,
@@ -106,11 +108,21 @@ describe("PlatformClaw execution backend", () => {
     expect(first).toMatchObject({
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
       runtimeId: "server-person_one-3",
+      runtimePromptContext: expect.stringContaining('"workLocation": "Basic workspace"'),
     });
+    expect(first.runtimePromptContext).toContain('"activeWorkspace": "/server-person_one-3"');
     expect(second).toMatchObject({
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
       runtimeId: "vm-person_two-7",
+      runtimePromptContext: expect.stringContaining('"workLocation": "My development VM"'),
     });
+    expect(second.runtimePromptContext).toContain('"targetLabel": "Person Two VM"');
+    expect(second.runtimePromptContext).toContain('"safeHostLabel": "Corporate access"');
+    expect(second.runtimePromptContext).toContain('"linuxAccount": "person.two"');
+    expect(second.runtimePromptContext).toContain('"activeWorkspace": "/vm-person_two-7"');
+    expect(second.runtimePromptContext).not.toContain("safeconnect.example");
+    expect(second.runtimePromptContext).not.toContain("192.0.2.2");
+    expect(second.runtimePromptContext).not.toContain("person.two@external");
   });
 
   it("pins a copied target snapshot for one backend handle", async () => {
@@ -175,6 +187,8 @@ describe("PlatformClaw execution backend", () => {
       revision: 4,
       targetId: "vm-one",
       allocationId: "allocation-one",
+      vmLabel: "Development VM",
+      safeConnectLabel: "Corporate access",
       remoteWorkspaceDir: "/srv/person-one",
       endpointHost: "safeconnect.example",
       endpointPort: 44422,
@@ -203,6 +217,8 @@ describe("PlatformClaw execution backend", () => {
       revision: 4,
       targetId: "vm-one",
       allocationId: "allocation-one",
+      vmLabel: "Development VM",
+      safeConnectLabel: "Corporate access",
       remoteWorkspaceDir: "/srv/person-one",
       endpointHost: "safeconnect.example",
       endpointPort: 44422,

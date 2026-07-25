@@ -67,6 +67,8 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
   broker implemented; authenticated Gateway handoff remains pending
 - Assigned-VM remote skill discovery, immutable run snapshots, and explicit
   Skills UI refresh implemented through the generic sandbox backend seam
+- Owner-preserving employee-profile refresh and credential-free execution
+  context projection implemented from the run-pinned backend snapshot
 - PlatformClaw Web login, authenticated Control UI hosting, fixed same-origin
   Gateway adapter, restricted employee routes, identity/logout shell, and
   Windows mocked-browser proof implemented

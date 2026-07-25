@@ -30,10 +30,9 @@ type ProfileArtifact = {
   profile: Record<string, unknown> & { employeeId: string };
 };
 
-export type EmployeeProfileStore = Pick<
-  PluginStateKeyedStore<unknown>,
-  "registerIfAbsent" | "lookup"
->;
+export type EmployeeProfileStore = Pick<PluginStateKeyedStore<unknown>, "lookup" | "update">;
+
+class EmployeeProfileStateError extends Error {}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -217,24 +216,60 @@ export async function handleEmployeeProfileSeed(
     return;
   }
 
-  let created: boolean;
+  let created = false;
+  let stateError: EmployeeProfileStateError | undefined;
   try {
-    // The plugin-state register is an atomic identity claim. Workspace changes cannot
-    // strand employee data in an old directory because the value is keyed only by agent id.
-    created = await store.registerIfAbsent(agentId, artifact);
+    if (!store.update) {
+      throw new Error("atomic employee profile updates are unavailable");
+    }
+    // Keep immutable ownership and mutable directory data in one atomic update.
+    // Workspace changes cannot strand state because the value is keyed only by agent id.
+    await store.update(agentId, (current) => {
+      if (current === undefined) {
+        created = true;
+        return artifact;
+      }
+      const persisted = parseProfileArtifact(current);
+      if (!persisted) {
+        stateError = new EmployeeProfileStateError(
+          "stored employee profile is not a safe valid profile",
+        );
+        throw stateError;
+      }
+      if (
+        canonicalEmployeeId(persisted.profile.employeeId) !==
+        canonicalEmployeeId(artifact.profile.employeeId)
+      ) {
+        stateError = new EmployeeProfileStateError(
+          `agent profile belongs to another employee: ${agentId}`,
+        );
+        throw stateError;
+      }
+      return {
+        ...artifact,
+        profile: {
+          ...artifact.profile,
+          employeeId: persisted.profile.employeeId,
+        },
+      };
+    });
     const persisted = parseProfileArtifact(await store.lookup(agentId));
     if (!persisted) {
-      invalidRequest(respond, "stored employee profile is not a safe valid profile");
-      return;
+      throw new EmployeeProfileStateError("stored employee profile is not a safe valid profile");
     }
     if (
       canonicalEmployeeId(persisted.profile.employeeId) !==
       canonicalEmployeeId(artifact.profile.employeeId)
     ) {
-      invalidRequest(respond, `agent profile belongs to another employee: ${agentId}`);
-      return;
+      throw new EmployeeProfileStateError(`agent profile belongs to another employee: ${agentId}`);
     }
   } catch {
+    // Plugin state wraps callback failures. Preserve the request-local policy
+    // failure so ownership conflicts are not misreported as storage outages.
+    if (stateError) {
+      invalidRequest(respond, stateError.message);
+      return;
+    }
     respond(
       false,
       undefined,

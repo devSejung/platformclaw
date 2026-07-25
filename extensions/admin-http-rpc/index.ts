@@ -13,8 +13,8 @@ import {
 } from "./src/employee-profile.js";
 import { handleAdminHttpRpcRequest } from "./src/handler.js";
 
-// Matches the SDK's per-plugin row ceiling. Reject-new preserves immutable
-// identity claims instead of evicting a still-active employee profile.
+// Matches the SDK's per-plugin row ceiling. Reject-new preserves active
+// employee ownership instead of evicting a profile during mutable refresh.
 const MAX_EMPLOYEE_PROFILES = 50_000;
 
 export default definePluginEntry({

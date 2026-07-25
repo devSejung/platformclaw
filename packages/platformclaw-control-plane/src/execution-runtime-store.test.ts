@@ -126,6 +126,8 @@ describe("SQLite execution runtime target", () => {
       targetId: allocation.id,
       revision: 1,
       allocationId: allocation.id,
+      vmLabel: "Development VM",
+      safeConnectLabel: "SafeConnect",
       endpointHost: "safeconnect.example.test",
       endpointPort: 44_422,
       adDomain: "example.test",

@@ -17,6 +17,8 @@ function assignedVm(revision = 4): AssignedVmExecutionTarget {
     targetId: "allocation-one",
     revision,
     allocationId: "allocation-one",
+    vmLabel: "Development VM",
+    safeConnectLabel: "Corporate access",
     endpointHost: "safeconnect.example.test",
     endpointPort: 44_422,
     adDomain: "example.test",
