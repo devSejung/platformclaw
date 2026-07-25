@@ -80,6 +80,7 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
   orphanRepair?: OrphanRepairPlan;
   sessionAgentId: string;
   runtimeModel: string;
+  runtimePromptContext?: string;
   systemPromptText: string;
   setActiveSessionSystemPrompt: (systemPrompt: string) => void;
   setLeasedSteering: (lease: EmbeddedAttemptSteeringLease) => void;
@@ -99,7 +100,10 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
     systemPromptText = next;
     input.setActiveSessionSystemPrompt(next);
   };
-  let effectivePrompt = attempt.prompt;
+  const runtimePromptContext = normalizeOptionalString(input.runtimePromptContext) ?? "";
+  let effectivePrompt = runtimePromptContext
+    ? `${runtimePromptContext}\n\n${attempt.prompt}`
+    : attempt.prompt;
   const hookCtx = {
     runId: attempt.runId,
     trace: freezeDiagnosticTraceContext(input.diagnosticTrace),

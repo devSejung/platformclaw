@@ -164,8 +164,10 @@ must verify the existing owner and use a revision or compare-and-swap contract.
 Every run also receives a generated, credential-free runtime context containing
 the active target, user-facing target label, safe host label when applicable,
 Linux account when appropriate, active workspace, target revision, and an
-explicit statement that target workspaces are not shared. This context comes
-from a prompt hook and is also represented by a persistent UI badge.
+explicit statement that target workspaces are not shared. The execution plugin
+projects this data from the same immutable backend snapshot used by tools, and
+upstream prompt assembly delivers it as hidden runtime context. It is also
+represented by a persistent UI badge.
 
 A virtual read-only runtime document may be added later. PlatformClaw does not
 write dynamic target state into a workspace Core File.

@@ -56,6 +56,7 @@ import { runEmbeddedAttemptPromptPhase } from "./attempt-prompt-phase.js";
 type PromptPhaseInput = Parameters<typeof runEmbeddedAttemptPromptPhase>[0];
 type PromptPhaseState = ReturnType<PromptPhaseInput["lifecycle"]["readState"]>;
 type AssemblyCall = {
+  runtimePromptContext?: string;
   setLeasedSteering: (lease: { leaseId: string; runIds: string[] }) => void;
 };
 type DispatchCall = {
@@ -296,6 +297,19 @@ describe("runEmbeddedAttemptPromptPhase", () => {
       }),
     );
     expect(mocks.releasePendingSteering).not.toHaveBeenCalled();
+  });
+
+  it("forwards backend context from the pinned sandbox handle", async () => {
+    const fixture = createFixture();
+    fixture.input.execution.sandbox = {
+      backend: { runtimePromptContext: "pinned execution facts" },
+    } as never;
+
+    await runEmbeddedAttemptPromptPhase(fixture.input);
+
+    expect(mocks.preparePromptAssembly).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimePromptContext: "pinned execution facts" }),
+    );
   });
 
   it("skips before_agent_run for settled-turn finalization", async () => {

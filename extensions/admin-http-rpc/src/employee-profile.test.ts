@@ -23,11 +23,12 @@ function createMemoryStore(
   }
   return {
     values,
-    async registerIfAbsent(key, value) {
-      if (values.has(key)) {
+    async update(key, updateValue) {
+      const next = updateValue(structuredClone(values.get(key)));
+      if (next === undefined) {
         return false;
       }
-      values.set(key, structuredClone(value));
+      values.set(key, structuredClone(next));
       return true;
     },
     async lookup(key) {
@@ -83,7 +84,7 @@ describe("PlatformClaw employee profile state", () => {
     };
   }
 
-  it("claims the agent profile once and never overwrites it", async () => {
+  it("claims ownership once and refreshes mutable directory fields", async () => {
     const store = createMemoryStore();
     const first = callSeed({ store });
     await first.promise;
@@ -101,12 +102,59 @@ describe("PlatformClaw employee profile state", () => {
       undefined,
     );
     expect(store.values.get("account_name")).toMatchObject({
-      profile: { department: "Platform" },
+      profile: { employeeId: "employee-1", department: "Changed" },
+    });
+  });
+
+  it("preserves the original owner field while removing stale mutable fields", async () => {
+    const store = createMemoryStore({
+      schema: "platformclaw.employee-profile.v1",
+      profile: {
+        employeeId: "EMPLOYEE-1",
+        displayName: "Old name",
+        department: "Old department",
+        groups: ["old"],
+        attributes: { stale: "value" },
+      },
+    });
+    const refreshed = callSeed({ store, content: artifact("employee-1", "New department") });
+    await refreshed.promise;
+
+    expect(store.values.get("account_name")).toEqual({
+      schema: "platformclaw.employee-profile.v1",
+      profile: {
+        employeeId: "EMPLOYEE-1",
+        department: "New department",
+        groups: [],
+        attributes: {},
+      },
     });
   });
 
   it("rejects an existing profile owned by another employee", async () => {
     const store = createMemoryStore(JSON.parse(artifact("employee-2")));
+    const seeded = callSeed({ store });
+    await seeded.promise;
+
+    expect(seeded.respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ message: expect.stringContaining("belongs to another employee") }),
+    );
+  });
+
+  it("preserves ownership errors when plugin state wraps callback failures", async () => {
+    const backing = createMemoryStore(JSON.parse(artifact("employee-2")));
+    const store: EmployeeProfileStore = {
+      lookup: backing.lookup,
+      update: async (key, updateValue) => {
+        try {
+          return await backing.update!(key, updateValue);
+        } catch (error) {
+          throw new Error("plugin state update failed", { cause: error });
+        }
+      },
+    };
     const seeded = callSeed({ store });
     await seeded.promise;
 

@@ -51,6 +51,8 @@ function publicSnapshot(target: PersonalExecutionTarget): ExecutionTargetSnapsho
     targetId: target.targetId,
     revision: target.revision,
     allocationId: target.allocationId,
+    vmLabel: target.vmLabel,
+    safeConnectLabel: target.safeConnectLabel,
     endpointHost: target.endpointHost,
     endpointPort: target.endpointPort,
     adDomain: target.adDomain,

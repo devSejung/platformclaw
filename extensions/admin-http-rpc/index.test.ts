@@ -27,7 +27,7 @@ describe("admin-http-rpc plugin entry", () => {
           openKeyedStore(options: Parameters<PluginApi["runtime"]["state"]["openKeyedStore"]>[0]) {
             stores.push(options);
             return {
-              registerIfAbsent: async () => true,
+              update: async () => true,
               lookup: async () => undefined,
             };
           },

@@ -93,7 +93,10 @@ SafeConnect handle built on the upstream SSH backend. Deployment grants Gateway
 only the broker socket, execution token, and dedicated rootless Docker endpoint.
 It never grants the durable credential key or host Docker socket. Assigned VM
 backends now discover bounded remote skills into an immutable per-run snapshot,
-with explicit refresh exposed through the existing Skills UI.
+with explicit refresh exposed through the existing Skills UI. Successful
+employee authentication atomically refreshes mutable directory profile fields,
+and each personal run receives credential-free context from its pinned
+execution-target snapshot.
 
 Next steps:
 

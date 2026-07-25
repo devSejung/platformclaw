@@ -68,6 +68,8 @@ export type AssignedVmExecutionTarget = {
   targetId: string;
   revision: number;
   allocationId: string;
+  vmLabel: string;
+  safeConnectLabel: string;
   endpointHost: string;
   endpointPort: number;
   adDomain: string;

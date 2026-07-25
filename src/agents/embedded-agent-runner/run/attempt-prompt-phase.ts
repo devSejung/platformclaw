@@ -146,6 +146,9 @@ export async function runEmbeddedAttemptPromptPhase(input: {
     attempt,
     activeSession,
     sessionManager,
+    ...(input.execution.sandbox?.backend?.runtimePromptContext
+      ? { runtimePromptContext: input.execution.sandbox.backend.runtimePromptContext }
+      : {}),
     ...input.assembly,
     setLeasedSteering: (lease) => {
       leasedSteering = lease;

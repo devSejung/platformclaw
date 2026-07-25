@@ -59,6 +59,26 @@ describe("runtime context prompt submission", () => {
     });
   });
 
+  it("keeps backend execution context hidden and bound to the current prompt", () => {
+    const runtimeContext = "<execution>Basic workspace, revision 4</execution>";
+    const effectivePrompt = `${runtimeContext}\n\nvisible ask`;
+
+    expect(
+      resolveRuntimeContextPromptParts({
+        effectivePrompt,
+        transcriptPrompt: "visible ask",
+        modelPrompt: effectivePrompt,
+        ...withModelPromptBuildContext({
+          promptBeforeHooks: effectivePrompt,
+          transcriptPrompt: "visible ask",
+        }),
+      }),
+    ).toEqual({
+      prompt: "visible ask",
+      runtimeContext,
+    });
+  });
+
   it("keeps prompt-local additions in the model prompt", () => {
     expect(
       resolveRuntimeContextPromptParts({
