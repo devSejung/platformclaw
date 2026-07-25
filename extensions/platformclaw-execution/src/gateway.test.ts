@@ -1,6 +1,9 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { describe, expect, it, vi } from "vitest";
-import { PlatformClawVmAuthenticationError } from "./connection-errors.js";
+import {
+  isSshpassAuthenticationFailure,
+  PlatformClawVmAuthenticationError,
+} from "./connection-errors.js";
 import { registerPlatformClawExecutionGateway } from "./gateway.js";
 
 type GatewayHandler = Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];
@@ -13,6 +16,7 @@ function createHarness(runtime: {
   const methods = new Map<string, GatewayHandler>();
   let beforeRun: BeforeRunHandler | undefined;
   const api = {
+    logger: { warn: vi.fn() },
     on: vi.fn((name: string, handler: BeforeRunHandler) => {
       if (name === "before_agent_run") {
         beforeRun = handler;
@@ -25,6 +29,14 @@ function createHarness(runtime: {
   registerPlatformClawExecutionGateway(api as never, Promise.resolve(runtime as never));
   return { beforeRun: () => beforeRun!, methods };
 }
+
+describe("SafeConnect authentication failure classification", () => {
+  it("accepts both normalized command codes and transport exit codes", () => {
+    expect(isSshpassAuthenticationFailure({ code: 5 })).toBe(true);
+    expect(isSshpassAuthenticationFailure({ exitCode: 5 })).toBe(true);
+    expect(isSshpassAuthenticationFailure({ code: 255 })).toBe(false);
+  });
+});
 
 describe("PlatformClaw execution Gateway methods", () => {
   it("classifies only an SSH authentication rejection for the BFF", async () => {

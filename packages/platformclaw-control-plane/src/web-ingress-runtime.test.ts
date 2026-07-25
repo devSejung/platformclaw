@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { redeemLocalCredentialGrant } from "./credential-broker-local.js";
 import { ExecutionHandoffClient } from "./execution-handoff-client.js";
 import { deriveExecutionHandoffAddress } from "./execution-handoff-http.js";
+import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 import { createPlatformClawWebIngressRuntime } from "./web-ingress-runtime.js";
 
@@ -80,7 +81,11 @@ describe("createPlatformClawWebIngressRuntime", () => {
           };
         },
       },
-      adminRpc: { call: vi.fn(async () => ({})) },
+      adminRpc: {
+        call: async () => {
+          throw new Error("unexpected admin RPC");
+        },
+      } satisfies GatewayAdminRpc,
       publicOrigin: "http://127.0.0.1:3000",
       controlUiRoot,
       credentialBrokerAddress,

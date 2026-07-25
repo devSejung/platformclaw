@@ -26,8 +26,13 @@ cleanup_work_dir() {
 }
 
 cleanup() {
+  local status=$?
+  if [[ $status -ne 0 ]]; then
+    dump_logs
+  fi
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   cleanup_work_dir
+  return "$status"
 }
 trap cleanup EXIT
 

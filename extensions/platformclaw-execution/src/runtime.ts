@@ -14,7 +14,10 @@ import type {
   PlatformClawExecutionDependencies,
   PlatformClawExecutionTargetSnapshot,
 } from "./backend.js";
-import { PlatformClawVmAuthenticationError } from "./connection-errors.js";
+import {
+  isSshpassAuthenticationFailure,
+  PlatformClawVmAuthenticationError,
+} from "./connection-errors.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 
 const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
@@ -343,7 +346,7 @@ export async function createExecutionDependenciesFromEnvironment(
         } catch (error) {
           // sshpass exit 5 specifically means invalid/expired credentials. Infrastructure,
           // broker, host-key, and transport failures must not invalidate a healthy VM target.
-          if ((error as { code?: unknown }).code === 5) {
+          if (isSshpassAuthenticationFailure(error)) {
             throw new PlatformClawVmAuthenticationError();
           }
           throw error;
