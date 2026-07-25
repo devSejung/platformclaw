@@ -4,12 +4,12 @@ import {
   runSshSandboxCommand,
   type SandboxBackendSkillCatalog,
   type SandboxBackendSkillFile,
+  type SshSandboxSession,
 } from "openclaw/plugin-sdk/sandbox";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
-import { createSafeConnectSession } from "./runtime.js";
 
 type RemoteSkillIo = {
-  createSession: typeof createSafeConnectSession;
+  createSession: (target: AssignedVmTargetSnapshot) => Promise<SshSandboxSession>;
   disposeSession: typeof disposeSshSandboxSession;
   runCommand: typeof runSshSandboxCommand;
 };
@@ -144,13 +144,7 @@ export class VmRemoteSkillCatalogService {
   private readonly cache = new Map<string, SandboxBackendSkillCatalog>();
   private readonly inflight = new Map<string, Promise<SandboxBackendSkillCatalog>>();
 
-  constructor(
-    private readonly io: RemoteSkillIo = {
-      createSession: createSafeConnectSession,
-      disposeSession: disposeSshSandboxSession,
-      runCommand: runSshSandboxCommand,
-    },
-  ) {}
+  constructor(private readonly io: RemoteSkillIo) {}
 
   async list(
     target: Readonly<AssignedVmTargetSnapshot>,

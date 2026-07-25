@@ -6,6 +6,7 @@ import {
   createSshSandboxSessionFromConfigText,
   disposeSshSandboxSession,
   requireSandboxBackendFactory,
+  runSshSandboxCommand,
   type SshSandboxSession,
 } from "openclaw/plugin-sdk/sandbox";
 import type {
@@ -253,7 +254,12 @@ export async function createExecutionDependenciesFromEnvironment(
   if (!serviceToken) {
     throw new Error("execution service token is empty");
   }
-  const remoteSkills = new VmRemoteSkillCatalogService();
+  // Runtime is the composition root: remote discovery must not import it back.
+  const remoteSkills = new VmRemoteSkillCatalogService({
+    createSession: async (target) => await createSafeConnectSession(target),
+    disposeSession: disposeSshSandboxSession,
+    runCommand: runSshSandboxCommand,
+  });
   return {
     resolveTarget: async ({ agentId }) => {
       return parseTarget(
