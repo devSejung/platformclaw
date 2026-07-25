@@ -32,6 +32,7 @@ and Knox direct or group conversations:
 - [Web login bootstrap plan](/platformclaw/web-login-bootstrap-plan)
 - [Private downstream CI](/platformclaw/private-downstream-ci)
 - [Windows main preview](/platformclaw/windows-main-preview)
+- [Manual VM preview](/platformclaw/manual-vm-preview)
 
 The first five implementation slices are in the private
 `packages/platformclaw-control-plane` package. They contain contracts, an
