@@ -17,6 +17,7 @@ import {
   PlatformClawExecutionHandoffServer,
 } from "./execution-handoff-http.js";
 import { ExecutionHandoffService } from "./execution-handoff-service.js";
+import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import {
   PlatformClawGatewayRuntimeClient,
   type PlatformClawGatewayRuntimeClientOptions,
@@ -46,6 +47,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
     "employeeAuthConfig" | "env" | "fetchImpl" | "now" | "tokenFactory" | "sshCredentialCipher"
   >;
   gatewayClient: PlatformClawGatewayRuntimeClientOptions;
+  adminRpc: GatewayAdminRpc;
   publicOrigin: string;
   controlUiRoot: string;
   loginRateLimiter?: MemoryBrowserLoginRateLimiterOptions;
@@ -101,7 +103,7 @@ export function createPlatformClawWebIngressRuntime(
   const employeeExecution = new EmployeeExecutionService({
     authService: auth.service,
     store: auth.store,
-    gateway,
+    adminRpc: options.adminRpc,
     ...(auth.credentialVault ? { credentialVault: auth.credentialVault } : {}),
     ...(credentialBroker ? { credentialBroker } : {}),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),

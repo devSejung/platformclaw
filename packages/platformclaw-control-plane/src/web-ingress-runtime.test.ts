@@ -80,6 +80,7 @@ describe("createPlatformClawWebIngressRuntime", () => {
           };
         },
       },
+      adminRpc: { call: vi.fn(async () => ({})) },
       publicOrigin: "http://127.0.0.1:3000",
       controlUiRoot,
       credentialBrokerAddress,
