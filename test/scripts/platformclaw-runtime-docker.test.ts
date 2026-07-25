@@ -228,6 +228,9 @@ describe("PlatformClaw Docker runtime", () => {
 
   it("provides a persistent, manually resettable Windows VM preview", () => {
     const preview = readRepoFile("scripts/platformclaw-vm-preview.ps1");
+    const previewCompose = parse(
+      readRepoFile("docker/platformclaw-runtime/compose.preview.yaml"),
+    ) as ComposeConfig;
 
     expect(preview).toContain('[ValidateSet("Menu", "Start", "Stop", "Status", "Logs", "Reset")]');
     expect(preview).toContain('"platformclaw-vm-preview"');
@@ -240,6 +243,10 @@ describe("PlatformClaw Docker runtime", () => {
     expect(preview).toContain("$archivedImageId -ne $sandboxImageId");
     expect(preview).toContain("Get-RunningControlImageId");
     expect(preview).toContain("The source image changed; recreating the preview containers");
+    expect(preview).toContain("compose.preview.yaml");
+    expect(previewCompose.services["sandbox-docker-init"]?.command?.join("\n")).toContain(
+      ".platformclaw-initialized",
+    );
     expect(preview).toContain('"$($Paths.SandboxTar).tmp-$PID"');
     expect(preview).not.toContain("AllowDirty");
     expect(preview).not.toContain("Remove-Item -LiteralPath $resolved -Recurse");

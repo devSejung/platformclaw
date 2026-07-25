@@ -12,6 +12,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $composeFile = Join-Path $repoRoot "docker\platformclaw-runtime\compose.yaml"
 $smokeComposeFile = Join-Path $repoRoot "docker\platformclaw-runtime\compose.smoke.yaml"
+$previewComposeFile = Join-Path $repoRoot "docker\platformclaw-runtime\compose.preview.yaml"
 $projectName = "platformclaw-vm-preview"
 $markerName = ".platformclaw-vm-preview"
 
@@ -172,7 +173,8 @@ function Get-ComposeArguments {
     return @(
         "compose", "--project-name", $projectName,
         "-f", $composeFile,
-        "-f", $smokeComposeFile
+        "-f", $smokeComposeFile,
+        "-f", $previewComposeFile
     ) + $Tail
 }
 
