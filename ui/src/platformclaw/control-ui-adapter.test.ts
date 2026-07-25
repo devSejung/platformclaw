@@ -31,6 +31,7 @@ describe("PlatformClawControlUiAdapter", () => {
           accountId: "person.one",
           displayName: "Jung Seungon",
           department: "Platform",
+          globalRole: "member",
         },
       }),
     );
@@ -50,6 +51,7 @@ describe("PlatformClawControlUiAdapter", () => {
       accountId: "person.one",
       displayName: "Jung Seungon",
       department: "Platform",
+      globalRole: "member",
     });
     const options = adapter!.applicationOptions(identity!, vi.fn());
     expect(options).toMatchObject({
@@ -79,7 +81,12 @@ describe("PlatformClawControlUiAdapter", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           authenticated: true,
-          user: { accountId: "person.one", displayName: "Person One", department: "Lab" },
+          user: {
+            accountId: "person.one",
+            displayName: "Person One",
+            department: "Lab",
+            globalRole: "member",
+          },
         }),
       )
       .mockResolvedValueOnce(jsonResponse({ authenticated: false }));

@@ -8,6 +8,7 @@ import type {
   PersonalExecutionSettings,
   SafeConnectEndpoint,
   VmAllocation,
+  VmAdministrationSnapshot,
   VmHost,
 } from "./execution-contracts.js";
 import {
@@ -20,6 +21,7 @@ import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
 import { SqliteControlPlaneAuthStore } from "./sqlite-store-auth.js";
 import { required } from "./sqlite-store-core.js";
+import { readVmAdministrationSnapshot } from "./sqlite-store-execution-admin.js";
 import {
   rowToAllocation,
   rowToEndpoint,
@@ -35,6 +37,14 @@ export abstract class SqliteControlPlaneExecutionStore
     ControlPlaneExecutionTargetStore,
     ControlPlaneEmployeeExecutionStore
 {
+  async getVmAdministrationSnapshot(actorUserId: string): Promise<VmAdministrationSnapshot> {
+    return readVmAdministrationSnapshot({
+      db: this.db,
+      query: this.query,
+      requireAdmin: () => this.requireAdmin(actorUserId),
+    });
+  }
+
   async resolveAssignedVmConnectionTarget(agentId: string): Promise<AssignedVmConnectionTarget> {
     const row = takeFirstSync(
       this.db,

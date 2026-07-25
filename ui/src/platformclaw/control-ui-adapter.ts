@@ -2,6 +2,7 @@ import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import { mountPlatformClawExecutionSettings } from "./execution-settings.ts";
+import { mountPlatformClawVmAdministration } from "./vm-administration.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -13,6 +14,7 @@ export type PlatformClawSessionIdentity = {
   accountId: string;
   displayName: string;
   department: string;
+  globalRole: "member" | "admin";
 };
 
 type PlatformClawSessionPayload = {
@@ -41,13 +43,14 @@ function parseSessionPayload(value: unknown): PlatformClawSessionPayload | null 
   if (!isRecord(value) || value.authenticated !== true || !isRecord(value.user)) {
     return null;
   }
-  const { accountId, displayName, department } = value.user;
+  const { accountId, displayName, department, globalRole } = value.user;
   if (
     typeof accountId !== "string" ||
     !accountId.trim() ||
     typeof displayName !== "string" ||
     !displayName.trim() ||
-    typeof department !== "string"
+    typeof department !== "string" ||
+    (globalRole !== "member" && globalRole !== "admin")
   ) {
     return null;
   }
@@ -57,6 +60,7 @@ function parseSessionPayload(value: unknown): PlatformClawSessionPayload | null 
       accountId: accountId.trim(),
       displayName: displayName.trim(),
       department: department.trim(),
+      globalRole,
     },
   };
 }
@@ -78,6 +82,7 @@ function browserSessionStorage(): Pick<Storage, "removeItem"> | null {
 export class PlatformClawControlUiAdapter {
   private sessionCheck: Promise<PlatformClawSessionCheck> | null = null;
   private disposeExecutionSettings = () => {};
+  private disposeVmAdministration = () => {};
 
   constructor(
     readonly descriptor: PlatformClawWebDescriptor,
@@ -129,7 +134,7 @@ export class PlatformClawControlUiAdapter {
     };
   }
 
-  mountExecutionSettings(): void {
+  mountExecutionSettings(identity: PlatformClawSessionIdentity): void {
     this.disposeExecutionSettings();
     this.disposeExecutionSettings = mountPlatformClawExecutionSettings({
       fetchImpl: this.fetchImpl,
@@ -138,11 +143,24 @@ export class PlatformClawControlUiAdapter {
         this.redirectToLogin(true);
       },
     });
+    this.disposeVmAdministration();
+    this.disposeVmAdministration =
+      identity.globalRole === "admin"
+        ? mountPlatformClawVmAdministration({
+            fetchImpl: this.fetchImpl,
+            onUnauthenticated: () => {
+              this.clearBrowserSessionState();
+              this.redirectToLogin(true);
+            },
+          })
+        : () => {};
   }
 
   dispose(): void {
     this.disposeExecutionSettings();
     this.disposeExecutionSettings = () => {};
+    this.disposeVmAdministration();
+    this.disposeVmAdministration = () => {};
   }
 
   async logout(stopApplication: () => void): Promise<void> {

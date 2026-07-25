@@ -346,7 +346,7 @@ class OpenClawApp extends OpenClawLightDomElement {
       adapter.applicationOptions(identity, async () => adapter.logout(() => runtime.stop())),
     );
     this.mountRuntime(runtime);
-    adapter.mountExecutionSettings();
+    adapter.mountExecutionSettings(identity);
   }
 
   private retryPlatformClawStartup(): void {

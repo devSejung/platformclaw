@@ -7,6 +7,8 @@ import {
 import type {
   ControlPlaneExecutionManagementStore,
   SafeConnectEndpoint,
+  VmAdministrationAgent,
+  VmAdministrationSnapshot,
   VmAllocation,
   VmHost,
 } from "./execution-contracts.js";
@@ -22,6 +24,7 @@ type InMemoryExecutionManagementStoreOptions = {
   idFactory: ControlPlaneIdFactory;
   requireAdmin(actorUserId: string): void;
   getPersonalBinding(agentId: string): PersonalAgentBinding | null;
+  listPersonalAgents(): VmAdministrationAgent[];
   recordAudit(params: {
     actorUserId: string;
     eventType: string;
@@ -235,5 +238,50 @@ export class InMemoryExecutionManagementStore implements ControlPlaneExecutionMa
     const allocationId = binding ? this.allocationIdByAgentBindingId.get(binding.id) : undefined;
     const allocation = allocationId ? this.allocations.get(allocationId) : undefined;
     return allocation ? { ...allocation } : null;
+  }
+
+  async getVmAdministrationSnapshot(actorUserId: string): Promise<VmAdministrationSnapshot> {
+    this.options.requireAdmin(actorUserId);
+    const agents = this.options
+      .listPersonalAgents()
+      .map((agent) => {
+        const binding = this.options.getPersonalBinding(agent.agentId);
+        const allocationId = binding
+          ? this.allocationIdByAgentBindingId.get(binding.id)
+          : undefined;
+        return Object.assign({}, agent, allocationId ? { allocationId } : {});
+      })
+      .toSorted((left, right) => left.accountId.localeCompare(right.accountId));
+    const agentsByBindingId = new Map(
+      agents.flatMap((agent) => {
+        const binding = this.options.getPersonalBinding(agent.agentId);
+        return binding ? [[binding.id, agent] as const] : [];
+      }),
+    );
+    return {
+      endpoints: structuredClone([...this.endpoints.values()]).toSorted((left, right) =>
+        left.label.localeCompare(right.label),
+      ),
+      hosts: structuredClone([...this.hosts.values()]).toSorted((left, right) =>
+        left.label.localeCompare(right.label),
+      ),
+      agents,
+      allocations: [...this.allocations.values()]
+        .flatMap((allocation) => {
+          const agent = agentsByBindingId.get(allocation.agentBindingId);
+          const host = this.hosts.get(allocation.vmHostId);
+          return agent && host
+            ? [
+                Object.assign({}, allocation, {
+                  agentId: agent.agentId,
+                  accountId: agent.accountId,
+                  ...(agent.displayName ? { displayName: agent.displayName } : {}),
+                  vmLabel: host.label,
+                }),
+              ]
+            : [];
+        })
+        .toSorted((left, right) => left.accountId.localeCompare(right.accountId)),
+    };
   }
 }
