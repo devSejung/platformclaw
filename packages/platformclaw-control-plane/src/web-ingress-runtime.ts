@@ -10,6 +10,7 @@ import {
   MemoryBrowserLoginRateLimiter,
   type MemoryBrowserLoginRateLimiterOptions,
 } from "./browser-login-rate-limiter.js";
+import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
 import {
   deriveExecutionHandoffAddress,
@@ -105,6 +106,11 @@ export function createPlatformClawWebIngressRuntime(
     ...(credentialBroker ? { credentialBroker } : {}),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
+  const vmAdministration = new VmAdministrationService({
+    authService: auth.service,
+    store: auth.store,
+    ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+  });
   const restartReconciler = new AgentRestartReconciler({
     store: auth.store,
     personalAgentProbe: options.restartRecoveryProbe,
@@ -127,6 +133,7 @@ export function createPlatformClawWebIngressRuntime(
     gatewayProxy,
     gateway,
     executionService: employeeExecution,
+    vmAdministrationService: vmAdministration,
     webAssets: createPlatformClawWebAssetHandler(options.controlUiRoot, {
       publicOrigin: options.publicOrigin,
     }),

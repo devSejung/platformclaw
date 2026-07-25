@@ -30,6 +30,10 @@ import {
   type BrowserGatewayAccess,
   type BrowserGatewayEvent,
 } from "./browser-gateway-proxy.js";
+import {
+  handlePlatformClawVmAdministrationRequest,
+  type VmAdministrationService,
+} from "./browser-vm-admin-http.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import type { PlatformClawWebAssetHandler } from "./web-assets.js";
 import { isPlatformClawApplicationPath, PLATFORMCLAW_WEB_LOGIN_PATH } from "./web-assets.js";
@@ -65,6 +69,7 @@ export type PlatformClawWebIngressOptions = {
   gatewayProxy: PlatformClawBrowserGatewayPolicy;
   gateway: PlatformClawGatewayBackend;
   executionService?: EmployeeExecutionService;
+  vmAdministrationService?: VmAdministrationService;
   webAssets?: PlatformClawWebAssetHandler;
   gatewayPath?: string;
   healthPath?: string;
@@ -302,6 +307,16 @@ export class PlatformClawWebIngressServer {
         this.options.executionService &&
         (await handlePlatformClawEmployeeExecutionRequest(req, res, {
           service: this.options.executionService,
+          readJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
+        this.options.vmAdministrationService &&
+        (await handlePlatformClawVmAdministrationRequest(req, res, {
+          service: this.options.vmAdministrationService,
           readJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))

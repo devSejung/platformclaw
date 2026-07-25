@@ -258,6 +258,45 @@ describe.each([
     store.close?.();
   });
 
+  it("returns an admin-only VM administration snapshot", async () => {
+    const store = createStore();
+    const { admin, endpoint, host } = await prepareVm(store);
+    const employee = await createActivePersonalAgent(store, "person.one");
+    const allocation = await store.assignVmToPersonalAgent({
+      actorUserId: admin.user.id,
+      agentId: employee.binding.agentId,
+      vmHostId: host.id,
+      linuxAccount: "person.one",
+      assignedAt: 7_000,
+    });
+
+    await expect(store.getVmAdministrationSnapshot(employee.user.id)).rejects.toThrow(
+      "active administrator required",
+    );
+    await expect(store.getVmAdministrationSnapshot(admin.user.id)).resolves.toMatchObject({
+      endpoints: [{ id: endpoint.id, label: "SafeConnect primary", status: "active" }],
+      hosts: [{ id: host.id, label: "Development VM", status: "active" }],
+      agents: [
+        { accountId: "admin.user", agentId: admin.binding.agentId },
+        {
+          accountId: "person.one",
+          agentId: employee.binding.agentId,
+          allocationId: allocation.id,
+        },
+      ],
+      allocations: [
+        {
+          id: allocation.id,
+          accountId: "person.one",
+          agentId: employee.binding.agentId,
+          linuxAccount: "person.one",
+          vmLabel: "Development VM",
+        },
+      ],
+    });
+    store.close?.();
+  });
+
   it("rejects Knox-room allocation and non-admin infrastructure changes", async () => {
     const store = createStore();
     const { admin, host } = await prepareVm(store);

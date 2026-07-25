@@ -39,6 +39,7 @@ import {
   deriveKnoxRoomAgentId,
   derivePersonalAgentId,
 } from "./ids.js";
+import { listActivePersonalAgents } from "./memory-store-execution-admin.js";
 import { InMemorySshCredentialStoreBase } from "./ssh-credential-memory-store.js";
 
 type MemoryStoreOptions = {
@@ -156,6 +157,7 @@ export class InMemoryControlPlaneStore
         const binding = this.bindings.get(bindingId);
         return binding?.kind === "personal" ? cloneBinding(binding) : null;
       },
+      listPersonalAgents: () => listActivePersonalAgents(this.bindings.values(), this.users),
       recordAudit: (params) => {
         this.appendAuditEvent(params);
       },
@@ -188,6 +190,12 @@ export class InMemoryControlPlaneStore
 
   getVmAllocationForAgent(agentId: string): Promise<VmAllocation | null> {
     return this.executionManagement.getVmAllocationForAgent(agentId);
+  }
+
+  getVmAdministrationSnapshot(
+    actorUserId: string,
+  ): ReturnType<ControlPlaneExecutionManagementStore["getVmAdministrationSnapshot"]> {
+    return this.executionManagement.getVmAdministrationSnapshot(actorUserId);
   }
 
   async upsertPrincipal(

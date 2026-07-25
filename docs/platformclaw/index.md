@@ -26,6 +26,7 @@ and Knox direct or group conversations:
 - [Employee authentication](/platformclaw/employee-auth)
 - [VM execution policy](/platformclaw/vm-execution-policy)
 - [VM execution schema v2](/platformclaw/vm-execution-schema-v2)
+- [VM administration](/platformclaw/vm-administration)
 - [Credential broker](/platformclaw/credential-broker)
 - [Web ingress runtime](/platformclaw/web-ingress-runtime)
 - [Web login bootstrap plan](/platformclaw/web-login-bootstrap-plan)
@@ -50,8 +51,8 @@ handle. Schema v2 adds SafeConnect endpoint, VM host, personal allocation,
 server-default execution profile, and encrypted-envelope tables. Credential
 cryptography, the one-shot local broker, authenticated Gateway handoff,
 SafeConnect SSH backend, Docker routing, VM skill discovery, employee context,
-and employee work-location UI are implemented. Administrator VM management UI
-and fake-SafeConnect Docker E2E remain later slices.
+employee work-location UI, and the non-destructive administrator VM setup
+surface are implemented. Fake-SafeConnect Docker E2E remains the next slice.
 
 ## Maintenance rules
 

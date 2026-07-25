@@ -51,7 +51,7 @@ function activeSession() {
       accountId: "person.one",
       displayName: "Person One",
       department: "Platform Lab",
-      globalRole: "user",
+      globalRole: "member",
     },
     session: {
       idleExpiresAt: Date.now() + 60_000,

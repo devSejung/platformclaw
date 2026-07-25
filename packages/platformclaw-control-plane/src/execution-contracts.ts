@@ -108,6 +108,29 @@ export type PersonalExecutionSettings = {
   };
 };
 
+export type VmAdministrationAgent = {
+  userId: string;
+  accountId: string;
+  agentId: string;
+  displayName?: string;
+  department?: string;
+  allocationId?: string;
+};
+
+export type VmAdministrationAllocation = VmAllocation & {
+  agentId: string;
+  accountId: string;
+  displayName?: string;
+  vmLabel: string;
+};
+
+export type VmAdministrationSnapshot = {
+  endpoints: SafeConnectEndpoint[];
+  hosts: VmHost[];
+  agents: VmAdministrationAgent[];
+  allocations: VmAdministrationAllocation[];
+};
+
 export interface ControlPlaneExecutionRuntimeStore {
   resolvePersonalExecutionTarget(agentId: string): Promise<PersonalExecutionTarget>;
 }
@@ -168,4 +191,5 @@ export interface ControlPlaneExecutionManagementStore {
     assignedAt: number;
   }): Promise<VmAllocation>;
   getVmAllocationForAgent(agentId: string): Promise<VmAllocation | null>;
+  getVmAdministrationSnapshot(actorUserId: string): Promise<VmAdministrationSnapshot>;
 }

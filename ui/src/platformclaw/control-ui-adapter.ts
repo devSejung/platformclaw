@@ -13,6 +13,7 @@ export type PlatformClawSessionIdentity = {
   accountId: string;
   displayName: string;
   department: string;
+  globalRole: "member" | "admin";
 };
 
 type PlatformClawSessionPayload = {
@@ -41,13 +42,14 @@ function parseSessionPayload(value: unknown): PlatformClawSessionPayload | null 
   if (!isRecord(value) || value.authenticated !== true || !isRecord(value.user)) {
     return null;
   }
-  const { accountId, displayName, department } = value.user;
+  const { accountId, displayName, department, globalRole } = value.user;
   if (
     typeof accountId !== "string" ||
     !accountId.trim() ||
     typeof displayName !== "string" ||
     !displayName.trim() ||
-    typeof department !== "string"
+    typeof department !== "string" ||
+    (globalRole !== "member" && globalRole !== "admin")
   ) {
     return null;
   }
@@ -57,6 +59,7 @@ function parseSessionPayload(value: unknown): PlatformClawSessionPayload | null 
       accountId: accountId.trim(),
       displayName: displayName.trim(),
       department: department.trim(),
+      globalRole,
     },
   };
 }
@@ -78,6 +81,8 @@ function browserSessionStorage(): Pick<Storage, "removeItem"> | null {
 export class PlatformClawControlUiAdapter {
   private sessionCheck: Promise<PlatformClawSessionCheck> | null = null;
   private disposeExecutionSettings = () => {};
+  private disposeVmAdministration = () => {};
+  private vmAdministrationGeneration = 0;
 
   constructor(
     readonly descriptor: PlatformClawWebDescriptor,
@@ -129,7 +134,7 @@ export class PlatformClawControlUiAdapter {
     };
   }
 
-  mountExecutionSettings(): void {
+  mountExecutionSettings(identity: PlatformClawSessionIdentity): void {
     this.disposeExecutionSettings();
     this.disposeExecutionSettings = mountPlatformClawExecutionSettings({
       fetchImpl: this.fetchImpl,
@@ -138,11 +143,35 @@ export class PlatformClawControlUiAdapter {
         this.redirectToLogin(true);
       },
     });
+    this.disposeVmAdministration();
+    this.disposeVmAdministration = () => {};
+    const generation = ++this.vmAdministrationGeneration;
+    if (identity.globalRole === "admin") {
+      void import("./vm-administration.ts")
+        .then(({ mountPlatformClawVmAdministration }) => {
+          if (generation !== this.vmAdministrationGeneration) {
+            return;
+          }
+          this.disposeVmAdministration = mountPlatformClawVmAdministration({
+            fetchImpl: this.fetchImpl,
+            onUnauthenticated: () => {
+              this.clearBrowserSessionState();
+              this.redirectToLogin(true);
+            },
+          });
+        })
+        .catch(() => {
+          // A stale deployment chunk must not break the upstream Control UI session.
+        });
+    }
   }
 
   dispose(): void {
     this.disposeExecutionSettings();
     this.disposeExecutionSettings = () => {};
+    this.vmAdministrationGeneration += 1;
+    this.disposeVmAdministration();
+    this.disposeVmAdministration = () => {};
   }
 
   async logout(stopApplication: () => void): Promise<void> {

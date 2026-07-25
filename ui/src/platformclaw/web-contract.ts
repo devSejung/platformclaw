@@ -6,6 +6,7 @@ export const PLATFORMCLAW_LOGOUT_API_PATH = "/platformclaw/api/auth/logout";
 export const PLATFORMCLAW_SESSION_API_PATH = "/platformclaw/api/auth/session";
 export const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
 export const PLATFORMCLAW_EXECUTION_API_PATH = "/platformclaw/api/execution";
+export const PLATFORMCLAW_VM_ADMIN_API_PATH = "/platformclaw/api/admin/vm";
 export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descriptor";
 
 export const PLATFORMCLAW_ENABLED_ROUTES = [
