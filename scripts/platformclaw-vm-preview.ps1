@@ -325,6 +325,11 @@ function Start-Preview {
     $images = Get-ImageTags
     Set-PreviewEnvironment $paths $images
     Ensure-Images $images $paths
+    if (Test-Health) {
+        Write-Step "The VM preview is already running"
+        Show-TestGuide $images
+        return
+    }
     Write-Step "Starting Gateway, Control, sandbox Docker, and Fake SafeConnect"
     Invoke-Compose @("up", "--detach", "--wait", "--wait-timeout", "240")
     if (-not (Test-Health)) {
