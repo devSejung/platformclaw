@@ -5,7 +5,9 @@ import { validateManagedConfig } from "../../docker/platformclaw-runtime/validat
 import { mainLanes } from "../../scripts/lib/docker-e2e-scenarios.mjs";
 
 type ComposeService = {
+  build?: { context?: string; dockerfile?: string };
   cap_add?: string[];
+  cap_drop?: string[];
   command?: string[];
   depends_on?: Record<string, { condition?: string }>;
   entrypoint?: string[];
@@ -14,7 +16,10 @@ type ComposeService = {
   network_mode?: string;
   ports?: string[];
   profiles?: string[];
+  read_only?: boolean;
   secrets?: string[];
+  security_opt?: string[];
+  tmpfs?: string[];
   user?: string;
   volumes?: string[];
   privileged?: boolean;
@@ -234,6 +239,50 @@ describe("PlatformClaw Docker runtime", () => {
       "http://127.0.0.1:18080/login",
     );
     expect(control?.depends_on).toBeUndefined();
+  });
+
+  it("models the confirmed SafeConnect SSH boundary without publishing it", () => {
+    const smoke = parse(
+      readRepoFile("docker/platformclaw-runtime/compose.smoke.yaml"),
+    ) as ComposeConfig;
+    const fake = smoke.services["fake-safeconnect"];
+    const gateway = smoke.services["openclaw-gateway"];
+    const server = readRepoFile("scripts/e2e/lib/platformclaw-fake-safeconnect/server.py");
+    const fixtureDockerfile = readRepoFile(
+      "scripts/e2e/lib/platformclaw-fake-safeconnect/Dockerfile",
+    );
+    const fixtureRequirements = readRepoFile(
+      "scripts/e2e/lib/platformclaw-fake-safeconnect/requirements.txt",
+    );
+
+    expect(fake?.build).toEqual({
+      context: "${PLATFORMCLAW_REPO_ROOT:?set PLATFORMCLAW_REPO_ROOT}",
+      dockerfile: "scripts/e2e/lib/platformclaw-fake-safeconnect/Dockerfile",
+    });
+    expect(fake?.ports).toBeUndefined();
+    expect(fake?.read_only).toBe(true);
+    expect(fake?.cap_drop).toEqual(["ALL"]);
+    expect(fake?.cap_add).toEqual(["SETGID", "SETUID"]);
+    expect(fake?.security_opt).toEqual(["no-new-privileges:true"]);
+    expect(fake?.volumes).toEqual([
+      "platformclaw-smoke-safeconnect-state:/state",
+      "platformclaw-smoke-safeconnect-users:/users",
+      "platformclaw-smoke-safeconnect-appdata:/appdata",
+    ]);
+    expect(fake?.networks).toEqual({
+      "platformclaw-gateway-egress": { aliases: ["safeconnect.platformclaw.test"] },
+    });
+    expect(gateway?.depends_on).toMatchObject({
+      "fake-safeconnect": { condition: "service_healthy" },
+    });
+    expect(server).toContain('return "SSH Direct Connect", "", "en-US", [("Password:", False)]');
+    expect(server).toContain("def kbdint_auth_supported(self) -> bool:");
+    expect(server).toContain("password_auth=False");
+    expect(server).toContain("public_key_auth=False");
+    expect(server).not.toContain('responses[0], "password"');
+    expect(fixtureDockerfile).toContain("--requirement /fixture/requirements.txt");
+    expect(fixtureRequirements).toContain("asyncssh==2.24.0");
+    expect(fixtureRequirements).not.toMatch(/^\s*[^#\s][^=\n]*$/mu);
   });
 
   it("uses an isolated rootless Docker daemon only in the smoke harness", () => {

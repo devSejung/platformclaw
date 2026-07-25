@@ -52,7 +52,10 @@ server-default execution profile, and encrypted-envelope tables. Credential
 cryptography, the one-shot local broker, authenticated Gateway handoff,
 SafeConnect SSH backend, Docker routing, VM skill discovery, employee context,
 employee work-location UI, and the non-destructive administrator VM setup
-surface are implemented. Fake-SafeConnect Docker E2E remains the next slice.
+surface are implemented. The Docker smoke now supplies a test-only SafeConnect
+SSH boundary and drives the real administrator assignment, employee credential,
+connection-check, and VM-target handoff path. Validation against an approved
+enterprise VM remains separate.
 
 ## Maintenance rules
 
