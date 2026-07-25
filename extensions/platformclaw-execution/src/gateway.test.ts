@@ -16,7 +16,6 @@ function createHarness(runtime: {
   const methods = new Map<string, GatewayHandler>();
   let beforeRun: BeforeRunHandler | undefined;
   const api = {
-    logger: { warn: vi.fn() },
     on: vi.fn((name: string, handler: BeforeRunHandler) => {
       if (name === "before_agent_run") {
         beforeRun = handler;
