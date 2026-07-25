@@ -236,6 +236,20 @@ describe("admin-http-rpc plugin handler", () => {
     });
   });
 
+  it("maps execution target conflicts to HTTP 409", async () => {
+    dispatchGatewayMethod.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "CONFLICT", message: "target changed" },
+    });
+
+    const result = await invoke({
+      id: "execution-target",
+      method: "platformclaw-execution.changeTarget",
+    });
+
+    expect(result.captured.statusCode).toBe(409);
+  });
+
   it("rejects invalid request bodies before dispatch", async () => {
     const result = await invoke({ id: "missing" });
 

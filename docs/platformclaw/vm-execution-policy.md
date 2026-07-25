@@ -351,6 +351,14 @@ After the upstream gate passes:
 11. Validate against a real approved enterprise VM without recording secrets or
     internal host details.
 
+The fake-SafeConnect lane models only the externally confirmed SSH contract:
+the composite AD/Linux/target username, keyboard-interactive `Password:`
+challenge, Ed25519 host key, command streams, and distinct Linux homes. It runs
+the production OpenSSH and `sshpass -d` path. The fixture never claims to model
+proprietary SafeConnect internals, never records a password, and is not shipped
+in the production image. Real enterprise-VM validation remains the release
+gate for network and vendor behavior.
+
 ## See also
 
 - [PlatformClaw architecture](/platformclaw)

@@ -1,0 +1,18 @@
+{
+  "allocations": [
+    {
+      "adDomain": "samsungds.net",
+      "adAccount": "person.one",
+      "linuxAccount": "person_one",
+      "targetAddress": "10.0.0.10",
+      "password": "platformclaw-safeconnect-fixture-password"
+    },
+    {
+      "adDomain": "samsungds.net",
+      "adAccount": "person.two",
+      "linuxAccount": "person_two",
+      "targetAddress": "10.0.0.20",
+      "password": "platformclaw-safeconnect-fixture-password-two"
+    }
+  ]
+}

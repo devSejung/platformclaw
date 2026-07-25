@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { GatewayClientRequestError } from "@openclaw/gateway-client";
 import { readPlatformClawSessionCookie, type JsonBodyReader } from "./browser-auth-http.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import { ControlPlaneConflictError, type ControlPlaneStore } from "./contracts.js";
@@ -7,7 +6,7 @@ import type {
   ControlPlaneEmployeeExecutionStore,
   PersonalExecutionSettings,
 } from "./execution-contracts.js";
-import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
+import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import type { SshCredentialBroker } from "./ssh-credential-broker.js";
 import type { SshCredentialVault } from "./ssh-credential-vault.js";
 
@@ -36,8 +35,11 @@ type EmployeeExecutionServiceOptions = {
   authService: BrowserAuthService;
   store: EmployeeExecutionStore;
   credentialVault?: SshCredentialVault;
-  credentialBroker?: Pick<SshCredentialBroker, "issueForUser" | "issueTransient" | "revoke">;
-  gateway: Pick<PlatformClawGatewayBackend, "request">;
+  credentialBroker?: Pick<
+    SshCredentialBroker,
+    "address" | "issueForUser" | "issueTransient" | "revoke"
+  >;
+  adminRpc: GatewayAdminRpc;
   now?: () => number;
 };
 
@@ -95,7 +97,7 @@ function objectBody(value: unknown): Record<string, unknown> | null {
 }
 
 function isVmAuthenticationFailure(error: unknown): boolean {
-  if (!(error instanceof GatewayClientRequestError)) {
+  if (!(error instanceof GatewayAdminRpcError)) {
     return false;
   }
   const details = error.details;
@@ -156,8 +158,9 @@ export class EmployeeExecutionService {
     let connection: ConnectionTestResult;
     try {
       connection = connectionTestResult(
-        await this.options.gateway.request("platformclaw-execution.testConnection", {
+        await this.options.adminRpc.call("platformclaw-execution.testConnection", {
           agentId: params.agentId,
+          credentialBrokerAddress: credentialBroker.address,
           credentialGrantToken: grant.token,
         }),
       );
@@ -203,8 +206,9 @@ export class EmployeeExecutionService {
     const grant = credentialBroker.issueForUser(userId);
     let rawConnection: unknown;
     try {
-      rawConnection = await this.options.gateway.request("platformclaw-execution.testConnection", {
+      rawConnection = await this.options.adminRpc.call("platformclaw-execution.testConnection", {
         agentId,
+        credentialBrokerAddress: credentialBroker.address,
         credentialGrantToken: grant.token,
       });
     } catch (error) {
@@ -250,7 +254,7 @@ export class EmployeeExecutionService {
         throw new EmployeeExecutionHttpError(409, "development VM is not ready");
       }
     }
-    await this.options.gateway.request("platformclaw-execution.changeTarget", {
+    await this.options.adminRpc.call("platformclaw-execution.changeTarget", {
       agentId: params.agentId,
       target: params.target,
       expectedRevision: params.expectedRevision,
@@ -410,7 +414,7 @@ export async function handlePlatformClawEmployeeExecutionRequest(
       sendJson(res, 422, { error: "AD password was not accepted" });
       return true;
     }
-    if (error instanceof GatewayClientRequestError && error.gatewayCode === "CONFLICT") {
+    if (error instanceof GatewayAdminRpcError && error.code === "CONFLICT") {
       sendJson(res, 409, { error: message });
       return true;
     }

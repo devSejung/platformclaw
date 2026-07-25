@@ -45,9 +45,11 @@ describe("createPlatformClawDeploymentRuntime", () => {
           url: config.gatewayUrl,
           token: config.gatewayAuth,
           role: "operator",
+          scopes: ["operator.read", "operator.write"],
         },
       },
     });
+    expect(options?.adminRpc).toBeDefined();
     expect(options?.restartRecoveryProbe).toBe(options?.provisioner);
     expect(options?.employeeAuth?.sshCredentialCipher).toBe(config.sshCredentialCipher);
     expect(options?.buildAgentMainSessionKey({ agentId: "person_one" })).toBe(

@@ -11,6 +11,7 @@ type SshpassContext = {
   agentId: string;
   allocationId: string;
   targetRevision: number;
+  credentialBrokerAddress?: string;
   credentialGrantToken?: string;
 };
 
@@ -20,6 +21,14 @@ function requiredEnv(name: string): string {
     throw new Error(`${name} is required`);
   }
   return value;
+}
+
+function requiredContext(value: string | undefined, name: string): string {
+  const normalized = value?.trim();
+  if (!normalized || normalized !== value) {
+    throw new Error(`${name} is required`);
+  }
+  return normalized;
 }
 
 async function readContext(argv: string[]): Promise<SshpassContext> {
@@ -45,7 +54,10 @@ async function run(): Promise<number> {
   );
   const grant = context.credentialGrantToken
     ? {
-        brokerAddress: requiredEnv("PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS"),
+        brokerAddress: requiredContext(
+          context.credentialBrokerAddress,
+          "credential broker runtime address",
+        ),
         token: context.credentialGrantToken,
       }
     : await client.issueCredentialGrant(context);

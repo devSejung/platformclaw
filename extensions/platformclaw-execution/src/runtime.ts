@@ -14,7 +14,10 @@ import type {
   PlatformClawExecutionDependencies,
   PlatformClawExecutionTargetSnapshot,
 } from "./backend.js";
-import { PlatformClawVmAuthenticationError } from "./connection-errors.js";
+import {
+  isSshpassAuthenticationFailure,
+  PlatformClawVmAuthenticationError,
+} from "./connection-errors.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 
 const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
@@ -203,7 +206,7 @@ function safeConnectConfig(target: AssignedVmTargetSnapshot): string {
 export async function createSafeConnectSession(
   target: AssignedVmTargetSnapshot,
   launcher = "/usr/local/bin/platformclaw-sshpass",
-  options: { credentialGrantToken?: string } = {},
+  options: { credentialBrokerAddress?: string; credentialGrantToken?: string } = {},
 ): Promise<SshSandboxSession> {
   const session = await createSshSandboxSessionFromConfigText({
     configText: safeConnectConfig(target),
@@ -231,6 +234,10 @@ export async function createSafeConnectSession(
           targetRevision: target.revision,
           ...(options.credentialGrantToken
             ? {
+                credentialBrokerAddress: requireSingleLine(
+                  options.credentialBrokerAddress ?? "",
+                  "credential broker address",
+                ),
                 credentialGrantToken: requireSshToken(
                   options.credentialGrantToken,
                   "credential grant",
@@ -258,7 +265,11 @@ export async function createExecutionDependenciesFromEnvironment(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<
   PlatformClawExecutionDependencies & {
-    testConnection(params: { agentId: string; credentialGrantToken: string }): Promise<{
+    testConnection(params: {
+      agentId: string;
+      credentialBrokerAddress: string;
+      credentialGrantToken: string;
+    }): Promise<{
       allocationId: string;
       targetRevision: number;
       remoteHomeDir: string;
@@ -311,7 +322,7 @@ export async function createExecutionDependenciesFromEnvironment(
       }),
     listTargetSkills: async ({ refresh, target }) =>
       target.kind === "assigned_vm" ? await remoteSkills.list(target, refresh) : undefined,
-    testConnection: async ({ agentId, credentialGrantToken }) => {
+    testConnection: async ({ agentId, credentialBrokerAddress, credentialGrantToken }) => {
       const target = parseTarget(
         await callExecutionHandoff({
           socketPath: executionHandoffAddress(brokerAddress),
@@ -327,6 +338,7 @@ export async function createExecutionDependenciesFromEnvironment(
         target,
         "/usr/local/bin/platformclaw-sshpass",
         {
+          credentialBrokerAddress,
           credentialGrantToken,
         },
       );
@@ -343,7 +355,7 @@ export async function createExecutionDependenciesFromEnvironment(
         } catch (error) {
           // sshpass exit 5 specifically means invalid/expired credentials. Infrastructure,
           // broker, host-key, and transport failures must not invalidate a healthy VM target.
-          if ((error as { code?: unknown }).code === 5) {
+          if (isSshpassAuthenticationFailure(error)) {
             throw new PlatformClawVmAuthenticationError();
           }
           throw error;

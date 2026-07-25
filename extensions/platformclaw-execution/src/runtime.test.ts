@@ -74,6 +74,7 @@ describe("PlatformClaw SafeConnect session", () => {
 
   it("passes only an anonymous one-shot grant to a connection-test launcher", async () => {
     const session = await createSafeConnectSession(TARGET, "platformclaw-sshpass-test", {
+      credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
       credentialGrantToken: "grant_token_123456789012345678901234567890",
     });
     try {
@@ -85,6 +86,7 @@ describe("PlatformClaw SafeConnect session", () => {
       ) as Record<string, unknown>;
       expect(context).toMatchObject({
         agentId: "person_one",
+        credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
         credentialGrantToken: "grant_token_123456789012345678901234567890",
       });
       expect(JSON.stringify(context)).not.toContain("password");

@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { GatewayClientRequestError } from "@openclaw/gateway-client";
 import { describe, expect, it, vi } from "vitest";
 import {
   EmployeeExecutionService,
@@ -8,6 +7,7 @@ import {
 } from "./browser-execution-http.js";
 import { ControlPlaneConflictError } from "./contracts.js";
 import type { PersonalExecutionSettings } from "./execution-contracts.js";
+import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
 const SETTINGS = {
   agentId: "person_one",
@@ -36,27 +36,29 @@ function createHarness() {
     replace: vi.fn(async () => ({ status: "current" })),
   };
   const broker = {
+    address: "/run/platformclaw-credential-broker/runtime.sock",
     issueTransient: vi.fn(() => ({ token: "transient-grant", expiresAt: Date.now() + 1_000 })),
     issueForUser: vi.fn(() => ({ token: "stored-grant", expiresAt: Date.now() + 1_000 })),
     revoke: vi.fn(() => true),
   };
-  const gateway = {
-    request: vi.fn(async () => ({
-      allocationId: "allocation-one",
-      targetRevision: 2,
-      remoteHomeDir: "/users/person.one",
-      remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
-    })),
+  const adminRpcCall = vi.fn<(method: string, params: unknown) => Promise<unknown>>(async () => ({
+    allocationId: "allocation-one",
+    targetRevision: 2,
+    remoteHomeDir: "/users/person.one",
+    remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
+  }));
+  const adminRpc: GatewayAdminRpc = {
+    call: async <T>(method: string, params: unknown) => (await adminRpcCall(method, params)) as T,
   };
   const service = new EmployeeExecutionService({
     authService: {} as never,
     store: store as never,
     credentialVault: vault as never,
     credentialBroker: broker as never,
-    gateway: gateway as never,
+    adminRpc,
     now: () => 1234,
   });
-  return { broker, gateway, service, store, vault };
+  return { adminRpcCall, broker, service, store, vault };
 }
 
 describe("EmployeeExecutionService", () => {
@@ -69,8 +71,9 @@ describe("EmployeeExecutionService", () => {
       password: "secret",
     });
 
-    expect(harness.gateway.request).toHaveBeenCalledWith("platformclaw-execution.testConnection", {
+    expect(harness.adminRpcCall).toHaveBeenCalledWith("platformclaw-execution.testConnection", {
       agentId: "person_one",
+      credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
       credentialGrantToken: "transient-grant",
     });
     expect(harness.vault.replace).toHaveBeenCalledWith(
@@ -88,7 +91,7 @@ describe("EmployeeExecutionService", () => {
 
   it("does not replace the durable credential when the transient connection test fails", async () => {
     const harness = createHarness();
-    harness.gateway.request.mockRejectedValueOnce(new Error("authentication failed"));
+    harness.adminRpcCall.mockRejectedValueOnce(new Error("authentication failed"));
 
     await expect(
       harness.service.registerCredential({
@@ -114,11 +117,9 @@ describe("EmployeeExecutionService", () => {
     ).rejects.toMatchObject({ statusCode: 400, message: "AD password is required" });
 
     const rejected = createHarness();
-    rejected.gateway.request.mockRejectedValueOnce(
-      new GatewayClientRequestError({
-        code: "INVALID_REQUEST",
-        message: "development VM authentication failed",
-        details: { kind: "vm_authentication_failed" },
+    rejected.adminRpcCall.mockRejectedValueOnce(
+      new GatewayAdminRpcError("development VM authentication failed", "INVALID_REQUEST", 400, {
+        kind: "vm_authentication_failed",
       }),
     );
     await expect(
@@ -143,7 +144,7 @@ describe("EmployeeExecutionService", () => {
 
   it("does not downgrade a ready VM for a Gateway infrastructure failure", async () => {
     const harness = createHarness();
-    harness.gateway.request.mockRejectedValueOnce(new Error("private Gateway unavailable"));
+    harness.adminRpcCall.mockRejectedValueOnce(new Error("private Gateway unavailable"));
 
     await expect(harness.service.testStoredCredential("user-one", "person_one")).rejects.toThrow(
       "unavailable",
@@ -155,11 +156,9 @@ describe("EmployeeExecutionService", () => {
 
   it("marks only a classified SSH authentication failure as connection required", async () => {
     const harness = createHarness();
-    harness.gateway.request.mockRejectedValueOnce(
-      new GatewayClientRequestError({
-        code: "INVALID_REQUEST",
-        message: "development VM authentication failed",
-        details: { kind: "vm_authentication_failed" },
+    harness.adminRpcCall.mockRejectedValueOnce(
+      new GatewayAdminRpcError("development VM authentication failed", "INVALID_REQUEST", 400, {
+        kind: "vm_authentication_failed",
       }),
     );
 
@@ -182,7 +181,7 @@ describe("EmployeeExecutionService", () => {
   it("serializes and rate-limits connection attempts per agent", async () => {
     const harness = createHarness();
     let release!: () => void;
-    harness.gateway.request.mockImplementationOnce(
+    harness.adminRpcCall.mockImplementationOnce(
       async () =>
         await new Promise((resolve) => {
           release = () =>
@@ -195,14 +194,14 @@ describe("EmployeeExecutionService", () => {
         }),
     );
     const first = harness.service.testStoredCredential("user-one", "person_one");
-    await vi.waitFor(() => expect(harness.gateway.request).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(harness.adminRpcCall).toHaveBeenCalledOnce());
     await expect(harness.service.testStoredCredential("user-one", "person_one")).rejects.toThrow(
       "already in progress",
     );
     release();
     await first;
 
-    harness.gateway.request.mockRejectedValue(new Error("unavailable"));
+    harness.adminRpcCall.mockRejectedValue(new Error("unavailable"));
     for (let attempt = 1; attempt < 5; attempt += 1) {
       await expect(harness.service.testStoredCredential("user-one", "person_one")).rejects.toThrow(
         "unavailable",
@@ -213,7 +212,7 @@ describe("EmployeeExecutionService", () => {
     );
   });
 
-  it("routes a target change through the private Gateway method", async () => {
+  it("routes a target change through the trusted admin RPC", async () => {
     const harness = createHarness();
 
     await harness.service.changeTarget({
@@ -223,7 +222,7 @@ describe("EmployeeExecutionService", () => {
       expectedRevision: 2,
     });
 
-    expect(harness.gateway.request).toHaveBeenCalledWith("platformclaw-execution.changeTarget", {
+    expect(harness.adminRpcCall).toHaveBeenCalledWith("platformclaw-execution.changeTarget", {
       agentId: "person_one",
       target: "assigned_vm",
       expectedRevision: 2,

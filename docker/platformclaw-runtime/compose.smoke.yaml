@@ -58,9 +58,42 @@ services:
     depends_on:
       sandbox-image-loader:
         condition: service_completed_successfully
+      fake-safeconnect:
+        condition: service_healthy
     volumes:
       - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:/var/lib/platformclaw/workspaces
       - platformclaw-smoke-docker-run:/run/platformclaw-sandbox-docker:ro
+
+  fake-safeconnect:
+    build:
+      context: ${PLATFORMCLAW_REPO_ROOT:?set PLATFORMCLAW_REPO_ROOT}
+      dockerfile: scripts/e2e/lib/platformclaw-fake-safeconnect/Dockerfile
+    user: "0:0"
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - platformclaw-smoke-safeconnect-state:/state
+      - platformclaw-smoke-safeconnect-users:/users
+      - platformclaw-smoke-safeconnect-appdata:/appdata
+    networks:
+      platformclaw-gateway-egress:
+        aliases: [safeconnect.platformclaw.test]
+    cap_drop: [ALL]
+    cap_add: [SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    init: true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; socket.create_connection(('127.0.0.1', 44422), 2).close()",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 20
 
   employee-auth-mock:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
@@ -92,3 +125,6 @@ services:
 volumes:
   platformclaw-smoke-docker-run:
   platformclaw-smoke-docker-data:
+  platformclaw-smoke-safeconnect-state:
+  platformclaw-smoke-safeconnect-users:
+  platformclaw-smoke-safeconnect-appdata:

@@ -26,8 +26,13 @@ cleanup_work_dir() {
 }
 
 cleanup() {
+  local status=$?
+  if [[ $status -ne 0 ]]; then
+    dump_logs
+  fi
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   cleanup_work_dir
+  return "$status"
 }
 trap cleanup EXIT
 
@@ -96,6 +101,12 @@ cookie_jar="$work_dir/cookies.txt"
 login_response="$work_dir/login.json"
 session_response="$work_dir/session.json"
 app_document="$work_dir/app.html"
+admin_cookie_jar="$work_dir/admin-cookies.txt"
+admin_response="$work_dir/admin-login.json"
+vm_admin_response="$work_dir/vm-admin.json"
+execution_response="$work_dir/execution.json"
+safeconnect_host_key="$work_dir/safeconnect-host-key.json"
+safeconnect_boundary_log="$work_dir/safeconnect-boundary.jsonl"
 
 curl --fail --silent --show-error "$origin/platformclaw/health" |
   jq -e '.ready == true' >/dev/null
@@ -110,6 +121,143 @@ curl --fail --silent --show-error \
   "$origin/platformclaw/api/auth/login" >"$login_response"
 jq -e '.authenticated == true and .agent.agentId == "person_one"' \
   "$login_response" >/dev/null
+
+curl --fail --silent --show-error \
+  --cookie-jar "$admin_cookie_jar" \
+  --header "Origin: $origin" \
+  --header "Content-Type: application/json" \
+  --data-binary '{"identifier":"admin.user","password":"test-password"}' \
+  "$origin/platformclaw/api/auth/login" >"$admin_response"
+jq -e '.authenticated == true and .user.globalRole == "admin"' \
+  "$admin_response" >/dev/null
+
+"${compose[@]}" exec -T fake-safeconnect cat /state/host-key.json >"$safeconnect_host_key"
+jq -e \
+  '.algorithm == "ssh-ed25519" and (.publicKey | length > 40) and (.fingerprint | startswith("SHA256:"))' \
+  "$safeconnect_host_key" >/dev/null
+
+admin_vm_mutation() {
+  local payload="$1"
+  curl --fail --silent --show-error \
+    --cookie "$admin_cookie_jar" \
+    --header "Origin: $origin" \
+    --header "Content-Type: application/json" \
+    --data-binary "$payload" \
+    "$origin/platformclaw/api/admin/vm" >"$vm_admin_response"
+}
+
+admin_vm_mutation '{
+  "action": "endpoints",
+  "label": "Fake SafeConnect",
+  "host": "safeconnect.platformclaw.test",
+  "port": 44422,
+  "adDomain": "samsungds.net"
+}'
+endpoint_id="$(jq -er '.endpoints[] | select(.host == "safeconnect.platformclaw.test") | .id' \
+  "$vm_admin_response")"
+admin_vm_mutation "$(jq -cn \
+  --arg endpointId "$endpoint_id" \
+  --arg algorithm "$(jq -r .algorithm "$safeconnect_host_key")" \
+  --arg publicKey "$(jq -r .publicKey "$safeconnect_host_key")" \
+  --arg fingerprint "$(jq -r .fingerprint "$safeconnect_host_key")" \
+  '{action:"host-key", endpointId:$endpointId, algorithm:$algorithm, publicKey:$publicKey, fingerprint:$fingerprint}')"
+admin_vm_mutation "$(jq -cn \
+  --arg endpointId "$endpoint_id" \
+  '{action:"hosts", endpointId:$endpointId, label:"Development VM", targetAddress:"10.0.0.10"}')"
+vm_host_id="$(jq -er '.hosts[] | select(.targetAddress == "10.0.0.10") | .id' \
+  "$vm_admin_response")"
+admin_vm_mutation "$(jq -cn \
+  --arg vmHostId "$vm_host_id" \
+  '{action:"allocations", agentId:"person_one", vmHostId:$vmHostId, linuxAccount:"person_one"}')"
+jq -e \
+  '.allocations[] | select(.agentId == "person_one" and .linuxAccount == "person_one" and .status == "assigned")' \
+  "$vm_admin_response" >/dev/null
+
+bad_credential_status="$(curl --silent --show-error --output "$execution_response" \
+  --write-out '%{http_code}' \
+  --cookie "$cookie_jar" \
+  --header "Origin: $origin" \
+  --header "Content-Type: application/json" \
+  --data-binary '{"password":"wrong-fixture-password"}' \
+  "$origin/platformclaw/api/execution/credential")"
+if [[ "$bad_credential_status" != "422" ]]; then
+  echo "Expected rejected SafeConnect credential to return 422, got $bad_credential_status" >&2
+  cat "$execution_response" >&2
+  exit 1
+fi
+jq -e '.error == "AD password was not accepted"' "$execution_response" >/dev/null
+
+curl --fail --silent --show-error \
+  --cookie "$cookie_jar" \
+  --header "Origin: $origin" \
+  --header "Content-Type: application/json" \
+  --data-binary '{"password":"platformclaw-safeconnect-fixture-password"}' \
+  "$origin/platformclaw/api/execution/credential" >"$execution_response"
+jq -e \
+  '.credentialStatus == "current" and .assignment.status == "ready" and .assignment.remoteHomeDir == "/users/person_one" and .assignment.remoteWorkspaceDir == "/users/person_one/.platformclaw/workspace"' \
+  "$execution_response" >/dev/null
+
+target_revision="$(jq -er .targetRevision "$execution_response")"
+curl --fail --silent --show-error \
+  --cookie "$cookie_jar" \
+  --header "Origin: $origin" \
+  --header "Content-Type: application/json" \
+  --data-binary "$(jq -cn --argjson expectedRevision "$target_revision" \
+    '{target:"assigned_vm", expectedRevision:$expectedRevision}')" \
+  "$origin/platformclaw/api/execution/target" >"$execution_response"
+jq -e '.activeTarget == "assigned_vm"' "$execution_response" >/dev/null
+
+curl --fail --silent --show-error \
+  --cookie "$cookie_jar" \
+  --header "Origin: $origin" \
+  --request POST \
+  "$origin/platformclaw/api/execution/test" >"$execution_response"
+jq -e \
+  '.activeTarget == "assigned_vm" and .credentialStatus == "current" and .assignment.status == "ready"' \
+  "$execution_response" >/dev/null
+
+safeconnect_algorithm="$(jq -r .algorithm "$safeconnect_host_key")"
+safeconnect_public_key="$(jq -r .publicKey "$safeconnect_host_key")"
+"${compose[@]}" exec -T \
+  --env "SAFECONNECT_ALGORITHM=$safeconnect_algorithm" \
+  --env "SAFECONNECT_PUBLIC_KEY=$safeconnect_public_key" \
+  openclaw-gateway bash -ceu '
+    probe_dir="$(mktemp -d)"
+    trap '\''rm -rf "$probe_dir"'\'' EXIT
+    printf '\''[safeconnect.platformclaw.test]:44422 %s %s\n'\'' \
+      "$SAFECONNECT_ALGORITHM" "$SAFECONNECT_PUBLIC_KEY" >"$probe_dir/known_hosts"
+    ssh_args=(
+      -p 44422
+      -o BatchMode=no
+      -o PreferredAuthentications=keyboard-interactive
+      -o KbdInteractiveAuthentication=yes
+      -o PasswordAuthentication=no
+      -o NumberOfPasswordPrompts=1
+      -o StrictHostKeyChecking=yes
+      -o UserKnownHostsFile="$probe_dir/known_hosts"
+      -o GlobalKnownHostsFile=/dev/null
+    )
+    target="samsungds.net\\person.one+person_one+10.0.0.10@safeconnect.platformclaw.test"
+    printf platformclaw-safeconnect-stream | {
+      exec 3<<<"platformclaw-safeconnect-fixture-password"
+      sshpass -d 3 ssh "${ssh_args[@]}" "$target" '\''cat > "$HOME/.platformclaw/e2e-stream"'\''
+    }
+    exec 3<<<"platformclaw-safeconnect-fixture-password"
+    result="$(sshpass -d 3 ssh "${ssh_args[@]}" "$target" \
+      '\''cat "$HOME/.platformclaw/e2e-stream" && rm "$HOME/.platformclaw/e2e-stream"'\'')"
+    [[ "$result" == platformclaw-safeconnect-stream ]]
+  '
+
+"${compose[@]}" exec -T fake-safeconnect cat /state/boundary.jsonl >"$safeconnect_boundary_log"
+jq -se '
+  (map(select(.event == "authentication_finished" and .accepted == false)) | length) >= 1 and
+  (map(select(.event == "authentication_finished" and .accepted == true)) | length) >= 4 and
+  (map(select(.event == "command_finished" and .linuxAccount == "person_one" and .exitStatus == 0)) | length) >= 4
+' "$safeconnect_boundary_log" >/dev/null
+if grep -Fq "platformclaw-safeconnect-fixture-password" "$safeconnect_boundary_log"; then
+  echo "SafeConnect password leaked into fixture boundary logs" >&2
+  exit 1
+fi
 
 sandbox_container="platformclaw-smoke-sandbox-$RANDOM"
 "${compose[@]}" exec -T openclaw-gateway docker run --detach --rm \
@@ -141,7 +289,12 @@ grep -qx sandbox-ok "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR/person_one/.platformclaw-
     deriveExecutionHandoffAddress(broker),
     token,
   ).resolveTarget("person_one");
-  if (body.kind !== "platform_server" || body.agentId !== "person_one") {
+  if (
+    body.kind !== "assigned_vm" ||
+    body.agentId !== "person_one" ||
+    body.linuxAccount !== "person_one" ||
+    body.remoteWorkspaceDir !== "/users/person_one/.platformclaw/workspace"
+  ) {
       throw new Error("unexpected execution handoff response");
     }
 '
@@ -171,6 +324,14 @@ for _ in $(seq 1 60); do
 done
 curl --fail --silent --show-error "$origin/platformclaw/health" |
   jq -e '.ready == true' >/dev/null
+curl --fail --silent --show-error \
+  --cookie "$cookie_jar" \
+  --header "Origin: $origin" \
+  --request POST \
+  "$origin/platformclaw/api/execution/test" >"$execution_response"
+jq -e \
+  '.activeTarget == "assigned_vm" and .credentialStatus == "current" and .assignment.status == "ready"' \
+  "$execution_response" >/dev/null
 
 curl --fail --silent --show-error --cookie "$cookie_jar" \
   --header "Origin: $origin" --request POST \
@@ -203,6 +364,10 @@ if grep -Fq "$execution_service_probe" <<<"$runtime_logs"; then
 fi
 if grep -Fq "$execution_service_probe" "$app_document"; then
   echo "Execution service token leaked into browser document" >&2
+  exit 1
+fi
+if grep -Fq "platformclaw-safeconnect-fixture-password" <<<"$runtime_logs"; then
+  echo "SafeConnect password leaked into runtime logs" >&2
   exit 1
 fi
 
