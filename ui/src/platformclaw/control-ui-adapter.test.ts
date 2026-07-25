@@ -1,3 +1,4 @@
+import { render } from "lit";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPlatformClawControlUiAdapter } from "./control-ui-adapter.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "./web-contract.ts";
@@ -141,35 +142,57 @@ describe("PlatformClawControlUiAdapter", () => {
     );
   });
 
-  it("loads VM administration only for administrators", async () => {
+  it("renders one footer control set and preserves admin callbacks across lazy upgrade", async () => {
     installDescriptor();
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        endpoints: [],
+        hosts: [],
+        agents: [],
+        allocations: [],
+        auditEvents: [],
+      }),
+    );
+    const navigate = vi.fn();
     const adapter = createPlatformClawControlUiAdapter({
-      fetchImpl: vi.fn<typeof fetch>(async () =>
-        jsonResponse({
-          activeTarget: "platform_server",
-          targetRevision: 0,
-          credentialStatus: "missing",
-        }),
-      ),
+      fetchImpl,
+      navigate,
     })!;
 
-    adapter.mountExecutionSettings({
-      accountId: "admin.user",
-      displayName: "Administrator",
-      department: "Platform",
-      globalRole: "admin",
-    });
-    await vi.waitFor(() => {
-      expect(document.querySelector("platformclaw-vm-administration")).not.toBeNull();
-    });
-    adapter.mountExecutionSettings({
-      accountId: "person.one",
-      displayName: "Person One",
-      department: "Platform",
-      globalRole: "member",
-    });
+    const adminOptions = adapter.applicationOptions(
+      {
+        accountId: "admin.user",
+        displayName: "Administrator",
+        department: "Platform",
+        globalRole: "admin",
+      },
+      vi.fn(),
+    );
+    render(adminOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
+    expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
+    expect(document.querySelectorAll("platformclaw-vm-administration")).toHaveLength(1);
+    await customElements.whenDefined("platformclaw-vm-administration");
+    const administration = document.querySelector("platformclaw-vm-administration") as HTMLElement & {
+      fetchImpl: typeof fetch;
+      onUnauthenticated: () => void;
+    };
+    expect(administration.fetchImpl).toBe(fetchImpl);
+    administration.onUnauthenticated();
+    expect(navigate).toHaveBeenCalledWith("/platformclaw/login");
+
+    const memberOptions = adapter.applicationOptions(
+      {
+        accountId: "person.one",
+        displayName: "Person One",
+        department: "Platform",
+        globalRole: "member",
+      },
+      vi.fn(),
+    );
+    render(memberOptions.shellSession?.renderFooterAccessory?.(), document.body);
+
+    expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
     expect(document.querySelector("platformclaw-vm-administration")).toBeNull();
-    adapter.dispose();
   });
 });

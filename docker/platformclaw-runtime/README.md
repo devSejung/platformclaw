@@ -24,12 +24,13 @@ Required deployment inputs:
 - `PLATFORMCLAW_PUBLIC_ORIGIN`
 - `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`
 - `PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE`
+- `PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE`
 - `PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE`
 - `PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE`
 - `PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE`
 
 Both containers intentionally run as UID/GID `1000:1000`. Compose file-backed
-secrets preserve host ownership and mode, so prepare the four files as UID 1000
+secrets preserve host ownership and mode, so prepare the five files as UID 1000
 readable without making them readable to other users. Keep their parent
 directory root-only, for example:
 
@@ -37,6 +38,8 @@ directory root-only, for example:
 sudo install -d -o root -g root -m 0700 /etc/platformclaw/secrets
 sudo install -o 1000 -g 1000 -m 0400 gateway-token \
   /etc/platformclaw/secrets/gateway-token
+openssl genpkey -algorithm ED25519 | sudo install -o 1000 -g 1000 -m 0400 \
+  /dev/stdin /etc/platformclaw/secrets/gateway-service-identity.pem
 openssl rand -hex 32 | sudo install -o 1000 -g 1000 -m 0400 /dev/stdin \
   /etc/platformclaw/secrets/execution-service-token
 sudo install -o 1000 -g 1000 -m 0400 initial-admin-ids \
@@ -45,11 +48,13 @@ openssl rand -base64 32 | sudo install -o 1000 -g 1000 -m 0400 /dev/stdin \
   /etc/platformclaw/secrets/ssh-credential-master-key
 ```
 
-Point the four `*_SECRET_FILE` inputs at those installed files. Do not store
+Point the five `*_SECRET_FILE` inputs at those installed files. Do not store
 their values in Compose YAML or an environment file. Back up the SSH credential
 master key separately; losing it makes stored AD credentials undecryptable.
 Back up the control database and its matching master key together. Do not back
-up the credential-broker runtime volume.
+up the credential-broker runtime volume. Keep the Gateway service identity
+stable across Control restarts; replacing it creates a new trusted Gateway
+device and requires the normal device-pairing path again.
 
 ## Sandbox Docker daemon
 

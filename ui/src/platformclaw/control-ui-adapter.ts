@@ -1,7 +1,8 @@
+import { html, nothing } from "lit";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
-import { mountPlatformClawExecutionSettings } from "./execution-settings.ts";
+import "./execution-settings.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -80,9 +81,6 @@ function browserSessionStorage(): Pick<Storage, "removeItem"> | null {
 
 export class PlatformClawControlUiAdapter {
   private sessionCheck: Promise<PlatformClawSessionCheck> | null = null;
-  private disposeExecutionSettings = () => {};
-  private disposeVmAdministration = () => {};
-  private vmAdministrationGeneration = 0;
 
   constructor(
     readonly descriptor: PlatformClawWebDescriptor,
@@ -112,9 +110,30 @@ export class PlatformClawControlUiAdapter {
     identity: PlatformClawSessionIdentity,
     onLogout: () => Promise<void>,
   ): ApplicationBootstrapOptions {
+    if (identity.globalRole === "admin") {
+      void import("./vm-administration.ts").catch(() => {
+        // A stale deployment chunk must not break the upstream Control UI session.
+      });
+    }
+    const onUnauthenticated = () => {
+      this.clearBrowserSessionState();
+      this.redirectToLogin(true);
+    };
     const shellSession: ApplicationShellSession = {
       primaryLabel: identity.displayName,
       secondaryLabel: identity.department || identity.accountId,
+      renderFooterAccessory: () => html`
+        <platformclaw-execution-settings
+          .fetchImpl=${this.fetchImpl}
+          .onUnauthenticated=${onUnauthenticated}
+        ></platformclaw-execution-settings>
+        ${identity.globalRole === "admin"
+          ? html`<platformclaw-vm-administration
+              .fetchImpl=${this.fetchImpl}
+              .onUnauthenticated=${onUnauthenticated}
+            ></platformclaw-vm-administration>`
+          : nothing}
+      `,
       onLogout,
     };
     return {
@@ -134,46 +153,6 @@ export class PlatformClawControlUiAdapter {
     };
   }
 
-  mountExecutionSettings(identity: PlatformClawSessionIdentity): void {
-    this.disposeExecutionSettings();
-    this.disposeExecutionSettings = mountPlatformClawExecutionSettings({
-      fetchImpl: this.fetchImpl,
-      onUnauthenticated: () => {
-        this.clearBrowserSessionState();
-        this.redirectToLogin(true);
-      },
-    });
-    this.disposeVmAdministration();
-    this.disposeVmAdministration = () => {};
-    const generation = ++this.vmAdministrationGeneration;
-    if (identity.globalRole === "admin") {
-      void import("./vm-administration.ts")
-        .then(({ mountPlatformClawVmAdministration }) => {
-          if (generation !== this.vmAdministrationGeneration) {
-            return;
-          }
-          this.disposeVmAdministration = mountPlatformClawVmAdministration({
-            fetchImpl: this.fetchImpl,
-            onUnauthenticated: () => {
-              this.clearBrowserSessionState();
-              this.redirectToLogin(true);
-            },
-          });
-        })
-        .catch(() => {
-          // A stale deployment chunk must not break the upstream Control UI session.
-        });
-    }
-  }
-
-  dispose(): void {
-    this.disposeExecutionSettings();
-    this.disposeExecutionSettings = () => {};
-    this.vmAdministrationGeneration += 1;
-    this.disposeVmAdministration();
-    this.disposeVmAdministration = () => {};
-  }
-
   async logout(stopApplication: () => void): Promise<void> {
     try {
       await this.fetchImpl(this.descriptor.logoutPath, {
@@ -183,7 +162,6 @@ export class PlatformClawControlUiAdapter {
     } catch {
       // Local teardown and navigation must not depend on the logout response.
     } finally {
-      this.dispose();
       stopApplication();
       this.clearBrowserSessionState();
       this.redirectToLogin(false);

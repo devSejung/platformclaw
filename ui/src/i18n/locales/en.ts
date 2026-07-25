@@ -115,6 +115,7 @@ export const en: TranslationMap = {
         "Change to {target}. Conversation and Agent settings stay, but files and running processes remain in the previous location.",
       confirm: "Change location",
       saved: "Work location settings updated.",
+      passwordRejected: "The AD password was not accepted.",
       sessionExpired: "Your session expired. Sign in again.",
       requestFailed: "Work location request failed.",
       close: "Close",

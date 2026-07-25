@@ -1,4 +1,5 @@
-import { i18n, t } from "../i18n/index.ts";
+import { i18n } from "../i18n/index.ts";
+import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import { PLATFORMCLAW_EXECUTION_API_PATH } from "./web-contract.ts";
 
 type ExecutionTarget = "platform_server" | "assigned_vm";
@@ -43,6 +44,13 @@ function formatCheckTime(value?: number): string {
   return `${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())} ${part(date.getHours())}:${part(date.getMinutes())}`;
 }
 
+function localizedRequestError(value: unknown, fallbackKey: string): string {
+  if (value === "AD password was not accepted") {
+    return t("platformClaw.execution.passwordRejected");
+  }
+  return typeof value === "string" ? value : t(fallbackKey);
+}
+
 class PlatformClawExecutionSettingsElement extends HTMLElement {
   private readonly root = this.attachShadow({ mode: "open" });
   private settings: ExecutionSettings | null = null;
@@ -57,13 +65,28 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
   onUnauthenticated: () => void = () => {};
 
   connectedCallback(): void {
-    this.unsubscribeLocale = i18n.subscribe(() => this.render());
-    this.render();
-    void this.refresh();
+    this.unsubscribeLocale = i18n.subscribe(() => void this.renderLocale());
+    void this.initialize();
   }
 
   disconnectedCallback(): void {
     this.unsubscribeLocale();
+  }
+
+  private async initialize(): Promise<void> {
+    await loadPlatformClawLocale();
+    if (!this.isConnected) {
+      return;
+    }
+    this.render();
+    await this.refresh();
+  }
+
+  private async renderLocale(): Promise<void> {
+    await loadPlatformClawLocale();
+    if (this.isConnected) {
+      this.render();
+    }
   }
 
   private async request(path: string, init?: RequestInit): Promise<ExecutionSettings> {
@@ -81,9 +104,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     }
     const body = (await response.json()) as Record<string, unknown>;
     if (!response.ok) {
-      throw new Error(
-        typeof body.error === "string" ? body.error : t("platformClaw.execution.requestFailed"),
-      );
+      throw new Error(localizedRequestError(body.error, "platformClaw.execution.requestFailed"));
     }
     return body as ExecutionSettings;
   }
@@ -127,15 +148,25 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
   }
 
   private bindEvents(): void {
+    const closeDialog = () => {
+      this.opened = false;
+      this.pendingTarget = null;
+      this.render();
+    };
     this.root.querySelector<HTMLElement>("[data-action='open']")?.addEventListener("click", () => {
       this.opened = true;
       this.render();
     });
-    this.root.querySelector<HTMLElement>("[data-action='close']")?.addEventListener("click", () => {
-      this.opened = false;
-      this.pendingTarget = null;
-      this.render();
-    });
+    this.root
+      .querySelector<HTMLElement>("[data-action='close']")
+      ?.addEventListener("click", closeDialog);
+    this.root.querySelector<HTMLDialogElement>("dialog.backdrop")?.addEventListener(
+      "cancel",
+      (event) => {
+        event.preventDefault();
+        closeDialog();
+      },
+    );
     this.root
       .querySelector<HTMLElement>("[data-action='refresh']")
       ?.addEventListener("click", () => void this.refresh());
@@ -193,30 +224,35 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         : t("platformClaw.execution.basic");
     this.root.innerHTML = `
       <style>
-        :host { color-scheme: light dark; font: 13px/1.45 system-ui, sans-serif; }
+        :host { display: block; color: var(--text); font: 13px/1.45 var(--font-sans, system-ui, sans-serif); }
         button, input { font: inherit; }
-        .badge { position: fixed; z-index: 1100; top: 12px; right: 18px; display: flex; align-items: center; gap: 8px; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 999px; padding: 7px 12px; background: color-mix(in srgb, Canvas 94%, transparent); color: CanvasText; box-shadow: 0 5px 18px #0002; cursor: pointer; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; background: ${assignment?.status === "connection_required" ? "#d97706" : "#2f9e66"}; }
-        .backdrop { position: fixed; z-index: 1200; inset: 0; background: #0006; display: grid; place-items: center; padding: 20px; }
-        .panel { width: min(520px, 100%); max-height: min(720px, 90vh); overflow: auto; border-radius: 18px; background: Canvas; color: CanvasText; box-shadow: 0 24px 70px #0005; border: 1px solid color-mix(in srgb, currentColor 16%, transparent); }
+        .badge { box-sizing: border-box; display: flex; width: 100%; min-height: 34px; align-items: center; gap: 8px; border: 0; border-radius: var(--radius-md); padding: 7px 9px; background: transparent; color: var(--text); cursor: pointer; text-align: left; transition: background var(--duration-fast) ease; }
+        .badge:hover, .badge:focus-visible { background: var(--bg-hover); outline: none; }
+        .dot { width: 7px; height: 7px; flex: none; border-radius: var(--radius-full); background: ${assignment?.status === "connection_required" ? "var(--warn)" : "var(--success, #22c55e)"}; }
+        .backdrop { inset: 0; box-sizing: border-box; width: 100vw; max-width: none; height: 100vh; max-height: none; margin: 0; border: 0; padding: 20px; background: color-mix(in srgb, var(--bg) 18%, #000 82%); place-items: center; }
+        .backdrop[open] { display: grid; }
+        .panel { width: min(520px, 100%); max-height: min(720px, 90vh); overflow: auto; border-radius: var(--radius-xl); background: var(--bg-elevated); color: var(--text); box-shadow: var(--shadow-xl); border: 1px solid var(--border); }
         header { display: flex; justify-content: space-between; align-items: center; padding: 20px 22px 12px; }
         h2 { margin: 0; font-size: 20px; } h3 { margin: 0 0 8px; font-size: 14px; }
         .close { border: 0; background: transparent; color: inherit; font-size: 22px; cursor: pointer; }
         main { padding: 8px 22px 22px; display: grid; gap: 14px; }
-        .card { padding: 15px; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 12px; background: color-mix(in srgb, CanvasText 3%, Canvas); }
-        .muted { color: color-mix(in srgb, currentColor 62%, transparent); margin: 4px 0; }
+        .card { padding: 15px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+        .muted { color: var(--muted); margin: 4px 0; }
         .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .button { border: 1px solid color-mix(in srgb, currentColor 22%, transparent); border-radius: 9px; padding: 8px 11px; background: Canvas; color: CanvasText; cursor: pointer; }
-        .primary { background: #d9663f; color: white; border-color: #d9663f; }
+        .button { border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 8px 11px; background: var(--bg-elevated); color: var(--text); cursor: pointer; }
+        .button:hover:not(:disabled), .button:focus-visible { border-color: var(--border-hover); background: var(--bg-hover); outline: none; }
+        .primary { background: var(--accent); color: var(--accent-foreground); border-color: var(--accent); }
+        .primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
         .button:disabled { opacity: .5; cursor: not-allowed; }
-        input { box-sizing: border-box; width: 100%; padding: 9px 10px; margin: 8px 0; border-radius: 9px; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); background: Canvas; color: CanvasText; }
-        .message { padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, #d97706 12%, Canvas); }
-        .confirm { border-color: #d9663f; }
+        input { box-sizing: border-box; width: 100%; padding: 9px 10px; margin: 8px 0; border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); }
+        input:focus { border-color: var(--accent); outline: none; box-shadow: var(--focus-ring); }
+        .message { padding: 10px 12px; border-radius: var(--radius-md); background: var(--accent-subtle); }
+        .confirm { border-color: var(--accent); }
       </style>
       <button class="badge" data-action="open" aria-label="${escapeHtml(t("platformClaw.execution.openSettings"))}"><span class="dot"></span><span>${escapeHtml(badgeLabel)}</span></button>
       ${
         this.opened
-          ? `<div class="backdrop" role="presentation"><section class="panel" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("platformClaw.execution.workLocation"))}">
+          ? `<dialog class="backdrop" aria-label="${escapeHtml(t("platformClaw.execution.workLocation"))}"><section class="panel">
         <header><h2>${escapeHtml(t("platformClaw.execution.workLocation"))}</h2><button class="close" data-action="close" aria-label="${escapeHtml(t("platformClaw.execution.close"))}">×</button></header>
         <main>
           ${this.loading ? `<p>${escapeHtml(t("common.loading"))}</p>` : ""}
@@ -225,11 +261,19 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
           ${assignment ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.assignedVm"))}</h3><strong>${escapeHtml(assignment.vmLabel)}</strong><p class="muted">${escapeHtml(assignment.linuxAccount)} · ${escapeHtml(assignment.remoteWorkspaceDir ?? t("platformClaw.execution.workspacePending"))}</p><p class="muted">${escapeHtml(t("platformClaw.execution.lastCheck"))}: ${escapeHtml(formatCheckTime(assignment.lastConnectionSucceededAt))}</p><label>${escapeHtml(t("platformClaw.execution.password"))}<input data-password type="password" autocomplete="current-password" maxlength="4096" /></label><div class="row"><button class="button primary" data-action="credential" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.saveAndTest"))}</button><button class="button" data-action="test" ${settings?.credentialStatus !== "current" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.test"))}</button></div></section>` : `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.noVm"))}</h3><p class="muted">${escapeHtml(t("platformClaw.execution.noVmHelp"))}</p></section>`}
           ${this.pendingTarget ? `<section class="card confirm"><h3>${escapeHtml(t("platformClaw.execution.confirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.execution.confirmBody", { target: targetLabel }))}</p><div class="row"><button class="button primary" data-action="confirm-switch" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.confirm"))}</button><button class="button" data-action="cancel-switch">${escapeHtml(t("platformClaw.execution.cancel"))}</button></div></section>` : ""}
           <button class="button" data-action="refresh" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.refresh"))}</button>
-        </main></section></div>`
+        </main></section></dialog>`
           : ""
       }
     `;
     this.bindEvents();
+    const modal = this.root.querySelector<HTMLDialogElement>("dialog.backdrop");
+    if (modal && !modal.open) {
+      if (typeof modal.showModal === "function") {
+        modal.showModal();
+      } else {
+        modal.setAttribute("open", "");
+      }
+    }
   }
 }
 
@@ -242,11 +286,17 @@ export function mountPlatformClawExecutionSettings(options: {
   fetchImpl: typeof fetch;
   onUnauthenticated: () => void;
 }): () => void {
-  const existing = document.querySelector(ELEMENT_NAME);
-  existing?.remove();
-  const element = document.createElement(ELEMENT_NAME) as PlatformClawExecutionSettingsElement;
+  const existing = document.querySelector<PlatformClawExecutionSettingsElement>(ELEMENT_NAME);
+  const element =
+    existing ?? (document.createElement(ELEMENT_NAME) as PlatformClawExecutionSettingsElement);
   element.fetchImpl = options.fetchImpl;
   element.onUnauthenticated = options.onUnauthenticated;
-  document.body.append(element);
-  return () => element.remove();
+  if (!existing) {
+    document.body.append(element);
+  }
+  return () => {
+    if (!existing) {
+      element.remove();
+    }
+  };
 }

@@ -4,7 +4,12 @@ param(
     [string]$Action = "Menu",
     [string]$DataRoot = (Join-Path $env:LOCALAPPDATA "PlatformClaw\vm-preview"),
     [int]$Port = 19001,
+    [ValidatePattern("^[A-Za-z0-9._-]+/[A-Za-z0-9._:-]+$")]
+    [string]$Model = "openai/gpt-5.4",
+    [ValidateSet("off", "minimal", "low", "medium", "high", "xhigh")]
+    [string]$Thinking = "low",
     [switch]$Rebuild,
+    [switch]$AllowDirty,
     [switch]$NoBrowser
 )
 
@@ -80,6 +85,7 @@ function Get-PreviewPaths {
         SandboxImageId = Join-Path $resolvedRoot "platformclaw-sandbox.image-id"
         ImageManifest = Join-Path $resolvedRoot "image-manifest.json"
         GatewayToken = Join-Path $resolvedRoot "gateway-token"
+        GatewayServiceIdentity = Join-Path $resolvedRoot "gateway-service-identity.pem"
         ExecutionToken = Join-Path $resolvedRoot "execution-service-token"
         AdminIds = Join-Path $resolvedRoot "initial-admin-ids"
         CredentialKey = Join-Path $resolvedRoot "ssh-credential-master-key"
@@ -100,6 +106,13 @@ function Initialize-PreviewData {
     }
     if (-not (Test-Path $paths.GatewayToken)) {
         Write-Utf8NoBom $paths.GatewayToken (New-RandomHex)
+    }
+    if (-not (Test-Path $paths.GatewayServiceIdentity)) {
+        Invoke-Checked -Command node -Arguments @(
+            "-e",
+            "const c=require('node:crypto'),f=require('node:fs');const k=c.generateKeyPairSync('ed25519').privateKey;f.writeFileSync(process.argv[1],k.export({type:'pkcs8',format:'pem'}),{mode:0o600});",
+            $paths.GatewayServiceIdentity
+        )
     }
     if (-not (Test-Path $paths.ExecutionToken)) {
         Write-Utf8NoBom $paths.ExecutionToken (New-RandomHex)
@@ -163,6 +176,7 @@ function Set-PreviewEnvironment {
     $env:PLATFORMCLAW_PUBLIC_ORIGIN = "http://127.0.0.1:$Port"
     $env:PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL = "http://127.0.0.1:18080/login"
     $env:PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE = $Paths.GatewayToken
+    $env:PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE = $Paths.GatewayServiceIdentity
     $env:PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE = $Paths.ExecutionToken
     $env:PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE = $Paths.AdminIds
     $env:PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE = $Paths.CredentialKey
@@ -207,7 +221,7 @@ function Get-RunningControlImageId {
 }
 
 function Ensure-Images {
-    param([hashtable]$Images, [hashtable]$Paths)
+    param([hashtable]$Images, [hashtable]$Paths, [bool]$DirtyCheckout)
     $runtimeImageId = Get-DockerImageId $Images.Runtime
     $sandboxImageId = Get-DockerImageId $Images.Sandbox
     $manifest = if (Test-Path $Paths.ImageManifest) {
@@ -225,14 +239,20 @@ function Ensure-Images {
         $manifest.commit -eq $Images.Commit -and
         $manifest.runtimeImageId -eq $runtimeImageId -and
         $manifest.sandboxImageId -eq $sandboxImageId
-    $needsBuild = $Rebuild -or -not $verifiedCache
+    $needsBuild = $Rebuild -or $DirtyCheckout -or -not $verifiedCache
     if ($needsBuild) {
-        Write-Step "Building the exact current commit. The first build can take a while."
+        Write-Step $(if ($DirtyCheckout) {
+            "Building the current working tree. The first build can take a while."
+        } else {
+            "Building the exact current commit. The first build can take a while."
+        })
         Push-Location $repoRoot
         try {
-            Invoke-Checked -Command node -Arguments @(
-                "scripts/platformclaw-build.mjs", "--no-export"
-            )
+            $buildArguments = @("scripts/platformclaw-build.mjs", "--no-export")
+            if ($AllowDirty) {
+                $buildArguments += "--allow-dirty"
+            }
+            Invoke-Checked -Command node -Arguments $buildArguments
         }
         finally {
             Pop-Location
@@ -242,12 +262,14 @@ function Ensure-Images {
         if (-not $runtimeImageId -or -not $sandboxImageId) {
             throw "The PlatformClaw build did not produce both required images"
         }
-        $manifestJson = @{
-            commit = $Images.Commit
-            runtimeImageId = $runtimeImageId
-            sandboxImageId = $sandboxImageId
-        } | ConvertTo-Json
-        Write-Utf8NoBom $Paths.ImageManifest $manifestJson
+        if (-not $DirtyCheckout) {
+            $manifestJson = @{
+                commit = $Images.Commit
+                runtimeImageId = $runtimeImageId
+                sandboxImageId = $sandboxImageId
+            } | ConvertTo-Json
+            Write-Utf8NoBom $Paths.ImageManifest $manifestJson
+        }
     }
     $archivedImageId = if (Test-Path $Paths.SandboxImageId) {
         (Get-Content -Raw -LiteralPath $Paths.SandboxImageId).Trim()
@@ -288,6 +310,77 @@ function Test-Health {
     }
 }
 
+function Test-PreviewEmployeeAuth {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $composeArguments = Get-ComposeArguments @(
+            "exec", "-T", "platformclaw-control", "node", "-e",
+            "fetch('http://127.0.0.1:18080/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        )
+        & docker @composeArguments 2>$null
+        return $LASTEXITCODE -eq 0
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+}
+
+function Test-RunningGatewayApiKey {
+    $key = if ($null -eq $env:OPENAI_API_KEY) { "" } else { $env:OPENAI_API_KEY }
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($key))
+        $expectedHash = ([BitConverter]::ToString($hashBytes)).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $composeArguments = Get-ComposeArguments @(
+            "exec", "-T", "openclaw-gateway", "node", "-e",
+            "const c=require('node:crypto');const h=c.createHash('sha256').update(process.env.OPENAI_API_KEY??'').digest('hex');process.exit(h===process.argv[1]?0:1)",
+            $expectedHash
+        )
+        & docker @composeArguments 2>$null
+        return $LASTEXITCODE -eq 0
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+}
+
+function Repair-PreviewEmployeeAuth {
+    if (Test-PreviewEmployeeAuth) {
+        return
+    }
+    # The mock shares the Control network namespace to keep HTTP loopback-only.
+    # Reattach it after a Control restart so fresh browser logins keep working.
+    Write-Step "Reattaching the disposable employee login mock"
+    Invoke-Compose @("up", "--detach", "--force-recreate", "employee-auth-mock")
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        if (Test-PreviewEmployeeAuth) {
+            return
+        }
+        Start-Sleep -Seconds 1
+    }
+    throw "The disposable employee login mock did not become reachable"
+}
+
+function Set-PreviewDefaultModel {
+    Write-Step "Selecting preview model $Model with $Thinking thinking"
+    Invoke-Compose @(
+        "exec", "-T", "openclaw-gateway", "node", "/app/openclaw.mjs",
+        "config", "set", "agents.defaults.model.primary", $Model
+    )
+    Invoke-Compose @(
+        "exec", "-T", "openclaw-gateway", "node", "/app/openclaw.mjs",
+        "config", "set", "agents.defaults.thinkingDefault", $Thinking
+    )
+}
+
 function Show-TestGuide {
     param([hashtable]$Images)
     $hostKeyArguments = Get-ComposeArguments @(
@@ -306,6 +399,11 @@ function Show-TestGuide {
     Write-Host "  Administrator:    admin.user / test-password"
     Write-Host "  Employee:         person.one / test-password"
     Write-Host "  Runtime image:    $($Images.Runtime)"
+    Write-Host "  Default model:    $Model"
+    Write-Host "  Default thinking: $Thinking"
+    if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
+        Write-Warning "OPENAI_API_KEY is not set. The UI will connect, but OpenAI chat turns will fail authentication."
+    }
     Write-Host ""
     Write-Host "Register these values as the administrator:" -ForegroundColor Yellow
     Write-Host "  Endpoint label:   Fake SafeConnect"
@@ -339,8 +437,12 @@ function Start-Preview {
     Push-Location $repoRoot
     try {
         $changes = @(& git status --porcelain)
-        if ($changes.Count -gt 0) {
+        $dirtyCheckout = $changes.Count -gt 0
+        if ($dirtyCheckout -and -not $AllowDirty) {
             throw "The source checkout is dirty. Commit or stash it before testing the merged build."
+        }
+        if ($dirtyCheckout) {
+            Write-Step "Testing uncommitted local changes; no transfer artifact will be created"
         }
     }
     finally {
@@ -349,11 +451,20 @@ function Start-Preview {
     $paths = Initialize-PreviewData
     $images = Get-ImageTags
     Set-PreviewEnvironment $paths $images
-    Ensure-Images $images $paths
+    Ensure-Images $images $paths $dirtyCheckout
     if (Test-Health) {
         $desiredImageId = Get-DockerImageId $images.Runtime
         if ((Get-RunningControlImageId) -eq $desiredImageId) {
             Write-Step "The VM preview is already running"
+            if (-not (Test-RunningGatewayApiKey)) {
+                Write-Step "The preview model credential changed; recreating Gateway"
+                Invoke-Compose @(
+                    "up", "--detach", "--force-recreate", "--wait", "--wait-timeout", "120",
+                    "openclaw-gateway"
+                )
+            }
+            Repair-PreviewEmployeeAuth
+            Set-PreviewDefaultModel
             Show-TestGuide $images
             return
         }
@@ -366,6 +477,8 @@ function Start-Preview {
         Invoke-Compose @("logs", "--no-color", "--tail", "200")
         throw "PlatformClaw did not become healthy"
     }
+    Repair-PreviewEmployeeAuth
+    Set-PreviewDefaultModel
     Show-TestGuide $images
 }
 
@@ -399,6 +512,7 @@ function Invoke-ExistingPreview {
                 $paths.SandboxImageId,
                 $paths.ImageManifest,
                 $paths.GatewayToken,
+                $paths.GatewayServiceIdentity,
                 $paths.ExecutionToken,
                 $paths.AdminIds,
                 $paths.CredentialKey,

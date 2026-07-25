@@ -173,22 +173,41 @@ export function renderAppSidebarPagesHead(host: AppSidebarRenderHost) {
 export function renderAppSidebarFooterBar(host: AppSidebarRenderHost) {
   if (host.accountPrimaryLabel && host.onLogout) {
     return html`
-      <div class="sidebar-footer-bar sidebar-footer-bar--account">
-        <span class="sidebar-account" title=${host.accountSecondaryLabel}>
-          <span class="sidebar-account__primary">${host.accountPrimaryLabel}</span>
-          ${host.accountSecondaryLabel
-            ? html`<span class="sidebar-account__secondary">${host.accountSecondaryLabel}</span>`
+      <div class="sidebar-account-footer">
+        ${host.renderAccountFooterAccessory
+          ? html`<div class="sidebar-account-footer__accessory">
+              ${host.renderAccountFooterAccessory()}
+            </div>`
+          : nothing}
+        <div class="sidebar-footer-bar sidebar-footer-bar--account">
+          <span class="sidebar-account" title=${host.accountSecondaryLabel}>
+            <span class="sidebar-account__primary">${host.accountPrimaryLabel}</span>
+            ${host.accountSecondaryLabel
+              ? html`<span class="sidebar-account__secondary">${host.accountSecondaryLabel}</span>`
+              : nothing}
+          </span>
+          ${host.sidebarMenus.isRouteEnabled("appearance")
+            ? html`<button
+                type="button"
+                class="sidebar-footer-bar__settings"
+                aria-label=${t("tabs.appearance")}
+                title=${t("tabs.appearance")}
+                @click=${() => host.onNavigate?.("appearance")}
+              >
+                ${icons.settings}
+              </button>`
             : nothing}
-        </span>
-        <button
-          type="button"
-          class="sidebar-footer-bar__settings"
-          aria-label=${t("common.logout")}
-          title=${t("common.logout")}
-          @click=${() => void host.onLogout?.()}
-        >
-          ${icons.arrowLeft}
-        </button>
+          <openclaw-theme-mode-toggle .mode=${host.themeMode}></openclaw-theme-mode-toggle>
+          <button
+            type="button"
+            class="sidebar-footer-bar__settings"
+            aria-label=${t("common.logout")}
+            title=${t("common.logout")}
+            @click=${() => void host.onLogout?.()}
+          >
+            ${icons.arrowLeft}
+          </button>
+        </div>
       </div>
     `;
   }

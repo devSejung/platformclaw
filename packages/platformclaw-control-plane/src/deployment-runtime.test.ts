@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import type { PlatformClawDeploymentConfig } from "./deployment-config.js";
 import { createPlatformClawDeploymentRuntime } from "./deployment-runtime.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
@@ -6,6 +10,15 @@ import type {
   PlatformClawWebIngressRuntime,
   PlatformClawWebIngressRuntimeOptions,
 } from "./web-ingress-runtime.js";
+
+const fixtureRoot = mkdtempSync(join(tmpdir(), "platformclaw-runtime-"));
+const gatewayServiceIdentityFile = join(fixtureRoot, "gateway-service-identity.pem");
+const { privateKey } = generateKeyPairSync("ed25519");
+writeFileSync(gatewayServiceIdentityFile, privateKey.export({ type: "pkcs8", format: "pem" }), {
+  mode: 0o600,
+});
+
+afterAll(() => rmSync(fixtureRoot, { recursive: true, force: true }));
 
 const config: PlatformClawDeploymentConfig = {
   publicOrigin: "http://127.0.0.1:19001",
@@ -18,6 +31,7 @@ const config: PlatformClawDeploymentConfig = {
   gatewayUrl: "ws://127.0.0.1:18789",
   gatewayAdminRpcUrl: "http://127.0.0.1:18789/api/v1/admin/rpc",
   gatewayAuth: "test-gateway-token",
+  gatewayServiceIdentityFile,
   sshCredentialCipher: SshCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
   credentialBrokerAddress: "/run/platformclaw-credential-broker/credential.sock",
   executionServiceToken: "e".repeat(32),
@@ -41,11 +55,14 @@ describe("createPlatformClawDeploymentRuntime", () => {
       credentialBrokerAddress: config.credentialBrokerAddress,
       executionServiceToken: config.executionServiceToken,
       gatewayClient: {
+        pairing: {
+          identity: { deviceId: expect.any(String) },
+        },
         client: {
           url: config.gatewayUrl,
           token: config.gatewayAuth,
           role: "operator",
-          scopes: ["operator.read", "operator.write"],
+          scopes: ["operator.read", "operator.write", "operator.admin"],
         },
       },
     });

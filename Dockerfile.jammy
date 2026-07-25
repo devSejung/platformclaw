@@ -109,6 +109,7 @@ COPY --from=openclaw-runtime --chown=1000:1000 /app/qa ./qa
 COPY --from=platformclaw-control-assets --chown=1000:1000 /app/packages/platformclaw-control-plane ./packages/platformclaw-control-plane
 COPY --from=platformclaw-control-assets --chown=1000:1000 /app/ui/dist ./ui/dist
 COPY --chown=root:root docker/platformclaw-runtime/openclaw.initial.json /etc/platformclaw/openclaw.initial.json
+COPY --chown=root:root docker/platformclaw-runtime/reconcile-managed-config.mjs /etc/platformclaw/reconcile-managed-config.mjs
 COPY --chown=root:root docker/platformclaw-runtime/validate-managed-config.mjs /etc/platformclaw/validate-managed-config.mjs
 COPY --chown=root:root docker/platformclaw-runtime/platformclaw-gateway /usr/local/bin/platformclaw-gateway
 COPY --chown=root:root docker/platformclaw-runtime/migrate-workspaces /usr/local/bin/platformclaw-migrate-workspaces

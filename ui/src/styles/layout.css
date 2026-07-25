@@ -3289,7 +3289,7 @@ openclaw-tooltip.sidebar-hover-tooltip {
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--muted);
-  cursor: default;
+  cursor: pointer;
   transition:
     color var(--duration-fast) ease,
     background var(--duration-fast) ease;
@@ -3306,6 +3306,17 @@ openclaw-tooltip.sidebar-hover-tooltip {
   min-width: 0;
   gap: 8px;
   justify-content: space-between;
+}
+
+.sidebar-account-footer,
+.sidebar-account-footer__accessory {
+  display: grid;
+  min-width: 0;
+}
+
+.sidebar-account-footer__accessory {
+  gap: 4px;
+  padding: 4px 12px 0;
 }
 
 .sidebar-account {

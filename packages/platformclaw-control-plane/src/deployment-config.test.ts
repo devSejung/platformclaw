@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -22,10 +23,15 @@ function fixtureEnv(): NodeJS.ProcessEnv {
   const adminFile = join(root, "initial-admins");
   const credentialKeyFile = join(root, "ssh-credential-master-key");
   const executionServiceTokenFile = join(root, "execution-service-token");
+  const gatewayServiceIdentityFile = join(root, "gateway-service-identity.pem");
+  const { privateKey } = generateKeyPairSync("ed25519");
   writeFileSync(tokenFile, "test-gateway-token\n", { mode: 0o600 });
   writeFileSync(adminFile, "Person.One\nperson.two,person.one\n", { mode: 0o600 });
   writeFileSync(credentialKeyFile, Buffer.alloc(32, 7).toString("base64"), { mode: 0o600 });
   writeFileSync(executionServiceTokenFile, "e".repeat(32), { mode: 0o600 });
+  writeFileSync(gatewayServiceIdentityFile, privateKey.export({ type: "pkcs8", format: "pem" }), {
+    mode: 0o600,
+  });
   return {
     [PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin]: "http://127.0.0.1:19001",
     [PLATFORMCLAW_DEPLOYMENT_ENV.databasePath]: join(root, "state", "control.sqlite"),
@@ -34,6 +40,7 @@ function fixtureEnv(): NodeJS.ProcessEnv {
     [PLATFORMCLAW_DEPLOYMENT_ENV.initialAdminAccountIdsFile]: adminFile,
     [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayUrl]: "ws://127.0.0.1:18789",
     [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile]: tokenFile,
+    [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayServiceIdentityFile]: gatewayServiceIdentityFile,
     [PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile]: credentialKeyFile,
     [PLATFORMCLAW_DEPLOYMENT_ENV.credentialBrokerAddress]:
       process.platform === "win32"
@@ -56,6 +63,9 @@ describe("loadPlatformClawDeploymentConfig", () => {
       gatewayUrl: "ws://127.0.0.1:18789",
       gatewayAdminRpcUrl: "http://127.0.0.1:18789/api/v1/admin/rpc",
       gatewayAuth: "test-gateway-token",
+      gatewayServiceIdentityFile: resolve(
+        env[PLATFORMCLAW_DEPLOYMENT_ENV.gatewayServiceIdentityFile] ?? "",
+      ),
       credentialBrokerAddress:
         process.platform === "win32"
           ? String.raw`\\.\pipe\platformclaw-test-broker`

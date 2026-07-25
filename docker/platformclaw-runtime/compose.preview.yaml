@@ -1,4 +1,9 @@
 services:
+  openclaw-gateway:
+    environment:
+      # Home preview only. Production credentials remain deployment-owned.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
   # The manual preview preserves volumes across Stop/Start. Initialize ownership
   # once; rootless Docker later creates subordinate-UID paths that must not be
   # recursively chowned by a subsequent Compose start.

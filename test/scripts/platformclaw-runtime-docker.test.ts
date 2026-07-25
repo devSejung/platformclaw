@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { reconcileManagedSandboxImage } from "../../docker/platformclaw-runtime/reconcile-managed-config.mjs";
 import { validateManagedConfig } from "../../docker/platformclaw-runtime/validate-managed-config.mjs";
 import { mainLanes } from "../../scripts/lib/docker-e2e-scenarios.mjs";
 
@@ -59,6 +60,7 @@ describe("PlatformClaw Docker runtime", () => {
     );
     expect(control?.secrets).toEqual([
       "platformclaw_gateway_token",
+      "platformclaw_gateway_service_identity",
       "platformclaw_execution_service_token",
       "platformclaw_initial_admin_ids",
       "platformclaw_ssh_credential_master_key",
@@ -114,6 +116,31 @@ describe("PlatformClaw Docker runtime", () => {
     });
     expect(serialized).not.toContain("OPENCLAW_GATEWAY_TOKEN");
     expect(serialized).not.toContain("platformclaw_gateway_token");
+  });
+
+  it("updates only the deployment-owned sandbox image reference", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: {
+        defaults: {
+          model?: { primary: string };
+          sandbox: { docker: { image: string } };
+        };
+        entries?: Record<string, unknown>;
+      };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:old";
+    source.agents.defaults.model = { primary: "openai/gpt-5.4" };
+    source.agents.entries = { person_one: { name: "Person One" } };
+
+    const result = reconcileManagedSandboxImage(source, "platformclaw-sandbox:new");
+
+    expect(result.changed).toBe(true);
+    expect(result.config.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:new");
+    expect(result.config.agents.defaults.model).toEqual({ primary: "openai/gpt-5.4" });
+    expect(result.config.agents.entries).toEqual(source.agents.entries);
+    expect(source.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:old");
   });
 
   it("fails closed when persistent config would bypass managed execution", () => {
@@ -242,13 +269,31 @@ describe("PlatformClaw Docker runtime", () => {
     expect(preview).toContain("$manifest.runtimeImageId -eq $runtimeImageId");
     expect(preview).toContain("$archivedImageId -ne $sandboxImageId");
     expect(preview).toContain("Get-RunningControlImageId");
+    expect(preview).toContain("Repair-PreviewEmployeeAuth");
+    expect(preview).toContain("Test-RunningGatewayApiKey");
+    expect(preview).toContain("The preview model credential changed; recreating Gateway");
+    expect(preview).toContain(
+      'Invoke-Compose @("up", "--detach", "--force-recreate", "employee-auth-mock")',
+    );
+    expect(preview).toContain("$paths.GatewayServiceIdentity,");
     expect(preview).toContain("The source image changed; recreating the preview containers");
     expect(preview).toContain("compose.preview.yaml");
+    expect(preview).toContain('[string]$Model = "openai/gpt-5.4"');
+    expect(preview).toContain("OPENAI_API_KEY is not set");
+    expect(preview).toContain("[switch]$AllowDirty");
+    expect(preview).toContain("$needsBuild = $Rebuild -or $DirtyCheckout -or");
+    expect(preview).toContain("if (-not $DirtyCheckout)");
+    expect(preview).toContain("$sha256.ComputeHash");
+    expect(preview).toContain(
+      "Testing uncommitted local changes; no transfer artifact will be created",
+    );
+    expect(previewCompose.services["openclaw-gateway"]?.environment?.OPENAI_API_KEY).toBe(
+      "${OPENAI_API_KEY:-}",
+    );
     expect(previewCompose.services["sandbox-docker-init"]?.command?.join("\n")).toContain(
       ".platformclaw-initialized",
     );
     expect(preview).toContain('"$($Paths.SandboxTar).tmp-$PID"');
-    expect(preview).not.toContain("AllowDirty");
     expect(preview).not.toContain("Remove-Item -LiteralPath $resolved -Recurse");
     expect(preview).not.toContain("PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY=");
   });

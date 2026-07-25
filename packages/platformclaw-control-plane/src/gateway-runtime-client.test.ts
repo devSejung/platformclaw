@@ -1,7 +1,10 @@
-import type { GatewayClientOptions } from "@openclaw/gateway-client";
+import { GatewayClientRequestError, type GatewayClientOptions } from "@openclaw/gateway-client";
 import type { EventFrame, HelloOk } from "@openclaw/gateway-protocol";
+import { buildPairingConnectErrorDetails } from "@openclaw/gateway-protocol/connect-error-details";
 import { describe, expect, it, vi } from "vitest";
+import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import { PlatformClawGatewayRuntimeClient } from "./gateway-runtime-client.js";
+import type { GatewayServiceIdentity } from "./gateway-service-identity.js";
 
 function hello(): HelloOk {
   return {
@@ -15,7 +18,10 @@ function hello(): HelloOk {
       stateVersion: { presence: 1, health: 1 },
       uptimeMs: 10,
     },
-    auth: { role: "operator", scopes: ["operator.admin"] },
+    auth: {
+      role: "operator",
+      scopes: ["operator.read", "operator.write", "operator.admin"],
+    },
     policy: { maxPayload: 1_024, maxBufferedBytes: 2_048, tickIntervalMs: 30_000 },
   };
 }
@@ -59,5 +65,214 @@ describe("PlatformClawGatewayRuntimeClient", () => {
     unsubscribeDisconnect();
     backend.stop();
     expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("does not report readiness when the Gateway omits a required service scope", async () => {
+    let configured: GatewayClientOptions | undefined;
+    const request = vi.fn(async () => ({ ok: true }));
+    const backend = new PlatformClawGatewayRuntimeClient({
+      client: { url: "ws://127.0.0.1:18789" },
+      createClient: (options) => {
+        configured = options;
+        return { start: vi.fn(), stop: vi.fn(), request };
+      },
+    });
+    const insufficient = hello();
+    insufficient.auth = { role: "operator", scopes: ["operator.read"] };
+
+    configured?.onHelloOk?.(insufficient);
+
+    expect(backend.getHello()).toBeNull();
+    await expect(backend.request("status")).rejects.toThrow("unavailable");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("approves only its exact first-enrollment request and reconnects", async () => {
+    let configured: GatewayClientOptions | undefined;
+    const start = vi.fn();
+    const identity: GatewayServiceIdentity = {
+      deviceId: "service-device",
+      privateKeyPem: "private",
+      publicKeyPem: "public",
+      publicKeyRawBase64Url: "public-raw",
+    };
+    const call = vi.fn(async (method: string) => {
+      if (method === "device.pair.list") {
+        return {
+          pending: [
+            {
+              requestId: "request-1",
+              deviceId: identity.deviceId,
+              publicKey: identity.publicKeyRawBase64Url,
+              clientId: "gateway-client",
+              clientMode: "backend",
+              role: "operator",
+              scopes: ["operator.admin", "operator.write", "operator.read"],
+            },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+    const backend = new PlatformClawGatewayRuntimeClient({
+      client: { url: "ws://127.0.0.1:18789" },
+      pairing: { adminRpc: { call } as GatewayAdminRpc, identity },
+      createClient: (options) => {
+        configured = options;
+        return { start, stop: vi.fn(), request: vi.fn() };
+      },
+    });
+    expect(backend.getHello()).toBeNull();
+    const error = new GatewayClientRequestError({
+      code: "INVALID_REQUEST",
+      message: "pairing required",
+      details: buildPairingConnectErrorDetails({
+        reason: "not-paired",
+        requestId: "request-1",
+        deviceId: identity.deviceId,
+        requestedRole: "operator",
+        requestedScopes: ["operator.read", "operator.write", "operator.admin"],
+      }),
+    });
+
+    configured?.onConnectError?.(error);
+    configured?.onReconnectPaused?.({
+      code: 1008,
+      reason: "pairing required",
+      detailCode: "PAIRING_REQUIRED",
+    });
+
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
+    expect(configured?.hostDeps).toBeDefined();
+    expect(call).toHaveBeenNthCalledWith(1, "device.pair.list", {});
+    expect(call).toHaveBeenNthCalledWith(2, "device.pair.approve", {
+      requestId: "request-1",
+    });
+  });
+
+  it("does not auto-approve identity or permission upgrades", async () => {
+    let configured: GatewayClientOptions | undefined;
+    const connectErrors: Error[] = [];
+    const call = vi.fn();
+    const identity: GatewayServiceIdentity = {
+      deviceId: "service-device",
+      privateKeyPem: "private",
+      publicKeyPem: "public",
+      publicKeyRawBase64Url: "public-raw",
+    };
+    const backend = new PlatformClawGatewayRuntimeClient({
+      client: {
+        url: "ws://127.0.0.1:18789",
+        onConnectError: (error) => connectErrors.push(error),
+      },
+      pairing: { adminRpc: { call } as GatewayAdminRpc, identity },
+      createClient: (options) => {
+        configured = options;
+        return { start: vi.fn(), stop: vi.fn(), request: vi.fn() };
+      },
+    });
+    expect(backend.getHello()).toBeNull();
+    const error = new GatewayClientRequestError({
+      code: "INVALID_REQUEST",
+      message: "scope upgrade",
+      details: buildPairingConnectErrorDetails({
+        reason: "scope-upgrade",
+        requestId: "request-2",
+        deviceId: identity.deviceId,
+        requestedRole: "operator",
+        requestedScopes: ["operator.read", "operator.write", "operator.admin"],
+      }),
+    });
+
+    configured?.onConnectError?.(error);
+    await Promise.resolve();
+
+    expect(call).not.toHaveBeenCalled();
+    expect(connectErrors).toContain(error);
+  });
+
+  it("clears failed pairing latches and caps automatic reconnects without HelloOk", async () => {
+    let configured: GatewayClientOptions | undefined;
+    const start = vi.fn();
+    const connectErrors: Error[] = [];
+    const identity: GatewayServiceIdentity = {
+      deviceId: "service-device",
+      privateKeyPem: "private",
+      publicKeyPem: "public",
+      publicKeyRawBase64Url: "public-raw",
+    };
+    let listAttempts = 0;
+    let pendingRequestId = "request-2";
+    const call = vi.fn(async (method: string) => {
+      if (method === "device.pair.list") {
+        listAttempts += 1;
+        if (listAttempts === 1) {
+          throw new Error("temporary admin RPC failure");
+        }
+        return {
+          pending: [
+            {
+              requestId: pendingRequestId,
+              deviceId: identity.deviceId,
+              publicKey: identity.publicKeyRawBase64Url,
+              clientId: "gateway-client",
+              clientMode: "backend",
+              role: "operator",
+              scopes: ["operator.read", "operator.write", "operator.admin"],
+            },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+    const backend = new PlatformClawGatewayRuntimeClient({
+      client: {
+        url: "ws://127.0.0.1:18789",
+        onConnectError: (error) => connectErrors.push(error),
+      },
+      pairing: { adminRpc: { call } as GatewayAdminRpc, identity },
+      createClient: (options) => {
+        configured = options;
+        return { start, stop: vi.fn(), request: vi.fn() };
+      },
+    });
+    expect(backend.getHello()).toBeNull();
+    const pairingError = (requestId: string) =>
+      new GatewayClientRequestError({
+        code: "INVALID_REQUEST",
+        message: "pairing required",
+        details: buildPairingConnectErrorDetails({
+          reason: "not-paired",
+          requestId,
+          deviceId: identity.deviceId,
+          requestedRole: "operator",
+          requestedScopes: ["operator.read", "operator.write", "operator.admin"],
+        }),
+      });
+    const paused = {
+      code: 1008,
+      reason: "pairing required",
+      detailCode: "PAIRING_REQUIRED" as const,
+    };
+
+    configured?.onConnectError?.(pairingError("request-1"));
+    configured?.onReconnectPaused?.(paused);
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
+
+    configured?.onConnectError?.(pairingError("request-2"));
+    configured?.onReconnectPaused?.(paused);
+    await vi.waitFor(() => expect(start).toHaveBeenCalledTimes(2));
+
+    pendingRequestId = "request-3";
+    configured?.onConnectError?.(pairingError("request-3"));
+    configured?.onReconnectPaused?.(paused);
+    await vi.waitFor(() =>
+      expect(call).toHaveBeenLastCalledWith("device.pair.approve", { requestId: "request-3" }),
+    );
+
+    expect(connectErrors.some((error) => error.message === "temporary admin RPC failure")).toBe(
+      true,
+    );
+    expect(start).toHaveBeenCalledTimes(2);
   });
 });

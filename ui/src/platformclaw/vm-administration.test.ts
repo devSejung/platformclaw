@@ -32,6 +32,7 @@ describe("PlatformClaw VM administration", () => {
     const element = document.querySelector("platformclaw-vm-administration")!;
 
     expect(fetchImpl).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(element.shadowRoot?.querySelector("[data-open]")).not.toBeNull());
     element.shadowRoot?.querySelector<HTMLElement>("[data-open]")?.click();
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Person One"));
 
@@ -47,6 +48,7 @@ describe("PlatformClaw VM administration", () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(SNAPSHOT));
     mountPlatformClawVmAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = document.querySelector("platformclaw-vm-administration")!;
+    await vi.waitFor(() => expect(element.shadowRoot?.querySelector("[data-open]")).not.toBeNull());
     element.shadowRoot?.querySelector<HTMLElement>("[data-open]")?.click();
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
     const form = element.shadowRoot?.querySelector<HTMLFormElement>(
@@ -73,5 +75,24 @@ describe("PlatformClaw VM administration", () => {
       port: 44_422,
       adDomain: "example.test",
     });
+  });
+
+  it("does not reopen after Escape while administration refresh is pending", async () => {
+    const pending = Promise.withResolvers<Response>();
+    const fetchImpl = vi.fn<typeof fetch>(() => pending.promise);
+    mountPlatformClawVmAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+    const element = document.querySelector("platformclaw-vm-administration")!;
+    await vi.waitFor(() => expect(element.shadowRoot?.querySelector("[data-open]")).not.toBeNull());
+    element.shadowRoot?.querySelector<HTMLElement>("[data-open]")?.click();
+    const dialog = element.shadowRoot?.querySelector<HTMLDialogElement>("dialog.backdrop");
+
+    dialog?.dispatchEvent(new Event("cancel", { cancelable: true }));
+    pending.resolve(jsonResponse(SNAPSHOT));
+
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    expect(element.shadowRoot?.querySelector("dialog.backdrop")).toBeNull();
   });
 });
