@@ -16,6 +16,7 @@ function installDescriptor(): void {
 describe("PlatformClawControlUiAdapter", () => {
   beforeEach(() => {
     document.head.innerHTML = "";
+    document.body.innerHTML = "";
   });
 
   it("stays inactive for the unmodified upstream Control UI document", () => {
@@ -138,5 +139,37 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(sessionStorage.removeItem).toHaveBeenCalledWith(
       "openclaw.control.chatComposer.v2:wss%3A%2F%2Fplatformclaw.example%2Fplatformclaw%2Fgateway",
     );
+  });
+
+  it("loads VM administration only for administrators", async () => {
+    installDescriptor();
+    const adapter = createPlatformClawControlUiAdapter({
+      fetchImpl: vi.fn<typeof fetch>(async () =>
+        jsonResponse({
+          activeTarget: "platform_server",
+          targetRevision: 0,
+          credentialStatus: "missing",
+        }),
+      ),
+    })!;
+
+    adapter.mountExecutionSettings({
+      accountId: "admin.user",
+      displayName: "Administrator",
+      department: "Platform",
+      globalRole: "admin",
+    });
+    await vi.waitFor(() => {
+      expect(document.querySelector("platformclaw-vm-administration")).not.toBeNull();
+    });
+    adapter.mountExecutionSettings({
+      accountId: "person.one",
+      displayName: "Person One",
+      department: "Platform",
+      globalRole: "member",
+    });
+
+    expect(document.querySelector("platformclaw-vm-administration")).toBeNull();
+    adapter.dispose();
   });
 });

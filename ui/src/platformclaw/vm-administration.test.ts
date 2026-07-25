@@ -63,7 +63,10 @@ describe("PlatformClaw VM administration", () => {
 
     const init = fetchImpl.mock.calls[1]?.[1];
     expect(init?.method).toBe("POST");
-    expect(JSON.parse(String(init?.body))).toEqual({
+    if (typeof init?.body !== "string") {
+      throw new Error("endpoint request body is missing");
+    }
+    expect(JSON.parse(init.body)).toEqual({
       action: "endpoints",
       label: "Corporate access",
       host: "safeconnect.example.test",

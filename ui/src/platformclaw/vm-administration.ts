@@ -57,7 +57,8 @@ function escapeHtml(value: string): string {
 }
 
 function field(form: FormData, name: string): string {
-  return String(form.get(name) ?? "").trim();
+  const value = form.get(name);
+  return typeof value === "string" ? value.trim() : "";
 }
 
 class PlatformClawVmAdministrationElement extends HTMLElement {
@@ -178,7 +179,7 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
     }));
   }
 
-  private options<T extends { id: string; label: string }>(values: T[]): string {
+  private options(values: ReadonlyArray<{ id: string; label: string }>): string {
     return values
       .map((value) => `<option value="${escapeHtml(value.id)}">${escapeHtml(value.label)}</option>`)
       .join("");

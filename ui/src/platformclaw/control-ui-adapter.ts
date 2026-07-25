@@ -2,7 +2,6 @@ import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import { mountPlatformClawExecutionSettings } from "./execution-settings.ts";
-import { mountPlatformClawVmAdministration } from "./vm-administration.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -83,6 +82,7 @@ export class PlatformClawControlUiAdapter {
   private sessionCheck: Promise<PlatformClawSessionCheck> | null = null;
   private disposeExecutionSettings = () => {};
   private disposeVmAdministration = () => {};
+  private vmAdministrationGeneration = 0;
 
   constructor(
     readonly descriptor: PlatformClawWebDescriptor,
@@ -144,21 +144,32 @@ export class PlatformClawControlUiAdapter {
       },
     });
     this.disposeVmAdministration();
-    this.disposeVmAdministration =
-      identity.globalRole === "admin"
-        ? mountPlatformClawVmAdministration({
+    this.disposeVmAdministration = () => {};
+    const generation = ++this.vmAdministrationGeneration;
+    if (identity.globalRole === "admin") {
+      void import("./vm-administration.ts")
+        .then(({ mountPlatformClawVmAdministration }) => {
+          if (generation !== this.vmAdministrationGeneration) {
+            return;
+          }
+          this.disposeVmAdministration = mountPlatformClawVmAdministration({
             fetchImpl: this.fetchImpl,
             onUnauthenticated: () => {
               this.clearBrowserSessionState();
               this.redirectToLogin(true);
             },
-          })
-        : () => {};
+          });
+        })
+        .catch(() => {
+          // A stale deployment chunk must not break the upstream Control UI session.
+        });
+    }
   }
 
   dispose(): void {
     this.disposeExecutionSettings();
     this.disposeExecutionSettings = () => {};
+    this.vmAdministrationGeneration += 1;
     this.disposeVmAdministration();
     this.disposeVmAdministration = () => {};
   }
