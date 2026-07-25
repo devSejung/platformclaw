@@ -1,5 +1,5 @@
 {
-  "startupJsGzipBytes": 321035,
-  "reason": "preserve PlatformClaw account and restricted-route sidebar overlay after upstream sync",
-  "updatedAt": "2026-07-24"
+  "startupJsGzipBytes": 324047,
+  "reason": "add employee work location settings to the PlatformClaw account overlay",
+  "updatedAt": "2026-07-25"
 }
