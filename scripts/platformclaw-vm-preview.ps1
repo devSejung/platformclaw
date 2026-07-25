@@ -181,6 +181,29 @@ function Invoke-Compose {
     Invoke-Checked -Command docker -Arguments (Get-ComposeArguments $Arguments)
 }
 
+function Get-RunningControlImageId {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $composeArguments = Get-ComposeArguments @("ps", "--quiet", "platformclaw-control")
+        $containerLine = (& docker @composeArguments 2>$null) | Select-Object -First 1
+        $containerId = if ($containerLine) { $containerLine.Trim() } else { "" }
+        if ($LASTEXITCODE -ne 0 -or -not $containerId) {
+            return ""
+        }
+        $imageLine = (& docker inspect $containerId --format "{{.Image}}" 2>$null) |
+            Select-Object -First 1
+        $imageId = if ($imageLine) { $imageLine.Trim() } else { "" }
+        if ($LASTEXITCODE -ne 0) {
+            return ""
+        }
+        return $imageId
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+}
+
 function Ensure-Images {
     param([hashtable]$Images, [hashtable]$Paths)
     $runtimeImageId = Get-DockerImageId $Images.Runtime
@@ -326,9 +349,14 @@ function Start-Preview {
     Set-PreviewEnvironment $paths $images
     Ensure-Images $images $paths
     if (Test-Health) {
-        Write-Step "The VM preview is already running"
-        Show-TestGuide $images
-        return
+        $desiredImageId = Get-DockerImageId $images.Runtime
+        if ((Get-RunningControlImageId) -eq $desiredImageId) {
+            Write-Step "The VM preview is already running"
+            Show-TestGuide $images
+            return
+        }
+        Write-Step "The source image changed; recreating the preview containers"
+        Invoke-Compose @("down", "--remove-orphans")
     }
     Write-Step "Starting Gateway, Control, sandbox Docker, and Fake SafeConnect"
     Invoke-Compose @("up", "--detach", "--wait", "--wait-timeout", "240")

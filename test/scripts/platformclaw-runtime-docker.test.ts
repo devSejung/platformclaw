@@ -238,6 +238,8 @@ describe("PlatformClaw Docker runtime", () => {
     expect(preview).toContain("existing non-empty, unmarked data root");
     expect(preview).toContain("$manifest.runtimeImageId -eq $runtimeImageId");
     expect(preview).toContain("$archivedImageId -ne $sandboxImageId");
+    expect(preview).toContain("Get-RunningControlImageId");
+    expect(preview).toContain("The source image changed; recreating the preview containers");
     expect(preview).toContain('"$($Paths.SandboxTar).tmp-$PID"');
     expect(preview).not.toContain("AllowDirty");
     expect(preview).not.toContain("Remove-Item -LiteralPath $resolved -Recurse");
