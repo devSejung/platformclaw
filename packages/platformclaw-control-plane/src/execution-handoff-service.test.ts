@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   AssignedVmExecutionTarget,
-  ControlPlaneExecutionRuntimeStore,
+  ControlPlaneExecutionTargetStore,
   PersonalExecutionTarget,
 } from "./execution-contracts.js";
 import {
@@ -32,17 +32,25 @@ function assignedVm(revision = 4): AssignedVmExecutionTarget {
   };
 }
 
+function executionStore(
+  resolvePersonalExecutionTarget: () => Promise<PersonalExecutionTarget>,
+): ControlPlaneExecutionTargetStore {
+  return {
+    resolvePersonalExecutionTarget,
+    resolveAssignedVmConnectionTarget: vi.fn(),
+    changePersonalExecutionTarget: vi.fn(),
+  };
+}
+
 describe("ExecutionHandoffService", () => {
   it("projects a credential-free server target", async () => {
-    const store: ControlPlaneExecutionRuntimeStore = {
-      resolvePersonalExecutionTarget: async () => ({
-        kind: "platform_server",
-        agentId: "person_one",
-        userId: "user-one",
-        targetId: "platform-server",
-        revision: 0,
-      }),
-    };
+    const store = executionStore(async () => ({
+      kind: "platform_server",
+      agentId: "person_one",
+      userId: "user-one",
+      targetId: "platform-server",
+      revision: 0,
+    }));
     const broker = {
       address: "/run/platformclaw/broker.sock",
       issueForUser: vi.fn(),
@@ -62,9 +70,7 @@ describe("ExecutionHandoffService", () => {
   it("binds a one-shot grant to the prepared VM allocation and revision", async () => {
     let current: PersonalExecutionTarget = assignedVm();
     let validate: (() => Promise<void>) | undefined;
-    const store: ControlPlaneExecutionRuntimeStore = {
-      resolvePersonalExecutionTarget: async () => current,
-    };
+    const store = executionStore(async () => current);
     const broker: ExecutionCredentialGrantIssuer = {
       address: "/run/platformclaw/runtime.sock",
       issueForUser: vi.fn((userId, callback) => {
@@ -97,9 +103,7 @@ describe("ExecutionHandoffService", () => {
   });
 
   it("does not expose the control-plane user identifier in a VM target", async () => {
-    const store: ControlPlaneExecutionRuntimeStore = {
-      resolvePersonalExecutionTarget: async () => assignedVm(),
-    };
+    const store = executionStore(async () => assignedVm());
     const broker = {
       address: "/run/platformclaw/runtime.sock",
       issueForUser: vi.fn(),
@@ -112,15 +116,13 @@ describe("ExecutionHandoffService", () => {
   });
 
   it("does not issue a VM credential for the basic workspace", async () => {
-    const store: ControlPlaneExecutionRuntimeStore = {
-      resolvePersonalExecutionTarget: async () => ({
-        kind: "platform_server",
-        agentId: "person_one",
-        userId: "user-one",
-        targetId: "platform-server",
-        revision: 2,
-      }),
-    };
+    const store = executionStore(async () => ({
+      kind: "platform_server",
+      agentId: "person_one",
+      userId: "user-one",
+      targetId: "platform-server",
+      revision: 2,
+    }));
     const broker = {
       address: "/run/platformclaw/runtime.sock",
       issueForUser: vi.fn(),

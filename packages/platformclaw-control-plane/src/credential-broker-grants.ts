@@ -15,6 +15,8 @@ export type CredentialBrokerGrantResolver = () => Promise<ResolvedUserSshCredent
 type PendingGrant = {
   expiresAt: number;
   resolve: CredentialBrokerGrantResolver;
+  dispose?: () => void;
+  expiryTimer: ReturnType<typeof setTimeout>;
 };
 
 export type OneShotCredentialGrantStoreOptions = {
@@ -52,7 +54,7 @@ export class OneShotCredentialGrantStore {
     }
   }
 
-  issue(resolve: CredentialBrokerGrantResolver): CredentialBrokerGrant {
+  issue(resolve: CredentialBrokerGrantResolver, dispose?: () => void): CredentialBrokerGrant {
     const now = this.now();
     this.pruneExpired(now);
     if (this.pending.size >= this.maxPendingGrants) {
@@ -67,7 +69,14 @@ export class OneShotCredentialGrantStore {
       throw new ControlPlaneStateError("credential grant token collision");
     }
     const expiresAt = now + this.ttlMs;
-    this.pending.set(hash, { expiresAt, resolve });
+    const grant = {
+      expiresAt,
+      resolve,
+      dispose,
+      expiryTimer: setTimeout(() => this.disposePending(hash), this.ttlMs),
+    };
+    grant.expiryTimer.unref();
+    this.pending.set(hash, grant);
     return { token, expiresAt };
   }
 
@@ -79,10 +88,16 @@ export class OneShotCredentialGrantStore {
     }
     // Consume before resolving. Resolver failure must not make a bearer token reusable.
     this.pending.delete(hash);
-    if (grant.expiresAt <= this.now()) {
-      throw new ControlPlaneStateError("credential grant is invalid or expired");
+    clearTimeout(grant.expiryTimer);
+    let resolved: ResolvedUserSshCredential;
+    try {
+      if (grant.expiresAt <= this.now()) {
+        throw new ControlPlaneStateError("credential grant is invalid or expired");
+      }
+      resolved = await grant.resolve();
+    } finally {
+      grant.dispose?.();
     }
-    const resolved = await grant.resolve();
     if (!Buffer.isBuffer(resolved.password)) {
       throw new ControlPlaneStateError("credential grant resolver returned invalid bytes");
     }
@@ -98,18 +113,36 @@ export class OneShotCredentialGrantStore {
   }
 
   revoke(token: string): boolean {
-    return this.pending.delete(tokenHash(token));
+    const hash = tokenHash(token);
+    const grant = this.pending.get(hash);
+    if (!grant) {
+      return false;
+    }
+    this.disposePending(hash, grant);
+    return true;
   }
 
   clear(): void {
-    this.pending.clear();
+    for (const [hash, grant] of this.pending) {
+      this.disposePending(hash, grant);
+    }
   }
 
   private pruneExpired(now: number): void {
     for (const [hash, grant] of this.pending) {
       if (grant.expiresAt <= now) {
-        this.pending.delete(hash);
+        this.disposePending(hash, grant);
       }
     }
+  }
+
+  private disposePending(hash: string, expected?: PendingGrant): void {
+    const grant = this.pending.get(hash);
+    if (!grant || (expected && grant !== expected)) {
+      return;
+    }
+    this.pending.delete(hash);
+    clearTimeout(grant.expiryTimer);
+    grant.dispose?.();
   }
 }

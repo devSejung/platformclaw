@@ -60,11 +60,31 @@ export class SshCredentialBroker {
     });
   }
 
+  issueTransient(password: string): CredentialBrokerGrant {
+    this.server.assertAvailable();
+    const secret = Buffer.from(password, "utf8");
+    if (secret.length === 0) {
+      throw new Error("SSH credential must not be empty");
+    }
+    return this.grants.issue(
+      async () => ({ password: Buffer.from(secret), revision: 1 }),
+      () => secret.fill(0),
+    );
+  }
+
+  revoke(token: string): boolean {
+    return this.grants.revoke(token);
+  }
+
   listen(): Promise<void> {
     return this.server.listen();
   }
 
-  close(): Promise<void> {
-    return this.server.close();
+  async close(): Promise<void> {
+    try {
+      await this.server.close();
+    } finally {
+      this.grants.clear();
+    }
   }
 }

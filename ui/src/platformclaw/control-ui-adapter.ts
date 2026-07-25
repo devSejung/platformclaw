@@ -1,6 +1,7 @@
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
+import { mountPlatformClawExecutionSettings } from "./execution-settings.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -76,6 +77,7 @@ function browserSessionStorage(): Pick<Storage, "removeItem"> | null {
 
 export class PlatformClawControlUiAdapter {
   private sessionCheck: Promise<PlatformClawSessionCheck> | null = null;
+  private disposeExecutionSettings = () => {};
 
   constructor(
     readonly descriptor: PlatformClawWebDescriptor,
@@ -127,6 +129,22 @@ export class PlatformClawControlUiAdapter {
     };
   }
 
+  mountExecutionSettings(): void {
+    this.disposeExecutionSettings();
+    this.disposeExecutionSettings = mountPlatformClawExecutionSettings({
+      fetchImpl: this.fetchImpl,
+      onUnauthenticated: () => {
+        this.clearBrowserSessionState();
+        this.redirectToLogin(true);
+      },
+    });
+  }
+
+  dispose(): void {
+    this.disposeExecutionSettings();
+    this.disposeExecutionSettings = () => {};
+  }
+
   async logout(stopApplication: () => void): Promise<void> {
     try {
       await this.fetchImpl(this.descriptor.logoutPath, {
@@ -136,6 +154,7 @@ export class PlatformClawControlUiAdapter {
     } catch {
       // Local teardown and navigation must not depend on the logout response.
     } finally {
+      this.dispose();
       stopApplication();
       this.clearBrowserSessionState();
       this.redirectToLogin(false);

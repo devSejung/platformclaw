@@ -14,10 +14,13 @@ import type {
   PlatformClawExecutionDependencies,
   PlatformClawExecutionTargetSnapshot,
 } from "./backend.js";
+import { PlatformClawVmAuthenticationError } from "./connection-errors.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 
 const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
 const EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
+const EXECUTION_CONNECTION_TARGET_PATH = "/platformclaw/internal/execution/connection-target";
+const EXECUTION_CHANGE_TARGET_PATH = "/platformclaw/internal/execution/change-target";
 const MAX_HANDOFF_RESPONSE_BYTES = 8 * 1024;
 
 function requireSingleLine(value: string, label: string): string {
@@ -57,12 +60,13 @@ function executionHandoffAddress(credentialBrokerAddress: string): string {
     : path.join(path.dirname(credentialBrokerAddress), "execution.sock");
 }
 
-async function resolveExecutionTarget(params: {
+async function callExecutionHandoff(params: {
   socketPath: string;
   serviceToken: string;
-  agentId: string;
+  path: string;
+  body: unknown;
 }): Promise<unknown> {
-  const payload = Buffer.from(JSON.stringify({ agentId: params.agentId }));
+  const payload = Buffer.from(JSON.stringify(params.body));
   return await new Promise<unknown>((resolve, reject) => {
     let settled = false;
     const fail = (error: Error): void => {
@@ -74,7 +78,7 @@ async function resolveExecutionTarget(params: {
     const req = request(
       {
         socketPath: params.socketPath,
-        path: EXECUTION_TARGET_PATH,
+        path: params.path,
         method: "POST",
         headers: {
           authorization: `Bearer ${params.serviceToken}`,
@@ -122,7 +126,7 @@ async function resolveExecutionTarget(params: {
   });
 }
 
-function parseTarget(value: unknown): PlatformClawExecutionTargetSnapshot {
+export function parseTarget(value: unknown): PlatformClawExecutionTargetSnapshot {
   if (!value || typeof value !== "object") {
     throw new Error("execution target is invalid");
   }
@@ -199,6 +203,7 @@ function safeConnectConfig(target: AssignedVmTargetSnapshot): string {
 export async function createSafeConnectSession(
   target: AssignedVmTargetSnapshot,
   launcher = "/usr/local/bin/platformclaw-sshpass",
+  options: { credentialGrantToken?: string } = {},
 ): Promise<SshSandboxSession> {
   const session = await createSshSandboxSessionFromConfigText({
     configText: safeConnectConfig(target),
@@ -224,6 +229,14 @@ export async function createSafeConnectSession(
           agentId: target.agentId,
           allocationId: target.allocationId,
           targetRevision: target.revision,
+          ...(options.credentialGrantToken
+            ? {
+                credentialGrantToken: requireSshToken(
+                  options.credentialGrantToken,
+                  "credential grant",
+                ),
+              }
+            : {}),
         }),
         { mode: 0o600 },
       ),
@@ -243,7 +256,21 @@ export async function createSafeConnectSession(
 
 export async function createExecutionDependenciesFromEnvironment(
   env: NodeJS.ProcessEnv = process.env,
-): Promise<PlatformClawExecutionDependencies> {
+): Promise<
+  PlatformClawExecutionDependencies & {
+    testConnection(params: { agentId: string; credentialGrantToken: string }): Promise<{
+      allocationId: string;
+      targetRevision: number;
+      remoteHomeDir: string;
+      remoteWorkspaceDir: string;
+    }>;
+    changeTarget(params: {
+      agentId: string;
+      target: "platform_server" | "assigned_vm";
+      expectedRevision: number;
+    }): Promise<PlatformClawExecutionTargetSnapshot>;
+  }
+> {
   const brokerAddress = requireSingleLine(
     env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS ?? "",
     "credential broker address",
@@ -265,10 +292,11 @@ export async function createExecutionDependenciesFromEnvironment(
   return {
     resolveTarget: async ({ agentId }) => {
       return parseTarget(
-        await resolveExecutionTarget({
+        await callExecutionHandoff({
           socketPath: executionHandoffAddress(brokerAddress),
           serviceToken,
-          agentId,
+          path: EXECUTION_TARGET_PATH,
+          body: { agentId },
         }),
       );
     },
@@ -283,5 +311,72 @@ export async function createExecutionDependenciesFromEnvironment(
       }),
     listTargetSkills: async ({ refresh, target }) =>
       target.kind === "assigned_vm" ? await remoteSkills.list(target, refresh) : undefined,
+    testConnection: async ({ agentId, credentialGrantToken }) => {
+      const target = parseTarget(
+        await callExecutionHandoff({
+          socketPath: executionHandoffAddress(brokerAddress),
+          serviceToken,
+          path: EXECUTION_CONNECTION_TARGET_PATH,
+          body: { agentId },
+        }),
+      );
+      if (target.kind !== "assigned_vm") {
+        throw new Error("assigned VM connection target is unavailable");
+      }
+      const session = await createSafeConnectSession(
+        target,
+        "/usr/local/bin/platformclaw-sshpass",
+        {
+          credentialGrantToken,
+        },
+      );
+      try {
+        let result;
+        try {
+          result = await runSshSandboxCommand({
+            session,
+            remoteCommand:
+              'set -eu; test -n "$HOME"; mkdir -p -- "$HOME/.platformclaw/workspace"; printf \'%s\\n%s\\n\' "$HOME" "$(id -un)"',
+            signal: AbortSignal.timeout(7_000),
+            maxBufferBytes: 4 * 1024,
+          });
+        } catch (error) {
+          // sshpass exit 5 specifically means invalid/expired credentials. Infrastructure,
+          // broker, host-key, and transport failures must not invalidate a healthy VM target.
+          if ((error as { code?: unknown }).code === 5) {
+            throw new PlatformClawVmAuthenticationError();
+          }
+          throw error;
+        }
+        const [remoteHomeDir, remoteUser, ...extra] = result.stdout
+          .toString("utf8")
+          .trimEnd()
+          .split("\n");
+        if (
+          extra.length > 0 ||
+          !remoteHomeDir?.startsWith("/") ||
+          remoteUser !== target.linuxAccount
+        ) {
+          throw new Error("assigned VM identity response is invalid");
+        }
+        return {
+          allocationId: target.allocationId,
+          targetRevision: target.revision,
+          remoteHomeDir,
+          remoteWorkspaceDir: path.posix.join(remoteHomeDir, ".platformclaw/workspace"),
+        };
+      } finally {
+        await disposeSshSandboxSession(session);
+      }
+    },
+    changeTarget: async ({ agentId, target, expectedRevision }) =>
+      parseTarget(
+        await callExecutionHandoff({
+          socketPath: executionHandoffAddress(brokerAddress),
+          serviceToken,
+          path: EXECUTION_CHANGE_TARGET_PATH,
+          body: { agentId, target, expectedRevision },
+        }),
+      ),
   };
 }

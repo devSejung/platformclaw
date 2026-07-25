@@ -9,13 +9,21 @@ import type {
   ControlPlaneStore,
   EnterprisePrincipal,
 } from "./contracts.js";
-import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
+import type {
+  ControlPlaneEmployeeExecutionStore,
+  ControlPlaneExecutionManagementStore,
+  ControlPlaneExecutionTargetStore,
+} from "./execution-contracts.js";
 import { InMemoryControlPlaneStore } from "./memory-store.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
 
-type ExecutionTestStore = ControlPlaneStore &
+type ExecutionManagementTestStore = ControlPlaneStore &
   ControlPlaneExecutionManagementStore &
   ControlPlaneAuditReader & { close?: () => void };
+
+type ExecutionTestStore = ExecutionManagementTestStore &
+  ControlPlaneEmployeeExecutionStore &
+  ControlPlaneExecutionTargetStore;
 
 const temporaryDirectories: string[] = [];
 
@@ -60,7 +68,7 @@ function principal(accountId: string): EnterprisePrincipal {
   };
 }
 
-function createMemoryStore(): ExecutionTestStore {
+function createMemoryStore(): ExecutionManagementTestStore {
   return new InMemoryControlPlaneStore({
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
     initialAdminAccountIds: ["admin.user"],
@@ -79,7 +87,7 @@ function createSqliteStore(): ExecutionTestStore {
   });
 }
 
-async function createActivePersonalAgent(store: ExecutionTestStore, accountId: string) {
+async function createActivePersonalAgent(store: ExecutionManagementTestStore, accountId: string) {
   const { user } = await store.upsertPrincipal(principal(accountId), 1_000);
   const reserved = await store.reservePersonalAgent(user.id, 2_000);
   const binding = await store.transitionAgent({
@@ -90,7 +98,7 @@ async function createActivePersonalAgent(store: ExecutionTestStore, accountId: s
   return { user, binding };
 }
 
-async function prepareVm(store: ExecutionTestStore) {
+async function prepareVm(store: ExecutionManagementTestStore) {
   const admin = await createActivePersonalAgent(store, "admin.user");
   const endpoint = await store.createSafeConnectEndpoint({
     actorUserId: admin.user.id,
@@ -284,6 +292,95 @@ describe.each([
         createdAt: 8_003,
       }),
     ).rejects.toThrow("active administrator required");
+    store.close?.();
+  });
+});
+
+describe("SQLite employee execution store", () => {
+  it("prepares a VM and changes targets with an optimistic revision", async () => {
+    const store = createSqliteStore();
+    const { admin, host } = await prepareVm(store);
+    const employee = await createActivePersonalAgent(store, "person.one");
+    const allocation = await store.assignVmToPersonalAgent({
+      actorUserId: admin.user.id,
+      agentId: employee.binding.agentId,
+      vmHostId: host.id,
+      linuxAccount: "person.one",
+      assignedAt: 9_000,
+    });
+
+    await expect(
+      store.getPersonalExecutionSettings(employee.binding.agentId),
+    ).resolves.toMatchObject({
+      userId: employee.user.id,
+      activeTarget: "platform_server",
+      targetRevision: 0,
+      allocation: { id: allocation.id, status: "assigned", vmLabel: "Development VM" },
+    });
+    await expect(
+      store.changePersonalExecutionTarget({
+        agentId: employee.binding.agentId,
+        target: "assigned_vm",
+        expectedRevision: 0,
+        changedAt: 9_001,
+      }),
+    ).rejects.toThrow("not ready");
+
+    await expect(
+      store.recordVmConnectionResult({
+        actorUserId: employee.user.id,
+        agentId: employee.binding.agentId,
+        expectedAllocationId: "reassigned-allocation",
+        expectedTargetRevision: 0,
+        checkedAt: 9_001,
+        result: {
+          status: "ready",
+          remoteHomeDir: "/users/person.one",
+          remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "execution_target_conflict" });
+
+    await store.recordVmConnectionResult({
+      actorUserId: employee.user.id,
+      agentId: employee.binding.agentId,
+      expectedAllocationId: allocation.id,
+      expectedTargetRevision: 0,
+      checkedAt: 9_002,
+      result: {
+        status: "ready",
+        remoteHomeDir: "/users/person.one",
+        remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
+      },
+    });
+    await expect(
+      store.resolveAssignedVmConnectionTarget(employee.binding.agentId),
+    ).resolves.toMatchObject({
+      userId: employee.user.id,
+      allocationStatus: "ready",
+      linuxAccount: "person.one",
+    });
+    await expect(
+      store.changePersonalExecutionTarget({
+        agentId: employee.binding.agentId,
+        target: "assigned_vm",
+        expectedRevision: 0,
+        changedAt: 9_003,
+      }),
+    ).resolves.toMatchObject({ kind: "assigned_vm", revision: 1 });
+    expect(
+      (await store.listAuditEvents()).find(
+        (event) => event.eventType === "execution.target.changed",
+      ),
+    ).toMatchObject({ actorUserId: employee.user.id, targetId: employee.binding.id });
+    await expect(
+      store.changePersonalExecutionTarget({
+        agentId: employee.binding.agentId,
+        target: "platform_server",
+        expectedRevision: 0,
+        changedAt: 9_004,
+      }),
+    ).rejects.toMatchObject({ code: "execution_target_conflict" });
     store.close?.();
   });
 });

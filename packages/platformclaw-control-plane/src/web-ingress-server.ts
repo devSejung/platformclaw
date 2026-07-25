@@ -20,6 +20,10 @@ import {
   type JsonBodyReader,
 } from "./browser-auth-http.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
+import {
+  handlePlatformClawEmployeeExecutionRequest,
+  type EmployeeExecutionService,
+} from "./browser-execution-http.js";
 import { projectPlatformClawBrowserHello } from "./browser-gateway-hello.js";
 import {
   BrowserGatewayProxyError,
@@ -60,6 +64,7 @@ export type PlatformClawWebIngressOptions = {
   loginRateLimiter: BrowserLoginRateLimiter;
   gatewayProxy: PlatformClawBrowserGatewayPolicy;
   gateway: PlatformClawGatewayBackend;
+  executionService?: EmployeeExecutionService;
   webAssets?: PlatformClawWebAssetHandler;
   gatewayPath?: string;
   healthPath?: string;
@@ -291,6 +296,16 @@ export class PlatformClawWebIngressServer {
         rateLimiter: this.options.loginRateLimiter,
       });
       if (handled) {
+        return;
+      }
+      if (
+        this.options.executionService &&
+        (await handlePlatformClawEmployeeExecutionRequest(req, res, {
+          service: this.options.executionService,
+          readJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
         return;
       }
       const requestUrl = new URL(req.url ?? "/", this.publicOrigin);

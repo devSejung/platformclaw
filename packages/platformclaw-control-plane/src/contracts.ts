@@ -282,6 +282,7 @@ export type ControlPlaneConflictCode =
   | "safeconnect_endpoint_conflict"
   | "vm_host_conflict"
   | "vm_allocation_conflict"
+  | "execution_target_conflict"
   | "managed_scope_name_conflict"
   | "session_token_conflict";
 

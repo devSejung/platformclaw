@@ -36,7 +36,12 @@ async function startServer() {
       allocationId: "allocation-one",
       targetRevision: 4,
     })),
-  } satisfies Pick<ExecutionHandoffService, "resolveTarget" | "issueCredentialGrant">;
+    resolveConnectionTarget: vi.fn(),
+    changeTarget: vi.fn(),
+  } satisfies Pick<
+    ExecutionHandoffService,
+    "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
+  >;
   const root = await mkdtemp(join(tmpdir(), "platformclaw-handoff-"));
   roots.push(root);
   const socketPath =
@@ -95,6 +100,8 @@ describe("PlatformClawExecutionHandoffServer", () => {
         "replacement-token-that-is-at-least-32-bytes",
         {
           resolveTarget: vi.fn(),
+          resolveConnectionTarget: vi.fn(),
+          changeTarget: vi.fn(),
           issueCredentialGrant: vi.fn(),
         },
         socketPath,
@@ -138,7 +145,12 @@ describe("PlatformClawExecutionHandoffServer", () => {
           revision: 0,
         })),
         issueCredentialGrant: vi.fn(),
-      } satisfies Pick<ExecutionHandoffService, "resolveTarget" | "issueCredentialGrant">;
+        resolveConnectionTarget: vi.fn(),
+        changeTarget: vi.fn(),
+      } satisfies Pick<
+        ExecutionHandoffService,
+        "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
+      >;
       const candidates = [
         new PlatformClawExecutionHandoffServer(
           "shared-service-token-that-is-at-least-32-bytes",

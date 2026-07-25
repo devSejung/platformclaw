@@ -11,6 +11,7 @@ type SshpassContext = {
   agentId: string;
   allocationId: string;
   targetRevision: number;
+  credentialGrantToken?: string;
 };
 
 function requiredEnv(name: string): string {
@@ -42,7 +43,12 @@ async function run(): Promise<number> {
     deriveExecutionHandoffAddress(requiredEnv("PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS")),
     token,
   );
-  const grant = await client.issueCredentialGrant(context);
+  const grant = context.credentialGrantToken
+    ? {
+        brokerAddress: requiredEnv("PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS"),
+        token: context.credentialGrantToken,
+      }
+    : await client.issueCredentialGrant(context);
   const credential = await redeemLocalCredentialGrant({
     address: grant.brokerAddress,
     token: grant.token,

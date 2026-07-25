@@ -9,12 +9,16 @@ import type { ExecutionHandoffService } from "./execution-handoff-service.js";
 
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
 export const PLATFORMCLAW_EXECUTION_GRANT_PATH = "/platformclaw/internal/execution/grant";
+export const PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH =
+  "/platformclaw/internal/execution/connection-target";
+export const PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH =
+  "/platformclaw/internal/execution/change-target";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
 type ExecutionHandoffHandler = Pick<
   ExecutionHandoffService,
-  "resolveTarget" | "issueCredentialGrant"
+  "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
 >;
 
 export function deriveExecutionHandoffAddress(credentialBrokerAddress: string): string {
@@ -268,7 +272,9 @@ export class PlatformClawExecutionHandoffServer {
       const pathname = new URL(req.url ?? "/", "http://platformclaw.internal").pathname;
       if (
         pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH &&
-        pathname !== PLATFORMCLAW_EXECUTION_GRANT_PATH
+        pathname !== PLATFORMCLAW_EXECUTION_GRANT_PATH &&
+        pathname !== PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH &&
+        pathname !== PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH
       ) {
         sendJson(res, 404, { error: "not found" });
         return;
@@ -277,6 +283,31 @@ export class PlatformClawExecutionHandoffServer {
       const agentId = requestAgentId(body);
       if (pathname === PLATFORMCLAW_EXECUTION_TARGET_PATH) {
         sendJson(res, 200, await this.service.resolveTarget(agentId));
+        return;
+      }
+      if (pathname === PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH) {
+        sendJson(res, 200, await this.service.resolveConnectionTarget(agentId));
+        return;
+      }
+      if (pathname === PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH) {
+        const target = body.target;
+        const expectedRevision = body.expectedRevision;
+        if (
+          (target !== "platform_server" && target !== "assigned_vm") ||
+          typeof expectedRevision !== "number"
+        ) {
+          throw new Error("invalid execution target change");
+        }
+        sendJson(
+          res,
+          200,
+          await this.service.changeTarget({
+            agentId,
+            target,
+            expectedRevision,
+            changedAt: Date.now(),
+          }),
+        );
         return;
       }
       if (pathname === PLATFORMCLAW_EXECUTION_GRANT_PATH) {
