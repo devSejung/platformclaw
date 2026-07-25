@@ -226,6 +226,33 @@ describe("PlatformClaw Docker runtime", () => {
     expect(smoke).not.toContain('chmod 0600 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
   });
 
+  it("provides a persistent, manually resettable Windows VM preview", () => {
+    const preview = readRepoFile("scripts/platformclaw-vm-preview.ps1");
+    const previewCompose = parse(
+      readRepoFile("docker/platformclaw-runtime/compose.preview.yaml"),
+    ) as ComposeConfig;
+
+    expect(preview).toContain('[ValidateSet("Menu", "Start", "Stop", "Status", "Logs", "Reset")]');
+    expect(preview).toContain('"platformclaw-vm-preview"');
+    expect(preview).toContain("safeconnect.platformclaw.test");
+    expect(preview).toContain("platformclaw-safeconnect-fixture-password");
+    expect(preview).toContain('Invoke-Compose @("down", "--volumes", "--remove-orphans")');
+    expect(preview).toContain("Refusing to reset an unmarked or broad path");
+    expect(preview).toContain("existing non-empty, unmarked data root");
+    expect(preview).toContain("$manifest.runtimeImageId -eq $runtimeImageId");
+    expect(preview).toContain("$archivedImageId -ne $sandboxImageId");
+    expect(preview).toContain("Get-RunningControlImageId");
+    expect(preview).toContain("The source image changed; recreating the preview containers");
+    expect(preview).toContain("compose.preview.yaml");
+    expect(previewCompose.services["sandbox-docker-init"]?.command?.join("\n")).toContain(
+      ".platformclaw-initialized",
+    );
+    expect(preview).toContain('"$($Paths.SandboxTar).tmp-$PID"');
+    expect(preview).not.toContain("AllowDirty");
+    expect(preview).not.toContain("Remove-Item -LiteralPath $resolved -Recurse");
+    expect(preview).not.toContain("PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY=");
+  });
+
   it("keeps the HTTP employee auth mock on the control loopback", () => {
     const smokeCompose = parse(
       readRepoFile("docker/platformclaw-runtime/compose.smoke.yaml"),

@@ -1,0 +1,13 @@
+services:
+  # The manual preview preserves volumes across Stop/Start. Initialize ownership
+  # once; rootless Docker later creates subordinate-UID paths that must not be
+  # recursively chowned by a subsequent Compose start.
+  sandbox-docker-init:
+    command:
+      - |
+        marker=/run/user/1000/.platformclaw-initialized
+        if [ -f "$$marker" ]; then
+          exit 0
+        fi
+        touch "$$marker"
+        chown -R 1000:1000 /run/user/1000 /home/rootless/.local/share/docker
