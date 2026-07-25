@@ -58,8 +58,12 @@ export function registerPlatformClawExecutionGateway(
           return;
         }
         const failure = error as { code?: unknown; exitCode?: unknown; name?: unknown };
+        const message =
+          error instanceof Error
+            ? error.message.replaceAll(/[\r\n\t]+/g, " ").slice(0, 500)
+            : "unknown";
         api.logger.warn?.(
-          `platformclaw-execution: VM connection test failed name=${String(failure?.name ?? "unknown")} code=${String(failure?.code ?? "unknown")} exitCode=${String(failure?.exitCode ?? "unknown")}`,
+          `platformclaw-execution: VM connection test failed name=${String(failure?.name ?? "unknown")} code=${String(failure?.code ?? "unknown")} exitCode=${String(failure?.exitCode ?? "unknown")} message=${message}`,
         );
         respond(false, undefined, {
           code: "UNAVAILABLE",

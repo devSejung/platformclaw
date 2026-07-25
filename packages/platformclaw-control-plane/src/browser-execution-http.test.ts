@@ -115,7 +115,7 @@ describe("EmployeeExecutionService", () => {
     ).rejects.toMatchObject({ statusCode: 400, message: "AD password is required" });
 
     const rejected = createHarness();
-    rejected.adminRpc.call.mockRejectedValueOnce(
+    rejected.adminRpcCall.mockRejectedValueOnce(
       new GatewayAdminRpcError("development VM authentication failed", "INVALID_REQUEST", 400, {
         kind: "vm_authentication_failed",
       }),
