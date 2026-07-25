@@ -803,6 +803,8 @@ async function compactEmbeddedAgentSessionDirectOnce(
       skillsWorkspaceDir: effectiveSkillsWorkspace,
       workspaceOnly: loadSkillsWorkspaceOnly,
     } = resolveSandboxSkillRuntimeInputs({
+      agentId: effectiveSkillAgentId,
+      config: params.config,
       sandbox,
       effectiveWorkspace,
       skillsSnapshot: params.skillsSnapshot,

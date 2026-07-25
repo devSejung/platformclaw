@@ -969,9 +969,7 @@ export function wrapReadToolWithSkillContent(
 ): AnyAgentTool {
   const contentByPath = new Map(
     (skills ?? []).flatMap((skill) =>
-      skill.filePath.startsWith("node://") && typeof skill.readContent === "string"
-        ? [[skill.filePath, skill.readContent] as const]
-        : [],
+      typeof skill.readContent === "string" ? [[skill.filePath, skill.readContent] as const] : [],
     ),
   );
   if (contentByPath.size === 0) {

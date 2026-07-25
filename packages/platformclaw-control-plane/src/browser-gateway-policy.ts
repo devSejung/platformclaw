@@ -144,7 +144,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     ]),
   ],
   ["sessions.search", new Set(["agentId", "sessionKeys", "query", "limit"])],
-  ["skills.status", new Set(["agentId"])],
+  ["skills.status", new Set(["agentId", "refresh"])],
   ["tasks.cancel", new Set(["taskId", "reason"])],
   ["tasks.get", new Set(["taskId"])],
   ["tasks.list", new Set(["status", "agentId", "sessionKey", "limit", "cursor"])],

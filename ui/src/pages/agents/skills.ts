@@ -13,7 +13,7 @@ type AgentSkillsState = {
   agentSkillsAgentId: string | null;
 };
 
-export async function loadAgentSkills(state: AgentSkillsState, agentId: string) {
+export async function loadAgentSkills(state: AgentSkillsState, agentId: string, refresh = false) {
   const client = state.client;
   if (!client || !state.connected) {
     return;
@@ -27,7 +27,7 @@ export async function loadAgentSkills(state: AgentSkillsState, agentId: string) 
   state.agentSkillsLoading = true;
   state.agentSkillsError = null;
   try {
-    const res = await loadSkillStatusReport(client, agentId);
+    const res = await loadSkillStatusReport(client, agentId, refresh);
     if (res && isCurrent()) {
       state.agentSkillsReport = res;
       state.agentSkillsAgentId = agentId;

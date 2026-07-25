@@ -65,6 +65,8 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
   matching-key restart proof implemented
 - One-shot credential grants and bounded local Unix-socket/Windows named-pipe
   broker implemented; authenticated Gateway handoff remains pending
+- Assigned-VM remote skill discovery, immutable run snapshots, and explicit
+  Skills UI refresh implemented through the generic sandbox backend seam
 - PlatformClaw Web login, authenticated Control UI hosting, fixed same-origin
   Gateway adapter, restricted employee routes, identity/logout shell, and
   Windows mocked-browser proof implemented

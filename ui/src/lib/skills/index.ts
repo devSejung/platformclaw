@@ -10,6 +10,9 @@ import type {
   SkillStatusEntry,
   SkillStatusReport,
 } from "../../api/types.ts";
+import { loadSkillStatusReport } from "./status.ts";
+
+export { loadSkillStatusReport } from "./status.ts";
 
 export type ClawHubSearchResult = {
   score: number;
@@ -199,21 +202,9 @@ function currentSkillCardCacheKey(state: SkillsState, skillKey: string): string 
   return skill ? skillCardCacheKey(skill) : undefined;
 }
 
-function skillsAgentParams(agentId: string | null | undefined): { agentId?: string } {
-  const normalized = agentId?.trim();
-  return normalized ? { agentId: normalized } : {};
-}
-
 function stateSkillsAgentParams(state: Pick<SkillsState, "skillsAgentId">): { agentId?: string } {
   const agentId = state.skillsAgentId?.trim();
   return agentId ? { agentId } : {};
-}
-
-export async function loadSkillStatusReport(
-  client: GatewayBrowserClient,
-  agentId: string | null | undefined,
-): Promise<SkillStatusReport | undefined> {
-  return client.request<SkillStatusReport | undefined>("skills.status", skillsAgentParams(agentId));
 }
 
 type SkillsAgentScope = {
@@ -307,6 +298,7 @@ export async function loadSkills(
   options?: {
     clearMessages?: boolean;
     operation?: Exclude<SkillOperation, null>;
+    refresh?: boolean;
   },
 ) {
   const client = state.client;
@@ -330,7 +322,7 @@ export async function loadSkills(
   state.skillsLoading = true;
   state.skillsError = null;
   try {
-    const res = await loadSkillStatusReport(client, state.skillsAgentId);
+    const res = await loadSkillStatusReport(client, state.skillsAgentId, options?.refresh === true);
     if (!isCurrent()) {
       return;
     }
@@ -358,13 +350,14 @@ async function loadCurrentSkillsForOperation(
   client: GatewayBrowserClient,
   operation: ActiveSkillOperation,
   clearMessages = false,
+  refresh = false,
 ) {
   let shouldClearMessages = clearMessages;
   // Reconciliation can change scope while a status request is pending. Keep
   // the operation owner until one response belongs to the current scope.
   while (ownsSkillOperation(state, client, operation)) {
     const scope = captureSkillsAgentScope(state);
-    await loadSkills(state, { clearMessages: shouldClearMessages, operation });
+    await loadSkills(state, { clearMessages: shouldClearMessages, operation, refresh });
     shouldClearMessages = false;
     if (!ownsSkillOperation(state, client, operation) || isSkillsAgentScopeCurrent(state, scope)) {
       return;
@@ -386,7 +379,7 @@ export async function refreshSkills(state: SkillsState, loadAgents: () => Promis
     if (!ownsSkillOperation(state, client, operation)) {
       return;
     }
-    await loadCurrentSkillsForOperation(state, client, operation, true);
+    await loadCurrentSkillsForOperation(state, client, operation, true, true);
   } finally {
     releaseSkillOperation(state, operation);
   }

@@ -14,6 +14,7 @@ export { ensureSandboxWorkspaceForSession, resolveSandboxContext } from "./sandb
 export {
   getSandboxBackendFactory,
   getSandboxBackendManager,
+  getSandboxBackendSkillProvider,
   getSandboxBackendWorkdirResolver,
   registerSandboxBackend,
   requireSandboxBackendFactory,
@@ -67,6 +68,9 @@ export type {
   SandboxBackendPreparedWorkdirDiscarder,
   SandboxBackendRegistration,
   SandboxBackendRuntimeInfo,
+  SandboxBackendSkillCatalog,
+  SandboxBackendSkillFile,
+  SandboxBackendSkillProvider,
   SandboxBackendWorkdirValidation,
   SandboxBackendWorkdirResolver,
   SandboxBackendWorkdirValidator,

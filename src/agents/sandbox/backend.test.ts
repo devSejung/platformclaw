@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   getSandboxBackendFactory,
   getSandboxBackendManager,
+  getSandboxBackendSkillProvider,
   getSandboxBackendWorkdirResolver,
   registerSandboxBackend,
 } from "./backend.js";
@@ -54,5 +55,16 @@ describe("sandbox backend registry", () => {
     expect(getSandboxBackendWorkdirResolver("test-workdir")).toBe(resolveWorkdir);
     restore();
     expect(getSandboxBackendWorkdirResolver("test-workdir")).toBeNull();
+  });
+
+  it("registers target-owned skill providers alongside factories", () => {
+    const factory = async () => {
+      throw new Error("not used");
+    };
+    const skills = async () => undefined;
+    const restore = registerSandboxBackend("test-skills", { factory, skills });
+    expect(getSandboxBackendSkillProvider("test-skills")).toBe(skills);
+    restore();
+    expect(getSandboxBackendSkillProvider("test-skills")).toBeNull();
   });
 });

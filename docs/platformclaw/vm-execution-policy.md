@@ -292,6 +292,15 @@ unchanged. Discovery happens at connect/reconnect, cache invalidation, or an
 explicit UI refresh. One immutable snapshot is used per run. The first release
 has no per-agent allowlist because VM global skills are administrator-approved.
 
+VM discovery precedence is remote workspace `skills`, remote workspace
+`.agents/skills`, user `.agents/skills`, user `.openclaw/skills`, then the
+administrator-managed directory. The first matching skill name wins. Discovery
+uses the existing SafeConnect session and requires the approved Ubuntu VM base
+tools (`bash`, `find`, `stat`, and `base64`); it does not copy skill trees on
+each run. The Gateway caches only bounded `SKILL.md` content and paths. The
+normal read tool serves that exact immutable content, while referenced scripts
+execute from their existing absolute VM paths.
+
 ## Upstream synchronization gate
 
 Every `sync/upstream-YYYYMMDD` change must read this page before resolving

@@ -49,6 +49,8 @@ export function prepareEmbeddedAttemptSkills(params: {
     skillsWorkspaceDir,
     workspaceOnly,
   } = resolveSandboxSkillRuntimeInputs({
+    agentId: params.sessionAgentId,
+    config: params.attempt.config,
     sandbox: params.sandbox,
     effectiveWorkspace: params.effectiveWorkspace,
     skillsSnapshot: params.attempt.skillsSnapshot,

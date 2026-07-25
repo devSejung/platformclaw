@@ -713,7 +713,7 @@ describe("skill mutations", () => {
     await refresh;
 
     expect(request).toHaveBeenCalledOnce();
-    expect(request).toHaveBeenCalledWith("skills.status", {});
+    expect(request).toHaveBeenCalledWith("skills.status", { refresh: true });
     expect(state.skillOperation).toBeNull();
   });
 
@@ -751,8 +751,8 @@ describe("skill mutations", () => {
     await refresh;
 
     expect(request.mock.calls).toEqual([
-      ["skills.status", { agentId: "alpha" }],
-      ["skills.status", { agentId: "beta" }],
+      ["skills.status", { agentId: "alpha", refresh: true }],
+      ["skills.status", { agentId: "beta", refresh: true }],
     ]);
     expect(state.skillsReport?.workspaceDir).toBe("/tmp/beta");
     expect(state.skillOperation).toBeNull();

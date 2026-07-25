@@ -46,6 +46,8 @@ export type RunSshSandboxCommandParams = {
   allowFailure?: boolean;
   signal?: AbortSignal;
   tty?: boolean;
+  /** Optional command-specific cap, bounded by the sandbox-wide maximum. */
+  maxBufferBytes?: number;
 };
 
 function normalizeInlineSshMaterial(contents: string, filename: string): string {
@@ -674,6 +676,12 @@ export async function disposeSshSandboxSession(session: SshSandboxSession): Prom
 export async function runSshSandboxCommand(
   params: RunSshSandboxCommandParams,
 ): Promise<SandboxBackendCommandResult> {
+  if (
+    params.maxBufferBytes !== undefined &&
+    (!Number.isSafeInteger(params.maxBufferBytes) || params.maxBufferBytes < 1)
+  ) {
+    throw new Error("SSH command maxBufferBytes must be a positive safe integer");
+  }
   const argv = buildSshSandboxArgv({
     session: params.session,
     remoteCommand: params.remoteCommand,
@@ -689,7 +697,10 @@ export async function runSshSandboxCommand(
     cancelSignal: params.signal,
     encoding: "buffer",
     input: params.stdin ?? Buffer.alloc(0),
-    maxBuffer: SANDBOX_COMMAND_MAX_BUFFER_BYTES,
+    maxBuffer: Math.min(
+      SANDBOX_COMMAND_MAX_BUFFER_BYTES,
+      params.maxBufferBytes ?? SANDBOX_COMMAND_MAX_BUFFER_BYTES,
+    ),
     reject: false,
     stripFinalNewline: false,
   });

@@ -5,6 +5,12 @@
  * copies instead of reusing host-path snapshots.
  */
 import path from "node:path";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { buildWorkspaceSkillSnapshot } from "../../skills/loading/workspace.js";
+import {
+  prepareSandboxBackendSkillEntries,
+  resolveSandboxBackendSkillEligibility,
+} from "../../skills/runtime/sandbox-backend-skills.js";
 import type { SkillEligibilityContext, SkillSnapshot, SkillUsagePath } from "../../skills/types.js";
 import type { SkillEntry } from "../../skills/types.js";
 import type { SandboxContext } from "../sandbox/types.js";
@@ -14,7 +20,11 @@ type SandboxSkillRuntimeContext = Pick<SandboxContext, "enabled"> &
   Partial<
     Pick<
       SandboxContext,
-      "skillsEligibility" | "skillsWorkspaceDir" | "containerWorkdir" | "workspaceAccess"
+      | "backend"
+      | "skillsEligibility"
+      | "skillsWorkspaceDir"
+      | "containerWorkdir"
+      | "workspaceAccess"
     >
   >;
 
@@ -124,6 +134,8 @@ export function mapSandboxSkillUsagePaths(params: {
 }
 
 export function resolveSandboxSkillRuntimeInputs(params: {
+  agentId?: string;
+  config?: OpenClawConfig;
   sandbox?: SandboxSkillRuntimeContext | null;
   effectiveWorkspace: string;
   skillsSnapshot?: SkillSnapshot;
@@ -145,12 +157,26 @@ export function resolveSandboxSkillRuntimeInputs(params: {
             ...MATERIALIZED_SKILLS_WORKSPACE_CONTAINER_PARTS,
           )
         : (params.sandbox.containerWorkdir ?? skillsWorkspaceDir);
+    const backendCatalog = params.sandbox.backend?.skillCatalog;
+    const backendEligibility = backendCatalog
+      ? resolveSandboxBackendSkillEligibility(backendCatalog)
+      : undefined;
+    const backendSnapshot = backendCatalog
+      ? buildWorkspaceSkillSnapshot(skillsWorkspaceDir, {
+          config: params.config,
+          agentId: params.agentId,
+          entries: prepareSandboxBackendSkillEntries(backendCatalog),
+          ...(backendEligibility ? { eligibility: { remote: backendEligibility } } : {}),
+        })
+      : undefined;
     return {
-      ...(params.sandbox.skillsEligibility
-        ? { skillsEligibility: params.sandbox.skillsEligibility }
-        : {}),
+      ...(backendEligibility
+        ? { skillsEligibility: { remote: backendEligibility } }
+        : params.sandbox.skillsEligibility
+          ? { skillsEligibility: params.sandbox.skillsEligibility }
+          : {}),
       skillsPromptWorkspaceDir,
-      skillsSnapshot: undefined,
+      skillsSnapshot: backendSnapshot,
       skillsWorkspaceDir,
       workspaceOnly: true,
     };

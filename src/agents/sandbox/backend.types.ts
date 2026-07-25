@@ -5,6 +5,7 @@
  */
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { SandboxBackendHandle } from "./backend-handle.types.js";
+import type { SandboxBackendSkillCatalog } from "./backend-handle.types.js";
 import type { SandboxRegistryEntry } from "./registry.js";
 import type { SandboxConfig } from "./types.js";
 
@@ -50,6 +51,14 @@ export type SandboxBackendFactory = (
 /** Resolve the runtime workdir without creating or starting the backend. */
 export type SandboxBackendWorkdirResolver = (params: CreateSandboxBackendParams) => string;
 
+/** Lists target-owned skills without creating a run-scoped backend handle. */
+export type SandboxBackendSkillProvider = (params: {
+  agentId: string;
+  config: OpenClawConfig;
+  refresh: boolean;
+  workspaceDir: string;
+}) => Promise<SandboxBackendSkillCatalog | undefined>;
+
 /** Registry input accepted for sandbox backend registration. */
 export type SandboxBackendRegistration =
   | SandboxBackendFactory
@@ -57,6 +66,7 @@ export type SandboxBackendRegistration =
       factory: SandboxBackendFactory;
       manager?: SandboxBackendManager;
       resolveWorkdir?: SandboxBackendWorkdirResolver;
+      skills?: SandboxBackendSkillProvider;
     };
 
 /** Normalized backend registration stored in the sandbox backend registry. */
@@ -64,7 +74,12 @@ export type RegisteredSandboxBackend = {
   factory: SandboxBackendFactory;
   manager?: SandboxBackendManager;
   resolveWorkdir?: SandboxBackendWorkdirResolver;
+  skills?: SandboxBackendSkillProvider;
 };
 
 export type { SandboxBackendHandle, SandboxBackendId } from "./backend-handle.types.js";
 export type { SandboxBackendWorkdirValidation } from "./backend-handle.types.js";
+export type {
+  SandboxBackendSkillCatalog,
+  SandboxBackendSkillFile,
+} from "./backend-handle.types.js";

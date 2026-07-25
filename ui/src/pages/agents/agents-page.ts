@@ -886,7 +886,7 @@ class AgentsPage extends OpenClawLightDomElement implements AgentsState {
           onSkillsFilterChange: (next) => (this.skillsFilter = next),
           onSkillsRefresh: () => {
             if (selectedAgentId) {
-              void loadAgentSkills(this, selectedAgentId);
+              void loadAgentSkills(this, selectedAgentId, true);
             }
           },
           onAgentSkillToggle: (agentId, skillName, enabled) => {

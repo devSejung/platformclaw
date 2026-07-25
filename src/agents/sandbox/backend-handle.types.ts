@@ -39,6 +39,24 @@ export type SandboxBackendCommandResult = {
   code: number;
 };
 
+/** One skill file prepared by a backend that owns the execution filesystem. */
+export type SandboxBackendSkillFile = {
+  content: string;
+  filePath: string;
+  locationNote?: string;
+  source: string;
+};
+
+/** Immutable skill catalog pinned to the same target as one backend handle. */
+export type SandboxBackendSkillCatalog = {
+  revision: string;
+  files: readonly SandboxBackendSkillFile[];
+  eligibility?: {
+    bins: readonly string[];
+    platforms: readonly string[];
+  };
+};
+
 /** Runtime context passed to backend-provided filesystem bridge factories. */
 export type SandboxFsBridgeContext = {
   workspaceDir: string;
@@ -76,6 +94,8 @@ export type SandboxBackendHandle = {
   discardPreparedWorkdir?: SandboxBackendPreparedWorkdirDiscarder;
   /** Remote cwd roots managed by backend validation. Defaults to workdir. */
   workdirRoots?: readonly string[];
+  /** Replaces gateway-local discovery when the backend owns a remote filesystem. */
+  skillCatalog?: SandboxBackendSkillCatalog;
   capabilities?: {
     browser?: boolean;
   };

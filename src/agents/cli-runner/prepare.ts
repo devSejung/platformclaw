@@ -238,6 +238,8 @@ async function resolveCliSkillsPrompt(params: {
     skillsWorkspaceDir,
     workspaceOnly,
   } = resolveSandboxSkillRuntimeInputs({
+    agentId: params.agentId,
+    config: params.config,
     sandbox: {
       enabled: true,
       ...(sandboxWorkspace.containerWorkdir

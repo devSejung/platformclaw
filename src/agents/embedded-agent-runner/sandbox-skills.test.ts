@@ -7,6 +7,7 @@ import { createSyntheticSourceInfo } from "../../skills/loading/skill-contract.j
 import { resolveSkillsPromptForRun } from "../../skills/loading/workspace.js";
 import { resolveEmbeddedRunSkillEntries } from "../../skills/runtime/embedded-run-entries.js";
 import type { SkillSnapshot } from "../../skills/types.js";
+import type { SandboxBackendHandle } from "../sandbox/backend-handle.types.js";
 import {
   mapSandboxSkillEntriesForPrompt,
   mapSandboxSkillUsagePaths,
@@ -94,6 +95,32 @@ describe("resolveSandboxSkillRuntimeInputs", () => {
       skillsWorkspaceDir: "/workspace",
       workspaceOnly: true,
     });
+  });
+
+  it("replaces gateway-local skills with the backend catalog for one run", () => {
+    const backend = {
+      skillCatalog: {
+        revision: "vm-one:3",
+        files: [
+          {
+            source: "platformclaw-vm-managed",
+            filePath: "/opt/platformclaw/skills/release/SKILL.md",
+            content: "---\nname: release\ndescription: Release safely\n---\nRun it.",
+          },
+        ],
+      },
+    } as unknown as SandboxBackendHandle;
+
+    const result = resolveSandboxSkillRuntimeInputs({
+      agentId: "person_one",
+      sandbox: { enabled: true, backend },
+      effectiveWorkspace: "/workspace",
+      skillsSnapshot: snapshot,
+    });
+
+    expect(result.skillsSnapshot?.prompt).toContain("/opt/platformclaw/skills/release/SKILL.md");
+    expect(result.skillsSnapshot?.prompt).not.toContain(hostSkillPath);
+    expect(result.skillsSnapshot?.resolvedSkills?.[0]?.readContent).toContain("Run it.");
   });
 
   it("maps materialized read paths while preserving original file identities", () => {

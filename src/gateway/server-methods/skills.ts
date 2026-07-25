@@ -23,6 +23,8 @@ import {
   validateSkillsUpdateParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { resolveNodeExecEligibility } from "../../agents/exec-defaults.js";
+import { getSandboxBackendSkillProvider } from "../../agents/sandbox/backend.js";
+import { resolveSandboxConfigForAgent } from "../../agents/sandbox/config.js";
 import { listAgentWorkspaceDirs } from "../../agents/workspace-dirs.js";
 import { redactConfigObject } from "../../config/redact-snapshot.js";
 import { fetchClawHubSkillDetail } from "../../infra/clawhub.js";
@@ -41,6 +43,10 @@ import { installSkill } from "../../skills/lifecycle/install.js";
 import { installUploadedSkillArchive } from "../../skills/lifecycle/upload-install.js";
 import { loadWorkspaceSkillEntries } from "../../skills/loading/workspace.js";
 import { getRemoteSkillEligibility } from "../../skills/runtime/remote.js";
+import {
+  prepareSandboxBackendSkillEntries,
+  resolveSandboxBackendSkillEligibility,
+} from "../../skills/runtime/sandbox-backend-skills.js";
 import {
   collectClawHubVerdictTargets,
   fetchOpenClawSkillSecurityVerdicts,
@@ -103,19 +109,55 @@ function installClawHubSkillDeduped(params: ClawHubInstallParams): Promise<ClawH
   return install;
 }
 
-function buildRemoteAwareWorkspaceSkillStatus(resolved: ResolvedSkillsWorkspace) {
+async function buildRemoteAwareWorkspaceSkillStatus(
+  resolved: ResolvedSkillsWorkspace,
+  refresh = false,
+) {
   // Remote skill availability depends on the agent's executable-node surface,
   // not only the workspace contents, so status reports include live eligibility.
   const nodeSkills = resolveNodeExecEligibility({
     cfg: resolved.cfg,
     agentId: resolved.agentId,
   });
+  const sandboxConfig = resolveSandboxConfigForAgent(resolved.cfg, resolved.agentId);
+  const backendCatalog =
+    // Status represents every skill this agent can receive. `non-main` still enables the
+    // backend for non-main sessions, so only an explicitly disabled sandbox is local-only.
+    sandboxConfig.mode !== "off"
+      ? await getSandboxBackendSkillProvider(sandboxConfig.backend)?.({
+          agentId: resolved.agentId,
+          config: resolved.cfg,
+          refresh,
+          workspaceDir: resolved.workspaceDir,
+        })
+      : undefined;
+  const backendEligibility = backendCatalog
+    ? resolveSandboxBackendSkillEligibility(backendCatalog)
+    : undefined;
+  const localEligibility = getRemoteSkillEligibility({ advertiseExecNode: nodeSkills.canExec });
+  if (sandboxConfig.mode === "non-main" && backendCatalog) {
+    // `non-main` exposes two real execution surfaces. Build each side against its own
+    // requirements, then report both instead of evaluating local skills as VM skills.
+    const local = buildWorkspaceSkillStatus(resolved.workspaceDir, {
+      config: resolved.cfg,
+      agentId: resolved.agentId,
+      eligibility: { nodeSkills, remote: localEligibility },
+    });
+    const backend = buildWorkspaceSkillStatus(resolved.workspaceDir, {
+      config: resolved.cfg,
+      agentId: resolved.agentId,
+      entries: prepareSandboxBackendSkillEntries(backendCatalog),
+      eligibility: { nodeSkills, remote: backendEligibility },
+    });
+    return { ...local, skills: [...local.skills, ...backend.skills] };
+  }
   return buildWorkspaceSkillStatus(resolved.workspaceDir, {
     config: resolved.cfg,
     agentId: resolved.agentId,
+    ...(backendCatalog ? { entries: prepareSandboxBackendSkillEntries(backendCatalog) } : {}),
     eligibility: {
       nodeSkills,
-      remote: getRemoteSkillEligibility({ advertiseExecNode: nodeSkills.canExec }),
+      remote: backendEligibility ?? localEligibility,
     },
   });
 }
@@ -182,7 +224,7 @@ async function forwardSkillWorkshopRevisionToChatSend(
 export const skillsHandlers: GatewayRequestHandlers = {
   ...skillsUploadHandlers,
   ...skillProposalHistoryHandlers,
-  "skills.status": ({ params, respond, context }) => {
+  "skills.status": async ({ params, respond, context }) => {
     if (!assertValidParams(params, validateSkillsStatusParams, "skills.status", respond)) {
       return;
     }
@@ -191,8 +233,12 @@ export const skillsHandlers: GatewayRequestHandlers = {
       respond(false, undefined, resolved.error);
       return;
     }
-    const report = buildRemoteAwareWorkspaceSkillStatus(resolved);
-    respond(true, report, undefined);
+    try {
+      const report = await buildRemoteAwareWorkspaceSkillStatus(resolved, params.refresh === true);
+      respond(true, report, undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatErrorMessage(err)));
+    }
   },
   "skills.securityVerdicts": async ({ params, respond, context }) => {
     if (
@@ -211,7 +257,7 @@ export const skillsHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      const report = buildRemoteAwareWorkspaceSkillStatus(resolved);
+      const report = await buildRemoteAwareWorkspaceSkillStatus(resolved);
       const targets = collectClawHubVerdictTargets(report);
       if (targets.length === 0) {
         respond(true, { schema: "openclaw.skills.security-verdicts.v1", items: [] }, undefined);
