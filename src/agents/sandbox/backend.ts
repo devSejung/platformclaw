@@ -10,6 +10,7 @@ import type {
   SandboxBackendId,
   SandboxBackendManager,
   SandboxBackendRegistration,
+  SandboxBackendSkillProvider,
   SandboxBackendWorkdirResolver,
 } from "./backend.types.js";
 
@@ -20,6 +21,7 @@ export type {
   SandboxBackendManager,
   SandboxBackendRegistration,
   SandboxBackendRuntimeInfo,
+  SandboxBackendSkillProvider,
   SandboxBackendWorkdirValidation,
   SandboxBackendWorkdirResolver,
 } from "./backend.types.js";
@@ -28,6 +30,8 @@ export type {
   SandboxBackendCommandResult,
   SandboxBackendExecSpec,
   SandboxBackendHandle,
+  SandboxBackendSkillCatalog,
+  SandboxBackendSkillFile,
   SandboxBackendPreparedWorkdirDiscarder,
   SandboxBackendWorkdirValidator,
 } from "./backend-handle.types.js";
@@ -85,6 +89,11 @@ export function getSandboxBackendManager(id: string): SandboxBackendManager | nu
 /** Look up optional backend workdir resolution that does not start the runtime. */
 export function getSandboxBackendWorkdirResolver(id: string): SandboxBackendWorkdirResolver | null {
   return getSandboxBackendFactories().get(normalizeSandboxBackendId(id))?.resolveWorkdir ?? null;
+}
+
+/** Look up optional target-owned skill discovery for a registered backend. */
+export function getSandboxBackendSkillProvider(id: string): SandboxBackendSkillProvider | null {
+  return getSandboxBackendFactories().get(normalizeSandboxBackendId(id))?.skills ?? null;
 }
 
 /** Resolve a backend factory or throw the user-facing configuration error. */

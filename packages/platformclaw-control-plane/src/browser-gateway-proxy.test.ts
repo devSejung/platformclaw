@@ -392,7 +392,7 @@ describe("BrowserGatewayProxy", () => {
       workspace: "personal workspace",
       file: { name: "USER.md", path: "USER.md", missing: false, content: "# Person One" },
     });
-    await expect(proxy.request(token, "skills.status", {})).resolves.toEqual({
+    await expect(proxy.request(token, "skills.status", { refresh: true })).resolves.toEqual({
       workspaceDir: "personal workspace",
       managedSkillsDir: "managed skills",
       agentId: binding.agentId,
@@ -401,6 +401,10 @@ describe("BrowserGatewayProxy", () => {
     });
     expect(request).toHaveBeenNthCalledWith(1, "agents.files.list", {
       agentId: binding.agentId,
+    });
+    expect(request).toHaveBeenNthCalledWith(3, "skills.status", {
+      agentId: binding.agentId,
+      refresh: true,
     });
   });
 

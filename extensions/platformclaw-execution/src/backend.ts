@@ -2,6 +2,8 @@ import type {
   CreateSandboxBackendParams,
   SandboxBackendFactory,
   SandboxBackendHandle,
+  SandboxBackendSkillCatalog,
+  SandboxBackendSkillProvider,
 } from "openclaw/plugin-sdk/sandbox";
 
 export const PLATFORMCLAW_EXECUTION_BACKEND_ID = "platformclaw-execution";
@@ -48,6 +50,10 @@ export type PlatformClawExecutionDependencies = {
   resolveTarget: PlatformClawExecutionTargetResolver;
   createPlatformServerHandle: TargetHandleFactory<PlatformServerTargetSnapshot>;
   createAssignedVmHandle: TargetHandleFactory<AssignedVmTargetSnapshot>;
+  listTargetSkills: (params: {
+    refresh: boolean;
+    target: Readonly<PlatformClawExecutionTargetSnapshot>;
+  }) => Promise<SandboxBackendSkillCatalog | undefined>;
 };
 
 export function createPlatformClawExecutionBackendFactory(
@@ -62,6 +68,11 @@ export function createPlatformClawExecutionBackendFactory(
     // Resolve exactly once per context creation. The copied snapshot keeps a
     // target change from redirecting an already-prepared run mid-execution.
     const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+    // Discover before opening a run handle so a malformed remote catalog cannot
+    // strand backend-owned resources that the caller never receives.
+    // A new backend context is a new connection boundary. Refresh here so VM
+    // edits are visible to the next run, then pin that catalog on the handle.
+    const skillCatalog = await dependencies.listTargetSkills({ refresh: true, target });
     const handle =
       target.kind === "platform_server"
         ? await dependencies.createPlatformServerHandle({ createParams, target })
@@ -70,7 +81,17 @@ export function createPlatformClawExecutionBackendFactory(
     return {
       ...handle,
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
+      ...(skillCatalog ? { skillCatalog } : {}),
     };
+  };
+}
+
+export function createPlatformClawExecutionSkillProvider(
+  dependencies: PlatformClawExecutionDependencies,
+): SandboxBackendSkillProvider {
+  return async ({ agentId, refresh }) => {
+    const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+    return await dependencies.listTargetSkills({ refresh, target });
   };
 }
 
@@ -82,6 +103,7 @@ export function createUnavailableExecutionDependencies(): PlatformClawExecutionD
     resolveTarget: unavailable,
     createPlatformServerHandle: unavailable,
     createAssignedVmHandle: unavailable,
+    listTargetSkills: unavailable,
   };
 }
 

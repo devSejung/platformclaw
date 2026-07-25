@@ -1,6 +1,7 @@
 // ClawHub skills tests cover install/update/detail/status flows, security
 // verdicts, local skill cards, and workspace skill status reports.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { registerSandboxBackend } from "../../agents/sandbox/backend.js";
 import { callGatewayHandler } from "./skills.test-helpers.js";
 
 const loadConfigMock = vi.fn(() => ({}));
@@ -127,6 +128,138 @@ describe("skills gateway handlers (clawhub)", () => {
         }),
       }),
     );
+  });
+
+  it("refreshes target-owned backend skills for the selected agent", async () => {
+    const config = {
+      agents: { defaults: { sandbox: { backend: "test-remote-skills", mode: "all" as const } } },
+    };
+    const listSkills = vi.fn(async () => ({
+      revision: "vm:1",
+      eligibility: { platforms: ["linux"], bins: ["bash"] },
+      files: [
+        {
+          source: "test-vm",
+          filePath: "/opt/platformclaw/skills/demo/SKILL.md",
+          content: "---\nname: demo\ndescription: VM demo\n---\nRun it.",
+        },
+      ],
+    }));
+    const restore = registerSandboxBackend("test-remote-skills", {
+      factory: async () => {
+        throw new Error("not used");
+      },
+      skills: listSkills,
+    });
+    try {
+      const { ok, error } = await callGatewayHandler(
+        skillsHandlers,
+        "skills.status",
+        { refresh: true },
+        { context: { getRuntimeConfig: () => config } },
+      );
+
+      expect(ok).toBe(true);
+      expect(error).toBeUndefined();
+      expect(listSkills).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: "main", refresh: true }),
+      );
+      expect(buildWorkspaceSkillStatusMock).toHaveBeenCalledWith(
+        "/tmp/workspace",
+        expect.objectContaining({
+          entries: [
+            expect.objectContaining({
+              skill: expect.objectContaining({
+                name: "demo",
+                filePath: "/opt/platformclaw/skills/demo/SKILL.md",
+              }),
+            }),
+          ],
+          eligibility: expect.objectContaining({
+            remote: expect.objectContaining({ platforms: ["linux"] }),
+          }),
+        }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps local skills when the configured backend mode is off", async () => {
+    const listSkills = vi.fn(async () => ({ revision: "vm:1", files: [] }));
+    const restore = registerSandboxBackend("test-disabled-skills", {
+      factory: async () => {
+        throw new Error("not used");
+      },
+      skills: listSkills,
+    });
+    try {
+      const config = {
+        agents: {
+          defaults: {
+            sandbox: { backend: "test-disabled-skills", mode: "off" as const },
+          },
+        },
+      };
+      const { ok } = await callGatewayHandler(
+        skillsHandlers,
+        "skills.status",
+        {},
+        { context: { getRuntimeConfig: () => config } },
+      );
+
+      expect(ok).toBe(true);
+      expect(listSkills).not.toHaveBeenCalled();
+      expect(buildWorkspaceSkillStatusMock).toHaveBeenCalledWith(
+        "/tmp/workspace",
+        expect.not.objectContaining({ entries: expect.anything() }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("includes backend skills for a selected agent with non-main sandboxing", async () => {
+    listAgentIdsMock.mockReturnValue(["main", "research"]);
+    const listSkills = vi.fn(async () => ({ revision: "vm:1", files: [] }));
+    const restore = registerSandboxBackend("test-non-main-skills", {
+      factory: async () => {
+        throw new Error("not used");
+      },
+      skills: listSkills,
+    });
+    try {
+      const config = {
+        agents: {
+          defaults: {
+            sandbox: { backend: "test-non-main-skills", mode: "non-main" as const },
+          },
+        },
+      };
+      const { ok } = await callGatewayHandler(
+        skillsHandlers,
+        "skills.status",
+        { agentId: "research", refresh: true },
+        { context: { getRuntimeConfig: () => config } },
+      );
+
+      expect(ok).toBe(true);
+      expect(listSkills).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: "research", refresh: true }),
+      );
+      expect(buildWorkspaceSkillStatusMock).toHaveBeenNthCalledWith(
+        1,
+        "/tmp/workspace",
+        expect.not.objectContaining({ entries: expect.anything() }),
+      );
+      expect(buildWorkspaceSkillStatusMock).toHaveBeenNthCalledWith(
+        2,
+        "/tmp/workspace",
+        expect.objectContaining({ entries: [] }),
+      );
+    } finally {
+      restore();
+    }
   });
 
   it("fetches one bulk ClawHub verdict batch for linked installed skills", async () => {

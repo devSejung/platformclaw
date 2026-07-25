@@ -13,6 +13,7 @@ import type {
   PlatformClawExecutionDependencies,
   PlatformClawExecutionTargetSnapshot,
 } from "./backend.js";
+import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 
 const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
 const EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
@@ -252,6 +253,7 @@ export async function createExecutionDependenciesFromEnvironment(
   if (!serviceToken) {
     throw new Error("execution service token is empty");
   }
+  const remoteSkills = new VmRemoteSkillCatalogService();
   return {
     resolveTarget: async ({ agentId }) => {
       return parseTarget(
@@ -271,5 +273,7 @@ export async function createExecutionDependenciesFromEnvironment(
         workspaceMode: "existing",
         createSession: async () => await createSafeConnectSession(target),
       }),
+    listTargetSkills: async ({ refresh, target }) =>
+      target.kind === "assigned_vm" ? await remoteSkills.list(target, refresh) : undefined,
   };
 }

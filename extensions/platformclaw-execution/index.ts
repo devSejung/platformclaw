@@ -2,6 +2,7 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { registerSandboxBackend } from "openclaw/plugin-sdk/sandbox";
 import {
   createPlatformClawExecutionBackendFactory,
+  createPlatformClawExecutionSkillProvider,
   createUnavailableExecutionDependencies,
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
 } from "./src/backend.js";
@@ -21,10 +22,11 @@ export default definePluginEntry({
     const dependenciesPromise = configured
       ? createExecutionDependenciesFromEnvironment()
       : Promise.resolve(createUnavailableExecutionDependencies());
-    registerSandboxBackend(
-      PLATFORMCLAW_EXECUTION_BACKEND_ID,
-      async (params) =>
+    registerSandboxBackend(PLATFORMCLAW_EXECUTION_BACKEND_ID, {
+      factory: async (params) =>
         await createPlatformClawExecutionBackendFactory(await dependenciesPromise)(params),
-    );
+      skills: async (params) =>
+        await createPlatformClawExecutionSkillProvider(await dependenciesPromise)(params),
+    });
   },
 });

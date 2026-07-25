@@ -51,6 +51,7 @@ function createDependencies(
     createAssignedVmHandle: vi.fn(async ({ target }) =>
       createHandle(`vm-${target.agentId}-${target.revision}`),
     ),
+    listTargetSkills: vi.fn(async () => undefined),
   };
 }
 
@@ -98,6 +99,9 @@ describe("PlatformClaw execution backend", () => {
     );
     expect(dependencies.createAssignedVmHandle).toHaveBeenCalledWith(
       expect.objectContaining({ createParams: secondParams }),
+    );
+    expect(dependencies.listTargetSkills).toHaveBeenCalledWith(
+      expect.objectContaining({ refresh: true }),
     );
     expect(first).toMatchObject({
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
@@ -190,5 +194,33 @@ describe("PlatformClaw execution backend", () => {
       createPlatformClawExecutionBackendFactory(dependencies)(createParams("person_one")),
     ).rejects.toThrow("VM connection unavailable");
     expect(dependencies.createPlatformServerHandle).not.toHaveBeenCalled();
+  });
+
+  it("does not create a backend handle when target skill discovery fails", async () => {
+    const dependencies = createDependencies(async () => ({
+      kind: "assigned_vm",
+      agentId: "person_one",
+      revision: 4,
+      targetId: "vm-one",
+      allocationId: "allocation-one",
+      remoteWorkspaceDir: "/srv/person-one",
+      endpointHost: "safeconnect.example",
+      endpointPort: 44422,
+      adDomain: "example",
+      adAccount: "person.one",
+      targetAddress: "192.0.2.1",
+      linuxAccount: "person.one",
+      hostKeyAlgorithm: "ssh-ed25519",
+      hostKeyPublicKey: "AAAA-test",
+      hostKeyFingerprint: "SHA256:test",
+    }));
+    vi.mocked(dependencies.listTargetSkills).mockRejectedValueOnce(
+      new Error("VM skill catalog is invalid"),
+    );
+
+    await expect(
+      createPlatformClawExecutionBackendFactory(dependencies)(createParams("person_one")),
+    ).rejects.toThrow("catalog is invalid");
+    expect(dependencies.createAssignedVmHandle).not.toHaveBeenCalled();
   });
 });
