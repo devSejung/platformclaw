@@ -135,8 +135,16 @@ function Get-ImageTags {
 
 function Get-DockerImageId {
     param([string]$Image)
-    $imageId = (& docker image inspect $Image --format "{{.Id}}" 2>$null)
-    if ($LASTEXITCODE -ne 0) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $imageId = (& docker image inspect $Image --format "{{.Id}}" 2>$null)
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
         return ""
     }
     return ($imageId | Select-Object -First 1).Trim()
