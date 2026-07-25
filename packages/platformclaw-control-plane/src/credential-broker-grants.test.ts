@@ -15,6 +15,31 @@ describe("OneShotCredentialGrantStore", () => {
     expect(resolve).toHaveBeenCalledOnce();
   });
 
+  it("disposes transient grant material after redemption or revocation", async () => {
+    const grants = new OneShotCredentialGrantStore({
+      tokenFactory: () => "transient_grant_token_1234567890123456",
+    });
+    const dispose = vi.fn();
+    const grant = grants.issue(
+      async () => ({ password: Buffer.from("secret"), revision: 1 }),
+      dispose,
+    );
+
+    await grants.redeem(grant.token);
+    expect(dispose).toHaveBeenCalledOnce();
+
+    const revoked = new OneShotCredentialGrantStore({
+      tokenFactory: () => "revoked_grant_token_12345678901234567",
+    });
+    const revokeDispose = vi.fn();
+    const revokeGrant = revoked.issue(
+      async () => ({ password: Buffer.from("secret"), revision: 1 }),
+      revokeDispose,
+    );
+    revoked.revoke(revokeGrant.token);
+    expect(revokeDispose).toHaveBeenCalledOnce();
+  });
+
   it("expires grants and consumes them when resolution fails", async () => {
     let now = 1_000;
     const grants = new OneShotCredentialGrantStore({
@@ -22,9 +47,14 @@ describe("OneShotCredentialGrantStore", () => {
       ttlMs: 1_000,
       tokenFactory: () => "b".repeat(43),
     });
-    const expired = grants.issue(async () => ({ password: Buffer.from("old"), revision: 1 }));
+    const disposeExpired = vi.fn();
+    const expired = grants.issue(
+      async () => ({ password: Buffer.from("old"), revision: 1 }),
+      disposeExpired,
+    );
     now = expired.expiresAt;
     await expect(grants.redeem(expired.token)).rejects.toThrow("invalid or expired");
+    expect(disposeExpired).toHaveBeenCalledOnce();
 
     const failing = new OneShotCredentialGrantStore({ tokenFactory: () => "c".repeat(43) });
     const grant = failing.issue(async () => {
@@ -32,6 +62,24 @@ describe("OneShotCredentialGrantStore", () => {
     });
     await expect(failing.redeem(grant.token)).rejects.toThrow("vault unavailable");
     await expect(failing.redeem(grant.token)).rejects.toThrow("invalid or already used");
+  });
+
+  it("disposes abandoned transient material when its TTL elapses", () => {
+    vi.useFakeTimers();
+    try {
+      const dispose = vi.fn();
+      const grants = new OneShotCredentialGrantStore({
+        ttlMs: 1_000,
+        tokenFactory: () => "expired_grant_token_12345678901234567",
+      });
+      grants.issue(async () => ({ password: Buffer.from("old"), revision: 1 }), dispose);
+
+      vi.advanceTimersByTime(1_000);
+
+      expect(dispose).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("bounds pending grants and rejects invalid resolver output", async () => {

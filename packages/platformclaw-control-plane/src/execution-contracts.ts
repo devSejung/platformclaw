@@ -84,8 +84,56 @@ export type AssignedVmExecutionTarget = {
 
 export type PersonalExecutionTarget = PlatformServerExecutionTarget | AssignedVmExecutionTarget;
 
+export type AssignedVmConnectionTarget = Omit<AssignedVmExecutionTarget, "remoteWorkspaceDir"> & {
+  allocationStatus: VmAllocationStatus;
+  remoteWorkspaceDir?: string;
+};
+
+export type PersonalExecutionSettings = {
+  agentId: string;
+  userId: string;
+  activeTarget: "platform_server" | "assigned_vm";
+  targetRevision: number;
+  allocation?: {
+    id: string;
+    status: VmAllocationStatus;
+    vmLabel: string;
+    safeConnectLabel: string;
+    linuxAccount: string;
+    remoteHomeDir?: string;
+    remoteWorkspaceDir?: string;
+    lastConnectionCheckAt?: number;
+    lastConnectionSucceededAt?: number;
+    failureCode?: string;
+  };
+};
+
 export interface ControlPlaneExecutionRuntimeStore {
   resolvePersonalExecutionTarget(agentId: string): Promise<PersonalExecutionTarget>;
+}
+
+export interface ControlPlaneExecutionTargetStore extends ControlPlaneExecutionRuntimeStore {
+  resolveAssignedVmConnectionTarget(agentId: string): Promise<AssignedVmConnectionTarget>;
+  changePersonalExecutionTarget(params: {
+    agentId: string;
+    target: "platform_server" | "assigned_vm";
+    expectedRevision: number;
+    changedAt: number;
+  }): Promise<PersonalExecutionTarget>;
+}
+
+export interface ControlPlaneEmployeeExecutionStore {
+  getPersonalExecutionSettings(agentId: string): Promise<PersonalExecutionSettings | null>;
+  recordVmConnectionResult(params: {
+    actorUserId: string;
+    agentId: string;
+    expectedAllocationId: string;
+    expectedTargetRevision: number;
+    checkedAt: number;
+    result:
+      | { status: "ready"; remoteHomeDir: string; remoteWorkspaceDir: string }
+      | { status: "connection_required"; failureCode: string };
+  }): Promise<VmAllocation>;
 }
 
 export interface ControlPlaneExecutionManagementStore {

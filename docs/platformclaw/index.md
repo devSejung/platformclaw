@@ -38,9 +38,8 @@ in-memory store, the approved SQLite v1 persistent store, the employee-auth
 adapter, opaque browser-session service, browser-auth HTTP boundary, personal
 agent provisioning adapter, fail-closed Web Gateway policy proxy, and the
 protocol-compatible Web ingress listener. The employee login shell and
-session-gated upstream Control UI document host are also implemented.
-Production deployment composition and the restricted Control UI adapter remain
-later work.
+session-gated upstream Control UI document host, production composition, and
+restricted Control UI adapter are also implemented.
 
 The VM execution backend foundation follows the verified 2026-07-23 upstream
 synchronization. Its product and security behavior is frozen in the
@@ -49,8 +48,10 @@ seam now supplies the prepared agent owner to private sandbox backends, and the
 private `platformclaw-execution` plugin pins one target snapshot per backend
 handle. Schema v2 adds SafeConnect endpoint, VM host, personal allocation,
 server-default execution profile, and encrypted-envelope tables. Credential
-cryptography and the one-shot local broker are implemented. The authenticated
-Gateway handoff, SSH backend, and UI remain later implementation slices.
+cryptography, the one-shot local broker, authenticated Gateway handoff,
+SafeConnect SSH backend, Docker routing, VM skill discovery, employee context,
+and employee work-location UI are implemented. Administrator VM management UI
+and fake-SafeConnect Docker E2E remain later slices.
 
 ## Maintenance rules
 

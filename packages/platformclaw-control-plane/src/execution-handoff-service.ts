@@ -3,7 +3,7 @@ import { ControlPlaneStateError } from "./contracts.js";
 import type { CredentialBrokerGrant } from "./credential-broker-grants.js";
 import type {
   AssignedVmExecutionTarget,
-  ControlPlaneExecutionRuntimeStore,
+  ControlPlaneExecutionTargetStore,
   PersonalExecutionTarget,
 } from "./execution-contracts.js";
 
@@ -82,12 +82,42 @@ function assertSameVmTarget(
 
 export class ExecutionHandoffService {
   constructor(
-    private readonly store: ControlPlaneExecutionRuntimeStore,
+    private readonly store: ControlPlaneExecutionTargetStore,
     private readonly credentialBroker: ExecutionCredentialGrantIssuer,
   ) {}
 
   async resolveTarget(agentId: string): Promise<ExecutionTargetSnapshot> {
     return publicSnapshot(await this.store.resolvePersonalExecutionTarget(requireAgentId(agentId)));
+  }
+
+  async resolveConnectionTarget(agentId: string) {
+    const target = await this.store.resolveAssignedVmConnectionTarget(requireAgentId(agentId));
+    return publicSnapshot({
+      ...target,
+      remoteWorkspaceDir: target.remoteWorkspaceDir ?? "/",
+    });
+  }
+
+  async changeTarget(params: {
+    agentId: string;
+    target: "platform_server" | "assigned_vm";
+    expectedRevision: number;
+    changedAt: number;
+  }): Promise<ExecutionTargetSnapshot> {
+    if (
+      !Number.isSafeInteger(params.expectedRevision) ||
+      params.expectedRevision < 0 ||
+      !Number.isSafeInteger(params.changedAt) ||
+      params.changedAt < 1
+    ) {
+      throw new ControlPlaneStateError("execution target change is invalid");
+    }
+    return publicSnapshot(
+      await this.store.changePersonalExecutionTarget({
+        ...params,
+        agentId: requireAgentId(params.agentId),
+      }),
+    );
   }
 
   async issueCredentialGrant(params: {

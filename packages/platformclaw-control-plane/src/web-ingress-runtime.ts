@@ -4,6 +4,7 @@ import {
   type EmployeeBrowserAuthRuntimeOptions,
 } from "./browser-auth-runtime.js";
 import type { PersonalAgentProvisioner } from "./browser-auth-service.js";
+import { EmployeeExecutionService } from "./browser-execution-http.js";
 import { BrowserGatewayProxy } from "./browser-gateway-proxy.js";
 import {
   MemoryBrowserLoginRateLimiter,
@@ -96,6 +97,14 @@ export function createPlatformClawWebIngressRuntime(
         )
       : undefined;
   const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
+  const employeeExecution = new EmployeeExecutionService({
+    authService: auth.service,
+    store: auth.store,
+    gateway,
+    ...(auth.credentialVault ? { credentialVault: auth.credentialVault } : {}),
+    ...(credentialBroker ? { credentialBroker } : {}),
+    ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+  });
   const restartReconciler = new AgentRestartReconciler({
     store: auth.store,
     personalAgentProbe: options.restartRecoveryProbe,
@@ -117,6 +126,7 @@ export function createPlatformClawWebIngressRuntime(
     loginRateLimiter: new MemoryBrowserLoginRateLimiter(options.loginRateLimiter),
     gatewayProxy,
     gateway,
+    executionService: employeeExecution,
     webAssets: createPlatformClawWebAssetHandler(options.controlUiRoot, {
       publicOrigin: options.publicOrigin,
     }),

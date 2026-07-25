@@ -71,4 +71,25 @@ describe("PlatformClaw SafeConnect session", () => {
       }),
     ).rejects.toThrow("endpoint host is invalid");
   });
+
+  it("passes only an anonymous one-shot grant to a connection-test launcher", async () => {
+    const session = await createSafeConnectSession(TARGET, "platformclaw-sshpass-test", {
+      credentialGrantToken: "grant_token_123456789012345678901234567890",
+    });
+    try {
+      const context = JSON.parse(
+        await readFile(
+          path.join(path.dirname(session.configPath), "platformclaw-context.json"),
+          "utf8",
+        ),
+      ) as Record<string, unknown>;
+      expect(context).toMatchObject({
+        agentId: "person_one",
+        credentialGrantToken: "grant_token_123456789012345678901234567890",
+      });
+      expect(JSON.stringify(context)).not.toContain("password");
+    } finally {
+      await disposeSshSandboxSession(session);
+    }
+  });
 });

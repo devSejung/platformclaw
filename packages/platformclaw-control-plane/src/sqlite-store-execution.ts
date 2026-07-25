@@ -1,8 +1,11 @@
 import { ControlPlaneConflictError, ControlPlaneStateError } from "./contracts.js";
 import type {
+  AssignedVmConnectionTarget,
+  ControlPlaneEmployeeExecutionStore,
   ControlPlaneExecutionManagementStore,
-  ControlPlaneExecutionRuntimeStore,
+  ControlPlaneExecutionTargetStore,
   PersonalExecutionTarget,
+  PersonalExecutionSettings,
   SafeConnectEndpoint,
   VmAllocation,
   VmHost,
@@ -17,69 +20,191 @@ import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
 import { SqliteControlPlaneAuthStore } from "./sqlite-store-auth.js";
 import { required } from "./sqlite-store-core.js";
+import {
+  rowToAllocation,
+  rowToEndpoint,
+  rowToPersonalExecutionSettings,
+  rowToVmHost,
+} from "./sqlite-store-execution-mappers.js";
 import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlite-store-types.js";
-
-function rowToEndpoint(row: SafeConnectEndpointRow): SafeConnectEndpoint {
-  return {
-    id: row.id,
-    label: row.label,
-    host: row.host,
-    port: row.port,
-    adDomain: row.ad_domain,
-    status: row.status,
-    ...(row.host_key_algorithm ? { hostKeyAlgorithm: row.host_key_algorithm } : {}),
-    ...(row.host_key_public_key ? { hostKeyPublicKey: row.host_key_public_key } : {}),
-    ...(row.host_key_fingerprint ? { hostKeyFingerprint: row.host_key_fingerprint } : {}),
-    ...(row.host_key_approved_by_user_id
-      ? { hostKeyApprovedByUserId: row.host_key_approved_by_user_id }
-      : {}),
-    ...(row.host_key_approved_at === null ? {} : { hostKeyApprovedAt: row.host_key_approved_at }),
-    createdByUserId: row.created_by_user_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function rowToVmHost(row: VmHostRow): VmHost {
-  return {
-    id: row.id,
-    endpointId: row.endpoint_id,
-    label: row.label,
-    targetAddress: row.target_address,
-    status: row.status,
-    createdByUserId: row.created_by_user_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function rowToAllocation(row: VmAllocationRow): VmAllocation {
-  return {
-    id: row.id,
-    agentBindingId: row.agent_binding_id,
-    vmHostId: row.vm_host_id,
-    linuxAccount: row.linux_account,
-    status: row.status,
-    ...(row.remote_home_dir ? { remoteHomeDir: row.remote_home_dir } : {}),
-    ...(row.remote_workspace_dir ? { remoteWorkspaceDir: row.remote_workspace_dir } : {}),
-    ...(row.last_connection_check_at === null
-      ? {}
-      : { lastConnectionCheckAt: row.last_connection_check_at }),
-    ...(row.last_connection_succeeded_at === null
-      ? {}
-      : { lastConnectionSucceededAt: row.last_connection_succeeded_at }),
-    ...(row.failure_code ? { failureCode: row.failure_code } : {}),
-    createdByUserId: row.created_by_user_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    ...(row.revoked_at === null ? {} : { revokedAt: row.revoked_at }),
-  };
-}
 
 export abstract class SqliteControlPlaneExecutionStore
   extends SqliteControlPlaneAuthStore
-  implements ControlPlaneExecutionManagementStore, ControlPlaneExecutionRuntimeStore
+  implements
+    ControlPlaneExecutionManagementStore,
+    ControlPlaneExecutionTargetStore,
+    ControlPlaneEmployeeExecutionStore
 {
+  async resolveAssignedVmConnectionTarget(agentId: string): Promise<AssignedVmConnectionTarget> {
+    const row = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("agent_bindings")
+        .innerJoin("platform_users", "platform_users.id", "agent_bindings.user_id")
+        .innerJoin(
+          "personal_execution_profiles",
+          "personal_execution_profiles.agent_binding_id",
+          "agent_bindings.id",
+        )
+        .innerJoin("vm_allocations", "vm_allocations.agent_binding_id", "agent_bindings.id")
+        .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
+        .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
+        .select([
+          "agent_bindings.agent_id as agent_id",
+          "agent_bindings.state as binding_state",
+          "platform_users.id as user_id",
+          "platform_users.account_id as account_id",
+          "platform_users.status as user_status",
+          "personal_execution_profiles.target_revision as target_revision",
+          "vm_allocations.id as allocation_id",
+          "vm_allocations.status as allocation_status",
+          "vm_allocations.linux_account as linux_account",
+          "vm_allocations.remote_workspace_dir as remote_workspace_dir",
+          "vm_hosts.status as host_status",
+          "vm_hosts.label as vm_label",
+          "vm_hosts.target_address as target_address",
+          "safeconnect_endpoints.status as endpoint_status",
+          "safeconnect_endpoints.label as safeconnect_label",
+          "safeconnect_endpoints.host as endpoint_host",
+          "safeconnect_endpoints.port as endpoint_port",
+          "safeconnect_endpoints.ad_domain as ad_domain",
+          "safeconnect_endpoints.host_key_algorithm as host_key_algorithm",
+          "safeconnect_endpoints.host_key_public_key as host_key_public_key",
+          "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
+        ])
+        .where("agent_bindings.agent_id", "=", agentId)
+        .where("agent_bindings.kind", "=", "personal")
+        .where("vm_allocations.status", "!=", "revoked"),
+    );
+    if (
+      !row ||
+      row.binding_state !== "active" ||
+      row.user_status !== "active" ||
+      row.host_status !== "active" ||
+      row.endpoint_status !== "active" ||
+      !row.host_key_algorithm ||
+      !row.host_key_public_key ||
+      !row.host_key_fingerprint
+    ) {
+      throw new ControlPlaneStateError("assigned VM connection target is unavailable");
+    }
+    return {
+      kind: "assigned_vm",
+      agentId: row.agent_id,
+      userId: row.user_id,
+      targetId: row.allocation_id,
+      revision: row.target_revision,
+      allocationId: row.allocation_id,
+      allocationStatus: row.allocation_status,
+      vmLabel: row.vm_label,
+      safeConnectLabel: row.safeconnect_label,
+      endpointHost: row.endpoint_host,
+      endpointPort: row.endpoint_port,
+      adDomain: row.ad_domain,
+      adAccount: row.account_id,
+      targetAddress: row.target_address,
+      linuxAccount: row.linux_account,
+      ...(row.remote_workspace_dir ? { remoteWorkspaceDir: row.remote_workspace_dir } : {}),
+      hostKeyAlgorithm: row.host_key_algorithm,
+      hostKeyPublicKey: row.host_key_public_key,
+      hostKeyFingerprint: row.host_key_fingerprint,
+    };
+  }
+
+  async changePersonalExecutionTarget(params: {
+    agentId: string;
+    target: "platform_server" | "assigned_vm";
+    expectedRevision: number;
+    changedAt: number;
+  }): Promise<PersonalExecutionTarget> {
+    runImmediateTransaction(this.db, () => {
+      const profile = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("personal_execution_profiles")
+          .innerJoin(
+            "agent_bindings",
+            "agent_bindings.id",
+            "personal_execution_profiles.agent_binding_id",
+          )
+          .select([
+            "personal_execution_profiles.agent_binding_id as binding_id",
+            "personal_execution_profiles.target_revision as target_revision",
+            "agent_bindings.user_id as user_id",
+          ])
+          .where("agent_bindings.agent_id", "=", params.agentId)
+          .where("agent_bindings.kind", "=", "personal")
+          .where("agent_bindings.state", "=", "active"),
+      );
+      if (!profile || profile.target_revision !== params.expectedRevision) {
+        throw new ControlPlaneConflictError(
+          "execution_target_conflict",
+          "execution target changed before the requested update",
+        );
+      }
+      const allocation =
+        params.target === "assigned_vm"
+          ? takeFirstSync(
+              this.db,
+              this.query
+                .selectFrom("vm_allocations")
+                .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
+                .innerJoin(
+                  "safeconnect_endpoints",
+                  "safeconnect_endpoints.id",
+                  "vm_hosts.endpoint_id",
+                )
+                .select([
+                  "vm_allocations.id as id",
+                  "vm_allocations.status as status",
+                  "vm_allocations.remote_workspace_dir as remote_workspace_dir",
+                  "vm_hosts.status as host_status",
+                  "safeconnect_endpoints.status as endpoint_status",
+                  "safeconnect_endpoints.host_key_algorithm as host_key_algorithm",
+                  "safeconnect_endpoints.host_key_public_key as host_key_public_key",
+                  "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
+                ])
+                .where("vm_allocations.agent_binding_id", "=", profile.binding_id)
+                .where("vm_allocations.status", "!=", "revoked"),
+            )
+          : undefined;
+      if (
+        params.target === "assigned_vm" &&
+        (allocation?.status !== "ready" ||
+          allocation.host_status !== "active" ||
+          allocation.endpoint_status !== "active" ||
+          !allocation.remote_workspace_dir ||
+          !allocation.host_key_algorithm ||
+          !allocation.host_key_public_key ||
+          !allocation.host_key_fingerprint)
+      ) {
+        throw new ControlPlaneStateError("assigned VM is not ready");
+      }
+      executeSync(
+        this.db,
+        this.query
+          .updateTable("personal_execution_profiles")
+          .set({
+            active_target: params.target,
+            active_allocation_id: allocation?.id ?? null,
+            target_revision: profile.target_revision + 1,
+            updated_at: params.changedAt,
+          })
+          .where("agent_binding_id", "=", profile.binding_id)
+          .where("target_revision", "=", profile.target_revision),
+      );
+      this.insertAudit(
+        profile.user_id,
+        "execution.target.changed",
+        "agent-binding",
+        profile.binding_id,
+        params.changedAt,
+        { target: params.target, revision: profile.target_revision + 1 },
+      );
+    });
+    return await this.resolvePersonalExecutionTarget(params.agentId);
+  }
+
   async resolvePersonalExecutionTarget(agentId: string): Promise<PersonalExecutionTarget> {
     const owner = takeFirstSync(
       this.db,
@@ -436,5 +561,125 @@ export abstract class SqliteControlPlaneExecutionStore
         .where("vm_allocations.status", "!=", "revoked"),
     );
     return row ? rowToAllocation(row) : null;
+  }
+
+  async getPersonalExecutionSettings(agentId: string): Promise<PersonalExecutionSettings | null> {
+    const row = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("agent_bindings")
+        .innerJoin(
+          "personal_execution_profiles",
+          "personal_execution_profiles.agent_binding_id",
+          "agent_bindings.id",
+        )
+        .leftJoin("vm_allocations", (join) =>
+          join
+            .onRef("vm_allocations.agent_binding_id", "=", "agent_bindings.id")
+            .on("vm_allocations.status", "!=", "revoked"),
+        )
+        .leftJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
+        .leftJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
+        .select([
+          "agent_bindings.agent_id as agent_id",
+          "agent_bindings.user_id as user_id",
+          "personal_execution_profiles.active_target as active_target",
+          "personal_execution_profiles.target_revision as target_revision",
+          "vm_allocations.id as allocation_id",
+          "vm_allocations.status as allocation_status",
+          "vm_allocations.linux_account as linux_account",
+          "vm_allocations.remote_home_dir as remote_home_dir",
+          "vm_allocations.remote_workspace_dir as remote_workspace_dir",
+          "vm_allocations.last_connection_check_at as last_connection_check_at",
+          "vm_allocations.last_connection_succeeded_at as last_connection_succeeded_at",
+          "vm_allocations.failure_code as failure_code",
+          "vm_hosts.label as vm_label",
+          "safeconnect_endpoints.label as safeconnect_label",
+        ])
+        .where("agent_bindings.agent_id", "=", agentId)
+        .where("agent_bindings.kind", "=", "personal")
+        .where("agent_bindings.state", "=", "active"),
+    );
+    return row ? rowToPersonalExecutionSettings(row) : null;
+  }
+
+  async recordVmConnectionResult(params: {
+    actorUserId: string;
+    agentId: string;
+    expectedAllocationId: string;
+    expectedTargetRevision: number;
+    checkedAt: number;
+    result:
+      | { status: "ready"; remoteHomeDir: string; remoteWorkspaceDir: string }
+      | { status: "connection_required"; failureCode: string };
+  }): Promise<VmAllocation> {
+    return runImmediateTransaction(this.db, () => {
+      const row = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("vm_allocations")
+          .innerJoin("agent_bindings", "agent_bindings.id", "vm_allocations.agent_binding_id")
+          .innerJoin(
+            "personal_execution_profiles",
+            "personal_execution_profiles.agent_binding_id",
+            "agent_bindings.id",
+          )
+          .select(["vm_allocations.id as allocation_id", "agent_bindings.user_id as user_id"])
+          .where("agent_bindings.agent_id", "=", params.agentId)
+          .where("agent_bindings.kind", "=", "personal")
+          .where("vm_allocations.id", "=", params.expectedAllocationId)
+          .where("personal_execution_profiles.target_revision", "=", params.expectedTargetRevision)
+          .where("vm_allocations.status", "!=", "revoked"),
+      );
+      if (!row) {
+        throw new ControlPlaneConflictError(
+          "execution_target_conflict",
+          "execution target changed before the connection result was stored",
+        );
+      }
+      if (row.user_id !== params.actorUserId) {
+        this.requireAdmin(params.actorUserId);
+      }
+      const update =
+        params.result.status === "ready"
+          ? {
+              status: "ready" as const,
+              remote_home_dir: required(params.result.remoteHomeDir, "allocation.remoteHomeDir"),
+              remote_workspace_dir: required(
+                params.result.remoteWorkspaceDir,
+                "allocation.remoteWorkspaceDir",
+              ),
+              last_connection_check_at: params.checkedAt,
+              last_connection_succeeded_at: params.checkedAt,
+              failure_code: null,
+              updated_at: params.checkedAt,
+            }
+          : {
+              status: "connection_required" as const,
+              last_connection_check_at: params.checkedAt,
+              failure_code: required(params.result.failureCode, "allocation.failureCode"),
+              updated_at: params.checkedAt,
+            };
+      executeSync(
+        this.db,
+        this.query.updateTable("vm_allocations").set(update).where("id", "=", row.allocation_id),
+      );
+      this.insertAudit(
+        params.actorUserId,
+        params.result.status === "ready" ? "vm.connection.succeeded" : "vm.connection.failed",
+        "vm-allocation",
+        row.allocation_id,
+        params.checkedAt,
+        params.result.status === "connection_required"
+          ? { failureCode: params.result.failureCode }
+          : undefined,
+      );
+      return rowToAllocation(
+        takeFirstSync(
+          this.db,
+          this.query.selectFrom("vm_allocations").selectAll().where("id", "=", row.allocation_id),
+        )!,
+      );
+    });
   }
 }

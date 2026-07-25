@@ -1,6 +1,8 @@
 import { request } from "node:http";
 import { isAbsolute } from "node:path";
 import {
+  PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH,
+  PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH,
   PLATFORMCLAW_EXECUTION_GRANT_PATH,
   PLATFORMCLAW_EXECUTION_TARGET_PATH,
 } from "./execution-handoff-http.js";
@@ -38,6 +40,23 @@ export class ExecutionHandoffClient {
     return (await this.post(PLATFORMCLAW_EXECUTION_TARGET_PATH, {
       agentId,
     })) as ExecutionTargetSnapshot;
+  }
+
+  async resolveConnectionTarget(agentId: string): Promise<ExecutionTargetSnapshot> {
+    return (await this.post(PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH, {
+      agentId,
+    })) as ExecutionTargetSnapshot;
+  }
+
+  async changeTarget(params: {
+    agentId: string;
+    target: "platform_server" | "assigned_vm";
+    expectedRevision: number;
+  }): Promise<ExecutionTargetSnapshot> {
+    return (await this.post(
+      PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH,
+      params,
+    )) as ExecutionTargetSnapshot;
   }
 
   async issueCredentialGrant(params: {

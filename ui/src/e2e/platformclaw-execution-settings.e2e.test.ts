@@ -1,0 +1,102 @@
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  canRunPlaywrightChromium,
+  resolvePlaywrightChromiumExecutablePath,
+  startControlUiE2eServer,
+  type ControlUiE2eServer,
+} from "../test-helpers/control-ui-e2e.ts";
+
+const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
+const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
+const allowMissingChromium = process.env.OPENCLAW_UI_E2E_ALLOW_MISSING_CHROMIUM === "1";
+const describeControlUiE2e = chromiumAvailable || !allowMissingChromium ? describe : describe.skip;
+const captureUiProof = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
+const proofDir = path.join(
+  process.cwd(),
+  ".artifacts",
+  "control-ui-e2e",
+  "platformclaw-execution-settings",
+);
+
+let browser: Browser;
+let server: ControlUiE2eServer;
+
+async function screenshot(page: Page, name: string): Promise<void> {
+  if (!captureUiProof) {
+    return;
+  }
+  await mkdir(proofDir, { recursive: true });
+  await page.screenshot({ animations: "disabled", path: path.join(proofDir, name) });
+}
+
+describeControlUiE2e("PlatformClaw employee execution settings", () => {
+  beforeAll(async () => {
+    if (!chromiumAvailable) {
+      throw new Error(`Playwright Chromium is not available at ${chromiumExecutablePath}`);
+    }
+    server = await startControlUiE2eServer();
+    browser = await chromium.launch({ executablePath: chromiumExecutablePath });
+  });
+
+  afterAll(async () => {
+    await browser?.close();
+    await server?.close();
+  });
+
+  it("shows the active work location and requires confirmation before switching", async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.route("**/platformclaw/api/execution", async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          activeTarget: "platform_server",
+          targetRevision: 3,
+          credentialStatus: "current",
+          assignment: {
+            status: "ready",
+            vmLabel: "Development VM",
+            safeConnectLabel: "Corporate access",
+            linuxAccount: "person.one",
+            remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
+            lastConnectionSucceededAt: 1_787_642_400_000,
+          },
+        }),
+      });
+    });
+    await page.goto(server.baseUrl);
+    await page.addScriptTag({
+      type: "module",
+      url: `${server.baseUrl}src/platformclaw/execution-settings.ts`,
+    });
+    await page.evaluate(async () => {
+      await customElements.whenDefined("platformclaw-execution-settings");
+      document.body.replaceChildren(document.createElement("platformclaw-execution-settings"));
+    });
+
+    const component = page.locator("platformclaw-execution-settings");
+    const badge = component.getByRole("button", { name: "Open work location settings" });
+    await expect.poll(async () => await badge.textContent()).toContain("Basic workspace");
+    await badge.click();
+    await expect
+      .poll(async () => await component.getByRole("dialog", { name: "Work location" }).isVisible())
+      .toBe(true);
+    await component.getByRole("button", { name: "Use My development VM" }).click();
+    await expect
+      .poll(async () => component.getByText("Change work location?", { exact: true }).isVisible())
+      .toBe(true);
+    await expect
+      .poll(async () =>
+        component
+          .getByText(
+            "Change to My development VM. Conversation and Agent settings stay, but files and running processes remain in the previous location.",
+          )
+          .isVisible(),
+      )
+      .toBe(true);
+    await screenshot(page, "01-confirm-vm-switch.png");
+    await page.close();
+  });
+});
