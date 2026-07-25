@@ -36,6 +36,7 @@ function createHarness() {
     replace: vi.fn(async () => ({ status: "current" })),
   };
   const broker = {
+    address: "/run/platformclaw-credential-broker/runtime.sock",
     issueTransient: vi.fn(() => ({ token: "transient-grant", expiresAt: Date.now() + 1_000 })),
     issueForUser: vi.fn(() => ({ token: "stored-grant", expiresAt: Date.now() + 1_000 })),
     revoke: vi.fn(() => true),
@@ -72,6 +73,7 @@ describe("EmployeeExecutionService", () => {
 
     expect(harness.adminRpcCall).toHaveBeenCalledWith("platformclaw-execution.testConnection", {
       agentId: "person_one",
+      credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
       credentialGrantToken: "transient-grant",
     });
     expect(harness.vault.replace).toHaveBeenCalledWith(

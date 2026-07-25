@@ -50,10 +50,19 @@ describe("PlatformClaw execution Gateway methods", () => {
     const respond = vi.fn();
 
     await harness.methods.get("platformclaw-execution.testConnection")!({
-      params: { agentId: "person_one", credentialGrantToken: "grant-token" },
+      params: {
+        agentId: "person_one",
+        credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
+        credentialGrantToken: "grant-token",
+      },
       respond,
     } as never);
 
+    expect(runtime.testConnection).toHaveBeenCalledWith({
+      agentId: "person_one",
+      credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
+      credentialGrantToken: "grant-token",
+    });
     expect(respond).toHaveBeenCalledWith(false, undefined, {
       code: "INVALID_REQUEST",
       message: "development VM authentication failed",

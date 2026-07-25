@@ -3,7 +3,11 @@ import type { PlatformClawExecutionTargetSnapshot } from "./backend.js";
 import { PlatformClawVmAuthenticationError } from "./connection-errors.js";
 
 export type PlatformClawExecutionGatewayRuntime = {
-  testConnection(params: { agentId: string; credentialGrantToken: string }): Promise<{
+  testConnection(params: {
+    agentId: string;
+    credentialBrokerAddress: string;
+    credentialGrantToken: string;
+  }): Promise<{
     allocationId: string;
     targetRevision: number;
     remoteHomeDir: string;
@@ -36,9 +40,13 @@ export function registerPlatformClawExecutionGateway(
     async ({ params, respond }) => {
       const input = params as Record<string, unknown>;
       const agentId = typeof input.agentId === "string" ? input.agentId.trim() : "";
+      const credentialBrokerAddress =
+        typeof input.credentialBrokerAddress === "string"
+          ? input.credentialBrokerAddress.trim()
+          : "";
       const credentialGrantToken =
         typeof input.credentialGrantToken === "string" ? input.credentialGrantToken.trim() : "";
-      if (!agentId || !credentialGrantToken) {
+      if (!agentId || !credentialBrokerAddress || !credentialGrantToken) {
         respond(false, undefined, {
           code: "INVALID_REQUEST",
           message: "connection test request is invalid",
@@ -47,7 +55,14 @@ export function registerPlatformClawExecutionGateway(
       }
       try {
         const runtime = await runtimePromise;
-        respond(true, await runtime.testConnection({ agentId, credentialGrantToken }));
+        respond(
+          true,
+          await runtime.testConnection({
+            agentId,
+            credentialBrokerAddress,
+            credentialGrantToken,
+          }),
+        );
       } catch (error) {
         if (error instanceof PlatformClawVmAuthenticationError) {
           respond(false, undefined, {

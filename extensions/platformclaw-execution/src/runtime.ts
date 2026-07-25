@@ -206,7 +206,7 @@ function safeConnectConfig(target: AssignedVmTargetSnapshot): string {
 export async function createSafeConnectSession(
   target: AssignedVmTargetSnapshot,
   launcher = "/usr/local/bin/platformclaw-sshpass",
-  options: { credentialGrantToken?: string } = {},
+  options: { credentialBrokerAddress?: string; credentialGrantToken?: string } = {},
 ): Promise<SshSandboxSession> {
   const session = await createSshSandboxSessionFromConfigText({
     configText: safeConnectConfig(target),
@@ -234,6 +234,10 @@ export async function createSafeConnectSession(
           targetRevision: target.revision,
           ...(options.credentialGrantToken
             ? {
+                credentialBrokerAddress: requireSingleLine(
+                  options.credentialBrokerAddress ?? "",
+                  "credential broker address",
+                ),
                 credentialGrantToken: requireSshToken(
                   options.credentialGrantToken,
                   "credential grant",
@@ -261,7 +265,11 @@ export async function createExecutionDependenciesFromEnvironment(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<
   PlatformClawExecutionDependencies & {
-    testConnection(params: { agentId: string; credentialGrantToken: string }): Promise<{
+    testConnection(params: {
+      agentId: string;
+      credentialBrokerAddress: string;
+      credentialGrantToken: string;
+    }): Promise<{
       allocationId: string;
       targetRevision: number;
       remoteHomeDir: string;
@@ -314,7 +322,7 @@ export async function createExecutionDependenciesFromEnvironment(
       }),
     listTargetSkills: async ({ refresh, target }) =>
       target.kind === "assigned_vm" ? await remoteSkills.list(target, refresh) : undefined,
-    testConnection: async ({ agentId, credentialGrantToken }) => {
+    testConnection: async ({ agentId, credentialBrokerAddress, credentialGrantToken }) => {
       const target = parseTarget(
         await callExecutionHandoff({
           socketPath: executionHandoffAddress(brokerAddress),
@@ -330,6 +338,7 @@ export async function createExecutionDependenciesFromEnvironment(
         target,
         "/usr/local/bin/platformclaw-sshpass",
         {
+          credentialBrokerAddress,
           credentialGrantToken,
         },
       );

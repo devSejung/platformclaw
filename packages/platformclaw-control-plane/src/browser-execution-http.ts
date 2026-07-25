@@ -35,7 +35,10 @@ type EmployeeExecutionServiceOptions = {
   authService: BrowserAuthService;
   store: EmployeeExecutionStore;
   credentialVault?: SshCredentialVault;
-  credentialBroker?: Pick<SshCredentialBroker, "issueForUser" | "issueTransient" | "revoke">;
+  credentialBroker?: Pick<
+    SshCredentialBroker,
+    "address" | "issueForUser" | "issueTransient" | "revoke"
+  >;
   adminRpc: GatewayAdminRpc;
   now?: () => number;
 };
@@ -157,6 +160,7 @@ export class EmployeeExecutionService {
       connection = connectionTestResult(
         await this.options.adminRpc.call("platformclaw-execution.testConnection", {
           agentId: params.agentId,
+          credentialBrokerAddress: credentialBroker.address,
           credentialGrantToken: grant.token,
         }),
       );
@@ -204,6 +208,7 @@ export class EmployeeExecutionService {
     try {
       rawConnection = await this.options.adminRpc.call("platformclaw-execution.testConnection", {
         agentId,
+        credentialBrokerAddress: credentialBroker.address,
         credentialGrantToken: grant.token,
       });
     } catch (error) {
