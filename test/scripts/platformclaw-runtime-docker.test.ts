@@ -239,6 +239,7 @@ describe("PlatformClaw Docker runtime", () => {
 
   it("keeps ephemeral secret mounts readable only through the private smoke directory", () => {
     const smoke = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
+    const workflow = readRepoFile(".github/workflows/platformclaw-ci.yml");
 
     expect(smoke).toContain('work_dir="$(mktemp -d)"');
     expect(smoke).toContain('docker image inspect "$PLATFORMCLAW_IMAGE"');
@@ -248,9 +249,16 @@ describe("PlatformClaw Docker runtime", () => {
     expect(smoke).toContain("chmod 0777");
     expect(smoke).toContain('chmod 0444 "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR"');
     expect(smoke).toContain('chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
+    expect(smoke).toContain(
+      'openssl genpkey -algorithm ED25519 -out "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE"',
+    );
+    expect(smoke).toContain('"$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE"');
     expect(smoke).toContain("SSH credential master key leaked into container logs");
     expect(smoke).toContain("Execution service token leaked into container logs");
     expect(smoke).not.toContain('chmod 0600 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"');
+    expect(workflow).toContain(
+      "PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE: /tmp/platformclaw-empty-secret",
+    );
   });
 
   it("provides a persistent, manually resettable Windows VM preview", () => {

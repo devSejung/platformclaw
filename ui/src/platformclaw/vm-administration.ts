@@ -169,13 +169,12 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
       void this.refresh();
     });
     this.root.querySelector("[data-close]")?.addEventListener("click", closeDialog);
-    this.root.querySelector<HTMLDialogElement>("dialog.backdrop")?.addEventListener(
-      "cancel",
-      (event) => {
+    this.root
+      .querySelector<HTMLDialogElement>("dialog.backdrop")
+      ?.addEventListener("cancel", (event) => {
         event.preventDefault();
         closeDialog();
-      },
-    );
+      });
     this.root.querySelector("[data-refresh]")?.addEventListener("click", () => void this.refresh());
     this.bindForm("endpoints", (form) => ({
       label: field(form, "label"),

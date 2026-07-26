@@ -173,7 +173,9 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
     expect(document.querySelectorAll("platformclaw-vm-administration")).toHaveLength(1);
     await customElements.whenDefined("platformclaw-vm-administration");
-    const administration = document.querySelector("platformclaw-vm-administration") as HTMLElement & {
+    const administration = document.querySelector(
+      "platformclaw-vm-administration",
+    ) as HTMLElement & {
       fetchImpl: typeof fetch;
       onUnauthenticated: () => void;
     };

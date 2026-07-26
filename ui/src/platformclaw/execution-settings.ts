@@ -160,13 +160,12 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.root
       .querySelector<HTMLElement>("[data-action='close']")
       ?.addEventListener("click", closeDialog);
-    this.root.querySelector<HTMLDialogElement>("dialog.backdrop")?.addEventListener(
-      "cancel",
-      (event) => {
+    this.root
+      .querySelector<HTMLDialogElement>("dialog.backdrop")
+      ?.addEventListener("cancel", (event) => {
         event.preventDefault();
         closeDialog();
-      },
-    );
+      });
     this.root
       .querySelector<HTMLElement>("[data-action='refresh']")
       ?.addEventListener("click", () => void this.refresh());
