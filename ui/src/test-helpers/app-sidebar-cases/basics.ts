@@ -1,3 +1,4 @@
+import { html } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { AgentsListResult } from "../../api/types.ts";
@@ -44,6 +45,27 @@ describe("AppSidebar update card wiring", () => {
     expect(card).not.toBeNull();
     card?.querySelector<HTMLButtonElement>(".sidebar-update-card__action")?.click();
     expect(onUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("renders application shell controls inside the account footer", async () => {
+    const gateway = createGateway({} as GatewayBrowserClient);
+    const { sidebar } = await mountSidebar(gateway, createSessions("main", ["agent:main:main"]));
+    sidebar.accountPrimaryLabel = "Person One";
+    sidebar.accountSecondaryLabel = "Platform";
+    sidebar.onLogout = vi.fn(async () => undefined);
+    sidebar.renderAccountFooterAccessory = () =>
+      html`<button data-testid="shell-control">Work location</button>`;
+    await sidebar.updateComplete;
+
+    const footer = sidebar.querySelector(".sidebar-account-footer");
+    expect(footer?.querySelector("[data-testid='shell-control']")?.textContent).toBe(
+      "Work location",
+    );
+    expect(footer?.querySelector(".sidebar-account__primary")?.textContent).toBe("Person One");
+    expect(footer?.querySelector("openclaw-theme-mode-toggle")).not.toBeNull();
+    expect(
+      footer?.querySelector<HTMLButtonElement>(".sidebar-footer-bar__settings"),
+    ).not.toBeNull();
   });
 });
 

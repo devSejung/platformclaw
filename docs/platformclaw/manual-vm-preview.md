@@ -46,21 +46,23 @@ Use another browser profile or sign out between the two roles:
 
 ## Manual scenario
 
-1. Sign in as `admin.user` and open **VM administration** from the profile
+1. Sign in once as `person.one`, then sign out. This provisions the employee's
+   personal Agent so an administrator can assign it.
+2. Sign in as `admin.user` and open **VM administration** from the profile
    menu.
-2. Register the endpoint and host key printed by the launcher.
-3. Register target VM `10.0.0.10` and assign Agent `person_one` with Linux
+3. Register the endpoint and host key printed by the launcher.
+4. Register target VM `10.0.0.10` and assign Agent `person_one` with Linux
    account `person_one`.
-4. Sign out and sign in as `person.one`.
-5. Open **Work location**, register the printed Fake AD password, and run the
+5. Sign out and sign in as `person.one`.
+6. Open **Work location**, register the printed Fake AD password, and run the
    connection test.
-6. Change the work location to **Personal VM**.
-7. If a model provider is configured, start a chat and ask the Agent to run
+7. Change the work location to **Personal VM**.
+8. If a model provider is configured, start a chat and ask the Agent to run
    `whoami`, `pwd`, and create then read a small file. The remote home is
    `/users/person_one`; the remote workspace is
    `/users/person_one/.platformclaw/workspace`. The connection test and target
    switch themselves do not require a model provider.
-8. Change back to the PlatformClaw managed environment and confirm the location
+9. Change back to the PlatformClaw managed environment and confirm the location
    badge changes without an automatic file sync.
 
 Also check one intentional failure: enter any wrong AD password first. The UI

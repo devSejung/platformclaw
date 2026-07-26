@@ -1,5 +1,5 @@
 {
-  "startupJsGzipBytes": 324047,
-  "reason": "add employee work location settings to the PlatformClaw account overlay",
-  "updatedAt": "2026-07-25"
+  "startupJsGzipBytes": 325108,
+  "reason": "add localized work-location errors and persistent appearance controls",
+  "updatedAt": "2026-07-26"
 }

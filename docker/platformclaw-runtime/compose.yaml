@@ -59,6 +59,7 @@ services:
       PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE: /run/secrets/platformclaw_initial_admin_ids
       PLATFORMCLAW_GATEWAY_URL: ws://gateway.platformclaw.local:18789
       PLATFORMCLAW_GATEWAY_TOKEN_FILE: /run/secrets/platformclaw_gateway_token
+      PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_FILE: /run/secrets/platformclaw_gateway_service_identity
       PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE: /run/secrets/platformclaw_ssh_credential_master_key
       PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
       PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_execution_service_token
@@ -70,6 +71,7 @@ services:
       - platformclaw-credential-broker:/run/platformclaw-credential-broker
     secrets:
       - platformclaw_gateway_token
+      - platformclaw_gateway_service_identity
       - platformclaw_execution_service_token
       - platformclaw_initial_admin_ids
       - platformclaw_ssh_credential_master_key
@@ -127,6 +129,8 @@ networks:
 secrets:
   platformclaw_gateway_token:
     file: ${PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE:?set PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE}
+  platformclaw_gateway_service_identity:
+    file: ${PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE:?set PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE}
   platformclaw_execution_service_token:
     file: ${PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE:?set PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE}
   platformclaw_initial_admin_ids:

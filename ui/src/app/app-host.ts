@@ -346,7 +346,6 @@ class OpenClawApp extends OpenClawLightDomElement {
       adapter.applicationOptions(identity, async () => adapter.logout(() => runtime.stop())),
     );
     this.mountRuntime(runtime);
-    adapter.mountExecutionSettings(identity);
   }
 
   private retryPlatformClawStartup(): void {
@@ -386,7 +385,6 @@ class OpenClawApp extends OpenClawLightDomElement {
     this.subscriptions.clear();
     this.runtime?.stop();
     this.runtime = undefined;
-    this.platformClawAdapter?.dispose();
     this.platformClawAdapter = null;
     this.platformClawStartupError = false;
     this.loginGatewaySource = null;
@@ -1932,6 +1930,7 @@ class OpenClawShell extends OpenClawLightDomElement {
                   isRouteId(routeId) ? context.preload(routeId) : Promise.resolve()}
                 .accountPrimaryLabel=${runtime.shellSession?.primaryLabel ?? ""}
                 .accountSecondaryLabel=${runtime.shellSession?.secondaryLabel ?? ""}
+                .renderAccountFooterAccessory=${runtime.shellSession?.renderFooterAccessory}
                 .onLogout=${runtime.shellSession?.onLogout}
               ></openclaw-app-sidebar>`}
         </div>

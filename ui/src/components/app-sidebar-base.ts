@@ -55,6 +55,7 @@ export abstract class AppSidebarBase extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) onPairMobile?: () => void;
   @property({ attribute: false }) accountPrimaryLabel = "";
   @property({ attribute: false }) accountSecondaryLabel = "";
+  @property({ attribute: false }) renderAccountFooterAccessory?: () => unknown;
   @property({ attribute: false }) onLogout?: () => Promise<void>;
   @property({ attribute: false })
   onNavigate?: (routeId: NavigationRouteId, options?: ApplicationNavigationOptions) => void;

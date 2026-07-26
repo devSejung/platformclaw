@@ -2278,6 +2278,18 @@ def safe_trufflehog_env(repo: Path) -> dict[str, str]:
     return env
 
 
+def normalize_trufflehog_git_uri(uri: str, platform: str) -> str:
+    # TruffleHog on Windows currently interprets file:///C:/... as C:/C:/...
+    # while accepting the equivalent file://C:/... local repository source.
+    if platform == "nt" and uri.startswith("file:///"):
+        return "file://" + uri.removeprefix("file:///")
+    return uri
+
+
+def trufflehog_git_source(path: Path, platform: str = os.name) -> str:
+    return normalize_trufflehog_git_uri(path.resolve().as_uri(), platform)
+
+
 def prepare_trufflehog_history(
     repo: Path,
     target: str,
@@ -2411,7 +2423,7 @@ def run_trufflehog_preflight(
             [
                 trufflehog_bin,
                 "git",
-                scan_repo.resolve().as_uri(),
+                trufflehog_git_source(scan_repo),
                 "--since-commit",
                 base_commit,
                 "--branch",

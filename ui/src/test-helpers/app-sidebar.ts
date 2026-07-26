@@ -38,6 +38,9 @@ export type SidebarLifecycleState = HTMLElement & {
   enabledRouteIds?: readonly NavigationRouteId[];
   connected: boolean;
   accountPrimaryLabel: string;
+  accountSecondaryLabel: string;
+  renderAccountFooterAccessory?: () => unknown;
+  onLogout?: () => Promise<void>;
   offline: boolean;
   outboxCountForSession: (sessionKey: string) => number;
   terminalAvailable: boolean;

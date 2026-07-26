@@ -30,6 +30,21 @@ FINAL_REPORT = {
     "overall_confidence": 0.9,
 }
 
+
+class AutoreviewTrufflehogTests(unittest.TestCase):
+    def test_windows_git_source_avoids_trufflehog_drive_duplication(self) -> None:
+        source = AUTOREVIEW.normalize_trufflehog_git_uri("file:///C:/review", platform="nt")
+
+        self.assertEqual(source, "file://C:/review")
+
+    def test_non_windows_git_source_keeps_standard_file_uri(self) -> None:
+        path = Path("/tmp/review")
+
+        self.assertEqual(
+            AUTOREVIEW.trufflehog_git_source(path, platform="posix"),
+            path.resolve().as_uri(),
+        )
+
 DRAFT_REPORT = {
     "findings": [
         {

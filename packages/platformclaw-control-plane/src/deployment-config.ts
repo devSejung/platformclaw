@@ -16,6 +16,7 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   initialAdminAccountIdsFile: "PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE",
   gatewayUrl: "PLATFORMCLAW_GATEWAY_URL",
   gatewayAuthFile: "PLATFORMCLAW_GATEWAY_TOKEN_FILE",
+  gatewayServiceIdentityFile: "PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_FILE",
   sshCredentialMasterKeyFile: "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
   credentialBrokerAddress: "PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS",
   executionServiceTokenFile: "PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE",
@@ -32,6 +33,7 @@ export type PlatformClawDeploymentConfig = {
   gatewayUrl: string;
   gatewayAdminRpcUrl: string;
   gatewayAuth: string;
+  gatewayServiceIdentityFile: string;
   sshCredentialCipher: SshCredentialCipher;
   credentialBrokerAddress: string;
   executionServiceToken: string;
@@ -164,6 +166,9 @@ export function loadPlatformClawDeploymentConfig(
     gatewayAuth: readDeploymentSecret(
       requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile),
       PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile,
+    ),
+    gatewayServiceIdentityFile: resolve(
+      requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.gatewayServiceIdentityFile),
     ),
     sshCredentialCipher: SshCredentialCipher.fromBase64(
       readDeploymentSecret(

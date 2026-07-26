@@ -2,6 +2,7 @@ import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-pr
 import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
 import type { PlatformClawDeploymentConfig } from "./deployment-config.js";
 import { HttpGatewayAdminRpcClient } from "./gateway-admin-rpc-client.js";
+import { loadGatewayServiceIdentity } from "./gateway-service-identity.js";
 import { GatewayPersonalAgentProvisioner } from "./personal-agent-provisioner.js";
 import {
   createPlatformClawWebIngressRuntime,
@@ -43,6 +44,7 @@ export function createPlatformClawDeploymentRuntime(
     rpcUrl: config.gatewayAdminRpcUrl,
     bearerToken: config.gatewayAuth,
   });
+  const gatewayServiceIdentity = loadGatewayServiceIdentity(config.gatewayServiceIdentityFile);
   const provisioner = new GatewayPersonalAgentProvisioner({
     rpc,
     workspaceRoot: config.workspaceRoot,
@@ -60,6 +62,7 @@ export function createPlatformClawDeploymentRuntime(
       sshCredentialCipher: config.sshCredentialCipher,
     },
     gatewayClient: {
+      pairing: { adminRpc: rpc, identity: gatewayServiceIdentity },
       client: {
         url: config.gatewayUrl,
         token: config.gatewayAuth,
@@ -67,7 +70,7 @@ export function createPlatformClawDeploymentRuntime(
         clientDisplayName: "PlatformClaw Control",
         mode: GATEWAY_CLIENT_MODES.BACKEND,
         role: "operator",
-        scopes: ["operator.read", "operator.write"],
+        scopes: ["operator.read", "operator.write", "operator.admin"],
       },
     },
     adminRpc: rpc,

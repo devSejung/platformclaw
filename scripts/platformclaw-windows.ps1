@@ -28,6 +28,7 @@ $runtimeEnvironmentNames = @(
     "PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE",
     "PLATFORMCLAW_GATEWAY_URL",
     "PLATFORMCLAW_GATEWAY_TOKEN_FILE",
+    "PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_FILE",
     "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
     "PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS",
     "PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE",
@@ -202,6 +203,15 @@ function New-RandomBase64Key {
     return [Convert]::ToBase64String($bytes)
 }
 
+function New-Ed25519PrivateKey {
+    param([string]$Path)
+    Invoke-Checked -Command node -Arguments @(
+        "-e",
+        "const c=require('node:crypto'),f=require('node:fs');const k=c.generateKeyPairSync('ed25519').privateKey;f.writeFileSync(process.argv[1],k.export({type:'pkcs8',format:'pem'}),{mode:0o600});",
+        $Path
+    )
+}
+
 function Write-Utf8NoBom {
     param([string]$Path, [string]$Value)
     [IO.File]::WriteAllText($Path, $Value, (New-Object Text.UTF8Encoding($false)))
@@ -281,6 +291,7 @@ function Initialize-Runtime {
     $executionServiceTokenFile = Join-Path $runtimeRoot "execution-service-token"
     $adminFile = Join-Path $runtimeRoot "initial-admin-ids"
     $credentialKeyFile = Join-Path $runtimeRoot "ssh-credential-master-key"
+    $gatewayServiceIdentityFile = Join-Path $runtimeRoot "gateway-service-identity.pem"
     $configFile = Join-Path $gatewayRoot "openclaw.json"
     if (-not (Test-Path $tokenFile)) {
         Write-Utf8NoBom $tokenFile (New-RandomToken)
@@ -291,6 +302,9 @@ function Initialize-Runtime {
     Write-Utf8NoBom $adminFile "admin.user"
     if (-not (Test-Path $credentialKeyFile)) {
         Write-Utf8NoBom $credentialKeyFile (New-RandomBase64Key)
+    }
+    if (-not (Test-Path $gatewayServiceIdentityFile)) {
+        New-Ed25519PrivateKey $gatewayServiceIdentityFile
     }
 
     $gatewayConfig = @'
@@ -326,6 +340,7 @@ function Initialize-Runtime {
     $env:PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE = $adminFile
     $env:PLATFORMCLAW_GATEWAY_URL = "ws://127.0.0.1:$GatewayPort"
     $env:PLATFORMCLAW_GATEWAY_TOKEN_FILE = $tokenFile
+    $env:PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_FILE = $gatewayServiceIdentityFile
     $env:PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE = $credentialKeyFile
     $env:PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = "\\.\pipe\platformclaw-credential-broker-$Port"
     $env:PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = $executionServiceTokenFile

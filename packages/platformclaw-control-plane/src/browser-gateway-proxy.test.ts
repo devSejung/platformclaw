@@ -445,6 +445,7 @@ describe("BrowserGatewayProxy", () => {
       message: "hello",
       deliver: true,
       idempotencyKey: "request-1",
+      expectedLeafEntryId: "leaf-1",
       __controlUiReconnectResume: true,
     });
 
@@ -453,6 +454,7 @@ describe("BrowserGatewayProxy", () => {
       expect.objectContaining({
         agentId: binding.agentId,
         deliver: false,
+        expectedLeafEntryId: "leaf-1",
         suppressCommandInterpretation: true,
       }),
     );

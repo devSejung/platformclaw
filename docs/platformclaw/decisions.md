@@ -249,13 +249,14 @@ authority from forwarded headers. Operator secret resolution, persistent path
 selection, process supervision, reverse-proxy routing, and Control UI login
 bootstrap remain deployment composition responsibilities.
 
-Because the private Gateway client currently has operator authority, browser
+Because the private Gateway client has operator read/write/admin authority required for trusted
+chat provenance controls, browser
 messages use only `chat.send`, with command interpretation and external
 delivery forced off. Session creation cannot include an initial message or
 task, approval replay is not exposed, and operator command catalogs are not
 advertised. Browser commands require a later least-privilege Gateway identity
-or a separately approved command policy; they must not inherit the control
-process credential.
+or the separately enforced browser command policy; browsers never receive or
+inherit the control-process credential or its admin scope.
 Model selection is limited to the configured catalog and cannot carry a raw
 model/auth-profile override. Browser session patches cannot archive sessions
 because the operator path would also disable bound administrator cron jobs.

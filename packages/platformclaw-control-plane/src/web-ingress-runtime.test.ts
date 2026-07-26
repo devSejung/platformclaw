@@ -25,7 +25,10 @@ function hello(): HelloOk {
       stateVersion: { presence: 1, health: 1 },
       uptimeMs: 10,
     },
-    auth: { role: "operator", scopes: ["operator.admin"] },
+    auth: {
+      role: "operator",
+      scopes: ["operator.read", "operator.write", "operator.admin"],
+    },
     policy: { maxPayload: 1_024, maxBufferedBytes: 2_048, tickIntervalMs: 30_000 },
   };
 }
