@@ -23,6 +23,14 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("PlatformClaw VM administration", () => {
   afterEach(() => document.querySelector("platformclaw-vm-administration")?.remove());
 
@@ -78,7 +86,7 @@ describe("PlatformClaw VM administration", () => {
   });
 
   it("does not reopen after Escape while administration refresh is pending", async () => {
-    const pending = Promise.withResolvers<Response>();
+    const pending = deferred<Response>();
     const fetchImpl = vi.fn<typeof fetch>(() => pending.promise);
     mountPlatformClawVmAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = document.querySelector("platformclaw-vm-administration")!;
