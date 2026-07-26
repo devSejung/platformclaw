@@ -1,5 +1,9 @@
 # PlatformClaw runtime composition
 
+Korean operators should start with
+[`OPERATIONS.ko.md`](./OPERATIONS.ko.md) for installation, upgrades, Gateway
+configuration, storage, enterprise CA setup, and VM/SafeConnect administration.
+
 This composition runs one OpenClaw Gateway process and one
 `platformclaw-control` process from the same Jammy image. Docker Compose owns
 process restart and shutdown. It never creates a process or Gateway connection
