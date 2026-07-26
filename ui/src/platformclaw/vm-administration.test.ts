@@ -42,7 +42,9 @@ describe("PlatformClaw VM administration", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(element.shadowRoot?.querySelector("[data-open]")).not.toBeNull());
     element.shadowRoot?.querySelector<HTMLElement>("[data-open]")?.click();
-    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Person One"));
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.textContent).toContain("Employee assignments"),
+    );
 
     expect(fetchImpl).toHaveBeenCalledWith(
       "/platformclaw/api/admin/vm",
@@ -82,6 +84,47 @@ describe("PlatformClaw VM administration", () => {
       host: "safeconnect.example.test",
       port: 44_422,
       adDomain: "example.test",
+    });
+  });
+
+  it("confirms assignment revocation before submitting it", async () => {
+    const snapshot = {
+      ...SNAPSHOT,
+      allocations: [
+        {
+          id: "allocation-1",
+          accountId: "person.one",
+          displayName: "Person One",
+          vmLabel: "Development VM",
+          linuxAccount: "person.one",
+          status: "ready" as const,
+        },
+      ],
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(snapshot));
+    mountPlatformClawVmAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+    const element = document.querySelector("platformclaw-vm-administration")!;
+    await vi.waitFor(() => expect(element.shadowRoot?.querySelector("[data-open]")).not.toBeNull());
+    element.shadowRoot?.querySelector<HTMLElement>("[data-open]")?.click();
+    await vi.waitFor(() =>
+      expect(
+        element.shadowRoot?.querySelector("[data-mutation='revoke-allocation']"),
+      ).not.toBeNull(),
+    );
+
+    element.shadowRoot?.querySelector<HTMLElement>("[data-mutation='revoke-allocation']")?.click();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(element.shadowRoot?.querySelector("[data-confirm-mutation]")).not.toBeNull();
+    element.shadowRoot?.querySelector<HTMLElement>("[data-confirm-mutation]")?.click();
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+
+    const init = fetchImpl.mock.calls[1]?.[1];
+    if (typeof init?.body !== "string") {
+      throw new Error("revocation request body is missing");
+    }
+    expect(JSON.parse(init.body)).toEqual({
+      action: "revoke-allocation",
+      allocationId: "allocation-1",
     });
   });
 

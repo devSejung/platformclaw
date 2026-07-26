@@ -1,5 +1,5 @@
 ---
-summary: "Administrator workflow for trusted SafeConnect endpoints, VMs, and employee assignments"
+summary: "Administrator workflow for trusted SafeConnect endpoints, VM catalog, and assignment revocation"
 read_when:
   - Operating or changing PlatformClaw VM administration
   - Reviewing SafeConnect host-key approval or VM assignment
@@ -20,20 +20,22 @@ check so bypassing the UI does not bypass authorization.
 3. Compare both values and explicitly approve the host key. A key merely seen
    during an SSH connection is not trusted automatically.
 4. Add a target development VM to the approved endpoint.
-5. Assign an active personal Agent, Linux account, and VM.
-6. The employee registers an AD password and runs the connection test from
-   **Work location** before selecting the VM.
+5. The employee opens **Work location**, selects an active VM, confirms the
+   Linux account, enters an AD password, and runs the connection test.
+6. PlatformClaw creates or replaces the allocation only after that test passes.
 
 The page shows current endpoints, VMs, assignments, and recent VM audit events.
 It never returns stored passwords or credential ciphertext to the browser.
 
-## Deferred destructive lifecycle
+## Disable and revoke lifecycle
 
-Endpoint disable, VM disable, assignment revocation, and reassignment are not
-available in the first administration surface. Those operations can strand or
-misidentify processes that remain in the previous execution environment. They
-will be added only with a process-aware confirmation and recovery contract.
+The administration surface supports assignment revocation, VM disablement, and
+endpoint disablement with explicit confirmation. These operations are soft
+state changes; they do not delete database history or remote files.
 
-Use database backup and the audited operator procedure for exceptional cleanup
-until that contract exists. Do not edit allocation rows while Gateway processes
-are active.
+Revoke active assignments before disabling a VM. Disable all active VMs before
+disabling their endpoint. A user may release their own allocation only from the
+basic workspace. The same run-boundary guard applies to administrator
+revocation, so running work is never silently moved. Re-enable and hard-delete
+flows are intentionally absent from the first release; register a new record
+when replacing infrastructure.

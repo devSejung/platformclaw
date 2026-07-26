@@ -4,6 +4,7 @@ import type { BrowserAuthService } from "./browser-auth-service.js";
 import { ControlPlaneConflictError, type ControlPlaneStore } from "./contracts.js";
 import type {
   ControlPlaneEmployeeExecutionStore,
+  ControlPlaneVmSelfServiceStore,
   PersonalExecutionSettings,
 } from "./execution-contracts.js";
 import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
@@ -14,6 +15,8 @@ export const PLATFORMCLAW_EXECUTION_SETTINGS_PATH = "/platformclaw/api/execution
 export const PLATFORMCLAW_EXECUTION_CREDENTIAL_PATH = "/platformclaw/api/execution/credential";
 export const PLATFORMCLAW_EXECUTION_TEST_PATH = "/platformclaw/api/execution/test";
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/api/execution/target";
+export const PLATFORMCLAW_EXECUTION_SELECTION_PATH = "/platformclaw/api/execution/selection";
+export const PLATFORMCLAW_EXECUTION_RELEASE_PATH = "/platformclaw/api/execution/release";
 
 const EXECUTION_BODY_LIMIT_BYTES = 8 * 1024;
 const CONNECTION_ATTEMPT_WINDOW_MS = 5 * 60_000;
@@ -29,7 +32,9 @@ class EmployeeExecutionHttpError extends Error {
   }
 }
 
-type EmployeeExecutionStore = ControlPlaneStore & ControlPlaneEmployeeExecutionStore;
+type EmployeeExecutionStore = ControlPlaneStore &
+  ControlPlaneEmployeeExecutionStore &
+  ControlPlaneVmSelfServiceStore;
 
 type EmployeeExecutionServiceOptions = {
   authService: BrowserAuthService;
@@ -132,10 +137,113 @@ export class EmployeeExecutionService {
 
   async getSettings(userId: string, agentId: string) {
     const settings = await this.requireOwnedSettings(userId, agentId);
+    const catalog = await this.options.store.getPersonalVmCatalog({
+      actorUserId: userId,
+      agentId,
+    });
     const credential = this.options.credentialVault
       ? await this.options.credentialVault.getMetadata({ actorUserId: userId, userId })
       : null;
-    return this.project(settings, credential?.status ?? "missing");
+    return this.project(settings, credential?.status ?? "missing", catalog);
+  }
+
+  async selectVm(params: {
+    userId: string;
+    agentId: string;
+    vmHostId: string;
+    linuxAccount: string;
+    password: string;
+  }) {
+    return await this.withConnectionAttempt(params.agentId, async () => {
+      const { credentialBroker, credentialVault } = this.requireCredentialRuntime();
+      const settings = await this.requireOwnedSettings(params.userId, params.agentId);
+      if (settings.activeTarget !== "platform_server") {
+        throw new EmployeeExecutionHttpError(
+          409,
+          "switch to the Basic workspace before changing development VM",
+        );
+      }
+      if (!params.password || Buffer.byteLength(params.password, "utf8") > 4 * 1024) {
+        throw new EmployeeExecutionHttpError(400, "AD password is required");
+      }
+      const candidate = await this.options.store.preparePersonalVmCandidate({
+        actorUserId: params.userId,
+        agentId: params.agentId,
+        vmHostId: params.vmHostId,
+        linuxAccount: params.linuxAccount,
+      });
+      const grant = credentialBroker.issueTransient(params.password);
+      let connection: ConnectionTestResult;
+      try {
+        connection = connectionTestResult(
+          await this.options.adminRpc.call("platformclaw-execution.testCandidateConnection", {
+            target: { ...candidate, remoteWorkspaceDir: "/" },
+            credentialBrokerAddress: credentialBroker.address,
+            credentialGrantToken: grant.token,
+          }),
+        );
+      } catch (error) {
+        if (isVmAuthenticationFailure(error)) {
+          throw new EmployeeExecutionHttpError(422, "AD password was not accepted");
+        }
+        throw error;
+      } finally {
+        credentialBroker.revoke(grant.token);
+      }
+      if (
+        connection.allocationId !== candidate.allocationId ||
+        connection.targetRevision !== candidate.revision
+      ) {
+        throw new EmployeeExecutionHttpError(409, "development VM selection changed during test");
+      }
+      const replacedAt = this.now();
+      await credentialVault.replace({
+        actorUserId: params.userId,
+        userId: params.userId,
+        password: params.password,
+        replacedAt,
+      });
+      await this.options.store.replacePersonalVmAllocation({
+        actorUserId: params.userId,
+        agentId: params.agentId,
+        vmHostId: params.vmHostId,
+        linuxAccount: candidate.linuxAccount,
+        remoteHomeDir: connection.remoteHomeDir,
+        remoteWorkspaceDir: connection.remoteWorkspaceDir,
+        replacedAt,
+      });
+      return await this.getSettings(params.userId, params.agentId);
+    });
+  }
+
+  async releaseVm(userId: string, agentId: string) {
+    const settings = await this.requireOwnedSettings(userId, agentId);
+    if (!settings.allocation) {
+      await this.options.credentialVault?.delete({
+        actorUserId: userId,
+        userId,
+        deletedAt: this.now(),
+      });
+      return await this.getSettings(userId, agentId);
+    }
+    if (settings.activeTarget !== "platform_server") {
+      throw new EmployeeExecutionHttpError(
+        409,
+        "switch to the Basic workspace before releasing development VM",
+      );
+    }
+    const releasedAt = this.now();
+    await this.options.store.releasePersonalVmAllocation({
+      actorUserId: userId,
+      agentId,
+      releasedAt,
+    });
+    await this.options.credentialVault?.delete({
+      actorUserId: userId,
+      userId,
+      deletedAt: releasedAt,
+    });
+    return await this.getSettings(userId, agentId);
   }
 
   async registerCredential(params: { userId: string; agentId: string; password: string }) {
@@ -304,11 +412,17 @@ export class EmployeeExecutionService {
     }
   }
 
-  private project(settings: PersonalExecutionSettings, credentialStatus: string) {
+  private project(
+    settings: PersonalExecutionSettings,
+    credentialStatus: string,
+    catalog: { accountId: string; hosts: Array<{ id: string; label: string }> },
+  ) {
     return {
       activeTarget: settings.activeTarget,
       targetRevision: settings.targetRevision,
       credentialStatus,
+      accountId: catalog.accountId,
+      availableVms: catalog.hosts,
       ...(settings.allocation ? { assignment: settings.allocation } : {}),
     };
   }
@@ -328,7 +442,9 @@ export async function handlePlatformClawEmployeeExecutionRequest(
     pathname !== PLATFORMCLAW_EXECUTION_SETTINGS_PATH &&
     pathname !== PLATFORMCLAW_EXECUTION_CREDENTIAL_PATH &&
     pathname !== PLATFORMCLAW_EXECUTION_TEST_PATH &&
-    pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH
+    pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH &&
+    pathname !== PLATFORMCLAW_EXECUTION_SELECTION_PATH &&
+    pathname !== PLATFORMCLAW_EXECUTION_RELEASE_PATH
   ) {
     return false;
   }
@@ -364,6 +480,10 @@ export async function handlePlatformClawEmployeeExecutionRequest(
       );
       return true;
     }
+    if (pathname === PLATFORMCLAW_EXECUTION_RELEASE_PATH) {
+      sendJson(res, 200, await options.service.releaseVm(auth.user.id, auth.binding.agentId));
+      return true;
+    }
     const read = await options.readJsonBody(req, EXECUTION_BODY_LIMIT_BYTES);
     const body = read.ok ? objectBody(read.value) : null;
     if (!body) {
@@ -379,6 +499,20 @@ export async function handlePlatformClawEmployeeExecutionRequest(
           userId: auth.user.id,
           agentId: auth.binding.agentId,
           password,
+        }),
+      );
+      return true;
+    }
+    if (pathname === PLATFORMCLAW_EXECUTION_SELECTION_PATH) {
+      sendJson(
+        res,
+        200,
+        await options.service.selectVm({
+          userId: auth.user.id,
+          agentId: auth.binding.agentId,
+          vmHostId: typeof body.vmHostId === "string" ? body.vmHostId : "",
+          linuxAccount: typeof body.linuxAccount === "string" ? body.linuxAccount : "",
+          password: typeof body.password === "string" ? body.password : "",
         }),
       );
       return true;
@@ -418,7 +552,7 @@ export async function handlePlatformClawEmployeeExecutionRequest(
       sendJson(res, 409, { error: message });
       return true;
     }
-    if (error instanceof ControlPlaneConflictError && error.code === "execution_target_conflict") {
+    if (error instanceof ControlPlaneConflictError) {
       sendJson(res, 409, { error: message });
       return true;
     }

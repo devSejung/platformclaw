@@ -7,7 +7,11 @@ import {
   VmAdministrationService,
 } from "./browser-vm-admin-http.js";
 import type { ControlPlaneAuditReader } from "./contracts.js";
-import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
+import type {
+  ControlPlaneEmployeeExecutionStore,
+  ControlPlaneExecutionManagementStore,
+} from "./execution-contracts.js";
+import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
 function responseHarness(): { response: ServerResponse; body(): unknown } {
   let responseBody = "";
@@ -31,7 +35,10 @@ function createService(role: "member" | "admin") {
     getVmAdministrationSnapshot,
     listAuditEvents: vi.fn(async () => []),
     createSafeConnectEndpoint,
-  } as unknown as ControlPlaneExecutionManagementStore & ControlPlaneAuditReader;
+    getPersonalExecutionSettings: vi.fn(async () => null),
+  } as unknown as ControlPlaneExecutionManagementStore &
+    ControlPlaneEmployeeExecutionStore &
+    ControlPlaneAuditReader;
   const authService = {
     authenticateToken: vi.fn(async () => ({
       status: "active",
@@ -39,7 +46,12 @@ function createService(role: "member" | "admin") {
     })),
   } as unknown as BrowserAuthService;
   return {
-    service: new VmAdministrationService({ authService, store, now: () => 123 }),
+    service: new VmAdministrationService({
+      authService,
+      store,
+      adminRpc: { call: vi.fn() } as unknown as GatewayAdminRpc,
+      now: () => 123,
+    }),
     getVmAdministrationSnapshot,
     createSafeConnectEndpoint,
   };

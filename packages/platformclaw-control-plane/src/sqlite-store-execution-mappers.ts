@@ -70,6 +70,7 @@ type PersonalExecutionSettingsRow = {
   active_target: "platform_server" | "assigned_vm";
   target_revision: number;
   allocation_id: string | null;
+  vm_host_id: string | null;
   allocation_status: VmAllocationStatus | null;
   linux_account: string | null;
   remote_home_dir: string | null;
@@ -95,6 +96,7 @@ export function rowToPersonalExecutionSettings(
   };
   if (
     !row.allocation_id ||
+    !row.vm_host_id ||
     !row.allocation_status ||
     !row.linux_account ||
     !row.vm_label ||
@@ -106,6 +108,7 @@ export function rowToPersonalExecutionSettings(
     ...base,
     allocation: {
       id: row.allocation_id,
+      vmHostId: row.vm_host_id,
       status: row.allocation_status,
       vmLabel: row.vm_label,
       safeConnectLabel: row.safeconnect_label,

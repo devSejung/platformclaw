@@ -8,15 +8,21 @@ import {
   type ControlPlaneAuditReader,
 } from "./contracts.js";
 import type {
+  ControlPlaneEmployeeExecutionStore,
   ControlPlaneExecutionManagementStore,
+  ControlPlaneVmLifecycleStore,
   VmAdministrationSnapshot,
 } from "./execution-contracts.js";
+import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
 export const PLATFORMCLAW_VM_ADMIN_PATH = "/platformclaw/api/admin/vm";
 const BODY_LIMIT_BYTES = 24 * 1024;
 const VM_AUDIT_TARGETS = new Set(["safeconnect-endpoint", "vm-host", "vm-allocation"]);
 
-type VmAdministrationStore = ControlPlaneExecutionManagementStore & ControlPlaneAuditReader;
+type VmAdministrationStore = ControlPlaneExecutionManagementStore &
+  ControlPlaneEmployeeExecutionStore &
+  ControlPlaneVmLifecycleStore &
+  ControlPlaneAuditReader;
 type VmAdministrationResponse = VmAdministrationSnapshot & {
   auditEvents: Awaited<ReturnType<ControlPlaneAuditReader["listAuditEvents"]>>;
 };
@@ -48,6 +54,7 @@ export class VmAdministrationService {
     private readonly options: {
       authService: BrowserAuthService;
       store: VmAdministrationStore;
+      adminRpc: GatewayAdminRpc;
       now?: () => number;
     },
   ) {}
@@ -102,15 +109,43 @@ export class VmAdministrationService {
           createdAt: now,
         });
         break;
-      case "allocations":
-        await this.options.store.assignVmToPersonalAgent({
+      case "disable-endpoint":
+        await this.options.store.disableSafeConnectEndpoint({
           actorUserId,
-          agentId: stringField(body, "agentId"),
-          vmHostId: stringField(body, "vmHostId"),
-          linuxAccount: stringField(body, "linuxAccount"),
-          assignedAt: now,
+          endpointId: stringField(body, "endpointId"),
+          disabledAt: now,
         });
         break;
+      case "disable-host":
+        await this.options.store.disableVmHost({
+          actorUserId,
+          vmHostId: stringField(body, "vmHostId"),
+          disabledAt: now,
+        });
+        break;
+      case "revoke-allocation": {
+        const allocationId = stringField(body, "allocationId");
+        const allocation = (
+          await this.options.store.getVmAdministrationSnapshot(actorUserId)
+        ).allocations.find((candidate) => candidate.id === allocationId);
+        if (!allocation) {
+          throw new ControlPlaneStateError("active VM assignment is unavailable");
+        }
+        const settings = await this.options.store.getPersonalExecutionSettings(allocation.agentId);
+        if (settings?.activeTarget === "assigned_vm") {
+          await this.options.adminRpc.call("platformclaw-execution.changeTarget", {
+            agentId: allocation.agentId,
+            target: "platform_server",
+            expectedRevision: settings.targetRevision,
+          });
+        }
+        await this.options.store.revokeVmAllocationAsAdmin({
+          actorUserId,
+          allocationId,
+          revokedAt: now,
+        });
+        break;
+      }
       default:
         throw new ControlPlaneStateError("unknown VM administration action");
     }

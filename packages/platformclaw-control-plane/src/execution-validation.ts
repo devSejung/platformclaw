@@ -130,3 +130,15 @@ export function normalizeAdDomain(value: string): string {
 export function normalizeVmTargetAddress(value: string): string {
   return normalizeDnsOrIpAddress(value, "vmHost.targetAddress");
 }
+
+export function normalizeLinuxAccount(value: string): string {
+  const account = required(value, "allocation.linuxAccount");
+  if (
+    account.length > 255 ||
+    /[\s\\+@]/u.test(account) ||
+    account.includes(String.fromCharCode(0))
+  ) {
+    throw new ControlPlaneStateError("allocation.linuxAccount is invalid");
+  }
+  return account;
+}

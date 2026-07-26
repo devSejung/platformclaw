@@ -19,7 +19,6 @@ import {
 } from "./execution-validation.js";
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
-import { SqliteControlPlaneAuthStore } from "./sqlite-store-auth.js";
 import { required } from "./sqlite-store-core.js";
 import { readVmAdministrationSnapshot } from "./sqlite-store-execution-admin.js";
 import {
@@ -29,9 +28,10 @@ import {
   rowToVmHost,
 } from "./sqlite-store-execution-mappers.js";
 import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlite-store-types.js";
+import { SqliteControlPlaneVmSelfServiceStore } from "./sqlite-store-vm-self-service.js";
 
 export abstract class SqliteControlPlaneExecutionStore
-  extends SqliteControlPlaneAuthStore
+  extends SqliteControlPlaneVmSelfServiceStore
   implements
     ControlPlaneExecutionManagementStore,
     ControlPlaneExecutionTargetStore,
@@ -596,6 +596,7 @@ export abstract class SqliteControlPlaneExecutionStore
           "personal_execution_profiles.active_target as active_target",
           "personal_execution_profiles.target_revision as target_revision",
           "vm_allocations.id as allocation_id",
+          "vm_allocations.vm_host_id as vm_host_id",
           "vm_allocations.status as allocation_status",
           "vm_allocations.linux_account as linux_account",
           "vm_allocations.remote_home_dir as remote_home_dir",

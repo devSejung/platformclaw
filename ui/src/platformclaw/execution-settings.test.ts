@@ -13,7 +13,10 @@ const SETTINGS = {
   activeTarget: "platform_server",
   targetRevision: 3,
   credentialStatus: "current",
+  accountId: "person.one",
+  availableVms: [{ id: "vm-one", label: "Development VM" }],
   assignment: {
+    vmHostId: "vm-one",
     status: "ready",
     vmLabel: "Development VM",
     safeConnectLabel: "SafeConnect",

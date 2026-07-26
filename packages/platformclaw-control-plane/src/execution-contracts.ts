@@ -96,6 +96,7 @@ export type PersonalExecutionSettings = {
   targetRevision: number;
   allocation?: {
     id: string;
+    vmHostId: string;
     status: VmAllocationStatus;
     vmLabel: string;
     safeConnectLabel: string;
@@ -106,6 +107,16 @@ export type PersonalExecutionSettings = {
     lastConnectionSucceededAt?: number;
     failureCode?: string;
   };
+};
+
+export type AvailableVmHost = {
+  id: string;
+  label: string;
+};
+
+export type PersonalVmCatalog = {
+  accountId: string;
+  hosts: AvailableVmHost[];
 };
 
 export type VmAdministrationAgent = {
@@ -192,4 +203,49 @@ export interface ControlPlaneExecutionManagementStore {
   }): Promise<VmAllocation>;
   getVmAllocationForAgent(agentId: string): Promise<VmAllocation | null>;
   getVmAdministrationSnapshot(actorUserId: string): Promise<VmAdministrationSnapshot>;
+}
+
+export interface ControlPlaneVmLifecycleStore {
+  disableSafeConnectEndpoint(params: {
+    actorUserId: string;
+    endpointId: string;
+    disabledAt: number;
+  }): Promise<SafeConnectEndpoint>;
+  disableVmHost(params: {
+    actorUserId: string;
+    vmHostId: string;
+    disabledAt: number;
+  }): Promise<VmHost>;
+  revokeVmAllocationAsAdmin(params: {
+    actorUserId: string;
+    allocationId: string;
+    revokedAt: number;
+  }): Promise<VmAllocation>;
+}
+
+export interface ControlPlaneVmSelfServiceStore {
+  getPersonalVmCatalog(params: {
+    actorUserId: string;
+    agentId: string;
+  }): Promise<PersonalVmCatalog>;
+  preparePersonalVmCandidate(params: {
+    actorUserId: string;
+    agentId: string;
+    vmHostId: string;
+    linuxAccount: string;
+  }): Promise<AssignedVmConnectionTarget>;
+  replacePersonalVmAllocation(params: {
+    actorUserId: string;
+    agentId: string;
+    vmHostId: string;
+    linuxAccount: string;
+    remoteHomeDir: string;
+    remoteWorkspaceDir: string;
+    replacedAt: number;
+  }): Promise<VmAllocation>;
+  releasePersonalVmAllocation(params: {
+    actorUserId: string;
+    agentId: string;
+    releasedAt: number;
+  }): Promise<VmAllocation>;
 }

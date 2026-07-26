@@ -16,6 +16,7 @@ const SETTINGS = {
   targetRevision: 2,
   allocation: {
     id: "allocation-one",
+    vmHostId: "vm-one",
     status: "ready" as const,
     vmLabel: "Development VM",
     safeConnectLabel: "SafeConnect",
@@ -30,10 +31,40 @@ function createHarness() {
       async () => SETTINGS,
     ),
     recordVmConnectionResult: vi.fn(async () => SETTINGS.allocation),
+    getPersonalVmCatalog: vi.fn(async () => ({
+      accountId: "person.one",
+      hosts: [{ id: "vm-one", label: "Development VM" }],
+    })),
+    preparePersonalVmCandidate: vi.fn(async () => ({
+      kind: "assigned_vm" as const,
+      agentId: "person_one",
+      userId: "user-one",
+      targetId: "candidate:vm-one",
+      revision: 2,
+      allocationId: "candidate:vm-one",
+      allocationStatus: "assigned" as const,
+      vmLabel: "Development VM",
+      safeConnectLabel: "SafeConnect",
+      endpointHost: "safeconnect.example.test",
+      endpointPort: 44_422,
+      adDomain: "example.test",
+      adAccount: "person.one",
+      targetAddress: "192.0.2.10",
+      linuxAccount: "person.one",
+      hostKeyAlgorithm: "ssh-ed25519",
+      hostKeyPublicKey: "key",
+      hostKeyFingerprint: "SHA256:test",
+    })),
+    replacePersonalVmAllocation: vi.fn(async () => SETTINGS.allocation),
+    releasePersonalVmAllocation: vi.fn(async () => ({
+      ...SETTINGS.allocation,
+      status: "revoked" as const,
+    })),
   };
   const vault = {
     getMetadata: vi.fn(async () => ({ status: "current" })),
     replace: vi.fn(async () => ({ status: "current" })),
+    delete: vi.fn(async () => true),
   };
   const broker = {
     address: "/run/platformclaw-credential-broker/runtime.sock",
@@ -41,12 +72,17 @@ function createHarness() {
     issueForUser: vi.fn(() => ({ token: "stored-grant", expiresAt: Date.now() + 1_000 })),
     revoke: vi.fn(() => true),
   };
-  const adminRpcCall = vi.fn<(method: string, params: unknown) => Promise<unknown>>(async () => ({
-    allocationId: "allocation-one",
-    targetRevision: 2,
-    remoteHomeDir: "/users/person.one",
-    remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
-  }));
+  const adminRpcCall = vi.fn<(method: string, params: unknown) => Promise<unknown>>(
+    async (method) => ({
+      allocationId:
+        method === "platformclaw-execution.testCandidateConnection"
+          ? "candidate:vm-one"
+          : "allocation-one",
+      targetRevision: 2,
+      remoteHomeDir: "/users/person.one",
+      remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
+    }),
+  );
   const adminRpc: GatewayAdminRpc = {
     call: async <T>(method: string, params: unknown) => (await adminRpcCall(method, params)) as T,
   };
@@ -227,6 +263,49 @@ describe("EmployeeExecutionService", () => {
       target: "assigned_vm",
       expectedRevision: 2,
     });
+  });
+
+  it("tests a self-selected VM before atomically replacing the allocation", async () => {
+    const harness = createHarness();
+
+    await harness.service.selectVm({
+      userId: "user-one",
+      agentId: "person_one",
+      vmHostId: "vm-one",
+      linuxAccount: "person.one",
+      password: "secret",
+    });
+
+    expect(harness.adminRpcCall).toHaveBeenCalledWith(
+      "platformclaw-execution.testCandidateConnection",
+      expect.objectContaining({
+        target: expect.objectContaining({ allocationId: "candidate:vm-one" }),
+      }),
+    );
+    expect(harness.store.replacePersonalVmAllocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vmHostId: "vm-one",
+        linuxAccount: "person.one",
+        remoteHomeDir: "/users/person.one",
+      }),
+    );
+  });
+
+  it("revokes the inactive allocation before deleting its credential", async () => {
+    const harness = createHarness();
+    const order: string[] = [];
+    harness.store.releasePersonalVmAllocation.mockImplementationOnce(async () => {
+      order.push("allocation");
+      return { ...SETTINGS.allocation, status: "revoked" as const };
+    });
+    harness.vault.delete.mockImplementationOnce(async () => {
+      order.push("credential");
+      return true;
+    });
+
+    await harness.service.releaseVm("user-one", "person_one");
+
+    expect(order).toEqual(["allocation", "credential"]);
   });
 
   it("rejects another user's execution settings", async () => {

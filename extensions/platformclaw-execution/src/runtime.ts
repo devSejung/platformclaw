@@ -261,12 +261,80 @@ export async function createSafeConnectSession(
   }
 }
 
+async function testAssignedVmConnection(params: {
+  target: AssignedVmTargetSnapshot;
+  credentialBrokerAddress: string;
+  credentialGrantToken: string;
+}): Promise<{
+  allocationId: string;
+  targetRevision: number;
+  remoteHomeDir: string;
+  remoteWorkspaceDir: string;
+}> {
+  const session = await createSafeConnectSession(
+    params.target,
+    "/usr/local/bin/platformclaw-sshpass",
+    {
+      credentialBrokerAddress: params.credentialBrokerAddress,
+      credentialGrantToken: params.credentialGrantToken,
+    },
+  );
+  try {
+    let result;
+    try {
+      result = await runSshSandboxCommand({
+        session,
+        remoteCommand:
+          'set -eu; test -n "$HOME"; mkdir -p -- "$HOME/.platformclaw/workspace"; printf \'%s\\n%s\\n\' "$HOME" "$(id -un)"',
+        signal: AbortSignal.timeout(7_000),
+        maxBufferBytes: 4 * 1024,
+      });
+    } catch (error) {
+      // sshpass exit 5 specifically means invalid/expired credentials. Infrastructure,
+      // broker, host-key, and transport failures must not invalidate a healthy VM target.
+      if (isSshpassAuthenticationFailure(error)) {
+        throw new PlatformClawVmAuthenticationError();
+      }
+      throw error;
+    }
+    const [remoteHomeDir, remoteUser, ...extra] = result.stdout
+      .toString("utf8")
+      .trimEnd()
+      .split("\n");
+    if (
+      extra.length > 0 ||
+      !remoteHomeDir?.startsWith("/") ||
+      remoteUser !== params.target.linuxAccount
+    ) {
+      throw new Error("assigned VM identity response is invalid");
+    }
+    return {
+      allocationId: params.target.allocationId,
+      targetRevision: params.target.revision,
+      remoteHomeDir,
+      remoteWorkspaceDir: path.posix.join(remoteHomeDir, ".platformclaw/workspace"),
+    };
+  } finally {
+    await disposeSshSandboxSession(session);
+  }
+}
+
 export async function createExecutionDependenciesFromEnvironment(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<
   PlatformClawExecutionDependencies & {
     testConnection(params: {
       agentId: string;
+      credentialBrokerAddress: string;
+      credentialGrantToken: string;
+    }): Promise<{
+      allocationId: string;
+      targetRevision: number;
+      remoteHomeDir: string;
+      remoteWorkspaceDir: string;
+    }>;
+    testCandidateConnection(params: {
+      target: unknown;
       credentialBrokerAddress: string;
       credentialGrantToken: string;
     }): Promise<{
@@ -334,52 +402,26 @@ export async function createExecutionDependenciesFromEnvironment(
       if (target.kind !== "assigned_vm") {
         throw new Error("assigned VM connection target is unavailable");
       }
-      const session = await createSafeConnectSession(
+      return await testAssignedVmConnection({
         target,
-        "/usr/local/bin/platformclaw-sshpass",
-        {
-          credentialBrokerAddress,
-          credentialGrantToken,
-        },
-      );
-      try {
-        let result;
-        try {
-          result = await runSshSandboxCommand({
-            session,
-            remoteCommand:
-              'set -eu; test -n "$HOME"; mkdir -p -- "$HOME/.platformclaw/workspace"; printf \'%s\\n%s\\n\' "$HOME" "$(id -un)"',
-            signal: AbortSignal.timeout(7_000),
-            maxBufferBytes: 4 * 1024,
-          });
-        } catch (error) {
-          // sshpass exit 5 specifically means invalid/expired credentials. Infrastructure,
-          // broker, host-key, and transport failures must not invalidate a healthy VM target.
-          if (isSshpassAuthenticationFailure(error)) {
-            throw new PlatformClawVmAuthenticationError();
-          }
-          throw error;
-        }
-        const [remoteHomeDir, remoteUser, ...extra] = result.stdout
-          .toString("utf8")
-          .trimEnd()
-          .split("\n");
-        if (
-          extra.length > 0 ||
-          !remoteHomeDir?.startsWith("/") ||
-          remoteUser !== target.linuxAccount
-        ) {
-          throw new Error("assigned VM identity response is invalid");
-        }
-        return {
-          allocationId: target.allocationId,
-          targetRevision: target.revision,
-          remoteHomeDir,
-          remoteWorkspaceDir: path.posix.join(remoteHomeDir, ".platformclaw/workspace"),
-        };
-      } finally {
-        await disposeSshSandboxSession(session);
+        credentialBrokerAddress,
+        credentialGrantToken,
+      });
+    },
+    testCandidateConnection: async ({
+      target: rawTarget,
+      credentialBrokerAddress,
+      credentialGrantToken,
+    }) => {
+      const target = parseTarget(rawTarget);
+      if (target.kind !== "assigned_vm") {
+        throw new Error("development VM candidate is invalid");
       }
+      return await testAssignedVmConnection({
+        target,
+        credentialBrokerAddress,
+        credentialGrantToken,
+      });
     },
     changeTarget: async ({ agentId, target, expectedRevision }) =>
       parseTarget(

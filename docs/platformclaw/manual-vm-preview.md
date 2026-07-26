@@ -47,15 +47,15 @@ Use another browser profile or sign out between the two roles:
 ## Manual scenario
 
 1. Sign in once as `person.one`, then sign out. This provisions the employee's
-   personal Agent so an administrator can assign it.
+   personal Agent.
 2. Sign in as `admin.user` and open **VM administration** from the profile
    menu.
 3. Register the endpoint and host key printed by the launcher.
-4. Register target VM `10.0.0.10` and assign Agent `person_one` with Linux
-   account `person_one`.
+4. Register target VM `10.0.0.10`.
 5. Sign out and sign in as `person.one`.
-6. Open **Work location**, register the printed Fake AD password, and run the
-   connection test.
+6. Open **Work location**, select the registered VM, keep the default Linux
+   account `person.one`, and enter the printed Fake AD password. The allocation
+   is created only after the connection test succeeds.
 7. Change the work location to **Personal VM**.
 8. If a model provider is configured, start a chat and ask the Agent to run
    `whoami`, `pwd`, and create then read a small file. The remote home is

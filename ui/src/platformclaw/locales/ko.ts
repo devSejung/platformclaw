@@ -12,6 +12,21 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.execution.noVm": "할당된 개발 VM이 없습니다",
   "platformClaw.execution.noVmHelp":
     "기본 작업 공간을 계속 사용할 수 있습니다. VM이 필요하면 관리자에게 문의하세요.",
+  "platformClaw.execution.selectVm": "개발 VM 선택",
+  "platformClaw.execution.vmChoice": "개발 VM",
+  "platformClaw.execution.linuxAccount": "Linux 계정",
+  "platformClaw.execution.selectionHelp":
+    "로그인 계정 ID가 자동 입력됩니다. 실제 Linux 계정이 다른 경우에만 수정하세요.",
+  "platformClaw.execution.connectVm": "연결 확인 후 VM 저장",
+  "platformClaw.execution.changeVm": "연결 확인 후 VM 변경",
+  "platformClaw.execution.noAvailableVm": "현재 선택할 수 있는 개발 VM이 없습니다.",
+  "platformClaw.execution.switchBasicToChange":
+    "VM을 변경하거나 해제하려면 먼저 기본 작업 공간으로 전환하세요.",
+  "platformClaw.execution.release": "VM 할당 해제",
+  "platformClaw.execution.releaseConfirmTitle": "VM 할당을 해제할까요?",
+  "platformClaw.execution.releaseConfirmBody":
+    "VM의 파일과 백그라운드 프로세스는 남고 저장된 AD 자격증명은 삭제됩니다.",
+  "platformClaw.execution.releaseConfirm": "할당 해제",
   "platformClaw.execution.password": "AD 비밀번호",
   "platformClaw.execution.saveAndTest": "연결 확인 후 저장",
   "platformClaw.execution.test": "연결 확인",
@@ -42,6 +57,16 @@ export const translations: Readonly<Record<string, string>> = {
     "신뢰할 수 있는 경로로 지문을 확인한 뒤 호스트 키를 승인하세요.",
   "platformClaw.vmAdmin.hosts": "개발 VM",
   "platformClaw.vmAdmin.allocations": "사용자 할당",
+  "platformClaw.vmAdmin.allocationHelp":
+    "사용자가 활성 VM 중에서 직접 선택합니다. 관리자는 여기서 접근을 회수할 수 있습니다.",
+  "platformClaw.vmAdmin.disableEndpoint": "연결 지점 사용 중지",
+  "platformClaw.vmAdmin.disableHost": "VM 사용 중지",
+  "platformClaw.vmAdmin.revokeAllocation": "할당 회수",
+  "platformClaw.vmAdmin.confirmTitle": "변경 확인",
+  "platformClaw.vmAdmin.confirmBody":
+    "{label}에 이 변경을 적용할까요? 실행 중인 작업은 자동으로 이동하지 않습니다.",
+  "platformClaw.vmAdmin.confirm": "확인",
+  "platformClaw.vmAdmin.cancel": "취소",
   "platformClaw.vmAdmin.audit": "최근 VM 감사 기록",
   "platformClaw.vmAdmin.noItems": "아직 설정된 항목이 없습니다.",
   "platformClaw.vmAdmin.label": "이름",
@@ -60,7 +85,6 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.vmAdmin.employee": "사용자",
   "platformClaw.vmAdmin.vm": "개발 VM",
   "platformClaw.vmAdmin.linuxAccount": "Linux 계정",
-  "platformClaw.vmAdmin.assign": "VM 할당",
 };
 
 export const statusLabels: Readonly<Record<string, string>> = {
