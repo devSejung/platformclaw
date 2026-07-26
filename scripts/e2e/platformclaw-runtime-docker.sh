@@ -137,7 +137,7 @@ curl --fail --silent --show-error \
 jq -e '.authenticated == true and .user.globalRole == "admin"' \
   "$admin_response" >/dev/null
 
-"${compose[@]}" exec -T fake-safeconnect cat /state/host-key.json >"$safeconnect_host_key"
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T fake-safeconnect cat /state/host-key.json >"$safeconnect_host_key"
 jq -e \
   '.algorithm == "ssh-ed25519" and (.publicKey | length > 40) and (.fingerprint | startswith("SHA256:"))' \
   "$safeconnect_host_key" >/dev/null
@@ -187,13 +187,19 @@ if [[ "$bad_credential_status" != "422" ]]; then
 fi
 jq -e '.error == "AD password was not accepted"' "$execution_response" >/dev/null
 
-curl --fail --silent --show-error \
+selection_status="$(curl --silent --show-error --output "$execution_response" \
+  --write-out '%{http_code}' \
   --cookie "$cookie_jar" \
   --header "Origin: $origin" \
   --header "Content-Type: application/json" \
   --data-binary "$(jq -cn --arg vmHostId "$vm_host_id" \
     '{vmHostId:$vmHostId, linuxAccount:"person_one", password:"platformclaw-safeconnect-fixture-password"}')" \
-  "$origin/platformclaw/api/execution/selection" >"$execution_response"
+  "$origin/platformclaw/api/execution/selection")"
+if [[ "$selection_status" != "200" ]]; then
+  echo "Expected accepted SafeConnect selection to return 200, got $selection_status" >&2
+  cat "$execution_response" >&2
+  exit 1
+fi
 jq -e \
   '.credentialStatus == "current" and .assignment.status == "ready" and .assignment.remoteHomeDir == "/users/person_one" and .assignment.remoteWorkspaceDir == "/users/person_one/.platformclaw/workspace"' \
   "$execution_response" >/dev/null
@@ -219,7 +225,7 @@ jq -e \
 
 safeconnect_algorithm="$(jq -r .algorithm "$safeconnect_host_key")"
 safeconnect_public_key="$(jq -r .publicKey "$safeconnect_host_key")"
-"${compose[@]}" exec -T \
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T \
   --env "SAFECONNECT_ALGORITHM=$safeconnect_algorithm" \
   --env "SAFECONNECT_PUBLIC_KEY=$safeconnect_public_key" \
   openclaw-gateway bash -ceu '
@@ -249,7 +255,7 @@ safeconnect_public_key="$(jq -r .publicKey "$safeconnect_host_key")"
     [[ "$result" == platformclaw-safeconnect-stream ]]
   '
 
-"${compose[@]}" exec -T fake-safeconnect cat /state/boundary.jsonl >"$safeconnect_boundary_log"
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T fake-safeconnect cat /state/boundary.jsonl >"$safeconnect_boundary_log"
 jq -se '
   (map(select(.event == "authentication_finished" and .accepted == false)) | length) >= 1 and
   (map(select(.event == "authentication_finished" and .accepted == true)) | length) >= 4 and
@@ -261,24 +267,24 @@ if grep -Fq "platformclaw-safeconnect-fixture-password" "$safeconnect_boundary_l
 fi
 
 sandbox_container="platformclaw-smoke-sandbox-$RANDOM"
-"${compose[@]}" exec -T openclaw-gateway docker run --detach --rm \
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T openclaw-gateway docker run --detach --rm \
   --name "$sandbox_container" \
   --label openclaw.sandbox=1 \
   --network bridge \
   --user 0:0 \
   --volume /var/lib/platformclaw/workspaces/person_one:/workspace \
   "$PLATFORMCLAW_SANDBOX_IMAGE" sleep infinity >/dev/null
-"${compose[@]}" exec -T openclaw-gateway docker inspect \
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T openclaw-gateway docker inspect \
   --format '{{.HostConfig.NetworkMode}}' "$sandbox_container" | grep -qx bridge
-"${compose[@]}" exec -T openclaw-gateway docker inspect \
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T openclaw-gateway docker inspect \
   --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}' \
   "$sandbox_container" | grep -q '/var/lib/platformclaw/workspaces/person_one -> /workspace'
-"${compose[@]}" exec -T openclaw-gateway docker exec "$sandbox_container" \
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T openclaw-gateway docker exec "$sandbox_container" \
   bash -ceu 'printf sandbox-ok > /workspace/.platformclaw-sandbox-smoke'
 grep -qx sandbox-ok "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR/person_one/.platformclaw-sandbox-smoke"
-"${compose[@]}" exec -T openclaw-gateway docker rm --force "$sandbox_container" >/dev/null
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T openclaw-gateway docker rm --force "$sandbox_container" >/dev/null
 
-"${compose[@]}" exec -T platformclaw-control node --input-type=module -e '
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T platformclaw-control node --input-type=module -e '
   import { readFileSync } from "node:fs";
   import {
     deriveExecutionHandoffAddress,
