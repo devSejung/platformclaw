@@ -10,6 +10,7 @@ import type { ControlPlaneAuditReader } from "./contracts.js";
 import type {
   ControlPlaneEmployeeExecutionStore,
   ControlPlaneExecutionManagementStore,
+  ControlPlaneVmLifecycleStore,
 } from "./execution-contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
@@ -38,6 +39,7 @@ function createService(role: "member" | "admin") {
     getPersonalExecutionSettings: vi.fn(async () => null),
   } as unknown as ControlPlaneExecutionManagementStore &
     ControlPlaneEmployeeExecutionStore &
+    ControlPlaneVmLifecycleStore &
     ControlPlaneAuditReader;
   const authService = {
     authenticateToken: vi.fn(async () => ({
