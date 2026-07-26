@@ -18,5 +18,7 @@ if (( ${#source_entries[@]} == 0 )); then
 fi
 
 cp -a "$source_dir"/. "$target_dir"/
-chown -R 1000:1000 "$target_dir"
+runtime_uid="${PLATFORMCLAW_RUNTIME_UID:?set PLATFORMCLAW_RUNTIME_UID}"
+runtime_gid="${PLATFORMCLAW_RUNTIME_GID:?set PLATFORMCLAW_RUNTIME_GID}"
+chown -R "$runtime_uid:$runtime_gid" "$target_dir"
 echo "Legacy workspaces migrated to $target_dir"

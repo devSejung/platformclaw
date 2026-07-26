@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+workspace_dir=/workspace
+runtime_uid="${PLATFORMCLAW_RUNTIME_UID:?set PLATFORMCLAW_RUNTIME_UID}"
+runtime_gid="${PLATFORMCLAW_RUNTIME_GID:?set PLATFORMCLAW_RUNTIME_GID}"
+previous_uid="${PLATFORMCLAW_PREVIOUS_RUNTIME_UID:?set PLATFORMCLAW_PREVIOUS_RUNTIME_UID}"
+previous_gid="${PLATFORMCLAW_PREVIOUS_RUNTIME_GID:?set PLATFORMCLAW_PREVIOUS_RUNTIME_GID}"
+
+for value in "$runtime_uid" "$runtime_gid" "$previous_uid" "$previous_gid"; do
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "workspace owner IDs must be positive integers" >&2
+    exit 1
+  fi
+done
+
+if [[ "$previous_uid:$previous_gid" == "$runtime_uid:$runtime_gid" ]]; then
+  echo "workspace already targets $runtime_uid:$runtime_gid; nothing to migrate"
+  exit 0
+fi
+
+# The operator explicitly names the former service identity. Stay on the
+# dedicated workspace mount and never dereference workspace-controlled symlinks.
+find "$workspace_dir" -xdev -uid "$previous_uid" -exec chown -h "$runtime_uid" {} +
+find "$workspace_dir" -xdev -gid "$previous_gid" -exec chgrp -h "$runtime_gid" {} +
+echo "workspace owner migration completed: $previous_uid:$previous_gid -> $runtime_uid:$runtime_gid"

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_uid="${PLATFORMCLAW_RUNTIME_UID:?set PLATFORMCLAW_RUNTIME_UID}"
+runtime_gid="${PLATFORMCLAW_RUNTIME_GID:?set PLATFORMCLAW_RUNTIME_GID}"
+
+if [[ ! "$runtime_uid" =~ ^[1-9][0-9]*$ || ! "$runtime_gid" =~ ^[1-9][0-9]*$ ]]; then
+  echo "PlatformClaw runtime UID and GID must be positive integers" >&2
+  exit 1
+fi
+
+for state_dir in /state/gateway /state/control; do
+  # A prior recursive repair may have stopped after changing only the volume
+  # root. Repair mismatched descendants without dereferencing state symlinks.
+  find "$state_dir" -xdev \( ! -uid "$runtime_uid" -o ! -gid "$runtime_gid" \) \
+    -exec chown -h "$runtime_uid:$runtime_gid" {} +
+  chmod 0700 "$state_dir"
+done

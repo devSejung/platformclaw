@@ -8,6 +8,11 @@ work_dir="$(mktemp -d)"
 project_name="platformclaw-smoke-$$"
 compose=(docker compose --project-name "$project_name" -f "$compose_file" -f "$smoke_compose_file")
 
+dump_logs() {
+  "${compose[@]}" ps || true
+  "${compose[@]}" logs --no-color --tail 200 || true
+}
+
 cleanup_work_dir() {
   if rm -rf "$work_dir" 2>/dev/null; then
     return
@@ -43,6 +48,9 @@ fi
 version="$(node -p "require('$repo_root/package.json').version")"
 export PLATFORMCLAW_IMAGE="${PLATFORMCLAW_RUNTIME_IMAGE:-platformclaw:$version}"
 export PLATFORMCLAW_SANDBOX_IMAGE="${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:$version}"
+export PLATFORMCLAW_RUNTIME_UID=1000
+export PLATFORMCLAW_RUNTIME_GID=1000
+export PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME="$project_name-credential-broker-1000-1000"
 export PLATFORMCLAW_REPO_ROOT="$repo_root"
 export PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR="$work_dir/unused-sandbox-docker-runtime"
 export PLATFORMCLAW_SMOKE_WORKSPACE_DIR="$work_dir/workspaces"
@@ -87,11 +95,6 @@ chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE" \
   "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE" \
   "$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE" \
   "$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
-
-dump_logs() {
-  "${compose[@]}" ps || true
-  "${compose[@]}" logs --no-color --tail 200 || true
-}
 
 echo "==> Starting PlatformClaw runtime smoke"
 if ! "${compose[@]}" up --detach --wait --wait-timeout 180; then
