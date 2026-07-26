@@ -361,24 +361,30 @@ Host-key 승인은 “이 주소의 SSH 서버가 앞으로도 이 공개키를 
 처음 접속해서 관찰한 키를 자동 승인하지 않는다. 키가 달라지면 연결을 차단하고 VM/SafeConnect
 관리자에게 변경 여부를 확인한다.
 
-### 5.2 관리자가 VM과 사용자 계정 할당
+### 5.2 관리자가 사용 가능한 VM 등록
 
 1. **Development VMs**에서 승인된 endpoint를 선택한다.
 2. VM 표시 이름과 실제 target VM 주소를 등록한다.
-3. **Employee assignments**에서 개인 Agent, VM, 해당 VM의 Linux account를 선택한다.
-4. **Assign VM**을 누른다.
+3. 활성화된 VM은 모든 개인 사용자에게 선택 가능한 목록으로 제공된다. 일반 사용자에게는
+   VM 표시 이름만 보여주고 실제 주소와 SafeConnect endpoint는 노출하지 않는다.
 
-SafeConnect endpoint와 target VM 주소는 서로 다르다. 예를 들어 SSH는 SafeConnect
-호스트와 포트로 접속하지만 username 안에 AD account, Linux account, target VM 주소가
-결합된다. 사용자는 임의의 host나 Linux account를 입력할 수 없다.
+SafeConnect endpoint와 target VM 주소는 서로 다르다. SSH는 SafeConnect 호스트와 포트로
+접속하지만 username 안에 AD account, Linux account, target VM 주소가 결합된다. 사용자는
+관리자가 등록하지 않은 host, port, target VM 주소를 입력할 수 없다.
 
-### 5.3 사용자가 AD 비밀번호 등록하고 연결
+### 5.3 사용자가 VM과 Linux 계정을 선택
 
 1. 사용자가 Web에 로그인한다.
 2. **Work location**을 연다.
-3. 관리자가 할당한 VM과 Linux account를 확인한다.
-4. AD 비밀번호를 입력하고 **Save after connection test**를 실행한다.
-5. 성공한 뒤 **My development VM**으로 명시적으로 전환한다.
+3. 관리자가 활성화한 VM 중 하나를 선택한다.
+4. Linux account는 로그인 `accountId`로 자동 입력된다. 실제 Linux 계정이 다르면 사용자가
+   수정할 수 있다. `.`을 `_`로 바꾼 Agent ID를 Linux account로 사용하지 않는다.
+5. AD 비밀번호를 입력하고 **Save after connection test**를 실행한다.
+6. 연결 검사가 성공하면 할당을 저장하고 **My development VM**으로 명시적으로 전환한다.
+
+같은 VM의 같은 Linux account는 두 개인 Agent에 동시에 할당할 수 없다. 사용자는 실행
+중인 Agent run이 없을 때 다른 VM 또는 Linux account로 변경할 수 있다. 새 연결 검사가
+성공해야 기존 할당을 폐기하고 새 할당으로 원자적으로 교체한다.
 
 비밀번호는 Control DB에 AES-256-GCM으로 암호화되고 Gateway에는 저장되지 않는다.
 실행 시 `sshpass -d <fd>`의 일회성 파일 descriptor로만 전달된다.
@@ -406,6 +412,19 @@ file은 금지한다.
 - 사용자가 비밀번호를 갱신하거나 명시적으로 **Basic workspace**를 선택한다.
 - `Authentication failed`는 비밀번호 오류와 AD 비밀번호 만료를 모두 포함할 수 있다.
 - Knox 그룹 Agent는 개인 VM을 사용하지 않고 항상 서버 Docker sandbox를 사용한다.
+
+### 5.6 할당 해제와 VM 사용 중지
+
+- 사용자는 실행 중인 Agent run이 없을 때 VM 사용을 해제하고 **Basic workspace**로
+  명시적으로 전환할 수 있다.
+- 관리자는 사용자 할당을 강제로 해제할 수 있다. 이 경우 실행 위치 변경이 감사기록과
+  사용자 화면에 남는다.
+- 할당 해제는 VM의 파일이나 백그라운드 프로세스를 삭제하지 않는다. 같은 환경으로 다시
+  연결하면 기존 상태를 재사용할 수 있다.
+- VM 제거는 DB 행을 물리 삭제하지 않고 **사용 중지**로 처리한다. 활성 할당이 있으면 먼저
+  해제해야 한다.
+- SafeConnect endpoint는 연결된 VM이 모두 사용 중지된 뒤에만 사용 중지할 수 있다.
+- 사용 중지된 VM과 endpoint는 신규 선택에서 숨기되 감사기록에는 남긴다.
 
 ## 6. 자주 쓰는 운영 명령
 
