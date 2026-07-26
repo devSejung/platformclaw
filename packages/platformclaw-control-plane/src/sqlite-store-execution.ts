@@ -560,6 +560,10 @@ export abstract class SqliteControlPlaneExecutionStore
   }
 
   async getVmAllocationForAgent(agentId: string): Promise<VmAllocation | null> {
+    return this.getVmAllocationForAgentInTransaction(agentId);
+  }
+
+  protected getVmAllocationForAgentInTransaction(agentId: string): VmAllocation | null {
     const row = takeFirstSync(
       this.db,
       this.query

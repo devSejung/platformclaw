@@ -3,6 +3,7 @@ import { readPlatformClawSessionCookie, type JsonBodyReader } from "./browser-au
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import { ControlPlaneConflictError, type ControlPlaneStore } from "./contracts.js";
 import type {
+  ControlPlaneAtomicVmCredentialStore,
   ControlPlaneEmployeeExecutionStore,
   ControlPlaneVmSelfServiceStore,
   PersonalExecutionSettings,
@@ -34,7 +35,8 @@ class EmployeeExecutionHttpError extends Error {
 
 type EmployeeExecutionStore = ControlPlaneStore &
   ControlPlaneEmployeeExecutionStore &
-  ControlPlaneVmSelfServiceStore;
+  ControlPlaneVmSelfServiceStore &
+  ControlPlaneAtomicVmCredentialStore;
 
 type EmployeeExecutionServiceOptions = {
   authService: BrowserAuthService;
@@ -197,20 +199,15 @@ export class EmployeeExecutionService {
         throw new EmployeeExecutionHttpError(409, "development VM selection changed during test");
       }
       const replacedAt = this.now();
-      await credentialVault.replace({
-        actorUserId: params.userId,
-        userId: params.userId,
-        password: params.password,
-        replacedAt,
-      });
-      await this.options.store.replacePersonalVmAllocation({
+      await this.options.store.commitPersonalVmSelection({
         actorUserId: params.userId,
         agentId: params.agentId,
         vmHostId: params.vmHostId,
         linuxAccount: candidate.linuxAccount,
         remoteHomeDir: connection.remoteHomeDir,
         remoteWorkspaceDir: connection.remoteWorkspaceDir,
-        replacedAt,
+        credentialEnvelope: credentialVault.sealForStorage(params.userId, params.password),
+        committedAt: replacedAt,
       });
       return await this.getSettings(params.userId, params.agentId);
     });
@@ -218,30 +215,17 @@ export class EmployeeExecutionService {
 
   async releaseVm(userId: string, agentId: string) {
     const settings = await this.requireOwnedSettings(userId, agentId);
-    if (!settings.allocation) {
-      await this.options.credentialVault?.delete({
-        actorUserId: userId,
-        userId,
-        deletedAt: this.now(),
-      });
-      return await this.getSettings(userId, agentId);
-    }
-    if (settings.activeTarget !== "platform_server") {
+    if (settings.allocation && settings.activeTarget !== "platform_server") {
       throw new EmployeeExecutionHttpError(
         409,
         "switch to the Basic workspace before releasing development VM",
       );
     }
     const releasedAt = this.now();
-    await this.options.store.releasePersonalVmAllocation({
+    await this.options.store.releasePersonalVmAccess({
       actorUserId: userId,
       agentId,
       releasedAt,
-    });
-    await this.options.credentialVault?.delete({
-      actorUserId: userId,
-      userId,
-      deletedAt: releasedAt,
     });
     return await this.getSettings(userId, agentId);
   }

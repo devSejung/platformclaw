@@ -1,6 +1,7 @@
 import { ControlPlaneStateError } from "./contracts.js";
 import type {
   ControlPlaneSshCredentialEnvelopeStore,
+  SshCredentialEnvelope,
   UserSshCredentialMetadata,
 } from "./ssh-credential-contracts.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
@@ -15,6 +16,10 @@ export class SshCredentialVault {
     private readonly store: ControlPlaneSshCredentialEnvelopeStore,
     private readonly cipher: SshCredentialCipher,
   ) {}
+
+  sealForStorage(userId: string, password: string): SshCredentialEnvelope {
+    return this.cipher.encrypt(userId, password);
+  }
 
   replace(params: {
     actorUserId: string;

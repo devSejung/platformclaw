@@ -249,3 +249,22 @@ export interface ControlPlaneVmSelfServiceStore {
     releasedAt: number;
   }): Promise<VmAllocation>;
 }
+
+export interface ControlPlaneAtomicVmCredentialStore {
+  commitPersonalVmSelection(params: {
+    actorUserId: string;
+    agentId: string;
+    vmHostId: string;
+    linuxAccount: string;
+    remoteHomeDir: string;
+    remoteWorkspaceDir: string;
+    credentialEnvelope: SshCredentialEnvelope;
+    committedAt: number;
+  }): Promise<VmAllocation>;
+  releasePersonalVmAccess(params: {
+    actorUserId: string;
+    agentId: string;
+    releasedAt: number;
+  }): Promise<VmAllocation | null>;
+}
+import type { SshCredentialEnvelope } from "./ssh-credential-contracts.js";

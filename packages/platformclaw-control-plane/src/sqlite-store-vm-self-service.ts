@@ -230,116 +230,128 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
     remoteWorkspaceDir: string;
     replacedAt: number;
   }): Promise<VmAllocation> {
-    return runImmediateTransaction(this.db, () => {
-      const owner = takeFirstSync(
+    return runImmediateTransaction(this.db, () =>
+      this.replacePersonalVmAllocationInTransaction(params),
+    );
+  }
+
+  protected replacePersonalVmAllocationInTransaction(params: {
+    actorUserId: string;
+    agentId: string;
+    vmHostId: string;
+    linuxAccount: string;
+    remoteHomeDir: string;
+    remoteWorkspaceDir: string;
+    replacedAt: number;
+  }): VmAllocation {
+    const owner = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("agent_bindings")
+        .innerJoin(
+          "personal_execution_profiles",
+          "personal_execution_profiles.agent_binding_id",
+          "agent_bindings.id",
+        )
+        .select([
+          "agent_bindings.id as binding_id",
+          "agent_bindings.user_id as user_id",
+          "personal_execution_profiles.active_target as active_target",
+        ])
+        .where("agent_bindings.agent_id", "=", params.agentId)
+        .where("agent_bindings.kind", "=", "personal")
+        .where("agent_bindings.state", "=", "active"),
+    );
+    if (!owner || owner.user_id !== params.actorUserId) {
+      throw new ControlPlaneStateError("personal VM assignment is unavailable");
+    }
+    if (owner.active_target !== "platform_server") {
+      throw new ControlPlaneStateError(
+        "switch to the Basic workspace before changing development VM",
+      );
+    }
+    const host = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("vm_hosts")
+        .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
+        .select(["vm_hosts.id as id"])
+        .where("vm_hosts.id", "=", params.vmHostId)
+        .where("vm_hosts.status", "=", "active")
+        .where("safeconnect_endpoints.status", "=", "active"),
+    );
+    if (!host) {
+      throw new ControlPlaneStateError("selected development VM is unavailable");
+    }
+    const linuxAccount = normalizeLinuxAccount(params.linuxAccount);
+    const current = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("vm_allocations")
+        .selectAll()
+        .where("agent_binding_id", "=", owner.binding_id)
+        .where("status", "!=", "revoked"),
+    );
+    const conflict = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("vm_allocations")
+        .select("id")
+        .where("vm_host_id", "=", host.id)
+        .where("linux_account", "=", linuxAccount)
+        .where("status", "!=", "revoked")
+        .$if(Boolean(current), (query) => query.where("id", "!=", current?.id ?? "")),
+    );
+    if (conflict) {
+      throw new ControlPlaneConflictError(
+        "vm_allocation_conflict",
+        "this VM Linux account is already assigned",
+      );
+    }
+    if (current) {
+      executeSync(
         this.db,
         this.query
-          .selectFrom("agent_bindings")
-          .innerJoin(
-            "personal_execution_profiles",
-            "personal_execution_profiles.agent_binding_id",
-            "agent_bindings.id",
-          )
-          .select([
-            "agent_bindings.id as binding_id",
-            "agent_bindings.user_id as user_id",
-            "personal_execution_profiles.active_target as active_target",
-          ])
-          .where("agent_bindings.agent_id", "=", params.agentId)
-          .where("agent_bindings.kind", "=", "personal")
-          .where("agent_bindings.state", "=", "active"),
+          .updateTable("vm_allocations")
+          .set({
+            status: "revoked",
+            revoked_at: params.replacedAt,
+            updated_at: params.replacedAt,
+          })
+          .where("id", "=", current.id),
       );
-      if (!owner || owner.user_id !== params.actorUserId) {
-        throw new ControlPlaneStateError("personal VM assignment is unavailable");
-      }
-      if (owner.active_target !== "platform_server") {
-        throw new ControlPlaneStateError(
-          "switch to the Basic workspace before changing development VM",
-        );
-      }
-      const host = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("vm_hosts")
-          .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
-          .select(["vm_hosts.id as id"])
-          .where("vm_hosts.id", "=", params.vmHostId)
-          .where("vm_hosts.status", "=", "active")
-          .where("safeconnect_endpoints.status", "=", "active"),
-      );
-      if (!host) {
-        throw new ControlPlaneStateError("selected development VM is unavailable");
-      }
-      const linuxAccount = normalizeLinuxAccount(params.linuxAccount);
-      const current = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("vm_allocations")
-          .selectAll()
-          .where("agent_binding_id", "=", owner.binding_id)
-          .where("status", "!=", "revoked"),
-      );
-      const conflict = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("vm_allocations")
-          .select("id")
-          .where("vm_host_id", "=", host.id)
-          .where("linux_account", "=", linuxAccount)
-          .where("status", "!=", "revoked")
-          .$if(Boolean(current), (query) => query.where("id", "!=", current?.id ?? "")),
-      );
-      if (conflict) {
-        throw new ControlPlaneConflictError(
-          "vm_allocation_conflict",
-          "this VM Linux account is already assigned",
-        );
-      }
-      if (current) {
-        executeSync(
-          this.db,
-          this.query
-            .updateTable("vm_allocations")
-            .set({
-              status: "revoked",
-              revoked_at: params.replacedAt,
-              updated_at: params.replacedAt,
-            })
-            .where("id", "=", current.id),
-        );
-      }
-      const row: VmAllocationRow = {
-        id: nextExecutionResourceId(this.idFactory, "vm-allocation"),
-        agent_binding_id: owner.binding_id,
-        vm_host_id: host.id,
-        linux_account: linuxAccount,
-        status: "ready",
-        remote_home_dir: required(params.remoteHomeDir, "allocation.remoteHomeDir"),
-        remote_workspace_dir: required(params.remoteWorkspaceDir, "allocation.remoteWorkspaceDir"),
-        last_connection_check_at: params.replacedAt,
-        last_connection_succeeded_at: params.replacedAt,
-        failure_code: null,
-        created_by_user_id: params.actorUserId,
-        created_at: params.replacedAt,
-        updated_at: params.replacedAt,
-        revoked_at: null,
-      };
-      executeSync(this.db, this.query.insertInto("vm_allocations").values(row));
-      this.insertAudit(
-        params.actorUserId,
-        current ? "vm.allocation.replaced" : "vm.allocation.created",
-        "vm-allocation",
-        row.id,
-        params.replacedAt,
-        {
-          agentBindingId: owner.binding_id,
-          vmHostId: host.id,
-          linuxAccount,
-          ...(current ? { previousAllocationId: current.id } : {}),
-        },
-      );
-      return rowToAllocation(row);
-    });
+    }
+    const row: VmAllocationRow = {
+      id: nextExecutionResourceId(this.idFactory, "vm-allocation"),
+      agent_binding_id: owner.binding_id,
+      vm_host_id: host.id,
+      linux_account: linuxAccount,
+      status: "ready",
+      remote_home_dir: required(params.remoteHomeDir, "allocation.remoteHomeDir"),
+      remote_workspace_dir: required(params.remoteWorkspaceDir, "allocation.remoteWorkspaceDir"),
+      last_connection_check_at: params.replacedAt,
+      last_connection_succeeded_at: params.replacedAt,
+      failure_code: null,
+      created_by_user_id: params.actorUserId,
+      created_at: params.replacedAt,
+      updated_at: params.replacedAt,
+      revoked_at: null,
+    };
+    executeSync(this.db, this.query.insertInto("vm_allocations").values(row));
+    this.insertAudit(
+      params.actorUserId,
+      current ? "vm.allocation.replaced" : "vm.allocation.created",
+      "vm-allocation",
+      row.id,
+      params.replacedAt,
+      {
+        agentBindingId: owner.binding_id,
+        vmHostId: host.id,
+        linuxAccount,
+        ...(current ? { previousAllocationId: current.id } : {}),
+      },
+    );
+    return rowToAllocation(row);
   }
 
   async releasePersonalVmAllocation(params: {
@@ -347,7 +359,9 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
     agentId: string;
     releasedAt: number;
   }): Promise<VmAllocation> {
-    return this.revokePersonalVmAllocation({ ...params, requireAdmin: false });
+    return runImmediateTransaction(this.db, () =>
+      this.revokePersonalVmAllocationInTransaction({ ...params, requireAdmin: false }),
+    );
   }
 
   async revokeVmAllocationAsAdmin(params: {
@@ -356,76 +370,76 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
     revokedAt: number;
   }): Promise<VmAllocation> {
     this.requireAdmin(params.actorUserId);
-    return this.revokePersonalVmAllocation({
-      actorUserId: params.actorUserId,
-      allocationId: params.allocationId,
-      releasedAt: params.revokedAt,
-      requireAdmin: true,
-    });
+    return runImmediateTransaction(this.db, () =>
+      this.revokePersonalVmAllocationInTransaction({
+        actorUserId: params.actorUserId,
+        allocationId: params.allocationId,
+        releasedAt: params.revokedAt,
+        requireAdmin: true,
+      }),
+    );
   }
 
-  private revokePersonalVmAllocation(params: {
+  protected revokePersonalVmAllocationInTransaction(params: {
     actorUserId: string;
     agentId?: string;
     allocationId?: string;
     releasedAt: number;
     requireAdmin: boolean;
   }): VmAllocation {
-    return runImmediateTransaction(this.db, () => {
-      if (params.requireAdmin) {
-        this.requireAdmin(params.actorUserId);
-      }
-      let query = this.query
-        .selectFrom("vm_allocations")
-        .innerJoin("agent_bindings", "agent_bindings.id", "vm_allocations.agent_binding_id")
-        .innerJoin(
-          "personal_execution_profiles",
-          "personal_execution_profiles.agent_binding_id",
-          "agent_bindings.id",
-        )
-        .selectAll("vm_allocations")
-        .select([
-          "agent_bindings.agent_id as agent_id",
-          "agent_bindings.user_id as user_id",
-          "personal_execution_profiles.active_target as active_target",
-        ])
-        .where("vm_allocations.status", "!=", "revoked");
-      if (params.allocationId) {
-        query = query.where("vm_allocations.id", "=", params.allocationId);
-      }
-      if (params.agentId) {
-        query = query.where("agent_bindings.agent_id", "=", params.agentId);
-      }
-      const row = takeFirstSync(this.db, query);
-      if (!row || (!params.requireAdmin && row.user_id !== params.actorUserId)) {
-        throw new ControlPlaneStateError("active VM assignment is unavailable");
-      }
-      if (row.active_target !== "platform_server") {
-        throw new ControlPlaneStateError(
-          "switch to the Basic workspace before releasing development VM",
-        );
-      }
-      executeSync(
-        this.db,
-        this.query
-          .updateTable("vm_allocations")
-          .set({ status: "revoked", revoked_at: params.releasedAt, updated_at: params.releasedAt })
-          .where("id", "=", row.id),
+    if (params.requireAdmin) {
+      this.requireAdmin(params.actorUserId);
+    }
+    let query = this.query
+      .selectFrom("vm_allocations")
+      .innerJoin("agent_bindings", "agent_bindings.id", "vm_allocations.agent_binding_id")
+      .innerJoin(
+        "personal_execution_profiles",
+        "personal_execution_profiles.agent_binding_id",
+        "agent_bindings.id",
+      )
+      .selectAll("vm_allocations")
+      .select([
+        "agent_bindings.agent_id as agent_id",
+        "agent_bindings.user_id as user_id",
+        "personal_execution_profiles.active_target as active_target",
+      ])
+      .where("vm_allocations.status", "!=", "revoked");
+    if (params.allocationId) {
+      query = query.where("vm_allocations.id", "=", params.allocationId);
+    }
+    if (params.agentId) {
+      query = query.where("agent_bindings.agent_id", "=", params.agentId);
+    }
+    const row = takeFirstSync(this.db, query);
+    if (!row || (!params.requireAdmin && row.user_id !== params.actorUserId)) {
+      throw new ControlPlaneStateError("active VM assignment is unavailable");
+    }
+    if (row.active_target !== "platform_server") {
+      throw new ControlPlaneStateError(
+        "switch to the Basic workspace before releasing development VM",
       );
-      this.insertAudit(
-        params.actorUserId,
-        params.requireAdmin ? "vm.allocation.admin-revoked" : "vm.allocation.released",
-        "vm-allocation",
-        row.id,
-        params.releasedAt,
-        { agentId: row.agent_id },
-      );
-      return rowToAllocation({
-        ...row,
-        status: "revoked",
-        revoked_at: params.releasedAt,
-        updated_at: params.releasedAt,
-      });
+    }
+    executeSync(
+      this.db,
+      this.query
+        .updateTable("vm_allocations")
+        .set({ status: "revoked", revoked_at: params.releasedAt, updated_at: params.releasedAt })
+        .where("id", "=", row.id),
+    );
+    this.insertAudit(
+      params.actorUserId,
+      params.requireAdmin ? "vm.allocation.admin-revoked" : "vm.allocation.released",
+      "vm-allocation",
+      row.id,
+      params.releasedAt,
+      { agentId: row.agent_id },
+    );
+    return rowToAllocation({
+      ...row,
+      status: "revoked",
+      revoked_at: params.releasedAt,
+      updated_at: params.releasedAt,
     });
   }
 }

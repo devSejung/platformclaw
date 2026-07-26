@@ -60,11 +60,23 @@ function createHarness() {
       ...SETTINGS.allocation,
       status: "revoked" as const,
     })),
+    commitPersonalVmSelection: vi.fn(async () => SETTINGS.allocation),
+    releasePersonalVmAccess: vi.fn(async () => ({
+      ...SETTINGS.allocation,
+      status: "revoked" as const,
+    })),
   };
   const vault = {
     getMetadata: vi.fn(async () => ({ status: "current" })),
     replace: vi.fn(async () => ({ status: "current" })),
     delete: vi.fn(async () => true),
+    sealForStorage: vi.fn(() => ({
+      ciphertext: new Uint8Array([1]),
+      nonce: new Uint8Array(12),
+      authTag: new Uint8Array(16),
+      keyId: "test-key",
+      formatVersion: 1 as const,
+    })),
   };
   const broker = {
     address: "/run/platformclaw-credential-broker/runtime.sock",
@@ -282,30 +294,27 @@ describe("EmployeeExecutionService", () => {
         target: expect.objectContaining({ allocationId: "candidate:vm-one" }),
       }),
     );
-    expect(harness.store.replacePersonalVmAllocation).toHaveBeenCalledWith(
+    expect(harness.store.commitPersonalVmSelection).toHaveBeenCalledWith(
       expect.objectContaining({
         vmHostId: "vm-one",
         linuxAccount: "person.one",
         remoteHomeDir: "/users/person.one",
+        credentialEnvelope: expect.objectContaining({ keyId: "test-key" }),
       }),
     );
   });
 
-  it("revokes the inactive allocation before deleting its credential", async () => {
+  it("releases the inactive allocation and credential through one store transaction", async () => {
     const harness = createHarness();
-    const order: string[] = [];
-    harness.store.releasePersonalVmAllocation.mockImplementationOnce(async () => {
-      order.push("allocation");
-      return { ...SETTINGS.allocation, status: "revoked" as const };
-    });
-    harness.vault.delete.mockImplementationOnce(async () => {
-      order.push("credential");
-      return true;
-    });
 
     await harness.service.releaseVm("user-one", "person_one");
 
-    expect(order).toEqual(["allocation", "credential"]);
+    expect(harness.store.releasePersonalVmAccess).toHaveBeenCalledWith({
+      actorUserId: "user-one",
+      agentId: "person_one",
+      releasedAt: 1234,
+    });
+    expect(harness.vault.delete).not.toHaveBeenCalled();
   });
 
   it("rejects another user's execution settings", async () => {
