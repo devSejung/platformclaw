@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+service_user="${PLATFORMCLAW_SERVICE_USER:-platformclaw}"
+
+if [[ "${1:-}" == "--service-user" ]]; then
+  if [[ -z "${2:-}" ]]; then
+    echo "Usage: platformclaw-compose [--service-user USER] <docker compose arguments...>" >&2
+    exit 2
+  fi
+  service_user="$2"
+  shift 2
+fi
+
+if (( $# == 0 )); then
+  echo "Usage: platformclaw-compose [--service-user USER] <docker compose arguments...>" >&2
+  exit 2
+fi
+if ! getent passwd "$service_user" >/dev/null; then
+  echo "PlatformClaw service user does not exist: $service_user" >&2
+  exit 1
+fi
+
+runtime_uid="$(id -u "$service_user")"
+runtime_gid="$(id -g "$service_user")"
+if [[ "$runtime_uid" == "0" || "$runtime_gid" == "0" ]]; then
+  echo "PlatformClaw service user must not be root" >&2
+  exit 1
+fi
+
+export PLATFORMCLAW_RUNTIME_UID="$runtime_uid"
+export PLATFORMCLAW_RUNTIME_GID="$runtime_gid"
+export PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR="${PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR:-/run/user/$runtime_uid}"
+export PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME="${PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME:-platformclaw-credential-broker-$runtime_uid-$runtime_gid}"
+
+if [[ "$1" == "environment" ]]; then
+  printf 'PLATFORMCLAW_SERVICE_USER=%s\n' "$service_user"
+  printf 'PLATFORMCLAW_RUNTIME_UID=%s\n' "$PLATFORMCLAW_RUNTIME_UID"
+  printf 'PLATFORMCLAW_RUNTIME_GID=%s\n' "$PLATFORMCLAW_RUNTIME_GID"
+  printf 'PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR=%s\n' \
+    "$PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR"
+  printf 'PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME=%s\n' \
+    "$PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME"
+  exit 0
+fi
+
+exec docker compose --env-file "$script_dir/.env" -f "$script_dir/compose.yaml" "$@"

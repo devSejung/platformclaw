@@ -163,7 +163,8 @@ RUN --mount=type=cache,id=platformclaw-jammy-apt-cache,target=/var/cache/apt,sha
       chown -R node:node /home/node/.cache/ms-playwright; \
     fi
 
-RUN install -d -m 0755 -o node -g node /home/node/.config && \
+RUN chmod 0755 /home/node && \
+    install -d -m 0755 -o node -g node /home/node/.config && \
     install -d -m 0700 -o node -g node \
       /home/node/.openclaw /home/node/.openclaw/workspace /home/node/.config/openclaw \
       /var/lib/platformclaw/control /var/lib/platformclaw/workspaces && \

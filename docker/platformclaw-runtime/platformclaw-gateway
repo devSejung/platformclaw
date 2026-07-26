@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-config_path="${OPENCLAW_CONFIG_PATH:-/home/node/.openclaw/openclaw.json}"
+config_path="${OPENCLAW_CONFIG_PATH:-${HOME:-/home/node}/.openclaw/openclaw.json}"
 export OPENCLAW_CONFIG_PATH="$config_path"
 template_path="/etc/platformclaw/openclaw.initial.json"
 gateway_token_path="/run/secrets/platformclaw_gateway_token"

@@ -333,6 +333,19 @@ synchronized and its sandbox, filesystem, process, prompt-hook, plugin-state,
 and Control UI contracts rechecked before implementation. Upstream integration
 and VM implementation remain separate changes.
 
+### PC-120 Detect the Linux deployment service account
+
+Linux deployment does not reserve numeric UID/GID 1000. The operator names a
+dedicated non-root service account and the PlatformClaw Compose wrapper resolves
+its current numeric UID/GID and rootless Docker runtime directory. Gateway,
+Control, persistent state, secrets, workspace ownership, and the rootless
+sandbox daemon use that same account boundary. A state-init container may
+repair persistent-volume ownership when the configured account changes, but it
+has no network and receives only the minimum ownership capabilities. Windows
+preview and Linux smoke fixtures keep their internal UID 1000 because that UID
+belongs to their disposable rootless-Docker fixture, not the host deployment
+contract.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs

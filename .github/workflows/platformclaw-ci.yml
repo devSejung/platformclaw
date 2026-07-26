@@ -96,6 +96,7 @@ jobs:
         if: steps.plan.outputs.needs_deployment_checks == 'true'
         env:
           PLATFORMCLAW_COMPANY_APT_SOURCES: /tmp/platformclaw-empty-apt-sources
+          PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME: platformclaw-ci-credential-broker-1000-1000
           PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: https://auth.example.test/login
           PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE: /tmp/platformclaw-empty-secret
           PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE: /tmp/platformclaw-empty-secret
@@ -104,6 +105,8 @@ jobs:
           PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE: /tmp/platformclaw-empty-secret
           PLATFORMCLAW_PUBLIC_ORIGIN: https://platformclaw.example.test
           PLATFORMCLAW_REPO_ROOT: ${{ github.workspace }}
+          PLATFORMCLAW_RUNTIME_GID: "1000"
+          PLATFORMCLAW_RUNTIME_UID: "1000"
           PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR: /tmp/platformclaw-sandbox-docker
           PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR: /tmp/platformclaw-sandbox.tar
           PLATFORMCLAW_SMOKE_WORKSPACE_DIR: /tmp/platformclaw-workspaces

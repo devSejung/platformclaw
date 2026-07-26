@@ -1,22 +1,44 @@
 name: platformclaw
 
 services:
+  platformclaw-state-init:
+    image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    user: "0:0"
+    environment:
+      PLATFORMCLAW_RUNTIME_UID: ${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}
+      PLATFORMCLAW_RUNTIME_GID: ${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}
+    network_mode: none
+    volumes:
+      - platformclaw-gateway-state:/state/gateway
+      - platformclaw-control-state:/state/control
+      - ./init-state:/opt/platformclaw/init-state:ro
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    entrypoint: ["bash", "/opt/platformclaw/init-state"]
+    restart: "no"
+
   openclaw-gateway:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
-    user: "1000:1000"
+    user: "${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}:${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}"
+    depends_on:
+      platformclaw-state-init:
+        condition: service_completed_successfully
     environment:
       DOCKER_HOST: unix:///run/platformclaw-sandbox-docker/docker.sock
-      HOME: /home/node
-      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      HOME: /var/lib/platformclaw/gateway-home
+      OPENCLAW_CONFIG_PATH: /var/lib/platformclaw/gateway-home/.openclaw/openclaw.json
       PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
       PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_execution_service_token
       PLATFORMCLAW_SANDBOX_IMAGE: ${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:local}
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
     volumes:
-      - platformclaw-gateway-state:/home/node/.openclaw
+      - platformclaw-gateway-state:/var/lib/platformclaw/gateway-home/.openclaw
       - /var/lib/platformclaw/workspaces:/var/lib/platformclaw/workspaces
       - ${PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR:?set PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR}:/run/platformclaw-sandbox-docker:ro
       - platformclaw-credential-broker:/run/platformclaw-credential-broker:ro
+    tmpfs:
+      - /var/lib/platformclaw/gateway-home:uid=${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user},gid=${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user},mode=0700
     secrets:
       - platformclaw_gateway_token
       - platformclaw_execution_service_token
@@ -44,12 +66,12 @@ services:
 
   platformclaw-control:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
-    user: "1000:1000"
+    user: "${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}:${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}"
     depends_on:
       openclaw-gateway:
         condition: service_healthy
     environment:
-      HOME: /home/node
+      HOME: /var/lib/platformclaw/control/home
       PLATFORMCLAW_PUBLIC_ORIGIN: ${PLATFORMCLAW_PUBLIC_ORIGIN:?set PLATFORMCLAW_PUBLIC_ORIGIN}
       PLATFORMCLAW_LISTEN_HOST: 0.0.0.0
       PLATFORMCLAW_LISTEN_PORT: "19001"
@@ -102,6 +124,9 @@ services:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
     profiles: [migration]
     user: "0:0"
+    environment:
+      PLATFORMCLAW_RUNTIME_UID: ${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}
+      PLATFORMCLAW_RUNTIME_GID: ${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}
     network_mode: none
     volumes:
       - platformclaw-workspaces:/source:ro
@@ -109,16 +134,36 @@ services:
     entrypoint: ["platformclaw-migrate-workspaces"]
     restart: "no"
 
+  platformclaw-workspace-owner-migration:
+    image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    profiles: [owner-migration]
+    user: "0:0"
+    environment:
+      PLATFORMCLAW_RUNTIME_UID: ${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}
+      PLATFORMCLAW_RUNTIME_GID: ${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}
+      PLATFORMCLAW_PREVIOUS_RUNTIME_UID: ${PLATFORMCLAW_PREVIOUS_RUNTIME_UID:-}
+      PLATFORMCLAW_PREVIOUS_RUNTIME_GID: ${PLATFORMCLAW_PREVIOUS_RUNTIME_GID:-}
+    network_mode: none
+    volumes:
+      - /var/lib/platformclaw/workspaces:/workspace
+      - ./migrate-workspace-owner:/opt/platformclaw/migrate-workspace-owner:ro
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_READ_SEARCH]
+    security_opt: [no-new-privileges:true]
+    entrypoint: ["bash", "/opt/platformclaw/migrate-workspace-owner"]
+    restart: "no"
+
 volumes:
   platformclaw-gateway-state:
   platformclaw-control-state:
   platformclaw-workspaces:
   platformclaw-credential-broker:
+    name: ${PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME:?run platformclaw-compose with a service user}
     driver: local
     driver_opts:
       type: tmpfs
       device: tmpfs
-      o: uid=1000,gid=1000,mode=0700
+      o: uid=${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user},gid=${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user},mode=0700
 
 networks:
   platformclaw-gateway-backplane:

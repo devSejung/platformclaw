@@ -29,22 +29,51 @@ Required deployment inputs:
 - `PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE`
 - `PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE`
 
-Both containers intentionally run as UID/GID `1000:1000`. Compose file-backed
-secrets preserve host ownership and mode, so prepare the five files as UID 1000
-readable without making them readable to other users. Keep their parent
-directory root-only, for example:
+Run Compose through `platformclaw-compose`. It resolves the named service
+account with `id`, exports its numeric UID/GID, and derives the rootless socket
+directory. No host UID is fixed in the deployment contract:
 
 ```bash
+./platformclaw-compose --service-user platformclaw environment
+./platformclaw-compose --service-user platformclaw config --quiet
+./platformclaw-compose --service-user platformclaw up -d
+```
+
+Fresh installations create the workspace with the detected service UID/GID.
+Changing the service account for an existing non-empty workspace is an explicit
+operator action, never a startup side effect. Stop the stack and provide the
+previous numeric owner only for the one-shot migration:
+
+```bash
+./platformclaw-compose --service-user platformclaw down
+sudo env PLATFORMCLAW_PREVIOUS_RUNTIME_UID=1000 \
+  PLATFORMCLAW_PREVIOUS_RUNTIME_GID=1000 \
+  ./platformclaw-compose --service-user platformclaw \
+  --profile owner-migration run --rm platformclaw-workspace-owner-migration
+./platformclaw-compose --service-user platformclaw up -d
+```
+
+The migration changes only entries owned by the explicitly supplied former
+UID/GID, never follows symlinks, and cannot cross the workspace mount.
+
+Compose file-backed secrets preserve host ownership and mode, so prepare the
+five files for that service account without making them readable to other
+users. Keep their parent directory root-only, for example:
+
+```bash
+service_user=platformclaw
+runtime_uid="$(id -u "$service_user")"
+runtime_gid="$(id -g "$service_user")"
 sudo install -d -o root -g root -m 0700 /etc/platformclaw/secrets
-sudo install -o 1000 -g 1000 -m 0400 gateway-token \
+sudo install -o "$runtime_uid" -g "$runtime_gid" -m 0400 gateway-token \
   /etc/platformclaw/secrets/gateway-token
-openssl genpkey -algorithm ED25519 | sudo install -o 1000 -g 1000 -m 0400 \
+openssl genpkey -algorithm ED25519 | sudo install -o "$runtime_uid" -g "$runtime_gid" -m 0400 \
   /dev/stdin /etc/platformclaw/secrets/gateway-service-identity.pem
-openssl rand -hex 32 | sudo install -o 1000 -g 1000 -m 0400 /dev/stdin \
+openssl rand -hex 32 | sudo install -o "$runtime_uid" -g "$runtime_gid" -m 0400 /dev/stdin \
   /etc/platformclaw/secrets/execution-service-token
-sudo install -o 1000 -g 1000 -m 0400 initial-admin-ids \
+sudo install -o "$runtime_uid" -g "$runtime_gid" -m 0400 initial-admin-ids \
   /etc/platformclaw/secrets/initial-admin-ids
-openssl rand -base64 32 | sudo install -o 1000 -g 1000 -m 0400 /dev/stdin \
+openssl rand -base64 32 | sudo install -o "$runtime_uid" -g "$runtime_gid" -m 0400 /dev/stdin \
   /etc/platformclaw/secrets/ssh-credential-master-key
 ```
 
@@ -58,16 +87,16 @@ device and requires the normal device-pairing path again.
 
 ## Sandbox Docker daemon
 
-Run a dedicated rootless Docker daemon as host UID/GID `1000:1000`. Never give
-Gateway the host/rootful Docker socket. The daemon socket directory is normally
-`/run/user/1000`; set `PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR` to that directory.
+Run a dedicated rootless Docker daemon as the same service account. Never give
+Gateway the host/rootful Docker socket. Its socket directory is normally
+`/run/user/<service-uid>` and the wrapper derives that path automatically.
 Configure Docker rootless prerequisites, including subordinate UID/GID ranges,
-on the Linux host before starting PlatformClaw.
+for the service account before starting PlatformClaw.
 
 Create the canonical workspace with the same numeric owner:
 
 ```bash
-sudo install -d -o 1000 -g 1000 -m 0700 /var/lib/platformclaw/workspaces
+sudo install -d -o "$runtime_uid" -g "$runtime_gid" -m 0700 /var/lib/platformclaw/workspaces
 ```
 
 Deployments upgrading from the earlier Compose layout must migrate the legacy
@@ -75,9 +104,9 @@ Deployments upgrading from the earlier Compose layout must migrate the legacy
 the stack, create the empty host directory above, then run the one-shot profile:
 
 ```bash
-docker compose down
-docker compose --profile migration run --rm platformclaw-workspace-migration
-docker compose up -d
+./platformclaw-compose --service-user platformclaw down
+./platformclaw-compose --service-user platformclaw --profile migration run --rm platformclaw-workspace-migration
+./platformclaw-compose --service-user platformclaw up -d
 ```
 
 The migration refuses to overwrite a non-empty target. It copies all workspace
@@ -91,8 +120,10 @@ then select the versioned sandbox tag with `PLATFORMCLAW_SANDBOX_IMAGE`:
 
 ```bash
 docker load --input platformclaw-<version>-<sha>.tar
-DOCKER_HOST=unix:///run/user/1000/docker.sock \
-  docker load --input platformclaw-<version>-<sha>.tar
+sudo -u "$service_user" env \
+  XDG_RUNTIME_DIR="/run/user/$runtime_uid" \
+  DOCKER_HOST="unix:///run/user/$runtime_uid/docker.sock" \
+  docker load --input platformclaw-sandbox-<version>-<sha>.tar
 ```
 
 Sandbox commands use Docker `bridge` networking. They may make outbound
@@ -101,7 +132,7 @@ the host Docker socket remain forbidden. Model API and Knox transport traffic
 stay in Gateway and do not traverse the sandbox network.
 
 Sandbox processes run as container UID/GID `0:0`. Under rootless Docker this
-maps to the unprivileged host daemon account (UID/GID 1000), not host root. This
+maps to the unprivileged host service account, not host root. This
 mapping lets the sandbox write its one mounted workspace without granting host
 root or another employee workspace.
 
@@ -111,6 +142,12 @@ publishes only Control port `19001`. Normal health checks require both
 `openclaw-gateway` and `platformclaw-control` to be healthy. Control-only
 restarts create a fresh broker socket automatically and do not require deleting
 runtime files.
+
+The credential-broker volume is transient and includes the detected UID/GID in
+its deployment name. Changing the service account therefore creates a fresh
+owner-correct broker volume instead of reusing immutable Docker volume options.
+Old broker volumes contain no durable credential state and may be removed after
+the old stack has stopped.
 
 Control exposes execution handoff only through an owner-only Unix socket in the
 same memory-backed runtime directory as the credential broker. It never opens a

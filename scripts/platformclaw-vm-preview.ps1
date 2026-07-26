@@ -168,6 +168,9 @@ function Set-PreviewEnvironment {
     param([hashtable]$Paths, [hashtable]$Images)
     $env:PLATFORMCLAW_IMAGE = $Images.Runtime
     $env:PLATFORMCLAW_SANDBOX_IMAGE = $Images.Sandbox
+    $env:PLATFORMCLAW_RUNTIME_UID = "1000"
+    $env:PLATFORMCLAW_RUNTIME_GID = "1000"
+    $env:PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME = "$projectName-credential-broker-1000-1000"
     $env:PLATFORMCLAW_REPO_ROOT = $repoRoot
     $env:PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR = $Paths.SandboxRuntime
     $env:PLATFORMCLAW_SMOKE_WORKSPACE_DIR = $Paths.Workspace

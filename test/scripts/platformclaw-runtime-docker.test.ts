@@ -45,11 +45,19 @@ describe("PlatformClaw Docker runtime", () => {
     ) as ComposeConfig;
     const gateway = compose.services["openclaw-gateway"];
     const control = compose.services["platformclaw-control"];
+    const stateInit = compose.services["platformclaw-state-init"];
 
     expect(gateway?.ports).toBeUndefined();
-    expect(gateway?.user).toBe("1000:1000");
+    expect(gateway?.user).toContain("PLATFORMCLAW_RUNTIME_UID");
     expect(control?.ports).toEqual(["127.0.0.1:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"]);
-    expect(control?.user).toBe("1000:1000");
+    expect(control?.user).toContain("PLATFORMCLAW_RUNTIME_UID");
+    expect(stateInit?.user).toBe("0:0");
+    expect(stateInit?.network_mode).toBe("none");
+    expect(stateInit?.cap_add).toEqual(["CHOWN", "DAC_OVERRIDE", "FOWNER"]);
+    expect(stateInit?.volumes).not.toContain("/var/lib/platformclaw/workspaces:/state/workspaces");
+    expect(gateway?.depends_on).toMatchObject({
+      "platformclaw-state-init": { condition: "service_completed_successfully" },
+    });
     expect(control?.network_mode).toBeUndefined();
     expect(gateway?.networks?.["platformclaw-gateway-backplane"]?.aliases).toEqual([
       "gateway.platformclaw.local",
@@ -82,6 +90,9 @@ describe("PlatformClaw Docker runtime", () => {
     expect(gateway?.volumes).toContain(
       "/var/lib/platformclaw/workspaces:/var/lib/platformclaw/workspaces",
     );
+    expect(gateway?.tmpfs).toEqual([
+      "/var/lib/platformclaw/gateway-home:uid=${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user},gid=${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user},mode=0700",
+    ]);
   });
 
   it("seeds the required private admin RPC without storing a token", () => {
@@ -420,16 +431,38 @@ describe("PlatformClaw Docker runtime", () => {
     const runtimeDockerfile = readRepoFile("Dockerfile.jammy");
     expect(migrationScript).toContain("refusing to overwrite");
     expect(migrationScript).toContain('cp -a "$source_dir"/. "$target_dir"/');
+    expect(migrationScript).toContain('chown -R "$runtime_uid:$runtime_gid" "$target_dir"');
     expect(runtimeDockerfile).toContain(
       "docker/platformclaw-runtime/migrate-workspaces /usr/local/bin/platformclaw-migrate-workspaces",
     );
   });
 
-  it("documents the production file-secret ownership contract", () => {
+  it("detects the production service account instead of assuming uid 1000", () => {
     const readme = readRepoFile("docker/platformclaw-runtime/README.md");
+    const wrapper = readRepoFile("docker/platformclaw-runtime/platformclaw-compose");
+    const initState = readRepoFile("docker/platformclaw-runtime/init-state");
 
-    expect(readme).toContain("UID/GID `1000:1000`");
-    expect(readme).toContain("-o 1000 -g 1000 -m 0400 gateway-token");
+    expect(wrapper).toContain('runtime_uid="$(id -u "$service_user")"');
+    expect(wrapper).toContain('runtime_gid="$(id -g "$service_user")"');
+    expect(wrapper).toContain("/run/user/$runtime_uid");
+    expect(wrapper).toContain("platformclaw-credential-broker-$runtime_uid-$runtime_gid");
+    expect(wrapper).toContain('if [[ "$1" == "environment" ]]');
+    expect(initState).toContain('find "$state_dir" -xdev');
+    expect(initState).toContain('-exec chown -h "$runtime_uid:$runtime_gid" {} +');
+    expect(initState).not.toContain("/state/workspaces");
+    const ownerMigration = readRepoFile("docker/platformclaw-runtime/migrate-workspace-owner");
+    expect(ownerMigration).toContain("PLATFORMCLAW_PREVIOUS_RUNTIME_UID");
+    expect(ownerMigration).toContain('find "$workspace_dir" -xdev -uid "$previous_uid"');
+    expect(ownerMigration).toContain('chown -h "$runtime_uid"');
+    expect(readme).toContain("--profile owner-migration");
+    const compose = parse(
+      readRepoFile("docker/platformclaw-runtime/compose.yaml"),
+    ) as ComposeConfig;
+    expect(compose.services["platformclaw-workspace-owner-migration"]?.cap_add).toEqual([
+      "CHOWN",
+      "DAC_READ_SEARCH",
+    ]);
+    expect(readme).toContain("platformclaw-compose --service-user platformclaw");
     expect(readme).toContain("Do not store\ntheir values in Compose YAML or an environment file.");
   });
 
