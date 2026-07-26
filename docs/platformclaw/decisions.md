@@ -320,11 +320,18 @@ schema v1 unchanged.
 
 The [VM execution policy](/platformclaw/vm-execution-policy) is the canonical
 product and security contract for personal execution on the PlatformClaw basic
-workspace or one administrator-assigned VM/Linux account. It approves a static
+workspace or one employee-selected, administrator-approved VM/Linux account. It approves a static
 private `platformclaw-execution` backend, run-boundary atomic target changes,
 shared canonical Core Files, mutable managed employee-profile projection,
 credential-free per-run runtime context, no automatic VM fallback, independent
 target workspaces, and environment-scoped background-process reconciliation.
+
+Administrators publish the active VM catalog but do not type every employee's
+Linux account. The account defaults to the authenticated account ID and remains
+editable. Candidate SSH validation must succeed before an allocation is
+atomically replaced. Users can release their allocation; administrators can
+revoke it. VM and endpoint removal is soft-disable only and respects dependency
+order. No arbitrary employee-supplied network target is accepted.
 
 It also approves SQLite schema version 2 for execution profiles, hosts,
 allocations, and AES-256-GCM credentials; a Docker-secret master key; and a

@@ -1,4 +1,5 @@
 import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
+import type { ControlPlaneAtomicVmCredentialStore } from "./execution-contracts.js";
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
 import { SqliteControlPlaneExecutionStore } from "./sqlite-store-execution.js";
@@ -39,55 +40,58 @@ function rowToMetadata(row: EncryptedUserSshCredentialRow): UserSshCredentialMet
 
 export abstract class SqliteControlPlaneCredentialStore
   extends SqliteControlPlaneExecutionStore
-  implements ControlPlaneSshCredentialEnvelopeStore
+  implements ControlPlaneSshCredentialEnvelopeStore, ControlPlaneAtomicVmCredentialStore
 {
   async replaceEncryptedUserSshCredential(
     params: Parameters<
       ControlPlaneSshCredentialEnvelopeStore["replaceEncryptedUserSshCredential"]
     >[0],
   ): Promise<UserSshCredentialMetadata> {
+    return runImmediateTransaction(this.db, () => this.replaceCredentialInTransaction(params));
+  }
+
+  async commitPersonalVmSelection(
+    params: Parameters<ControlPlaneAtomicVmCredentialStore["commitPersonalVmSelection"]>[0],
+  ) {
     return runImmediateTransaction(this.db, () => {
-      this.requireSelf(params.actorUserId, params.userId);
-      const user = this.requireUserRow(params.userId);
-      if (user.status !== "active") {
-        throw new ControlPlaneStateError("active user required for SSH credential management");
-      }
-      validateSshCredentialEnvelope(params.envelope);
-      const existing = this.selectCredential(params.userId);
-      const row: EncryptedUserSshCredentialRow = {
-        id: existing?.id ?? nextExecutionResourceId(this.idFactory, "ssh-credential"),
-        user_id: params.userId,
-        ciphertext: params.envelope.ciphertext.slice(),
-        nonce: params.envelope.nonce.slice(),
-        auth_tag: params.envelope.authTag.slice(),
-        key_id: params.envelope.keyId,
-        format_version: params.envelope.formatVersion,
-        revision: (existing?.revision ?? 0) + 1,
-        status: "current",
-        last_auth_failure_at: null,
-        created_at: existing?.created_at ?? params.replacedAt,
-        updated_at: params.replacedAt,
-      };
-      if (existing) {
-        executeSync(
-          this.db,
-          this.query
-            .updateTable("encrypted_user_ssh_credentials")
-            .set(row)
-            .where("id", "=", existing.id),
-        );
-      } else {
-        executeSync(this.db, this.query.insertInto("encrypted_user_ssh_credentials").values(row));
-      }
-      this.insertAudit(
-        params.actorUserId,
-        existing ? "ssh-credential.replaced" : "ssh-credential.created",
-        "ssh-credential",
-        row.id,
-        params.replacedAt,
-        { revision: row.revision },
-      );
-      return rowToMetadata(row);
+      const allocation = this.replacePersonalVmAllocationInTransaction({
+        actorUserId: params.actorUserId,
+        agentId: params.agentId,
+        vmHostId: params.vmHostId,
+        linuxAccount: params.linuxAccount,
+        remoteHomeDir: params.remoteHomeDir,
+        remoteWorkspaceDir: params.remoteWorkspaceDir,
+        replacedAt: params.committedAt,
+      });
+      this.replaceCredentialInTransaction({
+        actorUserId: params.actorUserId,
+        userId: params.actorUserId,
+        envelope: params.credentialEnvelope,
+        replacedAt: params.committedAt,
+      });
+      return allocation;
+    });
+  }
+
+  async releasePersonalVmAccess(
+    params: Parameters<ControlPlaneAtomicVmCredentialStore["releasePersonalVmAccess"]>[0],
+  ) {
+    return runImmediateTransaction(this.db, () => {
+      const current = this.getVmAllocationForAgentInTransaction(params.agentId);
+      const allocation = current
+        ? this.revokePersonalVmAllocationInTransaction({
+            actorUserId: params.actorUserId,
+            agentId: params.agentId,
+            releasedAt: params.releasedAt,
+            requireAdmin: false,
+          })
+        : null;
+      this.deleteCredentialInTransaction({
+        actorUserId: params.actorUserId,
+        userId: params.actorUserId,
+        deletedAt: params.releasedAt,
+      });
+      return allocation;
     });
   }
 
@@ -156,30 +160,82 @@ export abstract class SqliteControlPlaneCredentialStore
   async deleteUserSshCredential(
     params: Parameters<ControlPlaneSshCredentialEnvelopeStore["deleteUserSshCredential"]>[0],
   ): Promise<boolean> {
-    return runImmediateTransaction(this.db, () => {
-      this.requireSelf(params.actorUserId, params.userId);
-      const user = this.requireUserRow(params.userId);
-      if (user.status !== "active") {
-        throw new ControlPlaneStateError("active user required for SSH credential management");
-      }
-      const row = this.selectCredential(params.userId);
-      if (!row) {
-        return false;
-      }
+    return runImmediateTransaction(this.db, () => this.deleteCredentialInTransaction(params));
+  }
+
+  private replaceCredentialInTransaction(
+    params: Parameters<
+      ControlPlaneSshCredentialEnvelopeStore["replaceEncryptedUserSshCredential"]
+    >[0],
+  ): UserSshCredentialMetadata {
+    this.requireSelf(params.actorUserId, params.userId);
+    const user = this.requireUserRow(params.userId);
+    if (user.status !== "active") {
+      throw new ControlPlaneStateError("active user required for SSH credential management");
+    }
+    validateSshCredentialEnvelope(params.envelope);
+    const existing = this.selectCredential(params.userId);
+    const row: EncryptedUserSshCredentialRow = {
+      id: existing?.id ?? nextExecutionResourceId(this.idFactory, "ssh-credential"),
+      user_id: params.userId,
+      ciphertext: params.envelope.ciphertext.slice(),
+      nonce: params.envelope.nonce.slice(),
+      auth_tag: params.envelope.authTag.slice(),
+      key_id: params.envelope.keyId,
+      format_version: params.envelope.formatVersion,
+      revision: (existing?.revision ?? 0) + 1,
+      status: "current",
+      last_auth_failure_at: null,
+      created_at: existing?.created_at ?? params.replacedAt,
+      updated_at: params.replacedAt,
+    };
+    if (existing) {
       executeSync(
         this.db,
-        this.query.deleteFrom("encrypted_user_ssh_credentials").where("id", "=", row.id),
+        this.query
+          .updateTable("encrypted_user_ssh_credentials")
+          .set(row)
+          .where("id", "=", existing.id),
       );
-      this.insertAudit(
-        params.actorUserId,
-        "ssh-credential.deleted",
-        "ssh-credential",
-        row.id,
-        params.deletedAt,
-        { revision: row.revision },
-      );
-      return true;
-    });
+    } else {
+      executeSync(this.db, this.query.insertInto("encrypted_user_ssh_credentials").values(row));
+    }
+    this.insertAudit(
+      params.actorUserId,
+      existing ? "ssh-credential.replaced" : "ssh-credential.created",
+      "ssh-credential",
+      row.id,
+      params.replacedAt,
+      { revision: row.revision },
+    );
+    return rowToMetadata(row);
+  }
+
+  private deleteCredentialInTransaction(
+    params: Parameters<ControlPlaneSshCredentialEnvelopeStore["deleteUserSshCredential"]>[0],
+  ): boolean {
+    this.requireSelf(params.actorUserId, params.userId);
+    const user = this.requireUserRow(params.userId);
+    if (user.status !== "active") {
+      throw new ControlPlaneStateError("active user required for SSH credential management");
+    }
+    const row = this.selectCredential(params.userId);
+    if (!row) {
+      return false;
+    }
+    executeSync(
+      this.db,
+      this.query.deleteFrom("encrypted_user_ssh_credentials").where("id", "=", row.id),
+    );
+    this.insertAudit(
+      params.actorUserId,
+      "ssh-credential.deleted",
+      "ssh-credential",
+      row.id,
+      params.deletedAt,
+      { revision: row.revision },
+    );
+    return true;
   }
 
   private requireSelf(actorUserId: string, userId: string): void {

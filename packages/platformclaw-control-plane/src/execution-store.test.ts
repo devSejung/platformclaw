@@ -11,11 +11,15 @@ import type {
 } from "./contracts.js";
 import type {
   ControlPlaneEmployeeExecutionStore,
+  ControlPlaneAtomicVmCredentialStore,
   ControlPlaneExecutionManagementStore,
   ControlPlaneExecutionTargetStore,
+  ControlPlaneVmLifecycleStore,
+  ControlPlaneVmSelfServiceStore,
 } from "./execution-contracts.js";
 import { InMemoryControlPlaneStore } from "./memory-store.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
+import type { ControlPlaneSshCredentialEnvelopeStore } from "./ssh-credential-contracts.js";
 
 type ExecutionManagementTestStore = ControlPlaneStore &
   ControlPlaneExecutionManagementStore &
@@ -23,7 +27,11 @@ type ExecutionManagementTestStore = ControlPlaneStore &
 
 type ExecutionTestStore = ExecutionManagementTestStore &
   ControlPlaneEmployeeExecutionStore &
-  ControlPlaneExecutionTargetStore;
+  ControlPlaneExecutionTargetStore &
+  ControlPlaneAtomicVmCredentialStore &
+  ControlPlaneSshCredentialEnvelopeStore &
+  ControlPlaneVmLifecycleStore &
+  ControlPlaneVmSelfServiceStore;
 
 const temporaryDirectories: string[] = [];
 
@@ -336,6 +344,113 @@ describe.each([
 });
 
 describe("SQLite employee execution store", () => {
+  it("supports self-service VM selection, replacement, release, and soft-disable lifecycle", async () => {
+    const store = createSqliteStore();
+    const { admin, endpoint, host } = await prepareVm(store);
+    const employee = await createActivePersonalAgent(store, "person.one");
+
+    await expect(
+      store.getPersonalVmCatalog({
+        actorUserId: employee.user.id,
+        agentId: employee.binding.agentId,
+      }),
+    ).resolves.toEqual({
+      accountId: "person.one",
+      hosts: [{ id: host.id, label: "Development VM" }],
+    });
+    const candidate = await store.preparePersonalVmCandidate({
+      actorUserId: employee.user.id,
+      agentId: employee.binding.agentId,
+      vmHostId: host.id,
+      linuxAccount: "custom-linux-user",
+    });
+    expect(candidate).toMatchObject({
+      allocationId: `candidate:${host.id}`,
+      adAccount: "person.one",
+      linuxAccount: "custom-linux-user",
+      targetAddress: "192.0.2.10",
+    });
+    await expect(store.getVmAllocationForAgent(employee.binding.agentId)).resolves.toBeNull();
+
+    const selection = {
+      actorUserId: employee.user.id,
+      agentId: employee.binding.agentId,
+      vmHostId: host.id,
+      linuxAccount: candidate.linuxAccount,
+      remoteHomeDir: "/users/custom-linux-user",
+      remoteWorkspaceDir: "/users/custom-linux-user/.platformclaw/workspace",
+      committedAt: 7_000,
+    };
+    await expect(
+      store.commitPersonalVmSelection({
+        ...selection,
+        credentialEnvelope: {
+          ciphertext: new Uint8Array([1]),
+          nonce: new Uint8Array(12),
+          authTag: new Uint8Array(16),
+          keyId: "invalid",
+          formatVersion: 1,
+        },
+      }),
+    ).rejects.toThrow("key id is invalid");
+    await expect(store.getVmAllocationForAgent(employee.binding.agentId)).resolves.toBeNull();
+
+    const allocation = await store.commitPersonalVmSelection({
+      ...selection,
+      credentialEnvelope: {
+        ciphertext: new Uint8Array([1]),
+        nonce: new Uint8Array(12),
+        authTag: new Uint8Array(16),
+        keyId: `sha256:${"A".repeat(43)}`,
+        formatVersion: 1,
+      },
+    });
+    await expect(
+      store.getPersonalExecutionSettings(employee.binding.agentId),
+    ).resolves.toMatchObject({
+      allocation: {
+        id: allocation.id,
+        vmHostId: host.id,
+        linuxAccount: "custom-linux-user",
+        status: "ready",
+      },
+    });
+    await expect(
+      store.getUserSshCredentialMetadata({
+        actorUserId: employee.user.id,
+        userId: employee.user.id,
+      }),
+    ).resolves.toMatchObject({ status: "current", revision: 1 });
+    await expect(
+      store.disableVmHost({ actorUserId: admin.user.id, vmHostId: host.id, disabledAt: 7_001 }),
+    ).rejects.toThrow("release every active assignment");
+
+    await expect(
+      store.releasePersonalVmAccess({
+        actorUserId: employee.user.id,
+        agentId: employee.binding.agentId,
+        releasedAt: 7_002,
+      }),
+    ).resolves.toMatchObject({ id: allocation.id, status: "revoked" });
+    await expect(
+      store.getUserSshCredentialMetadata({
+        actorUserId: employee.user.id,
+        userId: employee.user.id,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      store.disableVmHost({ actorUserId: admin.user.id, vmHostId: host.id, disabledAt: 7_003 }),
+    ).resolves.toMatchObject({ id: host.id, status: "disabled" });
+    await expect(
+      store.disableSafeConnectEndpoint({
+        actorUserId: admin.user.id,
+        endpointId: endpoint.id,
+        disabledAt: 7_004,
+      }),
+    ).resolves.toMatchObject({ id: endpoint.id, status: "disabled" });
+    store.close?.();
+  });
+
   it("prepares a VM and changes targets with an optimistic revision", async () => {
     const store = createSqliteStore();
     const { admin, host } = await prepareVm(store);

@@ -111,6 +111,7 @@ export function createPlatformClawWebIngressRuntime(
   const vmAdministration = new VmAdministrationService({
     authService: auth.service,
     store: auth.store,
+    adminRpc: options.adminRpc,
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
   const restartReconciler = new AgentRestartReconciler({

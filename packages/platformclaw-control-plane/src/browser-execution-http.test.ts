@@ -16,6 +16,7 @@ const SETTINGS = {
   targetRevision: 2,
   allocation: {
     id: "allocation-one",
+    vmHostId: "vm-one",
     status: "ready" as const,
     vmLabel: "Development VM",
     safeConnectLabel: "SafeConnect",
@@ -30,10 +31,52 @@ function createHarness() {
       async () => SETTINGS,
     ),
     recordVmConnectionResult: vi.fn(async () => SETTINGS.allocation),
+    getPersonalVmCatalog: vi.fn(async () => ({
+      accountId: "person.one",
+      hosts: [{ id: "vm-one", label: "Development VM" }],
+    })),
+    preparePersonalVmCandidate: vi.fn(async () => ({
+      kind: "assigned_vm" as const,
+      agentId: "person_one",
+      userId: "user-one",
+      targetId: "candidate:vm-one",
+      revision: 2,
+      allocationId: "candidate:vm-one",
+      allocationStatus: "assigned" as const,
+      vmLabel: "Development VM",
+      safeConnectLabel: "SafeConnect",
+      endpointHost: "safeconnect.example.test",
+      endpointPort: 44_422,
+      adDomain: "example.test",
+      adAccount: "person.one",
+      targetAddress: "192.0.2.10",
+      linuxAccount: "person.one",
+      hostKeyAlgorithm: "ssh-ed25519",
+      hostKeyPublicKey: "key",
+      hostKeyFingerprint: "SHA256:test",
+    })),
+    replacePersonalVmAllocation: vi.fn(async () => SETTINGS.allocation),
+    releasePersonalVmAllocation: vi.fn(async () => ({
+      ...SETTINGS.allocation,
+      status: "revoked" as const,
+    })),
+    commitPersonalVmSelection: vi.fn(async () => SETTINGS.allocation),
+    releasePersonalVmAccess: vi.fn(async () => ({
+      ...SETTINGS.allocation,
+      status: "revoked" as const,
+    })),
   };
   const vault = {
     getMetadata: vi.fn(async () => ({ status: "current" })),
     replace: vi.fn(async () => ({ status: "current" })),
+    delete: vi.fn(async () => true),
+    sealForStorage: vi.fn(() => ({
+      ciphertext: new Uint8Array([1]),
+      nonce: new Uint8Array(12),
+      authTag: new Uint8Array(16),
+      keyId: "test-key",
+      formatVersion: 1 as const,
+    })),
   };
   const broker = {
     address: "/run/platformclaw-credential-broker/runtime.sock",
@@ -41,12 +84,17 @@ function createHarness() {
     issueForUser: vi.fn(() => ({ token: "stored-grant", expiresAt: Date.now() + 1_000 })),
     revoke: vi.fn(() => true),
   };
-  const adminRpcCall = vi.fn<(method: string, params: unknown) => Promise<unknown>>(async () => ({
-    allocationId: "allocation-one",
-    targetRevision: 2,
-    remoteHomeDir: "/users/person.one",
-    remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
-  }));
+  const adminRpcCall = vi.fn<(method: string, params: unknown) => Promise<unknown>>(
+    async (method) => ({
+      allocationId:
+        method === "platformclaw-execution.testCandidateConnection"
+          ? "candidate:vm-one"
+          : "allocation-one",
+      targetRevision: 2,
+      remoteHomeDir: "/users/person.one",
+      remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
+    }),
+  );
   const adminRpc: GatewayAdminRpc = {
     call: async <T>(method: string, params: unknown) => (await adminRpcCall(method, params)) as T,
   };
@@ -227,6 +275,46 @@ describe("EmployeeExecutionService", () => {
       target: "assigned_vm",
       expectedRevision: 2,
     });
+  });
+
+  it("tests a self-selected VM before atomically replacing the allocation", async () => {
+    const harness = createHarness();
+
+    await harness.service.selectVm({
+      userId: "user-one",
+      agentId: "person_one",
+      vmHostId: "vm-one",
+      linuxAccount: "person.one",
+      password: "secret",
+    });
+
+    expect(harness.adminRpcCall).toHaveBeenCalledWith(
+      "platformclaw-execution.testCandidateConnection",
+      expect.objectContaining({
+        target: expect.objectContaining({ allocationId: "candidate:vm-one" }),
+      }),
+    );
+    expect(harness.store.commitPersonalVmSelection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vmHostId: "vm-one",
+        linuxAccount: "person.one",
+        remoteHomeDir: "/users/person.one",
+        credentialEnvelope: expect.objectContaining({ keyId: "test-key" }),
+      }),
+    );
+  });
+
+  it("releases the inactive allocation and credential through one store transaction", async () => {
+    const harness = createHarness();
+
+    await harness.service.releaseVm("user-one", "person_one");
+
+    expect(harness.store.releasePersonalVmAccess).toHaveBeenCalledWith({
+      actorUserId: "user-one",
+      agentId: "person_one",
+      releasedAt: 1234,
+    });
+    expect(harness.vault.delete).not.toHaveBeenCalled();
   });
 
   it("rejects another user's execution settings", async () => {

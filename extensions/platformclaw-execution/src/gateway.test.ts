@@ -11,6 +11,7 @@ type BeforeRunHandler = Parameters<OpenClawPluginApi["on"]>[1];
 
 function createHarness(runtime: {
   testConnection: ReturnType<typeof vi.fn>;
+  testCandidateConnection: ReturnType<typeof vi.fn>;
   changeTarget: ReturnType<typeof vi.fn>;
 }) {
   const methods = new Map<string, GatewayHandler>();
@@ -43,6 +44,7 @@ describe("PlatformClaw execution Gateway methods", () => {
       testConnection: vi.fn(async () => {
         throw new PlatformClawVmAuthenticationError();
       }),
+      testCandidateConnection: vi.fn(),
       changeTarget: vi.fn(),
     };
     const harness = createHarness(runtime);
@@ -70,7 +72,11 @@ describe("PlatformClaw execution Gateway methods", () => {
   });
 
   it("rejects a work-location change while that agent has an active run", async () => {
-    const runtime = { testConnection: vi.fn(), changeTarget: vi.fn() };
+    const runtime = {
+      testConnection: vi.fn(),
+      testCandidateConnection: vi.fn(),
+      changeTarget: vi.fn(),
+    };
     const harness = createHarness(runtime);
     const respond = vi.fn();
 
@@ -97,6 +103,7 @@ describe("PlatformClaw execution Gateway methods", () => {
     });
     const runtime = {
       testConnection: vi.fn(),
+      testCandidateConnection: vi.fn(),
       changeTarget: vi.fn(async () => {
         await pending;
         return {
@@ -129,6 +136,7 @@ describe("PlatformClaw execution Gateway methods", () => {
   it("preserves an optimistic-revision conflict from the control plane", async () => {
     const runtime = {
       testConnection: vi.fn(),
+      testCandidateConnection: vi.fn(),
       changeTarget: vi.fn(async () => {
         throw new Error("execution handoff request failed (409)");
       }),

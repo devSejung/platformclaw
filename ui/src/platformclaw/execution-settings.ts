@@ -8,7 +8,10 @@ type ExecutionSettings = {
   activeTarget: ExecutionTarget;
   targetRevision: number;
   credentialStatus: "missing" | "current" | "update_required";
+  accountId: string;
+  availableVms: Array<{ id: string; label: string }>;
   assignment?: {
+    vmHostId: string;
     status: "assigned" | "ready" | "connection_required" | "revoked";
     vmLabel: string;
     safeConnectLabel: string;
@@ -44,6 +47,11 @@ function formatCheckTime(value?: number): string {
   return `${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())} ${part(date.getHours())}:${part(date.getMinutes())}`;
 }
 
+function formText(form: FormData, name: string): string {
+  const value = form.get(name);
+  return typeof value === "string" ? value : "";
+}
+
 function localizedRequestError(value: unknown, fallbackKey: string): string {
   if (value === "AD password was not accepted") {
     return t("platformClaw.execution.passwordRejected");
@@ -59,6 +67,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
   private busy = false;
   private message = "";
   private pendingTarget: ExecutionTarget | null = null;
+  private pendingRelease = false;
   private unsubscribeLocale = () => {};
 
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
@@ -137,6 +146,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       this.pendingTarget = null;
+      this.pendingRelease = false;
       this.message = t("platformClaw.execution.saved");
     } catch (error) {
       this.message =
@@ -181,6 +191,35 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         const password = this.root.querySelector<HTMLInputElement>("[data-password]")?.value ?? "";
         void this.mutate(`${PLATFORMCLAW_EXECUTION_API_PATH}/credential`, { password });
       });
+    this.root
+      .querySelector<HTMLFormElement>("[data-action='select-vm']")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget as HTMLFormElement);
+        void this.mutate(`${PLATFORMCLAW_EXECUTION_API_PATH}/selection`, {
+          vmHostId: formText(form, "vmHostId"),
+          linuxAccount: formText(form, "linuxAccount"),
+          password: formText(form, "password"),
+        });
+      });
+    this.root
+      .querySelector<HTMLElement>("[data-action='release']")
+      ?.addEventListener("click", () => {
+        this.pendingRelease = true;
+        this.render();
+      });
+    this.root
+      .querySelector<HTMLElement>("[data-action='cancel-release']")
+      ?.addEventListener("click", () => {
+        this.pendingRelease = false;
+        this.render();
+      });
+    this.root
+      .querySelector<HTMLElement>("[data-action='confirm-release']")
+      ?.addEventListener("click", () => {
+        this.pendingRelease = false;
+        void this.mutate(`${PLATFORMCLAW_EXECUTION_API_PATH}/release`);
+      });
     for (const button of this.root.querySelectorAll<HTMLElement>("[data-target]")) {
       button.addEventListener("click", () => {
         const target = button.dataset.target;
@@ -221,10 +260,17 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       this.pendingTarget === "assigned_vm"
         ? t("platformClaw.execution.vm")
         : t("platformClaw.execution.basic");
+    const vmOptions =
+      settings?.availableVms
+        .map(
+          (vm) =>
+            `<option value="${escapeHtml(vm.id)}" ${assignment?.vmHostId === vm.id ? "selected" : ""}>${escapeHtml(vm.label)}</option>`,
+        )
+        .join("") ?? "";
     this.root.innerHTML = `
       <style>
         :host { display: block; color: var(--text); font: 13px/1.45 var(--font-sans, system-ui, sans-serif); }
-        button, input { font: inherit; }
+        button, input, select { font: inherit; }
         .badge { box-sizing: border-box; display: flex; width: 100%; min-height: 34px; align-items: center; gap: 8px; border: 0; border-radius: var(--radius-md); padding: 7px 9px; background: transparent; color: var(--text); cursor: pointer; text-align: left; transition: background var(--duration-fast) ease; }
         .badge:hover, .badge:focus-visible { background: var(--bg-hover); outline: none; }
         .dot { width: 7px; height: 7px; flex: none; border-radius: var(--radius-full); background: ${assignment?.status === "connection_required" ? "var(--warn)" : "var(--success, #22c55e)"}; }
@@ -243,8 +289,8 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         .primary { background: var(--accent); color: var(--accent-foreground); border-color: var(--accent); }
         .primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
         .button:disabled { opacity: .5; cursor: not-allowed; }
-        input { box-sizing: border-box; width: 100%; padding: 9px 10px; margin: 8px 0; border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); }
-        input:focus { border-color: var(--accent); outline: none; box-shadow: var(--focus-ring); }
+        input, select { box-sizing: border-box; width: 100%; padding: 9px 10px; margin: 8px 0; border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); }
+        input:focus, select:focus { border-color: var(--accent); outline: none; box-shadow: var(--focus-ring); }
         .message { padding: 10px 12px; border-radius: var(--radius-md); background: var(--accent-subtle); }
         .confirm { border-color: var(--accent); }
       </style>
@@ -257,8 +303,10 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
           ${this.loading ? `<p>${escapeHtml(t("common.loading"))}</p>` : ""}
           ${this.message ? `<div class="message">${escapeHtml(this.message)}</div>` : ""}
           ${settings ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.current"))}</h3><strong>${escapeHtml(badgeLabel)}</strong><p class="muted">${escapeHtml(t("platformClaw.execution.boundary"))}</p><div class="row"><button class="button" data-target="platform_server" ${settings.activeTarget === "platform_server" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.useBasic"))}</button><button class="button primary" data-target="assigned_vm" ${settings.activeTarget === "assigned_vm" || !canUseVm || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.useVm"))}</button></div></section>` : ""}
-          ${assignment ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.assignedVm"))}</h3><strong>${escapeHtml(assignment.vmLabel)}</strong><p class="muted">${escapeHtml(assignment.linuxAccount)} · ${escapeHtml(assignment.remoteWorkspaceDir ?? t("platformClaw.execution.workspacePending"))}</p><p class="muted">${escapeHtml(t("platformClaw.execution.lastCheck"))}: ${escapeHtml(formatCheckTime(assignment.lastConnectionSucceededAt))}</p><label>${escapeHtml(t("platformClaw.execution.password"))}<input data-password type="password" autocomplete="current-password" maxlength="4096" /></label><div class="row"><button class="button primary" data-action="credential" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.saveAndTest"))}</button><button class="button" data-action="test" ${settings?.credentialStatus !== "current" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.test"))}</button></div></section>` : `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.noVm"))}</h3><p class="muted">${escapeHtml(t("platformClaw.execution.noVmHelp"))}</p></section>`}
+          ${assignment ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.assignedVm"))}</h3><strong>${escapeHtml(assignment.vmLabel)}</strong><p class="muted">${escapeHtml(assignment.linuxAccount)} · ${escapeHtml(assignment.remoteWorkspaceDir ?? t("platformClaw.execution.workspacePending"))}</p><p class="muted">${escapeHtml(t("platformClaw.execution.lastCheck"))}: ${escapeHtml(formatCheckTime(assignment.lastConnectionSucceededAt))}</p><label>${escapeHtml(t("platformClaw.execution.password"))}<input data-password type="password" autocomplete="current-password" maxlength="4096" /></label><div class="row"><button class="button primary" data-action="credential" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.saveAndTest"))}</button><button class="button" data-action="test" ${settings?.credentialStatus !== "current" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.test"))}</button><button class="button" data-action="release" ${settings.activeTarget !== "platform_server" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.release"))}</button></div></section>` : ""}
+          ${settings ? (settings.activeTarget === "platform_server" ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.selectVm"))}</h3>${settings.availableVms.length ? `<form data-action="select-vm"><label>${escapeHtml(t("platformClaw.execution.vmChoice"))}<select name="vmHostId" required>${vmOptions}</select></label><label>${escapeHtml(t("platformClaw.execution.linuxAccount"))}<input name="linuxAccount" value="${escapeHtml(assignment?.linuxAccount ?? settings.accountId)}" required></label><label>${escapeHtml(t("platformClaw.execution.password"))}<input name="password" type="password" autocomplete="current-password" maxlength="4096" required></label><p class="muted">${escapeHtml(t("platformClaw.execution.selectionHelp"))}</p><button class="button primary" ${this.busy ? "disabled" : ""}>${escapeHtml(assignment ? t("platformClaw.execution.changeVm") : t("platformClaw.execution.connectVm"))}</button></form>` : `<p class="muted">${escapeHtml(t("platformClaw.execution.noAvailableVm"))}</p>`}</section>` : `<section class="card"><p class="muted">${escapeHtml(t("platformClaw.execution.switchBasicToChange"))}</p></section>`) : ""}
           ${this.pendingTarget ? `<section class="card confirm"><h3>${escapeHtml(t("platformClaw.execution.confirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.execution.confirmBody", { target: targetLabel }))}</p><div class="row"><button class="button primary" data-action="confirm-switch" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.confirm"))}</button><button class="button" data-action="cancel-switch">${escapeHtml(t("platformClaw.execution.cancel"))}</button></div></section>` : ""}
+          ${this.pendingRelease ? `<section class="card confirm"><h3>${escapeHtml(t("platformClaw.execution.releaseConfirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.execution.releaseConfirmBody"))}</p><div class="row"><button class="button primary" data-action="confirm-release">${escapeHtml(t("platformClaw.execution.releaseConfirm"))}</button><button class="button" data-action="cancel-release">${escapeHtml(t("platformClaw.execution.cancel"))}</button></div></section>` : ""}
           <button class="button" data-action="refresh" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.refresh"))}</button>
         </main></section></dialog>`
           : ""

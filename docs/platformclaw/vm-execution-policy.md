@@ -20,7 +20,7 @@ next verified upstream synchronization.
 ## Definition and ownership
 
 PlatformClaw does not create VMs. A VM execution target is an existing Linux
-account, assigned by an administrator, that PlatformClaw reaches through
+account on an administrator-approved VM that PlatformClaw reaches through
 SafeConnect SSH. Only `exec`, `process`, and filesystem tool operations move to
 that account. The Gateway, agent orchestration, prompt construction, employee
 profile lookup, LLM request, and control-plane database remain on the
@@ -55,11 +55,21 @@ Each personal agent has one active target:
 
 The default is `platform_server`. A user without a VM retains the same
 `exec` and `process` feature policy in the basic workspace. VM registration and
-target selection are separate: an administrator assigns the VM and Linux
-account, while the user selects which prepared target to use.
+target selection are separate: an administrator publishes an approved VM
+catalog, while the employee selects one VM and confirms their Linux account.
 
 The first release permits one active VM/Linux-account allocation per personal
-agent. Users cannot submit arbitrary hosts, ports, or Linux accounts.
+agent. The Linux account defaults to the authenticated employee account ID and
+may be edited when the VM account differs. Users cannot submit arbitrary hosts,
+ports, or target addresses. A VM/Linux-account pair has only one active owner.
+
+Selection is atomic at the product boundary: PlatformClaw tests the candidate
+VM and transient credential before replacing the current allocation. A failed
+test leaves the existing allocation unchanged. Selection, replacement, and
+release require the basic workspace. Target switching is rejected during an
+active Agent run; administrator revocation first uses that same guarded switch
+when the VM is active. Files and background processes remain in the previous
+environment.
 
 ## Stable plugin routing
 
@@ -195,7 +205,8 @@ connection.
 The execution settings surface provides:
 
 - current work location and readiness;
-- assigned VM label, Linux account, and remote workspace;
+- active VM catalog, assigned VM label, Linux account, and remote workspace;
+- self-service VM selection, replacement, and release;
 - AD password registration and update;
 - connection test and last successful check;
 - explicit target change;
@@ -205,10 +216,12 @@ Before a change, the UI explains that conversation and Agent settings remain,
 while files and processes do not move. After a change, the chat timeline shows
 the same boundary.
 
-Administrators manage VM hosts, SafeConnect port and host-key records, remote
-workspace roots, user-to-account allocations, disablement, reclamation,
-connection status, and redacted audit records. Administrators cannot retrieve
-stored passwords.
+Administrators manage VM hosts, SafeConnect port and host-key records,
+disablement, assignment revocation, connection status, and redacted audit
+records. Disablement is a soft lifecycle state rather than a database delete.
+Active assignments must be released or revoked before a VM is disabled; active
+VMs must be disabled before their endpoint is disabled. Administrators cannot
+retrieve stored passwords.
 
 ## Credential storage and transport
 

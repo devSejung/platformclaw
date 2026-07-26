@@ -13,6 +13,16 @@ export type PlatformClawExecutionGatewayRuntime = {
     remoteHomeDir: string;
     remoteWorkspaceDir: string;
   }>;
+  testCandidateConnection(params: {
+    target: unknown;
+    credentialBrokerAddress: string;
+    credentialGrantToken: string;
+  }): Promise<{
+    allocationId: string;
+    targetRevision: number;
+    remoteHomeDir: string;
+    remoteWorkspaceDir: string;
+  }>;
   changeTarget(params: {
     agentId: string;
     target: "platform_server" | "assigned_vm";
@@ -59,6 +69,50 @@ export function registerPlatformClawExecutionGateway(
           true,
           await runtime.testConnection({
             agentId,
+            credentialBrokerAddress,
+            credentialGrantToken,
+          }),
+        );
+      } catch (error) {
+        if (error instanceof PlatformClawVmAuthenticationError) {
+          respond(false, undefined, {
+            code: "INVALID_REQUEST",
+            message: "development VM authentication failed",
+            details: { kind: "vm_authentication_failed" },
+          });
+          return;
+        }
+        respond(false, undefined, {
+          code: "UNAVAILABLE",
+          message: "development VM connection failed",
+        });
+      }
+    },
+    { scope: "operator.admin" },
+  );
+  api.registerGatewayMethod(
+    "platformclaw-execution.testCandidateConnection",
+    async ({ params, respond }) => {
+      const input = params as Record<string, unknown>;
+      const credentialBrokerAddress =
+        typeof input.credentialBrokerAddress === "string"
+          ? input.credentialBrokerAddress.trim()
+          : "";
+      const credentialGrantToken =
+        typeof input.credentialGrantToken === "string" ? input.credentialGrantToken.trim() : "";
+      if (!input.target || !credentialBrokerAddress || !credentialGrantToken) {
+        respond(false, undefined, {
+          code: "INVALID_REQUEST",
+          message: "candidate connection test request is invalid",
+        });
+        return;
+      }
+      try {
+        const runtime = await runtimePromise;
+        respond(
+          true,
+          await runtime.testCandidateConnection({
+            target: input.target,
             credentialBrokerAddress,
             credentialGrantToken,
           }),

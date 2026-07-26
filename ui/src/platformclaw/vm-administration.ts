@@ -48,6 +48,13 @@ type VmAdministrationSnapshot = {
   auditEvents: AuditEvent[];
 };
 
+type PendingMutation = {
+  action: "disable-endpoint" | "disable-host" | "revoke-allocation";
+  fieldName: "endpointId" | "vmHostId" | "allocationId";
+  id: string;
+  label: string;
+};
+
 function escapeHtml(value: string): string {
   return value.replace(
     /[&<>'"]/gu,
@@ -68,6 +75,7 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
   private opened = false;
   private loading = false;
   private message = "";
+  private pendingMutation: PendingMutation | null = null;
   private unsubscribeLocale = () => {};
 
   declare fetchImpl: typeof fetch;
@@ -193,11 +201,38 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
       label: field(form, "label"),
       targetAddress: field(form, "targetAddress"),
     }));
-    this.bindForm("allocations", (form) => ({
-      agentId: field(form, "agentId"),
-      vmHostId: field(form, "vmHostId"),
-      linuxAccount: field(form, "linuxAccount"),
-    }));
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-mutation]")) {
+      button.addEventListener("click", () => {
+        const action = button.dataset.mutation;
+        const fieldName = button.dataset.field;
+        const value = button.dataset.id;
+        const label = button.dataset.label;
+        if (
+          (action === "disable-endpoint" ||
+            action === "disable-host" ||
+            action === "revoke-allocation") &&
+          (fieldName === "endpointId" ||
+            fieldName === "vmHostId" ||
+            fieldName === "allocationId") &&
+          value &&
+          label
+        ) {
+          this.pendingMutation = { action, fieldName, id: value, label };
+          this.render();
+        }
+      });
+    }
+    this.root.querySelector("[data-cancel-mutation]")?.addEventListener("click", () => {
+      this.pendingMutation = null;
+      this.render();
+    });
+    this.root.querySelector("[data-confirm-mutation]")?.addEventListener("click", () => {
+      const pending = this.pendingMutation;
+      if (pending) {
+        this.pendingMutation = null;
+        void this.mutate({ action: pending.action, [pending.fieldName]: pending.id });
+      }
+    });
   }
 
   private options(values: ReadonlyArray<{ id: string; label: string }>): string {
@@ -211,8 +246,6 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
     const pending = data?.endpoints.filter((endpoint) => endpoint.status === "pending") ?? [];
     const activeEndpoints =
       data?.endpoints.filter((endpoint) => endpoint.status === "active") ?? [];
-    const activeHosts = data?.hosts.filter((host) => host.status === "active") ?? [];
-    const agents = data?.agents.filter((agent) => !agent.allocationId) ?? [];
     const rows = (values: string[]) =>
       values.length > 0
         ? `<ul>${values.map((value) => `<li>${value}</li>`).join("")}</ul>`
@@ -242,18 +275,16 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
             <header><div><h2>${escapeHtml(t("platformClaw.vmAdmin.title"))}</h2><div class="muted">${escapeHtml(t("platformClaw.vmAdmin.intro"))}</div></div><button data-close aria-label="${escapeHtml(t("platformClaw.vmAdmin.close"))}">×</button></header>
             <main>${this.loading ? `<p>${escapeHtml(t("platformClaw.vmAdmin.loading"))}</p>` : ""}${this.message ? `<div class="message">${escapeHtml(this.message)}</div>` : ""}
               <div class="grid">
-                <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.endpoints"))}</h3><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.endpointHelp"))}</p>${rows(data?.endpoints.map((endpoint) => `<strong>${escapeHtml(endpoint.label)}</strong> · ${escapeHtml(endpoint.host)}:${endpoint.port} · ${escapeHtml(platformClawStatus(endpoint.status))}${endpoint.hostKeyFingerprint ? `<br><small>${escapeHtml(endpoint.hostKeyFingerprint)}</small>` : ""}`) ?? [])}
+                <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.endpoints"))}</h3><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.endpointHelp"))}</p>${rows(data?.endpoints.map((endpoint) => `<strong>${escapeHtml(endpoint.label)}</strong> · ${escapeHtml(endpoint.host)}:${endpoint.port} · ${escapeHtml(platformClawStatus(endpoint.status))}${endpoint.hostKeyFingerprint ? `<br><small>${escapeHtml(endpoint.hostKeyFingerprint)}</small>` : ""}${endpoint.status !== "disabled" ? `<br><button type="button" data-mutation="disable-endpoint" data-field="endpointId" data-id="${escapeHtml(endpoint.id)}" data-label="${escapeHtml(endpoint.label)}">${escapeHtml(t("platformClaw.vmAdmin.disableEndpoint"))}</button>` : ""}`) ?? [])}
                   <form data-action="endpoints"><label>${escapeHtml(t("platformClaw.vmAdmin.label"))}<input name="label" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.endpointHost"))}<input name="host" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.port"))}<input name="port" type="number" min="1" max="65535" value="44422" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.adDomain"))}<input name="adDomain" required></label><button class="primary">${escapeHtml(t("platformClaw.vmAdmin.createEndpoint"))}</button></form>
                   ${pending.length ? `<form data-action="host-key"><label>${escapeHtml(t("platformClaw.vmAdmin.endpoint"))}<select name="endpointId">${this.options(pending)}</select></label><label>${escapeHtml(t("platformClaw.vmAdmin.algorithm"))}<input name="algorithm" value="ssh-ed25519" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.publicKey"))}<textarea name="publicKey" required></textarea></label><label>${escapeHtml(t("platformClaw.vmAdmin.fingerprint"))}<input name="fingerprint" placeholder="SHA256:…" required></label><button class="primary">${escapeHtml(t("platformClaw.vmAdmin.approveKey"))}</button></form>` : ""}
                 </section>
-                <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.hosts"))}</h3>${rows(data?.hosts.map((host) => `<strong>${escapeHtml(host.label)}</strong> · ${escapeHtml(host.targetAddress)} · ${escapeHtml(platformClawStatus(host.status))}`) ?? [])}
+                <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.hosts"))}</h3>${rows(data?.hosts.map((host) => `<strong>${escapeHtml(host.label)}</strong> · ${escapeHtml(host.targetAddress)} · ${escapeHtml(platformClawStatus(host.status))}${host.status === "active" ? `<br><button type="button" data-mutation="disable-host" data-field="vmHostId" data-id="${escapeHtml(host.id)}" data-label="${escapeHtml(host.label)}">${escapeHtml(t("platformClaw.vmAdmin.disableHost"))}</button>` : ""}`) ?? [])}
                   <form data-action="hosts"><label>${escapeHtml(t("platformClaw.vmAdmin.endpoint"))}<select name="endpointId" ${activeEndpoints.length ? "" : "disabled"}>${this.options(activeEndpoints)}</select></label><label>${escapeHtml(t("platformClaw.vmAdmin.vmLabel"))}<input name="label" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.targetAddress"))}<input name="targetAddress" required></label><button class="primary" ${activeEndpoints.length ? "" : "disabled"}>${escapeHtml(t("platformClaw.vmAdmin.createHost"))}</button></form>
                 </section>
-                <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.allocations"))}</h3>${rows(data?.allocations.map((allocation) => `<strong>${escapeHtml(allocation.displayName ?? allocation.accountId)}</strong> · ${escapeHtml(allocation.vmLabel)} · ${escapeHtml(allocation.linuxAccount)} · ${escapeHtml(platformClawStatus(allocation.status))}`) ?? [])}
-                  <form data-action="allocations"><label>${escapeHtml(t("platformClaw.vmAdmin.employee"))}<select name="agentId" ${agents.length ? "" : "disabled"}>${agents.map((agent) => `<option value="${escapeHtml(agent.agentId)}">${escapeHtml(agent.displayName ?? agent.accountId)} (${escapeHtml(agent.accountId)})</option>`).join("")}</select></label><label>${escapeHtml(t("platformClaw.vmAdmin.vm"))}<select name="vmHostId" ${activeHosts.length ? "" : "disabled"}>${this.options(activeHosts)}</select></label><label>${escapeHtml(t("platformClaw.vmAdmin.linuxAccount"))}<input name="linuxAccount" required></label><button class="primary" ${agents.length && activeHosts.length ? "" : "disabled"}>${escapeHtml(t("platformClaw.vmAdmin.assign"))}</button></form>
-                </section>
+                <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.allocations"))}</h3><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.allocationHelp"))}</p>${rows(data?.allocations.map((allocation) => `<strong>${escapeHtml(allocation.displayName ?? allocation.accountId)}</strong> · ${escapeHtml(allocation.vmLabel)} · ${escapeHtml(allocation.linuxAccount)} · ${escapeHtml(platformClawStatus(allocation.status))}<br><button type="button" data-mutation="revoke-allocation" data-field="allocationId" data-id="${escapeHtml(allocation.id)}" data-label="${escapeHtml(allocation.displayName ?? allocation.accountId)}">${escapeHtml(t("platformClaw.vmAdmin.revokeAllocation"))}</button>`) ?? [])}</section>
                 <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.audit"))}</h3>${rows(data?.auditEvents.map((event) => `<strong>${escapeHtml(event.eventType)}</strong> · ${escapeHtml(event.targetType)} · ${escapeHtml(new Date(event.createdAt).toLocaleString())}`) ?? [])}</section>
-              </div><button data-refresh>${escapeHtml(t("platformClaw.vmAdmin.refresh"))}</button>
+              </div>${this.pendingMutation ? `<section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.confirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.vmAdmin.confirmBody", { label: this.pendingMutation.label }))}</p><div><button type="button" class="primary" data-confirm-mutation>${escapeHtml(t("platformClaw.vmAdmin.confirm"))}</button> <button type="button" data-cancel-mutation>${escapeHtml(t("platformClaw.vmAdmin.cancel"))}</button></div></section>` : ""}<button data-refresh>${escapeHtml(t("platformClaw.vmAdmin.refresh"))}</button>
             </main></section></dialog>`
           : ""
       }`;
