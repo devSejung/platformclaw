@@ -172,20 +172,14 @@ admin_vm_mutation "$(jq -cn \
   '{action:"hosts", endpointId:$endpointId, label:"Development VM", targetAddress:"10.0.0.10"}')"
 vm_host_id="$(jq -er '.hosts[] | select(.targetAddress == "10.0.0.10") | .id' \
   "$vm_admin_response")"
-admin_vm_mutation "$(jq -cn \
-  --arg vmHostId "$vm_host_id" \
-  '{action:"allocations", agentId:"person_one", vmHostId:$vmHostId, linuxAccount:"person_one"}')"
-jq -e \
-  '.allocations[] | select(.agentId == "person_one" and .linuxAccount == "person_one" and .status == "assigned")' \
-  "$vm_admin_response" >/dev/null
-
 bad_credential_status="$(curl --silent --show-error --output "$execution_response" \
   --write-out '%{http_code}' \
   --cookie "$cookie_jar" \
   --header "Origin: $origin" \
   --header "Content-Type: application/json" \
-  --data-binary '{"password":"wrong-fixture-password"}' \
-  "$origin/platformclaw/api/execution/credential")"
+  --data-binary "$(jq -cn --arg vmHostId "$vm_host_id" \
+    '{vmHostId:$vmHostId, linuxAccount:"person_one", password:"wrong-fixture-password"}')" \
+  "$origin/platformclaw/api/execution/selection")"
 if [[ "$bad_credential_status" != "422" ]]; then
   echo "Expected rejected SafeConnect credential to return 422, got $bad_credential_status" >&2
   cat "$execution_response" >&2
@@ -197,8 +191,9 @@ curl --fail --silent --show-error \
   --cookie "$cookie_jar" \
   --header "Origin: $origin" \
   --header "Content-Type: application/json" \
-  --data-binary '{"password":"platformclaw-safeconnect-fixture-password"}' \
-  "$origin/platformclaw/api/execution/credential" >"$execution_response"
+  --data-binary "$(jq -cn --arg vmHostId "$vm_host_id" \
+    '{vmHostId:$vmHostId, linuxAccount:"person_one", password:"platformclaw-safeconnect-fixture-password"}')" \
+  "$origin/platformclaw/api/execution/selection" >"$execution_response"
 jq -e \
   '.credentialStatus == "current" and .assignment.status == "ready" and .assignment.remoteHomeDir == "/users/person_one" and .assignment.remoteWorkspaceDir == "/users/person_one/.platformclaw/workspace"' \
   "$execution_response" >/dev/null

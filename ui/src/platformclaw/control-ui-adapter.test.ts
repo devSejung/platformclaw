@@ -144,15 +144,27 @@ describe("PlatformClawControlUiAdapter", () => {
 
   it("renders one footer control set and preserves admin callbacks across lazy upgrade", async () => {
     installDescriptor();
-    const fetchImpl = vi.fn<typeof fetch>(async () =>
-      jsonResponse({
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const inputUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (inputUrl.endsWith("/platformclaw/api/execution")) {
+        return jsonResponse({
+          activeTarget: "platform_server",
+          targetRevision: 0,
+          credentialStatus: "missing",
+          accountId: "admin.user",
+          availableVms: [],
+          assignment: null,
+        });
+      }
+      return jsonResponse({
         endpoints: [],
         hosts: [],
         agents: [],
         allocations: [],
         auditEvents: [],
-      }),
-    );
+      });
+    });
     const navigate = vi.fn();
     const adapter = createPlatformClawControlUiAdapter({
       fetchImpl,
