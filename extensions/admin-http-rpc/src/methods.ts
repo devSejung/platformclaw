@@ -31,6 +31,7 @@ const ADMIN_HTTP_RPC_ALLOWED_METHOD_GROUPS = {
     "platformclaw.profile.seed",
     "platformclaw.profile.status",
     "platformclaw-execution.testConnection",
+    "platformclaw-execution.testCandidateConnection",
     "platformclaw-execution.changeTarget",
   ],
   approvals: [
