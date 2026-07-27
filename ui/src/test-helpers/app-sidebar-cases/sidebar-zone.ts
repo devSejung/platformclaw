@@ -78,6 +78,22 @@ function sidebarBoard(id: string, metadata: { color?: string; icon?: string; nam
 }
 
 describe("AppSidebar interleaved zone", () => {
+  it("uses an enabled child route as the landing target for a restricted hub", async () => {
+    const { sidebar } = await mountZone();
+    const onNavigate = vi.fn();
+    sidebar.enabledRouteIds = APP_ROUTE_IDS.filter((routeId) => routeId !== "plugins");
+    sidebar.sidebarRouteTargets = { plugins: "skills" };
+    sidebar.sidebarEntries = ["route:plugins"];
+    sidebar.onNavigate = onNavigate;
+    await sidebar.updateComplete;
+
+    const link = zoneEntry(sidebar, "route:plugins").querySelector<HTMLAnchorElement>("a");
+    expect(link?.getAttribute("href")).toBe("/skills");
+    link?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    expect(onNavigate).toHaveBeenCalledWith("skills", undefined);
+  });
+
   it("keeps pinned sessions outside the optional page budget", async () => {
     const keys = [
       "agent:main:session-0",

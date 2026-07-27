@@ -49,6 +49,9 @@ export function isSessionsHubRoute(routeId: NavigationRouteId): boolean {
 
 export type SidebarNavRoute = (typeof SIDEBAR_NAV_ROUTES)[number];
 
+/** Optional non-persistent landing targets for embedders that expose only part of a hub. */
+export type SidebarRouteTargets = Readonly<Partial<Record<SidebarNavRoute, NavigationRouteId>>>;
+
 export type SidebarZoneEntry =
   | { type: "route"; route: SidebarNavRoute }
   | { type: "workboard"; boardId: string }

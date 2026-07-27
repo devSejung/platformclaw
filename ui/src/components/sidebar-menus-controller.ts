@@ -65,6 +65,7 @@ interface SidebarMenusControllerHost
   readonly connected: boolean;
   readonly offline: boolean;
   readonly enabledRouteIds?: readonly NavigationRouteId[];
+  readonly sidebarRouteTargets: Readonly<Partial<Record<NavigationRouteId, NavigationRouteId>>>;
   readonly gatewayVersion: string | null;
   readonly onNavigate?: (
     routeId: NavigationRouteId,
@@ -210,12 +211,13 @@ export class SidebarMenusController implements ReactiveController, SidebarMenusC
   }
 
   preloadRoute(routeId: NavigationRouteId, event: Event, immediate = false) {
+    const targetRouteId = this.resolveRouteTarget(routeId);
     scheduleRoutePreload(
       this.routePreloadTimers,
-      routeId,
+      targetRouteId,
       event,
       (nextRouteId) => this.host.onPreloadRoute?.(nextRouteId),
-      routeId === this.host.activeRouteId || !this.isRouteEnabled(routeId),
+      targetRouteId === this.host.activeRouteId || !this.isRouteEnabled(routeId),
       immediate,
     );
   }
@@ -225,7 +227,11 @@ export class SidebarMenusController implements ReactiveController, SidebarMenusC
   };
 
   isRouteEnabled(routeId: NavigationRouteId): boolean {
-    return this.host.enabledRouteIds?.includes(routeId) ?? true;
+    return this.host.enabledRouteIds?.includes(this.resolveRouteTarget(routeId)) ?? true;
+  }
+
+  resolveRouteTarget(routeId: NavigationRouteId): NavigationRouteId {
+    return this.host.sidebarRouteTargets[routeId] ?? routeId;
   }
 
   readonly openCustomizeMenuFromContext = (event: MouseEvent) => {
@@ -488,19 +494,20 @@ export class SidebarMenusController implements ReactiveController, SidebarMenusC
     if (!this.isRouteEnabled(routeId)) {
       return nothing;
     }
-    const routeSessionKey = routeId === "chat" ? this.host.getRouteSessionKey() : "";
+    const targetRouteId = this.resolveRouteTarget(routeId);
+    const routeSessionKey = targetRouteId === "chat" ? this.host.getRouteSessionKey() : "";
     const chatSearch =
-      routeId === "chat" && routeSessionKey ? searchForSession(routeSessionKey) : "";
+      targetRouteId === "chat" && routeSessionKey ? searchForSession(routeSessionKey) : "";
     return renderSidebarNavRoute({
       routeId,
       href: chatSearch
         ? `${pathForRoute("chat", this.host.basePath)}${chatSearch}`
-        : pathForRoute(routeId, this.host.basePath),
+        : pathForRoute(targetRouteId, this.host.basePath),
       active:
         isSidebarRouteActive(this.host.activeRouteId, routeId) &&
         !(routeId === "workboard" && this.activeWorkboardBoardIsPinned()),
       onNavigate: () => {
-        this.host.onNavigate?.(routeId, chatSearch ? { search: chatSearch } : undefined);
+        this.host.onNavigate?.(targetRouteId, chatSearch ? { search: chatSearch } : undefined);
       },
       onPreload: (event, immediate) => this.preloadRoute(routeId, event, immediate),
       onCancelPreload: this.cancelPreload,

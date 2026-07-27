@@ -36,6 +36,7 @@ export type SidebarLifecycleState = HTMLElement & {
   activeRouteId?: string;
   activeWorkboardBoardId: string;
   enabledRouteIds?: readonly NavigationRouteId[];
+  sidebarRouteTargets: Readonly<Partial<Record<NavigationRouteId, NavigationRouteId>>>;
   connected: boolean;
   accountPrimaryLabel: string;
   accountSecondaryLabel: string;

@@ -120,6 +120,7 @@ interface SidebarMenusRenderController {
   isRouteEnabled(routeId: NavigationRouteId): boolean;
   openCustomizeMenu(x: number, y: number, trigger?: HTMLElement | null): void;
   preloadRoute(routeId: NavigationRouteId, event: Event, immediate?: boolean): void;
+  resolveRouteTarget(routeId: NavigationRouteId): NavigationRouteId;
   setAgentMenuFilter(next: string): void;
 }
 
@@ -437,6 +438,7 @@ export function renderSidebarMoreMenuForController(controller: SidebarMenusRende
     activeWorkboardBoardId: activeWorkboardBoardIsPinned(host) ? host.activeWorkboardBoardId : "",
     sidebarEntries: host.sidebarEntries,
     isRouteEnabled: (routeId) => controller.isRouteEnabled(routeId),
+    resolveRouteTarget: (routeId) => controller.resolveRouteTarget(routeId),
     onTabAway: () => trigger?.focus(),
     onClose: (restoreFocus) => {
       if (controller.moreMenuPosition !== position) {

@@ -130,8 +130,8 @@ export function renderSidebarPluginTab(params: {
 }
 
 type SidebarMenuNavigationHandlers = {
-  onNavigateRoute: (routeId: SidebarNavRoute) => void;
-  onPreloadRoute: (routeId: SidebarNavRoute, event: Event) => void;
+  onNavigateRoute: (routeId: NavigationRouteId) => void;
+  onPreloadRoute: (routeId: NavigationRouteId, event: Event) => void;
   onCancelPreload: (event: Event) => void;
 };
 
@@ -142,12 +142,14 @@ type SidebarMoreMenuParams = SidebarMenuNavigationHandlers & {
   activeWorkboardBoardId: string;
   sidebarEntries: readonly string[];
   isRouteEnabled: (routeId: NavigationRouteId) => boolean;
+  resolveRouteTarget: (routeId: SidebarNavRoute) => NavigationRouteId;
   onEditPinnedItems: () => void;
   onTabAway: () => void;
   onClose: (restoreFocus: boolean) => void;
 };
 
 function renderMoreMenuRoute(params: SidebarMoreMenuParams, routeId: SidebarNavRoute) {
+  const targetRouteId = params.resolveRouteTarget(routeId);
   const active =
     isSidebarRouteActive(params.activeRouteId, routeId) &&
     !(routeId === "workboard" && params.activeWorkboardBoardId);
@@ -156,7 +158,7 @@ function renderMoreMenuRoute(params: SidebarMoreMenuParams, routeId: SidebarNavR
       value=${routeId}
       class="sidebar-customize-menu__item ${active ? "sidebar-customize-menu__item--active" : ""}"
       aria-current=${active ? "page" : nothing}
-      @pointerenter=${(event: Event) => params.onPreloadRoute(routeId, event)}
+      @pointerenter=${(event: Event) => params.onPreloadRoute(targetRouteId, event)}
       @pointerleave=${params.onCancelPreload}
       @click=${(event: MouseEvent) => {
         if (!shouldHandleNavigationClick(event)) {
@@ -166,7 +168,7 @@ function renderMoreMenuRoute(params: SidebarMoreMenuParams, routeId: SidebarNavR
         event.preventDefault();
       }}
     >
-      <a href=${pathForRoute(routeId, params.basePath)} tabindex="-1">
+      <a href=${pathForRoute(targetRouteId, params.basePath)} tabindex="-1">
         <span class="nav-item__icon" aria-hidden="true"
           >${icons[navigationIconForRoute(routeId)]}</span
         >
@@ -205,7 +207,7 @@ export function renderSidebarMoreMenu(params: SidebarMoreMenuParams) {
             return;
           }
           if (value && moreRoutes.includes(value as SidebarNavRoute)) {
-            params.onNavigateRoute(value as SidebarNavRoute);
+            params.onNavigateRoute(params.resolveRouteTarget(value as SidebarNavRoute));
           }
         }}
         @keydown=${(event: KeyboardEvent) =>
