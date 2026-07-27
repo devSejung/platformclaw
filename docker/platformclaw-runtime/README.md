@@ -1,186 +1,156 @@
 # PlatformClaw runtime composition
 
-Korean operators should start with
-[`OPERATIONS.ko.md`](./OPERATIONS.ko.md) for installation, upgrades, Gateway
-configuration, storage, enterprise CA setup, and VM/SafeConnect administration.
+Korean operators should use [`OPERATIONS.ko.md`](./OPERATIONS.ko.md). It is the
+canonical install, configuration, upgrade, backup, enterprise CA, VM, and
+SafeConnect runbook.
 
-This composition runs one OpenClaw Gateway process and one
-`platformclaw-control` process from the same Jammy image. Docker Compose owns
-process restart and shutdown. It never creates a process or Gateway connection
-per employee.
+The stack runs `openclaw-gateway` and `platformclaw-control` in rootful Docker.
+Agent sandboxes run in a separate rootless Docker daemon owned by the service
+account. Gateway receives only that rootless socket; it never receives the host
+Docker socket. The host publishes only Control port `19001`.
 
-The two containers share a dedicated internal backplane. Gateway port `18789`
-binds only inside that backplane and is never published; the host publishes only
-PlatformClaw Web port `19001` from the control container. Separate egress
-networks let Gateway call model APIs and the control service call employee auth
-without exposing the private backplane. Both services bind the canonical host
-workspace at the identical `/var/lib/platformclaw/workspaces` path used by the
-dedicated rootless Docker daemon. Gateway and control-plane state use separate
-persistent volumes. Control owns one memory-backed runtime directory reserved
-for the one-shot VM credential channel. It is erased when the Compose stack
-stops and is never part of backup or restore.
+## Home-managed state
 
-Required deployment inputs:
+`platformclaw-compose` derives the service account home and defaults
+`PLATFORMCLAW_DEPLOY_ROOT` to `/home/<service-user>/platformclaw`. Persistent
+host paths are bind-mounted at the identical absolute path inside Gateway and
+Control. This invariant lets the nested rootless daemon resolve workspace and
+materialized-skill bind sources correctly.
 
-- `PLATFORMCLAW_IMAGE`
-- `PLATFORMCLAW_SANDBOX_IMAGE`
-- `PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR`
-- `PLATFORMCLAW_PUBLIC_ORIGIN`
-- `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`
-- `PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE`
-- `PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE`
-- `PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE`
-- `PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE`
-- `PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE`
+```text
+~/platformclaw/
+├── deployment.env
+├── data/
+│   ├── gateway-home/.openclaw/openclaw.json
+│   ├── control/platformclaw-control.sqlite
+│   └── workspaces/
+├── secrets/
+├── certs/employee-auth-ca.pem
+└── releases/
+```
 
-Run Compose through `platformclaw-compose`. It resolves the named service
-account with `id`, exports its numeric UID/GID, and derives the rootless socket
-directory. No host UID is fixed in the deployment contract:
+Gateway, Control, and workspace state are ordinary service-user-owned host
+files. The credential broker remains a memory-backed Docker volume and must not
+be backed up. The legacy `platformclaw-workspaces` volume remains declared only
+for the explicit migration profile.
+
+## Operator entry points
+
+After the one-time Docker/rootless prerequisites and Docker-group setup:
+
+```bash
+sudo ./platformclaw-deploy --service-user platformclaw host-setup
+# log out and back in once
+./platformclaw-deploy setup \
+  --main-image platformclaw:<sha12> \
+  --sandbox-image platformclaw-sandbox:<sha12> \
+  --public-origin https://<platformclaw-host> \
+  --employee-auth-login-url https://<employee-auth-host>/login
+```
+
+`setup` writes and validates the required deployment values, creates the home
+layout, then starts and health-checks a fresh stack. It stops before generating
+secrets or starting containers if placeholders remain.
+For an existing named-volume or `/var/lib/platformclaw` installation, run
+`sudo ./platformclaw-deploy --service-user platformclaw migrate-home` once,
+inspect the copy, then run `./platformclaw-deploy up` as the service user. The
+privileged migration never starts the new stack. Existing non-empty targets are
+accepted only with matching component completion markers. Compose always uses project name
+`platformclaw`; set `PLATFORMCLAW_LEGACY_COMPOSE_PROJECT` when importing a
+differently named legacy project. Migrated Gateway or Control state requires
+all five matching legacy secrets and never falls through to replacement key
+generation.
+For a fresh install it generates stable random secrets and prompts once for the
+initial admin account ID. Non-interactive installs set
+`PLATFORMCLAW_INITIAL_ADMIN_IDS_SOURCE` to an owner-readable file. Routine
+operations need no sudo.
+
+Run raw Compose only through the wrapper. It detects UID/GID and home, derives
+the rootless runtime directory, forces the main daemon socket to
+`unix:///var/run/docker.sock`, and reads the stable
+`~/platformclaw/deployment.env` file:
 
 ```bash
 ./platformclaw-compose --service-user platformclaw environment
 ./platformclaw-compose --service-user platformclaw config --quiet
-./platformclaw-compose --service-user platformclaw up -d
+./platformclaw-compose --service-user platformclaw up -d --wait
 ```
 
-Fresh installations create the workspace with the detected service UID/GID.
-Changing the service account for an existing non-empty workspace is an explicit
-operator action, never a startup side effect. Stop the stack and provide the
-previous numeric owner only for the one-shot migration:
+Required deployment inputs live in `deployment.env.example`. Secret values do
+not belong in that environment file; only paths to owner-readable files do.
+Keep the SSH credential master key stable and back it up with the Control DB.
+Keep the Gateway service identity stable across restarts.
+
+The service account's CA bundle is mounted into both runtime services and set
+through `NODE_EXTRA_CA_CERTS`. `platformclaw-deploy up` seeds a missing file
+from the Ubuntu system bundle and never overwrites an existing file. Replace
+`~/platformclaw/certs/employee-auth-ca.pem` with the approved enterprise bundle,
+then run `./platformclaw-deploy ca apply` to restart both Node services and wait
+for health.
+
+## Configuration and images
+
+The active `openclaw.json` is directly editable on the host or inside Gateway:
 
 ```bash
-./platformclaw-compose --service-user platformclaw down
-sudo env PLATFORMCLAW_PREVIOUS_RUNTIME_UID=1000 \
-  PLATFORMCLAW_PREVIOUS_RUNTIME_GID=1000 \
-  ./platformclaw-compose --service-user platformclaw \
+./platformclaw-deploy config path
+EDITOR=nano ./platformclaw-deploy config edit
+./platformclaw-deploy config shell
+./platformclaw-deploy config validate
+./platformclaw-deploy config apply
+```
+
+Safe edit creates a timestamped backup, validates the canonical config, and
+restarts Gateway only after validation succeeds. PlatformClaw-managed sandbox
+and private-plugin policy remains enforced at startup.
+
+The transfer archive contains both the main and sandbox images. The deployment
+helper loads it into rootful and rootless daemons, switches both refs, waits for
+health, and restores the prior environment on failure:
+
+```bash
+./platformclaw-deploy image update \
+  platformclaw-<version>-<sha12>.tar \
+  platformclaw:<sha12> \
+  platformclaw-sandbox:<sha12>
+./platformclaw-deploy image rollback
+```
+
+Changing the service account for an existing workspace remains an explicit
+owner migration. Stop the stack and supply the former numeric owner:
+
+```bash
+PLATFORMCLAW_PREVIOUS_RUNTIME_UID=1000 \
+PLATFORMCLAW_PREVIOUS_RUNTIME_GID=1000 \
+./platformclaw-compose --service-user platformclaw \
   --profile owner-migration run --rm platformclaw-workspace-owner-migration
-./platformclaw-compose --service-user platformclaw up -d
 ```
 
-The migration changes only entries owned by the explicitly supplied former
-UID/GID, never follows symlinks, and cannot cross the workspace mount.
+The migration uses `--profile owner-migration`, changes only entries owned by
+the supplied UID/GID, does not follow symlinks, and cannot cross the workspace
+mount.
 
-Compose file-backed secrets preserve host ownership and mode, so prepare the
-five files for that service account without making them readable to other
-users. Keep their parent directory root-only, for example:
+## Runtime boundaries
 
-```bash
-service_user=platformclaw
-runtime_uid="$(id -u "$service_user")"
-runtime_gid="$(id -g "$service_user")"
-sudo install -d -o root -g root -m 0700 /etc/platformclaw/secrets
-sudo install -o "$runtime_uid" -g "$runtime_gid" -m 0400 gateway-token \
-  /etc/platformclaw/secrets/gateway-token
-openssl genpkey -algorithm ED25519 | sudo install -o "$runtime_uid" -g "$runtime_gid" -m 0400 \
-  /dev/stdin /etc/platformclaw/secrets/gateway-service-identity.pem
-openssl rand -hex 32 | sudo install -o "$runtime_uid" -g "$runtime_gid" -m 0400 /dev/stdin \
-  /etc/platformclaw/secrets/execution-service-token
-sudo install -o "$runtime_uid" -g "$runtime_gid" -m 0400 initial-admin-ids \
-  /etc/platformclaw/secrets/initial-admin-ids
-openssl rand -base64 32 | sudo install -o "$runtime_uid" -g "$runtime_gid" -m 0400 /dev/stdin \
-  /etc/platformclaw/secrets/ssh-credential-master-key
-```
+The Gateway and Control share a private backplane. Separate egress networks let
+Gateway call model APIs and Control call employee auth without publishing the
+backplane. Sandbox commands use bridge networking; host networking and the host
+Docker socket remain forbidden. Rootless container UID/GID `0:0` maps to the
+unprivileged service account on the host.
 
-Point the five `*_SECRET_FILE` inputs at those installed files. Do not store
-their values in Compose YAML or an environment file. Back up the SSH credential
-master key separately; losing it makes stored AD credentials undecryptable.
-Back up the control database and its matching master key together. Do not back
-up the credential-broker runtime volume. Keep the Gateway service identity
-stable across Control restarts; replacing it creates a new trusted Gateway
-device and requires the normal device-pairing path again.
+Control exposes execution handoff through an owner-only Unix socket in the
+memory-backed credential-broker directory. The execution token and deployment
+secrets never enter agent sandboxes. SafeConnect passwords use only
+`sshpass -d <fd>`; password arguments, environment variables, and files remain
+forbidden.
 
-## Sandbox Docker daemon
-
-Run a dedicated rootless Docker daemon as the same service account. Never give
-Gateway the host/rootful Docker socket. Its socket directory is normally
-`/run/user/<service-uid>` and the wrapper derives that path automatically.
-Configure Docker rootless prerequisites, including subordinate UID/GID ranges,
-for the service account before starting PlatformClaw.
-
-Create the canonical workspace with the same numeric owner:
-
-```bash
-sudo install -d -o "$runtime_uid" -g "$runtime_gid" -m 0700 /var/lib/platformclaw/workspaces
-```
-
-Deployments upgrading from the earlier Compose layout must migrate the legacy
-`platformclaw-workspaces` named volume before starting the new services. Stop
-the stack, create the empty host directory above, then run the one-shot profile:
-
-```bash
-./platformclaw-compose --service-user platformclaw down
-./platformclaw-compose --service-user platformclaw --profile migration run --rm platformclaw-workspace-migration
-./platformclaw-compose --service-user platformclaw up -d
-```
-
-The migration refuses to overwrite a non-empty target. It copies all workspace
-content, preserves metadata, and changes ownership to the runtime UID/GID. Keep
-the old named volume until the copied workspaces have been verified and backed
-up; normal startup never mounts or modifies it.
-
-The transfer tar contains both `platformclaw` and `platformclaw-sandbox`.
-Load it through the deployment Docker daemon and the dedicated rootless daemon,
-then select the versioned sandbox tag with `PLATFORMCLAW_SANDBOX_IMAGE`:
-
-```bash
-docker load --input platformclaw-<version>-<sha>.tar
-sudo -u "$service_user" env \
-  XDG_RUNTIME_DIR="/run/user/$runtime_uid" \
-  DOCKER_HOST="unix:///run/user/$runtime_uid/docker.sock" \
-  docker load --input platformclaw-sandbox-<version>-<sha>.tar
-```
-
-Sandbox commands use Docker `bridge` networking. They may make outbound
-requests but cannot share the host network namespace. `host` networking and
-the host Docker socket remain forbidden. Model API and Knox transport traffic
-stay in Gateway and do not traverse the sandbox network.
-
-Sandbox processes run as container UID/GID `0:0`. Under rootless Docker this
-maps to the unprivileged host service account, not host root. This
-mapping lets the sandbox write its one mounted workspace without granting host
-root or another employee workspace.
-
-The operator still starts and stops one Compose project; the two containers are
-an internal process boundary, not two separately configured products. The host
-publishes only Control port `19001`. Normal health checks require both
-`openclaw-gateway` and `platformclaw-control` to be healthy. Control-only
-restarts create a fresh broker socket automatically and do not require deleting
-runtime files.
-
-The credential-broker volume is transient and includes the detected UID/GID in
-its deployment name. Changing the service account therefore creates a fresh
-owner-correct broker volume instead of reusing immutable Docker volume options.
-Old broker volumes contain no durable credential state and may be removed after
-the old stack has stopped.
-
-Control exposes execution handoff only through an owner-only Unix socket in the
-same memory-backed runtime directory as the credential broker. It never opens a
-TCP handoff listener. Gateway receives that directory and the execution-service
-token. Neither enters an agent sandbox. Personal agents use the static
-`platformclaw-execution` backend: the basic workspace delegates to upstream
-Docker, while an assigned VM delegates to upstream SSH. Knox room provisioning
-must explicitly select upstream Docker and may never select a VM. Rotate the token by replacing its secret file
-and restarting Control and Gateway; the first release has no old-token grace
-period.
-
-The Jammy runtime includes OpenSSH and `sshpass`. PlatformClaw permits only
-`sshpass -d <fd>` for SafeConnect password delivery; password arguments,
-environment variables, and password files remain forbidden.
-
-The first Gateway start seeds a canonical config that enables the private
-`admin-http-rpc` and `platformclaw-execution` plugins and selects bridge-networked
-Docker sandboxing. Its entry point reads Gateway authentication from the mounted
-Docker secret before starting OpenClaw. An existing `openclaw.json` is never
-overwritten; operators upgrading an existing state volume must apply the same
-managed sandbox settings before exposing traffic.
-
-Build and run deterministic smoke:
+## Verification
 
 ```bash
 pnpm test:docker:platformclaw-runtime
 ```
 
-The smoke uses synthetic employee records. It proves login, personal-agent
-provisioning, authenticated app hosting, internal execution-target handoff,
-session lookup, logout, private Gateway restart, port isolation, and absence of
-deployment secrets from logs and browser HTML.
+The deterministic Linux smoke proves rootless sandbox startup, employee login,
+personal-agent provisioning, app hosting, execution handoff, VM/SafeConnect
+boundaries, private Gateway restart, port isolation, and absence of deployment
+secrets from logs and browser HTML.

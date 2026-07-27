@@ -135,6 +135,8 @@ USER.md
 !.agents/skills/agent-transcript/**
 !.agents/skills/autoreview/
 !.agents/skills/autoreview/**
+!.agents/skills/release-platformclaw/
+!.agents/skills/release-platformclaw/**
 !.agents/skills/channel-message-flows/
 !.agents/skills/channel-message-flows/**
 !.agents/skills/claw-score/

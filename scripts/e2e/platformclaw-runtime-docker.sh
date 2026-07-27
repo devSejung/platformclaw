@@ -50,17 +50,27 @@ export PLATFORMCLAW_IMAGE="${PLATFORMCLAW_RUNTIME_IMAGE:-platformclaw:$version}"
 export PLATFORMCLAW_SANDBOX_IMAGE="${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:$version}"
 export PLATFORMCLAW_RUNTIME_UID=1000
 export PLATFORMCLAW_RUNTIME_GID=1000
+export PLATFORMCLAW_DEPLOY_ROOT="$work_dir/platformclaw"
+export PLATFORMCLAW_DEPLOY_HOST_ROOT="$PLATFORMCLAW_DEPLOY_ROOT"
 export PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME="$project_name-credential-broker-1000-1000"
 export PLATFORMCLAW_REPO_ROOT="$repo_root"
 export PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR="$work_dir/unused-sandbox-docker-runtime"
-export PLATFORMCLAW_SMOKE_WORKSPACE_DIR="$work_dir/workspaces"
+export PLATFORMCLAW_SMOKE_WORKSPACE_DIR="$PLATFORMCLAW_DEPLOY_ROOT/data/workspaces"
 export PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR="$work_dir/platformclaw-sandbox.tar"
 mkdir -p \
+  "$PLATFORMCLAW_DEPLOY_ROOT/data/gateway-home/.openclaw" \
+  "$PLATFORMCLAW_DEPLOY_ROOT/data/control" \
   "$PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR" \
   "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR"
 # Synthetic smoke state contains no secrets. World-write avoids assuming the
 # Linux CI caller, Gateway UID, and nested rootless UID namespace are identical.
-chmod 0777 "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR"
+chmod 0777 \
+  "$PLATFORMCLAW_DEPLOY_ROOT" \
+  "$PLATFORMCLAW_DEPLOY_ROOT/data" \
+  "$PLATFORMCLAW_DEPLOY_ROOT/data/gateway-home" \
+  "$PLATFORMCLAW_DEPLOY_ROOT/data/gateway-home/.openclaw" \
+  "$PLATFORMCLAW_DEPLOY_ROOT/data/control" \
+  "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR"
 docker save --output "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR" "$PLATFORMCLAW_SANDBOX_IMAGE"
 # Docker creates archive output with an implementation-defined mode. The
 # non-root image loader only needs immutable read access to this ephemeral file.
@@ -74,6 +84,7 @@ PY
 )"
 export PLATFORMCLAW_PUBLIC_ORIGIN="http://127.0.0.1:$PLATFORMCLAW_PUBLIC_PORT"
 export PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL="http://127.0.0.1:18080/login"
+export PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE="$work_dir/employee-auth-ca.pem"
 export PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE="$work_dir/gateway-token"
 export PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE="$work_dir/execution-service-token"
 export PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE="$work_dir/gateway-service-identity.pem"
@@ -86,6 +97,7 @@ printf '%s\n' "admin.user" >"$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE"
 openssl rand -hex 32 >"$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE"
 openssl genpkey -algorithm ED25519 -out "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE"
 openssl rand -base64 32 >"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
+cp /etc/ssl/certs/ca-certificates.crt "$PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE"
 credential_key_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE")"
 execution_service_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE")"
 # Compose bind-mounts these files without remapping ownership. The mktemp directory
@@ -94,7 +106,8 @@ chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE" \
   "$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE" \
   "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE" \
   "$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE" \
-  "$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
+  "$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE" \
+  "$PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE"
 
 echo "==> Starting PlatformClaw runtime smoke"
 if ! "${compose[@]}" up --detach --wait --wait-timeout 180; then
@@ -272,13 +285,13 @@ MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T openclaw-gateway docker run --detach 
   --label openclaw.sandbox=1 \
   --network bridge \
   --user 0:0 \
-  --volume /var/lib/platformclaw/workspaces/person_one:/workspace \
+  --volume "$PLATFORMCLAW_DEPLOY_ROOT/data/workspaces/person_one:/workspace" \
   "$PLATFORMCLAW_SANDBOX_IMAGE" sleep infinity >/dev/null
 MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T openclaw-gateway docker inspect \
   --format '{{.HostConfig.NetworkMode}}' "$sandbox_container" | grep -qx bridge
 MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T openclaw-gateway docker inspect \
   --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}' \
-  "$sandbox_container" | grep -q '/var/lib/platformclaw/workspaces/person_one -> /workspace'
+  "$sandbox_container" | grep -Fq "$PLATFORMCLAW_DEPLOY_ROOT/data/workspaces/person_one -> /workspace"
 MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T openclaw-gateway docker exec "$sandbox_container" \
   bash -ceu 'printf sandbox-ok > /workspace/.platformclaw-sandbox-smoke'
 grep -qx sandbox-ok "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR/person_one/.platformclaw-sandbox-smoke"

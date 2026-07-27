@@ -89,7 +89,26 @@ function Get-PreviewPaths {
         ExecutionToken = Join-Path $resolvedRoot "execution-service-token"
         AdminIds = Join-Path $resolvedRoot "initial-admin-ids"
         CredentialKey = Join-Path $resolvedRoot "ssh-credential-master-key"
+        EmployeeAuthCa = Join-Path $resolvedRoot "employee-auth-ca.pem"
     }
+}
+
+function Initialize-PreviewCa {
+    param([hashtable]$Paths)
+    if (Test-Path $Paths.EmployeeAuthCa) {
+        return
+    }
+    $gitExecutable = (Get-Command git -ErrorAction Stop).Source
+    $gitRoot = Split-Path (Split-Path $gitExecutable -Parent) -Parent
+    $candidates = @(
+        (Join-Path $gitRoot "mingw64\etc\ssl\certs\ca-bundle.crt"),
+        (Join-Path $gitRoot "usr\ssl\certs\ca-bundle.crt")
+    )
+    $source = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $source) {
+        throw "Unable to find the Git for Windows CA bundle"
+    }
+    Copy-Item -LiteralPath $source -Destination $Paths.EmployeeAuthCa
 }
 
 function Initialize-PreviewData {
@@ -166,10 +185,13 @@ function Get-DockerImageId {
 
 function Set-PreviewEnvironment {
     param([hashtable]$Paths, [hashtable]$Images)
+    Initialize-PreviewCa $Paths
     $env:PLATFORMCLAW_IMAGE = $Images.Runtime
     $env:PLATFORMCLAW_SANDBOX_IMAGE = $Images.Sandbox
     $env:PLATFORMCLAW_RUNTIME_UID = "1000"
     $env:PLATFORMCLAW_RUNTIME_GID = "1000"
+    $env:PLATFORMCLAW_DEPLOY_ROOT = "/var/lib/platformclaw"
+    $env:PLATFORMCLAW_DEPLOY_HOST_ROOT = $Paths.Root
     $env:PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME = "$projectName-credential-broker-1000-1000"
     $env:PLATFORMCLAW_REPO_ROOT = $repoRoot
     $env:PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR = $Paths.SandboxRuntime
@@ -178,6 +200,7 @@ function Set-PreviewEnvironment {
     $env:PLATFORMCLAW_PUBLIC_PORT = "$Port"
     $env:PLATFORMCLAW_PUBLIC_ORIGIN = "http://127.0.0.1:$Port"
     $env:PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL = "http://127.0.0.1:18080/login"
+    $env:PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE = $Paths.EmployeeAuthCa
     $env:PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE = $Paths.GatewayToken
     $env:PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE = $Paths.GatewayServiceIdentity
     $env:PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE = $Paths.ExecutionToken
@@ -519,6 +542,7 @@ function Invoke-ExistingPreview {
                 $paths.ExecutionToken,
                 $paths.AdminIds,
                 $paths.CredentialKey,
+                $paths.EmployeeAuthCa,
                 $paths.Marker
             )) {
                 if (Test-Path $ownedPath) {
