@@ -841,7 +841,7 @@ export class ConfigPage extends OpenClawLightDomElement {
     this.customThemeImportSelectOnSuccess = false;
     this.applySettings({
       ...this.settings,
-      theme: this.settings.theme === "custom" ? "claw" : this.settings.theme,
+      theme: this.settings.theme === "custom" ? "platformclaw" : this.settings.theme,
       customTheme: undefined,
     });
     this.customThemeImportMessage = {

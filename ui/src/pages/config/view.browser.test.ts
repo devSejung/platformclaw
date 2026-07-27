@@ -138,6 +138,18 @@ describe("config view", () => {
     return container.textContent?.replace(/\s+/g, " ").trim() ?? "";
   }
 
+  it("offers PlatformClaw as a built-in theme", () => {
+    const { container, props } = renderConfigView({
+      activeSection: "__appearance__",
+      includeSections: ["__appearance__"],
+      theme: "platformclaw",
+    });
+
+    const platformClawButton = findButtonByText(container, "PlatformClaw");
+    expect(platformClawButton.classList.contains("settings-theme-card--active")).toBe(true);
+    expect(props.setTheme).not.toHaveBeenCalled();
+  });
+
   it("collapses advanced fields per section and supports global or search-driven expansion", () => {
     const schema = {
       type: "object",

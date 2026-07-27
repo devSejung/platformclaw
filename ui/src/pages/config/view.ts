@@ -882,6 +882,11 @@ type ThemeOption = {
 };
 const BUILTIN_THEME_OPTIONS: ThemeOption[] = [
   {
+    id: "platformclaw",
+    labelKey: "configView.themes.platformclaw.label",
+    descriptionKey: "configView.themes.platformclaw.description",
+  },
+  {
     id: "claw",
     labelKey: "configView.themes.claw.label",
     descriptionKey: "configView.themes.claw.description",

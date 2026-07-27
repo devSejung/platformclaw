@@ -172,6 +172,19 @@ describe("loadSettings default gateway URL derivation", () => {
     expect(loadSettings().chatSendShortcut).toBe("enter");
   });
 
+  it("defaults new browser profiles to the PlatformClaw light theme", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "gateway.example:8443",
+      pathname: "/",
+    });
+
+    expect(loadSettings()).toMatchObject({
+      theme: "platformclaw",
+      themeMode: "light",
+    });
+  });
+
   it("infers base path from nested pathname when configured base path is not set", () => {
     setTestLocation({
       protocol: "http:",
@@ -921,7 +934,7 @@ describe("loadSettings default gateway URL derivation", () => {
     expect(settings.customTheme?.themeId).toBe("cmlhfpjhw000004l4f4ax3m7z");
   });
 
-  it("falls back to claw when persisted custom theme data is invalid", () => {
+  it("falls back to PlatformClaw when persisted custom theme data is invalid", () => {
     setTestLocation({
       protocol: "https:",
       host: "gateway.example:8443",
@@ -959,7 +972,7 @@ describe("loadSettings default gateway URL derivation", () => {
     );
 
     const settings = loadSettings();
-    expect(settings.theme).toBe("claw");
+    expect(settings.theme).toBe("platformclaw");
     expect(settings.themeMode).toBe("dark");
   });
 

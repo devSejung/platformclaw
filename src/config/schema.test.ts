@@ -95,6 +95,13 @@ describe("config schema", () => {
     };
   });
 
+  it("accepts the PlatformClaw Control UI theme preference", () => {
+    expect(
+      OpenClawSchema.safeParse({ ui: { prefs: { theme: "platformclaw", themeMode: "light" } } })
+        .success,
+    ).toBe(true);
+  });
+
   it("exports schema + hints", () => {
     const res = baseSchema;
     const schema = res.schema as { properties?: Record<string, unknown> };
