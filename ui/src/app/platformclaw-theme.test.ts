@@ -12,7 +12,11 @@ function themeTokens(theme: "platformclaw" | "platformclaw-light"): Map<string, 
   const blockEnd = css.indexOf("}", blockStart);
   const tokens = new Map<string, string>();
   for (const match of css.slice(blockStart + 1, blockEnd).matchAll(/--([\w-]+):\s*([^;]+);/g)) {
-    tokens.set(match[1], match[2].trim());
+    const [, name, value] = match;
+    if (name === undefined || value === undefined) {
+      throw new Error(`Unexpected theme token declaration: ${match[0]}`);
+    }
+    tokens.set(name, value.trim());
   }
   return tokens;
 }
@@ -28,6 +32,9 @@ function relativeLuminance(hex: string): number {
   const [red, green, blue] = channels.map((channel) =>
     channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
   );
+  if (red === undefined || green === undefined || blue === undefined) {
+    throw new Error(`Expected three color channels, received ${hex}`);
+  }
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
