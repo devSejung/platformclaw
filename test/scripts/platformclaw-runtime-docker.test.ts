@@ -507,6 +507,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain('"${compose[@]}" restart openclaw-gateway platformclaw-control');
     expect(deploy).toContain('cp -p "$backup" "$config_path"');
     expect(deploy).toContain("image rollback");
+    expect(deploy).toContain("image cleanup [--apply]");
     expect(deploy).toContain("set_image_pair");
     expect(deploy).toContain('runuser -u "$service_user"');
     expect(deploy).toContain('"${legacy_project}_platformclaw-gateway-state"');
@@ -530,6 +531,14 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy.indexOf("recreate_sandboxes; }; then")).toBeLessThan(
       deploy.indexOf('echo "PlatformClaw updated: $main_image / $sandbox_image"'),
     );
+    expect(deploy).toContain('scan_cleanup_repository "main" "platformclaw"');
+    expect(deploy).toContain('scan_cleanup_repository "sandbox" "platformclaw-sandbox"');
+    expect(deploy).toContain('if [[ "$image_id" == "$current_id" ]]');
+    expect(deploy).toContain('elif [[ -n "${used_ids[$image_id]:-}" ]]');
+    expect(deploy).toContain('if [[ "$apply" != "1" ]]');
+    expect(deploy).toContain("Cleanup removes rollback images");
+    expect(deploy).not.toContain("docker image prune");
+    expect(deploy).not.toContain("docker image rm --force");
     expect(deploy).toContain("employee-auth-ca.crt");
     const releasePrepare = readRepoFile(
       ".agents/skills/release-platformclaw/scripts/prepare-release.mjs",
