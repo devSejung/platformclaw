@@ -1,5 +1,5 @@
 {
-  "startupJsGzipBytes": 325108,
-  "reason": "add localized work-location errors and persistent appearance controls",
-  "updatedAt": "2026-07-26"
+  "startupJsGzipBytes": 326292,
+  "reason": "expose bounded profile and skills self-service routes",
+  "updatedAt": "2026-07-27"
 }

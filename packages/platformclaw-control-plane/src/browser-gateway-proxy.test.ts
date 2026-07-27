@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { BrowserAuthService, hashBrowserSessionToken } from "./browser-auth-service.js";
 import { BrowserGatewayProxy, type BrowserGatewayRpc } from "./browser-gateway-proxy.js";
+import {
+  skillProposalInspectResult,
+  skillProposalListResult,
+} from "./browser-gateway-proxy.test-fixtures.js";
 import type {
   ControlAuditEvent,
   ControlPlaneAuditWriter,
@@ -497,44 +501,7 @@ describe("BrowserGatewayProxy", () => {
 
   it("removes host paths and foreign runtime identifiers from Skill Workshop results", async () => {
     const { binding, proxy, request, token } = await setup();
-    request.mockResolvedValueOnce({
-      record: {
-        schema: "openclaw.skill-workshop.proposal.v1",
-        id: "proposal-1",
-        kind: "create",
-        status: "pending",
-        title: "Calendar reports",
-        description: "Create calendar reports",
-        createdAt: NOW,
-        updatedAt: NOW,
-        createdBy: "skill-workshop",
-        origin: {
-          agentId: binding.agentId,
-          sessionKey: `agent:${binding.agentId}:main`,
-          runId: "run-private",
-          messageId: "message-private",
-        },
-        proposedVersion: "1.0.0",
-        draftFile: "PROPOSAL.md",
-        draftHash: "hash-private",
-        target: {
-          skillName: "Calendar Reports",
-          skillKey: "calendar-reports",
-          skillDir: "C:/private/workspace/skills/calendar-reports",
-          skillFile: "C:/private/workspace/skills/calendar-reports/SKILL.md",
-        },
-        scan: {
-          state: "clean",
-          scannedAt: NOW,
-          critical: 0,
-          warn: 0,
-          info: 0,
-          findings: [],
-        },
-      },
-      content: "# Calendar Reports",
-      supportFiles: [],
-    });
+    request.mockResolvedValueOnce(skillProposalInspectResult(binding.agentId));
 
     const result = await proxy.request<Record<string, unknown>>(token, "skills.proposals.inspect", {
       proposalId: "proposal-1",
@@ -560,26 +527,7 @@ describe("BrowserGatewayProxy", () => {
     expect(JSON.stringify(result)).not.toContain("message-private");
     expect(JSON.stringify(result)).not.toContain("hash-private");
 
-    request.mockResolvedValueOnce({
-      schema: "openclaw.skill-workshop.proposals-manifest.v1",
-      updatedAt: "2026-07-27T00:00:00.000Z",
-      proposals: [
-        {
-          id: "proposal-1",
-          kind: "create",
-          status: "pending",
-          title: "Calendar reports",
-          description: "Create calendar reports",
-          skillName: "Calendar Reports",
-          skillKey: "calendar-reports",
-          createdAt: "2026-07-27T00:00:00.000Z",
-          updatedAt: "2026-07-27T00:00:00.000Z",
-          scanState: "clean",
-          skillDir: "C:/private/workspace/skills/calendar-reports",
-          runId: "run-private",
-        },
-      ],
-    });
+    request.mockResolvedValueOnce(skillProposalListResult());
     const list = await proxy.request<Record<string, unknown>>(token, "skills.proposals.list", {});
     expect(JSON.stringify(list)).not.toContain("C:/private");
     expect(JSON.stringify(list)).not.toContain("run-private");

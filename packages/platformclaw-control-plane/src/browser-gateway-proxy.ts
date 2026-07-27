@@ -26,8 +26,8 @@ export {
 import {
   isConfiguredBrowserModel,
   projectBrowserAgentFiles,
-  projectBrowserSkillProposalResult,
-  projectBrowserSkillsStatus,
+  projectBrowserSelfUser,
+  projectBrowserSkillResult,
 } from "./browser-gateway-self-service-projections.js";
 import {
   browserTaskEventBelongsToAccess,
@@ -204,7 +204,7 @@ export class BrowserGatewayProxy {
       }
     }
     if (method === "users.self") {
-      return this.projectSelfUser(access) as T;
+      return projectBrowserSelfUser(access.user) as T;
     }
     // Keep the upstream commands.list compatibility path on the same filtered metadata source,
     // otherwise browser command visibility and execution policy can drift apart.
@@ -503,52 +503,10 @@ export class BrowserGatewayProxy {
         },
       });
     }
-    if (method === "skills.status") {
-      return projectBrowserSkillsStatus({
+    if (method.startsWith("skills.")) {
+      return projectBrowserSkillResult({
         agentId: access.binding.agentId,
         executionTarget: executionTarget ?? "platform_server",
-        result,
-        fail: (message) => {
-          throw new BrowserGatewayProxyError("upstream-result-denied", message);
-        },
-      });
-    }
-    if (method === "skills.install") {
-      const payload = asObject(result, "skills.install result");
-      return {
-        ok: payload.ok,
-        message: payload.message,
-        slug: payload.slug,
-        version: payload.version,
-        warning: payload.warning,
-      };
-    }
-    if (method === "skills.skillCard") {
-      const payload = asObject(result, "skills.skillCard result");
-      const skillKey = optionalString(payload.skillKey);
-      if (!skillKey) {
-        throw new BrowserGatewayProxyError(
-          "upstream-result-denied",
-          "Gateway returned an invalid personal skill card",
-        );
-      }
-      return { ...payload, path: `${skillKey}/SKILL.md` };
-    }
-    if (method.startsWith("skills.proposals.")) {
-      if (method === "skills.proposals.requestRevision") {
-        const payload = asObject(result, "skill proposal revision result");
-        const runId = optionalString(payload.runId);
-        const status = optionalString(payload.status);
-        if (!runId || !status) {
-          throw new BrowserGatewayProxyError(
-            "upstream-result-denied",
-            "Gateway returned an invalid Skill Workshop revision result",
-          );
-        }
-        return { runId, status };
-      }
-      return projectBrowserSkillProposalResult({
-        agentId: access.binding.agentId,
         method,
         result,
         fail: (message) => {
@@ -699,21 +657,6 @@ export class BrowserGatewayProxy {
       return payload;
     }
     return result;
-  }
-
-  private projectSelfUser(access: BrowserGatewayAccess): JsonObject {
-    return {
-      profile: {
-        id: access.user.id,
-        displayName: access.user.displayName ?? access.user.accountId,
-        avatarMime: null,
-        mergedInto: null,
-        createdAt: access.user.createdAt,
-        updatedAt: access.user.updatedAt,
-        emails: access.user.email ? [access.user.email] : [],
-        hasAvatar: false,
-      },
-    };
   }
 
   private async assertOwnedTask(access: BrowserGatewayAccess, rawTaskId: unknown): Promise<void> {

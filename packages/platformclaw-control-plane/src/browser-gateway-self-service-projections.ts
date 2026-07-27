@@ -6,11 +6,39 @@ type GatewayRequest = {
   request(method: string, params?: unknown): Promise<unknown>;
 };
 
+type BrowserSelfUser = {
+  id: string;
+  accountId: string;
+  displayName?: string;
+  email?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 function asObject(value: unknown, label: string, fail: ProjectionFailure): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return fail(`Gateway returned invalid ${label}`);
   }
   return value as JsonObject;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export function projectBrowserSelfUser(user: BrowserSelfUser): JsonObject {
+  return {
+    profile: {
+      id: user.id,
+      displayName: user.displayName ?? user.accountId,
+      avatarMime: null,
+      mergedInto: null,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      emails: user.email ? [user.email] : [],
+      hasAvatar: false,
+    },
+  };
 }
 
 function projectWorkspaceFile(value: unknown, label: string, fail: ProjectionFailure): JsonObject {
@@ -187,6 +215,47 @@ export function projectBrowserSkillProposalResult(params: {
   }
   if (params.method === "skills.proposals.reject") {
     return projectSkillProposalRecord(params.result, params.agentId, params.fail);
+  }
+  return params.result;
+}
+
+export function projectBrowserSkillResult(params: {
+  agentId: string;
+  executionTarget: "platform_server" | "assigned_vm";
+  method: string;
+  result: unknown;
+  fail: ProjectionFailure;
+}): unknown {
+  if (params.method === "skills.status") {
+    return projectBrowserSkillsStatus(params);
+  }
+  if (params.method === "skills.install") {
+    const payload = asObject(params.result, "skills.install result", params.fail);
+    return {
+      ok: payload.ok,
+      message: payload.message,
+      slug: payload.slug,
+      version: payload.version,
+      warning: payload.warning,
+    };
+  }
+  if (params.method === "skills.skillCard") {
+    const payload = asObject(params.result, "skills.skillCard result", params.fail);
+    const skillKey = optionalString(payload.skillKey);
+    return skillKey
+      ? { ...payload, path: `${skillKey}/SKILL.md` }
+      : params.fail("Gateway returned an invalid personal skill card");
+  }
+  if (params.method.startsWith("skills.proposals.")) {
+    if (params.method === "skills.proposals.requestRevision") {
+      const payload = asObject(params.result, "skill proposal revision result", params.fail);
+      const runId = optionalString(payload.runId);
+      const status = optionalString(payload.status);
+      return runId && status
+        ? { runId, status }
+        : params.fail("Gateway returned an invalid Skill Workshop revision result");
+    }
+    return projectBrowserSkillProposalResult(params);
   }
   return params.result;
 }
