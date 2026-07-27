@@ -24,15 +24,15 @@ export {
   type PlatformClawWebGatewayMethod,
 } from "./browser-gateway-policy.js";
 import {
+  prepareBrowserSelfServiceRequest,
+  resolveBrowserSkillExecutionTarget,
+} from "./browser-gateway-self-service-policy.js";
+import {
   isConfiguredBrowserModel,
   projectBrowserAgentFiles,
   projectBrowserSelfUser,
   projectBrowserSkillResult,
 } from "./browser-gateway-self-service-projections.js";
-import {
-  prepareBrowserSelfServiceRequest,
-  resolveBrowserSkillExecutionTarget,
-} from "./browser-gateway-self-service-policy.js";
 import {
   browserTaskEventBelongsToAccess,
   projectBrowserTaskResult,
