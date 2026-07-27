@@ -353,6 +353,27 @@ preview and Linux smoke fixtures keep their internal UID 1000 because that UID
 belongs to their disposable rootless-Docker fixture, not the host deployment
 contract.
 
+### PC-121 Expose bounded employee profile and skill self-service
+
+Employee browsers may open Profile, Notifications, About, and Skills. Profile
+identity comes from the authenticated directory principal and is read-only;
+usage queries are forced to the employee's bound Agent. Notifications remain
+browser-local and do not expose the shared Web Push registry. About has no
+additional Gateway authority.
+
+The Skills page follows the active personal execution target. In the Basic
+workspace, an employee may install ClawHub skills and use Skill Workshop only
+for their bound Agent workspace. Global enablement, API keys, dependency
+installation, managed/shared skill roots, and Gateway configuration remain
+unavailable. On an assigned VM, the page shows the existing remote skill
+catalog and supports explicit refresh only. Installation and Workshop writes
+remain blocked until a dedicated, reviewed VM write contract exists. Changing
+execution target never copies or deletes skills from either environment.
+
+Plugin lifecycle operations remain administrator-only and use the existing
+upstream plugin RPCs. The employee BFF adds role and Agent checks without
+changing upstream Gateway protocol or skill/plugin ownership boundaries.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs

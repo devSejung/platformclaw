@@ -15,10 +15,11 @@ function sessionAgentId(sessionKey: string): string | null {
   return match?.[1] ?? null;
 }
 
-async function setup() {
+async function setup(options: { admin?: boolean } = {}) {
   let sequence = 0;
   const store = new InMemoryControlPlaneStore({
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
+    initialAdminAccountIds: options.admin ? ["first.user"] : [],
     idFactory: {
       nextUserId: () => `user-${++sequence}`,
       nextBindingId: () => `binding-${++sequence}`,
@@ -32,6 +33,8 @@ async function setup() {
     subject: "employee-1",
     accountId: "first.user",
     employeeId: "1001",
+    displayName: "First User",
+    email: "first.user@example.test",
   };
   const { user } = await store.upsertPrincipal(principal, NOW);
   const reserved = await store.reservePersonalAgent(user.id, NOW);
@@ -412,6 +415,7 @@ describe("BrowserGatewayProxy", () => {
       workspaceDir: "personal workspace",
       managedSkillsDir: "managed skills",
       agentId: binding.agentId,
+      executionTarget: "platform_server",
       agentSkillFilter: undefined,
       skills: [{ name: "reports", skillKey: "reports", source: "managed" }],
     });
@@ -422,6 +426,246 @@ describe("BrowserGatewayProxy", () => {
       agentId: binding.agentId,
       refresh: true,
     });
+  });
+
+  it("limits employee skill writes to the bound Basic workspace", async () => {
+    const { auditEvents, binding, proxy, request, store, token } = await setup();
+    request.mockResolvedValueOnce({
+      ok: true,
+      message: "Installed calendar@1.0.0",
+      slug: "calendar",
+      version: "1.0.0",
+      targetDir: "/private/workspace/skills/calendar",
+    });
+
+    await expect(
+      proxy.request(token, "skills.install", { source: "clawhub", slug: "calendar" }),
+    ).resolves.toEqual({
+      ok: true,
+      message: "Installed calendar@1.0.0",
+      slug: "calendar",
+      version: "1.0.0",
+      warning: undefined,
+    });
+    expect(request).toHaveBeenCalledWith("skills.install", {
+      source: "clawhub",
+      slug: "calendar",
+      agentId: binding.agentId,
+    });
+
+    const getPersonalExecutionProfile = vi
+      .spyOn(store, "getPersonalExecutionProfile")
+      .mockResolvedValue({
+        agentBindingId: binding.id,
+        activeTarget: "assigned_vm",
+        activeAllocationId: "allocation-1",
+        targetRevision: 1,
+        updatedAt: NOW,
+      });
+    request.mockResolvedValueOnce({
+      workspaceDir: "/users/person/.platformclaw/workspace",
+      managedSkillsDir: "/opt/platformclaw/skills",
+      skills: [],
+    });
+    await expect(proxy.request(token, "skills.status", { refresh: true })).resolves.toEqual({
+      workspaceDir: "personal workspace",
+      managedSkillsDir: "managed skills",
+      agentId: binding.agentId,
+      executionTarget: "assigned_vm",
+      agentSkillFilter: undefined,
+      skills: [],
+    });
+    await expect(
+      proxy.request(token, "skills.install", { source: "clawhub", slug: "other" }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(proxy.request(token, "skills.proposals.list", {})).rejects.toMatchObject({
+      code: "method-not-allowed",
+    });
+    expect(getPersonalExecutionProfile).toHaveBeenCalledWith(binding.agentId);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(auditEvents).toEqual([
+      expect.objectContaining({
+        eventType: "browser.gateway.denied",
+        details: { method: "skills.install", reason: "method-not-allowed" },
+      }),
+      expect.objectContaining({
+        eventType: "browser.gateway.denied",
+        details: { method: "skills.proposals.list", reason: "method-not-allowed" },
+      }),
+    ]);
+  });
+
+  it("removes host paths and foreign runtime identifiers from Skill Workshop results", async () => {
+    const { binding, proxy, request, token } = await setup();
+    request.mockResolvedValueOnce({
+      record: {
+        schema: "openclaw.skill-workshop.proposal.v1",
+        id: "proposal-1",
+        kind: "create",
+        status: "pending",
+        title: "Calendar reports",
+        description: "Create calendar reports",
+        createdAt: NOW,
+        updatedAt: NOW,
+        createdBy: "skill-workshop",
+        origin: {
+          agentId: binding.agentId,
+          sessionKey: `agent:${binding.agentId}:main`,
+          runId: "run-private",
+          messageId: "message-private",
+        },
+        proposedVersion: "1.0.0",
+        draftFile: "PROPOSAL.md",
+        draftHash: "hash-private",
+        target: {
+          skillName: "Calendar Reports",
+          skillKey: "calendar-reports",
+          skillDir: "C:/private/workspace/skills/calendar-reports",
+          skillFile: "C:/private/workspace/skills/calendar-reports/SKILL.md",
+        },
+        scan: {
+          state: "clean",
+          scannedAt: NOW,
+          critical: 0,
+          warn: 0,
+          info: 0,
+          findings: [],
+        },
+      },
+      content: "# Calendar Reports",
+      supportFiles: [],
+    });
+
+    const result = await proxy.request<Record<string, unknown>>(token, "skills.proposals.inspect", {
+      proposalId: "proposal-1",
+    });
+
+    expect(request).toHaveBeenCalledWith("skills.proposals.inspect", {
+      proposalId: "proposal-1",
+      agentId: binding.agentId,
+    });
+    expect(result).toMatchObject({
+      record: {
+        target: { skillName: "Calendar Reports", skillKey: "calendar-reports" },
+        origin: {
+          agentId: binding.agentId,
+          sessionKey: `agent:${binding.agentId}:main`,
+        },
+      },
+      content: "# Calendar Reports",
+      supportFiles: [],
+    });
+    expect(JSON.stringify(result)).not.toContain("C:/private");
+    expect(JSON.stringify(result)).not.toContain("run-private");
+    expect(JSON.stringify(result)).not.toContain("message-private");
+    expect(JSON.stringify(result)).not.toContain("hash-private");
+
+    request.mockResolvedValueOnce({
+      schema: "openclaw.skill-workshop.proposals-manifest.v1",
+      updatedAt: "2026-07-27T00:00:00.000Z",
+      proposals: [
+        {
+          id: "proposal-1",
+          kind: "create",
+          status: "pending",
+          title: "Calendar reports",
+          description: "Create calendar reports",
+          skillName: "Calendar Reports",
+          skillKey: "calendar-reports",
+          createdAt: "2026-07-27T00:00:00.000Z",
+          updatedAt: "2026-07-27T00:00:00.000Z",
+          scanState: "clean",
+          skillDir: "C:/private/workspace/skills/calendar-reports",
+          runId: "run-private",
+        },
+      ],
+    });
+    const list = await proxy.request<Record<string, unknown>>(token, "skills.proposals.list", {});
+    expect(JSON.stringify(list)).not.toContain("C:/private");
+    expect(JSON.stringify(list)).not.toContain("run-private");
+  });
+
+  it("routes Skill Workshop revision requests only within the personal Agent", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const sessionKey = `agent:${binding.agentId}:revision`;
+    request.mockResolvedValueOnce({
+      runId: "revision-run-1",
+      status: "started",
+      internal: "not-for-browser",
+    });
+
+    await expect(
+      proxy.request(token, "skills.proposals.requestRevision", {
+        proposalId: "proposal-1",
+        instructions: "Add a validation step",
+        sessionKey,
+        sessionId: "session-1",
+        idempotencyKey: "revision-run-1",
+      }),
+    ).resolves.toEqual({ runId: "revision-run-1", status: "started" });
+    expect(request).toHaveBeenCalledWith("skills.proposals.requestRevision", {
+      agentId: binding.agentId,
+      targetAgentId: binding.agentId,
+      proposalId: "proposal-1",
+      instructions: "Add a validation step",
+      sessionKey,
+      sessionId: "session-1",
+      idempotencyKey: "revision-run-1",
+    });
+    await expect(
+      proxy.request(token, "skills.proposals.requestRevision", {
+        proposalId: "proposal-1",
+        instructions: "Other Agent",
+        sessionKey,
+        targetAgentId: "other-agent",
+        idempotencyKey: "revision-run-2",
+      }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+  });
+
+  it("projects directory identity and Agent-scoped profile usage", async () => {
+    const { binding, proxy, request, token, user } = await setup();
+    request
+      .mockResolvedValueOnce({ totalCost: 1 })
+      .mockResolvedValueOnce({ sessions: [], totals: {} });
+
+    await expect(proxy.request(token, "users.self", {})).resolves.toEqual({
+      profile: {
+        id: user.id,
+        displayName: "First User",
+        avatarMime: null,
+        mergedInto: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+        emails: ["first.user@example.test"],
+        hasAvatar: false,
+      },
+    });
+    await proxy.request(token, "usage.cost", { agentScope: "all", days: 30 });
+    await proxy.request(token, "sessions.usage", { agentScope: "all", groupBy: "day" });
+    expect(request).toHaveBeenNthCalledWith(1, "usage.cost", {
+      agentId: binding.agentId,
+      days: 30,
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "sessions.usage", {
+      agentId: binding.agentId,
+      groupBy: "day",
+    });
+  });
+
+  it("keeps plugin lifecycle administrator-only", async () => {
+    const member = await setup();
+    await expect(member.proxy.request(member.token, "plugins.list", {})).rejects.toMatchObject({
+      code: "method-not-allowed",
+    });
+    expect(member.request).not.toHaveBeenCalled();
+
+    const admin = await setup({ admin: true });
+    admin.request.mockResolvedValueOnce({ plugins: [] });
+    await expect(admin.proxy.request(admin.token, "plugins.list", {})).resolves.toEqual({
+      plugins: [],
+    });
+    expect(admin.request).toHaveBeenCalledWith("plugins.list", {});
   });
 
   it("limits model discovery to a projected configured catalog", async () => {

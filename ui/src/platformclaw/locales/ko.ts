@@ -1,4 +1,10 @@
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.skills.basicTitle": "기본 작업 공간의 스킬",
+  "platformClaw.skills.basicDescription":
+    "여기에서 개인 Agent의 스킬을 설치하고 수정할 수 있습니다.",
+  "platformClaw.skills.vmTitle": "내 개발 VM의 스킬",
+  "platformClaw.skills.vmDescription":
+    "VM에서 조회한 스킬입니다. 새로고침은 가능하지만 VM 쓰기 기능이 제공되기 전까지 설치와 Workshop 수정은 사용할 수 없습니다.",
   "platformClaw.execution.workLocation": "작업 위치",
   "platformClaw.execution.openSettings": "작업 위치 설정 열기",
   "platformClaw.execution.current": "현재 작업 위치",

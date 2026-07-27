@@ -852,13 +852,16 @@ export class ConfigPage extends OpenClawLightDomElement {
 
   private includeSections(): readonly string[] | undefined {
     if (this.usesBrowserOnlyPreferences()) {
-      return ["__appearance__"];
+      return [this.pageId === "notifications" ? "__notifications__" : "__appearance__"];
     }
     return configSectionKeysForPage(this.pageId);
   }
 
   private usesBrowserOnlyPreferences(): boolean {
-    return this.context?.accessMode === "personal-agent" && this.pageId === "appearance";
+    return (
+      this.context?.accessMode === "personal-agent" &&
+      (this.pageId === "appearance" || this.pageId === "notifications")
+    );
   }
 
   private isUpdateBusy(): boolean {
@@ -1043,10 +1046,20 @@ export class ConfigPage extends OpenClawLightDomElement {
       onNativeNotificationsRequestPermission: () =>
         this.context.nativeNotifications?.requestPermission(),
       onNativeNotificationsSendTest: () => this.context.nativeNotifications?.sendTest(),
-      webPush: this.context.webPush.snapshot,
-      onWebPushSubscribe: () => void this.context.webPush.enable(),
-      onWebPushUnsubscribe: () => void this.context.webPush.disable(),
-      onWebPushTest: () => void this.context.webPush.sendTest(),
+      webPush:
+        this.context.accessMode === "personal-agent" ? undefined : this.context.webPush.snapshot,
+      onWebPushSubscribe:
+        this.context.accessMode === "personal-agent"
+          ? undefined
+          : () => void this.context.webPush.enable(),
+      onWebPushUnsubscribe:
+        this.context.accessMode === "personal-agent"
+          ? undefined
+          : () => void this.context.webPush.disable(),
+      onWebPushTest:
+        this.context.accessMode === "personal-agent"
+          ? undefined
+          : () => void this.context.webPush.sendTest(),
     };
     if (this.pageId === "mcp") {
       return renderMcp({

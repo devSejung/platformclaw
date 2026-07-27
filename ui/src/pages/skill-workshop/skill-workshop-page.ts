@@ -127,6 +127,7 @@ function renderSkillWorkshopPage(
       <div class="plugins-hub-tabs-row">
         ${renderPluginsHubTabs({
           active: "workshop",
+          tabs: context.accessMode === "personal-agent" ? ["skills", "workshop"] : undefined,
           onSelect: (tab) => selectPluginsHubTab(context, tab),
         })}
       </div>
@@ -497,6 +498,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     const runtimeConfig = this.context?.runtimeConfig;
     if (
       runtimeConfig &&
+      this.context?.accessMode !== "personal-agent" &&
       this.gatewayConnected &&
       !runtimeConfig.state.configSnapshot &&
       !runtimeConfig.state.configLoading
@@ -635,11 +637,14 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
             workshopAgentName:
               this.context.agentIdentity.get(this.state.skillWorkshopAgentId)?.name?.trim() ?? "",
             onRevisionRequest: this.onRevisionRequest ?? this.handleRevisionRequest,
-            selfLearning: resolveSelfLearning(
-              this.context.runtimeConfig,
-              this.selfLearningBusy,
-              this.selfLearningError,
-            ),
+            selfLearning:
+              this.context.accessMode === "personal-agent"
+                ? null
+                : resolveSelfLearning(
+                    this.context.runtimeConfig,
+                    this.selfLearningBusy,
+                    this.selfLearningError,
+                  ),
             onSelfLearningToggle: this.handleSelfLearningToggle,
             onHistoryScan: this.handleHistoryScan,
           },

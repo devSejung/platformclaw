@@ -388,7 +388,9 @@ export function bootstrapApplication(
   const nativeChatDrafts = createNativeChatDrafts();
   const nativeLinkRouting = startNativeLinkRouting();
   const nativeNotifications = createNativeNotificationsCapability();
-  const webPush = createWebPushCapability(gateway);
+  const webPush = createWebPushCapability(gateway, {
+    enabled: options.accessMode !== "personal-agent",
+  });
   const skillWorkshopRevision = createSkillWorkshopRevisionHandoff();
   const initialUserMessage = createInitialUserMessageHandoff();
   applyStartupPresentation(settings);

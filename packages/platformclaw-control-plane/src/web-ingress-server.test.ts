@@ -227,7 +227,12 @@ describe("PlatformClawWebIngressServer", () => {
         type: "hello-ok",
         features: { methods: ["agents.list", "chat.send", "commands.list"] },
         snapshot: {
-          presence: [],
+          presence: [
+            {
+              mode: "webchat",
+              user: { id: "user-1", name: "person.one" },
+            },
+          ],
           sessionDefaults: {
             defaultAgentId: "person_one",
             mainSessionKey: "agent:person_one:main",

@@ -92,6 +92,13 @@ export const en: TranslationMap = {
   },
   platformClaw: {
     startupUnavailable: "PlatformClaw is temporarily unavailable.",
+    skills: {
+      basicTitle: "Skills in Basic workspace",
+      basicDescription: "You can install and modify skills for your personal Agent here.",
+      vmTitle: "Skills on My development VM",
+      vmDescription:
+        "This list comes from the VM. Refresh is available; installation and Workshop changes stay disabled until VM writes are supported.",
+    },
     execution: {
       workLocation: "Work location",
       openSettings: "Open work location settings",

@@ -6,6 +6,7 @@ export type PluginsHubTab = "installed" | "discover" | "skills" | "workshop";
 
 type PluginsHubTabsProps = {
   active: PluginsHubTab;
+  tabs?: readonly PluginsHubTab[];
   /** Installed-plugin count badge; omit on pages without catalog data. */
   installedCount?: number | null;
   onSelect: (tab: PluginsHubTab) => void;
@@ -29,10 +30,13 @@ function hubTabs(installedCount: number | null): ReadonlyArray<HubTabOption<Plug
 
 /** Every route marks its main content with id="plugins-hub-panel". */
 export function renderPluginsHubTabs(props: PluginsHubTabsProps) {
+  const available = props.tabs ? new Set(props.tabs) : null;
   return renderHubTabs({
     id: "plugins",
     active: props.active,
-    tabs: hubTabs(props.installedCount ?? null),
+    tabs: hubTabs(props.installedCount ?? null).filter(
+      (tab) => available === null || available.has(tab.value),
+    ),
     ariaLabel: t("pluginsPage.hubTablistLabel"),
     panelId: "plugins-hub-panel",
     className: "plugins-tabs",

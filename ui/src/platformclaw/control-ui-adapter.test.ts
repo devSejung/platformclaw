@@ -58,8 +58,20 @@ describe("PlatformClawControlUiAdapter", () => {
     const options = adapter!.applicationOptions(identity!, vi.fn());
     expect(options).toMatchObject({
       accessMode: "personal-agent",
-      enabledRouteIds: ["chat", "new-session", "sessions", "agents", "tasks", "appearance"],
-      navigation: { sidebarEntries: ["route:sessions", "route:tasks"] },
+      enabledRouteIds: [
+        "chat",
+        "new-session",
+        "sessions",
+        "agents",
+        "tasks",
+        "appearance",
+        "profile",
+        "notifications",
+        "about",
+        "skills",
+        "skill-workshop",
+      ],
+      navigation: { sidebarEntries: ["route:sessions", "route:tasks", "route:skills"] },
       gateway: {
         url: "wss://platformclaw.example/platformclaw/gateway",
         browserDeviceAuth: false,
@@ -180,6 +192,8 @@ describe("PlatformClawControlUiAdapter", () => {
       },
       vi.fn(),
     );
+    expect(adminOptions.enabledRouteIds).toContain("plugins");
+    expect(adminOptions.navigation?.sidebarEntries).toContain("route:plugins");
     render(adminOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
     expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
@@ -204,6 +218,8 @@ describe("PlatformClawControlUiAdapter", () => {
       },
       vi.fn(),
     );
+    expect(memberOptions.enabledRouteIds).not.toContain("plugins");
+    expect(memberOptions.navigation?.sidebarEntries).not.toContain("route:plugins");
     render(memberOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
     expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);

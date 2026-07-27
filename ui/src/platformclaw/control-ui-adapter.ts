@@ -136,9 +136,16 @@ export class PlatformClawControlUiAdapter {
       `,
       onLogout,
     };
+    const enabledRouteIds = this.descriptor.enabledRoutes.filter(
+      (routeId) => routeId !== "plugins" || identity.globalRole === "admin",
+    ) as readonly RouteId[];
+    const sidebarEntries = ["route:sessions", "route:tasks", "route:skills"];
+    if (identity.globalRole === "admin") {
+      sidebarEntries.push("route:plugins");
+    }
     return {
       accessMode: "personal-agent",
-      enabledRouteIds: this.descriptor.enabledRoutes as readonly RouteId[],
+      enabledRouteIds,
       gateway: {
         url: websocketUrl(this.location, this.descriptor.gatewayPath),
         browserDeviceAuth: false,
@@ -148,7 +155,7 @@ export class PlatformClawControlUiAdapter {
           }
         },
       },
-      navigation: { sidebarEntries: ["route:sessions", "route:tasks"] },
+      navigation: { sidebarEntries },
       shellSession,
     };
   }

@@ -357,7 +357,16 @@ class SkillsPage extends OpenClawLightDomElement {
       </section>
       ${renderSettingsWorkspace(html`
         <div class="plugins-hub-tabs-row">
-          ${renderPluginsHubTabs({ active: "skills", onSelect: (tab) => this.selectHubTab(tab) })}
+          ${renderPluginsHubTabs({
+            active: "skills",
+            tabs:
+              this.context.accessMode === "personal-agent"
+                ? this.skillsReport?.executionTarget === "assigned_vm"
+                  ? ["skills"]
+                  : ["skills", "workshop"]
+                : undefined,
+            onSelect: (tab) => this.selectHubTab(tab),
+          })}
         </div>
         <wa-tab-panel
           id="plugins-hub-panel"
@@ -366,6 +375,7 @@ class SkillsPage extends OpenClawLightDomElement {
           aria-labelledby="plugins-tab-skills"
         >
           ${renderSkills({
+            personalAccess: this.context.accessMode === "personal-agent",
             connected: this.connected,
             loading: this.skillsLoading || this.agentsLoading,
             report: this.skillsReport,

@@ -124,6 +124,22 @@ describe("renderSkills", () => {
     await i18n.setLocale("en");
   });
 
+  it("shows VM skills as refresh-only for personal access", () => {
+    const container = document.createElement("div");
+    const props = createProps({ personalAccess: true });
+    props.report = {
+      ...expectDefined(props.report, "skills report"),
+      executionTarget: "assigned_vm",
+      skills: [createSkill({ source: "platformclaw-vm-user" })],
+    };
+
+    render(renderSkills(props), container);
+
+    expect(normalizeText(container)).toContain("Skills on My development VM");
+    expect(normalizeText(container)).not.toContain("Search ClawHub");
+    expect(container.querySelectorAll("wa-switch.settings-toggle")).toHaveLength(0);
+  });
+
   it("renders the agent selector and routes agent changes", async () => {
     const container = document.createElement("div");
     document.body.append(container);

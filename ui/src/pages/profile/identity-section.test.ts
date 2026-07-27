@@ -110,6 +110,16 @@ describe("renderIdentitySection", () => {
     expect(onSaveDisplayName).toHaveBeenCalledOnce();
   });
 
+  it("renders directory identity without employee mutation controls", () => {
+    const container = document.createElement("div");
+    render(renderIdentitySection(createProps({ editable: false })), container);
+
+    expect(container.textContent).toContain("Ada Lovelace");
+    expect(container.querySelector('input[type="text"]')).toBeNull();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    expect(container.querySelector("button")).toBeNull();
+  });
+
   it("forwards an allowlisted avatar file and resets the picker", () => {
     const onAvatarSelect = vi.fn();
     const container = document.createElement("div");

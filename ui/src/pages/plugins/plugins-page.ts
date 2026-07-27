@@ -239,7 +239,7 @@ class PluginsPage extends OpenClawLightDomElement {
     } else {
       this.ensureInitialData();
     }
-    if (snapshot.phase === "connected") {
+    if (snapshot.phase === "connected" && this.context?.accessMode !== "personal-agent") {
       void this.context?.runtimeConfig.ensureLoaded().then(() => this.syncMcpServers());
     }
     if (
@@ -508,6 +508,10 @@ class PluginsPage extends OpenClawLightDomElement {
   }
 
   private async refreshPage(): Promise<void> {
+    if (this.context?.accessMode === "personal-agent") {
+      await this.refreshCatalog();
+      return;
+    }
     await Promise.all([this.refreshCatalog(), this.refreshRuntimeConfig()]);
   }
 
@@ -677,8 +681,10 @@ class PluginsPage extends OpenClawLightDomElement {
     this.error = null;
     const [catalogResult] = await Promise.allSettled([
       loadPluginCatalog(client),
-      this.refreshRuntimeConfig(),
-    ]);
+      this.context?.accessMode === "personal-agent"
+        ? Promise.resolve()
+        : this.refreshRuntimeConfig(),
+    ] as const);
     if (
       !this.isCurrentSource(client, sourceGeneration) ||
       requestGeneration !== this.catalogRequestGeneration
@@ -985,6 +991,7 @@ class PluginsPage extends OpenClawLightDomElement {
           canMutate: this.canMutate(),
           mutationBlockedReason: blockedReason,
           pageNotice: this.pageNotice,
+          showMcp: this.context?.accessMode !== "personal-agent",
           mcpSettingsHref: pathForRoute("mcp", this.context?.basePath ?? ""),
           mcpServers: this.mcpServers,
           mcpMessage: this.mcpMessage,

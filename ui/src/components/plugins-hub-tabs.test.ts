@@ -54,6 +54,18 @@ describe("renderPluginsHubTabs", () => {
     expect(container.querySelector("#plugins-tab-installed span")).toBeNull();
   });
 
+  it("renders only policy-selected tabs", async () => {
+    const container = await mount({
+      active: "skills",
+      tabs: ["skills", "workshop"],
+      onSelect: () => undefined,
+    });
+    expect([...container.querySelectorAll<HTMLElement>("wa-tab")].map((tab) => tab.id)).toEqual([
+      "plugins-tab-skills",
+      "plugins-tab-workshop",
+    ]);
+  });
+
   it("selects tabs on click", async () => {
     const onSelect = vi.fn();
     const container = await mount({ active: "installed", onSelect });

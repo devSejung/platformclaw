@@ -906,6 +906,7 @@ export type SkillStatusReport = {
   workspaceDir: string;
   managedSkillsDir: string;
   agentId?: string;
+  executionTarget?: "platform_server" | "assigned_vm";
   agentSkillFilter?: string[];
   skills: SkillStatusEntry[];
 };

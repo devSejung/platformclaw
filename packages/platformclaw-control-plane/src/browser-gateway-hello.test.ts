@@ -9,7 +9,7 @@ function upstreamHello(): HelloOk {
     protocol: 4,
     server: { version: "2026.7.20", connId: "operator-connection" },
     features: {
-      methods: ["agents.list", "chat.send", "config.get"],
+      methods: ["agents.list", "chat.send", "plugins.list", "users.self"],
       events: ["chat", "tick", "presence"],
       capabilities: ["approvals"],
     },
@@ -70,12 +70,19 @@ describe("projectPlatformClawBrowserHello", () => {
 
     expect(projected.server).toEqual({ version: "2026.7.20", connId: "browser-1" });
     expect(projected.features).toEqual({
-      methods: ["agents.list", "chat.send", "commands.list"],
+      methods: ["agents.list", "chat.send", "commands.list", "users.self"],
       events: ["tick", "chat"],
       capabilities: [],
     });
     expect(projected.snapshot).toEqual({
-      presence: [],
+      presence: [
+        {
+          instanceId: "browser-1",
+          mode: "webchat",
+          ts: 1,
+          user: { id: "user-1", name: "person.one" },
+        },
+      ],
       health: {},
       stateVersion: { presence: 0, health: 0 },
       uptimeMs: 9,
@@ -90,5 +97,18 @@ describe("projectPlatformClawBrowserHello", () => {
       scopes: ["operator.read", "operator.write"],
     });
     expect(projected.policy.maxPayload).toBe(512);
+  });
+
+  it("advertises plugin administration only to PlatformClaw administrators", () => {
+    const projected = projectPlatformClawBrowserHello({
+      upstream: upstreamHello(),
+      access: { ...access, user: { ...access.user, globalRole: "admin" } },
+      connectionId: "browser-admin",
+      clientInstanceId: "browser-instance",
+    });
+
+    expect(projected.features.methods).toContain("plugins.list");
+    expect(projected.auth.scopes).toEqual(["operator.read", "operator.write", "operator.admin"]);
+    expect(projected.snapshot.presence[0]).toMatchObject({ instanceId: "browser-instance" });
   });
 });

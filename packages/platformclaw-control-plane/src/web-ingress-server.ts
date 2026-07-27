@@ -516,6 +516,7 @@ export class PlatformClawWebIngressServer {
           upstream,
           access,
           connectionId,
+          clientInstanceId: params.client.instanceId,
           maxPayloadBytes: this.options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES,
         });
         unsubscribe = this.options.gateway.subscribe((event) => {

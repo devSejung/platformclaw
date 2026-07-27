@@ -16,6 +16,12 @@ export const PLATFORMCLAW_ENABLED_ROUTES = [
   "agents",
   "tasks",
   "appearance",
+  "profile",
+  "notifications",
+  "about",
+  "skills",
+  "skill-workshop",
+  "plugins",
 ] as const;
 
 export type PlatformClawWebDescriptor = {

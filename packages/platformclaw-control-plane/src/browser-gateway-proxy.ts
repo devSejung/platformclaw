@@ -10,6 +10,7 @@ import {
 } from "./browser-gateway-ownership.js";
 import {
   PLATFORMCLAW_WEB_AGENT_ONLY_METHODS,
+  PLATFORMCLAW_WEB_ADMIN_METHODS,
   PLATFORMCLAW_WEB_ALLOWED_METHODS,
   PLATFORMCLAW_WEB_ALLOWED_PARAMS,
   PLATFORMCLAW_WEB_SESSION_KEY_METHODS,
@@ -25,6 +26,7 @@ export {
 import {
   isConfiguredBrowserModel,
   projectBrowserAgentFiles,
+  projectBrowserSkillProposalResult,
   projectBrowserSkillsStatus,
 } from "./browser-gateway-self-service-projections.js";
 import {
@@ -55,6 +57,13 @@ const SAFE_GLOBAL_EVENTS = new Set<string>(["shutdown", "tick"]);
 const SESSION_SCOPED_EVENTS = new Set<string>(
   PLATFORMCLAW_WEB_GATEWAY_EVENTS.filter((event) => event !== "shutdown" && event !== "tick"),
 );
+const PLATFORMCLAW_VM_READ_ONLY_SKILL_METHODS = new Set<string>([
+  "skills.detail",
+  "skills.search",
+  "skills.securityVerdicts",
+  "skills.skillCard",
+  "skills.status",
+]);
 type JsonObject = Record<string, unknown>;
 
 export type BrowserGatewayEvent = {
@@ -141,10 +150,24 @@ export class BrowserGatewayProxy {
 
   async request<T = unknown>(token: string, method: string, params?: unknown): Promise<T> {
     const access = await this.resolveAccess(token);
+    const executionTarget = method.startsWith("skills.")
+      ? ((await this.options.store.getPersonalExecutionProfile(access.binding.agentId))
+          ?.activeTarget ?? "platform_server")
+      : undefined;
     let prepared: JsonObject;
     let initialCommandSuppressed = true;
     try {
       prepared = this.prepareRequest(access, method, params);
+      if (
+        executionTarget === "assigned_vm" &&
+        method.startsWith("skills.") &&
+        !PLATFORMCLAW_VM_READ_ONLY_SKILL_METHODS.has(method)
+      ) {
+        throw new BrowserGatewayProxyError(
+          "method-not-allowed",
+          "Skill installation and Workshop changes are available only in the Basic workspace",
+        );
+      }
       if (method === "chat.send" || method === "sessions.create") {
         initialCommandSuppressed = await this.resolveCommandSuppression(access, prepared.message);
         if (method === "chat.send") {
@@ -180,13 +203,16 @@ export class BrowserGatewayProxy {
         throw error;
       }
     }
+    if (method === "users.self") {
+      return this.projectSelfUser(access) as T;
+    }
     // Keep the upstream commands.list compatibility path on the same filtered metadata source,
     // otherwise browser command visibility and execution policy can drift apart.
     const upstreamMethod = method === "commands.list" ? "chat.metadata" : method;
     const upstreamParams = method === "commands.list" ? { agentId: prepared.agentId } : prepared;
     const result = await this.options.gateway.request(upstreamMethod, upstreamParams);
     try {
-      return this.filterResult(access, method, prepared, result) as T;
+      return this.filterResult(access, method, prepared, result, executionTarget) as T;
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
         await this.auditDeniedRequest(access, method, error.code);
@@ -309,6 +335,12 @@ export class BrowserGatewayProxy {
         `Gateway method is not available to browser users: ${method}`,
       );
     }
+    if (PLATFORMCLAW_WEB_ADMIN_METHODS.has(method) && access.user.globalRole !== "admin") {
+      throw new BrowserGatewayProxyError(
+        "method-not-allowed",
+        `Gateway administration method is not available to browser users: ${method}`,
+      );
+    }
     const params = { ...asObject(rawParams, `${method} params`) };
     this.assertAllowedParams(method, params);
     if (method === "models.list") {
@@ -322,6 +354,19 @@ export class BrowserGatewayProxy {
     }
     if (method === "agents.list") {
       return {};
+    }
+    if (method === "users.self" || method === "plugins.list") {
+      return {};
+    }
+    if (
+      method === "plugins.search" ||
+      method === "plugins.install" ||
+      method === "plugins.setEnabled" ||
+      method === "plugins.uninstall" ||
+      method === "skills.search" ||
+      method === "skills.detail"
+    ) {
+      return params;
     }
     if (method === "sessions.list") {
       this.assertOptionalAgentId(access, params.agentId, method);
@@ -337,6 +382,15 @@ export class BrowserGatewayProxy {
       this.assertOptionalAgentId(access, params.agentId, method);
       this.assertSessionKeyArray(access, params.sessionKeys, "sessionKeys", true);
       return { ...params, agentId: access.binding.agentId };
+    }
+    if (method === "usage.cost" || method === "sessions.usage") {
+      this.assertOptionalAgentId(access, params.agentId, method);
+      if (params.key !== undefined) {
+        this.assertOwnedSessionKey(access, params.key, "key");
+      }
+      const scoped: JsonObject = { ...params, agentId: access.binding.agentId };
+      delete scoped.agentScope;
+      return scoped;
     }
     if (method === "sessions.preview") {
       this.assertSessionKeyArray(access, params.keys, "keys", true);
@@ -370,6 +424,26 @@ export class BrowserGatewayProxy {
     }
     if (method === "tasks.get" || method === "tasks.cancel") {
       return params;
+    }
+    if (method === "skills.install") {
+      this.assertOptionalAgentId(access, params.agentId, method);
+      if (params.source !== "clawhub") {
+        throw new BrowserGatewayProxyError(
+          "method-not-allowed",
+          "browser skill installation is limited to personal ClawHub skills",
+        );
+      }
+      return { ...params, agentId: access.binding.agentId };
+    }
+    if (method === "skills.proposals.requestRevision") {
+      this.assertOptionalAgentId(access, params.agentId, method);
+      this.assertOptionalAgentId(access, params.targetAgentId, method);
+      this.assertOwnedSessionKey(access, params.sessionKey, "sessionKey");
+      return {
+        ...params,
+        agentId: access.binding.agentId,
+        targetAgentId: access.binding.agentId,
+      };
     }
     if (PLATFORMCLAW_WEB_AGENT_ONLY_METHODS.has(method)) {
       this.assertOptionalAgentId(access, params.agentId, method);
@@ -407,6 +481,7 @@ export class BrowserGatewayProxy {
     method: string,
     prepared: JsonObject,
     result: unknown,
+    executionTarget?: "platform_server" | "assigned_vm",
   ): unknown {
     if (method === "tasks.list" || method === "tasks.get" || method === "tasks.cancel") {
       return projectBrowserTaskResult({
@@ -431,6 +506,50 @@ export class BrowserGatewayProxy {
     if (method === "skills.status") {
       return projectBrowserSkillsStatus({
         agentId: access.binding.agentId,
+        executionTarget: executionTarget ?? "platform_server",
+        result,
+        fail: (message) => {
+          throw new BrowserGatewayProxyError("upstream-result-denied", message);
+        },
+      });
+    }
+    if (method === "skills.install") {
+      const payload = asObject(result, "skills.install result");
+      return {
+        ok: payload.ok,
+        message: payload.message,
+        slug: payload.slug,
+        version: payload.version,
+        warning: payload.warning,
+      };
+    }
+    if (method === "skills.skillCard") {
+      const payload = asObject(result, "skills.skillCard result");
+      const skillKey = optionalString(payload.skillKey);
+      if (!skillKey) {
+        throw new BrowserGatewayProxyError(
+          "upstream-result-denied",
+          "Gateway returned an invalid personal skill card",
+        );
+      }
+      return { ...payload, path: `${skillKey}/SKILL.md` };
+    }
+    if (method.startsWith("skills.proposals.")) {
+      if (method === "skills.proposals.requestRevision") {
+        const payload = asObject(result, "skill proposal revision result");
+        const runId = optionalString(payload.runId);
+        const status = optionalString(payload.status);
+        if (!runId || !status) {
+          throw new BrowserGatewayProxyError(
+            "upstream-result-denied",
+            "Gateway returned an invalid Skill Workshop revision result",
+          );
+        }
+        return { runId, status };
+      }
+      return projectBrowserSkillProposalResult({
+        agentId: access.binding.agentId,
+        method,
         result,
         fail: (message) => {
           throw new BrowserGatewayProxyError("upstream-result-denied", message);
@@ -580,6 +699,21 @@ export class BrowserGatewayProxy {
       return payload;
     }
     return result;
+  }
+
+  private projectSelfUser(access: BrowserGatewayAccess): JsonObject {
+    return {
+      profile: {
+        id: access.user.id,
+        displayName: access.user.displayName ?? access.user.accountId,
+        avatarMime: null,
+        mergedInto: null,
+        createdAt: access.user.createdAt,
+        updatedAt: access.user.updatedAt,
+        emails: access.user.email ? [access.user.email] : [],
+        hasAvatar: false,
+      },
+    };
   }
 
   private async assertOwnedTask(access: BrowserGatewayAccess, rawTaskId: unknown): Promise<void> {
