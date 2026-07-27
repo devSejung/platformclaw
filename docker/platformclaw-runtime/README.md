@@ -106,7 +106,8 @@ and private-plugin policy remains enforced at startup.
 
 The transfer archive contains both the main and sandbox images. The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
-health, and restores the prior environment on failure:
+health, recreates existing agent sandboxes with the new image, and restores the
+prior environment on failure. Previous images remain available for rollback:
 
 ```bash
 ./platformclaw-deploy image update \

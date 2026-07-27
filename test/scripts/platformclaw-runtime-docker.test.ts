@@ -522,6 +522,14 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain("Rollback failed. Current deployment env restored");
     expect(deploy).toContain("PlatformClaw already uses");
     expect(deploy).toContain('image inspect "$previous_sandbox"');
+    expect(deploy).toContain("recreate_sandboxes");
+    expect(deploy).toContain("node /app/openclaw.mjs sandbox recreate --all --force");
+    expect(deploy.indexOf('"${compose[@]}" up -d --wait &&')).toBeLessThan(
+      deploy.indexOf('[[ "$current_sandbox" == "$sandbox_image" ]] || recreate_sandboxes'),
+    );
+    expect(deploy.indexOf("recreate_sandboxes; }; then")).toBeLessThan(
+      deploy.indexOf('echo "PlatformClaw updated: $main_image / $sandbox_image"'),
+    );
     expect(deploy).toContain("employee-auth-ca.crt");
     const releasePrepare = readRepoFile(
       ".agents/skills/release-platformclaw/scripts/prepare-release.mjs",

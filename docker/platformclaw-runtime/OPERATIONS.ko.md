@@ -339,8 +339,10 @@ docker compose down --volumes
 ```
 
 스크립트가 두 daemon에 이미지를 로드하고 `deployment.env`의 image ref를 원자적으로
-바꾼 뒤 Compose health를 기다린다. 실패하면 `deployment.env.previous`를 복원하고 이전
-이미지로 재기동한다.
+바꾼 뒤 Compose health를 기다린다. health가 통과하면 기존 Agent sandbox를 모두 제거하여
+다음 실행부터 새 sandbox 이미지로 다시 만들게 한다. sandbox 제거까지 실패하면
+`deployment.env.previous`를 복원하고 이전 이미지로 재기동한다. 이전 이미지는 rollback을
+위해 자동 삭제하지 않는다.
 
 이미 로드된 tag만 바꿀 때:
 
