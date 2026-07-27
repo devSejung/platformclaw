@@ -39,6 +39,17 @@ function readRepoFile(path: string): string {
 }
 
 describe("PlatformClaw Docker runtime", () => {
+  it("exports immutable runtime and sandbox image tags in the transfer archive", () => {
+    const build = readRepoFile("scripts/platformclaw-build.mjs");
+
+    expect(build).toContain(
+      'run("docker", ["save", "-o", artifactPath, runtimeShaTag, sandboxShaTag])',
+    );
+    expect(build).not.toContain(
+      'run("docker", ["save", "-o", artifactPath, runtimeVersionTag, sandboxVersionTag])',
+    );
+  });
+
   it("publishes only the BFF while sharing the private Gateway namespace", () => {
     const compose = parse(
       readRepoFile("docker/platformclaw-runtime/compose.yaml"),

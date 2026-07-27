@@ -294,7 +294,7 @@ if (options.exportImage) {
   mkdirSync(options.outputDir, { recursive: true });
   const artifactName = `platformclaw-${version}-${shortSha}.tar`;
   const artifactPath = resolve(options.outputDir, artifactName);
-  run("docker", ["save", "-o", artifactPath, runtimeVersionTag, sandboxVersionTag]);
+  run("docker", ["save", "-o", artifactPath, runtimeShaTag, sandboxShaTag]);
   const digest = await sha256File(artifactPath);
   const checksumPath = `${artifactPath}.sha256`;
   writeFileSync(checksumPath, `${digest}  ${basename(artifactPath)}\n`, "utf8");
