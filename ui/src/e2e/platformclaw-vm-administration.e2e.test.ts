@@ -40,7 +40,7 @@ describeE2e("PlatformClaw VM administration", () => {
     await server?.close();
   });
 
-  it("shows trusted access, VM, assignment, and audit status", async () => {
+  it("shows disabled SafeConnect and VM recovery controls", async () => {
     const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });
     await page.route("**/platformclaw/api/admin/vm", async (route) => {
       await route.fulfill({
@@ -53,7 +53,7 @@ describeE2e("PlatformClaw VM administration", () => {
               host: "safeconnect.example.test",
               port: 44422,
               adDomain: "example.test",
-              status: "active",
+              status: "disabled",
               hostKeyFingerprint: "SHA256:verified",
             },
           ],
@@ -63,7 +63,7 @@ describeE2e("PlatformClaw VM administration", () => {
               endpointId: "endpoint-1",
               label: "Development VM",
               targetAddress: "192.0.2.10",
-              status: "active",
+              status: "disabled",
             },
           ],
           agents: [{ accountId: "person.one", agentId: "person_one", displayName: "Person One" }],
@@ -102,8 +102,22 @@ describeE2e("PlatformClaw VM administration", () => {
       )
       .toBe(true);
     await expect
-      .poll(async () => component.locator("select[name='agentId']").textContent())
-      .toContain("Person One");
+      .poll(async () => component.getByRole("button", { name: "Enable endpoint" }).isVisible())
+      .toBe(true);
+    await expect
+      .poll(async () => component.getByText("Edit and verify again").isVisible())
+      .toBe(true);
+    await expect
+      .poll(async () => component.getByRole("button", { name: "Enable VM" }).isVisible())
+      .toBe(true);
+    await expect
+      .poll(async () => component.getByRole("button", { name: "Enable VM" }).isDisabled())
+      .toBe(true);
+    await expect
+      .poll(async () =>
+        component.getByText("Enable this VM's SafeConnect endpoint before editing it.").isVisible(),
+      )
+      .toBe(true);
     await screenshot(page);
     await page.close();
   });

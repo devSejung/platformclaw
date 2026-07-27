@@ -537,4 +537,85 @@ describe("SQLite employee execution store", () => {
     ).rejects.toMatchObject({ code: "execution_target_conflict" });
     store.close?.();
   });
+
+  it("repairs and re-enables disabled endpoints and VM hosts without replacing their records", async () => {
+    const store = createSqliteStore();
+    const { admin, endpoint, host } = await prepareVm(store);
+
+    await store.disableVmHost({
+      actorUserId: admin.user.id,
+      vmHostId: host.id,
+      disabledAt: 7_000,
+    });
+    await store.disableSafeConnectEndpoint({
+      actorUserId: admin.user.id,
+      endpointId: endpoint.id,
+      disabledAt: 7_001,
+    });
+    const updatedEndpoint = await store.updateSafeConnectEndpoint({
+      actorUserId: admin.user.id,
+      endpointId: endpoint.id,
+      label: "SafeConnect repaired",
+      host: "safeconnect-new.example.test",
+      port: 44_423,
+      adDomain: "example.test",
+      updatedAt: 7_002,
+    });
+    expect(updatedEndpoint).toMatchObject({
+      id: endpoint.id,
+      label: "SafeConnect repaired",
+      host: "safeconnect-new.example.test",
+      port: 44_423,
+      status: "pending",
+    });
+    expect(updatedEndpoint.hostKeyFingerprint).toBeUndefined();
+    await expect(
+      store.enableSafeConnectEndpoint({
+        actorUserId: admin.user.id,
+        endpointId: endpoint.id,
+        enabledAt: 7_003,
+      }),
+    ).rejects.toThrow("approve the SafeConnect host key");
+
+    await store.approveSafeConnectHostKey({
+      actorUserId: admin.user.id,
+      endpointId: endpoint.id,
+      ...testHostKey,
+      approvedAt: 7_004,
+    });
+    await expect(
+      store.approveSafeConnectHostKey({
+        actorUserId: admin.user.id,
+        endpointId: endpoint.id,
+        ...testHostKey,
+        approvedAt: 7_005,
+      }),
+    ).resolves.toMatchObject({ id: endpoint.id, status: "active" });
+    const updatedHost = await store.updateVmHost({
+      actorUserId: admin.user.id,
+      vmHostId: host.id,
+      endpointId: endpoint.id,
+      label: "Development VM repaired",
+      targetAddress: "192.0.2.11",
+      updatedAt: 7_006,
+    });
+    expect(updatedHost).toMatchObject({
+      id: host.id,
+      label: "Development VM repaired",
+      targetAddress: "192.0.2.11",
+      status: "disabled",
+    });
+    await expect(
+      store.enableVmHost({
+        actorUserId: admin.user.id,
+        vmHostId: host.id,
+        enabledAt: 7_007,
+      }),
+    ).resolves.toMatchObject({ id: host.id, status: "active" });
+
+    const snapshot = await store.getVmAdministrationSnapshot(admin.user.id);
+    expect(snapshot.endpoints).toHaveLength(1);
+    expect(snapshot.hosts).toHaveLength(1);
+    store.close?.();
+  });
 });

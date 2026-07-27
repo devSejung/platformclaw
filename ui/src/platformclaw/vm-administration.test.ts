@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mountPlatformClawVmAdministration } from "./vm-administration.ts";
 
+function parseRequestBody(init: RequestInit | undefined): unknown {
+  if (typeof init?.body !== "string") {
+    throw new TypeError("expected a JSON request body");
+  }
+  return JSON.parse(init.body);
+}
+
 const SNAPSHOT = {
   endpoints: [],
   hosts: [],
@@ -16,9 +23,9 @@ const SNAPSHOT = {
   auditEvents: [],
 };
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -54,16 +61,47 @@ describe("PlatformClaw VM administration", () => {
     expect(element.shadowRoot?.textContent).toContain("Employee assignments");
   });
 
-  it("submits a new endpoint through the admin-only API", async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(SNAPSHOT));
+  it("checks connectivity before saving and approving a new endpoint", async () => {
+    const endpointSnapshot = {
+      ...SNAPSHOT,
+      endpoints: [
+        {
+          id: "endpoint-one",
+          label: "Corporate access",
+          host: "safeconnect.example.test",
+          port: 44_422,
+          adDomain: "example.test",
+          status: "pending" as const,
+        },
+      ],
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(SNAPSHOT))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...SNAPSHOT,
+          probe: {
+            host: "safeconnect.example.test",
+            port: 44_422,
+            resolvedAddresses: ["192.0.2.20"],
+            sshBanner: "SSH-2.0-SafeConnect",
+            algorithm: "ssh-ed25519",
+            publicKey: "public-key",
+            fingerprint: "SHA256:fingerprint",
+          },
+        }),
+      )
+      .mockRejectedValueOnce(new TypeError("connection interrupted after create"))
+      .mockResolvedValueOnce(jsonResponse(endpointSnapshot))
+      .mockRejectedValueOnce(new TypeError("connection interrupted after approval"))
+      .mockResolvedValueOnce(jsonResponse({ ...endpointSnapshot, endpoints: [] }));
     mountPlatformClawVmAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = document.querySelector("platformclaw-vm-administration")!;
     await vi.waitFor(() => expect(element.shadowRoot?.querySelector("[data-open]")).not.toBeNull());
     element.shadowRoot?.querySelector<HTMLElement>("[data-open]")?.click();
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
-    const form = element.shadowRoot?.querySelector<HTMLFormElement>(
-      "form[data-action='endpoints']",
-    );
+    const form = element.shadowRoot?.querySelector<HTMLFormElement>("form[data-endpoint-probe]");
     if (!form) {
       throw new Error("endpoint form is missing");
     }
@@ -79,11 +117,44 @@ describe("PlatformClaw VM administration", () => {
       throw new Error("endpoint request body is missing");
     }
     expect(JSON.parse(init.body)).toEqual({
+      action: "probe-endpoint",
+      host: "safeconnect.example.test",
+      port: 44_422,
+    });
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector("[data-approve-probe]")).not.toBeNull(),
+    );
+    element.shadowRoot?.querySelector<HTMLElement>("[data-approve-probe]")?.click();
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(5));
+    const createInit = fetchImpl.mock.calls[2]?.[1];
+    const recoveryInit = fetchImpl.mock.calls[3]?.[1];
+    const approveInit = fetchImpl.mock.calls[4]?.[1];
+    expect(parseRequestBody(createInit)).toEqual({
       action: "endpoints",
       label: "Corporate access",
       host: "safeconnect.example.test",
       port: 44_422,
       adDomain: "example.test",
+    });
+    expect(recoveryInit?.method).toBeUndefined();
+    expect(parseRequestBody(approveInit)).toEqual({
+      action: "host-key",
+      endpointId: "endpoint-one",
+      algorithm: "ssh-ed25519",
+      publicKey: "public-key",
+      fingerprint: "SHA256:fingerprint",
+    });
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector("[data-approve-probe]")).not.toBeNull(),
+    );
+    element.shadowRoot?.querySelector<HTMLElement>("[data-approve-probe]")?.click();
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(6));
+    expect(parseRequestBody(fetchImpl.mock.calls[5]?.[1])).toEqual({
+      action: "host-key",
+      endpointId: "endpoint-one",
+      algorithm: "ssh-ed25519",
+      publicKey: "public-key",
+      fingerprint: "SHA256:fingerprint",
     });
   });
 

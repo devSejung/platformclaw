@@ -220,7 +220,7 @@ describe("EmployeeExecutionService", () => {
         expectedTargetRevision: 2,
         result: {
           status: "connection_required",
-          failureCode: "ssh_authentication_failed",
+          failureCode: "vm_authentication_failed",
         },
       }),
     );

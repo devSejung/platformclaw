@@ -103,17 +103,20 @@ function objectBody(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function isVmAuthenticationFailure(error: unknown): boolean {
+function vmConnectionFailureKind(error: unknown): string | null {
   if (!(error instanceof GatewayAdminRpcError)) {
-    return false;
+    return null;
   }
   const details = error.details;
-  return (
-    Boolean(details) &&
-    typeof details === "object" &&
-    !Array.isArray(details) &&
-    (details as Record<string, unknown>).kind === "vm_authentication_failed"
-  );
+  const kind =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? (details as Record<string, unknown>).kind
+      : undefined;
+  return typeof kind === "string" && kind.startsWith("vm_") ? kind : null;
+}
+
+function isVmAuthenticationFailure(error: unknown): boolean {
+  return vmConnectionFailureKind(error) === "vm_authentication_failed";
 }
 
 export class EmployeeExecutionService {
@@ -304,14 +307,15 @@ export class EmployeeExecutionService {
         credentialGrantToken: grant.token,
       });
     } catch (error) {
-      if (isVmAuthenticationFailure(error)) {
+      const failureKind = vmConnectionFailureKind(error);
+      if (failureKind) {
         await this.options.store.recordVmConnectionResult({
           actorUserId: userId,
           agentId,
           expectedAllocationId,
           expectedTargetRevision: settings.targetRevision,
           checkedAt: this.now(),
-          result: { status: "connection_required", failureCode: "ssh_authentication_failed" },
+          result: { status: "connection_required", failureCode: failureKind },
         });
       }
       throw error;

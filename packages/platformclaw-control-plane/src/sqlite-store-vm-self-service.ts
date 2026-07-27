@@ -7,7 +7,12 @@ import type {
   VmAllocation,
   VmHost,
 } from "./execution-contracts.js";
-import { normalizeLinuxAccount } from "./execution-validation.js";
+import {
+  normalizeAdDomain,
+  normalizeLinuxAccount,
+  normalizeSafeConnectHost,
+  normalizeVmTargetAddress,
+} from "./execution-validation.js";
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
 import { SqliteControlPlaneAuthStore } from "./sqlite-store-auth.js";
@@ -174,6 +179,132 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
     });
   }
 
+  async updateSafeConnectEndpoint(params: {
+    actorUserId: string;
+    endpointId: string;
+    label: string;
+    host: string;
+    port: number;
+    adDomain: string;
+    updatedAt: number;
+  }): Promise<SafeConnectEndpoint> {
+    return runImmediateTransaction(this.db, () => {
+      this.requireAdmin(params.actorUserId);
+      const endpoint = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("safeconnect_endpoints")
+          .selectAll()
+          .where("id", "=", params.endpointId),
+      );
+      if (!endpoint) {
+        throw new ControlPlaneStateError(`SafeConnect endpoint not found: ${params.endpointId}`);
+      }
+      if (endpoint.status === "active") {
+        throw new ControlPlaneStateError("disable this SafeConnect endpoint before editing it");
+      }
+      if (!Number.isInteger(params.port) || params.port < 1 || params.port > 65_535) {
+        throw new ControlPlaneStateError("SafeConnect port must be an integer from 1 to 65535");
+      }
+      const host = normalizeSafeConnectHost(params.host);
+      const duplicate = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("safeconnect_endpoints")
+          .select("id")
+          .where("host", "=", host)
+          .where("port", "=", params.port)
+          .where("id", "!=", endpoint.id),
+      );
+      if (duplicate) {
+        throw new ControlPlaneConflictError(
+          "safeconnect_endpoint_conflict",
+          `SafeConnect endpoint already exists: ${host}:${params.port}`,
+        );
+      }
+      const addressChanged = endpoint.host !== host || endpoint.port !== params.port;
+      const update = {
+        label: required(params.label, "endpoint.label"),
+        host,
+        port: params.port,
+        ad_domain: normalizeAdDomain(params.adDomain),
+        ...(addressChanged
+          ? {
+              status: "pending" as const,
+              host_key_algorithm: null,
+              host_key_public_key: null,
+              host_key_fingerprint: null,
+              host_key_approved_by_user_id: null,
+              host_key_approved_at: null,
+            }
+          : {}),
+        updated_at: params.updatedAt,
+      };
+      executeSync(
+        this.db,
+        this.query.updateTable("safeconnect_endpoints").set(update).where("id", "=", endpoint.id),
+      );
+      this.insertAudit(
+        params.actorUserId,
+        "safeconnect.endpoint.updated",
+        "safeconnect-endpoint",
+        endpoint.id,
+        params.updatedAt,
+        { addressChanged },
+      );
+      return rowToEndpoint(
+        takeFirstSync(
+          this.db,
+          this.query.selectFrom("safeconnect_endpoints").selectAll().where("id", "=", endpoint.id),
+        )!,
+      );
+    });
+  }
+
+  async enableSafeConnectEndpoint(params: {
+    actorUserId: string;
+    endpointId: string;
+    enabledAt: number;
+  }): Promise<SafeConnectEndpoint> {
+    return runImmediateTransaction(this.db, () => {
+      this.requireAdmin(params.actorUserId);
+      const endpoint = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("safeconnect_endpoints")
+          .selectAll()
+          .where("id", "=", params.endpointId),
+      );
+      if (!endpoint) {
+        throw new ControlPlaneStateError(`SafeConnect endpoint not found: ${params.endpointId}`);
+      }
+      if (
+        !endpoint.host_key_algorithm ||
+        !endpoint.host_key_public_key ||
+        !endpoint.host_key_fingerprint
+      ) {
+        throw new ControlPlaneStateError("approve the SafeConnect host key before enabling it");
+      }
+      if (endpoint.status !== "active") {
+        executeSync(
+          this.db,
+          this.query
+            .updateTable("safeconnect_endpoints")
+            .set({ status: "active", updated_at: params.enabledAt })
+            .where("id", "=", endpoint.id),
+        );
+        this.insertAudit(
+          params.actorUserId,
+          "safeconnect.endpoint.enabled",
+          "safeconnect-endpoint",
+          endpoint.id,
+          params.enabledAt,
+        );
+      }
+      return rowToEndpoint({ ...endpoint, status: "active", updated_at: params.enabledAt });
+    });
+  }
+
   async disableVmHost(params: {
     actorUserId: string;
     vmHostId: string;
@@ -218,6 +349,128 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
         );
       }
       return rowToVmHost({ ...host, status: "disabled", updated_at: params.disabledAt });
+    });
+  }
+
+  async updateVmHost(params: {
+    actorUserId: string;
+    vmHostId: string;
+    endpointId: string;
+    label: string;
+    targetAddress: string;
+    updatedAt: number;
+  }): Promise<VmHost> {
+    return runImmediateTransaction(this.db, () => {
+      this.requireAdmin(params.actorUserId);
+      const host = takeFirstSync(
+        this.db,
+        this.query.selectFrom("vm_hosts").selectAll().where("id", "=", params.vmHostId),
+      );
+      if (!host) {
+        throw new ControlPlaneStateError(`VM host not found: ${params.vmHostId}`);
+      }
+      if (host.status !== "disabled") {
+        throw new ControlPlaneStateError("disable this development VM before editing it");
+      }
+      const allocation = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("vm_allocations")
+          .select("id")
+          .where("vm_host_id", "=", host.id)
+          .where("status", "!=", "revoked"),
+      );
+      if (allocation) {
+        throw new ControlPlaneStateError("release every active assignment before editing this VM");
+      }
+      const endpoint = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("safeconnect_endpoints")
+          .select("id")
+          .where("id", "=", params.endpointId)
+          .where("status", "=", "active"),
+      );
+      if (!endpoint) {
+        throw new ControlPlaneStateError("VM host requires an active, pinned SafeConnect endpoint");
+      }
+      const targetAddress = normalizeVmTargetAddress(params.targetAddress);
+      const duplicate = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("vm_hosts")
+          .select("id")
+          .where("endpoint_id", "=", endpoint.id)
+          .where("target_address", "=", targetAddress)
+          .where("id", "!=", host.id),
+      );
+      if (duplicate) {
+        throw new ControlPlaneConflictError(
+          "vm_host_conflict",
+          `VM host already exists for endpoint and target: ${targetAddress}`,
+        );
+      }
+      executeSync(
+        this.db,
+        this.query
+          .updateTable("vm_hosts")
+          .set({
+            endpoint_id: endpoint.id,
+            label: required(params.label, "vmHost.label"),
+            target_address: targetAddress,
+            updated_at: params.updatedAt,
+          })
+          .where("id", "=", host.id),
+      );
+      this.insertAudit(params.actorUserId, "vm.host.updated", "vm-host", host.id, params.updatedAt);
+      return rowToVmHost(
+        takeFirstSync(
+          this.db,
+          this.query.selectFrom("vm_hosts").selectAll().where("id", "=", host.id),
+        )!,
+      );
+    });
+  }
+
+  async enableVmHost(params: {
+    actorUserId: string;
+    vmHostId: string;
+    enabledAt: number;
+  }): Promise<VmHost> {
+    return runImmediateTransaction(this.db, () => {
+      this.requireAdmin(params.actorUserId);
+      const host = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("vm_hosts")
+          .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
+          .selectAll("vm_hosts")
+          .select("safeconnect_endpoints.status as endpoint_status")
+          .where("vm_hosts.id", "=", params.vmHostId),
+      );
+      if (!host) {
+        throw new ControlPlaneStateError(`VM host not found: ${params.vmHostId}`);
+      }
+      if (host.endpoint_status !== "active") {
+        throw new ControlPlaneStateError("enable the SafeConnect endpoint before enabling this VM");
+      }
+      if (host.status !== "active") {
+        executeSync(
+          this.db,
+          this.query
+            .updateTable("vm_hosts")
+            .set({ status: "active", updated_at: params.enabledAt })
+            .where("id", "=", host.id),
+        );
+        this.insertAudit(
+          params.actorUserId,
+          "vm.host.enabled",
+          "vm-host",
+          host.id,
+          params.enabledAt,
+        );
+      }
+      return rowToVmHost({ ...host, status: "active", updated_at: params.enabledAt });
     });
   }
 

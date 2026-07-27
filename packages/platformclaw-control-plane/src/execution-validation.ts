@@ -29,10 +29,9 @@ function decodeOpenSshKeyBlob(value: string): Buffer {
   return blob;
 }
 
-export function normalizeOpenSshHostKey(params: {
+export function normalizeObservedOpenSshHostKey(params: {
   algorithm: string;
   publicKey: string;
-  approvedFingerprint: string;
 }): NormalizedOpenSshHostKey {
   const algorithm = required(params.algorithm, "hostKey.algorithm");
   if (algorithm !== "ssh-ed25519") {
@@ -70,14 +69,23 @@ export function normalizeOpenSshHostKey(params: {
     .update(blob)
     .digest("base64")
     .replace(/=+$/u, "")}`;
-  if (required(params.approvedFingerprint, "hostKey.fingerprint") !== fingerprint) {
-    throw new ControlPlaneStateError("approved host key fingerprint does not match public key");
-  }
   return {
     algorithm,
     publicKey: blob.toString("base64"),
     fingerprint,
   };
+}
+
+export function normalizeOpenSshHostKey(params: {
+  algorithm: string;
+  publicKey: string;
+  approvedFingerprint: string;
+}): NormalizedOpenSshHostKey {
+  const key = normalizeObservedOpenSshHostKey(params);
+  if (required(params.approvedFingerprint, "hostKey.fingerprint") !== key.fingerprint) {
+    throw new ControlPlaneStateError("approved host key fingerprint does not match public key");
+  }
+  return key;
 }
 
 function normalizeDnsName(candidate: string, field: string): string {

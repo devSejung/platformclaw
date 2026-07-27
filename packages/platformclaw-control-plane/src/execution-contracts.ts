@@ -206,11 +206,38 @@ export interface ControlPlaneExecutionManagementStore {
 }
 
 export interface ControlPlaneVmLifecycleStore {
+  updateSafeConnectEndpoint(params: {
+    actorUserId: string;
+    endpointId: string;
+    label: string;
+    host: string;
+    port: number;
+    adDomain: string;
+    updatedAt: number;
+  }): Promise<SafeConnectEndpoint>;
+  enableSafeConnectEndpoint(params: {
+    actorUserId: string;
+    endpointId: string;
+    enabledAt: number;
+  }): Promise<SafeConnectEndpoint>;
   disableSafeConnectEndpoint(params: {
     actorUserId: string;
     endpointId: string;
     disabledAt: number;
   }): Promise<SafeConnectEndpoint>;
+  updateVmHost(params: {
+    actorUserId: string;
+    vmHostId: string;
+    endpointId: string;
+    label: string;
+    targetAddress: string;
+    updatedAt: number;
+  }): Promise<VmHost>;
+  enableVmHost(params: {
+    actorUserId: string;
+    vmHostId: string;
+    enabledAt: number;
+  }): Promise<VmHost>;
   disableVmHost(params: {
     actorUserId: string;
     vmHostId: string;

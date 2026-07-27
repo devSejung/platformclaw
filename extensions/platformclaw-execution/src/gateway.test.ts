@@ -17,6 +17,7 @@ function createHarness(runtime: {
   const methods = new Map<string, GatewayHandler>();
   let beforeRun: BeforeRunHandler | undefined;
   const api = {
+    logger: { warn: vi.fn() },
     on: vi.fn((name: string, handler: BeforeRunHandler) => {
       if (name === "before_agent_run") {
         beforeRun = handler;
@@ -66,8 +67,37 @@ describe("PlatformClaw execution Gateway methods", () => {
     });
     expect(respond).toHaveBeenCalledWith(false, undefined, {
       code: "INVALID_REQUEST",
-      message: "development VM authentication failed",
+      message: "development VM authentication failed; update the AD password and try again",
       details: { kind: "vm_authentication_failed" },
+    });
+  });
+
+  it("preserves a categorized SSH cause for users and operators", async () => {
+    const runtime = {
+      testConnection: vi.fn(async () => {
+        throw Object.assign(new Error("ssh: Could not resolve hostname safeconnect.invalid"), {
+          code: 255,
+        });
+      }),
+      testCandidateConnection: vi.fn(),
+      changeTarget: vi.fn(),
+    };
+    const harness = createHarness(runtime);
+    const respond = vi.fn();
+
+    await harness.methods.get("platformclaw-execution.testConnection")!({
+      params: {
+        agentId: "person_one",
+        credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
+        credentialGrantToken: "grant-token",
+      },
+      respond,
+    } as never);
+
+    expect(respond).toHaveBeenCalledWith(false, undefined, {
+      code: "UNAVAILABLE",
+      message: "SafeConnect host name could not be resolved",
+      details: { kind: "vm_dns_failed" },
     });
   });
 
