@@ -1,0 +1,28 @@
+/* Chat CSS loads lazily after the app shell. Keep the downstream product-
+   surface overrides last without changing upstream chat component rules. */
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .chat-text :where(pre),
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .sidebar-markdown pre {
+  border-color: var(--platformclaw-product-border);
+  background: var(--platformclaw-product-bg-soft);
+  color: var(--platformclaw-product-text);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  .chat-text
+  :where(pre code.markdown-block-art),
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  .sidebar-markdown
+  :where(pre code.markdown-block-art) {
+  color: var(--platformclaw-product-text);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  .chat-send-btn:hover:not(:disabled) {
+  background: var(--primary);
+  box-shadow: 0 1px 3px var(--accent-subtle);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  .chat-send-btn:active:not(:disabled) {
+  background: var(--primary-hover);
+}

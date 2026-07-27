@@ -363,6 +363,12 @@
   --theme-chip-accent-2: #14b8a6;
 }
 
+.settings-theme-card--platformclaw {
+  --theme-chip-bg: #181715;
+  --theme-chip-accent: #4fb3a8;
+  --theme-chip-accent-2: #d97757;
+}
+
 .settings-theme-card--knot {
   --theme-chip-bg: #080808;
   --theme-chip-accent: #e5243b;
@@ -379,6 +385,12 @@
   --theme-chip-bg: #faf9f7;
   --theme-chip-accent: #bd4531;
   --theme-chip-accent-2: #0d9488;
+}
+
+:root[data-theme-mode="light"] .settings-theme-card--platformclaw {
+  --theme-chip-bg: #faf9f5;
+  --theme-chip-accent: #0f7c72;
+  --theme-chip-accent-2: #d97757;
 }
 
 :root[data-theme-mode="light"] .settings-theme-card--knot {

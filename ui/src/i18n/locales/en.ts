@@ -1409,6 +1409,10 @@ export const en: TranslationMap = {
       wizard: "Setup Wizard",
     },
     themes: {
+      platformclaw: {
+        label: "PlatformClaw",
+        description: "Warm cream & teal",
+      },
       claw: {
         label: "Claw",
         description: "Chroma family",

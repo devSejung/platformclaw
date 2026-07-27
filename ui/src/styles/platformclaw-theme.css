@@ -1,0 +1,281 @@
+/* PlatformClaw owns this additive theme file. Keeping downstream tokens out of
+   upstream base.css makes theme divergence easy to audit during syncs. */
+:root[data-theme="platformclaw"] {
+  /* Product surfaces stay charcoal in both modes, matching design.md's
+     cream/content vs. dark/product pacing contract. */
+  --platformclaw-product-bg: #181715;
+  --platformclaw-product-bg-soft: #1f1e1b;
+  --platformclaw-product-bg-elevated: #252320;
+  --platformclaw-product-text: #faf9f5;
+  --platformclaw-product-muted: #a09d96;
+  --platformclaw-product-border: #35322e;
+  --platformclaw-code-keyword: #ef8c70;
+  --platformclaw-code-number: #e8a55a;
+  --platformclaw-code-string: #8bc8bf;
+  --platformclaw-code-title: #f0c28c;
+  --platformclaw-code-attribute: #82bd8f;
+  --platformclaw-code-meta: #c7c2b9;
+
+  --bg: #181715;
+  --bg-accent: #1f1e1b;
+  --bg-elevated: #252320;
+  --bg-hover: #302e2a;
+  --bg-muted: #252320;
+  --bg-content: #1f1e1b;
+
+  --card: #1f1e1b;
+  --card-foreground: #faf9f5;
+  --card-highlight: rgba(250, 249, 245, 0.04);
+  --popover: #252320;
+  --popover-foreground: #faf9f5;
+
+  --panel: #181715;
+  --panel-strong: #252320;
+  --panel-hover: #302e2a;
+  --chrome: rgba(24, 23, 21, 0.96);
+  --chrome-strong: rgba(24, 23, 21, 0.98);
+
+  --text: #d8d5ce;
+  --text-strong: #faf9f5;
+  --chat-text: #d8d5ce;
+  --muted: #a09d96;
+  --muted-strong: #bbb7af;
+  --muted-foreground: #a09d96;
+
+  --border: #35322e;
+  --border-strong: #49453f;
+  --border-hover: #625d55;
+  --input: #35322e;
+  --ring: #4fb3a8;
+
+  --accent: #4fb3a8;
+  --accent-hover: #67c4ba;
+  --accent-muted: #4fb3a8;
+  --accent-subtle: rgba(79, 179, 168, 0.12);
+  --accent-foreground: #141413;
+  --accent-glow: rgba(79, 179, 168, 0.22);
+  --selection-bg: #0f7c72;
+  --selection-fg: #ffffff;
+  --primary: #0f7c72;
+  --primary-hover: #0b625a;
+  --primary-foreground: #ffffff;
+
+  --secondary: #252320;
+  --secondary-foreground: #faf9f5;
+  --accent-2: #d97757;
+  --accent-2-muted: rgba(217, 119, 87, 0.75);
+  --accent-2-subtle: rgba(217, 119, 87, 0.12);
+
+  --ok: #5db872;
+  --ok-muted: rgba(93, 184, 114, 0.75);
+  --ok-subtle: rgba(93, 184, 114, 0.1);
+  --destructive: #c64545;
+  --destructive-hover: #aa3737;
+  --destructive-foreground: #ffffff;
+  --warn: #e8a55a;
+  --warn-muted: rgba(232, 165, 90, 0.75);
+  --warn-subtle: rgba(232, 165, 90, 0.1);
+  --danger: #c64545;
+  --danger-muted: rgba(198, 69, 69, 0.75);
+  --danger-subtle: rgba(198, 69, 69, 0.1);
+  --info: #4fb3a8;
+
+  --focus: rgba(79, 179, 168, 0.2);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 3px color-mix(in srgb, var(--ring) 80%, transparent);
+  --focus-glow: 0 0 0 2px var(--bg), 0 0 0 3px var(--ring), 0 0 16px var(--accent-glow);
+  --grid-line: rgba(250, 249, 245, 0.035);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.48);
+  --shadow-glow: 0 0 20px var(--accent-glow);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius: 8px;
+}
+
+:root[data-theme="platformclaw-light"] {
+  --platformclaw-product-bg: #181715;
+  --platformclaw-product-bg-soft: #1f1e1b;
+  --platformclaw-product-bg-elevated: #252320;
+  --platformclaw-product-text: #faf9f5;
+  --platformclaw-product-muted: #a09d96;
+  --platformclaw-product-border: #35322e;
+  --platformclaw-code-keyword: #ef8c70;
+  --platformclaw-code-number: #e8a55a;
+  --platformclaw-code-string: #8bc8bf;
+  --platformclaw-code-title: #f0c28c;
+  --platformclaw-code-attribute: #82bd8f;
+  --platformclaw-code-meta: #c7c2b9;
+
+  --bg: #faf9f5;
+  --bg-accent: #f5f0e8;
+  --bg-elevated: #efe9de;
+  --bg-hover: #e8e0d2;
+  --bg-muted: #efe9de;
+  --bg-content: #f5f0e8;
+
+  --card: #efe9de;
+  --card-foreground: #141413;
+  --card-highlight: rgba(20, 20, 19, 0.03);
+  --popover: #f5f0e8;
+  --popover-foreground: #141413;
+
+  --panel: #faf9f5;
+  --panel-strong: #f5f0e8;
+  --panel-hover: #efe9de;
+  --chrome: rgba(250, 249, 245, 0.96);
+  --chrome-strong: rgba(250, 249, 245, 0.98);
+
+  --text: #3d3d3a;
+  --text-strong: #141413;
+  --chat-text: #3d3d3a;
+  --muted: #6c6a64;
+  --muted-strong: #53514c;
+  --muted-foreground: #6c6a64;
+
+  --border: #e6dfd8;
+  --border-strong: #d3c9bd;
+  --border-hover: #b7aa9c;
+  --input: #e6dfd8;
+  --ring: #0f7c72;
+
+  --accent: #0f7c72;
+  --accent-hover: #0b625a;
+  --accent-muted: #0f7c72;
+  --accent-subtle: rgba(15, 124, 114, 0.1);
+  --accent-foreground: #ffffff;
+  --accent-glow: rgba(15, 124, 114, 0.16);
+  --selection-bg: #0f7c72;
+  --selection-fg: #ffffff;
+  --primary: #0f7c72;
+  --primary-hover: #0b625a;
+  --primary-foreground: #ffffff;
+
+  --secondary: #f5f0e8;
+  --secondary-foreground: #252523;
+  --accent-2: #d97757;
+  --accent-2-muted: rgba(217, 119, 87, 0.75);
+  --accent-2-subtle: rgba(217, 119, 87, 0.1);
+
+  --ok: #438c55;
+  --ok-muted: rgba(67, 140, 85, 0.75);
+  --ok-subtle: rgba(93, 184, 114, 0.1);
+  --destructive: #c64545;
+  --destructive-hover: #a93636;
+  --destructive-foreground: #ffffff;
+  --warn: #9a6c0a;
+  --warn-muted: rgba(154, 108, 10, 0.75);
+  --warn-subtle: rgba(212, 160, 23, 0.1);
+  --danger: #c64545;
+  --danger-muted: rgba(198, 69, 69, 0.75);
+  --danger-subtle: rgba(198, 69, 69, 0.1);
+  --info: #0f7c72;
+
+  --focus: rgba(15, 124, 114, 0.15);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 3px color-mix(in srgb, var(--ring) 75%, transparent);
+  --focus-glow: 0 0 0 2px var(--bg), 0 0 0 3px var(--ring), 0 0 12px var(--accent-glow);
+  --grid-line: rgba(20, 20, 19, 0.04);
+
+  --shadow-sm: 0 1px 3px rgba(20, 20, 19, 0.08);
+  --shadow-md: 0 4px 12px rgba(20, 20, 19, 0.07);
+  --shadow-lg: 0 12px 28px rgba(20, 20, 19, 0.09);
+  --shadow-xl: 0 24px 48px rgba(20, 20, 19, 0.11);
+  --shadow-glow: 0 0 20px var(--accent-glow);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius: 8px;
+}
+
+/* design.md defines no hover color. Primary actions darken only while pressed. */
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .btn.primary:hover,
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  .approval-page__action--allow-once:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: 0 1px 3px var(--accent-subtle);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  .btn.primary:active:not(:disabled),
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  .approval-page__action--allow-once:active:not(:disabled) {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
+/* Code windows are product chrome, not cream content cards. */
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .code-block,
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .code-block-wrapper pre {
+  border-color: var(--platformclaw-product-border);
+  background: var(--platformclaw-product-bg-soft);
+  color: var(--platformclaw-product-text);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .code-block-header {
+  background: var(--platformclaw-product-bg-elevated);
+  color: var(--platformclaw-product-muted);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  :is(.code-block .hljs, .code-block-wrapper pre code.hljs) {
+  color: var(--platformclaw-product-text);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  :is(.code-block, .code-block-wrapper pre code.hljs)
+  :is(.hljs-comment, .hljs-quote) {
+  color: var(--platformclaw-product-muted);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  :is(.code-block, .code-block-wrapper pre code.hljs)
+  :is(.hljs-keyword, .hljs-selector-tag, .hljs-subst) {
+  color: var(--platformclaw-code-keyword);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  :is(.code-block, .code-block-wrapper pre code.hljs)
+  :is(.hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable) {
+  color: var(--platformclaw-code-number);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  :is(.code-block, .code-block-wrapper pre code.hljs)
+  :is(.hljs-string, .hljs-doctag) {
+  color: var(--platformclaw-code-string);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  :is(.code-block, .code-block-wrapper pre code.hljs)
+  :is(.hljs-title, .hljs-section, .hljs-selector-id) {
+  color: var(--platformclaw-code-title);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  :is(.code-block, .code-block-wrapper pre code.hljs)
+  :is(.hljs-attr, .hljs-attribute, .hljs-name, .hljs-selector-class) {
+  color: var(--platformclaw-code-attribute);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  :is(.code-block, .code-block-wrapper pre code.hljs)
+  .hljs-meta {
+  color: var(--platformclaw-code-meta);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .code-block-copy {
+  color: var(--platformclaw-product-muted);
+}
+
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .code-block-copy:hover {
+  background: transparent;
+  color: var(--platformclaw-product-text);
+}

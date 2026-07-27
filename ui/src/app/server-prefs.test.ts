@@ -71,6 +71,18 @@ describe("server pref extraction", () => {
 });
 
 describe("applyServerUiPrefs", () => {
+  it("applies the PlatformClaw theme from synced preferences", () => {
+    const onApplied = vi.fn();
+    patchSettings({ theme: "claw", themeMode: "dark" });
+    expect(
+      applyServerUiPrefs(configWithPrefs({ theme: "platformclaw", themeMode: "light" }), {
+        onApplied,
+      }),
+    ).toBe(true);
+    expect(loadSettings()).toMatchObject({ theme: "platformclaw", themeMode: "light" });
+    expect(onApplied).toHaveBeenCalledWith({ theme: "platformclaw", themeMode: "light" });
+  });
+
   it("applies a server delta to the local mirror once", () => {
     const onApplied = vi.fn();
     const config = configWithPrefs({ themeMode: "dark" });
@@ -141,7 +153,7 @@ describe("applyServerUiPrefs", () => {
   it("ignores a server custom theme until this browser imported one", () => {
     const onApplied = vi.fn();
     expect(applyServerUiPrefs(configWithPrefs({ theme: "custom" }), { onApplied })).toBe(false);
-    expect(loadSettings().theme).toBe("claw");
+    expect(loadSettings().theme).toBe("platformclaw");
   });
 });
 
