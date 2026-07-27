@@ -57,6 +57,31 @@ Create only VM preview prereleases until a stable PlatformClaw release contract 
    gh release edit <tag> --draft=false --prerelease
    ```
 
+## Same-day latest-main replacement
+
+For this downstream, an operator request to release the latest `main` also
+authorizes replacing the existing same-day canonical VM preview. Do not ask for
+replacement approval again.
+
+Complete steps 1-6 before touching the published release. Require the frozen
+`origin/main` SHA, built image tags, notes, checksums, manifest, and upload plan
+to agree. If any build or proof fails, leave the existing release untouched.
+
+When the same-day canonical tag already targets an older SHA:
+
+1. Record its target SHA, published state, asset names, sizes, and digests.
+2. Delete the existing release and tag with `gh release delete <tag>
+--cleanup-tag --yes`.
+3. Immediately recreate a draft prerelease at the exact new SHA.
+4. Upload only the audited local-plan assets, replacing both the image archive
+   and deployment bundle (plus their checksums and manifest) from the same SHA.
+5. Re-read target, notes, names, sizes, and digests from GitHub.
+6. Publish only when every value matches the replacement manifest.
+
+This replacement briefly interrupts the canonical download URLs. Never invent
+a future date or noncanonical suffix to avoid the conflict. A request to
+preserve the old release overrides this standing replacement policy.
+
 ## Canonical contract
 
 - Tag: `platformclaw-vm-preview-YYYYMMDD`
@@ -78,6 +103,7 @@ runtime databases, logs, or user workspaces.
 ## Recovery
 
 - Wrong draft asset: delete/replace while draft; re-run digest verification.
-- Published release mismatch: do not silently replace immutable evidence.
-  Create corrected dated preview unless user explicitly authorizes asset repair.
+- Published release mismatch outside the same-day latest-main policy: do not
+  silently replace immutable evidence. Create a corrected dated preview unless
+  the user explicitly authorizes asset repair.
 - Build or proof failure: keep release draft or delete empty draft. Never publish.

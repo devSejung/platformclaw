@@ -24,8 +24,9 @@ function boundedDiagnostic(error: unknown): string {
   }
   const value = error as Error & { code?: unknown; exitCode?: unknown; stderr?: unknown };
   const code = value.exitCode ?? value.code;
+  const codeText = typeof code === "string" || typeof code === "number" ? String(code) : "";
   const stderr = typeof value.stderr === "string" ? value.stderr : "";
-  return [error.name, code === undefined ? "" : `code=${String(code)}`, stderr || error.message]
+  return [error.name, codeText ? `code=${codeText}` : "", stderr || error.message]
     .filter(Boolean)
     .join("; ")
     .replace(/[\r\n]+/gu, " ")
