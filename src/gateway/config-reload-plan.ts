@@ -109,6 +109,11 @@ const BASE_RELOAD_RULES: ReloadRule[] = [
     kind: "hot",
     actions: ["restart-heartbeat"],
   },
+  {
+    prefix: "agents.entries",
+    kind: "hot",
+    actions: ["restart-heartbeat"],
+  },
   { prefix: "agent.heartbeat", kind: "hot", actions: ["restart-heartbeat"] },
   { prefix: "cron", kind: "hot", actions: ["restart-cron"] },
   // The dedicated Apps listener and origin are created once during Gateway

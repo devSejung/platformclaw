@@ -15,9 +15,10 @@ describe("PlatformClaw agent runtime status", () => {
   ) {
     const configuredWorkspace = options.workspace ?? workspace;
     const respond = vi.fn();
-    const loadGatewayModelCatalogSnapshot = options.loadError
+    const loadError = options.loadError;
+    const loadGatewayModelCatalogSnapshot = loadError
       ? vi.fn(async () => {
-          throw options.loadError;
+          throw loadError;
         })
       : vi.fn(async () => options.snapshot ?? { agentId, workspaceDir: configuredWorkspace });
     return {
