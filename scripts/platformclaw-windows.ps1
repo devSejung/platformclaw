@@ -157,8 +157,17 @@ function Show-Doctor {
     if (Test-Path $configFile) {
         try {
             $config = Get-Content -Raw -LiteralPath $configFile | ConvertFrom-Json
-            $agentIds = @($config.agents.list | ForEach-Object { $_.id })
-            Write-Host "  agents    $(if ($agentIds.Count -gt 0) { $agentIds -join ', ' } else { '(none)' })"
+            $entries = $config.agents.entries
+            if ($entries) {
+                $agentIds = @($entries.PSObject.Properties.Name)
+                Write-Host "  agents    $(if ($agentIds.Count -gt 0) { $agentIds -join ', ' } else { '(none)' })"
+            }
+            elseif ($config.agents.list) {
+                Write-Host "  agents    legacy config; Start will migrate it" -ForegroundColor Yellow
+            }
+            else {
+                Write-Host "  agents    (none)"
+            }
         }
         catch {
             Write-Host "  agents    config unreadable: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -345,6 +354,23 @@ function Initialize-Runtime {
     $env:PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = "\\.\pipe\platformclaw-credential-broker-$Port"
     $env:PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = $executionServiceTokenFile
     $env:PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL = "http://127.0.0.1:$EmployeeAuthPort/login"
+
+    # This preview owns its isolated config, so apply upstream doctor migrations before Gateway
+    # startup. Without this step an upstream schema change can strand otherwise valid preview data.
+    Write-Step "Checking saved OpenClaw configuration"
+    Push-Location $SourceRoot
+    try {
+        Invoke-Checked -Command node -Arguments @(
+            "--import",
+            "tsx",
+            "scripts\platformclaw-windows-config-migrate.mjs",
+            "--config",
+            $configFile
+        )
+    }
+    finally {
+        Pop-Location
+    }
 }
 
 function Test-HttpEndpoint {
@@ -396,6 +422,16 @@ function Start-VisibleShell {
     return Start-Process -FilePath $shell -ArgumentList @("-NoExit", "-EncodedCommand", $encoded) -PassThru
 }
 
+function Stop-ProcessTree {
+    param([int]$ProcessId)
+
+    $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcessId" -ErrorAction SilentlyContinue)
+    foreach ($child in $children) {
+        Stop-ProcessTree -ProcessId $child.ProcessId
+    }
+    Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+}
+
 function Start-PlatformClaw {
     Assert-Command git
     Assert-Command node
@@ -410,6 +446,7 @@ function Start-PlatformClaw {
         $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
     }
 
+    $startedProcesses = @()
     try {
         Initialize-Runtime $sourceRoot
         $internalPort = $Port + 1
@@ -432,12 +469,18 @@ function Start-PlatformClaw {
         $pythonPrefix = ($python.Prefix | ForEach-Object { "'$_'" }) -join " "
         $pythonCommand = "& '$($python.Command)' $pythonPrefix 'scripts\mock_employee_auth.py' --bind 127.0.0.1 --port $EmployeeAuthPort"
         $auth = Start-VisibleShell "PlatformClaw - employee auth mock" $sourceRoot $pythonCommand
+        $startedProcesses += $auth
         Wait-HttpEndpoint "http://127.0.0.1:$EmployeeAuthPort/healthz" "Employee auth mock"
 
         $gateway = Start-VisibleShell "PlatformClaw - Gateway" $sourceRoot "corepack pnpm openclaw gateway --bind loopback --port $GatewayPort"
-        Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway"
+        $startedProcesses += $gateway
+        # A first start after an upstream sync can verify and migrate every existing agent DB
+        # before opening the HTTP listener. Keep the bound finite, but do not misreport that
+        # expected upgrade work as a dead Gateway.
+        Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway" -TimeoutSeconds 240
 
         $control = Start-VisibleShell "PlatformClaw - Control/UI" $sourceRoot "corepack pnpm platformclaw:control"
+        $startedProcesses += $control
         Wait-HttpEndpoint "http://127.0.0.1:$Port/platformclaw/health" "Control/UI"
 
         Write-Host ""
@@ -449,6 +492,15 @@ function Start-PlatformClaw {
         Write-Host "  PIDs:     auth=$($auth.Id), gateway=$($gateway.Id), control=$($control.Id)"
         Write-Host "  Stop:     press Ctrl+C or close the three process windows"
         Start-Process $loginUrl
+    }
+    catch {
+        if ($startedProcesses.Count -gt 0) {
+            Write-Step "Startup failed; closing processes opened by this run"
+            for ($index = $startedProcesses.Count - 1; $index -ge 0; $index -= 1) {
+                Stop-ProcessTree -ProcessId $startedProcesses[$index].Id
+            }
+        }
+        throw
     }
     finally {
         foreach ($name in $runtimeEnvironmentNames) {
