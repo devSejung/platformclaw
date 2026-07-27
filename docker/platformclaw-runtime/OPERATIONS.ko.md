@@ -16,6 +16,10 @@ Ubuntu 22.04 서버에서 PlatformClaw를 설치하고, `openclaw.json`을 편�
 | `platformclaw-control` | 로그인, 사용자 세션, 관리 UI, DB, Gateway 정책 프록시 | Web 포트만 공개 |
 | `openclaw-gateway`     | Agent, 모델, 세션, 도구 실행 조정                     | 공개하지 않음   |
 
+Control Web 포트는 VM 외부 접속을 위해 기본적으로 호스트의 모든 인터페이스
+(`0.0.0.0`)에 bind된다. 사내 방화벽이나 승인된 reverse proxy로 접근 범위를 제한한다.
+Gateway 포트는 계속 외부에 공개하지 않는다.
+
 영구 데이터는 서비스 계정 홈 아래에 있다. 호스트 경로와 컨테이너 경로를 같게 유지해
 rootless sandbox가 workspace와 materialized skill을 같은 절대경로로 찾게 한다.
 
@@ -339,8 +343,10 @@ docker compose down --volumes
 ```
 
 스크립트가 두 daemon에 이미지를 로드하고 `deployment.env`의 image ref를 원자적으로
-바꾼 뒤 Compose health를 기다린다. 실패하면 `deployment.env.previous`를 복원하고 이전
-이미지로 재기동한다.
+바꾼 뒤 Compose health를 기다린다. health가 통과하면 기존 Agent sandbox를 모두 제거하여
+다음 실행부터 새 sandbox 이미지로 다시 만들게 한다. sandbox 제거까지 실패하면
+`deployment.env.previous`를 복원하고 이전 이미지로 재기동한다. 이전 이미지는 rollback을
+위해 자동 삭제하지 않는다.
 
 이미 로드된 tag만 바꿀 때:
 
