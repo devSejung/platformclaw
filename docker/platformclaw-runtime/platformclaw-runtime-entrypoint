@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( $# == 0 )); then
+  echo "PlatformClaw runtime command is required" >&2
+  exit 2
+fi
+
+runtime_uid="$(id -u)"
+runtime_gid="$(id -g)"
+
+if getent passwd "$runtime_uid" >/dev/null && getent group "$runtime_gid" >/dev/null; then
+  exec /usr/bin/tini -s -- "$@"
+fi
+
+if [[ ! "$runtime_uid" =~ ^[0-9]+$ || ! "$runtime_gid" =~ ^[0-9]+$ ]]; then
+  echo "PlatformClaw runtime UID/GID is invalid" >&2
+  exit 1
+fi
+
+runtime_home="${HOME:-}"
+if [[ "$runtime_home" != /* || "$runtime_home" == *:* || "$runtime_home" == *$'\n'* || "$runtime_home" == *$'\r'* ]]; then
+  echo "PlatformClaw runtime HOME must be a safe absolute path" >&2
+  exit 1
+fi
+
+# Docker may start this image with any host service UID/GID. OpenSSH and other
+# Unix tools require that numeric identity to resolve through NSS before use.
+nss_dir="/tmp/platformclaw-nss-$runtime_uid"
+if [[ -e "$nss_dir" && ! -d "$nss_dir" ]]; then
+  echo "PlatformClaw NSS path is not a directory" >&2
+  exit 1
+fi
+umask 077
+mkdir -p -- "$nss_dir"
+if [[ "$(stat -c %u "$nss_dir")" != "$runtime_uid" ]]; then
+  echo "PlatformClaw NSS directory has an unexpected owner" >&2
+  exit 1
+fi
+chmod 0700 "$nss_dir"
+
+passwd_tmp="$(mktemp "$nss_dir/passwd.XXXXXX")"
+group_tmp="$(mktemp "$nss_dir/group.XXXXXX")"
+cp /etc/passwd "$passwd_tmp"
+cp /etc/group "$group_tmp"
+
+runtime_user="platformclaw-$runtime_uid"
+runtime_group="platformclaw-$runtime_gid"
+if ! getent passwd "$runtime_uid" >/dev/null; then
+  printf '%s:x:%s:%s:PlatformClaw runtime:%s:/bin/bash\n' \
+    "$runtime_user" "$runtime_uid" "$runtime_gid" "$runtime_home" >>"$passwd_tmp"
+fi
+if ! getent group "$runtime_gid" >/dev/null; then
+  printf '%s:x:%s:\n' "$runtime_group" "$runtime_gid" >>"$group_tmp"
+fi
+
+mv -f -- "$passwd_tmp" "$nss_dir/passwd"
+mv -f -- "$group_tmp" "$nss_dir/group"
+export NSS_WRAPPER_PASSWD="$nss_dir/passwd"
+export NSS_WRAPPER_GROUP="$nss_dir/group"
+export LD_PRELOAD="/usr/local/lib/libnss_wrapper.so${LD_PRELOAD:+:$LD_PRELOAD}"
+
+if ! getent passwd "$runtime_uid" >/dev/null || ! getent group "$runtime_gid" >/dev/null; then
+  echo "PlatformClaw runtime identity initialization failed" >&2
+  exit 1
+fi
+
+exec /usr/bin/tini -s -- "$@"

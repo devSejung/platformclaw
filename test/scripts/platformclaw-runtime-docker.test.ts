@@ -43,11 +43,79 @@ describe("PlatformClaw Docker runtime", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
 
     expect(build).toContain(
-      'run("docker", ["save", "-o", artifactPath, runtimeShaTag, sandboxShaTag])',
+      'run("docker", ["save", "-o", artifactTemp, runtimeShaTag, sandboxShaTag])',
     );
     expect(build).not.toContain(
       'run("docker", ["save", "-o", artifactPath, runtimeVersionTag, sandboxVersionTag])',
     );
+  });
+
+  it("boots the runtime under a host UID that is absent from the image", () => {
+    const dockerfile = readRepoFile("Dockerfile.jammy");
+    const entrypoint = readRepoFile("docker/platformclaw-runtime/platformclaw-runtime-entrypoint");
+    const build = readRepoFile("scripts/platformclaw-build.mjs");
+
+    expect(dockerfile).toContain("libnss-wrapper");
+    expect(dockerfile).toContain('ENTRYPOINT ["/usr/local/bin/platformclaw-runtime-entrypoint"]');
+    expect(entrypoint).toContain('getent passwd "$runtime_uid"');
+    expect(entrypoint).toContain('getent group "$runtime_gid"');
+    expect(entrypoint).toContain('exec /usr/bin/tini -s -- "$@"');
+    expect(build).toContain('"1003:1003"');
+    expect(build).toContain('"ssh -G -F /dev/null platformclaw.invalid >/dev/null"');
+  });
+
+  it("bounds home-development Docker and release artifact storage", () => {
+    const build = readRepoFile("scripts/platformclaw-build.mjs");
+    const cleanup = readRepoFile("scripts/platformclaw-dev-cleanup.mjs");
+    const maintenance = readRepoFile("scripts/platformclaw-dev-maintenance.ps1");
+    const compact = readRepoFile("scripts/platformclaw-docker-vhdx-compact.ps1");
+
+    expect(build).toContain("cleanupAfterBuild(buildSucceeded)");
+    expect(build).toContain('"--skip-final-images"');
+    expect(build).toContain('"--skip-archives"');
+    expect(build).toContain('"--failed-build-sha"');
+    expect(build).toContain('"--output-dir"');
+    expect(build).toContain('"--skip-cache"');
+    expect(build).toContain("publishOwnedLock(publicationLockPath)");
+    expect(build).toContain("await acquireDockerResourceLock()");
+    expect(build).toContain('server.listen({ host: "127.0.0.1", port, exclusive: true }');
+    expect(build).toContain("publishOwnedLock(publicationLockPath)");
+    expect(build).toContain('"--build-lock-owner"');
+    expect(build).toContain("restoreImageTag(tag, imageId)");
+    expect(build).toContain("artifactMoved && !checksumMoved");
+    expect(build).toContain("rmSync(publishedArtifactPath, { force: true })");
+    expect(build).toContain("/No such image/u.test(result.stderr)");
+    for (const repository of [
+      "platformclaw-jammy-build",
+      "platformclaw-openclaw-build",
+      "platformclaw-runtime-assets",
+      "platformclaw-control-assets",
+    ]) {
+      expect(cleanup).toContain(`"${repository}"`);
+    }
+    expect(cleanup).toContain("keepRollbackImages: 1");
+    expect(cleanup).toContain("!options.intermediateSha || row.Tag === options.intermediateSha");
+    expect(cleanup).toContain("keepReleaseArchives: 3");
+    expect(cleanup).toContain('cacheMax: "20gb"');
+    expect(cleanup).toContain('"--all"');
+    expect(cleanup).toContain("if (options.skipCache) return");
+    expect(cleanup).toContain("remove unvalidated final image");
+    expect(cleanup).toContain("remove incomplete release artifact");
+    expect(cleanup).toContain("remove abandoned release temporary");
+    expect(cleanup).toContain("acquireCleanupLock(options)");
+    expect(cleanup).toContain("dockerResourceLockPort()");
+    expect(cleanup).toContain("a PlatformClaw build is active");
+    expect(cleanup).toContain("/No such object/u.test(result.stderr)");
+    expect(cleanup).toContain('if (error?.code === "ENOENT") return');
+    expect(cleanup).toContain("release publication is active");
+    expect(cleanup).not.toContain('docker(["image", "rm", "--force"');
+    expect(maintenance).toContain("New-ScheduledTaskTrigger -Weekly");
+    expect(compact).toContain("Optimize-VHD -Path $resolved -Mode Full");
+    expect(compact).toContain("$expectedPrefix");
+    expect(compact).toContain("Assert-NoReparsePoint $resolved");
+    expect(compact).toContain("PlatformClawPathDeleteGuard");
+    expect(compact).toContain("FILE_FLAG_OPEN_REPARSE_POINT");
+    expect(compact).toContain("wsl.exe --shutdown");
   });
 
   it("publishes only the BFF while sharing the private Gateway namespace", () => {

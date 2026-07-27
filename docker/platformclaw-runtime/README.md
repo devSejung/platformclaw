@@ -36,6 +36,32 @@ files. The credential broker remains a memory-backed Docker volume and must not
 be backed up. The legacy `platformclaw-workspaces` volume remains declared only
 for the explicit migration profile.
 
+The runtime image accepts any numeric service UID/GID selected by
+`platformclaw-compose`. When that identity is not present in the image's static
+user database, the runtime entrypoint supplies a process-local NSS identity
+before starting Gateway or Control. This keeps OpenSSH, Git, and other Unix
+tools working without rebuilding the image for each server account.
+
+## Home development disk maintenance
+
+Local builds remove their SHA-scoped intermediate images on both success and
+failure. They retain the newest final image plus one rollback image per
+repository and the newest three release tar archives. The manual or explicitly
+installed weekly maintenance also bounds the shared BuildKit cache to 20 GB;
+normal builds do not prune caches belonging to other projects. Preview or run
+the bounded cleanup manually:
+
+```powershell
+pnpm platformclaw:dev-cleanup
+pnpm platformclaw:dev-cleanup --apply
+```
+
+Install the current-user weekly cleanup task with
+`powershell -File scripts/platformclaw-dev-maintenance.ps1 -Action Install`.
+VHDX compaction is intentionally separate because it stops Docker Desktop and
+WSL and requires elevation; preview it with
+`powershell -File scripts/platformclaw-docker-vhdx-compact.ps1`.
+
 ## Operator entry points
 
 After the one-time Docker/rootless prerequisites and Docker-group setup:
