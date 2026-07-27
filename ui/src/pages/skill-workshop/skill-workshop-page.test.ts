@@ -58,6 +58,7 @@ function createRuntimeConfigStub(options?: {
 function createContext(
   request: ReturnType<typeof vi.fn>,
   options?: {
+    accessMode?: ApplicationContext["accessMode"];
     gatewaySubscribe?: (listener: (snapshot: ApplicationGatewaySnapshot) => void) => () => void;
     sessions?: ApplicationContext["sessions"];
     runtimeConfig?: ReturnType<typeof createRuntimeConfigStub>;
@@ -76,6 +77,7 @@ function createContext(
   };
   const subscribe = () => () => undefined;
   return {
+    accessMode: options?.accessMode,
     gateway: {
       snapshot,
       subscribe: options?.gatewaySubscribe ?? subscribe,
@@ -210,6 +212,61 @@ describe("SkillWorkshopPage lifecycle", () => {
         agentId: "research",
       }),
     );
+  });
+
+  it("shows an assigned-VM guard without loading Workshop proposals", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "skills.status") {
+        return { agentId: "research", executionTarget: "assigned_vm", skills: [] };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const context = createContext(request, { accessMode: "personal-agent" });
+    const page = document.createElement(
+      "openclaw-skill-workshop-page",
+    ) as SkillWorkshopPageTestElement;
+    page.context = context;
+    document.body.append(page);
+    await page.updateComplete;
+
+    await waitForSkillWorkshop(() =>
+      expect(page.textContent).toContain("Skill Workshop uses the Basic workspace"),
+    );
+    expect(request).toHaveBeenCalledWith("skills.status", {});
+    expect(callsFor(request, "skills.proposals.list")).toHaveLength(0);
+
+    (page.querySelector("button") as HTMLButtonElement).click();
+    expect(context.navigate).toHaveBeenCalledWith("skills");
+  });
+
+  it("loads Workshop proposals after confirming the Basic workspace", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "skills.status") {
+        return { agentId: "research", executionTarget: "platform_server", skills: [] };
+      }
+      if (method === "skills.proposals.list") {
+        return {
+          schema: "openclaw.skill-workshop.proposals-manifest.v1",
+          updatedAt: "2026-07-27T00:00:00.000Z",
+          proposals: [],
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const page = document.createElement(
+      "openclaw-skill-workshop-page",
+    ) as SkillWorkshopPageTestElement;
+    page.context = createContext(request, { accessMode: "personal-agent" });
+    document.body.append(page);
+    await page.updateComplete;
+
+    await waitForSkillWorkshop(() =>
+      expect(callsFor(request, "skills.proposals.list")).toHaveLength(1),
+    );
+    expect(request.mock.calls.slice(0, 2)).toEqual([
+      ["skills.status", {}],
+      ["skills.proposals.list", { agentId: "research" }],
+    ]);
   });
 
   it("does not issue duplicate list requests while a load is in flight", async () => {

@@ -2,7 +2,7 @@ import { consume } from "@lit/context";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { html, nothing } from "lit";
 import { property } from "lit/decorators.js";
-import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
+import type { GatewaySessionRow, SessionsListResult, SkillStatusReport } from "../../api/types.ts";
 import { applicationContext, type ApplicationGatewaySnapshot } from "../../app/context.ts";
 import { loadSettings } from "../../app/settings.ts";
 import { renderPluginsHubTabs } from "../../components/plugins-hub-tabs.ts";
@@ -321,6 +321,8 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   private sessionsSource?: SkillWorkshopPageContext["sessions"];
   private selfLearningBusy = false;
   private selfLearningError: string | null = null;
+  private personalExecutionTarget: SkillStatusReport["executionTarget"] | null = null;
+  private personalExecutionTargetLoading = false;
   private readonly subscriptions = new SubscriptionsController(this)
     .effect(
       () => this.context,
@@ -515,6 +517,8 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
 
   private resetSourceState() {
     this.sourceEpoch += 1;
+    this.personalExecutionTarget = null;
+    this.personalExecutionTargetLoading = false;
     const previous = this.state;
     if (!previous) {
       return;
@@ -573,7 +577,55 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     if (!state || !context || context.gateway.snapshot.phase !== "connected") {
       return;
     }
+    if (context.accessMode === "personal-agent") {
+      if (this.personalExecutionTarget === "assigned_vm") {
+        return;
+      }
+      if (this.personalExecutionTarget === null) {
+        void this.loadPersonalExecutionTarget(force);
+        return;
+      }
+    }
     void loadSkillWorkshopPageData({ state, context, force }).finally(this.requestPageUpdate);
+  }
+
+  private async loadPersonalExecutionTarget(force: boolean): Promise<void> {
+    const context = this.context;
+    const client = context?.gateway.snapshot.client;
+    if (!context || !client || this.personalExecutionTargetLoading) {
+      return;
+    }
+    const sourceEpoch = this.sourceEpoch;
+    this.personalExecutionTargetLoading = true;
+    this.requestPageUpdate();
+    try {
+      const report = await client.request<SkillStatusReport>("skills.status", {});
+      if (
+        this.context !== context ||
+        context.gateway.snapshot.client !== client ||
+        this.sourceEpoch !== sourceEpoch
+      ) {
+        return;
+      }
+      this.personalExecutionTarget = report.executionTarget ?? "platform_server";
+      if (this.personalExecutionTarget === "platform_server" && this.state) {
+        await loadSkillWorkshopPageData({ state: this.state, context, force });
+      }
+    } catch (error) {
+      if (this.sourceEpoch === sourceEpoch && this.state) {
+        this.state.skillWorkshopError =
+          error instanceof Error ? error.message : "Could not load the current work location.";
+      }
+    } finally {
+      if (
+        this.context === context &&
+        context.gateway.snapshot.client === client &&
+        this.sourceEpoch === sourceEpoch
+      ) {
+        this.personalExecutionTargetLoading = false;
+        this.requestPageUpdate();
+      }
+    }
   }
 
   private readonly handleHistoryScan = () => {
@@ -629,6 +681,26 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   }
 
   override render() {
+    if (
+      this.state &&
+      this.context?.accessMode === "personal-agent" &&
+      this.personalExecutionTarget === "assigned_vm"
+    ) {
+      return html`
+        <section class="content--skill-workshop">
+          <section class="content-header content-header--page plugins-content-header">
+            <div><h1 class="page-title">${t("tabs.skillWorkshop")}</h1></div>
+          </section>
+          <div class="callout" role="status">
+            <strong>${t("platformClaw.skills.vmWorkshopUnavailableTitle")}</strong>
+            <div class="muted">${t("platformClaw.skills.vmWorkshopUnavailableDescription")}</div>
+            <button class="btn" @click=${() => this.context?.navigate("skills")}>
+              ${t("platformClaw.skills.vmWorkshopUnavailableAction")}
+            </button>
+          </div>
+        </section>
+      `;
+    }
     return this.state && this.context
       ? renderSkillWorkshopPage(
           this.state,

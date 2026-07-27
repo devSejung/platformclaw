@@ -98,6 +98,10 @@ export const en: TranslationMap = {
       vmTitle: "Skills on My development VM",
       vmDescription:
         "This list comes from the VM. Refresh is available; installation and Workshop changes stay disabled until VM writes are supported.",
+      vmWorkshopUnavailableTitle: "Skill Workshop uses the Basic workspace",
+      vmWorkshopUnavailableDescription:
+        "Your Agent is currently using a development VM. Switch to the Basic workspace before opening Skill Workshop.",
+      vmWorkshopUnavailableAction: "View VM skills",
     },
     execution: {
       workLocation: "Work location",
