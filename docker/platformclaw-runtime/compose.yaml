@@ -106,7 +106,7 @@ services:
       platformclaw-gateway-backplane: {}
       platformclaw-control-egress: {}
     ports:
-      - "127.0.0.1:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"
+      - "0.0.0.0:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     init: true

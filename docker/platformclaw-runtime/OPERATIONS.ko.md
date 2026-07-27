@@ -16,6 +16,10 @@ Ubuntu 22.04 서버에서 PlatformClaw를 설치하고, `openclaw.json`을 편�
 | `platformclaw-control` | 로그인, 사용자 세션, 관리 UI, DB, Gateway 정책 프록시 | Web 포트만 공개 |
 | `openclaw-gateway`     | Agent, 모델, 세션, 도구 실행 조정                     | 공개하지 않음   |
 
+Control Web 포트는 VM 외부 접속을 위해 기본적으로 호스트의 모든 인터페이스
+(`0.0.0.0`)에 bind된다. 사내 방화벽이나 승인된 reverse proxy로 접근 범위를 제한한다.
+Gateway 포트는 계속 외부에 공개하지 않는다.
+
 영구 데이터는 서비스 계정 홈 아래에 있다. 호스트 경로와 컨테이너 경로를 같게 유지해
 rootless sandbox가 workspace와 materialized skill을 같은 절대경로로 찾게 한다.
 

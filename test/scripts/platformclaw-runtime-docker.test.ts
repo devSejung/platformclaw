@@ -60,7 +60,7 @@ describe("PlatformClaw Docker runtime", () => {
 
     expect(gateway?.ports).toBeUndefined();
     expect(gateway?.user).toContain("PLATFORMCLAW_RUNTIME_UID");
-    expect(control?.ports).toEqual(["127.0.0.1:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"]);
+    expect(control?.ports).toEqual(["0.0.0.0:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"]);
     expect(control?.user).toContain("PLATFORMCLAW_RUNTIME_UID");
     expect(stateInit?.user).toBe("0:0");
     expect(stateInit?.network_mode).toBe("none");
