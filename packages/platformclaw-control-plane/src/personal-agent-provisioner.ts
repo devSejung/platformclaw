@@ -12,6 +12,12 @@ import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-
 type AgentSummary = { id: string; workspace?: string };
 type AgentsListResult = { agents?: AgentSummary[] };
 type AgentCreateResult = { ok: true; agentId: string; workspace: string };
+type AgentRuntimeStatusResult = {
+  ok: true;
+  agentId: string;
+  workspace: string;
+  ready: true;
+};
 type ProfileSeedResult = {
   ok: true;
   agentId: string;
@@ -122,10 +128,41 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
     }
   }
 
+  private async waitForAgentRuntime(agentId: string, workspace: string): Promise<void> {
+    // agents.list can expose a newly committed agent before its prepared model runtime publishes.
+    // Probe that exact owner so unrelated pending config never blocks a healthy personal agent.
+    for (const retryDelayMs of CONFIG_APPLY_RETRY_DELAYS_MS) {
+      if (retryDelayMs > 0) {
+        await delay(retryDelayMs);
+      }
+      try {
+        const status = await this.options.rpc.call<AgentRuntimeStatusResult>(
+          "platformclaw.agent.runtimeStatus",
+          { agentId, workspace },
+        );
+        if (
+          status.ok !== true ||
+          status.ready !== true ||
+          status.agentId !== agentId ||
+          path.resolve(status.workspace) !== workspace
+        ) {
+          throw new Error("Gateway agent runtime status returned an invalid payload");
+        }
+        return;
+      } catch (error) {
+        if (!(error instanceof GatewayAdminRpcError) || error.code !== "UNAVAILABLE") {
+          throw error;
+        }
+      }
+    }
+    throw new Error("Gateway agent runtime configuration did not become active");
+  }
+
   private async ensureAgent(agentId: string, workspace: string): Promise<void> {
     const current = await this.getConfiguredAgent(agentId);
     if (current) {
       this.verifyWorkspace(agentId, current.workspace, workspace);
+      await this.waitForAgentRuntime(agentId, workspace);
       return;
     }
     try {
@@ -164,6 +201,7 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
         }
       } else {
         this.verifyWorkspace(agentId, existing.workspace, workspace);
+        await this.waitForAgentRuntime(agentId, workspace);
         return;
       }
     }
@@ -175,6 +213,7 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
         const configured = await this.getConfiguredAgent(agentId);
         if (configured) {
           this.verifyWorkspace(agentId, configured.workspace, workspace);
+          await this.waitForAgentRuntime(agentId, workspace);
           return;
         }
       } catch (error) {
