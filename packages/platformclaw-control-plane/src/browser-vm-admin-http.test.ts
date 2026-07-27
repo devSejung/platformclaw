@@ -28,14 +28,19 @@ function responseHarness(): { response: ServerResponse; body(): unknown } {
   };
 }
 
-function createService(role: "member" | "admin") {
+function createService(
+  role: "member" | "admin",
+  probeEndpoint?: ConstructorParameters<typeof VmAdministrationService>[0]["probeEndpoint"],
+) {
   const snapshot = { endpoints: [], hosts: [], agents: [], allocations: [] };
   const getVmAdministrationSnapshot = vi.fn(async () => snapshot);
   const createSafeConnectEndpoint = vi.fn(async () => ({ id: "endpoint-one" }));
+  const enableSafeConnectEndpoint = vi.fn(async () => ({ id: "endpoint-one", status: "active" }));
   const store = {
     getVmAdministrationSnapshot,
     listAuditEvents: vi.fn(async () => []),
     createSafeConnectEndpoint,
+    enableSafeConnectEndpoint,
     getPersonalExecutionSettings: vi.fn(async () => null),
   } as unknown as ControlPlaneExecutionManagementStore &
     ControlPlaneEmployeeExecutionStore &
@@ -53,9 +58,11 @@ function createService(role: "member" | "admin") {
       store,
       adminRpc: { call: vi.fn() } as unknown as GatewayAdminRpc,
       now: () => 123,
+      ...(probeEndpoint ? { probeEndpoint } : {}),
     }),
     getVmAdministrationSnapshot,
     createSafeConnectEndpoint,
+    enableSafeConnectEndpoint,
   };
 }
 
@@ -135,5 +142,38 @@ describe("VM administration HTTP", () => {
 
     expect(harness.response.statusCode).toBe(403);
     expect(createSafeConnectEndpoint).not.toHaveBeenCalled();
+  });
+
+  it("probes a SafeConnect endpoint without persisting it", async () => {
+    const probeEndpoint = vi.fn(async () => ({
+      host: "safeconnect.example.test",
+      port: 44_422,
+      resolvedAddresses: ["192.0.2.20"],
+      sshBanner: "SSH-2.0-SafeConnect",
+      algorithm: "ssh-ed25519" as const,
+      publicKey: "key",
+      fingerprint: "SHA256:fingerprint",
+    }));
+    const { service, createSafeConnectEndpoint } = createService("admin", probeEndpoint);
+
+    const result = await service.mutate("user-one", "probe-endpoint", {
+      host: "safeconnect.example.test",
+      port: 44_422,
+    });
+
+    expect(result).toMatchObject({ probe: { fingerprint: "SHA256:fingerprint" } });
+    expect(createSafeConnectEndpoint).not.toHaveBeenCalled();
+  });
+
+  it("re-enables a disabled endpoint through the supported lifecycle API", async () => {
+    const { service, enableSafeConnectEndpoint } = createService("admin");
+
+    await service.mutate("user-one", "enable-endpoint", { endpointId: "endpoint-one" });
+
+    expect(enableSafeConnectEndpoint).toHaveBeenCalledWith({
+      actorUserId: "user-one",
+      endpointId: "endpoint-one",
+      enabledAt: 123,
+    });
   });
 });

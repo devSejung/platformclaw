@@ -46,10 +46,35 @@ type VmAdministrationSnapshot = {
   agents: Agent[];
   allocations: Allocation[];
   auditEvents: AuditEvent[];
+  probe?: SafeConnectProbe;
+};
+
+type SafeConnectProbe = {
+  host: string;
+  port: number;
+  resolvedAddresses: string[];
+  sshBanner: string;
+  algorithm: "ssh-ed25519";
+  publicKey: string;
+  fingerprint: string;
+};
+
+type EndpointDraft = {
+  endpointId?: string;
+  persisted?: boolean;
+  label: string;
+  host: string;
+  port: number;
+  adDomain: string;
 };
 
 type PendingMutation = {
-  action: "disable-endpoint" | "disable-host" | "revoke-allocation";
+  action:
+    | "disable-endpoint"
+    | "enable-endpoint"
+    | "disable-host"
+    | "enable-host"
+    | "revoke-allocation";
   fieldName: "endpointId" | "vmHostId" | "allocationId";
   id: string;
   label: string;
@@ -69,6 +94,8 @@ function field(form: FormData, name: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+class VmAdministrationHttpError extends Error {}
+
 class PlatformClawVmAdministrationElement extends HTMLElement {
   private readonly root = this.attachShadow({ mode: "open" });
   private snapshot: VmAdministrationSnapshot | null = null;
@@ -76,6 +103,8 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
   private loading = false;
   private message = "";
   private pendingMutation: PendingMutation | null = null;
+  private endpointDraft: EndpointDraft | null = null;
+  private probe: SafeConnectProbe | null = null;
   private unsubscribeLocale = () => {};
 
   declare fetchImpl: typeof fetch;
@@ -114,11 +143,11 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
     });
     if (response.status === 401) {
       this.onUnauthenticated();
-      throw new Error(t("platformClaw.execution.sessionExpired"));
+      throw new VmAdministrationHttpError(t("platformClaw.execution.sessionExpired"));
     }
     const body = (await response.json()) as Record<string, unknown>;
     if (!response.ok) {
-      throw new Error(
+      throw new VmAdministrationHttpError(
         typeof body.error === "string" ? body.error : t("platformClaw.vmAdmin.requestFailed"),
       );
     }
@@ -145,6 +174,96 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
     this.render();
     try {
       this.snapshot = await this.request({ method: "POST", body: JSON.stringify(body) });
+      this.message = t("platformClaw.vmAdmin.saved");
+    } catch (error) {
+      this.message =
+        error instanceof Error ? error.message : t("platformClaw.vmAdmin.requestFailed");
+    } finally {
+      this.loading = false;
+      this.render();
+    }
+  }
+
+  private async probeEndpoint(draft: EndpointDraft): Promise<void> {
+    this.loading = true;
+    this.render();
+    try {
+      const response = await this.request({
+        method: "POST",
+        body: JSON.stringify({ action: "probe-endpoint", host: draft.host, port: draft.port }),
+      });
+      this.snapshot = response;
+      this.endpointDraft = draft;
+      this.probe = response.probe ?? null;
+      this.message = this.probe ? t("platformClaw.vmAdmin.probeSucceeded") : "";
+    } catch (error) {
+      this.endpointDraft = null;
+      this.probe = null;
+      this.message =
+        error instanceof Error ? error.message : t("platformClaw.vmAdmin.requestFailed");
+    } finally {
+      this.loading = false;
+      this.render();
+    }
+  }
+
+  private async approveProbedEndpoint(): Promise<void> {
+    const draft = this.endpointDraft;
+    const probe = this.probe;
+    if (!draft || !probe) {
+      return;
+    }
+    this.loading = true;
+    this.render();
+    try {
+      let endpointId = draft.endpointId;
+      if (endpointId && !draft.persisted) {
+        this.snapshot = await this.request({
+          method: "POST",
+          body: JSON.stringify({ action: "update-endpoint", ...draft }),
+        });
+      } else if (!endpointId) {
+        const findCreatedEndpoint = (snapshot: VmAdministrationSnapshot) =>
+          snapshot.endpoints.find(
+            (endpoint) => endpoint.host === probe.host && endpoint.port === probe.port,
+          )?.id;
+        try {
+          this.snapshot = await this.request({
+            method: "POST",
+            body: JSON.stringify({ action: "endpoints", ...draft }),
+          });
+          endpointId = findCreatedEndpoint(this.snapshot);
+        } catch (createError) {
+          if (createError instanceof VmAdministrationHttpError) {
+            throw createError;
+          }
+          try {
+            this.snapshot = await this.request();
+            endpointId = findCreatedEndpoint(this.snapshot);
+          } catch {
+            throw createError;
+          }
+          if (!endpointId) {
+            throw createError;
+          }
+        }
+      }
+      if (!endpointId) {
+        throw new Error(t("platformClaw.vmAdmin.requestFailed"));
+      }
+      this.endpointDraft = { ...draft, endpointId, persisted: true };
+      this.snapshot = await this.request({
+        method: "POST",
+        body: JSON.stringify({
+          action: "host-key",
+          endpointId,
+          algorithm: probe.algorithm,
+          publicKey: probe.publicKey,
+          fingerprint: probe.fingerprint,
+        }),
+      });
+      this.endpointDraft = null;
+      this.probe = null;
       this.message = t("platformClaw.vmAdmin.saved");
     } catch (error) {
       this.message =
@@ -184,17 +303,32 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
         closeDialog();
       });
     this.root.querySelector("[data-refresh]")?.addEventListener("click", () => void this.refresh());
-    this.bindForm("endpoints", (form) => ({
-      label: field(form, "label"),
-      host: field(form, "host"),
-      port: Number(field(form, "port")),
-      adDomain: field(form, "adDomain"),
-    }));
-    this.bindForm("host-key", (form) => ({
+    for (const form of this.root.querySelectorAll<HTMLFormElement>("form[data-endpoint-probe]")) {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = new FormData(form);
+        void this.probeEndpoint({
+          ...(field(data, "endpointId") ? { endpointId: field(data, "endpointId") } : {}),
+          label: field(data, "label"),
+          host: field(data, "host"),
+          port: Number(field(data, "port")),
+          adDomain: field(data, "adDomain"),
+        });
+      });
+    }
+    this.root.querySelector("[data-approve-probe]")?.addEventListener("click", () => {
+      void this.approveProbedEndpoint();
+    });
+    this.root.querySelector("[data-cancel-probe]")?.addEventListener("click", () => {
+      this.endpointDraft = null;
+      this.probe = null;
+      this.render();
+    });
+    this.bindForm("update-host", (form) => ({
+      vmHostId: field(form, "vmHostId"),
       endpointId: field(form, "endpointId"),
-      algorithm: field(form, "algorithm"),
-      publicKey: field(form, "publicKey"),
-      fingerprint: field(form, "fingerprint"),
+      label: field(form, "label"),
+      targetAddress: field(form, "targetAddress"),
     }));
     this.bindForm("hosts", (form) => ({
       endpointId: field(form, "endpointId"),
@@ -209,7 +343,9 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
         const label = button.dataset.label;
         if (
           (action === "disable-endpoint" ||
+            action === "enable-endpoint" ||
             action === "disable-host" ||
+            action === "enable-host" ||
             action === "revoke-allocation") &&
           (fieldName === "endpointId" ||
             fieldName === "vmHostId" ||
@@ -235,17 +371,23 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
     });
   }
 
-  private options(values: ReadonlyArray<{ id: string; label: string }>): string {
+  private options(
+    values: ReadonlyArray<{ id: string; label: string }>,
+    selectedId?: string,
+  ): string {
     return values
-      .map((value) => `<option value="${escapeHtml(value.id)}">${escapeHtml(value.label)}</option>`)
+      .map(
+        (value) =>
+          `<option value="${escapeHtml(value.id)}"${value.id === selectedId ? " selected" : ""}>${escapeHtml(value.label)}</option>`,
+      )
       .join("");
   }
 
   private render(): void {
     const data = this.snapshot;
-    const pending = data?.endpoints.filter((endpoint) => endpoint.status === "pending") ?? [];
     const activeEndpoints =
       data?.endpoints.filter((endpoint) => endpoint.status === "active") ?? [];
+    const activeEndpointIds = new Set(activeEndpoints.map((endpoint) => endpoint.id));
     const rows = (values: string[]) =>
       values.length > 0
         ? `<ul>${values.map((value) => `<li>${value}</li>`).join("")}</ul>`
@@ -265,7 +407,7 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
         input, select, textarea { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-elevated); color: var(--text); } textarea { min-height: 72px; resize: vertical; }
         input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: none; box-shadow: var(--focus-ring); }
         button { padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-elevated); color: var(--text); cursor: pointer; } button:hover:not(:disabled), button:focus-visible { background: var(--bg-hover); border-color: var(--border-hover); outline: none; } button.primary { background: var(--accent); color: var(--accent-foreground); border-color: var(--accent); } button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); } button:disabled { opacity: .5; cursor: not-allowed; }
-        ul { display: grid; gap: 8px; padding: 0; list-style: none; } li { padding: 9px 10px; border-radius: var(--radius-md); background: var(--bg-muted); } .muted { color: var(--muted); } .message { padding: 10px; border-radius: var(--radius-md); background: var(--accent-subtle); }
+        ul { display: grid; gap: 8px; padding: 0; list-style: none; } li { padding: 9px 10px; border-radius: var(--radius-md); background: var(--bg-muted); } .muted { color: var(--muted); } .message { padding: 10px; border-radius: var(--radius-md); background: var(--accent-subtle); } .actions { display: flex; gap: 8px; margin-top: 8px; } details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted-strong); } dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; } dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywhere; } code { font-family: var(--font-mono, monospace); }
         @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .backdrop { padding: 8px; } }
       </style>
       <button class="open" data-open>${escapeHtml(t("platformClaw.vmAdmin.open"))}</button>
@@ -275,16 +417,15 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
             <header><div><h2>${escapeHtml(t("platformClaw.vmAdmin.title"))}</h2><div class="muted">${escapeHtml(t("platformClaw.vmAdmin.intro"))}</div></div><button data-close aria-label="${escapeHtml(t("platformClaw.vmAdmin.close"))}">×</button></header>
             <main>${this.loading ? `<p>${escapeHtml(t("platformClaw.vmAdmin.loading"))}</p>` : ""}${this.message ? `<div class="message">${escapeHtml(this.message)}</div>` : ""}
               <div class="grid">
-                <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.endpoints"))}</h3><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.endpointHelp"))}</p>${rows(data?.endpoints.map((endpoint) => `<strong>${escapeHtml(endpoint.label)}</strong> · ${escapeHtml(endpoint.host)}:${endpoint.port} · ${escapeHtml(platformClawStatus(endpoint.status))}${endpoint.hostKeyFingerprint ? `<br><small>${escapeHtml(endpoint.hostKeyFingerprint)}</small>` : ""}${endpoint.status !== "disabled" ? `<br><button type="button" data-mutation="disable-endpoint" data-field="endpointId" data-id="${escapeHtml(endpoint.id)}" data-label="${escapeHtml(endpoint.label)}">${escapeHtml(t("platformClaw.vmAdmin.disableEndpoint"))}</button>` : ""}`) ?? [])}
-                  <form data-action="endpoints"><label>${escapeHtml(t("platformClaw.vmAdmin.label"))}<input name="label" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.endpointHost"))}<input name="host" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.port"))}<input name="port" type="number" min="1" max="65535" value="44422" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.adDomain"))}<input name="adDomain" required></label><button class="primary">${escapeHtml(t("platformClaw.vmAdmin.createEndpoint"))}</button></form>
-                  ${pending.length ? `<form data-action="host-key"><label>${escapeHtml(t("platformClaw.vmAdmin.endpoint"))}<select name="endpointId">${this.options(pending)}</select></label><label>${escapeHtml(t("platformClaw.vmAdmin.algorithm"))}<input name="algorithm" value="ssh-ed25519" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.publicKey"))}<textarea name="publicKey" required></textarea></label><label>${escapeHtml(t("platformClaw.vmAdmin.fingerprint"))}<input name="fingerprint" placeholder="SHA256:…" required></label><button class="primary">${escapeHtml(t("platformClaw.vmAdmin.approveKey"))}</button></form>` : ""}
+                <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.endpoints"))}</h3><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.endpointHelp"))}</p>${rows(data?.endpoints.map((endpoint) => `<strong>${escapeHtml(endpoint.label)}</strong> · ${escapeHtml(endpoint.host)}:${endpoint.port} · ${escapeHtml(platformClawStatus(endpoint.status))}${endpoint.hostKeyFingerprint ? `<br><small>${escapeHtml(endpoint.hostKeyFingerprint)}</small>` : ""}<div class="actions">${endpoint.status === "active" ? `<button type="button" data-mutation="disable-endpoint" data-field="endpointId" data-id="${escapeHtml(endpoint.id)}" data-label="${escapeHtml(endpoint.label)}">${escapeHtml(t("platformClaw.vmAdmin.disableEndpoint"))}</button>` : endpoint.hostKeyFingerprint ? `<button type="button" data-mutation="enable-endpoint" data-field="endpointId" data-id="${escapeHtml(endpoint.id)}" data-label="${escapeHtml(endpoint.label)}">${escapeHtml(t("platformClaw.vmAdmin.enableEndpoint"))}</button>` : ""}</div>${endpoint.status !== "active" ? `<details><summary>${escapeHtml(t("platformClaw.vmAdmin.editAndVerify"))}</summary><form data-endpoint-probe><input type="hidden" name="endpointId" value="${escapeHtml(endpoint.id)}"><label>${escapeHtml(t("platformClaw.vmAdmin.label"))}<input name="label" value="${escapeHtml(endpoint.label)}" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.endpointHost"))}<input name="host" value="${escapeHtml(endpoint.host)}" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.port"))}<input name="port" type="number" min="1" max="65535" value="${endpoint.port}" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.adDomain"))}<input name="adDomain" value="${escapeHtml(endpoint.adDomain)}" required></label><button class="primary">${escapeHtml(t("platformClaw.vmAdmin.probeEndpoint"))}</button></form></details>` : ""}`) ?? [])}
+                  <form data-endpoint-probe><label>${escapeHtml(t("platformClaw.vmAdmin.label"))}<input name="label" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.endpointHost"))}<input name="host" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.port"))}<input name="port" type="number" min="1" max="65535" value="44422" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.adDomain"))}<input name="adDomain" required></label><button class="primary">${escapeHtml(t("platformClaw.vmAdmin.probeBeforeSave"))}</button></form>
                 </section>
-                <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.hosts"))}</h3>${rows(data?.hosts.map((host) => `<strong>${escapeHtml(host.label)}</strong> · ${escapeHtml(host.targetAddress)} · ${escapeHtml(platformClawStatus(host.status))}${host.status === "active" ? `<br><button type="button" data-mutation="disable-host" data-field="vmHostId" data-id="${escapeHtml(host.id)}" data-label="${escapeHtml(host.label)}">${escapeHtml(t("platformClaw.vmAdmin.disableHost"))}</button>` : ""}`) ?? [])}
+                <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.hosts"))}</h3>${rows(data?.hosts.map((host) => `<strong>${escapeHtml(host.label)}</strong> · ${escapeHtml(host.targetAddress)} · ${escapeHtml(platformClawStatus(host.status))}<div class="actions"><button type="button" data-mutation="${host.status === "active" ? "disable-host" : "enable-host"}" data-field="vmHostId" data-id="${escapeHtml(host.id)}" data-label="${escapeHtml(host.label)}"${host.status === "disabled" && !activeEndpointIds.has(host.endpointId) ? " disabled" : ""}>${escapeHtml(t(host.status === "active" ? "platformClaw.vmAdmin.disableHost" : "platformClaw.vmAdmin.enableHost"))}</button></div>${host.status === "disabled" ? (activeEndpointIds.has(host.endpointId) ? `<details><summary>${escapeHtml(t("platformClaw.vmAdmin.edit"))}</summary><form data-action="update-host"><input type="hidden" name="vmHostId" value="${escapeHtml(host.id)}"><label>${escapeHtml(t("platformClaw.vmAdmin.endpoint"))}<select name="endpointId">${this.options(activeEndpoints, host.endpointId)}</select></label><label>${escapeHtml(t("platformClaw.vmAdmin.vmLabel"))}<input name="label" value="${escapeHtml(host.label)}" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.targetAddress"))}<input name="targetAddress" value="${escapeHtml(host.targetAddress)}" required></label><button class="primary">${escapeHtml(t("platformClaw.vmAdmin.saveChanges"))}</button></form></details>` : `<p class="muted">${escapeHtml(t("platformClaw.vmAdmin.hostEditRequiresActiveEndpoint"))}</p>`) : ""}`) ?? [])}
                   <form data-action="hosts"><label>${escapeHtml(t("platformClaw.vmAdmin.endpoint"))}<select name="endpointId" ${activeEndpoints.length ? "" : "disabled"}>${this.options(activeEndpoints)}</select></label><label>${escapeHtml(t("platformClaw.vmAdmin.vmLabel"))}<input name="label" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.targetAddress"))}<input name="targetAddress" required></label><button class="primary" ${activeEndpoints.length ? "" : "disabled"}>${escapeHtml(t("platformClaw.vmAdmin.createHost"))}</button></form>
                 </section>
                 <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.allocations"))}</h3><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.allocationHelp"))}</p>${rows(data?.allocations.map((allocation) => `<strong>${escapeHtml(allocation.displayName ?? allocation.accountId)}</strong> · ${escapeHtml(allocation.vmLabel)} · ${escapeHtml(allocation.linuxAccount)} · ${escapeHtml(platformClawStatus(allocation.status))}<br><button type="button" data-mutation="revoke-allocation" data-field="allocationId" data-id="${escapeHtml(allocation.id)}" data-label="${escapeHtml(allocation.displayName ?? allocation.accountId)}">${escapeHtml(t("platformClaw.vmAdmin.revokeAllocation"))}</button>`) ?? [])}</section>
                 <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.audit"))}</h3>${rows(data?.auditEvents.map((event) => `<strong>${escapeHtml(event.eventType)}</strong> · ${escapeHtml(event.targetType)} · ${escapeHtml(new Date(event.createdAt).toLocaleString())}`) ?? [])}</section>
-              </div>${this.pendingMutation ? `<section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.confirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.vmAdmin.confirmBody", { label: this.pendingMutation.label }))}</p><div><button type="button" class="primary" data-confirm-mutation>${escapeHtml(t("platformClaw.vmAdmin.confirm"))}</button> <button type="button" data-cancel-mutation>${escapeHtml(t("platformClaw.vmAdmin.cancel"))}</button></div></section>` : ""}<button data-refresh>${escapeHtml(t("platformClaw.vmAdmin.refresh"))}</button>
+              </div>${this.probe ? `<section class="card probe"><h3>${escapeHtml(t("platformClaw.vmAdmin.verifyHostKey"))}</h3><p>${escapeHtml(t("platformClaw.vmAdmin.hostKeyTargetHelp"))}</p><dl><dt>DNS</dt><dd>${escapeHtml(this.probe.resolvedAddresses.join(", "))}</dd><dt>SSH</dt><dd>${escapeHtml(this.probe.sshBanner)}</dd><dt>${escapeHtml(t("platformClaw.vmAdmin.fingerprint"))}</dt><dd><code>${escapeHtml(this.probe.fingerprint)}</code></dd></dl><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.keyCommentHelp"))}</p><button type="button" class="primary" data-approve-probe>${escapeHtml(t("platformClaw.vmAdmin.approveAndSave"))}</button> <button type="button" data-cancel-probe>${escapeHtml(t("platformClaw.vmAdmin.cancel"))}</button></section>` : ""}${this.pendingMutation ? `<section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.confirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.vmAdmin.confirmBody", { label: this.pendingMutation.label }))}</p><div><button type="button" class="primary" data-confirm-mutation>${escapeHtml(t("platformClaw.vmAdmin.confirm"))}</button> <button type="button" data-cancel-mutation>${escapeHtml(t("platformClaw.vmAdmin.cancel"))}</button></div></section>` : ""}<button data-refresh>${escapeHtml(t("platformClaw.vmAdmin.refresh"))}</button>
             </main></section></dialog>`
           : ""
       }`;

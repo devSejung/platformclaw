@@ -236,6 +236,22 @@ describe("BrowserGatewayProxy", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("allows an owned session icon while preserving the authenticated agent", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const key = `agent:${binding.agentId}:main`;
+    request.mockResolvedValueOnce({ ok: true, key });
+
+    await expect(proxy.request(token, "sessions.patch", { key, icon: "🧰" })).resolves.toEqual({
+      ok: true,
+      key,
+    });
+    expect(request).toHaveBeenCalledWith("sessions.patch", {
+      key,
+      agentId: binding.agentId,
+      icon: "🧰",
+    });
+  });
+
   it("allows configured model selection only for an owned session", async () => {
     const { binding, proxy, request, token } = await setup();
     const key = `agent:${binding.agentId}:main`;

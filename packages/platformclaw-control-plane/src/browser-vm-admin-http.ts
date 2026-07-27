@@ -14,6 +14,7 @@ import type {
   VmAdministrationSnapshot,
 } from "./execution-contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
+import { probeSafeConnectEndpoint, type SafeConnectProbeResult } from "./safeconnect-probe.js";
 
 export const PLATFORMCLAW_VM_ADMIN_PATH = "/platformclaw/api/admin/vm";
 const BODY_LIMIT_BYTES = 24 * 1024;
@@ -25,6 +26,7 @@ type VmAdministrationStore = ControlPlaneExecutionManagementStore &
   ControlPlaneAuditReader;
 type VmAdministrationResponse = VmAdministrationSnapshot & {
   auditEvents: Awaited<ReturnType<ControlPlaneAuditReader["listAuditEvents"]>>;
+  probe?: SafeConnectProbeResult;
 };
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
@@ -56,6 +58,7 @@ export class VmAdministrationService {
       store: VmAdministrationStore;
       adminRpc: GatewayAdminRpc;
       now?: () => number;
+      probeEndpoint?: typeof probeSafeConnectEndpoint;
     },
   ) {}
 
@@ -75,6 +78,17 @@ export class VmAdministrationService {
   async mutate(actorUserId: string, action: string, body: Record<string, unknown>) {
     const now = (this.options.now ?? Date.now)();
     switch (action) {
+      case "probe-endpoint": {
+        const port = body.port;
+        if (typeof port !== "number" || !Number.isSafeInteger(port)) {
+          throw new ControlPlaneStateError("port must be an integer");
+        }
+        const probe = await (this.options.probeEndpoint ?? probeSafeConnectEndpoint)({
+          host: stringField(body, "host"),
+          port,
+        });
+        return { ...(await this.snapshot(actorUserId)), probe };
+      }
       case "endpoints": {
         const port = body.port;
         if (typeof port !== "number" || !Number.isSafeInteger(port)) {
@@ -87,6 +101,22 @@ export class VmAdministrationService {
           port,
           adDomain: stringField(body, "adDomain"),
           createdAt: now,
+        });
+        break;
+      }
+      case "update-endpoint": {
+        const port = body.port;
+        if (typeof port !== "number" || !Number.isSafeInteger(port)) {
+          throw new ControlPlaneStateError("port must be an integer");
+        }
+        await this.options.store.updateSafeConnectEndpoint({
+          actorUserId,
+          endpointId: stringField(body, "endpointId"),
+          label: stringField(body, "label"),
+          host: stringField(body, "host"),
+          port,
+          adDomain: stringField(body, "adDomain"),
+          updatedAt: now,
         });
         break;
       }
@@ -116,11 +146,35 @@ export class VmAdministrationService {
           disabledAt: now,
         });
         break;
+      case "enable-endpoint":
+        await this.options.store.enableSafeConnectEndpoint({
+          actorUserId,
+          endpointId: stringField(body, "endpointId"),
+          enabledAt: now,
+        });
+        break;
+      case "update-host":
+        await this.options.store.updateVmHost({
+          actorUserId,
+          vmHostId: stringField(body, "vmHostId"),
+          endpointId: stringField(body, "endpointId"),
+          label: stringField(body, "label"),
+          targetAddress: stringField(body, "targetAddress"),
+          updatedAt: now,
+        });
+        break;
       case "disable-host":
         await this.options.store.disableVmHost({
           actorUserId,
           vmHostId: stringField(body, "vmHostId"),
           disabledAt: now,
+        });
+        break;
+      case "enable-host":
+        await this.options.store.enableVmHost({
+          actorUserId,
+          vmHostId: stringField(body, "vmHostId"),
+          enabledAt: now,
         });
         break;
       case "revoke-allocation": {

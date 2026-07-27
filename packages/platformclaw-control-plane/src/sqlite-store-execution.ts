@@ -397,6 +397,18 @@ export abstract class SqliteControlPlaneExecutionStore
         publicKey: params.publicKey,
         approvedFingerprint: params.fingerprint,
       });
+      if (current.status === "active") {
+        if (
+          current.host_key_algorithm === hostKey.algorithm &&
+          current.host_key_public_key === hostKey.publicKey &&
+          current.host_key_fingerprint === hostKey.fingerprint
+        ) {
+          return rowToEndpoint(current);
+        }
+        throw new ControlPlaneStateError(
+          "disable this SafeConnect endpoint before replacing its host key",
+        );
+      }
       executeSync(
         this.db,
         this.query

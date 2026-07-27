@@ -119,6 +119,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "agentId",
       "label",
       "category",
+      "icon",
       "pinned",
       "unread",
       "thinkingLevel",

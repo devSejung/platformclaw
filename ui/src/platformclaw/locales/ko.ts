@@ -60,7 +60,11 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.vmAdmin.allocationHelp":
     "사용자가 활성 VM 중에서 직접 선택합니다. 관리자는 여기서 접근을 회수할 수 있습니다.",
   "platformClaw.vmAdmin.disableEndpoint": "연결 지점 사용 중지",
+  "platformClaw.vmAdmin.enableEndpoint": "연결 지점 다시 사용",
   "platformClaw.vmAdmin.disableHost": "VM 사용 중지",
+  "platformClaw.vmAdmin.enableHost": "VM 다시 사용",
+  "platformClaw.vmAdmin.hostEditRequiresActiveEndpoint":
+    "이 VM의 SafeConnect 연결 지점을 먼저 사용 설정하세요.",
   "platformClaw.vmAdmin.revokeAllocation": "할당 회수",
   "platformClaw.vmAdmin.confirmTitle": "변경 확인",
   "platformClaw.vmAdmin.confirmBody":
@@ -74,6 +78,19 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.vmAdmin.port": "SSH 포트",
   "platformClaw.vmAdmin.adDomain": "AD 도메인",
   "platformClaw.vmAdmin.createEndpoint": "연결 지점 추가",
+  "platformClaw.vmAdmin.probeBeforeSave": "저장 전 연결 검사",
+  "platformClaw.vmAdmin.probeEndpoint": "연결 및 호스트 키 검사",
+  "platformClaw.vmAdmin.probeSucceeded":
+    "DNS, TCP, SSH 배너, ED25519 호스트 키 검사를 통과했습니다.",
+  "platformClaw.vmAdmin.verifyHostKey": "SafeConnect 호스트 키 확인",
+  "platformClaw.vmAdmin.hostKeyTargetHelp":
+    "이 키는 개발 VM 키가 아니라 SafeConnect SSH 서버의 키입니다. 승인 전 신뢰할 수 있는 경로로 지문을 확인하세요.",
+  "platformClaw.vmAdmin.keyCommentHelp":
+    "root@server 같은 OpenSSH 코멘트는 참고 정보이며 승인되는 키에는 포함되지 않습니다.",
+  "platformClaw.vmAdmin.approveAndSave": "키 승인 및 저장",
+  "platformClaw.vmAdmin.editAndVerify": "수정 후 다시 검사",
+  "platformClaw.vmAdmin.edit": "수정",
+  "platformClaw.vmAdmin.saveChanges": "변경 저장",
   "platformClaw.vmAdmin.endpoint": "연결 지점",
   "platformClaw.vmAdmin.algorithm": "호스트 키 알고리즘",
   "platformClaw.vmAdmin.publicKey": "호스트 공개 키",

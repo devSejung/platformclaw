@@ -1,6 +1,6 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { PlatformClawExecutionTargetSnapshot } from "./backend.js";
-import { PlatformClawVmAuthenticationError } from "./connection-errors.js";
+import { classifyVmConnectionFailure } from "./connection-errors.js";
 
 export type PlatformClawExecutionGatewayRuntime = {
   testConnection(params: {
@@ -31,7 +31,7 @@ export type PlatformClawExecutionGatewayRuntime = {
 };
 
 export function registerPlatformClawExecutionGateway(
-  api: Pick<OpenClawPluginApi, "on" | "registerGatewayMethod">,
+  api: Pick<OpenClawPluginApi, "logger" | "on" | "registerGatewayMethod">,
   runtimePromise: Promise<PlatformClawExecutionGatewayRuntime>,
 ): void {
   const changingAgents = new Set<string>();
@@ -74,17 +74,14 @@ export function registerPlatformClawExecutionGateway(
           }),
         );
       } catch (error) {
-        if (error instanceof PlatformClawVmAuthenticationError) {
-          respond(false, undefined, {
-            code: "INVALID_REQUEST",
-            message: "development VM authentication failed",
-            details: { kind: "vm_authentication_failed" },
-          });
-          return;
-        }
+        const failure = classifyVmConnectionFailure(error);
+        api.logger.warn?.(
+          `[platformclaw-execution] VM connection test failed agent=${agentId} kind=${failure.kind} cause=${failure.diagnostic}`,
+        );
         respond(false, undefined, {
-          code: "UNAVAILABLE",
-          message: "development VM connection failed",
+          code: failure.code,
+          message: failure.message,
+          details: { kind: failure.kind },
         });
       }
     },
@@ -118,17 +115,14 @@ export function registerPlatformClawExecutionGateway(
           }),
         );
       } catch (error) {
-        if (error instanceof PlatformClawVmAuthenticationError) {
-          respond(false, undefined, {
-            code: "INVALID_REQUEST",
-            message: "development VM authentication failed",
-            details: { kind: "vm_authentication_failed" },
-          });
-          return;
-        }
+        const failure = classifyVmConnectionFailure(error);
+        api.logger.warn?.(
+          `[platformclaw-execution] candidate VM connection test failed kind=${failure.kind} cause=${failure.diagnostic}`,
+        );
         respond(false, undefined, {
-          code: "UNAVAILABLE",
-          message: "development VM connection failed",
+          code: failure.code,
+          message: failure.message,
+          details: { kind: failure.kind },
         });
       }
     },
