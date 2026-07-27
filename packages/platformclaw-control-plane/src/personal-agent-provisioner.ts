@@ -12,12 +12,6 @@ import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-
 type AgentSummary = { id: string; workspace?: string };
 type AgentsListResult = { agents?: AgentSummary[] };
 type AgentCreateResult = { ok: true; agentId: string; workspace: string };
-type AgentRuntimeStatusResult = {
-  ok: true;
-  agentId: string;
-  workspace: string;
-  ready: true;
-};
 type ProfileSeedResult = {
   ok: true;
   agentId: string;
@@ -41,12 +35,30 @@ export type GatewayPersonalAgentProvisionerOptions = {
   workspaceRoot: string;
 };
 
-const CONFIG_APPLY_RETRY_DELAYS_MS = [0, 250, 500, 1_000, 2_000, 2_000, 2_000] as const;
+// Cold provider/plugin discovery can make the first configured owner publication take longer
+// than a normal hot reload. Keep login bounded while allowing that one-time preparation to finish.
+const CONFIG_APPLY_RETRY_DELAYS_MS = [
+  0, 250, 500, 1_000, 2_000, 4_000, 4_000, 4_000, 4_000, 4_000, 4_000,
+] as const;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function isReadyAgentRuntimeStatus(value: unknown, agentId: string, workspace: string): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const status = value as Record<string, unknown>;
+  return (
+    status.ok === true &&
+    status.ready === true &&
+    status.agentId === agentId &&
+    typeof status.workspace === "string" &&
+    path.resolve(status.workspace) === workspace
+  );
 }
 
 export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner {
@@ -136,16 +148,11 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
         await delay(retryDelayMs);
       }
       try {
-        const status = await this.options.rpc.call<AgentRuntimeStatusResult>(
-          "platformclaw.agent.runtimeStatus",
-          { agentId, workspace },
-        );
-        if (
-          status.ok !== true ||
-          status.ready !== true ||
-          status.agentId !== agentId ||
-          path.resolve(status.workspace) !== workspace
-        ) {
+        const status = await this.options.rpc.call<unknown>("platformclaw.agent.runtimeStatus", {
+          agentId,
+          workspace,
+        });
+        if (!isReadyAgentRuntimeStatus(status, agentId, workspace)) {
           throw new Error("Gateway agent runtime status returned an invalid payload");
         }
         return;

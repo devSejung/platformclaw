@@ -192,6 +192,61 @@ describe("GatewayPersonalAgentProvisioner", () => {
     expect(call).toHaveBeenNthCalledWith(6, "platformclaw.profile.seed", expect.any(Object));
   });
 
+  it("allows a cold runtime publication to outlast the previous short retry window", async () => {
+    vi.useFakeTimers();
+    try {
+      const workspaceRoot = path.resolve("test-workspaces");
+      const workspace = path.join(workspaceRoot, "account_name");
+      const profileSeed = createProfileSeedResponder(workspace);
+      let runtimeReads = 0;
+      const { rpc } = createRpc((method, params) => {
+        if (method === "agents.list") {
+          return agentsResponse([{ id: "account_name", workspace }]);
+        }
+        if (method === "platformclaw.agent.runtimeStatus") {
+          runtimeReads += 1;
+          if (runtimeReads < 9) {
+            throw new GatewayAdminRpcError("agent runtime is not ready", "UNAVAILABLE");
+          }
+          return runtimeReadyResponse(workspace);
+        }
+        const fileResponse = profileSeed.handle(method, params);
+        if (fileResponse) {
+          return fileResponse;
+        }
+        throw new Error(`unexpected method: ${method}`);
+      });
+      const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
+
+      const provisioning = provisioner.provisionOrRefresh(request());
+      await vi.runAllTimersAsync();
+
+      await expect(provisioning).resolves.toBeUndefined();
+      expect(runtimeReads).toBe(9);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects truthy but malformed runtime readiness flags", async () => {
+    const workspaceRoot = path.resolve("test-workspaces");
+    const workspace = path.join(workspaceRoot, "account_name");
+    const { rpc } = createRpc((method) => {
+      if (method === "agents.list") {
+        return agentsResponse([{ id: "account_name", workspace }]);
+      }
+      if (method === "platformclaw.agent.runtimeStatus") {
+        return { ok: 1, ready: "false", agentId: "account_name", workspace };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
+
+    await expect(provisioner.provisionOrRefresh(request())).rejects.toThrow(
+      "Gateway agent runtime status returned an invalid payload",
+    );
+  });
+
   it("revalidates and refreshes an active binding instead of trusting stale database state", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
