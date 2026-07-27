@@ -1,0 +1,742 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+service_user="${PLATFORMCLAW_SERVICE_USER:-platformclaw}"
+unset DOCKER_CONTEXT
+
+usage() {
+  cat <<'EOF'
+Usage: platformclaw-deploy [--service-user USER] <command> [arguments]
+
+Host setup:
+  host-setup                  Add service user to docker group (one-time sudo)
+  init                        Create editable home layout and deployment.env
+  migrate-home               Root-only legacy import; never starts services
+  setup [options]             Initialize, configure, start, and verify
+    --main-image REF
+    --sandbox-image REF
+    --public-origin URL
+    --employee-auth-login-url URL
+
+Operations:
+  up                          Start or update the stack and wait for health
+  down                        Stop containers without deleting persistent data
+  status                      Show Compose status
+  logs [service...]           Follow logs
+  shell                       Open a shell in openclaw-gateway
+
+OpenClaw config:
+  config path                 Print host-editable openclaw.json path
+  config shell                Open Gateway shell in the config directory
+  config edit                 Back up, edit, validate, and restart Gateway
+  config validate             Validate active openclaw.json
+  config apply                Validate and restart Gateway
+
+Enterprise CA:
+  ca path                     Print the editable CA bundle path
+  ca apply                    Restart Gateway and Control, then wait for health
+
+Images:
+  image load <archive.tar>    Load transfer archive into main and sandbox daemons
+  image set <main> <sandbox>  Change image refs, health-check, auto-rollback
+  image update <archive.tar> <main> <sandbox>
+                              Load, change refs, health-check, auto-rollback
+  image rollback              Restore previous image refs
+
+The main Docker daemon is rootful. The sandbox Docker daemon is rootless.
+After host-setup, log out and back in once; routine commands need no sudo.
+EOF
+}
+
+if [[ "${1:-}" == "--service-user" ]]; then
+  [[ -n "${2:-}" ]] || { usage >&2; exit 2; }
+  service_user="$2"
+  shift 2
+fi
+
+command_name="${1:-}"
+[[ -n "$command_name" ]] || { usage >&2; exit 2; }
+shift
+
+if ! getent passwd "$service_user" >/dev/null; then
+  echo "PlatformClaw service user does not exist: $service_user" >&2
+  exit 1
+fi
+
+runtime_uid="$(id -u "$service_user")"
+runtime_gid="$(id -g "$service_user")"
+service_home="$(getent passwd "$service_user" | cut -d: -f6)"
+deploy_root="${PLATFORMCLAW_DEPLOY_ROOT:-$service_home/platformclaw}"
+env_file="${PLATFORMCLAW_ENV_FILE:-$deploy_root/deployment.env}"
+gateway_state="$deploy_root/data/gateway-home/.openclaw"
+control_state="$deploy_root/data/control"
+workspace_root="$deploy_root/data/workspaces"
+secret_root="$deploy_root/secrets"
+cert_root="$deploy_root/certs"
+legacy_state_marker="$deploy_root/.legacy-durable-state"
+compose=("$script_dir/platformclaw-compose" --service-user "$service_user")
+rootless=(env "XDG_RUNTIME_DIR=/run/user/$runtime_uid" "DOCKER_HOST=unix:///run/user/$runtime_uid/docker.sock" docker)
+
+require_service_user() {
+  if [[ "$(id -u)" != "$runtime_uid" ]]; then
+    echo "Run this command as $service_user, not $(id -un)." >&2
+    exit 1
+  fi
+}
+
+require_main_docker() {
+  if ! DOCKER_HOST=unix:///var/run/docker.sock docker info >/dev/null 2>&1; then
+    echo "$service_user cannot access /var/run/docker.sock." >&2
+    echo "Run '$script_dir/platformclaw-deploy --service-user $service_user host-setup', then log out and back in." >&2
+    exit 1
+  fi
+}
+
+require_rootless_docker() {
+  if ! "${rootless[@]}" info >/dev/null 2>&1; then
+    echo "Rootless sandbox Docker is unavailable: /run/user/$runtime_uid/docker.sock" >&2
+    exit 1
+  fi
+}
+
+ensure_layout() {
+  if [[ "$(id -u)" == "0" ]]; then
+    install -d -o "$runtime_uid" -g "$runtime_gid" -m 0700 "$deploy_root" \
+      "$deploy_root/data" "$gateway_state" "$control_state" "$workspace_root" \
+      "$secret_root" "$cert_root" "$deploy_root/releases"
+  else
+    require_service_user
+    install -d -m 0700 "$deploy_root" "$deploy_root/data" "$gateway_state" \
+      "$control_state" "$workspace_root" "$secret_root" "$cert_root" "$deploy_root/releases"
+  fi
+}
+
+provision_ca() {
+  if [[ ! -f "$cert_root/employee-auth-ca.pem" ]]; then
+    cp /etc/ssl/certs/ca-certificates.crt "$cert_root/employee-auth-ca.pem"
+    chmod 0644 "$cert_root/employee-auth-ca.pem"
+  fi
+}
+
+provision_missing_secrets() {
+  local initial_admin_id=""
+  local initial_admin_source="${PLATFORMCLAW_INITIAL_ADMIN_IDS_SOURCE:-}"
+  if [[ -f "$secret_root/initial-admin-ids" ]] && \
+    ! grep -q '[^[:space:]]' "$secret_root/initial-admin-ids"; then
+    echo "Initial admin IDs file is empty: $secret_root/initial-admin-ids" >&2
+    exit 1
+  fi
+  if [[ ! -f "$secret_root/initial-admin-ids" ]]; then
+    if [[ -n "$initial_admin_source" ]]; then
+      [[ -r "$initial_admin_source" ]] || {
+        echo "Initial admin IDs source is unreadable: $initial_admin_source" >&2
+        exit 1
+      }
+      grep -q '[^[:space:]]' "$initial_admin_source" || {
+        echo "Initial admin IDs source has no account ID: $initial_admin_source" >&2
+        exit 1
+      }
+    elif [[ -t 0 ]]; then
+      read -r -p "Initial PlatformClaw admin account ID: " initial_admin_id
+      [[ "$initial_admin_id" =~ [^[:space:]] ]] || {
+        echo "Initial admin account ID is required." >&2
+        exit 1
+      }
+    else
+      echo "Missing $secret_root/initial-admin-ids." >&2
+      echo "Set PLATFORMCLAW_INITIAL_ADMIN_IDS_SOURCE to an owner-readable file, or run interactively." >&2
+      exit 1
+    fi
+  fi
+
+  umask 077
+  generate_secret "$secret_root/gateway-token" openssl rand -hex 32
+  generate_secret "$secret_root/gateway-service-identity.pem" openssl genpkey -algorithm ED25519
+  generate_secret "$secret_root/execution-service-token" openssl rand -hex 32
+  generate_secret "$secret_root/ssh-credential-master-key" openssl rand -base64 32
+  if [[ ! -f "$secret_root/initial-admin-ids" ]]; then
+    if [[ -n "$initial_admin_source" ]]; then
+      install -m 0400 "$initial_admin_source" "$secret_root/initial-admin-ids"
+    else
+      printf '%s\n' "$initial_admin_id" >"$secret_root/initial-admin-ids"
+    fi
+  fi
+  chmod 0400 \
+    "$secret_root/gateway-token" \
+    "$secret_root/gateway-service-identity.pem" \
+    "$secret_root/execution-service-token" \
+    "$secret_root/initial-admin-ids" \
+    "$secret_root/ssh-credential-master-key"
+}
+
+generate_secret() {
+  local target="$1"
+  shift
+  [[ -s "$target" ]] && return
+  local temporary
+  temporary="$(mktemp "$secret_root/.secret.XXXXXX")"
+  if ! "$@" >"$temporary"; then
+    rm -f "$temporary"
+    echo "Failed to generate secret: $target" >&2
+    exit 1
+  fi
+  chmod 0400 "$temporary"
+  mv -f "$temporary" "$target"
+}
+
+require_complete_secrets() {
+  local missing_secrets=()
+  local name
+  for name in gateway-token gateway-service-identity.pem execution-service-token initial-admin-ids ssh-credential-master-key; do
+    [[ -s "$secret_root/$name" ]] || missing_secrets+=("$name")
+  done
+  if (( ${#missing_secrets[@]} > 0 )); then
+    printf 'Migrated durable state requires its original secrets; missing: %s\n' \
+      "${missing_secrets[*]}" >&2
+    echo "Restore them into $secret_root before starting. No replacement keys were generated." >&2
+    exit 1
+  fi
+}
+
+durable_state_exists() {
+  [[ -f "$legacy_state_marker" ]] || \
+    [[ -n "$(find "$gateway_state" "$control_state" -mindepth 1 -print -quit)" ]]
+}
+
+quiesce_rootless_sandboxes() {
+  require_rootless_docker
+  local running=()
+  mapfile -t running < <("${rootless[@]}" ps --quiet)
+  if (( ${#running[@]} > 0 )); then
+    echo "Stop ${#running[@]} rootless sandbox container(s) before workspace migration."
+    "${rootless[@]}" stop "${running[@]}"
+  fi
+}
+
+read_env_value() {
+  local key="$1"
+  local source_file="${2:-$env_file}"
+  sed -n "s/^${key}=//p" "$source_file" | tail -n 1
+}
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  local temporary
+  temporary="$(mktemp "$deploy_root/.deployment.env.XXXXXX")"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { found = 0 }
+    index($0, key "=") == 1 { print key "=" value; found = 1; next }
+    { print }
+    END { if (!found) print key "=" value }
+  ' "$env_file" >"$temporary"
+  chmod 0600 "$temporary"
+  mv -f "$temporary" "$env_file"
+}
+
+set_image_pair() {
+  local main_image="$1"
+  local sandbox_image="$2"
+  local temporary
+  temporary="$(mktemp "$deploy_root/.deployment.env.XXXXXX")"
+  awk -v main="$main_image" -v sandbox="$sandbox_image" '
+    BEGIN { main_found = 0; sandbox_found = 0 }
+    index($0, "PLATFORMCLAW_IMAGE=") == 1 {
+      print "PLATFORMCLAW_IMAGE=" main; main_found = 1; next
+    }
+    index($0, "PLATFORMCLAW_SANDBOX_IMAGE=") == 1 {
+      print "PLATFORMCLAW_SANDBOX_IMAGE=" sandbox; sandbox_found = 1; next
+    }
+    { print }
+    END {
+      if (!main_found) print "PLATFORMCLAW_IMAGE=" main
+      if (!sandbox_found) print "PLATFORMCLAW_SANDBOX_IMAGE=" sandbox
+    }
+  ' "$env_file" >"$temporary"
+  chmod 0600 "$temporary"
+  mv -f "$temporary" "$env_file"
+}
+
+validate_deployment_env() {
+  local key
+  local value
+  local invalid=()
+  for key in PLATFORMCLAW_IMAGE PLATFORMCLAW_SANDBOX_IMAGE PLATFORMCLAW_PUBLIC_ORIGIN \
+    PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE \
+    PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE \
+    PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE \
+    PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE; do
+    value="$(read_env_value "$key")"
+    if [[ -z "$value" || "$value" == *'<'* || "$value" == *'>'* ]]; then
+      invalid+=("$key")
+    fi
+  done
+  if (( ${#invalid[@]} > 0 )); then
+    printf 'Configure these values in %s before startup: %s\n' "$env_file" "${invalid[*]}" >&2
+    exit 1
+  fi
+  require_immutable_image_ref "$(read_env_value PLATFORMCLAW_IMAGE)" "Main image"
+  require_immutable_image_ref "$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE)" "Sandbox image"
+}
+
+restart_gateway_and_wait() {
+  "${compose[@]}" restart openclaw-gateway && \
+    "${compose[@]}" up -d --wait openclaw-gateway
+}
+
+require_immutable_image_ref() {
+  local ref="$1"
+  local label="$2"
+  if [[ ! "$ref" =~ @sha256:[0-9a-f]{64}$ && ! "$ref" =~ :[0-9a-f]{12,64}$ ]]; then
+    echo "$label must use an immutable digest or commit-SHA tag, not a reusable version tag: $ref" >&2
+    exit 1
+  fi
+}
+
+copy_named_volume() {
+  local volume="$1"
+  local target="$2"
+  local image="$3"
+  local durable="${4:-0}"
+  local component="${5:-}"
+  local component_marker=""
+  if [[ "$durable" == "1" ]]; then
+    [[ -n "$component" ]] || { echo "Durable migration component is required." >&2; exit 1; }
+    component_marker="$deploy_root/.legacy-$component-state"
+  fi
+  if ! DOCKER_HOST=unix:///var/run/docker.sock docker volume inspect "$volume" >/dev/null 2>&1; then
+    return
+  fi
+  local source_probe
+  if ! source_probe="$(DOCKER_HOST=unix:///var/run/docker.sock docker run --rm --network none --read-only \
+    --user 0:0 --cap-drop ALL --cap-add DAC_READ_SEARCH \
+    --security-opt no-new-privileges:true --volume "$volume:/source:ro" \
+    --entrypoint find "$image" /source -mindepth 1 -print -quit)"; then
+    echo "Failed to inspect legacy volume: $volume" >&2
+    exit 1
+  fi
+  if [[ -z "$source_probe" ]]; then
+    echo "Skip empty legacy volume: $volume"
+    return
+  fi
+  if [[ -n "$(find "$target" -mindepth 1 -print -quit)" ]]; then
+    if [[ "$durable" == "1" ]]; then
+      if [[ -f "$component_marker" && "$(<"$component_marker")" == "$volume" ]]; then
+        durable_state_migrated=1
+        echo "Keep completed $component migration from $volume."
+        return
+      fi
+      echo "Refusing to skip durable volume $volume: target is not empty: $target" >&2
+      exit 1
+    fi
+    echo "Skip $volume: target is not empty: $target"
+    return
+  fi
+  local staging
+  staging="$(mktemp -d "$deploy_root/.migration-$volume.XXXXXX")"
+  echo "Copy $volume -> $target"
+  if ! DOCKER_HOST=unix:///var/run/docker.sock docker run --rm --network none --read-only \
+    --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE --cap-add CHOWN \
+    --security-opt no-new-privileges:true \
+    --volume "$volume:/source:ro" --volume "$staging:/target" \
+    --entrypoint bash "$image" -ceu 'cp -a /source/. /target/'; then
+    DOCKER_HOST=unix:///var/run/docker.sock docker run --rm --network none --read-only \
+      --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE \
+      --security-opt no-new-privileges:true --volume "$staging:/target" \
+      --entrypoint find "$image" /target -mindepth 1 -depth -delete || true
+    rmdir "$staging" 2>/dev/null || true
+    echo "Failed to copy legacy volume: $volume" >&2
+    exit 1
+  fi
+  if [[ "$durable" == "1" ]]; then
+    durable_state_migrated=1
+    printf '%s\n' "$volume" >"$component_marker"
+    chmod 0600 "$component_marker"
+    touch "$legacy_state_marker"
+    chmod 0600 "$legacy_state_marker"
+  fi
+  rmdir "$target"
+  chown "$runtime_uid:$runtime_gid" "$staging"
+  mv "$staging" "$target"
+}
+
+restore_previous_images() {
+  local previous_main
+  local previous_sandbox
+  previous_main="$(read_env_value PLATFORMCLAW_IMAGE "$env_file.previous")"
+  previous_sandbox="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE "$env_file.previous")"
+  [[ -n "$previous_main" && -n "$previous_sandbox" ]] || {
+    echo "Previous deployment env has no complete image pair: $env_file.previous" >&2
+    exit 1
+  }
+  set_image_pair "$previous_main" "$previous_sandbox"
+}
+
+copy_legacy_directory() {
+  local source="$1"
+  local target="$2"
+  [[ -d "$source" && -n "$(find "$source" -mindepth 1 -print -quit)" ]] || return
+  if [[ -n "$(find "$target" -mindepth 1 -print -quit)" ]]; then
+    echo "Skip $source: target is not empty: $target"
+    return
+  fi
+  echo "Copy $source -> $target"
+  local staging
+  staging="$(mktemp -d "$deploy_root/.migration-workspaces.XXXXXX")"
+  if ! cp -a "$source/." "$staging/"; then
+    find "$staging" -mindepth 1 -depth -delete || true
+    rmdir "$staging" 2>/dev/null || true
+    echo "Failed to copy legacy workspace directory: $source" >&2
+    exit 1
+  fi
+  rmdir "$target"
+  chown "$runtime_uid:$runtime_gid" "$staging"
+  mv "$staging" "$target"
+}
+
+load_images() {
+  local archive="$1"
+  require_service_user
+  [[ -f "$archive" ]] || { echo "Image archive does not exist: $archive" >&2; exit 1; }
+  require_main_docker
+  require_rootless_docker
+  echo "Load main Docker images"
+  DOCKER_HOST=unix:///var/run/docker.sock docker load --input "$archive"
+  echo "Load rootless sandbox Docker images"
+  "${rootless[@]}" load --input "$archive"
+}
+
+apply_images() {
+  local main_image="$1"
+  local sandbox_image="$2"
+  local current_main
+  local current_sandbox
+  require_service_user
+  require_immutable_image_ref "$main_image" "Main image"
+  require_immutable_image_ref "$sandbox_image" "Sandbox image"
+  [[ -f "$env_file" ]] || { echo "Missing $env_file; run init first." >&2; exit 1; }
+  require_main_docker
+  require_rootless_docker
+  DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$main_image" >/dev/null
+  "${rootless[@]}" image inspect "$sandbox_image" >/dev/null
+
+  current_main="$(read_env_value PLATFORMCLAW_IMAGE)"
+  current_sandbox="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE)"
+  if [[ "$current_main" == "$main_image" && "$current_sandbox" == "$sandbox_image" ]]; then
+    "${compose[@]}" up -d --wait
+    echo "PlatformClaw already uses: $main_image / $sandbox_image"
+    return
+  fi
+
+  cp -f "$env_file" "$env_file.previous"
+  chmod 0600 "$env_file.previous"
+  set_image_pair "$main_image" "$sandbox_image"
+
+  if "${compose[@]}" config --quiet && "${compose[@]}" up -d --wait; then
+    echo "PlatformClaw updated: $main_image / $sandbox_image"
+    return
+  fi
+
+  echo "Update failed; restoring previous image refs." >&2
+  restore_previous_images
+  "${compose[@]}" up -d --wait || true
+  exit 1
+}
+
+case "$command_name" in
+  host-setup)
+    if getent group docker | awk -F: -v user="$service_user" '
+      { n = split($4, users, ","); for (i = 1; i <= n; i++) if (users[i] == user) found = 1 }
+      END { exit found ? 0 : 1 }
+    '; then
+      echo "$service_user already belongs to docker group."
+    else
+      echo "One-time privilege change: add $service_user to docker group."
+      if [[ "$(id -u)" == "0" ]]; then
+        usermod -aG docker "$service_user"
+      else
+        sudo usermod -aG docker "$service_user"
+      fi
+    fi
+    if [[ "$(id -u)" == "$runtime_uid" ]]; then
+      docker context use default >/dev/null
+    elif [[ "$(id -u)" == "0" ]]; then
+      runuser -u "$service_user" -- env HOME="$service_home" docker context use default >/dev/null
+    else
+      sudo -u "$service_user" -H docker context use default >/dev/null
+    fi
+    echo "Log out and back in once. Then run: ./platformclaw-deploy init"
+    ;;
+  init)
+    require_service_user
+    ensure_layout
+    if [[ ! -f "$env_file" ]]; then
+      sed "s|<deploy-root>|$deploy_root|g" "$script_dir/deployment.env.example" >"$env_file"
+      chmod 0600 "$env_file"
+      echo "Created $env_file"
+      echo "Edit public origin, employee auth URL, and image tags before starting."
+    else
+      echo "Keep existing $env_file"
+    fi
+    echo "OpenClaw config: $gateway_state/openclaw.json"
+    ;;
+  migrate-home)
+    [[ "$(id -u)" == "0" ]] || {
+      echo "Legacy migration requires one administrator run: sudo $0 --service-user $service_user migrate-home" >&2
+      exit 1
+    }
+    ensure_layout
+    require_main_docker
+    [[ -f "$env_file" ]] || { echo "Missing $env_file; run init first." >&2; exit 1; }
+    legacy_project="${PLATFORMCLAW_LEGACY_COMPOSE_PROJECT:-platformclaw}"
+    [[ "$legacy_project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || {
+      echo "Invalid legacy Compose project name: $legacy_project" >&2
+      exit 1
+    }
+    PLATFORMCLAW_COMPOSE_PROJECT="$legacy_project" "${compose[@]}" down
+    quiesce_rootless_sandboxes
+    runtime_image="$(read_env_value PLATFORMCLAW_IMAGE)"
+    DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$runtime_image" >/dev/null
+    durable_state_migrated=0
+    copy_named_volume "${legacy_project}_platformclaw-gateway-state" "$gateway_state" "$runtime_image" 1 gateway
+    copy_named_volume "${legacy_project}_platformclaw-control-state" "$control_state" "$runtime_image" 1 control
+    copy_legacy_directory /var/lib/platformclaw/workspaces "$workspace_root"
+    copy_named_volume "${legacy_project}_platformclaw-workspaces" "$workspace_root" "$runtime_image"
+    copy_named_volume platformclaw-workspaces "$workspace_root" "$runtime_image"
+    for name in gateway-token gateway-service-identity.pem execution-service-token initial-admin-ids ssh-credential-master-key; do
+      legacy_secret="/etc/platformclaw/secrets/$name"
+      target_secret="$secret_root/$name"
+      if [[ -e "$target_secret" ]]; then
+        if [[ -f "$legacy_secret" ]]; then
+          if ! cmp -s "$legacy_secret" "$target_secret"; then
+            echo "Refusing migration: existing secret does not match legacy $name." >&2
+            exit 1
+          fi
+        elif [[ "$durable_state_migrated" == "1" ]]; then
+          echo "Refusing migration: cannot verify existing $name against legacy durable state." >&2
+          exit 1
+        fi
+      elif [[ -f "$legacy_secret" ]]; then
+        install -o "$runtime_uid" -g "$runtime_gid" -m 0400 \
+          "$legacy_secret" "$target_secret"
+      fi
+    done
+    for legacy_ca in /etc/platformclaw/certs/employee-auth-ca.crt /etc/platformclaw/certs/employee-auth-ca.pem; do
+      if [[ ! -e "$cert_root/employee-auth-ca.pem" && -f "$legacy_ca" ]]; then
+        install -o "$runtime_uid" -g "$runtime_gid" -m 0644 \
+          "$legacy_ca" "$cert_root/employee-auth-ca.pem"
+        break
+      fi
+    done
+    if [[ "$durable_state_migrated" == "1" ]]; then
+      require_complete_secrets
+    fi
+    echo "Migration copied data. Original named volumes and /etc files remain untouched."
+    echo "Review $deploy_root, then run: ./platformclaw-deploy up"
+    ;;
+  setup)
+    require_service_user
+    setup_main_image=""
+    setup_sandbox_image=""
+    setup_public_origin=""
+    setup_auth_url=""
+    while (( $# > 0 )); do
+      case "$1" in
+        --main-image|--sandbox-image|--public-origin|--employee-auth-login-url)
+          option="$1"
+          [[ -n "${2:-}" ]] || { echo "$option requires a value." >&2; exit 2; }
+          case "$option" in
+            --main-image) setup_main_image="$2" ;;
+            --sandbox-image) setup_sandbox_image="$2" ;;
+            --public-origin) setup_public_origin="$2" ;;
+            --employee-auth-login-url) setup_auth_url="$2" ;;
+          esac
+          shift 2
+          ;;
+        *) usage >&2; exit 2 ;;
+      esac
+    done
+    "$0" --service-user "$service_user" init
+    if [[ -n "$setup_main_image" || -n "$setup_sandbox_image" ]]; then
+      [[ -n "$setup_main_image" && -n "$setup_sandbox_image" ]] || {
+        echo "--main-image and --sandbox-image must be supplied together." >&2
+        exit 2
+      }
+      require_immutable_image_ref "$setup_main_image" "Main image"
+      require_immutable_image_ref "$setup_sandbox_image" "Sandbox image"
+      set_image_pair "$setup_main_image" "$setup_sandbox_image"
+    fi
+    [[ -z "$setup_public_origin" ]] || set_env_value PLATFORMCLAW_PUBLIC_ORIGIN "$setup_public_origin"
+    [[ -z "$setup_auth_url" ]] || set_env_value PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL "$setup_auth_url"
+    validate_deployment_env
+    "$0" --service-user "$service_user" up
+    ;;
+  up)
+    require_service_user
+    require_main_docker
+    require_rootless_docker
+    ensure_layout
+    validate_deployment_env
+    provision_ca
+    if durable_state_exists; then
+      require_complete_secrets
+    fi
+    provision_missing_secrets
+    main_image="$(read_env_value PLATFORMCLAW_IMAGE)"
+    sandbox_image="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE)"
+    DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$main_image" >/dev/null
+    "${rootless[@]}" image inspect "$sandbox_image" >/dev/null
+    "${compose[@]}" config --quiet
+    "${compose[@]}" up -d --wait
+    "${compose[@]}" ps
+    ;;
+  down)
+    require_service_user
+    require_main_docker
+    "${compose[@]}" down
+    ;;
+  status)
+    require_service_user
+    require_main_docker
+    "${compose[@]}" ps
+    ;;
+  logs)
+    require_service_user
+    require_main_docker
+    if (( $# == 0 )); then
+      set -- openclaw-gateway platformclaw-control
+    fi
+    "${compose[@]}" logs -f --tail 200 "$@"
+    ;;
+  shell)
+    require_service_user
+    require_main_docker
+    "${compose[@]}" exec openclaw-gateway bash
+    ;;
+  config)
+    subcommand="${1:-}"
+    case "$subcommand" in
+      path)
+        printf '%s\n' "$gateway_state/openclaw.json"
+        ;;
+      shell)
+        require_service_user
+        require_main_docker
+        "${compose[@]}" exec --workdir "$gateway_state" openclaw-gateway bash
+        ;;
+      validate)
+        require_service_user
+        require_main_docker
+        "${compose[@]}" exec openclaw-gateway node /app/openclaw.mjs config validate
+        ;;
+      apply)
+        require_service_user
+        require_main_docker
+        "${compose[@]}" exec openclaw-gateway node /app/openclaw.mjs config validate
+        restart_gateway_and_wait
+        ;;
+      edit)
+        require_service_user
+        require_main_docker
+        config_path="$gateway_state/openclaw.json"
+        [[ -f "$config_path" ]] || { echo "Config does not exist yet: $config_path" >&2; exit 1; }
+        backup="$config_path.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+        cp -p "$config_path" "$backup"
+        if ! "${EDITOR:-nano}" "$config_path"; then
+          rejected="$config_path.rejected.$(date -u +%Y%m%dT%H%M%SZ)"
+          cp -p "$config_path" "$rejected"
+          cp -p "$backup" "$config_path"
+          echo "Editor failed. Previous config restored; rejected edit kept at: $rejected" >&2
+          exit 1
+        fi
+        if ! "${compose[@]}" exec openclaw-gateway node /app/openclaw.mjs config validate; then
+          rejected="$config_path.rejected.$(date -u +%Y%m%dT%H%M%SZ)"
+          cp -p "$config_path" "$rejected"
+          cp -p "$backup" "$config_path"
+          echo "Config invalid. Previous config restored; rejected edit kept at: $rejected" >&2
+          exit 1
+        fi
+        if ! restart_gateway_and_wait; then
+          rejected="$config_path.rejected.$(date -u +%Y%m%dT%H%M%SZ)"
+          cp -p "$config_path" "$rejected"
+          cp -p "$backup" "$config_path"
+          restart_gateway_and_wait || true
+          echo "Gateway did not become healthy. Previous config restored; rejected edit kept at: $rejected" >&2
+          exit 1
+        fi
+        echo "Config applied. Backup: $backup"
+        ;;
+      *)
+        usage >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  ca)
+    subcommand="${1:-}"
+    case "$subcommand" in
+      path)
+        printf '%s\n' "$cert_root/employee-auth-ca.pem"
+        ;;
+      apply)
+        require_service_user
+        require_main_docker
+        "${compose[@]}" restart openclaw-gateway platformclaw-control
+        "${compose[@]}" up -d --wait openclaw-gateway platformclaw-control
+        ;;
+      *) usage >&2; exit 2 ;;
+    esac
+    ;;
+  image)
+    subcommand="${1:-}"
+    shift || true
+    case "$subcommand" in
+      load)
+        [[ $# == 1 ]] || { usage >&2; exit 2; }
+        load_images "$1"
+        ;;
+      set)
+        [[ $# == 2 ]] || { usage >&2; exit 2; }
+        apply_images "$1" "$2"
+        ;;
+      update)
+        [[ $# == 3 ]] || { usage >&2; exit 2; }
+        require_immutable_image_ref "$2" "Main image"
+        require_immutable_image_ref "$3" "Sandbox image"
+        load_images "$1"
+        apply_images "$2" "$3"
+        ;;
+      rollback)
+        require_service_user
+        require_main_docker
+        require_rootless_docker
+        [[ -f "$env_file.previous" ]] || { echo "No previous deployment env: $env_file.previous" >&2; exit 1; }
+        previous_main="$(read_env_value PLATFORMCLAW_IMAGE "$env_file.previous")"
+        previous_sandbox="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE "$env_file.previous")"
+        require_immutable_image_ref "$previous_main" "Previous main image"
+        require_immutable_image_ref "$previous_sandbox" "Previous sandbox image"
+        DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$previous_main" >/dev/null
+        "${rootless[@]}" image inspect "$previous_sandbox" >/dev/null
+        current_backup="$env_file.failed.$(date -u +%Y%m%dT%H%M%SZ)"
+        cp -p "$env_file" "$current_backup"
+        restore_previous_images
+        if ! "${compose[@]}" up -d --wait; then
+          cp -p "$current_backup" "$env_file"
+          "${compose[@]}" up -d --wait || true
+          echo "Rollback failed. Current deployment env restored; failed attempt saved: $current_backup" >&2
+          exit 1
+        fi
+        echo "Rolled back. Replaced env saved: $current_backup"
+        ;;
+      *)
+        usage >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

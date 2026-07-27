@@ -54,7 +54,9 @@ describe("PlatformClaw Docker runtime", () => {
     expect(stateInit?.user).toBe("0:0");
     expect(stateInit?.network_mode).toBe("none");
     expect(stateInit?.cap_add).toEqual(["CHOWN", "DAC_OVERRIDE", "FOWNER"]);
-    expect(stateInit?.volumes).not.toContain("/var/lib/platformclaw/workspaces:/state/workspaces");
+    expect(stateInit?.volumes).toContain(
+      "${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/gateway-home/.openclaw:/state/gateway",
+    );
     expect(gateway?.depends_on).toMatchObject({
       "platformclaw-state-init": { condition: "service_completed_successfully" },
     });
@@ -88,10 +90,13 @@ describe("PlatformClaw Docker runtime", () => {
     );
     expect(gateway?.volumes).not.toContain("/var/run/docker.sock:/var/run/docker.sock");
     expect(gateway?.volumes).toContain(
-      "/var/lib/platformclaw/workspaces:/var/lib/platformclaw/workspaces",
+      "${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/workspaces:${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/workspaces",
+    );
+    expect(gateway?.environment?.OPENCLAW_STATE_DIR).toBe(
+      "${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home/.openclaw",
     );
     expect(gateway?.tmpfs).toEqual([
-      "/var/lib/platformclaw/gateway-home:uid=${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user},gid=${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user},mode=0700",
+      "${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home:uid=${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user},gid=${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user},mode=0700",
     ]);
   });
 
@@ -288,6 +293,10 @@ describe("PlatformClaw Docker runtime", () => {
     expect(preview).toContain("$manifest.runtimeImageId -eq $runtimeImageId");
     expect(preview).toContain("$archivedImageId -ne $sandboxImageId");
     expect(preview).toContain("Get-RunningControlImageId");
+    expect(preview).toContain("EmployeeAuthCa = Join-Path");
+    expect(preview).toContain("Initialize-PreviewCa $Paths");
+    expect(preview).toContain("PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE");
+    expect(preview).toContain("PLATFORMCLAW_DEPLOY_HOST_ROOT = $Paths.Root");
     expect(preview).toContain("Repair-PreviewEmployeeAuth");
     expect(preview).toContain("Test-RunningGatewayApiKey");
     expect(preview).toContain("The preview model credential changed; recreating Gateway");
@@ -424,7 +433,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(migration?.network_mode).toBe("none");
     expect(migration?.volumes).toEqual([
       "platformclaw-workspaces:/source:ro",
-      "/var/lib/platformclaw/workspaces:/target",
+      "${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/workspaces:/target",
     ]);
     expect(migration?.entrypoint).toEqual(["platformclaw-migrate-workspaces"]);
     const migrationScript = readRepoFile("docker/platformclaw-runtime/migrate-workspaces");
@@ -444,6 +453,12 @@ describe("PlatformClaw Docker runtime", () => {
 
     expect(wrapper).toContain('runtime_uid="$(id -u "$service_user")"');
     expect(wrapper).toContain('runtime_gid="$(id -g "$service_user")"');
+    expect(wrapper).toContain('service_home="$(getent passwd "$service_user" | cut -d: -f6)"');
+    expect(wrapper).toContain("$service_home/platformclaw");
+    expect(wrapper).toContain('PLATFORMCLAW_DEPLOY_HOST_ROOT="$PLATFORMCLAW_DEPLOY_ROOT"');
+    expect(wrapper).toContain("unix:///var/run/docker.sock");
+    expect(wrapper).toContain("unset DOCKER_CONTEXT");
+    expect(wrapper).toContain("PLATFORMCLAW_COMPOSE_PROJECT:-platformclaw");
     expect(wrapper).toContain("/run/user/$runtime_uid");
     expect(wrapper).toContain("platformclaw-credential-broker-$runtime_uid-$runtime_gid");
     expect(wrapper).toContain('if [[ "$1" == "environment" ]]');
@@ -463,7 +478,49 @@ describe("PlatformClaw Docker runtime", () => {
       "DAC_READ_SEARCH",
     ]);
     expect(readme).toContain("platformclaw-compose --service-user platformclaw");
-    expect(readme).toContain("Do not store\ntheir values in Compose YAML or an environment file.");
+    expect(readme).toContain("Secret values do\nnot belong in that environment file");
+    const deploy = readRepoFile("docker/platformclaw-runtime/platformclaw-deploy");
+    expect(deploy).toContain("Legacy migration requires one administrator run");
+    expect(deploy).toContain("--employee-auth-login-url");
+    expect(deploy).toContain("validate_deployment_env");
+    expect(deploy).toContain('image inspect "$sandbox_image"');
+    expect(deploy).toContain("PLATFORMCLAW_INITIAL_ADMIN_IDS_SOURCE");
+    expect(deploy).toContain("Initial admin IDs source has no account ID");
+    expect(deploy).toContain('generate_secret "$secret_root/gateway-token"');
+    expect(deploy).toContain("existing secret does not match legacy");
+    expect(deploy).toContain("--cap-add CHOWN");
+    expect(deploy).toContain('cmp -s "$legacy_secret" "$target_secret"');
+    expect(deploy).toContain("config edit");
+    expect(deploy).toContain("restart_gateway_and_wait");
+    expect(deploy).toContain("require_immutable_image_ref");
+    expect(deploy).toContain('"${compose[@]}" restart openclaw-gateway platformclaw-control');
+    expect(deploy).toContain('cp -p "$backup" "$config_path"');
+    expect(deploy).toContain("image rollback");
+    expect(deploy).toContain("set_image_pair");
+    expect(deploy).toContain('runuser -u "$service_user"');
+    expect(deploy).toContain('"${legacy_project}_platformclaw-gateway-state"');
+    expect(deploy).toContain('"${legacy_project}_platformclaw-workspaces"');
+    expect(deploy).toContain("Migrated durable state requires its original secrets");
+    expect(deploy).toContain("Refusing to skip durable volume");
+    expect(deploy).toContain("Skip empty legacy volume");
+    expect(deploy).toContain('legacy_state_marker="$deploy_root/.legacy-durable-state"');
+    expect(deploy).toContain('[[ -f "$legacy_state_marker" ]]');
+    expect(deploy).toContain("quiesce_rootless_sandboxes");
+    expect(deploy).toContain('find "$gateway_state" "$control_state" -mindepth 1');
+    expect(deploy).toContain("restore_previous_images");
+    expect(deploy).toContain("Rollback failed. Current deployment env restored");
+    expect(deploy).toContain("PlatformClaw already uses");
+    expect(deploy).toContain('image inspect "$previous_sandbox"');
+    expect(deploy).toContain("employee-auth-ca.crt");
+    const releasePrepare = readRepoFile(
+      ".agents/skills/release-platformclaw/scripts/prepare-release.mjs",
+    );
+    expect(releasePrepare).toContain(
+      "uploadPaths: [...localAssets.map((entry) => entry.path), manifestPath]",
+    );
+    expect(releasePrepare).toContain("manifestFile: basename(manifestPath)");
+    expect(releasePrepare).toContain('"release-upload-plan.local.json"');
+    expect(releasePrepare).toContain("--date must be a real calendar date");
   });
 
   it("registers a deterministic Docker scheduler lane", () => {

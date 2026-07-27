@@ -24,20 +24,34 @@ fi
 
 runtime_uid="$(id -u "$service_user")"
 runtime_gid="$(id -g "$service_user")"
+service_home="$(getent passwd "$service_user" | cut -d: -f6)"
 if [[ "$runtime_uid" == "0" || "$runtime_gid" == "0" ]]; then
   echo "PlatformClaw service user must not be root" >&2
+  exit 1
+fi
+if [[ -z "$service_home" || "$service_home" != /* ]]; then
+  echo "PlatformClaw service user has no absolute home directory: $service_user" >&2
   exit 1
 fi
 
 export PLATFORMCLAW_RUNTIME_UID="$runtime_uid"
 export PLATFORMCLAW_RUNTIME_GID="$runtime_gid"
+export PLATFORMCLAW_DEPLOY_ROOT="${PLATFORMCLAW_DEPLOY_ROOT:-$service_home/platformclaw}"
+export PLATFORMCLAW_DEPLOY_HOST_ROOT="$PLATFORMCLAW_DEPLOY_ROOT"
+export PLATFORMCLAW_ENV_FILE="${PLATFORMCLAW_ENV_FILE:-$PLATFORMCLAW_DEPLOY_ROOT/deployment.env}"
 export PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR="${PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR:-/run/user/$runtime_uid}"
 export PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME="${PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME:-platformclaw-credential-broker-$runtime_uid-$runtime_gid}"
+export DOCKER_HOST="unix:///var/run/docker.sock"
+unset DOCKER_CONTEXT
 
 if [[ "$1" == "environment" ]]; then
   printf 'PLATFORMCLAW_SERVICE_USER=%s\n' "$service_user"
   printf 'PLATFORMCLAW_RUNTIME_UID=%s\n' "$PLATFORMCLAW_RUNTIME_UID"
   printf 'PLATFORMCLAW_RUNTIME_GID=%s\n' "$PLATFORMCLAW_RUNTIME_GID"
+  printf 'PLATFORMCLAW_DEPLOY_ROOT=%s\n' "$PLATFORMCLAW_DEPLOY_ROOT"
+  printf 'PLATFORMCLAW_DEPLOY_HOST_ROOT=%s\n' "$PLATFORMCLAW_DEPLOY_HOST_ROOT"
+  printf 'PLATFORMCLAW_ENV_FILE=%s\n' "$PLATFORMCLAW_ENV_FILE"
+  printf 'PLATFORMCLAW_MAIN_DOCKER_HOST=%s\n' "$DOCKER_HOST"
   printf 'PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR=%s\n' \
     "$PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR"
   printf 'PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME=%s\n' \
@@ -45,4 +59,23 @@ if [[ "$1" == "environment" ]]; then
   exit 0
 fi
 
-exec docker compose --env-file "$script_dir/.env" -f "$script_dir/compose.yaml" "$@"
+if [[ ! -f "$PLATFORMCLAW_ENV_FILE" ]]; then
+  echo "PlatformClaw deployment environment does not exist: $PLATFORMCLAW_ENV_FILE" >&2
+  echo "Run ./platformclaw-deploy init first." >&2
+  exit 1
+fi
+
+compose_project="${PLATFORMCLAW_COMPOSE_PROJECT:-platformclaw}"
+# Stable deployment values come only from deployment.env. Ambient shell values
+# must not silently override an image update, rollback, origin, or secret path.
+unset PLATFORMCLAW_IMAGE PLATFORMCLAW_SANDBOX_IMAGE \
+  PLATFORMCLAW_PUBLIC_ORIGIN PLATFORMCLAW_PUBLIC_PORT \
+  PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL PLATFORMCLAW_TZ \
+  PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE \
+  PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE \
+  PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE \
+  PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE \
+  PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE \
+  PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE
+exec docker compose --project-name "$compose_project" \
+  --env-file "$PLATFORMCLAW_ENV_FILE" -f "$script_dir/compose.yaml" "$@"

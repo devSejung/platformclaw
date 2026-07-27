@@ -1,4 +1,9 @@
 services:
+  platformclaw-state-init:
+    volumes:
+      - platformclaw-smoke-gateway-state:/state/gateway
+      - platformclaw-smoke-control-state:/state/control
+
   # Named volumes start root-owned. Hand them to the rootless daemon before it
   # starts so RootlessKit can secure both its runtime and persistent data paths.
   sandbox-docker-init:
@@ -26,7 +31,8 @@ services:
     volumes:
       - platformclaw-smoke-docker-run:/run/user/1000
       - platformclaw-smoke-docker-data:/home/rootless/.local/share/docker
-      - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:/var/lib/platformclaw/workspaces
+      - platformclaw-smoke-gateway-state:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/gateway-home/.openclaw:ro
+      - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/workspaces
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 2s
@@ -61,7 +67,8 @@ services:
       fake-safeconnect:
         condition: service_healthy
     volumes:
-      - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:/var/lib/platformclaw/workspaces
+      - platformclaw-smoke-gateway-state:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/gateway-home/.openclaw
+      - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/workspaces
       - platformclaw-smoke-docker-run:/run/platformclaw-sandbox-docker:ro
 
   fake-safeconnect:
@@ -120,9 +127,12 @@ services:
     environment:
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: http://127.0.0.1:18080/login
     volumes:
-      - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:/var/lib/platformclaw/workspaces
+      - platformclaw-smoke-control-state:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/control
+      - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/workspaces
 
 volumes:
+  platformclaw-smoke-gateway-state:
+  platformclaw-smoke-control-state:
   platformclaw-smoke-docker-run:
   platformclaw-smoke-docker-data:
   platformclaw-smoke-safeconnect-state:

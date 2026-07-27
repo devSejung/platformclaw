@@ -9,8 +9,8 @@ services:
       PLATFORMCLAW_RUNTIME_GID: ${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}
     network_mode: none
     volumes:
-      - platformclaw-gateway-state:/state/gateway
-      - platformclaw-control-state:/state/control
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/gateway-home/.openclaw:/state/gateway
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/control:/state/control
       - ./init-state:/opt/platformclaw/init-state:ro
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
@@ -26,19 +26,22 @@ services:
         condition: service_completed_successfully
     environment:
       DOCKER_HOST: unix:///run/platformclaw-sandbox-docker/docker.sock
-      HOME: /var/lib/platformclaw/gateway-home
-      OPENCLAW_CONFIG_PATH: /var/lib/platformclaw/gateway-home/.openclaw/openclaw.json
+      HOME: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home
+      OPENCLAW_STATE_DIR: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home/.openclaw
+      OPENCLAW_CONFIG_PATH: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home/.openclaw/openclaw.json
       PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
       PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_execution_service_token
       PLATFORMCLAW_SANDBOX_IMAGE: ${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:local}
+      NODE_EXTRA_CA_CERTS: /etc/platformclaw/certs/employee-auth-ca.pem
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
     volumes:
-      - platformclaw-gateway-state:/var/lib/platformclaw/gateway-home/.openclaw
-      - /var/lib/platformclaw/workspaces:/var/lib/platformclaw/workspaces
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/gateway-home/.openclaw:${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home/.openclaw
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/workspaces:${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/workspaces
       - ${PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR:?set PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR}:/run/platformclaw-sandbox-docker:ro
       - platformclaw-credential-broker:/run/platformclaw-credential-broker:ro
+      - ${PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE:?set PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE}:/etc/platformclaw/certs/employee-auth-ca.pem:ro
     tmpfs:
-      - /var/lib/platformclaw/gateway-home:uid=${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user},gid=${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user},mode=0700
+      - ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home:uid=${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user},gid=${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user},mode=0700
     secrets:
       - platformclaw_gateway_token
       - platformclaw_execution_service_token
@@ -71,13 +74,13 @@ services:
       openclaw-gateway:
         condition: service_healthy
     environment:
-      HOME: /var/lib/platformclaw/control/home
+      HOME: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/control/home
       PLATFORMCLAW_PUBLIC_ORIGIN: ${PLATFORMCLAW_PUBLIC_ORIGIN:?set PLATFORMCLAW_PUBLIC_ORIGIN}
       PLATFORMCLAW_LISTEN_HOST: 0.0.0.0
       PLATFORMCLAW_LISTEN_PORT: "19001"
-      PLATFORMCLAW_DATABASE_PATH: /var/lib/platformclaw/control/platformclaw-control.sqlite
+      PLATFORMCLAW_DATABASE_PATH: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/control/platformclaw-control.sqlite
       PLATFORMCLAW_CONTROL_UI_ROOT: /app/ui/dist
-      PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT: /var/lib/platformclaw/workspaces
+      PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/workspaces
       PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE: /run/secrets/platformclaw_initial_admin_ids
       PLATFORMCLAW_GATEWAY_URL: ws://gateway.platformclaw.local:18789
       PLATFORMCLAW_GATEWAY_TOKEN_FILE: /run/secrets/platformclaw_gateway_token
@@ -86,11 +89,13 @@ services:
       PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
       PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_execution_service_token
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL}
+      NODE_EXTRA_CA_CERTS: /etc/platformclaw/certs/employee-auth-ca.pem
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
     volumes:
-      - platformclaw-control-state:/var/lib/platformclaw/control
-      - /var/lib/platformclaw/workspaces:/var/lib/platformclaw/workspaces
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/control:${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/control
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/workspaces:${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/workspaces
       - platformclaw-credential-broker:/run/platformclaw-credential-broker
+      - ${PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE:?set PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE}:/etc/platformclaw/certs/employee-auth-ca.pem:ro
     secrets:
       - platformclaw_gateway_token
       - platformclaw_gateway_service_identity
@@ -130,7 +135,7 @@ services:
     network_mode: none
     volumes:
       - platformclaw-workspaces:/source:ro
-      - /var/lib/platformclaw/workspaces:/target
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/workspaces:/target
     entrypoint: ["platformclaw-migrate-workspaces"]
     restart: "no"
 
@@ -145,7 +150,7 @@ services:
       PLATFORMCLAW_PREVIOUS_RUNTIME_GID: ${PLATFORMCLAW_PREVIOUS_RUNTIME_GID:-}
     network_mode: none
     volumes:
-      - /var/lib/platformclaw/workspaces:/workspace
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/workspaces:/workspace
       - ./migrate-workspace-owner:/opt/platformclaw/migrate-workspace-owner:ro
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_READ_SEARCH]
@@ -154,8 +159,6 @@ services:
     restart: "no"
 
 volumes:
-  platformclaw-gateway-state:
-  platformclaw-control-state:
   platformclaw-workspaces:
   platformclaw-credential-broker:
     name: ${PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME:?run platformclaw-compose with a service user}

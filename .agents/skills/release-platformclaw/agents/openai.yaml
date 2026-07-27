@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release PlatformClaw"
+  short_description: "Build and publish PlatformClaw preview releases"
+  default_prompt: "Use $release-platformclaw to prepare and publish a verified PlatformClaw preview release."
