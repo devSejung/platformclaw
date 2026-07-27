@@ -9,6 +9,7 @@ import {
   browserPayloadBelongsToAccess,
 } from "./browser-gateway-ownership.js";
 import {
+  PLATFORMCLAW_WEB_ADMIN_METHODS,
   PLATFORMCLAW_WEB_AGENT_ONLY_METHODS,
   PLATFORMCLAW_WEB_ALLOWED_METHODS,
   PLATFORMCLAW_WEB_ALLOWED_PARAMS,
@@ -23,9 +24,14 @@ export {
   type PlatformClawWebGatewayMethod,
 } from "./browser-gateway-policy.js";
 import {
+  prepareBrowserSelfServiceRequest,
+  resolveBrowserSkillExecutionTarget,
+} from "./browser-gateway-self-service-policy.js";
+import {
   isConfiguredBrowserModel,
   projectBrowserAgentFiles,
-  projectBrowserSkillsStatus,
+  projectBrowserSelfUser,
+  projectBrowserSkillResult,
 } from "./browser-gateway-self-service-projections.js";
 import {
   browserTaskEventBelongsToAccess,
@@ -141,9 +147,17 @@ export class BrowserGatewayProxy {
 
   async request<T = unknown>(token: string, method: string, params?: unknown): Promise<T> {
     const access = await this.resolveAccess(token);
+    let executionTarget: "platform_server" | "assigned_vm" | undefined;
     let prepared: JsonObject;
     let initialCommandSuppressed = true;
     try {
+      executionTarget = await resolveBrowserSkillExecutionTarget({
+        method,
+        load: () => this.options.store.getPersonalExecutionProfile(access.binding.agentId),
+        deny: (message) => {
+          throw new BrowserGatewayProxyError("method-not-allowed", message);
+        },
+      });
       prepared = this.prepareRequest(access, method, params);
       if (method === "chat.send" || method === "sessions.create") {
         initialCommandSuppressed = await this.resolveCommandSuppression(access, prepared.message);
@@ -180,13 +194,15 @@ export class BrowserGatewayProxy {
         throw error;
       }
     }
-    // Keep the upstream commands.list compatibility path on the same filtered metadata source,
-    // otherwise browser command visibility and execution policy can drift apart.
+    if (method === "users.self") {
+      return projectBrowserSelfUser(access.user) as T;
+    }
+    // Keep commands.list on filtered metadata so browser visibility and execution cannot drift.
     const upstreamMethod = method === "commands.list" ? "chat.metadata" : method;
     const upstreamParams = method === "commands.list" ? { agentId: prepared.agentId } : prepared;
     const result = await this.options.gateway.request(upstreamMethod, upstreamParams);
     try {
-      return this.filterResult(access, method, prepared, result) as T;
+      return this.filterResult(access, method, prepared, result, executionTarget) as T;
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
         await this.auditDeniedRequest(access, method, error.code);
@@ -207,8 +223,7 @@ export class BrowserGatewayProxy {
     const createParams = { ...prepared };
     delete createParams.message;
     if (message && createParams.key === undefined && createParams.catalogId === undefined) {
-      // Upstream normally mints a dashboard key when an initial turn is present. Because the
-      // browser turn is relayed separately below, mint it here to avoid resetting the main session.
+      // Mint the dashboard key here because the separately relayed turn would reset main otherwise.
       createParams.key = `agent:${access.binding.agentId}:dashboard:${randomUUID()}`;
     }
     const rawCreated = await this.options.gateway.request("sessions.create", createParams);
@@ -309,19 +324,26 @@ export class BrowserGatewayProxy {
         `Gateway method is not available to browser users: ${method}`,
       );
     }
+    if (PLATFORMCLAW_WEB_ADMIN_METHODS.has(method) && access.user.globalRole !== "admin") {
+      throw new BrowserGatewayProxyError(
+        "method-not-allowed",
+        `Gateway administration method is not available to browser users: ${method}`,
+      );
+    }
     const params = { ...asObject(rawParams, `${method} params`) };
     this.assertAllowedParams(method, params);
-    if (method === "models.list") {
-      if (params.view !== undefined && params.view !== "configured") {
-        throw new BrowserGatewayProxyError(
-          "method-not-allowed",
-          "browser model catalog is limited to configured models",
-        );
-      }
-      return { view: "configured" };
-    }
-    if (method === "agents.list") {
-      return {};
+    const selfServiceParams = prepareBrowserSelfServiceRequest({
+      method,
+      params,
+      agentId: access.binding.agentId,
+      assertOptionalAgentId: (value) => this.assertOptionalAgentId(access, value, method),
+      assertOwnedSessionKey: (value, label) => this.assertOwnedSessionKey(access, value, label),
+      deny: (message) => {
+        throw new BrowserGatewayProxyError("method-not-allowed", message);
+      },
+    });
+    if (selfServiceParams !== undefined) {
+      return selfServiceParams;
     }
     if (method === "sessions.list") {
       this.assertOptionalAgentId(access, params.agentId, method);
@@ -407,6 +429,7 @@ export class BrowserGatewayProxy {
     method: string,
     prepared: JsonObject,
     result: unknown,
+    executionTarget?: "platform_server" | "assigned_vm",
   ): unknown {
     if (method === "tasks.list" || method === "tasks.get" || method === "tasks.cancel") {
       return projectBrowserTaskResult({
@@ -428,9 +451,11 @@ export class BrowserGatewayProxy {
         },
       });
     }
-    if (method === "skills.status") {
-      return projectBrowserSkillsStatus({
+    if (method.startsWith("skills.")) {
+      return projectBrowserSkillResult({
         agentId: access.binding.agentId,
+        executionTarget: executionTarget ?? "platform_server",
+        method,
         result,
         fail: (message) => {
           throw new BrowserGatewayProxyError("upstream-result-denied", message);

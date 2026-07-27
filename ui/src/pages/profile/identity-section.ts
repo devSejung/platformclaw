@@ -19,6 +19,7 @@ type IdentitySectionProps = {
   onDisplayNameInput: (value: string) => void;
   onSaveDisplayName: () => void;
   onAvatarSelect: (file: File) => void;
+  editable?: boolean;
 };
 
 function avatarViewer(profile: UserProfile, avatarUrl: string | null): PresenceViewer {
@@ -45,64 +46,69 @@ export function renderIdentitySection(props: IdentitySectionProps) {
         ${renderSettingsRow({
           title: t("profilePage.identity.avatar"),
           description: t("profilePage.identity.avatarDescription"),
-          control: html`
-            <span class="identity-avatar-control">
-              <openclaw-viewer-avatar
-                .user=${avatarViewer(props.profile, props.avatarUrl)}
-                variant="profile"
-              ></openclaw-viewer-avatar>
-              <label class="btn btn--sm">
-                ${props.busy === "avatar"
-                  ? t("profilePage.identity.processingAvatar")
-                  : t("profilePage.identity.chooseAvatar")}
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  hidden
-                  ?disabled=${props.busy !== null}
-                  @change=${(event: Event) => {
-                    const input = event.currentTarget as HTMLInputElement;
-                    const file = input.files?.[0];
-                    input.value = "";
-                    if (file) {
-                      props.onAvatarSelect(file);
-                    }
-                  }}
-                />
-              </label>
-            </span>
-          `,
+          control:
+            props.editable === false
+              ? html`<openclaw-viewer-avatar
+                  .user=${avatarViewer(props.profile, props.avatarUrl)}
+                  variant="profile"
+                ></openclaw-viewer-avatar>`
+              : html`<span class="identity-avatar-control">
+                  <openclaw-viewer-avatar
+                    .user=${avatarViewer(props.profile, props.avatarUrl)}
+                    variant="profile"
+                  ></openclaw-viewer-avatar>
+                  <label class="btn btn--sm">
+                    ${props.busy === "avatar"
+                      ? t("profilePage.identity.processingAvatar")
+                      : t("profilePage.identity.chooseAvatar")}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      hidden
+                      ?disabled=${props.busy !== null}
+                      @change=${(event: Event) => {
+                        const input = event.currentTarget as HTMLInputElement;
+                        const file = input.files?.[0];
+                        input.value = "";
+                        if (file) {
+                          props.onAvatarSelect(file);
+                        }
+                      }}
+                    />
+                  </label>
+                </span>`,
         })}
         ${renderSettingsRow({
           title: t("profilePage.identity.displayName"),
           description: t("profilePage.identity.displayNameDescription"),
-          control: html`
-            <form
-              class="identity-name-control"
-              @submit=${(event: SubmitEvent) => {
-                event.preventDefault();
-                props.onSaveDisplayName();
-              }}
-            >
-              <input
-                class="settings-input"
-                type="text"
-                maxlength="256"
-                aria-label=${t("profilePage.identity.displayName")}
-                .value=${props.displayName}
-                ?disabled=${props.busy !== null}
-                @input=${(event: Event) =>
-                  props.onDisplayNameInput((event.currentTarget as HTMLInputElement).value)}
-              />
-              <button
-                type="submit"
-                class="btn btn--sm"
-                ?disabled=${props.busy !== null || !nameChanged}
-              >
-                ${props.busy === "display-name" ? t("common.saving") : t("common.save")}
-              </button>
-            </form>
-          `,
+          control:
+            props.editable === false
+              ? renderSettingsValue(savedName)
+              : html`<form
+                  class="identity-name-control"
+                  @submit=${(event: SubmitEvent) => {
+                    event.preventDefault();
+                    props.onSaveDisplayName();
+                  }}
+                >
+                  <input
+                    class="settings-input"
+                    type="text"
+                    maxlength="256"
+                    aria-label=${t("profilePage.identity.displayName")}
+                    .value=${props.displayName}
+                    ?disabled=${props.busy !== null}
+                    @input=${(event: Event) =>
+                      props.onDisplayNameInput((event.currentTarget as HTMLInputElement).value)}
+                  />
+                  <button
+                    type="submit"
+                    class="btn btn--sm"
+                    ?disabled=${props.busy !== null || !nameChanged}
+                  >
+                    ${props.busy === "display-name" ? t("common.saving") : t("common.save")}
+                  </button>
+                </form>`,
         })}
         ${renderSettingsRow({
           title: t("profilePage.identity.linkedEmails"),

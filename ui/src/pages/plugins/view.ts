@@ -51,6 +51,7 @@ export type PluginRowMessage = {
 };
 
 type PluginsViewProps = {
+  showMcp?: boolean;
   connected: boolean;
   loading: boolean;
   result: PluginListResult | null;
@@ -735,7 +736,7 @@ function renderInstalled(props: PluginsViewProps) {
             ),
           ),
         )}
-    ${renderMcpSection(props)}
+    ${props.showMcp === false ? nothing : renderMcpSection(props)}
   `;
 }
 

@@ -346,34 +346,37 @@ describe("ConfigPage session observer models", () => {
 });
 
 describe("ConfigPage runtime config lifecycle", () => {
-  it("does not load operator config for personal-agent Appearance", async () => {
-    const page = new ConfigPage();
-    const ensureLoaded = vi.fn(() => Promise.resolve());
-    const ensureSchemaLoaded = vi.fn(() => Promise.resolve());
-    const runtimeConfig = {
-      state: {
-        configSnapshot: null,
-        configLoading: false,
-        configSchema: null,
-        configSchemaLoading: false,
-      },
-      ensureLoaded,
-      ensureSchemaLoaded,
-    } as unknown as ApplicationContext["runtimeConfig"];
-    const state = page as unknown as {
-      context: ApplicationContext;
-      pageId: string;
-      synchronizeRuntimeConfig: (runtimeConfig: ApplicationContext["runtimeConfig"]) => void;
-    };
-    state.context = { accessMode: "personal-agent" } as ApplicationContext;
-    state.pageId = "appearance";
+  it.each(["appearance", "notifications"])(
+    "does not load operator config for personal-agent %s",
+    async (pageId) => {
+      const page = new ConfigPage();
+      const ensureLoaded = vi.fn(() => Promise.resolve());
+      const ensureSchemaLoaded = vi.fn(() => Promise.resolve());
+      const runtimeConfig = {
+        state: {
+          configSnapshot: null,
+          configLoading: false,
+          configSchema: null,
+          configSchemaLoading: false,
+        },
+        ensureLoaded,
+        ensureSchemaLoaded,
+      } as unknown as ApplicationContext["runtimeConfig"];
+      const state = page as unknown as {
+        context: ApplicationContext;
+        pageId: string;
+        synchronizeRuntimeConfig: (runtimeConfig: ApplicationContext["runtimeConfig"]) => void;
+      };
+      state.context = { accessMode: "personal-agent" } as ApplicationContext;
+      state.pageId = pageId;
 
-    state.synchronizeRuntimeConfig(runtimeConfig);
-    await Promise.resolve();
+      state.synchronizeRuntimeConfig(runtimeConfig);
+      await Promise.resolve();
 
-    expect(ensureLoaded).not.toHaveBeenCalled();
-    expect(ensureSchemaLoaded).not.toHaveBeenCalled();
-  });
+      expect(ensureLoaded).not.toHaveBeenCalled();
+      expect(ensureSchemaLoaded).not.toHaveBeenCalled();
+    },
+  );
 
   it("loads replacement sources and clears sensitive reveal state", async () => {
     const page = new ConfigPage();

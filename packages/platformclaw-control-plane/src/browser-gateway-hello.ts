@@ -1,16 +1,21 @@
 import type { HelloOk } from "@openclaw/gateway-protocol";
 import {
-  PLATFORMCLAW_WEB_GATEWAY_EVENTS,
+  PLATFORMCLAW_WEB_ADMIN_METHODS,
   PLATFORMCLAW_WEB_GATEWAY_METHODS,
+} from "./browser-gateway-policy.js";
+import {
+  PLATFORMCLAW_WEB_GATEWAY_EVENTS,
   type BrowserGatewayAccess,
 } from "./browser-gateway-proxy.js";
 
 const BROWSER_OPERATOR_SCOPES = ["operator.read", "operator.write"] as const;
+const BROWSER_ADMIN_SCOPES = [...BROWSER_OPERATOR_SCOPES, "operator.admin"] as const;
 
 export function projectPlatformClawBrowserHello(params: {
   upstream: HelloOk;
   access: BrowserGatewayAccess;
   connectionId: string;
+  clientInstanceId?: string;
   maxPayloadBytes?: number;
 }): HelloOk {
   const upstreamMethods = new Set(params.upstream.features.methods);
@@ -24,13 +29,27 @@ export function projectPlatformClawBrowserHello(params: {
     },
     features: {
       methods: PLATFORMCLAW_WEB_GATEWAY_METHODS.filter(
-        (method) => method === "commands.list" || upstreamMethods.has(method),
+        (method) =>
+          (method === "commands.list" || upstreamMethods.has(method)) &&
+          (params.access.user.globalRole === "admin" ||
+            !PLATFORMCLAW_WEB_ADMIN_METHODS.has(method)),
       ),
       events: PLATFORMCLAW_WEB_GATEWAY_EVENTS.filter((event) => upstreamEvents.has(event)),
       capabilities: [],
     },
     snapshot: {
-      presence: [],
+      presence: [
+        {
+          instanceId: params.clientInstanceId ?? params.connectionId,
+          mode: "webchat",
+          ts: params.access.user.lastLoginAt ?? params.access.user.updatedAt,
+          user: {
+            id: params.access.user.id,
+            ...(params.access.user.email ? { email: params.access.user.email } : {}),
+            name: params.access.user.displayName ?? params.access.user.accountId,
+          },
+        },
+      ],
       health: {},
       stateVersion: { presence: 0, health: 0 },
       uptimeMs: params.upstream.snapshot.uptimeMs,
@@ -42,7 +61,10 @@ export function projectPlatformClawBrowserHello(params: {
     },
     auth: {
       role: "operator",
-      scopes: [...BROWSER_OPERATOR_SCOPES],
+      scopes:
+        params.access.user.globalRole === "admin"
+          ? [...BROWSER_ADMIN_SCOPES]
+          : [...BROWSER_OPERATOR_SCOPES],
     },
     policy: {
       ...params.upstream.policy,

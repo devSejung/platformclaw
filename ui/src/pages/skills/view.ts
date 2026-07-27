@@ -54,6 +54,7 @@ export type SkillsStatusFilter = "all" | "ready" | "needs-setup" | "disabled";
 export type SkillDetailTab = "overview" | "card";
 
 type SkillsProps = {
+  personalAccess?: boolean;
   connected: boolean;
   loading: boolean;
   report: SkillStatusReport | null;
@@ -219,6 +220,8 @@ function activeClawHubMutation(props: SkillsProps, slug: string): boolean {
 
 export function renderSkills(props: SkillsProps) {
   const skills = props.report?.skills ?? [];
+  const personalVm =
+    props.personalAccess === true && props.report?.executionTarget === "assigned_vm";
 
   const statusCounts: Record<SkillsStatusFilter, number> = {
     all: skills.length,
@@ -262,7 +265,21 @@ export function renderSkills(props: SkillsProps) {
         ${props.error
           ? html`<div class="callout danger" role="alert">${props.error}</div>`
           : nothing}
-        ${renderClawHubSection(props)}
+        ${props.personalAccess && props.report
+          ? html`<div class="callout" role="status">
+              <strong
+                >${personalVm
+                  ? t("platformClaw.skills.vmTitle")
+                  : t("platformClaw.skills.basicTitle")}</strong
+              >
+              <div class="muted">
+                ${personalVm
+                  ? t("platformClaw.skills.vmDescription")
+                  : t("platformClaw.skills.basicDescription")}
+              </div>
+            </div>`
+          : nothing}
+        ${personalVm ? nothing : renderClawHubSection(props)}
         ${filtered.length === 0
           ? renderSettingsEmpty(
               !props.connected && !props.report
@@ -274,7 +291,7 @@ export function renderSkills(props: SkillsProps) {
       { wide: true },
     )}
     ${detailSkill ? renderSkillDetail(detailSkill, props) : nothing}
-    ${props.clawhubDetailSlug ? renderClawHubDetailDialog(props) : nothing}
+    ${props.clawhubDetailSlug && !personalVm ? renderClawHubDetailDialog(props) : nothing}
   `;
 }
 
@@ -571,12 +588,14 @@ function renderSkill(skill: SkillStatusEntry, props: SkillsProps) {
           : skill.clawhub?.status === "invalid"
             ? renderSettingsStatus({ kind: "warn", label: t("skillsPage.invalidLink") })
             : nothing}
-        ${renderSettingsToggle({
-          checked: !skill.disabled,
-          disabled: locked,
-          ariaLabel: t("skillsPage.enabledNamed", { name: skill.name }),
-          onChange: () => props.onToggle(skill.skillKey, skill.disabled),
-        })}
+        ${props.personalAccess
+          ? nothing
+          : renderSettingsToggle({
+              checked: !skill.disabled,
+              disabled: locked,
+              ariaLabel: t("skillsPage.enabledNamed", { name: skill.name }),
+              onChange: () => props.onToggle(skill.skillKey, skill.disabled),
+            })}
       </div>
     </div>
   `;
@@ -667,35 +686,36 @@ function renderSkillDetail(skill: SkillStatusEntry, props: SkillsProps) {
                 </div>
               `
             : nothing}
-
-          <div style="display: flex; align-items: center; gap: 12px;">
-            ${renderSettingsToggle({
-              checked: !skill.disabled,
-              disabled: locked,
-              ariaLabel: skill.name,
-              onChange: () => props.onToggle(skill.skillKey, skill.disabled),
-            })}
-            <span style="font-size: 13px; font-weight: 500;">
-              ${skill.disabled ? t("skillsPage.disabled") : t("skillsPage.enabled")}
-            </span>
-            ${canInstall
-              ? html`<button
-                  class="btn"
-                  ?disabled=${locked}
-                  @click=${() =>
-                    installOption && props.onInstall(skill.skillKey, skill.name, installOption.id)}
-                >
-                  ${active ? t("skillsPage.installing") : installOption?.label}
-                </button>`
-              : nothing}
-          </div>
-
+          ${props.personalAccess
+            ? nothing
+            : html`<div style="display: flex; align-items: center; gap: 12px;">
+                ${renderSettingsToggle({
+                  checked: !skill.disabled,
+                  disabled: locked,
+                  ariaLabel: skill.name,
+                  onChange: () => props.onToggle(skill.skillKey, skill.disabled),
+                })}
+                <span style="font-size: 13px; font-weight: 500;">
+                  ${skill.disabled ? t("skillsPage.disabled") : t("skillsPage.enabled")}
+                </span>
+                ${canInstall
+                  ? html`<button
+                      class="btn"
+                      ?disabled=${locked}
+                      @click=${() =>
+                        installOption &&
+                        props.onInstall(skill.skillKey, skill.name, installOption.id)}
+                    >
+                      ${active ? t("skillsPage.installing") : installOption?.label}
+                    </button>`
+                  : nothing}
+              </div>`}
           ${message
             ? html`<div class="callout ${message.kind === "error" ? "danger" : "success"}">
                 ${message.message}
               </div>`
             : nothing}
-          ${skill.primaryEnv
+          ${skill.primaryEnv && !props.personalAccess
             ? html`
                 <div style="display: grid; gap: 8px;">
                   <div class="field">

@@ -476,6 +476,7 @@ export class ProfilePage extends OpenClawLightDomElement {
       },
       onSaveDisplayName: () => void this.saveDisplayName(),
       onAvatarSelect: (file) => void this.saveAvatar(file),
+      editable: this.context.accessMode !== "personal-agent",
     });
   }
 

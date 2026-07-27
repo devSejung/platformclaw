@@ -33,8 +33,11 @@ function webPushError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function createWebPushCapability(gateway: ApplicationGateway): WebPushCapability {
-  const supported = isWebPushSupported();
+export function createWebPushCapability(
+  gateway: ApplicationGateway,
+  options: { enabled?: boolean } = {},
+): WebPushCapability {
+  const supported = options.enabled !== false && isWebPushSupported();
   let snapshot: WebPushSnapshot = {
     supported,
     permission: supported ? Notification.permission : "unsupported",
