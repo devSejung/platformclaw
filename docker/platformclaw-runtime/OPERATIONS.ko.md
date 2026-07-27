@@ -133,6 +133,50 @@ sha256sum --check platformclaw-<version>-<sha12>.tar.sha256
 
 기존 `/var/lib/platformclaw`, `/etc/platformclaw`, Docker named volume 설치만 실행한다.
 
+#### 이전 설치나 migration을 실패한 적이 있을 때
+
+실패 흔적을 신규 설치로 덮지 않는다. 기존 rootful Gateway/Control, named volume,
+`/var/lib/platformclaw`, `/etc/platformclaw`, rootless sandbox가 하나라도 남아 있으면
+`setup` 대신 아래 legacy migration 순서를 다시 따른다.
+
+```bash
+./platformclaw-deploy init
+./platformclaw-deploy image load platformclaw-<version>-<sha12>.tar
+```
+
+`~/platformclaw/deployment.env`의 main/sandbox image가 방금 로드한 동일한 `<sha12>`
+tag를 가리키고 public origin과 employee auth URL이 실제 값인지 확인한 뒤 실행한다.
+
+```bash
+sudo ./platformclaw-deploy --service-user platformclaw migrate-home
+```
+
+다음 규칙을 지킨다.
+
+- `init`을 먼저 실행한다. `migrate-home`은 기존 `deployment.env`와 로드된 main image를
+  요구한다.
+- 기존 container, volume, `/var/lib/platformclaw`, `/etc/platformclaw`를 먼저 삭제하지
+  않는다. migration이 기존 stack과 실행 중인 sandbox를 정지한다.
+- `~/platformclaw`에 이전 시도 파일이 있어도 디렉터리를 통째로 삭제하거나 secret을
+  다시 생성하지 않는다. 완료 marker와 일치하는 Gateway/Control 복사는 재실행 시
+  유지된다.
+- `Refusing migration`, `target is not empty`, `existing secret does not match`,
+  `cannot verify existing` 오류가 나오면 중단한다. 해당 경로와 marker를 확인하기 전
+  `setup`, 수동 덮어쓰기, secret 재생성을 실행하지 않는다.
+- `migrate-home` 성공 메시지와 아래 데이터 경로를 확인한 뒤에만 서비스 계정으로
+  `up`한다.
+
+```bash
+ls -la ~/platformclaw/data/gateway-home/.openclaw
+ls -la ~/platformclaw/data/control
+ls -la ~/platformclaw/data/workspaces
+ls -la ~/platformclaw/secrets
+./platformclaw-deploy up
+./platformclaw-deploy status
+```
+
+`ls` 결과나 오류를 공유할 때 secret 파일 내용은 출력하지 않는다.
+
 ```bash
 sudo ./platformclaw-deploy --service-user platformclaw migrate-home
 ./platformclaw-deploy up
