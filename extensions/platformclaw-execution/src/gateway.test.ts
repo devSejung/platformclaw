@@ -1,6 +1,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { describe, expect, it, vi } from "vitest";
 import {
+  classifyVmConnectionFailure,
   isSshpassAuthenticationFailure,
   PlatformClawVmAuthenticationError,
 } from "./connection-errors.js";
@@ -36,6 +37,12 @@ describe("SafeConnect authentication failure classification", () => {
     expect(isSshpassAuthenticationFailure({ code: 5 })).toBe(true);
     expect(isSshpassAuthenticationFailure({ exitCode: 5 })).toBe(true);
     expect(isSshpassAuthenticationFailure({ code: 255 })).toBe(false);
+  });
+
+  it("omits non-scalar transport codes from diagnostics", () => {
+    const error = Object.assign(new Error("connection failed"), { code: { nested: true } });
+
+    expect(classifyVmConnectionFailure(error).diagnostic).toBe("Error; connection failed");
   });
 });
 
