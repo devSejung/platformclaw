@@ -7,7 +7,9 @@ SafeConnect runbook.
 The stack runs `openclaw-gateway` and `platformclaw-control` in rootful Docker.
 Agent sandboxes run in a separate rootless Docker daemon owned by the service
 account. Gateway receives only that rootless socket; it never receives the host
-Docker socket. The host publishes only Control port `19001`.
+Docker socket. The host publishes only Control port `19001`, bound to all host
+interfaces for VM access. Restrict that port with the host firewall or an
+approved reverse proxy before connecting the host to an untrusted network.
 
 ## Home-managed state
 
@@ -106,7 +108,8 @@ and private-plugin policy remains enforced at startup.
 
 The transfer archive contains both the main and sandbox images. The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
-health, and restores the prior environment on failure:
+health, recreates existing agent sandboxes with the new image, and restores the
+prior environment on failure. Previous images remain available for rollback:
 
 ```bash
 ./platformclaw-deploy image update \
