@@ -9,8 +9,8 @@ import {
   browserPayloadBelongsToAccess,
 } from "./browser-gateway-ownership.js";
 import {
-  PLATFORMCLAW_WEB_AGENT_ONLY_METHODS,
   PLATFORMCLAW_WEB_ADMIN_METHODS,
+  PLATFORMCLAW_WEB_AGENT_ONLY_METHODS,
   PLATFORMCLAW_WEB_ALLOWED_METHODS,
   PLATFORMCLAW_WEB_ALLOWED_PARAMS,
   PLATFORMCLAW_WEB_SESSION_KEY_METHODS,
@@ -29,6 +29,10 @@ import {
   projectBrowserSelfUser,
   projectBrowserSkillResult,
 } from "./browser-gateway-self-service-projections.js";
+import {
+  prepareBrowserSelfServiceRequest,
+  resolveBrowserSkillExecutionTarget,
+} from "./browser-gateway-self-service-policy.js";
 import {
   browserTaskEventBelongsToAccess,
   projectBrowserTaskResult,
@@ -57,13 +61,6 @@ const SAFE_GLOBAL_EVENTS = new Set<string>(["shutdown", "tick"]);
 const SESSION_SCOPED_EVENTS = new Set<string>(
   PLATFORMCLAW_WEB_GATEWAY_EVENTS.filter((event) => event !== "shutdown" && event !== "tick"),
 );
-const PLATFORMCLAW_VM_READ_ONLY_SKILL_METHODS = new Set<string>([
-  "skills.detail",
-  "skills.search",
-  "skills.securityVerdicts",
-  "skills.skillCard",
-  "skills.status",
-]);
 type JsonObject = Record<string, unknown>;
 
 export type BrowserGatewayEvent = {
@@ -150,24 +147,18 @@ export class BrowserGatewayProxy {
 
   async request<T = unknown>(token: string, method: string, params?: unknown): Promise<T> {
     const access = await this.resolveAccess(token);
-    const executionTarget = method.startsWith("skills.")
-      ? ((await this.options.store.getPersonalExecutionProfile(access.binding.agentId))
-          ?.activeTarget ?? "platform_server")
-      : undefined;
+    let executionTarget: "platform_server" | "assigned_vm" | undefined;
     let prepared: JsonObject;
     let initialCommandSuppressed = true;
     try {
+      executionTarget = await resolveBrowserSkillExecutionTarget({
+        method,
+        load: () => this.options.store.getPersonalExecutionProfile(access.binding.agentId),
+        deny: (message) => {
+          throw new BrowserGatewayProxyError("method-not-allowed", message);
+        },
+      });
       prepared = this.prepareRequest(access, method, params);
-      if (
-        executionTarget === "assigned_vm" &&
-        method.startsWith("skills.") &&
-        !PLATFORMCLAW_VM_READ_ONLY_SKILL_METHODS.has(method)
-      ) {
-        throw new BrowserGatewayProxyError(
-          "method-not-allowed",
-          "Skill installation and Workshop changes are available only in the Basic workspace",
-        );
-      }
       if (method === "chat.send" || method === "sessions.create") {
         initialCommandSuppressed = await this.resolveCommandSuppression(access, prepared.message);
         if (method === "chat.send") {
@@ -206,8 +197,7 @@ export class BrowserGatewayProxy {
     if (method === "users.self") {
       return projectBrowserSelfUser(access.user) as T;
     }
-    // Keep the upstream commands.list compatibility path on the same filtered metadata source,
-    // otherwise browser command visibility and execution policy can drift apart.
+    // Keep commands.list on filtered metadata so browser visibility and execution cannot drift.
     const upstreamMethod = method === "commands.list" ? "chat.metadata" : method;
     const upstreamParams = method === "commands.list" ? { agentId: prepared.agentId } : prepared;
     const result = await this.options.gateway.request(upstreamMethod, upstreamParams);
@@ -233,8 +223,7 @@ export class BrowserGatewayProxy {
     const createParams = { ...prepared };
     delete createParams.message;
     if (message && createParams.key === undefined && createParams.catalogId === undefined) {
-      // Upstream normally mints a dashboard key when an initial turn is present. Because the
-      // browser turn is relayed separately below, mint it here to avoid resetting the main session.
+      // Mint the dashboard key here because the separately relayed turn would reset main otherwise.
       createParams.key = `agent:${access.binding.agentId}:dashboard:${randomUUID()}`;
     }
     const rawCreated = await this.options.gateway.request("sessions.create", createParams);
@@ -343,30 +332,18 @@ export class BrowserGatewayProxy {
     }
     const params = { ...asObject(rawParams, `${method} params`) };
     this.assertAllowedParams(method, params);
-    if (method === "models.list") {
-      if (params.view !== undefined && params.view !== "configured") {
-        throw new BrowserGatewayProxyError(
-          "method-not-allowed",
-          "browser model catalog is limited to configured models",
-        );
-      }
-      return { view: "configured" };
-    }
-    if (method === "agents.list") {
-      return {};
-    }
-    if (method === "users.self" || method === "plugins.list") {
-      return {};
-    }
-    if (
-      method === "plugins.search" ||
-      method === "plugins.install" ||
-      method === "plugins.setEnabled" ||
-      method === "plugins.uninstall" ||
-      method === "skills.search" ||
-      method === "skills.detail"
-    ) {
-      return params;
+    const selfServiceParams = prepareBrowserSelfServiceRequest({
+      method,
+      params,
+      agentId: access.binding.agentId,
+      assertOptionalAgentId: (value) => this.assertOptionalAgentId(access, value, method),
+      assertOwnedSessionKey: (value, label) => this.assertOwnedSessionKey(access, value, label),
+      deny: (message) => {
+        throw new BrowserGatewayProxyError("method-not-allowed", message);
+      },
+    });
+    if (selfServiceParams !== undefined) {
+      return selfServiceParams;
     }
     if (method === "sessions.list") {
       this.assertOptionalAgentId(access, params.agentId, method);
@@ -382,15 +359,6 @@ export class BrowserGatewayProxy {
       this.assertOptionalAgentId(access, params.agentId, method);
       this.assertSessionKeyArray(access, params.sessionKeys, "sessionKeys", true);
       return { ...params, agentId: access.binding.agentId };
-    }
-    if (method === "usage.cost" || method === "sessions.usage") {
-      this.assertOptionalAgentId(access, params.agentId, method);
-      if (params.key !== undefined) {
-        this.assertOwnedSessionKey(access, params.key, "key");
-      }
-      const scoped: JsonObject = { ...params, agentId: access.binding.agentId };
-      delete scoped.agentScope;
-      return scoped;
     }
     if (method === "sessions.preview") {
       this.assertSessionKeyArray(access, params.keys, "keys", true);
@@ -424,26 +392,6 @@ export class BrowserGatewayProxy {
     }
     if (method === "tasks.get" || method === "tasks.cancel") {
       return params;
-    }
-    if (method === "skills.install") {
-      this.assertOptionalAgentId(access, params.agentId, method);
-      if (params.source !== "clawhub") {
-        throw new BrowserGatewayProxyError(
-          "method-not-allowed",
-          "browser skill installation is limited to personal ClawHub skills",
-        );
-      }
-      return { ...params, agentId: access.binding.agentId };
-    }
-    if (method === "skills.proposals.requestRevision") {
-      this.assertOptionalAgentId(access, params.agentId, method);
-      this.assertOptionalAgentId(access, params.targetAgentId, method);
-      this.assertOwnedSessionKey(access, params.sessionKey, "sessionKey");
-      return {
-        ...params,
-        agentId: access.binding.agentId,
-        targetAgentId: access.binding.agentId,
-      };
     }
     if (PLATFORMCLAW_WEB_AGENT_ONLY_METHODS.has(method)) {
       this.assertOptionalAgentId(access, params.agentId, method);
