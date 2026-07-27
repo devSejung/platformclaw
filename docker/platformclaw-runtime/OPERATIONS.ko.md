@@ -367,6 +367,28 @@ CA, timezone, secret 경로는 되돌리지 않는다.
 
 DB schema migration이 포함된 Release는 해당 Release의 별도 롤백 지침을 먼저 따른다.
 
+### 4.2 사용하지 않는 이미지 정리
+
+새 버전이 안정화된 뒤 먼저 삭제 대상을 확인한다. 기본 명령은 아무것도 삭제하지 않는다.
+
+```bash
+./platformclaw-deploy image cleanup
+```
+
+출력된 목록이 맞으면 명시적으로 적용한다.
+
+```bash
+./platformclaw-deploy image cleanup --apply
+```
+
+정리 범위는 main daemon의 정확한 `platformclaw` repository와 rootless daemon의 정확한
+`platformclaw-sandbox` repository뿐이다. 현재 `deployment.env`가 가리키는 image ID와 다른
+container가 참조 중인 image ID는 유지한다. 전역 `docker image prune`이나 강제 삭제는 하지
+않는다.
+
+`--apply`는 이전 rollback 이미지도 제거한다. 정리 후 이전 버전으로 롤백하려면 해당 버전의
+transfer archive를 다시 `image load`한 뒤 `image rollback`을 실행한다.
+
 ## 5. VM과 SafeConnect 관리
 
 PlatformClaw는 VM을 생성하지 않는다. 이미 존재하는 VM의 Linux 계정을 사용자 Agent에

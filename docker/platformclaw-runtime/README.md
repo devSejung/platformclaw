@@ -119,6 +119,20 @@ prior environment on failure. Previous images remain available for rollback:
 ./platformclaw-deploy image rollback
 ```
 
+Preview image cleanup after the new deployment is stable, then apply it
+explicitly:
+
+```bash
+./platformclaw-deploy image cleanup
+./platformclaw-deploy image cleanup --apply
+```
+
+Cleanup is scoped to the exact `platformclaw` repository in the main daemon and
+`platformclaw-sandbox` in the rootless daemon. It preserves the current image
+IDs and every image still referenced by a container; it never runs a global
+Docker prune or forces deletion. Applying cleanup removes older rollback images,
+so reload the older transfer archive before using `image rollback` afterward.
+
 Changing the service account for an existing workspace remains an explicit
 owner migration. Stop the stack and supply the former numeric owner:
 

@@ -43,6 +43,7 @@ Images:
   image update <archive.tar> <main> <sandbox>
                               Load, change refs, recreate sandboxes, auto-rollback
   image rollback              Restore previous image refs
+  image cleanup [--apply]     Preview or delete unused PlatformClaw images
 
 The main Docker daemon is rootful. The sandbox Docker daemon is rootless.
 After host-setup, log out and back in once; routine commands need no sudo.
@@ -77,6 +78,8 @@ cert_root="$deploy_root/certs"
 legacy_state_marker="$deploy_root/.legacy-durable-state"
 compose=("$script_dir/platformclaw-compose" --service-user "$service_user")
 rootless=(env "XDG_RUNTIME_DIR=/run/user/$runtime_uid" "DOCKER_HOST=unix:///run/user/$runtime_uid/docker.sock" docker)
+cleanup_daemons=()
+cleanup_refs=()
 
 require_service_user() {
   if [[ "$(id -u)" != "$runtime_uid" ]]; then
@@ -413,6 +416,94 @@ recreate_sandboxes() {
     node /app/openclaw.mjs sandbox recreate --all --force
 }
 
+scan_cleanup_repository() {
+  local daemon_label="$1"
+  local repository="$2"
+  local current_ref="$3"
+  shift 3
+  local -a docker_command=("$@")
+  local current_id
+  local image_id
+  local listed_repository
+  local tag
+  local ref
+  local -a containers=()
+  declare -A used_ids=()
+
+  current_id="$("${docker_command[@]}" image inspect --format '{{.Id}}' "$current_ref")"
+  mapfile -t containers < <("${docker_command[@]}" ps --all --quiet)
+  if (( ${#containers[@]} > 0 )); then
+    while IFS= read -r image_id; do
+      [[ -n "$image_id" ]] && used_ids["$image_id"]=1
+    done < <("${docker_command[@]}" inspect --format '{{.Image}}' "${containers[@]}")
+  fi
+
+  echo "$daemon_label daemon ($repository)"
+  while IFS=$'\t' read -r listed_repository tag image_id; do
+    [[ "$listed_repository" == "$repository" && "$tag" != "<none>" ]] || continue
+    ref="$listed_repository:$tag"
+    if [[ "$image_id" == "$current_id" ]]; then
+      echo "  keep current: $ref"
+    elif [[ -n "${used_ids[$image_id]:-}" ]]; then
+      echo "  keep container-used: $ref"
+    else
+      echo "  remove: $ref"
+      cleanup_daemons+=("$daemon_label")
+      cleanup_refs+=("$ref")
+    fi
+  done < <("${docker_command[@]}" image ls --no-trunc \
+    --format '{{.Repository}}\t{{.Tag}}\t{{.ID}}' | sort -u)
+}
+
+cleanup_images() {
+  local apply="$1"
+  local current_main
+  local current_sandbox
+  local index
+  local failures=0
+
+  require_service_user
+  [[ -f "$env_file" ]] || { echo "Missing $env_file; run init first." >&2; exit 1; }
+  require_main_docker
+  require_rootless_docker
+  current_main="$(read_env_value PLATFORMCLAW_IMAGE)"
+  current_sandbox="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE)"
+  require_immutable_image_ref "$current_main" "Main image"
+  require_immutable_image_ref "$current_sandbox" "Sandbox image"
+
+  cleanup_daemons=()
+  cleanup_refs=()
+  scan_cleanup_repository "main" "platformclaw" "$current_main" \
+    env DOCKER_HOST=unix:///var/run/docker.sock docker
+  scan_cleanup_repository "sandbox" "platformclaw-sandbox" "$current_sandbox" \
+    "${rootless[@]}"
+
+  if (( ${#cleanup_refs[@]} == 0 )); then
+    echo "No unused PlatformClaw image references to remove."
+    return
+  fi
+  if [[ "$apply" != "1" ]]; then
+    echo
+    echo "Preview only: ${#cleanup_refs[@]} image reference(s) would be removed."
+    echo "Run '$0 --service-user $service_user image cleanup --apply' to delete them."
+    echo "Cleanup removes rollback images; reload an older archive before rolling back."
+    return
+  fi
+
+  for index in "${!cleanup_refs[@]}"; do
+    if [[ "${cleanup_daemons[$index]}" == "main" ]]; then
+      DOCKER_HOST=unix:///var/run/docker.sock docker image rm -- "${cleanup_refs[$index]}" || failures=1
+    else
+      "${rootless[@]}" image rm -- "${cleanup_refs[$index]}" || failures=1
+    fi
+  done
+  if (( failures != 0 )); then
+    echo "Some images became busy or could not be removed; current and container-used images were preserved." >&2
+    return 1
+  fi
+  echo "Removed ${#cleanup_refs[@]} unused PlatformClaw image reference(s)."
+}
+
 apply_images() {
   local main_image="$1"
   local sandbox_image="$2"
@@ -738,6 +829,16 @@ case "$command_name" in
           exit 1
         fi
         echo "Rolled back. Replaced env saved: $current_backup"
+        ;;
+      cleanup)
+        cleanup_apply=0
+        case "${1:-}" in
+          "") ;;
+          --apply) cleanup_apply=1 ;;
+          *) usage >&2; exit 2 ;;
+        esac
+        [[ $# -le 1 ]] || { usage >&2; exit 2; }
+        cleanup_images "$cleanup_apply"
         ;;
       *)
         usage >&2
