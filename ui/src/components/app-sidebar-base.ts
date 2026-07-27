@@ -1,7 +1,11 @@
 import { consume } from "@lit/context";
 import { property } from "lit/decorators.js";
 import type { UpdateAvailable } from "../api/types.ts";
-import { DEFAULT_SIDEBAR_ENTRIES, type NavigationRouteId } from "../app-navigation.ts";
+import {
+  DEFAULT_SIDEBAR_ENTRIES,
+  type NavigationRouteId,
+  type SidebarRouteTargets,
+} from "../app-navigation.ts";
 import type { RouteId } from "../app-route-paths.ts";
 import {
   applicationContext,
@@ -21,6 +25,7 @@ export abstract class AppSidebarBase extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) activePluginTabId = "";
   @property({ attribute: false }) activeWorkboardBoardId = "";
   @property({ attribute: false }) enabledRouteIds?: readonly NavigationRouteId[];
+  @property({ attribute: false }) sidebarRouteTargets: SidebarRouteTargets = {};
   @property({ attribute: false }) connected = false;
   @property({ attribute: false }) offline = false;
   @property({ attribute: false }) outboxCountForSession: (sessionKey: string) => number = () => 0;

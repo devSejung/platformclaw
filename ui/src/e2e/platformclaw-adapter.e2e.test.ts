@@ -33,13 +33,16 @@ async function newPage(): Promise<{ context: BrowserContext; page: Page }> {
 }
 
 async function installPlatformClawDocument(page: Page): Promise<void> {
+  const response = await page.request.get(server.baseUrl);
+  const source = await response.text();
+  const headers = response.headers();
+  const status = response.status();
   await page.route("**/platformclaw/app/**", async (route) => {
-    const response = await page.request.get(server.baseUrl);
-    const source = await response.text();
     const descriptor = `<meta name="platformclaw-web-descriptor" content='${JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR)}'>`;
     await route.fulfill({
-      response,
       body: source.replace("</head>", `${descriptor}</head>`),
+      headers,
+      status,
     });
   });
 }
@@ -144,7 +147,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
 
     await page.goto(`${server.baseUrl}platformclaw/app/agents`);
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/agents");
-    await expect.poll(() => page.getByText("Person One").isVisible()).toBe(true);
+    await expect
+      .poll(() => page.getByText("Person One", { exact: true }).first().isVisible())
+      .toBe(true);
     await expect.poll(() => page.getByText("Platform Lab").isVisible()).toBe(true);
     await expect.poll(() => page.getByRole("button", { name: "Files" }).isVisible()).toBe(true);
     await expect.poll(() => page.getByRole("button", { name: "Skills" }).isVisible()).toBe(true);
@@ -159,8 +164,13 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect.poll(() => page.getByText("Reports").first().isVisible()).toBe(true);
     await expect.poll(() => page.getByRole("button", { name: "Save" }).count()).toBe(0);
     await page.getByRole("button", { name: "Files" }).click();
-    await expect.poll(() => page.getByRole("link", { name: "Sessions" }).isVisible()).toBe(true);
-    await expect.poll(() => page.getByRole("button", { name: "Settings" }).count()).toBe(0);
+    await expect.poll(() => page.getByRole("link", { name: "Threads" }).isVisible()).toBe(true);
+    await page.getByRole("link", { name: "Plugins" }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/skills");
+    await expect.poll(() => page.getByText("Reports").first().isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("tab", { name: "Skills" }).isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("tab", { name: "Workshop" }).isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("button", { name: "Settings" }).isVisible()).toBe(true);
     expect(await gateway.getRequests("config.get")).toHaveLength(0);
 
     const connect = (await gateway.getRequests("connect"))[0];

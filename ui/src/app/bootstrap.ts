@@ -1,5 +1,6 @@
 import type { RouteLocation } from "@openclaw/uirouter";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
+import type { SidebarRouteTargets } from "../app-navigation.ts";
 import {
   APP_ROUTE_IDS,
   createApplicationRouter,
@@ -243,6 +244,7 @@ export type ApplicationRuntime = {
     readonly token: string;
   } | null;
   readonly enabledRouteIds: readonly RouteId[];
+  readonly sidebarRouteTargets: SidebarRouteTargets;
   readonly shellSession: ApplicationShellSession | null;
   readonly confirmPendingGatewayConnection: () => void;
   readonly cancelPendingGatewayConnection: () => void;
@@ -269,6 +271,7 @@ export type ApplicationBootstrapOptions = {
   readonly shellSession?: ApplicationShellSession;
   readonly navigation?: {
     readonly sidebarEntries?: readonly string[];
+    readonly sidebarRouteTargets?: SidebarRouteTargets;
   };
 };
 
@@ -524,6 +527,7 @@ export function bootstrapApplication(
     router,
     documentMode,
     enabledRouteIds,
+    sidebarRouteTargets: options.navigation?.sidebarRouteTargets ?? {},
     shellSession: options.shellSession ?? null,
     get pendingGatewayConnection() {
       return pendingGatewayConnection;

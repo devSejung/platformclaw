@@ -71,7 +71,10 @@ describe("PlatformClawControlUiAdapter", () => {
         "skills",
         "skill-workshop",
       ],
-      navigation: { sidebarEntries: ["route:sessions", "route:tasks", "route:skills"] },
+      navigation: {
+        sidebarEntries: ["route:sessions", "route:tasks", "route:plugins"],
+        sidebarRouteTargets: { plugins: "skills" },
+      },
       gateway: {
         url: "wss://platformclaw.example/platformclaw/gateway",
         browserDeviceAuth: false,
@@ -219,7 +222,8 @@ describe("PlatformClawControlUiAdapter", () => {
       vi.fn(),
     );
     expect(memberOptions.enabledRouteIds).not.toContain("plugins");
-    expect(memberOptions.navigation?.sidebarEntries).not.toContain("route:plugins");
+    expect(memberOptions.navigation?.sidebarEntries).toContain("route:plugins");
+    expect(memberOptions.navigation?.sidebarRouteTargets).toEqual({ plugins: "skills" });
     render(memberOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
     expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);

@@ -139,10 +139,7 @@ export class PlatformClawControlUiAdapter {
     const enabledRouteIds = this.descriptor.enabledRoutes.filter(
       (routeId) => routeId !== "plugins" || identity.globalRole === "admin",
     ) as readonly RouteId[];
-    const sidebarEntries = ["route:sessions", "route:tasks", "route:skills"];
-    if (identity.globalRole === "admin") {
-      sidebarEntries.push("route:plugins");
-    }
+    const sidebarEntries = ["route:sessions", "route:tasks", "route:plugins"];
     return {
       accessMode: "personal-agent",
       enabledRouteIds,
@@ -155,7 +152,10 @@ export class PlatformClawControlUiAdapter {
           }
         },
       },
-      navigation: { sidebarEntries },
+      navigation: {
+        sidebarEntries,
+        sidebarRouteTargets: identity.globalRole === "admin" ? undefined : { plugins: "skills" },
+      },
       shellSession,
     };
   }

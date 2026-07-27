@@ -1888,6 +1888,7 @@ class OpenClawShell extends OpenClawLightDomElement {
                 .activeRouteId=${activeRoute}
                 .activePluginTabId=${activePluginTabId}
                 .enabledRouteIds=${this.enabledRouteIds()}
+                .sidebarRouteTargets=${runtime.sidebarRouteTargets}
                 .activeWorkboardBoardId=${workboardBoardIdFromPath(
                   this.routeState.location?.pathname ?? "",
                   context.basePath,
