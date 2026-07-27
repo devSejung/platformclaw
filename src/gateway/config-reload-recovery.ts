@@ -11,6 +11,8 @@ export function shouldRefreshContextWindowCache(plan: GatewayReloadPlan): boolea
         path === "agents.defaults" ||
         path === "agents.list" ||
         path.startsWith("agents.list.") ||
+        path === "agents.entries" ||
+        path.startsWith("agents.entries.") ||
         path === "agents.defaults.workspace" ||
         path.startsWith("agents.defaults.workspace."),
     )

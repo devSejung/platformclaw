@@ -39,6 +39,7 @@ import {
   type ChannelKind,
   resolveConfigReloadMetadata,
 } from "./config-reload-plan.js";
+import { shouldRefreshContextWindowCache } from "./config-reload-recovery.js";
 import { resolveGatewayReloadSettings } from "./config-reload-settings.js";
 import {
   type GatewayConfigReloadTransactionOwnership,
@@ -353,6 +354,10 @@ describe("buildGatewayReloadPlan", () => {
       expected: { restartHeartbeat: true },
     },
     {
+      path: "agents.entries",
+      expected: { restartHeartbeat: true },
+    },
+    {
       path: "plugins.entries.lossless-claw.config.mode",
       expected: { reloadPlugins: true, disposeMcpRuntimes: true },
     },
@@ -367,6 +372,13 @@ describe("buildGatewayReloadPlan", () => {
       ...expected,
     });
   });
+
+  it.each(["agents.list", "agents.entries", "agents.entries.worker.workspace"])(
+    "refreshes prepared agent context for %s",
+    (path) => {
+      expect(shouldRefreshContextWindowCache(buildGatewayReloadPlan([path]))).toBe(true);
+    },
+  );
 
   it.each(["gateway.remote.url", "secrets.providers.default.path", "tui.footer.showRemoteHost"])(
     "keeps runtime-irrelevant path as a no-op: %s",

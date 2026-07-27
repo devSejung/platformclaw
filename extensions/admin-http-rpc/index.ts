@@ -4,6 +4,10 @@
  */
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import {
+  handleAgentRuntimeStatus,
+  PLATFORMCLAW_AGENT_RUNTIME_STATUS_METHOD,
+} from "./src/agent-runtime-status.js";
+import {
   handleEmployeeProfileSeed,
   handleEmployeeProfileStatus,
   loadEmployeeProfilePromptContext,
@@ -33,6 +37,9 @@ export default definePluginEntry({
       match: "exact",
       gatewayRuntimeScopeSurface: "trusted-operator",
       handler: handleAdminHttpRpcRequest,
+    });
+    api.registerGatewayMethod(PLATFORMCLAW_AGENT_RUNTIME_STATUS_METHOD, handleAgentRuntimeStatus, {
+      scope: "operator.admin",
     });
     api.registerGatewayMethod(
       PLATFORMCLAW_PROFILE_SEED_METHOD,

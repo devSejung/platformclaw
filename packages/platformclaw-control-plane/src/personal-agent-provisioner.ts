@@ -35,12 +35,30 @@ export type GatewayPersonalAgentProvisionerOptions = {
   workspaceRoot: string;
 };
 
-const CONFIG_APPLY_RETRY_DELAYS_MS = [0, 250, 500, 1_000, 2_000, 2_000, 2_000] as const;
+// Cold provider/plugin discovery can make the first configured owner publication take longer
+// than a normal hot reload. Keep login bounded while allowing that one-time preparation to finish.
+const CONFIG_APPLY_RETRY_DELAYS_MS = [
+  0, 250, 500, 1_000, 2_000, 4_000, 4_000, 4_000, 4_000, 4_000, 4_000,
+] as const;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function isReadyAgentRuntimeStatus(value: unknown, agentId: string, workspace: string): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const status = value as Record<string, unknown>;
+  return (
+    status.ok === true &&
+    status.ready === true &&
+    status.agentId === agentId &&
+    typeof status.workspace === "string" &&
+    path.resolve(status.workspace) === workspace
+  );
 }
 
 export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner {
@@ -122,10 +140,36 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
     }
   }
 
+  private async waitForAgentRuntime(agentId: string, workspace: string): Promise<void> {
+    // agents.list can expose a newly committed agent before its prepared model runtime publishes.
+    // Probe that exact owner so unrelated pending config never blocks a healthy personal agent.
+    for (const retryDelayMs of CONFIG_APPLY_RETRY_DELAYS_MS) {
+      if (retryDelayMs > 0) {
+        await delay(retryDelayMs);
+      }
+      try {
+        const status = await this.options.rpc.call<unknown>("platformclaw.agent.runtimeStatus", {
+          agentId,
+          workspace,
+        });
+        if (!isReadyAgentRuntimeStatus(status, agentId, workspace)) {
+          throw new Error("Gateway agent runtime status returned an invalid payload");
+        }
+        return;
+      } catch (error) {
+        if (!(error instanceof GatewayAdminRpcError) || error.code !== "UNAVAILABLE") {
+          throw error;
+        }
+      }
+    }
+    throw new Error("Gateway agent runtime configuration did not become active");
+  }
+
   private async ensureAgent(agentId: string, workspace: string): Promise<void> {
     const current = await this.getConfiguredAgent(agentId);
     if (current) {
       this.verifyWorkspace(agentId, current.workspace, workspace);
+      await this.waitForAgentRuntime(agentId, workspace);
       return;
     }
     try {
@@ -164,6 +208,7 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
         }
       } else {
         this.verifyWorkspace(agentId, existing.workspace, workspace);
+        await this.waitForAgentRuntime(agentId, workspace);
         return;
       }
     }
@@ -175,6 +220,7 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
         const configured = await this.getConfiguredAgent(agentId);
         if (configured) {
           this.verifyWorkspace(agentId, configured.workspace, workspace);
+          await this.waitForAgentRuntime(agentId, workspace);
           return;
         }
       } catch (error) {
