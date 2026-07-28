@@ -6,10 +6,10 @@ import {
   resolveMaterializedSandboxSkillsWorkspaceDir,
 } from "./workspace-mounts.js";
 
-export type RemoteMountSource = "workspace" | "agent" | "protectedSkill";
+export type RemoteMountSource = "workspace" | "agent" | "additional" | "protectedSkill";
 
 export type RemoteMountInfo = {
-  localRoot: string;
+  localRoot: string | null;
   containerRoot: string;
   writable: boolean;
   source: RemoteMountSource;
@@ -25,7 +25,7 @@ export function buildRemoteProtectedSkillMounts(params: {
   const materializedSkillsWorkspaceDir = path.resolve(
     params.skillsWorkspaceDir ?? resolveMaterializedSandboxSkillsWorkspaceDir(params.localRoot),
   );
-  const mounts: Array<RemoteMountInfo & { allowedRoot: string }> = [
+  const mounts: Array<RemoteMountInfo & { localRoot: string; allowedRoot: string }> = [
     {
       localRoot: path.join(params.localRoot, "skills"),
       containerRoot: path.posix.join(params.workspaceContainerRoot, "skills"),
@@ -98,7 +98,9 @@ export function compareRemoteMountsByContainerPath(a: RemoteMountInfo, b: Remote
 }
 
 export function compareRemoteMountsByLocalPath(a: RemoteMountInfo, b: RemoteMountInfo): number {
-  return b.localRoot.length - a.localRoot.length || mountPriority(b) - mountPriority(a);
+  return (
+    (b.localRoot?.length ?? 0) - (a.localRoot?.length ?? 0) || mountPriority(b) - mountPriority(a)
+  );
 }
 
 function mountPriority(mount: RemoteMountInfo): number {

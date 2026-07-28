@@ -3,7 +3,7 @@ import path from "node:path";
 import { disposeSshSandboxSession } from "openclaw/plugin-sdk/sandbox";
 import { describe, expect, it } from "vitest";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
-import { createSafeConnectSession, quoteOpenSshConfigPath } from "./runtime.js";
+import { createSafeConnectSession, parseTarget, quoteOpenSshConfigPath } from "./runtime.js";
 
 const TARGET: AssignedVmTargetSnapshot = {
   kind: "assigned_vm",
@@ -13,6 +13,7 @@ const TARGET: AssignedVmTargetSnapshot = {
   allocationId: "allocation-one",
   vmLabel: "Development VM",
   safeConnectLabel: "Corporate access",
+  remoteHomeDir: "/users/person.one",
   remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
   endpointHost: "safeconnect.example",
   endpointPort: 44422,
@@ -26,6 +27,19 @@ const TARGET: AssignedVmTargetSnapshot = {
 };
 
 describe("PlatformClaw SafeConnect session", () => {
+  it("requires the assigned VM workspace to stay inside its canonical home", () => {
+    expect(parseTarget(TARGET)).toMatchObject({
+      remoteHomeDir: "/users/person.one",
+      remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
+    });
+    expect(() => parseTarget({ ...TARGET, remoteWorkspaceDir: "/srv/shared/workspace" })).toThrow(
+      "outside the remote home",
+    );
+    expect(() => parseTarget({ ...TARGET, remoteHomeDir: "/users/person.one/../other" })).toThrow(
+      "remote home is invalid",
+    );
+  });
+
   it("quotes whitespace and OpenSSH percent tokens in generated paths", () => {
     expect(quoteOpenSshConfigPath("/tmp/Person One/100%/known_hosts")).toBe(
       '"/tmp/Person One/100%%/known_hosts"',

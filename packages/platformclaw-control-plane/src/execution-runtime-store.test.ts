@@ -134,6 +134,7 @@ describe("SQLite execution runtime target", () => {
       adAccount: "admin.user",
       targetAddress: "192.0.2.10",
       linuxAccount: "linux-user",
+      remoteHomeDir: "/users/linux-user",
       remoteWorkspaceDir: "/users/linux-user/.platformclaw/workspace",
       hostKeyAlgorithm: "ssh-ed25519",
       hostKeyFingerprint: hostKey.fingerprint,

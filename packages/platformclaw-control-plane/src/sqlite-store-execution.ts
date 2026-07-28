@@ -27,6 +27,7 @@ import {
   rowToPersonalExecutionSettings,
   rowToVmHost,
 } from "./sqlite-store-execution-mappers.js";
+import { hasCompleteAssignedVmExecutionFields } from "./sqlite-store-execution-readiness.js";
 import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlite-store-types.js";
 import { SqliteControlPlaneVmSelfServiceStore } from "./sqlite-store-vm-self-service.js";
 
@@ -69,6 +70,7 @@ export abstract class SqliteControlPlaneExecutionStore
           "vm_allocations.id as allocation_id",
           "vm_allocations.status as allocation_status",
           "vm_allocations.linux_account as linux_account",
+          "vm_allocations.remote_home_dir as remote_home_dir",
           "vm_allocations.remote_workspace_dir as remote_workspace_dir",
           "vm_hosts.status as host_status",
           "vm_hosts.label as vm_label",
@@ -92,9 +94,7 @@ export abstract class SqliteControlPlaneExecutionStore
       row.user_status !== "active" ||
       row.host_status !== "active" ||
       row.endpoint_status !== "active" ||
-      !row.host_key_algorithm ||
-      !row.host_key_public_key ||
-      !row.host_key_fingerprint
+      !hasCompleteAssignedVmExecutionFields(row, false)
     ) {
       throw new ControlPlaneStateError("assigned VM connection target is unavailable");
     }
@@ -114,6 +114,7 @@ export abstract class SqliteControlPlaneExecutionStore
       adAccount: row.account_id,
       targetAddress: row.target_address,
       linuxAccount: row.linux_account,
+      ...(row.remote_home_dir ? { remoteHomeDir: row.remote_home_dir } : {}),
       ...(row.remote_workspace_dir ? { remoteWorkspaceDir: row.remote_workspace_dir } : {}),
       hostKeyAlgorithm: row.host_key_algorithm,
       hostKeyPublicKey: row.host_key_public_key,
@@ -266,6 +267,7 @@ export abstract class SqliteControlPlaneExecutionStore
           "vm_allocations.agent_binding_id as agent_binding_id",
           "vm_allocations.status as allocation_status",
           "vm_allocations.linux_account as linux_account",
+          "vm_allocations.remote_home_dir as remote_home_dir",
           "vm_allocations.remote_workspace_dir as remote_workspace_dir",
           "vm_hosts.status as host_status",
           "vm_hosts.label as vm_label",
@@ -287,10 +289,7 @@ export abstract class SqliteControlPlaneExecutionStore
       vm.allocation_status !== "ready" ||
       vm.host_status !== "active" ||
       vm.endpoint_status !== "active" ||
-      !vm.remote_workspace_dir ||
-      !vm.host_key_algorithm ||
-      !vm.host_key_public_key ||
-      !vm.host_key_fingerprint
+      !hasCompleteAssignedVmExecutionFields(vm, true)
     ) {
       throw new ControlPlaneStateError("assigned VM execution target is not ready");
     }
@@ -309,6 +308,7 @@ export abstract class SqliteControlPlaneExecutionStore
       adAccount: owner.account_id,
       targetAddress: vm.target_address,
       linuxAccount: vm.linux_account,
+      remoteHomeDir: vm.remote_home_dir,
       remoteWorkspaceDir: vm.remote_workspace_dir,
       hostKeyAlgorithm: vm.host_key_algorithm,
       hostKeyPublicKey: vm.host_key_public_key,

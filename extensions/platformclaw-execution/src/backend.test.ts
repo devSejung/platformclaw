@@ -73,6 +73,7 @@ describe("PlatformClaw execution backend", () => {
             allocationId: "allocation-two",
             vmLabel: "Person Two VM",
             safeConnectLabel: "Corporate access",
+            remoteHomeDir: "/srv/person-two",
             remoteWorkspaceDir: "/srv/person-two",
             endpointHost: "safeconnect.example",
             endpointPort: 44422,
@@ -119,6 +120,8 @@ describe("PlatformClaw execution backend", () => {
     expect(second.runtimePromptContext).toContain('"targetLabel": "Person Two VM"');
     expect(second.runtimePromptContext).toContain('"safeHostLabel": "Corporate access"');
     expect(second.runtimePromptContext).toContain('"linuxAccount": "person.two"');
+    expect(second.runtimePromptContext).toContain('"linuxHome": "/srv/person-two"');
+    expect(second.runtimePromptContext).toContain("full Linux home");
     expect(second.runtimePromptContext).toContain('"activeWorkspace": "/vm-person_two-7"');
     expect(second.runtimePromptContext).not.toContain("safeconnect.example");
     expect(second.runtimePromptContext).not.toContain("192.0.2.2");
@@ -189,6 +192,7 @@ describe("PlatformClaw execution backend", () => {
       allocationId: "allocation-one",
       vmLabel: "Development VM",
       safeConnectLabel: "Corporate access",
+      remoteHomeDir: "/srv/person-one",
       remoteWorkspaceDir: "/srv/person-one",
       endpointHost: "safeconnect.example",
       endpointPort: 44422,
@@ -219,6 +223,7 @@ describe("PlatformClaw execution backend", () => {
       allocationId: "allocation-one",
       vmLabel: "Development VM",
       safeConnectLabel: "Corporate access",
+      remoteHomeDir: "/srv/person-one",
       remoteWorkspaceDir: "/srv/person-one",
       endpointHost: "safeconnect.example",
       endpointPort: 44422,

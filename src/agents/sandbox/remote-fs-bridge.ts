@@ -46,7 +46,14 @@ type MountInfo = RemoteMountInfo;
 export type RemoteShellSandboxHandle = {
   remoteWorkspaceDir: string;
   remoteAgentWorkspaceDir: string;
+  additionalFilesystemRoots?: readonly RemoteShellSandboxFilesystemRoot[];
   runRemoteShellScript(params: SandboxBackendCommandParams): Promise<SandboxBackendCommandResult>;
+};
+
+/** Extra remote-only roots exposed by a caller-owned SSH runtime. */
+export type RemoteShellSandboxFilesystemRoot = {
+  root: string;
+  access: "ro" | "rw";
 };
 
 /** Create the filesystem bridge for remote shell-backed sandbox runtimes. */
@@ -318,6 +325,12 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
         writable: this.sandbox.workspaceAccess === "rw",
         source: "workspace",
       },
+      ...(this.runtime.additionalFilesystemRoots ?? []).map((root) => ({
+        localRoot: null,
+        containerRoot: normalizeContainerPath(root.root),
+        writable: root.access === "rw",
+        source: "additional" as const,
+      })),
     ];
     if (
       this.sandbox.workspaceAccess !== "none" &&
@@ -333,17 +346,22 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     if (this.sandbox.workspaceAccess === "rw") {
       // Skill directories inside writable remote workspaces stay protected when
       // the original host mount exists, matching local bridge read-only rules.
-      mounts.push(
-        ...buildRemoteProtectedSkillMounts({
-          localRoot: agentRoot,
-          skillsWorkspaceDir: this.sandbox.skillsWorkspaceDir,
-          workspaceContainerRoot,
-          agentContainerRoot,
-          includeAgentMount:
-            path.resolve(this.sandbox.agentWorkspaceDir) !==
-            path.resolve(this.sandbox.workspaceDir),
-        }),
+      const protectedMounts = buildRemoteProtectedSkillMounts({
+        localRoot: agentRoot,
+        skillsWorkspaceDir: this.sandbox.skillsWorkspaceDir,
+        workspaceContainerRoot,
+        agentContainerRoot,
+        includeAgentMount:
+          path.resolve(this.sandbox.agentWorkspaceDir) !== path.resolve(this.sandbox.workspaceDir),
+      }).filter(
+        (mount) =>
+          !(this.runtime.additionalFilesystemRoots ?? []).some(
+            (root) =>
+              root.access === "rw" &&
+              isPathInsideContainerRoot(normalizeContainerPath(root.root), mount.containerRoot),
+          ),
       );
+      mounts.push(...protectedMounts);
     }
     return mounts;
   }
@@ -435,11 +453,14 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     return null;
   }
 
-  private resolveMountByLocalPath(mounts: MountInfo[], localPath: string): MountInfo | null {
+  private resolveMountByLocalPath(
+    mounts: MountInfo[],
+    localPath: string,
+  ): (MountInfo & { localRoot: string }) | null {
     const ordered = [...mounts].toSorted(compareRemoteMountsByLocalPath);
     for (const mount of ordered) {
-      if (isPathInside(mount.localRoot, localPath)) {
-        return mount;
+      if (mount.localRoot && isPathInside(mount.localRoot, localPath)) {
+        return { ...mount, localRoot: mount.localRoot };
       }
     }
     return null;

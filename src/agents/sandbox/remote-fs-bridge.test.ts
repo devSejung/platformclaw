@@ -43,6 +43,7 @@ function createStatRuntime(
 function createLocalRemoteRuntime(params: {
   remoteWorkspaceDir: string;
   remoteAgentWorkspaceDir: string;
+  additionalFilesystemRoots?: RemoteShellSandboxHandle["additionalFilesystemRoots"];
 }) {
   // Execute remote shell snippets locally so the bridge scripts are exercised
   // without a real SSH host.
@@ -50,6 +51,7 @@ function createLocalRemoteRuntime(params: {
   const runtime: RemoteShellSandboxHandle = {
     remoteWorkspaceDir: params.remoteWorkspaceDir,
     remoteAgentWorkspaceDir: params.remoteAgentWorkspaceDir,
+    additionalFilesystemRoots: params.additionalFilesystemRoots,
     runRemoteShellScript: async (command) => {
       calls.push(command);
       const result = command.script.includes("python3 /dev/fd/3 \"$@\" 3<<'PY'")
@@ -100,6 +102,68 @@ function createWorkspaceReadBridge(workspaceDir: string) {
 }
 
 describe("remote sandbox fs bridge", () => {
+  it("resolves absolute and cwd-relative paths inside an additional remote root", () => {
+    const workspaceDir = path.resolve("C:/local/workspace");
+    const bridge = createRemoteShellSandboxFsBridge({
+      sandbox: createSandbox({ workspaceDir, agentWorkspaceDir: workspaceDir }),
+      runtime: {
+        remoteWorkspaceDir: "/users/worker/.platformclaw/workspace",
+        remoteAgentWorkspaceDir: "/users/worker/.platformclaw/workspace/.openclaw/agent",
+        additionalFilesystemRoots: [{ root: "/users/worker", access: "rw" }],
+        runRemoteShellScript: async () => shellResult(""),
+      },
+    });
+
+    expect(bridge.resolvePath({ filePath: "/users/worker/.claude/settings.json" })).toEqual({
+      relativePath: "/users/worker/.claude/settings.json",
+      containerPath: "/users/worker/.claude/settings.json",
+    });
+    expect(
+      bridge.resolvePath({ filePath: "src/index.ts", cwd: "/users/worker/projects/demo" }),
+    ).toMatchObject({ containerPath: "/users/worker/projects/demo/src/index.ts" });
+    expect(() => bridge.resolvePath({ filePath: "/etc/passwd" })).toThrow(/escapes allowed mounts/);
+  });
+
+  it.runIf(process.platform !== "win32")(
+    "reads and writes across an additional home root while rejecting paths outside it",
+    async () => {
+      await withTempDir("openclaw-remote-home-", async (stateDir) => {
+        const homeDir = await fs.realpath(
+          await fs
+            .mkdir(path.join(stateDir, "home"), { recursive: true })
+            .then(() => path.join(stateDir, "home")),
+        );
+        const workspaceDir = path.join(homeDir, ".platformclaw", "workspace");
+        const projectDir = path.join(homeDir, "projects", "demo");
+        await fs.mkdir(workspaceDir, { recursive: true });
+        await fs.mkdir(projectDir, { recursive: true });
+        const { runtime } = createLocalRemoteRuntime({
+          remoteWorkspaceDir: workspaceDir,
+          remoteAgentWorkspaceDir: path.join(workspaceDir, ".openclaw", "agent"),
+          additionalFilesystemRoots: [{ root: homeDir, access: "rw" }],
+        });
+        const bridge = createRemoteShellSandboxFsBridge({
+          sandbox: createSandbox({ workspaceDir, agentWorkspaceDir: workspaceDir }),
+          runtime,
+        });
+
+        await bridge.writeFile({
+          filePath: path.join(homeDir, ".claude", "settings.json"),
+          data: "{}",
+        });
+        await expect(
+          bridge.readFile({ filePath: path.join(homeDir, ".claude", "settings.json") }),
+        ).resolves.toEqual(Buffer.from("{}"));
+        expect(bridge.resolvePath({ filePath: "src/index.ts", cwd: projectDir })).toMatchObject({
+          containerPath: path.posix.join(projectDir, "src/index.ts"),
+        });
+        expect(() => bridge.resolvePath({ filePath: path.join(stateDir, "outside.txt") })).toThrow(
+          /escapes allowed mounts/,
+        );
+      });
+    },
+  );
+
   it.runIf(process.platform !== "win32")(
     "reads files with the pinned mutation helper",
     async () => {

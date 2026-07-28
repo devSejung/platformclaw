@@ -182,7 +182,7 @@ export class EmployeeExecutionService {
       try {
         connection = connectionTestResult(
           await this.options.adminRpc.call("platformclaw-execution.testCandidateConnection", {
-            target: { ...candidate, remoteWorkspaceDir: "/" },
+            target: { ...candidate, remoteHomeDir: "/", remoteWorkspaceDir: "/" },
             credentialBrokerAddress: credentialBroker.address,
             credentialGrantToken: grant.token,
           }),
