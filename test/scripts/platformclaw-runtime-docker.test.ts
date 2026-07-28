@@ -79,7 +79,9 @@ describe("PlatformClaw Docker runtime", () => {
     expect(build).toContain("publishOwnedLock(publicationLockPath)");
     expect(build).toContain("await acquireDockerResourceLock()");
     expect(build).toContain('server.listen({ host: "127.0.0.1", port, exclusive: true }');
-    expect(build).toContain("publishOwnedLock(publicationLockPath)");
+    expect(build).toContain("Reusing verified");
+    expect(build).toContain("publicationCommitted = true");
+    expect(build).toContain("removeOwnedLock(publicationLockPath, publicationLockOwner)");
     expect(build).toContain('"--build-lock-owner"');
     expect(build).toContain("restoreImageTag(tag, imageId)");
     expect(build).toContain("artifactMoved && !checksumMoved");
@@ -98,7 +100,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(cleanup).toContain("keepReleaseArchives: 3");
     expect(cleanup).toContain('cacheMax: "20gb"');
     expect(cleanup).toContain('"--all"');
-    expect(cleanup).toContain("if (options.skipCache) return");
+    expect(cleanup).toMatch(/if \(options\.skipCache\) \{\s+return;/u);
     expect(cleanup).toContain("remove unvalidated final image");
     expect(cleanup).toContain("remove incomplete release artifact");
     expect(cleanup).toContain("remove abandoned release temporary");
@@ -106,8 +108,13 @@ describe("PlatformClaw Docker runtime", () => {
     expect(cleanup).toContain("dockerResourceLockPort()");
     expect(cleanup).toContain("a PlatformClaw build is active");
     expect(cleanup).toContain("/No such object/u.test(result.stderr)");
-    expect(cleanup).toContain('if (error?.code === "ENOENT") return');
+    expect(cleanup).toMatch(/if \(error\?\.code === "ENOENT"\) \{\s+return;/u);
     expect(cleanup).toContain("release publication is active");
+    expect(cleanup).toContain("processIsAlive(owner.pid)");
+    expect(cleanup).toContain("finish committed release publication");
+    expect(cleanup.indexOf("if (options.skipArchives)")).toBeLessThan(
+      cleanup.indexOf("roll back abandoned release publication"),
+    );
     expect(cleanup).not.toContain('docker(["image", "rm", "--force"');
     expect(maintenance).toContain("New-ScheduledTaskTrigger -Weekly");
     expect(compact).toContain("Optimize-VHD -Path $resolved -Mode Full");

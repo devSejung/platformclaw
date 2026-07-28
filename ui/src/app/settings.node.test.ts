@@ -1,4 +1,5 @@
 // @vitest-environment node
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createImportedCustomThemeFixture } from "../test-helpers/custom-theme.ts";
 import { createStorageMock } from "../test-helpers/storage.ts";

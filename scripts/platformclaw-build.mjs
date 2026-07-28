@@ -7,6 +7,7 @@ import {
   existsSync,
   linkSync,
   mkdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -115,30 +116,54 @@ function optionalImageId(tag) {
     cwd: repoRoot,
     encoding: "utf8",
   });
-  if (result.error) throw result.error;
-  if (result.status === 0) return result.stdout.trim();
-  if (result.status === 1 && /No such image/u.test(result.stderr)) return undefined;
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status === 0) {
+    return result.stdout.trim();
+  }
+  if (result.status === 1 && /No such image/u.test(result.stderr)) {
+    return undefined;
+  }
   throw new Error(result.stderr.trim() || `Unable to inspect image tag ${tag}`);
 }
 
 function restoreImageTag(tag, imageId) {
   const args = imageId ? ["image", "tag", imageId, tag] : ["image", "rm", tag];
   const result = spawnSync("docker", args, { cwd: repoRoot, encoding: "utf8" });
-  if (result.error) throw result.error;
+  if (result.error) {
+    throw result.error;
+  }
   if (result.status !== 0 && !/No such image/u.test(result.stderr)) {
     throw new Error(result.stderr.trim() || `Failed to restore image tag ${tag}`);
   }
-  if (optionalImageId(tag) !== imageId) throw new Error(`Image tag rollback failed: ${tag}`);
+  if (optionalImageId(tag) !== imageId) {
+    throw new Error(`Image tag rollback failed: ${tag}`);
+  }
 }
 
 function publishOwnedLock(path) {
-  const candidate = `${path}.candidate-${process.pid}-${randomUUID()}`;
-  writeFileSync(candidate, `${process.pid}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  const owner = { pid: process.pid, token: randomUUID() };
+  const candidate = `${path}.candidate-${owner.pid}-${owner.token}`;
+  writeFileSync(candidate, `${JSON.stringify(owner)}\n`, {
+    encoding: "utf8",
+    flag: "wx",
+    mode: 0o600,
+  });
   try {
     linkSync(candidate, path);
   } finally {
     rmSync(candidate, { force: true });
   }
+  return owner;
+}
+
+function removeOwnedLock(path, owner) {
+  const actual = JSON.parse(readFileSync(path, "utf8"));
+  if (actual.pid !== owner.pid || actual.token !== owner.token) {
+    throw new Error(`Release publication lock ownership changed: ${path}`);
+  }
+  rmSync(path);
 }
 
 function dockerResourceLockPort() {
@@ -151,14 +176,20 @@ function acquireDockerResourceLock() {
   const server = createServer();
   const port = dockerResourceLockPort();
   return new Promise((resolveLock, reject) => {
-    server.once("error", reject);
+    server.once("error", (error) =>
+      reject(error instanceof Error ? error : new Error(String(error))),
+    );
     server.listen({ host: "127.0.0.1", port, exclusive: true }, () => resolveLock(server));
   });
 }
 
 function releaseDockerResourceLock(server) {
   return new Promise((resolveClose, reject) => {
-    server.close((error) => (error ? reject(error) : resolveClose()));
+    server.close((error) =>
+      error
+        ? reject(new Error("Failed to release Docker build lock", { cause: error }))
+        : resolveClose(),
+    );
   });
 }
 
@@ -241,7 +272,9 @@ const buildLock = await acquireDockerResourceLock();
 let publishedArtifactPath;
 let publishedChecksumPath;
 let publicationLockPath;
-let publicationLockAcquired = false;
+let publicationLockOwner;
+let publicationCommitted = false;
+let publicationCommitMarker;
 try {
   run("docker", [
     "buildx",
@@ -421,37 +454,55 @@ try {
     let artifactMoved = false;
     let checksumMoved = false;
     try {
-      publishOwnedLock(publicationLockPath);
-      publicationLockAcquired = true;
-      if (existsSync(artifactPath) || existsSync(checksumPath)) {
-        throw new Error(`Refusing to overwrite existing release artifact: ${artifactPath}`);
+      publicationLockOwner = publishOwnedLock(publicationLockPath);
+      publicationCommitMarker = `${publicationLockPath}.committed-${publicationLockOwner.token}`;
+      let reuseExisting = false;
+      if (existsSync(artifactPath) && existsSync(checksumPath)) {
+        const expected = readFileSync(checksumPath, "utf8").trim();
+        const digest = await sha256File(artifactPath);
+        if (expected === `${digest}  ${basename(artifactPath)}`) {
+          console.log(`Reusing verified ${artifactPath}`);
+          reuseExisting = true;
+        } else {
+          console.warn(`Replacing release artifact with a mismatched checksum: ${artifactPath}`);
+        }
       }
-      run("docker", ["save", "-o", artifactTemp, runtimeShaTag, sandboxShaTag]);
-      const digest = await sha256File(artifactTemp);
-      writeFileSync(checksumTemp, `${digest}  ${basename(artifactPath)}\n`, "utf8");
-      renameSync(artifactTemp, artifactPath);
-      artifactMoved = true;
-      renameSync(checksumTemp, checksumPath);
-      checksumMoved = true;
-      publishedArtifactPath = artifactPath;
-      publishedChecksumPath = checksumPath;
+      if (!reuseExisting) {
+        rmSync(artifactPath, { force: true });
+        rmSync(checksumPath, { force: true });
+        run("docker", ["save", "-o", artifactTemp, runtimeShaTag, sandboxShaTag]);
+        const digest = await sha256File(artifactTemp);
+        writeFileSync(checksumTemp, `${digest}  ${basename(artifactPath)}\n`, "utf8");
+        renameSync(artifactTemp, artifactPath);
+        artifactMoved = true;
+        renameSync(checksumTemp, checksumPath);
+        checksumMoved = true;
+        publishedArtifactPath = artifactPath;
+        publishedChecksumPath = checksumPath;
+      }
     } finally {
       rmSync(artifactTemp, { force: true });
       rmSync(checksumTemp, { force: true });
-      if (artifactMoved && !checksumMoved) rmSync(artifactPath, { force: true });
-      if (!checksumMoved && publicationLockAcquired) {
-        rmSync(publicationLockPath, { force: true });
-        publicationLockAcquired = false;
+      if (artifactMoved && !checksumMoved) {
+        rmSync(artifactPath, { force: true });
       }
     }
     console.log(`Created ${artifactPath}`);
     console.log(`Created ${checksumPath}`);
   }
 
-  // Promote the validated pair together, restoring the previous pair if either tag fails.
+  // The commit marker makes post-promotion lock cleanup recoverable without deleting the release.
   try {
     run("docker", ["image", "tag", runtimeShaTag, runtimeVersionTag]);
     run("docker", ["image", "tag", sandboxShaTag, sandboxVersionTag]);
+    if (publicationLockOwner) {
+      writeFileSync(publicationCommitMarker, `${JSON.stringify(publicationLockOwner)}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+      publicationCommitted = true;
+    }
   } catch (error) {
     const failures = [error];
     for (const [tag, imageId] of [
@@ -464,26 +515,46 @@ try {
         failures.push(rollbackError);
       }
     }
-    if (publishedArtifactPath) rmSync(publishedArtifactPath, { force: true });
-    if (publishedChecksumPath) rmSync(publishedChecksumPath, { force: true });
+    if (publishedArtifactPath) {
+      rmSync(publishedArtifactPath, { force: true });
+    }
+    if (publishedChecksumPath) {
+      rmSync(publishedChecksumPath, { force: true });
+    }
     throw failures.length === 1
       ? error
       : new AggregateError(failures, "Image promotion rollback failed");
   }
 
-  if (publicationLockAcquired) {
-    rmSync(publicationLockPath, { force: true });
-    publicationLockAcquired = false;
+  if (publicationLockOwner) {
+    try {
+      removeOwnedLock(publicationLockPath, publicationLockOwner);
+      publicationLockOwner = undefined;
+      rmSync(publicationCommitMarker, { force: true });
+    } catch (error) {
+      console.warn(`Release publication committed; deferred lock cleanup: ${error.message}`);
+    }
   }
 
   console.log(`PlatformClaw images ready: ${runtimeVersionTag}, ${sandboxVersionTag}`);
   buildSucceeded = true;
 } finally {
   try {
-    if (publicationLockAcquired) {
-      if (publishedArtifactPath) rmSync(publishedArtifactPath, { force: true });
-      if (publishedChecksumPath) rmSync(publishedChecksumPath, { force: true });
-      rmSync(publicationLockPath, { force: true });
+    if (publicationLockOwner) {
+      if (!publicationCommitted) {
+        if (publishedArtifactPath) {
+          rmSync(publishedArtifactPath, { force: true });
+        }
+        if (publishedChecksumPath) {
+          rmSync(publishedChecksumPath, { force: true });
+        }
+      }
+      try {
+        removeOwnedLock(publicationLockPath, publicationLockOwner);
+        rmSync(publicationCommitMarker, { force: true });
+      } catch (error) {
+        console.warn(`Deferred release publication cleanup: ${error.message}`);
+      }
     }
     cleanupAfterBuild(buildSucceeded);
   } finally {

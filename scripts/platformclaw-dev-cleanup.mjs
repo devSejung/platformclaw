@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import process from "node:process";
@@ -29,7 +29,9 @@ function fail(message) {
 }
 
 function integer(value, name) {
-  if (!/^\d+$/u.test(value)) fail(`${name} requires a non-negative integer`);
+  if (!/^\d+$/u.test(value)) {
+    fail(`${name} requires a non-negative integer`);
+  }
   return Number(value);
 }
 
@@ -38,8 +40,9 @@ function readArgs(argv) {
   const value = (index, name) => argv[index + 1] ?? fail(`${name} requires a value`);
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--apply") options.apply = true;
-    else if (arg === "--build-lock-owner") {
+    if (arg === "--apply") {
+      options.apply = true;
+    } else if (arg === "--build-lock-owner") {
       options.buildLockOwner = integer(value(index, arg), arg);
       index += 1;
     } else if (arg === "--failed-build-sha") {
@@ -66,10 +69,13 @@ function readArgs(argv) {
     } else if (arg === "--cache-min-free") {
       options.cacheMinFree = value(index, arg);
       index += 1;
-    } else if (arg === "--skip-archives") options.skipArchives = true;
-    else if (arg === "--skip-cache") options.skipCache = true;
-    else if (arg === "--skip-final-images") options.skipFinalImages = true;
-    else if (arg === "--help" || arg === "-h") {
+    } else if (arg === "--skip-archives") {
+      options.skipArchives = true;
+    } else if (arg === "--skip-cache") {
+      options.skipCache = true;
+    } else if (arg === "--skip-final-images") {
+      options.skipFinalImages = true;
+    } else if (arg === "--help" || arg === "-h") {
       console.log(`Usage: node scripts/platformclaw-dev-cleanup.mjs [options]
 
 Home-development Docker cleanup. Preview is the default; pass --apply to mutate.
@@ -87,23 +93,31 @@ Home-development Docker cleanup. Preview is the default; pass --apply to mutate.
   --skip-archives               Do not prune release archives
   --skip-cache                  Do not prune the shared BuildKit cache`);
       process.exit(0);
-    } else fail(`Unknown argument: ${arg}`);
+    } else {
+      fail(`Unknown argument: ${arg}`);
+    }
   }
   for (const [name, sha] of [
     ["--intermediate-sha", options.intermediateSha],
     ["--failed-build-sha", options.failedBuildSha],
   ]) {
-    if (sha && !/^[0-9a-f]{7,64}$/u.test(sha)) fail(`${name} must be a hexadecimal Git SHA`);
+    if (sha && !/^[0-9a-f]{7,64}$/u.test(sha)) {
+      fail(`${name} must be a hexadecimal Git SHA`);
+    }
   }
   for (const size of [options.cacheMax, options.cacheReserved, options.cacheMinFree]) {
-    if (!/^\d+(?:\.\d+)?(?:[kmgt]b?)$/iu.test(size)) fail(`Invalid cache size: ${size}`);
+    if (!/^\d+(?:\.\d+)?(?:[kmgt]b?)$/iu.test(size)) {
+      fail(`Invalid cache size: ${size}`);
+    }
   }
   return options;
 }
 
 function docker(args, { allowFailure = false } = {}) {
   const result = spawnSync("docker", args, { cwd: repoRoot, encoding: "utf8" });
-  if (result.error) throw result.error;
+  if (result.error) {
+    throw result.error;
+  }
   if (result.status !== 0 && !allowFailure) {
     fail(result.stderr.trim() || `docker ${args.join(" ")} failed (${result.status})`);
   }
@@ -112,7 +126,9 @@ function docker(args, { allowFailure = false } = {}) {
 
 function announce(options, label, action) {
   console.log(`${options.apply ? "APPLY" : "PREVIEW"}: ${label}`);
-  if (options.apply) action();
+  if (options.apply) {
+    action();
+  }
 }
 
 function processIsAlive(pid) {
@@ -120,7 +136,9 @@ function processIsAlive(pid) {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    if (error?.code === "ESRCH") return false;
+    if (error?.code === "ESRCH") {
+      return false;
+    }
     return true;
   }
 }
@@ -133,7 +151,9 @@ function dockerResourceLockPort() {
 
 async function acquireCleanupLock(options) {
   if (options.buildLockOwner !== undefined) {
-    if (!processIsAlive(options.buildLockOwner)) fail("Build-owned cleanup owner is not alive");
+    if (!processIsAlive(options.buildLockOwner)) {
+      fail("Build-owned cleanup owner is not alive");
+    }
     return { owned: false, server: undefined };
   }
   const server = createServer();
@@ -147,7 +167,9 @@ async function acquireCleanupLock(options) {
     });
     return { owned: true, server };
   } catch (error) {
-    if (error?.code === "EADDRINUSE") return undefined;
+    if (error?.code === "EADDRINUSE") {
+      return undefined;
+    }
     throw error;
   }
 }
@@ -156,9 +178,25 @@ function safeMtime(path) {
   try {
     return statSync(path).mtimeMs;
   } catch (error) {
-    if (error?.code === "ENOENT") return undefined;
+    if (error?.code === "ENOENT") {
+      return undefined;
+    }
     throw error;
   }
+}
+
+function publicationOwner(path) {
+  try {
+    const owner = JSON.parse(readFileSync(path, "utf8"));
+    if (Number.isSafeInteger(owner.pid) && owner.pid > 0 && typeof owner.token === "string") {
+      return owner;
+    }
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 function imageRows(repository) {
@@ -193,7 +231,9 @@ function removeIntermediateImages(options, used) {
 }
 
 function removeFailedFinalImages(options, used) {
-  if (!options.failedBuildSha) return;
+  if (!options.failedBuildSha) {
+    return;
+  }
   for (const repository of ["platformclaw", "platformclaw-sandbox"]) {
     for (const row of imageRows(repository).filter(
       (entry) => entry.Tag === options.failedBuildSha,
@@ -216,16 +256,20 @@ function usedImageIds() {
   for (const id of ids) {
     const result = docker(["inspect", "--format", "{{.Image}}", id], { allowFailure: true });
     if (result.status !== 0) {
-      if (/No such object/u.test(result.stderr)) continue;
+      if (/No such object/u.test(result.stderr)) {
+        continue;
+      }
       fail(result.stderr.trim() || `Unable to inspect container ${id}`);
     }
-    if (result.stdout.trim()) used.add(result.stdout.trim());
+    if (result.stdout.trim()) {
+      used.add(result.stdout.trim());
+    }
   }
   return used;
 }
 
 function pruneRepository(options, repository, used) {
-  const rows = imageRows(repository).sort(
+  const rows = imageRows(repository).toSorted(
     (a, b) => Date.parse(b.CreatedAt) - Date.parse(a.CreatedAt),
   );
   const ids = [...new Set(rows.map((row) => row.ID))];
@@ -233,7 +277,9 @@ function pruneRepository(options, repository, used) {
   const orderedIds = [currentId, ...ids.filter((id) => id !== currentId)].filter(Boolean);
   const keep = new Set(orderedIds.slice(0, options.keepRollbackImages + 1));
   for (const row of rows) {
-    if (keep.has(row.ID) || used.has(row.ID)) continue;
+    if (keep.has(row.ID) || used.has(row.ID)) {
+      continue;
+    }
     const tag = `${row.Repository}:${row.Tag}`;
     announce(options, `remove old rollback tag ${tag}`, () => {
       docker(["image", "rm", tag]);
@@ -242,18 +288,42 @@ function pruneRepository(options, repository, used) {
 }
 
 function pruneArchives(options) {
-  if (!existsSync(options.outputDir)) return;
+  if (!existsSync(options.outputDir)) {
+    return;
+  }
   const root = resolve(options.outputDir);
   let names;
   try {
     names = readdirSync(root);
   } catch (error) {
-    if (error?.code === "ENOENT") return;
+    if (error?.code === "ENOENT") {
+      return;
+    }
     throw error;
+  }
+  if (options.skipArchives) {
+    return;
   }
   for (const name of names.filter((entry) => /^platformclaw-.+\.tar\.lock$/u.test(entry))) {
     const path = resolve(root, name);
     const archive = path.slice(0, -".lock".length);
+    const owner = publicationOwner(path);
+    if (!owner) {
+      console.log(`KEEP: release publication lock has unknown ownership ${path}`);
+      continue;
+    }
+    const commitMarker = `${path}.committed-${owner.token}`;
+    if (processIsAlive(owner.pid)) {
+      console.log(`KEEP: release publication is active for ${archive}`);
+      continue;
+    }
+    if (existsSync(commitMarker)) {
+      announce(options, `finish committed release publication ${archive}`, () => {
+        rmSync(path, { force: true });
+        rmSync(commitMarker, { force: true });
+      });
+      continue;
+    }
     announce(options, `roll back abandoned release publication ${archive}`, () => {
       rmSync(archive, { force: true });
       rmSync(`${archive}.sha256`, { force: true });
@@ -261,44 +331,71 @@ function pruneArchives(options) {
     });
   }
   for (const name of names.filter((entry) =>
-    /^platformclaw-.+\.tar\.lock\.candidate-\d+-[0-9a-f-]+$/u.test(entry),
+    /^platformclaw-.+\.tar\.lock\.candidate-(\d+)-[0-9a-f-]+$/u.test(entry),
   )) {
     const path = resolve(root, name);
+    const pid = Number(/\.candidate-(\d+)-/u.exec(name)?.[1]);
+    if (processIsAlive(pid)) {
+      console.log(`KEEP: release lock candidate is active ${path}`);
+      continue;
+    }
     announce(options, `remove abandoned release lock candidate ${path}`, () =>
       rmSync(path, { force: true }),
     );
   }
   for (const name of names.filter((entry) =>
-    /^platformclaw-.+\.tar(?:\.sha256)?\.tmp-\d+$/u.test(entry),
+    /^platformclaw-.+\.tar(?:\.sha256)?\.tmp-(\d+)$/u.test(entry),
   )) {
     const path = resolve(root, name);
+    const pid = Number(/\.tmp-(\d+)$/u.exec(name)?.[1]);
+    if (processIsAlive(pid)) {
+      console.log(`KEEP: release temporary is active ${path}`);
+      continue;
+    }
     announce(options, `remove abandoned release temporary ${path}`, () =>
       rmSync(path, { force: true }),
     );
   }
-  if (options.skipArchives) return;
+  for (const name of names.filter((entry) =>
+    /^platformclaw-.+\.tar\.lock\.committed-[0-9a-f-]+$/u.test(entry),
+  )) {
+    const marker = resolve(root, name);
+    const lock = marker.replace(/\.committed-[0-9a-f-]+$/u, "");
+    if (!existsSync(lock)) {
+      announce(options, `remove orphan release commit marker ${marker}`, () =>
+        rmSync(marker, { force: true }),
+      );
+    }
+  }
   const archives = names
     .filter((name) => /^platformclaw-.+\.tar$/u.test(name))
-    .map((name) => ({ name, path: resolve(root, name) }))
+    .map((name) => {
+      const path = resolve(root, name);
+      return { name, path };
+    })
     .filter((entry) => entry.path.startsWith(`${root}\\`) || entry.path.startsWith(`${root}/`))
-    .map((entry) => ({ ...entry, mtimeMs: safeMtime(entry.path) }))
+    .map((entry) => ({ name: entry.name, path: entry.path, mtimeMs: safeMtime(entry.path) }))
     .filter((entry) => entry.mtimeMs !== undefined)
     .filter((entry) => {
       if (existsSync(`${entry.path}.lock`)) {
         console.log(`KEEP: release publication is active for ${entry.path}`);
         return false;
       }
-      if (existsSync(`${entry.path}.sha256`)) return true;
+      if (existsSync(`${entry.path}.sha256`)) {
+        return true;
+      }
       announce(options, `remove incomplete release artifact ${entry.path}`, () =>
         rmSync(entry.path, { force: true }),
       );
       return false;
     })
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    .toSorted((a, b) => b.mtimeMs - a.mtimeMs);
   for (const name of names.filter((entry) => /^platformclaw-.+\.tar\.sha256$/u.test(entry))) {
     const checksum = resolve(root, name);
     const archive = checksum.slice(0, -".sha256".length);
-    if (existsSync(`${archive}.lock`)) continue;
+    if (existsSync(`${archive}.lock`)) {
+      continue;
+    }
     if (!existsSync(archive)) {
       announce(options, `remove orphan release checksum ${checksum}`, () =>
         rmSync(checksum, { force: true }),
@@ -307,14 +404,18 @@ function pruneArchives(options) {
   }
   for (const archive of archives.slice(options.keepReleaseArchives)) {
     for (const path of [archive.path, `${archive.path}.sha256`]) {
-      if (!existsSync(path)) continue;
+      if (!existsSync(path)) {
+        continue;
+      }
       announce(options, `remove old release artifact ${path}`, () => rmSync(path, { force: true }));
     }
   }
 }
 
 function pruneBuildCache(options) {
-  if (options.skipCache) return;
+  if (options.skipCache) {
+    return;
+  }
   announce(
     options,
     `prune BuildKit cache (max=${options.cacheMax}, reserved=${options.cacheReserved}, min-free=${options.cacheMinFree})`,
@@ -358,7 +459,11 @@ try {
 } finally {
   if (cleanupLock.owned) {
     await new Promise((resolveClose, reject) => {
-      cleanupLock.server.close((error) => (error ? reject(error) : resolveClose()));
+      cleanupLock.server.close((error) =>
+        error
+          ? reject(new Error("Failed to release Docker cleanup lock", { cause: error }))
+          : resolveClose(),
+      );
     });
   }
 }
