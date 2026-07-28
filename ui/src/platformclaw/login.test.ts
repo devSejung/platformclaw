@@ -7,6 +7,8 @@ const fixtureValue = "fixture";
 function fixture(): HTMLElement {
   const root = document.createElement("main");
   root.innerHTML = `
+    <section data-login-hero></section>
+    <div data-login-mascot></div>
     <form data-login-form novalidate>
       <label>아이디<input name="identifier" required disabled></label>
       <label>비밀번호<input name="password" type="password" required disabled></label>

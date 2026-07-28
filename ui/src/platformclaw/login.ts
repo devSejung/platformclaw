@@ -1,3 +1,5 @@
+import { installPlatformClawLoginHero } from "./login-hero.ts";
+import { installPlatformClawLoginMascot } from "./login-mascot.ts";
 import {
   PLATFORMCLAW_LOGIN_API_PATH,
   PLATFORMCLAW_SESSION_API_PATH,
@@ -8,6 +10,8 @@ const SESSION_CHECK_TIMEOUT_MS = 5_000;
 type LoginPhase = "checking" | "ready" | "submitting";
 
 type LoginElements = {
+  hero: HTMLElement;
+  mascot: HTMLElement;
   form: HTMLFormElement;
   identifier: HTMLInputElement;
   secretInput: HTMLInputElement;
@@ -37,6 +41,8 @@ function requiredElement<T extends Element>(
 
 function readElements(root: ParentNode): LoginElements {
   return {
+    hero: requiredElement(root, "[data-login-hero]", HTMLElement),
+    mascot: requiredElement(root, "[data-login-mascot]", HTMLElement),
     form: requiredElement(root, "[data-login-form]", HTMLFormElement),
     identifier: requiredElement(root, 'input[name="identifier"]', HTMLInputElement),
     secretInput: requiredElement(root, 'input[name="password"]', HTMLInputElement),
@@ -99,6 +105,12 @@ export class PlatformClawLoginController {
   }
 
   start(): void {
+    installPlatformClawLoginHero(this.elements.hero);
+    installPlatformClawLoginMascot(
+      this.elements.mascot,
+      this.elements.identifier,
+      this.elements.secretInput,
+    );
     this.elements.form.addEventListener("submit", (event) => {
       void this.submit(event);
     });
