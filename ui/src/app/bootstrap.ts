@@ -1,3 +1,4 @@
+import type { RouteLocation } from "@openclaw/uirouter";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { SidebarRouteTargets } from "../app-navigation.ts";
 import { sessionRouteNamespaceFromPath } from "../app-route-paths.ts";
@@ -258,6 +259,12 @@ export type ApplicationBootstrapOptions = {
   };
 };
 
+type PendingRouterStartNavigation = {
+  routeId: RouteId;
+  location: RouteLocation;
+  mode: "push" | "replace";
+};
+
 export function bootstrapApplication(
   options: ApplicationBootstrapOptions = {},
 ): ApplicationRuntime {
@@ -398,6 +405,10 @@ export function bootstrapApplication(
   const initialUserMessage = createInitialUserMessageHandoff();
   applyThemePresentation(settings);
   const router = createApplicationRouter(enabledRouteIds);
+  let routerStarted = false;
+  // Pre-start navigations are invisible to history; retain the latest request so
+  // router.start() cannot resolve the stale browser URL over the user's route.
+  let pendingRouterStartNavigation: PendingRouterStartNavigation | null = null;
   let pendingGatewayConnection =
     startup.pendingGatewayUrl !== null
       ? {
@@ -485,27 +496,35 @@ export function bootstrapApplication(
     skillWorkshopRevision,
     initialUserMessage,
     navigate: (routeId, navigationOptions) => {
-      const allowedRouteId = enabledRouteIds.includes(routeId) ? routeId : "chat";
+      const routeAllowed = enabledRouteIds.includes(routeId);
+      const allowedRouteId = routeAllowed ? routeId : "chat";
+      const location = routeLocation(allowedRouteId, navigationOptions);
+      if (!routerStarted) {
+        // A restricted pre-start request must not overwrite the allowed location
+        // that startup normalized with the resolved agent/session identity.
+        if (!routeAllowed) {
+          return;
+        }
+        pendingRouterStartNavigation = { routeId: allowedRouteId, location, mode: "push" };
+      }
       void router
-        .navigate(
-          allowedRouteId,
-          context,
-          { history: "push" },
-          routeLocation(allowedRouteId, navigationOptions),
-        )
+        .navigate(allowedRouteId, context, { history: "push" }, location)
         .catch((error: unknown) => {
           console.error("[openclaw] route navigation failed", error);
         });
     },
     replace: (routeId, navigationOptions) => {
-      const allowedRouteId = enabledRouteIds.includes(routeId) ? routeId : "chat";
+      const routeAllowed = enabledRouteIds.includes(routeId);
+      const allowedRouteId = routeAllowed ? routeId : "chat";
+      const location = routeLocation(allowedRouteId, navigationOptions);
+      if (!routerStarted) {
+        if (!routeAllowed) {
+          return;
+        }
+        pendingRouterStartNavigation = { routeId: allowedRouteId, location, mode: "replace" };
+      }
       void router
-        .navigate(
-          allowedRouteId,
-          context,
-          { history: "replace" },
-          routeLocation(allowedRouteId, navigationOptions),
-        )
+        .navigate(allowedRouteId, context, { history: "replace" }, location)
         .catch((error: unknown) => {
           console.error("[openclaw] route replacement failed", error);
         });
@@ -552,6 +571,12 @@ export function bootstrapApplication(
       });
       if (!documentMode) {
         steps.push(async () => {
+          const pendingNavigation = pendingRouterStartNavigation;
+          pendingRouterStartNavigation = null;
+          routerStarted = true;
+          if (pendingNavigation) {
+            history[pendingNavigation.mode](pendingNavigation.location);
+          }
           await startApplicationRouter(router, history, basePath, context, enabledRouteIds);
           return stopRouter;
         });

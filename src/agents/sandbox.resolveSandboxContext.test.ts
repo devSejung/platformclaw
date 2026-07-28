@@ -9,6 +9,7 @@ import { registerSandboxBackend } from "./sandbox/backend.js";
 import { ensureSandboxWorkspaceForSession, resolveSandboxContext } from "./sandbox/context.js";
 
 const updateRegistryMock = vi.hoisted(() => vi.fn());
+const readRegisteredSandboxRuntimeIdsMock = vi.hoisted(() => vi.fn(async () => [] as string[]));
 const syncSkillsToWorkspaceMock = vi.hoisted(() =>
   vi.fn<() => Promise<SkillUsagePath[]>>(async () => []),
 );
@@ -27,6 +28,7 @@ const browserProfilesMock = vi.hoisted(() => ({
 }));
 
 vi.mock("./sandbox/registry.js", () => ({
+  readRegisteredSandboxRuntimeIds: readRegisteredSandboxRuntimeIdsMock,
   updateRegistry: updateRegistryMock,
 }));
 
@@ -206,6 +208,7 @@ describe("resolveSandboxContext", () => {
 
   it("resolves a registered non-docker backend", async () => {
     resolveNodeExecEligibilityMock.mockClear();
+    readRegisteredSandboxRuntimeIdsMock.mockResolvedValue(["registered-runtime"]);
     const backendFactory = vi.fn(async () => ({
       id: "test-backend",
       runtimeId: "test-runtime",
@@ -258,6 +261,7 @@ describe("resolveSandboxContext", () => {
           agentId: "worker",
           sessionKey: "agent:worker:task",
           scopeKey: "agent:worker:task",
+          registeredRuntimeIds: ["registered-runtime"],
         }),
       );
       expect(resolveNodeExecEligibilityMock).toHaveBeenCalledWith(
@@ -325,6 +329,7 @@ describe("resolveSandboxContext", () => {
       ).resolves.toBeNull();
       expect(backendFactory).not.toHaveBeenCalled();
     } finally {
+      readRegisteredSandboxRuntimeIdsMock.mockResolvedValue([]);
       restore();
     }
   }, 15_000);

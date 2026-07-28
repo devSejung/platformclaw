@@ -36,6 +36,8 @@ export type CreateSandboxBackendParams = {
   agentId?: string;
   sessionKey: string;
   scopeKey: string;
+  /** Runtime IDs already registered for this backend and scope, newest first. */
+  registeredRuntimeIds?: readonly string[];
   workspaceDir: string;
   agentWorkspaceDir: string;
   skillsWorkspaceDir?: string;

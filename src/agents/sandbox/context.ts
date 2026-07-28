@@ -21,7 +21,7 @@ import { ensureSandboxBrowser } from "./browser.js";
 import { resolveSandboxConfigForAgent } from "./config.js";
 import { resolveSandboxDockerUser } from "./docker-user.js";
 import { createSandboxFsBridge } from "./fs-bridge.js";
-import { updateRegistry } from "./registry.js";
+import { readRegisteredSandboxRuntimeIds, updateRegistry } from "./registry.js";
 import { resolveSandboxRuntimeStatus } from "./runtime-status.js";
 import { assertSshSandboxSecretOwnerAvailable } from "./secret-owner.js";
 import { resolveSandboxWorkspaceLayoutPaths } from "./shared.js";
@@ -229,10 +229,15 @@ export async function resolveSandboxContext(params: {
   const resolvedCfg = docker === cfg.docker ? cfg : { ...cfg, docker };
 
   const backendFactory = requireSandboxBackendFactory(resolvedCfg.backend);
+  const registeredRuntimeIds = await readRegisteredSandboxRuntimeIds({
+    backendId: resolvedCfg.backend,
+    scopeKey,
+  });
   const backend = await backendFactory({
     agentId: runtime.agentId,
     sessionKey: rawSessionKey,
     scopeKey,
+    ...(registeredRuntimeIds.length > 0 ? { registeredRuntimeIds } : {}),
     workspaceDir,
     agentWorkspaceDir,
     skillsWorkspaceDir,
