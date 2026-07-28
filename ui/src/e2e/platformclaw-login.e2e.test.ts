@@ -114,7 +114,8 @@ describeE2e("PlatformClaw login", () => {
     try {
       const card = page.locator(".login-card");
       const hero = page.locator("[data-login-hero]");
-      expect((await card.boundingBox())?.y).toBeLessThan((await hero.boundingBox())?.y ?? 0);
+      expect(await card.isVisible()).toBe(true);
+      expect(await hero.isVisible()).toBe(false);
 
       await page.mouse.move(360, 100);
       const idleX = await page
