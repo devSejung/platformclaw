@@ -123,7 +123,7 @@ describe("ExecutionHandoffService", () => {
   it("uses path sentinels only for a connection snapshot that still needs probing", async () => {
     const { remoteHomeDir: _home, remoteWorkspaceDir: _workspace, ...target } = assignedVm();
     const store = executionStore(async () => assignedVm());
-    vi.mocked(store.resolveAssignedVmConnectionTarget).mockResolvedValue({
+    vi.spyOn(store, "resolveAssignedVmConnectionTarget").mockResolvedValue({
       ...target,
       allocationStatus: "connection_required",
     });
