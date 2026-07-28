@@ -12,6 +12,12 @@ function fixture() {
   return { root, identifier, secretInput };
 }
 
+function nextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
 describe("PlatformClaw login mascot", () => {
   afterEach(() => {
     document.body.replaceChildren();
@@ -37,7 +43,7 @@ describe("PlatformClaw login mascot", () => {
     installPlatformClawLoginMascot(root, identifier, secretInput);
 
     window.dispatchEvent(new MouseEvent("pointermove", { clientX: 900, clientY: 80 }));
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    await nextAnimationFrame();
 
     const bodyX = Number.parseInt(root.style.getPropertyValue("--mascot-x"), 10);
     expect(bodyX).toBeGreaterThan(0);
@@ -55,7 +61,7 @@ describe("PlatformClaw login mascot", () => {
     identifier.value = "person.one";
     identifier.setSelectionRange(identifier.value.length, identifier.value.length);
     identifier.dispatchEvent(new InputEvent("input", { bubbles: true }));
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    await nextAnimationFrame();
 
     expect(root.dataset.loginMascotMode).toBe("account");
     expect(Number.parseInt(root.style.getPropertyValue("--mascot-x"), 10)).toBeGreaterThan(0);
