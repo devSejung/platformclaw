@@ -1,3 +1,4 @@
+import "../components/modal-dialog.ts";
 import { i18n } from "../i18n/index.ts";
 import { loadPlatformClawLocale, platformClawStatus, platformClawT as t } from "./i18n.ts";
 import { PLATFORMCLAW_VM_ADMIN_API_PATH } from "./web-contract.ts";
@@ -296,12 +297,7 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
       void this.refresh();
     });
     this.root.querySelector("[data-close]")?.addEventListener("click", closeDialog);
-    this.root
-      .querySelector<HTMLDialogElement>("dialog.backdrop")
-      ?.addEventListener("cancel", (event) => {
-        event.preventDefault();
-        closeDialog();
-      });
+    this.root.querySelector("openclaw-modal-dialog")?.addEventListener("modal-cancel", closeDialog);
     this.root.querySelector("[data-refresh]")?.addEventListener("click", () => void this.refresh());
     for (const form of this.root.querySelectorAll<HTMLFormElement>("form[data-endpoint-probe]")) {
       form.addEventListener("submit", (event) => {
@@ -398,8 +394,7 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
         button, input, select, textarea { font: inherit; }
         .open { box-sizing: border-box; width: 100%; min-height: 34px; padding: 7px 9px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--muted-strong); cursor: pointer; text-align: left; transition: background var(--duration-fast) ease, color var(--duration-fast) ease; }
         .open:hover, .open:focus-visible { background: var(--bg-hover); color: var(--text); outline: none; }
-        .backdrop { inset: 0; box-sizing: border-box; width: 100vw; max-width: none; height: 100vh; max-height: none; margin: 0; border: 0; padding: 24px; background: color-mix(in srgb, var(--bg) 18%, #000 82%); place-items: center; }
-        .backdrop[open] { display: grid; }
+        .modal { --openclaw-modal-width: min(1040px, calc(100vw - 48px)); --openclaw-modal-max-height: min(860px, calc(100dvh - 48px)); }
         .dialog { width: min(1040px, 100%); max-height: min(860px, calc(100vh - 48px)); overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--bg); color: var(--text); box-shadow: var(--shadow-xl); }
         header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; gap: 16px; padding: 18px 22px; border-bottom: 1px solid var(--border); background: var(--bg-elevated); }
         h2, h3 { margin: 0; } main { display: grid; gap: 16px; padding: 20px; } .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -408,12 +403,12 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
         input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: none; box-shadow: var(--focus-ring); }
         button { padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-elevated); color: var(--text); cursor: pointer; } button:hover:not(:disabled), button:focus-visible { background: var(--bg-hover); border-color: var(--border-hover); outline: none; } button.primary { background: var(--accent); color: var(--accent-foreground); border-color: var(--accent); } button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); } button:disabled { opacity: .5; cursor: not-allowed; }
         ul { display: grid; gap: 8px; padding: 0; list-style: none; } li { padding: 9px 10px; border-radius: var(--radius-md); background: var(--bg-muted); } .muted { color: var(--muted); } .message { padding: 10px; border-radius: var(--radius-md); background: var(--accent-subtle); } .actions { display: flex; gap: 8px; margin-top: 8px; } details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted-strong); } dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; } dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywhere; } code { font-family: var(--font-mono, monospace); }
-        @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .backdrop { padding: 8px; } }
+        @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .modal { --openclaw-modal-width: calc(100vw - 16px); --openclaw-modal-max-height: calc(100dvh - 16px); } }
       </style>
       <button class="open" data-open>${escapeHtml(t("platformClaw.vmAdmin.open"))}</button>
       ${
         this.opened
-          ? `<dialog class="backdrop" aria-label="${escapeHtml(t("platformClaw.vmAdmin.title"))}"><section class="dialog">
+          ? `<openclaw-modal-dialog class="modal" label="${escapeHtml(t("platformClaw.vmAdmin.title"))}"><section class="dialog">
             <header><div><h2>${escapeHtml(t("platformClaw.vmAdmin.title"))}</h2><div class="muted">${escapeHtml(t("platformClaw.vmAdmin.intro"))}</div></div><button data-close aria-label="${escapeHtml(t("platformClaw.vmAdmin.close"))}">×</button></header>
             <main>${this.loading ? `<p>${escapeHtml(t("platformClaw.vmAdmin.loading"))}</p>` : ""}${this.message ? `<div class="message">${escapeHtml(this.message)}</div>` : ""}
               <div class="grid">
@@ -426,18 +421,10 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
                 <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.allocations"))}</h3><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.allocationHelp"))}</p>${rows(data?.allocations.map((allocation) => `<strong>${escapeHtml(allocation.displayName ?? allocation.accountId)}</strong> · ${escapeHtml(allocation.vmLabel)} · ${escapeHtml(allocation.linuxAccount)} · ${escapeHtml(platformClawStatus(allocation.status))}<br><button type="button" data-mutation="revoke-allocation" data-field="allocationId" data-id="${escapeHtml(allocation.id)}" data-label="${escapeHtml(allocation.displayName ?? allocation.accountId)}">${escapeHtml(t("platformClaw.vmAdmin.revokeAllocation"))}</button>`) ?? [])}</section>
                 <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.audit"))}</h3>${rows(data?.auditEvents.map((event) => `<strong>${escapeHtml(event.eventType)}</strong> · ${escapeHtml(event.targetType)} · ${escapeHtml(new Date(event.createdAt).toLocaleString())}`) ?? [])}</section>
               </div>${this.probe ? `<section class="card probe"><h3>${escapeHtml(t("platformClaw.vmAdmin.verifyHostKey"))}</h3><p>${escapeHtml(t("platformClaw.vmAdmin.hostKeyTargetHelp"))}</p><dl><dt>DNS</dt><dd>${escapeHtml(this.probe.resolvedAddresses.join(", "))}</dd><dt>SSH</dt><dd>${escapeHtml(this.probe.sshBanner)}</dd><dt>${escapeHtml(t("platformClaw.vmAdmin.fingerprint"))}</dt><dd><code>${escapeHtml(this.probe.fingerprint)}</code></dd></dl><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.keyCommentHelp"))}</p><button type="button" class="primary" data-approve-probe>${escapeHtml(t("platformClaw.vmAdmin.approveAndSave"))}</button> <button type="button" data-cancel-probe>${escapeHtml(t("platformClaw.vmAdmin.cancel"))}</button></section>` : ""}${this.pendingMutation ? `<section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.confirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.vmAdmin.confirmBody", { label: this.pendingMutation.label }))}</p><div><button type="button" class="primary" data-confirm-mutation>${escapeHtml(t("platformClaw.vmAdmin.confirm"))}</button> <button type="button" data-cancel-mutation>${escapeHtml(t("platformClaw.vmAdmin.cancel"))}</button></div></section>` : ""}<button data-refresh>${escapeHtml(t("platformClaw.vmAdmin.refresh"))}</button>
-            </main></section></dialog>`
+            </main></section></openclaw-modal-dialog>`
           : ""
       }`;
     this.bindEvents();
-    const modal = this.root.querySelector<HTMLDialogElement>("dialog.backdrop");
-    if (modal && !modal.open) {
-      if (typeof modal.showModal === "function") {
-        modal.showModal();
-      } else {
-        modal.setAttribute("open", "");
-      }
-    }
   }
 }
 
