@@ -48,6 +48,10 @@ jobs:
           --head "$HEAD_SHA"
           --github-output "$GITHUB_OUTPUT"
 
+      - name: Install dependencies
+        if: steps.plan.outputs.needs_dependencies == 'true'
+        run: pnpm install --frozen-lockfile
+
       - name: Check PlatformClaw docs inventory
         if: steps.plan.outputs.needs_docs_checks == 'true'
         run: node scripts/docs-list.js
@@ -55,10 +59,6 @@ jobs:
       - name: Audit PlatformClaw documentation links
         if: steps.plan.outputs.needs_docs_checks == 'true'
         run: node scripts/docs-link-audit.mjs
-
-      - name: Install dependencies
-        if: steps.plan.outputs.needs_dependencies == 'true'
-        run: pnpm install --frozen-lockfile
 
       - name: Run repository policy guards
         if: steps.plan.outputs.needs_policy_guards == 'true'
