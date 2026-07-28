@@ -33,10 +33,18 @@ export async function migrateWindowsPreviewConfig(configPath) {
     throw new Error(`Unable to parse managed preview config ${resolvedConfigPath}`);
   }
 
-  const migrated = migrateLegacyConfig(snapshot.sourceConfig);
+  const migrationSource = snapshot.sourceConfigBeforeMigrations ?? snapshot.sourceConfig;
+  const migrationSnapshot =
+    snapshot.sourceConfigBeforeMigrations === undefined
+      ? snapshot
+      : { ...snapshot, sourceConfig: migrationSource, resolved: migrationSource };
+  const migrated = migrateLegacyConfig(migrationSource);
   if (!migrated.config) {
     return { migrated: false, changes: [] };
   }
+  const migratedAgentEntries = migrated.changes.includes(
+    "Moved agents.list → keyed agents.entries.",
+  );
 
   const hasAuthoredIncludes = containsAuthoredInclude(snapshot.parsed);
   // Persist the authored migration shape, not validation-expanded defaults.
@@ -45,7 +53,7 @@ export async function migrateWindowsPreviewConfig(configPath) {
     hasAuthoredIncludes &&
     !isSingleTopLevelIncludeMigration({
       parsed: snapshot.parsed,
-      sourceConfig: snapshot.sourceConfig,
+      sourceConfig: migrationSource,
       candidate: nextConfig,
     })
   ) {
@@ -57,12 +65,13 @@ export async function migrateWindowsPreviewConfig(configPath) {
   await replaceConfigFile({
     nextConfig,
     baseHash: snapshot.hash,
-    snapshot,
+    snapshot: migrationSnapshot,
     io,
     writeOptions: {
       ...prepared.writeOptions,
       auditOrigin: "doctor",
       allowConfigSizeDrop: true,
+      ...(migratedAgentEntries ? { explicitSetPaths: [["agents", "entries"]] } : {}),
       skipOutputLogs: true,
       skipPluginValidation: true,
     },
