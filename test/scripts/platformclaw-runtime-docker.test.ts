@@ -73,13 +73,15 @@ describe("PlatformClaw Docker runtime", () => {
     expect(build).toContain("cleanupAfterBuild(buildSucceeded)");
     expect(build).toContain('"--skip-final-images"');
     expect(build).toContain('"--skip-archives"');
-    expect(build).toContain('"--failed-build-sha"');
+    expect(build).not.toContain('cleanupArgs.push("--failed-build-sha"');
     expect(build).toContain('"--output-dir"');
     expect(build).toContain('"--skip-cache"');
     expect(build).toContain("publishOwnedLock(publicationLockPath)");
     expect(build).toContain("await acquireDockerResourceLock()");
     expect(build).toContain('server.listen({ host: "127.0.0.1", port, exclusive: true }');
-    expect(build).toContain("Reusing verified");
+    expect(build).not.toContain("Reusing verified");
+    expect(build).toContain("previousRuntimeShaId = optionalImageId(runtimeShaTag)");
+    expect(build).toContain("restoreImageTag(tag, imageId)");
     expect(build).toContain("publicationCommitted = true");
     expect(build).toContain("removeOwnedLock(publicationLockPath, publicationLockOwner)");
     expect(build).toContain('"--build-lock-owner"');

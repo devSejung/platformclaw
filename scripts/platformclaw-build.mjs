@@ -256,7 +256,7 @@ function cleanupAfterBuild(buildSucceeded) {
     String(process.pid),
   ];
   if (!buildSucceeded) {
-    cleanupArgs.push("--failed-build-sha", shortSha, "--skip-final-images", "--skip-archives");
+    cleanupArgs.push("--skip-final-images", "--skip-archives");
   }
   console.log(`> ${process.execPath} ${cleanupArgs.join(" ")}`);
   const result = spawnSync(process.execPath, cleanupArgs, { cwd: repoRoot, stdio: "inherit" });
@@ -275,7 +275,13 @@ let publicationLockPath;
 let publicationLockOwner;
 let publicationCommitted = false;
 let publicationCommitMarker;
+let previousRuntimeShaId;
+let previousSandboxShaId;
+let shaSnapshotComplete = false;
 try {
+  previousRuntimeShaId = optionalImageId(runtimeShaTag);
+  previousSandboxShaId = optionalImageId(sandboxShaTag);
+  shaSnapshotComplete = true;
   run("docker", [
     "buildx",
     "build",
@@ -456,30 +462,17 @@ try {
     try {
       publicationLockOwner = publishOwnedLock(publicationLockPath);
       publicationCommitMarker = `${publicationLockPath}.committed-${publicationLockOwner.token}`;
-      let reuseExisting = false;
-      if (existsSync(artifactPath) && existsSync(checksumPath)) {
-        const expected = readFileSync(checksumPath, "utf8").trim();
-        const digest = await sha256File(artifactPath);
-        if (expected === `${digest}  ${basename(artifactPath)}`) {
-          console.log(`Reusing verified ${artifactPath}`);
-          reuseExisting = true;
-        } else {
-          console.warn(`Replacing release artifact with a mismatched checksum: ${artifactPath}`);
-        }
-      }
-      if (!reuseExisting) {
-        rmSync(artifactPath, { force: true });
-        rmSync(checksumPath, { force: true });
-        run("docker", ["save", "-o", artifactTemp, runtimeShaTag, sandboxShaTag]);
-        const digest = await sha256File(artifactTemp);
-        writeFileSync(checksumTemp, `${digest}  ${basename(artifactPath)}\n`, "utf8");
-        renameSync(artifactTemp, artifactPath);
-        artifactMoved = true;
-        renameSync(checksumTemp, checksumPath);
-        checksumMoved = true;
-        publishedArtifactPath = artifactPath;
-        publishedChecksumPath = checksumPath;
-      }
+      run("docker", ["save", "-o", artifactTemp, runtimeShaTag, sandboxShaTag]);
+      const digest = await sha256File(artifactTemp);
+      writeFileSync(checksumTemp, `${digest}  ${basename(artifactPath)}\n`, "utf8");
+      rmSync(artifactPath, { force: true });
+      rmSync(checksumPath, { force: true });
+      renameSync(artifactTemp, artifactPath);
+      artifactMoved = true;
+      renameSync(checksumTemp, checksumPath);
+      checksumMoved = true;
+      publishedArtifactPath = artifactPath;
+      publishedChecksumPath = checksumPath;
     } finally {
       rmSync(artifactTemp, { force: true });
       rmSync(checksumTemp, { force: true });
@@ -540,6 +533,18 @@ try {
   buildSucceeded = true;
 } finally {
   try {
+    if (!buildSucceeded && shaSnapshotComplete) {
+      for (const [tag, imageId] of [
+        [runtimeShaTag, previousRuntimeShaId],
+        [sandboxShaTag, previousSandboxShaId],
+      ]) {
+        try {
+          restoreImageTag(tag, imageId);
+        } catch (error) {
+          console.warn(`Failed to restore validated SHA tag ${tag}: ${error.message}`);
+        }
+      }
+    }
     if (publicationLockOwner) {
       if (!publicationCommitted) {
         if (publishedArtifactPath) {
