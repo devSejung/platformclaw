@@ -15,6 +15,6 @@ describe("PlatformClaw login hero", () => {
     expect(root.shadowRoot?.querySelector(".hero")).not.toBeNull();
     expect(root.shadowRoot?.textContent).toContain("Issue → Docs → Build → Board → Report");
     expect(root.shadowRoot?.textContent).toContain("Rev.B Boot Validation");
-    expect(root.shadowRoot?.querySelector("style")?.textContent).toContain(":host{");
+    expect(root.shadowRoot?.querySelector("style")?.textContent).toMatch(/:host\s*\{/u);
   });
 });
