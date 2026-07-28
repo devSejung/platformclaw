@@ -356,7 +356,7 @@ button:focus-visible {
   }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 960px) {
   .login-page {
     width: min(100% - 2rem, 31rem);
     padding: 2.5rem 0;

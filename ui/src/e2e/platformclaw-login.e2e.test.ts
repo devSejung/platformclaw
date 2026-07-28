@@ -86,15 +86,25 @@ describeE2e("PlatformClaw login", () => {
           }
           const mascotBox = mascot.getBoundingClientRect();
           const cardBox = card.getBoundingClientRect();
+          const heroScene = document
+            .querySelector<HTMLElement>("[data-login-hero]")
+            ?.shadowRoot?.querySelector<HTMLElement>(".scene");
           return {
             background: getComputedStyle(document.body).backgroundColor,
             cardRight: cardBox.right,
+            heroLayersFit:
+              heroScene !== null &&
+              heroScene !== undefined &&
+              Array.from(heroScene.querySelectorAll<HTMLElement>(".layer")).every(
+                (layer) => layer.scrollHeight <= layer.clientHeight,
+              ),
             mascotHeight: mascotBox.height,
             mascotWidth: mascotBox.width,
             overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           };
         });
         expect(layout.background).toBe(mode === "light" ? "rgb(250, 249, 245)" : "rgb(24, 23, 21)");
+        expect(layout.heroLayersFit).toBe(true);
         expect(layout.mascotHeight).toBe(132);
         expect(layout.mascotWidth).toBe(132);
         expect(layout.cardRight).toBeLessThanOrEqual(1440);
@@ -141,6 +151,17 @@ describeE2e("PlatformClaw login", () => {
       ).toBe("0.25");
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
       await screenshot(page, "mobile-light-password.png");
+    } finally {
+      await context.close();
+    }
+  });
+
+  it("keeps the tablet breakpoint focused on authentication", async () => {
+    const { context, page } = await openLogin("light", { width: 900, height: 900 });
+    try {
+      expect(await page.locator("[data-login-hero]").isVisible()).toBe(false);
+      expect(await page.locator(".login-card").isVisible()).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(900);
     } finally {
       await context.close();
     }
