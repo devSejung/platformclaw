@@ -1,5 +1,6 @@
 import { css, html, LitElement, type PropertyValues } from "lit";
 import { property } from "lit/decorators.js";
+import { resolvePlatformClawBranding } from "../platformclaw/branding.ts";
 import { MascotAnimator } from "./mascot-animator.ts";
 import { drawMascot } from "./mascot-canvas.ts";
 import {
@@ -44,6 +45,43 @@ class OpenClawMascot extends LitElement {
       height: 100%;
       will-change: transform;
     }
+
+    .platformclaw-mascot {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      image-rendering: pixelated;
+      transform-origin: 50% 70%;
+    }
+
+    :host([mood="thinking"]) .platformclaw-mascot,
+    :host([mood="working"]) .platformclaw-mascot {
+      animation: platformclaw-mascot-work 800ms steps(2, end) infinite;
+    }
+
+    :host([mood="happy"]) .platformclaw-mascot,
+    :host([mood="celebrating"]) .platformclaw-mascot {
+      animation: platformclaw-mascot-celebrate 560ms steps(2, end) infinite;
+    }
+
+    @keyframes platformclaw-mascot-work {
+      50% {
+        transform: translateY(-3%);
+      }
+    }
+
+    @keyframes platformclaw-mascot-celebrate {
+      50% {
+        transform: translateY(-8%) scale(1.03);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .platformclaw-mascot {
+        animation: none !important;
+      }
+    }
   `;
 
   @property({ reflect: true }) mood: MascotMood = "idle";
@@ -51,6 +89,7 @@ class OpenClawMascot extends LitElement {
   @property({ type: Boolean }) tease = false;
 
   private readonly animator = new MascotAnimator();
+  private readonly platformClawBranding = resolvePlatformClawBranding();
   private animationFrame = 0;
   private visible = true;
   private reducedMotion = false;
@@ -140,7 +179,9 @@ class OpenClawMascot extends LitElement {
   }
 
   override render() {
-    return html`<canvas></canvas>`;
+    return this.platformClawBranding
+      ? html`<img class="platformclaw-mascot" src=${this.platformClawBranding.mascotUrl} alt="" />`
+      : html`<canvas></canvas>`;
   }
 
   private get resolvedMood(): MascotMood {
