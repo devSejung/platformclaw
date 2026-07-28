@@ -146,6 +146,18 @@ export function parseTarget(value: unknown): PlatformClawExecutionTargetSnapshot
   if (target.kind !== "assigned_vm") {
     throw new Error("execution target kind is invalid");
   }
+  const remoteHomeDir = requireAbsoluteRemotePath(target.remoteHomeDir, "remote home");
+  const remoteWorkspaceDir = requireAbsoluteRemotePath(
+    target.remoteWorkspaceDir,
+    "remote workspace",
+  );
+  if (
+    remoteHomeDir !== "/" &&
+    remoteWorkspaceDir !== remoteHomeDir &&
+    !remoteWorkspaceDir.startsWith(`${remoteHomeDir}/`)
+  ) {
+    throw new Error("remote workspace is outside the remote home");
+  }
   return {
     ...base,
     kind: "assigned_vm",
@@ -158,11 +170,21 @@ export function parseTarget(value: unknown): PlatformClawExecutionTargetSnapshot
     adAccount: requireSshToken(target.adAccount, "AD account"),
     targetAddress: requireSshToken(target.targetAddress, "VM address"),
     linuxAccount: requireSshToken(target.linuxAccount, "Linux account"),
-    remoteWorkspaceDir: requireString(target.remoteWorkspaceDir, "remote workspace"),
+    remoteHomeDir,
+    remoteWorkspaceDir,
     hostKeyAlgorithm: requireSshToken(target.hostKeyAlgorithm, "host key algorithm"),
     hostKeyPublicKey: requireSshToken(target.hostKeyPublicKey, "host public key"),
     hostKeyFingerprint: requireString(target.hostKeyFingerprint, "host key fingerprint"),
   };
+}
+
+function requireAbsoluteRemotePath(value: unknown, label: string): string {
+  const raw = requireString(value, label);
+  const normalized = path.posix.normalize(raw);
+  if (!path.posix.isAbsolute(raw) || normalized !== raw) {
+    throw new Error(`${label} is invalid`);
+  }
+  return raw;
 }
 
 function safeConnectConfig(target: AssignedVmTargetSnapshot): string {
@@ -285,7 +307,7 @@ async function testAssignedVmConnection(params: {
       result = await runSshSandboxCommand({
         session,
         remoteCommand:
-          'set -eu; test -n "$HOME"; mkdir -p -- "$HOME/.platformclaw/workspace"; printf \'%s\\n%s\\n\' "$HOME" "$(id -un)"',
+          'set -eu; test -n "$HOME"; home=$(cd -- "$HOME" && pwd -P); mkdir -p -- "$home/.platformclaw/workspace"; printf \'%s\\n%s\\n\' "$home" "$(id -un)"',
         signal: AbortSignal.timeout(7_000),
         maxBufferBytes: 4 * 1024,
       });
@@ -304,6 +326,7 @@ async function testAssignedVmConnection(params: {
     if (
       extra.length > 0 ||
       !remoteHomeDir?.startsWith("/") ||
+      remoteHomeDir === "/" ||
       remoteUser !== params.target.linuxAccount
     ) {
       throw new Error("assigned VM identity response is invalid");
@@ -386,11 +409,14 @@ export async function createExecutionDependenciesFromEnvironment(
         targetLabel: `${target.endpointHost}:${target.endpointPort}`,
         workspaceRoot: target.remoteWorkspaceDir,
         workspaceMode: "existing",
+        additionalFilesystemRoots: [{ root: target.remoteHomeDir, access: "rw" }],
         createSession: async () => await createSafeConnectSession(target),
       }),
     listTargetSkills: async ({ refresh, target }) =>
       target.kind === "assigned_vm" ? await remoteSkills.list(target, refresh) : undefined,
     testConnection: async ({ agentId, credentialBrokerAddress, credentialGrantToken }) => {
+      // This endpoint consumes the probe-only connection snapshot. It discovers
+      // canonical HOME before any executable backend snapshot can be created.
       const target = parseTarget(
         await callExecutionHandoff({
           socketPath: executionHandoffAddress(brokerAddress),

@@ -517,6 +517,39 @@ describe("ssh sandbox backend", () => {
     expect(createInjectedSession).toHaveBeenCalledTimes(2);
   });
 
+  it("accepts workdirs under caller-provided remote filesystem roots", async () => {
+    sshMocks.runSshSandboxCommand
+      .mockResolvedValueOnce({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), code: 0 })
+      .mockResolvedValueOnce({
+        stdout: Buffer.from("/users/worker/projects/demo\n"),
+        stderr: Buffer.alloc(0),
+        code: 0,
+      });
+    const backend = await createSshSandboxBackendWithSessionFactory(
+      {
+        sessionKey: "agent:worker:task",
+        scopeKey: "agent:worker",
+        workspaceDir: "/tmp/local-workspace",
+        agentWorkspaceDir: "/tmp/local-agent",
+        cfg: createBackendSandboxConfig(),
+      },
+      {
+        targetLabel: "assigned-vm",
+        workspaceRoot: "/users/worker/.platformclaw/workspace",
+        workspaceMode: "existing",
+        additionalFilesystemRoots: [{ root: "/users/worker/", access: "rw" }],
+        createSession: async () => createSession(),
+      },
+    );
+
+    expect(backend.workdir).toBe("/users/worker/.platformclaw/workspace");
+    expect(backend.workdirRoots).toContain("/users/worker");
+    await expect(backend.validateWorkdir?.("/users/worker/projects/demo")).resolves.toBe(
+      "/users/worker/projects/demo",
+    );
+    expect(String(requireSshRunCommandParams(1).remoteCommand)).toContain("/users/worker");
+  });
+
   it("validates remote workdirs before exec accepts backend-owned cwd", async () => {
     sshMocks.runSshSandboxCommand
       .mockResolvedValueOnce({

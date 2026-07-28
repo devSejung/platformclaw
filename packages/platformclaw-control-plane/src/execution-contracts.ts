@@ -76,6 +76,7 @@ export type AssignedVmExecutionTarget = {
   adAccount: string;
   targetAddress: string;
   linuxAccount: string;
+  remoteHomeDir: string;
   remoteWorkspaceDir: string;
   hostKeyAlgorithm: string;
   hostKeyPublicKey: string;
@@ -84,8 +85,12 @@ export type AssignedVmExecutionTarget = {
 
 export type PersonalExecutionTarget = PlatformServerExecutionTarget | AssignedVmExecutionTarget;
 
-export type AssignedVmConnectionTarget = Omit<AssignedVmExecutionTarget, "remoteWorkspaceDir"> & {
+export type AssignedVmConnectionTarget = Omit<
+  AssignedVmExecutionTarget,
+  "remoteHomeDir" | "remoteWorkspaceDir"
+> & {
   allocationStatus: VmAllocationStatus;
+  remoteHomeDir?: string;
   remoteWorkspaceDir?: string;
 };
 

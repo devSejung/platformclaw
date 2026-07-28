@@ -75,7 +75,10 @@ export type {
   SandboxBackendWorkdirResolver,
   SandboxBackendWorkdirValidator,
 } from "./sandbox/backend.js";
-export type { RemoteShellSandboxHandle } from "./sandbox/remote-fs-bridge.js";
+export type {
+  RemoteShellSandboxFilesystemRoot,
+  RemoteShellSandboxHandle,
+} from "./sandbox/remote-fs-bridge.js";
 export type {
   RunSshSandboxCommandParams,
   SshSandboxSession,

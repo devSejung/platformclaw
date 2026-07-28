@@ -4,6 +4,7 @@
 export type {
   CreateSandboxBackendParams,
   RemoteShellSandboxHandle,
+  RemoteShellSandboxFilesystemRoot,
   RunSshSandboxCommandParams,
   SandboxBackendCommandParams,
   SandboxBackendCommandResult,

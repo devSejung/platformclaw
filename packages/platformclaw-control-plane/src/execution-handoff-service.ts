@@ -59,6 +59,7 @@ function publicSnapshot(target: PersonalExecutionTarget): ExecutionTargetSnapsho
     adAccount: target.adAccount,
     targetAddress: target.targetAddress,
     linuxAccount: target.linuxAccount,
+    remoteHomeDir: target.remoteHomeDir,
     remoteWorkspaceDir: target.remoteWorkspaceDir,
     hostKeyAlgorithm: target.hostKeyAlgorithm,
     hostKeyPublicKey: target.hostKeyPublicKey,
@@ -92,8 +93,11 @@ export class ExecutionHandoffService {
 
   async resolveConnectionTarget(agentId: string) {
     const target = await this.store.resolveAssignedVmConnectionTarget(requireAgentId(agentId));
+    // Connection snapshots are probe-only: the remote command discovers canonical
+    // paths before selection. Executable target resolution never receives these sentinels.
     return publicSnapshot({
       ...target,
+      remoteHomeDir: target.remoteHomeDir ?? "/",
       remoteWorkspaceDir: target.remoteWorkspaceDir ?? "/",
     });
   }

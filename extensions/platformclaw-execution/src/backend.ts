@@ -23,6 +23,7 @@ export type AssignedVmTargetSnapshot = ExecutionTargetBase & {
   allocationId: string;
   vmLabel: string;
   safeConnectLabel: string;
+  remoteHomeDir: string;
   remoteWorkspaceDir: string;
   endpointHost: string;
   endpointPort: number;
@@ -92,10 +93,13 @@ function buildRuntimePromptContext(
           targetLabel: target.vmLabel,
           safeHostLabel: target.safeConnectLabel,
           linuxAccount: target.linuxAccount,
+          linuxHome: target.remoteHomeDir,
           activeWorkspace,
           targetRevision: target.revision,
           workspaceBoundary:
             "Basic workspace and My development VM keep independent files and processes.",
+          filesystemAccess:
+            "File tools and command workdirs may use the full Linux home. Paths outside it stay unavailable to file tools.",
         };
   return [
     "<platformclaw_execution_context>",
@@ -175,6 +179,7 @@ function pinTargetSnapshot(
       !candidate.allocationId.trim() ||
       !candidate.vmLabel.trim() ||
       !candidate.safeConnectLabel.trim() ||
+      !candidate.remoteHomeDir.trim() ||
       !candidate.remoteWorkspaceDir.trim()
     ) {
       throw new Error("PlatformClaw VM allocation snapshot is incomplete.");

@@ -25,6 +25,7 @@ function assignedVm(revision = 4): AssignedVmExecutionTarget {
     adAccount: "person.one",
     targetAddress: "192.0.2.10",
     linuxAccount: "linux-one",
+    remoteHomeDir: "/users/linux-one",
     remoteWorkspaceDir: "/users/linux-one/.platformclaw/workspace",
     hostKeyAlgorithm: "ssh-ed25519",
     hostKeyPublicKey: "AAAAC3NzaC1lZDI1NTE5AAAAITest",
@@ -111,8 +112,29 @@ describe("ExecutionHandoffService", () => {
 
     const target = await new ExecutionHandoffService(store, broker).resolveTarget("person_one");
 
-    expect(target).toMatchObject({ kind: "assigned_vm", allocationId: "allocation-one" });
+    expect(target).toMatchObject({
+      kind: "assigned_vm",
+      allocationId: "allocation-one",
+      remoteHomeDir: "/users/linux-one",
+    });
     expect(target).not.toHaveProperty("userId");
+  });
+
+  it("uses path sentinels only for a connection snapshot that still needs probing", async () => {
+    const { remoteHomeDir: _home, remoteWorkspaceDir: _workspace, ...target } = assignedVm();
+    const store = executionStore(async () => assignedVm());
+    vi.mocked(store.resolveAssignedVmConnectionTarget).mockResolvedValue({
+      ...target,
+      allocationStatus: "connection_required",
+    });
+    const broker = {
+      address: "/run/platformclaw/runtime.sock",
+      issueForUser: vi.fn(),
+    } satisfies ExecutionCredentialGrantIssuer;
+
+    await expect(
+      new ExecutionHandoffService(store, broker).resolveConnectionTarget("person_one"),
+    ).resolves.toMatchObject({ remoteHomeDir: "/", remoteWorkspaceDir: "/" });
   });
 
   it("does not issue a VM credential for the basic workspace", async () => {
