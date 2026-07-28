@@ -42,9 +42,7 @@ body {
   display: grid;
   min-height: 100dvh;
   overflow-x: hidden;
-  background:
-    radial-gradient(circle at 8% 12%, rgba(15, 124, 114, 0.08), transparent 32rem),
-    var(--login-canvas);
+  background: var(--login-canvas);
 }
 
 button,
@@ -332,12 +330,6 @@ button:focus-visible {
     --login-error: #efaaa4;
     --login-error-border: rgba(223, 133, 123, 0.35);
     --login-error-surface: rgba(198, 69, 69, 0.12);
-  }
-
-  body {
-    background:
-      radial-gradient(circle at 8% 12%, rgba(79, 179, 168, 0.1), transparent 32rem),
-      var(--login-canvas);
   }
 
   button {
