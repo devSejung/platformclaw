@@ -86,6 +86,7 @@ export function createGatewayHarness(client: GatewayBrowserClient) {
     client,
     phase: "connected",
     offlineStable: false,
+    canvasPluginSurfaceUrl: null,
     hello: null,
     assistantAgentId: "main",
     sessionKey: "agent:main:main",

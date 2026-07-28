@@ -1,5 +1,5 @@
 {
-  "startupJsGzipBytes": 326292,
-  "reason": "expose bounded profile and skills self-service routes",
-  "updatedAt": "2026-07-27"
+  "startupJsGzipBytes": 327434,
+  "reason": "merge upstream canvas lease with bounded PlatformClaw self-service routes",
+  "updatedAt": "2026-07-28"
 }

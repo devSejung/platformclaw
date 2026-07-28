@@ -206,15 +206,15 @@ describe("PlatformClaw VM administration", () => {
     const element = document.querySelector("platformclaw-vm-administration")!;
     await vi.waitFor(() => expect(element.shadowRoot?.querySelector("[data-open]")).not.toBeNull());
     element.shadowRoot?.querySelector<HTMLElement>("[data-open]")?.click();
-    const dialog = element.shadowRoot?.querySelector<HTMLDialogElement>("dialog.backdrop");
+    const dialog = element.shadowRoot?.querySelector("openclaw-modal-dialog");
 
-    dialog?.dispatchEvent(new Event("cancel", { cancelable: true }));
+    dialog?.dispatchEvent(new Event("modal-cancel"));
     pending.resolve(jsonResponse(SNAPSHOT));
 
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
-    expect(element.shadowRoot?.querySelector("dialog.backdrop")).toBeNull();
+    expect(element.shadowRoot?.querySelector("openclaw-modal-dialog")).toBeNull();
   });
 });

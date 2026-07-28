@@ -102,10 +102,10 @@ describe("PlatformClaw execution settings", () => {
     const element = document.querySelector("platformclaw-execution-settings")!;
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Basic workspace"));
     element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
-    const dialog = element.shadowRoot?.querySelector<HTMLDialogElement>("dialog.backdrop");
+    const dialog = element.shadowRoot?.querySelector("openclaw-modal-dialog");
 
-    dialog?.dispatchEvent(new Event("cancel", { cancelable: true }));
+    dialog?.dispatchEvent(new Event("modal-cancel"));
 
-    expect(element.shadowRoot?.querySelector("dialog.backdrop")).toBeNull();
+    expect(element.shadowRoot?.querySelector("openclaw-modal-dialog")).toBeNull();
   });
 });

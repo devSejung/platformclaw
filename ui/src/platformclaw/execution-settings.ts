@@ -1,3 +1,4 @@
+import "../components/modal-dialog.ts";
 import { i18n } from "../i18n/index.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import { PLATFORMCLAW_EXECUTION_API_PATH } from "./web-contract.ts";
@@ -170,12 +171,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.root
       .querySelector<HTMLElement>("[data-action='close']")
       ?.addEventListener("click", closeDialog);
-    this.root
-      .querySelector<HTMLDialogElement>("dialog.backdrop")
-      ?.addEventListener("cancel", (event) => {
-        event.preventDefault();
-        closeDialog();
-      });
+    this.root.querySelector("openclaw-modal-dialog")?.addEventListener("modal-cancel", closeDialog);
     this.root
       .querySelector<HTMLElement>("[data-action='refresh']")
       ?.addEventListener("click", () => void this.refresh());
@@ -273,9 +269,8 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         button, input, select { font: inherit; }
         .badge { box-sizing: border-box; display: flex; width: 100%; min-height: 34px; align-items: center; gap: 8px; border: 0; border-radius: var(--radius-md); padding: 7px 9px; background: transparent; color: var(--text); cursor: pointer; text-align: left; transition: background var(--duration-fast) ease; }
         .badge:hover, .badge:focus-visible { background: var(--bg-hover); outline: none; }
-        .dot { width: 7px; height: 7px; flex: none; border-radius: var(--radius-full); background: ${assignment?.status === "connection_required" ? "var(--warn)" : "var(--success, #22c55e)"}; }
-        .backdrop { inset: 0; box-sizing: border-box; width: 100vw; max-width: none; height: 100vh; max-height: none; margin: 0; border: 0; padding: 20px; background: color-mix(in srgb, var(--bg) 18%, #000 82%); place-items: center; }
-        .backdrop[open] { display: grid; }
+        .dot { width: 7px; height: 7px; flex: none; border-radius: var(--radius-full); background: ${assignment?.status === "connection_required" ? "var(--warn)" : "var(--ok)"}; }
+        .modal { --openclaw-modal-width: min(520px, calc(100vw - 40px)); --openclaw-modal-max-height: min(720px, calc(100dvh - 40px)); }
         .panel { width: min(520px, 100%); max-height: min(720px, 90vh); overflow: auto; border-radius: var(--radius-xl); background: var(--bg-elevated); color: var(--text); box-shadow: var(--shadow-xl); border: 1px solid var(--border); }
         header { display: flex; justify-content: space-between; align-items: center; padding: 20px 22px 12px; }
         h2 { margin: 0; font-size: 20px; } h3 { margin: 0 0 8px; font-size: 14px; }
@@ -297,7 +292,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       <button class="badge" data-action="open" aria-label="${escapeHtml(t("platformClaw.execution.openSettings"))}"><span class="dot"></span><span>${escapeHtml(badgeLabel)}</span></button>
       ${
         this.opened
-          ? `<dialog class="backdrop" aria-label="${escapeHtml(t("platformClaw.execution.workLocation"))}"><section class="panel">
+          ? `<openclaw-modal-dialog class="modal" label="${escapeHtml(t("platformClaw.execution.workLocation"))}"><section class="panel">
         <header><h2>${escapeHtml(t("platformClaw.execution.workLocation"))}</h2><button class="close" data-action="close" aria-label="${escapeHtml(t("platformClaw.execution.close"))}">×</button></header>
         <main>
           ${this.loading ? `<p>${escapeHtml(t("common.loading"))}</p>` : ""}
@@ -308,19 +303,11 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
           ${this.pendingTarget ? `<section class="card confirm"><h3>${escapeHtml(t("platformClaw.execution.confirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.execution.confirmBody", { target: targetLabel }))}</p><div class="row"><button class="button primary" data-action="confirm-switch" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.confirm"))}</button><button class="button" data-action="cancel-switch">${escapeHtml(t("platformClaw.execution.cancel"))}</button></div></section>` : ""}
           ${this.pendingRelease ? `<section class="card confirm"><h3>${escapeHtml(t("platformClaw.execution.releaseConfirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.execution.releaseConfirmBody"))}</p><div class="row"><button class="button primary" data-action="confirm-release">${escapeHtml(t("platformClaw.execution.releaseConfirm"))}</button><button class="button" data-action="cancel-release">${escapeHtml(t("platformClaw.execution.cancel"))}</button></div></section>` : ""}
           <button class="button" data-action="refresh" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.refresh"))}</button>
-        </main></section></dialog>`
+        </main></section></openclaw-modal-dialog>`
           : ""
       }
     `;
     this.bindEvents();
-    const modal = this.root.querySelector<HTMLDialogElement>("dialog.backdrop");
-    if (modal && !modal.open) {
-      if (typeof modal.showModal === "function") {
-        modal.showModal();
-      } else {
-        modal.setAttribute("open", "");
-      }
-    }
   }
 }
 
