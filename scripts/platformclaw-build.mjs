@@ -1,8 +1,17 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { createReadStream, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer } from "node:net";
 import { basename, resolve } from "node:path";
 import process from "node:process";
 
@@ -101,6 +110,155 @@ function sha256File(path) {
   });
 }
 
+function optionalImageId(tag) {
+  const result = spawnSync("docker", ["image", "inspect", "--format", "{{.Id}}", tag], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status === 0) {
+    return result.stdout.trim();
+  }
+  if (result.status === 1 && /No such image/u.test(result.stderr)) {
+    return undefined;
+  }
+  throw new Error(result.stderr.trim() || `Unable to inspect image tag ${tag}`);
+}
+
+function restoreImageTag(tag, imageId) {
+  const args = imageId ? ["image", "tag", imageId, tag] : ["image", "rm", tag];
+  const result = spawnSync("docker", args, { cwd: repoRoot, encoding: "utf8" });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0 && !/No such image/u.test(result.stderr)) {
+    throw new Error(result.stderr.trim() || `Failed to restore image tag ${tag}`);
+  }
+  if (optionalImageId(tag) !== imageId) {
+    throw new Error(`Image tag rollback failed: ${tag}`);
+  }
+}
+
+function removeDanglingImage(imageId, previousId) {
+  if (!imageId || imageId === previousId) {
+    return;
+  }
+  const inspect = spawnSync(
+    "docker",
+    ["image", "inspect", "--format", "{{json .RepoTags}}", imageId],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+    },
+  );
+  if (inspect.status === 1 && /No such image/u.test(inspect.stderr)) {
+    return;
+  }
+  if (inspect.error || inspect.status !== 0) {
+    console.warn(`Unable to inspect failed-build image ${imageId}`);
+    return;
+  }
+  const tags = JSON.parse(inspect.stdout);
+  if (Array.isArray(tags) && tags.length > 0) {
+    return;
+  }
+  const removed = spawnSync("docker", ["image", "rm", imageId], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  if (removed.error || (removed.status !== 0 && !/No such image/u.test(removed.stderr))) {
+    console.warn(`Unable to remove failed-build image ${imageId}`);
+  }
+}
+
+function publishOwnedLock(path, state) {
+  const owner = { pid: process.pid, token: randomUUID(), ...state };
+  writeFileSync(path, `${JSON.stringify(owner)}\n`, {
+    encoding: "utf8",
+    flag: "wx",
+    mode: 0o600,
+  });
+  return owner;
+}
+
+function removeOwnedLock(path, owner) {
+  const actual = JSON.parse(readFileSync(path, "utf8"));
+  if (actual.pid !== owner.pid || actual.token !== owner.token) {
+    throw new Error(`Release publication lock ownership changed: ${path}`);
+  }
+  rmSync(path);
+}
+
+function rollbackPublicationFiles() {
+  if (!publicationReplacementStarted) {
+    return;
+  }
+  if (publicationLockOwner.hadArtifact && existsSync(publicationArtifactBackup)) {
+    rmSync(publicationArtifactPath, { force: true });
+    renameSync(publicationArtifactBackup, publicationArtifactPath);
+  } else if (!publicationLockOwner.hadArtifact) {
+    rmSync(publicationArtifactPath, { force: true });
+  }
+  if (publicationLockOwner.hadChecksum && existsSync(publicationChecksumBackup)) {
+    rmSync(publicationChecksumPath, { force: true });
+    renameSync(publicationChecksumBackup, publicationChecksumPath);
+  } else if (!publicationLockOwner.hadChecksum) {
+    rmSync(publicationChecksumPath, { force: true });
+  }
+  publicationReplacementStarted = false;
+}
+
+function discardPublicationBackups() {
+  rmSync(publicationArtifactBackup, { force: true });
+  rmSync(publicationChecksumBackup, { force: true });
+  publicationReplacementStarted = false;
+}
+
+function dockerResourceLockPort() {
+  const engineId = run("docker", ["info", "--format", "{{.ID}}"], { capture: true });
+  const key = createHash("sha256").update(engineId).digest().readUInt16BE(0);
+  return 49_152 + (key % 8_192);
+}
+
+function outputDirectoryLockPort(path) {
+  const key = createHash("sha256").update(resolve(path)).digest().readUInt16BE(0);
+  return 57_344 + (key % 8_192);
+}
+
+function acquireOutputDirectoryLock(path) {
+  const server = createServer();
+  const port = outputDirectoryLockPort(path);
+  return new Promise((resolveLock, reject) => {
+    server.once("error", (error) =>
+      reject(error instanceof Error ? error : new Error(String(error))),
+    );
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => resolveLock(server));
+  });
+}
+
+function acquireDockerResourceLock() {
+  const server = createServer();
+  const port = dockerResourceLockPort();
+  return new Promise((resolveLock, reject) => {
+    server.once("error", (error) =>
+      reject(error instanceof Error ? error : new Error(String(error))),
+    );
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => resolveLock(server));
+  });
+}
+
+function releaseDockerResourceLock(server) {
+  return new Promise((resolveClose, reject) => {
+    server.close((error) =>
+      error
+        ? reject(new Error("Failed to release Docker build lock", { cause: error }))
+        : resolveClose(),
+    );
+  });
+}
+
 const options = readArgs(process.argv.slice(2));
 if (options.allowDirty && options.exportImage) {
   throw new Error("--allow-dirty requires --no-export; dirty transfer artifacts are forbidden");
@@ -151,155 +309,363 @@ const extensions = [
   .filter(Boolean)
   .join(",");
 
-run("docker", [
-  "buildx",
-  "build",
-  "--load",
-  "--target",
-  "platformclaw-jammy-node",
-  "-f",
-  "Dockerfile.jammy",
-  ...secretArgs,
-  "-t",
-  jammyBuildImage,
-  ".",
-]);
-
-run("docker", [
-  "buildx",
-  "build",
-  "--load",
-  "--target",
-  "runtime-assets",
-  "--build-context",
-  `platformclaw-jammy-build=docker-image://${jammyBuildImage}`,
-  "--build-arg",
-  "OPENCLAW_BUILD_IMAGE=platformclaw-jammy-build",
-  "--build-arg",
-  `OPENCLAW_EXTENSIONS=${extensions}`,
-  "--build-arg",
-  `GIT_COMMIT=${gitCommit}`,
-  "--build-arg",
-  `OPENCLAW_BUILD_TIMESTAMP=${timestamp}`,
-  "-t",
-  assetsImage,
-  ".",
-]);
-
-// Reuse the cached pre-prune build stage so PlatformClaw private packages can
-// be built without adding downstream commands to the upstream Dockerfile.
-run("docker", [
-  "buildx",
-  "build",
-  "--load",
-  "--target",
-  "build",
-  "--build-context",
-  `platformclaw-jammy-build=docker-image://${jammyBuildImage}`,
-  "--build-arg",
-  "OPENCLAW_BUILD_IMAGE=platformclaw-jammy-build",
-  "--build-arg",
-  `OPENCLAW_EXTENSIONS=${extensions}`,
-  "--build-arg",
-  `GIT_COMMIT=${gitCommit}`,
-  "--build-arg",
-  `OPENCLAW_BUILD_TIMESTAMP=${timestamp}`,
-  "-t",
-  openclawBuildImage,
-  ".",
-]);
-
-run("docker", [
-  "buildx",
-  "build",
-  "--load",
-  "--build-context",
-  `openclaw-build=docker-image://${openclawBuildImage}`,
-  "-f",
-  "docker/platformclaw-runtime/Dockerfile.assets",
-  "-t",
-  controlAssetsImage,
-  ".",
-]);
-
-run("docker", [
-  "buildx",
-  "build",
-  "--load",
-  "-f",
-  "Dockerfile.jammy",
-  "--build-context",
-  `openclaw-runtime=docker-image://${assetsImage}`,
-  "--build-context",
-  `platformclaw-control-assets=docker-image://${controlAssetsImage}`,
-  ...secretArgs,
-  "-t",
-  runtimeVersionTag,
-  "-t",
-  runtimeShaTag,
-  ".",
-]);
-
-run("docker", [
-  "buildx",
-  "build",
-  "--load",
-  "-f",
-  "Dockerfile.sandbox.jammy",
-  ...secretArgs,
-  "-t",
-  sandboxVersionTag,
-  "-t",
-  sandboxShaTag,
-  ".",
-]);
-
-run("docker", [
-  "run",
-  "--rm",
-  "--entrypoint",
-  "bash",
-  runtimeShaTag,
-  "-lc",
-  [
-    "grep -qx 'VERSION_ID=\"22.04\"' /etc/os-release",
-    "node --version",
-    "pnpm --version",
-    "gh --version",
-    "docker --version",
-    "(docker compose version || docker-compose --version)",
-    "ssh -V 2>&1 | grep -q OpenSSH",
-    "sshpass -V | grep -q 'sshpass 1.'",
-    "codex-acp --version",
-    "claude-agent-acp --help >/dev/null",
-    "claude --version",
-    "nano-pdf --help >/dev/null",
-    "openclaw --version",
-    "test -x /usr/local/bin/platformclaw-control",
-    "test -x /usr/local/bin/platformclaw-sshpass",
-    "test -f /app/ui/dist/platformclaw-login.html",
-    "node -e \"import('/app/packages/platformclaw-control-plane/dist/index.mjs')\"",
-  ].join(" && "),
-]);
-run("docker", [
-  "run",
-  "--rm",
-  sandboxShaTag,
-  "bash",
-  "-lc",
-  "grep -qx 'VERSION_ID=\"22.04\"' /etc/os-release && jq --version && rg --version",
-]);
-
-if (options.exportImage) {
-  mkdirSync(options.outputDir, { recursive: true });
-  const artifactName = `platformclaw-${version}-${shortSha}.tar`;
-  const artifactPath = resolve(options.outputDir, artifactName);
-  run("docker", ["save", "-o", artifactPath, runtimeShaTag, sandboxShaTag]);
-  const digest = await sha256File(artifactPath);
-  const checksumPath = `${artifactPath}.sha256`;
-  writeFileSync(checksumPath, `${digest}  ${basename(artifactPath)}\n`, "utf8");
-  console.log(`Created ${artifactPath}`);
-  console.log(`Created ${checksumPath}`);
+function cleanupAfterBuild(buildSucceeded, recoverPublications = false) {
+  const cleanupArgs = [
+    resolve(repoRoot, "scripts", "platformclaw-dev-cleanup.mjs"),
+    "--apply",
+    "--intermediate-sha",
+    shortSha,
+    "--output-dir",
+    options.outputDir,
+    "--skip-cache",
+    "--build-lock-owner",
+    String(process.pid),
+  ];
+  if (!buildSucceeded) {
+    cleanupArgs.push("--skip-final-images");
+  }
+  if (recoverPublications) {
+    cleanupArgs.push("--recover-publications");
+  }
+  console.log(`> ${process.execPath} ${cleanupArgs.join(" ")}`);
+  const result = spawnSync(process.execPath, cleanupArgs, { cwd: repoRoot, stdio: "inherit" });
+  if (result.error || result.status !== 0) {
+    console.warn(
+      `PlatformClaw development cleanup failed; run pnpm platformclaw:dev-cleanup --apply (${result.error?.message ?? `exit ${result.status}`})`,
+    );
+  }
 }
 
-console.log(`PlatformClaw images ready: ${runtimeVersionTag}, ${sandboxVersionTag}`);
+let buildSucceeded = false;
+const buildLock = await acquireDockerResourceLock();
+let publicationLockPath;
+let publicationLockOwner;
+let publicationCommitted = false;
+let publicationCommitMarker;
+let publicationArtifactPath;
+let publicationChecksumPath;
+let publicationArtifactBackup;
+let publicationChecksumBackup;
+let publicationReplacementStarted = false;
+let publicationDirectoryLock;
+let previousRuntimeShaId;
+let previousSandboxShaId;
+let shaSnapshotComplete = false;
+let previousRuntimeId;
+let previousSandboxId;
+let versionSnapshotComplete = false;
+try {
+  previousRuntimeShaId = optionalImageId(runtimeShaTag);
+  previousSandboxShaId = optionalImageId(sandboxShaTag);
+  shaSnapshotComplete = true;
+  run("docker", [
+    "buildx",
+    "build",
+    "--load",
+    "--target",
+    "platformclaw-jammy-node",
+    "-f",
+    "Dockerfile.jammy",
+    ...secretArgs,
+    "-t",
+    jammyBuildImage,
+    ".",
+  ]);
+
+  run("docker", [
+    "buildx",
+    "build",
+    "--load",
+    "--target",
+    "runtime-assets",
+    "--build-context",
+    `platformclaw-jammy-build=docker-image://${jammyBuildImage}`,
+    "--build-arg",
+    "OPENCLAW_BUILD_IMAGE=platformclaw-jammy-build",
+    "--build-arg",
+    `OPENCLAW_EXTENSIONS=${extensions}`,
+    "--build-arg",
+    `GIT_COMMIT=${gitCommit}`,
+    "--build-arg",
+    `OPENCLAW_BUILD_TIMESTAMP=${timestamp}`,
+    "-t",
+    assetsImage,
+    ".",
+  ]);
+
+  // Reuse the cached pre-prune build stage so PlatformClaw private packages can
+  // be built without adding downstream commands to the upstream Dockerfile.
+  run("docker", [
+    "buildx",
+    "build",
+    "--load",
+    "--target",
+    "build",
+    "--build-context",
+    `platformclaw-jammy-build=docker-image://${jammyBuildImage}`,
+    "--build-arg",
+    "OPENCLAW_BUILD_IMAGE=platformclaw-jammy-build",
+    "--build-arg",
+    `OPENCLAW_EXTENSIONS=${extensions}`,
+    "--build-arg",
+    `GIT_COMMIT=${gitCommit}`,
+    "--build-arg",
+    `OPENCLAW_BUILD_TIMESTAMP=${timestamp}`,
+    "-t",
+    openclawBuildImage,
+    ".",
+  ]);
+
+  run("docker", [
+    "buildx",
+    "build",
+    "--load",
+    "--build-context",
+    `openclaw-build=docker-image://${openclawBuildImage}`,
+    "-f",
+    "docker/platformclaw-runtime/Dockerfile.assets",
+    "-t",
+    controlAssetsImage,
+    ".",
+  ]);
+
+  run("docker", [
+    "buildx",
+    "build",
+    "--load",
+    "-f",
+    "Dockerfile.jammy",
+    "--build-context",
+    `openclaw-runtime=docker-image://${assetsImage}`,
+    "--build-context",
+    `platformclaw-control-assets=docker-image://${controlAssetsImage}`,
+    ...secretArgs,
+    "-t",
+    runtimeShaTag,
+    ".",
+  ]);
+
+  run("docker", [
+    "buildx",
+    "build",
+    "--load",
+    "-f",
+    "Dockerfile.sandbox.jammy",
+    ...secretArgs,
+    "-t",
+    sandboxShaTag,
+    ".",
+  ]);
+
+  run("docker", [
+    "run",
+    "--rm",
+    "--entrypoint",
+    "bash",
+    runtimeShaTag,
+    "-lc",
+    [
+      "grep -qx 'VERSION_ID=\"22.04\"' /etc/os-release",
+      "node --version",
+      "pnpm --version",
+      "gh --version",
+      "docker --version",
+      "(docker compose version || docker-compose --version)",
+      "ssh -V 2>&1 | grep -q OpenSSH",
+      "sshpass -V | grep -q 'sshpass 1.'",
+      "codex-acp --version",
+      "claude-agent-acp --help >/dev/null",
+      "claude --version",
+      "nano-pdf --help >/dev/null",
+      "openclaw --version",
+      "test -x /usr/local/bin/platformclaw-control",
+      "test -x /usr/local/bin/platformclaw-sshpass",
+      "test -f /app/ui/dist/platformclaw-login.html",
+      "node -e \"import('/app/packages/platformclaw-control-plane/dist/index.mjs')\"",
+    ].join(" && "),
+  ]);
+  run("docker", [
+    "run",
+    "--rm",
+    "--network",
+    "none",
+    "--read-only",
+    "--user",
+    "1003:1003",
+    "--env",
+    "HOME=/tmp/platformclaw-home",
+    "--tmpfs",
+    "/tmp:rw,noexec,nosuid,nodev,mode=1777",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges:true",
+    runtimeShaTag,
+    "bash",
+    "-ceu",
+    [
+      'test "$(id -u)" = 1003',
+      'test "$(id -g)" = 1003',
+      'test "$(id -un)" = platformclaw-1003',
+      'test "$(id -gn)" = platformclaw-1003',
+      "getent passwd 1003 | grep -q '^platformclaw-1003:x:1003:1003:'",
+      "getent group 1003 | grep -q '^platformclaw-1003:x:1003:'",
+      "ssh -G -F /dev/null platformclaw.invalid >/dev/null",
+    ].join(" && "),
+  ]);
+  run("docker", [
+    "run",
+    "--rm",
+    sandboxShaTag,
+    "bash",
+    "-lc",
+    "grep -qx 'VERSION_ID=\"22.04\"' /etc/os-release && jq --version && rg --version",
+  ]);
+
+  if (options.exportImage) {
+    mkdirSync(options.outputDir, { recursive: true });
+    const artifactName = `platformclaw-${version}-${shortSha}.tar`;
+    const artifactPath = resolve(options.outputDir, artifactName);
+    const checksumPath = `${artifactPath}.sha256`;
+    publicationLockPath = `${artifactPath}.lock`;
+    const artifactTemp = `${artifactPath}.tmp-${process.pid}`;
+    const checksumTemp = `${checksumPath}.tmp-${process.pid}`;
+    try {
+      publicationDirectoryLock = await acquireOutputDirectoryLock(options.outputDir);
+      // A prior process may have died after taking the publication lock. Recover it
+      // under the build lock so same-SHA retries do not require manual maintenance.
+      if (existsSync(publicationLockPath)) {
+        cleanupAfterBuild(false, true);
+      }
+      previousRuntimeId = optionalImageId(runtimeVersionTag);
+      previousSandboxId = optionalImageId(sandboxVersionTag);
+      versionSnapshotComplete = true;
+      publicationLockOwner = publishOwnedLock(publicationLockPath, {
+        hadArtifact: existsSync(artifactPath),
+        hadChecksum: existsSync(checksumPath),
+        candidateRuntimeId: optionalImageId(runtimeShaTag),
+        candidateSandboxId: optionalImageId(sandboxShaTag),
+        runtimeVersionTag,
+        sandboxVersionTag,
+        previousRuntimeId: previousRuntimeId ?? null,
+        previousSandboxId: previousSandboxId ?? null,
+      });
+      publicationCommitMarker = `${publicationLockPath}.committed-${publicationLockOwner.token}`;
+      publicationArtifactPath = artifactPath;
+      publicationChecksumPath = checksumPath;
+      publicationArtifactBackup = `${artifactPath}.backup-${publicationLockOwner.token}`;
+      publicationChecksumBackup = `${checksumPath}.backup-${publicationLockOwner.token}`;
+      run("docker", ["save", "-o", artifactTemp, runtimeShaTag, sandboxShaTag]);
+      const digest = await sha256File(artifactTemp);
+      writeFileSync(checksumTemp, `${digest}  ${basename(artifactPath)}\n`, "utf8");
+      publicationReplacementStarted = true;
+      if (existsSync(artifactPath)) {
+        renameSync(artifactPath, publicationArtifactBackup);
+      }
+      if (existsSync(checksumPath)) {
+        renameSync(checksumPath, publicationChecksumBackup);
+      }
+      renameSync(artifactTemp, artifactPath);
+      renameSync(checksumTemp, checksumPath);
+    } finally {
+      rmSync(artifactTemp, { force: true });
+      rmSync(checksumTemp, { force: true });
+    }
+    console.log(`Created ${artifactPath}`);
+    console.log(`Created ${checksumPath}`);
+  }
+
+  if (!versionSnapshotComplete) {
+    previousRuntimeId = optionalImageId(runtimeVersionTag);
+    previousSandboxId = optionalImageId(sandboxVersionTag);
+    versionSnapshotComplete = true;
+  }
+
+  // The commit marker makes post-promotion lock cleanup recoverable without deleting the release.
+  try {
+    run("docker", ["image", "tag", runtimeShaTag, runtimeVersionTag]);
+    run("docker", ["image", "tag", sandboxShaTag, sandboxVersionTag]);
+    if (publicationLockOwner) {
+      writeFileSync(publicationCommitMarker, `${JSON.stringify(publicationLockOwner)}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+      publicationCommitted = true;
+    }
+  } catch (error) {
+    const failures = [error];
+    for (const [tag, imageId] of [
+      [runtimeVersionTag, previousRuntimeId],
+      [sandboxVersionTag, previousSandboxId],
+    ]) {
+      try {
+        restoreImageTag(tag, imageId);
+      } catch (rollbackError) {
+        failures.push(rollbackError);
+      }
+    }
+    try {
+      rollbackPublicationFiles();
+    } catch (rollbackError) {
+      failures.push(rollbackError);
+    }
+    throw failures.length === 1
+      ? error
+      : new AggregateError(failures, "Image promotion rollback failed");
+  }
+
+  if (publicationLockOwner) {
+    try {
+      discardPublicationBackups();
+      removeOwnedLock(publicationLockPath, publicationLockOwner);
+      publicationLockOwner = undefined;
+      rmSync(publicationCommitMarker, { force: true });
+    } catch (error) {
+      console.warn(`Release publication committed; deferred lock cleanup: ${error.message}`);
+    }
+  }
+
+  console.log(`PlatformClaw images ready: ${runtimeVersionTag}, ${sandboxVersionTag}`);
+  buildSucceeded = true;
+} finally {
+  try {
+    if (!buildSucceeded && shaSnapshotComplete) {
+      for (const [tag, previousId] of [
+        [runtimeShaTag, previousRuntimeShaId],
+        [sandboxShaTag, previousSandboxShaId],
+      ]) {
+        let failedImageId;
+        try {
+          failedImageId = optionalImageId(tag);
+          restoreImageTag(tag, previousId);
+        } catch (error) {
+          console.warn(`Failed to restore validated SHA tag ${tag}: ${error.message}`);
+        }
+        removeDanglingImage(failedImageId, previousId);
+      }
+    }
+    if (publicationLockOwner) {
+      if (!publicationCommitted) {
+        rollbackPublicationFiles();
+      } else {
+        discardPublicationBackups();
+      }
+      try {
+        removeOwnedLock(publicationLockPath, publicationLockOwner);
+        rmSync(publicationCommitMarker, { force: true });
+      } catch (error) {
+        console.warn(`Deferred release publication cleanup: ${error.message}`);
+      }
+    }
+    cleanupAfterBuild(buildSucceeded, Boolean(publicationDirectoryLock));
+  } finally {
+    try {
+      if (publicationDirectoryLock) {
+        await releaseDockerResourceLock(publicationDirectoryLock);
+      }
+    } finally {
+      await releaseDockerResourceLock(buildLock);
+    }
+  }
+}

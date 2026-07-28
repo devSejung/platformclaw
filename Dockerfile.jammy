@@ -49,7 +49,7 @@ RUN --mount=type=secret,id=platformclaw_apt_sources \
     apt-get update; \
     apt-get install -y --no-install-recommends \
       bash ca-certificates curl ffmpeg file git git-review gnupg hostname jq less \
-      libssl-dev locales lsof make openssh-client openssl pkg-config poppler-utils \
+      libnss-wrapper libssl-dev locales lsof make openssh-client openssl pkg-config poppler-utils \
       procps python3 python3-openpyxl python3-pip python3-venv ripgrep sshpass tini tzdata \
       unzip vim xlsx2csv xz-utils zip docker.io; \
     compose_package=""; \
@@ -112,6 +112,7 @@ COPY --chown=root:root docker/platformclaw-runtime/openclaw.initial.json /etc/pl
 COPY --chown=root:root docker/platformclaw-runtime/reconcile-managed-config.mjs /etc/platformclaw/reconcile-managed-config.mjs
 COPY --chown=root:root docker/platformclaw-runtime/validate-managed-config.mjs /etc/platformclaw/validate-managed-config.mjs
 COPY --chown=root:root docker/platformclaw-runtime/platformclaw-gateway /usr/local/bin/platformclaw-gateway
+COPY --chown=root:root docker/platformclaw-runtime/platformclaw-runtime-entrypoint /usr/local/bin/platformclaw-runtime-entrypoint
 COPY --chown=root:root docker/platformclaw-runtime/migrate-workspaces /usr/local/bin/platformclaw-migrate-workspaces
 
 RUN set -eux; \
@@ -135,7 +136,10 @@ RUN set -eux; \
     python3 -c 'import markdown, pygments'; \
     ln -sf /app/openclaw.mjs /usr/local/bin/openclaw; \
     chmod 755 /app/openclaw.mjs; \
-    chown -R node:node /app /home/node
+    chown -R node:node /app /home/node; \
+    nss_wrapper_path="$(dpkg-query -L libnss-wrapper | grep -E '/libnss_wrapper\.so$' | head -n 1)"; \
+    test -f "$nss_wrapper_path"; \
+    ln -s "$nss_wrapper_path" /usr/local/lib/libnss_wrapper.so
 
 ENV COREPACK_HOME=/usr/local/share/corepack
 RUN set -eux; \
@@ -168,7 +172,8 @@ RUN chmod 0755 /home/node && \
     install -d -m 0700 -o node -g node \
       /home/node/.openclaw /home/node/.openclaw/workspace /home/node/.config/openclaw \
       /var/lib/platformclaw/control /var/lib/platformclaw/workspaces && \
-    chmod 755 /usr/local/bin/platformclaw-gateway /usr/local/bin/platformclaw-migrate-workspaces \
+    chmod 755 /usr/local/bin/platformclaw-gateway /usr/local/bin/platformclaw-runtime-entrypoint \
+      /usr/local/bin/platformclaw-migrate-workspaces \
       /app/packages/platformclaw-control-plane/dist/server-main.mjs \
       /app/packages/platformclaw-control-plane/dist/sshpass-main.mjs && \
     ln -s /app/packages/platformclaw-control-plane/dist/server-main.mjs \
@@ -182,5 +187,5 @@ USER node
 
 HEALTHCHECK --interval=3m --timeout=10s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-ENTRYPOINT ["tini", "-s", "--"]
+ENTRYPOINT ["/usr/local/bin/platformclaw-runtime-entrypoint"]
 CMD ["node", "openclaw.mjs", "gateway"]
