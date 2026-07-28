@@ -4,6 +4,7 @@ import { openSlot } from "../pages/chat/sidebar-layout.ts";
 import { createImportedCustomThemeFixture } from "../test-helpers/custom-theme.ts";
 import { createStorageMock } from "../test-helpers/storage.ts";
 import {
+  loadLocalUserIdentity,
   loadSettings,
   normalizeChatMessageMaxWidth,
   persistSessionToken,
