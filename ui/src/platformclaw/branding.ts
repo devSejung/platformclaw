@@ -19,6 +19,20 @@ export function resolvePlatformClawBranding(
     : null;
 }
 
+export function resolvePlatformClawBrandAsset(
+  asset: string,
+  root: ParentNode = document,
+): string | null {
+  const branding = resolvePlatformClawBranding(root);
+  if (
+    !branding ||
+    !["apple-touch-icon.png", "favicon-32.png", "favicon.ico", "favicon.svg"].includes(asset)
+  ) {
+    return null;
+  }
+  return branding.mascotUrl;
+}
+
 export function applyPlatformClawDocumentBranding(root: Document = document): boolean {
   const branding = resolvePlatformClawBranding(root);
   if (!branding) {

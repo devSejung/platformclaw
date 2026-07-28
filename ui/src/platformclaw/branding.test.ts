@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import "../components/openclaw-mascot.ts";
+import { controlUiPublicAssetPath } from "../app/public-assets.ts";
 import { applyPlatformClawDocumentBranding, resolvePlatformClawBranding } from "./branding.ts";
 import {
   PLATFORMCLAW_WEB_DESCRIPTOR,
@@ -49,5 +50,16 @@ describe("PlatformClaw branding", () => {
     const image = mascot.shadowRoot?.querySelector<HTMLImageElement>(".platformclaw-mascot");
     expect(image?.getAttribute("src")).toBe(resolvePlatformClawBranding()?.mascotUrl);
     expect(mascot.shadowRoot?.querySelector("canvas")).toBeNull();
+  });
+
+  it("rebrands shared fallback logos used by chat and shell surfaces", () => {
+    installDescriptor();
+
+    expect(controlUiPublicAssetPath("apple-touch-icon.png", "/platformclaw/app")).toBe(
+      resolvePlatformClawBranding()?.mascotUrl,
+    );
+    expect(controlUiPublicAssetPath("manifest.webmanifest", "/platformclaw/app")).toBe(
+      "/platformclaw/app/manifest.webmanifest",
+    );
   });
 });
