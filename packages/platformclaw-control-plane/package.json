@@ -29,5 +29,8 @@
     "kysely": "0.29.4",
     "proper-lockfile": "4.1.2",
     "ws": "8.21.1"
+  },
+  "devDependencies": {
+    "@types/proper-lockfile": "4.1.4"
   }
 }
