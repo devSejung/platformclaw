@@ -18,6 +18,7 @@ import type {
 import { resolveSandboxConfigForAgent } from "./config.js";
 import {
   createRemoteShellSandboxFsBridge,
+  type RemoteShellSandboxFilesystemRoot,
   type RemoteShellSandboxHandle,
 } from "./remote-fs-bridge.js";
 import { sanitizeEnvVars } from "./sanitize-env-vars.js";
@@ -55,6 +56,7 @@ export type CreateSshSandboxBackendWithSessionFactoryOptions = {
   workspaceRoot: string;
   createSession: SshSandboxSessionFactory;
   workspaceMode?: "mirror" | "existing";
+  additionalFilesystemRoots?: readonly RemoteShellSandboxFilesystemRoot[];
 };
 
 /** SSH backend lifecycle hooks for probing and removing remote sandbox copies. */
@@ -169,6 +171,9 @@ export async function createSshSandboxBackendWithSessionFactory(
   if (!targetLabel || !workspaceRoot) {
     throw new Error("SSH sandbox session factory requires a target label and workspace root.");
   }
+  const additionalFilesystemRoots = normalizeAdditionalFilesystemRoots(
+    options.additionalFilesystemRoots,
+  );
   const impl = new SshSandboxBackendImpl({
     createParams: params,
     target: targetLabel,
@@ -178,6 +183,7 @@ export async function createSshSandboxBackendWithSessionFactory(
         : resolveSshRuntimePaths(workspaceRoot, params.scopeKey),
     createSession: options.createSession,
     workspaceMode: options.workspaceMode ?? "mirror",
+    additionalFilesystemRoots,
   });
   return impl.asHandle();
 }
@@ -193,6 +199,7 @@ class SshSandboxBackendImpl {
       runtimePaths: ResolvedSshRuntimePaths;
       createSession: SshSandboxSessionFactory;
       workspaceMode: "mirror" | "existing";
+      additionalFilesystemRoots: readonly RemoteShellSandboxFilesystemRoot[];
     },
   ) {}
 
@@ -211,9 +218,11 @@ class SshSandboxBackendImpl {
       workdirRoots: [
         this.params.runtimePaths.remoteWorkspaceDir,
         this.params.runtimePaths.remoteAgentWorkspaceDir,
+        ...this.params.additionalFilesystemRoots.map((root) => root.root),
       ],
       remoteWorkspaceDir: this.params.runtimePaths.remoteWorkspaceDir,
       remoteAgentWorkspaceDir: this.params.runtimePaths.remoteAgentWorkspaceDir,
+      additionalFilesystemRoots: this.params.additionalFilesystemRoots,
       buildExecSpec: async ({ command, workdir, env, usePty }) => {
         const remoteWorkdir = workdir ?? this.params.runtimePaths.remoteWorkspaceDir;
         const remoteCommand = buildValidatedExecRemoteCommand({
@@ -384,7 +393,8 @@ class SshSandboxBackendImpl {
     const roots = [
       this.params.runtimePaths.remoteAgentWorkspaceDir,
       this.params.runtimePaths.remoteWorkspaceDir,
-    ];
+      ...this.params.additionalFilesystemRoots.map((root) => root.root),
+    ].toSorted((a, b) => b.length - a.length);
     return (
       roots.find((root) => isRemotePathInsideRoot(root, workdir)) ??
       this.params.runtimePaths.remoteWorkspaceDir
@@ -476,6 +486,23 @@ async function isExistingDirectory(dir: string): Promise<boolean> {
 function normalizeRemotePath(input: string): string {
   const normalized = path.posix.normalize(input.replace(/\\/g, "/"));
   return normalized === "/" ? normalized : normalized.replace(/\/+$/g, "");
+}
+
+function normalizeAdditionalFilesystemRoots(
+  roots: readonly RemoteShellSandboxFilesystemRoot[] | undefined,
+): RemoteShellSandboxFilesystemRoot[] {
+  const normalized = new Map<string, RemoteShellSandboxFilesystemRoot>();
+  for (const entry of roots ?? []) {
+    const root = normalizeRemotePath(entry.root.trim());
+    if (!path.posix.isAbsolute(root) || root === "/") {
+      throw new Error("SSH sandbox additional filesystem roots must be absolute non-root paths.");
+    }
+    if (entry.access !== "ro" && entry.access !== "rw") {
+      throw new Error("SSH sandbox additional filesystem root access must be ro or rw.");
+    }
+    normalized.set(root, { root, access: entry.access });
+  }
+  return [...normalized.values()];
 }
 
 function isRemotePathInsideRoot(root: string, candidate: string): boolean {

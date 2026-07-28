@@ -175,6 +175,19 @@ describe("PlatformClaw workflow checkout", () => {
 });
 
 describe("PlatformClaw shared check workflow", () => {
+  it("installs dependencies before running MDX-backed documentation checks", () => {
+    const workflow = parse(
+      readFileSync(new URL("../../.github/workflows/platformclaw-ci.yml", import.meta.url), "utf8"),
+    ) as { jobs: { validate: { steps: Array<{ name?: string }> } } };
+    const stepNames = workflow.jobs.validate.steps.map((step) => step.name);
+    const installIndex = stepNames.indexOf("Install dependencies");
+    const docsAuditIndex = stepNames.indexOf("Audit PlatformClaw documentation links");
+
+    expect(installIndex).toBeGreaterThanOrEqual(0);
+    expect(docsAuditIndex).toBeGreaterThanOrEqual(0);
+    expect(installIndex).toBeLessThan(docsAuditIndex);
+  });
+
   it("uses one shared runner for changed code surfaces", () => {
     const workflow = parse(
       readFileSync(new URL("../../.github/workflows/platformclaw-ci.yml", import.meta.url), "utf8"),

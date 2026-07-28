@@ -17,6 +17,7 @@ const TARGET: AssignedVmTargetSnapshot = {
   allocationId: "allocation-one",
   vmLabel: "Development VM",
   safeConnectLabel: "Corporate access",
+  remoteHomeDir: "/users/person.one",
   remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
   endpointHost: "safeconnect.example",
   endpointPort: 44422,

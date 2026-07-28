@@ -149,6 +149,15 @@ synchronize, merge, delete, or migrate files, packages, process state, or shell
 state between them. Returning to a target reuses that target's existing
 workspace.
 
+On an assigned VM, the canonical default workspace is
+`${HOME}/.platformclaw/workspace`, but it is not the filesystem authority
+boundary. File tools may read and write the assigned Linux account's complete
+canonical home directory, and command workdirs may be anywhere inside that
+home. Paths outside the home remain unavailable to file tools. There is no
+PlatformClaw-managed denylist inside the home; Linux account permissions remain
+authoritative. Accounts whose canonical home is the filesystem root (`/`) are
+not supported because they would erase this boundary.
+
 Standard Agent Core Files have one canonical server-owned copy shared by both
 targets. PlatformClaw does not create separate VM and server copies of
 `USER.md`, `SOUL.md`, `IDENTITY.md`, `AGENTS.md`, or `TOOLS.md`. The Control UI
@@ -173,7 +182,7 @@ must verify the existing owner and use a revision or compare-and-swap contract.
 
 Every run also receives a generated, credential-free runtime context containing
 the active target, user-facing target label, safe host label when applicable,
-Linux account when appropriate, active workspace, target revision, and an
+Linux account and home when appropriate, active workspace, target revision, and an
 explicit statement that target workspaces are not shared. The execution plugin
 projects this data from the same immutable backend snapshot used by tools, and
 upstream prompt assembly delivers it as hidden runtime context. It is also
