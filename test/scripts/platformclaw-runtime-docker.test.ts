@@ -70,24 +70,32 @@ describe("PlatformClaw Docker runtime", () => {
     const maintenance = readRepoFile("scripts/platformclaw-dev-maintenance.ps1");
     const compact = readRepoFile("scripts/platformclaw-docker-vhdx-compact.ps1");
 
-    expect(build).toContain("cleanupAfterBuild(buildSucceeded)");
+    expect(build).toContain("cleanupAfterBuild(buildSucceeded, Boolean(publicationDirectoryLock))");
     expect(build).toContain('"--skip-final-images"');
-    expect(build).toContain('"--skip-archives"');
+    expect(build).not.toContain('cleanupArgs.push("--skip-final-images", "--skip-archives")');
     expect(build).not.toContain('cleanupArgs.push("--failed-build-sha"');
     expect(build).toContain('"--output-dir"');
     expect(build).toContain('"--skip-cache"');
-    expect(build).toContain("publishOwnedLock(publicationLockPath)");
+    expect(build).toContain("publishOwnedLock(publicationLockPath, {");
     expect(build).toContain("await acquireDockerResourceLock()");
     expect(build).toContain('server.listen({ host: "127.0.0.1", port, exclusive: true }');
     expect(build).not.toContain("Reusing verified");
     expect(build).toContain("previousRuntimeShaId = optionalImageId(runtimeShaTag)");
     expect(build).toContain("restoreImageTag(tag, imageId)");
+    expect(build).toContain("removeDanglingImage(failedImageId, previousId)");
+    expect(build).toContain("if (existsSync(publicationLockPath))");
+    expect(build).toContain("await acquireOutputDirectoryLock(options.outputDir)");
+    expect(build).toContain("49_152 + (key % 8_192)");
+    expect(build).toContain("candidateRuntimeId: optionalImageId(runtimeShaTag)");
+    expect(build).not.toContain("linkSync(");
     expect(build).toContain("publicationCommitted = true");
     expect(build).toContain("removeOwnedLock(publicationLockPath, publicationLockOwner)");
+    expect(build).toContain("publicationArtifactBackup");
+    expect(build).toContain("rollbackPublicationFiles()");
     expect(build).toContain('"--build-lock-owner"');
     expect(build).toContain("restoreImageTag(tag, imageId)");
-    expect(build).toContain("artifactMoved && !checksumMoved");
-    expect(build).toContain("rmSync(publishedArtifactPath, { force: true })");
+    expect(build).toContain("renameSync(artifactPath, publicationArtifactBackup)");
+    expect(build).toContain("renameSync(publicationArtifactBackup, publicationArtifactPath)");
     expect(build).toContain("/No such image/u.test(result.stderr)");
     for (const repository of [
       "platformclaw-jammy-build",
@@ -112,8 +120,17 @@ describe("PlatformClaw Docker runtime", () => {
     expect(cleanup).toContain("/No such object/u.test(result.stderr)");
     expect(cleanup).toMatch(/if \(error\?\.code === "ENOENT"\) \{\s+return;/u);
     expect(cleanup).toContain("release publication is active");
-    expect(cleanup).toContain("processIsAlive(owner.pid)");
+    expect(cleanup).not.toContain("processIsAlive(owner.pid)");
     expect(cleanup).toContain("finish committed release publication");
+    expect(cleanup).toContain("roll back abandoned release publication");
+    expect(cleanup).toContain("renameSync(artifactBackup, archive)");
+    expect(cleanup).toContain("restoreImageTag(owner.runtimeVersionTag, owner.previousRuntimeId)");
+    expect(cleanup).toContain(
+      "optionalImageId(owner.runtimeVersionTag) === owner.candidateRuntimeId",
+    );
+    expect(cleanup).toContain("const validatedIds");
+    expect(cleanup).toContain("remove orphan release backup");
+    expect(cleanup).toContain("await acquireOutputDirectoryLock(options)");
     expect(cleanup.indexOf("if (options.skipArchives)")).toBeLessThan(
       cleanup.indexOf("roll back abandoned release publication"),
     );

@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import process from "node:process";
@@ -19,6 +19,7 @@ const defaults = {
   keepReleaseArchives: 3,
   keepRollbackImages: 1,
   outputDir: resolve(repoRoot, ".artifacts", "platformclaw"),
+  recoverPublications: false,
   skipArchives: false,
   skipCache: false,
   skipFinalImages: false,
@@ -71,6 +72,8 @@ function readArgs(argv) {
       index += 1;
     } else if (arg === "--skip-archives") {
       options.skipArchives = true;
+    } else if (arg === "--recover-publications") {
+      options.recoverPublications = true;
     } else if (arg === "--skip-cache") {
       options.skipCache = true;
     } else if (arg === "--skip-final-images") {
@@ -90,6 +93,7 @@ Home-development Docker cleanup. Preview is the default; pass --apply to mutate.
   --cache-reserved <size>       BuildKit reserved space (default 5gb)
   --cache-min-free <size>       Host minimum free space target (default 20gb)
   --skip-final-images           Do not prune final/rollback images
+  --recover-publications        Recover locks while the caller owns the output lock
   --skip-archives               Do not prune release archives
   --skip-cache                  Do not prune the shared BuildKit cache`);
       process.exit(0);
@@ -124,6 +128,27 @@ function docker(args, { allowFailure = false } = {}) {
   return result;
 }
 
+function restoreImageTag(tag, imageId) {
+  const args = imageId ? ["image", "tag", imageId, tag] : ["image", "rm", tag];
+  const result = docker(args, { allowFailure: true });
+  if (result.status !== 0 && !/No such image/u.test(result.stderr)) {
+    fail(result.stderr.trim() || `Failed to restore image tag ${tag}`);
+  }
+}
+
+function optionalImageId(tag) {
+  const result = docker(["image", "inspect", "--format", "{{.Id}}", tag], {
+    allowFailure: true,
+  });
+  if (result.status === 0) {
+    return result.stdout.trim();
+  }
+  if (result.status === 1 && /No such image/u.test(result.stderr)) {
+    return undefined;
+  }
+  return fail(result.stderr.trim() || `Unable to inspect image tag ${tag}`);
+}
+
 function announce(options, label, action) {
   console.log(`${options.apply ? "APPLY" : "PREVIEW"}: ${label}`);
   if (options.apply) {
@@ -146,7 +171,34 @@ function processIsAlive(pid) {
 function dockerResourceLockPort() {
   const engineId = docker(["info", "--format", "{{.ID}}"]).stdout.trim();
   const key = createHash("sha256").update(engineId).digest().readUInt16BE(0);
-  return 49_152 + (key % 16_384);
+  return 49_152 + (key % 8_192);
+}
+
+function outputDirectoryLockPort(path) {
+  const key = createHash("sha256").update(resolve(path)).digest().readUInt16BE(0);
+  return 57_344 + (key % 8_192);
+}
+
+async function acquireOutputDirectoryLock(options) {
+  if (options.recoverPublications) {
+    return { owned: false, server: undefined };
+  }
+  const server = createServer();
+  try {
+    await new Promise((resolveLock, reject) => {
+      server.once("error", reject);
+      server.listen(
+        { host: "127.0.0.1", port: outputDirectoryLockPort(options.outputDir), exclusive: true },
+        resolveLock,
+      );
+    });
+    return { owned: true, server };
+  } catch (error) {
+    if (error?.code === "EADDRINUSE") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function acquireCleanupLock(options) {
@@ -188,7 +240,22 @@ function safeMtime(path) {
 function publicationOwner(path) {
   try {
     const owner = JSON.parse(readFileSync(path, "utf8"));
-    if (Number.isSafeInteger(owner.pid) && owner.pid > 0 && typeof owner.token === "string") {
+    if (
+      Number.isSafeInteger(owner.pid) &&
+      owner.pid > 0 &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
+        owner.token,
+      ) &&
+      typeof owner.hadArtifact === "boolean" &&
+      typeof owner.hadChecksum === "boolean" &&
+      /^platformclaw:[0-9A-Za-z][0-9A-Za-z._-]*$/u.test(owner.runtimeVersionTag) &&
+      /^platformclaw-sandbox:[0-9A-Za-z][0-9A-Za-z._-]*$/u.test(owner.sandboxVersionTag) &&
+      /^sha256:[0-9a-f]{64}$/u.test(owner.candidateRuntimeId) &&
+      /^sha256:[0-9a-f]{64}$/u.test(owner.candidateSandboxId) &&
+      (owner.previousRuntimeId === null ||
+        /^sha256:[0-9a-f]{64}$/u.test(owner.previousRuntimeId)) &&
+      (owner.previousSandboxId === null || /^sha256:[0-9a-f]{64}$/u.test(owner.previousSandboxId))
+    ) {
       return owner;
     }
   } catch (error) {
@@ -272,10 +339,10 @@ function pruneRepository(options, repository, used) {
   const rows = imageRows(repository).toSorted(
     (a, b) => Date.parse(b.CreatedAt) - Date.parse(a.CreatedAt),
   );
-  const ids = [...new Set(rows.map((row) => row.ID))];
-  const currentId = rows.find((row) => !/^[0-9a-f]{7,64}$/u.test(row.Tag))?.ID ?? ids[0];
-  const orderedIds = [currentId, ...ids.filter((id) => id !== currentId)].filter(Boolean);
-  const keep = new Set(orderedIds.slice(0, options.keepRollbackImages + 1));
+  const validatedIds = [
+    ...new Set(rows.filter((row) => !/^[0-9a-f]{7,64}$/u.test(row.Tag)).map((row) => row.ID)),
+  ];
+  const keep = new Set(validatedIds.slice(0, options.keepRollbackImages + 1));
   for (const row of rows) {
     if (keep.has(row.ID) || used.has(row.ID)) {
       continue;
@@ -313,20 +380,36 @@ function pruneArchives(options) {
       continue;
     }
     const commitMarker = `${path}.committed-${owner.token}`;
-    if (processIsAlive(owner.pid)) {
-      console.log(`KEEP: release publication is active for ${archive}`);
-      continue;
-    }
+    const artifactBackup = `${archive}.backup-${owner.token}`;
+    const checksumBackup = `${archive}.sha256.backup-${owner.token}`;
     if (existsSync(commitMarker)) {
       announce(options, `finish committed release publication ${archive}`, () => {
+        rmSync(artifactBackup, { force: true });
+        rmSync(checksumBackup, { force: true });
         rmSync(path, { force: true });
         rmSync(commitMarker, { force: true });
       });
       continue;
     }
     announce(options, `roll back abandoned release publication ${archive}`, () => {
-      rmSync(archive, { force: true });
-      rmSync(`${archive}.sha256`, { force: true });
+      if (optionalImageId(owner.runtimeVersionTag) === owner.candidateRuntimeId) {
+        restoreImageTag(owner.runtimeVersionTag, owner.previousRuntimeId);
+      }
+      if (optionalImageId(owner.sandboxVersionTag) === owner.candidateSandboxId) {
+        restoreImageTag(owner.sandboxVersionTag, owner.previousSandboxId);
+      }
+      if (owner.hadArtifact && existsSync(artifactBackup)) {
+        rmSync(archive, { force: true });
+        renameSync(artifactBackup, archive);
+      } else if (!owner.hadArtifact) {
+        rmSync(archive, { force: true });
+      }
+      if (owner.hadChecksum && existsSync(checksumBackup)) {
+        rmSync(`${archive}.sha256`, { force: true });
+        renameSync(checksumBackup, `${archive}.sha256`);
+      } else if (!owner.hadChecksum) {
+        rmSync(`${archive}.sha256`, { force: true });
+      }
       rmSync(path, { force: true });
     });
   }
@@ -334,11 +417,6 @@ function pruneArchives(options) {
     /^platformclaw-.+\.tar\.lock\.candidate-(\d+)-[0-9a-f-]+$/u.test(entry),
   )) {
     const path = resolve(root, name);
-    const pid = Number(/\.candidate-(\d+)-/u.exec(name)?.[1]);
-    if (processIsAlive(pid)) {
-      console.log(`KEEP: release lock candidate is active ${path}`);
-      continue;
-    }
     announce(options, `remove abandoned release lock candidate ${path}`, () =>
       rmSync(path, { force: true }),
     );
@@ -347,11 +425,6 @@ function pruneArchives(options) {
     /^platformclaw-.+\.tar(?:\.sha256)?\.tmp-(\d+)$/u.test(entry),
   )) {
     const path = resolve(root, name);
-    const pid = Number(/\.tmp-(\d+)$/u.exec(name)?.[1]);
-    if (processIsAlive(pid)) {
-      console.log(`KEEP: release temporary is active ${path}`);
-      continue;
-    }
     announce(options, `remove abandoned release temporary ${path}`, () =>
       rmSync(path, { force: true }),
     );
@@ -364,6 +437,18 @@ function pruneArchives(options) {
     if (!existsSync(lock)) {
       announce(options, `remove orphan release commit marker ${marker}`, () =>
         rmSync(marker, { force: true }),
+      );
+    }
+  }
+  for (const name of names.filter((entry) =>
+    /^platformclaw-.+\.tar(?:\.sha256)?\.backup-[0-9a-f-]+$/u.test(entry),
+  )) {
+    const backup = resolve(root, name);
+    const original = backup.replace(/\.backup-[0-9a-f-]+$/u, "");
+    const archive = original.endsWith(".sha256") ? original.slice(0, -".sha256".length) : original;
+    if (!existsSync(`${archive}.lock`)) {
+      announce(options, `remove orphan release backup ${backup}`, () =>
+        rmSync(backup, { force: true }),
       );
     }
   }
@@ -442,6 +527,7 @@ if (!cleanupLock) {
   console.log("SKIP: a PlatformClaw build is active");
   process.exit(0);
 }
+const outputDirectoryLock = await acquireOutputDirectoryLock(options);
 try {
   docker(["version"]);
   const used = usedImageIds();
@@ -451,19 +537,35 @@ try {
     pruneRepository(options, "platformclaw", used);
     pruneRepository(options, "platformclaw-sandbox", used);
   }
-  pruneArchives(options);
+  if (outputDirectoryLock) {
+    pruneArchives(options);
+  } else {
+    console.log("SKIP: a release publication is active");
+  }
   pruneBuildCache(options);
   console.log(
     options.apply ? "PlatformClaw development cleanup complete" : "Preview only; pass --apply",
   );
 } finally {
-  if (cleanupLock.owned) {
-    await new Promise((resolveClose, reject) => {
-      cleanupLock.server.close((error) =>
-        error
-          ? reject(new Error("Failed to release Docker cleanup lock", { cause: error }))
-          : resolveClose(),
-      );
-    });
+  try {
+    if (outputDirectoryLock?.owned) {
+      await new Promise((resolveClose, reject) => {
+        outputDirectoryLock.server.close((error) =>
+          error
+            ? reject(new Error("Failed to release release-output lock", { cause: error }))
+            : resolveClose(),
+        );
+      });
+    }
+  } finally {
+    if (cleanupLock.owned) {
+      await new Promise((resolveClose, reject) => {
+        cleanupLock.server.close((error) =>
+          error
+            ? reject(new Error("Failed to release Docker cleanup lock", { cause: error }))
+            : resolveClose(),
+        );
+      });
+    }
   }
 }
