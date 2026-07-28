@@ -1,10 +1,8 @@
-import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { AgentsListResult } from "../api/types.ts";
-import { normalizeAgentId } from "../lib/sessions/session-key.ts";
+import { normalizeAgentId, parseAgentSessionKey } from "../lib/sessions/session-key.ts";
 
 type AgentSelectionGateway = {
   readonly snapshot: {
-    client: GatewayBrowserClient | null;
     assistantAgentId: string | null;
   };
   subscribe: (listener: (snapshot: AgentSelectionGateway["snapshot"]) => void) => () => void;
@@ -28,10 +26,38 @@ export type AgentSelectionCapability = {
   subscribe: (listener: (state: AgentSelectionState) => void) => () => void;
 };
 
+/** Change application ownership before the Gateway session so every navigation
+ * caller observes one ordered state transition. Canonical global keys need the
+ * explicit agent carried by their data-plane event or owning UI surface. */
+export function selectApplicationSession(params: {
+  selection: Pick<AgentSelectionCapability, "set">;
+  gateway: { setSessionKey: (sessionKey: string) => void };
+  sessionKey: string;
+  agentId?: string | null;
+}): void {
+  const agentId = params.agentId?.trim() || parseAgentSessionKey(params.sessionKey)?.agentId;
+  if (agentId) {
+    params.selection.set(normalizeAgentId(agentId));
+  }
+  params.gateway.setSessionKey(params.sessionKey);
+}
+
 export function createAgentSelectionCapability(
   gateway: AgentSelectionGateway,
   roster: AgentSelectionRoster,
 ): AgentSelectionCapability {
+  const reconcileSelectedId = (value: string | null): string | null => {
+    const selectedId = value?.trim() ? normalizeAgentId(value) : null;
+    const agentsList = roster.state.agentsList;
+    if (!agentsList || agentsList.agents.length === 0) {
+      return selectedId;
+    }
+    const defaultId = normalizeAgentId(agentsList.defaultId);
+    return !selectedId ||
+      !agentsList.agents.some((agent) => normalizeAgentId(agent.id) === selectedId)
+      ? defaultId
+      : selectedId;
+  };
   const resolveScopeId = (value: string | null): string | null => {
     const scopeId = value?.trim() ? normalizeAgentId(value) : null;
     // System agents remain valid concrete chat targets, but never become shared page filters.
@@ -40,21 +66,37 @@ export function createAgentSelectionCapability(
     );
     return isSystem ? null : scopeId;
   };
+  const isAvailableExplicitScope = (scopeId: string | null): boolean => {
+    if (scopeId === null) {
+      return true;
+    }
+    const agents = roster.state.agentsList?.agents;
+    return (
+      agents === undefined ||
+      agents.some((agent) => agent.kind !== "system" && normalizeAgentId(agent.id) === scopeId)
+    );
+  };
   const initialId = gateway.snapshot.assistantAgentId
     ? normalizeAgentId(gateway.snapshot.assistantAgentId)
     : null;
+  const initialSelectedId = reconcileSelectedId(initialId);
   let state: AgentSelectionState = {
-    selectedId: initialId,
-    scopeId: resolveScopeId(initialId),
+    selectedId: initialSelectedId,
+    scopeId: resolveScopeId(initialSelectedId),
   };
-  let client = gateway.snapshot.client;
   let assistantAgentId = initialId;
-  let selectedExplicitly = false;
+  // Construction has no explicit-selection input: a roster repair still follows
+  // hello until a navigation or picker action establishes explicit ownership.
+  let followsGatewayDefault = true;
   let scopeExplicitly = false;
   const listeners = new Set<(next: AgentSelectionState) => void>();
 
   const publish = (next: AgentSelectionState) => {
-    const reconciled = { ...next, scopeId: resolveScopeId(next.scopeId) };
+    const selectedId = reconcileSelectedId(next.selectedId);
+    // Selection and page scope move together when a configured agent vanishes.
+    // Otherwise route-derived agent ids keep sending agent-scoped RPCs to a dead target.
+    const scopeId = selectedId === next.selectedId ? next.scopeId : selectedId;
+    const reconciled = { selectedId, scopeId: resolveScopeId(scopeId) };
     if (state.selectedId === reconciled.selectedId && state.scopeId === reconciled.scopeId) {
       return;
     }
@@ -68,33 +110,41 @@ export function createAgentSelectionCapability(
     const nextAssistantAgentId = next.assistantAgentId
       ? normalizeAgentId(next.assistantAgentId)
       : null;
-    if (next.client !== client) {
-      client = next.client;
-      assistantAgentId = nextAssistantAgentId;
-      selectedExplicitly = false;
-      scopeExplicitly = false;
-      publish({ selectedId: nextAssistantAgentId, scopeId: nextAssistantAgentId });
-      return;
-    }
-    if (nextAssistantAgentId !== assistantAgentId) {
-      const previousAssistantAgentId = assistantAgentId;
-      assistantAgentId = nextAssistantAgentId;
-      // The client exists before hello supplies its real default agent. Adopt that
-      // identity without clobbering a route or scope the user already selected.
+    const assistantChanged = nextAssistantAgentId !== assistantAgentId;
+    assistantAgentId = nextAssistantAgentId;
+    // A reconnect publishes a transient null before hello. Keep the last
+    // implicit default selected until the next authoritative default arrives.
+    if (assistantChanged && followsGatewayDefault && nextAssistantAgentId) {
       publish({
-        selectedId:
-          !selectedExplicitly &&
-          (state.selectedId === null || state.selectedId === previousAssistantAgentId)
-            ? nextAssistantAgentId
-            : state.selectedId,
-        scopeId:
-          !scopeExplicitly && (state.scopeId === null || state.scopeId === previousAssistantAgentId)
-            ? nextAssistantAgentId
-            : state.scopeId,
+        selectedId: nextAssistantAgentId,
+        scopeId: scopeExplicitly ? state.scopeId : nextAssistantAgentId,
       });
     }
   });
-  roster.subscribe(() => publish(state));
+  roster.subscribe(() => {
+    const reconciledSelectedId = reconcileSelectedId(state.selectedId);
+    const explicitScopeUnavailable = scopeExplicitly && !isAvailableExplicitScope(state.scopeId);
+    if (explicitScopeUnavailable) {
+      scopeExplicitly = false;
+    }
+    // Re-enable implicit ownership before publishing the roster fallback. A
+    // synchronous subscriber may establish a new explicit owner during publish.
+    if (!followsGatewayDefault && reconciledSelectedId !== state.selectedId) {
+      followsGatewayDefault = true;
+      scopeExplicitly = scopeExplicitly && state.scopeId !== state.selectedId;
+    }
+    if (followsGatewayDefault && assistantAgentId) {
+      publish({
+        selectedId: assistantAgentId,
+        scopeId: scopeExplicitly ? state.scopeId : assistantAgentId,
+      });
+    } else {
+      publish({
+        ...state,
+        scopeId: explicitScopeUnavailable ? reconciledSelectedId : state.scopeId,
+      });
+    }
+  });
 
   return {
     get state() {
@@ -105,8 +155,9 @@ export function createAgentSelectionCapability(
       // A chip/chat switch establishes a new global page scope. The separate
       // scope field lets page controls expose all agents without losing the
       // concrete agent required by chat and new-session flows.
-      selectedExplicitly = true;
       scopeExplicitly = true;
+      // Establish ownership before publish notifies synchronous subscribers.
+      followsGatewayDefault = reconcileSelectedId(selectedId) !== selectedId;
       publish({ selectedId, scopeId: selectedId });
     },
     setScope(agentId) {

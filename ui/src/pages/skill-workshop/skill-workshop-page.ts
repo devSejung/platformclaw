@@ -8,7 +8,8 @@ import { loadSettings } from "../../app/settings.ts";
 import { renderPluginsHubTabs } from "../../components/plugins-hub-tabs.ts";
 import "../../components/tooltip.ts";
 import { t } from "../../i18n/index.ts";
-import { resolveSessionKey, searchForSession } from "../../lib/sessions/index.ts";
+import { resolveSessionKey } from "../../lib/sessions/index.ts";
+import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
 import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 import { filterSkillWorkshopProposals } from "../../lib/skill-workshop/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
@@ -205,8 +206,7 @@ function renderSkillWorkshopPage(
               historyScan: state.skillWorkshopHistoryScan,
               counts: countSkillWorkshopProposals(state.skillWorkshopProposals),
               onRetry: () => {
-                // Force past the loaded/error latch; the loading guard still
-                // prevents duplicate in-flight requests.
+                // Force past the loaded/error latch; the guard still prevents duplicate requests.
                 void loadSkillWorkshopProposals(state, context, { force: true }).finally(
                   requestUpdate,
                 );
@@ -470,7 +470,10 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     if (!this.isCurrentSourceScope(scope)) {
       return;
     }
-    scope.navigate("chat", { search: searchForSession(sessionKey) });
+    scope.navigate(
+      "chat",
+      sessionNavigationTarget({ context: scope.context, face: "chat", sessionKey }).options,
+    );
   };
 
   override willUpdate() {
@@ -483,10 +486,9 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   }
 
   override updated() {
-    // Only kick a load when none is in flight and the last attempt did not
-    // fail: loadProposals early-returns resolve immediately and their finally
-    // schedules another update, so re-kicking here would spin forever when a
-    // load stays pending or the gateway keeps erroring.
+    // Start only without an in-flight or failed load. Early-return finalizers
+    // schedule another update, so retrying here would spin while a load stays
+    // pending or the gateway keeps failing.
     const state = this.state;
     const canLoad =
       state &&
@@ -517,8 +519,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
 
   private resetSourceState() {
     this.sourceEpoch += 1;
-    this.personalExecutionTarget = null;
-    this.personalExecutionTargetLoading = false;
+    [this.personalExecutionTarget, this.personalExecutionTargetLoading] = [null, false];
     const previous = this.state;
     if (!previous) {
       return;
@@ -590,12 +591,11 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   }
 
   private async loadPersonalExecutionTarget(force: boolean): Promise<void> {
-    const context = this.context;
+    const [context, sourceEpoch] = [this.context, this.sourceEpoch];
     const client = context?.gateway.snapshot.client;
     if (!context || !client || this.personalExecutionTargetLoading) {
       return;
     }
-    const sourceEpoch = this.sourceEpoch;
     this.personalExecutionTargetLoading = true;
     this.requestPageUpdate();
     try {

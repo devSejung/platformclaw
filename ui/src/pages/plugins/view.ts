@@ -149,6 +149,7 @@ function matchesPlugin(plugin: PluginCatalogItem, query: string): boolean {
   return [
     plugin.name,
     plugin.id,
+    plugin.packageName,
     plugin.description,
     plugin.origin,
     plugin.category,

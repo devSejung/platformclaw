@@ -638,6 +638,7 @@ describe("renderSkills", () => {
               slug: "github",
               displayName: "GitHub",
               summary: "GitHub integration for OpenClaw",
+              icon: `https://clawhub.ai/api/v1/skill-icons/${"a".repeat(64)}`,
               version: "1.2.3",
             },
           ],
@@ -662,6 +663,9 @@ describe("renderSkills", () => {
       "GitHub integration for OpenClaw",
     );
     expect(resultItem?.querySelector(".settings-row__value")?.textContent?.trim()).toBe("v1.2.3");
+    expect(resultItem?.querySelector<HTMLImageElement>(".clawhub-skill-icon")?.src).toBe(
+      `https://clawhub.ai/api/v1/skill-icons/${"a".repeat(64)}`,
+    );
     expect(installButton?.textContent?.trim()).toBe("Install");
     detailButton!.click();
     installButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -685,6 +689,7 @@ describe("renderSkills", () => {
               slug: "github",
               displayName: "GitHub",
               summary: "GitHub integration for OpenClaw",
+              icon: `https://clawhub.ai/api/v1/skill-icons/${"b".repeat(64)}`,
               createdAt: 1_700_000_000,
               updatedAt: 1_700_000_100,
             },
@@ -715,6 +720,10 @@ describe("renderSkills", () => {
     expect(normalizeText(container.querySelector(".md-preview-dialog__body")!)).toBe(
       "GitHub integration for OpenClaw By OpenClaw (@openclaw) Latest: v1.2.3 Added search support Platforms: macos, linux Install GitHub",
     );
+    expect(container.querySelector<HTMLImageElement>(".clawhub-skill-icon--detail")?.src).toBe(
+      `https://clawhub.ai/api/v1/skill-icons/${"b".repeat(64)}`,
+    );
+    expect(container.querySelector(".clawhub-skill-icon--profile")).toBeNull();
 
     const detailInstallButton = container.querySelector<HTMLButtonElement>(
       ".md-preview-dialog__body .btn.primary",

@@ -7,6 +7,7 @@ import {
   type SidebarRouteTargets,
 } from "../app-navigation.ts";
 import type { RouteId } from "../app-route-paths.ts";
+import { selectApplicationSession } from "../app/agent-selection.ts";
 import {
   applicationContext,
   type ApplicationContext,
@@ -14,6 +15,7 @@ import {
 } from "../app/context.ts";
 import type { CatalogOpenTarget } from "../app/settings.ts";
 import type { ThemeMode } from "../app/theme.ts";
+import { parseAgentSessionKey } from "../lib/sessions/session-key.ts";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
 import type { NewSessionTarget } from "../pages/new-session/location.ts";
 import type { SidebarWorkboardBoard, SidebarWorkboardRenderers } from "./app-sidebar-workboard.ts";
@@ -68,4 +70,17 @@ export abstract class AppSidebarBase extends OpenClawLightDomContentsElement {
 
   @consume({ context: applicationContext, subscribe: true })
   protected context?: ApplicationContext<RouteId>;
+
+  protected setApplicationSession(sessionKey: string, fallbackAgentId?: string): void {
+    const context = this.context;
+    if (!context) {
+      return;
+    }
+    selectApplicationSession({
+      selection: context.agentSelection,
+      gateway: context.gateway,
+      sessionKey,
+      agentId: parseAgentSessionKey(sessionKey)?.agentId ?? fallbackAgentId,
+    });
+  }
 }
