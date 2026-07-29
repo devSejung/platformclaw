@@ -396,6 +396,8 @@ execution backend, so an assigned VM does not need the OpenClaw CLI.
 Employee reads additionally require the immutable authenticated owner envelope
 (Agent, owner session, and account); ownerless legacy jobs fail closed before
 pagination, regardless of their current delivery or payload fields.
+Automation list and derived status reads always disable delivery previews;
+resolved routing labels and details are not part of the employee surface.
 
 Employee cron run history remains hidden. Existing history rows do not carry
 immutable Agent, schedule, payload, and session provenance, so authorizing them

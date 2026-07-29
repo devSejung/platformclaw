@@ -173,8 +173,19 @@ export function prepareBrowserCronRequest(input: BrowserCronPolicyInput): JsonOb
     if (input.method === "cron.list" && input.params.compact !== undefined) {
       return input.deny("compact cron listings are not available to browser users");
     }
+    if (
+      input.method === "cron.list" &&
+      input.params.includeDeliveryPreviews !== undefined &&
+      input.params.includeDeliveryPreviews !== false
+    ) {
+      return input.deny("cron delivery previews are not available to browser users");
+    }
     return input.method === "cron.list"
-      ? { ...input.params, ...browserCronListScope(input.agentId) }
+      ? {
+          ...input.params,
+          includeDeliveryPreviews: false,
+          ...browserCronListScope(input.agentId),
+        }
       : { ...input.params, agentId: input.agentId };
   }
   if (input.method === "cron.add") {

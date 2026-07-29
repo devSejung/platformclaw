@@ -20,7 +20,12 @@ describe("BrowserGatewayProxy cron", () => {
       hasMore: false,
     });
 
-    await expect(proxy.request(token, "cron.list", { includeDisabled: true })).resolves.toEqual({
+    await expect(
+      proxy.request(token, "cron.list", {
+        includeDisabled: true,
+        includeDeliveryPreviews: false,
+      }),
+    ).resolves.toEqual({
       jobs: [job],
       total: 1,
       limit: 50,
@@ -31,6 +36,7 @@ describe("BrowserGatewayProxy cron", () => {
     expect(request).toHaveBeenCalledWith("cron.list", {
       agentId: binding.agentId,
       includeDisabled: true,
+      includeDeliveryPreviews: false,
       scheduleKinds: ["at", "every", "cron"],
       payloadKinds: ["agentTurn", "systemEvent"],
       sessionTargets: ["main", "isolated"],
@@ -50,6 +56,25 @@ describe("BrowserGatewayProxy cron", () => {
       jobs: 1,
       nextWakeAtMs: 9_000,
     });
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "cron.list",
+      expect.objectContaining({ includeDeliveryPreviews: false }),
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      3,
+      "cron.list",
+      expect.objectContaining({ includeDeliveryPreviews: false }),
+    );
+  });
+
+  it("rejects browser requests that ask for cron delivery previews", async () => {
+    const { proxy, request, token } = await setup();
+
+    await expect(
+      proxy.request(token, "cron.list", { includeDeliveryPreviews: true }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("does not expose cron run history without immutable execution provenance", async () => {

@@ -31,6 +31,8 @@ export async function requestBrowserCronList(
 ): Promise<JsonObject> {
   const result = await runtime.gateway.request("cron.list", {
     ...params,
+    // Browser list and derived status reads never need routing labels/details.
+    includeDeliveryPreviews: false,
     ...browserCronListScope(runtime.agentId),
   });
   return projectBrowserCronResult({
