@@ -5,6 +5,7 @@ import {
   resolveBrowserCommandSuppression,
 } from "./browser-command-policy.js";
 import { resolveBrowserGatewayAccess } from "./browser-gateway-access.js";
+import { BrowserGatewayAssertions } from "./browser-gateway-assertions.js";
 import {
   preflightCronMutation,
   prepareCronRequest,
@@ -105,8 +106,6 @@ export class BrowserGatewayProxyError extends Error {
   }
 }
 
-/* oxlint-disable max-lines -- Browser orchestration stays centralized; cron policy and runtime are split into focused modules. */
-
 export type BrowserGatewayProxyOptions = {
   authService: BrowserAuthService;
   store: ControlPlaneStore;
@@ -133,7 +132,17 @@ function optionalString(value: unknown): string | undefined {
 
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
 export class BrowserGatewayProxy {
-  constructor(private readonly options: BrowserGatewayProxyOptions) {}
+  private readonly assertions: BrowserGatewayAssertions;
+
+  constructor(private readonly options: BrowserGatewayProxyOptions) {
+    this.assertions = new BrowserGatewayAssertions(
+      (sessionKey) => this.options.resolveAgentIdFromSessionKey(sessionKey),
+      PLATFORMCLAW_WEB_ALLOWED_PARAMS,
+      (code, message): never => {
+        throw new BrowserGatewayProxyError(code, message);
+      },
+    );
+  }
 
   async resolveAccess(token: string, touch = true): Promise<BrowserGatewayAccess> {
     return await resolveBrowserGatewayAccess({
@@ -343,13 +352,15 @@ export class BrowserGatewayProxy {
       );
     }
     const params = { ...asObject(rawParams, `${method} params`) };
-    this.assertAllowedParams(method, params);
+    this.assertions.methodParams(method, params);
     const selfServiceParams = prepareBrowserSelfServiceRequest({
       method,
       params,
       agentId: access.binding.agentId,
-      assertOptionalAgentId: (value) => this.assertOptionalAgentId(access, value, method),
-      assertOwnedSessionKey: (value, label) => this.assertOwnedSessionKey(access, value, label),
+      assertOptionalAgentId: (value) =>
+        this.assertions.optionalAgentId(access.binding.agentId, value, method),
+      assertOwnedSessionKey: (value, label) =>
+        this.assertions.ownedSessionKey(access.binding.agentId, value, label),
       deny: (message) => {
         throw new BrowserGatewayProxyError("method-not-allowed", message);
       },
@@ -362,7 +373,7 @@ export class BrowserGatewayProxy {
       return cronParams;
     }
     if (method === "sessions.list") {
-      this.assertOptionalAgentId(access, params.agentId, method);
+      this.assertions.optionalAgentId(access.binding.agentId, params.agentId, method);
       return {
         ...params,
         agentId: access.binding.agentId,
@@ -372,22 +383,27 @@ export class BrowserGatewayProxy {
       };
     }
     if (method === "sessions.search") {
-      this.assertOptionalAgentId(access, params.agentId, method);
-      this.assertSessionKeyArray(access, params.sessionKeys, "sessionKeys", true);
+      this.assertions.optionalAgentId(access.binding.agentId, params.agentId, method);
+      this.assertions.sessionKeyArray(
+        access.binding.agentId,
+        params.sessionKeys,
+        "sessionKeys",
+        true,
+      );
       return { ...params, agentId: access.binding.agentId };
     }
     if (method === "sessions.preview") {
-      this.assertSessionKeyArray(access, params.keys, "keys", true);
+      this.assertions.sessionKeyArray(access.binding.agentId, params.keys, "keys", true);
       return params;
     }
     if (method === "sessions.describe") {
-      this.assertOwnedSessionKey(access, params.key, "key");
+      this.assertions.ownedSessionKey(access.binding.agentId, params.key, "key");
       return params;
     }
     if (method === "sessions.resolve") {
-      this.assertOptionalAgentId(access, params.agentId, method);
+      this.assertions.optionalAgentId(access.binding.agentId, params.agentId, method);
       if (params.key !== undefined) {
-        this.assertOwnedSessionKey(access, params.key, "key");
+        this.assertions.ownedSessionKey(access.binding.agentId, params.key, "key");
       }
       return {
         ...params,
@@ -397,12 +413,16 @@ export class BrowserGatewayProxy {
       };
     }
     if (method === "sessions.create") {
-      this.assertOptionalAgentId(access, params.agentId, method);
+      this.assertions.optionalAgentId(access.binding.agentId, params.agentId, method);
       if (params.key !== undefined) {
-        this.assertOwnedSessionKey(access, params.key, "key");
+        this.assertions.ownedSessionKey(access.binding.agentId, params.key, "key");
       }
       if (params.parentSessionKey !== undefined) {
-        this.assertOwnedSessionKey(access, params.parentSessionKey, "parentSessionKey");
+        this.assertions.ownedSessionKey(
+          access.binding.agentId,
+          params.parentSessionKey,
+          "parentSessionKey",
+        );
       }
       return { ...params, agentId: access.binding.agentId, emitCommandHooks: false };
     }
@@ -410,16 +430,16 @@ export class BrowserGatewayProxy {
       return params;
     }
     if (PLATFORMCLAW_WEB_AGENT_ONLY_METHODS.has(method)) {
-      this.assertOptionalAgentId(access, params.agentId, method);
+      this.assertions.optionalAgentId(access.binding.agentId, params.agentId, method);
       if (params.sessionKey !== undefined) {
-        this.assertOwnedSessionKey(access, params.sessionKey, "sessionKey");
+        this.assertions.ownedSessionKey(access.binding.agentId, params.sessionKey, "sessionKey");
       }
       return { ...params, agentId: access.binding.agentId };
     }
     const keyField = PLATFORMCLAW_WEB_SESSION_KEY_METHODS.get(method);
     if (keyField) {
-      this.assertOptionalAgentId(access, params.agentId, method);
-      this.assertOwnedSessionKey(access, params[keyField], keyField);
+      this.assertions.optionalAgentId(access.binding.agentId, params.agentId, method);
+      this.assertions.ownedSessionKey(access.binding.agentId, params[keyField], keyField);
       if (method === "chat.send") {
         const gatewayParams = { ...params };
         delete gatewayParams["__controlUiReconnectResume"];
@@ -513,7 +533,7 @@ export class BrowserGatewayProxy {
     if (method === "chat.history" || method === "chat.startup") {
       const payload = asObject(result, `${method} result`);
       if (payload.sessionKey !== undefined) {
-        this.assertOwnedResultSessionKey(access, payload.sessionKey);
+        this.assertions.ownedResultSessionKey(access.binding.agentId, payload.sessionKey);
       }
       if (
         payload.sessionInfo !== undefined &&
@@ -546,7 +566,7 @@ export class BrowserGatewayProxy {
     }
     if (method === "chat.message.get") {
       // Upstream resolves message IDs inside the already-pinned session transcript.
-      this.assertOwnedResultSessionKey(access, prepared.sessionKey);
+      this.assertions.ownedResultSessionKey(access.binding.agentId, prepared.sessionKey);
       const payload = asObject(result, "chat.message.get result");
       if (payload.ok === true) {
         if (payload.message === undefined) {
@@ -599,7 +619,7 @@ export class BrowserGatewayProxy {
       if (payload.ok === false) {
         return { ok: false };
       }
-      this.assertOwnedResultSessionKey(access, payload.key);
+      this.assertions.ownedResultSessionKey(access.binding.agentId, payload.key);
       return { ok: true, key: payload.key };
     }
     if (method === "sessions.patch") {
@@ -610,7 +630,7 @@ export class BrowserGatewayProxy {
           "Gateway returned an invalid session patch result",
         );
       }
-      this.assertOwnedResultSessionKey(access, prepared.key);
+      this.assertions.ownedResultSessionKey(access.binding.agentId, prepared.key);
       return { ok: true, key: prepared.key };
     }
     if (method === "sessions.describe") {
@@ -644,9 +664,9 @@ export class BrowserGatewayProxy {
       resolveAgentIdFromSessionKey: (sessionKey: string) =>
         this.options.resolveAgentIdFromSessionKey(sessionKey),
       assertOptionalAgentId: (value: unknown, label: string) =>
-        this.assertOptionalAgentId(access, value, label),
+        this.assertions.optionalAgentId(access.binding.agentId, value, label),
       assertOwnedSessionKey: (value: unknown, label: string) =>
-        this.assertOwnedSessionKey(access, value, label),
+        this.assertions.ownedSessionKey(access.binding.agentId, value, label),
       fail: (code: BrowserGatewayProxyErrorCode, message: string): never => {
         throw new BrowserGatewayProxyError(code, message);
       },
@@ -667,84 +687,6 @@ export class BrowserGatewayProxy {
 
   private eventPayloadBelongsToAccess(access: BrowserGatewayAccess, payload: unknown): boolean {
     return browserEventPayloadBelongsToAccess(this.browserTaskAccess(access), payload);
-  }
-
-  private assertOptionalAgentId(
-    access: BrowserGatewayAccess,
-    rawAgentId: unknown,
-    label: string,
-  ): void {
-    const agentId = optionalString(rawAgentId);
-    if (agentId && agentId !== access.binding.agentId) {
-      throw new BrowserGatewayProxyError(
-        "cross-agent-denied",
-        `browser access denied for ${label}`,
-      );
-    }
-  }
-
-  private assertOwnedSessionKey(
-    access: BrowserGatewayAccess,
-    rawSessionKey: unknown,
-    label: string,
-  ): void {
-    const sessionKey = optionalString(rawSessionKey);
-    if (!sessionKey) {
-      throw new BrowserGatewayProxyError("invalid-params", `${label} is required`);
-    }
-    if (this.options.resolveAgentIdFromSessionKey(sessionKey) !== access.binding.agentId) {
-      throw new BrowserGatewayProxyError(
-        "cross-agent-denied",
-        `browser access denied for ${label}`,
-      );
-    }
-  }
-
-  private assertSessionKeyArray(
-    access: BrowserGatewayAccess,
-    value: unknown,
-    label: string,
-    required: boolean,
-  ): void {
-    if (value === undefined && !required) {
-      return;
-    }
-    if (!Array.isArray(value) || (required && value.length === 0)) {
-      throw new BrowserGatewayProxyError("invalid-params", `${label} must be a non-empty array`);
-    }
-    for (const sessionKey of value) {
-      this.assertOwnedSessionKey(access, sessionKey, label);
-    }
-  }
-
-  private assertOwnedResultSessionKey(access: BrowserGatewayAccess, rawSessionKey: unknown): void {
-    const sessionKey = optionalString(rawSessionKey);
-    if (
-      !sessionKey ||
-      this.options.resolveAgentIdFromSessionKey(sessionKey) !== access.binding.agentId
-    ) {
-      throw new BrowserGatewayProxyError(
-        "upstream-result-denied",
-        "Gateway returned a session outside the browser binding",
-      );
-    }
-  }
-
-  private assertAllowedParams(method: string, params: JsonObject): void {
-    const allowed = PLATFORMCLAW_WEB_ALLOWED_PARAMS.get(method);
-    if (!allowed) {
-      throw new BrowserGatewayProxyError(
-        "method-not-allowed",
-        `Gateway method has no browser parameter policy: ${method}`,
-      );
-    }
-    const disallowed = Object.keys(params).find((key) => !allowed.has(key));
-    if (disallowed) {
-      throw new BrowserGatewayProxyError(
-        "method-not-allowed",
-        `Gateway parameter is not available to browser users: ${method}.${disallowed}`,
-      );
-    }
   }
 
   private async auditDeniedRequest(
