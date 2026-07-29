@@ -572,6 +572,7 @@ describe("BrowserGatewayProxy", () => {
       deliver: true,
       idempotencyKey: "request-1",
       expectedLeafEntryId: "leaf-1",
+      replyToId: "message-1",
       __controlUiReconnectResume: true,
     });
 
@@ -581,6 +582,7 @@ describe("BrowserGatewayProxy", () => {
         agentId: binding.agentId,
         deliver: false,
         expectedLeafEntryId: "leaf-1",
+        replyToId: "message-1",
         suppressCommandInterpretation: true,
       }),
     );
@@ -852,7 +854,7 @@ describe("BrowserGatewayProxy", () => {
     });
   });
 
-  it("rejects session run IDs and strips chat run IDs before aborting an owned session", async () => {
+  it("rejects session run IDs and allows clearing queued work for an owned session", async () => {
     const { binding, proxy, request, token } = await setup();
     const key = `agent:${binding.agentId}:main`;
 
@@ -861,9 +863,18 @@ describe("BrowserGatewayProxy", () => {
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     request.mockResolvedValueOnce({ ok: true });
     await expect(
+      proxy.request(token, "sessions.abort", { key, clearQueued: true }),
+    ).resolves.toEqual({ ok: true });
+    expect(request).toHaveBeenLastCalledWith("sessions.abort", {
+      key,
+      agentId: binding.agentId,
+      clearQueued: true,
+    });
+    request.mockResolvedValueOnce({ ok: true });
+    await expect(
       proxy.request(token, "chat.abort", { sessionKey: key, runId: "foreign-run" }),
     ).resolves.toEqual({ ok: true });
-    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(2);
     expect(request).toHaveBeenCalledWith("chat.abort", {
       sessionKey: key,
       agentId: binding.agentId,

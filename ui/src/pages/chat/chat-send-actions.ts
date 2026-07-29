@@ -33,6 +33,7 @@ import {
   OFFLINE_QUEUE_STORAGE_ERROR,
   steerQueuedChatMessage as steerQueuedChatMessageLifecycle,
   type SteerSendDependencies,
+  type SteerSendResult,
 } from "./steer-lifecycle.ts";
 import { isInflightSteer } from "./steered-chip.ts";
 
@@ -46,13 +47,29 @@ export async function sendChatMessageWithGeneratedRunId(
     runId?: string;
   } = {},
 ): Promise<ChatSendAck | null> {
+  const result = await attemptChatMessageWithGeneratedRunId(state, message, attachments, options);
+  return result.ok ? result.ack : null;
+}
+
+async function attemptChatMessageWithGeneratedRunId(
+  state: ChatState,
+  message: string,
+  attachments?: ChatAttachment[],
+  options: {
+    canApplyError?: () => boolean;
+    queueMode?: QueueMode;
+    runId?: string;
+  } = {},
+): Promise<SteerSendResult> {
   if (!state.client || !state.connected) {
-    return null;
+    const error = new Error("gateway not connected");
+    return { ok: false, error, displayError: error.message };
   }
   const msg = message.trim();
   const hasAttachments = attachments && attachments.length > 0;
   if (!msg && !hasAttachments) {
-    return null;
+    const error = new Error("message is empty");
+    return { ok: false, error, displayError: error.message };
   }
   const canApplyError = options.canApplyError ?? (() => true);
   if (canApplyError()) {
@@ -64,26 +81,25 @@ export async function sendChatMessageWithGeneratedRunId(
   // restored outbox drains intentionally omit the precondition.
   const expectedLeafEntryId = resolveDisplayedLeafEntryId(state);
   try {
-    return await requestChatSend(state, {
+    const ack = await requestChatSend(state, {
       message: msg,
       attachments,
       runId,
       ...(expectedLeafEntryId !== undefined ? { expectedLeafEntryId } : {}),
       ...(options.queueMode ? { queueMode: options.queueMode } : {}),
     });
+    return { ok: true, ack };
   } catch (err) {
+    const displayError = isActiveLeafChangedError(err)
+      ? t("chat.sendErrors.activeLeafChanged")
+      : formatConnectError(err);
     if (canApplyError()) {
-      setChatError(
-        state,
-        isActiveLeafChangedError(err)
-          ? t("chat.sendErrors.activeLeafChanged")
-          : formatConnectError(err),
-      );
+      setChatError(state, displayError);
       if (isActiveLeafChangedError(err)) {
         void Promise.all([loadChatHistory(state), loadChatBranches(state)]);
       }
     }
-    return null;
+    return { ok: false, error: err, displayError };
   }
 }
 
@@ -102,7 +118,12 @@ export const steerSendDependencies: SteerSendDependencies = {
     }
   },
   sendChatMessage: (host, message, attachments, options) =>
-    sendChatMessageWithGeneratedRunId(host as unknown as ChatState, message, attachments, options),
+    attemptChatMessageWithGeneratedRunId(
+      host as unknown as ChatState,
+      message,
+      attachments,
+      options,
+    ),
 };
 
 export function steerQueuedChatMessage(host: ChatHost, id: string) {

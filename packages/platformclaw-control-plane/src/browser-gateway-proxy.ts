@@ -100,6 +100,7 @@ export class BrowserGatewayProxyError extends Error {
   constructor(
     readonly code: BrowserGatewayProxyErrorCode,
     message: string,
+    readonly requestDisposition?: "rejected-before-dispatch",
   ) {
     super(message);
     this.name = "BrowserGatewayProxyError";
@@ -194,6 +195,7 @@ export class BrowserGatewayProxy {
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
         await this.auditDeniedRequest(access, method, error.code);
+        throw new BrowserGatewayProxyError(error.code, error.message, "rejected-before-dispatch");
       }
       throw error;
     }

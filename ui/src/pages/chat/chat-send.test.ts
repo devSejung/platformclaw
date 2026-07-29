@@ -7559,6 +7559,88 @@ describe("handleSendChat", () => {
     }
   });
 
+  it("makes a definitive Gateway steer rejection retryable without an ambiguity warning", async () => {
+    const message =
+      "Gateway parameter is not available to browser users: chat.send.exampleParameter";
+    const original = {
+      id: "rejected-durable-steer",
+      text: "tighten the durable plan",
+      createdAt: 1,
+      sendState: "waiting-idle" as const,
+      sessionKey: "agent:main:main",
+      agentId: "main",
+    };
+    const host = makeHost({
+      requestHandlers: {
+        "chat.send": () => {
+          throw new GatewayRequestError({
+            code: "FORBIDDEN",
+            message,
+            details: { requestDisposition: "rejected-before-dispatch" },
+          });
+        },
+      },
+      chatRunId: "active-run",
+      chatQueue: [original],
+      sessionKey: original.sessionKey,
+    });
+    expect(admitQueuedMessageForSession(host, host.sessionKey, original)).toBe(true);
+
+    await steerQueuedChatMessage(host, original.id);
+
+    expect(listStoredChatOutboxes(host)[0]?.queue).toMatchObject([
+      {
+        id: original.id,
+        sendError: message,
+        sendState: "failed",
+      },
+    ]);
+    expect(host.chatQueue).toMatchObject([
+      {
+        id: original.id,
+        sendError: message,
+        sendState: "failed",
+      },
+    ]);
+    expect(host.lastError).toBe(message);
+  });
+
+  it("keeps a retryable Gateway failure ambiguous when proxy admission is unknown", async () => {
+    const original = {
+      id: "unavailable-durable-steer",
+      text: "tighten the durable plan",
+      createdAt: 1,
+      sendState: "waiting-idle" as const,
+      sessionKey: "agent:main:main",
+      agentId: "main",
+    };
+    const host = makeHost({
+      requestHandlers: {
+        "chat.send": () => {
+          throw new GatewayRequestError({
+            code: "UNAVAILABLE",
+            message: "Gateway request failed",
+            retryable: true,
+          });
+        },
+      },
+      chatRunId: "active-run",
+      chatQueue: [original],
+      sessionKey: original.sessionKey,
+    });
+    expect(admitQueuedMessageForSession(host, host.sessionKey, original)).toBe(true);
+
+    await steerQueuedChatMessage(host, original.id);
+
+    expect(host.chatQueue).toMatchObject([
+      {
+        id: original.id,
+        sendError: "Steer delivery could not be confirmed. Check the active run before retrying.",
+        sendState: "unconfirmed",
+      },
+    ]);
+  });
+
   it("removes queued steer indicators when chat.send returns terminal ok", async () => {
     const original = { id: "queued-1", text: "tighten the plan", createdAt: 1 };
     const host = makeHost({

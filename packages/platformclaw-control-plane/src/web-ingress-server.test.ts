@@ -3,7 +3,7 @@ import type { EventFrame, HelloOk } from "@openclaw/gateway-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, type RawData } from "ws";
 import type { BrowserAuthService } from "./browser-auth-service.js";
-import type { BrowserGatewayAccess } from "./browser-gateway-proxy.js";
+import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import {
   PlatformClawWebIngressServer,
@@ -266,6 +266,28 @@ describe("PlatformClawWebIngressServer", () => {
       event: "chat",
       payload: { sessionKey: "agent:person_one:main" },
       seq: 1,
+    });
+
+    request.mockRejectedValueOnce(
+      new BrowserGatewayProxyError(
+        "method-not-allowed",
+        "browser parameter denied",
+        "rejected-before-dispatch",
+      ),
+    );
+    websocket.send(
+      JSON.stringify({ type: "req", id: "denied-1", method: "chat.send", params: {} }),
+    );
+    await expect(
+      nextFrame((frame) => isRecord(frame) && frame.id === "denied-1"),
+    ).resolves.toMatchObject({
+      type: "res",
+      ok: false,
+      error: {
+        code: "FORBIDDEN",
+        message: "browser parameter denied",
+        details: { requestDisposition: "rejected-before-dispatch" },
+      },
     });
 
     revoke();

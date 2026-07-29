@@ -150,17 +150,32 @@ function proxyErrorShape(error: unknown): ErrorShape {
   }
   switch (error.code) {
     case "unauthenticated":
-      return { code: "UNAUTHENTICATED", message: error.message };
+      return browserProxyErrorShape("UNAUTHENTICATED", error);
     case "agent-unavailable":
-      return { code: "UNAVAILABLE", message: error.message, retryable: true };
+      return browserProxyErrorShape("UNAVAILABLE", error, true);
     case "invalid-params":
-      return { code: "INVALID_REQUEST", message: error.message };
+      return browserProxyErrorShape("INVALID_REQUEST", error);
     case "method-not-allowed":
     case "cross-agent-denied":
     case "upstream-result-denied":
-      return { code: "FORBIDDEN", message: error.message };
+      return browserProxyErrorShape("FORBIDDEN", error);
   }
   return { code: "UNAVAILABLE", message: "Gateway request failed", retryable: true };
+}
+
+function browserProxyErrorShape(
+  code: string,
+  error: BrowserGatewayProxyError,
+  retryable = false,
+): ErrorShape {
+  return {
+    code,
+    message: error.message,
+    ...(retryable ? { retryable: true } : {}),
+    ...(error.requestDisposition
+      ? { details: { requestDisposition: error.requestDisposition } }
+      : {}),
+  };
 }
 
 function decodeTextFrame(data: RawData): string {
