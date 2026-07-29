@@ -18,9 +18,12 @@ export const PLATFORMCLAW_WEB_DESCRIPTOR = {
   enabledRoutes: [
     "chat",
     "new-session",
+    "activity",
     "sessions",
+    "usage",
     "agents",
     "tasks",
+    "cron",
     "appearance",
     "profile",
     "notifications",

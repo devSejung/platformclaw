@@ -3,6 +3,7 @@ name: platformclaw
 services:
   platformclaw-state-init:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    pull_policy: never
     user: "0:0"
     environment:
       PLATFORMCLAW_RUNTIME_UID: ${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}
@@ -20,6 +21,7 @@ services:
 
   openclaw-gateway:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    pull_policy: never
     user: "${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}:${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}"
     depends_on:
       platformclaw-state-init:
@@ -69,6 +71,7 @@ services:
 
   platformclaw-control:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    pull_policy: never
     user: "${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}:${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}"
     depends_on:
       openclaw-gateway:
@@ -127,6 +130,7 @@ services:
 
   platformclaw-workspace-migration:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    pull_policy: never
     profiles: [migration]
     user: "0:0"
     environment:
@@ -141,6 +145,7 @@ services:
 
   platformclaw-workspace-owner-migration:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    pull_policy: never
     profiles: [owner-migration]
     user: "0:0"
     environment:

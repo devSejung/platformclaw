@@ -71,6 +71,8 @@ service_home="$(getent passwd "$service_user" | cut -d: -f6)"
 deploy_root="${PLATFORMCLAW_DEPLOY_ROOT:-$service_home/platformclaw}"
 env_file="${PLATFORMCLAW_ENV_FILE:-$deploy_root/deployment.env}"
 gateway_state="$deploy_root/data/gateway-home/.openclaw"
+gateway_state_backup_root="$deploy_root/backups/gateway-state"
+previous_gateway_state_file="$env_file.previous-state"
 control_state="$deploy_root/data/control"
 workspace_root="$deploy_root/data/workspaces"
 secret_root="$deploy_root/secrets"
@@ -376,6 +378,106 @@ restore_previous_images() {
   set_image_pair "$previous_main" "$previous_sandbox"
 }
 
+image_pair_available() {
+  local main_image="$1"
+  local sandbox_image="$2"
+  [[ -n "$main_image" && -n "$sandbox_image" ]] &&
+    DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$main_image" >/dev/null 2>&1 &&
+    "${rootless[@]}" image inspect "$sandbox_image" >/dev/null 2>&1
+}
+
+create_gateway_state_backup() {
+  local marker_staging
+  local staging
+  local target
+
+  gateway_state_backup=""
+  if ! install -d -m 0700 "$gateway_state_backup_root"; then
+    echo "Failed to create Gateway state backup directory; image update was not started." >&2
+    return 1
+  fi
+  if ! staging="$(mktemp -d "$gateway_state_backup_root/.backup.XXXXXX")" || \
+    [[ -z "$staging" ]]; then
+    echo "Failed to create Gateway state backup staging directory; image update was not started." >&2
+    return 1
+  fi
+  if ! cp -a "$gateway_state/." "$staging/"; then
+    find "$staging" -mindepth 1 -depth -delete || true
+    rmdir "$staging" 2>/dev/null || true
+    echo "Failed to back up Gateway state; image update was not started." >&2
+    return 1
+  fi
+  target="$gateway_state_backup_root/gateway-state-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  if ! mv "$staging" "$target"; then
+    find "$staging" -mindepth 1 -depth -delete || true
+    rmdir "$staging" 2>/dev/null || true
+    echo "Failed to publish Gateway state backup; image update was not started." >&2
+    return 1
+  fi
+  if ! marker_staging="$(mktemp "${previous_gateway_state_file}.XXXXXX")" || \
+    [[ -z "$marker_staging" ]]; then
+    echo "Failed to create Gateway state backup marker; retained backup: $target" >&2
+    return 1
+  fi
+  if ! printf '%s\n' "$target" >"$marker_staging" || \
+    ! chmod 0600 "$marker_staging" || \
+    ! mv -f "$marker_staging" "$previous_gateway_state_file"; then
+    rm -f "$marker_staging"
+    echo "Failed to publish Gateway state backup marker; retained backup: $target" >&2
+    return 1
+  fi
+  gateway_state_backup="$target"
+  echo "Gateway state backup: $target"
+}
+
+restore_gateway_state_backup() {
+  local backup="$1"
+  local failed_state
+  local staging
+
+  [[ -n "$backup" && -d "$backup" ]] || {
+    echo "Gateway state backup is unavailable: ${backup:-<missing>}" >&2
+    return 1
+  }
+  case "$backup/" in
+    "$gateway_state_backup_root"/*/) ;;
+    *)
+      echo "Refusing Gateway state restore outside $gateway_state_backup_root: $backup" >&2
+      return 1
+      ;;
+  esac
+
+  if ! staging="$(mktemp -d "$deploy_root/data/gateway-home/.restore.XXXXXX")" || \
+    [[ -z "$staging" ]]; then
+    echo "Failed to create Gateway state restore staging directory." >&2
+    return 1
+  fi
+  if ! cp -a "$backup/." "$staging/"; then
+    find "$staging" -mindepth 1 -depth -delete || true
+    rmdir "$staging" 2>/dev/null || true
+    echo "Failed to stage Gateway state restore from: $backup" >&2
+    return 1
+  fi
+  failed_state="$gateway_state_backup_root/failed-update-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  if ! mv "$gateway_state" "$failed_state"; then
+    find "$staging" -mindepth 1 -depth -delete || true
+    rmdir "$staging" 2>/dev/null || true
+    return 1
+  fi
+  if ! mv "$staging" "$gateway_state"; then
+    mv "$failed_state" "$gateway_state" || true
+    echo "Failed to activate restored Gateway state." >&2
+    return 1
+  fi
+  echo "Gateway state restored. Failed update state retained: $failed_state"
+}
+
+run_upgrade_doctor() {
+  echo "Run OpenClaw state migrations with the new image"
+  "${compose[@]}" run --rm --no-deps openclaw-gateway \
+    node /app/openclaw.mjs doctor --fix --yes --non-interactive
+}
+
 copy_legacy_directory() {
   local source="$1"
   local target="$2"
@@ -509,6 +611,7 @@ apply_images() {
   local sandbox_image="$2"
   local current_main
   local current_sandbox
+  local gateway_state_backup=""
   require_service_user
   require_immutable_image_ref "$main_image" "Main image"
   require_immutable_image_ref "$sandbox_image" "Sandbox image"
@@ -526,22 +629,47 @@ apply_images() {
     return
   fi
 
+  if ! image_pair_available "$current_main" "$current_sandbox"; then
+    echo "Current rollback image pair is not available locally: $current_main / $current_sandbox" >&2
+    echo "Reload its transfer archive before updating; no deployment state was changed." >&2
+    exit 1
+  fi
+
   cp -f "$env_file" "$env_file.previous"
   chmod 0600 "$env_file.previous"
   set_image_pair "$main_image" "$sandbox_image"
 
-  # Remove old runtimes only after the new Gateway is healthy and has reconciled
-  # its managed sandbox image. A removal failure enters the same image rollback.
+  # Doctor owns persisted-state upgrades. Keep a quiesced full state snapshot so
+  # a failed health check can restore both the old image refs and its DB schema.
   if "${compose[@]}" config --quiet && \
+    "${compose[@]}" down && \
+    create_gateway_state_backup && \
+    run_upgrade_doctor && \
     "${compose[@]}" up -d --wait && \
     { [[ "$current_sandbox" == "$sandbox_image" ]] || recreate_sandboxes; }; then
     echo "PlatformClaw updated: $main_image / $sandbox_image"
+    echo "Pre-update Gateway state retained for explicit rollback: $gateway_state_backup"
     return
   fi
 
-  echo "Update failed; restoring previous image refs." >&2
-  restore_previous_images
-  "${compose[@]}" up -d --wait || true
+  echo "Update failed; restoring previous image refs and Gateway state." >&2
+  if [[ -n "$gateway_state_backup" ]]; then
+    if ! "${compose[@]}" down; then
+      echo "Cannot prove services stopped; Gateway state and attempted image refs were left unchanged." >&2
+      exit 1
+    fi
+    restore_gateway_state_backup "$gateway_state_backup" || {
+      echo "Automatic Gateway state restore failed; services remain stopped." >&2
+      exit 1
+    }
+  fi
+  if image_pair_available "$current_main" "$current_sandbox"; then
+    restore_previous_images
+    "${compose[@]}" up -d --wait || true
+  else
+    echo "Rollback images disappeared during the update; keeping the attempted image refs." >&2
+    echo "No registry pull was attempted. Reload the previous transfer archive before rollback." >&2
+  fi
   exit 1
 }
 

@@ -16,6 +16,7 @@ type ComposeService = {
   networks?: Record<string, { aliases?: string[] }>;
   network_mode?: string;
   ports?: string[];
+  pull_policy?: string;
   profiles?: string[];
   read_only?: boolean;
   secrets?: string[];
@@ -614,6 +615,13 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain("quiesce_rootless_sandboxes");
     expect(deploy).toContain('find "$gateway_state" "$control_state" -mindepth 1');
     expect(deploy).toContain("restore_previous_images");
+    expect(deploy).toContain("image_pair_available");
+    expect(deploy).toContain("no deployment state was changed");
+    expect(deploy).toContain("No registry pull was attempted");
+    expect(deploy).toContain("create_gateway_state_backup");
+    expect(deploy).toContain("restore_gateway_state_backup");
+    expect(deploy).toContain("doctor --fix --yes --non-interactive");
+    expect(deploy).toContain("restoring previous image refs and Gateway state");
     expect(deploy).toContain("Rollback failed. Current deployment env restored");
     expect(deploy).toContain("PlatformClaw already uses");
     expect(deploy).toContain('image inspect "$previous_sandbox"');
@@ -634,6 +642,9 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).not.toContain("docker image prune");
     expect(deploy).not.toContain("docker image rm --force");
     expect(deploy).toContain("employee-auth-ca.crt");
+    expect(compose.services["platformclaw-state-init"]?.pull_policy).toBe("never");
+    expect(compose.services["openclaw-gateway"]?.pull_policy).toBe("never");
+    expect(compose.services["platformclaw-control"]?.pull_policy).toBe("never");
     const releasePrepare = readRepoFile(
       ".agents/skills/release-platformclaw/scripts/prepare-release.mjs",
     );
