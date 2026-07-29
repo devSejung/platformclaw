@@ -1,4 +1,5 @@
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
+import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { resolveCronListSnapshotRevision } from "../list-snapshot-revision.js";
 import { readCronJobScratchState, writeCronJobScratch } from "../scratch-store.js";
@@ -266,6 +267,9 @@ export async function listPage(state: CronServiceState, opts?: CronListPageOptio
     const sortBy = opts?.sortBy ?? "nextRunAtMs";
     const sortDir = opts?.sortDir ?? "asc";
     const requestedAgentId = normalizeOptionalAgentId(opts?.agentId);
+    const requestedSessionAgentId = normalizeOptionalAgentId(opts?.sessionAgentId);
+    const requestedOwnerAgentId = normalizeOptionalAgentId(opts?.ownerAgentId);
+    const requestedOwnerSessionAgentId = normalizeOptionalAgentId(opts?.ownerSessionAgentId);
     const source = state.store?.jobs ?? [];
     const filtered = source.filter((job) => {
       if (enabledFilter === "enabled" && !isJobEnabled(job)) {
@@ -281,6 +285,47 @@ export async function listPage(state: CronServiceState, opts?: CronListPageOptio
         return false;
       }
       if (scheduleKindFilter !== "all" && job.schedule.kind !== scheduleKindFilter) {
+        return false;
+      }
+      if (opts?.scheduleKinds && !opts.scheduleKinds.includes(job.schedule.kind)) {
+        return false;
+      }
+      if (opts?.payloadKinds && !opts.payloadKinds.includes(job.payload.kind)) {
+        return false;
+      }
+      if (
+        opts?.sessionTargets &&
+        !opts.sessionTargets.includes(job.sessionTarget as "main" | "isolated")
+      ) {
+        return false;
+      }
+      if (requestedSessionAgentId && job.sessionKey) {
+        const sessionAgentId = parseAgentSessionKey(job.sessionKey)?.agentId;
+        if (
+          !sessionAgentId ||
+          normalizeOptionalAgentId(sessionAgentId) !== requestedSessionAgentId
+        ) {
+          return false;
+        }
+      }
+      if (
+        requestedOwnerAgentId &&
+        normalizeOptionalAgentId(job.owner?.agentId) !== requestedOwnerAgentId
+      ) {
+        return false;
+      }
+      if (requestedOwnerSessionAgentId) {
+        const ownerSessionAgentId = job.owner?.sessionKey
+          ? parseAgentSessionKey(job.owner.sessionKey)?.agentId
+          : undefined;
+        if (
+          !ownerSessionAgentId ||
+          normalizeOptionalAgentId(ownerSessionAgentId) !== requestedOwnerSessionAgentId
+        ) {
+          return false;
+        }
+      }
+      if (opts?.requireOwnerAccountId && !job.owner?.accountId?.trim()) {
         return false;
       }
       if (lastRunStatusFilter !== "all" && resolveJobLastRunStatus(job) !== lastRunStatusFilter) {

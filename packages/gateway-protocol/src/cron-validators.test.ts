@@ -410,8 +410,11 @@ describe("cron protocol validators", () => {
   });
 
   it("accepts remove params for id and jobId selectors", () => {
-    expect(validateCronRemoveParams({ id: "job-1" })).toBe(true);
+    expect(validateCronRemoveParams({ id: "job-1", expectedConfigRevision: "revision-1" })).toBe(
+      true,
+    );
     expect(validateCronRemoveParams({ jobId: "job-2" })).toBe(true);
+    expect(validateCronRemoveParams({ id: "job-1", expectedConfigRevision: "" })).toBe(false);
   });
 
   it("accepts run params mode for id and jobId selectors", () => {
@@ -419,6 +422,7 @@ describe("cron protocol validators", () => {
       validateCronRunParams({
         id: "job-1",
         mode: "force",
+        expectedConfigRevision: "revision-1",
         expectedProcessInstanceId: "process-1",
       }),
     ).toBe(true);
@@ -439,6 +443,13 @@ describe("cron protocol validators", () => {
         sortBy: "nextRunAtMs",
         sortDir: "asc",
         agentId: "ops",
+        scheduleKinds: ["at", "every", "cron"],
+        payloadKinds: ["agentTurn", "systemEvent"],
+        sessionTargets: ["main", "isolated"],
+        sessionAgentId: "ops",
+        ownerAgentId: "ops",
+        ownerSessionAgentId: "ops",
+        requireOwnerAccountId: true,
         compact: true,
         includeDeliveryPreviews: false,
       }),

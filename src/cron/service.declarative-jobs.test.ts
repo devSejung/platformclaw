@@ -12,14 +12,18 @@ const logger = createNoopLogger();
 const { makeStorePath } = createCronStoreHarness({ prefix: "openclaw-cron-declarative-" });
 installCronTestHooks({ logger });
 
-function createCronService(storePath: string, cronEnabled = true) {
+function createCronService(
+  storePath: string,
+  cronEnabled = true,
+  runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const })),
+) {
   return new CronService({
     storePath,
     cronEnabled,
     log: logger,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
-    runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+    runIsolatedAgentJob,
   });
 }
 
@@ -44,6 +48,10 @@ function declarativeResult(result: CronAddResult) {
     throw new Error("expected declarative cron result");
   }
   return result;
+}
+
+function createdJob(result: CronAddResult): CronJob {
+  return "job" in result ? result.job : result;
 }
 
 describe("CronService declarative jobs", () => {
@@ -195,6 +203,29 @@ describe("CronService declarative jobs", () => {
     }
   });
 
+  it("checks remove and queued-run preconditions under the mutation lock", async () => {
+    const { storePath } = await makeStorePath();
+    const cron = createCronService(storePath);
+    await cron.start();
+
+    try {
+      const created = declarativeResult(await cron.add(declaration()));
+      const deny = () => {
+        throw new Error("scope changed");
+      };
+
+      await expect(cron.remove(created.id, { precondition: deny })).rejects.toThrow(
+        "scope changed",
+      );
+      await expect(cron.enqueueRun(created.id, "force", { precondition: deny })).rejects.toThrow(
+        "scope changed",
+      );
+      await expect(cron.readJob(created.id)).resolves.toMatchObject({ id: created.id });
+    } finally {
+      cron.stop();
+    }
+  });
+
   it("converges delivery while retaining the declared session target", async () => {
     const { storePath } = await makeStorePath();
     const cron = createCronService(storePath);
@@ -261,5 +292,66 @@ describe("CronService declarative jobs", () => {
       displayName: "Daily report",
       owner: { agentId: "ops", sessionKey: "agent:ops:main" },
     } satisfies Partial<CronJob>);
+  });
+
+  it("persists browser and conversational jobs together and runs after restart", async () => {
+    const { storePath } = await makeStorePath();
+    const writer = createCronService(storePath);
+    await writer.start();
+    const browserJob = createdJob(
+      await writer.add({
+        name: "browser report",
+        agentId: "ops",
+        enabled: true,
+        schedule: { kind: "every", everyMs: 60_000 },
+        sessionTarget: "isolated",
+        wakeMode: "now",
+        payload: { kind: "agentTurn", message: "browser report" },
+        delivery: { mode: "none" },
+        failureAlert: false,
+        owner: { agentId: "ops", sessionKey: "agent:ops:main", accountId: "work" },
+      }),
+    );
+    const conversationalJob = declarativeResult(
+      await writer.add(
+        declaration({
+          owner: { agentId: "ops", sessionKey: "agent:ops:main", accountId: "work" },
+        }),
+      ),
+    );
+    writer.stop();
+
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const reader = createCronService(storePath, true, runIsolatedAgentJob);
+    await reader.start();
+    try {
+      const jobs = await reader.list({ includeDisabled: true });
+      expect(jobs.map((job) => job.id)).toEqual(
+        expect.arrayContaining([browserJob.id, conversationalJob.id]),
+      );
+      expect(jobs.find((job) => job.id === browserJob.id)?.delivery).toEqual({ mode: "none" });
+      expect(jobs.find((job) => job.id === conversationalJob.id)?.delivery).toEqual({
+        mode: "announce",
+        channel: "last",
+      });
+      expect(jobs.find((job) => job.id === conversationalJob.id)?.owner).toEqual({
+        agentId: "ops",
+        sessionKey: "agent:ops:main",
+        accountId: "work",
+      });
+
+      await expect(reader.enqueueRun(browserJob.id, "force")).resolves.toMatchObject({
+        ok: true,
+        enqueued: true,
+      });
+      await vi.waitFor(() => expect(runIsolatedAgentJob).toHaveBeenCalledOnce());
+      expect(runIsolatedAgentJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          job: expect.objectContaining({ id: browserJob.id, agentId: "ops" }),
+        }),
+      );
+    } finally {
+      reader.stop();
+    }
   });
 });

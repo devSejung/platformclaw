@@ -119,6 +119,7 @@ describe("cron listPage sort guards", () => {
         id: "job-scoped",
         agentId: undefined,
         sessionKey: "agent:ops:main",
+        owner: { agentId: "ops", sessionKey: "agent:ops:main", accountId: "work" },
       }),
     ];
     const state = createMockCronStateForJobs({ jobs });
@@ -152,6 +153,49 @@ describe("cron listPage sort guards", () => {
     const page = await listPage(state);
 
     expect(page.jobs.map((job) => job.id)).toEqual(["job-main", "job-ops"]);
+  });
+
+  it("applies execution safety filters before pagination", async () => {
+    const jobs = [
+      createBaseJob({
+        id: "safe",
+        agentId: "ops",
+        sessionTarget: "isolated",
+        sessionKey: "agent:ops:main",
+        payload: { kind: "agentTurn", message: "summarize" },
+      }),
+      createBaseJob({
+        id: "command",
+        agentId: "ops",
+        sessionTarget: "isolated",
+        payload: { kind: "command", argv: ["deploy"] },
+      }),
+      createBaseJob({
+        id: "foreign-session",
+        agentId: "ops",
+        sessionTarget: "isolated",
+        sessionKey: "agent:other:main",
+        owner: { agentId: "ops", sessionKey: "agent:ops:main", accountId: "work" },
+        payload: { kind: "agentTurn", message: "summarize" },
+      }),
+    ];
+    const state = createMockCronStateForJobs({ jobs });
+
+    const page = await listPage(state, {
+      agentId: "ops",
+      scheduleKinds: ["at", "every", "cron"],
+      payloadKinds: ["agentTurn", "systemEvent"],
+      sessionTargets: ["main", "isolated"],
+      sessionAgentId: "ops",
+      ownerAgentId: "ops",
+      ownerSessionAgentId: "ops",
+      requireOwnerAccountId: true,
+      limit: 1,
+    });
+
+    expect(page.jobs.map((job) => job.id)).toEqual(["safe"]);
+    expect(page.total).toBe(1);
+    expect(page.hasMore).toBe(false);
   });
 
   it("keeps one revision across pages and changes it for same-count store churn", async () => {

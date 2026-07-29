@@ -95,6 +95,7 @@ type CronProps = {
   timezoneSuggestions: string[];
   deliveryToSuggestions: string[];
   accountSuggestions: string[];
+  personalAccess?: boolean;
   onListTabChange: (tab: CronListTab) => void;
   onDetailTabChange: (tab: CronDetailTab) => void;
   onFormChange: (patch: Partial<CronFormState>) => void;
@@ -419,7 +420,7 @@ function renderListView(props: CronProps) {
         role="tabpanel"
         aria-labelledby=${`cron-list-tab-${props.listTab}`}
       >
-        ${props.listTab === "activity"
+        ${!props.personalAccess && props.listTab === "activity"
           ? renderSettingsSection(
               {},
               html`<div class="cron-activity">${renderRunsSection(props)}</div>`,
@@ -439,6 +440,9 @@ function renderListView(props: CronProps) {
 }
 
 function renderListTabs(props: CronProps) {
+  if (props.personalAccess) {
+    return nothing;
+  }
   return renderSegmented<CronListTab>({
     value: props.listTab,
     options: [
@@ -838,8 +842,8 @@ function renderSuggestions(props: CronProps) {
 function renderDetailView(props: CronProps, mode: CronPanelMode) {
   const selectedJob =
     mode === "job" ? props.jobs.find((job) => job.id === props.editingJobId) : undefined;
-  const hasDetailTabs = mode === "job" && Boolean(selectedJob);
-  const showHistory = mode === "job" && props.detailTab === "history";
+  const hasDetailTabs = mode === "job" && Boolean(selectedJob) && !props.personalAccess;
+  const showHistory = hasDetailTabs && props.detailTab === "history";
   const children = [
     html`
       <div class="cron-back-row">
@@ -972,8 +976,11 @@ function renderEditor(props: CronProps, mode: CronPanelMode) {
   const supportsAnnounce =
     props.form.sessionTarget !== "main" &&
     (props.form.payloadKind === "agentTurn" || payloadLocked);
-  const selectedDeliveryMode =
-    props.form.deliveryMode === "announce" && !supportsAnnounce ? "none" : props.form.deliveryMode;
+  const selectedDeliveryMode = props.personalAccess
+    ? "none"
+    : props.form.deliveryMode === "announce" && !supportsAnnounce
+      ? "none"
+      : props.form.deliveryMode;
   const blockingFields = collectBlockingFields(props.fieldErrors, props.form, selectedDeliveryMode);
   const blockedByValidation = props.canManage && !props.busy && blockingFields.length > 0;
   const submitDisabledReason =
@@ -990,7 +997,9 @@ function renderEditor(props: CronProps, mode: CronPanelMode) {
     >
       ${renderPromptSection(props, { payloadLocked, isAgentTurn })} ${renderGeneralSection(props)}
       ${renderScheduleSection(props)}
-      ${renderDeliverySection(props, { supportsAnnounce, selectedDeliveryMode })}
+      ${props.personalAccess
+        ? nothing
+        : renderDeliverySection(props, { supportsAnnounce, selectedDeliveryMode })}
       ${renderAdvanced(props, {
         mode,
         isAgentTurn,
@@ -1804,10 +1813,10 @@ function renderAdvanced(
                   help: t("cron.form.lightContextHelp"),
                   onChange: (checked) => props.onFormChange({ payloadLightContext: checked }),
                 })}
-                ${renderFailureAlertRows(props, channelOptions)}
+                ${props.personalAccess ? nothing : renderFailureAlertRows(props, channelOptions)}
               `
             : nothing}
-          ${ctx.selectedDeliveryMode !== "none"
+          ${!props.personalAccess && ctx.selectedDeliveryMode !== "none"
             ? renderToggleRow({
                 label: t("cron.form.bestEffortDelivery"),
                 checked: props.form.deliveryBestEffort,

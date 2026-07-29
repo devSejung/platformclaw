@@ -130,6 +130,17 @@ function selectSegmented(control: HTMLElement) {
   group.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+describe("personal cron policy", () => {
+  it("hides delivery, failure-alert, and run-history controls", () => {
+    const container = renderView({ createOpen: true, personalAccess: true });
+    const overview = renderView({ personalAccess: true });
+    expect(container.querySelector("#cron-delivery-mode")).toBeNull();
+    expect(container.querySelector("#cron-failure-alert-mode")).toBeNull();
+    expect(overview.querySelector('[data-test-id="cron-list-tab-activity"]')).toBeNull();
+    expect(container.querySelector('[data-test-id="cron-detail-tab-history"]')).toBeNull();
+  });
+});
+
 function findToggleByLabel(container: Element, label: string) {
   return (
     Array.from(container.querySelectorAll("wa-switch.settings-toggle")).find((toggle) =>

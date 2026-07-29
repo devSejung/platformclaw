@@ -761,6 +761,7 @@ export type CronJob = CronJobBase<
   CronDelivery,
   CronFailureAlert | false
 > & {
+  configRevision?: string;
   state?: CronJobState;
 };
 

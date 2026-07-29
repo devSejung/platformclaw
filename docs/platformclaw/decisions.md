@@ -374,6 +374,43 @@ Plugin lifecycle operations remain administrator-only and use the existing
 upstream plugin RPCs. The employee BFF adds role and Agent checks without
 changing upstream Gateway protocol or skill/plugin ownership boundaries.
 
+### PC-122 Expose Agent-scoped activity, usage, and cron self-service
+
+Employee browsers may open Activity, Usage, and Automations. Activity and
+usage queries are forced to the authenticated employee's personal Agent.
+Automation job queries are forced to that same Agent, and every
+mutation of an existing job is pinned to the inspected config revision and
+rechecked under the cron store lock before it commits or runs.
+
+Browser-created jobs support only `at`, `every`, and `cron` schedules with
+`agentTurn` or `systemEvent` payloads. The BFF rejects process-backed schedules,
+shell/script payloads, cross-Agent session references, webhooks, explicit
+outbound targets, and configurable failure alerts. Existing process-backed or
+shell jobs are excluded from employee reads, history, and mutations even when
+they name the employee's Agent. Browser-created jobs use no delivery, and the
+employee editor does not present outbound delivery controls; conversational
+cron creation continues through the upstream `cron` tool, whose signed
+agent-runtime caller scope owns Agent, session, account, and delivery
+provenance. Scheduled `agentTurn` runs use the normal personal
+execution backend, so an assigned VM does not need the OpenClaw CLI.
+Employee reads additionally require the immutable authenticated owner envelope
+(Agent, owner session, and account); ownerless legacy jobs fail closed before
+pagination, regardless of their current delivery or payload fields.
+
+Employee cron run history remains hidden. Existing history rows do not carry
+immutable Agent, schedule, payload, and session provenance, so authorizing them
+from a job's mutable current definition could disclose an earlier privileged
+run. A future history surface must persist and filter on execution-time
+provenance rather than reconstructing authority from the current job.
+
+Bootstrap remains deferred. The upstream `BOOTSTRAP.md` currently instructs
+the agent to execute host control-plane CLI commands such as
+`openclaw agents set-identity`. Those commands are incorrectly routed through
+the assigned-VM shell backend. Bootstrap must move identity, recommendation,
+plugin, and acknowledgement mutations to typed host/Gateway operations before
+it is enabled for VM-backed employees; installing the OpenClaw CLI in employee
+VMs is not an accepted workaround.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs

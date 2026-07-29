@@ -41,6 +41,12 @@ describe("resolvePlatformClawReturnTo", () => {
 });
 
 describe("PlatformClaw Web descriptor", () => {
+  it("exposes employee activity, usage, and cron routes", () => {
+    expect(PLATFORMCLAW_WEB_DESCRIPTOR.enabledRoutes).toEqual(
+      expect.arrayContaining(["activity", "usage", "cron"]),
+    );
+  });
+
   it("accepts only the fixed browser bootstrap contract", () => {
     expect(parsePlatformClawWebDescriptor({ ...PLATFORMCLAW_WEB_DESCRIPTOR })).toBe(
       PLATFORMCLAW_WEB_DESCRIPTOR,
