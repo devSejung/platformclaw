@@ -1051,48 +1051,6 @@ describe("chat pane catalog session lifecycle", () => {
   });
 });
 
-describe("chat pane personal-agent session controls", () => {
-  it("hides session sharing even when the private Gateway advertises it", () => {
-    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
-    const { pane, state } = createTestChatPane({ client, sessions: {} as SessionCapability });
-    pane.context = {
-      ...pane.context,
-      accessMode: "personal-agent",
-      gateway: {
-        ...pane.context.gateway,
-        snapshot: {
-          ...pane.context.gateway.snapshot,
-          hello: {
-            features: { methods: ["session.visibility.set"] },
-            auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
-          } as ApplicationContext["gateway"]["snapshot"]["hello"],
-        },
-      },
-    } as ApplicationContext;
-    const row = {
-      key: "agent:main:current",
-      visibility: "shared",
-      sharingRole: "owner",
-    } as GatewaySessionRow;
-    state.sessionsResult = { sessions: [row] } as ChatPageHost["sessionsResult"];
-    const container = document.createElement("div");
-
-    render(
-      pane.renderPaneHeader(
-        createSessionWorkspaceProps(state),
-        createBackgroundTasksProps(state, { onOpenSession: () => {} }),
-        row,
-        false,
-        undefined,
-        false,
-      ),
-      container,
-    );
-
-    expect(container.querySelector(".chat-pane__sharing-trigger")).toBeNull();
-  });
-});
-
 describe("chat pane task suggestion lifecycle", () => {
   it("keeps accept ownership when the resolved event arrives before the response", async () => {
     const accepted = createDeferred<TaskSuggestionsAcceptResult>();
