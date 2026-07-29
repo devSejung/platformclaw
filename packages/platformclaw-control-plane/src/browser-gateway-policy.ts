@@ -124,6 +124,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "agentId",
       "enabled",
       "includeDisabled",
+      "includeDeliveryPreviews",
       "lastRunStatus",
       "limit",
       "offset",
