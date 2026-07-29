@@ -1674,6 +1674,7 @@ class NewSessionPage extends OpenClawLightDomElement {
           message: this.message,
           visibility: this.visibility,
           draftAvailable: this.canStartAsDraft(),
+          incognitoAvailable: this.context?.accessMode !== "personal-agent",
           modelControl: this.modelControl,
           requiresModifier: loadSettings().chatSendShortcut === "modifier-enter",
           submitting: this.submitting,

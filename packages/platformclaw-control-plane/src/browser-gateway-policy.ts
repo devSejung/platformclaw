@@ -178,6 +178,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "emitCommandHooks",
       "succeedsParent",
       "message",
+      "attachments",
     ]),
   ],
   ["sessions.describe", new Set(["key", "includeDerivedTitles", "includeLastMessage"])],

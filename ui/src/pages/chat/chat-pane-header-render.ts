@@ -141,6 +141,7 @@ export abstract class ChatPaneHeaderRender extends ChatPaneHeader {
         this.persistBoardSessionView({ face });
       }),
       sharingControl:
+        this.context.accessMode !== "personal-agent" &&
         isGatewayMethodAdvertised(this.context.gateway.snapshot, "session.visibility.set") === true
           ? renderChatSessionSharing({
               session: row,

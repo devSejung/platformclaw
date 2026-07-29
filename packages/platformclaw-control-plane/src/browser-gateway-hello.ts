@@ -68,6 +68,10 @@ export function projectPlatformClawBrowserHello(params: {
     },
     policy: {
       ...params.upstream.policy,
+      // Employee browsers have one personal Agent and no cross-user session audience.
+      // Do not advertise upstream sharing modes that the BFF intentionally rejects.
+      allowedSessionVisibilities: [],
+      hasMultipleSessionSharingIdentities: false,
       maxPayload:
         params.maxPayloadBytes === undefined
           ? params.upstream.policy.maxPayload

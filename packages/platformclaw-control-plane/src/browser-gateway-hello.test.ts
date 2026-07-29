@@ -96,7 +96,11 @@ describe("projectPlatformClawBrowserHello", () => {
       role: "operator",
       scopes: ["operator.read", "operator.write"],
     });
-    expect(projected.policy.maxPayload).toBe(512);
+    expect(projected.policy).toMatchObject({
+      allowedSessionVisibilities: [],
+      hasMultipleSessionSharingIdentities: false,
+      maxPayload: 512,
+    });
   });
 
   it("advertises plugin administration only to PlatformClaw administrators", () => {

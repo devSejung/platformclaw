@@ -23,6 +23,7 @@ export function renderUsagePageShell(
         agents: context.agents.state.agentsList?.agents ?? [],
         additionalAgentIds,
         selection: context.agentSelection,
+        allowAll: context.accessMode !== "personal-agent",
       })}
     </section>
     ${renderSettingsWorkspace(body)}
