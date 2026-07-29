@@ -49,7 +49,6 @@ function cronSandboxConfig(agentId: string) {
         prune: { idleHours: 0, maxAgeDays: 0 },
       },
     },
-    agentConfigOverride: { id: agentId },
   });
   return resolveSandboxConfigForAgent({ agents: { defaults, list: [{ id: agentId }] } }, agentId);
 }
