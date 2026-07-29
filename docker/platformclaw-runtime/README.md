@@ -135,7 +135,9 @@ and private-plugin policy remains enforced at startup.
 The transfer archive contains both the main and sandbox images. The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
 health, recreates existing agent sandboxes with the new image, and restores the
-prior environment on failure. Previous images remain available for rollback:
+prior environment on failure. Compose never pulls these private image names
+from a registry, and update refuses to start unless the current rollback pair
+exists locally. Previous images remain available for rollback:
 
 ```bash
 ./platformclaw-deploy image update \

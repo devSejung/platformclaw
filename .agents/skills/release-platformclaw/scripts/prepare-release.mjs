@@ -3,7 +3,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  chmodSync,
   copyFileSync,
   createReadStream,
   existsSync,
@@ -16,6 +15,8 @@ import {
 } from "node:fs";
 import { basename, resolve } from "node:path";
 import process from "node:process";
+import { gzipSync } from "node:zlib";
+import { patchTarModes } from "../../../../scripts/platformclaw-tar-modes.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "../../../..");
 
@@ -117,12 +118,25 @@ try {
     const target = resolve(staging, targetName);
     if (!existsSync(source)) fail(`Deployment asset does not exist: ${source}`);
     copyFileSync(source, target);
-    chmodSync(target, executable ? 0o755 : 0o644);
   }
 
   const bundleName = `platformclaw-deployment-${version}-${shortSha}.tar.gz`;
   const bundlePath = resolve(options.outputDir, bundleName);
-  run("tar", ["-czf", bundlePath, "-C", staging, "."]);
+  const rawBundlePath = `${bundlePath}.tmp-${process.pid}`;
+  try {
+    run("tar", ["-cf", rawBundlePath, "--format=ustar", "-C", staging, "."]);
+    const modes = new Map([
+      [".", 0o755],
+      ...bundleFiles.map(([sourceName, executable, targetName = sourceName]) => [
+        targetName,
+        executable ? 0o755 : 0o644,
+      ]),
+    ]);
+    const bundle = patchTarModes(readFileSync(rawBundlePath), modes);
+    writeFileSync(bundlePath, gzipSync(bundle));
+  } finally {
+    rmSync(rawBundlePath, { force: true });
+  }
   const bundleDigest = await sha256(bundlePath);
   const bundleChecksum = `${bundlePath}.sha256`;
   writeFileSync(bundleChecksum, `${bundleDigest}  ${bundleName}\n`, "utf8");

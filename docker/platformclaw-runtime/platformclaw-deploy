@@ -376,6 +376,14 @@ restore_previous_images() {
   set_image_pair "$previous_main" "$previous_sandbox"
 }
 
+image_pair_available() {
+  local main_image="$1"
+  local sandbox_image="$2"
+  [[ -n "$main_image" && -n "$sandbox_image" ]] &&
+    DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$main_image" >/dev/null 2>&1 &&
+    "${rootless[@]}" image inspect "$sandbox_image" >/dev/null 2>&1
+}
+
 copy_legacy_directory() {
   local source="$1"
   local target="$2"
@@ -526,6 +534,12 @@ apply_images() {
     return
   fi
 
+  if ! image_pair_available "$current_main" "$current_sandbox"; then
+    echo "Current rollback image pair is not available locally: $current_main / $current_sandbox" >&2
+    echo "Reload its transfer archive before updating; no deployment state was changed." >&2
+    exit 1
+  fi
+
   cp -f "$env_file" "$env_file.previous"
   chmod 0600 "$env_file.previous"
   set_image_pair "$main_image" "$sandbox_image"
@@ -540,8 +554,13 @@ apply_images() {
   fi
 
   echo "Update failed; restoring previous image refs." >&2
-  restore_previous_images
-  "${compose[@]}" up -d --wait || true
+  if image_pair_available "$current_main" "$current_sandbox"; then
+    restore_previous_images
+    "${compose[@]}" up -d --wait || true
+  else
+    echo "Rollback images disappeared during the update; keeping the attempted image refs." >&2
+    echo "No registry pull was attempted. Reload the previous transfer archive before rollback." >&2
+  fi
   exit 1
 }
 
