@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createReadStream, createWriteStream, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gzipSync } from "node:zlib";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
-import { patchTarModes } from "../../scripts/platformclaw-tar-modes.mjs";
+import { patchTarModesFile } from "../../scripts/platformclaw-tar-modes.mjs";
 
 const temporaryDirectories: string[] = [];
 
@@ -15,7 +16,7 @@ afterEach(() => {
 });
 
 describe("PlatformClaw release tar modes", () => {
-  it("records executable deployment entrypoints on every build host", () => {
+  it("records executable deployment entrypoints on every build host", async () => {
     const root = mkdtempSync(join(tmpdir(), "platformclaw-tar-modes-"));
     temporaryDirectories.push(root);
     for (const name of ["compose.yaml", "platformclaw-compose", "platformclaw-deploy"]) {
@@ -40,15 +41,15 @@ describe("PlatformClaw release tar modes", () => {
     expect(create.status, create.stderr).toBe(0);
 
     const archive = join(root, "bundle.tar.gz");
-    const patched = patchTarModes(
-      readFileSync(rawArchive),
+    await patchTarModesFile(
+      rawArchive,
       new Map([
         ["compose.yaml", 0o644],
         ["platformclaw-compose", 0o755],
         ["platformclaw-deploy", 0o755],
       ]),
     );
-    writeFileSync(archive, gzipSync(patched));
+    await pipeline(createReadStream(rawArchive), createGzip(), createWriteStream(archive));
 
     const list = spawnSync("tar", ["-tvzf", archive], { encoding: "utf8" });
     expect(list.status, list.stderr).toBe(0);
@@ -57,10 +58,13 @@ describe("PlatformClaw release tar modes", () => {
     expect(list.stdout).toMatch(/^-rwxr-xr-x.*platformclaw-deploy$/mu);
   });
 
-  it("fails when a required entry is absent", () => {
-    const emptyArchive = Buffer.alloc(1024);
-    expect(() => patchTarModes(emptyArchive, new Map([["platformclaw-deploy", 0o755]]))).toThrow(
-      "Tar archive is missing mode targets: platformclaw-deploy",
-    );
+  it("fails when a required entry is absent", async () => {
+    const root = mkdtempSync(join(tmpdir(), "platformclaw-tar-modes-empty-"));
+    temporaryDirectories.push(root);
+    const emptyArchive = join(root, "empty.tar");
+    writeFileSync(emptyArchive, Buffer.alloc(1024));
+    await expect(
+      patchTarModesFile(emptyArchive, new Map([["platformclaw-deploy", 0o755]])),
+    ).rejects.toThrow("Tar archive is missing mode targets: platformclaw-deploy");
   });
 });

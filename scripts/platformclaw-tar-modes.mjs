@@ -1,3 +1,5 @@
+import { open } from "node:fs/promises";
+
 const TAR_BLOCK_SIZE = 512;
 const TAR_NAME_OFFSET = 0;
 const TAR_NAME_LENGTH = 100;
@@ -43,28 +45,68 @@ function updateTarChecksum(block) {
   block.write(encoded, TAR_CHECKSUM_OFFSET, TAR_CHECKSUM_LENGTH, "ascii");
 }
 
-export function patchTarModes(archive, modes) {
-  const patched = Buffer.from(archive);
-  const remaining = new Set(modes.keys());
+async function readTarBlock(archive, block, position) {
+  let bytesRead = 0;
+  while (bytesRead < TAR_BLOCK_SIZE) {
+    const result = await archive.read(
+      block,
+      bytesRead,
+      TAR_BLOCK_SIZE - bytesRead,
+      position + bytesRead,
+    );
+    if (result.bytesRead === 0) break;
+    bytesRead += result.bytesRead;
+  }
+  return bytesRead;
+}
 
-  for (let offset = 0; offset + TAR_BLOCK_SIZE <= patched.length;) {
-    const block = patched.subarray(offset, offset + TAR_BLOCK_SIZE);
-    if (block.every((byte) => byte === 0)) break;
-
-    const path = tarPath(block);
-    const mode = modes.get(path);
-    if (mode !== undefined) {
-      writeTarOctal(block, TAR_MODE_OFFSET, TAR_MODE_LENGTH, mode);
-      updateTarChecksum(block);
-      remaining.delete(path);
+async function writeTarBlock(archive, block, position) {
+  let bytesWritten = 0;
+  while (bytesWritten < TAR_BLOCK_SIZE) {
+    const result = await archive.write(
+      block,
+      bytesWritten,
+      TAR_BLOCK_SIZE - bytesWritten,
+      position + bytesWritten,
+    );
+    if (result.bytesWritten === 0) {
+      throw new Error(`Tar archive header write made no progress at offset ${position}`);
     }
+    bytesWritten += result.bytesWritten;
+  }
+}
 
-    const size = readTarOctal(block, TAR_SIZE_OFFSET, TAR_SIZE_LENGTH);
-    offset += TAR_BLOCK_SIZE + Math.ceil(size / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
+export async function patchTarModesFile(archivePath, modes) {
+  const archive = await open(archivePath, "r+");
+  const remaining = new Set(modes.keys());
+  const block = Buffer.alloc(TAR_BLOCK_SIZE);
+
+  try {
+    for (let offset = 0; ; ) {
+      const bytesRead = await readTarBlock(archive, block, offset);
+      if (bytesRead === 0) break;
+      if (bytesRead !== TAR_BLOCK_SIZE) {
+        throw new Error(`Tar archive has a truncated header at offset ${offset}`);
+      }
+      if (block.every((byte) => byte === 0)) break;
+
+      const path = tarPath(block);
+      const mode = modes.get(path);
+      if (mode !== undefined) {
+        writeTarOctal(block, TAR_MODE_OFFSET, TAR_MODE_LENGTH, mode);
+        updateTarChecksum(block);
+        await writeTarBlock(archive, block, offset);
+        remaining.delete(path);
+      }
+
+      const size = readTarOctal(block, TAR_SIZE_OFFSET, TAR_SIZE_LENGTH);
+      offset += TAR_BLOCK_SIZE + Math.ceil(size / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
+    }
+  } finally {
+    await archive.close();
   }
 
   if (remaining.size > 0) {
     throw new Error(`Tar archive is missing mode targets: ${[...remaining].join(", ")}`);
   }
-  return patched;
 }

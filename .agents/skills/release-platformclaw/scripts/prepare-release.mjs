@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import {
   copyFileSync,
   createReadStream,
+  createWriteStream,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -15,8 +16,9 @@ import {
 } from "node:fs";
 import { basename, resolve } from "node:path";
 import process from "node:process";
-import { gzipSync } from "node:zlib";
-import { patchTarModes } from "../../../../scripts/platformclaw-tar-modes.mjs";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
+import { patchTarModesFile } from "../../../../scripts/platformclaw-tar-modes.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "../../../..");
 
@@ -132,8 +134,8 @@ try {
         executable ? 0o755 : 0o644,
       ]),
     ]);
-    const bundle = patchTarModes(readFileSync(rawBundlePath), modes);
-    writeFileSync(bundlePath, gzipSync(bundle));
+    await patchTarModesFile(rawBundlePath, modes);
+    await pipeline(createReadStream(rawBundlePath), createGzip(), createWriteStream(bundlePath));
   } finally {
     rmSync(rawBundlePath, { force: true });
   }

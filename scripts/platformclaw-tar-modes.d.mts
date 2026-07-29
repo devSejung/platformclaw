@@ -1,1 +1,4 @@
-export function patchTarModes(archive: Uint8Array, modes: ReadonlyMap<string, number>): Buffer;
+export function patchTarModesFile(
+  archivePath: string,
+  modes: ReadonlyMap<string, number>,
+): Promise<void>;
