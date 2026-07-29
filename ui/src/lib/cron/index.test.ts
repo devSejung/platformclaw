@@ -2560,6 +2560,25 @@ describe("cron controller", () => {
     expect(request).toHaveBeenCalledWith("cron.runs", expect.any(Object));
   });
 
+  it("sends the browser-loaded revision when running a loaded job", async () => {
+    const request = vi.fn(async (method: string) =>
+      method === "cron.run" ? { ok: true, enqueued: true, runId: "run-1" } : {},
+    );
+    const state = createState({ client: { request } as unknown as CronState["client"] });
+    const job = {
+      id: "job-revision",
+      configRevision: "revision-7",
+    } as unknown as CronJob;
+
+    await runCronJob(state, job, "force");
+
+    expect(request).toHaveBeenCalledWith("cron.run", {
+      id: "job-revision",
+      mode: "force",
+      expectedConfigRevision: "revision-7",
+    });
+  });
+
   it.each([
     ["not-due", "This automation is not due yet."],
     ["already-running", "This automation is already running."],

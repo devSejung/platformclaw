@@ -32,6 +32,8 @@ export type CronServiceRunOptions = {
   /** Logical source identity; rejects retired batches under same-schedule ABA. */
   streamSourceIdentity?: string;
   onTriggerDisposition?: (disposition: "fired" | "dropped" | "busy" | "error") => void;
+  /** Checked under the cron store lock before a manual run is admitted. */
+  precondition?: CronUpdatePrecondition;
 };
 
 /** Public cron service facade used by gateway, plugin SDK, and tests. */
@@ -49,9 +51,16 @@ export interface CronServiceContract {
     precondition: CronUpdatePrecondition,
     opts?: CronUpdateOptions,
   ): Promise<CronUpdateResult>;
-  remove(id: string, opts?: { systemOwned?: boolean }): Promise<CronRemoveResult>;
+  remove(
+    id: string,
+    opts?: { systemOwned?: boolean; precondition?: CronUpdatePrecondition },
+  ): Promise<CronRemoveResult>;
   run(id: string, mode?: CronRunMode, opts?: CronServiceRunOptions): Promise<CronServiceRunResult>;
-  enqueueRun(id: string, mode?: CronRunMode): Promise<CronServiceRunResult>;
+  enqueueRun(
+    id: string,
+    mode?: CronRunMode,
+    opts?: Pick<CronServiceRunOptions, "precondition">,
+  ): Promise<CronServiceRunResult>;
   getJob(id: string): CronJob | undefined;
   readJob(id: string): Promise<CronJob | undefined>;
   getDefaultAgentId(): string | undefined;

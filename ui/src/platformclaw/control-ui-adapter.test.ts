@@ -61,9 +61,12 @@ describe("PlatformClawControlUiAdapter", () => {
       enabledRouteIds: [
         "chat",
         "new-session",
+        "activity",
         "sessions",
+        "usage",
         "agents",
         "tasks",
+        "cron",
         "appearance",
         "profile",
         "notifications",
@@ -72,7 +75,14 @@ describe("PlatformClawControlUiAdapter", () => {
         "skill-workshop",
       ],
       navigation: {
-        sidebarEntries: ["route:sessions", "route:tasks", "route:plugins"],
+        sidebarEntries: [
+          "route:usage",
+          "route:tasks",
+          "route:sessions",
+          "route:activity",
+          "route:cron",
+          "route:skills",
+        ],
         sidebarRouteTargets: { plugins: "skills" },
       },
       gateway: {
@@ -222,7 +232,8 @@ describe("PlatformClawControlUiAdapter", () => {
       vi.fn(),
     );
     expect(memberOptions.enabledRouteIds).not.toContain("plugins");
-    expect(memberOptions.navigation?.sidebarEntries).toContain("route:plugins");
+    expect(memberOptions.navigation?.sidebarEntries).not.toContain("route:plugins");
+    expect(memberOptions.navigation?.sidebarEntries).toContain("route:skills");
     expect(memberOptions.navigation?.sidebarRouteTargets).toEqual({ plugins: "skills" });
     render(memberOptions.shellSession?.renderFooterAccessory?.(), document.body);
 

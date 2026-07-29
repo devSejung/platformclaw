@@ -9,6 +9,7 @@ function makeCfg() {
       defaults: {
         sandbox: {
           mode: "all" as const,
+          backend: "platformclaw-execution",
           workspaceAccess: "rw" as const,
           docker: {
             network: "none",
@@ -53,6 +54,7 @@ function expectDefaultSandboxPreserved(
 ) {
   expect(runCfg?.agents?.defaults?.sandbox).toEqual({
     mode: "all",
+    backend: "platformclaw-execution",
     workspaceAccess: "rw",
     docker: {
       network: "none",
@@ -81,6 +83,7 @@ describe("runCronIsolatedAgentTurn sandbox config preserved", () => {
     expectDefaultSandboxPreserved(runCfg);
     const resolvedSandbox = resolveSandboxConfigForAgent(runCfg, "worker");
     expect(resolvedSandbox.mode).toBe("all");
+    expect(resolvedSandbox.backend).toBe("platformclaw-execution");
     expect(resolvedSandbox.workspaceAccess).toBe("rw");
   });
 
@@ -102,6 +105,7 @@ describe("runCronIsolatedAgentTurn sandbox config preserved", () => {
 
     expectDefaultSandboxPreserved(runCfg);
     expect(resolvedSandbox.mode).toBe("all");
+    expect(resolvedSandbox.backend).toBe("platformclaw-execution");
     expect(resolvedSandbox.workspaceAccess).toBe("rw");
     expect(resolvedSandbox.docker.image).toBe("ghcr.io/openclaw/sandbox:custom");
     expect(resolvedSandbox.docker.network).toBe("none");

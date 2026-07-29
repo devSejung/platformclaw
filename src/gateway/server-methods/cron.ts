@@ -29,6 +29,7 @@ import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normal
 import { toPublicCronJob } from "../../cron/public-job.js";
 import { CRON_JOB_SCRATCH_MAX_BYTES } from "../../cron/scratch-contract.js";
 import { applyJobPatch } from "../../cron/service/jobs.js";
+import type { CronListPageOptions } from "../../cron/service/list-page-types.js";
 import {
   isInvalidCronSessionTargetIdError,
   resolveCronSessionTargetSessionKey,
@@ -92,6 +93,37 @@ class CronJobConfigRevisionConflictError extends Error {
   ) {
     super("cron job definition no longer matches the loaded version");
   }
+}
+
+function assertCronJobConfigRevision(job: CronJob, expectedConfigRevision?: string): void {
+  if (expectedConfigRevision === undefined) {
+    return;
+  }
+  const actualConfigRevision = resolveCronJobConfigRevision(job);
+  if (actualConfigRevision !== expectedConfigRevision) {
+    throw new CronJobConfigRevisionConflictError(expectedConfigRevision, actualConfigRevision);
+  }
+}
+
+function respondCronJobChanged(
+  respond: RespondFn,
+  error: CronJobConfigRevisionConflictError,
+): void {
+  respond(
+    false,
+    undefined,
+    errorShape(
+      ErrorCodes.INVALID_REQUEST,
+      "cron job definition no longer matches the loaded version; review the latest version before retrying",
+      {
+        details: {
+          code: "CRON_JOB_CHANGED",
+          expectedConfigRevision: error.expectedConfigRevision,
+          actualConfigRevision: error.actualConfigRevision,
+        },
+      },
+    ),
+  );
 }
 
 // Migration provenance (sourceSha256) stays internal; the closed result schema
@@ -437,6 +469,13 @@ export const cronHandlers: GatewayRequestHandlers = {
       sortBy?: "nextRunAtMs" | "updatedAtMs" | "name";
       sortDir?: "asc" | "desc";
       agentId?: string;
+      scheduleKinds?: CronListPageOptions["scheduleKinds"];
+      payloadKinds?: CronListPageOptions["payloadKinds"];
+      sessionTargets?: CronListPageOptions["sessionTargets"];
+      sessionAgentId?: string;
+      ownerAgentId?: string;
+      ownerSessionAgentId?: string;
+      requireOwnerAccountId?: boolean;
       compact?: boolean;
       includeDeliveryPreviews?: boolean;
     };
@@ -457,6 +496,13 @@ export const cronHandlers: GatewayRequestHandlers = {
       sortBy: p.sortBy,
       sortDir: p.sortDir,
       agentId: callerScope?.agentId ?? p.agentId,
+      scheduleKinds: p.scheduleKinds,
+      payloadKinds: p.payloadKinds,
+      sessionTargets: p.sessionTargets,
+      sessionAgentId: p.sessionAgentId,
+      ownerAgentId: p.ownerAgentId,
+      ownerSessionAgentId: p.ownerSessionAgentId,
+      requireOwnerAccountId: p.requireOwnerAccountId,
     };
     const page = callerScope
       ? await listCronPageForCallerScope({
@@ -875,15 +921,7 @@ export const cronHandlers: GatewayRequestHandlers = {
           ) {
             throw new Error(`unknown cron job id: ${jobId}`);
           }
-          if (p.expectedConfigRevision !== undefined) {
-            const actualConfigRevision = resolveCronJobConfigRevision(lockedJob);
-            if (actualConfigRevision !== p.expectedConfigRevision) {
-              throw new CronJobConfigRevisionConflictError(
-                p.expectedConfigRevision,
-                actualConfigRevision,
-              );
-            }
-          }
+          assertCronJobConfigRevision(lockedJob, p.expectedConfigRevision);
           const nextJob = await assertValidCronUpdatePatch({
             cfg,
             defaultAgentId: context.cron.getDefaultAgentId(),
@@ -905,21 +943,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       );
     } catch (err) {
       if (err instanceof CronJobConfigRevisionConflictError) {
-        respond(
-          false,
-          undefined,
-          errorShape(
-            ErrorCodes.INVALID_REQUEST,
-            "cron job definition no longer matches the loaded version; review the latest version before retrying",
-            {
-              details: {
-                code: "CRON_JOB_CHANGED",
-                expectedConfigRevision: err.expectedConfigRevision,
-                actualConfigRevision: err.actualConfigRevision,
-              },
-            },
-          ),
-        );
+        respondCronJobChanged(respond, err);
         return;
       }
       if (
@@ -969,7 +993,22 @@ export const cronHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const result = await context.cron.remove(jobId);
+    const p = params as CronJobIdParams & { expectedConfigRevision?: string };
+    let result: Awaited<ReturnType<typeof context.cron.remove>>;
+    try {
+      result = p.expectedConfigRevision
+        ? await context.cron.remove(jobId, {
+            precondition: (lockedJob) =>
+              assertCronJobConfigRevision(lockedJob, p.expectedConfigRevision),
+          })
+        : await context.cron.remove(jobId);
+    } catch (error) {
+      if (error instanceof CronJobConfigRevisionConflictError) {
+        respondCronJobChanged(respond, error);
+        return;
+      }
+      throw error;
+    }
     if (!result.removed) {
       respond(
         false,
@@ -988,6 +1027,7 @@ export const cronHandlers: GatewayRequestHandlers = {
     const p = params as CronJobIdParams & {
       mode?: "due" | "force";
       expectedProcessInstanceId?: string;
+      expectedConfigRevision?: string;
     };
     const callerScope = readCronCallerScope(client);
     const jobId = resolveCronJobId(p);
@@ -1016,8 +1056,17 @@ export const cronHandlers: GatewayRequestHandlers = {
     }
     let result: Awaited<ReturnType<typeof context.cron.enqueueRun>>;
     try {
-      result = await context.cron.enqueueRun(jobId, p.mode ?? "force");
+      result = p.expectedConfigRevision
+        ? await context.cron.enqueueRun(jobId, p.mode ?? "force", {
+            precondition: (lockedJob) =>
+              assertCronJobConfigRevision(lockedJob, p.expectedConfigRevision),
+          })
+        : await context.cron.enqueueRun(jobId, p.mode ?? "force");
     } catch (error) {
+      if (error instanceof CronJobConfigRevisionConflictError) {
+        respondCronJobChanged(respond, error);
+        return;
+      }
       if (isInvalidCronSessionTargetIdError(error)) {
         respond(true, { ok: true, ran: false, reason: "invalid-spec" }, undefined);
         return;

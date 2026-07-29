@@ -83,6 +83,7 @@ export type ManualRunOptions = {
   streamScheduleKey?: string;
   streamSourceIdentity?: string;
   onTriggerDisposition?: (disposition: "fired" | "dropped" | "busy" | "error") => void;
+  precondition?: (job: CronJob, nowMs: number) => void | Promise<void>;
 };
 
 export type ManualRunTerminalTracker = { emitted: boolean };
@@ -206,10 +207,10 @@ async function inspectManualRunPreflight(
   state: CronServiceState,
   id: string,
   mode?: "due" | "force",
-  runId?: string,
-  terminalTracker?: ManualRunTerminalTracker,
-  streamScheduleKey?: string,
-  streamSourceIdentity?: string,
+  opts?: Pick<
+    ManualRunOptions,
+    "runId" | "terminalTracker" | "streamScheduleKey" | "streamSourceIdentity" | "precondition"
+  >,
 ): Promise<ManualRunPreflightResult> {
   return await locked(state, async () => {
     warnIfDisabled(state, "run");
@@ -228,13 +229,21 @@ async function inspectManualRunPreflight(
       mode === "force" ? { preserveExpiredPacedNextRunJobId: id } : undefined,
     );
     const job = findJobOrThrow(state, id);
-    if (!admitsStreamSourceRun(job, streamScheduleKey, streamSourceIdentity)) {
+    await opts?.precondition?.(structuredClone(job), state.deps.nowMs());
+    if (!admitsStreamSourceRun(job, opts?.streamScheduleKey, opts?.streamSourceIdentity)) {
       return { ok: true, ran: false, reason: "not-due" } as const;
     }
     try {
       assertSupportedJobSpec(job);
     } catch (error) {
-      await skipInvalidPersistedManualRun({ state, job, mode, runId, terminalTracker, error });
+      await skipInvalidPersistedManualRun({
+        state,
+        job,
+        mode,
+        runId: opts?.runId,
+        terminalTracker: opts?.terminalTracker,
+        error,
+      });
       return { ok: true, ran: false, reason: "invalid-spec" as const };
     }
     if (hasActiveCronRun(job)) {
@@ -253,10 +262,11 @@ export async function inspectManualRunDisposition(
   state: CronServiceState,
   id: string,
   mode?: "due" | "force",
+  precondition?: ManualRunOptions["precondition"],
 ): Promise<ManualRunDisposition | { ok: false }> {
   // Queue callers need a cheap eligibility check before entering the command
   // lane; the real reservation happens later under lock in prepareManualRun.
-  const result = await inspectManualRunPreflight(state, id, mode);
+  const result = await inspectManualRunPreflight(state, id, mode, { precondition });
   if (!result.ok) {
     return result;
   }
@@ -272,15 +282,7 @@ export async function prepareManualRun(
   mode?: "due" | "force",
   opts?: ManualRunOptions,
 ): Promise<PreparedManualRun> {
-  const preflight = await inspectManualRunPreflight(
-    state,
-    id,
-    mode,
-    opts?.runId,
-    opts?.terminalTracker,
-    opts?.streamScheduleKey,
-    opts?.streamSourceIdentity,
-  );
+  const preflight = await inspectManualRunPreflight(state, id, mode, opts);
   if (!preflight.ok) {
     return preflight;
   }
@@ -308,6 +310,7 @@ export async function prepareManualRun(
       mode === "force" ? { preserveExpiredPacedNextRunJobId: id } : undefined,
     );
     const job = findJobOrThrow(state, id);
+    await opts?.precondition?.(structuredClone(job), state.deps.nowMs());
     if (!admitsStreamSourceRun(job, opts?.streamScheduleKey, opts?.streamSourceIdentity)) {
       return { ok: true, ran: false, reason: "not-due" as const };
     }

@@ -352,6 +352,60 @@ describe("buildGatewayCronService", () => {
     });
   });
 
+  it("runs a persisted employee cron through the production isolated adapter after restart", async () => {
+    const cfg = createCronConfig("server-cron-platformclaw-backend-restart");
+    cfg.agents = {
+      defaults: {
+        sandbox: {
+          mode: "all",
+          backend: "platformclaw-execution",
+          workspaceAccess: "rw",
+        },
+      },
+      list: [{ id: "employee" }],
+    };
+    loadConfigMock.mockReturnValue(cfg);
+    const writer = buildGatewayCronService({
+      cfg,
+      deps: {} as CliDeps,
+      broadcast: () => {},
+    });
+    const job = await writer.cron.add({
+      name: "employee scheduled report",
+      agentId: "employee",
+      enabled: true,
+      schedule: { kind: "every", everyMs: 60_000 },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "prepare report" },
+      delivery: { mode: "none" },
+    });
+    writer.cron.stop();
+
+    const reader = buildGatewayCronService({
+      cfg,
+      deps: {} as CliDeps,
+      broadcast: () => {},
+    });
+    try {
+      expect(await reader.cron.run(job.id, "force")).toMatchObject({ ok: true, ran: true });
+      expect(runCronIsolatedAgentTurnMock).toHaveBeenCalledOnce();
+      expectIsolatedRunFields({ agentId: "employee", lane: "cron" });
+      const options = requireRecord(
+        callArg(runCronIsolatedAgentTurnMock, 0, 0, "isolated cron run"),
+        "isolated cron run",
+      );
+      const runConfig = requireRecord(options.cfg, "isolated cron config");
+      const agents = requireRecord(runConfig.agents, "isolated cron agents config");
+      const defaults = requireRecord(agents.defaults, "isolated cron defaults");
+      expect(requireRecord(defaults.sandbox, "isolated cron sandbox").backend).toBe(
+        "platformclaw-execution",
+      );
+    } finally {
+      reader.cron.stop();
+    }
+  });
+
   it("passes the persisted payload tool cap to trigger evaluation", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-14T12:00:00.000Z"));

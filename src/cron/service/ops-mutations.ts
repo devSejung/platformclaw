@@ -379,7 +379,7 @@ export async function updateWithPrecondition(
 export async function remove(
   state: CronServiceState,
   id: string,
-  opts?: { systemOwned?: boolean },
+  opts?: { systemOwned?: boolean; precondition?: CronUpdatePrecondition },
 ) {
   return await locked(state, async () => {
     warnIfDisabled(state, "remove");
@@ -390,6 +390,9 @@ export async function remove(
     }
     const snapshot = snapshotStoreForRollback(state);
     const removedJob = state.store.jobs.find((j) => j.id === id);
+    if (removedJob) {
+      await opts?.precondition?.(structuredClone(removedJob), state.deps.nowMs());
+    }
     // Config is the monitor's source of truth: ad-hoc deletion would disable
     // heartbeats until an unrelated reload, so only gateway reconciliation
     // (stale-monitor cleanup) may remove one.

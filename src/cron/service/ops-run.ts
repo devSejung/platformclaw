@@ -362,8 +362,13 @@ export async function run(
 }
 
 /** Queues a manual cron run behind the cron command lane and returns an immediate run id. */
-export async function enqueueRun(state: CronServiceState, id: string, mode?: "due" | "force") {
-  const disposition = await inspectManualRunDisposition(state, id, mode);
+export async function enqueueRun(
+  state: CronServiceState,
+  id: string,
+  mode?: "due" | "force",
+  opts?: Pick<ManualRunOptions, "precondition">,
+) {
+  const disposition = await inspectManualRunDisposition(state, id, mode, opts?.precondition);
   if (!disposition.ok || !("runnable" in disposition && disposition.runnable)) {
     return disposition;
   }
@@ -380,6 +385,7 @@ export async function enqueueRun(state: CronServiceState, id: string, mode?: "du
           scheduleOwnershipAtMs,
           terminalTracker,
           owningCronLaneTaskMarker,
+          precondition: opts?.precondition,
         });
         if (result.ok && "ran" in result && !result.ran) {
           if (result.reason !== "invalid-spec") {

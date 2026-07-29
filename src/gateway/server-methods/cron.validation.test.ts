@@ -5,6 +5,7 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelPlugin } from "../../channels/plugins/types.public.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { resolveCronJobConfigRevision } from "../../cron/config-revision.js";
 import type { CronDelivery, CronJob } from "../../cron/types.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../../plugins/runtime.js";
 import {
@@ -133,8 +134,31 @@ function createCronContext(currentJobs?: CronJob | CronJob[]) {
           return await update(id, patch);
         },
       ),
-      remove: vi.fn(async () => ({ ok: true, removed: true })),
-      enqueueRun: vi.fn(async () => ({ ok: true, enqueued: true, runId: "run-1" })),
+      remove: vi.fn(
+        async (
+          id: string,
+          opts?: { precondition?: (job: CronJob, nowMs: number) => void | Promise<void> },
+        ) => {
+          const job = jobs.find((candidate) => candidate.id === id);
+          if (job) {
+            await opts?.precondition?.(job, Date.now());
+          }
+          return { ok: true, removed: Boolean(job) };
+        },
+      ),
+      enqueueRun: vi.fn(
+        async (
+          id: string,
+          _mode?: string,
+          opts?: { precondition?: (job: CronJob, nowMs: number) => void | Promise<void> },
+        ) => {
+          const job = jobs.find((candidate) => candidate.id === id);
+          if (job) {
+            await opts?.precondition?.(job, Date.now());
+          }
+          return { ok: true, enqueued: true, runId: "run-1" };
+        },
+      ),
       getDefaultAgentId: vi.fn(() => "main"),
       getJob: vi.fn((id: string) => jobs.find((job) => job.id === id)),
       wake: vi.fn(() => ({ ok: true }) as const),
@@ -533,6 +557,22 @@ describe("cron method validation", () => {
     expect(respond).toHaveBeenCalledWith(true, { ok: true, removed: true }, undefined);
   });
 
+  it("pins cron.remove to the expected job definition", async () => {
+    const job = createCronJob({ id: "cron-1", agentId: "ops" });
+    const context = createCronContext(job);
+
+    const { respond } = await invokeCron(
+      "cron.remove",
+      { id: "cron-1", expectedConfigRevision: `${resolveCronJobConfigRevision(job)}-stale` },
+      { context },
+    );
+
+    expectResponseError(respond, {
+      code: "INVALID_REQUEST",
+      messageIncludes: "definition no longer matches",
+    });
+  });
+
   it("hides caller-scoped cron.remove for a foreign agent", async () => {
     const context = createCronContext(createCronJob({ id: "cron-1", agentId: "worker" }));
 
@@ -797,11 +837,19 @@ describe("cron method validation", () => {
   it("keeps unscoped cron.list agentId filtering global for operator callers", async () => {
     const context = createCronContext(createCronJob({ agentId: "worker" }));
 
-    const { respond } = await invokeCron("cron.list", { agentId: "worker" }, { context });
+    const filters = {
+      agentId: "worker",
+      scheduleKinds: ["at", "every", "cron"],
+      payloadKinds: ["agentTurn", "systemEvent"],
+      sessionTargets: ["main", "isolated"],
+      sessionAgentId: "worker",
+      ownerAgentId: "worker",
+      ownerSessionAgentId: "worker",
+      requireOwnerAccountId: true,
+    } as const;
+    const { respond } = await invokeCron("cron.list", filters, { context });
 
-    expect(context.cron.listPage).toHaveBeenCalledWith(
-      expect.objectContaining({ agentId: "worker" }),
-    );
+    expect(context.cron.listPage).toHaveBeenCalledWith(expect.objectContaining(filters));
     expect(respond).toHaveBeenCalledWith(
       true,
       expect.objectContaining({ total: 1, jobs: expect.any(Array) }),
@@ -3216,6 +3264,22 @@ describe("cron method validation", () => {
       },
       undefined,
     );
+  });
+
+  it("pins cron.run admission to the expected job definition", async () => {
+    const job = createCronJob({ id: "cron-1", agentId: "ops" });
+    const context = createCronContext(job);
+
+    const { respond } = await invokeCron(
+      "cron.run",
+      { id: "cron-1", expectedConfigRevision: `${resolveCronJobConfigRevision(job)}-stale` },
+      { context },
+    );
+
+    expectResponseError(respond, {
+      code: "INVALID_REQUEST",
+      messageIncludes: "definition no longer matches",
+    });
   });
 
   it("rejects cron.run before enqueue when the Gateway process changed after preflight", async () => {

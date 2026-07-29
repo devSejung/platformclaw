@@ -1,3 +1,5 @@
+import type { RouteId } from "../app-route-paths.ts";
+
 export const PLATFORMCLAW_LOGIN_PATH = "/platformclaw/login";
 export const PLATFORMCLAW_APP_PATH = "/platformclaw/app";
 export const PLATFORMCLAW_DEFAULT_APP_PATH = `${PLATFORMCLAW_APP_PATH}/chat`;
@@ -12,9 +14,12 @@ export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descripto
 export const PLATFORMCLAW_ENABLED_ROUTES = [
   "chat",
   "new-session",
+  "activity",
   "sessions",
+  "usage",
   "agents",
   "tasks",
+  "cron",
   "appearance",
   "profile",
   "notifications",
@@ -22,7 +27,7 @@ export const PLATFORMCLAW_ENABLED_ROUTES = [
   "skills",
   "skill-workshop",
   "plugins",
-] as const;
+] as const satisfies readonly RouteId[];
 
 export type PlatformClawWebDescriptor = {
   mode: "platformclaw";

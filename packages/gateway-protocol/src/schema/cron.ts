@@ -568,6 +568,40 @@ export const CronListParamsSchema = closedObject({
   sortBy: Type.Optional(CronJobsSortBySchema),
   sortDir: Type.Optional(CronSortDirSchema),
   agentId: Type.Optional(NonEmptyString),
+  scheduleKinds: Type.Optional(
+    Type.Array(
+      Type.Union([
+        Type.Literal("at"),
+        Type.Literal("every"),
+        Type.Literal("cron"),
+        Type.Literal("on-exit"),
+        Type.Literal("stream"),
+      ]),
+      { minItems: 1, maxItems: 5 },
+    ),
+  ),
+  payloadKinds: Type.Optional(
+    Type.Array(
+      Type.Union([
+        Type.Literal("systemEvent"),
+        Type.Literal("agentTurn"),
+        Type.Literal("command"),
+        Type.Literal("script"),
+        Type.Literal("heartbeat"),
+      ]),
+      { minItems: 1, maxItems: 5 },
+    ),
+  ),
+  sessionTargets: Type.Optional(
+    Type.Array(Type.Union([Type.Literal("main"), Type.Literal("isolated")]), {
+      minItems: 1,
+      maxItems: 2,
+    }),
+  ),
+  sessionAgentId: Type.Optional(NonEmptyString),
+  ownerAgentId: Type.Optional(NonEmptyString),
+  ownerSessionAgentId: Type.Optional(NonEmptyString),
+  requireOwnerAccountId: Type.Optional(Type.Boolean()),
   compact: Type.Optional(Type.Boolean()),
   includeDeliveryPreviews: Type.Optional(Type.Boolean()),
 });
@@ -665,11 +699,16 @@ export const CronUpdateParamsSchema = cronIdOrJobIdParams({
 });
 
 /** Removes a cron job by id or legacy jobId alias. */
-export const CronRemoveParamsSchema = cronIdOrJobIdParams({});
+export const CronRemoveParamsSchema = cronIdOrJobIdParams({
+  /** Rejects the removal when the current definition no longer matches the loaded view. */
+  expectedConfigRevision: Type.Optional(CronConfigRevisionSchema),
+});
 
 /** Runs a cron job immediately or only if due. */
 export const CronRunParamsSchema = cronIdOrJobIdParams({
   mode: Type.Optional(Type.Union([Type.Literal("due"), Type.Literal("force")])),
+  /** Rejects the run when the current definition no longer matches the loaded view. */
+  expectedConfigRevision: Type.Optional(CronConfigRevisionSchema),
   /** Rejects the mutation if the Gateway restarted after the caller's preflight. */
   expectedProcessInstanceId: Type.Optional(NonEmptyString),
 });

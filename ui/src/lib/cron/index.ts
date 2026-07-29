@@ -984,10 +984,10 @@ function buildFailureAlert(form: CronFormState, existing?: CronJob["failureAlert
   return patch;
 }
 
-type CronSaveResult = { saved: false } | { saved: true; jobId: string | null };
+type CronSaveResult = { saved: false } | { saved: true; jobId: string | null; job?: CronJob };
 
 // cron.add responds with either { created, job } or the bare job read view.
-function extractSavedCronJobId(response: unknown): string | null {
+function extractSavedCronJob(response: unknown): CronJob | null {
   if (!response || typeof response !== "object") {
     return null;
   }
@@ -996,7 +996,7 @@ function extractSavedCronJobId(response: unknown): string | null {
     return null;
   }
   const id = (container as { id?: unknown }).id;
-  return typeof id === "string" && id.length > 0 ? id : null;
+  return typeof id === "string" && id.length > 0 ? (container as CronJob) : null;
 }
 
 export async function addCronJob(state: CronState): Promise<CronSaveResult> {
@@ -1105,17 +1105,35 @@ export async function addCronJob(state: CronState): Promise<CronSaveResult> {
       await client.request("cron.update", {
         id: editedJobId,
         patch: job,
+        ...(editingJob?.configRevision
+          ? { expectedConfigRevision: editingJob.configRevision }
+          : {}),
       });
       clearCronEditState(state);
       result = { saved: true, jobId: editedJobId };
     } else {
       const response = await client.request("cron.add", job);
       resetCronFormToDefaults(state);
-      result = { saved: true, jobId: extractSavedCronJobId(response) };
+      const savedJob = extractSavedCronJob(response);
+      result = {
+        saved: true,
+        jobId: savedJob?.id ?? null,
+        ...(savedJob?.configRevision ? { job: savedJob } : {}),
+      };
     }
     await reloadCronJobsSnapshot(state);
   });
   return result;
+}
+
+export async function loadCronJobForMutation(
+  state: Pick<CronState, "client" | "connected">,
+  jobId: string,
+): Promise<CronJob | null> {
+  if (!state.connected || !state.client) {
+    return null;
+  }
+  return await state.client.request<CronJob>("cron.get", { id: jobId });
 }
 
 // Every mutation reloads the same trio so the table, scheduler status, and
@@ -1135,7 +1153,11 @@ export async function toggleCronJob(
   // can be queued or fail without invalidating the confirmed toggle.
   let updated = false;
   await withCronBusy(state, async (client) => {
-    await client.request("cron.update", { id: job.id, patch: { enabled } });
+    await client.request("cron.update", {
+      id: job.id,
+      patch: { enabled },
+      ...(job.configRevision ? { expectedConfigRevision: job.configRevision } : {}),
+    });
     updated = true;
     await reloadCronJobsSnapshot(state);
   });
@@ -1161,9 +1183,20 @@ function cronRunNotStartedMessage(result: CronRunResult): string {
   return t("cron.runNotStarted.unknown");
 }
 
-export async function runCronJob(state: CronState, jobId: string, mode: "force" | "due" = "force") {
+export async function runCronJob(
+  state: CronState,
+  jobOrId: CronJob | string,
+  mode: "force" | "due" = "force",
+) {
+  const jobId = typeof jobOrId === "string" ? jobOrId : jobOrId.id;
   await withCronBusy(state, async (client) => {
-    const result = await client.request<CronRunResult>("cron.run", { id: jobId, mode });
+    const result = await client.request<CronRunResult>("cron.run", {
+      id: jobId,
+      mode,
+      ...(typeof jobOrId !== "string" && jobOrId.configRevision
+        ? { expectedConfigRevision: jobOrId.configRevision }
+        : {}),
+    });
     if (!result.ok || ("ran" in result && !result.ran)) {
       state.cronError = cronRunNotStartedMessage(result);
       // Invalid persisted specs create a skipped history entry with diagnostics;
@@ -1179,7 +1212,10 @@ export async function runCronJob(state: CronState, jobId: string, mode: "force" 
 
 export async function removeCronJob(state: CronState, job: CronJob) {
   await withCronBusy(state, async (client) => {
-    await client.request("cron.remove", { id: job.id });
+    await client.request("cron.remove", {
+      id: job.id,
+      ...(job.configRevision ? { expectedConfigRevision: job.configRevision } : {}),
+    });
     if (state.cronEditingJobId === job.id) {
       clearCronEditState(state);
     }

@@ -15,6 +15,7 @@ import {
   hasCronFormErrors,
   loadCronFailingCount,
   loadCronJobsPage,
+  loadCronJobForMutation,
   loadCronModelSuggestions,
   loadCronRuns,
   loadCronScopeStats,
@@ -323,6 +324,13 @@ class CronPage extends OpenClawLightDomElement {
 
   private submitForm(options: { runNow?: boolean } = {}) {
     this.runCronAdminTask(async (cronState) => {
+      if (this.context.accessMode === "personal-agent") {
+        cronState.cronForm = normalizeCronFormState({
+          ...cronState.cronForm,
+          deliveryMode: "none",
+          failureAlertMode: "disabled",
+        });
+      }
       const editingJobId = cronState.cronEditingJobId;
       const result = await addCronJob(cronState);
       if (!result.saved) {
@@ -340,7 +348,14 @@ class CronPage extends OpenClawLightDomElement {
       if (options.runNow && result.jobId) {
         // Create & run now: kick the new task once so the first result arrives
         // immediately instead of waiting for the first scheduled tick.
-        await runCronJob(cronState, result.jobId, "force");
+        const createdJob = result.job?.configRevision
+          ? result.job
+          : (cronState.cronJobs.find((job) => job.id === result.jobId) ??
+            (await loadCronJobForMutation(cronState, result.jobId)));
+        if (!createdJob?.configRevision) {
+          throw new Error("Created automation did not return a config revision");
+        }
+        await runCronJob(cronState, createdJob, "force");
       }
       cronState.cronCreateOpen = false;
       // Creating from a selected task drops back to overview; recent activity
@@ -423,6 +438,7 @@ class CronPage extends OpenClawLightDomElement {
           timezoneSuggestions: TIMEZONE_SUGGESTIONS,
           deliveryToSuggestions: suggestions.deliveryToSuggestions,
           accountSuggestions: suggestions.accountTargets,
+          personalAccess: this.context.accessMode === "personal-agent",
           onListTabChange: (tab) => {
             this.listTab = tab;
           },
@@ -449,7 +465,7 @@ class CronPage extends OpenClawLightDomElement {
               }
             }),
           onRun: (job, mode) =>
-            this.runCronAdminTask((cronState) => runCronJob(cronState, job.id, mode ?? "force")),
+            this.runCronAdminTask((cronState) => runCronJob(cronState, job, mode ?? "force")),
           onRemove: (job) =>
             this.runCronAdminTask(async (cronState) => {
               await removeCronJob(cronState, job);

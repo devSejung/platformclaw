@@ -122,7 +122,10 @@ export class CronService implements CronServiceContract {
     return await mutationOps.updateWithPrecondition(this.state, id, patch, precondition, opts);
   }
 
-  async remove(id: string, opts?: { systemOwned?: boolean }) {
+  async remove(
+    id: string,
+    opts?: { systemOwned?: boolean; precondition?: CronUpdatePrecondition },
+  ) {
     return await mutationOps.remove(this.state, id, opts);
   }
 
@@ -138,8 +141,12 @@ export class CronService implements CronServiceContract {
     return await runOps.run(this.state, id, mode, opts);
   }
 
-  async enqueueRun(id: string, mode?: "due" | "force"): Promise<CronServiceRunResult> {
-    const result = await runOps.enqueueRun(this.state, id, mode);
+  async enqueueRun(
+    id: string,
+    mode?: "due" | "force",
+    opts?: Pick<CronServiceRunOptions, "precondition">,
+  ): Promise<CronServiceRunResult> {
+    const result = await runOps.enqueueRun(this.state, id, mode, opts);
     if (result.ok && "runnable" in result) {
       // ops.enqueueRun resolves runnable dispositions before crossing the
       // public facade; leaking one would expose an internal scheduler detail.

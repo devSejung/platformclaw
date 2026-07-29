@@ -28,6 +28,13 @@ export type CronListPageOptions = {
   sortBy?: CronJobsSortBy;
   sortDir?: CronSortDir;
   agentId?: string;
+  scheduleKinds?: readonly CronJob["schedule"]["kind"][];
+  payloadKinds?: readonly CronJob["payload"]["kind"][];
+  sessionTargets?: readonly ("main" | "isolated")[];
+  sessionAgentId?: string;
+  ownerAgentId?: string;
+  ownerSessionAgentId?: string;
+  requireOwnerAccountId?: boolean;
 };
 
 /** Offset-page result returned by cron listPage callers. */
