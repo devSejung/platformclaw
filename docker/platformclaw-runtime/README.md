@@ -135,9 +135,14 @@ and private-plugin policy remains enforced at startup.
 The transfer archive contains both the main and sandbox images. The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
 health, recreates existing agent sandboxes with the new image, and restores the
-prior environment on failure. Compose never pulls these private image names
-from a registry, and update refuses to start unless the current rollback pair
-exists locally. Previous images remain available for rollback:
+prior environment on failure. Before startup it stops the stack, saves a full
+Gateway-state snapshot, and runs `openclaw doctor --fix --yes --non-interactive`
+with the new image. If Doctor or health validation fails, it restores both the
+old image refs and the pre-migration Gateway state before restarting the old
+stack. Compose never pulls these private image names from a registry, and
+update refuses to start unless the current rollback pair exists locally.
+Previous images and the reported state snapshot remain available for an
+explicit rollback:
 
 ```bash
 ./platformclaw-deploy image update \

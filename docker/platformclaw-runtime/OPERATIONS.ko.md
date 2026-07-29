@@ -342,11 +342,13 @@ docker compose down --volumes
   platformclaw-sandbox:<sha12>
 ```
 
-스크립트가 두 daemon에 이미지를 로드하고 `deployment.env`의 image ref를 원자적으로
-바꾼 뒤 Compose health를 기다린다. health가 통과하면 기존 Agent sandbox를 모두 제거하여
-다음 실행부터 새 sandbox 이미지로 다시 만들게 한다. sandbox 제거까지 실패하면
-`deployment.env.previous`를 복원하고 이전 이미지로 재기동한다. 이전 이미지는 rollback을
-위해 자동 삭제하지 않는다.
+스크립트가 두 daemon에 이미지를 로드하고 `deployment.env`의 image ref를 바꾼다. 서비스가
+정지된 동안 전체 Gateway `.openclaw` 상태를 `~/platformclaw/backups/gateway-state/`에
+백업하고, 새 이미지로 `openclaw doctor --fix --yes --non-interactive`를 실행한 뒤 Compose
+health를 기다린다. health가 통과하면 기존 Agent sandbox를 모두 제거하여 다음 실행부터
+새 sandbox 이미지로 다시 만들게 한다. Doctor, health, sandbox 제거 중 하나라도 실패하면
+`deployment.env.previous`와 migration 전 Gateway 상태를 함께 복원한 뒤 이전 이미지로
+재기동한다. 이전 이미지와 상태 백업은 rollback을 위해 자동 삭제하지 않는다.
 
 이미 로드된 tag만 바꿀 때:
 
@@ -365,7 +367,9 @@ docker compose down --volumes
 롤백은 이전 main/sandbox image ref 두 값만 복원한다. 그 뒤 변경한 origin, auth URL,
 CA, timezone, secret 경로는 되돌리지 않는다.
 
-DB schema migration이 포함된 Release는 해당 Release의 별도 롤백 지침을 먼저 따른다.
+성공한 업데이트를 나중에 수동 롤백할 때는 출력된 migration 전 Gateway 상태 백업이
+필요할 수 있다. DB schema migration이 포함된 Release는 해당 Release의 별도 롤백 지침을
+먼저 따른다.
 
 ### 4.2 사용하지 않는 이미지 정리
 

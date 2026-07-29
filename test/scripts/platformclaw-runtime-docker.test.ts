@@ -618,6 +618,10 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain("image_pair_available");
     expect(deploy).toContain("no deployment state was changed");
     expect(deploy).toContain("No registry pull was attempted");
+    expect(deploy).toContain("create_gateway_state_backup");
+    expect(deploy).toContain("restore_gateway_state_backup");
+    expect(deploy).toContain("doctor --fix --yes --non-interactive");
+    expect(deploy).toContain("restoring previous image refs and Gateway state");
     expect(deploy).toContain("Rollback failed. Current deployment env restored");
     expect(deploy).toContain("PlatformClaw already uses");
     expect(deploy).toContain('image inspect "$previous_sandbox"');
