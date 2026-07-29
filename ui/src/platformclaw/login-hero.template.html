@@ -1,0 +1,1533 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PlatformClaw Login Hero v14</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --page: #e8e5dd;
+        --shell: #f4f0e8;
+        --surface: #fffdf9;
+        --surface2: #ece7dd;
+        --surface3: #ddd7cc;
+        --ink: #15211d;
+        --body: #59655f;
+        --muted: #8b958f;
+        --dark: #12211d;
+        --dark2: #20322c;
+        --accent: #0f7c72;
+        --mint: #d8eee8;
+        --mid: #88d7c4;
+        --amber: #e3c475;
+        --lav: #e8e4ef;
+        --danger: #c8665e;
+        --ok: #71ccb8;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: #0f1513;
+          --shell: #151d1a;
+          --surface: #1c2522;
+          --surface2: #26302c;
+          --surface3: #313b36;
+          --ink: #eff5f2;
+          --body: #b2bcb7;
+          --muted: #8a9690;
+          --dark: #0d1512;
+          --dark2: #21342d;
+          --accent: #69c8b3;
+          --mint: #243c35;
+          --mid: #69c4ad;
+          --amber: #d7b86f;
+          --lav: #302f3a;
+          --danger: #df857b;
+          --ok: #78d5be;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        padding: 18px;
+        overflow: auto;
+        background:
+          radial-gradient(circle at 15% 20%, rgba(15, 124, 114, 0.09), transparent 24%),
+          radial-gradient(circle at 80% 15%, rgba(231, 198, 123, 0.08), transparent 25%),
+          linear-gradient(180deg, var(--page), var(--page));
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        color: var(--ink);
+      }
+      .hero {
+        position: relative;
+        width: min(calc(100vw - 36px), 720px);
+        aspect-ratio: 4/5;
+        border-radius: 34px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 84% 14%, rgba(15, 124, 114, 0.08), transparent 22%),
+          radial-gradient(circle at 14% 86%, rgba(231, 198, 123, 0.08), transparent 20%),
+          var(--shell);
+        box-shadow: 0 32px 90px rgba(18, 28, 24, 0.16);
+      }
+      .hero:before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 20%),
+          repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 30px);
+      }
+      .topbar {
+        position: absolute;
+        left: 5.2%;
+        right: 5.2%;
+        top: 4.4%;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+      }
+      .brand {
+        font-size: 24px;
+        font-weight: 900;
+        letter-spacing: -0.045em;
+      }
+      .brand small {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+      .badge {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 14px;
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--body);
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        white-space: nowrap;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 10%, transparent);
+      }
+      .badge b {
+        display: block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+      .task {
+        position: absolute;
+        left: 5.2%;
+        right: 5.2%;
+        top: 12%;
+        height: 12.2%;
+        border-radius: 28px;
+        padding: 18px 22px;
+        overflow: hidden;
+        background: linear-gradient(135deg, var(--dark), var(--dark2));
+        color: #fff;
+      }
+      .task:after {
+        content: "";
+        position: absolute;
+        right: -42px;
+        top: -10px;
+        width: 190px;
+        height: 100px;
+        border-radius: 32px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .task:before {
+        content: "";
+        position: absolute;
+        right: 28px;
+        bottom: -48px;
+        width: 132px;
+        height: 132px;
+        border-radius: 50%;
+        background: rgba(15, 124, 114, 0.28);
+      }
+      .task-meta {
+        position: relative;
+        z-index: 1;
+        color: #9fb0aa;
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: 0.14em;
+      }
+      .task-title {
+        position: relative;
+        z-index: 1;
+        margin-top: 8px;
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: -0.05em;
+        white-space: nowrap;
+      }
+      .task-status {
+        position: absolute;
+        right: 18px;
+        top: 18px;
+        z-index: 2;
+        padding: 12px 16px;
+        border-radius: 999px;
+        background: var(--ok);
+        color: #fff;
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        animation: status 10s linear infinite;
+      }
+      .track-wrap {
+        position: absolute;
+        left: 5.2%;
+        right: 5.2%;
+        top: 26.8%;
+      }
+      .track-line {
+        position: relative;
+        height: 30px;
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        align-items: start;
+      }
+      .track-line:before {
+        content: "";
+        position: absolute;
+        left: 6px;
+        right: 6px;
+        top: 8px;
+        height: 4px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--surface3) 86%, transparent);
+      }
+      .track-fill {
+        position: absolute;
+        left: 6px;
+        top: 8px;
+        height: 4px;
+        width: 0;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--accent), var(--mid));
+        animation: fill 10s linear infinite;
+      }
+      .step {
+        position: relative;
+        text-align: center;
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: 0.07em;
+      }
+      .step i {
+        position: absolute;
+        left: 50%;
+        top: 2px;
+        translate: -50% 0;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--surface3);
+      }
+      .step span {
+        position: absolute;
+        left: 50%;
+        top: 20px;
+        translate: -50% 0;
+      }
+      .s1 i {
+        animation: s1 10s linear infinite;
+      }
+      .s2 i {
+        animation: s2 10s linear infinite;
+      }
+      .s3 i {
+        animation: s3 10s linear infinite;
+      }
+      .s4 i {
+        animation: s4 10s linear infinite;
+      }
+      .s5 i {
+        animation: s5 10s linear infinite;
+      }
+      .s1 span {
+        animation: s1t 10s linear infinite;
+      }
+      .s2 span {
+        animation: s2t 10s linear infinite;
+      }
+      .s3 span {
+        animation: s3t 10s linear infinite;
+      }
+      .s4 span {
+        animation: s4t 10s linear infinite;
+      }
+      .s5 span {
+        animation: s5t 10s linear infinite;
+      }
+      .scene {
+        position: absolute;
+        left: 5.2%;
+        right: 5.2%;
+        top: 31.8%;
+        bottom: 9.8%;
+        overflow: hidden;
+        border-radius: 28px;
+        background: var(--surface2);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 10%, transparent);
+      }
+      .layer {
+        position: absolute;
+        inset: 0;
+        padding: 30px;
+        opacity: 0;
+        transform: translateY(18px) scale(0.988);
+        animation-duration: 10s;
+        animation-timing-function: ease-in-out;
+        animation-iteration-count: infinite;
+        animation-fill-mode: both;
+      }
+      .issue {
+        animation-name: issueScene;
+      }
+      .docs {
+        animation-name: docsScene;
+      }
+      .build {
+        animation-name: buildScene;
+      }
+      .board {
+        animation-name: boardScene;
+      }
+      .report {
+        animation-name: reportScene;
+      }
+      .eyebrow {
+        color: var(--accent);
+        font-size: 9px;
+        font-weight: 950;
+        letter-spacing: 0.14em;
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      h1 {
+        margin-top: 10px;
+        font-size: 30px;
+        line-height: 1.2;
+        letter-spacing: -0.05em;
+        max-width: 96%;
+        text-wrap: balance;
+      }
+      h2 {
+        font-size: 24px;
+        letter-spacing: -0.05em;
+        text-wrap: balance;
+      }
+      p {
+        color: var(--body);
+        font-size: 10px;
+        line-height: 1.65;
+      }
+      .issue-grid {
+        display: grid;
+        grid-template-columns: 1.08fr 0.92fr;
+        gap: 16px;
+        margin-top: 22px;
+      }
+      .card {
+        border-radius: 22px;
+        background: var(--surface);
+        padding: 22px;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 8%, transparent);
+      }
+      .request strong {
+        display: block;
+        margin-top: 16px;
+        font-size: 16px;
+        line-height: 1.5;
+        text-wrap: pretty;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 22px;
+      }
+      .chip {
+        padding: 8px 11px;
+        border-radius: 11px;
+        background: var(--mint);
+        color: var(--accent);
+        font-size: 8px;
+        font-weight: 900;
+        white-space: nowrap;
+      }
+      .orbit {
+        position: relative;
+        overflow: hidden;
+        min-height: 198px;
+        border-radius: 22px;
+        background: linear-gradient(135deg, var(--dark), var(--dark2));
+      }
+      .orbit .ring {
+        position: absolute;
+        border: 2px solid rgba(155, 213, 198, 0.22);
+        border-radius: 50%;
+        animation: pulse 2.6s ease-in-out infinite;
+      }
+      .orbit .r1 {
+        inset: 18px;
+      }
+      .orbit .r2 {
+        inset: 48px;
+        animation-delay: 0.2s;
+      }
+      .orbit .r3 {
+        inset: 78px;
+        animation-delay: 0.45s;
+      }
+      .orbit .core {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        translate: -50% -50%;
+        width: 64px;
+        height: 64px;
+        border-radius: 20px;
+        background: var(--accent);
+        display: grid;
+        place-items: center;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 900;
+      }
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .metric {
+        min-height: 78px;
+        border-radius: 18px;
+        padding: 16px;
+        background: color-mix(in srgb, var(--surface2) 74%, var(--surface));
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 8%, transparent);
+      }
+      .metric b {
+        display: block;
+        font-size: 23px;
+        letter-spacing: -0.04em;
+      }
+      .metric span {
+        display: block;
+        margin-top: 4px;
+        font-size: 9px;
+        color: var(--body);
+      }
+      .docs-grid {
+        display: grid;
+        grid-template-columns: 32% 1fr;
+        gap: 16px;
+        height: 100%;
+      }
+      .doc-list {
+        border-radius: 22px;
+        padding: 18px;
+        background: color-mix(in srgb, var(--surface2) 84%, var(--surface));
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 8%, transparent);
+      }
+      .doc-head {
+        font-size: 8px;
+        color: var(--muted);
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        margin-bottom: 14px;
+      }
+      .doc-item {
+        margin-bottom: 10px;
+        padding: 12px 12px;
+        border-radius: 14px;
+        color: var(--body);
+        font-size: 9px;
+      }
+      .doc-item.active {
+        background: var(--surface);
+        color: var(--ink);
+        font-weight: 900;
+      }
+      .doc-item small {
+        display: block;
+        margin-top: 5px;
+        font-size: 7px;
+        color: var(--muted);
+      }
+      .doc-main {
+        border-radius: 22px;
+        padding: 22px;
+        background: var(--surface);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 8%, transparent);
+      }
+      .doc-title {
+        margin-top: 8px;
+        font-size: 22px;
+        font-weight: 900;
+      }
+      .lines {
+        margin-top: 18px;
+      }
+      .lines i {
+        display: block;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--surface2);
+        margin-bottom: 12px;
+      }
+      .lines i:nth-child(1) {
+        width: 94%;
+      }
+      .lines i:nth-child(2) {
+        width: 76%;
+      }
+      .lines i:nth-child(3) {
+        width: 88%;
+      }
+      .lines i:nth-child(4) {
+        width: 63%;
+      }
+      .highlight {
+        position: relative;
+        overflow: hidden;
+        margin-top: 18px;
+        padding: 18px;
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--amber) 44%, var(--surface));
+        font:
+          800 11px/1.4 ui-monospace,
+          monospace;
+      }
+      .sweep {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0;
+        background: color-mix(in srgb, var(--amber) 58%, transparent);
+        animation: sweep 10s linear infinite;
+      }
+      .highlight span {
+        position: relative;
+      }
+      .build-grid {
+        display: grid;
+        grid-template-rows: 56% 1fr;
+        gap: 16px;
+        height: 100%;
+      }
+      .code {
+        overflow: hidden;
+        border-radius: 22px;
+        padding: 20px;
+        background: linear-gradient(135deg, var(--dark), var(--dark2));
+        color: #fff;
+      }
+      .code-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .code-head strong {
+        font-size: 13px;
+      }
+      .code-head span {
+        font-size: 8px;
+        color: #9fb0aa;
+        font-weight: 900;
+        white-space: nowrap;
+      }
+      .diff {
+        margin-top: 16px;
+        font:
+          10px/2.25 ui-monospace,
+          monospace;
+      }
+      .row {
+        padding: 2px 11px;
+        border-radius: 8px;
+      }
+      .row.del {
+        background: #3b2927;
+        color: #f4a39a;
+      }
+      .row.add {
+        background: #223e35;
+        color: #9de2ce;
+      }
+      .row.normal {
+        color: #ccd6d2;
+      }
+      .test {
+        display: grid;
+        grid-template-columns: 20% 1fr;
+        gap: 14px;
+        border-radius: 22px;
+        padding: 18px;
+        background: var(--lav);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 8%, transparent);
+      }
+      .score {
+        display: grid;
+        place-items: center;
+        align-content: center;
+        border-radius: 18px;
+        background: var(--surface);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 8%, transparent);
+      }
+      .score b {
+        font-size: 36px;
+        line-height: 1;
+      }
+      .score span {
+        margin-top: 8px;
+        font-size: 8px;
+        color: var(--muted);
+        font-weight: 900;
+        text-align: center;
+      }
+      .bars {
+        align-self: center;
+      }
+      .test-row {
+        margin-bottom: 15px;
+      }
+      .test-row label {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 6px;
+        font-size: 9px;
+        font-weight: 900;
+      }
+      .bar-track {
+        height: 10px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--muted) 20%, transparent);
+      }
+      .bar-fill {
+        display: block;
+        height: 100%;
+        width: 0;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--accent), var(--mid));
+        animation: barGrow 10s linear infinite;
+      }
+      .bars .test-row:nth-child(2) .bar-fill {
+        animation-delay: 0.15s;
+      }
+      .bars .test-row:nth-child(3) .bar-fill {
+        animation-delay: 0.3s;
+      }
+      .board-grid {
+        display: grid;
+        grid-template-columns: 58% 1fr;
+        gap: 16px;
+        height: 100%;
+      }
+      .board-svg-wrap {
+        position: relative;
+        border-radius: 24px;
+        overflow: hidden;
+        background: linear-gradient(135deg, var(--dark), var(--dark2));
+        padding: 12px;
+      }
+      .board-svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .measure {
+        display: flex;
+        flex-direction: column;
+        border-radius: 24px;
+        padding: 18px;
+        background: var(--surface);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 8%, transparent);
+      }
+      .m-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+      .m-head strong {
+        font-size: 13px;
+        letter-spacing: -0.02em;
+        white-space: nowrap;
+      }
+      .pass {
+        padding: 7px 9px;
+        border-radius: 999px;
+        background: var(--mint);
+        color: var(--accent);
+        font-size: 7px;
+        font-weight: 900;
+        white-space: nowrap;
+      }
+      .m-row {
+        padding: 16px 0;
+        border-bottom: 1px solid color-mix(in srgb, var(--muted) 16%, transparent);
+      }
+      .m-row:last-of-type {
+        border-bottom: 0;
+      }
+      .m-row header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .m-row header span {
+        font-size: 8px;
+        color: var(--body);
+        font-weight: 900;
+      }
+      .m-row header b {
+        font-size: 18px;
+        letter-spacing: -0.03em;
+      }
+      .wave {
+        margin-top: 10px;
+        height: 34px;
+      }
+      .wave svg {
+        width: 100%;
+        height: 100%;
+      }
+      .wave path {
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .log {
+        margin-top: 10px;
+        color: var(--body);
+        font:
+          8px/1.7 ui-monospace,
+          monospace;
+      }
+      .board-result {
+        margin-top: auto;
+        padding: 14px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, var(--dark), var(--dark2));
+        color: #fff;
+        text-align: center;
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+      }
+      .done {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+      }
+      .check {
+        width: 64px;
+        height: 64px;
+        border-radius: 20px;
+        background: var(--accent);
+        display: grid;
+        place-items: center;
+        color: #fff;
+        font-size: 28px;
+        font-weight: 900;
+      }
+      .r-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 22px;
+      }
+      .r-stat {
+        border-radius: 20px;
+        padding: 16px;
+        background: var(--surface);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 8%, transparent);
+      }
+      .r-stat b {
+        display: block;
+        font-size: 32px;
+        letter-spacing: -0.04em;
+      }
+      .r-stat span {
+        display: block;
+        margin-top: 4px;
+        font-size: 8px;
+        color: var(--body);
+      }
+      .artifact {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-top: 16px;
+        border-radius: 20px;
+        padding: 18px;
+        background: linear-gradient(135deg, var(--dark), var(--dark2));
+        color: #fff;
+      }
+      .artifact strong {
+        font-size: 11px;
+      }
+      .artifact p {
+        margin-top: 6px;
+        color: #aab8b3;
+        font-size: 8px;
+      }
+      .pdf {
+        padding: 11px 13px;
+        border-radius: 13px;
+        background: var(--accent);
+        font-size: 8px;
+        font-weight: 900;
+        white-space: nowrap;
+      }
+      .next {
+        margin-top: 16px;
+        border-radius: 16px;
+        padding: 14px 16px;
+        background: var(--mint);
+        color: var(--accent);
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: 0.09em;
+      }
+      .composer {
+        position: absolute;
+        left: 5.2%;
+        right: 5.2%;
+        bottom: 4.1%;
+        height: 6.2%;
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        border-radius: 18px;
+        background: color-mix(in srgb, var(--surface2) 88%, var(--surface));
+        color: var(--muted);
+        font-size: 10px;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 8%, transparent);
+      }
+      .composer b {
+        margin-right: 13px;
+        font-size: 22px;
+        font-weight: 400;
+      }
+      .mic {
+        margin-left: auto;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: color-mix(in srgb, var(--muted) 14%, var(--surface));
+        color: var(--danger);
+      }
+      .pulse-a,
+      .pulse-b,
+      .pulse-c,
+      .pulse-d {
+        animation: pulseDot 2.2s ease-in-out infinite;
+      }
+      .pulse-b {
+        animation-delay: 0.35s;
+      }
+      .pulse-c {
+        animation-delay: 0.7s;
+      }
+      .pulse-d {
+        animation-delay: 1.05s;
+      }
+      @keyframes issueScene {
+        0%,
+        13% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        17%,
+        94% {
+          opacity: 0;
+          transform: translateY(-16px) scale(1);
+        }
+        97%,
+        100% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      @keyframes docsScene {
+        0%,
+        14% {
+          opacity: 0;
+          transform: translateY(18px) scale(0.988);
+        }
+        18%,
+        32% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        36%,
+        100% {
+          opacity: 0;
+          transform: translateY(-16px) scale(1);
+        }
+      }
+      @keyframes buildScene {
+        0%,
+        33% {
+          opacity: 0;
+          transform: translateY(18px) scale(0.988);
+        }
+        37%,
+        52% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        56%,
+        100% {
+          opacity: 0;
+          transform: translateY(-16px) scale(1);
+        }
+      }
+      @keyframes boardScene {
+        0%,
+        53% {
+          opacity: 0;
+          transform: translateY(18px) scale(0.988);
+        }
+        57%,
+        74% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        78%,
+        100% {
+          opacity: 0;
+          transform: translateY(-16px) scale(1);
+        }
+      }
+      @keyframes reportScene {
+        0%,
+        75% {
+          opacity: 0;
+          transform: translateY(18px) scale(0.988);
+        }
+        79%,
+        93% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        97%,
+        100% {
+          opacity: 0;
+          transform: translateY(-16px) scale(1);
+        }
+      }
+      @keyframes status {
+        0%,
+        78% {
+          background: var(--ok);
+          color: #fff;
+        }
+        80%,
+        93% {
+          background: var(--mint);
+          color: var(--accent);
+        }
+        95%,
+        100% {
+          background: var(--ok);
+          color: #fff;
+        }
+      }
+      @keyframes fill {
+        0%,
+        13% {
+          width: 0;
+        }
+        18%,
+        32% {
+          width: 24%;
+        }
+        37%,
+        52% {
+          width: 50%;
+        }
+        57%,
+        74% {
+          width: 75%;
+        }
+        79%,
+        93% {
+          width: 100%;
+        }
+        100% {
+          width: 0;
+        }
+      }
+      @keyframes s1 {
+        0%,
+        13%,
+        97%,
+        100% {
+          background: var(--accent);
+        }
+        14%,
+        96% {
+          background: var(--surface3);
+        }
+      }
+      @keyframes s2 {
+        0%,
+        17%,
+        33%,
+        100% {
+          background: var(--surface3);
+        }
+        18%,
+        32% {
+          background: var(--accent);
+        }
+      }
+      @keyframes s3 {
+        0%,
+        36%,
+        53%,
+        100% {
+          background: var(--surface3);
+        }
+        37%,
+        52% {
+          background: var(--accent);
+        }
+      }
+      @keyframes s4 {
+        0%,
+        56%,
+        75%,
+        100% {
+          background: var(--surface3);
+        }
+        57%,
+        74% {
+          background: var(--accent);
+        }
+      }
+      @keyframes s5 {
+        0%,
+        78%,
+        94%,
+        100% {
+          background: var(--surface3);
+        }
+        79%,
+        93% {
+          background: var(--accent);
+        }
+      }
+      @keyframes s1t {
+        0%,
+        13%,
+        97%,
+        100% {
+          color: var(--accent);
+        }
+        14%,
+        96% {
+          color: var(--muted);
+        }
+      }
+      @keyframes s2t {
+        0%,
+        17%,
+        33%,
+        100% {
+          color: var(--muted);
+        }
+        18%,
+        32% {
+          color: var(--accent);
+        }
+      }
+      @keyframes s3t {
+        0%,
+        36%,
+        53%,
+        100% {
+          color: var(--muted);
+        }
+        37%,
+        52% {
+          color: var(--accent);
+        }
+      }
+      @keyframes s4t {
+        0%,
+        56%,
+        75%,
+        100% {
+          color: var(--muted);
+        }
+        57%,
+        74% {
+          color: var(--accent);
+        }
+      }
+      @keyframes s5t {
+        0%,
+        78%,
+        94%,
+        100% {
+          color: var(--muted);
+        }
+        79%,
+        93% {
+          color: var(--accent);
+        }
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(0.98);
+          opacity: 0.55;
+        }
+        50% {
+          transform: scale(1.04);
+          opacity: 1;
+        }
+      }
+      @keyframes pulseDot {
+        0%,
+        100% {
+          transform: scale(0.75);
+          opacity: 0.6;
+        }
+        50% {
+          transform: scale(1.16);
+          opacity: 1;
+        }
+      }
+      @keyframes sweep {
+        0%,
+        18% {
+          width: 0;
+        }
+        24%,
+        34% {
+          width: 100%;
+        }
+        100% {
+          width: 100%;
+        }
+      }
+      @keyframes barGrow {
+        0%,
+        40% {
+          width: 0;
+        }
+        46%,
+        54% {
+          width: 100%;
+        }
+        100% {
+          width: 100%;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <section class="hero">
+      <header class="topbar">
+        <div class="brand">PlatformClaw<small>Issue → Docs → Build → Board → Report</small></div>
+        <div class="badge"><b></b> SECURE AUTOMATION</div>
+      </header>
+      <section class="task">
+        <div class="task-meta">TASK · SOC-1842</div>
+        <div class="task-title">Rev.B Boot Validation</div>
+        <div class="task-status">RUNNING</div>
+      </section>
+      <div class="track-wrap">
+        <div class="track-line">
+          <div class="track-fill"></div>
+          <div class="step s1"><i></i><span>ISSUE</span></div>
+          <div class="step s2"><i></i><span>DOCS</span></div>
+          <div class="step s3"><i></i><span>BUILD</span></div>
+          <div class="step s4"><i></i><span>BOARD</span></div>
+          <div class="step s5"><i></i><span>REPORT</span></div>
+        </div>
+      </div>
+      <section class="scene">
+        <article class="layer issue">
+          <div class="eyebrow">NEW TASK</div>
+          <h1>From issue intake to validated board evidence in one clean flow.</h1>
+          <p style="margin-top: 12px">
+            Built for the login hero area: compact, polished, and readable without looking like a
+            full app screenshot.
+          </p>
+          <div class="issue-grid">
+            <div class="card request">
+              <div class="eyebrow">PERSON_ONE · REQUEST</div>
+              <strong
+                >Validate the Rev.B boot sequence, confirm the UART handshake window, and attach the
+                evidence package.</strong
+              >
+              <div class="chips">
+                <span class="chip">Docs</span><span class="chip">Firmware</span
+                ><span class="chip">Board-07</span>
+              </div>
+            </div>
+            <div class="orbit">
+              <div class="ring r1"></div>
+              <div class="ring r2"></div>
+              <div class="ring r3"></div>
+              <div class="core">RUN</div>
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><b>5</b><span>workflow stages</span></div>
+            <div class="metric"><b>3</b><span>evidence sources</span></div>
+            <div class="metric"><b>1</b><span>physical board</span></div>
+          </div>
+        </article>
+        <article class="layer docs">
+          <div class="docs-grid">
+            <div class="doc-list">
+              <div class="doc-head">EVIDENCE SOURCES</div>
+              <div class="doc-item active">
+                Rev.B Bring-up Guide<small>Confluence · updated</small>
+              </div>
+              <div class="doc-item">Power Sequence Spec<small>Design document</small></div>
+              <div class="doc-item">UART Init Notes<small>Lab record</small></div>
+            </div>
+            <div class="doc-main">
+              <div class="eyebrow">DOCS · GROUNDED</div>
+              <div class="doc-title">Boot requirements</div>
+              <p style="margin-top: 8px">
+                PlatformClaw extracts the validation rule directly from the source material and
+                keeps the evidence path visible.
+              </p>
+              <div class="lines"><i></i><i></i><i></i><i></i></div>
+              <div class="highlight">
+                <div class="sweep"></div>
+                <span>T_PWR_GOOD → UART_INIT ≥ 250 ms</span>
+              </div>
+              <div class="chips">
+                <span class="chip">250 ms</span><span class="chip">UART_READY</span
+                ><span class="chip">Rev.B</span>
+              </div>
+            </div>
+          </div>
+        </article>
+        <article class="layer build">
+          <div class="build-grid">
+            <div class="code">
+              <div class="code-head">
+                <strong>boot_sequence.c</strong><span>GROUNDED PATCH</span>
+              </div>
+              <div class="diff">
+                <div class="row normal">112 static void boot_sequence(void) {</div>
+                <div class="row del">113 - wait_for_power_good(100);</div>
+                <div class="row add">113 + wait_for_power_good(250);</div>
+                <div class="row add">114 + verify_uart_ready();</div>
+              </div>
+            </div>
+            <div class="test">
+              <div class="score"><b>142</b><span>ALL TESTS PASSED</span></div>
+              <div class="bars">
+                <div class="test-row">
+                  <label><span>Build</span><span>Completed</span></label>
+                  <div class="bar-track"><i class="bar-fill"></i></div>
+                </div>
+                <div class="test-row">
+                  <label><span>Unit tests</span><span>142 / 142</span></label>
+                  <div class="bar-track"><i class="bar-fill"></i></div>
+                </div>
+                <div class="test-row">
+                  <label><span>Integration</span><span>Passed</span></label>
+                  <div class="bar-track"><i class="bar-fill"></i></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+        <article class="layer board">
+          <div class="board-grid">
+            <div class="board-svg-wrap">
+              <svg class="board-svg" viewBox="0 0 430 360" aria-label="Board validation diagram">
+                <defs>
+                  <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse">
+                    <circle cx="3" cy="3" r="2" fill="rgba(255,255,255,.06)" />
+                    <circle cx="11" cy="10" r="2" fill="rgba(255,255,255,.04)" />
+                  </pattern>
+                  <filter id="softGlow">
+                    <feGaussianBlur stdDeviation="3" result="b" />
+                    <feMerge>
+                      <feMergeNode in="b" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                </defs>
+                <rect x="0" y="0" width="430" height="360" rx="26" fill="url(#bg)" opacity="0" />
+                <path d="M22 20 H357 L406 69 V309 L357 340 H22 Z" fill="#1f4c40" />
+                <path d="M22 20 H357 L406 69 V309 L357 340 H22 Z" fill="url(#dots)" />
+                <circle cx="34" cy="34" r="8" fill="#101917" stroke="#839a91" stroke-width="4" />
+                <circle cx="394" cy="34" r="8" fill="#101917" stroke="#839a91" stroke-width="4" />
+                <circle cx="34" cy="326" r="8" fill="#101917" stroke="#839a91" stroke-width="4" />
+                <circle cx="394" cy="326" r="8" fill="#101917" stroke="#839a91" stroke-width="4" />
+                <text
+                  x="44"
+                  y="42"
+                  fill="#d8eee8"
+                  font-size="11"
+                  font-weight="800"
+                  letter-spacing="1.2"
+                >
+                  BOARD-07 · REV.B
+                </text>
+
+                <!-- traces -->
+                <path
+                  d="M104 176 C122 176, 134 160, 150 145"
+                  stroke="#e3c475"
+                  stroke-width="3"
+                  fill="none"
+                />
+                <path
+                  d="M250 140 C280 128, 298 118, 316 106"
+                  stroke="#75baa7"
+                  stroke-width="3"
+                  fill="none"
+                />
+                <path d="M250 170 L316 170" stroke="#75baa7" stroke-width="3" fill="none" />
+                <path
+                  d="M250 188 C284 214, 304 238, 330 270"
+                  stroke="#9be2d0"
+                  stroke-width="3"
+                  fill="none"
+                />
+                <path
+                  d="M178 254 C186 236, 194 220, 208 205"
+                  stroke="#87a39a"
+                  stroke-width="3"
+                  fill="none"
+                />
+
+                <!-- components -->
+                <rect x="52" y="140" width="64" height="80" rx="16" fill="#e3c475" />
+                <text
+                  x="84"
+                  y="182"
+                  fill="#4f3d13"
+                  font-size="19"
+                  font-weight="800"
+                  text-anchor="middle"
+                >
+                  PMIC
+                </text>
+
+                <rect x="145" y="108" width="106" height="120" rx="18" fill="#0f7c72" />
+                <text
+                  x="198"
+                  y="173"
+                  fill="#ffffff"
+                  font-size="22"
+                  font-weight="800"
+                  text-anchor="middle"
+                >
+                  SOC
+                </text>
+
+                <rect x="286" y="82" width="86" height="58" rx="16" fill="#2e6555" />
+                <text
+                  x="329"
+                  y="116"
+                  fill="#d7eee8"
+                  font-size="18"
+                  font-weight="800"
+                  text-anchor="middle"
+                >
+                  DDR0
+                </text>
+
+                <rect x="286" y="141" width="86" height="58" rx="16" fill="#2e6555" />
+                <text
+                  x="329"
+                  y="175"
+                  fill="#d7eee8"
+                  font-size="18"
+                  font-weight="800"
+                  text-anchor="middle"
+                >
+                  DDR1
+                </text>
+
+                <rect x="285" y="253" width="88" height="58" rx="16" fill="#182b25" />
+                <text
+                  x="329"
+                  y="287"
+                  fill="#d3e8e1"
+                  font-size="18"
+                  font-weight="800"
+                  text-anchor="middle"
+                >
+                  UART
+                </text>
+
+                <rect x="164" y="250" width="64" height="52" rx="16" fill="#68877c" />
+                <text
+                  x="196"
+                  y="282"
+                  fill="#f4fbf8"
+                  font-size="17"
+                  font-weight="800"
+                  text-anchor="middle"
+                >
+                  OSC
+                </text>
+
+                <!-- connection points -->
+                <circle
+                  cx="126"
+                  cy="176"
+                  r="8"
+                  fill="#c6f7ea"
+                  filter="url(#softGlow)"
+                  class="pulse-a"
+                />
+                <circle
+                  cx="147"
+                  cy="155"
+                  r="8"
+                  fill="#c6f7ea"
+                  filter="url(#softGlow)"
+                  class="pulse-b"
+                />
+                <circle
+                  cx="286"
+                  cy="117"
+                  r="8"
+                  fill="#c6f7ea"
+                  filter="url(#softGlow)"
+                  class="pulse-a"
+                />
+                <circle
+                  cx="286"
+                  cy="170"
+                  r="8"
+                  fill="#c6f7ea"
+                  filter="url(#softGlow)"
+                  class="pulse-b"
+                />
+                <circle
+                  cx="286"
+                  cy="267"
+                  r="8"
+                  fill="#c6f7ea"
+                  filter="url(#softGlow)"
+                  class="pulse-c"
+                />
+                <circle
+                  cx="208"
+                  cy="205"
+                  r="8"
+                  fill="#c6f7ea"
+                  filter="url(#softGlow)"
+                  class="pulse-d"
+                />
+              </svg>
+            </div>
+            <div class="measure">
+              <div class="m-head">
+                <strong>LIVE MEASUREMENTS</strong><span class="pass">PASS</span>
+              </div>
+              <div class="m-row">
+                <header><span>Power rails</span><b>1.00 V</b></header>
+                <div class="wave">
+                  <svg viewBox="0 0 220 42">
+                    <path
+                      d="M0 24 L16 24 L24 7 L32 34 L42 16 L54 24 L70 24 L79 8 L90 34 L101 17 L113 24 L129 24 L138 9 L148 33 L158 18 L173 24 L188 24 L197 8 L207 34 L220 19"
+                    />
+                  </svg>
+                </div>
+              </div>
+              <div class="m-row">
+                <header><span>UART handshake</span><b>286 ms</b></header>
+                <div class="log">
+                  POWER_GOOD 00:00.000<br />UART_READY 00:00.286<br />BOOT_OK 00:00.401
+                </div>
+              </div>
+              <div class="board-result">BOARD VALIDATION PASSED</div>
+            </div>
+          </div>
+        </article>
+        <article class="layer report">
+          <div class="done">
+            <div class="check">✓</div>
+            <div>
+              <div class="eyebrow">VALIDATION COMPLETE</div>
+              <h2>Rev.B validation complete</h2>
+              <p style="margin-top: 8px">
+                Documents, code, test results, and live measurements are tied into one clean
+                outcome.
+              </p>
+            </div>
+          </div>
+          <div class="r-stats">
+            <div class="r-stat"><b>5</b><span>checks passed</span></div>
+            <div class="r-stat"><b>3</b><span>artifacts attached</span></div>
+            <div class="r-stat"><b>0</b><span>blocking issues</span></div>
+          </div>
+          <div class="artifact">
+            <div>
+              <strong>Issue and docs were updated automatically</strong>
+              <p>SOC-1842 · board-07-validation.pdf · boot_sequence.diff</p>
+            </div>
+            <div class="pdf">REPORT.PDF</div>
+          </div>
+          <div class="next">READY FOR THE NEXT TASK →</div>
+        </article>
+      </section>
+      <div class="composer"><b>＋</b>Message person_one <span class="mic">●</span></div>
+    </section>
+  </body>
+</html>

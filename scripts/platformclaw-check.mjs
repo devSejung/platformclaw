@@ -108,7 +108,11 @@ const SURFACE_COMMANDS = {
       "ui/vite.config.ts",
       "ui/vite.platformclaw-login.config.ts",
     ]),
-    command("test PlatformClaw UI", node, ["scripts/run-vitest.mjs", "ui/src/platformclaw"]),
+    command("test PlatformClaw UI", node, [
+      "scripts/run-vitest.mjs",
+      "ui/src/platformclaw",
+      "--isolate",
+    ]),
     command("build UI", "corepack", ["pnpm", "--dir", "ui", "build"]),
   ],
 };

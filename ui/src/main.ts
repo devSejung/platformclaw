@@ -7,6 +7,7 @@ import {
   installStaleChunkReloadListener,
 } from "./app/stale-chunk-reload.ts";
 import { CONTROL_UI_BUILD_INFO } from "./build-info.ts";
+import { applyPlatformClawDocumentBranding } from "./platformclaw/branding.ts";
 
 type ViteImportMeta = ImportMeta & {
   readonly env?: {
@@ -18,6 +19,7 @@ const isProd = (import.meta as ViteImportMeta).env?.PROD === true;
 const currentControlUiBuildId = CONTROL_UI_BUILD_INFO.buildId;
 
 syncDocumentPublicAssetLinks();
+applyPlatformClawDocumentBranding();
 installStaleChunkReloadListener();
 installMissingStylesheetRecovery();
 

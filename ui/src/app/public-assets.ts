@@ -1,5 +1,6 @@
 // Control UI module implements public assets behavior.
 import { inferBasePathFromPathname, normalizeBasePath } from "../app-route-paths.ts";
+import { resolvePlatformClawBrandAsset } from "../platformclaw/branding.ts";
 import { resolveControlUiBasePath } from "./browser.ts";
 
 type ControlUiPublicAsset =
@@ -17,6 +18,10 @@ export function controlUiPublicAssetPath(
   asset: ControlUiPublicAsset,
   basePath: string | null | undefined,
 ): string {
+  const brandAsset = resolvePlatformClawBrandAsset(asset);
+  if (brandAsset) {
+    return brandAsset;
+  }
   const base = normalizeBasePath(basePath ?? "");
   return base ? `${base}/${asset}` : `/${asset}`;
 }

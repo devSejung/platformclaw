@@ -3,34 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light" />
-    <meta name="theme-color" content="#faf9f5" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#181715" media="(prefers-color-scheme: dark)" />
     <meta name="robots" content="noindex,nofollow" />
     <base href="/platformclaw/" />
     <title>PlatformClaw 로그인</title>
-    <link rel="icon" type="image/svg+xml" href="/src/platformclaw/favicon-employee.svg" />
+    <link rel="icon" type="image/svg+xml" href="/src/platformclaw/platformclaw-pixel.svg" />
     <link rel="stylesheet" href="/src/platformclaw/login.css" />
   </head>
   <body>
     <main class="login-page" data-platformclaw-login>
-      <section class="login-story" aria-labelledby="welcome-title">
-        <p class="login-eyebrow">PlatformClaw</p>
-        <h1 id="welcome-title">업무를 이해하는<br />나만의 AI 동료.</h1>
-        <p class="login-story__intro">
-          할당된 에이전트와 함께 사내 지식을 찾고,<br class="desktop-only" />
-          Knox Teams에서 이어진 업무를 한곳에서 처리하세요.
-        </p>
-        <ul class="login-capabilities" aria-label="연결된 업무 환경">
-          <li>Knox Teams</li>
-          <li>사내 지식</li>
-          <li>업무 자동화</li>
-        </ul>
-      </section>
+      <section class="login-hero" data-login-hero aria-hidden="true"></section>
 
       <section class="login-card" aria-labelledby="login-title">
-        <div class="login-card__brand" aria-hidden="true">
-          <img src="/src/platformclaw/favicon-employee.svg" alt="" />
-        </div>
+        <div class="login-mascot" data-login-mascot aria-hidden="true"></div>
         <div class="login-card__heading">
           <h2 id="login-title">PlatformClaw</h2>
           <p>업무 계정으로 워크스페이스에 로그인하세요.</p>
