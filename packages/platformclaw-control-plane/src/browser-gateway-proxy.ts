@@ -4,12 +4,13 @@ import {
   projectBrowserCommands,
   resolveBrowserCommandSuppression,
 } from "./browser-command-policy.js";
+import { resolveBrowserGatewayAccess } from "./browser-gateway-access.js";
 import {
-  assertBrowserCronJobResult,
-  browserCronListScope,
-  prepareBrowserCronRequest,
-  projectBrowserCronResult,
-} from "./browser-gateway-cron-policy.js";
+  preflightCronMutation,
+  prepareCronRequest,
+  projectCronResult,
+  requestSpecialCronResult,
+} from "./browser-gateway-cron-controller.js";
 import {
   browserEventPayloadBelongsToAccess,
   browserPayloadBelongsToAccess,
@@ -104,6 +105,8 @@ export class BrowserGatewayProxyError extends Error {
   }
 }
 
+/* oxlint-disable max-lines -- Browser orchestration stays centralized; cron policy and runtime are split into focused modules. */
+
 export type BrowserGatewayProxyOptions = {
   authService: BrowserAuthService;
   store: ControlPlaneStore;
@@ -128,49 +131,21 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function browserPageInteger(
-  value: unknown,
-  fallback: number,
-  label: string,
-  options: { minimum: number; maximum?: number },
-): number {
-  const resolved = value === undefined ? fallback : value;
-  if (
-    typeof resolved !== "number" ||
-    !Number.isInteger(resolved) ||
-    resolved < options.minimum ||
-    (options.maximum !== undefined && resolved > options.maximum)
-  ) {
-    const range =
-      options.maximum === undefined
-        ? `at least ${options.minimum}`
-        : `between ${options.minimum} and ${options.maximum}`;
-    throw new BrowserGatewayProxyError("invalid-params", `${label} must be an integer ${range}`);
-  }
-  return resolved;
-}
-
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
 export class BrowserGatewayProxy {
   constructor(private readonly options: BrowserGatewayProxyOptions) {}
 
   async resolveAccess(token: string, touch = true): Promise<BrowserGatewayAccess> {
-    const auth = await this.options.authService.authenticateToken(token, touch);
-    if (auth.status !== "active") {
-      throw new BrowserGatewayProxyError("unauthenticated", "active browser session required");
-    }
-    const binding = await this.options.store.getPersonalAgentBinding(auth.user.id);
-    if (!binding || binding.state !== "active") {
-      throw new BrowserGatewayProxyError(
-        "agent-unavailable",
-        "active personal agent binding required",
-      );
-    }
-    return {
-      user: auth.user,
-      binding,
-      mainSessionKey: this.options.buildAgentMainSessionKey({ agentId: binding.agentId }),
-    };
+    return await resolveBrowserGatewayAccess({
+      token,
+      touch,
+      authService: this.options.authService,
+      store: this.options.store,
+      buildAgentMainSessionKey: (params) => this.options.buildAgentMainSessionKey(params),
+      fail: (code, message): never => {
+        throw new BrowserGatewayProxyError(code, message);
+      },
+    });
   }
 
   async request<T = unknown>(token: string, method: string, params?: unknown): Promise<T> {
@@ -206,29 +181,7 @@ export class BrowserGatewayProxy {
       if (method === "tasks.cancel") {
         await this.assertOwnedTask(access, prepared.taskId);
       }
-      if (
-        method === "cron.get" ||
-        method === "cron.update" ||
-        method === "cron.remove" ||
-        method === "cron.run"
-      ) {
-        const job = await this.assertOwnedCronJob(access, prepared);
-        if (method === "cron.update" || method === "cron.remove" || method === "cron.run") {
-          const expectedConfigRevision = optionalString(prepared.expectedConfigRevision);
-          if (!expectedConfigRevision) {
-            throw new BrowserGatewayProxyError(
-              "invalid-params",
-              "cron mutation requires the loaded job config revision",
-            );
-          }
-          if (optionalString(job.configRevision) !== expectedConfigRevision) {
-            throw new BrowserGatewayProxyError(
-              "invalid-params",
-              "cron job changed after it was loaded; refresh before retrying",
-            );
-          }
-        }
-      }
+      await preflightCronMutation(this.browserCronContext(access), method, prepared);
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
         await this.auditDeniedRequest(access, method, error.code);
@@ -248,19 +201,13 @@ export class BrowserGatewayProxy {
     if (method === "users.self") {
       return projectBrowserSelfUser(access.user) as T;
     }
-    if (method === "cron.list") {
-      return (await this.requestBrowserCronList(access, prepared)) as T;
-    }
-    if (method === "cron.status") {
-      return (await this.requestBrowserCronStatus(access)) as T;
-    }
-    if (method === "cron.runs") {
-      const offset = browserPageInteger(prepared.offset, 0, "cron.runs offset", { minimum: 0 });
-      const limit = browserPageInteger(prepared.limit, 50, "cron.runs limit", {
-        minimum: 1,
-        maximum: 200,
-      });
-      return { entries: [], total: 0, limit, offset, nextOffset: null, hasMore: false } as T;
+    const specialCronResult = await requestSpecialCronResult(
+      this.browserCronContext(access),
+      method,
+      prepared,
+    );
+    if (specialCronResult.handled) {
+      return specialCronResult.result as T;
     }
     // Keep commands.list on filtered metadata so browser visibility and execution cannot drift.
     const upstreamMethod = method === "commands.list" ? "chat.metadata" : method;
@@ -410,18 +357,7 @@ export class BrowserGatewayProxy {
     if (selfServiceParams !== undefined) {
       return selfServiceParams;
     }
-    const cronParams = prepareBrowserCronRequest({
-      method,
-      params,
-      agentId: access.binding.agentId,
-      ownerSessionKey: access.mainSessionKey,
-      ownerAccountId: access.user.accountId,
-      assertOptionalAgentId: (value) => this.assertOptionalAgentId(access, value, method),
-      assertOwnedSessionKey: (value, label) => this.assertOwnedSessionKey(access, value, label),
-      deny: (message) => {
-        throw new BrowserGatewayProxyError("method-not-allowed", message);
-      },
-    });
+    const cronParams = prepareCronRequest(this.browserCronContext(access), method, params);
     if (cronParams !== undefined) {
       return cronParams;
     }
@@ -512,16 +448,7 @@ export class BrowserGatewayProxy {
     executionTarget?: "platform_server" | "assigned_vm",
   ): unknown {
     if (method.startsWith("cron.")) {
-      return projectBrowserCronResult({
-        method,
-        result,
-        agentId: access.binding.agentId,
-        sessionKeyBelongsToAgent: (sessionKey) =>
-          this.options.resolveAgentIdFromSessionKey(sessionKey) === access.binding.agentId,
-        deny: (message) => {
-          throw new BrowserGatewayProxyError("upstream-result-denied", message);
-        },
-      });
+      return projectCronResult(this.browserCronContext(access), method, result);
     }
     if (method === "tasks.list" || method === "tasks.get" || method === "tasks.cancel") {
       return projectBrowserTaskResult({
@@ -708,67 +635,22 @@ export class BrowserGatewayProxy {
     this.filterResult(access, "tasks.get", { taskId }, result);
   }
 
-  private async requestBrowserCronList(
-    access: BrowserGatewayAccess,
-    params: JsonObject,
-  ): Promise<JsonObject> {
-    const result = await this.options.gateway.request("cron.list", {
-      ...params,
-      ...browserCronListScope(access.binding.agentId),
-    });
-    return projectBrowserCronResult({
-      method: "cron.list",
-      result,
-      agentId: access.binding.agentId,
-      sessionKeyBelongsToAgent: (sessionKey) =>
-        this.options.resolveAgentIdFromSessionKey(sessionKey) === access.binding.agentId,
-      deny: (message) => {
-        throw new BrowserGatewayProxyError("upstream-result-denied", message);
-      },
-    }) as JsonObject;
-  }
-
-  private async requestBrowserCronStatus(access: BrowserGatewayAccess): Promise<JsonObject> {
-    const [rawStatus, allPage, nextPage] = await Promise.all([
-      this.options.gateway.request("cron.status", {}),
-      this.requestBrowserCronList(access, { includeDisabled: true, limit: 1, offset: 0 }),
-      this.requestBrowserCronList(access, {
-        enabled: "enabled",
-        sortBy: "nextRunAtMs",
-        sortDir: "asc",
-        limit: 1,
-        offset: 0,
-      }),
-    ]);
-    const status = asObject(rawStatus, "cron.status result");
-    const nextJobs = Array.isArray(nextPage.jobs) ? (nextPage.jobs as JsonObject[]) : [];
-    const nextRunAtMs = (nextJobs[0]?.state as JsonObject | undefined)?.nextRunAtMs;
+  private browserCronContext(access: BrowserGatewayAccess) {
     return {
-      enabled: status.enabled === true,
-      jobs: typeof allPage.total === "number" ? allPage.total : 0,
-      nextWakeAtMs: typeof nextRunAtMs === "number" ? nextRunAtMs : null,
-    };
-  }
-
-  private async assertOwnedCronJob(
-    access: BrowserGatewayAccess,
-    params: JsonObject,
-  ): Promise<JsonObject> {
-    const jobId = optionalString(params.id) ?? optionalString(params.jobId);
-    if (!jobId) {
-      throw new BrowserGatewayProxyError("invalid-params", "cron job id is required");
-    }
-    const result = await this.options.gateway.request("cron.get", { id: jobId });
-    return assertBrowserCronJobResult({
-      result,
       agentId: access.binding.agentId,
-      label: "cron.get result",
-      sessionKeyBelongsToAgent: (sessionKey) =>
-        this.options.resolveAgentIdFromSessionKey(sessionKey) === access.binding.agentId,
-      deny: (message) => {
-        throw new BrowserGatewayProxyError("cross-agent-denied", message);
+      mainSessionKey: access.mainSessionKey,
+      accountId: access.user.accountId,
+      gateway: this.options.gateway,
+      resolveAgentIdFromSessionKey: (sessionKey: string) =>
+        this.options.resolveAgentIdFromSessionKey(sessionKey),
+      assertOptionalAgentId: (value: unknown, label: string) =>
+        this.assertOptionalAgentId(access, value, label),
+      assertOwnedSessionKey: (value: unknown, label: string) =>
+        this.assertOwnedSessionKey(access, value, label),
+      fail: (code: BrowserGatewayProxyErrorCode, message: string): never => {
+        throw new BrowserGatewayProxyError(code, message);
       },
-    });
+    };
   }
 
   private browserTaskAccess(access: BrowserGatewayAccess) {

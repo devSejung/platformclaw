@@ -1,111 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { BrowserAuthService, hashBrowserSessionToken } from "./browser-auth-service.js";
-import { BrowserGatewayProxy, type BrowserGatewayRpc } from "./browser-gateway-proxy.js";
 import {
   skillProposalInspectResult,
   skillProposalListResult,
 } from "./browser-gateway-proxy.test-fixtures.js";
-import type {
-  ControlAuditEvent,
-  ControlPlaneAuditWriter,
-  EnterprisePrincipal,
-} from "./contracts.js";
-import { InMemoryControlPlaneStore } from "./memory-store.js";
-
-const NOW = 1_000_000;
-
-function sessionAgentId(sessionKey: string): string | null {
-  const match = /^agent:([^:]+):/.exec(sessionKey.trim());
-  return match?.[1] ?? null;
-}
-
-function safeCronJob(agentId: string, extra: Record<string, unknown> = {}) {
-  return {
-    id: "job-1",
-    agentId,
-    configRevision: "revision-1",
-    owner: {
-      agentId,
-      sessionKey: `agent:${agentId}:main`,
-      accountId: "first.user",
-    },
-    sessionTarget: "isolated",
-    schedule: { kind: "cron", expr: "0 9 * * *" },
-    payload: { kind: "agentTurn", message: "Summarize" },
-    ...extra,
-  };
-}
-
-async function setup(options: { admin?: boolean } = {}) {
-  let sequence = 0;
-  const store = new InMemoryControlPlaneStore({
-    buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
-    initialAdminAccountIds: options.admin ? ["first.user"] : [],
-    idFactory: {
-      nextUserId: () => `user-${++sequence}`,
-      nextBindingId: () => `binding-${++sequence}`,
-      nextSessionId: () => `session-${++sequence}`,
-      nextManagedScopeId: () => `scope-${++sequence}`,
-      nextAuditEventId: () => `audit-${++sequence}`,
-    },
-  });
-  const principal: EnterprisePrincipal = {
-    provider: "ldap",
-    subject: "employee-1",
-    accountId: "first.user",
-    employeeId: "1001",
-    displayName: "First User",
-    email: "first.user@example.test",
-  };
-  const { user } = await store.upsertPrincipal(principal, NOW);
-  const reserved = await store.reservePersonalAgent(user.id, NOW);
-  const binding = await store.transitionAgent({
-    bindingId: reserved.binding.id,
-    state: "active",
-    changedAt: NOW,
-  });
-  if (binding.kind !== "personal") {
-    throw new Error("expected personal binding");
-  }
-  const token = "test-token";
-  const created = await store.createBrowserSession({
-    userId: user.id,
-    tokenHash: hashBrowserSessionToken(token),
-    createdAt: NOW,
-  });
-  if (created.status !== "created") {
-    throw new Error("expected browser session");
-  }
-  const service = new BrowserAuthService({
-    store,
-    authenticator: {
-      async authenticatePassword() {
-        return { status: "rejected" as const, message: "unused" };
-      },
-    },
-    provisioner: { provisionOrRefresh: vi.fn(async () => undefined) },
-    now: () => NOW,
-  });
-  const request = vi.fn<BrowserGatewayRpc["request"]>(async () => ({ ok: true }));
-  const auditEvents: ControlAuditEvent[] = [];
-  const auditWriter: ControlPlaneAuditWriter = {
-    async recordAuditEvent(params) {
-      const event: ControlAuditEvent = { id: `audit-${auditEvents.length + 1}`, ...params };
-      auditEvents.push(event);
-      return event;
-    },
-  };
-  const proxy = new BrowserGatewayProxy({
-    authService: service,
-    store,
-    auditWriter,
-    gateway: { request },
-    buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
-    resolveAgentIdFromSessionKey: sessionAgentId,
-    now: () => NOW,
-  });
-  return { auditEvents, binding, created, proxy, request, store, token, user };
-}
+import {
+  NOW,
+  safeCronJob,
+  setupBrowserGatewayProxyTest as setup,
+} from "./browser-gateway-proxy.test-harness.js";
 
 describe("BrowserGatewayProxy", () => {
   it("pins chat requests to the authenticated user's agent", async () => {
@@ -1326,3 +1228,5 @@ describe("BrowserGatewayProxy", () => {
     expect(request).not.toHaveBeenCalled();
   });
 });
+
+/* oxlint-disable max-lines -- End-to-end browser policy scenarios share one fixture; the fixture and cron policy implementation are split out. */

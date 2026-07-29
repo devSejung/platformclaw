@@ -6,9 +6,9 @@ type BrowserCronPolicyInput = {
   agentId: string;
   ownerSessionKey: string;
   ownerAccountId: string;
-  assertOptionalAgentId(value: unknown): void;
-  assertOwnedSessionKey(value: unknown, label: string): void;
-  deny(message: string): never;
+  assertOptionalAgentId: (value: unknown) => void;
+  assertOwnedSessionKey: (value: unknown, label: string) => void;
+  deny: (message: string) => never;
 };
 
 const BROWSER_CRON_METHODS = new Set([
@@ -221,8 +221,8 @@ export function assertBrowserCronJobResult(params: {
   result: unknown;
   agentId: string;
   label: string;
-  sessionKeyBelongsToAgent(sessionKey: string): boolean;
-  deny(message: string): never;
+  sessionKeyBelongsToAgent: (sessionKey: string) => boolean;
+  deny: (message: string) => never;
 }): JsonObject {
   const result = asObject(params.result, params.label, params.deny);
   if (!browserCronJobIsSafe(result, params.agentId, params.sessionKeyBelongsToAgent)) {
@@ -235,8 +235,8 @@ export function projectBrowserCronResult(params: {
   method: string;
   result: unknown;
   agentId: string;
-  sessionKeyBelongsToAgent(sessionKey: string): boolean;
-  deny(message: string): never;
+  sessionKeyBelongsToAgent: (sessionKey: string) => boolean;
+  deny: (message: string) => never;
 }): unknown {
   if (params.method === "cron.list") {
     const page = asObject(params.result, "cron.list result", params.deny);
