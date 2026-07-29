@@ -75,6 +75,22 @@ export function isActiveLeafChangedError(err: unknown): err is GatewayRequestErr
   );
 }
 
+export function isDefinitiveChatSendRejection(err: unknown): err is GatewayRequestError {
+  if (isActiveLeafChangedError(err)) {
+    return true;
+  }
+  if (!(err instanceof GatewayRequestError)) {
+    return false;
+  }
+  const details = err.details;
+  return (
+    typeof details === "object" &&
+    details !== null &&
+    !Array.isArray(details) &&
+    (details as { requestDisposition?: unknown }).requestDisposition === "rejected-before-dispatch"
+  );
+}
+
 function resolveChatSendRouting(
   state: ChatState,
   params: {

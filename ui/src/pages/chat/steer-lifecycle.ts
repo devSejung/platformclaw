@@ -23,6 +23,7 @@ import {
   type ChatSendAck,
   type TerminalFailureChatSendAck,
 } from "./chat-send-ack.ts";
+import { isDefinitiveChatSendRejection } from "./chat-send-request.ts";
 import { hasAbortableSessionRun } from "./run-lifecycle.ts";
 import { scheduleChatScroll } from "./scroll.ts";
 import {
@@ -51,8 +52,12 @@ export type SteerSendDependencies = {
     message: string,
     attachments: ChatAttachment[] | undefined,
     options: { canApplyError: () => boolean; queueMode?: QueueMode; runId: string },
-  ) => Promise<ChatSendAck | null>;
+  ) => Promise<SteerSendResult>;
 };
+
+export type SteerSendResult =
+  | { ok: true; ack: ChatSendAck }
+  | { ok: false; error: unknown; displayError: string };
 
 export const OFFLINE_QUEUE_STORAGE_ERROR =
   "Could not store this message for reconnect. Free browser storage or reconnect before sending.";
@@ -279,7 +284,7 @@ export async function sendQueuedChatMessageWithQueueMode(
     return;
   }
   host.chatQueue = host.chatQueue.map((entry) => (entry.id === id ? pendingIndicator : entry));
-  const ack = await dependencies.sendChatMessage(
+  const sendResult = await dependencies.sendChatMessage(
     host,
     message,
     attachments.length ? attachments : undefined,
@@ -301,7 +306,22 @@ export async function sendQueuedChatMessageWithQueueMode(
   }
   clearTransientQueuedMessageProjection(host, itemSessionKey, id, item.agentId);
   const itemStillVisible = visibleSessionMatches(host, itemSessionKey, item.agentId);
-  if (!ack) {
+  if (!sendResult.ok) {
+    if (isDefinitiveChatSendRejection(sendResult.error)) {
+      // A Gateway error frame proves admission failed. Make the row retryable
+      // instead of presenting a false ambiguous-delivery warning.
+      const restored = updateQueuedMessage(host, id, (entry) => ({
+        ...item,
+        ...(entry.attachments?.length ? { attachments: entry.attachments } : {}),
+        sendError: sendResult.displayError,
+        sendRunId: claimed.sendRunId,
+        sendState: "failed",
+      }));
+      if (itemStillVisible) {
+        setChatError(host, restored ? sendResult.displayError : unconfirmedError);
+      }
+      return;
+    }
     // A transport failure does not prove active-run admission was rejected. Keep the
     // durable row parked so reconnect cannot replay it as a separate turn.
     if (itemStillVisible) {
@@ -309,6 +329,7 @@ export async function sendQueuedChatMessageWithQueueMode(
     }
     return;
   }
+  const ack = sendResult.ack;
   if (isTerminalFailureChatSendAck(ack)) {
     const restored = updateQueuedMessage(host, id, (entry) => ({
       ...item,

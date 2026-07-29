@@ -91,6 +91,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "timeoutMs",
       "idempotencyKey",
       "expectedLeafEntryId",
+      "replyToId",
       "__controlUiReconnectResume",
     ]),
   ],
@@ -165,7 +166,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["plugins.search", new Set(["query", "limit"])],
   ["plugins.setEnabled", new Set(["pluginId", "enabled"])],
   ["plugins.uninstall", new Set(["pluginId"])],
-  ["sessions.abort", new Set(["key", "agentId"])],
+  ["sessions.abort", new Set(["key", "agentId", "clearQueued"])],
   [
     "sessions.create",
     new Set([
