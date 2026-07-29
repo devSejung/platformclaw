@@ -387,12 +387,20 @@ image_pair_available() {
 }
 
 create_gateway_state_backup() {
+  local marker_staging
   local staging
   local target
 
   gateway_state_backup=""
-  install -d -m 0700 "$gateway_state_backup_root"
-  staging="$(mktemp -d "$gateway_state_backup_root/.backup.XXXXXX")"
+  if ! install -d -m 0700 "$gateway_state_backup_root"; then
+    echo "Failed to create Gateway state backup directory; image update was not started." >&2
+    return 1
+  fi
+  if ! staging="$(mktemp -d "$gateway_state_backup_root/.backup.XXXXXX")" || \
+    [[ -z "$staging" ]]; then
+    echo "Failed to create Gateway state backup staging directory; image update was not started." >&2
+    return 1
+  fi
   if ! cp -a "$gateway_state/." "$staging/"; then
     find "$staging" -mindepth 1 -depth -delete || true
     rmdir "$staging" 2>/dev/null || true
@@ -400,9 +408,24 @@ create_gateway_state_backup() {
     return 1
   fi
   target="$gateway_state_backup_root/gateway-state-$(date -u +%Y%m%dT%H%M%SZ)-$$"
-  mv "$staging" "$target"
-  printf '%s\n' "$target" >"$previous_gateway_state_file"
-  chmod 0600 "$previous_gateway_state_file"
+  if ! mv "$staging" "$target"; then
+    find "$staging" -mindepth 1 -depth -delete || true
+    rmdir "$staging" 2>/dev/null || true
+    echo "Failed to publish Gateway state backup; image update was not started." >&2
+    return 1
+  fi
+  if ! marker_staging="$(mktemp "${previous_gateway_state_file}.XXXXXX")" || \
+    [[ -z "$marker_staging" ]]; then
+    echo "Failed to create Gateway state backup marker; retained backup: $target" >&2
+    return 1
+  fi
+  if ! printf '%s\n' "$target" >"$marker_staging" || \
+    ! chmod 0600 "$marker_staging" || \
+    ! mv -f "$marker_staging" "$previous_gateway_state_file"; then
+    rm -f "$marker_staging"
+    echo "Failed to publish Gateway state backup marker; retained backup: $target" >&2
+    return 1
+  fi
   gateway_state_backup="$target"
   echo "Gateway state backup: $target"
 }
@@ -424,7 +447,11 @@ restore_gateway_state_backup() {
       ;;
   esac
 
-  staging="$(mktemp -d "$deploy_root/data/gateway-home/.restore.XXXXXX")"
+  if ! staging="$(mktemp -d "$deploy_root/data/gateway-home/.restore.XXXXXX")" || \
+    [[ -z "$staging" ]]; then
+    echo "Failed to create Gateway state restore staging directory." >&2
+    return 1
+  fi
   if ! cp -a "$backup/." "$staging/"; then
     find "$staging" -mindepth 1 -depth -delete || true
     rmdir "$staging" 2>/dev/null || true
@@ -627,7 +654,10 @@ apply_images() {
 
   echo "Update failed; restoring previous image refs and Gateway state." >&2
   if [[ -n "$gateway_state_backup" ]]; then
-    "${compose[@]}" down || true
+    if ! "${compose[@]}" down; then
+      echo "Cannot prove services stopped; Gateway state and attempted image refs were left unchanged." >&2
+      exit 1
+    fi
     restore_gateway_state_backup "$gateway_state_backup" || {
       echo "Automatic Gateway state restore failed; services remain stopped." >&2
       exit 1
