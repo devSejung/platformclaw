@@ -82,7 +82,7 @@ export async function patchTarModesFile(archivePath, modes) {
   const block = Buffer.alloc(TAR_BLOCK_SIZE);
 
   try {
-    for (let offset = 0; ; ) {
+    for (let offset = 0; ;) {
       const bytesRead = await readTarBlock(archive, block, offset);
       if (bytesRead === 0) break;
       if (bytesRead !== TAR_BLOCK_SIZE) {
