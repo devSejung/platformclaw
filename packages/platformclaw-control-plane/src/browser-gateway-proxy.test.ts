@@ -755,6 +755,60 @@ describe("BrowserGatewayProxy", () => {
     });
   });
 
+  it("relays new-session attachments through the owned chat path", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const attachment = {
+      type: "file",
+      mimeType: "text/plain",
+      fileName: "notes.txt",
+      content: "aGVsbG8=",
+    };
+    request
+      .mockImplementationOnce(async (_method, params) => ({
+        ok: true,
+        key: (params as { key: string }).key,
+      }))
+      .mockResolvedValueOnce({ status: "started" });
+
+    await expect(
+      proxy.request(token, "sessions.create", {
+        agentId: binding.agentId,
+        message: "",
+        attachments: [attachment],
+      }),
+    ).resolves.toMatchObject({ ok: true, runStarted: true });
+
+    const createdKey = (request.mock.calls[0]?.[1] as { key?: unknown } | undefined)?.key;
+    expect(typeof createdKey).toBe("string");
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.create", {
+      agentId: binding.agentId,
+      emitCommandHooks: false,
+      key: createdKey,
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "chat.send", {
+      sessionKey: createdKey,
+      agentId: binding.agentId,
+      message: "",
+      attachments: [attachment],
+      idempotencyKey: expect.any(String),
+      deliver: false,
+      suppressCommandInterpretation: true,
+    });
+  });
+
+  it("rejects malformed new-session attachments before creating a session", async () => {
+    const { binding, proxy, request, token } = await setup();
+
+    await expect(
+      proxy.request(token, "sessions.create", {
+        agentId: binding.agentId,
+        message: "hello",
+        attachments: { content: "not-an-array" },
+      }),
+    ).rejects.toMatchObject({ code: "invalid-params" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("keeps unsafe session message relay methods blocked", async () => {
     const { binding, proxy, request, token } = await setup();
     const key = `agent:${binding.agentId}:main`;

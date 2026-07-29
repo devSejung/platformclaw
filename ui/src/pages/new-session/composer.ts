@@ -37,6 +37,7 @@ type NewSessionComposerOptions = {
   messageLocked?: boolean;
   visibility?: NewSessionVisibility;
   draftAvailable?: boolean;
+  incognitoAvailable?: boolean;
   onAttachmentsChange: (attachments: ChatAttachment[]) => void;
   onPendingReadsChange: (delta: 1 | -1) => void;
   onInput: (message: string) => void;
@@ -255,13 +256,15 @@ function renderNewSessionComposer(options: NewSessionComposerOptions) {
                   options,
                 })
               : nothing}
-            ${renderVisibilityPill({
-              mode: "incognito",
-              icon: icons.lock,
-              label: t("newSession.incognito"),
-              description: t("newSession.incognitoDescription"),
-              options,
-            })}
+            ${options.incognitoAvailable !== false
+              ? renderVisibilityPill({
+                  mode: "incognito",
+                  icon: icons.lock,
+                  label: t("newSession.incognito"),
+                  description: t("newSession.incognitoDescription"),
+                  options,
+                })
+              : nothing}
           </div>
         </div>
         ${options.pendingAttachmentReads > 0
@@ -284,6 +287,7 @@ export function renderNewSessionDraftComposer(options: {
   message: string;
   visibility?: NewSessionVisibility;
   draftAvailable?: boolean;
+  incognitoAvailable?: boolean;
   modelControl: NewSessionModelControl;
   textareaController: NewSessionComposerTextareaController;
   requiresModifier: boolean;
@@ -301,6 +305,7 @@ export function renderNewSessionDraftComposer(options: {
     message: options.message,
     visibility: options.visibility,
     draftAvailable: options.draftAvailable,
+    incognitoAvailable: options.incognitoAvailable,
     modelControl: options.isCatalogTarget
       ? nothing
       : options.modelControl.render({

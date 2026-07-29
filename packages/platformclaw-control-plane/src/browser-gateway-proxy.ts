@@ -241,9 +241,18 @@ export class BrowserGatewayProxy {
       typeof prepared.message === "string" && prepared.message.trim()
         ? prepared.message
         : undefined;
+    const attachments = prepared.attachments;
+    if (attachments !== undefined && !Array.isArray(attachments)) {
+      throw new BrowserGatewayProxyError(
+        "invalid-params",
+        "sessions.create attachments must be an array",
+      );
+    }
     const createParams = { ...prepared };
     delete createParams.message;
-    if (message && createParams.key === undefined && createParams.catalogId === undefined) {
+    delete createParams.attachments;
+    const hasInitialTurn = Boolean(message || attachments?.length);
+    if (hasInitialTurn && createParams.key === undefined && createParams.catalogId === undefined) {
       // Mint the dashboard key here because the separately relayed turn would reset main otherwise.
       createParams.key = `agent:${access.binding.agentId}:dashboard:${randomUUID()}`;
     }
@@ -252,7 +261,7 @@ export class BrowserGatewayProxy {
       this.filterResult(access, "sessions.create", createParams, rawCreated),
       "sessions.create result",
     );
-    if (!message || created.ok === false) {
+    if (!hasInitialTurn || created.ok === false) {
       return created;
     }
     const key = optionalString(created.key);
@@ -265,7 +274,8 @@ export class BrowserGatewayProxy {
     try {
       const sendParams = this.prepareRequest(access, "chat.send", {
         sessionKey: key,
-        message,
+        message: message ?? "",
+        ...(attachments?.length ? { attachments } : {}),
         idempotencyKey: randomUUID(),
       });
       sendParams.suppressCommandInterpretation = suppressCommandInterpretation;

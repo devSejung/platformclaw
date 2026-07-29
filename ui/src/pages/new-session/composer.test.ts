@@ -18,6 +18,7 @@ function renderComposer(
     messageLocked?: boolean;
     visibility?: NewSessionVisibility;
     draftAvailable?: boolean;
+    incognitoAvailable?: boolean;
     onVisibilityChange?: (visibility: NewSessionVisibility) => void;
     message?: string;
     onInput?: (message: string) => void;
@@ -42,6 +43,7 @@ function renderComposer(
       message: overrides.message ?? "",
       visibility: overrides.visibility,
       draftAvailable: overrides.draftAvailable,
+      incognitoAvailable: overrides.incognitoAvailable,
       modelControl: new NewSessionModelControl(() => undefined),
       requiresModifier: false,
       submitting: overrides.submitting ?? false,
@@ -192,6 +194,12 @@ describe("new-session composer attachment drops", () => {
     expect(switches[0]?.getAttribute("aria-checked")).toBe("false");
     switches[0]?.click();
     expect(onVisibilityChange).toHaveBeenCalledWith("incognito");
+  });
+
+  it("hides incognito when the host does not expose that session mode", () => {
+    const { composer } = renderComposer({ incognitoAvailable: false });
+
+    expect(composer.querySelectorAll('[role="switch"]')).toHaveLength(0);
   });
 
   it("renders a distinct active state when incognito is selected", () => {

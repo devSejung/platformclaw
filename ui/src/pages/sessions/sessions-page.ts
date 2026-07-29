@@ -1318,6 +1318,7 @@ class SessionsPage extends OpenClawLightDomElement {
         actions: renderAgentScopeControl({
           agents: context.agents.state.agentsList?.agents ?? [],
           selection: context.agentSelection,
+          allowAll: context.accessMode !== "personal-agent",
         }),
         onSelect: (tab) => {
           if (tab !== "sessions") {

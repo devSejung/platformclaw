@@ -10,6 +10,7 @@ import type {
   SessionsListResult,
 } from "../../api/types.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
+import type { AgentSelectOption } from "../../components/agent-select.ts";
 import type { SessionCapability } from "../../lib/sessions/index.ts";
 import { getWorkboardState } from "../../lib/workboard/index.ts";
 import type { SessionsRouteData } from "./sessions-page.ts";
@@ -66,6 +67,12 @@ type MutableGateway = {
 type TestSessionMenu = HTMLElement & {
   forkDisabled: boolean;
   workboard: { captured: boolean; busy: boolean } | null;
+  readonly updateComplete: Promise<boolean>;
+};
+
+type TestAgentSelect = HTMLElement & {
+  options: AgentSelectOption[];
+  value: string;
   readonly updateComplete: Promise<boolean>;
 };
 
@@ -205,6 +212,28 @@ afterEach(() => {
 });
 
 describe("sessions page lifecycle", () => {
+  it("shows the concrete personal Agent instead of an all-Agents scope", async () => {
+    const { gateway } = createGateway({} as GatewayBrowserClient);
+    const context = createContext(gateway, createSessions());
+    Object.assign(context, { accessMode: "personal-agent" });
+    context.agents.state.agentsList = {
+      defaultId: "main",
+      agents: [{ id: "main", name: "My agent" }],
+    } as NonNullable<ApplicationContext["agents"]["state"]["agentsList"]>;
+    const page = await createRenderedPage(context, {
+      ts: Date.now(),
+      path: "",
+      count: 0,
+      defaults: { modelProvider: null, model: null, contextTokens: null },
+      sessions: [],
+    });
+
+    const select = page.querySelector<TestAgentSelect>("openclaw-agent-select");
+    await select?.updateComplete;
+    expect(select?.value).toBe("main");
+    expect(select?.options.map((option) => option.value)).toEqual(["main"]);
+  });
+
   it("switches between Active and Archived with the route parameter", async () => {
     const { gateway } = createGateway({} as GatewayBrowserClient);
     const context = createContext(gateway, createSessions());

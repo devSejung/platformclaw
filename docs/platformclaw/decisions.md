@@ -411,6 +411,29 @@ plugin, and acknowledgement mutations to typed host/Gateway operations before
 it is enabled for VM-backed employees; installing the OpenClaw CLI in employee
 VMs is not an accepted workaround.
 
+### PC-123 Expose the bounded personal session surface
+
+Employee browsers may create and continue sessions only for their authenticated
+personal Agent. New-session attachments use the upstream attachment composer,
+but the BFF removes them from `sessions.create` and relays the initial turn
+through the already authorized `chat.send` path after validating the returned
+session key. Attachment-only initial turns are supported. A rejected initial
+turn keeps the created session and uses the upstream draft handoff so the user
+can retry without selecting the files again.
+
+Incognito, session sharing, cross-Agent sessions, and global or unknown
+sessions remain unavailable. The BFF does not advertise sharing visibility
+policy, and the personal-Agent UI hides incognito and sharing controls. Session
+and usage selectors show the concrete personal Agent rather than a misleading
+all-Agents option. UI hiding is not authorization: request parameters, returned
+rows, direct results, and events remain pinned and revalidated by PC-116.
+
+This slice is based on PlatformClaw's upstream sync through `053384fa01d2`.
+Upstream `c092ec437c7` later moved the unchanged chat sharing control from
+`chat-pane-header-render.ts` to `chat-pane-header.ts`; the next sync must carry
+the personal-Agent visibility guard to that owner without retaining a compat
+wrapper.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs
