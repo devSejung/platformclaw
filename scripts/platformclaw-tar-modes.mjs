@@ -40,7 +40,9 @@ function tarPath(block) {
 function updateTarChecksum(block) {
   block.fill(0x20, TAR_CHECKSUM_OFFSET, TAR_CHECKSUM_OFFSET + TAR_CHECKSUM_LENGTH);
   let checksum = 0;
-  for (const byte of block) checksum += byte;
+  for (const byte of block) {
+    checksum += byte;
+  }
   const encoded = `${checksum.toString(8).padStart(6, "0")}\0 `;
   block.write(encoded, TAR_CHECKSUM_OFFSET, TAR_CHECKSUM_LENGTH, "ascii");
 }
@@ -54,7 +56,9 @@ async function readTarBlock(archive, block, position) {
       TAR_BLOCK_SIZE - bytesRead,
       position + bytesRead,
     );
-    if (result.bytesRead === 0) break;
+    if (result.bytesRead === 0) {
+      break;
+    }
     bytesRead += result.bytesRead;
   }
   return bytesRead;
@@ -84,11 +88,15 @@ export async function patchTarModesFile(archivePath, modes) {
   try {
     for (let offset = 0; ;) {
       const bytesRead = await readTarBlock(archive, block, offset);
-      if (bytesRead === 0) break;
+      if (bytesRead === 0) {
+        break;
+      }
       if (bytesRead !== TAR_BLOCK_SIZE) {
         throw new Error(`Tar archive has a truncated header at offset ${offset}`);
       }
-      if (block.every((byte) => byte === 0)) break;
+      if (block.every((byte) => byte === 0)) {
+        break;
+      }
 
       const path = tarPath(block);
       const mode = modes.get(path);
