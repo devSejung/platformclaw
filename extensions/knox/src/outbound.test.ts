@@ -26,6 +26,14 @@ const inbound: KnoxInboundMessage = {
   },
   message: { type: "text", text: "question" },
 };
+const dmInbound: KnoxInboundMessage = {
+  ...inbound,
+  conversation: {
+    type: "dm",
+    providerType: "SINGLE",
+    conversationId: "24",
+  },
+};
 
 describe("sendKnoxOutbound", () => {
   it("sends bearer-authenticated dual-schema final response", async () => {
@@ -92,6 +100,72 @@ describe("sendKnoxOutbound", () => {
         fetchImpl,
       }),
     ).resolves.toEqual(expect.any(String));
+  });
+
+  it.each([
+    ["assigned_vm", "🟢 VM 사용 중\n\nanswer"],
+    ["platform_server", "🟠 PlatformClaw 서버 사용 중\n\nanswer"],
+  ] as const)("adds a user-visible %s indicator to DM delivery only", async (target, expected) => {
+    const fetchImpl = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true, messageId: "out-dm" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+
+    await sendKnoxOutbound({
+      context: {
+        account,
+        inbound: dmInbound,
+        agentId: "personal-24",
+        sessionKey: "agent:personal-24:main",
+        runId: "knox:dm-24",
+        executionTarget: target,
+      },
+      status: "final",
+      text: "answer",
+      final: true,
+      fetchImpl,
+    });
+
+    const init = fetchImpl.mock.calls[0]?.[1];
+    if (typeof init?.body !== "string") {
+      throw new Error("expected string request body");
+    }
+    expect(JSON.parse(init.body)).toMatchObject({
+      conversationType: "dm",
+      text: expected,
+    });
+    expect(dmInbound.message.text).toBe("question");
+  });
+
+  it("replaces a conflicting generated indicator instead of showing two statuses", async () => {
+    const fetchImpl = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true, messageId: "out-dm" }), { status: 200 }),
+    );
+
+    await sendKnoxOutbound({
+      context: {
+        account,
+        inbound: dmInbound,
+        agentId: "personal-24",
+        sessionKey: "agent:personal-24:main",
+        runId: "knox:dm-24",
+        executionTarget: "assigned_vm",
+      },
+      status: "final",
+      text: "\r🟠 PlatformClaw 서버 사용 중\r\r🟢 VM 사용 중\r\ranswer",
+      final: true,
+      fetchImpl,
+    });
+
+    const init = fetchImpl.mock.calls[0]?.[1];
+    if (typeof init?.body !== "string") {
+      throw new Error("expected string request body");
+    }
+    expect(JSON.parse(init.body).text).toBe("🟢 VM 사용 중\n\nanswer");
   });
 
   it("rejects a 2xx response without an explicit acknowledgement", async () => {

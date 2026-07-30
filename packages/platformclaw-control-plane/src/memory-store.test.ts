@@ -460,6 +460,7 @@ describe("InMemoryControlPlaneStore authenticated Knox DM routing", () => {
       user: { id: user.id },
       binding: { id: binding.id },
       sessionKey,
+      executionTarget: "platform_server",
     });
     expect(buildAgentMainSessionKey).toHaveBeenCalledWith({ agentId: binding.agentId });
   });

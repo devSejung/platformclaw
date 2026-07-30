@@ -54,6 +54,7 @@ describe("KnoxRoutingService", () => {
       agentId: reserved.binding.agentId,
       sessionKey: `agent:${reserved.binding.agentId}:main`,
       senderLinked: true,
+      executionTarget: "platform_server",
     });
   });
 
@@ -80,6 +81,7 @@ describe("KnoxRoutingService", () => {
       status: "resolved",
       agentId: "group-9988",
       senderLinked: false,
+      executionTarget: null,
     });
     expect(provision).toHaveBeenCalledOnce();
   });

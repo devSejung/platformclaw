@@ -149,6 +149,7 @@ export type KnoxDmRouteResolution =
       user: PlatformUser;
       binding: PersonalAgentBinding;
       sessionKey: string;
+      executionTarget: "platform_server" | "assigned_vm";
     }
   | { status: "user-not-found" }
   | { status: "agent-unavailable" };

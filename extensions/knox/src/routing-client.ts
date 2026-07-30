@@ -1,5 +1,11 @@
 type KnoxRouteResolution =
-  | { status: "resolved"; agentId: string; sessionKey: string; senderLinked: boolean }
+  | {
+      status: "resolved";
+      agentId: string;
+      sessionKey: string;
+      senderLinked: boolean;
+      executionTarget: "platform_server" | "assigned_vm" | null;
+    }
   | { status: "login-required" }
   | { status: "room-disabled" }
   | { status: "agent-unavailable" };
@@ -123,13 +129,17 @@ function parseRoute(value: unknown): KnoxRouteResolution | null {
     body.status === "resolved" &&
     typeof body.agentId === "string" &&
     typeof body.sessionKey === "string" &&
-    typeof body.senderLinked === "boolean"
+    typeof body.senderLinked === "boolean" &&
+    (body.executionTarget === null ||
+      body.executionTarget === "platform_server" ||
+      body.executionTarget === "assigned_vm")
   ) {
     return {
       status: "resolved",
       agentId: body.agentId,
       sessionKey: body.sessionKey,
       senderLinked: body.senderLinked,
+      executionTarget: body.executionTarget,
     };
   }
   return null;

@@ -453,6 +453,17 @@ CDEP adds `progress` to its outbound schema and sends its text as a normal Knox
 message. It also sends user-safe `error` and `timeout` text instead of silently
 returning success without delivery.
 
+For DM replies only, PlatformClaw prepends the selected execution target at the
+final outbound boundary:
+
+- `🟢 VM 사용 중` for an assigned personal VM;
+- `🟠 PlatformClaw 서버 사용 중` for the PlatformClaw server.
+
+A blank line separates the indicator from the reply. The indicator applies to
+`progress`, `final`, `error`, and `timeout` delivery, but not room messages or
+proactive sends. It is presentation-only: the prefix is never added to the
+inbound user message, agent context, generated answer, or session transcript.
+
 ## Text rendering and limits
 
 CDEP owns Knox-compatible RTF rendering and chunking. The observed operational

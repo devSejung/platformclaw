@@ -594,11 +594,16 @@ export class InMemoryControlPlaneStore
       return { status: "agent-unavailable" };
     }
     const expectedSessionKey = this.buildAgentMainSessionKey({ agentId: binding.agentId });
+    // Missing legacy profiles execute on the platform server, matching the
+    // browser execution policy; reporting VM here would mislead the sender.
+    const executionTarget =
+      this.executionProfiles.get(binding.id)?.activeTarget ?? "platform_server";
     return {
       status: "resolved",
       user: cloneUser(user),
       binding: cloneBinding(binding),
       sessionKey: expectedSessionKey,
+      executionTarget,
     };
   }
 

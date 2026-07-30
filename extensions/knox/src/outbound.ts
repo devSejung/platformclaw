@@ -9,6 +9,7 @@ export type KnoxOutboundContext = {
   agentId: string;
   sessionKey: string;
   runId: string;
+  executionTarget?: "platform_server" | "assigned_vm";
 };
 
 const MAX_RESPONSE_BYTES = 64 * 1024;
@@ -41,6 +42,7 @@ export async function sendKnoxOutbound(params: {
   const requestId = params.requestId?.trim() || randomUUID();
   const chatMsgId = randomUUID();
   const { account, inbound, agentId, sessionKey, runId } = params.context;
+  const text = formatKnoxOutboundText(params.context, params.text);
   let response: Response;
   try {
     response = await (params.fetchImpl ?? globalThis.fetch)(account.outboundUrl, {
@@ -64,10 +66,10 @@ export async function sendKnoxOutbound(params: {
         chatMsgId,
         msgType: "text",
         status: params.status,
-        text: params.text,
+        text,
         final: params.final,
         errorCode: params.status === "error" ? "AGENT_ERROR" : null,
-        errorMessage: params.status === "error" ? params.text : null,
+        errorMessage: params.status === "error" ? text : null,
         senderDisplayName: inbound.conversation.type === "room" ? inbound.sender.displayName : null,
       }),
     });
@@ -117,6 +119,40 @@ export async function sendKnoxOutbound(params: {
     throw new KnoxOutboundError("CDEP outbound acknowledgement is missing messageId", true);
   }
   return record.messageId;
+}
+
+function formatKnoxOutboundText(context: KnoxOutboundContext, text: string): string {
+  if (context.inbound.conversation.type !== "dm" || !context.executionTarget) {
+    return text;
+  }
+  const statusLine =
+    context.executionTarget === "assigned_vm" ? "🟢 VM 사용 중" : "🟠 PlatformClaw 서버 사용 중";
+  const lines = text.split(/\r\n|[\r\n]/u);
+  let bodyStart = 0;
+  while (lines[bodyStart]?.trim() === "") {
+    bodyStart += 1;
+  }
+  if (lines[bodyStart] && isKnoxExecutionStatusLine(lines[bodyStart])) {
+    do {
+      bodyStart += 1;
+      while (lines[bodyStart]?.trim() === "") {
+        bodyStart += 1;
+      }
+    } while (lines[bodyStart] && isKnoxExecutionStatusLine(lines[bodyStart]));
+  } else {
+    // Preserve intentional leading whitespace when there was no generated indicator.
+    bodyStart = 0;
+  }
+  const body = lines.slice(bodyStart).join("\n");
+  if (!body) {
+    return statusLine;
+  }
+  return `${statusLine}\n\n${body}`;
+}
+
+function isKnoxExecutionStatusLine(line: string | undefined): boolean {
+  const normalized = line?.trim();
+  return normalized === "🟢 VM 사용 중" || normalized === "🟠 PlatformClaw 서버 사용 중";
 }
 
 async function readBoundedResponse(response: Response): Promise<string> {

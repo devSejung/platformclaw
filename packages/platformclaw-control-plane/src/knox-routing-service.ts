@@ -10,6 +10,7 @@ export type KnoxRouteResolution =
       agentId: string;
       sessionKey: string;
       senderLinked: boolean;
+      executionTarget: "platform_server" | "assigned_vm" | null;
     }
   | { status: "login-required" }
   | { status: "room-disabled" }
@@ -52,6 +53,7 @@ export class KnoxRoutingService {
         agentId: route.binding.agentId,
         sessionKey: route.sessionKey,
         senderLinked: true,
+        executionTarget: route.executionTarget,
       };
     }
 
@@ -68,6 +70,7 @@ export class KnoxRoutingService {
       agentId: binding.agentId,
       sessionKey: this.options.buildAgentMainSessionKey({ agentId: binding.agentId }),
       senderLinked: isActiveUser(sender),
+      executionTarget: null,
     };
   }
 

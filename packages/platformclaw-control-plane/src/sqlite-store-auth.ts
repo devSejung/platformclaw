@@ -552,6 +552,16 @@ export abstract class SqliteControlPlaneAuthStore extends SqliteControlPlaneStor
     }
     const binding = rowToBinding(row) as PersonalAgentBinding;
     const sessionKey = this.buildAgentMainSessionKey({ agentId: binding.agentId });
-    return { status: "resolved", user: this.rowToUser(userRow), binding, sessionKey };
+    // Missing legacy profiles execute on the platform server, matching the
+    // browser execution policy; reporting VM here would mislead the sender.
+    const executionTarget =
+      (await this.getPersonalExecutionProfile(binding.agentId))?.activeTarget ?? "platform_server";
+    return {
+      status: "resolved",
+      user: this.rowToUser(userRow),
+      binding,
+      sessionKey,
+      executionTarget,
+    };
   }
 }

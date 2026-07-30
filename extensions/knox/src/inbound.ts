@@ -130,6 +130,9 @@ export async function dispatchKnoxInbound(params: {
     agentId: routing.agentId,
     sessionKey: routing.sessionKey,
     runId,
+    ...(params.message.conversation.type === "dm"
+      ? { executionTarget: requireDmExecutionTarget(routing.executionTarget) }
+      : {}),
   };
   let finalSent = false;
   let finalOrdinal = 0;
@@ -243,4 +246,13 @@ export async function dispatchKnoxInbound(params: {
     });
     params.log?.warn?.(`Knox turn completed without final text: ${params.message.eventId}`);
   }
+}
+
+function requireDmExecutionTarget(
+  value: "platform_server" | "assigned_vm" | null,
+): "platform_server" | "assigned_vm" {
+  if (!value) {
+    throw new Error("Knox DM routing response is missing executionTarget");
+  }
+  return value;
 }
