@@ -13,6 +13,7 @@ import {
 import { EmployeeMcpService } from "./browser-mcp-http.js";
 import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
+import { KnoxRoutingService, type KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
 import {
   deriveExecutionHandoffAddress,
   PlatformClawExecutionHandoffServer,
@@ -60,6 +61,11 @@ export type PlatformClawWebIngressRuntimeOptions = {
   loginRateLimiter?: MemoryBrowserLoginRateLimiterOptions;
   credentialBrokerAddress?: string;
   executionServiceToken?: string;
+  knoxRouting?: {
+    serviceToken: string;
+    roomProvisioner: KnoxRoomAgentProvisioner;
+  };
+  knoxIngressProxyUrl?: string;
   ingress?: Pick<
     PlatformClawWebIngressOptions,
     "gatewayPath" | "healthPath" | "maxPayloadBytes" | "resolveClientIp"
@@ -137,6 +143,17 @@ export function createPlatformClawWebIngressRuntime(
         )
       : undefined;
   const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
+  const knoxRouting = options.knoxRouting
+    ? {
+        service: new KnoxRoutingService({
+          store: auth.store,
+          roomProvisioner: options.knoxRouting.roomProvisioner,
+          buildAgentMainSessionKey: options.buildAgentMainSessionKey,
+          ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+        }),
+        serviceToken: options.knoxRouting.serviceToken,
+      }
+    : undefined;
   const employeeExecution = new EmployeeExecutionService({
     authService: auth.service,
     store: auth.store,
@@ -174,6 +191,10 @@ export function createPlatformClawWebIngressRuntime(
     gateway,
     executionService: employeeExecution,
     vmAdministrationService: vmAdministration,
+    ...(knoxRouting ? { knoxRouting } : {}),
+    ...(options.knoxIngressProxyUrl
+      ? { knoxIngressProxy: { targetUrl: options.knoxIngressProxyUrl } }
+      : {}),
     ...(mcpService ? { mcpService } : {}),
     webAssets: createPlatformClawWebAssetHandler(options.controlUiRoot, {
       publicOrigin: options.publicOrigin,

@@ -287,6 +287,12 @@ export class InMemoryControlPlaneStore
     return user ? cloneUser(user) : null;
   }
 
+  async getUserByAccountId(accountId: string): Promise<PlatformUser | null> {
+    const userId = this.userIdByAccountId.get(accountId.trim().toLowerCase());
+    const user = userId ? this.users.get(userId) : undefined;
+    return user ? cloneUser(user) : null;
+  }
+
   async getUserByEmployeeId(employeeId: string): Promise<PlatformUser | null> {
     const userId = this.userIdByEmployeeId.get(employeeId.trim().toLowerCase());
     const user = userId ? this.users.get(userId) : undefined;
@@ -572,11 +578,9 @@ export class InMemoryControlPlaneStore
   }
 
   async resolveAuthenticatedKnoxDmRoute(params: {
-    employeeId: string;
-    agentId: string;
-    sessionKey: string;
+    accountId: string;
   }): Promise<KnoxDmRouteResolution> {
-    const userId = this.userIdByEmployeeId.get(params.employeeId.trim().toLowerCase());
+    const userId = this.userIdByAccountId.get(params.accountId.trim().toLowerCase());
     const user = userId ? this.users.get(userId) : undefined;
     if (!user) {
       return { status: "user-not-found" };
@@ -590,9 +594,6 @@ export class InMemoryControlPlaneStore
       return { status: "agent-unavailable" };
     }
     const expectedSessionKey = this.buildAgentMainSessionKey({ agentId: binding.agentId });
-    if (params.agentId !== binding.agentId || params.sessionKey !== expectedSessionKey) {
-      return { status: "route-mismatch" };
-    }
     return {
       status: "resolved",
       user: cloneUser(user),

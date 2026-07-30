@@ -1,0 +1,34 @@
+{
+  "name": "@platformclaw/knox",
+  "version": "0.0.0-private",
+  "private": true,
+  "description": "Samsung Knox Teams relay channel for PlatformClaw.",
+  "type": "module",
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "channel": {
+      "id": "knox",
+      "configuredState": {
+        "env": {
+          "anyOf": [
+            "PLATFORMCLAW_KNOX_CDEP_URL",
+            "PLATFORMCLAW_KNOX_WEBHOOK_SECRET_FILE",
+            "PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE"
+          ]
+        }
+      },
+      "label": "Knox Teams",
+      "selectionLabel": "Samsung Knox Teams",
+      "docsPath": "/platformclaw/knox-proxy-spec",
+      "docsLabel": "knox",
+      "blurb": "Connect Samsung Knox Teams through the CDEP relay.",
+      "order": 75
+    }
+  },
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*"
+  }
+}

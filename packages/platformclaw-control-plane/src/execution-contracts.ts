@@ -85,6 +85,9 @@ export type AssignedVmExecutionTarget = {
 
 export type PersonalExecutionTarget = PlatformServerExecutionTarget | AssignedVmExecutionTarget;
 
+export type RoomExecutionTarget = Omit<PlatformServerExecutionTarget, "userId">;
+export type ExecutionTarget = PersonalExecutionTarget | RoomExecutionTarget;
+
 export type AssignedVmConnectionTarget = Omit<
   AssignedVmExecutionTarget,
   "remoteHomeDir" | "remoteWorkspaceDir"
@@ -148,6 +151,7 @@ export type VmAdministrationSnapshot = {
 };
 
 export interface ControlPlaneExecutionRuntimeStore {
+  resolveExecutionTarget(agentId: string): Promise<ExecutionTarget>;
   resolvePersonalExecutionTarget(agentId: string): Promise<PersonalExecutionTarget>;
 }
 

@@ -190,6 +190,11 @@
       - any-glob-to-any-file:
           - "extensions/synology-chat/**"
           - "docs/channels/synology-chat.md"
+"channel: knox":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/knox/**"
+          - "docs/platformclaw/knox-proxy-spec.md"
 "channel: telegram":
   - changed-files:
       - any-glob-to-any-file:

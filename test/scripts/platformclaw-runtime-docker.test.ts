@@ -170,7 +170,14 @@ describe("PlatformClaw Docker runtime", () => {
     expect(gateway?.networks?.["platformclaw-gateway-backplane"]?.aliases).toEqual([
       "gateway.platformclaw.local",
     ]);
+    expect(gateway?.networks).toHaveProperty("platformclaw-gateway-egress");
     expect(control?.networks).toHaveProperty("platformclaw-gateway-backplane");
+    expect(control?.networks?.["platformclaw-gateway-backplane"]?.aliases).toEqual([
+      "control.platformclaw.local",
+    ]);
+    expect(gateway?.environment?.PLATFORMCLAW_KNOX_CONTROL_PLANE_URL).toBe(
+      "http://control.platformclaw.local:19001/platformclaw/internal/knox/route",
+    );
     expect(control?.environment?.PLATFORMCLAW_GATEWAY_URL).toBe(
       "ws://gateway.platformclaw.local:18789",
     );
@@ -179,11 +186,14 @@ describe("PlatformClaw Docker runtime", () => {
       "platformclaw_gateway_service_identity",
       "platformclaw_execution_service_token",
       "platformclaw_initial_admin_ids",
+      "platformclaw_knox_service_token",
       "platformclaw_ssh_credential_master_key",
     ]);
     expect(gateway?.secrets).toEqual([
       "platformclaw_gateway_token",
       "platformclaw_execution_service_token",
+      "platformclaw_knox_webhook_secret",
+      "platformclaw_knox_service_token",
     ]);
     expect(gateway?.environment?.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE).toBe(
       "/run/secrets/platformclaw_execution_service_token",
@@ -268,6 +278,23 @@ describe("PlatformClaw Docker runtime", () => {
     expect(result.config.agents.entries).toEqual(source.agents.entries);
     expect(result.config.tools.sandbox.tools.alsoAllow).toEqual(["memory_search", "bundle-mcp"]);
     expect(source.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:old");
+  });
+
+  it("migrates an existing managed config to enable the Knox plugin", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      plugins: { entries: Record<string, unknown> };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    delete source.plugins.entries.knox;
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+    expect(result.changed).toBe(true);
+    expect(result.config.plugins.entries.knox).toEqual({ enabled: true });
+    expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
   });
 
   it("adds global MCP access to an existing explicit sandbox allowlist", () => {

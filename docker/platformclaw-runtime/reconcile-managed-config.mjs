@@ -136,12 +136,33 @@ function reconcileGlobalMcpSandboxGate(config) {
   };
 }
 
+function reconcileRequiredPlugins(config) {
+  const entries = config?.plugins?.entries;
+  if (entries?.knox?.enabled === true) {
+    return { config, changed: false };
+  }
+  return {
+    changed: true,
+    config: {
+      ...config,
+      plugins: {
+        ...config?.plugins,
+        entries: {
+          ...entries,
+          knox: { ...entries?.knox, enabled: true },
+        },
+      },
+    },
+  };
+}
+
 export function reconcileManagedConfig(config, sandboxImage) {
   const imageResult = reconcileSandboxImage(config, sandboxImage);
   const mcpResult = reconcileGlobalMcpSandboxGate(imageResult.config);
+  const pluginResult = reconcileRequiredPlugins(mcpResult.config);
   return {
-    config: mcpResult.config,
-    changed: imageResult.changed || mcpResult.changed,
+    config: pluginResult.config,
+    changed: imageResult.changed || mcpResult.changed || pluginResult.changed,
   };
 }
 

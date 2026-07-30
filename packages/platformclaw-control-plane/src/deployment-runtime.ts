@@ -4,6 +4,7 @@ import type { PlatformClawDeploymentConfig } from "./deployment-config.js";
 import { HttpGatewayAdminRpcClient } from "./gateway-admin-rpc-client.js";
 import { loadGatewayServiceIdentity } from "./gateway-service-identity.js";
 import { GatewayPersonalAgentProvisioner } from "./personal-agent-provisioner.js";
+import { GatewayKnoxRoomAgentProvisioner } from "./knox-room-agent-provisioner.js";
 import {
   createPlatformClawWebIngressRuntime,
   type PlatformClawWebIngressRuntime,
@@ -79,5 +80,16 @@ export function createPlatformClawDeploymentRuntime(
     controlUiRoot: config.controlUiRoot,
     credentialBrokerAddress: config.credentialBrokerAddress,
     executionServiceToken: config.executionServiceToken,
+    knoxIngressProxyUrl: new URL(
+      "/api/v1/platformclaw/knox/inbound",
+      config.gatewayAdminRpcUrl,
+    ).toString(),
+    knoxRouting: {
+      serviceToken: config.knoxServiceToken,
+      roomProvisioner: new GatewayKnoxRoomAgentProvisioner({
+        rpc,
+        workspaceRoot: config.workspaceRoot,
+      }),
+    },
   });
 }

@@ -1,6 +1,11 @@
 import type { PlatformClawChangePlan } from "./platformclaw-ci-plan.mjs";
 
-export type PlatformClawCheckSurface = "admin-http-rpc" | "control-plane" | "planner" | "ui";
+export type PlatformClawCheckSurface =
+  | "admin-http-rpc"
+  | "control-plane"
+  | "knox"
+  | "planner"
+  | "ui";
 
 export type PlatformClawCheckCommand = {
   label: string;

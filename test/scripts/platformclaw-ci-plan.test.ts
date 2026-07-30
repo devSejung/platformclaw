@@ -42,6 +42,14 @@ describe("classifyPlatformClawChanges", () => {
     expect(plan.needs_changed_surface_checks).toBe(false);
   });
 
+  it("runs focused Knox channel checks without upstream fanout", () => {
+    const plan = classifyPlatformClawChanges(["extensions/knox/src/channel.ts"]);
+
+    expect(plan.mode).toBe("platformclaw");
+    expect(plan.needs_knox_checks).toBe(true);
+    expect(plan.needs_changed_surface_checks).toBe(false);
+  });
+
   it("keeps lockfile-only changes on upstream checks", () => {
     const plan = classifyPlatformClawChanges(["pnpm-lock.yaml"]);
 

@@ -37,6 +37,7 @@ const config: PlatformClawDeploymentConfig = {
   mcpCredentialCipher: McpCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
   credentialBrokerAddress: "/run/platformclaw-credential-broker/credential.sock",
   executionServiceToken: "e".repeat(32),
+  knoxServiceToken: "k".repeat(32),
 };
 
 describe("createPlatformClawDeploymentRuntime", () => {
@@ -56,6 +57,11 @@ describe("createPlatformClawDeploymentRuntime", () => {
       controlUiRoot: config.controlUiRoot,
       credentialBrokerAddress: config.credentialBrokerAddress,
       executionServiceToken: config.executionServiceToken,
+      knoxIngressProxyUrl: "http://127.0.0.1:18789/api/v1/platformclaw/knox/inbound",
+      knoxRouting: {
+        serviceToken: config.knoxServiceToken,
+        roomProvisioner: expect.any(Object),
+      },
       gatewayClient: {
         pairing: {
           identity: { deviceId: expect.any(String) },

@@ -732,6 +732,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   const execTool = includeShellTools
     ? createLazyExecTool({
         ...execDefaults,
+        senderId: options?.senderId,
         host: options?.exec?.host ?? execConfig.host,
         mode: effectiveExecPolicy.mode,
         security: effectiveExecPolicy.security,

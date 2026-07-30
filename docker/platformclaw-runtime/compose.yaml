@@ -33,6 +33,10 @@ services:
       OPENCLAW_CONFIG_PATH: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home/.openclaw/openclaw.json
       PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
       PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_execution_service_token
+      PLATFORMCLAW_KNOX_CDEP_URL: ${PLATFORMCLAW_KNOX_CDEP_URL:?set PLATFORMCLAW_KNOX_CDEP_URL}
+      PLATFORMCLAW_KNOX_CONTROL_PLANE_URL: http://control.platformclaw.local:19001/platformclaw/internal/knox/route
+      PLATFORMCLAW_KNOX_WEBHOOK_SECRET_FILE: /run/secrets/platformclaw_knox_webhook_secret
+      PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_knox_service_token
       PLATFORMCLAW_SANDBOX_IMAGE: ${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:local}
       NODE_EXTRA_CA_CERTS: /etc/platformclaw/certs/employee-auth-ca.pem
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
@@ -47,6 +51,8 @@ services:
     secrets:
       - platformclaw_gateway_token
       - platformclaw_execution_service_token
+      - platformclaw_knox_webhook_secret
+      - platformclaw_knox_service_token
     networks:
       platformclaw-gateway-backplane:
         aliases: [gateway.platformclaw.local]
@@ -91,6 +97,7 @@ services:
       PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE: /run/secrets/platformclaw_ssh_credential_master_key
       PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
       PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_execution_service_token
+      PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_knox_service_token
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL}
       NODE_EXTRA_CA_CERTS: /etc/platformclaw/certs/employee-auth-ca.pem
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
@@ -104,9 +111,11 @@ services:
       - platformclaw_gateway_service_identity
       - platformclaw_execution_service_token
       - platformclaw_initial_admin_ids
+      - platformclaw_knox_service_token
       - platformclaw_ssh_credential_master_key
     networks:
-      platformclaw-gateway-backplane: {}
+      platformclaw-gateway-backplane:
+        aliases: [control.platformclaw.local]
       platformclaw-control-egress: {}
     ports:
       - "0.0.0.0:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"
@@ -188,5 +197,9 @@ secrets:
     file: ${PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE:?set PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE}
   platformclaw_initial_admin_ids:
     file: ${PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE:?set PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE}
+  platformclaw_knox_webhook_secret:
+    file: ${PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE:?set PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE}
+  platformclaw_knox_service_token:
+    file: ${PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE:?set PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE}
   platformclaw_ssh_credential_master_key:
     file: ${PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE:?set PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE}

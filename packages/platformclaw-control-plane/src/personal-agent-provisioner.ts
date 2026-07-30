@@ -7,11 +7,9 @@ import type {
 import type { PersonalAgentBinding, PlatformUser } from "./contracts.js";
 import type { EmployeeDirectoryProfile } from "./employee-auth-client.js";
 import { renderEmployeeProfileArtifact } from "./employee-profile-artifact.js";
-import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
+import { GatewayAgentRegistrar } from "./gateway-agent-registrar.js";
+import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
-type AgentSummary = { id: string; workspace?: string };
-type AgentsListResult = { agents?: AgentSummary[] };
-type AgentCreateResult = { ok: true; agentId: string; workspace: string };
 type ProfileSeedResult = {
   ok: true;
   agentId: string;
@@ -35,46 +33,19 @@ export type GatewayPersonalAgentProvisionerOptions = {
   workspaceRoot: string;
 };
 
-// Cold provider/plugin discovery can make the first configured owner publication take longer
-// than a normal hot reload. Keep login bounded while allowing that one-time preparation to finish.
-const CONFIG_APPLY_RETRY_DELAYS_MS = [
-  0, 250, 500, 1_000, 2_000, 4_000, 4_000, 4_000, 4_000, 4_000, 4_000,
-] as const;
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function isReadyAgentRuntimeStatus(value: unknown, agentId: string, workspace: string): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const status = value as Record<string, unknown>;
-  return (
-    status.ok === true &&
-    status.ready === true &&
-    status.agentId === agentId &&
-    typeof status.workspace === "string" &&
-    path.resolve(status.workspace) === workspace
-  );
-}
-
 export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner {
-  private readonly workspaceRoot: string;
+  private readonly registrar: GatewayAgentRegistrar;
 
   constructor(private readonly options: GatewayPersonalAgentProvisionerOptions) {
-    const workspaceRoot = options.workspaceRoot.trim();
-    if (!workspaceRoot) {
+    if (!options.workspaceRoot.trim()) {
       throw new Error("personal agent workspace root is required");
     }
-    this.workspaceRoot = path.resolve(workspaceRoot);
+    this.registrar = new GatewayAgentRegistrar(options.rpc, options.workspaceRoot);
   }
 
   async provisionOrRefresh(request: PersonalAgentProvisioningRequest): Promise<void> {
-    const workspace = this.workspaceForAgent(request.binding.agentId);
-    await this.ensureAgent(request.binding.agentId, workspace);
+    this.requirePersonalAgentId(request.binding.agentId);
+    const workspace = await this.registrar.ensureAgent(request.binding.agentId);
     await this.seedEmployeeProfile(request.binding.agentId, workspace, request.profile);
   }
 
@@ -82,8 +53,8 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
     user: PlatformUser;
     binding: PersonalAgentBinding;
   }): Promise<PersonalAgentRestartRecoveryResult> {
-    const workspace = this.workspaceForAgent(params.binding.agentId);
-    await this.ensureAgent(params.binding.agentId, workspace);
+    this.requirePersonalAgentId(params.binding.agentId);
+    const workspace = await this.registrar.ensureAgent(params.binding.agentId);
     const profile = await this.options.rpc.call<ProfileStatusResult>(
       "platformclaw.profile.status",
       {
@@ -108,128 +79,10 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
     return { status: "active" };
   }
 
-  private workspaceForAgent(agentId: string): string {
-    if (
-      agentId !== agentId.trim() ||
-      !isValidAgentId(agentId) ||
-      agentId !== agentId.toLowerCase()
-    ) {
+  private requirePersonalAgentId(agentId: string): void {
+    if (agentId !== agentId.trim() || !isValidAgentId(agentId) || agentId !== agentId.toLowerCase()) {
       throw new Error(`invalid personal agent id: ${agentId}`);
     }
-    const workspace = path.resolve(this.workspaceRoot, agentId);
-    if (path.dirname(workspace) !== this.workspaceRoot) {
-      throw new Error(`personal agent workspace escaped root: ${agentId}`);
-    }
-    return workspace;
-  }
-
-  private async getConfiguredAgent(agentId: string): Promise<AgentSummary | undefined> {
-    // agents.list reads the live runtime snapshot. config.get resolves the full operator config
-    // and is several seconds slower on Windows while still requiring an applied-hash check.
-    const result = await this.options.rpc.call<AgentsListResult>("agents.list", {});
-    const agents = result.agents ?? [];
-    if (!Array.isArray(agents)) {
-      throw new Error("Gateway agents.list returned an invalid agents list");
-    }
-    return agents.find((agent) => agent.id === agentId);
-  }
-
-  private verifyWorkspace(agentId: string, actual: string | undefined, expected: string): void {
-    if (!actual || path.resolve(actual) !== expected) {
-      throw new Error(`Gateway agent workspace mismatch: ${agentId}`);
-    }
-  }
-
-  private async waitForAgentRuntime(agentId: string, workspace: string): Promise<void> {
-    // agents.list can expose a newly committed agent before its prepared model runtime publishes.
-    // Probe that exact owner so unrelated pending config never blocks a healthy personal agent.
-    for (const retryDelayMs of CONFIG_APPLY_RETRY_DELAYS_MS) {
-      if (retryDelayMs > 0) {
-        await delay(retryDelayMs);
-      }
-      try {
-        const status = await this.options.rpc.call<unknown>("platformclaw.agent.runtimeStatus", {
-          agentId,
-          workspace,
-        });
-        if (!isReadyAgentRuntimeStatus(status, agentId, workspace)) {
-          throw new Error("Gateway agent runtime status returned an invalid payload");
-        }
-        return;
-      } catch (error) {
-        if (!(error instanceof GatewayAdminRpcError) || error.code !== "UNAVAILABLE") {
-          throw error;
-        }
-      }
-    }
-    throw new Error("Gateway agent runtime configuration did not become active");
-  }
-
-  private async ensureAgent(agentId: string, workspace: string): Promise<void> {
-    const current = await this.getConfiguredAgent(agentId);
-    if (current) {
-      this.verifyWorkspace(agentId, current.workspace, workspace);
-      await this.waitForAgentRuntime(agentId, workspace);
-      return;
-    }
-    try {
-      const created = await this.options.rpc.call<AgentCreateResult>("agents.create", {
-        name: agentId,
-        workspace,
-      });
-      if (created.agentId !== agentId) {
-        throw new Error(`Gateway created unexpected agent id: ${created.agentId}`);
-      }
-      this.verifyWorkspace(agentId, created.workspace, workspace);
-    } catch (error) {
-      if (
-        !(error instanceof GatewayAdminRpcError) ||
-        (error.code !== "INVALID_REQUEST" && error.code !== "UNAVAILABLE")
-      ) {
-        throw error;
-      }
-      // Creation timeouts have an ambiguous outcome, while another control process may also
-      // win the create race. Adopt only the exact live agent and workspace in either case.
-      let existing: AgentSummary | undefined;
-      try {
-        existing = await this.getConfiguredAgent(agentId);
-      } catch (lookupError) {
-        if (
-          error.code === "INVALID_REQUEST" ||
-          !(lookupError instanceof GatewayAdminRpcError) ||
-          lookupError.code !== "UNAVAILABLE"
-        ) {
-          throw lookupError;
-        }
-      }
-      if (!existing) {
-        if (error.code === "INVALID_REQUEST") {
-          throw error;
-        }
-      } else {
-        this.verifyWorkspace(agentId, existing.workspace, workspace);
-        await this.waitForAgentRuntime(agentId, workspace);
-        return;
-      }
-    }
-    for (const retryDelayMs of CONFIG_APPLY_RETRY_DELAYS_MS) {
-      if (retryDelayMs > 0) {
-        await delay(retryDelayMs);
-      }
-      try {
-        const configured = await this.getConfiguredAgent(agentId);
-        if (configured) {
-          this.verifyWorkspace(agentId, configured.workspace, workspace);
-          await this.waitForAgentRuntime(agentId, workspace);
-          return;
-        }
-      } catch (error) {
-        if (!(error instanceof GatewayAdminRpcError) || error.code !== "UNAVAILABLE") {
-          throw error;
-        }
-      }
-    }
-    throw new Error(`Gateway agent configuration did not become active: ${agentId}`);
   }
 
   private async seedEmployeeProfile(
@@ -242,7 +95,9 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
       workspace,
       content: renderEmployeeProfileArtifact(profile),
     });
-    this.verifyWorkspace(agentId, seeded.workspace, workspace);
+    if (!seeded.workspace || path.resolve(seeded.workspace) !== workspace) {
+      throw new Error(`Gateway agent workspace mismatch: ${agentId}`);
+    }
     if (seeded.agentId !== agentId) {
       throw new Error(`Gateway seeded an unexpected agent profile: ${seeded.agentId}`);
     }

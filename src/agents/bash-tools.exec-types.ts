@@ -24,6 +24,8 @@ import type { ExecReviewerConfig } from "./exec-auto-reviewer.js";
 /** Runtime defaults passed into exec/process tool factories. */
 export type ExecToolDefaults = {
   hasCronTool?: boolean;
+  /** Trusted request sender exposed only to subprocesses, never model arguments. */
+  senderId?: string | null;
   host?: ExecTarget;
   mode?: ExecMode;
   security?: ExecSecurity;

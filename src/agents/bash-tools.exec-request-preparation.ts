@@ -354,6 +354,7 @@ export function resolvePreparedExecEnvironment(params: {
   defaultPathPrepend: string[];
   pluginEnv?: Record<string, string>;
   warnings: string[];
+  trustedSenderId?: string | null;
 }): { env: Record<string, string>; requestedEnv?: Record<string, string> } {
   const inheritedBaseEnv = coerceEnv(process.env);
   const channelContextEnv = buildChannelContextEnv(params.channelContext);
@@ -416,6 +417,8 @@ export function resolvePreparedExecEnvironment(params: {
         })
       : (hostEnvResult?.env ?? inheritedBaseEnv);
 
+  applyTrustedSenderEnv(env, params.trustedSenderId);
+
   if (!params.sandbox && params.host === "gateway" && !requestedEnv?.PATH) {
     const shellPath = getShellPathFromLoginShell({
       env: process.env,
@@ -435,4 +438,19 @@ export function resolvePreparedExecEnvironment(params: {
   }
 
   return { env, requestedEnv };
+}
+
+export function applyTrustedSenderEnv(
+  env: Record<string, string>,
+  senderId?: string | null,
+): void {
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === "OPENCLAW_SENDER_ID") {
+      delete env[key];
+    }
+  }
+  const normalizedSenderId = senderId?.trim();
+  if (normalizedSenderId) {
+    env.OPENCLAW_SENDER_ID = normalizedSenderId;
+  }
 }

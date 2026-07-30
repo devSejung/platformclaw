@@ -159,6 +159,8 @@ provision_missing_secrets() {
   generate_secret "$secret_root/gateway-token" openssl rand -hex 32
   generate_secret "$secret_root/gateway-service-identity.pem" openssl genpkey -algorithm ED25519
   generate_secret "$secret_root/execution-service-token" openssl rand -hex 32
+  generate_secret "$secret_root/knox-webhook-secret" openssl rand -hex 32
+  generate_secret "$secret_root/knox-service-token" openssl rand -hex 32
   generate_secret "$secret_root/ssh-credential-master-key" openssl rand -base64 32
   if [[ ! -f "$secret_root/initial-admin-ids" ]]; then
     if [[ -n "$initial_admin_source" ]]; then
@@ -171,6 +173,8 @@ provision_missing_secrets() {
     "$secret_root/gateway-token" \
     "$secret_root/gateway-service-identity.pem" \
     "$secret_root/execution-service-token" \
+    "$secret_root/knox-webhook-secret" \
+    "$secret_root/knox-service-token" \
     "$secret_root/initial-admin-ids" \
     "$secret_root/ssh-credential-master-key"
 }
@@ -271,6 +275,8 @@ validate_deployment_env() {
     PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE \
     PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE \
     PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE \
+    PLATFORMCLAW_KNOX_CDEP_URL PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE \
+    PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE \
     PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE; do
     value="$(read_env_value "$key")"
     if [[ -z "$value" || "$value" == *'<'* || "$value" == *'>'* ]]; then
@@ -708,6 +714,10 @@ case "$command_name" in
     else
       echo "Keep existing $env_file"
     fi
+    [[ -n "$(read_env_value PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE)" ]] || \
+      set_env_value PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE "$secret_root/knox-webhook-secret"
+    [[ -n "$(read_env_value PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE)" ]] || \
+      set_env_value PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE "$secret_root/knox-service-token"
     echo "OpenClaw config: $gateway_state/openclaw.json"
     ;;
   migrate-home)
@@ -733,7 +743,7 @@ case "$command_name" in
     copy_legacy_directory /var/lib/platformclaw/workspaces "$workspace_root"
     copy_named_volume "${legacy_project}_platformclaw-workspaces" "$workspace_root" "$runtime_image"
     copy_named_volume platformclaw-workspaces "$workspace_root" "$runtime_image"
-    for name in gateway-token gateway-service-identity.pem execution-service-token initial-admin-ids ssh-credential-master-key; do
+    for name in gateway-token gateway-service-identity.pem execution-service-token initial-admin-ids knox-webhook-secret knox-service-token ssh-credential-master-key; do
       legacy_secret="/etc/platformclaw/secrets/$name"
       target_secret="$secret_root/$name"
       if [[ -e "$target_secret" ]]; then

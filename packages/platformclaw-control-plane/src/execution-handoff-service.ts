@@ -4,6 +4,7 @@ import type { CredentialBrokerGrant } from "./credential-broker-grants.js";
 import type {
   AssignedVmExecutionTarget,
   ControlPlaneExecutionTargetStore,
+  ExecutionTarget,
   PersonalExecutionTarget,
 } from "./execution-contracts.js";
 
@@ -36,7 +37,7 @@ function requireAgentId(agentId: string): string {
   return normalized;
 }
 
-function publicSnapshot(target: PersonalExecutionTarget): ExecutionTargetSnapshot {
+function publicSnapshot(target: ExecutionTarget): ExecutionTargetSnapshot {
   if (target.kind === "platform_server") {
     return {
       kind: target.kind,
@@ -88,7 +89,7 @@ export class ExecutionHandoffService {
   ) {}
 
   async resolveTarget(agentId: string): Promise<ExecutionTargetSnapshot> {
-    return publicSnapshot(await this.store.resolvePersonalExecutionTarget(requireAgentId(agentId)));
+    return publicSnapshot(await this.store.resolveExecutionTarget(requireAgentId(agentId)));
   }
 
   async resolveConnectionTarget(agentId: string) {
