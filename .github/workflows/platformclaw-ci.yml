@@ -105,6 +105,9 @@ jobs:
           PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE: /tmp/platformclaw-empty-secret
           PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE: /tmp/platformclaw-empty-secret
           PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_KNOX_CDEP_URL: https://cdep.example.test/api/v1/platformclaw/knox/outbound/send
+          PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE: /tmp/platformclaw-empty-secret
           PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE: /tmp/platformclaw-empty-secret
           PLATFORMCLAW_PUBLIC_ORIGIN: https://platformclaw.example.test
           PLATFORMCLAW_REPO_ROOT: ${{ github.workspace }}
