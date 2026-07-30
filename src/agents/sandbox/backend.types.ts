@@ -81,7 +81,3 @@ export type RegisteredSandboxBackend = {
 
 export type { SandboxBackendHandle, SandboxBackendId } from "./backend-handle.types.js";
 export type { SandboxBackendWorkdirValidation } from "./backend-handle.types.js";
-export type {
-  SandboxBackendSkillCatalog,
-  SandboxBackendSkillFile,
-} from "./backend-handle.types.js";

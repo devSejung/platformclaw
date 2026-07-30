@@ -178,6 +178,13 @@ describe("cron listPage sort guards", () => {
         owner: { agentId: "ops", sessionKey: "agent:ops:main", accountId: "work" },
         payload: { kind: "agentTurn", message: "summarize" },
       }),
+      createBaseJob({
+        id: "missing-session",
+        agentId: "ops",
+        sessionTarget: "isolated",
+        owner: { agentId: "ops", sessionKey: "agent:ops:main", accountId: "work" },
+        payload: { kind: "agentTurn", message: "summarize" },
+      }),
     ];
     const state = createMockCronStateForJobs({ jobs });
 

@@ -20,7 +20,7 @@ type LoginElements = {
   status: HTMLElement;
 };
 
-export type PlatformClawLoginOptions = {
+type PlatformClawLoginOptions = {
   fetchImpl?: typeof fetch;
   location?: Pick<Location, "href" | "origin">;
   navigate?: (path: string) => void;

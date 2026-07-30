@@ -111,6 +111,7 @@ export function renderDraftError(message: string) {
 
 function handleComposerKeydown(event: KeyboardEvent, options: NewSessionComposerOptions) {
   if (
+    !options.canSubmit ||
     options.submitting ||
     event.key !== "Enter" ||
     event.shiftKey ||

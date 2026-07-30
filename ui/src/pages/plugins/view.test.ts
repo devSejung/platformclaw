@@ -487,6 +487,13 @@ describe("renderPlugins", () => {
     expect(onSearchClawHub).toHaveBeenCalledWith("spotify");
   });
 
+  it("hides MCP connector actions when MCP management is unavailable", () => {
+    const container = mount(createProps({ activeTab: "discover", showMcp: false }));
+
+    expect(container.querySelector('[data-connector-id="github"]')).toBeNull();
+    expect(container.querySelector('[data-connector-id="spotify"]')).not.toBeNull();
+  });
+
   it("marks already-added MCP connectors instead of offering Add", () => {
     const container = mount(
       createProps({

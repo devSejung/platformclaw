@@ -16,6 +16,7 @@ import type {
   SandboxBackendManager,
 } from "./backend.types.js";
 import { resolveSandboxConfigForAgent } from "./config.js";
+import { hashTextSha256 } from "./hash.js";
 import {
   createRemoteShellSandboxFsBridge,
   type RemoteShellSandboxFilesystemRoot,
@@ -171,6 +172,13 @@ export async function createSshSandboxBackendWithSessionFactory(
   if (!targetLabel || !workspaceRoot) {
     throw new Error("SSH sandbox session factory requires a target label and workspace root.");
   }
+  const workspaceMode = options.workspaceMode ?? "mirror";
+  if (workspaceMode === "existing") {
+    const normalizedWorkspaceRoot = normalizeRemotePath(workspaceRoot);
+    if (!path.posix.isAbsolute(normalizedWorkspaceRoot) || normalizedWorkspaceRoot === "/") {
+      throw new Error("SSH sandbox existing workspace must be an absolute non-root path.");
+    }
+  }
   const additionalFilesystemRoots = normalizeAdditionalFilesystemRoots(
     options.additionalFilesystemRoots,
   );
@@ -178,11 +186,11 @@ export async function createSshSandboxBackendWithSessionFactory(
     createParams: params,
     target: targetLabel,
     runtimePaths:
-      options.workspaceMode === "existing"
+      workspaceMode === "existing"
         ? resolveExistingSshRuntimePaths(workspaceRoot, params.scopeKey)
         : resolveSshRuntimePaths(workspaceRoot, params.scopeKey),
     createSession: options.createSession,
-    workspaceMode: options.workspaceMode ?? "mirror",
+    workspaceMode,
     additionalFilesystemRoots,
   });
   return impl.asHandle();
@@ -552,6 +560,9 @@ function resolveExistingSshRuntimePaths(
 
 function buildSshSandboxRuntimeId(scopeKey: string): string {
   const trimmed = scopeKey.trim() || "session";
+  if (/:workspace:[a-f0-9]{32}$/i.test(trimmed)) {
+    return `openclaw-ssh-workspace-${hashTextSha256(trimmed).slice(0, 32)}`;
+  }
   // Keep the path human-readable while hashing the original scope to avoid
   // collisions after normalization and truncation.
   const safe = normalizeLowercaseStringOrEmpty(trimmed)

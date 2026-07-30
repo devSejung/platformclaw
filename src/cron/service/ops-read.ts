@@ -6,7 +6,7 @@ import { readCronJobScratchState, writeCronJobScratch } from "../scratch-store.j
 import { createCronStreamSourceIdentity } from "../stream-schedule.js";
 import type { CronJob } from "../types.js";
 import { failureNotificationDeliveryFromJobState } from "./failure-alerts.js";
-import { findJobOrThrow, isJobEnabled, nextWakeAtMs } from "./jobs.js";
+import { findJobOrThrow, isJobEnabled, nextWakeAtMs, resolveJobLastRunStatus } from "./jobs.js";
 import { sortCronJobs } from "./list-page-sort.js";
 import type {
   CronJobsEnabledFilter,
@@ -252,10 +252,6 @@ function resolveLastRunStatusFilter(opts?: CronListPageOptions): CronJobsLastRun
   return "all";
 }
 
-function resolveJobLastRunStatus(job: CronJob): CronJobsLastRunStatusFilter {
-  return job.state.lastRunStatus ?? job.state.lastStatus ?? "unknown";
-}
-
 /** Lists a filtered, sorted, bounded page of cron jobs for CLI/RPC callers. */
 export async function listPage(state: CronServiceState, opts?: CronListPageOptions) {
   return await locked(state, async () => {
@@ -299,8 +295,10 @@ export async function listPage(state: CronServiceState, opts?: CronListPageOptio
       ) {
         return false;
       }
-      if (requestedSessionAgentId && job.sessionKey) {
-        const sessionAgentId = parseAgentSessionKey(job.sessionKey)?.agentId;
+      if (requestedSessionAgentId) {
+        const sessionAgentId = job.sessionKey
+          ? parseAgentSessionKey(job.sessionKey)?.agentId
+          : undefined;
         if (
           !sessionAgentId ||
           normalizeOptionalAgentId(sessionAgentId) !== requestedSessionAgentId
@@ -328,7 +326,10 @@ export async function listPage(state: CronServiceState, opts?: CronListPageOptio
       if (opts?.requireOwnerAccountId && !job.owner?.accountId?.trim()) {
         return false;
       }
-      if (lastRunStatusFilter !== "all" && resolveJobLastRunStatus(job) !== lastRunStatusFilter) {
+      if (
+        lastRunStatusFilter !== "all" &&
+        (resolveJobLastRunStatus(job) ?? "unknown") !== lastRunStatusFilter
+      ) {
         return false;
       }
       if (!query) {

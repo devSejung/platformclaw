@@ -6,6 +6,7 @@ import {
   APP_ROUTE_IDS,
   createApplicationRouter,
   locationForRoute,
+  normalizeEnabledRouteIds,
   routeIdFromPath,
   startApplicationRouter,
   type ApplicationRouter,
@@ -310,7 +311,7 @@ export function bootstrapApplication(
   const basePath = resolveControlUiBasePath(
     startup.location.pathname || globalThis.location?.pathname || "/",
   );
-  const enabledRouteIds = options.enabledRouteIds ?? APP_ROUTE_IDS;
+  const enabledRouteIds = normalizeEnabledRouteIds(options.enabledRouteIds ?? APP_ROUTE_IDS);
   const firstRunDefaultLanding =
     documentMode === null && isDefaultChatLanding(startup.location, basePath, routeIdFromPath);
   const sessionPathBuilderReady =
@@ -460,6 +461,23 @@ export function bootstrapApplication(
     }
     return location;
   };
+  const resolveAllowedNavigation = (
+    routeId: RouteId,
+    navigationOptions?: ApplicationNavigationOptions,
+  ) => {
+    const routeAllowed = enabledRouteIds.includes(routeId);
+    const allowedRouteId = routeAllowed ? routeId : "chat";
+    const allowedOptions = routeAllowed
+      ? navigationOptions
+      : navigationOptions
+        ? { search: navigationOptions.search, hash: navigationOptions.hash }
+        : undefined;
+    return {
+      routeAllowed,
+      allowedRouteId,
+      location: routeLocation(allowedRouteId, allowedOptions),
+    };
+  };
   const confirmPendingGatewayConnection = () => {
     const pending = pendingGatewayConnection;
     if (!pending) {
@@ -496,9 +514,10 @@ export function bootstrapApplication(
     skillWorkshopRevision,
     initialUserMessage,
     navigate: (routeId, navigationOptions) => {
-      const routeAllowed = enabledRouteIds.includes(routeId);
-      const allowedRouteId = routeAllowed ? routeId : "chat";
-      const location = routeLocation(allowedRouteId, navigationOptions);
+      const { routeAllowed, allowedRouteId, location } = resolveAllowedNavigation(
+        routeId,
+        navigationOptions,
+      );
       if (!routerStarted) {
         // A restricted pre-start request must not overwrite the allowed location
         // that startup normalized with the resolved agent/session identity.
@@ -514,9 +533,10 @@ export function bootstrapApplication(
         });
     },
     replace: (routeId, navigationOptions) => {
-      const routeAllowed = enabledRouteIds.includes(routeId);
-      const allowedRouteId = routeAllowed ? routeId : "chat";
-      const location = routeLocation(allowedRouteId, navigationOptions);
+      const { routeAllowed, allowedRouteId, location } = resolveAllowedNavigation(
+        routeId,
+        navigationOptions,
+      );
       if (!routerStarted) {
         if (!routeAllowed) {
           return;
@@ -577,7 +597,7 @@ export function bootstrapApplication(
           if (pendingNavigation) {
             history[pendingNavigation.mode](pendingNavigation.location);
           }
-          await startApplicationRouter(router, history, basePath, context, enabledRouteIds);
+          await startApplicationRouter(router, history, basePath, context);
           return stopRouter;
         });
       }

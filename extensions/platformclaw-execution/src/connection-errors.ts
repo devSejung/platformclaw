@@ -5,7 +5,7 @@ export class PlatformClawVmAuthenticationError extends Error {
   }
 }
 
-export type PlatformClawVmConnectionFailure = {
+type PlatformClawVmConnectionFailure = {
   code: "INVALID_REQUEST" | "UNAVAILABLE";
   kind:
     | "vm_authentication_failed"

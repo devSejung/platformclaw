@@ -2,8 +2,15 @@ import { createRouter } from "@openclaw/uirouter";
 import type { PageDefinition, Router, RouterHistory } from "@openclaw/uirouter";
 import {
   APP_ROUTE_IDS,
+  agentRouteFromPath,
+  INTERNAL_AGENT_PATH_PARAM,
+  INTERNAL_MEMORY_PATH_PARAM,
+  INTERNAL_PLUGINS_PATH_PARAM,
   INTERNAL_SESSION_PATH_PARAM,
+  memoryTabFromPath,
+  pathForAgentPanel,
   pathForRoute,
+  pluginsHubTabFromPath,
   routeIdFromPath,
   sessionRouteNamespaceFromPath,
   workboardBoardIdFromPath,
@@ -90,15 +97,19 @@ const APP_ROUTE_TREE = [
 
 const appRoutes = APP_ROUTE_TREE as readonly AppRoute[];
 
+export function normalizeEnabledRouteIds(enabledRouteIds: readonly RouteId[]): readonly RouteId[] {
+  return enabledRouteIds.includes("chat") ? enabledRouteIds : ["chat", ...enabledRouteIds];
+}
+
 export function createApplicationRouter(
   enabledRouteIds: readonly RouteId[] = APP_ROUTE_IDS,
 ): ApplicationRouter {
-  const enabled = new Set(enabledRouteIds);
+  const enabled = new Set(normalizeEnabledRouteIds(enabledRouteIds));
   const router = createRouter<RouteId, ApplicationContext<RouteId>, AppRouteModule>({
     routes: appRoutes.filter((route) => enabled.has(route.id)),
   });
-  // The shared router intentionally matches exact paths only. Workboard ids
-  // and session refs are runtime data, so the app owns those dynamic paths.
+  // The shared router intentionally matches exact paths only. Workboard ids,
+  // hub tabs, and session refs are runtime data, so the app owns those paths.
   return {
     ...router,
     routeIdFromPath: (pathname, basePath = "") => {
@@ -111,9 +122,21 @@ export function createApplicationRouter(
 type DynamicRoute = readonly [routeId: RouteId, searchKey: string, searchValue: string];
 
 function dynamicRouteFromPath(pathname: string, basePath: string): DynamicRoute | null {
+  const agentRoute = agentRouteFromPath(pathname, basePath);
+  if (agentRoute) {
+    return ["agents", INTERNAL_AGENT_PATH_PARAM, pathname];
+  }
   const boardId = workboardBoardIdFromPath(pathname, basePath);
   if (boardId) {
     return ["workboard", "board", boardId];
+  }
+  const memoryTab = memoryTabFromPath(pathname, basePath);
+  if (memoryTab && memoryTab !== "overview") {
+    return ["memory", INTERNAL_MEMORY_PATH_PARAM, pathname];
+  }
+  const pluginsTab = pluginsHubTabFromPath(pathname, basePath);
+  if (pluginsTab === "discover") {
+    return ["plugins", INTERNAL_PLUGINS_PATH_PARAM, pathname];
   }
   const sessionNamespace = sessionRouteNamespaceFromPath(pathname, basePath);
   return sessionNamespace ? [sessionNamespace, INTERNAL_SESSION_PATH_PARAM, pathname] : null;
@@ -139,13 +162,20 @@ export async function startApplicationRouter(
   history: RouterHistory,
   basePath: string,
   context: ApplicationContext<RouteId>,
-  enabledRouteIds: readonly RouteId[] = APP_ROUTE_IDS,
 ): Promise<void> {
   let location = history.location();
-  const routeId = routeIdFromPath(location.pathname, basePath);
+  const initialAgentRoute = agentRouteFromPath(location.pathname, basePath);
+  if (initialAgentRoute?.invalidPanel) {
+    history.replace({
+      ...location,
+      pathname: pathForAgentPanel(initialAgentRoute.agentId, null, basePath),
+    });
+    location = history.location();
+  }
+  const routeId = router.routeIdFromPath(location.pathname, basePath);
   // Unknown paths (including retired routes like /overview) land on chat, so
   // removed pages need no legacy aliases for stale bookmarks or history.
-  if (routeId === null || !enabledRouteIds.includes(routeId)) {
+  if (routeId === null) {
     history.replace({
       ...location,
       pathname: router.pathForRoute("chat", basePath),
@@ -159,6 +189,16 @@ export async function startApplicationRouter(
     replace: (next) => history.replace(next),
     listen: (listener) =>
       history.listen((next) => {
+        const nextRouteId = router.routeIdFromPath(next.pathname, basePath);
+        if (nextRouteId === null) {
+          const fallback = {
+            ...next,
+            pathname: router.pathForRoute("chat", basePath),
+          };
+          history.replace(fallback);
+          listener(fallback);
+          return;
+        }
         const dynamicRoute = dynamicRouteFromPath(next.pathname, basePath);
         if (dynamicRoute) {
           void router
@@ -175,12 +215,7 @@ export async function startApplicationRouter(
   if (initialDynamicRoute) {
     // Replace the synthetic exact-match location with the real browser path
     // before the shell renders; the matching loader data is already cached.
-    await router.navigate(
-      initialDynamicRoute[0],
-      context,
-      { history: "none", revalidate: true },
-      location,
-    );
+    await router.navigate(initialDynamicRoute[0], context, { history: "none" }, location);
   }
 }
 

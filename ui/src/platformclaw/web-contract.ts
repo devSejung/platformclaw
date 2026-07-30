@@ -1,17 +1,17 @@
 import type { RouteId } from "../app-route-paths.ts";
 
-export const PLATFORMCLAW_LOGIN_PATH = "/platformclaw/login";
+const PLATFORMCLAW_LOGIN_PATH = "/platformclaw/login";
 export const PLATFORMCLAW_APP_PATH = "/platformclaw/app";
 export const PLATFORMCLAW_DEFAULT_APP_PATH = `${PLATFORMCLAW_APP_PATH}/chat`;
 export const PLATFORMCLAW_LOGIN_API_PATH = "/platformclaw/api/auth/login";
-export const PLATFORMCLAW_LOGOUT_API_PATH = "/platformclaw/api/auth/logout";
+const PLATFORMCLAW_LOGOUT_API_PATH = "/platformclaw/api/auth/logout";
 export const PLATFORMCLAW_SESSION_API_PATH = "/platformclaw/api/auth/session";
-export const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
+const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
 export const PLATFORMCLAW_EXECUTION_API_PATH = "/platformclaw/api/execution";
 export const PLATFORMCLAW_VM_ADMIN_API_PATH = "/platformclaw/api/admin/vm";
 export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descriptor";
 
-export const PLATFORMCLAW_ENABLED_ROUTES = [
+const PLATFORMCLAW_ENABLED_ROUTES = [
   "chat",
   "new-session",
   "activity",

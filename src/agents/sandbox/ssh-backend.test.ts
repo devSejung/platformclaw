@@ -189,6 +189,16 @@ describe("ssh sandbox backend", () => {
     vi.restoreAllMocks();
   });
 
+  it("preserves shared runtime identity and hashes workspace-qualified scopes", () => {
+    expect(resolveSshRuntimePaths("/remote/openclaw", "shared").runtimeId).toBe(
+      "openclaw-ssh-shared-8198076c",
+    );
+    expect(
+      resolveSshRuntimePaths("/remote/openclaw", `agent:main:workspace:${"a".repeat(32)}`)
+        .runtimeId,
+    ).toMatch(/^openclaw-ssh-workspace-[a-f0-9]{32}$/);
+  });
+
   it("describes runtimes via the configured ssh target", async () => {
     const result = await sshSandboxBackendManager.describeRuntime({
       entry: {
@@ -516,6 +526,29 @@ describe("ssh sandbox backend", () => {
     expect(sshMocks.uploadDirectoryToSshTarget).not.toHaveBeenCalled();
     expect(createInjectedSession).toHaveBeenCalledTimes(2);
   });
+
+  it.each(["/", "relative/workspace"])(
+    "rejects unsafe existing remote workspace root %s",
+    async (workspaceRoot) => {
+      await expect(
+        createSshSandboxBackendWithSessionFactory(
+          {
+            sessionKey: "agent:worker:task",
+            scopeKey: "agent:worker",
+            workspaceDir: "/tmp/local-workspace",
+            agentWorkspaceDir: "/tmp/local-agent",
+            cfg: createBackendSandboxConfig(),
+          },
+          {
+            targetLabel: "assigned-vm",
+            workspaceRoot,
+            workspaceMode: "existing",
+            createSession: async () => createSession(),
+          },
+        ),
+      ).rejects.toThrow(/absolute non-root path/);
+    },
+  );
 
   it("accepts workdirs under caller-provided remote filesystem roots", async () => {
     sshMocks.runSshSandboxCommand

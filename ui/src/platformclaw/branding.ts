@@ -1,7 +1,7 @@
 import mascotUrl from "./platformclaw-pixel.svg?url";
 import { PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME } from "./web-contract.ts";
 
-export type PlatformClawBranding = {
+type PlatformClawBranding = {
   mascotUrl: string;
   productName: "PlatformClaw";
 };

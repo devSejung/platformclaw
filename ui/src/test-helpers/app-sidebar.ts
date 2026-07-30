@@ -84,6 +84,27 @@ export type TestSessionMenu = HTMLElement & {
 };
 
 export function createGatewayHarness(client: GatewayBrowserClient) {
+  const originalRequest =
+    typeof client.request === "function"
+      ? (client.request.bind(client) as GatewayBrowserClient["request"])
+      : undefined;
+  // Custom-element registrations survive non-isolated test files, so real
+  // attention health requests must not consume sidebar feature response mocks.
+  client.request = <T = unknown>(
+    ...args: Parameters<GatewayBrowserClient["request"]>
+  ): Promise<T> => {
+    const [method] = args;
+    if (method === "cron.list") {
+      return Promise.resolve({ jobs: [], total: 0 } as T);
+    }
+    if (method === "models.authStatus") {
+      return Promise.resolve({ ts: 0, providers: [] } as T);
+    }
+    if (!originalRequest) {
+      return Promise.reject(new Error(`Unexpected sidebar gateway request: ${method}`));
+    }
+    return originalRequest<T>(...args);
+  };
   let snapshot: ApplicationGatewaySnapshot = {
     client,
     phase: "connected",
@@ -100,6 +121,12 @@ export function createGatewayHarness(client: GatewayBrowserClient) {
   const gateway = {
     get snapshot() {
       return snapshot;
+    },
+    connection: {
+      gatewayUrl: "ws://gateway.test",
+      token: "",
+      bootstrapToken: "",
+      password: "",
     },
     setSessionKey: () => undefined,
     subscribe(listener: (next: ApplicationGatewaySnapshot) => void) {
@@ -461,8 +488,8 @@ export function setupSidebarTest() {
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     document.body.replaceChildren();
+    vi.useRealTimers();
     if (originalLocalStorage) {
       Object.defineProperty(globalThis, "localStorage", originalLocalStorage);
     } else {

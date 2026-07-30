@@ -151,18 +151,32 @@ function createSessions(overrides: Partial<SessionCapability> = {}): SessionCapa
 function createContext(
   gateway: ApplicationContext["gateway"],
   sessions: SessionCapability,
+  options?: {
+    accessMode?: ApplicationContext["accessMode"];
+    scopeId?: string | null;
+    setScope?: (agentId: string | null) => void;
+  },
 ): ApplicationContext {
   const subscribe = () => () => undefined;
+  const selectionState: { selectedId: string | null; scopeId: string | null } = {
+    selectedId: "main",
+    scopeId: options?.scopeId ?? "main",
+  };
   return {
+    accessMode: options?.accessMode ?? "operator",
     basePath: "",
     gateway,
     sessions,
     agents: { state: { agentsList: null }, subscribe },
     agentIdentity: { get: () => undefined, ensure: vi.fn(), subscribe },
     agentSelection: {
-      state: { selectedId: "main", scopeId: "main" },
+      state: selectionState,
       set: () => undefined,
-      setScope: () => undefined,
+      setScope:
+        options?.setScope ??
+        ((agentId) => {
+          selectionState.scopeId = agentId;
+        }),
       subscribe,
     },
     channels: { subscribe },
@@ -244,6 +258,10 @@ describe("sessions page lifecycle", () => {
       defaults: { modelProvider: null, model: null, contextTokens: null },
       sessions: [],
     });
+
+    const docsLink = page.querySelector<HTMLAnchorElement>(".page-subtitle a");
+    expect(docsLink?.textContent?.trim()).toBe("Learn more");
+    expect(docsLink?.href).toBe("https://docs.openclaw.ai/concepts/session");
 
     const archived = [
       ...page.querySelectorAll<HTMLElement & { checked: boolean }>(
@@ -791,6 +809,60 @@ describe("sessions page lifecycle", () => {
     await page.loadSessions();
     expect(sessions.list).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ agentId: expect.anything() }),
+    );
+  });
+
+  it("forces personal-agent sessions back to the selected agent scope", async () => {
+    const sessions = createSessions();
+    const setScope = vi.fn();
+    const context = createContext(createGateway({} as GatewayBrowserClient).gateway, sessions, {
+      accessMode: "personal-agent",
+      scopeId: null,
+      setScope,
+    });
+    const page = await createPage(context);
+
+    expect(setScope).toHaveBeenCalledWith("main");
+    await page.loadSessions();
+    expect(sessions.list).toHaveBeenLastCalledWith(expect.objectContaining({ agentId: "main" }));
+  });
+
+  it("replaces a retained foreign personal-agent scope", async () => {
+    const sessions = createSessions();
+    const setScope = vi.fn();
+    const context = createContext(createGateway({} as GatewayBrowserClient).gateway, sessions, {
+      accessMode: "personal-agent",
+      scopeId: "other",
+      setScope,
+    });
+    const page = await createPage(context);
+
+    expect(setScope).toHaveBeenCalledWith("main");
+    await page.loadSessions();
+    expect(sessions.list).toHaveBeenLastCalledWith(expect.objectContaining({ agentId: "main" }));
+  });
+
+  it("keeps foreign personal-agent deep links inside the selected agent scope", async () => {
+    const sessions = createSessions();
+    const context = createContext(createGateway({} as GatewayBrowserClient).gateway, sessions, {
+      accessMode: "personal-agent",
+    });
+    const page = await createPage(context);
+    page.routeData = {
+      gateway: context.gateway,
+      gatewaySnapshot: context.gateway.snapshot,
+      result: null,
+      error: null,
+      expandedSessionKey: "agent:other:private",
+      statusFilter: "active",
+    };
+    await page.updateComplete;
+    vi.mocked(sessions.list).mockClear();
+
+    await page.loadSessions();
+
+    expect(sessions.list).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "agent:other:private", agentId: "main" }),
     );
   });
 

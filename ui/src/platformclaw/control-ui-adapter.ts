@@ -27,7 +27,7 @@ type PlatformClawSessionCheck =
   | { status: "inactive" }
   | { status: "unavailable" };
 
-export type PlatformClawControlUiAdapterOptions = {
+type PlatformClawControlUiAdapterOptions = {
   root?: ParentNode;
   location?: Pick<Location, "href" | "origin" | "protocol">;
   fetchImpl?: typeof fetch;
