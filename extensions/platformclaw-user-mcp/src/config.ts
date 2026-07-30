@@ -1,6 +1,6 @@
-export type UserMcpAuthKind = "bearer" | "api_key" | "oauth";
+type UserMcpAuthKind = "bearer" | "api_key" | "oauth";
 
-export type UserMcpServerPolicy = {
+type UserMcpServerPolicy = {
   serverName: string;
   auth: UserMcpAuthKind;
   headerName?: string;

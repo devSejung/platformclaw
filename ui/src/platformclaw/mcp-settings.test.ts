@@ -1,6 +1,26 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
-import { mountPlatformClawMcpSettings } from "./mcp-settings.ts";
+import "./mcp-settings.ts";
+
+type McpSettingsElement = HTMLElement & {
+  fetchImpl: typeof fetch;
+  onUnauthenticated: () => void;
+  navigate: (url: string) => void;
+};
+
+function mountPlatformClawMcpSettings(options: {
+  fetchImpl: typeof fetch;
+  onUnauthenticated: () => void;
+  navigate?: (url: string) => void;
+}): void {
+  const element = document.createElement("platformclaw-mcp-settings") as McpSettingsElement;
+  element.fetchImpl = options.fetchImpl;
+  element.onUnauthenticated = options.onUnauthenticated;
+  if (options.navigate) {
+    element.navigate = options.navigate;
+  }
+  document.body.append(element);
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

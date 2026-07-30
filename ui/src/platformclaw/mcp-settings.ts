@@ -324,18 +324,3 @@ const ELEMENT_NAME = "platformclaw-mcp-settings";
 if (!customElements.get(ELEMENT_NAME)) {
   customElements.define(ELEMENT_NAME, PlatformClawMcpSettingsElement);
 }
-
-export function mountPlatformClawMcpSettings(options: {
-  fetchImpl: typeof fetch;
-  onUnauthenticated: () => void;
-  navigate?: (url: string) => void;
-}): () => void {
-  const element = document.createElement(ELEMENT_NAME) as PlatformClawMcpSettingsElement;
-  element.fetchImpl = options.fetchImpl;
-  element.onUnauthenticated = options.onUnauthenticated;
-  if (options.navigate) {
-    element.navigate = options.navigate;
-  }
-  document.body.append(element);
-  return () => element.remove();
-}

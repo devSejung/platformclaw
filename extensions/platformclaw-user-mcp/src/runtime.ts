@@ -24,7 +24,7 @@ function executionHandoffAddress(credentialBrokerAddress: string): string {
     : path.join(path.dirname(credentialBrokerAddress), "execution.sock");
 }
 
-export type UserMcpConnectionRuntime = {
+type UserMcpConnectionRuntime = {
   resolve(
     agentId: string,
     serverName: string,
