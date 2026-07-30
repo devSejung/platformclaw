@@ -976,6 +976,23 @@ describe("BrowserGatewayProxy", () => {
     await expect(proxy.filterEvent(token, ordinaryNestedPayload)).resolves.toEqual(
       ordinaryNestedPayload,
     );
+    const ownedObserverPayload = {
+      event: "session.observer",
+      payload: {
+        sessionKey: `agent:${binding.agentId}:main`,
+        agentId: binding.agentId,
+        runId: "run-1",
+      },
+    };
+    await expect(proxy.filterEvent(token, ownedObserverPayload)).resolves.toEqual(
+      ownedObserverPayload,
+    );
+    await expect(
+      proxy.filterEvent(token, {
+        event: "session.observer",
+        payload: { sessionKey: "agent:other:main", agentId: "other", runId: "run-2" },
+      }),
+    ).resolves.toBeNull();
     await expect(
       proxy.filterEvent(token, {
         event: "sessions.changed",

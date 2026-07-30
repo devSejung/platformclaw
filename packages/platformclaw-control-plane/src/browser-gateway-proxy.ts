@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { BrowserAuthService } from "./browser-auth-service.js";
 import {
   projectBrowserCommands,
   resolveBrowserCommandSuppression,
@@ -7,11 +6,21 @@ import {
 import { resolveBrowserGatewayAccess } from "./browser-gateway-access.js";
 import { BrowserGatewayAssertions } from "./browser-gateway-assertions.js";
 import {
+  BrowserGatewayProxyError,
+  type BrowserGatewayAccess,
+  type BrowserGatewayEvent,
+  type BrowserGatewayProxyErrorCode,
+  type BrowserGatewayProxyOptions,
+  type BrowserGatewayRequestContext,
+} from "./browser-gateway-contracts.js";
+export * from "./browser-gateway-contracts.js";
+import {
   preflightCronMutation,
   prepareCronRequest,
   projectCronResult,
   requestSpecialCronResult,
 } from "./browser-gateway-cron-controller.js";
+import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-visibility.js";
 import {
   browserEventPayloadBelongsToAccess,
   browserPayloadBelongsToAccess,
@@ -45,13 +54,6 @@ import {
   browserTaskEventBelongsToAccess,
   projectBrowserTaskResult,
 } from "./browser-gateway-task-policy.js";
-import type {
-  ControlPlaneAuditWriter,
-  ControlPlaneStore,
-  PersonalAgentBinding,
-  PlatformUser,
-} from "./contracts.js";
-
 export const PLATFORMCLAW_WEB_GATEWAY_EVENTS = [
   "shutdown",
   "tick",
@@ -59,6 +61,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_EVENTS = [
   "chat.send_timing",
   "chat.side_result",
   "session.message",
+  "session.observer",
   "session.operation",
   "session.tool",
   "sessions.changed",
@@ -70,52 +73,6 @@ const SESSION_SCOPED_EVENTS = new Set<string>(
   PLATFORMCLAW_WEB_GATEWAY_EVENTS.filter((event) => event !== "shutdown" && event !== "tick"),
 );
 type JsonObject = Record<string, unknown>;
-
-export type BrowserGatewayEvent = {
-  event: string;
-  payload?: unknown;
-  seq?: number;
-  stateVersion?: Record<string, number>;
-};
-
-export type BrowserGatewayRpc = {
-  request(method: string, params?: unknown): Promise<unknown>;
-};
-
-export type BrowserGatewayAccess = {
-  user: PlatformUser;
-  binding: PersonalAgentBinding;
-  mainSessionKey: string;
-};
-
-export type BrowserGatewayProxyErrorCode =
-  | "unauthenticated"
-  | "agent-unavailable"
-  | "method-not-allowed"
-  | "invalid-params"
-  | "cross-agent-denied"
-  | "upstream-result-denied";
-
-export class BrowserGatewayProxyError extends Error {
-  constructor(
-    readonly code: BrowserGatewayProxyErrorCode,
-    message: string,
-    readonly requestDisposition?: "rejected-before-dispatch",
-  ) {
-    super(message);
-    this.name = "BrowserGatewayProxyError";
-  }
-}
-
-export type BrowserGatewayProxyOptions = {
-  authService: BrowserAuthService;
-  store: ControlPlaneStore;
-  auditWriter: ControlPlaneAuditWriter;
-  gateway: BrowserGatewayRpc;
-  buildAgentMainSessionKey(params: { agentId: string }): string;
-  resolveAgentIdFromSessionKey(sessionKey: string): string | null;
-  now?: () => number;
-};
 
 function asObject(value: unknown, label: string): JsonObject {
   if (value === undefined) {
@@ -134,6 +91,7 @@ function optionalString(value: unknown): string | undefined {
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
 export class BrowserGatewayProxy {
   private readonly assertions: BrowserGatewayAssertions;
+  private readonly observerVisibility: BrowserGatewayObserverVisibility;
 
   constructor(private readonly options: BrowserGatewayProxyOptions) {
     this.assertions = new BrowserGatewayAssertions(
@@ -142,6 +100,14 @@ export class BrowserGatewayProxy {
       (code, message): never => {
         throw new BrowserGatewayProxyError(code, message);
       },
+    );
+    this.observerVisibility = new BrowserGatewayObserverVisibility(
+      options.gateway,
+      () =>
+        new BrowserGatewayProxyError(
+          "invalid-params",
+          "session observer visibility connection is no longer active",
+        ),
     );
   }
 
@@ -158,7 +124,12 @@ export class BrowserGatewayProxy {
     });
   }
 
-  async request<T = unknown>(token: string, method: string, params?: unknown): Promise<T> {
+  async request<T = unknown>(
+    token: string,
+    method: string,
+    params?: unknown,
+    context?: BrowserGatewayRequestContext,
+  ): Promise<T> {
     const access = await this.resolveAccess(token);
     let executionTarget: "platform_server" | "assigned_vm" | undefined;
     let prepared: JsonObject;
@@ -172,6 +143,18 @@ export class BrowserGatewayProxy {
         },
       });
       prepared = this.prepareRequest(access, method, params);
+      if (method === "sessions.observer.visibility") {
+        if (!context?.connectionId) {
+          throw new BrowserGatewayProxyError(
+            "invalid-params",
+            "session observer visibility requires a browser connection",
+          );
+        }
+        return (await this.observerVisibility.setConnectionVisibility(
+          context.connectionId,
+          prepared.visible === true,
+        )) as T;
+      }
       if (method === "chat.send" || method === "sessions.create") {
         initialCommandSuppressed = await this.resolveCommandSuppression(access, prepared.message);
         if (method === "chat.send") {
@@ -346,6 +329,18 @@ export class BrowserGatewayProxy {
     return event;
   }
 
+  registerBrowserConnection(connectionId: string): void {
+    this.observerVisibility.registerConnection(connectionId);
+  }
+
+  handleGatewayDisconnect(): void {
+    this.observerVisibility.handleGatewayDisconnect();
+  }
+
+  async releaseBrowserConnection(connectionId: string): Promise<void> {
+    await this.observerVisibility.releaseConnection(connectionId);
+  }
+
   private prepareRequest(
     access: BrowserGatewayAccess,
     method: string,
@@ -437,6 +432,16 @@ export class BrowserGatewayProxy {
         );
       }
       return { ...params, agentId: access.binding.agentId, emitCommandHooks: false };
+    }
+    if (method === "sessions.observer.ask") {
+      this.assertions.ownedSessionKey(access.binding.agentId, params.sessionKey, "sessionKey");
+      return params;
+    }
+    if (method === "sessions.observer.visibility") {
+      if (typeof params.visible !== "boolean") {
+        throw new BrowserGatewayProxyError("invalid-params", "visible must be a boolean");
+      }
+      return params;
     }
     if (method === "tasks.get" || method === "tasks.cancel") {
       return params;

@@ -32,6 +32,8 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "sessions.list",
   "sessions.messages.subscribe",
   "sessions.messages.unsubscribe",
+  "sessions.observer.ask",
+  "sessions.observer.visibility",
   "sessions.patch",
   "sessions.preview",
   "sessions.resolve",
@@ -206,6 +208,8 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ],
   ["sessions.messages.subscribe", new Set(["key", "agentId"])],
   ["sessions.messages.unsubscribe", new Set(["key", "agentId"])],
+  ["sessions.observer.ask", new Set(["sessionKey", "question"])],
+  ["sessions.observer.visibility", new Set(["visible"])],
   [
     "sessions.patch",
     new Set([

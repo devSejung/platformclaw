@@ -53,13 +53,22 @@ const MUTATING_BROWSER_METHODS = new Set([
   "chat.send",
   "sessions.abort",
   "sessions.create",
+  "sessions.observer.visibility",
   "sessions.patch",
 ]);
 
 export type PlatformClawBrowserGatewayPolicy = {
   resolveAccess(token: string, touch?: boolean): Promise<BrowserGatewayAccess>;
-  request(token: string, method: string, params?: unknown): Promise<unknown>;
+  registerBrowserConnection?(connectionId: string): void;
+  request(
+    token: string,
+    method: string,
+    params?: unknown,
+    context?: { connectionId: string },
+  ): Promise<unknown>;
   filterEvent(token: string, event: BrowserGatewayEvent): Promise<BrowserGatewayEvent | null>;
+  handleGatewayDisconnect?(): void;
+  releaseBrowserConnection?(connectionId: string): Promise<void>;
 };
 
 export type PlatformClawWebIngressOptions = {
@@ -244,6 +253,7 @@ export class PlatformClawWebIngressServer {
     }
     this.started = true;
     this.unsubscribeGatewayDisconnect = this.options.gateway.subscribeDisconnect(() => {
+      this.options.gatewayProxy.handleGatewayDisconnect?.();
       for (const socket of this.websocketServer.clients) {
         socket.close(1012, "private Gateway disconnected");
       }
@@ -427,6 +437,7 @@ export class PlatformClawWebIngressServer {
 
   private attachBrowserConnection(websocket: WebSocket, token: string): void {
     const connectionId = `platformclaw-${randomUUID()}`;
+    this.options.gatewayProxy.registerBrowserConnection?.(connectionId);
     let connected = false;
     let connectionClosed = false;
     let eventSeq = 0;
@@ -563,7 +574,9 @@ export class PlatformClawWebIngressServer {
         return;
       }
       try {
-        const payload = await this.options.gatewayProxy.request(token, frame.method, frame.params);
+        const payload = await this.options.gatewayProxy.request(token, frame.method, frame.params, {
+          connectionId,
+        });
         send(responseOk(frame.id, payload));
       } catch (error) {
         send(responseError(frame.id, error));
@@ -676,6 +689,7 @@ export class PlatformClawWebIngressServer {
       discardQueuedRequests();
       clearTimeout(handshakeTimer);
       unsubscribe();
+      void this.options.gatewayProxy.releaseBrowserConnection?.(connectionId);
     });
   }
 }

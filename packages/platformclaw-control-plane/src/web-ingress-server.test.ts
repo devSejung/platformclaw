@@ -110,16 +110,37 @@ function createPolicy() {
     }
     return access;
   });
-  const request = vi.fn(async (_token: string, method: string, params?: unknown) => ({
-    method,
-    params,
-  }));
+  const request = vi.fn(
+    async (
+      _token: string,
+      method: string,
+      params?: unknown,
+      _context?: { connectionId: string },
+    ) => ({
+      method,
+      params,
+    }),
+  );
+  const releaseBrowserConnection = vi.fn(async () => undefined);
+  const registerBrowserConnection = vi.fn();
+  const handleGatewayDisconnect = vi.fn();
   const policy: PlatformClawBrowserGatewayPolicy = {
     resolveAccess,
+    registerBrowserConnection,
     request,
     filterEvent: vi.fn(async (_token, event) => event),
+    handleGatewayDisconnect,
+    releaseBrowserConnection,
   };
-  return { policy, request, resolveAccess, revoke: () => (active = false) };
+  return {
+    handleGatewayDisconnect,
+    policy,
+    releaseBrowserConnection,
+    registerBrowserConnection,
+    request,
+    resolveAccess,
+    revoke: () => (active = false),
+  };
 }
 
 function decodeTestFrame(data: RawData): string {
@@ -175,7 +196,8 @@ describe("PlatformClawWebIngressServer", () => {
 
   it("speaks the Gateway wire protocol while enforcing browser session ownership", async () => {
     const gateway = new FakeGateway();
-    const { policy, request, revoke } = createPolicy();
+    const { policy, registerBrowserConnection, releaseBrowserConnection, request, revoke } =
+      createPolicy();
     server = new PlatformClawWebIngressServer({
       publicOrigin: PUBLIC_ORIGIN,
       authService: {} as BrowserAuthService,
@@ -252,7 +274,14 @@ describe("PlatformClawWebIngressServer", () => {
       ok: true,
       payload: { method: "agents.list", params: {} },
     });
-    expect(request).toHaveBeenCalledWith(TEST_SESSION, "agents.list", {});
+    expect(request).toHaveBeenCalledWith(
+      TEST_SESSION,
+      "agents.list",
+      {},
+      expect.objectContaining({ connectionId: expect.stringMatching(/^platformclaw-/) }),
+    );
+    const requestConnectionId = request.mock.calls[0]?.[3]?.connectionId;
+    expect(registerBrowserConnection).toHaveBeenCalledWith(requestConnectionId);
 
     gateway.emit({
       type: "event",
@@ -296,6 +325,9 @@ describe("PlatformClawWebIngressServer", () => {
     });
     gateway.emit({ type: "event", event: "tick", payload: { ts: 2 }, seq: 100 });
     await expect(closed).resolves.toBe(1008);
+    await vi.waitFor(() =>
+      expect(releaseBrowserConnection).toHaveBeenCalledWith(requestConnectionId),
+    );
     expect(gateway.start).toHaveBeenCalledOnce();
   });
 
@@ -331,7 +363,7 @@ describe("PlatformClawWebIngressServer", () => {
 
   it("closes browsers so they resynchronize after the private Gateway disconnects", async () => {
     const gateway = new FakeGateway();
-    const { policy } = createPolicy();
+    const { handleGatewayDisconnect, policy } = createPolicy();
     server = new PlatformClawWebIngressServer({
       publicOrigin: PUBLIC_ORIGIN,
       authService: {} as BrowserAuthService,
@@ -359,6 +391,7 @@ describe("PlatformClawWebIngressServer", () => {
     gateway.disconnect();
 
     await expect(closed).resolves.toBe(1012);
+    expect(handleGatewayDisconnect).toHaveBeenCalledOnce();
   });
 
   it("lets independent browser requests progress concurrently", async () => {
