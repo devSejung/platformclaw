@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { BrowserAuthService } from "./browser-auth-service.js";
 import {
   projectBrowserCommands,
   resolveBrowserCommandSuppression,
@@ -7,11 +6,21 @@ import {
 import { resolveBrowserGatewayAccess } from "./browser-gateway-access.js";
 import { BrowserGatewayAssertions } from "./browser-gateway-assertions.js";
 import {
+  BrowserGatewayProxyError,
+  type BrowserGatewayAccess,
+  type BrowserGatewayEvent,
+  type BrowserGatewayProxyErrorCode,
+  type BrowserGatewayProxyOptions,
+  type BrowserGatewayRequestContext,
+} from "./browser-gateway-contracts.js";
+export * from "./browser-gateway-contracts.js";
+import {
   preflightCronMutation,
   prepareCronRequest,
   projectCronResult,
   requestSpecialCronResult,
 } from "./browser-gateway-cron-controller.js";
+import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-visibility.js";
 import {
   browserEventPayloadBelongsToAccess,
   browserPayloadBelongsToAccess,
@@ -45,13 +54,6 @@ import {
   browserTaskEventBelongsToAccess,
   projectBrowserTaskResult,
 } from "./browser-gateway-task-policy.js";
-import type {
-  ControlPlaneAuditWriter,
-  ControlPlaneStore,
-  PersonalAgentBinding,
-  PlatformUser,
-} from "./contracts.js";
-
 export const PLATFORMCLAW_WEB_GATEWAY_EVENTS = [
   "shutdown",
   "tick",
@@ -72,56 +74,6 @@ const SESSION_SCOPED_EVENTS = new Set<string>(
 );
 type JsonObject = Record<string, unknown>;
 
-export type BrowserGatewayEvent = {
-  event: string;
-  payload?: unknown;
-  seq?: number;
-  stateVersion?: Record<string, number>;
-};
-
-export type BrowserGatewayRpc = {
-  request(method: string, params?: unknown): Promise<unknown>;
-};
-
-export type BrowserGatewayRequestContext = {
-  connectionId: string;
-};
-
-export type BrowserGatewayAccess = {
-  user: PlatformUser;
-  binding: PersonalAgentBinding;
-  mainSessionKey: string;
-};
-
-export type BrowserGatewayProxyErrorCode =
-  | "unauthenticated"
-  | "agent-unavailable"
-  | "method-not-allowed"
-  | "invalid-params"
-  | "cross-agent-denied"
-  | "upstream-result-denied";
-
-export class BrowserGatewayProxyError extends Error {
-  constructor(
-    readonly code: BrowserGatewayProxyErrorCode,
-    message: string,
-    readonly requestDisposition?: "rejected-before-dispatch",
-  ) {
-    super(message);
-    this.name = "BrowserGatewayProxyError";
-  }
-}
-
-export type BrowserGatewayProxyOptions = {
-  authService: BrowserAuthService;
-  store: ControlPlaneStore;
-  auditWriter: ControlPlaneAuditWriter;
-  gateway: BrowserGatewayRpc;
-  buildAgentMainSessionKey(params: { agentId: string }): string;
-  resolveAgentIdFromSessionKey(sessionKey: string): string | null;
-  now?: () => number;
-};
-
 function asObject(value: unknown, label: string): JsonObject {
   if (value === undefined) {
     return {};
@@ -139,13 +91,7 @@ function optionalString(value: unknown): string | undefined {
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
 export class BrowserGatewayProxy {
   private readonly assertions: BrowserGatewayAssertions;
-  private readonly activeBrowserConnections = new Set<string>();
-  private readonly observerVisibleConnections = new Set<string>();
-  private observerGatewayVisible: boolean | undefined = false;
-  private observerGatewayGeneration = 0;
-  private observerVisibilityBarrier = Promise.resolve();
-  private observerVisibilityRetryAttempt = 0;
-  private observerVisibilityRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly observerVisibility: BrowserGatewayObserverVisibility;
 
   constructor(private readonly options: BrowserGatewayProxyOptions) {
     this.assertions = new BrowserGatewayAssertions(
@@ -154,6 +100,14 @@ export class BrowserGatewayProxy {
       (code, message): never => {
         throw new BrowserGatewayProxyError(code, message);
       },
+    );
+    this.observerVisibility = new BrowserGatewayObserverVisibility(
+      options.gateway,
+      () =>
+        new BrowserGatewayProxyError(
+          "invalid-params",
+          "session observer visibility connection is no longer active",
+        ),
     );
   }
 
@@ -196,7 +150,7 @@ export class BrowserGatewayProxy {
             "session observer visibility requires a browser connection",
           );
         }
-        return (await this.setObserverConnectionVisibility(
+        return (await this.observerVisibility.setConnectionVisibility(
           context.connectionId,
           prepared.visible === true,
         )) as T;
@@ -376,32 +330,15 @@ export class BrowserGatewayProxy {
   }
 
   registerBrowserConnection(connectionId: string): void {
-    if (connectionId) {
-      this.activeBrowserConnections.add(connectionId);
-    }
+    this.observerVisibility.registerConnection(connectionId);
   }
 
   handleGatewayDisconnect(): void {
-    this.observerGatewayGeneration += 1;
-    this.observerGatewayVisible = false;
-    this.clearObserverVisibilityRetry();
+    this.observerVisibility.handleGatewayDisconnect();
   }
 
   async releaseBrowserConnection(connectionId: string): Promise<void> {
-    if (!connectionId) {
-      return;
-    }
-    // Mark the socket dead before queued RPC work runs. A visibility request
-    // that is still resolving authentication must not resurrect this tab.
-    this.activeBrowserConnections.delete(connectionId);
-    // Desired membership changes synchronously. An already-queued retry must
-    // observe the closed tab as absent before it can redeclare shared visibility.
-    this.observerVisibleConnections.delete(connectionId);
-    try {
-      await this.setObserverConnectionVisibility(connectionId, false);
-    } catch {
-      // Reconciliation retains the desired aggregate and retries in the background.
-    }
+    await this.observerVisibility.releaseConnection(connectionId);
   }
 
   private prepareRequest(
@@ -733,87 +670,6 @@ export class BrowserGatewayProxy {
     }
     const result = await this.options.gateway.request("tasks.get", { taskId });
     this.filterResult(access, "tasks.get", { taskId }, result);
-  }
-
-  private setObserverConnectionVisibility(
-    connectionId: string,
-    visible: boolean,
-  ): Promise<{ ok: true }> {
-    const operation = this.observerVisibilityBarrier.then(async () => {
-      if (visible) {
-        if (!this.activeBrowserConnections.has(connectionId)) {
-          throw new BrowserGatewayProxyError(
-            "invalid-params",
-            "session observer visibility connection is no longer active",
-          );
-        }
-        this.observerVisibleConnections.add(connectionId);
-      } else {
-        this.observerVisibleConnections.delete(connectionId);
-      }
-      await this.reconcileObserverVisibility();
-      return { ok: true } as const;
-    });
-    this.observerVisibilityBarrier = operation.then(
-      () => undefined,
-      () => undefined,
-    );
-    return operation;
-  }
-
-  private async reconcileObserverVisibility(): Promise<void> {
-    const desiredGatewayVisibility = this.observerVisibleConnections.size > 0;
-    if (this.observerGatewayVisible === desiredGatewayVisibility) {
-      this.clearObserverVisibilityRetry();
-      return;
-    }
-    const generation = this.observerGatewayGeneration;
-    try {
-      await this.options.gateway.request("sessions.observer.visibility", {
-        visible: desiredGatewayVisibility,
-      });
-    } catch (error) {
-      if (generation === this.observerGatewayGeneration) {
-        // A lost response is ambiguous: Gateway may have applied the request.
-        // Force the next reconciliation to redeclare the complete desired state.
-        this.observerGatewayVisible = undefined;
-        this.scheduleObserverVisibilityRetry();
-      }
-      throw error;
-    }
-    if (generation !== this.observerGatewayGeneration) {
-      return;
-    }
-    this.observerGatewayVisible = desiredGatewayVisibility;
-    this.clearObserverVisibilityRetry();
-  }
-
-  private scheduleObserverVisibilityRetry(): void {
-    if (this.observerVisibilityRetryTimer) {
-      return;
-    }
-    // The shared private connection owns one aggregate declaration. Retry only
-    // that desired state, with bounded backoff, so closed tabs cannot leak spend.
-    const delayMs = Math.min(250 * 2 ** this.observerVisibilityRetryAttempt, 5_000);
-    this.observerVisibilityRetryAttempt += 1;
-    this.observerVisibilityRetryTimer = setTimeout(() => {
-      this.observerVisibilityRetryTimer = undefined;
-      const retry = this.observerVisibilityBarrier.then(() => this.reconcileObserverVisibility());
-      this.observerVisibilityBarrier = retry.then(
-        () => undefined,
-        () => undefined,
-      );
-      void retry.catch(() => undefined);
-    }, delayMs);
-    this.observerVisibilityRetryTimer.unref?.();
-  }
-
-  private clearObserverVisibilityRetry(): void {
-    if (this.observerVisibilityRetryTimer) {
-      clearTimeout(this.observerVisibilityRetryTimer);
-      this.observerVisibilityRetryTimer = undefined;
-    }
-    this.observerVisibilityRetryAttempt = 0;
   }
 
   private browserCronContext(access: BrowserGatewayAccess) {
