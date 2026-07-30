@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { KnoxConversationType, KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 
-export type KnoxOutboundStatus = "progress" | "final" | "error" | "timeout";
+type KnoxOutboundStatus = "progress" | "final" | "error" | "timeout";
 
 export type KnoxOutboundContext = {
   account: ResolvedKnoxAccount;

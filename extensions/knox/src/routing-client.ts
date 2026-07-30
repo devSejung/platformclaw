@@ -1,4 +1,4 @@
-export type KnoxRouteResolution =
+type KnoxRouteResolution =
   | { status: "resolved"; agentId: string; sessionKey: string; senderLinked: boolean }
   | { status: "login-required" }
   | { status: "room-disabled" }

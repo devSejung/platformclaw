@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyTrustedSenderEnv } from "./bash-tools.exec-request-preparation.js";
+import { applyTrustedSenderEnv } from "./bash-tools.exec-sender-env.js";
 
 describe("applyTrustedSenderEnv", () => {
   it("injects exact trimmed dotted sender identity", () => {

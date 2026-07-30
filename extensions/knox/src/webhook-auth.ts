@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 
-export const KNOX_WEBHOOK_CLOCK_SKEW_MS = 5 * 60 * 1_000;
+const KNOX_WEBHOOK_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 
 function header(req: IncomingMessage, name: string): string {
   const value = req.headers[name];
