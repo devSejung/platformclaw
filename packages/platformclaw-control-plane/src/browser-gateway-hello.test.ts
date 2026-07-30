@@ -9,8 +9,15 @@ function upstreamHello(): HelloOk {
     protocol: 4,
     server: { version: "2026.7.20", connId: "operator-connection" },
     features: {
-      methods: ["agents.list", "chat.send", "plugins.list", "users.self"],
-      events: ["chat", "tick", "presence"],
+      methods: [
+        "agents.list",
+        "chat.send",
+        "plugins.list",
+        "sessions.observer.ask",
+        "sessions.observer.visibility",
+        "users.self",
+      ],
+      events: ["chat", "tick", "presence", "session.observer"],
       capabilities: ["approvals"],
     },
     snapshot: {
@@ -70,8 +77,15 @@ describe("projectPlatformClawBrowserHello", () => {
 
     expect(projected.server).toEqual({ version: "2026.7.20", connId: "browser-1" });
     expect(projected.features).toEqual({
-      methods: ["agents.list", "chat.send", "commands.list", "users.self"],
-      events: ["tick", "chat"],
+      methods: [
+        "agents.list",
+        "chat.send",
+        "commands.list",
+        "sessions.observer.ask",
+        "sessions.observer.visibility",
+        "users.self",
+      ],
+      events: ["tick", "chat", "session.observer"],
       capabilities: [],
     });
     expect(projected.snapshot).toEqual({

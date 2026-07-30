@@ -57,6 +57,210 @@ describe("BrowserGatewayProxy", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("allows companion questions only for an owned session", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const sessionKey = `agent:${binding.agentId}:main`;
+    request.mockResolvedValueOnce({ answer: "The run is checking tests.", digestRevision: 2 });
+
+    await expect(
+      proxy.request(token, "sessions.observer.ask", {
+        sessionKey,
+        question: "What is happening?",
+      }),
+    ).resolves.toEqual({ answer: "The run is checking tests.", digestRevision: 2 });
+    expect(request).toHaveBeenCalledWith("sessions.observer.ask", {
+      sessionKey,
+      question: "What is happening?",
+    });
+
+    await expect(
+      proxy.request(token, "sessions.observer.ask", {
+        sessionKey: "agent:other:main",
+        question: "What is happening?",
+      }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+  });
+
+  it("aggregates companion visibility across browser connections", async () => {
+    const { proxy, request, token } = await setup();
+    proxy.registerBrowserConnection("browser-1");
+    proxy.registerBrowserConnection("browser-2");
+
+    await expect(
+      proxy.request(
+        token,
+        "sessions.observer.visibility",
+        { visible: true },
+        { connectionId: "browser-1" },
+      ),
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      proxy.request(
+        token,
+        "sessions.observer.visibility",
+        { visible: true },
+        { connectionId: "browser-2" },
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith("sessions.observer.visibility", { visible: true });
+
+    await proxy.releaseBrowserConnection("browser-1");
+    expect(request).toHaveBeenCalledTimes(1);
+    await proxy.releaseBrowserConnection("browser-2");
+    expect(request).toHaveBeenLastCalledWith("sessions.observer.visibility", { visible: false });
+  });
+
+  it("retries a failed first companion visibility declaration", async () => {
+    const { proxy, request, token } = await setup();
+    proxy.registerBrowserConnection("browser-1");
+    request.mockRejectedValueOnce(new Error("temporary Gateway failure"));
+
+    await expect(
+      proxy.request(
+        token,
+        "sessions.observer.visibility",
+        { visible: true },
+        { connectionId: "browser-1" },
+      ),
+    ).rejects.toThrow("temporary Gateway failure");
+    await expect(
+      proxy.request(
+        token,
+        "sessions.observer.visibility",
+        { visible: true },
+        { connectionId: "browser-1" },
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not restore companion visibility after a browser connection closes", async () => {
+    const { proxy, request, token } = await setup();
+    proxy.registerBrowserConnection("browser-1");
+    await proxy.releaseBrowserConnection("browser-1");
+
+    await expect(
+      proxy.request(
+        token,
+        "sessions.observer.visibility",
+        { visible: true },
+        { connectionId: "browser-1" },
+      ),
+    ).rejects.toMatchObject({ code: "invalid-params" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed final companion visibility removal", async () => {
+    const { proxy, request, token } = await setup();
+    proxy.registerBrowserConnection("browser-1");
+    await proxy.request(
+      token,
+      "sessions.observer.visibility",
+      { visible: true },
+      { connectionId: "browser-1" },
+    );
+    request.mockRejectedValueOnce(new Error("temporary Gateway failure"));
+
+    await expect(
+      proxy.request(
+        token,
+        "sessions.observer.visibility",
+        { visible: false },
+        { connectionId: "browser-1" },
+      ),
+    ).rejects.toThrow("temporary Gateway failure");
+    await expect(
+      proxy.request(
+        token,
+        "sessions.observer.visibility",
+        { visible: false },
+        { connectionId: "browser-1" },
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(request.mock.calls).toEqual([
+      ["sessions.observer.visibility", { visible: true }],
+      ["sessions.observer.visibility", { visible: false }],
+      ["sessions.observer.visibility", { visible: false }],
+    ]);
+  });
+
+  it("reconciles a failed companion visibility removal after the last tab closes", async () => {
+    vi.useFakeTimers();
+    try {
+      const { proxy, request, token } = await setup();
+      proxy.registerBrowserConnection("browser-1");
+      await proxy.request(
+        token,
+        "sessions.observer.visibility",
+        { visible: true },
+        { connectionId: "browser-1" },
+      );
+      request.mockRejectedValueOnce(new Error("temporary Gateway failure"));
+
+      await proxy.releaseBrowserConnection("browser-1");
+      await vi.advanceTimersByTimeAsync(250);
+      expect(request.mock.calls).toEqual([
+        ["sessions.observer.visibility", { visible: true }],
+        ["sessions.observer.visibility", { visible: false }],
+        ["sessions.observer.visibility", { visible: false }],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("removes a closed tab before an already-queued visibility retry runs", async () => {
+    vi.useFakeTimers();
+    try {
+      const { proxy, request, token } = await setup();
+      proxy.registerBrowserConnection("browser-1");
+      request.mockRejectedValueOnce(new Error("temporary Gateway failure"));
+      await expect(
+        proxy.request(
+          token,
+          "sessions.observer.visibility",
+          { visible: true },
+          { connectionId: "browser-1" },
+        ),
+      ).rejects.toThrow("temporary Gateway failure");
+
+      vi.advanceTimersByTime(250);
+      await proxy.releaseBrowserConnection("browser-1");
+      await vi.runAllTimersAsync();
+      expect(request.mock.calls).toEqual([
+        ["sessions.observer.visibility", { visible: true }],
+        ["sessions.observer.visibility", { visible: false }],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("redeclares companion visibility after the private Gateway reconnects", async () => {
+    const { proxy, request, token } = await setup();
+    proxy.registerBrowserConnection("browser-1");
+    await proxy.request(
+      token,
+      "sessions.observer.visibility",
+      { visible: true },
+      { connectionId: "browser-1" },
+    );
+
+    proxy.handleGatewayDisconnect();
+    proxy.registerBrowserConnection("browser-2");
+    await proxy.request(
+      token,
+      "sessions.observer.visibility",
+      { visible: true },
+      { connectionId: "browser-2" },
+    );
+    expect(request.mock.calls).toEqual([
+      ["sessions.observer.visibility", { visible: true }],
+      ["sessions.observer.visibility", { visible: true }],
+    ]);
+  });
+
   it("projects browser-safe agent rows and preserves scoped session pagination", async () => {
     const { binding, proxy, request, token } = await setup();
     request
@@ -976,6 +1180,23 @@ describe("BrowserGatewayProxy", () => {
     await expect(proxy.filterEvent(token, ordinaryNestedPayload)).resolves.toEqual(
       ordinaryNestedPayload,
     );
+    const ownedObserverPayload = {
+      event: "session.observer",
+      payload: {
+        sessionKey: `agent:${binding.agentId}:main`,
+        agentId: binding.agentId,
+        runId: "run-1",
+      },
+    };
+    await expect(proxy.filterEvent(token, ownedObserverPayload)).resolves.toEqual(
+      ownedObserverPayload,
+    );
+    await expect(
+      proxy.filterEvent(token, {
+        event: "session.observer",
+        payload: { sessionKey: "agent:other:main", agentId: "other", runId: "run-2" },
+      }),
+    ).resolves.toBeNull();
     await expect(
       proxy.filterEvent(token, {
         event: "sessions.changed",
