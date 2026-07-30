@@ -9,6 +9,7 @@ import { logWarn } from "../logger.js";
 import { registerSecretValueForRedaction } from "../logging/secret-redaction-registry.js";
 import { collectLivePluginRegistries } from "../plugins/runtime.js";
 import type {
+  McpServerAgentConnectionResolveContext,
   McpServerConnectionResolved,
   McpServerConnectionResolveContext,
   OpenClawPluginMcpServerConnectionResolver,
@@ -147,6 +148,9 @@ function listMcpServerConnectionResolversByServerName(): Map<
         pluginId: entry.pluginId,
         serverName,
         resolve: entry.resolver.resolve,
+        ...(entry.resolver.resolveForAgent
+          ? { resolveForAgent: entry.resolver.resolveForAgent }
+          : {}),
       });
     }
   }
@@ -209,7 +213,8 @@ function registerResolvedConnectionSecrets(connection: McpServerConnectionResolv
 }
 
 /**
- * Resolve requester-scoped server connections. Fail closed without requesterSenderId:
+ * Resolve requester-scoped server connections. Fail closed without a trusted
+ * sender or agent identity:
  * returns an empty map (no shared-connection fallback). Per-server resolve errors and
  * timeouts are logged generically and omitted so one plugin cannot block static MCP.
  * Servers resolve concurrently (each individually bounded).
@@ -217,17 +222,18 @@ function registerResolvedConnectionSecrets(connection: McpServerConnectionResolv
 export async function resolveRequesterScopedMcpConnections(params: {
   serverNames: readonly string[];
   requesterSenderId?: string | null;
+  agentId?: string | null;
   agentAccountId?: string | null;
   messageChannel?: string | null;
 }): Promise<Map<string, McpServerConnectionResolved>> {
   const requesterSenderId = normalizeOptionalString(params.requesterSenderId);
+  const agentId = normalizeOptionalString(params.agentId);
   const resolved = new Map<string, McpServerConnectionResolved>();
-  if (!requesterSenderId || params.serverNames.length === 0) {
+  if ((!requesterSenderId && !agentId) || params.serverNames.length === 0) {
     return resolved;
   }
   const resolvers = listMcpServerConnectionResolversByServerName();
-  const ctx: McpServerConnectionResolveContext = {
-    requesterSenderId,
+  const commonContext = {
     ...(normalizeOptionalString(params.agentAccountId)
       ? { agentAccountId: normalizeOptionalString(params.agentAccountId) }
       : {}),
@@ -235,6 +241,12 @@ export async function resolveRequesterScopedMcpConnections(params: {
       ? { messageChannel: normalizeOptionalString(params.messageChannel) }
       : {}),
   };
+  const senderContext: McpServerConnectionResolveContext | undefined = requesterSenderId
+    ? { requesterSenderId, ...commonContext }
+    : undefined;
+  const agentContext: McpServerAgentConnectionResolveContext | undefined = agentId
+    ? { agentId, ...commonContext }
+    : undefined;
   const timeoutMs = resolveConnectionResolverTimeoutMs();
   const sortedNames = [...params.serverNames].toSorted((a, b) => a.localeCompare(b));
   const settled = await Promise.all(
@@ -244,8 +256,25 @@ export async function resolveRequesterScopedMcpConnections(params: {
         return null;
       }
       try {
-        const result = await raceWithTimeout(Promise.resolve(entry.resolve(ctx)), timeoutMs);
+        const resolution =
+          agentContext && entry.resolveForAgent
+            ? entry.resolveForAgent(agentContext)
+            : senderContext
+              ? entry.resolve(senderContext)
+              : null;
+        const result = await raceWithTimeout(Promise.resolve(resolution), timeoutMs);
         if (!result || typeof result.url !== "string" || result.url.trim().length === 0) {
+          return null;
+        }
+        const expiresAt =
+          typeof result.expiresAt === "number" &&
+          Number.isFinite(result.expiresAt) &&
+          result.expiresAt > Date.now()
+            ? result.expiresAt
+            : result.expiresAt === undefined
+              ? undefined
+              : null;
+        if (expiresAt === null) {
           return null;
         }
         const headers =
@@ -262,6 +291,7 @@ export async function resolveRequesterScopedMcpConnections(params: {
         const connection = {
           url: result.url.trim(),
           ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
+          ...(expiresAt === undefined ? {} : { expiresAt }),
         } satisfies McpServerConnectionResolved;
         registerResolvedConnectionSecrets(connection);
         return { serverName, connection };
@@ -359,14 +389,20 @@ export function buildMcpRequesterRuntimeCacheKey(params: {
   sessionId: string;
   messageChannel?: string | null;
   agentAccountId?: string | null;
-  requesterSenderId: string;
+  requesterSenderId?: string | null;
+  agentId?: string | null;
 }): string {
   // Composite key for requester-scoped runtimes. Static runtimes keep bare sessionId.
   return JSON.stringify({
     sessionId: params.sessionId,
     messageChannel: normalizeOptionalString(params.messageChannel) ?? "",
     agentAccountId: normalizeOptionalString(params.agentAccountId) ?? "",
-    requesterSenderId: params.requesterSenderId,
+    ...(normalizeOptionalString(params.requesterSenderId)
+      ? { requesterSenderId: normalizeOptionalString(params.requesterSenderId) }
+      : {}),
+    ...(normalizeOptionalString(params.agentId)
+      ? { agentId: normalizeOptionalString(params.agentId) }
+      : {}),
   });
 }
 
@@ -388,6 +424,7 @@ export const testing = {
         pluginId: normalizeOptionalString(resolver.pluginId) ?? "test-plugin",
         serverName,
         resolve: resolver.resolve,
+        ...(resolver.resolveForAgent ? { resolveForAgent: resolver.resolveForAgent } : {}),
       });
     }
     getTestState().resolversByServerName = map;

@@ -441,8 +441,8 @@ wrapper.
 Phase 1 uses upstream OpenClaw `mcp.servers` as one administrator-owned global
 registry. Credential-free servers and administrator-configured shared
 credentials are available to every employee Agent. Shared credentials therefore
-must carry only organization-wide authority; per-user credentials and personal
-MCP registries remain deferred.
+must carry only organization-wide authority. PC-125 adds personal credentials
+without adding personal server registries.
 
 PlatformClaw's managed sandbox policy admits the upstream `bundle-mcp` plugin
 for every sandboxed Agent. Existing installs receive the same gate during
@@ -459,6 +459,53 @@ Registration uses the existing server-side OpenClaw MCP CLI or the separate
 private administrator Control UI. The employee BFF does not expose Gateway
 config reads, writes, MCP credentials, or MCP lifecycle methods. This preserves
 PC-117 and keeps upstream MCP UI/core unchanged.
+
+### PC-125 Store personal MCP credentials in PlatformClaw Control
+
+Administrators continue to own the global `mcp.servers` registry. A server is
+either credential-free or uses one administrator-configured shared credential
+under PC-124, or an administrator marks it for personal credentials through the
+private `platformclaw-user-mcp` plugin. Employees cannot register arbitrary MCP
+servers or change server URLs, transport, OAuth scope, or API-key header names.
+
+Personal servers allow every discovered tool by default. Administrators may
+block individual tools with the existing server `toolFilter`, and session tool
+denials remain authoritative. Server registration approval and tool denial are
+separate decisions: approving a server does not prevent later tool-level
+restriction, and tool policy does not grant access to an unapproved server.
+
+The employee BFF exposes a same-origin personal-credential UI for bearer
+tokens, administrator-pinned API keys, and MCP OAuth. OAuth uses PKCE, a
+single-use state with a ten-minute lifetime, SDK discovery and dynamic client
+registration, and encrypted refresh-token persistence. Credential-free servers
+need no employee setup and never produce a missing-credential prompt.
+Personal-credential server and OAuth endpoints require HTTPS. Control applies
+DNS-pinned SSRF checks to discovery, registration, token, and redirect hops,
+bounds each network request and response, and serializes refresh-token rotation
+per user and server with revision-checked persistence.
+The approved URL, credential kind, API-key header, and OAuth scope are part of
+the credential binding and fail closed after a mismatch. MCP policy is
+process-stable; changing it requires a coordinated Gateway and Control restart.
+
+`platformclaw-control` stores personal MCP credentials as AES-256-GCM envelopes
+in the control SQLite database. It reuses the deployment credential master key
+with an MCP-specific authenticated-data domain and binds ciphertext to user,
+server, format, and key ID. The additive tables do not advance schema version 2.
+Secrets never enter OpenClaw config, browser responses, Gateway state, logs, or
+agent workspaces.
+
+At run time, the Gateway supplies only its host-selected `agentId` to the exact
+server-name resolver. Control resolves the active personal binding and returns
+transient headers over the existing authenticated owner-only local execution
+handoff socket. Missing, disabled, mismatched, expired, or undecryptable state
+fails closed. The employee browser Gateway allowlist remains unchanged.
+
+Replacing or deleting a credential disposes that Agent's requester-scoped MCP
+runtime before the update is reported complete. Browser logout also requests
+runtime disposal but preserves the encrypted credential. Account disablement
+revokes browser sessions and deletes all personal MCP credentials. The
+administrator path must also invalidate the Agent runtime. Normal runtime
+expiry is secondary cleanup, not revocation authority.
 
 ## Open operational decisions
 

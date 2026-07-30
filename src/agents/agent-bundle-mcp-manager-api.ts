@@ -31,6 +31,7 @@ export async function getOrCreateSessionMcpRuntime(params: {
   cfg?: OpenClawConfig;
   manifestRegistry?: Pick<PluginManifestRegistry, "plugins">;
   requesterSenderId?: string | null;
+  agentId?: string | null;
   agentAccountId?: string | null;
   messageChannel?: string | null;
   toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
@@ -50,6 +51,7 @@ export async function getOrCreateRequesterScopedMcpRuntime(params: {
   cfg?: OpenClawConfig;
   manifestRegistry?: Pick<PluginManifestRegistry, "plugins">;
   requesterSenderId?: string | null;
+  agentId?: string | null;
   agentAccountId?: string | null;
   messageChannel?: string | null;
   toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
@@ -150,6 +152,15 @@ export async function retireSessionMcpRuntimeForSessionKey(params: {
 
 export async function disposeAllSessionMcpRuntimes(): Promise<void> {
   await getSessionMcpRuntimeManager().disposeAll();
+}
+
+/** Immediately revoke requester-scoped MCP connections owned by one trusted agent. */
+export async function disposeAgentScopedMcpRuntimes(agentId: string): Promise<number> {
+  const normalizedAgentId = normalizeOptionalString(agentId);
+  if (!normalizedAgentId) {
+    return 0;
+  }
+  return await getSessionMcpRuntimeManager().disposeAgentScoped(normalizedAgentId);
 }
 
 export function getSessionMcpRuntimeManagerForTesting(): SessionMcpRuntimeManager {

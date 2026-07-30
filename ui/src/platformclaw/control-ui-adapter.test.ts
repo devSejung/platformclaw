@@ -210,6 +210,7 @@ describe("PlatformClawControlUiAdapter", () => {
     render(adminOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
     expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
+    expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(1);
     expect(document.querySelectorAll("platformclaw-vm-administration")).toHaveLength(1);
     await customElements.whenDefined("platformclaw-vm-administration");
     const administration = document.querySelector(
@@ -238,6 +239,7 @@ describe("PlatformClawControlUiAdapter", () => {
     render(memberOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
     expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
+    expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(1);
     expect(document.querySelector("platformclaw-vm-administration")).toBeNull();
   });
 });

@@ -10,6 +10,7 @@ import {
   MemoryBrowserLoginRateLimiter,
   type MemoryBrowserLoginRateLimiterOptions,
 } from "./browser-login-rate-limiter.js";
+import { EmployeeMcpService } from "./browser-mcp-http.js";
 import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
 import {
@@ -44,7 +45,13 @@ export type PlatformClawWebIngressRuntimeOptions = {
   restartRecoveryProbe: PersonalAgentRestartRecoveryProbe;
   employeeAuth?: Pick<
     EmployeeBrowserAuthRuntimeOptions,
-    "employeeAuthConfig" | "env" | "fetchImpl" | "now" | "tokenFactory" | "sshCredentialCipher"
+    | "employeeAuthConfig"
+    | "env"
+    | "fetchImpl"
+    | "now"
+    | "tokenFactory"
+    | "sshCredentialCipher"
+    | "mcpCredentialCipher"
   >;
   gatewayClient: PlatformClawGatewayRuntimeClientOptions;
   adminRpc: GatewayAdminRpc;
@@ -79,6 +86,12 @@ export function createPlatformClawWebIngressRuntime(
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
     provisioner: options.provisioner,
     initialAdminAccountIds: options.initialAdminAccountIds,
+    onLogoutAgent: async (agentId) => {
+      await options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId });
+    },
+    onAgentCredentialsRevoked: async (agentId) => {
+      await options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId });
+    },
     ...options.employeeAuth,
   });
   if (options.credentialBrokerAddress && !auth.credentialVault) {
@@ -88,14 +101,38 @@ export function createPlatformClawWebIngressRuntime(
     options.credentialBrokerAddress && auth.credentialVault
       ? new SshCredentialBroker(options.credentialBrokerAddress, auth.credentialVault)
       : undefined;
+  const mcpService = auth.mcpCredentialVault
+    ? new EmployeeMcpService({
+        authService: auth.service,
+        store: auth.store,
+        vault: auth.mcpCredentialVault,
+        adminRpc: options.adminRpc,
+        publicOrigin: options.publicOrigin,
+        ...(options.employeeAuth?.fetchImpl ? { fetchImpl: options.employeeAuth.fetchImpl } : {}),
+        ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+      })
+    : undefined;
   if (options.executionServiceToken && !credentialBroker) {
     throw new Error("execution handoff requires a credential broker");
   }
+  const executionService =
+    credentialBroker && new ExecutionHandoffService(auth.store, credentialBroker);
   const executionHandoff =
-    options.executionServiceToken && credentialBroker && options.credentialBrokerAddress
+    options.executionServiceToken && executionService && options.credentialBrokerAddress
       ? new PlatformClawExecutionHandoffServer(
           options.executionServiceToken,
-          new ExecutionHandoffService(auth.store, credentialBroker),
+          {
+            resolveTarget: (agentId) => executionService.resolveTarget(agentId),
+            resolveConnectionTarget: (agentId) => executionService.resolveConnectionTarget(agentId),
+            changeTarget: (params) => executionService.changeTarget(params),
+            issueCredentialGrant: (params) => executionService.issueCredentialGrant(params),
+            ...(mcpService
+              ? {
+                  resolveMcpConnection: (agentId: string, serverName: string, serverUrl: string) =>
+                    mcpService.resolveForAgent(agentId, serverName, serverUrl),
+                }
+              : {}),
+          },
           deriveExecutionHandoffAddress(options.credentialBrokerAddress),
         )
       : undefined;
@@ -137,6 +174,7 @@ export function createPlatformClawWebIngressRuntime(
     gateway,
     executionService: employeeExecution,
     vmAdministrationService: vmAdministration,
+    ...(mcpService ? { mcpService } : {}),
     webAssets: createPlatformClawWebAssetHandler(options.controlUiRoot, {
       publicOrigin: options.publicOrigin,
     }),

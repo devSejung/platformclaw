@@ -16,11 +16,11 @@ import {
 import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
 import { executeSync, runImmediateTransaction } from "./kysely-sync.js";
 import { normalizeScopeName, required, rowToMembership, rowToScope } from "./sqlite-store-core.js";
-import { SqliteControlPlaneCredentialStore } from "./sqlite-store-credentials.js";
+import { SqliteControlPlaneMcpStore } from "./sqlite-store-mcp.js";
 import type { ManagedScopeRow } from "./sqlite-store-types.js";
 
 export class SqliteControlPlaneStore
-  extends SqliteControlPlaneCredentialStore
+  extends SqliteControlPlaneMcpStore
   implements
     ControlPlaneStore,
     ControlPlaneManagementStore,
@@ -79,7 +79,8 @@ export class SqliteControlPlaneStore
     status: PlatformUserStatus;
     changedAt: number;
   }): Promise<PlatformUser> {
-    return runImmediateTransaction(this.db, () => {
+    let revokedAgentId: string | undefined;
+    const user = runImmediateTransaction(this.db, () => {
       this.requireAdmin(params.actorUserId);
       const target = this.requireUserRow(params.targetUserId);
       if (params.actorUserId === params.targetUserId && target.status !== params.status) {
@@ -109,6 +110,14 @@ export class SqliteControlPlaneStore
           .where("id", "=", target.id),
       );
       if (params.status === "disabled") {
+        revokedAgentId = executeSync(
+          this.db,
+          this.query
+            .selectFrom("agent_bindings")
+            .select("agent_id")
+            .where("user_id", "=", target.id)
+            .where("kind", "=", "personal"),
+        ).rows[0]?.agent_id;
         executeSync(
           this.db,
           this.query
@@ -116,6 +125,10 @@ export class SqliteControlPlaneStore
             .set({ revoked_at: params.changedAt })
             .where("user_id", "=", target.id)
             .where("revoked_at", "is", null),
+        );
+        executeSync(
+          this.db,
+          this.query.deleteFrom("encrypted_user_mcp_credentials").where("user_id", "=", target.id),
         );
       }
       this.insertAudit(
@@ -128,6 +141,10 @@ export class SqliteControlPlaneStore
       );
       return this.requireUser(target.id);
     });
+    if (revokedAgentId && this.onAgentCredentialsRevoked) {
+      await this.onAgentCredentialsRevoked(revokedAgentId);
+    }
+    return user;
   }
 
   async createManagedScope(params: {

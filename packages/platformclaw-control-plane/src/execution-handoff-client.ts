@@ -5,6 +5,7 @@ import {
   PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH,
   PLATFORMCLAW_EXECUTION_GRANT_PATH,
   PLATFORMCLAW_EXECUTION_TARGET_PATH,
+  PLATFORMCLAW_MCP_CONNECTION_PATH,
 } from "./execution-handoff-http.js";
 import type {
   ExecutionCredentialGrant,
@@ -65,6 +66,22 @@ export class ExecutionHandoffClient {
     targetRevision: number;
   }): Promise<ExecutionCredentialGrant> {
     return (await this.post(PLATFORMCLAW_EXECUTION_GRANT_PATH, params)) as ExecutionCredentialGrant;
+  }
+
+  async resolveMcpConnection(
+    agentId: string,
+    serverName: string,
+    serverUrl: string,
+  ): Promise<{
+    headers: Record<string, string>;
+    revision: number;
+    expiresAt?: number;
+  }> {
+    return (await this.post(PLATFORMCLAW_MCP_CONNECTION_PATH, {
+      agentId,
+      serverName,
+      serverUrl,
+    })) as { headers: Record<string, string>; revision: number; expiresAt?: number };
   }
 
   private async post(pathname: string, body: unknown): Promise<unknown> {

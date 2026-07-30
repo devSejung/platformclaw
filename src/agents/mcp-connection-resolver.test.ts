@@ -654,6 +654,39 @@ describe("mcp connection resolver helpers", () => {
     ).resolves.toEqual(new Map([["user-mail", { url: "https://example.test/ok" }]]));
   });
 
+  it("uses the host-selected agent resolver without inventing a sender", async () => {
+    testing.setMcpServerConnectionResolversForTest([
+      {
+        serverName: "personal-calendar",
+        resolve: async () => null,
+        resolveForAgent: async ({ agentId }) =>
+          agentId === "employee-7"
+            ? {
+                url: "https://mcp.example.test/calendar",
+                headers: { Authorization: "Bearer agent-token" },
+              }
+            : null,
+      },
+    ]);
+
+    await expect(
+      resolveRequesterScopedMcpConnections({
+        serverNames: ["personal-calendar"],
+        agentId: "employee-7",
+      }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          "personal-calendar",
+          {
+            url: "https://mcp.example.test/calendar",
+            headers: { Authorization: "Bearer agent-token" },
+          },
+        ],
+      ]),
+    );
+  });
+
   it("registers resolved header and signed-URL credentials for redaction", async () => {
     const { resetSecretRedactionRegistryForTest } =
       await import("../logging/secret-redaction-registry.test-support.js");
@@ -891,6 +924,22 @@ describe("mcp connection resolver helpers", () => {
         messageChannel: "telegram",
         agentAccountId: "bot",
         requesterSenderId: "user-1",
+      }),
+    );
+  });
+
+  it("partitions agent-owned requester cache keys", () => {
+    expect(
+      buildMcpRequesterRuntimeCacheKey({
+        sessionId: "s1",
+        agentId: "employee-7",
+      }),
+    ).toBe(
+      JSON.stringify({
+        sessionId: "s1",
+        messageChannel: "",
+        agentAccountId: "",
+        agentId: "employee-7",
       }),
     );
   });

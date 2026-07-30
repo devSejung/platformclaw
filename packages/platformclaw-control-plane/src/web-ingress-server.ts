@@ -31,6 +31,10 @@ import {
   type BrowserGatewayEvent,
 } from "./browser-gateway-proxy.js";
 import {
+  handlePlatformClawEmployeeMcpRequest,
+  type EmployeeMcpService,
+} from "./browser-mcp-http.js";
+import {
   handlePlatformClawVmAdministrationRequest,
   type VmAdministrationService,
 } from "./browser-vm-admin-http.js";
@@ -79,6 +83,7 @@ export type PlatformClawWebIngressOptions = {
   gateway: PlatformClawGatewayBackend;
   executionService?: EmployeeExecutionService;
   vmAdministrationService?: VmAdministrationService;
+  mcpService?: EmployeeMcpService;
   webAssets?: PlatformClawWebAssetHandler;
   gatewayPath?: string;
   healthPath?: string;
@@ -332,6 +337,16 @@ export class PlatformClawWebIngressServer {
         this.options.executionService &&
         (await handlePlatformClawEmployeeExecutionRequest(req, res, {
           service: this.options.executionService,
+          readJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
+        this.options.mcpService &&
+        (await handlePlatformClawEmployeeMcpRequest(req, res, {
+          service: this.options.mcpService,
           readJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))

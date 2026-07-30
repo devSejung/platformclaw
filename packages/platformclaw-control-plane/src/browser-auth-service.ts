@@ -62,6 +62,7 @@ export class BrowserAuthService {
       provisioner: PersonalAgentProvisioner;
       now?: () => number;
       tokenFactory?: () => string;
+      onLogoutAgent?: (agentId: string) => Promise<void>;
     },
   ) {}
 
@@ -267,11 +268,18 @@ export class BrowserAuthService {
     if (resolution.status !== "active") {
       return false;
     }
-    return Boolean(
+    const binding = await this.options.store.getPersonalAgentBinding(resolution.user.id);
+    const revoked = Boolean(
       await this.options.store.revokeBrowserSession(
         resolution.session.id,
         (this.options.now ?? Date.now)(),
       ),
     );
+    if (revoked && binding?.state === "active" && this.options.onLogoutAgent) {
+      // Session revocation is authoritative. Gateway unavailability must not trap
+      // a user in a logged-in browser; stale MCP runtimes also expire normally.
+      await this.options.onLogoutAgent(binding.agentId).catch(() => undefined);
+    }
+    return revoked;
   }
 }

@@ -38,10 +38,25 @@ async function startServer() {
     })),
     resolveConnectionTarget: vi.fn(),
     changeTarget: vi.fn(),
+    resolveMcpConnection: vi.fn(async () => ({
+      headers: { Authorization: "Bearer secret" },
+      revision: 2,
+      expiresAt: 60_000,
+    })),
   } satisfies Pick<
     ExecutionHandoffService,
     "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
-  >;
+  > & {
+    resolveMcpConnection(
+      agentId: string,
+      serverName: string,
+      serverUrl: string,
+    ): Promise<{
+      headers: Record<string, string>;
+      revision: number;
+      expiresAt?: number;
+    }>;
+  };
   const root = await mkdtemp(join(tmpdir(), "platformclaw-handoff-"));
   roots.push(root);
   const socketPath =
@@ -90,6 +105,18 @@ describe("PlatformClawExecutionHandoffServer", () => {
       targetRevision: 4,
     });
     expect(service.resolveTarget).toHaveBeenCalledWith("person_one");
+    await expect(
+      client.resolveMcpConnection("person_one", "github", "https://mcp.example.test/github"),
+    ).resolves.toEqual({
+      headers: { Authorization: "Bearer secret" },
+      revision: 2,
+      expiresAt: 60_000,
+    });
+    expect(service.resolveMcpConnection).toHaveBeenCalledWith(
+      "person_one",
+      "github",
+      "https://mcp.example.test/github",
+    );
   });
 
   it.runIf(process.platform !== "win32")(

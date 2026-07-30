@@ -58,6 +58,12 @@ SSH boundary and drives the real administrator assignment, employee credential,
 connection-check, and VM-target handoff path. Validation against an approved
 enterprise VM remains separate.
 
+Personal MCP credential routing is implemented as a private plugin plus Control
+boundary under [PC-125](/platformclaw/decisions#pc-125-store-personal-mcp-credentials-in-platformclaw-control).
+Administrators keep server and tool-policy ownership; employees can supply only
+credentials for approved personal servers. Credential-free and organization-wide
+shared servers continue to use PC-124 without employee setup.
+
 ## Maintenance rules
 
 - Keep current behavior, approved decisions, proposals, and open decisions

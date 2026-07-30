@@ -304,7 +304,12 @@ const secretArgs =
     ? ["--secret", `id=platformclaw_apt_sources,src=${aptSources}`]
     : [];
 const extensions = [
-  ...new Set(["admin-http-rpc", "platformclaw-execution", ...options.extensions.split(/[\s,]+/u)]),
+  ...new Set([
+    "admin-http-rpc",
+    "platformclaw-execution",
+    "platformclaw-user-mcp",
+    ...options.extensions.split(/[\s,]+/u),
+  ]),
 ]
   .filter(Boolean)
   .join(",");

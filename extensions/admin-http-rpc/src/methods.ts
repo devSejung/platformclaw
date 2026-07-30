@@ -34,6 +34,8 @@ const ADMIN_HTTP_RPC_ALLOWED_METHOD_GROUPS = {
     "platformclaw-execution.testConnection",
     "platformclaw-execution.testCandidateConnection",
     "platformclaw-execution.changeTarget",
+    "platformclaw-user-mcp.catalog",
+    "platformclaw-user-mcp.invalidateAgent",
   ],
   approvals: [
     "exec.approvals.get",

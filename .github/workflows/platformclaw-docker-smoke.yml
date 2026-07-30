@@ -9,6 +9,7 @@ on:
       - Dockerfile.sandbox.jammy
       - docker/platformclaw-runtime/**
       - extensions/platformclaw-execution/**
+      - extensions/platformclaw-user-mcp/**
       - packages/platformclaw-control-plane/**
       - scripts/e2e/fixtures/platformclaw-login.json
       - scripts/e2e/platformclaw-runtime-docker.sh
@@ -23,6 +24,7 @@ on:
       - Dockerfile.sandbox.jammy
       - docker/platformclaw-runtime/**
       - extensions/platformclaw-execution/**
+      - extensions/platformclaw-user-mcp/**
       - packages/platformclaw-control-plane/**
       - scripts/e2e/fixtures/platformclaw-login.json
       - scripts/e2e/platformclaw-runtime-docker.sh

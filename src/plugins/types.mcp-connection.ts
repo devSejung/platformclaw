@@ -14,11 +14,23 @@ export type McpServerConnectionResolveContext = {
   messageChannel?: string;
 };
 
+/** Trusted agent identity for agent-owned MCP connection resolution. */
+export type McpServerAgentConnectionResolveContext = {
+  /** Canonical agent id selected by the host for this run. */
+  agentId: string;
+  /** Channel account id that received the message, when applicable. */
+  agentAccountId?: string;
+  /** Message channel id (for example telegram or internal). */
+  messageChannel?: string;
+};
+
 /** Transport connection resolved for one requester-scoped MCP server. */
 export type McpServerConnectionResolved = {
   url: string;
   /** Per-user credentials; never logged, fingerprinted, or persisted by core. */
   headers?: Record<string, string>;
+  /** Absolute epoch milliseconds after which this connection must be retired. */
+  expiresAt?: number;
 };
 
 /**
@@ -30,6 +42,13 @@ export type OpenClawPluginMcpServerConnectionResolver = {
   serverName: string;
   resolve: (
     ctx: McpServerConnectionResolveContext,
+  ) => McpServerConnectionResolved | null | Promise<McpServerConnectionResolved | null>;
+  /**
+   * Resolve from the host-selected agent when no transport sender exists, or
+   * when the plugin deliberately owns credentials at the agent boundary.
+   */
+  resolveForAgent?: (
+    ctx: McpServerAgentConnectionResolveContext,
   ) => McpServerConnectionResolved | null | Promise<McpServerConnectionResolved | null>;
 };
 

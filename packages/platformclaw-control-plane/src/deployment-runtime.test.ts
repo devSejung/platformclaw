@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { PlatformClawDeploymentConfig } from "./deployment-config.js";
 import { createPlatformClawDeploymentRuntime } from "./deployment-runtime.js";
+import { McpCredentialCipher } from "./mcp-credential-crypto.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 import type {
   PlatformClawWebIngressRuntime,
@@ -33,6 +34,7 @@ const config: PlatformClawDeploymentConfig = {
   gatewayAuth: "test-gateway-token",
   gatewayServiceIdentityFile,
   sshCredentialCipher: SshCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
+  mcpCredentialCipher: McpCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
   credentialBrokerAddress: "/run/platformclaw-credential-broker/credential.sock",
   executionServiceToken: "e".repeat(32),
 };
@@ -69,6 +71,7 @@ describe("createPlatformClawDeploymentRuntime", () => {
     expect(options?.adminRpc).toBeDefined();
     expect(options?.restartRecoveryProbe).toBe(options?.provisioner);
     expect(options?.employeeAuth?.sshCredentialCipher).toBe(config.sshCredentialCipher);
+    expect(options?.employeeAuth?.mcpCredentialCipher).toBe(config.mcpCredentialCipher);
     expect(options?.buildAgentMainSessionKey({ agentId: "person_one" })).toBe(
       "agent:person_one:main",
     );
