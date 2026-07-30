@@ -2,7 +2,7 @@ import { vi } from "vitest";
 import type { ApplicationContext } from "./context.ts";
 
 export type ShellKeyboardState = {
-  runtime: { context: ApplicationContext };
+  runtime: { context: ApplicationContext; shellSession?: unknown };
   handleDocumentKeydown: (event: KeyboardEvent) => void;
 };
 

@@ -4,7 +4,7 @@ import { state } from "lit/decorators.js";
 import type { AgentsListResult, CronJob } from "../../api/types.ts";
 import { titleForRoute } from "../../app-navigation.ts";
 import { applicationContext, type ApplicationContext } from "../../app/context.ts";
-import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
+import { readGatewayOperatorAccess } from "../../app/operator-access.ts";
 import { renderAgentScopeControl } from "../../components/agent-scope-control.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
 import {
@@ -40,11 +40,7 @@ import {
 } from "../../lib/sessions/route-navigation.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
-import {
-  buildCronSuggestions,
-  THINKING_SUGGESTIONS,
-  TIMEZONE_SUGGESTIONS,
-} from "./form-suggestions.ts";
+import { buildCronSuggestions, THINKING_SUGGESTIONS } from "./form-suggestions.ts";
 import { renderCron, type CronDetailTab, type CronListTab } from "./view.ts";
 
 class CronPage extends OpenClawLightDomElement {
@@ -59,6 +55,10 @@ class CronPage extends OpenClawLightDomElement {
 
   private modelSuggestionsState: CronState | null = null;
   private gatewaySource?: ApplicationContext["gateway"];
+  private get canManageCron(): boolean {
+    return readGatewayOperatorAccess(this.context.gateway.snapshot).canAdmin;
+  }
+
   private readonly subscriptions = new SubscriptionsController(this)
     .watch(
       () => this.context?.agents,
@@ -255,10 +255,6 @@ class CronPage extends OpenClawLightDomElement {
     }
   }
 
-  private get canManageCron() {
-    return hasOperatorAdminAccess(this.context.gateway.snapshot.hello?.auth ?? null);
-  }
-
   private runCronAdminTask<T>(task: (cronState: CronState) => Promise<T>): void {
     // Scope can change between render and click after a reconnect. Recheck at
     // dispatch so a stale control cannot send an admin-only Gateway request.
@@ -269,6 +265,9 @@ class CronPage extends OpenClawLightDomElement {
   }
 
   private patchForm(patch: Partial<CronFormState>) {
+    if (!this.canManageCron) {
+      return;
+    }
     this.cron.cronForm = normalizeCronFormState({ ...this.cron.cronForm, ...patch });
     this.cron.cronFieldErrors = validateCronForm(this.cron.cronForm);
     this.requestCronUpdate();
@@ -348,10 +347,12 @@ class CronPage extends OpenClawLightDomElement {
       if (options.runNow && result.jobId) {
         // Create & run now: kick the new task once so the first result arrives
         // immediately instead of waiting for the first scheduled tick.
+        const cachedJob = cronState.cronJobs.find((job) => job.id === result.jobId);
         const createdJob = result.job?.configRevision
           ? result.job
-          : (cronState.cronJobs.find((job) => job.id === result.jobId) ??
-            (await loadCronJobForMutation(cronState, result.jobId)));
+          : cachedJob?.configRevision
+            ? cachedJob
+            : await loadCronJobForMutation(cronState, result.jobId);
         if (!createdJob?.configRevision) {
           throw new Error("Created automation did not return a config revision");
         }
@@ -435,7 +436,7 @@ class CronPage extends OpenClawLightDomElement {
           agentSuggestions: suggestions.agentSuggestions,
           modelSuggestions: suggestions.modelSuggestions,
           thinkingSuggestions: THINKING_SUGGESTIONS,
-          timezoneSuggestions: TIMEZONE_SUGGESTIONS,
+          timezoneSuggestions: suggestions.timezoneSuggestions,
           deliveryToSuggestions: suggestions.deliveryToSuggestions,
           accountSuggestions: suggestions.accountTargets,
           personalAccess: this.context.accessMode === "personal-agent",

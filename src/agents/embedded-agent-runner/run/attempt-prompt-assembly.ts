@@ -24,6 +24,7 @@ import {
   appendModelIdentitySystemPrompt,
   buildModelIdentityPromptLine,
 } from "../../system-prompt.js";
+import { normalizeToolName } from "../../tool-policy.js";
 import { log } from "../logger.js";
 import {
   beginPromptCacheObservation,
@@ -83,6 +84,7 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
   runtimeModel: string;
   runtimePromptContext?: string;
   systemPromptText: string;
+  applyPromptBuildToolsAllow: (toolsAllow: string[] | undefined) => string[];
   setActiveSessionSystemPrompt: (systemPrompt: string) => void;
   setLeasedSteering: (lease: EmbeddedAttemptSteeringLease) => void;
   cache: {
@@ -112,6 +114,7 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
     sessionKey: attempt.sessionKey,
     sessionId: attempt.sessionId,
     workspaceDir: attempt.workspaceDir,
+    activeProjectKeys: [...(attempt.preparedModelRuntime?.activeProjectKeys ?? [])],
     modelProviderId: attempt.model.provider,
     modelId: attempt.model.id,
     trigger: attempt.trigger,
@@ -136,6 +139,11 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
           hookRunner: input.hookRunner,
           bootstrapContextRunKind: attempt.bootstrapContextRunKind,
         });
+  const promptCacheToolNames = input.applyPromptBuildToolsAllow(hookResult?.toolsAllow);
+  const promptCacheToolNameSet = new Set(promptCacheToolNames.map(normalizeToolName));
+  const promptCacheTools = input.cache.tools.filter((tool) =>
+    promptCacheToolNameSet.has(normalizeToolName(tool.name)),
+  );
   const promptBeforePromptBuildHooks = effectivePrompt;
   const promptBuildPrependContext = hookResult?.prependContext;
   const promptBuildAppendContext = hookResult?.appendContext;
@@ -210,7 +218,7 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
       streamStrategy: input.cache.streamStrategy,
       transport: input.cache.transport,
       systemPrompt: systemPromptText,
-      tools: input.cache.tools,
+      tools: promptCacheTools,
     });
     promptCacheChangesForTurn = cacheObservation.changes;
     input.cache.trace?.recordStage("cache:state", {

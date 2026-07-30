@@ -99,7 +99,7 @@ describe("normalizeInitialApplicationLocation", () => {
 
   it("does not wait for gateway defaults on an explicit startup route", async () => {
     const subscribe = vi.fn(() => () => undefined);
-    const location = { pathname: "/settings/general", search: "", hash: "" };
+    const location = { pathname: "/settings/appearance", search: "", hash: "" };
 
     await expect(
       resolveInitialApplicationLocation({
@@ -450,6 +450,30 @@ describe("normalizeInitialApplicationLocation", () => {
     }
   });
 
+  it("drops a disabled pathname when programmatic navigation falls back to chat", async () => {
+    const previousSettings = loadSettings();
+    const previousUrl = window.location.href;
+    window.history.replaceState({}, "", "/chat");
+    const runtime = bootstrapApplication({ enabledRouteIds: ["chat"] });
+
+    try {
+      await runtime.start();
+      runtime.context.replace("sessions", {
+        pathname: "/sessions",
+        search: "?probe=1",
+        hash: "#restricted",
+      });
+
+      await vi.waitFor(() => expect(window.location.pathname).toBe("/chat"));
+      expect(window.location.search).toBe("?probe=1");
+      expect(window.location.hash).toBe("#restricted");
+    } finally {
+      runtime.stop();
+      saveSettings(previousSettings);
+      window.history.replaceState({}, "", previousUrl);
+    }
+  });
+
   it("does not restart routing after stop wins the session-path loader race", async () => {
     const previousSettings = loadSettings();
     const previousUrl = window.location.href;
@@ -530,14 +554,14 @@ describe("normalizeInitialApplicationLocation", () => {
     const gateway = runtime.context.gateway as ApplicationContext<RouteId>["gateway"] & {
       subscribe: (listener: GatewayListener) => () => void;
     };
-    const originalSubscribe = gateway.subscribe.bind(gateway);
     const activeSubscriptions = new Set<GatewayListener>();
     gateway.subscribe = (listener) => {
+      // Keep the released-link resolver genuinely cold. Forwarding to the live
+      // gateway lets a fast connection remove this transient subscription before
+      // stop() can prove its abort cleanup.
       activeSubscriptions.add(listener);
-      const unsubscribe = originalSubscribe(listener);
       return () => {
         activeSubscriptions.delete(listener);
-        unsubscribe();
       };
     };
     const routerStart = vi.spyOn(runtime.router, "start");

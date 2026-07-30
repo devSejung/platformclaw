@@ -1,11 +1,12 @@
 import { consume } from "@lit/context";
+import { initialState, Task } from "@lit/task";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { html, nothing } from "lit";
 import { property } from "lit/decorators.js";
-import type { GatewaySessionRow, SessionsListResult, SkillStatusReport } from "../../api/types.ts";
+import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import { applicationContext, type ApplicationGatewaySnapshot } from "../../app/context.ts";
 import { loadSettings } from "../../app/settings.ts";
-import { renderPluginsHubTabs } from "../../components/plugins-hub-tabs.ts";
+import { renderHubTabs } from "../../components/hub-tabs.ts";
 import "../../components/tooltip.ts";
 import { t } from "../../i18n/index.ts";
 import { resolveSessionKey } from "../../lib/sessions/index.ts";
@@ -14,6 +15,7 @@ import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 import { filterSkillWorkshopProposals } from "../../lib/skill-workshop/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
+import { PLUGINS_HUB_PANEL_ID, pluginsHubTabs } from "../plugins/plugins-hub.ts";
 import { renderSkillWorkshopHeaderControls, setSkillWorkshopMode } from "./header-controls.ts";
 import {
   loadSkillWorkshopPageData,
@@ -24,12 +26,16 @@ import type {
   SkillWorkshopRenderContext,
   SkillWorkshopRevisionRequest,
 } from "./page-types.ts";
+import {
+  renderAssignedVmWorkshopUnavailable,
+  SkillWorkshopPersonalAccess,
+} from "./personal-access.ts";
 import { selectPluginsHubTab } from "./plugins-hub-navigation.ts";
 import {
   countSkillWorkshopProposals,
   createSkillWorkshopState,
-  loadSkillWorkshopProposals,
   requestSkillWorkshopRevision,
+  runSkillWorkshopEvaluation,
   runSkillWorkshopLifecycleAction,
   selectSkillWorkshopProposal,
   type SkillWorkshopRouteData,
@@ -109,6 +115,7 @@ function renderSkillWorkshopPage(
     selfLearning,
     onSelfLearningToggle,
     onHistoryScan,
+    onRetry,
   } = renderContext;
   const pageClass =
     state.skillWorkshopMode === "today"
@@ -126,14 +133,21 @@ function renderSkillWorkshopPage(
         </div>
       </section>
       <div class="plugins-hub-tabs-row">
-        ${renderPluginsHubTabs({
+        ${renderHubTabs({
+          id: "plugins",
           active: "workshop",
-          tabs: context.accessMode === "personal-agent" ? ["skills", "workshop"] : undefined,
+          tabs: pluginsHubTabs(
+            null,
+            context.accessMode === "personal-agent" ? ["skills", "workshop"] : undefined,
+          ),
+          ariaLabel: t("pluginsPage.hubTablistLabel"),
+          panelId: PLUGINS_HUB_PANEL_ID,
+          className: "plugins-tabs",
           onSelect: (tab) => selectPluginsHubTab(context, tab),
         })}
       </div>
       <wa-tab-panel
-        id="plugins-hub-panel"
+        id=${PLUGINS_HUB_PANEL_ID}
         class="sw-hub-panel"
         name="workshop"
         active
@@ -206,11 +220,7 @@ function renderSkillWorkshopPage(
               historyScan: state.skillWorkshopHistoryScan,
               counts: countSkillWorkshopProposals(state.skillWorkshopProposals),
               onRetry: () => {
-                // Force past the loaded/error latch; the guard still prevents duplicate requests.
-                void loadSkillWorkshopProposals(state, context, { force: true }).finally(
-                  requestUpdate,
-                );
-                requestUpdate();
+                onRetry();
               },
               onStatusFilterChange: (status) => {
                 state.skillWorkshopStatusFilter = status;
@@ -250,6 +260,10 @@ function renderSkillWorkshopPage(
                 void runSkillWorkshopLifecycleAction(state, context, "apply", key).finally(
                   requestUpdate,
                 );
+                requestUpdate();
+              },
+              onEvaluate: (key) => {
+                void runSkillWorkshopEvaluation(state, context, key).finally(requestUpdate);
                 requestUpdate();
               },
               onRevise: (key) => {
@@ -308,7 +322,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   @property({ attribute: false }) onRevisionRequest?: SkillWorkshopRevisionRequest;
 
   private state?: SkillWorkshopState;
-  private sourceEpoch = 0;
+  private operationEpoch = 0;
   private hasBoundContext = false;
   private contextSource?: SkillWorkshopPageContext;
   private gatewaySource?: SkillWorkshopPageContext["gateway"];
@@ -321,8 +335,26 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   private sessionsSource?: SkillWorkshopPageContext["sessions"];
   private selfLearningBusy = false;
   private selfLearningError: string | null = null;
-  private personalExecutionTarget: SkillStatusReport["executionTarget"] | null = null;
-  private personalExecutionTargetLoading = false;
+  private readonly personalAccess = new SkillWorkshopPersonalAccess();
+  private readonly proposalsTask = new Task(this, {
+    autoRun: false,
+    // State and context identities isolate helper mutations after any source reset.
+    args: () =>
+      [
+        this.gatewayConnected ? (this.context ?? null) : null,
+        this.gatewayConnected ? (this.state ?? null) : null,
+        this.selectedAgentId ?? null,
+        false as boolean,
+      ] as const,
+    task: ([context, state, _agentId, force]) =>
+      context && state ? loadSkillWorkshopPageData({ state, context, force }) : initialState,
+    onComplete: () => {
+      this.requestPageUpdate();
+    },
+    onError: () => {
+      this.requestPageUpdate();
+    },
+  });
   private readonly subscriptions = new SubscriptionsController(this)
     .effect(
       () => this.context,
@@ -486,9 +518,10 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   }
 
   override updated() {
-    // Start only without an in-flight or failed load. Early-return finalizers
-    // schedule another update, so retrying here would spin while a load stays
-    // pending or the gateway keeps failing.
+    // Only kick a load when none is in flight and the last attempt did not
+    // fail: loadProposals early-returns resolve immediately and their finally
+    // schedules another update, so re-kicking here would spin forever when a
+    // load stays pending or the gateway keeps erroring.
     const state = this.state;
     const canLoad =
       state &&
@@ -518,8 +551,9 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   };
 
   private resetSourceState() {
-    this.sourceEpoch += 1;
-    [this.personalExecutionTarget, this.personalExecutionTargetLoading] = [null, false];
+    this.operationEpoch += 1;
+    this.personalAccess.reset();
+    void this.proposalsTask.run([null, null, null, false]);
     const previous = this.state;
     if (!previous) {
       return;
@@ -560,7 +594,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     return captureSkillWorkshopSourceScope({
       state: this.state,
       context: this.context,
-      epoch: this.sourceEpoch,
+      epoch: this.operationEpoch,
     });
   }
 
@@ -568,7 +602,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     return isCurrentSkillWorkshopSourceScope(scope, {
       state: this.state,
       context: this.context,
-      epoch: this.sourceEpoch,
+      epoch: this.operationEpoch,
     });
   }
 
@@ -579,53 +613,30 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
       return;
     }
     if (context.accessMode === "personal-agent") {
-      if (this.personalExecutionTarget === "assigned_vm") {
+      state.skillWorkshopError = this.personalAccess.prepareRetry(force, state.skillWorkshopError);
+      if (this.personalAccess.target === "assigned_vm") {
         return;
       }
-      if (this.personalExecutionTarget === null) {
-        void this.loadPersonalExecutionTarget(force);
+      if (this.personalAccess.target === null) {
+        void this.personalAccess.load({
+          context,
+          loadServerProposals: () =>
+            this.proposalsTask.run([
+              context,
+              state,
+              context.agentSelection.state.selectedId,
+              force,
+            ]),
+          onError: (error) => {
+            state.skillWorkshopError =
+              error instanceof Error ? error.message : "Could not load the current work location.";
+          },
+          onUpdate: this.requestPageUpdate,
+        });
         return;
       }
     }
-    void loadSkillWorkshopPageData({ state, context, force }).finally(this.requestPageUpdate);
-  }
-
-  private async loadPersonalExecutionTarget(force: boolean): Promise<void> {
-    const [context, sourceEpoch] = [this.context, this.sourceEpoch];
-    const client = context?.gateway.snapshot.client;
-    if (!context || !client || this.personalExecutionTargetLoading) {
-      return;
-    }
-    this.personalExecutionTargetLoading = true;
-    this.requestPageUpdate();
-    try {
-      const report = await client.request<SkillStatusReport>("skills.status", {});
-      if (
-        this.context !== context ||
-        context.gateway.snapshot.client !== client ||
-        this.sourceEpoch !== sourceEpoch
-      ) {
-        return;
-      }
-      this.personalExecutionTarget = report.executionTarget ?? "platform_server";
-      if (this.personalExecutionTarget === "platform_server" && this.state) {
-        await loadSkillWorkshopPageData({ state: this.state, context, force });
-      }
-    } catch (error) {
-      if (this.sourceEpoch === sourceEpoch && this.state) {
-        this.state.skillWorkshopError =
-          error instanceof Error ? error.message : "Could not load the current work location.";
-      }
-    } finally {
-      if (
-        this.context === context &&
-        context.gateway.snapshot.client === client &&
-        this.sourceEpoch === sourceEpoch
-      ) {
-        this.personalExecutionTargetLoading = false;
-        this.requestPageUpdate();
-      }
-    }
+    void this.proposalsTask.run([context, state, context.agentSelection.state.selectedId, force]);
   }
 
   private readonly handleHistoryScan = () => {
@@ -684,22 +695,9 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     if (
       this.state &&
       this.context?.accessMode === "personal-agent" &&
-      this.personalExecutionTarget === "assigned_vm"
+      this.personalAccess.target === "assigned_vm"
     ) {
-      return html`
-        <section class="content--skill-workshop">
-          <section class="content-header content-header--page plugins-content-header">
-            <div><h1 class="page-title">${t("tabs.skillWorkshop")}</h1></div>
-          </section>
-          <div class="callout" role="status">
-            <strong>${t("platformClaw.skills.vmWorkshopUnavailableTitle")}</strong>
-            <div class="muted">${t("platformClaw.skills.vmWorkshopUnavailableDescription")}</div>
-            <button class="btn" @click=${() => this.context?.navigate("skills")}>
-              ${t("platformClaw.skills.vmWorkshopUnavailableAction")}
-            </button>
-          </div>
-        </section>
-      `;
+      return renderAssignedVmWorkshopUnavailable(this.context);
     }
     return this.state && this.context
       ? renderSkillWorkshopPage(
@@ -719,6 +717,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
                   ),
             onSelfLearningToggle: this.handleSelfLearningToggle,
             onHistoryScan: this.handleHistoryScan,
+            onRetry: () => this.loadProposals(true),
           },
           this.requestPageUpdate,
         )

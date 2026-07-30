@@ -11,6 +11,11 @@ import type { ApplicationContext, ApplicationNavigationOptions } from "../app/co
 import type { ThemeMode } from "../app/theme.ts";
 import { isGatewayMethodAdvertised } from "../lib/gateway-methods.ts";
 import { createIdleImport } from "../lib/idle-import.ts";
+import {
+  scopedSessionPullRequestKey,
+  SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD,
+  sessionPullRequestsForGateway,
+} from "../lib/session-pull-requests.ts";
 import type { CatalogProjectGrouping } from "../lib/sessions/catalog-project-grouping.ts";
 import { sessionNavigationTarget } from "../lib/sessions/route-navigation.ts";
 import { parseAgentSessionKey } from "../lib/sessions/session-key.ts";
@@ -327,6 +332,10 @@ export class SidebarMenusController implements ReactiveController, SidebarMenusC
   }
 
   closeSessionMenu() {
+    const gateway = this.host.sessionDataContext?.gateway;
+    if (gateway) {
+      sessionPullRequestsForGateway(gateway).unwatch(this);
+    }
     this.sessionMenuTrigger = null;
     this.sessionMenuWorkVersion += 1;
     this.updateState("sessionMenu", null);
@@ -355,13 +364,21 @@ export class SidebarMenusController implements ReactiveController, SidebarMenusC
       return;
     }
     const { selectedAgentId } = this.host.getSessionNavigationState();
+    const store = sessionPullRequestsForGateway(context.gateway);
+    const pullRequestKey = scopedSessionPullRequestKey(
+      session.key,
+      parseAgentSessionKey(session.key)?.agentId ?? selectedAgentId,
+    );
     void fetchSessionMenuWork({
       client,
       pullRequestsAvailable:
-        isGatewayMethodAdvertised(context.gateway.snapshot, "controlUi.sessionPullRequests") ===
-        true,
+        isGatewayMethodAdvertised(
+          context.gateway.snapshot,
+          SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD,
+        ) === true,
       sessionKey: session.key,
       agentId: parseAgentSessionKey(session.key)?.agentId ?? selectedAgentId,
+      loadPullRequests: () => store.load(this, pullRequestKey),
       worktreeId: session.worktreeId,
     }).then((work) => {
       if (version === this.sessionMenuWorkVersion) {
@@ -552,7 +569,7 @@ export class SidebarMenusController implements ReactiveController, SidebarMenusC
       routeId,
       href: sessionTarget?.href ?? pathForRoute(targetRouteId, this.host.basePath),
       active:
-        isSidebarRouteActive(this.host.activeRouteId, routeId) &&
+        isSidebarRouteActive(this.host.activeRouteId, targetRouteId) &&
         !(routeId === "workboard" && this.activeWorkboardBoardIsPinned()),
       onNavigate: () => {
         this.host.onNavigate?.(targetRouteId, sessionTarget?.options);
