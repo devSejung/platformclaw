@@ -4,7 +4,7 @@ import { fetchWithSsrFGuard } from "./openclaw-runtime-network.js";
 const MCP_OAUTH_FETCH_TIMEOUT_MS = 15_000;
 const MCP_OAUTH_MAX_RESPONSE_BYTES = 1024 * 1024;
 
-async function readBoundedBody(response: Response): Promise<Uint8Array | null> {
+async function readBoundedBody(response: Response): Promise<ArrayBuffer | null> {
   if (!response.body) {
     return null;
   }
@@ -28,13 +28,13 @@ async function readBoundedBody(response: Response): Promise<Uint8Array | null> {
     }
     chunks.push(value);
   }
-  const body = new Uint8Array(length);
+  const body = new Uint8Array(new ArrayBuffer(length));
   let offset = 0;
   for (const chunk of chunks) {
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return body;
+  return body.buffer;
 }
 
 export function createMcpOAuthFetch(fetchImpl?: typeof globalThis.fetch): typeof globalThis.fetch {

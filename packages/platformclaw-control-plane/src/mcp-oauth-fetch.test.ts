@@ -15,4 +15,20 @@ describe("createMcpOAuthFetch", () => {
     const oauthFetch = createMcpOAuthFetch(fetchImpl as typeof globalThis.fetch);
     await expect(oauthFetch("https://auth.example.test/token")).rejects.toThrow("too large");
   });
+
+  it("returns a readable copy of an allowed OAuth response", async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json(
+        { access_token: "token" },
+        { status: 201, headers: { "x-oauth-result": "created" } },
+      ),
+    );
+    const oauthFetch = createMcpOAuthFetch(fetchImpl as typeof globalThis.fetch);
+
+    const response = await oauthFetch("https://auth.example.test/token");
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("x-oauth-result")).toBe("created");
+    await expect(response.json()).resolves.toEqual({ access_token: "token" });
+  });
 });
