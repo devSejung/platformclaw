@@ -449,6 +449,12 @@ for every sandboxed Agent. Existing installs receive the same gate during
 managed-config reconciliation, while normal upstream tool profiles, per-server
 filters, and MCP runtime isolation remain authoritative.
 
+An existing sandbox deny that blocks `bundle-mcp` is an explicit operator
+migration. PlatformClaw does not remove broad wildcard or `group:plugins`
+denials automatically because doing so could expose unrelated plugin tools.
+Reconciliation reports the conflicting global or Agent policy, and the image
+update path rolls back if the operator did not remove it before rollout.
+
 Registration uses the existing server-side OpenClaw MCP CLI or the separate
 private administrator Control UI. The employee BFF does not expose Gateway
 config reads, writes, MCP credentials, or MCP lifecycle methods. This preserves

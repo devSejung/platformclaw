@@ -388,6 +388,9 @@ describe("PlatformClaw Docker runtime", () => {
       expect(() => validateManagedConfig(candidate, sandboxImage)).toThrow(
         "Existing OpenClaw config does not match the managed PlatformClaw execution policy",
       );
+      expect(() => reconcileManagedConfig(candidate, sandboxImage)).toThrow(
+        "Existing sandbox tool deny policy blocks managed global MCP",
+      );
     }
 
     const agentOverride = structuredClone(config) as {

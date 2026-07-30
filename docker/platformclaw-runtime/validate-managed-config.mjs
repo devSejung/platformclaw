@@ -54,19 +54,22 @@ function globMatches(value, rawPattern) {
   return new RegExp(`^${escaped.replaceAll("\\*", ".*")}$`).test(value);
 }
 
+export function sandboxPolicyDeniesBundleMcp(sandboxTools) {
+  const deny = Array.isArray(sandboxTools?.deny) ? sandboxTools.deny : [];
+  return deny.some(
+    (entry) =>
+      String(entry).trim().toLowerCase() === "group:plugins" || globMatches("bundle-mcp", entry),
+  );
+}
+
 function validateGlobalMcpSandboxGate(sandboxTools) {
   const allow = Array.isArray(sandboxTools?.allow) ? sandboxTools.allow : [];
   const alsoAllow = Array.isArray(sandboxTools?.alsoAllow) ? sandboxTools.alsoAllow : [];
-  const deny = Array.isArray(sandboxTools?.deny) ? sandboxTools.deny : [];
   const allowsBundleMcp =
     (Array.isArray(sandboxTools?.allow) && allow.length === 0) ||
     allow.includes("bundle-mcp") ||
     alsoAllow.includes("bundle-mcp");
-  const deniesBundleMcp = deny.some(
-    (entry) =>
-      String(entry).trim().toLowerCase() === "group:plugins" || globMatches("bundle-mcp", entry),
-  );
-  requirePolicy(allowsBundleMcp && !deniesBundleMcp);
+  requirePolicy(allowsBundleMcp && !sandboxPolicyDeniesBundleMcp(sandboxTools));
 }
 
 function effectiveSandboxTools(globalTools, agentTools) {

@@ -4,6 +4,10 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { sandboxPolicyDeniesBundleMcp } from "./validate-managed-config.mjs";
+
+const MCP_DENY_MIGRATION_ERROR =
+  "Existing sandbox tool deny policy blocks managed global MCP; remove bundle-mcp, matching wildcards, or group:plugins before upgrading PlatformClaw";
 
 function reconcileSandboxImage(config, sandboxImage) {
   const docker = config?.agents?.defaults?.sandbox?.docker;
@@ -73,10 +77,19 @@ function sandboxPolicyAllowsBundleMcp(globalPolicy, agentPolicy) {
 
 function reconcileGlobalMcpSandboxGate(config) {
   const rootResult = reconcileSandboxToolPolicy(config?.tools?.sandbox?.tools, true);
+  if (sandboxPolicyDeniesBundleMcp(rootResult.policy)) {
+    throw new Error(MCP_DENY_MIGRATION_ERROR);
+  }
   let entriesChanged = false;
   const entries = Object.fromEntries(
     Object.entries(config?.agents?.entries ?? {}).map(([agentId, agent]) => {
       const policy = agent?.tools?.sandbox?.tools;
+      const effectiveDenyPolicy = {
+        deny: Array.isArray(policy?.deny) ? policy.deny : rootResult.policy?.deny,
+      };
+      if (sandboxPolicyDeniesBundleMcp(effectiveDenyPolicy)) {
+        throw new Error(`${MCP_DENY_MIGRATION_ERROR} (agent: ${agentId})`);
+      }
       if (policy === undefined || sandboxPolicyAllowsBundleMcp(rootResult.policy, policy)) {
         return [agentId, agent];
       }

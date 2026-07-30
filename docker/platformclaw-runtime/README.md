@@ -155,6 +155,14 @@ the intended organization-wide scope. Employees cannot read or mutate MCP
 configuration through the employee BFF. Personal MCP registries are not part
 of this phase.
 
+Before upgrading an existing deployment, inspect global and per-Agent
+`tools.sandbox.tools.deny` values. Remove `bundle-mcp`, `group:plugins`, and
+wildcards matching `bundle-mcp`, then run `./platformclaw-deploy config
+validate`. The new image rejects these conflicting policies during managed
+config reconciliation instead of silently widening access to other plugins.
+`platformclaw-deploy image update` restores the previous image pair and Gateway
+state if this migration requirement is missed.
+
 The transfer archive contains both the main and sandbox images. The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
 health, recreates existing agent sandboxes with the new image, and restores the
