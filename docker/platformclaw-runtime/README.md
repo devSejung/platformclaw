@@ -132,6 +132,37 @@ Safe edit creates a timestamped backup, validates the canonical config, and
 restarts Gateway only after validation succeeds. PlatformClaw-managed sandbox
 and private-plugin policy remains enforced at startup.
 
+### Global MCP servers
+
+Administrators own the shared MCP registry. Add or inspect an upstream
+OpenClaw `mcp.servers` entry from the Gateway config shell, then restart the
+Gateway so every employee Agent sees the updated registry:
+
+```bash
+./platformclaw-deploy config shell
+node /app/openclaw.mjs mcp add docs \
+  --url https://mcp.example.com/mcp \
+  --transport streamable-http
+node /app/openclaw.mjs mcp doctor docs --probe
+exit
+./platformclaw-deploy config apply
+```
+
+Credential-free servers and administrator-configured shared credentials use
+the same global registry. Any configured credential grants shared authority to
+every employee Agent, so restrict server-side permissions and exposed tools to
+the intended organization-wide scope. Employees cannot read or mutate MCP
+configuration through the employee BFF. Personal MCP registries are not part
+of this phase.
+
+Before upgrading an existing deployment, inspect global and per-Agent
+`tools.sandbox.tools.deny` values. Remove `bundle-mcp`, `group:plugins`, and
+wildcards matching `bundle-mcp`, then run `./platformclaw-deploy config
+validate`. The new image rejects these conflicting policies during managed
+config reconciliation instead of silently widening access to other plugins.
+`platformclaw-deploy image update` restores the previous image pair and Gateway
+state if this migration requirement is missed.
+
 The transfer archive contains both the main and sandbox images. The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
 health, recreates existing agent sandboxes with the new image, and restores the

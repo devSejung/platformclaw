@@ -436,6 +436,30 @@ Upstream `c092ec437c7` later moved the unchanged chat sharing control from
 the personal-Agent visibility guard to that owner without retaining a compat
 wrapper.
 
+### PC-124 Share administrator-managed MCP servers with every employee Agent
+
+Phase 1 uses upstream OpenClaw `mcp.servers` as one administrator-owned global
+registry. Credential-free servers and administrator-configured shared
+credentials are available to every employee Agent. Shared credentials therefore
+must carry only organization-wide authority; per-user credentials and personal
+MCP registries remain deferred.
+
+PlatformClaw's managed sandbox policy admits the upstream `bundle-mcp` plugin
+for every sandboxed Agent. Existing installs receive the same gate during
+managed-config reconciliation, while normal upstream tool profiles, per-server
+filters, and MCP runtime isolation remain authoritative.
+
+An existing sandbox deny that blocks `bundle-mcp` is an explicit operator
+migration. PlatformClaw does not remove broad wildcard or `group:plugins`
+denials automatically because doing so could expose unrelated plugin tools.
+Reconciliation reports the conflicting global or Agent policy, and the image
+update path rolls back if the operator did not remove it before rollout.
+
+Registration uses the existing server-side OpenClaw MCP CLI or the separate
+private administrator Control UI. The employee BFF does not expose Gateway
+config reads, writes, MCP credentials, or MCP lifecycle methods. This preserves
+PC-117 and keeps upstream MCP UI/core unchanged.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs

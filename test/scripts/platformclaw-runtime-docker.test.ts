@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { reconcileManagedSandboxImage } from "../../docker/platformclaw-runtime/reconcile-managed-config.mjs";
+import { reconcileManagedConfig } from "../../docker/platformclaw-runtime/reconcile-managed-config.mjs";
 import { validateManagedConfig } from "../../docker/platformclaw-runtime/validate-managed-config.mjs";
 import { mainLanes } from "../../scripts/lib/docker-e2e-scenarios.mjs";
 
@@ -229,6 +229,7 @@ describe("PlatformClaw Docker runtime", () => {
           },
         },
       },
+      tools: { sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
       plugins: {
         entries: {
           "admin-http-rpc": { enabled: true },
@@ -240,7 +241,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(serialized).not.toContain("platformclaw_gateway_token");
   });
 
-  it("updates only the deployment-owned sandbox image reference", () => {
+  it("reconciles deployment-owned sandbox image and global MCP access", () => {
     const source = JSON.parse(
       readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
     ) as {
@@ -251,18 +252,99 @@ describe("PlatformClaw Docker runtime", () => {
         };
         entries?: Record<string, unknown>;
       };
+      tools: { sandbox: { tools: { alsoAllow: string[] } } };
     };
     source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:old";
     source.agents.defaults.model = { primary: "openai/gpt-5.4" };
     source.agents.entries = { person_one: { name: "Person One" } };
 
-    const result = reconcileManagedSandboxImage(source, "platformclaw-sandbox:new");
+    source.tools = { sandbox: { tools: { alsoAllow: ["memory_search"] } } };
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:new");
 
     expect(result.changed).toBe(true);
     expect(result.config.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:new");
     expect(result.config.agents.defaults.model).toEqual({ primary: "openai/gpt-5.4" });
     expect(result.config.agents.entries).toEqual(source.agents.entries);
+    expect(result.config.tools.sandbox.tools.alsoAllow).toEqual(["memory_search", "bundle-mcp"]);
     expect(source.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:old");
+  });
+
+  it("adds global MCP access to an existing explicit sandbox allowlist", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      tools: { sandbox: { tools: { allow?: string[]; alsoAllow?: string[] } } };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    source.tools.sandbox.tools = { allow: ["read"] };
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+    expect(result.changed).toBe(true);
+    expect(result.config.tools.sandbox.tools).toEqual({ allow: ["read", "bundle-mcp"] });
+    expect(reconcileManagedConfig(result.config, "platformclaw-sandbox:test").changed).toBe(false);
+  });
+
+  it("preserves an unrestricted empty sandbox allowlist", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      tools: { sandbox: { tools: { allow?: string[]; alsoAllow?: string[] } } };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    source.tools.sandbox.tools = { allow: [] };
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+    expect(result.changed).toBe(false);
+    expect(result.config.tools.sandbox.tools).toEqual({ allow: [] });
+    expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
+  });
+
+  it("adds global MCP access to config created before the managed gate existed", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      tools?: unknown;
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    delete source.tools;
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+    expect(result.changed).toBe(true);
+    expect(result.config).toMatchObject({
+      tools: { sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
+    });
+  });
+
+  it("reconciles an agent sandbox alsoAllow override that replaces the global gate", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: {
+        defaults: { sandbox: { docker: { image: string } } };
+        entries?: Record<string, unknown>;
+      };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    source.agents.entries = {
+      person_one: { tools: { sandbox: { tools: { alsoAllow: [] } } } },
+    };
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+    expect(result.changed).toBe(true);
+    expect(result.config.agents.entries).toMatchObject({
+      person_one: {
+        tools: { sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
+      },
+    });
+    expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
   });
 
   it("fails closed when persistent config would bypass managed execution", () => {
@@ -289,6 +371,37 @@ describe("PlatformClaw Docker runtime", () => {
     expect(entrypoint).toContain('config_tmp="$(mktemp');
     expect(entrypoint).toContain('mv -- "$config_tmp" "$config_path"');
     expect(entrypoint).toContain('"$sandbox_image" == -*');
+
+    const missingGlobalMcpGate = structuredClone(config) as {
+      tools: { sandbox: { tools: { alsoAllow: string[] } } };
+    };
+    missingGlobalMcpGate.tools.sandbox.tools.alsoAllow = [];
+    expect(() => validateManagedConfig(missingGlobalMcpGate, sandboxImage)).toThrow(
+      "Existing OpenClaw config does not match the managed PlatformClaw execution policy",
+    );
+
+    for (const deniedGate of ["bundle-mcp", "bundle-*", "*mcp", "group:plugins", "*"]) {
+      const candidate = structuredClone(config) as {
+        tools: { sandbox: { tools: { deny?: string[] } } };
+      };
+      candidate.tools.sandbox.tools.deny = [deniedGate];
+      expect(() => validateManagedConfig(candidate, sandboxImage)).toThrow(
+        "Existing OpenClaw config does not match the managed PlatformClaw execution policy",
+      );
+      expect(() => reconcileManagedConfig(candidate, sandboxImage)).toThrow(
+        "Existing sandbox tool deny policy blocks managed global MCP",
+      );
+    }
+
+    const agentOverride = structuredClone(config) as {
+      agents: { entries?: Record<string, unknown> };
+    };
+    agentOverride.agents.entries = {
+      person_one: { tools: { sandbox: { tools: { alsoAllow: [] } } } },
+    };
+    expect(() => validateManagedConfig(agentOverride, sandboxImage)).toThrow(
+      "Existing OpenClaw config does not match the managed PlatformClaw execution policy",
+    );
 
     const unsafeOverrides = [
       { mode: "off" },
