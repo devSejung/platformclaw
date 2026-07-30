@@ -5,7 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-export function reconcileManagedSandboxImage(config, sandboxImage) {
+function reconcileSandboxImage(config, sandboxImage) {
   const docker = config?.agents?.defaults?.sandbox?.docker;
   if (!docker || typeof docker !== "object" || Array.isArray(docker)) {
     return { config, changed: false };
@@ -31,13 +31,114 @@ export function reconcileManagedSandboxImage(config, sandboxImage) {
   };
 }
 
+function reconcileSandboxToolPolicy(sandboxTools, createWhenMissing) {
+  if (!sandboxTools || typeof sandboxTools !== "object" || Array.isArray(sandboxTools)) {
+    return createWhenMissing
+      ? { policy: { alsoAllow: ["bundle-mcp"] }, changed: true }
+      : { policy: sandboxTools, changed: false };
+  }
+  // Upstream defines `allow: []` as unrestricted. Adding one item would turn
+  // it into a restrictive allowlist and silently remove unrelated tools.
+  if (Array.isArray(sandboxTools?.allow) && sandboxTools.allow.length === 0) {
+    return { policy: sandboxTools, changed: false };
+  }
+  const allowKey = Array.isArray(sandboxTools?.allow) ? "allow" : "alsoAllow";
+  const currentAllow = sandboxTools?.[allowKey];
+  if (currentAllow !== undefined && !Array.isArray(currentAllow)) {
+    return { policy: sandboxTools, changed: false };
+  }
+  if (currentAllow?.includes("bundle-mcp")) {
+    return { policy: sandboxTools, changed: false };
+  }
+  return {
+    policy: {
+      ...sandboxTools,
+      [allowKey]: [...(currentAllow ?? []), "bundle-mcp"],
+    },
+    changed: true,
+  };
+}
+
+function sandboxPolicyAllowsBundleMcp(globalPolicy, agentPolicy) {
+  const allow = Array.isArray(agentPolicy?.allow) ? agentPolicy.allow : globalPolicy?.allow;
+  const alsoAllow = Array.isArray(agentPolicy?.alsoAllow)
+    ? agentPolicy.alsoAllow
+    : globalPolicy?.alsoAllow;
+  return (
+    (Array.isArray(allow) && allow.length === 0) ||
+    allow?.includes("bundle-mcp") ||
+    alsoAllow?.includes("bundle-mcp")
+  );
+}
+
+function reconcileGlobalMcpSandboxGate(config) {
+  const rootResult = reconcileSandboxToolPolicy(config?.tools?.sandbox?.tools, true);
+  let entriesChanged = false;
+  const entries = Object.fromEntries(
+    Object.entries(config?.agents?.entries ?? {}).map(([agentId, agent]) => {
+      const policy = agent?.tools?.sandbox?.tools;
+      if (policy === undefined || sandboxPolicyAllowsBundleMcp(rootResult.policy, policy)) {
+        return [agentId, agent];
+      }
+      const result = reconcileSandboxToolPolicy(policy, false);
+      if (!result.changed) {
+        return [agentId, agent];
+      }
+      entriesChanged = true;
+      return [
+        agentId,
+        {
+          ...agent,
+          tools: {
+            ...agent.tools,
+            sandbox: {
+              ...agent.tools.sandbox,
+              tools: result.policy,
+            },
+          },
+        },
+      ];
+    }),
+  );
+  if (!rootResult.changed && !entriesChanged) {
+    return { config, changed: false };
+  }
+  return {
+    changed: true,
+    config: {
+      ...config,
+      ...(entriesChanged ? { agents: { ...config.agents, entries } } : {}),
+      ...(rootResult.changed
+        ? {
+            tools: {
+              ...config.tools,
+              sandbox: {
+                ...config.tools?.sandbox,
+                tools: rootResult.policy,
+              },
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+export function reconcileManagedConfig(config, sandboxImage) {
+  const imageResult = reconcileSandboxImage(config, sandboxImage);
+  const mcpResult = reconcileGlobalMcpSandboxGate(imageResult.config);
+  return {
+    config: mcpResult.config,
+    changed: imageResult.changed || mcpResult.changed,
+  };
+}
+
 async function main() {
   const [configPath, sandboxImage] = process.argv.slice(2);
   if (!configPath || !sandboxImage) {
     throw new Error("usage: reconcile-managed-config.mjs <config-path> <sandbox-image>");
   }
   const source = JSON.parse(await readFile(configPath, "utf8"));
-  const result = reconcileManagedSandboxImage(source, sandboxImage);
+  const result = reconcileManagedConfig(source, sandboxImage);
   if (!result.changed) {
     return;
   }
