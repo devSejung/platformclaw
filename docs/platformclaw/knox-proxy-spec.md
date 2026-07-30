@@ -39,30 +39,30 @@ authoritative.
 
 ## Ownership
 
-| Surface | Owner |
-| --- | --- |
-| Knox webhook registration and receipt | CDEP |
-| Knox device registration and encryption-key retrieval | CDEP |
-| Knox payload encryption, decryption, and upstream API calls | CDEP |
-| Knox commands, notice retrieval, opt-out, and opt-in | CDEP |
-| CDEP request authentication and schema validation | `extensions/knox` |
-| Durable PlatformClaw ingress and replay handling | `extensions/knox` |
-| DM identity and personal-agent binding | PlatformClaw control plane |
-| Group-room provisioning and binding | PlatformClaw control plane |
-| Session routing and reply lifecycle | OpenClaw channel runtime |
-| Knox reply formatting, chunking, and upstream delivery | CDEP |
+| Surface                                                     | Owner                      |
+| ----------------------------------------------------------- | -------------------------- |
+| Knox webhook registration and receipt                       | CDEP                       |
+| Knox device registration and encryption-key retrieval       | CDEP                       |
+| Knox payload encryption, decryption, and upstream API calls | CDEP                       |
+| Knox commands, notice retrieval, opt-out, and opt-in        | CDEP                       |
+| CDEP request authentication and schema validation           | `extensions/knox`          |
+| Durable PlatformClaw ingress and replay handling            | `extensions/knox`          |
+| DM identity and personal-agent binding                      | PlatformClaw control plane |
+| Group-room provisioning and binding                         | PlatformClaw control plane |
+| Session routing and reply lifecycle                         | OpenClaw channel runtime   |
+| Knox reply formatting, chunking, and upstream delivery      | CDEP                       |
 
 ## Supported scope
 
 The first release supports text only.
 
-| Knox surface | PlatformClaw behavior |
-| --- | --- |
-| `SINGLE` | Existing personal agent's `main` session |
-| `GROUP` | Idempotently provision or reuse `group-<chatroomId>` |
-| Files and images | Unsupported |
-| Threads and replies | Unsupported |
-| Edits, deletes, and reactions | Unsupported |
+| Knox surface                  | PlatformClaw behavior                                |
+| ----------------------------- | ---------------------------------------------------- |
+| `SINGLE`                      | Existing personal agent's `main` session             |
+| `GROUP`                       | Idempotently provision or reuse `group-<chatroomId>` |
+| Files and images              | Unsupported                                          |
+| Threads and replies           | Unsupported                                          |
+| Edits, deletes, and reactions | Unsupported                                          |
 
 An unregistered Knox participant may invoke a `GROUP` room agent. This does not
 grant personal-agent access, employee context, VM credentials, or a personal
@@ -87,7 +87,7 @@ body field or product-routing decision is open. The accepted assumptions are:
 - CDEP continues to own login guidance, Knox commands, and Knox-only broadcast;
 - version 1 is text-only;
 - every accepted turn injects the raw `knoxUserId` as
-  `OPENCLAW_SENDER_ID` into external subprocess environments;
+  `SENDER_ID` into external subprocess environments;
 - legacy production remains active while the new schema is developed and
   tested, then CDEP switches to the plugin in a coordinated cutover rather than
   fan-out delivery.
@@ -103,12 +103,12 @@ CDEP sends normalized JSON to the HTTP route registered by `extensions/knox`.
 The route is plugin-owned and fixed at
 `/api/v1/platformclaw/knox/inbound`. Every request uses these HTTP fields:
 
-| HTTP field | Required | Contract |
-| --- | --- | --- |
-| Method | Yes | `POST` |
-| `Content-Type` | Yes | `application/json` |
-| `x-platformclaw-timestamp` | Yes | Unix epoch milliseconds as a decimal string |
-| `x-platformclaw-signature` | Yes | `sha256=<lowercase hexadecimal HMAC>` |
+| HTTP field                 | Required | Contract                                    |
+| -------------------------- | -------- | ------------------------------------------- |
+| Method                     | Yes      | `POST`                                      |
+| `Content-Type`             | Yes      | `application/json`                          |
+| `x-platformclaw-timestamp` | Yes      | Unix epoch milliseconds as a decimal string |
+| `x-platformclaw-signature` | Yes      | `sha256=<lowercase hexadecimal HMAC>`       |
 
 Target version 1 envelope:
 
@@ -135,20 +135,20 @@ Target version 1 envelope:
 }
 ```
 
-| JSON field | Required | Contract |
-| --- | --- | --- |
-| `schemaVersion` | Yes | Integer contract version; version 1 requires the shape shown here |
-| `eventId` | Yes | CDEP-generated ID for tracing one inbound processing event |
-| `messageId` | Yes | Stable original Knox message ID and inbound deduplication key |
-| `occurredAt` | Yes | Original message time as an ISO 8601 UTC timestamp |
-| `sender.knoxUserId` | Yes | Original opaque Knox user ID, preserved byte-for-byte |
-| `sender.displayName` | Yes | Presentation metadata; never identity or routing authority |
-| `conversation.type` | Yes | Normalized type: `dm` or `room` |
-| `conversation.providerType` | Yes | Original Knox type: `SINGLE` or `GROUP` |
-| `conversation.conversationId` | Yes | Stable string form of Knox `chatroomId`, for both DM and group rooms |
-| `conversation.displayName` | No | Room display name when Knox provides one; otherwise omit or use `null` |
-| `message.type` | Yes | `text` in version 1 |
-| `message.text` | Yes | Non-empty normalized user text |
+| JSON field                    | Required | Contract                                                               |
+| ----------------------------- | -------- | ---------------------------------------------------------------------- |
+| `schemaVersion`               | Yes      | Integer contract version; version 1 requires the shape shown here      |
+| `eventId`                     | Yes      | CDEP-generated ID for tracing one inbound processing event             |
+| `messageId`                   | Yes      | Stable original Knox message ID and inbound deduplication key          |
+| `occurredAt`                  | Yes      | Original message time as an ISO 8601 UTC timestamp                     |
+| `sender.knoxUserId`           | Yes      | Original opaque Knox user ID, preserved byte-for-byte                  |
+| `sender.displayName`          | Yes      | Presentation metadata; never identity or routing authority             |
+| `conversation.type`           | Yes      | Normalized type: `dm` or `room`                                        |
+| `conversation.providerType`   | Yes      | Original Knox type: `SINGLE` or `GROUP`                                |
+| `conversation.conversationId` | Yes      | Stable string form of Knox `chatroomId`, for both DM and group rooms   |
+| `conversation.displayName`    | No       | Room display name when Knox provides one; otherwise omit or use `null` |
+| `message.type`                | Yes      | `text` in version 1                                                    |
+| `message.text`                | Yes      | Non-empty normalized user text                                         |
 
 Rules:
 
@@ -307,10 +307,10 @@ turn to the original `knoxUserId`. Registration state does not change this
 value. Display names and legacy employee fields are never sender authority.
 
 PlatformClaw propagates that trusted value to external subprocess-based skills
-as `OPENCLAW_SENDER_ID`. This variable is runtime context, not deployment
+as `SENDER_ID`. This variable is runtime context, not deployment
 configuration:
 
-- remove any inherited case variant of `OPENCLAW_SENDER_ID` before injection;
+- remove any inherited case variant of `SENDER_ID` before injection;
 - inject the exact request-scoped `knoxUserId` after host or sandbox environment
   assembly for the current turn;
 - never accept it from an LLM tool argument or static skill environment;
@@ -350,13 +350,13 @@ Knox canonical string on this hop.
 
 The plugin durably accepts an event before acknowledging CDEP:
 
-| Result | HTTP | Meaning |
-| --- | ---: | --- |
-| New event durably accepted | `202` | CDEP may acknowledge Knox |
-| Event already accepted | `200` | Duplicate is complete or queued |
-| Invalid or unsupported payload | `400` | Permanent caller error |
-| Missing or invalid authentication | `401` | Security configuration error |
-| Temporary failure before durable acceptance | `503` | Allow Knox retry |
+| Result                                      |  HTTP | Meaning                         |
+| ------------------------------------------- | ----: | ------------------------------- |
+| New event durably accepted                  | `202` | CDEP may acknowledge Knox       |
+| Event already accepted                      | `200` | Duplicate is complete or queued |
+| Invalid or unsupported payload              | `400` | Permanent caller error          |
+| Missing or invalid authentication           | `401` | Security configuration error    |
+| Temporary failure before durable acceptance | `503` | Allow Knox retry                |
 
 CDEP must not mark an inbound message complete before `202` or `200`. The
 observed legacy order marked it before calling the adapter and could lose a
@@ -405,15 +405,15 @@ Recommended request:
 }
 ```
 
-| Field | Required | Contract |
-| --- | --- | --- |
-| `requestId` | Yes | Stable idempotency key for this visible message |
-| `runId` | Yes | PlatformClaw run correlation ID |
-| `messageId` | No | Original inbound correlation ID |
-| `chatroomId` | Yes | String Knox target; never use a JavaScript number |
-| `conversationType` | Yes | `dm` or `room`; never infer from `agentId` |
-| `status` | Yes | `progress`, `final`, `error`, or `timeout` |
-| `text` | Yes | Non-empty user-visible text |
+| Field              | Required | Contract                                          |
+| ------------------ | -------- | ------------------------------------------------- |
+| `requestId`        | Yes      | Stable idempotency key for this visible message   |
+| `runId`            | Yes      | PlatformClaw run correlation ID                   |
+| `messageId`        | No       | Original inbound correlation ID                   |
+| `chatroomId`       | Yes      | String Knox target; never use a JavaScript number |
+| `conversationType` | Yes      | `dm` or `room`; never infer from `agentId`        |
+| `status`           | Yes      | `progress`, `final`, `error`, or `timeout`        |
+| `text`             | Yes      | Non-empty user-visible text                       |
 
 During the CDEP migration, the plugin also sends the existing required fields:
 `conversationId`, `threadId: null`, `agentId`, `sessionKey`, `chatMsgId`,
@@ -480,16 +480,16 @@ lookup, and opt-out persistence remain CDEP concerns.
 Production currently injects these settings through deployment-controlled
 environment configuration outside source and container images:
 
-| Variable | Class | Purpose |
-| --- | --- | --- |
-| `KNOX_ENCRYPTION_KEY` | Secret | Knox message payload cryptography |
-| `KNOX_AUTHORIZATION_HEADER` | Secret | Knox upstream authorization |
-| `KNOX_API_BASE_URL` | Configuration | Knox upstream service base URL |
-| `KNOX_SYSTEM_ID` | Configuration | Knox service identity metadata |
-| `KNOX_DEVICE_TYPE` | Configuration | Knox device registration metadata |
-| `PLATFORMCLAW_KNOX_CDEP_URL` | Configuration | Versioned CDEP outbound endpoint |
-| `PLATFORMCLAW_KNOX_WEBHOOK_SECRET_FILE` | Secret file | Verifies CDEP inbound HMAC |
-| `PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE` | Secret file | Authenticates plugin-to-CDEP and plugin-to-control calls |
+| Variable                                | Class         | Purpose                                                  |
+| --------------------------------------- | ------------- | -------------------------------------------------------- |
+| `KNOX_ENCRYPTION_KEY`                   | Secret        | Knox message payload cryptography                        |
+| `KNOX_AUTHORIZATION_HEADER`             | Secret        | Knox upstream authorization                              |
+| `KNOX_API_BASE_URL`                     | Configuration | Knox upstream service base URL                           |
+| `KNOX_SYSTEM_ID`                        | Configuration | Knox service identity metadata                           |
+| `KNOX_DEVICE_TYPE`                      | Configuration | Knox device registration metadata                        |
+| `PLATFORMCLAW_KNOX_CDEP_URL`            | Configuration | Versioned CDEP outbound endpoint                         |
+| `PLATFORMCLAW_KNOX_WEBHOOK_SECRET_FILE` | Secret file   | Verifies CDEP inbound HMAC                               |
+| `PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE`  | Secret file   | Authenticates plugin-to-CDEP and plugin-to-control calls |
 
 Never record their values or production injection paths in this repository.
 Readiness fails when a required value or initialized crypto dependency is
@@ -561,7 +561,7 @@ Before cutover, prove:
   plugin;
 - an unregistered group participant can invoke only the room agent;
 - DM and room subprocess skills receive the exact request-scoped `knoxUserId`
-  as `OPENCLAW_SENDER_ID`, with dots and underscores preserved and no value
+  as `SENDER_ID`, with dots and underscores preserved and no value
   leaking between senders;
 - concurrent first group messages create one room binding;
 - CDEP commands never reach an agent;

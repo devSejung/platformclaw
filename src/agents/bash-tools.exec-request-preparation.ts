@@ -440,17 +440,14 @@ export function resolvePreparedExecEnvironment(params: {
   return { env, requestedEnv };
 }
 
-export function applyTrustedSenderEnv(
-  env: Record<string, string>,
-  senderId?: string | null,
-): void {
+export function applyTrustedSenderEnv(env: Record<string, string>, senderId?: string | null): void {
   for (const key of Object.keys(env)) {
-    if (key.toUpperCase() === "OPENCLAW_SENDER_ID") {
+    if (key.toUpperCase() === "SENDER_ID") {
       delete env[key];
     }
   }
   const normalizedSenderId = senderId?.trim();
   if (normalizedSenderId) {
-    env.OPENCLAW_SENDER_ID = normalizedSenderId;
+    env.SENDER_ID = normalizedSenderId;
   }
 }
