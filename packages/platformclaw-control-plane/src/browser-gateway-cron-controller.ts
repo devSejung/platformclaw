@@ -7,6 +7,7 @@ import {
   requestBrowserCronList,
   requestBrowserCronStatus,
 } from "./browser-gateway-cron-runtime.js";
+import { isConfiguredBrowserModel } from "./browser-gateway-self-service-projections.js";
 
 type JsonObject = Record<string, unknown>;
 type CronErrorCode =
@@ -28,6 +29,57 @@ export type BrowserCronContext = {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function selectedCronModel(method: string, prepared: JsonObject): string | undefined {
+  const job = method === "cron.add" ? prepared : method === "cron.update" ? prepared.patch : null;
+  if (!job || typeof job !== "object" || Array.isArray(job)) {
+    return undefined;
+  }
+  const payload = (job as JsonObject).payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return undefined;
+  }
+  return optionalString((payload as JsonObject).model);
+}
+
+async function assertConfiguredCronModel(
+  context: BrowserCronContext,
+  method: string,
+  prepared: JsonObject,
+  currentJob?: JsonObject,
+): Promise<void> {
+  const model = selectedCronModel(method, prepared);
+  const currentModel = currentJob ? selectedCronModel("cron.add", currentJob) : undefined;
+  if (method === "cron.update" && model && model === currentModel) {
+    return;
+  }
+  if (model && !(await isConfiguredBrowserModel(context.gateway, model))) {
+    context.fail("method-not-allowed", "browser cron models are limited to configured models");
+  }
+}
+
+function assertEffectiveCronDelivery(
+  context: BrowserCronContext,
+  currentJob: JsonObject,
+  prepared: JsonObject,
+): void {
+  const patch =
+    prepared.patch && typeof prepared.patch === "object" && !Array.isArray(prepared.patch)
+      ? (prepared.patch as JsonObject)
+      : {};
+  const delivery = patch.delivery === undefined ? currentJob.delivery : patch.delivery;
+  const sessionTarget =
+    patch.sessionTarget === undefined ? currentJob.sessionTarget : patch.sessionTarget;
+  if (
+    delivery &&
+    typeof delivery === "object" &&
+    !Array.isArray(delivery) &&
+    (delivery as JsonObject).mode === "announce" &&
+    sessionTarget !== "isolated"
+  ) {
+    context.fail("method-not-allowed", "browser cron delivery requires isolated Agent execution");
+  }
 }
 
 function pageInteger(
@@ -85,6 +137,10 @@ export async function preflightCronMutation(
   method: string,
   prepared: JsonObject,
 ): Promise<void> {
+  if (method === "cron.add") {
+    await assertConfiguredCronModel(context, method, prepared);
+    return;
+  }
   if (
     method !== "cron.get" &&
     method !== "cron.update" &&
@@ -97,6 +153,10 @@ export async function preflightCronMutation(
   if (method === "cron.get") {
     return;
   }
+  if (method === "cron.update") {
+    assertEffectiveCronDelivery(context, job, prepared);
+  }
+  await assertConfiguredCronModel(context, method, prepared, job);
   const expectedConfigRevision = optionalString(prepared.expectedConfigRevision);
   if (!expectedConfigRevision) {
     context.fail("invalid-params", "cron mutation requires the loaded job config revision");

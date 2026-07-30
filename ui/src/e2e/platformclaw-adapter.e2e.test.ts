@@ -215,6 +215,95 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await mcpSettings.getByRole("button", { name: "Close" }).click();
   });
 
+  it("lets an employee create a personal automation without operator.admin", async () => {
+    const { page } = await newPage();
+    await installPlatformClawDocument(page);
+    await page.route("**/platformclaw/api/auth/session", (route) =>
+      route.fulfill({ json: activeSession(), status: 200 }),
+    );
+    const createdJob = {
+      id: "employee-automation",
+      name: "Daily workspace summary",
+      enabled: true,
+      createdAtMs: Date.now(),
+      updatedAtMs: Date.now(),
+      configRevision: "revision-1",
+      agentId: "person_one",
+      schedule: { kind: "every", everyMs: 86_400_000 },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "Summarize my workspace." },
+      delivery: { mode: "none" },
+    };
+    const gateway = await installMockGateway(page, {
+      basePath: "/platformclaw/app",
+      defaultAgentId: "person_one",
+      sessionKey: "agent:person_one:main",
+      operatorScopes: ["operator.read", "operator.write"],
+      featureMethods: [
+        "cron.add",
+        "cron.get",
+        "cron.list",
+        "cron.remove",
+        "cron.run",
+        "cron.runs",
+        "cron.status",
+        "cron.update",
+        "models.list",
+      ],
+      methodResponses: {
+        "cron.add": { created: true, job: createdJob },
+        "cron.list": { jobs: [], total: 0, offset: 0, hasMore: false },
+        "cron.runs": { entries: [], total: 0, offset: 0, hasMore: false },
+        "cron.status": { enabled: true, jobs: 0, nextWakeAtMs: null },
+        "models.list": {
+          models: [
+            { id: "openai/gpt-5.2", name: "GPT-5.2", provider: "openai" },
+            { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", provider: "anthropic" },
+          ],
+        },
+      },
+    });
+
+    await page.goto(`${server.baseUrl}platformclaw/app/cron`);
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/cron");
+    await expect.poll(() => page.getByText("Browsing only").count()).toBe(0);
+    await page.locator('[data-test-id="cron-new-task"]').click();
+    await page.locator("#cron-name").fill("Daily workspace summary");
+    await page.locator("#cron-payload-text").fill("Summarize my workspace.");
+    await expect.poll(() => page.locator(".agent-scope-control").count()).toBe(0);
+    await expect.poll(() => page.locator("#cron-agent-id").getAttribute("readonly")).toBe("");
+    await expect
+      .poll(() => page.locator("#cron-payload-model option").allTextContents())
+      .toEqual(["Use default", "anthropic/claude-sonnet-4", "openai/gpt-5.2"]);
+    await expect
+      .poll(() => page.locator("#cron-delivery-mode option").allTextContents())
+      .toEqual(["Send to last conversation", "None (internal)"]);
+    await page.locator("#cron-payload-model").selectOption("openai/gpt-5.2");
+
+    if (captureUiProofEnabled) {
+      await mkdir(proofDir, { recursive: true });
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "03-personal-automation-editor.png"),
+      });
+    }
+
+    await page.locator('[data-test-id="cron-submit"]').click();
+    const addRequest = await gateway.waitForRequest("cron.add");
+    expect(addRequest.params).toMatchObject({
+      agentId: "person_one",
+      delivery: { mode: "announce" },
+      failureAlert: false,
+      name: "Daily workspace summary",
+      payload: {
+        kind: "agentTurn",
+        message: "Summarize my workspace.",
+        model: "openai/gpt-5.2",
+      },
+    });
+  });
+
   it("redirects to login when a policy close confirms session expiry", async () => {
     const { page } = await newPage();
     await installPlatformClawDocument(page);

@@ -99,6 +99,34 @@ function restrictPayload(
   return deny("browser cron payloads are limited to agent turns and system events");
 }
 
+function restrictDelivery(
+  delivery: unknown,
+  deny: (message: string) => never,
+  mode: "create" | "update",
+): JsonObject | undefined {
+  if (delivery === undefined || delivery === null) {
+    return mode === "create" ? { mode: "none" } : undefined;
+  }
+  const value = asObject(delivery, "cron job delivery", deny);
+  if (
+    optionalString(value.to) ||
+    optionalString(value.accountId) ||
+    (value.threadId !== undefined && value.threadId !== null)
+  ) {
+    return deny("browser cron cannot select an outbound delivery target");
+  }
+  if (value.mode === "announce") {
+    if (value.channel !== undefined && value.channel !== "last") {
+      return deny("browser cron delivery is limited to the user's last conversation");
+    }
+    return { mode: "announce", channel: "last" };
+  }
+  if (value.mode === "none") {
+    return { mode: "none" };
+  }
+  return deny("browser cron delivery is limited to the last conversation or internal execution");
+}
+
 function restrictJob(
   input: BrowserCronPolicyInput,
   rawJob: unknown,
@@ -117,19 +145,9 @@ function restrictJob(
   ) {
     return input.deny("browser cron session targets are limited to main and isolated");
   }
-  const delivery = job.delivery;
-  if (delivery !== undefined && delivery !== null) {
-    const deliveryObject = asObject(delivery, `${label} delivery`, input.deny);
-    if (deliveryObject.mode === "webhook") {
-      return input.deny("browser cron webhooks are not available");
-    }
-    if (
-      optionalString(deliveryObject.to) ||
-      optionalString(deliveryObject.accountId) ||
-      optionalString(deliveryObject.threadId)
-    ) {
-      return input.deny("browser cron cannot select an outbound delivery target");
-    }
+  const delivery = restrictDelivery(job.delivery, input.deny, mode);
+  if (mode === "create" && delivery?.mode === "announce" && job.sessionTarget !== "isolated") {
+    return input.deny("browser cron delivery requires isolated Agent execution");
   }
   if (job.failureAlert && typeof job.failureAlert === "object") {
     return input.deny("browser cron cannot configure outbound failure alerts");
@@ -139,16 +157,16 @@ function restrictJob(
     name: job.name,
     description: job.description,
     agentId: input.agentId,
-    sessionKey: job.sessionKey,
+    // Personal Web and Knox DM turns share this main session. Pin every patch so
+    // omitting delivery cannot retain announce while rebinding its `last` route.
+    sessionKey: input.ownerSessionKey,
     enabled: job.enabled,
     deleteAfterRun: job.deleteAfterRun,
     sessionTarget: job.sessionTarget,
     wakeMode: job.wakeMode,
     schedule: restrictSchedule(job.schedule, input.deny),
     payload: restrictPayload(job.payload, input.deny),
-    // Employee UI jobs never gain transport routing. Updates omit these fields so
-    // authenticated settings on conversationally-created jobs remain unchanged.
-    delivery: mode === "create" ? { mode: "none" } : undefined,
+    delivery,
     failureAlert: mode === "create" ? false : undefined,
     owner:
       mode === "create"

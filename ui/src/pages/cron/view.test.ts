@@ -131,13 +131,20 @@ function selectSegmented(control: HTMLElement) {
 }
 
 describe("personal cron policy", () => {
-  it("hides delivery, failure-alert, and run-history controls", () => {
-    const container = renderView({ createOpen: true, personalAccess: true });
-    const overview = renderView({ personalAccess: true });
-    expect(container.querySelector("#cron-delivery-mode")).toBeNull();
-    expect(container.querySelector("#cron-failure-alert-mode")).toBeNull();
-    expect(overview.querySelector('[data-test-id="cron-list-tab-activity"]')).toBeNull();
-    expect(container.querySelector('[data-test-id="cron-detail-tab-history"]')).toBeNull();
+  it("limits personal model and delivery choices", () => {
+    const container = renderView({
+      createOpen: true,
+      personalAccess: true,
+      modelSuggestions: ["openai/gpt-5.2"],
+      form: { ...DEFAULT_CRON_FORM, agentId: "person_one", payloadModel: "old/retired" },
+    });
+    const delivery = getElement(container, "#cron-delivery-mode", HTMLSelectElement);
+    const model = getElement(container, "#cron-payload-model", HTMLSelectElement);
+    expect([...delivery.options].map((option) => option.value)).toEqual(["announce", "none"]);
+    expect(model.options).toHaveLength(3);
+    expect(model.value).toBe("old/retired");
+    expect(container.textContent).toContain("old/retired");
+    expect(model.selectedOptions[0]?.textContent).toContain("Current selection");
   });
 });
 
