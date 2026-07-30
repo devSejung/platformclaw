@@ -158,7 +158,10 @@ function createContext(
   },
 ): ApplicationContext {
   const subscribe = () => () => undefined;
-  const selectionState = { selectedId: "main", scopeId: options?.scopeId ?? "main" };
+  const selectionState: { selectedId: string | null; scopeId: string | null } = {
+    selectedId: "main",
+    scopeId: options?.scopeId ?? "main",
+  };
   return {
     accessMode: options?.accessMode ?? "operator",
     basePath: "",
