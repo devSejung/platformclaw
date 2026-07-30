@@ -42,6 +42,14 @@ describe("classifyPlatformClawChanges", () => {
     expect(plan.needs_changed_surface_checks).toBe(false);
   });
 
+  it("runs focused Knox channel checks without upstream fanout", () => {
+    const plan = classifyPlatformClawChanges(["extensions/knox/src/channel.ts"]);
+
+    expect(plan.mode).toBe("platformclaw");
+    expect(plan.needs_knox_checks).toBe(true);
+    expect(plan.needs_changed_surface_checks).toBe(false);
+  });
+
   it("keeps lockfile-only changes on upstream checks", () => {
     const plan = classifyPlatformClawChanges(["pnpm-lock.yaml"]);
 
@@ -224,6 +232,10 @@ describe("PlatformClaw shared check workflow", () => {
       PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE: "/tmp/platformclaw-empty-secret",
       PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE: "/tmp/platformclaw-empty-secret",
       PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE: "/tmp/platformclaw-empty-secret",
+      PLATFORMCLAW_KNOX_CDEP_URL:
+        "https://cdep.example.test/api/v1/platformclaw/knox/outbound/send",
+      PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE: "/tmp/platformclaw-empty-secret",
+      PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE: "/tmp/platformclaw-empty-secret",
       PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE: "/tmp/platformclaw-empty-secret",
     });
   });

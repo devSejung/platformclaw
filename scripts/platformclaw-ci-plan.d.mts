@@ -10,6 +10,7 @@ export type PlatformClawChangePlan = {
   needs_overlay_lint: boolean;
   needs_package_checks: boolean;
   needs_admin_http_rpc_checks: boolean;
+  needs_knox_checks: boolean;
   needs_planner_tests: boolean;
   needs_workflow_checks: boolean;
   needs_ui_checks: boolean;

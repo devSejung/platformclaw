@@ -39,6 +39,9 @@ import {
   type VmAdministrationService,
 } from "./browser-vm-admin-http.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
+import { handlePlatformClawKnoxIngressProxy } from "./knox-ingress-proxy.js";
+import { handlePlatformClawKnoxRoutingRequest } from "./knox-routing-http.js";
+import type { KnoxRoutingService } from "./knox-routing-service.js";
 import type { PlatformClawWebAssetHandler } from "./web-assets.js";
 import { isPlatformClawApplicationPath, PLATFORMCLAW_WEB_LOGIN_PATH } from "./web-assets.js";
 
@@ -84,6 +87,8 @@ export type PlatformClawWebIngressOptions = {
   executionService?: EmployeeExecutionService;
   vmAdministrationService?: VmAdministrationService;
   mcpService?: EmployeeMcpService;
+  knoxRouting?: { service: KnoxRoutingService; serviceToken: string };
+  knoxIngressProxy?: { targetUrl: string };
   webAssets?: PlatformClawWebAssetHandler;
   gatewayPath?: string;
   healthPath?: string;
@@ -359,6 +364,21 @@ export class PlatformClawWebIngressServer {
           service: this.options.vmAdministrationService,
           readJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
+        this.options.knoxIngressProxy &&
+        (await handlePlatformClawKnoxIngressProxy(req, res, this.options.knoxIngressProxy))
+      ) {
+        return;
+      }
+      if (
+        this.options.knoxRouting &&
+        (await handlePlatformClawKnoxRoutingRequest(req, res, {
+          ...this.options.knoxRouting,
+          readJsonBody,
         }))
       ) {
         return;

@@ -164,6 +164,11 @@ export abstract class SqliteControlPlaneAuthStore extends SqliteControlPlaneStor
     return row ? this.rowToUser(row) : null;
   }
 
+  async getUserByAccountId(accountId: string): Promise<PlatformUser | null> {
+    const row = this.selectUserByAccountId(accountId.trim().toLowerCase());
+    return row ? this.rowToUser(row) : null;
+  }
+
   async getUserByEmployeeId(employeeId: string): Promise<PlatformUser | null> {
     const row = this.selectUserByEmployeeId(employeeId.trim().toLowerCase());
     return row ? this.rowToUser(row) : null;
@@ -525,11 +530,9 @@ export abstract class SqliteControlPlaneAuthStore extends SqliteControlPlaneStor
   }
 
   async resolveAuthenticatedKnoxDmRoute(params: {
-    employeeId: string;
-    agentId: string;
-    sessionKey: string;
+    accountId: string;
   }): Promise<KnoxDmRouteResolution> {
-    const userRow = this.selectUserByEmployeeId(params.employeeId.trim().toLowerCase());
+    const userRow = this.selectUserByAccountId(params.accountId.trim().toLowerCase());
     if (!userRow) {
       return { status: "user-not-found" };
     }
@@ -549,9 +552,16 @@ export abstract class SqliteControlPlaneAuthStore extends SqliteControlPlaneStor
     }
     const binding = rowToBinding(row) as PersonalAgentBinding;
     const sessionKey = this.buildAgentMainSessionKey({ agentId: binding.agentId });
-    if (params.agentId !== binding.agentId || params.sessionKey !== sessionKey) {
-      return { status: "route-mismatch" };
-    }
-    return { status: "resolved", user: this.rowToUser(userRow), binding, sessionKey };
+    // Missing legacy profiles execute on the platform server, matching the
+    // browser execution policy; reporting VM here would mislead the sender.
+    const executionTarget =
+      (await this.getPersonalExecutionProfile(binding.agentId))?.activeTarget ?? "platform_server";
+    return {
+      status: "resolved",
+      user: this.rowToUser(userRow),
+      binding,
+      sessionKey,
+      executionTarget,
+    };
   }
 }

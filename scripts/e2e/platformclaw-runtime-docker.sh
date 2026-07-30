@@ -87,6 +87,9 @@ export PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL="http://127.0.0.1:18080/login"
 export PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE="$work_dir/employee-auth-ca.pem"
 export PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE="$work_dir/gateway-token"
 export PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE="$work_dir/execution-service-token"
+export PLATFORMCLAW_KNOX_CDEP_URL="http://127.0.0.1:18081/api/v1/platformclaw/knox/outbound/send"
+export PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE="$work_dir/knox-webhook-secret"
+export PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE="$work_dir/knox-service-token"
 export PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE="$work_dir/gateway-service-identity.pem"
 export PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE="$work_dir/initial-admin-ids"
 export PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE="$work_dir/ssh-credential-master-key"
@@ -95,6 +98,8 @@ ephemeral_probe="$(openssl rand -hex 32)"
 printf '%s\n' "$ephemeral_probe" >"$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"
 printf '%s\n' "admin.user" >"$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE"
 openssl rand -hex 32 >"$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE"
+openssl rand -hex 32 >"$PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE"
+openssl rand -hex 32 >"$PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE"
 openssl genpkey -algorithm ED25519 -out "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE"
 openssl rand -base64 32 >"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
 cp /etc/ssl/certs/ca-certificates.crt "$PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE"
@@ -104,6 +109,8 @@ execution_service_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_
 # remains host-private; read-only file mode lets the non-root containers read them.
 chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE" \
   "$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE" \
+  "$PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE" \
+  "$PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE" \
   "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE" \
   "$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE" \
   "$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE" \

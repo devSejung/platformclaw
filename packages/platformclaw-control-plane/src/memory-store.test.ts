@@ -453,43 +453,38 @@ describe("InMemoryControlPlaneStore authenticated Knox DM routing", () => {
 
     await expect(
       store.resolveAuthenticatedKnoxDmRoute({
-        employeeId: user.employeeId,
-        agentId: binding.agentId,
-        sessionKey,
+        accountId: user.accountId,
       }),
     ).resolves.toMatchObject({
       status: "resolved",
       user: { id: user.id },
       binding: { id: binding.id },
       sessionKey,
+      executionTarget: "platform_server",
     });
     expect(buildAgentMainSessionKey).toHaveBeenCalledWith({ agentId: binding.agentId });
   });
 
   it("rejects Knox DM routing after the enterprise user is disabled", async () => {
     const store = createStore();
-    const { user, binding } = await createActivePersonalAgent(store);
+    const { user } = await createActivePersonalAgent(store);
     await disableUser(store, user.id, 4_000);
 
     await expect(
       store.resolveAuthenticatedKnoxDmRoute({
-        employeeId: user.employeeId,
-        agentId: binding.agentId,
-        sessionKey: `agent:${binding.agentId}:main`,
+        accountId: user.accountId,
       }),
     ).resolves.toEqual({ status: "agent-unavailable" });
   });
 
-  it("rejects a trusted-proxy route that does not match current ownership", async () => {
+  it("resolves account IDs case-insensitively without caller-supplied routing", async () => {
     const store = createStore();
     const { user, binding } = await createActivePersonalAgent(store);
 
     await expect(
       store.resolveAuthenticatedKnoxDmRoute({
-        employeeId: user.employeeId,
-        agentId: "another-agent",
-        sessionKey: `agent:${binding.agentId}:main`,
+        accountId: user.accountId.toUpperCase(),
       }),
-    ).resolves.toEqual({ status: "route-mismatch" });
+    ).resolves.toMatchObject({ status: "resolved", binding: { id: binding.id } });
   });
 });

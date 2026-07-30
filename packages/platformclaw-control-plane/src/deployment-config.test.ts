@@ -23,12 +23,14 @@ function fixtureEnv(): NodeJS.ProcessEnv {
   const adminFile = join(root, "initial-admins");
   const credentialKeyFile = join(root, "ssh-credential-master-key");
   const executionServiceTokenFile = join(root, "execution-service-token");
+  const knoxServiceTokenFile = join(root, "knox-service-token");
   const gatewayServiceIdentityFile = join(root, "gateway-service-identity.pem");
   const { privateKey } = generateKeyPairSync("ed25519");
   writeFileSync(tokenFile, "test-gateway-token\n", { mode: 0o600 });
   writeFileSync(adminFile, "Person.One\nperson.two,person.one\n", { mode: 0o600 });
   writeFileSync(credentialKeyFile, Buffer.alloc(32, 7).toString("base64"), { mode: 0o600 });
   writeFileSync(executionServiceTokenFile, "e".repeat(32), { mode: 0o600 });
+  writeFileSync(knoxServiceTokenFile, "k".repeat(32), { mode: 0o600 });
   writeFileSync(gatewayServiceIdentityFile, privateKey.export({ type: "pkcs8", format: "pem" }), {
     mode: 0o600,
   });
@@ -47,6 +49,7 @@ function fixtureEnv(): NodeJS.ProcessEnv {
         ? String.raw`\\.\pipe\platformclaw-test-broker`
         : join(root, "broker.sock"),
     [PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile]: executionServiceTokenFile,
+    [PLATFORMCLAW_DEPLOYMENT_ENV.knoxServiceTokenFile]: knoxServiceTokenFile,
   };
 }
 
@@ -71,6 +74,7 @@ describe("loadPlatformClawDeploymentConfig", () => {
           ? String.raw`\\.\pipe\platformclaw-test-broker`
           : resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.credentialBrokerAddress] ?? ""),
       executionServiceToken: "e".repeat(32),
+      knoxServiceToken: "k".repeat(32),
     });
     expect(config.databasePath).toBe(resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.databasePath] ?? ""));
     expect(config.sshCredentialCipher.keyId).toMatch(/^sha256:/u);

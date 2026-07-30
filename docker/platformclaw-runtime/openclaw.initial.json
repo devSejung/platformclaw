@@ -36,6 +36,9 @@
       "admin-http-rpc": {
         "enabled": true
       },
+      "knox": {
+        "enabled": true
+      },
       "platformclaw-execution": {
         "enabled": true
       },

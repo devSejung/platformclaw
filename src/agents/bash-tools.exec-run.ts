@@ -391,6 +391,7 @@ export function createExecTool(
           defaultPathPrepend,
           pluginEnv: resolvedExecEnvState?.pluginEnv,
           warnings,
+          trustedSenderId: defaults?.senderId,
         });
 
         if (host === "node") {

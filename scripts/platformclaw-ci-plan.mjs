@@ -23,6 +23,7 @@ const EXACT_OVERLAY_PATHS = new Set([
 const OVERLAY_PREFIXES = [
   "docs/platformclaw/",
   "extensions/admin-http-rpc/",
+  "extensions/knox/",
   "packages/platformclaw-control-plane/",
   "ui/src/platformclaw/",
 ];
@@ -58,6 +59,7 @@ export function classifyPlatformClawChanges(inputFiles) {
   const hasAdminHttpRpcChanges = files.some((file) =>
     file.startsWith("extensions/admin-http-rpc/"),
   );
+  const hasKnoxChanges = files.some((file) => file.startsWith("extensions/knox/"));
   const hasPlannerChanges = files.some(
     (file) =>
       file === "scripts/platformclaw-ci-plan.mjs" ||
@@ -107,6 +109,7 @@ export function classifyPlatformClawChanges(inputFiles) {
     needs_overlay_lint: hasPackageChanges || hasPlannerChanges,
     needs_package_checks: hasPackageChanges,
     needs_admin_http_rpc_checks: hasAdminHttpRpcChanges,
+    needs_knox_checks: hasKnoxChanges,
     needs_planner_tests: hasPlannerChanges,
     needs_workflow_checks: hasWorkflowChanges,
     needs_ui_checks: hasUiChanges,

@@ -37,6 +37,7 @@ function executionStore(
   resolvePersonalExecutionTarget: () => Promise<PersonalExecutionTarget>,
 ): ControlPlaneExecutionTargetStore {
   return {
+    resolveExecutionTarget: resolvePersonalExecutionTarget,
     resolvePersonalExecutionTarget,
     resolveAssignedVmConnectionTarget: vi.fn(),
     changePersonalExecutionTarget: vi.fn(),
@@ -65,6 +66,31 @@ describe("ExecutionHandoffService", () => {
       targetId: "platform-server",
       revision: 0,
     });
+    expect(broker.issueForUser).not.toHaveBeenCalled();
+  });
+
+  it("routes a Knox room to the credential-free platform server", async () => {
+    const roomTarget = {
+      kind: "platform_server" as const,
+      agentId: "group-room-1",
+      targetId: "platform-server" as const,
+      revision: 0,
+    };
+    const resolvePersonalExecutionTarget = vi.fn(async () => ({
+      ...roomTarget,
+      userId: "unused",
+    }));
+    const store = executionStore(resolvePersonalExecutionTarget);
+    store.resolveExecutionTarget = vi.fn(async () => roomTarget);
+    const broker = {
+      address: "/run/platformclaw/broker.sock",
+      issueForUser: vi.fn(),
+    } satisfies ExecutionCredentialGrantIssuer;
+
+    await expect(
+      new ExecutionHandoffService(store, broker).resolveTarget("group-room-1"),
+    ).resolves.toEqual(roomTarget);
+    expect(resolvePersonalExecutionTarget).not.toHaveBeenCalled();
     expect(broker.issueForUser).not.toHaveBeenCalled();
   });
 

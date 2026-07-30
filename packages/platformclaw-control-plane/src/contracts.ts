@@ -149,10 +149,10 @@ export type KnoxDmRouteResolution =
       user: PlatformUser;
       binding: PersonalAgentBinding;
       sessionKey: string;
+      executionTarget: "platform_server" | "assigned_vm";
     }
   | { status: "user-not-found" }
-  | { status: "agent-unavailable" }
-  | { status: "route-mismatch" };
+  | { status: "agent-unavailable" };
 
 export type ControlPlaneIdFactory = {
   nextUserId(): string;
@@ -177,6 +177,7 @@ export interface ControlPlaneStore {
     authenticatedAt: number,
   ): Promise<UpsertPrincipalResult>;
   getUserById(userId: string): Promise<PlatformUser | null>;
+  getUserByAccountId(accountId: string): Promise<PlatformUser | null>;
   getUserByEmployeeId(employeeId: string): Promise<PlatformUser | null>;
   getPersonalAgentBinding(userId: string): Promise<PersonalAgentBinding | null>;
   getPersonalExecutionProfile(agentId: string): Promise<PersonalExecutionProfile | null>;
@@ -207,11 +208,7 @@ export interface ControlPlaneStore {
     touch?: boolean;
   }): Promise<BrowserSessionResolution>;
   revokeBrowserSession(sessionId: string, revokedAt: number): Promise<BrowserSession | null>;
-  resolveAuthenticatedKnoxDmRoute(params: {
-    employeeId: string;
-    agentId: string;
-    sessionKey: string;
-  }): Promise<KnoxDmRouteResolution>;
+  resolveAuthenticatedKnoxDmRoute(params: { accountId: string }): Promise<KnoxDmRouteResolution>;
 }
 
 export interface ControlPlaneAuditWriter {

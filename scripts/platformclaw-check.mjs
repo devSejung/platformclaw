@@ -18,6 +18,7 @@ const oxfmt = resolve(repoRoot, "node_modules", "oxfmt", "bin", "oxfmt");
 const FORMAT_PATHS = [
   "packages/platformclaw-control-plane",
   "extensions/admin-http-rpc",
+  "extensions/knox",
   "scripts/platformclaw-check.d.mts",
   "scripts/platformclaw-ci-plan.d.mts",
   "scripts/platformclaw-*.mjs",
@@ -76,6 +77,21 @@ const SURFACE_COMMANDS = {
       "packages/platformclaw-control-plane",
       "build",
     ]),
+  ],
+  knox: [
+    command("lint Knox channel", node, [
+      "scripts/run-oxlint.mjs",
+      "--tsconfig",
+      "config/tsconfig/oxlint.core.json",
+      "extensions/knox/src",
+    ]),
+    command("typecheck Knox channel", node, [
+      "scripts/run-tsgo.mjs",
+      "-p",
+      "extensions/knox/tsconfig.json",
+      "--noEmit",
+    ]),
+    command("test Knox channel", node, ["scripts/run-vitest.mjs", "extensions/knox"]),
   ],
   planner: [
     command("lint PlatformClaw CI planner", node, [
@@ -137,6 +153,9 @@ export function surfacesForPlan(plan) {
   }
   if (plan.needs_admin_http_rpc_checks) {
     surfaces.push("admin-http-rpc");
+  }
+  if (plan.needs_knox_checks) {
+    surfaces.push("knox");
   }
   if (plan.needs_planner_tests) {
     surfaces.push("planner");

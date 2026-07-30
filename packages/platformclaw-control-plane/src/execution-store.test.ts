@@ -343,6 +343,30 @@ describe.each([
   });
 });
 
+describe("Knox room execution target", () => {
+  it("keeps an active room on the Docker-backed platform server", async () => {
+    const store = createSqliteStore();
+    const reserved = await store.reserveKnoxRoomAgent({
+      accountId: "knox",
+      roomId: "room-1",
+      reservedAt: 1_000,
+    });
+    await store.transitionAgent({
+      bindingId: reserved.binding.id,
+      state: "active",
+      changedAt: 1_001,
+    });
+
+    await expect(store.resolveExecutionTarget(reserved.binding.agentId)).resolves.toEqual({
+      kind: "platform_server",
+      agentId: reserved.binding.agentId,
+      targetId: "platform-server",
+      revision: 0,
+    });
+    store.close?.();
+  });
+});
+
 describe("SQLite employee execution store", () => {
   it("supports self-service VM selection, replacement, release, and soft-disable lifecycle", async () => {
     const store = createSqliteStore();

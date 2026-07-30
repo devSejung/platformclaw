@@ -28,11 +28,11 @@ import {
   rowToVmHost,
 } from "./sqlite-store-execution-mappers.js";
 import { hasCompleteAssignedVmExecutionFields } from "./sqlite-store-execution-readiness.js";
+import { SqliteControlPlaneExecutionTargetStore } from "./sqlite-store-execution-target.js";
 import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlite-store-types.js";
-import { SqliteControlPlaneVmSelfServiceStore } from "./sqlite-store-vm-self-service.js";
 
 export abstract class SqliteControlPlaneExecutionStore
-  extends SqliteControlPlaneVmSelfServiceStore
+  extends SqliteControlPlaneExecutionTargetStore
   implements
     ControlPlaneExecutionManagementStore,
     ControlPlaneExecutionTargetStore,

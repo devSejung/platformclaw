@@ -19,6 +19,7 @@ import { safeJsonStringify } from "../utils/safe-json.js";
 import type { HookContext } from "./agent-tools.before-tool-call.js";
 import { stripMalformedXmlArgValueSuffixFromKeys } from "./agent-tools.params.js";
 import { DEFAULT_PATH, applyPathPrepend, applyShellPath } from "./bash-tools.exec-runtime.js";
+import { applyTrustedSenderEnv } from "./bash-tools.exec-sender-env.js";
 import type { ExecToolDefaults } from "./bash-tools.exec-types.js";
 import { type ExecWorkdirResolution, resolveExecWorkdir } from "./bash-tools.exec-workdir.js";
 import { buildSandboxEnv, coerceEnv } from "./bash-tools.shared.js";
@@ -354,6 +355,7 @@ export function resolvePreparedExecEnvironment(params: {
   defaultPathPrepend: string[];
   pluginEnv?: Record<string, string>;
   warnings: string[];
+  trustedSenderId?: string | null;
 }): { env: Record<string, string>; requestedEnv?: Record<string, string> } {
   const inheritedBaseEnv = coerceEnv(process.env);
   const channelContextEnv = buildChannelContextEnv(params.channelContext);
@@ -415,6 +417,8 @@ export function resolvePreparedExecEnvironment(params: {
           containerWorkdir: params.containerWorkdir ?? params.sandbox.containerWorkdir,
         })
       : (hostEnvResult?.env ?? inheritedBaseEnv);
+
+  applyTrustedSenderEnv(env, params.trustedSenderId);
 
   if (!params.sandbox && params.host === "gateway" && !requestedEnv?.PATH) {
     const shellPath = getShellPathFromLoginShell({

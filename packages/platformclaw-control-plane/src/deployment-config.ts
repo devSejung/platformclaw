@@ -21,6 +21,7 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   sshCredentialMasterKeyFile: "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
   credentialBrokerAddress: "PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS",
   executionServiceTokenFile: "PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE",
+  knoxServiceTokenFile: "PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE",
 } as const;
 
 export type PlatformClawDeploymentConfig = {
@@ -39,6 +40,7 @@ export type PlatformClawDeploymentConfig = {
   mcpCredentialCipher: McpCredentialCipher;
   credentialBrokerAddress: string;
   executionServiceToken: string;
+  knoxServiceToken: string;
 };
 
 function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -96,15 +98,10 @@ function parsePort(raw: string | undefined, name: string, defaultPort: number): 
   return port;
 }
 
-function readExecutionServiceToken(filePath: string): string {
-  const token = readDeploymentSecret(
-    filePath,
-    PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile,
-  );
+function readServiceToken(filePath: string, envName: string): string {
+  const token = readDeploymentSecret(filePath, envName);
   if (Buffer.byteLength(token, "utf8") < 32 || Buffer.byteLength(token, "utf8") > 512) {
-    throw new Error(
-      `${PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile} must contain 32 to 512 bytes`,
-    );
+    throw new Error(`${envName} must contain 32 to 512 bytes`);
   }
   return token;
 }
@@ -179,8 +176,13 @@ export function loadPlatformClawDeploymentConfig(
     sshCredentialCipher: SshCredentialCipher.fromBase64(credentialMasterKey),
     mcpCredentialCipher: McpCredentialCipher.fromBase64(credentialMasterKey),
     credentialBrokerAddress: requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.credentialBrokerAddress),
-    executionServiceToken: readExecutionServiceToken(
+    executionServiceToken: readServiceToken(
       requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile),
+      PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile,
+    ),
+    knoxServiceToken: readServiceToken(
+      requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.knoxServiceTokenFile),
+      PLATFORMCLAW_DEPLOYMENT_ENV.knoxServiceTokenFile,
     ),
   };
 }

@@ -1,0 +1,12 @@
+{
+  "id": "knox",
+  "name": "Knox Teams",
+  "description": "Samsung Knox Teams relay channel for PlatformClaw.",
+  "activation": { "onStartup": false },
+  "channels": ["knox"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

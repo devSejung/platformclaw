@@ -42,6 +42,17 @@ describe("PlatformClaw shared checks", () => {
     expect(surfacesForPlan(plan)).toEqual(["control-plane", "admin-http-rpc"]);
   });
 
+  it("selects Knox channel checks", () => {
+    const plan = classifyPlatformClawChanges(["extensions/knox/src/gateway.ts"]);
+
+    expect(surfacesForPlan(plan)).toEqual(["knox"]);
+    expect(createPlatformClawCheckCommands(["knox"]).map((entry) => entry.label)).toEqual([
+      "lint Knox channel",
+      "typecheck Knox channel",
+      "test Knox channel",
+    ]);
+  });
+
   it("rejects unknown check surfaces", () => {
     expect(() => createPlatformClawCheckCommands(["unknown"])).toThrow(
       "unknown PlatformClaw check surface",

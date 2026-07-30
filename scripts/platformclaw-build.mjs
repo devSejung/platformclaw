@@ -306,6 +306,7 @@ const secretArgs =
 const extensions = [
   ...new Set([
     "admin-http-rpc",
+    "knox",
     "platformclaw-execution",
     "platformclaw-user-mcp",
     ...options.extensions.split(/[\s,]+/u),
