@@ -14,7 +14,7 @@ type ExecutionTargetBase = {
   targetId: string;
 };
 
-export type PlatformServerTargetSnapshot = ExecutionTargetBase & {
+type PlatformServerTargetSnapshot = ExecutionTargetBase & {
   kind: "platform_server";
 };
 
@@ -40,7 +40,7 @@ export type PlatformClawExecutionTargetSnapshot =
   | PlatformServerTargetSnapshot
   | AssignedVmTargetSnapshot;
 
-export type PlatformClawExecutionTargetResolver = (params: {
+type PlatformClawExecutionTargetResolver = (params: {
   agentId: string;
 }) => Promise<PlatformClawExecutionTargetSnapshot>;
 

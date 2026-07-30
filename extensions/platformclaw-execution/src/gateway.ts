@@ -2,7 +2,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { PlatformClawExecutionTargetSnapshot } from "./backend.js";
 import { classifyVmConnectionFailure } from "./connection-errors.js";
 
-export type PlatformClawExecutionGatewayRuntime = {
+type PlatformClawExecutionGatewayRuntime = {
   testConnection(params: {
     agentId: string;
     credentialBrokerAddress: string;

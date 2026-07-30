@@ -385,6 +385,13 @@ const config = {
     // asserted by the focused Beam mirror tests; production wires only the service.
     "extensions/beam/src/mirror.ts": ["exports", "types"],
     "src/infra/heartbeat-wake.ts": ["exports"],
+    // PlatformClaw keeps these narrow exports as focused-test seams while production
+    // consumes the surrounding plugin/UI entrypoints and in-module composition.
+    "extensions/admin-http-rpc/src/employee-profile.ts": ["types"],
+    "extensions/platformclaw-execution/src/remote-skills.ts": ["exports"],
+    "extensions/platformclaw-execution/src/runtime.ts": ["exports"],
+    "ui/src/platformclaw/execution-settings.ts": ["exports"],
+    "ui/src/platformclaw/web-contract.ts": ["exports"],
   },
   workspaces: {
     ".": {
@@ -443,6 +450,8 @@ const config = {
     ui: {
       entry: [
         "index.html!",
+        // Vite builds and serves the standalone PlatformClaw login shell separately.
+        "platformclaw-login.html!",
         "src/main.ts!",
         "src/lib/browser-redact.ts!",
         "vite.config.ts!",
