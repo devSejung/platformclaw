@@ -5,6 +5,8 @@ import {
   loadEmployeeAuthClientConfig,
   type EmployeeAuthClientConfig,
 } from "./employee-auth-client.js";
+import { McpCredentialCipher } from "./mcp-credential-crypto.js";
+import { McpCredentialVault } from "./mcp-credential-vault.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 import { SshCredentialVault } from "./ssh-credential-vault.js";
@@ -20,12 +22,16 @@ export type EmployeeBrowserAuthRuntimeOptions = {
   now?: () => number;
   tokenFactory?: () => string;
   sshCredentialCipher?: SshCredentialCipher;
+  mcpCredentialCipher?: McpCredentialCipher;
+  onLogoutAgent?: (agentId: string) => Promise<void>;
+  onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
 };
 
 export type EmployeeBrowserAuthRuntime = {
   store: SqliteControlPlaneStore;
   service: BrowserAuthService;
   credentialVault?: SshCredentialVault;
+  mcpCredentialVault?: McpCredentialVault;
   close(): void;
 };
 
@@ -42,6 +48,9 @@ export function createEmployeeBrowserAuthRuntime(
     databasePath: options.databasePath,
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
     initialAdminAccountIds: options.initialAdminAccountIds,
+    ...(options.onAgentCredentialsRevoked
+      ? { onAgentCredentialsRevoked: options.onAgentCredentialsRevoked }
+      : {}),
   });
   const service = new BrowserAuthService({
     store,
@@ -49,15 +58,20 @@ export function createEmployeeBrowserAuthRuntime(
     provisioner: options.provisioner,
     ...(options.now ? { now: options.now } : {}),
     ...(options.tokenFactory ? { tokenFactory: options.tokenFactory } : {}),
+    ...(options.onLogoutAgent ? { onLogoutAgent: options.onLogoutAgent } : {}),
   });
   const credentialVault = options.sshCredentialCipher
     ? new SshCredentialVault(store, options.sshCredentialCipher)
+    : undefined;
+  const mcpCredentialVault = options.mcpCredentialCipher
+    ? new McpCredentialVault(store, options.mcpCredentialCipher)
     : undefined;
   let closed = false;
   return {
     store,
     service,
     ...(credentialVault ? { credentialVault } : {}),
+    ...(mcpCredentialVault ? { mcpCredentialVault } : {}),
     close() {
       if (closed) {
         return;

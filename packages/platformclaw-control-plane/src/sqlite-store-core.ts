@@ -39,6 +39,7 @@ export type SqliteControlPlaneStoreOptions = {
   initialAdminAccountIds?: readonly string[];
   idFactory?: ControlPlaneIdFactory;
   sessionPolicy?: BrowserSessionPolicy;
+  onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
 };
 
 export const ALLOWED_AGENT_TRANSITIONS: Record<
@@ -159,6 +160,7 @@ export abstract class SqliteControlPlaneStoreCore {
   protected readonly idFactory: ControlPlaneIdFactory;
   protected readonly sessionPolicy: BrowserSessionPolicy;
   protected readonly initialAdminAccountIds: ReadonlySet<string>;
+  protected readonly onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
 
   constructor(options: SqliteControlPlaneStoreOptions) {
     const databaseDirectory = dirname(options.databasePath);
@@ -186,6 +188,7 @@ export abstract class SqliteControlPlaneStoreCore {
     this.buildAgentMainSessionKey = options.buildAgentMainSessionKey;
     this.idFactory = options.idFactory ?? defaultControlPlaneIdFactory;
     this.sessionPolicy = options.sessionPolicy ?? BROWSER_SESSION_POLICY;
+    this.onAgentCredentialsRevoked = options.onAgentCredentialsRevoked;
     this.initialAdminAccountIds = new Set(
       (options.initialAdminAccountIds ?? [])
         .map((value) => value.trim().toLowerCase())

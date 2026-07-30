@@ -73,4 +73,18 @@ describe("registerMcpServerConnectionResolver ownership", () => {
       pluginRegistry.registry.diagnostics.filter((diagnostic) => diagnostic.level === "error"),
     ).toEqual([]);
   });
+
+  it("preserves the optional trusted-agent resolver", () => {
+    const { pluginRegistry, apiFor } = createRegistryHarness();
+    const resolveForAgent = async () => ({ url: "https://mcp.example.test" });
+    apiFor("plugin-a").registerMcpServerConnectionResolver({
+      serverName: "user-mail",
+      resolve: async () => null,
+      resolveForAgent,
+    });
+
+    expect(pluginRegistry.registry.mcpServerConnectionResolvers[0]?.resolver.resolveForAgent).toBe(
+      resolveForAgent,
+    );
+  });
 });

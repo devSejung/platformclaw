@@ -74,6 +74,7 @@ describe("loadPlatformClawDeploymentConfig", () => {
     });
     expect(config.databasePath).toBe(resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.databasePath] ?? ""));
     expect(config.sshCredentialCipher.keyId).toMatch(/^sha256:/u);
+    expect(config.mcpCredentialCipher.keyId).toBe(config.sshCredentialCipher.keyId);
   });
 
   it("rejects an invalid SSH credential master key", () => {

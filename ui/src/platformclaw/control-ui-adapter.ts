@@ -3,6 +3,7 @@ import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import "./execution-settings.ts";
+import "./mcp-settings.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -127,6 +128,10 @@ export class PlatformClawControlUiAdapter {
           .fetchImpl=${this.fetchImpl}
           .onUnauthenticated=${onUnauthenticated}
         ></platformclaw-execution-settings>
+        <platformclaw-mcp-settings
+          .fetchImpl=${this.fetchImpl}
+          .onUnauthenticated=${onUnauthenticated}
+        ></platformclaw-mcp-settings>
         ${identity.globalRole === "admin"
           ? html`<platformclaw-vm-administration
               .fetchImpl=${this.fetchImpl}

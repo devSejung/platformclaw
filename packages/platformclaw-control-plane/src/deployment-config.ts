@@ -1,5 +1,6 @@
 import { lstatSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { McpCredentialCipher } from "./mcp-credential-crypto.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 
 const DEFAULT_LISTEN_HOST = "127.0.0.1";
@@ -35,6 +36,7 @@ export type PlatformClawDeploymentConfig = {
   gatewayAuth: string;
   gatewayServiceIdentityFile: string;
   sshCredentialCipher: SshCredentialCipher;
+  mcpCredentialCipher: McpCredentialCipher;
   credentialBrokerAddress: string;
   executionServiceToken: string;
 };
@@ -153,6 +155,10 @@ export function loadPlatformClawDeploymentConfig(
     PLATFORMCLAW_DEPLOYMENT_ENV.listenPort,
     DEFAULT_LISTEN_PORT,
   );
+  const credentialMasterKey = readDeploymentSecret(
+    requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile),
+    PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile,
+  );
   return {
     publicOrigin: parsePublicOrigin(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin)),
     listenHost: env[PLATFORMCLAW_DEPLOYMENT_ENV.listenHost]?.trim() || DEFAULT_LISTEN_HOST,
@@ -170,12 +176,8 @@ export function loadPlatformClawDeploymentConfig(
     gatewayServiceIdentityFile: resolve(
       requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.gatewayServiceIdentityFile),
     ),
-    sshCredentialCipher: SshCredentialCipher.fromBase64(
-      readDeploymentSecret(
-        requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile),
-        PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile,
-      ),
-    ),
+    sshCredentialCipher: SshCredentialCipher.fromBase64(credentialMasterKey),
+    mcpCredentialCipher: McpCredentialCipher.fromBase64(credentialMasterKey),
     credentialBrokerAddress: requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.credentialBrokerAddress),
     executionServiceToken: readExecutionServiceToken(
       requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile),

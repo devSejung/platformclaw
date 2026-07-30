@@ -4,6 +4,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import type { SessionMcpRuntimeManagerLifecycle } from "./agent-bundle-mcp-manager-lifecycle.js";
 import { loadSessionMcpConfig } from "./agent-bundle-mcp-runtime-config.js";
+import { SESSION_MCP_RUNTIME_SWEEP_INTERVAL_MS } from "./agent-bundle-mcp-runtime-shared.js";
 import type { SessionMcpRequesterScope, SessionMcpRuntime } from "./agent-bundle-mcp-types.js";
 import { allowMcpAppModelContext, revokeMcpAppModelContext } from "./mcp-app-model-context.js";
 import {
@@ -47,7 +48,8 @@ type SessionMcpRuntimeManagerInstall = {
     scopedNameSet: ReadonlySet<string>;
     safeServerNamesByServer: ReadonlyMap<string, string>;
     fullScopedFingerprint: string;
-    requesterSenderId: string;
+    requesterSenderId?: string;
+    agentId?: string;
     agentAccountId?: string | null;
     messageChannel?: string | null;
     requesterScope: SessionMcpRequesterScope;
@@ -194,6 +196,15 @@ export function createSessionMcpRuntimeManagerInstall(
     requesterScope: SessionMcpRequesterScope;
     toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
   }): Promise<SessionMcpRuntime> => {
+    const expiresAt = [...params.connectionOverrides.values()].reduce<number | undefined>(
+      (earliest, connection) =>
+        connection.expiresAt === undefined
+          ? earliest
+          : earliest === undefined
+            ? connection.expiresAt
+            : Math.min(earliest, connection.expiresAt),
+      undefined,
+    );
     const resolvedNameSet = new Set(params.connectionOverrides.keys());
     const { fingerprint: resolvedFingerprint } = loadSessionMcpConfig({
       workspaceDir: params.workspaceDir,
@@ -224,6 +235,7 @@ export function createSessionMcpRuntimeManagerInstall(
       store.connectionMetaByRuntimeKey.set(params.runtimeKey, {
         connectionHash,
         resolvedAt: store.now(),
+        ...(expiresAt === undefined ? {} : { expiresAt }),
       });
       return existing;
     }
@@ -253,6 +265,7 @@ export function createSessionMcpRuntimeManagerInstall(
     store.connectionMetaByRuntimeKey.set(params.runtimeKey, {
       connectionHash,
       resolvedAt: store.now(),
+      ...(expiresAt === undefined ? {} : { expiresAt }),
     });
     return runtime;
   };
@@ -279,7 +292,8 @@ export function createSessionMcpRuntimeManagerInstall(
     scopedNameSet: ReadonlySet<string>;
     safeServerNamesByServer: ReadonlyMap<string, string>;
     fullScopedFingerprint: string;
-    requesterSenderId: string;
+    requesterSenderId?: string;
+    agentId?: string;
     agentAccountId?: string | null;
     messageChannel?: string | null;
     requesterScope: SessionMcpRequesterScope;
@@ -292,7 +306,10 @@ export function createSessionMcpRuntimeManagerInstall(
     // Revocation/rotation takes effect within MCP_CONNECTION_REVALIDATE_MS even for
     // continuously active requesters (markUsed does not extend this clock alone).
     const withinRevalidateWindow =
-      meta !== undefined && store.now() - meta.resolvedAt < revalidateMs;
+      meta !== undefined &&
+      store.now() - meta.resolvedAt < revalidateMs &&
+      (meta.expiresAt === undefined ||
+        store.now() + SESSION_MCP_RUNTIME_SWEEP_INTERVAL_MS < meta.expiresAt);
     if (
       withinRevalidateWindow &&
       existing &&
@@ -312,6 +329,7 @@ export function createSessionMcpRuntimeManagerInstall(
     const connectionOverrides = await resolveRequesterScopedMcpConnections({
       serverNames: params.requesterScopedServerNames,
       requesterSenderId: params.requesterSenderId,
+      agentId: params.agentId,
       agentAccountId: params.agentAccountId,
       messageChannel: params.messageChannel,
     });
@@ -324,6 +342,18 @@ export function createSessionMcpRuntimeManagerInstall(
       ) {
         await revokeRequesterRuntime(params.runtimeKey);
       }
+      return undefined;
+    }
+    const nowMs = store.now();
+    const hasCredentialTooCloseToExpiry = [...connectionOverrides.values()].some(
+      (connection) =>
+        connection.expiresAt !== undefined &&
+        nowMs + SESSION_MCP_RUNTIME_SWEEP_INTERVAL_MS >= connection.expiresAt,
+    );
+    if (hasCredentialTooCloseToExpiry) {
+      // A periodic sweep cannot guarantee timely retirement inside one sweep
+      // interval. Refuse installation; the next run resolves refreshed auth.
+      await revokeRequesterRuntime(params.runtimeKey);
       return undefined;
     }
     return await installRequesterRuntime({

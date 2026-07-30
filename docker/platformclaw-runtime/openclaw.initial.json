@@ -38,6 +38,9 @@
       },
       "platformclaw-execution": {
         "enabled": true
+      },
+      "platformclaw-user-mcp": {
+        "enabled": true
       }
     }
   }

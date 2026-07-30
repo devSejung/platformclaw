@@ -11,5 +11,7 @@ describe("admin HTTP RPC method allowlist", () => {
       true,
     );
     expect(isAdminHttpRpcAllowedMethod("platformclaw-execution.changeTarget")).toBe(true);
+    expect(isAdminHttpRpcAllowedMethod("platformclaw-user-mcp.catalog")).toBe(true);
+    expect(isAdminHttpRpcAllowedMethod("platformclaw-user-mcp.invalidateAgent")).toBe(true);
   });
 });

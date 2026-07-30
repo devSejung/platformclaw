@@ -149,6 +149,28 @@ export type EncryptedUserSshCredentialRow = {
   updated_at: number;
 };
 
+export type EncryptedUserMcpCredentialRow = {
+  user_id: string;
+  server_name: string;
+  kind: "bearer" | "api_key" | "oauth";
+  ciphertext: Uint8Array;
+  nonce: Uint8Array;
+  auth_tag: Uint8Array;
+  key_id: string;
+  format_version: number;
+  revision: number;
+  created_at: number;
+  updated_at: number;
+};
+
+export type McpOAuthStateRow = {
+  state_hash: string;
+  user_id: string;
+  server_name: string;
+  expires_at: number;
+  created_at: number;
+};
+
 export type ControlPlaneDatabase = {
   platform_users: PlatformUserRow;
   enterprise_identities: EnterpriseIdentityRow;
@@ -163,4 +185,6 @@ export type ControlPlaneDatabase = {
   vm_allocations: VmAllocationRow;
   personal_execution_profiles: PersonalExecutionProfileRow;
   encrypted_user_ssh_credentials: EncryptedUserSshCredentialRow;
+  encrypted_user_mcp_credentials: EncryptedUserMcpCredentialRow;
+  mcp_oauth_states: McpOAuthStateRow;
 };

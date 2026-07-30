@@ -33,7 +33,10 @@ type SessionMcpRuntimeManagerStore = {
   deferredRetirementSessionIds: Set<string>;
   // Reset/delete retirement survives late creation or reuse by the stopping run.
   requiredRetirementSessionIds: Set<string>;
-  connectionMetaByRuntimeKey: Map<string, { connectionHash: string; resolvedAt: number }>;
+  connectionMetaByRuntimeKey: Map<
+    string,
+    { connectionHash: string; resolvedAt: number; expiresAt?: number }
+  >;
   advertisedScopedCatalogBySessionId: Map<string, AdvertisedScopedCatalogEntry>;
   requesterWorkChains: Map<string, Promise<unknown>>;
   createInFlight: Map<string, ManagerCreateInFlight>;
@@ -188,14 +191,20 @@ export function createSessionMcpRuntimeManagerLifecycle(
     const nowMs = store.now();
     const expired: SessionMcpRuntime[] = [];
     for (const [runtimeKey, runtime] of store.runtimesBySessionId.entries()) {
+      const connectionExpiresAt = store.connectionMetaByRuntimeKey.get(runtimeKey)?.expiresAt;
+      const credentialNearExpiry =
+        connectionExpiresAt !== undefined &&
+        nowMs + store.idleSweepIntervalMs >= connectionExpiresAt;
       const idleTtlMs =
         store.idleTtlMsBySessionId.get(runtimeKey) ??
         store.idleTtlMsBySessionId.get(runtime.sessionId) ??
         DEFAULT_SESSION_MCP_RUNTIME_IDLE_TTL_MS;
-      if (idleTtlMs <= 0 || (runtime.activeLeases ?? 0) > 0) {
+      // Credential expiry is an authorization boundary. Retire before expiry
+      // even with an active lease; the next run resolves refreshed credentials.
+      if (!credentialNearExpiry && (idleTtlMs <= 0 || (runtime.activeLeases ?? 0) > 0)) {
         continue;
       }
-      if (nowMs - runtime.lastUsedAt < idleTtlMs) {
+      if (!credentialNearExpiry && nowMs - runtime.lastUsedAt < idleTtlMs) {
         continue;
       }
       store.runtimesBySessionId.delete(runtimeKey);

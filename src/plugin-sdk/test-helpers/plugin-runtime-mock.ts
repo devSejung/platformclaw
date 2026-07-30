@@ -487,6 +487,9 @@ export function createPluginRuntimeMock(overrides: DeepPartial<PluginRuntime> = 
   };
   const base: PluginRuntime = {
     version: "1.0.0-test",
+    mcp: {
+      disposeAgentConnections: vi.fn(async () => 0),
+    },
     gateway: {
       isAvailable: vi.fn(async () => false),
       request: vi.fn(),

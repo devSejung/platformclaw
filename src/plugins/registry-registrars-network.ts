@@ -252,6 +252,9 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
       resolver: {
         serverName,
         resolve: resolver.resolve,
+        ...(typeof resolver.resolveForAgent === "function"
+          ? { resolveForAgent: resolver.resolveForAgent }
+          : {}),
       },
       source: record.source,
       rootDir: record.rootDir,

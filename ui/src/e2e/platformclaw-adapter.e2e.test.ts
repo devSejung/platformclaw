@@ -91,6 +91,20 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await page.route("**/platformclaw/api/auth/session", (route) =>
       route.fulfill({ json: activeSession(), status: 200 }),
     );
+    await page.route("**/platformclaw/api/mcp", (route) =>
+      route.fulfill({
+        json: {
+          servers: [
+            {
+              serverName: "docs",
+              auth: "api_key",
+              headerName: "X-Approved-Key",
+              configured: false,
+            },
+          ],
+        },
+      }),
+    );
     const gateway = await installMockGateway(page, {
       basePath: "/platformclaw/app",
       assistantName: "Person One Agent",
@@ -181,6 +195,16 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       `${server.baseUrl.replace("http:", "ws:")}platformclaw/gateway`,
     );
 
+    const mcpSettings = page.locator("platformclaw-mcp-settings");
+    await expect
+      .poll(() => mcpSettings.getByRole("button", { name: "MCP connections" }).isVisible())
+      .toBe(true);
+    await mcpSettings.getByRole("button", { name: "MCP connections" }).click();
+    await expect
+      .poll(() => mcpSettings.getByRole("dialog", { name: "MCP connections" }).isVisible())
+      .toBe(true);
+    await expect.poll(() => mcpSettings.getByLabel("API key for docs").isVisible()).toBe(true);
+
     if (captureUiProofEnabled) {
       await mkdir(proofDir, { recursive: true });
       await page.screenshot({
@@ -188,6 +212,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         path: path.join(proofDir, "02-personal-agent.png"),
       });
     }
+    await mcpSettings.getByRole("button", { name: "Close" }).click();
   });
 
   it("redirects to login when a policy close confirms session expiry", async () => {
@@ -208,6 +233,14 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
 
     await page.goto(`${server.baseUrl}platformclaw/app/chat`);
     await expect.poll(() => page.getByText("Person One").isVisible()).toBe(true);
+    await expect
+      .poll(() =>
+        page
+          .locator("platformclaw-mcp-settings")
+          .getByRole("button", { name: "MCP connections" })
+          .isVisible(),
+      )
+      .toBe(true);
     sessionActive = false;
     await gateway.closeLatest(1008, "session expired");
 

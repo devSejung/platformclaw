@@ -13,13 +13,24 @@ export const PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH =
   "/platformclaw/internal/execution/connection-target";
 export const PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH =
   "/platformclaw/internal/execution/change-target";
+export const PLATFORMCLAW_MCP_CONNECTION_PATH = "/platformclaw/internal/mcp/connection";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
 type ExecutionHandoffHandler = Pick<
   ExecutionHandoffService,
   "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
->;
+> & {
+  resolveMcpConnection?: (
+    agentId: string,
+    serverName: string,
+    serverUrl: string,
+  ) => Promise<{
+    headers: Record<string, string>;
+    revision: number;
+    expiresAt?: number;
+  } | null>;
+};
 
 export function deriveExecutionHandoffAddress(credentialBrokerAddress: string): string {
   if (process.platform === "win32") {
@@ -274,13 +285,53 @@ export class PlatformClawExecutionHandoffServer {
         pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_GRANT_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH &&
-        pathname !== PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH
+        pathname !== PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH &&
+        pathname !== PLATFORMCLAW_MCP_CONNECTION_PATH
       ) {
         sendJson(res, 404, { error: "not found" });
         return;
       }
       const body = objectBody(await readJson(req));
       const agentId = requestAgentId(body);
+      if (pathname === PLATFORMCLAW_MCP_CONNECTION_PATH) {
+        const serverName = typeof body.serverName === "string" ? body.serverName.trim() : "";
+        if (
+          !serverName ||
+          serverName.length > 128 ||
+          serverName.includes("\0") ||
+          serverName.includes("\r") ||
+          serverName.includes("\n")
+        ) {
+          throw new Error("invalid MCP server name");
+        }
+        const rawServerUrl = typeof body.serverUrl === "string" ? body.serverUrl : "";
+        let serverUrl: string;
+        try {
+          const parsed = new URL(rawServerUrl);
+          if (
+            (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+            parsed.username ||
+            parsed.password ||
+            parsed.hash
+          ) {
+            throw new Error("unsafe URL");
+          }
+          serverUrl = parsed.toString();
+        } catch {
+          throw new Error("invalid MCP server URL");
+        }
+        const connection = await this.service.resolveMcpConnection?.(
+          agentId,
+          serverName,
+          serverUrl,
+        );
+        if (!connection) {
+          sendJson(res, 404, { error: "MCP credential unavailable" });
+          return;
+        }
+        sendJson(res, 200, connection);
+        return;
+      }
       if (pathname === PLATFORMCLAW_EXECUTION_TARGET_PATH) {
         sendJson(res, 200, await this.service.resolveTarget(agentId));
         return;

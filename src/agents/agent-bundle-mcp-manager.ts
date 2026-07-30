@@ -133,9 +133,11 @@ export function createSessionMcpRuntimeManager(
       }
 
       const requesterSenderId = normalizeOptionalString(params.requesterSenderId);
-      if (requesterSenderId) {
+      const agentId = normalizeOptionalString(params.agentId);
+      if (requesterSenderId || agentId) {
         const requesterScope: SessionMcpRequesterScope = {
-          requesterSenderId,
+          ...(requesterSenderId ? { requesterSenderId } : {}),
+          ...(agentId ? { agentId } : {}),
           ...(normalizeOptionalString(params.agentAccountId)
             ? { agentAccountId: normalizeOptionalString(params.agentAccountId) }
             : {}),
@@ -148,6 +150,7 @@ export function createSessionMcpRuntimeManager(
           messageChannel: params.messageChannel,
           agentAccountId: params.agentAccountId,
           requesterSenderId,
+          agentId,
         });
         const { fingerprint: fullScopedFingerprint } = loadSessionMcpConfig({
           workspaceDir: params.workspaceDir,
@@ -174,6 +177,7 @@ export function createSessionMcpRuntimeManager(
             safeServerNamesByServer,
             fullScopedFingerprint,
             requesterSenderId,
+            agentId,
             agentAccountId: params.agentAccountId,
             messageChannel: params.messageChannel,
             requesterScope,
@@ -225,7 +229,8 @@ export function createSessionMcpRuntimeManager(
         store.sessionIdBySessionKey.set(params.sessionKey, params.sessionId);
       }
       const requesterSenderId = normalizeOptionalString(params.requesterSenderId);
-      if (!requesterSenderId) {
+      const agentId = normalizeOptionalString(params.agentId);
+      if (!requesterSenderId && !agentId) {
         return undefined;
       }
       const fullConfig = loadSessionMcpConfig({
@@ -246,7 +251,8 @@ export function createSessionMcpRuntimeManager(
       );
       const scopedNameSet = new Set(requesterScopedServerNames);
       const requesterScope: SessionMcpRequesterScope = {
-        requesterSenderId,
+        ...(requesterSenderId ? { requesterSenderId } : {}),
+        ...(agentId ? { agentId } : {}),
         ...(normalizeOptionalString(params.agentAccountId)
           ? { agentAccountId: normalizeOptionalString(params.agentAccountId) }
           : {}),
@@ -259,6 +265,7 @@ export function createSessionMcpRuntimeManager(
         messageChannel: params.messageChannel,
         agentAccountId: params.agentAccountId,
         requesterSenderId,
+        agentId,
       });
       const { fingerprint: fullScopedFingerprint } = loadSessionMcpConfig({
         workspaceDir: params.workspaceDir,
@@ -285,6 +292,7 @@ export function createSessionMcpRuntimeManager(
           safeServerNamesByServer,
           fullScopedFingerprint,
           requesterSenderId,
+          agentId,
           agentAccountId: params.agentAccountId,
           messageChannel: params.messageChannel,
           requesterScope,
@@ -312,6 +320,35 @@ export function createSessionMcpRuntimeManager(
     },
     async disposeSession(sessionId) {
       await lifecycle.disposeManagedSession(sessionId);
+    },
+    async disposeAgentScoped(agentId) {
+      const candidateKeys = new Set([
+        ...store.runtimesBySessionId.keys(),
+        ...store.createInFlight.keys(),
+        ...store.requesterWorkChains.keys(),
+      ]);
+      const matchingKeys = [...candidateKeys].filter((runtimeKey) => {
+        const runtime = store.runtimesBySessionId.get(runtimeKey);
+        if (runtime?.requesterScope?.agentId === agentId) {
+          return true;
+        }
+        if (!runtimeKey.startsWith("{")) {
+          return false;
+        }
+        try {
+          return (JSON.parse(runtimeKey) as { agentId?: unknown }).agentId === agentId;
+        } catch {
+          return false;
+        }
+      });
+      await Promise.all(
+        matchingKeys.map((runtimeKey) =>
+          lifecycle.runExclusiveOnRuntimeKey(runtimeKey, () =>
+            lifecycle.disposeRuntimeKeyNow(runtimeKey),
+          ),
+        ),
+      );
+      return matchingKeys.length;
     },
     deferRetirement(sessionId, retirementOpts) {
       if (retirementOpts?.retainAcrossReuse === true) {

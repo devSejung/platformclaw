@@ -701,6 +701,10 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/platformclaw-execution/**"
+"extensions: platformclaw-user-mcp":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/platformclaw-user-mcp/**"
 "extensions: parallel":
   - changed-files:
       - any-glob-to-any-file:

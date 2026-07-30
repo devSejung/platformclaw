@@ -93,6 +93,7 @@ export async function prepareEmbeddedAttemptBundleTools(params: {
         // or the triggering run's sender on follow-ups). Cron/subagent/heartbeat runs
         // leave it unset, so requester-scoped MCP stays fail-closed for those paths.
         requesterSenderId: params.attempt.senderId,
+        agentId: params.sessionAgentId,
         agentAccountId: params.attempt.agentAccountId,
         messageChannel: params.attempt.messageChannel ?? params.attempt.messageProvider,
         toolOverrides: params.attempt.toolOverrides,

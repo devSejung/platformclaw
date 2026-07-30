@@ -126,6 +126,7 @@ export function validateManagedConfig(config, sandboxImage) {
   const plugins = config?.plugins?.entries;
   requirePolicy(plugins?.["admin-http-rpc"]?.enabled === true);
   requirePolicy(plugins?.["platformclaw-execution"]?.enabled === true);
+  requirePolicy(plugins?.["platformclaw-user-mcp"]?.enabled === true);
 }
 
 async function main() {

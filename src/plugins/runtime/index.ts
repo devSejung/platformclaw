@@ -61,6 +61,16 @@ function createRuntimeGateway(): PluginRuntime["gateway"] {
   };
 }
 
+function createRuntimeMcp(): PluginRuntime["mcp"] {
+  const disposeAgentConnections = createLazyRuntimeMethod(
+    () => import("../../agents/agent-bundle-mcp-manager-api.js"),
+    (runtime) => runtime.disposeAgentScopedMcpRuntimes,
+  );
+  return {
+    disposeAgentConnections: async ({ agentId }) => await disposeAgentConnections(agentId),
+  };
+}
+
 function createRuntimeTts(): PluginRuntime["tts"] {
   const bindTtsRuntime = createLazyRuntimeMethodBinder(loadTtsRuntime);
   const bindTtsRequestRuntime = createLazyRuntimeMethodBinder(loadTtsRequestRuntime);
@@ -314,6 +324,7 @@ export function createPluginRuntime(_options: CreatePluginRuntimeOptions = {}): 
     // Sourced from the shared OpenClaw version resolver (#52899) so plugins
     // always see the same version the CLI reports, avoiding API-version drift.
     version: VERSION,
+    mcp: createRuntimeMcp(),
     gateway: createRuntimeGateway(),
     config: createRuntimeConfig(),
     agent,

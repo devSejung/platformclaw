@@ -3034,6 +3034,55 @@ describe("requester-scoped MCP connection resolution", () => {
     await manager.disposeAll();
   });
 
+  it("disposes only requester-scoped runtimes owned by the revoked agent", async () => {
+    const { testing: resolverTesting } = await import("./mcp-connection-resolver.js");
+    resolverTesting.setMcpServerConnectionResolversForTest([
+      {
+        serverName: "user-mail",
+        resolve: async () => null,
+        resolveForAgent: async ({ agentId }) => ({
+          url: `https://mcp.example.test/${agentId}`,
+          headers: { Authorization: `Bearer ${agentId}` },
+        }),
+      },
+    ]);
+
+    const disposed: string[] = [];
+    const createRuntime: RuntimeFactory = (params) => ({
+      ...makeRuntime([{ toolName: "probe", description: "probe" }]),
+      sessionId: params.sessionId,
+      workspaceDir: params.workspaceDir,
+      configFingerprint: params.configFingerprint ?? "fingerprint",
+      requesterScope: params.requesterScope,
+      dispose: async () => {
+        disposed.push(params.requesterScope?.agentId ?? "static");
+      },
+    });
+    const manager = testing.createSessionMcpRuntimeManager({ createRuntime });
+    const cfg = {
+      mcp: { servers: { "user-mail": { transport: "streamable-http" } } },
+    };
+
+    for (const agentId of ["agent-a", "agent-b"]) {
+      await manager.getOrCreate({
+        sessionId: "session-agent-revoke",
+        workspaceDir: "/workspace",
+        cfg: cfg as never,
+        agentId,
+      });
+    }
+
+    await expect(manager.disposeAgentScoped("agent-a")).resolves.toBe(1);
+    expect(disposed).toEqual(["agent-a"]);
+    expect(manager.listRuntimeKeys().some((key) => key.includes('"agentId":"agent-a"'))).toBe(
+      false,
+    );
+    expect(manager.listRuntimeKeys().some((key) => key.includes('"agentId":"agent-b"'))).toBe(true);
+
+    await manager.disposeAll();
+    expect(disposed).toEqual(expect.arrayContaining(["agent-a", "agent-b"]));
+  });
+
   it("keeps the tools.effective config summary in fingerprint parity with the peeked runtime", async () => {
     const { testing: resolverTesting } = await import("./mcp-connection-resolver.js");
     const { resolveSessionMcpConfigSummary } = await import("./agent-bundle-mcp-tools.js");
@@ -4005,6 +4054,62 @@ describe("requester-scoped MCP connection resolution", () => {
     expect(resolveCalls).toBe(3);
     expect(createCount).toBe(3);
 
+    await manager.disposeAll();
+  });
+
+  it("retires expiring requester credentials before their deadline and resolves again", async () => {
+    let nowMs = Date.now();
+    let expiresAt = nowMs + 30_000;
+    let resolveCalls = 0;
+    const created: string[] = [];
+    const disposed: string[] = [];
+    const { testing: resolverTesting } = await import("./mcp-connection-resolver.js");
+    resolverTesting.setMcpServerConnectionResolversForTest([
+      {
+        serverName: "user-mail",
+        resolve: async () => {
+          resolveCalls += 1;
+          return { url: "https://mcp.example.test/user", expiresAt };
+        },
+      },
+    ]);
+    const manager = testing.createSessionMcpRuntimeManager({
+      now: () => nowMs,
+      enableIdleSweepTimer: false,
+      createRuntime: (params) => {
+        created.push(params.requesterScope ? "scoped" : "static");
+        return {
+          ...makeRuntime([{ toolName: "probe", description: "probe" }]),
+          sessionId: params.sessionId,
+          workspaceDir: params.workspaceDir,
+          configFingerprint: params.configFingerprint ?? "fingerprint",
+          requesterScope: params.requesterScope,
+          dispose: async () => {
+            disposed.push(params.requesterScope ? "scoped" : "static");
+          },
+        };
+      },
+    });
+    const request = {
+      sessionId: "session-expiring",
+      workspaceDir: "/workspace",
+      cfg: { mcp: { servers: { "user-mail": { transport: "streamable-http" } } } } as never,
+      requesterSenderId: "sender-a",
+    };
+
+    await manager.getOrCreate(request);
+    expect(created).toEqual(["static"]);
+
+    expiresAt = nowMs + 90_000;
+    await manager.getOrCreate(request);
+    expect(created).toEqual(["static", "scoped"]);
+    nowMs += 31_000;
+    await expect(manager.sweepIdleRuntimes()).resolves.toBe(1);
+    expect(disposed).toContain("scoped");
+
+    expiresAt = nowMs + 3_600_000;
+    await manager.getOrCreate(request);
+    expect(resolveCalls).toBe(3);
     await manager.disposeAll();
   });
 

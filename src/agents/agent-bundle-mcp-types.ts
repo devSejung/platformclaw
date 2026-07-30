@@ -83,7 +83,9 @@ export type McpRequestOptions = {
 
 /** Trusted requester identity used to scope per-user MCP connections. */
 export type SessionMcpRequesterScope = {
-  requesterSenderId: string;
+  requesterSenderId?: string;
+  /** Host-selected agent identity; never accepted from tool or model input. */
+  agentId?: string;
   agentAccountId?: string;
   messageChannel?: string;
 };
@@ -141,6 +143,7 @@ export type SessionMcpRuntimeManager = {
     manifestRegistry?: Pick<PluginManifestRegistry, "plugins">;
     /** Trusted sender id; required to materialize requester-scoped MCP servers. */
     requesterSenderId?: string | null;
+    agentId?: string | null;
     agentAccountId?: string | null;
     messageChannel?: string | null;
     toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
@@ -157,6 +160,7 @@ export type SessionMcpRuntimeManager = {
     cfg?: OpenClawConfig;
     manifestRegistry?: Pick<PluginManifestRegistry, "plugins">;
     requesterSenderId?: string | null;
+    agentId?: string | null;
     agentAccountId?: string | null;
     messageChannel?: string | null;
     toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
@@ -175,6 +179,8 @@ export type SessionMcpRuntimeManager = {
     sessionKey?: string;
   }) => SessionMcpRuntime | undefined;
   disposeSession: (sessionId: string) => Promise<void>;
+  /** Immediately revokes every requester-scoped runtime owned by one agent. */
+  disposeAgentScoped: (agentId: string) => Promise<number>;
   /** Required retirement stays armed when a stopping run creates or reuses a runtime. */
   deferRetirement: (sessionId: string, opts?: { retainAcrossReuse?: boolean }) => boolean;
   completeDeferredRetirement: (sessionId: string, runtime?: SessionMcpRuntime) => Promise<boolean>;
