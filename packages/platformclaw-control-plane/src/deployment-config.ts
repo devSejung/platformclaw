@@ -99,14 +99,9 @@ function parsePort(raw: string | undefined, name: string, defaultPort: number): 
 }
 
 function readServiceToken(filePath: string, envName: string): string {
-  const token = readDeploymentSecret(
-    filePath,
-    envName,
-  );
+  const token = readDeploymentSecret(filePath, envName);
   if (Buffer.byteLength(token, "utf8") < 32 || Buffer.byteLength(token, "utf8") > 512) {
-    throw new Error(
-      `${envName} must contain 32 to 512 bytes`,
-    );
+    throw new Error(`${envName} must contain 32 to 512 bytes`);
   }
   return token;
 }

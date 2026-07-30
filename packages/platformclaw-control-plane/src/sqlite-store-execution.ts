@@ -21,7 +21,6 @@ import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
 import { required } from "./sqlite-store-core.js";
 import { readVmAdministrationSnapshot } from "./sqlite-store-execution-admin.js";
-import { SqliteControlPlaneExecutionTargetStore } from "./sqlite-store-execution-target.js";
 import {
   rowToAllocation,
   rowToEndpoint,
@@ -29,6 +28,7 @@ import {
   rowToVmHost,
 } from "./sqlite-store-execution-mappers.js";
 import { hasCompleteAssignedVmExecutionFields } from "./sqlite-store-execution-readiness.js";
+import { SqliteControlPlaneExecutionTargetStore } from "./sqlite-store-execution-target.js";
 import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlite-store-types.js";
 
 export abstract class SqliteControlPlaneExecutionStore

@@ -3,8 +3,8 @@ import {
   isRequestBodyLimitError,
   readRequestBodyWithLimit,
 } from "openclaw/plugin-sdk/webhook-ingress";
-import { normalizeKnoxInbound } from "./normalize.js";
 import type { createKnoxIngress } from "./ingress.js";
+import { normalizeKnoxInbound } from "./normalize.js";
 import type { ResolvedKnoxAccount } from "./types.js";
 import { verifyKnoxWebhook } from "./webhook-auth.js";
 

@@ -1,8 +1,4 @@
-import type {
-  ControlPlaneStore,
-  KnoxRoomAgentBinding,
-  PlatformUser,
-} from "./contracts.js";
+import type { ControlPlaneStore, KnoxRoomAgentBinding, PlatformUser } from "./contracts.js";
 
 export interface KnoxRoomAgentProvisioner {
   provision(binding: KnoxRoomAgentBinding): Promise<void>;

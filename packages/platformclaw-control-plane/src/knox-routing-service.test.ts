@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ControlPlaneIdFactory, EnterprisePrincipal } from "./contracts.js";
-import { InMemoryControlPlaneStore } from "./memory-store.js";
 import { KnoxRoutingService } from "./knox-routing-service.js";
+import { InMemoryControlPlaneStore } from "./memory-store.js";
 
 function createStore() {
   let id = 0;
@@ -31,7 +31,11 @@ describe("KnoxRoutingService", () => {
     const store = createStore();
     const { user } = await store.upsertPrincipal(principal, 1_000);
     const reserved = await store.reservePersonalAgent(user.id, 2_000);
-    await store.transitionAgent({ bindingId: reserved.binding.id, state: "active", changedAt: 3_000 });
+    await store.transitionAgent({
+      bindingId: reserved.binding.id,
+      state: "active",
+      changedAt: 3_000,
+    });
     const service = new KnoxRoutingService({
       store,
       roomProvisioner: { provision: vi.fn() },

@@ -1,6 +1,6 @@
 import type { KnoxRoomAgentBinding } from "./contracts.js";
-import { GatewayAgentRegistrar } from "./gateway-agent-registrar.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
+import { GatewayAgentRegistrar } from "./gateway-agent-registrar.js";
 import type { KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
 
 export class GatewayKnoxRoomAgentProvisioner implements KnoxRoomAgentProvisioner {

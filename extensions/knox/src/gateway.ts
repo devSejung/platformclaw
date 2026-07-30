@@ -1,9 +1,9 @@
-import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { waitUntilAbort } from "openclaw/plugin-sdk/channel-outbound";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { registerPluginHttpRoute } from "openclaw/plugin-sdk/webhook-ingress";
 import { resolveKnoxAccount } from "./accounts.js";
-import { createKnoxIngress } from "./ingress.js";
 import { dispatchKnoxInbound } from "./inbound.js";
+import { createKnoxIngress } from "./ingress.js";
 import { createKnoxWebhookHandler } from "./webhook-handler.js";
 
 export async function startKnoxGatewayAccount(ctx: {

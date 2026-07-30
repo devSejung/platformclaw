@@ -3,8 +3,8 @@ import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
 import type { PlatformClawDeploymentConfig } from "./deployment-config.js";
 import { HttpGatewayAdminRpcClient } from "./gateway-admin-rpc-client.js";
 import { loadGatewayServiceIdentity } from "./gateway-service-identity.js";
-import { GatewayPersonalAgentProvisioner } from "./personal-agent-provisioner.js";
 import { GatewayKnoxRoomAgentProvisioner } from "./knox-room-agent-provisioner.js";
+import { GatewayPersonalAgentProvisioner } from "./personal-agent-provisioner.js";
 import {
   createPlatformClawWebIngressRuntime,
   type PlatformClawWebIngressRuntime,

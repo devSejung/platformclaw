@@ -143,8 +143,7 @@ export const knoxPlugin: ChannelPlugin<ResolvedKnoxAccount> = createChatChannelP
         const parsed = parseKnoxTarget(unprefixed);
         return parsed ? `${parsed.type}:${parsed.conversationId}` : undefined;
       },
-      inferTargetChatType: ({ to }) =>
-        parseKnoxTarget(to)?.type === "room" ? "group" : "direct",
+      inferTargetChatType: ({ to }) => (parseKnoxTarget(to)?.type === "room" ? "group" : "direct"),
       targetResolver: {
         looksLikeId: (id) => parseKnoxTarget(id) !== null,
         hint: "<dm:chatroomId|room:chatroomId>",

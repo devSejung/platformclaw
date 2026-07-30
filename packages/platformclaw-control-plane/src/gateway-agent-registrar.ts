@@ -46,7 +46,11 @@ export class GatewayAgentRegistrar {
   }
 
   workspaceForAgent(agentId: string): string {
-    if (agentId !== agentId.trim() || !isValidAgentId(agentId) || agentId !== agentId.toLowerCase()) {
+    if (
+      agentId !== agentId.trim() ||
+      !isValidAgentId(agentId) ||
+      agentId !== agentId.toLowerCase()
+    ) {
       throw new Error(`invalid agent id: ${agentId}`);
     }
     const workspace = path.resolve(this.workspaceRoot, agentId);

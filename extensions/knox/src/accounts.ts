@@ -1,9 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createAccountListHelpers } from "openclaw/plugin-sdk/account-helpers";
-import {
-  DEFAULT_ACCOUNT_ID,
-  type OpenClawConfig,
-} from "openclaw/plugin-sdk/account-resolution";
+import { DEFAULT_ACCOUNT_ID, type OpenClawConfig } from "openclaw/plugin-sdk/account-resolution";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { KnoxChannelConfig, ResolvedKnoxAccount } from "./types.js";
 
@@ -110,9 +107,9 @@ export function resolveKnoxAccount(
   };
   resolved.configured = Boolean(
     resolved.webhookSecret &&
-      resolved.outboundUrl &&
-      resolved.serviceToken &&
-      resolved.controlPlaneUrl,
+    resolved.outboundUrl &&
+    resolved.serviceToken &&
+    resolved.controlPlaneUrl,
   );
   return resolved;
 }

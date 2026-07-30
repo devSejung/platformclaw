@@ -35,12 +35,15 @@ function strictIdentifier(value: unknown): string | undefined {
 }
 
 function messageText(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === "string" && Boolean(value.trim()));
+  return values.find(
+    (value): value is string => typeof value === "string" && Boolean(value.trim()),
+  );
 }
 
 function isCanonicalUtcTimestamp(value: string): boolean {
-  const match =
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]00:00)$/u.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]00:00)$/u.exec(
+    value,
+  );
   if (!match) {
     return false;
   }
@@ -112,9 +115,11 @@ export function normalizeKnoxInbound(value: unknown): KnoxInboundMessage {
   const body = versioned
     ? messageText(message?.text)
     : messageText(message?.text, root?.text, root?.chatMsg);
-  const messageType = text(message?.type, ...(versioned ? [] : [root?.msgType]))?.toLowerCase() ??
+  const messageType =
+    text(message?.type, ...(versioned ? [] : [root?.msgType]))?.toLowerCase() ??
     (versioned ? undefined : "text");
-  const eventId = (versioned ? strictIdentifier(root?.eventId) : identifier(root?.eventId)) ??
+  const eventId =
+    (versioned ? strictIdentifier(root?.eventId) : identifier(root?.eventId)) ??
     (!versioned && conversationId && messageId ? `${conversationId}:${messageId}` : undefined);
   const sentTime = typeof root?.sentTime === "number" ? root.sentTime : undefined;
   const occurredAt =

@@ -46,15 +46,18 @@ describe("handlePlatformClawKnoxIngressProxy", () => {
       throw new Error("test server did not bind TCP");
     }
 
-    const response = await fetch(`http://127.0.0.1:${address.port}${PLATFORMCLAW_KNOX_INBOUND_PATH}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-platformclaw-timestamp": "1785456000000",
-        "x-platformclaw-signature": `sha256=${"a".repeat(64)}`,
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}${PLATFORMCLAW_KNOX_INBOUND_PATH}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-platformclaw-timestamp": "1785456000000",
+          "x-platformclaw-signature": `sha256=${"a".repeat(64)}`,
+        },
+        body: '{"text":"hello"}',
       },
-      body: '{"text":"hello"}',
-    });
+    );
 
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({ ok: true });
@@ -77,11 +80,14 @@ describe("handlePlatformClawKnoxIngressProxy", () => {
       throw new Error("test server did not bind TCP");
     }
 
-    const response = await fetch(`http://127.0.0.1:${address.port}${PLATFORMCLAW_KNOX_INBOUND_PATH}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}${PLATFORMCLAW_KNOX_INBOUND_PATH}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({

@@ -13,7 +13,6 @@ import {
 import { EmployeeMcpService } from "./browser-mcp-http.js";
 import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
-import { KnoxRoutingService, type KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
 import {
   deriveExecutionHandoffAddress,
   PlatformClawExecutionHandoffServer,
@@ -24,6 +23,7 @@ import {
   PlatformClawGatewayRuntimeClient,
   type PlatformClawGatewayRuntimeClientOptions,
 } from "./gateway-runtime-client.js";
+import { KnoxRoutingService, type KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
 import {
   AgentRestartReconciler,
   type PersonalAgentRestartRecoveryProbe,

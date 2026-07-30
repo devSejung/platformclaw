@@ -68,8 +68,7 @@ export async function sendKnoxOutbound(params: {
         final: params.final,
         errorCode: params.status === "error" ? "AGENT_ERROR" : null,
         errorMessage: params.status === "error" ? params.text : null,
-        senderDisplayName:
-          inbound.conversation.type === "room" ? inbound.sender.displayName : null,
+        senderDisplayName: inbound.conversation.type === "room" ? inbound.sender.displayName : null,
       }),
     });
   } catch (error) {
@@ -94,17 +93,16 @@ export async function sendKnoxOutbound(params: {
   } catch {
     body = null;
   }
-  const record = body && typeof body === "object" && !Array.isArray(body)
-    ? (body as Record<string, unknown>)
-    : undefined;
+  const record =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : undefined;
   if (record?.errorCode === "DUPLICATE_MESSAGE") {
     return typeof record.messageId === "string" ? record.messageId : chatMsgId;
   }
   if (!response.ok || record?.ok === false) {
     const retryable =
-      response.status === 429 ||
-      response.status >= 500 ||
-      record?.retryable === true;
+      response.status === 429 || response.status >= 500 || record?.retryable === true;
     throw new KnoxOutboundError(
       typeof record?.message === "string"
         ? record.message

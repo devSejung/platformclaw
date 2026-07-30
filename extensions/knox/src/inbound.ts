@@ -6,8 +6,8 @@ import {
   sendKnoxOutbound,
   type KnoxOutboundContext,
 } from "./outbound.js";
-import { getKnoxRuntime } from "./runtime.js";
 import { KnoxRoutingClient } from "./routing-client.js";
+import { getKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 
 function isRuntimeTimeout(error: unknown): boolean {
@@ -95,8 +95,7 @@ export async function dispatchKnoxInbound(params: {
     conversation: {
       kind: params.message.conversation.type === "dm" ? "direct" : "group",
       id: params.message.conversation.conversationId,
-      label:
-        params.message.conversation.displayName ?? params.message.conversation.conversationId,
+      label: params.message.conversation.displayName ?? params.message.conversation.conversationId,
       nativeChannelId: params.message.conversation.conversationId,
     },
     route: {

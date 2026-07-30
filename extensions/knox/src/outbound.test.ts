@@ -69,11 +69,12 @@ describe("sendKnoxOutbound", () => {
   });
 
   it("treats a CDEP idempotency hit as delivered", async () => {
-    const fetchImpl = vi.fn(async () =>
-      new Response(JSON.stringify({ ok: false, errorCode: "DUPLICATE_MESSAGE" }), {
-        status: 409,
-        headers: { "Content-Type": "application/json" },
-      }),
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: false, errorCode: "DUPLICATE_MESSAGE" }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        }),
     );
     await expect(
       sendKnoxOutbound({

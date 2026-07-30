@@ -105,9 +105,7 @@ export async function handlePlatformClawKnoxIngressProxy(
       throw new Error("response_too_large");
     }
     const responseBody = await readResponse(upstream);
-    const forwardedStatus = new Set([200, 202, 400, 401, 405, 413, 415, 503]).has(
-      upstream.status,
-    )
+    const forwardedStatus = new Set([200, 202, 400, 401, 405, 413, 415, 503]).has(upstream.status)
       ? upstream.status
       : 503;
     res.statusCode = forwardedStatus;

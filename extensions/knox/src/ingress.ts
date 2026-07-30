@@ -4,8 +4,8 @@ import {
   type ChannelIngressQueue,
   type ChannelIngressMonitorLifecycle,
 } from "openclaw/plugin-sdk/channel-outbound";
-import { getKnoxRuntime } from "./runtime.js";
 import { KnoxOutboundError } from "./outbound.js";
+import { getKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage } from "./types.js";
 
 const VERSION = 1;
@@ -71,7 +71,7 @@ export function createKnoxIngress(options: {
           ? { reason: error.reason, message: error.message }
           : error instanceof KnoxOutboundError && !error.retryable
             ? { reason: "outbound-rejected", message: error.message }
-          : null,
+            : null,
       onLog: (message) => options.log?.(`knox: ${message}`),
     },
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),

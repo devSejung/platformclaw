@@ -7,8 +7,8 @@ import type {
 import type { PersonalAgentBinding, PlatformUser } from "./contracts.js";
 import type { EmployeeDirectoryProfile } from "./employee-auth-client.js";
 import { renderEmployeeProfileArtifact } from "./employee-profile-artifact.js";
-import { GatewayAgentRegistrar } from "./gateway-agent-registrar.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
+import { GatewayAgentRegistrar } from "./gateway-agent-registrar.js";
 
 type ProfileSeedResult = {
   ok: true;
@@ -80,7 +80,11 @@ export class GatewayPersonalAgentProvisioner implements PersonalAgentProvisioner
   }
 
   private requirePersonalAgentId(agentId: string): void {
-    if (agentId !== agentId.trim() || !isValidAgentId(agentId) || agentId !== agentId.toLowerCase()) {
+    if (
+      agentId !== agentId.trim() ||
+      !isValidAgentId(agentId) ||
+      agentId !== agentId.toLowerCase()
+    ) {
       throw new Error(`invalid personal agent id: ${agentId}`);
     }
   }

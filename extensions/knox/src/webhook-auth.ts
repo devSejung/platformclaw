@@ -33,5 +33,7 @@ export function verifyKnoxWebhook(params: {
     .digest("hex");
   const actualBuffer = Buffer.from(signature.slice("sha256=".length), "hex");
   const expectedBuffer = Buffer.from(expected, "hex");
-  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+  return (
+    actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer)
+  );
 }
