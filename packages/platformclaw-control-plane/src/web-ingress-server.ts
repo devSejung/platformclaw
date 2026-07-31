@@ -64,6 +64,7 @@ const MUTATING_BROWSER_METHODS = new Set([
   "chat.send",
   "sessions.abort",
   "sessions.create",
+  "sessions.delete",
   "sessions.observer.visibility",
   "sessions.patch",
 ]);

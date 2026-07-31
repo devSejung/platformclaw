@@ -153,9 +153,6 @@ describe("BrowserGatewayProxy", () => {
       proxy.request(token, "sessions.messages.subscribe", { key, includeApprovals: true }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     await expect(
-      proxy.request(token, "sessions.patch", { key, archived: true }),
-    ).rejects.toMatchObject({ code: "method-not-allowed" });
-    await expect(
       proxy.request(token, "sessions.create", { key, model: "company/qwen@operator" }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     expect(request).not.toHaveBeenCalled();

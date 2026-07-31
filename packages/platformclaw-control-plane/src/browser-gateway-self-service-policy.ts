@@ -73,6 +73,14 @@ export function prepareBrowserSelfServiceRequest(
     delete scoped.agentScope;
     return scoped;
   }
+  if (method === "sessions.delete") {
+    input.assertOptionalAgentId(params.agentId);
+    input.assertOwnedSessionKey(params.key, "key");
+    if (params.archivedOnly !== true) {
+      return input.deny("Browser users must archive a session before deleting it");
+    }
+    return { ...params, agentId };
+  }
   if (method === "skills.install") {
     input.assertOptionalAgentId(params.agentId);
     if (params.source !== "clawhub") {
