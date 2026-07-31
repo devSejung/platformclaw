@@ -521,7 +521,9 @@ describe("PlatformClawWebIngressServer", () => {
     );
     await nextFrame((frame) => isRecord(frame) && frame.id === "connect-order");
     websocket.send(JSON.stringify({ type: "req", id: "send-1", method: "chat.send", params: {} }));
-    websocket.send(JSON.stringify({ type: "req", id: "send-2", method: "chat.send", params: {} }));
+    websocket.send(
+      JSON.stringify({ type: "req", id: "delete-2", method: "sessions.delete", params: {} }),
+    );
     websocket.send(
       JSON.stringify({ type: "req", id: "read-after", method: "agents.list", params: {} }),
     );
@@ -531,7 +533,7 @@ describe("PlatformClawWebIngressServer", () => {
     await nextFrame((frame) => isRecord(frame) && frame.id === "read-after");
     expect(request.mock.calls.map((call) => call[1])).toEqual([
       "chat.send",
-      "chat.send",
+      "sessions.delete",
       "agents.list",
     ]);
   });

@@ -36,6 +36,7 @@ import {
   projectBrowserAgentSummary,
   projectBrowserModelChoice,
 } from "./browser-gateway-projections.js";
+import { projectBrowserSessionResult } from "./browser-gateway-session-projections.js";
 export {
   PLATFORMCLAW_WEB_GATEWAY_METHODS,
   type PlatformClawWebGatewayMethod,
@@ -487,6 +488,20 @@ export class BrowserGatewayProxy {
     if (method.startsWith("cron.")) {
       return projectCronResult(this.browserCronContext(access), method, result);
     }
+    const sessionResult = projectBrowserSessionResult({
+      method,
+      prepared,
+      result,
+      assertOwnedResultSessionKey: (value) =>
+        this.assertions.ownedResultSessionKey(access.binding.agentId, value),
+      payloadBelongsToAccess: (value) => this.payloadBelongsToAccess(access, value),
+      fail: (message) => {
+        throw new BrowserGatewayProxyError("upstream-result-denied", message);
+      },
+    });
+    if (sessionResult !== undefined) {
+      return sessionResult;
+    }
     if (method === "tasks.list" || method === "tasks.get" || method === "tasks.cancel") {
       return projectBrowserTaskResult({
         access: this.browserTaskAccess(access),
@@ -638,27 +653,6 @@ export class BrowserGatewayProxy {
       }
       this.assertions.ownedResultSessionKey(access.binding.agentId, payload.key);
       return { ok: true, key: payload.key };
-    }
-    if (method === "sessions.patch") {
-      const payload = asObject(result, "sessions.patch result");
-      if (payload.ok !== true) {
-        throw new BrowserGatewayProxyError(
-          "upstream-result-denied",
-          "Gateway returned an invalid session patch result",
-        );
-      }
-      this.assertions.ownedResultSessionKey(access.binding.agentId, prepared.key);
-      return { ok: true, key: prepared.key };
-    }
-    if (method === "sessions.describe") {
-      const payload = asObject(result, "sessions.describe result");
-      if (payload.session !== null && !this.payloadBelongsToAccess(access, payload.session)) {
-        throw new BrowserGatewayProxyError(
-          "upstream-result-denied",
-          "Gateway returned a session outside the browser binding",
-        );
-      }
-      return payload;
     }
     return result;
   }

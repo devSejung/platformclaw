@@ -28,6 +28,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "plugins.uninstall",
   "sessions.abort",
   "sessions.create",
+  "sessions.delete",
   "sessions.describe",
   "sessions.list",
   "sessions.messages.subscribe",
@@ -185,6 +186,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "attachments",
     ]),
   ],
+  ["sessions.delete", new Set(["key", "agentId", "deleteTranscript", "archivedOnly"])],
   ["sessions.describe", new Set(["key", "includeDerivedTitles", "includeLastMessage"])],
   [
     "sessions.list",
@@ -218,6 +220,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "label",
       "category",
       "icon",
+      "archived",
       "pinned",
       "unread",
       "thinkingLevel",
