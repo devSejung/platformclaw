@@ -988,7 +988,9 @@ function renderEditor(props: CronProps, mode: CronPanelMode) {
     props.form.sessionTarget !== "main" &&
     (props.form.payloadKind === "agentTurn" || payloadLocked);
   const selectedDeliveryMode = props.personalAccess
-    ? "none"
+    ? supportsAnnounce && props.form.deliveryMode === "announce"
+      ? "announce"
+      : "none"
     : props.form.deliveryMode === "announce" && !supportsAnnounce
       ? "none"
       : props.form.deliveryMode;
@@ -1009,7 +1011,10 @@ function renderEditor(props: CronProps, mode: CronPanelMode) {
       ${renderPromptSection(props, { payloadLocked, isAgentTurn })} ${renderGeneralSection(props)}
       ${renderScheduleSection(props)}
       ${props.personalAccess
-        ? nothing
+        ? renderPersonalDeliverySection(props, {
+            supportsAnnounce,
+            selectedDeliveryMode,
+          })
         : renderDeliverySection(props, { supportsAnnounce, selectedDeliveryMode })}
       ${renderAdvanced(props, {
         mode,
@@ -1198,26 +1203,59 @@ function renderPromptSection(
           </select>
         `,
   });
+  const currentModel = props.form.payloadModel.trim();
+  const currentModelOutsideCatalog =
+    props.personalAccess && currentModel !== "" && !props.modelSuggestions.includes(currentModel);
   const agentTurnRows = ctx.isAgentTurn
     ? html`
         ${renderFieldRow({
           label: t("cron.form.model"),
           controlId: "cron-payload-model",
-          help: t("cron.form.modelHelp"),
+          help: props.personalAccess ? undefined : t("cron.form.modelHelp"),
           error: props.fieldErrors.payloadModel,
           errorId: errorIdForField("payloadModel"),
-          control: html`
-            <input
-              id="cron-payload-model"
-              class="settings-input"
-              .value=${props.form.payloadModel}
-              list="cron-model-suggestions"
-              placeholder=${t("cron.form.modelPlaceholder")}
-              aria-invalid=${props.fieldErrors.payloadModel ? "true" : "false"}
-              @input=${(e: Event) =>
-                props.onFormChange({ payloadModel: (e.target as HTMLInputElement).value })}
-            />
-          `,
+          control: props.personalAccess
+            ? html`
+                <div>
+                  <select
+                    id="cron-payload-model"
+                    class="settings-select"
+                    .value=${props.form.payloadModel}
+                    aria-invalid=${props.fieldErrors.payloadModel ? "true" : "false"}
+                    @change=${(e: Event) =>
+                      props.onFormChange({
+                        payloadModel: (e.target as HTMLSelectElement).value,
+                      })}
+                  >
+                    <option value="" ?selected=${currentModel === ""}>
+                      ${t("chat.modelControls.useDefault")}
+                    </option>
+                    ${currentModelOutsideCatalog
+                      ? html`<option value=${currentModel} selected>
+                          ${currentModel} — ${t("cron.form.modelCurrentSelection")}
+                        </option>`
+                      : nothing}
+                    ${props.modelSuggestions.map(
+                      (model) =>
+                        html`<option value=${model} ?selected=${model === currentModel}>
+                          ${model}
+                        </option>`,
+                    )}
+                  </select>
+                </div>
+              `
+            : html`
+                <input
+                  id="cron-payload-model"
+                  class="settings-input"
+                  .value=${props.form.payloadModel}
+                  list="cron-model-suggestions"
+                  placeholder=${t("cron.form.modelPlaceholder")}
+                  aria-invalid=${props.fieldErrors.payloadModel ? "true" : "false"}
+                  @input=${(e: Event) =>
+                    props.onFormChange({ payloadModel: (e.target as HTMLInputElement).value })}
+                />
+              `,
         })}
         ${renderFieldRow({
           label: t("cron.form.thinking"),
@@ -1274,13 +1312,14 @@ function renderGeneralSection(props: CronProps) {
       ${renderFieldRow({
         label: t("cron.form.agentId"),
         controlId: "cron-agent-id",
-        help: t("cron.form.agentHelp"),
+        help: props.personalAccess ? undefined : t("cron.form.agentHelp"),
         control: html`
           <input
             id="cron-agent-id"
             class="settings-input"
             .value=${props.form.agentId}
-            list="cron-agent-suggestions"
+            list=${ifDefined(props.personalAccess ? undefined : "cron-agent-suggestions")}
+            ?readonly=${props.personalAccess}
             ?disabled=${props.form.clearAgent}
             placeholder=${t("cron.form.agentPlaceholder")}
             @input=${(e: Event) =>
@@ -1632,6 +1671,39 @@ function renderDeliverySection(
   );
 }
 
+function renderPersonalDeliverySection(
+  props: CronProps,
+  ctx: {
+    supportsAnnounce: boolean;
+    selectedDeliveryMode: CronFormState["deliveryMode"];
+  },
+) {
+  return renderSettingsSection(
+    { title: t("cron.detail.deliverySection") },
+    renderFieldRow({
+      label: t("cron.form.deliveryModeLabel"),
+      controlId: "cron-delivery-mode",
+      help: t("cron.form.deliveryHelp"),
+      control: html`
+        <select
+          id="cron-delivery-mode"
+          class="settings-select"
+          .value=${ctx.selectedDeliveryMode}
+          @change=${(e: Event) =>
+            props.onFormChange({
+              deliveryMode: (e.target as HTMLSelectElement).value as CronFormState["deliveryMode"],
+            })}
+        >
+          ${ctx.supportsAnnounce
+            ? html`<option value="announce">${t("cron.form.personalAnnounce")}</option>`
+            : nothing}
+          <option value="none">${t("cron.form.noneInternal")}</option>
+        </select>
+      `,
+    }),
+  );
+}
+
 function renderAdvanced(
   props: CronProps,
   ctx: {
@@ -1725,27 +1797,31 @@ function renderAdvanced(
                 onChange: (checked) => props.onFormChange({ deleteAfterRun: checked }),
               })
             : nothing}
-          ${renderToggleRow({
-            label: t("cron.form.clearAgentOverride"),
-            checked: props.form.clearAgent,
-            help: t("cron.form.clearAgentHelp"),
-            onChange: (checked) => props.onFormChange({ clearAgent: checked }),
-          })}
-          ${renderFieldRow({
-            label: t("cron.form.sessionKey"),
-            controlId: "cron-session-key",
-            help: t("cron.form.sessionKeyHelp"),
-            control: html`
-              <input
-                id="cron-session-key"
-                class="settings-input"
-                .value=${props.form.sessionKey}
-                placeholder="agent:main:main"
-                @input=${(e: Event) =>
-                  props.onFormChange({ sessionKey: (e.target as HTMLInputElement).value })}
-              />
-            `,
-          })}
+          ${props.personalAccess
+            ? nothing
+            : html`
+                ${renderToggleRow({
+                  label: t("cron.form.clearAgentOverride"),
+                  checked: props.form.clearAgent,
+                  help: t("cron.form.clearAgentHelp"),
+                  onChange: (checked) => props.onFormChange({ clearAgent: checked }),
+                })}
+                ${renderFieldRow({
+                  label: t("cron.form.sessionKey"),
+                  controlId: "cron-session-key",
+                  help: t("cron.form.sessionKeyHelp"),
+                  control: html`
+                    <input
+                      id="cron-session-key"
+                      class="settings-input"
+                      .value=${props.form.sessionKey}
+                      placeholder="agent:main:main"
+                      @input=${(e: Event) =>
+                        props.onFormChange({ sessionKey: (e.target as HTMLInputElement).value })}
+                    />
+                  `,
+                })}
+              `}
           ${isCronSchedule
             ? html`
                 ${renderToggleRow({

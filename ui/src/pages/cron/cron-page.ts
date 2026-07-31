@@ -1,5 +1,5 @@
 import { consume } from "@lit/context";
-import { html } from "lit";
+import { html, nothing } from "lit";
 import { state } from "lit/decorators.js";
 import type { AgentsListResult, CronJob } from "../../api/types.ts";
 import { titleForRoute } from "../../app-navigation.ts";
@@ -56,7 +56,12 @@ class CronPage extends OpenClawLightDomElement {
   private modelSuggestionsState: CronState | null = null;
   private gatewaySource?: ApplicationContext["gateway"];
   private get canManageCron(): boolean {
-    return readGatewayOperatorAccess(this.context.gateway.snapshot).canAdmin;
+    // Personal-agent mutations are authorized and scoped by the PlatformClaw BFF;
+    // employee browsers intentionally never receive the upstream admin scope.
+    return (
+      this.context.accessMode === "personal-agent" ||
+      readGatewayOperatorAccess(this.context.gateway.snapshot).canAdmin
+    );
   }
 
   private readonly subscriptions = new SubscriptionsController(this)
@@ -324,9 +329,17 @@ class CronPage extends OpenClawLightDomElement {
   private submitForm(options: { runNow?: boolean } = {}) {
     this.runCronAdminTask(async (cronState) => {
       if (this.context.accessMode === "personal-agent") {
+        const form = cronState.cronForm;
+        const supportsAnnounce =
+          form.sessionTarget !== "main" && (form.payloadKind === "agentTurn" || form.payloadLocked);
         cronState.cronForm = normalizeCronFormState({
-          ...cronState.cronForm,
-          deliveryMode: "none",
+          ...form,
+          agentId: resolveSessionNavigationAgentId(this.context),
+          clearAgent: false,
+          deliveryMode: supportsAnnounce && form.deliveryMode === "announce" ? "announce" : "none",
+          deliveryChannel: "last",
+          deliveryTo: "",
+          deliveryAccountId: "",
           failureAlertMode: "disabled",
         });
       }
@@ -385,10 +398,12 @@ class CronPage extends OpenClawLightDomElement {
         <div>
           <div class="page-title">${titleForRoute("cron")}</div>
         </div>
-        ${renderAgentScopeControl({
-          agents: this.agentsList?.agents ?? [],
-          selection: this.context.agentSelection,
-        })}
+        ${this.context.accessMode === "personal-agent"
+          ? nothing
+          : renderAgentScopeControl({
+              agents: this.agentsList?.agents ?? [],
+              selection: this.context.agentSelection,
+            })}
       </section>
       ${renderSettingsWorkspace(
         renderCron({
@@ -434,7 +449,10 @@ class CronPage extends OpenClawLightDomElement {
           fieldErrors: this.cron.cronFieldErrors,
           canSubmit: !hasCronFormErrors(this.cron.cronFieldErrors),
           agentSuggestions: suggestions.agentSuggestions,
-          modelSuggestions: suggestions.modelSuggestions,
+          modelSuggestions:
+            this.context.accessMode === "personal-agent"
+              ? this.cronModelSuggestions
+              : suggestions.modelSuggestions,
           thinkingSuggestions: THINKING_SUGGESTIONS,
           timezoneSuggestions: suggestions.timezoneSuggestions,
           deliveryToSuggestions: suggestions.deliveryToSuggestions,
