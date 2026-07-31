@@ -41,13 +41,13 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 
 function redirectMcpOAuthResult(res: ServerResponse, result: "success" | "error"): void {
   res.statusCode = 302;
-  res.setHeader("Location", `/platformclaw/app/chat?mcpOAuth=${result}`);
+  res.setHeader("Location", `/platformclaw/app/settings/mcp?mcpOAuth=${result}`);
   res.setHeader("Cache-Control", "no-store");
   res.end();
 }
 
 function redirectMcpOAuthLogin(res: ServerResponse): void {
-  const returnTo = "/platformclaw/app/chat?mcpOAuth=error";
+  const returnTo = "/platformclaw/app/settings/mcp?mcpOAuth=error";
   res.statusCode = 302;
   res.setHeader("Location", `/platformclaw/login?returnTo=${encodeURIComponent(returnTo)}`);
   res.setHeader("Cache-Control", "no-store");

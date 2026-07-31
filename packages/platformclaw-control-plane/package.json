@@ -26,6 +26,7 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "@openclaw/gateway-client": "workspace:*",
     "@openclaw/gateway-protocol": "workspace:*",
+    "@openclaw/net-policy": "workspace:*",
     "@openclaw/normalization-core": "workspace:*",
     "kysely": "0.29.4",
     "proper-lockfile": "4.1.2",

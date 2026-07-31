@@ -302,7 +302,7 @@ describe("MCP OAuth browser callback", () => {
       }),
     ).resolves.toBe(true);
     expect(response.statusCode).toBe(302);
-    expect(headers.get("location")).toBe(`/platformclaw/app/chat?mcpOAuth=${result}`);
+    expect(headers.get("location")).toBe(`/platformclaw/app/settings/mcp?mcpOAuth=${result}`);
     expect(headers.get("cache-control")).toBe("no-store");
     expect(cancelOAuth).toHaveBeenCalledTimes(url.includes("error=") ? 1 : 0);
   });
@@ -328,7 +328,7 @@ describe("MCP OAuth browser callback", () => {
 
     expect(response.statusCode).toBe(302);
     expect(headers.get("location")).toBe(
-      "/platformclaw/login?returnTo=%2Fplatformclaw%2Fapp%2Fchat%3FmcpOAuth%3Derror",
+      "/platformclaw/login?returnTo=%2Fplatformclaw%2Fapp%2Fsettings%2Fmcp%3FmcpOAuth%3Derror",
     );
   });
 });

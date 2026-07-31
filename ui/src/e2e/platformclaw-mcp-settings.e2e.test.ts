@@ -108,7 +108,9 @@ describeControlUiE2e("PlatformClaw personal MCP browser settings", () => {
     await page.goto(server.baseUrl);
     await installComponent(page);
     const component = page.locator("platformclaw-mcp-settings");
-    await component.getByRole("button", { name: "MCP connections" }).click();
+    await expect
+      .poll(() => component.getByRole("heading", { name: "Your MCP credentials" }).isVisible())
+      .toBe(true);
     await expect.poll(() => component.getByText("docs", { exact: true }).isVisible()).toBe(true);
     await expect.poll(() => component.getByText("X-Approved-Key").isVisible()).toBe(true);
     await screenshot(page, "01-approved-server.png");

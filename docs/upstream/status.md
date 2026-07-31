@@ -72,6 +72,9 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 - PlatformClaw Web login, authenticated Control UI hosting, fixed same-origin
   Gateway adapter, restricted employee routes, identity/logout shell, and
   Windows mocked-browser proof implemented
+- Discoverable **Settings > MCP** browser surface implemented for
+  administrator server policy and employee personal credentials, with a narrow
+  administrator BFF and post-change Agent runtime invalidation
 - Secret-backed `platformclaw-control` deployment entry point implemented
 
 ## Not Started

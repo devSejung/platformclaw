@@ -61,6 +61,10 @@ export type ApplicationRouter = Router<
 >;
 type AppRoute = PageDefinition<RouteId, ApplicationContext<RouteId>, AppRouteModule>;
 
+export type ApplicationRouteOverride = Partial<
+  Pick<AppRoute, "component" | "loader" | "loaderDeps">
+>;
+
 const APP_ROUTE_TREE = [
   ...chatPages,
   custodianPage,
@@ -103,10 +107,13 @@ export function normalizeEnabledRouteIds(enabledRouteIds: readonly RouteId[]): r
 
 export function createApplicationRouter(
   enabledRouteIds: readonly RouteId[] = APP_ROUTE_IDS,
+  routeOverrides: Readonly<Partial<Record<RouteId, ApplicationRouteOverride>>> = {},
 ): ApplicationRouter {
   const enabled = new Set(normalizeEnabledRouteIds(enabledRouteIds));
   const router = createRouter<RouteId, ApplicationContext<RouteId>, AppRouteModule>({
-    routes: appRoutes.filter((route) => enabled.has(route.id)),
+    routes: appRoutes
+      .filter((route) => enabled.has(route.id))
+      .map((route) => Object.assign({}, route, routeOverrides[route.id])) as readonly AppRoute[],
   });
   // The shared router intentionally matches exact paths only. Workboard ids,
   // hub tabs, and session refs are runtime data, so the app owns those paths.

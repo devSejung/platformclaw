@@ -10,6 +10,7 @@ import {
   MemoryBrowserLoginRateLimiter,
   type MemoryBrowserLoginRateLimiterOptions,
 } from "./browser-login-rate-limiter.js";
+import { McpAdministrationService } from "./browser-mcp-admin-http.js";
 import { EmployeeMcpService } from "./browser-mcp-http.js";
 import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
@@ -168,6 +169,10 @@ export function createPlatformClawWebIngressRuntime(
     adminRpc: options.adminRpc,
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
+  const mcpAdministration = new McpAdministrationService({
+    authService: auth.service,
+    adminRpc: options.adminRpc,
+  });
   const restartReconciler = new AgentRestartReconciler({
     store: auth.store,
     personalAgentProbe: options.restartRecoveryProbe,
@@ -191,6 +196,7 @@ export function createPlatformClawWebIngressRuntime(
     gateway,
     executionService: employeeExecution,
     vmAdministrationService: vmAdministration,
+    mcpAdministrationService: mcpAdministration,
     ...(knoxRouting ? { knoxRouting } : {}),
     ...(options.knoxIngressProxyUrl
       ? { knoxIngressProxy: { targetUrl: options.knoxIngressProxyUrl } }

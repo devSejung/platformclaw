@@ -41,9 +41,9 @@ describe("resolvePlatformClawReturnTo", () => {
 });
 
 describe("PlatformClaw Web descriptor", () => {
-  it("exposes employee activity, usage, and cron routes", () => {
+  it("exposes employee activity, usage, cron, and MCP routes", () => {
     expect(PLATFORMCLAW_WEB_DESCRIPTOR.enabledRoutes).toEqual(
-      expect.arrayContaining(["activity", "usage", "cron"]),
+      expect.arrayContaining(["activity", "usage", "cron", "mcp"]),
     );
   });
 
