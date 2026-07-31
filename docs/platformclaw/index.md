@@ -63,7 +63,10 @@ Personal MCP credential routing is implemented as a private plugin plus Control
 boundary under [PC-125](/platformclaw/decisions#pc-125-store-personal-mcp-credentials-in-platformclaw-control).
 Administrators keep server and tool-policy ownership; employees can supply only
 credentials for approved personal servers. Credential-free and organization-wide
-shared servers continue to use PC-124 without employee setup.
+shared servers continue to use PC-124 without employee setup. The browser entry
+point is **Settings > MCP**: administrators manage the global registry and
+per-tool blocks there, while employees see only personal credentials they can
+configure.
 
 ## Maintenance rules
 

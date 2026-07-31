@@ -73,6 +73,7 @@ describe("PlatformClawControlUiAdapter", () => {
         "about",
         "skills",
         "skill-workshop",
+        "mcp",
       ],
       navigation: {
         sidebarEntries: [
@@ -167,7 +168,7 @@ describe("PlatformClawControlUiAdapter", () => {
     );
   });
 
-  it("renders one footer control set and preserves admin callbacks across lazy upgrade", async () => {
+  it("keeps account accessories compact and exposes the MCP route by role", async () => {
     installDescriptor();
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
       const inputUrl =
@@ -206,11 +207,17 @@ describe("PlatformClawControlUiAdapter", () => {
       vi.fn(),
     );
     expect(adminOptions.enabledRouteIds).toContain("plugins");
+    expect(adminOptions.enabledRouteIds).toContain("mcp");
     expect(adminOptions.navigation?.sidebarEntries).toContain("route:plugins");
     render(adminOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
     expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
-    expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(1);
+    expect(
+      document
+        .querySelector<HTMLAnchorElement>(".platformclaw-mcp-navigation")
+        ?.getAttribute("href"),
+    ).toBe("/platformclaw/app/settings/mcp");
+    expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(0);
     expect(document.querySelectorAll("platformclaw-vm-administration")).toHaveLength(1);
     await customElements.whenDefined("platformclaw-vm-administration");
     const administration = document.querySelector(
@@ -222,6 +229,10 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(administration.fetchImpl).toBe(fetchImpl);
     administration.onUnauthenticated();
     expect(navigate).toHaveBeenCalledWith("/platformclaw/login");
+    const adminMcpModule = await adminOptions.routeOverrides?.mcp?.component?.();
+    render(adminMcpModule?.render(undefined), document.body);
+    expect(document.querySelector("platformclaw-mcp-administration")).not.toBeNull();
+    expect(document.querySelector("platformclaw-mcp-settings")).not.toBeNull();
 
     const memberOptions = adapter.applicationOptions(
       {
@@ -233,13 +244,18 @@ describe("PlatformClawControlUiAdapter", () => {
       vi.fn(),
     );
     expect(memberOptions.enabledRouteIds).not.toContain("plugins");
+    expect(memberOptions.enabledRouteIds).toContain("mcp");
     expect(memberOptions.navigation?.sidebarEntries).not.toContain("route:plugins");
     expect(memberOptions.navigation?.sidebarEntries).toContain("route:skills");
     expect(memberOptions.navigation?.sidebarRouteTargets).toEqual({ plugins: "skills" });
     render(memberOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
     expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
-    expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(1);
+    expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(0);
     expect(document.querySelector("platformclaw-vm-administration")).toBeNull();
+    const memberMcpModule = await memberOptions.routeOverrides?.mcp?.component?.();
+    render(memberMcpModule?.render(undefined), document.body);
+    expect(document.querySelector("platformclaw-mcp-administration")).toBeNull();
+    expect(document.querySelector("platformclaw-mcp-settings")).not.toBeNull();
   });
 });

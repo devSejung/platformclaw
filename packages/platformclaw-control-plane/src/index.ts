@@ -21,6 +21,7 @@ export * from "./execution-handoff-http.js";
 export * from "./execution-handoff-client.js";
 export * from "./execution-handoff-service.js";
 export * from "./browser-mcp-http.js";
+export * from "./browser-mcp-admin-http.js";
 export * from "./mcp-credential-contracts.js";
 export * from "./mcp-credential-crypto.js";
 export * from "./mcp-credential-vault.js";

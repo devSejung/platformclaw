@@ -9,6 +9,7 @@ import {
   normalizeEnabledRouteIds,
   routeIdFromPath,
   startApplicationRouter,
+  type ApplicationRouteOverride,
   type ApplicationRouter,
   type RouteId,
 } from "../app-routes.ts";
@@ -247,6 +248,8 @@ export type ApplicationShellSession = {
 export type ApplicationBootstrapOptions = {
   readonly accessMode?: ApplicationAccessMode;
   readonly enabledRouteIds?: readonly RouteId[];
+  /** Product embedders may replace an enabled route without exposing unrelated routes. */
+  readonly routeOverrides?: Readonly<Partial<Record<RouteId, ApplicationRouteOverride>>>;
   readonly sessionPathBuilderReady?: Promise<void>;
   readonly gateway?: {
     readonly url: string;
@@ -405,7 +408,7 @@ export function bootstrapApplication(
   const skillWorkshopRevision = createSkillWorkshopRevisionHandoff();
   const initialUserMessage = createInitialUserMessageHandoff();
   applyThemePresentation(settings);
-  const router = createApplicationRouter(enabledRouteIds);
+  const router = createApplicationRouter(enabledRouteIds, options.routeOverrides);
   let routerStarted = false;
   // Pre-start navigations are invisible to history; retain the latest request so
   // router.start() cannot resolve the stale browser URL over the user's route.

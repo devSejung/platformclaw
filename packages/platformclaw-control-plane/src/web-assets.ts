@@ -31,6 +31,7 @@ export const PLATFORMCLAW_WEB_DESCRIPTOR = {
     "skills",
     "skill-workshop",
     "plugins",
+    "mcp",
   ],
 } as const;
 

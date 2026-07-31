@@ -2328,6 +2328,9 @@ importers:
       '@openclaw/gateway-protocol':
         specifier: workspace:*
         version: link:../gateway-protocol
+      '@openclaw/net-policy':
+        specifier: workspace:*
+        version: link:../net-policy
       '@openclaw/normalization-core':
         specifier: workspace:*
         version: link:../normalization-core

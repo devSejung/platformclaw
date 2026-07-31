@@ -30,4 +30,15 @@ describe("application router registration", () => {
     expect(restricted.getRoute("chat")).toBeDefined();
     expect(restricted.getRoute("new-session")).toBeDefined();
   });
+
+  it("lets a product embedder replace one enabled route without changing its path", async () => {
+    const component = async () => ({ render: () => "embedded MCP" });
+    const restricted = createApplicationRouter(["mcp"], {
+      mcp: { loader: async () => undefined, loaderDeps: () => "embedded", component },
+    });
+
+    expect(restricted.getRoute("mcp")?.path).toBe(pathForRoute("mcp"));
+    expect(restricted.getRoute("mcp")?.component).toBe(component);
+    expect(restricted.getRoute("advanced")).toBeNull();
+  });
 });

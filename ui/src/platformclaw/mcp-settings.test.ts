@@ -53,13 +53,12 @@ describe("PlatformClaw MCP settings", () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(SETTINGS));
     mountPlatformClawMcpSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = mountedElement();
-    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("MCP connections"));
-    element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
-
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.textContent).toContain("Your MCP credentials"),
+    );
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("github"));
     expect(element.shadowRoot?.textContent).toContain("docs");
     expect(element.shadowRoot?.textContent).toContain("Scope: repo:read");
-    expect(element.shadowRoot?.querySelector("[data-action='close']")?.textContent).toBe("×");
     expect(element.shadowRoot?.textContent).not.toContain("Add server");
   });
 
@@ -67,8 +66,9 @@ describe("PlatformClaw MCP settings", () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(SETTINGS));
     mountPlatformClawMcpSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = mountedElement();
-    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("MCP connections"));
-    element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.textContent).toContain("Your MCP credentials"),
+    );
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("docs"));
     element.shadowRoot
       ?.querySelector<HTMLElement>("[data-action='save'][data-server='docs']")
@@ -90,8 +90,9 @@ describe("PlatformClaw MCP settings", () => {
       .mockResolvedValueOnce(jsonResponse(SETTINGS));
     mountPlatformClawMcpSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = mountedElement();
-    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("MCP connections"));
-    element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.textContent).toContain("Your MCP credentials"),
+    );
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("docs"));
     const secret = element.shadowRoot?.querySelector<HTMLInputElement>("[data-secret='docs']");
     if (secret) {
@@ -116,8 +117,9 @@ describe("PlatformClaw MCP settings", () => {
       .mockResolvedValueOnce(jsonResponse({ error: "Gateway unavailable" }, 503));
     mountPlatformClawMcpSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = mountedElement();
-    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("MCP connections"));
-    element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.textContent).toContain("Your MCP credentials"),
+    );
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("docs"));
     const secret = element.shadowRoot?.querySelector<HTMLInputElement>("[data-secret='docs']");
     if (secret) {
@@ -144,8 +146,9 @@ describe("PlatformClaw MCP settings", () => {
     );
     mountPlatformClawMcpSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = mountedElement();
-    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("MCP connections"));
-    element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.textContent).toContain("Your MCP credentials"),
+    );
 
     await vi.waitFor(() =>
       expect(
@@ -164,8 +167,9 @@ describe("PlatformClaw MCP settings", () => {
       );
     mountPlatformClawMcpSettings({ fetchImpl, onUnauthenticated: vi.fn(), navigate });
     const element = mountedElement();
-    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("MCP connections"));
-    element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.textContent).toContain("Your MCP credentials"),
+    );
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("github"));
     element.shadowRoot?.querySelector<HTMLElement>("[data-action='oauth']")?.click();
 
@@ -175,8 +179,8 @@ describe("PlatformClaw MCP settings", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it("opens the settings and reports an OAuth callback result once", async () => {
-    window.history.replaceState(null, "", "/platformclaw/app/chat?mcpOAuth=success");
+  it("reports an OAuth callback result once on the MCP route", async () => {
+    window.history.replaceState(null, "", "/platformclaw/app/settings/mcp?mcpOAuth=success");
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(SETTINGS));
     mountPlatformClawMcpSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = mountedElement();
@@ -184,7 +188,6 @@ describe("PlatformClaw MCP settings", () => {
     await vi.waitFor(() =>
       expect(element.shadowRoot?.textContent).toContain("OAuth connection completed."),
     );
-    expect(element.shadowRoot?.querySelector("openclaw-modal-dialog")).not.toBeNull();
     expect(window.location.search).toBe("");
   });
 
@@ -198,8 +201,9 @@ describe("PlatformClaw MCP settings", () => {
       );
     mountPlatformClawMcpSettings({ fetchImpl, onUnauthenticated: vi.fn(), navigate });
     const element = mountedElement();
-    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("MCP connections"));
-    element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.textContent).toContain("Your MCP credentials"),
+    );
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("github"));
     element.shadowRoot?.querySelector<HTMLElement>("[data-action='oauth']")?.click();
 

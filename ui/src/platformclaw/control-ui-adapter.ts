@@ -3,6 +3,7 @@ import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import "./execution-settings.ts";
+import "./mcp-administration.ts";
 import "./mcp-settings.ts";
 import {
   PLATFORMCLAW_APP_PATH,
@@ -124,14 +125,33 @@ export class PlatformClawControlUiAdapter {
       primaryLabel: identity.displayName,
       secondaryLabel: identity.department || identity.accountId,
       renderFooterAccessory: () => html`
+        <style>
+          .platformclaw-mcp-navigation {
+            box-sizing: border-box;
+            display: flex;
+            min-height: 34px;
+            align-items: center;
+            border-radius: var(--radius-md);
+            padding: 7px 9px;
+            color: var(--text);
+            text-decoration: none;
+          }
+          .platformclaw-mcp-navigation:hover,
+          .platformclaw-mcp-navigation:focus-visible {
+            background: var(--bg-hover);
+            outline: none;
+          }
+        </style>
         <platformclaw-execution-settings
           .fetchImpl=${this.fetchImpl}
           .onUnauthenticated=${onUnauthenticated}
         ></platformclaw-execution-settings>
-        <platformclaw-mcp-settings
-          .fetchImpl=${this.fetchImpl}
-          .onUnauthenticated=${onUnauthenticated}
-        ></platformclaw-mcp-settings>
+        <a
+          class="platformclaw-mcp-navigation"
+          href="${PLATFORMCLAW_APP_PATH}/settings/mcp"
+          title="MCP settings"
+          >MCP</a
+        >
         ${identity.globalRole === "admin"
           ? html`<platformclaw-vm-administration
               .fetchImpl=${this.fetchImpl}
@@ -158,6 +178,39 @@ export class PlatformClawControlUiAdapter {
     return {
       accessMode: "personal-agent",
       enabledRouteIds,
+      routeOverrides: {
+        mcp: {
+          loaderDeps: () => "platformclaw-mcp",
+          loader: async () => undefined,
+          component: async () => ({
+            header: true,
+            render: () => html`
+              <style>
+                .platformclaw-mcp-page {
+                  width: min(920px, 100%);
+                  margin: 0 auto;
+                  padding: 0 20px 48px;
+                }
+              </style>
+              <section class="content-header">
+                <div><div class="page-title">MCP</div></div>
+              </section>
+              <main class="platformclaw-mcp-page">
+                ${identity.globalRole === "admin"
+                  ? html`<platformclaw-mcp-administration
+                      .fetchImpl=${this.fetchImpl}
+                      .onUnauthenticated=${onUnauthenticated}
+                    ></platformclaw-mcp-administration>`
+                  : nothing}
+                <platformclaw-mcp-settings
+                  .fetchImpl=${this.fetchImpl}
+                  .onUnauthenticated=${onUnauthenticated}
+                ></platformclaw-mcp-settings>
+              </main>
+            `,
+          }),
+        },
+      },
       gateway: {
         url: websocketUrl(this.location, this.descriptor.gatewayPath),
         browserDeviceAuth: false,

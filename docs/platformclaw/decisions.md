@@ -455,10 +455,12 @@ denials automatically because doing so could expose unrelated plugin tools.
 Reconciliation reports the conflicting global or Agent policy, and the image
 update path rolls back if the operator did not remove it before rollout.
 
-Registration uses the existing server-side OpenClaw MCP CLI or the separate
-private administrator Control UI. The employee BFF does not expose Gateway
-config reads, writes, MCP credentials, or MCP lifecycle methods. This preserves
-PC-117 and keeps upstream MCP UI/core unchanged.
+Registration uses the existing server-side OpenClaw MCP CLI or **Settings >
+MCP** in the private administrator Control UI. That page uses a narrow
+administrator-only BFF which projects only non-secret MCP server metadata and
+accepts bounded server actions. The employee browser Gateway and employee BFF
+still expose no generic Gateway config reads, writes, credentials, or lifecycle
+methods. This preserves PC-117 and keeps upstream MCP UI/core unchanged.
 
 ### PC-125 Store personal MCP credentials in PlatformClaw Control
 
@@ -483,6 +485,11 @@ Personal-credential server and OAuth endpoints require HTTPS. Control applies
 DNS-pinned SSRF checks to discovery, registration, token, and redirect hops,
 bounds each network request and response, and serializes refresh-token rotation
 per user and server with revision-checked persistence.
+The same **Settings > MCP** route is visible to employees, but it lists only
+administrator-approved servers that require a personal credential. An
+administrator sees the global server registry first and their own personal
+credential section below it. Credential-free and shared-credential servers are
+shown in the administrator registry but never create employee setup work.
 The approved URL, credential kind, API-key header, and OAuth scope are part of
 the credential binding and fail closed after a mismatch. MCP policy is
 process-stable; changing it requires a coordinated Gateway and Control restart.
@@ -504,8 +511,9 @@ Replacing or deleting a credential disposes that Agent's requester-scoped MCP
 runtime before the update is reported complete. Browser logout also requests
 runtime disposal but preserves the encrypted credential. Account disablement
 revokes browser sessions and deletes all personal MCP credentials. The
-administrator path must also invalidate the Agent runtime. Normal runtime
-expiry is secondary cleanup, not revocation authority.
+administrator path invalidates requester-scoped MCP connections for every
+configured Agent after a server, credential mode, or tool filter changes.
+Normal runtime expiry is secondary cleanup, not revocation authority.
 
 ## Open operational decisions
 
