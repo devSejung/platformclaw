@@ -176,9 +176,11 @@ Those tools cannot access arbitrary Gateway paths. Durable recall uses the
 memory tools; writes append to the canonical Agent memory corpus and do not
 change wiki or combined-search corpus ownership.
 
-Bootstrap completion is explicit. The Gateway records the canonical per-Agent
-SQLite completion/attestation state and then removes the Gateway
-`BOOTSTRAP.md`; the next turn reloads that state and the canonical Agent files.
+Bootstrap completion is explicit. The Gateway first parses canonical
+`IDENTITY.md` and commits its supported fields to the selected Agent's config,
+then records the canonical per-Agent SQLite completion/attestation state and
+removes Gateway `BOOTSTRAP.md`. A failed identity config write leaves bootstrap
+pending and retryable; the next turn reloads that state and canonical Agent files.
 Merely having a general read tool, or editing same-named files on a VM, never
 proves bootstrap access or completion. Assigned-VM runs must not create Agent
 Core Files on the VM. The feature was not previously released, so no VM-file

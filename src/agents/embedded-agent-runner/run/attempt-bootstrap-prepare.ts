@@ -186,7 +186,7 @@ export async function prepareEmbeddedAttemptBootstrap(params: {
   }
   if (params.sandbox?.backend?.capabilities?.separateAgentWorkspace === true) {
     workspaceNotes.push(
-      "Agent profile and bootstrap files are outside the active project. Use agent_workspace_read/write/edit for SOUL.md, IDENTITY.md, USER.md, or BOOTSTRAP.md, and bootstrap_complete instead of deleting BOOTSTRAP.md or running host control-plane CLI commands. General file tools remain scoped to the active project. If an optional bootstrap action has no dedicated tool, skip that optional action; never emulate it in the project shell.",
+      "Agent profile and bootstrap files are outside the active project. Use agent_workspace_read/write/edit for SOUL.md, IDENTITY.md, USER.md, or BOOTSTRAP.md. When the profile is ready, bootstrap_complete syncs IDENTITY.md to Gateway identity config, records completion, and removes BOOTSTRAP.md. Do not run host control-plane CLI commands. General file tools remain scoped to the active project. If an optional bootstrap action has no dedicated tool, skip that optional action; never emulate it in the project shell.",
     );
   }
 

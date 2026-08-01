@@ -17,8 +17,19 @@ async function workspace(): Promise<string> {
   return dir;
 }
 
-function tool(dir: string, name: string) {
-  const found = createAgentWorkspaceTools(dir).find((candidate) => candidate.name === name);
+function tool(
+  dir: string,
+  name: string,
+  syncBootstrapIdentity: (params: {
+    agentId: string;
+    workspaceDir: string;
+  }) => Promise<void> = async () => {},
+) {
+  const found = createAgentWorkspaceTools({
+    workspaceDir: dir,
+    agentId: "test-agent",
+    syncBootstrapIdentity,
+  }).find((candidate) => candidate.name === name);
   if (!found) {
     throw new Error(`missing ${name}`);
   }
@@ -58,5 +69,17 @@ describe("Agent workspace tools", () => {
 
     expect(readWorkspaceStateSnapshot(dir).setup.setupCompletedAt).toBeTruthy();
     await expect(fs.stat(path.join(dir, "BOOTSTRAP.md"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("keeps bootstrap pending when Gateway identity sync fails", async () => {
+    const dir = await workspace();
+    await fs.writeFile(path.join(dir, "BOOTSTRAP.md"), "ritual");
+    const complete = tool(dir, "bootstrap_complete", async () => {
+      throw new Error("config write failed");
+    });
+
+    await expect(complete.execute("complete", {})).rejects.toThrow("config write failed");
+    expect(readWorkspaceStateSnapshot(dir).setup.setupCompletedAt).toBeUndefined();
+    await expect(fs.readFile(path.join(dir, "BOOTSTRAP.md"), "utf8")).resolves.toBe("ritual");
   });
 });

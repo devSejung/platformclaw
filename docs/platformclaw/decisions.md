@@ -569,11 +569,14 @@ or compatibility migration. Memory search, read, and append target the
 canonical per-Agent corpus; wiki and combined-search corpus selection remain
 unchanged.
 
-Bootstrap completion records the per-Agent SQLite state before best-effort
-removal of the canonical `BOOTSTRAP.md`. Tool presence alone is not proof of
-access. Subagents may receive active-project instructions but never the parent
-Agent profile or bootstrap mutation tools. The UI labels Agent files as shared
-across work locations and keeps identity saves on the Gateway owner path.
+Bootstrap completion first parses the canonical `IDENTITY.md` and commits its
+name, theme, emoji, and avatar to the selected Agent's Gateway config. Only
+after that control-plane write succeeds does it record the per-Agent SQLite
+state and best-effort remove canonical `BOOTSTRAP.md`; a failed identity write
+therefore remains retryable. Tool presence alone is not proof of access.
+Subagents may receive active-project instructions but never the parent Agent
+profile or bootstrap mutation tools. The UI labels Agent files as shared
+across work locations and keeps identity saves on the same Gateway owner path.
 
 This adds no SQLite schema version. It reuses the canonical Agent database and
 the existing setup/attestation rows. Because assigned-VM execution was not

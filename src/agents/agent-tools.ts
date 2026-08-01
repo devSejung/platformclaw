@@ -947,7 +947,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     options?.senderIsOwner !== false &&
     !isSubagentSessionKey(options?.sessionKey) &&
     !isCronSessionKey(options?.sessionKey)
-      ? createAgentWorkspaceTools(sandbox.agentWorkspaceDir)
+      ? createAgentWorkspaceTools({ workspaceDir: sandbox.agentWorkspaceDir, agentId })
       : []),
     ...(includeBaseCodingTools && sandboxRoot
       ? allowWorkspaceWrites

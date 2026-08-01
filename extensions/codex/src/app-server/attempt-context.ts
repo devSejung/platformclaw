@@ -252,7 +252,7 @@ export async function buildCodexWorkspaceBootstrapContext(params: {
       promptContext: renderCodexWorkspaceBootstrapPromptContext(promptContextFiles),
       turnScopedDeveloperInstructions: [
         params.nativeProjectInstructions
-          ? "Agent profile and bootstrap files are outside the active project. Use agent_workspace_read/write/edit for SOUL.md, IDENTITY.md, USER.md, or BOOTSTRAP.md, and bootstrap_complete instead of deleting BOOTSTRAP.md or running host control-plane CLI commands. General filesystem operations remain scoped to the active project. If an optional bootstrap action has no dedicated tool, skip that optional action; never emulate it in the project shell."
+          ? "Agent profile and bootstrap files are outside the active project. Use agent_workspace_read/write/edit for SOUL.md, IDENTITY.md, USER.md, or BOOTSTRAP.md. When the profile is ready, bootstrap_complete syncs IDENTITY.md to Gateway identity config, records completion, and removes BOOTSTRAP.md. Do not run host control-plane CLI commands. General filesystem operations remain scoped to the active project. If an optional bootstrap action has no dedicated tool, skip that optional action; never emulate it in the project shell."
           : "",
         renderCodexWorkspaceCollaborationDeveloperInstructions(turnScopedDeveloperInstructionFiles),
       ]

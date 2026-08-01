@@ -65,7 +65,14 @@ async function readAgentFile(workspaceDir: string, file: string): Promise<string
   return result.buffer.toString("utf8");
 }
 
-export function createAgentWorkspaceTools(workspaceDir: string): AnyAgentTool[] {
+type AgentWorkspaceToolOptions = {
+  workspaceDir: string;
+  agentId: string;
+  syncBootstrapIdentity?: (params: { agentId: string; workspaceDir: string }) => Promise<void>;
+};
+
+export function createAgentWorkspaceTools(options: AgentWorkspaceToolOptions): AnyAgentTool[] {
+  const { workspaceDir, agentId } = options;
   return [
     {
       label: "Read Agent File",
@@ -120,9 +127,15 @@ export function createAgentWorkspaceTools(workspaceDir: string): AnyAgentTool[] 
       label: "Complete Bootstrap",
       name: "bootstrap_complete",
       description:
-        "Mark Agent bootstrap complete in canonical Gateway state and remove its BOOTSTRAP.md. Call only after the Agent profile is ready.",
+        "Sync IDENTITY.md to Gateway identity config, mark Agent bootstrap complete in canonical Gateway state, and remove BOOTSTRAP.md. Call only after the Agent profile is ready.",
       parameters: CompleteSchema,
       execute: async () => {
+        const syncBootstrapIdentity =
+          options.syncBootstrapIdentity ??
+          (await import("../bootstrap-identity.js")).syncAgentIdentityFromWorkspace;
+        // Config identity must commit first. Otherwise a failed control-plane write
+        // would remove BOOTSTRAP.md and make the incomplete ceremony unretryable.
+        await syncBootstrapIdentity({ agentId, workspaceDir });
         const state = await completeWorkspaceBootstrap(workspaceDir);
         return textResult("Bootstrap completed", {
           completed: true,
