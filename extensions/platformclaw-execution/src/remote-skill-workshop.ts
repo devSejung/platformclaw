@@ -205,9 +205,19 @@ function decodeBase64(value: string, label: string): Buffer {
   return decoded;
 }
 
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint <= 0x1f || codePoint === 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function decodeUtf8(value: Buffer, label: string): string {
   const decoded = value.toString("utf8");
-  if (!Buffer.from(decoded, "utf8").equals(value) || /[\u0000-\u001f\u007f]/u.test(decoded)) {
+  if (!Buffer.from(decoded, "utf8").equals(value) || hasControlCharacter(decoded)) {
     throw new Error(`VM Skill Workshop ${label} is invalid`);
   }
   return decoded;

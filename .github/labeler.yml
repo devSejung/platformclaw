@@ -710,6 +710,10 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/platformclaw-user-mcp/**"
+"extensions: platformclaw-web-relay":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/platformclaw-web-relay/**"
 "extensions: parallel":
   - changed-files:
       - any-glob-to-any-file:

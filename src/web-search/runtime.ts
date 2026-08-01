@@ -463,6 +463,13 @@ export async function runWebSearch(params: RunWebSearchParams): Promise<RunWebSe
   if (candidates.length === 0) {
     throw new Error("web_search is disabled or no provider is available.");
   }
+  const exclusiveCandidateIndex = candidates.findIndex(
+    (candidate) => candidate.fallbackMode === "exclusive",
+  );
+  // An exclusive provider may itself be reached by fallback, but once selected
+  // no later candidate may receive the same query after it fails.
+  const executionCandidates =
+    exclusiveCandidateIndex >= 0 ? candidates.slice(0, exclusiveCandidateIndex + 1) : candidates;
   const allowFallback = !hasExplicitWebSearchSelection({
     search,
     runtimeWebSearch,
@@ -470,7 +477,7 @@ export async function runWebSearch(params: RunWebSearchParams): Promise<RunWebSe
     providers: candidates,
   });
   return await executeWebSearchCandidates({
-    candidates,
+    candidates: executionCandidates,
     config,
     searchConfig: search as Record<string, unknown> | undefined,
     runtimeMetadata: runtimeWebSearch,

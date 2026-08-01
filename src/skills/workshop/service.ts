@@ -1,4 +1,3 @@
-import path from "node:path";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
@@ -9,7 +8,6 @@ import {
 import {
   assertInsideWorkspace,
   readWorkspaceSkillFile,
-  readWorkspaceSupportFile,
 } from "../lifecycle/workspace-skill-write.js";
 import { parseFrontmatter } from "../loading/frontmatter.js";
 import {
@@ -18,7 +16,6 @@ import {
   markSkillProposalStale,
   withSkillProposalLifecycleDispatch,
   type SkillProposalApplyTransitionDependencies,
-  type SkillProposalTransitionInput,
 } from "./apply-transition.js";
 import { resolveSkillWorkshopConfig } from "./config.js";
 import { createSkillProposalEvent, dispatchSkillProposalChanged } from "./plugin-hooks.js";
@@ -36,6 +33,14 @@ import {
 } from "./service-evaluation.js";
 import { readRequiredProposal } from "./service-query.js";
 import {
+  assertWritableSkillTarget,
+  assertSupportTargetsUnchanged,
+  buildSupportFileMetadata,
+  isWritableWorkspaceSkillSource,
+  normalizeRequired,
+  resolveExternalSkill,
+} from "./service-targets.js";
+import {
   createSkillProposalId,
   hashSkillProposalContent,
   readProposalSupportFiles,
@@ -44,7 +49,6 @@ import {
   updateSkillProposalRecord,
   writeSkillProposal,
   withSkillProposalTargetLock,
-  type PreparedSkillProposalSupportFile,
 } from "./store.js";
 import {
   assertSkillWorkshopTargetAccess,
@@ -69,10 +73,7 @@ import {
   type SkillProposalReadResult,
   type SkillProposalRecord,
   type SkillProposalReviseInput,
-  type SkillProposalSupportFile,
   type SkillProposalUpdateInput,
-  type SkillWorkshopTargetAccess,
-  type SkillWorkshopTargetSkill,
 } from "./types.js";
 
 type SkillWorkshopWorkspaceOptions = {
@@ -84,7 +85,6 @@ function proposalStoreOptions(env?: NodeJS.ProcessEnv) {
   return env ? { env } : {};
 }
 
-const WRITABLE_WORKSPACE_SOURCES = new Set(["openclaw-workspace", "agents-skills-project"]);
 const APPLY_TRANSITION_DEPENDENCIES = {
   assertExpectedRevisionHash,
   evaluateSkillProposal,
@@ -272,7 +272,7 @@ export function listWritableWorkspaceSkillSummaries(
   });
   const summaries: WritableWorkspaceSkillSummary[] = [];
   for (const skill of status.skills) {
-    if (!WRITABLE_WORKSPACE_SOURCES.has(skill.source)) {
+    if (!isWritableWorkspaceSkillSource(skill.source)) {
       continue;
     }
     summaries.push(
@@ -462,7 +462,17 @@ export async function reviseSkillProposal(
           input,
         });
       }
-      await assertSupportTargetsUnchanged(record, input, input.targetAccess);
+      await assertSupportTargetsUnchanged({
+        record,
+        targetAccess: input.targetAccess,
+        assertUnchanged: async (file, supportContent) =>
+          await assertSkillProposalSupportTargetUnchanged({
+            record,
+            file,
+            currentContent: supportContent,
+            input,
+          }),
+      });
     }
 
     const supportFiles =
@@ -620,39 +630,6 @@ export async function applySkillProposal(
   return await applySkillProposalTransition(input, APPLY_TRANSITION_DEPENDENCIES);
 }
 
-async function buildSupportFileMetadata(
-  files: readonly PreparedSkillProposalSupportFile[],
-  targetSkillDir?: string,
-  targetAccess?: SkillWorkshopTargetAccess,
-): Promise<SkillProposalSupportFile[]> {
-  const out: SkillProposalSupportFile[] = [];
-  for (const file of files) {
-    const metadata: SkillProposalSupportFile = {
-      path: file.path,
-      sizeBytes: file.sizeBytes,
-      hash: file.hash,
-    };
-    if (targetSkillDir) {
-      const targetContent = targetAccess
-        ? await readExternalSkillFile(
-            targetAccess,
-            path.posix.join(targetSkillDir, file.path),
-            256 * 1024,
-          )
-        : await readWorkspaceSupportFile({
-            skillDir: targetSkillDir,
-            relativePath: file.path,
-          });
-      metadata.targetExisted = targetContent !== null;
-      if (targetContent !== null) {
-        metadata.targetContentHash = hashSkillProposalContent(targetContent);
-      }
-    }
-    out.push(metadata);
-  }
-  return out;
-}
-
 async function markProposal(
   input: SkillProposalActionInput,
   status: "rejected",
@@ -739,65 +716,4 @@ async function withPendingSkillProposalMutation<T>(
     },
     proposalStoreOptions(input.env),
   );
-}
-
-async function assertSupportTargetsUnchanged(
-  record: SkillProposalRecord,
-  input: SkillProposalTransitionInput,
-  targetAccess?: SkillWorkshopTargetAccess,
-): Promise<void> {
-  if (record.kind !== "update" || !record.supportFiles) {
-    return;
-  }
-  for (const file of record.supportFiles) {
-    if (file.targetExisted === undefined) {
-      continue;
-    }
-    const currentContent = targetAccess
-      ? await readExternalSkillFile(
-          targetAccess,
-          path.posix.join(record.target.skillDir, file.path),
-          256 * 1024,
-        )
-      : await readWorkspaceSupportFile({
-          skillDir: record.target.skillDir,
-          relativePath: file.path,
-        });
-    await assertSkillProposalSupportTargetUnchanged({ record, file, currentContent, input });
-  }
-}
-
-function resolveExternalSkill(
-  access: SkillWorkshopTargetAccess,
-  skills: readonly SkillWorkshopTargetSkill[],
-  skillName: string,
-): SkillWorkshopTargetSkill | undefined {
-  const normalized = skillName.trim().toLowerCase();
-  const matches = skills.filter(
-    (skill) =>
-      skill.skillKey.toLowerCase() === normalized || skill.name.toLowerCase() === normalized,
-  );
-  if (matches.length > 1) {
-    throw new Error(`Skill name is ambiguous on ${access.targetLabel}: ${skillName}`);
-  }
-  return matches[0];
-}
-
-function assertWritableSkillTarget(workspaceDir: string, skill: SkillStatusEntry): void {
-  if (!WRITABLE_WORKSPACE_SOURCES.has(skill.source)) {
-    throw new Error(`Skill source is not writable by Skill Workshop: ${skill.source}`);
-  }
-  assertInsideWorkspace(workspaceDir, skill.filePath, "skill file");
-  assertInsideWorkspace(workspaceDir, skill.baseDir, "skill directory");
-  if (path.basename(skill.filePath) !== "SKILL.md") {
-    throw new Error("Skill Workshop can only update SKILL.md targets.");
-  }
-}
-
-function normalizeRequired(value: string, label: string): string {
-  const normalized = normalizeOptionalString(value);
-  if (!normalized) {
-    throw new Error(`${label} is required.`);
-  }
-  return normalized;
 }

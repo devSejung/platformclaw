@@ -909,6 +909,81 @@ describe("web search runtime", () => {
     });
   });
 
+  it("does not fall back from an exclusive auto-selected provider", async () => {
+    const backupExecute = vi.fn(async () => ({ provider: "backup" }));
+    resolveRuntimeWebSearchProvidersMock.mockReturnValue([
+      createGoogleSearchProvider({
+        fallbackMode: "exclusive",
+        createTool: () => ({
+          description: "exclusive",
+          parameters: {},
+          execute: async () => {
+            throw new Error("exclusive relay unavailable");
+          },
+        }),
+      }),
+      createWebSearchTestProvider({
+        pluginId: "backup-search",
+        id: "backup",
+        credentialPath: "tools.web.search.backup.apiKey",
+        autoDetectOrder: 2,
+        getConfiguredCredentialValue: () => "backup-configured",
+        getCredentialValue: () => "backup-configured",
+        createTool: () => ({ description: "backup", parameters: {}, execute: backupExecute }),
+      }),
+    ]);
+    await expect(runWebSearch({ config: {}, args: { query: "exclusive" } })).rejects.toThrow(
+      "exclusive relay unavailable",
+    );
+    expect(backupExecute).not.toHaveBeenCalled();
+  });
+
+  it("stops fallback after an exclusive provider reached later in the chain", async () => {
+    const exclusiveExecute = vi.fn(async () => {
+      throw new Error("exclusive relay unavailable");
+    });
+    const backupExecute = vi.fn(async () => ({ provider: "backup" }));
+    resolveRuntimeWebSearchProvidersMock.mockReturnValue([
+      createGoogleSearchProvider({
+        createTool: () => ({
+          description: "first",
+          parameters: {},
+          execute: async () => {
+            throw new Error("first unavailable");
+          },
+        }),
+      }),
+      createWebSearchTestProvider({
+        pluginId: "exclusive-search",
+        id: "exclusive",
+        credentialPath: "tools.web.search.exclusive.apiKey",
+        autoDetectOrder: 2,
+        fallbackMode: "exclusive",
+        getConfiguredCredentialValue: () => "exclusive-configured",
+        getCredentialValue: () => "exclusive-configured",
+        createTool: () => ({
+          description: "exclusive",
+          parameters: {},
+          execute: exclusiveExecute,
+        }),
+      }),
+      createWebSearchTestProvider({
+        pluginId: "backup-search",
+        id: "backup",
+        credentialPath: "tools.web.search.backup.apiKey",
+        autoDetectOrder: 3,
+        getConfiguredCredentialValue: () => "backup-configured",
+        getCredentialValue: () => "backup-configured",
+        createTool: () => ({ description: "backup", parameters: {}, execute: backupExecute }),
+      }),
+    ]);
+    await expect(runWebSearch({ config: {}, args: { query: "exclusive-later" } })).rejects.toThrow(
+      "exclusive relay unavailable",
+    );
+    expect(exclusiveExecute).toHaveBeenCalledTimes(1);
+    expect(backupExecute).not.toHaveBeenCalled();
+  });
+
   it("falls back when an auto-selected provider returns a structured error payload", async () => {
     resolveRuntimeWebSearchProvidersMock.mockReturnValue([
       createGoogleSearchProvider({

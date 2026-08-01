@@ -1,0 +1,17 @@
+{
+  "id": "platformclaw-web-relay",
+  "name": "PlatformClaw Web Relay",
+  "description": "Routes web_fetch and web_search through operator-configured relay endpoints.",
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "webFetchProviders": ["platformclaw-relay"],
+    "webSearchProviders": ["platformclaw-relay"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
