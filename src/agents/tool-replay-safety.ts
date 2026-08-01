@@ -4,6 +4,7 @@
 import { normalizeToolName } from "./tool-policy-shared.js";
 
 const UNCONDITIONALLY_REPLAY_SAFE_TOOL_NAMES = new Set([
+  "agent_workspace_read",
   "read",
   "search",
   "find",

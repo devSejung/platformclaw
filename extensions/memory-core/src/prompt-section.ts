@@ -7,8 +7,9 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
 }) => {
   const hasMemorySearch = availableTools.has("memory_search");
   const hasMemoryGet = availableTools.has("memory_get");
+  const hasMemoryWrite = availableTools.has("memory_write");
 
-  if (!hasMemorySearch && !hasMemoryGet) {
+  if (!hasMemorySearch && !hasMemoryGet && !hasMemoryWrite) {
     return [];
   }
 
@@ -19,12 +20,19 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
   } else if (hasMemorySearch) {
     toolGuidance =
       "Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search on MEMORY.md + memory/*.md + indexed session transcripts and answer from the matching results. If low confidence after search, say you checked.";
-  } else {
+  } else if (hasMemoryGet) {
     toolGuidance =
       "Before answering anything about prior work, decisions, dates, people, preferences, or todos that already point to a specific memory file or note: run memory_get to pull only the needed lines. If low confidence after reading them, say you checked.";
+  } else {
+    toolGuidance = "Durable memory recall is unavailable in this run.";
   }
 
   const lines = ["## Memory Recall", toolGuidance];
+  if (hasMemoryWrite) {
+    lines.push(
+      "When saving a durable fact, preference, decision, or todo, use memory_write. General read/write/edit tools address the active workspace and are not the Agent memory store.",
+    );
+  }
   if (citationsMode === "off") {
     lines.push(
       "Citations are disabled: do not mention file paths or line numbers in replies unless the user explicitly asks.",

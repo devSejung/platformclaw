@@ -76,6 +76,7 @@ const MESSAGE_READ_ONLY_ACTIONS = new Set([
 ]);
 
 const REPLAY_SAFE_TOOL_NAMES = new Set([
+  "agent_workspace_read",
   "agents_list",
   "conversations_list",
   "find",

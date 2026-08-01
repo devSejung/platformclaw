@@ -118,6 +118,11 @@ const FALLBACK_TOOL_SECTIONS: FallbackToolSection[] = [
         label: "memory_get",
         descriptionKey: "agents.toolCatalog.descriptions.memoryGet",
       },
+      {
+        id: "memory_write",
+        label: "memory_write",
+        descriptionKey: "agents.toolCatalog.descriptions.memoryWrite",
+      },
     ],
   },
   {

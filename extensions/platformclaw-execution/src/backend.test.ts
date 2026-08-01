@@ -117,6 +117,7 @@ describe("PlatformClaw execution backend", () => {
       runtimePromptContext: expect.stringContaining('"workLocation": "Basic workspace"'),
     });
     expect(first.runtimePromptContext).toContain('"activeWorkspace": "/server-person_one-3"');
+    expect(first.capabilities?.separateAgentWorkspace).toBeUndefined();
     expect(second).toMatchObject({
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
       runtimeId: "vm-person_two-7",
@@ -131,6 +132,7 @@ describe("PlatformClaw execution backend", () => {
     expect(second.runtimePromptContext).not.toContain("safeconnect.example");
     expect(second.runtimePromptContext).not.toContain("192.0.2.2");
     expect(second.runtimePromptContext).not.toContain("person.two@external");
+    expect(second.capabilities?.separateAgentWorkspace).toBe(true);
   });
 
   it("pins a copied target snapshot for one backend handle", async () => {

@@ -85,7 +85,7 @@ describe("resolveWorkspaceBootstrapRouting", () => {
     expect(routing.includeBootstrapInRuntimeContext).toBe(false);
   });
 
-  it("uses hook-provided BOOTSTRAP.md content even when normal file reads are unavailable", async () => {
+  it("does not infer file access from hook-provided BOOTSTRAP.md content", async () => {
     const routing = await resolveWorkspaceBootstrapRouting({
       isWorkspaceBootstrapPending: vi.fn(async () => false),
       bootstrapFiles: [
@@ -104,9 +104,31 @@ describe("resolveWorkspaceBootstrapRouting", () => {
       hasBootstrapFileAccess: false,
     });
 
-    expect(routing.bootstrapMode).toBe("full");
-    expect(routing.includeBootstrapInSystemContext).toBe(true);
+    expect(routing.bootstrapMode).toBe("limited");
+    expect(routing.includeBootstrapInSystemContext).toBe(false);
     expect(routing.includeBootstrapInRuntimeContext).toBe(false);
+  });
+
+  it("accepts an explicit content-provider access contract", async () => {
+    const routing = await resolveWorkspaceBootstrapRouting({
+      isWorkspaceBootstrapPending: vi.fn(async () => false),
+      bootstrapFiles: [
+        {
+          name: "BOOTSTRAP.md",
+          path: "/tmp/openclaw-workspace/BOOTSTRAP.md",
+          content: "bootstrap",
+          missing: false,
+        },
+      ],
+      bootstrapFilesProvideAccess: true,
+      trigger: "user",
+      isPrimaryRun: true,
+      effectiveWorkspace: "/tmp/openclaw-workspace",
+      resolvedWorkspace: "/tmp/openclaw-workspace",
+      hasBootstrapFileAccess: false,
+    });
+
+    expect(routing.bootstrapMode).toBe("full");
   });
 
   it("does not infer file access from loaded bootstrap content when the caller opts out", async () => {

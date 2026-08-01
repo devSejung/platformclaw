@@ -25,6 +25,7 @@ import type {
 import { resolveMemoryFlushPlan } from "../plugins/memory-state.js";
 import { appendRuntimePluginToolGrant } from "../plugins/tool-grant-allowlist.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
+import { isCronSessionKey, isSubagentSessionKey } from "../routing/session-key.js";
 import { GATEWAY_OWNER_ONLY_CORE_TOOLS } from "../security/dangerous-tools.js";
 import type { InputProvenance } from "../sessions/input-provenance.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
@@ -119,6 +120,10 @@ import {
   type ToolSearchCatalogRef,
   type ToolSearchCatalogToolExecutor,
 } from "./tool-search.js";
+import {
+  AGENT_WORKSPACE_TOOL_NAMES,
+  createAgentWorkspaceTools,
+} from "./tools/agent-workspace-tools.js";
 import {
   replaceWithEffectiveCronCreatorToolAllowlist,
   type CronCreatorToolAllowlistEntry,
@@ -568,6 +573,12 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     ...(runtimeToolAllowlistIncludesMessage ? ["message"] : []),
     ...(forceHeartbeatTool ? [HEARTBEAT_RESPONSE_TOOL_NAME] : []),
     ...toolSearchControlAllowlist,
+    ...(sandbox?.backend?.capabilities?.separateAgentWorkspace === true &&
+    options?.senderIsOwner !== false &&
+    !isSubagentSessionKey(options?.sessionKey) &&
+    !isCronSessionKey(options?.sessionKey)
+      ? AGENT_WORKSPACE_TOOL_NAMES
+      : []),
   ];
   const conversationToolPolicies = resolveConversationToolPolicies({
     capabilityProfile,
@@ -931,6 +942,13 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       : [];
   const tools: AnyAgentTool[] = [
     ...base,
+    ...(includeBaseCodingTools &&
+    sandbox?.backend?.capabilities?.separateAgentWorkspace === true &&
+    options?.senderIsOwner !== false &&
+    !isSubagentSessionKey(options?.sessionKey) &&
+    !isCronSessionKey(options?.sessionKey)
+      ? createAgentWorkspaceTools(sandbox.agentWorkspaceDir)
+      : []),
     ...(includeBaseCodingTools && sandboxRoot
       ? allowWorkspaceWrites
         ? [

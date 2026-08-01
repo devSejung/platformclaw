@@ -43,7 +43,7 @@ const CODEX_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES = new Set(
   CODEX_TURN_SCOPED_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES,
 );
 const CODEX_MEMORY_CONTEXT_BASENAME = "memory.md";
-const CODEX_MEMORY_TOOL_NAMES = new Set(["memory_search", "memory_get"]);
+const CODEX_MEMORY_TOOL_NAMES = new Set(["memory_search", "memory_get", "memory_write"]);
 const CODEX_BOOTSTRAP_CONTEXT_ORDER = new Map<string, number>([
   ["soul.md", 10],
   ["identity.md", 20],
@@ -166,18 +166,20 @@ export async function buildCodexWorkspaceBootstrapContext(params: {
   sessionAgentId: string;
   memoryToolNames: readonly string[];
   sandboxed?: boolean;
+  nativeProjectInstructions?: boolean;
 }): Promise<CodexWorkspaceBootstrapContext> {
   try {
     const memoryToolsAvailable =
       params.memoryToolNames.length > 0 &&
-      canRouteCodexWorkspaceMemoryThroughTools({
-        config: params.params.config,
-        agentId: params.params.agentId ?? params.sessionAgentId,
-        workspaceDir: params.effectiveWorkspace,
-      });
+      (params.nativeProjectInstructions === true ||
+        canRouteCodexWorkspaceMemoryThroughTools({
+          config: params.params.config,
+          agentId: params.params.agentId ?? params.sessionAgentId,
+          workspaceDir: params.effectiveWorkspace,
+        }));
     // Native Codex turns should read workspace MEMORY.md through tools when
     // possible; pasting it into every prompt turns durable memory into policy.
-    const bootstrapFiles = await resolveBootstrapFilesForRun({
+    const loadedBootstrapFiles = await resolveBootstrapFilesForRun({
       workspaceDir: params.resolvedWorkspace,
       config: params.params.config,
       sessionKey: params.sessionKey,
@@ -187,6 +189,13 @@ export async function buildCodexWorkspaceBootstrapContext(params: {
       contextMode: params.params.bootstrapContextMode,
       runKind: params.params.bootstrapContextRunKind,
     });
+    // Codex discovers AGENTS.md from its selected environment. Injecting the
+    // Gateway copy here would create two project-policy filesystems.
+    const bootstrapFiles = params.nativeProjectInstructions
+      ? loadedBootstrapFiles.filter(
+          (file) => !CODEX_NATIVE_PROJECT_DOC_BASENAMES.has(path.basename(file.path).toLowerCase()),
+        )
+      : loadedBootstrapFiles;
     const memoryToolRoutedBootstrapFiles = memoryToolsAvailable
       ? selectCodexWorkspaceMemoryReferenceFiles({
           bootstrapFiles,
@@ -241,9 +250,14 @@ export async function buildCodexWorkspaceBootstrapContext(params: {
       memoryToolNames: [...params.memoryToolNames],
       memoryToolRouted: memoryToolsAvailable,
       promptContext: renderCodexWorkspaceBootstrapPromptContext(promptContextFiles),
-      turnScopedDeveloperInstructions: renderCodexWorkspaceCollaborationDeveloperInstructions(
-        turnScopedDeveloperInstructionFiles,
-      ),
+      turnScopedDeveloperInstructions: [
+        params.nativeProjectInstructions
+          ? "Agent profile and bootstrap files are outside the active project. Use agent_workspace_read/write/edit for SOUL.md, IDENTITY.md, USER.md, or BOOTSTRAP.md, and bootstrap_complete instead of deleting BOOTSTRAP.md or running host control-plane CLI commands. General filesystem operations remain scoped to the active project. If an optional bootstrap action has no dedicated tool, skip that optional action; never emulate it in the project shell."
+          : "",
+        renderCodexWorkspaceCollaborationDeveloperInstructions(turnScopedDeveloperInstructionFiles),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
       memoryCollaborationInstructions: shouldInjectCodexOpenClawPromptContext(params.params)
         ? await renderCodexWorkspaceMemoryCollaborationInstructions({
             files: memoryReferenceFiles,

@@ -1,3 +1,4 @@
+import { resolveAgentWorkspaceDir } from "openclaw/plugin-sdk/agent-runtime";
 import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
 // Memory Core plugin entrypoint registers its OpenClaw integration.
 import {
@@ -30,6 +31,7 @@ import { registerSessionBackfillGatewayMethods } from "./src/session-backfill-ga
 
 type MemoryToolsModule = typeof import("./src/tools.js");
 type StandingIntentToolModule = typeof import("./src/standing-intents-tool.js");
+type MemoryWriteToolModule = typeof import("./src/write-tool.js");
 
 type MemoryToolOptions = {
   config?: OpenClawConfig;
@@ -42,6 +44,7 @@ type MemoryToolOptions = {
   activeProjectKeys?: readonly string[];
   acquireLocalService?: MemoryCoreAcquireLocalService;
   withLease?: PluginStateLeaseRunner;
+  workspaceDir?: string;
 };
 
 const loadMemoryToolsModule = createLazyRuntimeModule(() => import("./src/tools.js"));
@@ -51,6 +54,7 @@ const loadStandingIntentsModule = createLazyRuntimeModule(
 const loadStandingIntentToolModule = createLazyRuntimeModule(
   () => import("./src/standing-intents-tool.js"),
 );
+const loadMemoryWriteToolModule = createLazyRuntimeModule(() => import("./src/write-tool.js"));
 
 const loadRuntimeProviderModule = createLazyRuntimeModule(
   () => import("./src/runtime-provider.js"),
@@ -94,6 +98,15 @@ const MemoryGetSchema = {
     corpus: { type: "string", enum: ["memory", "wiki", "all"] },
   },
   required: ["path"],
+  additionalProperties: false,
+} as const satisfies TSchema;
+
+const MemoryWriteSchema = {
+  type: "object",
+  properties: {
+    content: { type: "string", minLength: 1, maxLength: 20000 },
+  },
+  required: ["content"],
   additionalProperties: false,
 } as const satisfies TSchema;
 
@@ -156,6 +169,26 @@ function createLazyMemoryGetTool(options: MemoryToolOptions): AnyAgentTool | nul
     parameters: MemoryGetSchema,
     load: (module, loadOptions) => module.createMemoryGetTool(loadOptions),
   });
+}
+
+function createLazyMemoryWriteTool(options: MemoryToolOptions): AnyAgentTool | null {
+  if (!hasMemoryToolContext(options) || !options.workspaceDir) {
+    return null;
+  }
+  let toolPromise: Promise<AnyAgentTool> | undefined;
+  return {
+    label: "Memory Write",
+    name: "memory_write",
+    description:
+      "Append one durable fact, preference, decision, or todo to the canonical Agent memory. Use this instead of general file tools when saving memory.",
+    parameters: MemoryWriteSchema,
+    execute: async (toolCallId, params, signal, onUpdate) => {
+      toolPromise ??= loadMemoryWriteToolModule().then((module: MemoryWriteToolModule) =>
+        module.createMemoryWriteTool({ workspaceDir: options.workspaceDir! }),
+      );
+      return await (await toolPromise).execute(toolCallId, params, signal, onUpdate);
+    },
+  };
 }
 
 function createLazyStandingIntentTool(ctx: OpenClawPluginToolContext): AnyAgentTool | null {
@@ -232,8 +265,14 @@ function resolveMemoryToolOptions(
   host: MemoryCoreRuntimeHost,
 ): MemoryToolOptions {
   const getConfig = () => ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
+  const config = getConfig();
+  const { sessionAgentId } = resolveSessionAgentIds({
+    sessionKey: ctx.sessionKey,
+    config: config ?? {},
+    agentId: ctx.agentId,
+  });
   return {
-    config: getConfig(),
+    config,
     getConfig,
     agentId: ctx.agentId,
     agentSessionKey: ctx.sessionKey,
@@ -241,6 +280,7 @@ function resolveMemoryToolOptions(
     oneShotCliRun: ctx.oneShotCliRun,
     conversationRecall: ctx.conversationRecall,
     activeProjectKeys: ctx.activeProjectKeys,
+    workspaceDir: resolveAgentWorkspaceDir(config ?? {}, sessionAgentId),
     ...(host.acquireLocalService ? { acquireLocalService: host.acquireLocalService } : {}),
     ...(host.withLease ? { withLease: host.withLease } : {}),
   };
@@ -343,6 +383,10 @@ export default definePluginEntry({
 
     api.registerTool((ctx) => createLazyMemoryGetTool(resolveMemoryToolOptions(ctx, host)), {
       names: ["memory_get"],
+    });
+
+    api.registerTool((ctx) => createLazyMemoryWriteTool(resolveMemoryToolOptions(ctx, host)), {
+      names: ["memory_write"],
     });
 
     api.registerTool((ctx) => createLazyStandingIntentTool(ctx), {

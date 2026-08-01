@@ -1001,6 +1001,25 @@ export async function loadWorkspaceBootstrapFiles(dir: string): Promise<Workspac
   return result;
 }
 
+/** Records canonical setup completion before removing the disposable bootstrap artifact. */
+export async function completeWorkspaceBootstrap(dir: string): Promise<WorkspaceSetupState> {
+  const resolvedDir = resolveUserPath(dir);
+  const bootstrapPath = path.join(resolvedDir, DEFAULT_BOOTSTRAP_FILENAME);
+  const current = readCanonicalWorkspaceStateSnapshot(resolvedDir).setup;
+  const now = new Date().toISOString();
+  const completed = mergeWorkspaceSetupState(resolvedDir, {
+    ...current,
+    bootstrapSeededAt: current.bootstrapSeededAt ?? now,
+    setupCompletedAt: current.setupCompletedAt ?? now,
+  });
+  try {
+    await fs.rm(bootstrapPath, { force: true });
+  } catch {
+    // SQLite completion is authoritative; a later workspace pass retries stale-file cleanup.
+  }
+  return completed;
+}
+
 const SUBAGENT_BOOTSTRAP_ALLOWLIST = new Set([DEFAULT_AGENTS_FILENAME]);
 
 const CRON_BOOTSTRAP_ALLOWLIST = new Set([
