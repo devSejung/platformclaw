@@ -10,6 +10,16 @@ const MAX_TARGET_FILES = 256;
 const MAX_TARGET_FILE_BYTES = 1024 * 1024;
 const MAX_TARGET_TREE_BYTES = 8 * 1024 * 1024;
 
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint <= 0x1f || codePoint === 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function skillWorkshopTargetBinding(access: SkillWorkshopTargetAccess) {
   return {
     backendId: access.backendId,
@@ -87,7 +97,7 @@ export async function readExternalSkillTree(
       file.path.includes("\\") ||
       path.posix.isAbsolute(file.path) ||
       file.path.split("/").some((part) => !part || part === "." || part === "..") ||
-      /[\u0000-\u001f\u007f]/u.test(file.path) ||
+      hasControlCharacter(file.path) ||
       paths.has(file.path) ||
       !Buffer.isBuffer(file.content)
     ) {
