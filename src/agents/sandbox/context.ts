@@ -227,6 +227,7 @@ async function resolveProvisionedSandboxContext(
   });
 
   const docker = await resolveSandboxDockerUser({
+    backend: cfg.backend,
     docker: cfg.docker,
     workspaceDir,
   });
@@ -285,9 +286,7 @@ async function resolveProvisionedSandboxContext(
       })()
     : undefined;
   if (resolvedCfg.browser.enabled && backend.capabilities?.browser !== true) {
-    throw new Error(
-      `Sandbox backend "${resolvedCfg.backend}" does not support browser sandboxes yet.`,
-    );
+    throw new Error(`Sandbox backend "${backend.id}" does not support browser sandboxes yet.`);
   }
   const browser =
     resolvedCfg.browser.enabled && backend.capabilities?.browser === true

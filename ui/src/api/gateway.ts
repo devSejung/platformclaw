@@ -274,12 +274,17 @@ async function buildGatewayConnectDevice(params: {
   scopes: string[];
   authToken?: string;
   connectNonce: string | null;
+  connectChallengeTs: number | null | undefined;
 }): Promise<GatewayConnectDevice | undefined> {
   const { deviceIdentity } = params;
   if (!deviceIdentity) {
     return undefined;
   }
-  const signedAtMs = Date.now();
+  if (params.connectChallengeTs === null) {
+    throw new Error("gateway connect challenge timestamp invalid");
+  }
+  // The Control UI alone supports pre-challenge Gateways; that timeout fallback has no server time.
+  const signedAtMs = params.connectChallengeTs ?? Date.now();
   const nonce = params.connectNonce ?? "";
   const payload = buildDeviceAuthPayload({
     deviceId: deviceIdentity.deviceId,
@@ -322,7 +327,8 @@ export class GatewayBrowserClient {
           retryable: error.retryable,
           retryAfterMs: error.retryAfterMs,
         }),
-      buildConnectPlan: ({ nonce, generation }) => this.buildConnectPlan(nonce, generation),
+      buildConnectPlan: ({ nonce, challengeTs, generation }) =>
+        this.buildConnectPlan(nonce, challengeTs, generation),
       buildConnectParams: (plan) => plan.params,
       onConnectHello: (hello, context) => this.handleConnectHello(hello, context.plan),
       onHello: (hello) => this.opts.onHello?.(hello),
@@ -419,6 +425,7 @@ export class GatewayBrowserClient {
 
   private async buildConnectPlan(
     connectNonce: string | null,
+    connectChallengeTs: number | null | undefined,
     generation: number,
   ): Promise<ConnectPlan> {
     this.recoveryScopeTracker.begin(generation);
@@ -474,6 +481,7 @@ export class GatewayBrowserClient {
       scopes,
       authToken: selectedAuth.authBootstrapToken ?? selectedAuth.authToken,
       connectNonce,
+      connectChallengeTs,
     });
     const plan: ConnectPlan = {
       generation,

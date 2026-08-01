@@ -41,6 +41,7 @@ type ConfigState = {
   loading: boolean;
   saving: boolean;
   dirty: boolean;
+  error: string | null;
 };
 
 type ChannelsState = {
@@ -53,6 +54,11 @@ type ChannelsState = {
 type CronState = {
   status: CronStatus | null;
   jobs: CronJob[];
+  jobsTotal: number;
+  jobsHasMore: boolean;
+  jobsLoadingMore: boolean;
+  scopedTotal: number | null;
+  scopedNextWakeAtMs: number | null;
   loading: boolean;
   error: string | null;
 };
@@ -111,6 +117,7 @@ type AgentsProps = {
   runtimeSessionKey: string;
   runtimeSessionMatchesSelectedAgent: boolean;
   modelCatalog: ModelCatalogEntry[];
+  modelCatalogError: string | null;
   pinnedAgentIds: readonly string[];
   personalAccess?: boolean;
   onTogglePinnedAgent: (agentId: string) => void;
@@ -132,11 +139,13 @@ type AgentsProps = {
   onIdentitySave: () => void;
   onModelChange: (agentId: string, modelId: string | null) => void;
   onModelFallbacksChange: (agentId: string, fallbacks: string[]) => void;
+  onModelCatalogRetry: () => void;
   onChannelsRefresh: () => void;
   onOpenMemoryImport?: () => void;
   onOpenMemorySettings?: () => void;
   onOpenAgentDefaults: () => void;
   onCronRefresh: () => void;
+  onCronLoadMore: () => void;
   onCronRunNow: (jobId: string) => void;
   onSkillsFilterChange: (next: string) => void;
   onSkillsRefresh: () => void;
@@ -171,9 +180,7 @@ export function renderAgents(props: AgentsProps) {
   const channelEntryCount = props.channels.snapshot
     ? Object.keys(props.channels.snapshot.channelAccounts ?? {}).length
     : null;
-  const cronJobCount = selectedId
-    ? props.cron.jobs.filter((j) => j.agentId === selectedId).length
-    : null;
+  const cronJobCount = selectedId ? props.cron.jobsTotal : null;
   const tabCounts: Record<string, number | null> = {
     files: props.agentFiles.list?.files?.length ?? null,
     skills: selectedSkillCount,
@@ -270,6 +277,9 @@ export function renderAgents(props: AgentsProps) {
                 props.personalAccess,
               )}
               <div id="agent-panel" role="tabpanel" aria-labelledby=${`agents-tab-${activePanel}`}>
+                ${props.config.error
+                  ? html`<div class="callout danger" role="alert">${props.config.error}</div>`
+                  : nothing}
                 ${activePanel === "overview"
                   ? keyed(
                       selectedAgent.id,
@@ -289,6 +299,7 @@ export function renderAgents(props: AgentsProps) {
                         configSaving: props.config.saving,
                         configDirty: props.config.dirty,
                         modelCatalog: props.modelCatalog,
+                        modelCatalogError: props.modelCatalogError,
                         onConfigReload: props.onConfigReload,
                         onConfigSave: props.onConfigSave,
                         onIdentityFieldChange: props.onIdentityFieldChange,
@@ -296,6 +307,7 @@ export function renderAgents(props: AgentsProps) {
                         onIdentitySave: props.onIdentitySave,
                         onModelChange: props.onModelChange,
                         onModelFallbacksChange: props.onModelFallbacksChange,
+                        onModelCatalogRetry: props.onModelCatalogRetry,
                         onSelectPanel: props.onSelectPanel,
                       }),
                     )
@@ -389,10 +401,16 @@ export function renderAgents(props: AgentsProps) {
                       ),
                       agentId: selectedAgent.id,
                       jobs: props.cron.jobs,
+                      jobsTotal: props.cron.jobsTotal,
+                      jobsHasMore: props.cron.jobsHasMore,
+                      jobsLoadingMore: props.cron.jobsLoadingMore,
                       status: props.cron.status,
+                      scopedTotal: props.cron.scopedTotal,
+                      scopedNextWakeAtMs: props.cron.scopedNextWakeAtMs,
                       loading: props.cron.loading,
                       error: props.cron.error,
                       onRefresh: props.onCronRefresh,
+                      onLoadMore: props.onCronLoadMore,
                       onRunNow: props.onCronRunNow,
                       onSelectPanel: props.onSelectPanel,
                     })

@@ -1433,6 +1433,85 @@ describe("qa mock openai server", () => {
     expect(body).not.toContain('"name":"read"');
   });
 
+  it("requires retained bot history in the Slack MPIM thread-history prelude", async () => {
+    const server = await startMockServer();
+    const seedMarker = "SLACK_QA_MPIM_SEED_A1B2C3D4";
+    const recallMarker = "SLACK_QA_MPIM_RECALL_A1B2C3D4";
+    const missingMarker = "SLACK_QA_MPIM_MISSING_A1B2C3D4";
+    const seedPrompt =
+      `Slack MPIM assistant-history seed check. Reply with only a marker in this exact format: ${seedMarker}_BOT_<NONCE>. ` +
+      "Replace <NONCE> with 8 to 32 new uppercase letters or digits. " +
+      "Do not include angle brackets, spaces, Markdown, or punctuation.";
+    const seedResponse = await expectResponsesJson<unknown>(server, {
+      stream: false,
+      model: "gpt-5.6-luna",
+      input: [makeUserInput(seedPrompt)],
+    });
+    const botReplyMarker = outputText(seedResponse);
+    expect(botReplyMarker).toMatch(new RegExp(`^${seedMarker}_BOT_[A-Z0-9]+$`, "u"));
+    const botNonce = botReplyMarker.slice(`${seedMarker}_BOT_`.length);
+    const expectedRecallMarker = `${recallMarker}_${botNonce}`;
+    const recallPrompt = [
+      "Slack MPIM assistant-history recall check.",
+      `Recall the nonce from your immediately previous reply beginning with ${seedMarker}_BOT_.`,
+      `Reply with only this exact format: ${recallMarker}_<NONCE>, using that same nonce.`,
+      `Otherwise reply with only: ${missingMarker}`,
+    ].join(" ");
+    expect(recallPrompt).not.toContain(botReplyMarker);
+    expect(recallPrompt).not.toContain(botNonce);
+
+    const withRetainedBotHistory = await expectResponsesJson<unknown>(server, {
+      stream: false,
+      model: "gpt-5.6-luna",
+      input: [
+        makeUserInput(
+          [
+            "[Thread history - for context]",
+            `[Slack Driver (user) Fri 2026-07-31 10:00 UTC] ${seedPrompt}`,
+            "[slack message id: 1.000000 channel: C123]",
+            "",
+            `[Slack OpenClaw (this assistant) (assistant) Fri 2026-07-31 10:01 UTC] ${botReplyMarker}`,
+            "[slack message id: 1.500000 channel: C123]",
+            "",
+            `[Slack Driver (user) Fri 2026-07-31 10:02 UTC] ${recallPrompt}`,
+          ].join("\n"),
+        ),
+      ],
+    });
+    expect(outputText(withRetainedBotHistory)).toBe(expectedRecallMarker);
+
+    const withStructuredAssistantHistoryOnly = await expectResponsesJson<unknown>(server, {
+      stream: false,
+      model: "gpt-5.6-luna",
+      input: [
+        makeUserInput(seedPrompt),
+        {
+          role: "assistant",
+          content: [{ type: "output_text", text: botReplyMarker }],
+        },
+        makeUserInput(recallPrompt),
+      ],
+    });
+    expect(outputText(withStructuredAssistantHistoryOnly)).toBe(missingMarker);
+
+    const withHumanAttributedSeed = await expectResponsesJson<unknown>(server, {
+      stream: false,
+      model: "gpt-5.6-luna",
+      input: [
+        makeUserInput(
+          [
+            "[Thread history - for context]",
+            `[Slack Alice (user) Fri 2026-07-31 10:00 UTC] ${botReplyMarker}`,
+            "[slack message id: 1.000000 channel: C123]",
+            "",
+            `[Slack Driver (user) Fri 2026-07-31 10:02 UTC] ${recallPrompt}`,
+          ].join("\n"),
+        ),
+      ],
+    });
+    expect(outputText(withHumanAttributedSeed)).toBe(missingMarker);
+  });
+
   it("drives repo-contract followthrough as read-read-read-write-then-report", async () => {
     const server = await startMockServer();
 
@@ -3230,7 +3309,7 @@ describe("qa mock openai server", () => {
     expect(outputText(await final.json())).toBe("subagent-1: ok\nsubagent-2: ok");
   });
 
-  it("completes subagent fanout from a continuation turn without tool output", async () => {
+  it("replays completed subagent fanout on requester-settle continuation turns", async () => {
     const server = await startMockServer();
 
     const prompt =
@@ -3275,6 +3354,43 @@ describe("qa mock openai server", () => {
     });
     expect(phaseOnlyFinal.status).toBe(200);
     expect(outputText(await phaseOnlyFinal.json())).toBe("subagent-1: ok\nsubagent-2: ok");
+
+    const settledContinuation = await postResponses(server, {
+      stream: false,
+      tools: [SESSIONS_SPAWN_TOOL],
+      input: [
+        makeUserInput(prompt),
+        makeUserInput(
+          "[Inter-session message]\nALPHA-OK\nBETA-OK\nAll spawned subagents have settled. Resume the parent turn and report both results together.",
+        ),
+      ],
+    });
+    expect(settledContinuation.status).toBe(200);
+    const settledPayload = await settledContinuation.json();
+    expect(outputText(settledPayload)).toBe("subagent-1: ok\nsubagent-2: ok");
+    expect(outputItems(settledPayload)).not.toContainEqual(
+      expect.objectContaining({ type: "function_call", name: "sessions_spawn" }),
+    );
+
+    const unrelatedContinuation = await postResponses(server, {
+      stream: false,
+      tools: [SESSIONS_SPAWN_TOOL],
+      input: [makeUserInput("Continue with an unrelated conversation.")],
+    });
+    expect(unrelatedContinuation.status).toBe(200);
+    expect(outputText(await unrelatedContinuation.json())).not.toBe(
+      "subagent-1: ok\nsubagent-2: ok",
+    );
+
+    const restartedFanout = await postResponses(server, {
+      stream: false,
+      tools: [SESSIONS_SPAWN_TOOL],
+      input: [makeUserInput(prompt)],
+    });
+    expect(restartedFanout.status).toBe(200);
+    expect(
+      outputToolArgsFromItem(outputToolCall(await restartedFanout.json(), "sessions_spawn")),
+    ).toEqual(expect.objectContaining({ label: "qa-fanout-alpha" }));
   });
 
   it("completes subagent fanout when beta completion arrives on a generic follow-up turn", async () => {
@@ -4176,20 +4292,46 @@ describe("qa mock openai server", () => {
 
   it("completes an image without replaying a tool unavailable to the completion turn", async () => {
     const server = await startMockServer();
+    const prompt = "Image generation check: generate a QA lighthouse image.";
+    const imagePlan = await expectResponsesJson<unknown>(server, {
+      stream: false,
+      tools: [IMAGE_GENERATE_TOOL],
+      input: [makeUserInput(prompt)],
+    });
+    const imageCall = outputToolCall(imagePlan, "image_generate");
+    const callId = outputToolCallId(imageCall, "call_mock_image_generate_unavailable");
+    const completionEvent = [
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      "OpenClaw runtime context (internal):",
+      "",
+      "[Internal task completion event]",
+      "source: image_generation",
+      "task: A QA lighthouse on a dark sea with a tiny protocol droid silhouette.",
+      "status: completed successfully",
+      "Generated media:",
+      "MEDIA:/tmp/qa-lighthouse.png",
+      "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+    ].join("\n");
     const completion = await expectResponsesJson<unknown>(server, {
       stream: false,
       tools: [MESSAGE_TOOL],
       input: [
-        makeUserInput("Image generation check: generate a QA lighthouse image."),
-        makeUserInput(
-          [
-            "[Internal task completion event]",
-            "source: image_generation",
-            "status: completed successfully",
-            "Generated media:",
-            "MEDIA:/tmp/qa-lighthouse.png",
-          ].join("\n"),
-        ),
+        makeUserInput(prompt),
+        {
+          type: "function_call",
+          name: "image_generate",
+          call_id: callId,
+          arguments: String(imageCall.arguments),
+        },
+        {
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify({
+            content: [{ type: "text", text: "Background image generation started." }],
+            details: { async: true, status: "started" },
+          }),
+        },
+        makeUserInput(completionEvent),
       ],
     });
 
@@ -5236,6 +5378,514 @@ describe("qa mock openai server", () => {
     const debugPayload = requireRecord(await debugResponse.json(), "debug request");
     expect(debugPayload.model).toBe("claude-opus-4-8");
     expect(debugPayload.plannedToolName).toBe("read");
+  });
+
+  it("routes Anthropic hidden tools through Code Mode and preserves scenario evidence", async () => {
+    const server = await startMockServer();
+    const prompt =
+      "Repo contract followthrough check. Read AGENT.md, SOUL.md, and FOLLOWTHROUGH_INPUT.md first. Then follow the repo contract exactly, write ./repo-contract-summary.txt, and reply with three labeled lines: Read, Wrote, Status.";
+    const tools = [
+      {
+        name: "exec",
+        input_schema: {
+          type: "object",
+          properties: {
+            language: { type: "string" },
+            code: { type: "string" },
+          },
+          required: ["code"],
+        },
+      },
+      {
+        name: "wait",
+        input_schema: {
+          type: "object",
+          properties: { runId: { type: "string" } },
+          required: ["runId"],
+        },
+      },
+    ];
+    const messages: Array<Record<string, unknown>> = [
+      {
+        role: "user",
+        content: [{ type: "text", text: prompt }],
+      },
+    ];
+
+    const request = async () => {
+      const response = await postJson(server, "/v1/messages", {
+        model: "claude-opus-4-8",
+        max_tokens: 256,
+        tools,
+        messages,
+      });
+      expect(response.status).toBe(200);
+      return (await response.json()) as {
+        stop_reason: string;
+        content: Array<Record<string, unknown>>;
+      };
+    };
+    const readToolUse = (body: {
+      stop_reason: string;
+      content: Array<Record<string, unknown>>;
+    }) => {
+      expect(body.stop_reason).toBe("tool_use");
+      const toolUse = body.content.find((block) => block.type === "tool_use");
+      if (!toolUse || typeof toolUse.id !== "string" || typeof toolUse.name !== "string") {
+        throw new Error("Expected Anthropic tool_use block");
+      }
+      return toolUse;
+    };
+    const appendToolResult = (
+      toolUse: Record<string, unknown>,
+      result: Record<string, unknown>,
+    ) => {
+      messages.push(
+        { role: "assistant", content: [toolUse] },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content: JSON.stringify(result),
+            },
+          ],
+        },
+      );
+    };
+    const expectPlan = async (name: string, args: Record<string, unknown>, wireName = "exec") => {
+      const debugResponse = await fetch(`${server.baseUrl}/debug/last-request`);
+      expect(debugResponse.status).toBe(200);
+      const debug = requireRecord(await debugResponse.json(), "debug request");
+      expect(debug.plannedToolName).toBe(name);
+      expect(debug.plannedWireToolName).toBe(wireName);
+      expect(debug.plannedToolArgs).toEqual(args);
+    };
+
+    const readAgent = readToolUse(await request());
+    expect(readAgent.name).toBe("exec");
+    const readAgentCode = String(requireRecord(readAgent.input, "exec input").code);
+    expect(readAgentCode).toContain("tools.callValue(target.id, targetArgs)");
+    expect(readAgentCode).toContain("value.content.slice(0, 2048)");
+    await expectPlan("read", { path: "AGENT.md" });
+
+    appendToolResult(readAgent, { status: "waiting", runId: "qa-code-mode-read-agent" });
+    const waitForAgent = readToolUse(await request());
+    expect(waitForAgent.name).toBe("wait");
+    const waitDebug = requireRecord(
+      await fetch(`${server.baseUrl}/debug/last-request`).then((response) => response.json()),
+      "wait debug request",
+    );
+    expect(waitDebug.plannedToolName).toBe("wait");
+    expect(waitDebug).not.toHaveProperty("plannedWireToolName");
+    expect(waitDebug.plannedToolArgs).toEqual({ runId: "qa-code-mode-read-agent" });
+
+    appendToolResult(waitForAgent, {
+      status: "completed",
+      value: { kind: "text", content: "# Repo contract\nDo not stop after planning." },
+    });
+    const readSoul = readToolUse(await request());
+    expect(readSoul.name).toBe("exec");
+    await expectPlan("read", { path: "SOUL.md" });
+
+    appendToolResult(readSoul, {
+      status: "completed",
+      value: { kind: "text", content: "# Execution style\nStay action-first." },
+    });
+    const readInput = readToolUse(await request());
+    expect(readInput.name).toBe("exec");
+    await expectPlan("read", { path: "FOLLOWTHROUGH_INPUT.md" });
+
+    appendToolResult(readInput, {
+      status: "completed",
+      value: {
+        kind: "text",
+        content:
+          "Mission: prove you followed the repo contract.\nEvidence path: AGENT.md -> SOUL.md -> FOLLOWTHROUGH_INPUT.md -> repo-contract-summary.txt",
+      },
+    });
+    const writeSummary = readToolUse(await request());
+    expect(writeSummary.name).toBe("exec");
+    await expectPlan("write", {
+      path: "repo-contract-summary.txt",
+      content:
+        "Mission: prove you followed the repo contract.\nEvidence: AGENT.md -> SOUL.md -> FOLLOWTHROUGH_INPUT.md\nStatus: complete",
+    });
+
+    appendToolResult(writeSummary, {
+      status: "completed",
+      value: "Successfully wrote 146 bytes to repo-contract-summary.txt.",
+    });
+    const final = await request();
+    expect(final.stop_reason).toBe("end_turn");
+    const text = final.content.find((block) => block.type === "text")?.text;
+    expect(text).toBe(
+      "Read: AGENT.md, SOUL.md, FOLLOWTHROUGH_INPUT.md\nWrote: repo-contract-summary.txt\nStatus: complete",
+    );
+  });
+
+  it("routes Anthropic image generation through Code Mode when only exec and wait are visible", async () => {
+    const server = await startMockServer();
+    const response = await postJson(server, "/v1/messages", {
+      model: "claude-opus-4-8",
+      max_tokens: 256,
+      tools: [
+        {
+          name: "exec",
+          input_schema: {
+            type: "object",
+            properties: { code: { type: "string" } },
+            required: ["code"],
+          },
+        },
+        {
+          name: "wait",
+          input_schema: {
+            type: "object",
+            properties: { runId: { type: "string" } },
+            required: ["runId"],
+          },
+        },
+      ],
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Capability flip image check: generate a QA lighthouse image in this turn right now.",
+            },
+          ],
+        },
+      ],
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      stop_reason: string;
+      content: Array<Record<string, unknown>>;
+    };
+    expect(body.stop_reason).toBe("tool_use");
+    expect(body.content.find((block) => block.type === "tool_use")?.name).toBe("exec");
+
+    const debug = requireRecord(
+      await fetch(`${server.baseUrl}/debug/last-request`).then((result) => result.json()),
+      "debug request",
+    );
+    expect(debug.plannedToolName).toBe("image_generate");
+    expect(debug.plannedWireToolName).toBe("exec");
+  });
+
+  it("does not route hidden capabilities through ordinary shell exec", async () => {
+    const server = await startMockServer();
+    const response = await postJson(server, "/v1/messages", {
+      model: "claude-opus-4-8",
+      max_tokens: 256,
+      tools: [
+        {
+          name: "exec",
+          input_schema: {
+            type: "object",
+            properties: { command: { type: "string" } },
+            required: ["command"],
+          },
+        },
+      ],
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Capability flip image check: generate a QA lighthouse image in this turn right now.",
+            },
+          ],
+        },
+      ],
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      stop_reason: string;
+      content: Array<Record<string, unknown>>;
+    };
+    expect(body.stop_reason).toBe("end_turn");
+    expect(body.content.some((block) => block.type === "tool_use")).toBe(false);
+  });
+
+  it("does not interpret ordinary tool results as Code Mode control envelopes", async () => {
+    const server = await startMockServer();
+    const prompt = "Read the seeded docs and report worked, failed, blocked, and follow-up items.";
+    const tools = [
+      {
+        name: "read",
+        input_schema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
+      },
+      {
+        name: "wait",
+        input_schema: {
+          type: "object",
+          properties: { runId: { type: "string" } },
+          required: ["runId"],
+        },
+      },
+    ];
+    const messages: Array<Record<string, unknown>> = [
+      { role: "user", content: [{ type: "text", text: prompt }] },
+    ];
+    const firstResponse = await postJson(server, "/v1/messages", {
+      model: "claude-opus-4-8",
+      max_tokens: 256,
+      tools,
+      messages,
+    });
+    const firstBody = (await firstResponse.json()) as {
+      content: Array<Record<string, unknown>>;
+    };
+    const readToolUse = firstBody.content.find((block) => block.type === "tool_use");
+    if (!readToolUse || typeof readToolUse.id !== "string") {
+      throw new Error("Expected Anthropic read tool_use block");
+    }
+    messages.push(
+      { role: "assistant", content: [readToolUse] },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: readToolUse.id,
+            content: JSON.stringify({ status: "waiting", runId: "ordinary-read" }),
+          },
+        ],
+      },
+    );
+
+    const response = await postJson(server, "/v1/messages", {
+      model: "claude-opus-4-8",
+      max_tokens: 256,
+      tools,
+      messages,
+    });
+    const body = (await response.json()) as {
+      stop_reason: string;
+      content: Array<Record<string, unknown>>;
+    };
+    expect(body.stop_reason).toBe("end_turn");
+    expect(body.content.some((block) => block.type === "tool_use")).toBe(false);
+  });
+
+  it("does not interpret unmarked direct exec results as Code Mode control envelopes", async () => {
+    const server = await startMockServer();
+    const response = await postJson(server, "/v1/messages", {
+      model: "claude-opus-4-8",
+      max_tokens: 256,
+      tools: [
+        {
+          name: "exec",
+          input_schema: {
+            type: "object",
+            properties: { code: { type: "string" } },
+            required: ["code"],
+          },
+        },
+        {
+          name: "wait",
+          input_schema: {
+            type: "object",
+            properties: { runId: { type: "string" } },
+            required: ["runId"],
+          },
+        },
+      ],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Direct exec envelope isolation check." }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_direct_exec",
+              name: "exec",
+              input: { language: "javascript", code: "return 1;" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_direct_exec",
+              content: JSON.stringify({ status: "waiting", runId: "direct-exec" }),
+            },
+          ],
+        },
+      ],
+    });
+    const body = (await response.json()) as {
+      stop_reason: string;
+      content: Array<Record<string, unknown>>;
+    };
+    expect(body.stop_reason).toBe("end_turn");
+    expect(body.content.some((block) => block.type === "tool_use")).toBe(false);
+  });
+
+  it("finishes Anthropic Code Mode fanout after the second wrapped spawn result", async () => {
+    const server = await startMockServer();
+    const prompt =
+      "Subagent fanout synthesis check: delegate exactly two bounded subagents sequentially using sessions_spawn, not ACP.";
+    const messages: Array<Record<string, unknown>> = [
+      { role: "user", content: [{ type: "text", text: prompt }] },
+    ];
+    const request = async () => {
+      const response = await postJson(server, "/v1/messages", {
+        model: "claude-opus-4-8",
+        max_tokens: 256,
+        tools: [
+          {
+            name: "exec",
+            input_schema: {
+              type: "object",
+              properties: { code: { type: "string" } },
+              required: ["code"],
+            },
+          },
+          {
+            name: "wait",
+            input_schema: {
+              type: "object",
+              properties: { runId: { type: "string" } },
+              required: ["runId"],
+            },
+          },
+        ],
+        messages,
+      });
+      expect(response.status).toBe(200);
+      return (await response.json()) as {
+        stop_reason: string;
+        content: Array<Record<string, unknown>>;
+      };
+    };
+    const appendCompletedResult = (
+      toolUse: Record<string, unknown>,
+      value: Record<string, unknown>,
+    ) => {
+      messages.push(
+        { role: "assistant", content: [toolUse] },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content: JSON.stringify({ status: "completed", value }),
+            },
+          ],
+        },
+      );
+    };
+    const requireToolUse = (
+      body: {
+        stop_reason: string;
+        content: Array<Record<string, unknown>>;
+      },
+      expectedName: string,
+    ) => {
+      expect(body.stop_reason).toBe("tool_use");
+      const toolUse = body.content.find((block) => block.type === "tool_use");
+      if (!toolUse || typeof toolUse.id !== "string") {
+        throw new Error("Expected Anthropic tool_use block");
+      }
+      expect(toolUse.name).toBe(expectedName);
+      return toolUse;
+    };
+    const alpha = requireToolUse(await request(), "exec");
+    appendCompletedResult(alpha, { status: "accepted", childSessionKey: "alpha" });
+    const beta = requireToolUse(await request(), "exec");
+    appendCompletedResult(beta, { status: "accepted", childSessionKey: "beta" });
+    const firstYield = requireToolUse(await request(), "exec");
+    appendCompletedResult(firstYield, { status: "yielded" });
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: "[Inter-session message]\nALPHA-OK" }],
+    });
+    const secondYield = requireToolUse(await request(), "exec");
+    appendCompletedResult(secondYield, { status: "yielded" });
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: "[Inter-session message]\nBETA-OK" }],
+    });
+
+    const final = await request();
+    expect(final.stop_reason).toBe("end_turn");
+    expect(final.content.find((block) => block.type === "text")?.text).toBe(
+      "subagent-1: ok\nsubagent-2: ok",
+    );
+  });
+
+  it("finishes Anthropic fanout without sessions_yield when Code Mode is unavailable", async () => {
+    const server = await startMockServer();
+    const prompt =
+      "Subagent fanout synthesis check: delegate exactly two bounded subagents sequentially using sessions_spawn, not ACP.";
+    const messages: Array<Record<string, unknown>> = [
+      { role: "user", content: [{ type: "text", text: prompt }] },
+    ];
+    const request = async () => {
+      const response = await postJson(server, "/v1/messages", {
+        model: "claude-opus-4-8",
+        max_tokens: 256,
+        tools: [
+          {
+            name: "sessions_spawn",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        messages,
+      });
+      return (await response.json()) as {
+        stop_reason: string;
+        content: Array<Record<string, unknown>>;
+      };
+    };
+    const appendResult = (toolUse: Record<string, unknown>, childSessionKey: string) => {
+      messages.push(
+        { role: "assistant", content: [toolUse] },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content: JSON.stringify({ status: "accepted", childSessionKey }),
+            },
+          ],
+        },
+      );
+    };
+
+    const alpha = (await request()).content.find((block) => block.type === "tool_use");
+    if (!alpha || typeof alpha.id !== "string") {
+      throw new Error("Expected first Anthropic sessions_spawn tool_use block");
+    }
+    appendResult(alpha, "alpha");
+    const beta = (await request()).content.find((block) => block.type === "tool_use");
+    if (!beta || typeof beta.id !== "string") {
+      throw new Error("Expected second Anthropic sessions_spawn tool_use block");
+    }
+    appendResult(beta, "beta");
+
+    const final = await request();
+    expect(final.stop_reason).toBe("end_turn");
+    expect(final.content.find((block) => block.type === "text")?.text).toBe(
+      "subagent-1: ok\nsubagent-2: ok",
+    );
   });
 
   it("preserves Anthropic /v1/messages declared tools for explicit sessions_spawn prompts", async () => {

@@ -1,7 +1,8 @@
 // @vitest-environment node
 // Control UI tests cover cron behavior.
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { CronJob, CronRunsResult } from "../../api/types.ts";
+import { i18n } from "../../i18n/index.ts";
 import { parseCronEveryMs } from "../../lib/cron/decimal.ts";
 import {
   addCronJob,
@@ -24,6 +25,10 @@ import {
   type CronState,
 } from "../../lib/cron/index.ts";
 import { DEFAULT_CRON_FORM } from "../../test-helpers/cron.ts";
+
+beforeAll(async () => {
+  await i18n.setLocale("en");
+});
 
 function createState(overrides: Partial<CronState> = {}): CronState {
   return {
@@ -144,7 +149,7 @@ describe("cron controller", () => {
               "openai/gpt-5.2": { alias: "main" },
             },
           },
-          list: {
+          entries: {
             writer: {
               model: { primary: "xai/grok-4", fallbacks: ["openai/gpt-5.2-mini"] },
             },

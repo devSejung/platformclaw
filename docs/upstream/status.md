@@ -5,7 +5,7 @@
 - Upstream repository: `https://github.com/openclaw/openclaw.git`
 - Origin repository: `https://github.com/devSejung/platformclaw`
 - Baseline commit: `17c2ce05d8021b969f9e822a34e92535145922d5`
-- Last upstream sync: 2026-07-30 on `sync/upstream-20260730` through upstream commit `5496cff9653b00902be9f26d7ec09627425d414a`
+- Last upstream sync: 2026-08-01 on `sync/upstream-20260801` through upstream commit `02457657f012d33e141c710d92671d1bc4a519e9`
 - Initial sync state: local `main`, `origin/main`, and `upstream/main` identical
 
 ## Legacy Comparison Baseline
@@ -42,6 +42,22 @@ and cache sizes to the deployable image size.
 ## Current Phase
 
 Environment setup complete. Control-plane Phase 1 implementation in progress.
+
+## 2026-08-01 Sync Contract Audit
+
+- Preserved OpenClaw ancestry with the previous upstream sync
+  `5496cff9653b00902be9f26d7ec09627425d414a` as the integration range start.
+- Adopted the upstream Control UI owner split and moved PlatformClaw session,
+  route, chrome, synced-preference, and runtime-config policy into the new root,
+  shell chrome, gateway, and view owners.
+- Preserved employee cron caller scoping, optimistic job revisions, restricted
+  delivery controls, and configured-model-only selection while retaining the
+  upstream agent-specific model catalog and scheduler consistency fixes.
+- Preserved the PlatformClaw sandbox backend agent identity, remote skill
+  provider, runtime prompt context, requester-scoped MCP disposal, and plugin
+  request registry seams.
+- Regenerated bundled channel metadata from the upstream result plus the
+  private Knox channel surface.
 
 ## Completed
 

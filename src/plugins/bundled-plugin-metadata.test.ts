@@ -55,6 +55,8 @@ const EXPECTED_BUNDLED_STARTUP_PLUGIN_IDS = [
   "ollama",
   "opencode",
   "openshell",
+  "platformclaw-execution",
+  "platformclaw-user-mcp",
   "policy",
   "reef",
   "talk-voice",
