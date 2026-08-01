@@ -82,7 +82,7 @@ describe("PlatformClawControlUiAdapter", () => {
           "route:sessions",
           "route:activity",
           "route:cron",
-          "route:skills",
+          "route:plugins",
         ],
         sidebarRouteTargets: { plugins: "skills" },
       },
@@ -245,8 +245,8 @@ describe("PlatformClawControlUiAdapter", () => {
     );
     expect(memberOptions.enabledRouteIds).not.toContain("plugins");
     expect(memberOptions.enabledRouteIds).toContain("mcp");
-    expect(memberOptions.navigation?.sidebarEntries).not.toContain("route:plugins");
-    expect(memberOptions.navigation?.sidebarEntries).toContain("route:skills");
+    expect(memberOptions.navigation?.sidebarEntries).toContain("route:plugins");
+    expect(memberOptions.navigation?.sidebarEntries).not.toContain("route:skills");
     expect(memberOptions.navigation?.sidebarRouteTargets).toEqual({ plugins: "skills" });
     render(memberOptions.shellSession?.renderFooterAccessory?.(), document.body);
 

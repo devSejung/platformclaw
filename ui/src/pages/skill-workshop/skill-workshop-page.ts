@@ -26,10 +26,7 @@ import type {
   SkillWorkshopRenderContext,
   SkillWorkshopRevisionRequest,
 } from "./page-types.ts";
-import {
-  renderAssignedVmWorkshopUnavailable,
-  SkillWorkshopPersonalAccess,
-} from "./personal-access.ts";
+import { SkillWorkshopPersonalAccess } from "./personal-access.ts";
 import { selectPluginsHubTab } from "./plugins-hub-navigation.ts";
 import {
   countSkillWorkshopProposals,
@@ -614,9 +611,6 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     }
     if (context.accessMode === "personal-agent") {
       state.skillWorkshopError = this.personalAccess.prepareRetry(force, state.skillWorkshopError);
-      if (this.personalAccess.target === "assigned_vm") {
-        return;
-      }
       if (this.personalAccess.target === null) {
         void this.personalAccess.load({
           context,
@@ -692,13 +686,6 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   }
 
   override render() {
-    if (
-      this.state &&
-      this.context?.accessMode === "personal-agent" &&
-      this.personalAccess.target === "assigned_vm"
-    ) {
-      return renderAssignedVmWorkshopUnavailable(this.context);
-    }
     return this.state && this.context
       ? renderSkillWorkshopPage(
           this.state,

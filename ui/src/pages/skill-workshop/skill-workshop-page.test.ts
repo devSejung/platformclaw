@@ -217,10 +217,17 @@ describe("SkillWorkshopPage lifecycle", () => {
     );
   });
 
-  it("shows an assigned-VM guard without loading Workshop proposals", async () => {
+  it("loads Workshop proposals for an assigned VM", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "skills.status") {
         return { agentId: "research", executionTarget: "assigned_vm", skills: [] };
+      }
+      if (method === "skills.proposals.list") {
+        return {
+          schema: "openclaw.skill-workshop.proposals-manifest.v1",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          proposals: [],
+        };
       }
       throw new Error(`unexpected method: ${method}`);
     });
@@ -233,13 +240,10 @@ describe("SkillWorkshopPage lifecycle", () => {
     await page.updateComplete;
 
     await waitForSkillWorkshop(() =>
-      expect(page.textContent).toContain("Skill Workshop uses the Basic workspace"),
+      expect(callsFor(request, "skills.proposals.list")).toHaveLength(1),
     );
     expect(request).toHaveBeenCalledWith("skills.status", {});
-    expect(callsFor(request, "skills.proposals.list")).toHaveLength(0);
-
-    (page.querySelector("button") as HTMLButtonElement).click();
-    expect(context.navigate).toHaveBeenCalledWith("skills");
+    expect(request).toHaveBeenCalledWith("skills.proposals.list", { agentId: "research" });
   });
 
   it("loads Workshop proposals after confirming the Basic workspace", async () => {
