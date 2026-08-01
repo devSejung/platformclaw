@@ -95,6 +95,7 @@ describe("PlatformClaw scheduled agent execution", () => {
           handle("assigned-vm", ["ssh", "platformclaw-safeconnect", "--", "sh"]),
         ),
         listTargetSkills: vi.fn(async () => undefined),
+        createSkillWorkshopTarget: vi.fn(async () => undefined),
       };
       const restore = registerSandboxBackend(
         PLATFORMCLAW_EXECUTION_BACKEND_ID,

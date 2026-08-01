@@ -18,6 +18,7 @@ import {
   isSshpassAuthenticationFailure,
   PlatformClawVmAuthenticationError,
 } from "./connection-errors.js";
+import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 
 const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
@@ -391,6 +392,11 @@ export async function createExecutionDependenciesFromEnvironment(
     disposeSession: disposeSshSandboxSession,
     runCommand: runSshSandboxCommand,
   });
+  const remoteSkillWorkshop = new VmRemoteSkillWorkshopService({
+    createSession: async (target) => await createSafeConnectSession(target),
+    disposeSession: disposeSshSandboxSession,
+    runCommand: runSshSandboxCommand,
+  });
   return {
     resolveTarget: async ({ agentId }) => {
       return parseTarget(
@@ -414,6 +420,14 @@ export async function createExecutionDependenciesFromEnvironment(
       }),
     listTargetSkills: async ({ refresh, target }) =>
       target.kind === "assigned_vm" ? await remoteSkills.list(target, refresh) : undefined,
+    createSkillWorkshopTarget: async ({ target, catalog }) =>
+      target.kind === "assigned_vm"
+        ? remoteSkillWorkshop.createAccess({
+            target,
+            ...(catalog ? { catalog } : {}),
+            refreshCatalog: async () => await remoteSkills.list(target, true),
+          })
+        : undefined,
     testConnection: async ({ agentId, credentialBrokerAddress, credentialGrantToken }) => {
       // This endpoint consumes the probe-only connection snapshot. It discovers
       // canonical HOME before any executable backend snapshot can be created.

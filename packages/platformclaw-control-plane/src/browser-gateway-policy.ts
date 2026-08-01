@@ -43,6 +43,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "skills.detail",
   "skills.install",
   "skills.proposals.apply",
+  "skills.proposals.evaluate",
   "skills.proposals.historyScan",
   "skills.proposals.historyStatus",
   "skills.proposals.inspect",
@@ -278,12 +279,22 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "timeoutMs",
     ]),
   ],
-  ["skills.proposals.apply", new Set(["agentId", "proposalId", "reason"])],
+  [
+    "skills.proposals.apply",
+    new Set(["agentId", "proposalId", "expectedRevisionHash", "correlationId", "reason"]),
+  ],
+  [
+    "skills.proposals.evaluate",
+    new Set(["agentId", "proposalId", "expectedRevisionHash", "correlationId"]),
+  ],
   ["skills.proposals.historyScan", new Set(["agentId", "direction"])],
   ["skills.proposals.historyStatus", new Set(["agentId"])],
   ["skills.proposals.inspect", new Set(["agentId", "proposalId"])],
   ["skills.proposals.list", new Set(["agentId"])],
-  ["skills.proposals.reject", new Set(["agentId", "proposalId", "reason"])],
+  [
+    "skills.proposals.reject",
+    new Set(["agentId", "proposalId", "expectedRevisionHash", "correlationId", "reason"]),
+  ],
   [
     "skills.proposals.requestRevision",
     new Set([
@@ -332,6 +343,7 @@ export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
   "sessions.usage",
   "skills.install",
   "skills.proposals.apply",
+  "skills.proposals.evaluate",
   "skills.proposals.historyScan",
   "skills.proposals.historyStatus",
   "skills.proposals.inspect",

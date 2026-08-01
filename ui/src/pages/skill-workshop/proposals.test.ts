@@ -201,6 +201,7 @@ describe("Skill Workshop proposal RPCs", () => {
         },
         { assistantAgentId: "reviewer" },
       );
+      let inspectCalls = 0;
       request.mockImplementation(async (calledMethod: string) => {
         if (calledMethod === method) {
           return {};
@@ -209,7 +210,8 @@ describe("Skill Workshop proposal RPCs", () => {
           return manifest(status);
         }
         if (calledMethod === "skills.proposals.inspect") {
-          return inspectResult(status);
+          inspectCalls += 1;
+          return inspectResult(inspectCalls === 1 ? "pending" : status);
         }
         return {};
       });
@@ -220,14 +222,19 @@ describe("Skill Workshop proposal RPCs", () => {
         clearNoticeTimer(state);
       }
 
-      expect(request).toHaveBeenNthCalledWith(1, method, {
+      expect(request).toHaveBeenNthCalledWith(1, "skills.proposals.inspect", {
         agentId: "reviewer",
         proposalId: "proposal-1",
       });
-      expect(request).toHaveBeenNthCalledWith(2, "skills.proposals.list", {
+      expect(request).toHaveBeenNthCalledWith(2, method, {
+        agentId: "reviewer",
+        proposalId: "proposal-1",
+        expectedRevisionHash: REVISION_HASH,
+      });
+      expect(request).toHaveBeenNthCalledWith(3, "skills.proposals.list", {
         agentId: "reviewer",
       });
-      expect(request).toHaveBeenNthCalledWith(3, "skills.proposals.inspect", {
+      expect(request).toHaveBeenNthCalledWith(4, "skills.proposals.inspect", {
         agentId: "reviewer",
         proposalId: "proposal-1",
       });

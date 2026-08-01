@@ -1,3 +1,4 @@
+import type { SkillWorkshopTargetAccess } from "../../skills/workshop/types.js";
 /**
  * Backend-neutral sandbox runtime handle contracts.
  *
@@ -101,6 +102,8 @@ export type SandboxBackendHandle = {
    * Embedded runs deliver it as hidden runtime context, never user-authored text.
    */
   runtimePromptContext?: string;
+  /** Mutable Workshop target pinned to the same execution target as this handle. */
+  skillWorkshopTarget?: SkillWorkshopTargetAccess | { kind: "workspace" };
   capabilities?: {
     browser?: boolean;
   };

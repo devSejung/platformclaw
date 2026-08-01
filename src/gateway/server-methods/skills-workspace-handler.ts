@@ -5,8 +5,13 @@ import {
   resolveAgentWorkspaceDir,
   resolveDefaultAgentId,
 } from "../../agents/agent-scope.js";
+import {
+  getSandboxBackendSkillWorkshopProvider,
+  resolveSandboxConfigForAgent,
+} from "../../agents/sandbox.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
+import type { SkillWorkshopTargetAccess } from "../../skills/workshop/types.js";
 import type { GatewayRequestContext, RespondFn } from "./types.js";
 import { assertValidParams, type Validator } from "./validation.js";
 
@@ -36,6 +41,43 @@ export type ResolvedSkillsWorkspace = Extract<
   { ok: true }
 >;
 
+export type ResolvedSkillWorkshopWorkspace = ResolvedSkillsWorkspace & {
+  targetAccess?: SkillWorkshopTargetAccess;
+};
+
+async function resolveSkillWorkshopWorkspace(
+  params: unknown,
+  context: GatewayRequestContext,
+  method: string,
+): Promise<
+  | Exclude<ReturnType<typeof resolveSkillsAgentWorkspace>, ResolvedSkillsWorkspace>
+  | ResolvedSkillWorkshopWorkspace
+> {
+  const resolved = resolveSkillsAgentWorkspace(params, context);
+  if (!resolved.ok) {
+    return resolved;
+  }
+  const needsTargetAccess = new Set([
+    "skills.proposals.apply",
+    "skills.proposals.create",
+    "skills.proposals.evaluate",
+    "skills.proposals.revise",
+    "skills.proposals.update",
+  ]).has(method);
+  const sandbox = needsTargetAccess
+    ? resolveSandboxConfigForAgent(resolved.cfg, resolved.agentId)
+    : undefined;
+  const provider = sandbox ? getSandboxBackendSkillWorkshopProvider(sandbox.backend) : null;
+  const targetAccess = provider
+    ? await provider({
+        agentId: resolved.agentId,
+        config: resolved.cfg,
+        workspaceDir: resolved.workspaceDir,
+      })
+    : undefined;
+  return { ...resolved, ...(targetAccess ? { targetAccess } : {}) };
+}
+
 export const SKILL_PROPOSAL_RESPONSE_HANDLED = Symbol("skill proposal response handled");
 
 export async function runSkillsProposalWorkspaceHandler<TParams, TResult>(params: {
@@ -46,13 +88,23 @@ export async function runSkillsProposalWorkspaceHandler<TParams, TResult>(params
   validate: Validator<TParams>;
   run: (
     parsedParams: TParams,
-    resolved: ResolvedSkillsWorkspace,
+    resolved: ResolvedSkillWorkshopWorkspace,
   ) => Promise<TResult | typeof SKILL_PROPOSAL_RESPONSE_HANDLED>;
 }): Promise<void> {
   if (!assertValidParams(params.rawParams, params.validate, params.method, params.respond)) {
     return;
   }
-  const resolved = resolveSkillsAgentWorkspace(params.rawParams, params.context);
+  let resolved: Awaited<ReturnType<typeof resolveSkillWorkshopWorkspace>>;
+  try {
+    resolved = await resolveSkillWorkshopWorkspace(params.rawParams, params.context, params.method);
+  } catch (error) {
+    params.respond(
+      false,
+      undefined,
+      errorShape(ErrorCodes.INVALID_REQUEST, formatErrorMessage(error)),
+    );
+    return;
+  }
   if (!resolved.ok) {
     params.respond(false, undefined, resolved.error);
     return;
@@ -68,5 +120,7 @@ export async function runSkillsProposalWorkspaceHandler<TParams, TResult>(params
       undefined,
       errorShape(ErrorCodes.INVALID_REQUEST, formatErrorMessage(error)),
     );
+  } finally {
+    await resolved.targetAccess?.close?.().catch(() => undefined);
   }
 }

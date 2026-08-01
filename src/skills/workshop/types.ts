@@ -1,3 +1,4 @@
+import type { SandboxFsBridge } from "../../agents/sandbox/fs-bridge.types.js";
 // Workshop types define generated skill draft, policy, and config contracts.
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { PluginHookSkillProposalEvaluationOutcome } from "../../plugins/hook-types.js";
@@ -108,6 +109,52 @@ export type SkillProposalScan = {
   findings: SkillScanFinding[];
 };
 
+export type SkillWorkshopTargetFile = {
+  path: string;
+  content: Buffer;
+};
+
+export type SkillWorkshopTargetSkill = {
+  name: string;
+  skillKey: string;
+  description?: string;
+  source: string;
+  skillDir: string;
+  skillFile: string;
+};
+
+/**
+ * Backend-owned access to a non-Gateway skill workspace.
+ *
+ * The descriptor is persisted on proposals; functions and credentials are
+ * process-local and must be resolved again for every UI request.
+ */
+export type SkillWorkshopTargetAccess = {
+  backendId: string;
+  targetId: string;
+  targetLabel: string;
+  workspaceDir: string;
+  skillsDir: string;
+  source: string;
+  fsBridge: SandboxFsBridge;
+  listSkills(): Promise<SkillWorkshopTargetSkill[]>;
+  readSkillTree(skillDir: string): Promise<SkillWorkshopTargetFile[]>;
+  mutateSkill(params: {
+    mode: "create" | "update" | "restore";
+    skillDir: string;
+    expectedTree: readonly SkillWorkshopTargetFile[];
+    files: ReadonlyArray<{ path: string; content: Buffer | null }>;
+  }): Promise<void>;
+  notifyChanged?(): Promise<void>;
+  close?: () => Promise<void>;
+};
+
+export type SkillProposalTargetBinding = {
+  backendId: string;
+  targetId: string;
+  targetLabel: string;
+};
+
 type SkillProposalTarget = {
   skillName: string;
   skillKey: string;
@@ -115,6 +162,7 @@ type SkillProposalTarget = {
   skillFile: string;
   source?: string;
   currentContentHash?: string;
+  binding?: SkillProposalTargetBinding;
 };
 
 export type SkillProposalSupportFile = {
@@ -171,6 +219,7 @@ export type SkillProposalManifestEntry = {
   scanState: SkillProposalScannerState;
   /** The proposal remains bound to an earlier workspace for this agent. */
   workspaceMismatch?: true;
+  targetLabel?: string;
 };
 
 export type SkillProposalManifest = {
@@ -215,6 +264,7 @@ export type SkillProposalCreateInput = {
   origin?: SkillProposalOrigin;
   goal?: string;
   evidence?: string;
+  targetAccess?: SkillWorkshopTargetAccess;
 };
 
 export type SkillProposalUpdateInput = {
@@ -232,6 +282,7 @@ export type SkillProposalUpdateInput = {
   origin?: SkillProposalOrigin;
   goal?: string;
   evidence?: string;
+  targetAccess?: SkillWorkshopTargetAccess;
 };
 
 export type SkillProposalReviseInput = {
@@ -249,6 +300,7 @@ export type SkillProposalReviseInput = {
   origin?: SkillProposalOrigin;
   goal?: string;
   evidence?: string;
+  targetAccess?: SkillWorkshopTargetAccess;
 };
 
 export type SkillProposalActionInput = {
@@ -261,6 +313,7 @@ export type SkillProposalActionInput = {
   expectedRevisionHash?: string;
   correlationId?: string;
   reason?: string;
+  targetAccess?: SkillWorkshopTargetAccess;
 };
 
 export type SkillProposalEvaluateInput = {
@@ -272,6 +325,7 @@ export type SkillProposalEvaluateInput = {
   expectedRevisionHash?: string;
   correlationId?: string;
   trigger?: SkillProposalEvaluationTrigger;
+  targetAccess?: SkillWorkshopTargetAccess;
 };
 
 export type SkillProposalEventsListInput = {

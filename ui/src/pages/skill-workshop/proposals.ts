@@ -39,6 +39,7 @@ type SkillProposalManifestEntry = {
   createdAt: string;
   updatedAt: string;
   scanState: SkillProposalScanState;
+  targetLabel?: string;
 };
 
 type SkillProposalManifest = {
@@ -75,6 +76,8 @@ type SkillProposalRecord = {
   target: {
     skillName: string;
     skillKey: string;
+    targetLabel?: string;
+    binding?: { targetLabel?: string };
   };
 };
 
@@ -235,6 +238,7 @@ function proposalFromManifest(
     slug: entry.skillKey,
     name: entry.title || entry.skillName,
     oneLine: entry.description,
+    ...(entry.targetLabel ? { targetLabel: entry.targetLabel } : {}),
     body: previousIsCurrent ? previous.body : "",
     status: entry.status,
     ...(previousIsCurrent && previous.origin ? { origin: previous.origin } : {}),
@@ -264,11 +268,17 @@ function proposalFromInspect(
       : previous?.evaluation?.revisionHash === revisionHash
         ? previous.evaluation
         : undefined;
+  const targetLabel = record.target.targetLabel ?? record.target.binding?.targetLabel;
   return {
     key: record.id,
     slug: record.target.skillKey,
     name: record.title || record.target.skillName,
     oneLine: record.description,
+    ...(targetLabel
+      ? { targetLabel }
+      : previous?.targetLabel
+        ? { targetLabel: previous.targetLabel }
+        : {}),
     body: stripProposalFrontmatter(result.content),
     status: record.status,
     ...(record.origin ? { origin: record.origin } : {}),
@@ -296,6 +306,11 @@ function proposalFromEvaluation(
     slug: record.target.skillKey,
     name: record.title || record.target.skillName,
     oneLine: record.description,
+    ...(record.target.targetLabel
+      ? { targetLabel: record.target.targetLabel }
+      : previous.targetLabel
+        ? { targetLabel: previous.targetLabel }
+        : {}),
     body: previous.body,
     status: record.status,
     ...(record.origin
@@ -519,8 +534,22 @@ export async function runSkillWorkshopLifecycleAction(
   state.skillWorkshopActionNotice = null;
   state.skillWorkshopError = null;
   try {
+    const loaded = await loadSkillWorkshopProposalDetail(state, context, proposalId, {
+      force: true,
+    });
+    if (!loaded) {
+      return;
+    }
+    const current = state.skillWorkshopProposals.find((proposal) => proposal.key === proposalId);
+    if (!current || current.status !== "pending" || !current.revisionHash) {
+      throw new Error(t("skillWorkshop.evaluation.errors.revisionHashUnavailable"));
+    }
     const method = action === "apply" ? "skills.proposals.apply" : "skills.proposals.reject";
-    const requestParams = { ...loadedSkillWorkshopAgentParams(state, context), proposalId };
+    const requestParams = {
+      ...loadedSkillWorkshopAgentParams(state, context),
+      proposalId,
+      expectedRevisionHash: current.revisionHash,
+    };
     await client.request(method, requestParams);
     await refreshAfterMutation(state, context, proposalId);
     const updated = state.skillWorkshopProposals.find((proposal) => proposal.key === proposalId);

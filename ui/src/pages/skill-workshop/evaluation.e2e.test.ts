@@ -189,4 +189,101 @@ describeBrowser("Skill Workshop proposal evaluation mocked Gateway E2E", () => {
       }
     },
   );
+
+  it("shows the VM target and applies the exact inspected revision without a UI blocker", async () => {
+    if (!browser || !server) {
+      throw new Error("Expected browser test fixtures");
+    }
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    try {
+      const vmRecord = {
+        ...record,
+        target: {
+          ...record.target,
+          targetLabel: "Development VM",
+        },
+      };
+      const pendingManifest = {
+        schema: "openclaw.skill-workshop.proposals-manifest.v1",
+        updatedAt: ISO_NOW,
+        proposals: [
+          {
+            id: "proposal-1",
+            kind: "create",
+            status: "pending",
+            title: "Inbox Cleaner",
+            description: "Clean inbox triage",
+            skillName: "Inbox Cleaner",
+            skillKey: "inbox-cleaner",
+            createdAt: ISO_NOW,
+            updatedAt: ISO_NOW,
+            scanState: "clean",
+            targetLabel: "Development VM",
+          },
+        ],
+      };
+      const appliedRecord = { ...vmRecord, status: "applied" };
+      const gateway = await installMockGateway(page, {
+        assistantAgentId: "research",
+        defaultAgentId: "research",
+        methodResponses: {
+          "skills.proposals.list": {
+            sequence: [
+              pendingManifest,
+              pendingManifest,
+              {
+                ...pendingManifest,
+                proposals: [{ ...pendingManifest.proposals[0], status: "applied" }],
+              },
+            ],
+          },
+          "skills.proposals.inspect": {
+            sequence: [
+              { ...inspectResult(false), record: vmRecord },
+              { ...inspectResult(false), record: vmRecord },
+              { ...inspectResult(false), record: vmRecord },
+              { ...inspectResult(false), record: appliedRecord },
+            ],
+          },
+          "skills.proposals.apply": {
+            record: appliedRecord,
+            targetSkillFile: "inbox-cleaner/SKILL.md",
+          },
+        },
+      });
+      await page.goto(`${server.baseUrl}skills/workshop`);
+
+      const apply = page.getByRole("button", { name: /Use it/ });
+      await expect
+        .poll(() =>
+          page
+            .getByText(/Development VM/i)
+            .first()
+            .isVisible(),
+        )
+        .toBe(true);
+      await expect.poll(() => apply.isEnabled()).toBe(true);
+      await apply.click();
+
+      const request = await gateway.waitForRequest("skills.proposals.apply");
+      expect(request.params).toEqual({
+        agentId: "research",
+        proposalId: "proposal-1",
+        expectedRevisionHash: REVISION_HASH,
+      });
+      await expect.poll(() => page.getByText("Applied", { exact: true }).isVisible()).toBe(true);
+      expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(
+        await page.evaluate(() => window.innerWidth + 1),
+      );
+      if (artifactDir) {
+        await page.screenshot({
+          fullPage: true,
+          path: path.join(artifactDir, "vm-apply.png"),
+        });
+      }
+    } finally {
+      await context.close();
+    }
+  });
 });

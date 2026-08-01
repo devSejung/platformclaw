@@ -563,6 +563,7 @@ function manifestEntryFromRecord(
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     scanState: record.scan.state,
+    ...(record.target.binding ? { targetLabel: record.target.binding.targetLabel } : {}),
     ...(workspaceMismatch ? { workspaceMismatch: true } : {}),
   };
 }

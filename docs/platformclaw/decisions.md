@@ -515,6 +515,30 @@ administrator path invalidates requester-scoped MCP connections for every
 configured Agent after a server, credential mode, or tool filter changes.
 Normal runtime expiry is secondary cleanup, not revocation authority.
 
+### PC-126 Bind Skill Workshop apply to the proposal's execution target
+
+PlatformClaw reuses upstream Skill Workshop for both Basic and assigned-VM
+work. It does not add a second proposal service, proposal file store, or VM-side
+OpenClaw CLI. Proposal state stays in the existing Gateway SQLite tables. An
+optional target binding inside the canonical proposal record names only the
+private backend, stable VM allocation, and user-visible target label; this is
+an additive record field and does not change the SQLite schema version.
+
+The private execution plugin owns VM tree reads and mutations through the
+generic sandbox filesystem bridge. Core Workshop receives only a narrow,
+process-local target capability. The agent may draft VM proposals, while the
+employee must evaluate/apply/reject them in Skill Workshop. Apply re-resolves
+the current target and requires the original allocation identity, exact
+proposal revision, and exact evaluated tree. Concurrent or external edits fail
+closed. Interrupted writes reconcile from SQLite rollback facts before a retry.
+
+Administrators own `/opt/platformclaw/skills`, including the canonical bundled
+`skill-creator`. Users own only workspace skills. This avoids copying server
+paths into a VM, avoids split bundle versions, and keeps normal PlatformClaw
+server users on the unchanged upstream Workshop path. Future upstream syncs
+must prefer a native remote Workshop target contract if it satisfies these
+allocation, approval, CAS, recovery, and no-fallback invariants.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs

@@ -23,6 +23,7 @@ import type {
   SkillProposalStatus,
   SkillWorkshopProposalMutationBudget,
   SkillWorkshopProposalReviewCompletion,
+  SkillWorkshopTargetAccess,
 } from "../../skills/workshop/types.js";
 import { stringEnum } from "../schema/typebox.js";
 import {
@@ -62,6 +63,7 @@ const SKILL_WORKSHOP_ACTIONS = [
   "quarantine",
 ] as const;
 const SKILL_WORKSHOP_PROPOSAL_ACTIONS = ["create", "revise", "list", "inspect"] as const;
+const SKILL_WORKSHOP_DRAFT_ACTIONS = ["create", "update", "revise", "list", "inspect"] as const;
 const SKILL_WORKSHOP_PROPOSAL_COMPLETION_ACTIONS = [
   ...SKILL_WORKSHOP_PROPOSAL_ACTIONS,
   "complete",
@@ -89,17 +91,30 @@ function requireProposalContent(content: string | undefined): string {
   return content;
 }
 
-function buildSkillWorkshopToolSchema(proposalOnly: boolean, supportsCompletion: boolean) {
+function buildSkillWorkshopToolSchema(
+  proposalOnly: boolean,
+  draftOnly: boolean,
+  supportsCompletion: boolean,
+) {
   const proposalActions = supportsCompletion
     ? SKILL_WORKSHOP_PROPOSAL_COMPLETION_ACTIONS
     : SKILL_WORKSHOP_PROPOSAL_ACTIONS;
   return Type.Object(
     {
-      action: stringEnum(proposalOnly ? proposalActions : SKILL_WORKSHOP_ACTIONS, {
-        description: proposalOnly
-          ? `create = new skill; revise = existing pending proposal; list/inspect discover pending proposals (not filesystem search).${supportsCompletion ? " complete = durably finish this review after all proposal work." : ""} Live-skill updates and lifecycle actions are unavailable.`
-          : "create = new skill; update = existing live skill; revise = existing pending proposal; list/inspect discover pending proposals (not filesystem search); evaluate runs plugin evaluators for the exact draft; apply/reject/quarantine are explicit lifecycle actions.",
-      }),
+      action: stringEnum(
+        proposalOnly
+          ? proposalActions
+          : draftOnly
+            ? SKILL_WORKSHOP_DRAFT_ACTIONS
+            : SKILL_WORKSHOP_ACTIONS,
+        {
+          description: proposalOnly
+            ? `create = new skill; revise = existing pending proposal; list/inspect discover pending proposals (not filesystem search).${supportsCompletion ? " complete = durably finish this review after all proposal work." : ""} Live-skill updates and lifecycle actions are unavailable.`
+            : draftOnly
+              ? "create/update/revise draft pending proposals; list/inspect discover proposals. Evaluation and lifecycle actions require explicit user action in Skill Workshop."
+              : "create = new skill; update = existing live skill; revise = existing pending proposal; list/inspect discover pending proposals (not filesystem search); evaluate runs plugin evaluators for the exact draft; apply/reject/quarantine are explicit lifecycle actions.",
+        },
+      ),
       proposal_id: Type.Optional(
         Type.String({
           description:
@@ -190,19 +205,26 @@ type SkillWorkshopToolOptions = {
   origin?: SkillProposalOrigin;
   /** Internal reviewers may inspect and draft bounded pending proposals, never change lifecycle state. */
   proposalOnly?: boolean;
+  /** User agents may draft create/update proposals, while lifecycle actions stay UI-owned. */
+  draftOnly?: boolean;
   /** Marks proposals created by an autonomous capture pipeline. */
   autonomousCapture?: boolean;
   /** Run-scoped budget shared by every tool instance created across retries. */
   proposalMutationBudget?: SkillWorkshopProposalMutationBudget;
   /** Optional durable completion latch shared across runner retries. */
   proposalReviewCompletion?: SkillWorkshopProposalReviewCompletion;
+  targetAccess?: SkillWorkshopTargetAccess;
 };
 
 function buildSkillWorkshopToolDescription(
   proposalOnly: boolean,
+  draftOnly: boolean,
   supportsCompletion: boolean,
 ): string {
   if (!proposalOnly) {
+    if (draftOnly) {
+      return `Create/update/revise/list/inspect pending reusable-procedure skill proposals. Applying or rejecting a proposal requires explicit user action in Skill Workshop.\n\n${SKILL_AUTHORING_STANDARDS_PROMPT}`;
+    }
     return `Create/update/revise/list/inspect/evaluate/apply/reject/quarantine reusable-procedure skill proposals.\n\n${SKILL_AUTHORING_STANDARDS_PROMPT}`;
   }
   const completion = supportsCompletion ? " complete = durably finish this review." : "";
@@ -217,10 +239,12 @@ export function createSkillWorkshopTool(options: SkillWorkshopToolOptions): AnyA
     displaySummary: "Propose a reusable skill",
     description: buildSkillWorkshopToolDescription(
       options.proposalOnly === true,
+      options.draftOnly === true,
       options.proposalReviewCompletion !== undefined,
     ),
     parameters: buildSkillWorkshopToolSchema(
       options.proposalOnly === true,
+      options.draftOnly === true,
       options.proposalReviewCompletion !== undefined,
     ),
     execute: async (_toolCallId, args) => {
@@ -235,6 +259,14 @@ export function createSkillWorkshopTool(options: SkillWorkshopToolOptions): AnyA
         !(proposalActions as readonly string[]).includes(action)
       ) {
         throw new ToolInputError("this Skill Workshop session can only inspect or draft proposals");
+      }
+      if (
+        options.draftOnly === true &&
+        !(SKILL_WORKSHOP_DRAFT_ACTIONS as readonly string[]).includes(action)
+      ) {
+        throw new ToolInputError(
+          "this Skill Workshop session can draft proposals; lifecycle actions require explicit user action",
+        );
       }
 
       if (action === "complete") {
@@ -296,6 +328,7 @@ export function createSkillWorkshopTool(options: SkillWorkshopToolOptions): AnyA
           proposalId: readLifecycleProposalIdParam(params),
           expectedRevisionHash: readStringParam(params, "expected_revision_hash"),
           correlationId: readStringParam(params, "correlation_id"),
+          targetAccess: options.targetAccess,
         });
         return {
           content: [
@@ -324,6 +357,7 @@ export function createSkillWorkshopTool(options: SkillWorkshopToolOptions): AnyA
           expectedRevisionHash: readStringParam(params, "expected_revision_hash"),
           correlationId: readStringParam(params, "correlation_id"),
           reason: readStringParam(params, "reason"),
+          targetAccess: options.targetAccess,
         });
         return actionResult(applied.record, {
           contentText: `Applied skill proposal ${applied.record.id}.`,
@@ -411,6 +445,7 @@ export function createSkillWorkshopTool(options: SkillWorkshopToolOptions): AnyA
             ...(options.origin ? { origin: options.origin } : {}),
             goal,
             evidence,
+            targetAccess: options.targetAccess,
           });
           contentText = proposalMutationText("Created skill proposal", proposal.record);
         } else if (action === "update") {
@@ -432,6 +467,7 @@ export function createSkillWorkshopTool(options: SkillWorkshopToolOptions): AnyA
             ...(options.origin ? { origin: options.origin } : {}),
             goal,
             evidence,
+            targetAccess: options.targetAccess,
           });
           contentText = proposalMutationText("Created skill update proposal", proposal.record);
         } else if (action === "revise") {
@@ -460,6 +496,7 @@ export function createSkillWorkshopTool(options: SkillWorkshopToolOptions): AnyA
             ...(options.origin ? { origin: options.origin } : {}),
             goal,
             evidence,
+            targetAccess: options.targetAccess,
           });
           contentText = proposalMutationText("Revised skill proposal", proposal.record);
         } else {

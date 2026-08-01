@@ -55,6 +55,7 @@ export type SkillWorkshopProposal = {
   slug: string;
   name: string;
   oneLine: string;
+  targetLabel?: string;
   body: string;
   status: SkillWorkshopProposalStatus;
   origin?: {

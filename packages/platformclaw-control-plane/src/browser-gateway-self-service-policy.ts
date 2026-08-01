@@ -28,6 +28,17 @@ const VM_READ_ONLY_SKILL_METHODS = new Set([
   "skills.status",
 ]);
 
+const VM_SKILL_WORKSHOP_METHODS = new Set([
+  "skills.proposals.apply",
+  "skills.proposals.evaluate",
+  "skills.proposals.historyScan",
+  "skills.proposals.historyStatus",
+  "skills.proposals.inspect",
+  "skills.proposals.list",
+  "skills.proposals.reject",
+  "skills.proposals.requestRevision",
+]);
+
 export async function resolveBrowserSkillExecutionTarget(input: {
   method: string;
   load(): Promise<{ activeTarget: SkillExecutionTarget } | null | undefined>;
@@ -37,10 +48,12 @@ export async function resolveBrowserSkillExecutionTarget(input: {
     return undefined;
   }
   const target = (await input.load())?.activeTarget ?? "platform_server";
-  if (target === "assigned_vm" && !VM_READ_ONLY_SKILL_METHODS.has(input.method)) {
-    return input.deny(
-      "Skill installation and Workshop changes are available only in the Basic workspace",
-    );
+  if (
+    target === "assigned_vm" &&
+    !VM_READ_ONLY_SKILL_METHODS.has(input.method) &&
+    !VM_SKILL_WORKSHOP_METHODS.has(input.method)
+  ) {
+    return input.deny("Skill installation is available only in the Basic workspace");
   }
   return target;
 }
@@ -93,6 +106,10 @@ export function prepareBrowserSelfServiceRequest(
     input.assertOptionalAgentId(params.targetAgentId);
     input.assertOwnedSessionKey(params.sessionKey, "sessionKey");
     return { ...params, agentId, targetAgentId: agentId };
+  }
+  if (VM_SKILL_WORKSHOP_METHODS.has(method)) {
+    input.assertOptionalAgentId(params.agentId);
+    return { ...params, agentId };
   }
   return undefined;
 }

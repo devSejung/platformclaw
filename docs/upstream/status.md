@@ -83,6 +83,9 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
   broker implemented; authenticated Gateway handoff remains pending
 - Assigned-VM remote skill discovery, immutable run snapshots, and explicit
   Skills UI refresh implemented through the generic sandbox backend seam
+- Assigned-VM Skill Workshop proposal/evaluate/apply implemented by extending
+  upstream Workshop with one optional backend-owned target capability; proposal
+  state remains in Gateway SQLite and generic Docker/SSH behavior is unchanged
 - Owner-preserving employee-profile refresh and credential-free execution
   context projection implemented from the run-pinned backend snapshot
 - PlatformClaw Web login, authenticated Control UI hosting, fixed same-origin
@@ -109,7 +112,7 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 | Account/session/workspace isolation    | Web runtime implemented               | `packages/platformclaw-control-plane` |
 | Enterprise authentication              | LDAP-phase adapter implemented        | `packages/platformclaw-control-plane` |
 | Credential runtime and policy          | Vault and local broker implemented    | `packages/platformclaw-control-plane` |
-| Skill Hub                              | Not started                           | -                                     |
+| Skill Hub                              | VM Workshop integration in progress   | `feature/vm-skill-workshop`           |
 | Knox adapter                           | Control-plane contracts implemented   | `packages/platformclaw-control-plane` |
 | Remote execution and filesystem bridge | Backend foundation in progress        | `extensions/platformclaw-execution`   |
 | Operations UI, retry and recovery      | Employee Web shell implemented        | `ui/src/platformclaw`                 |

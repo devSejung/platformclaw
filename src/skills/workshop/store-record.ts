@@ -73,12 +73,32 @@ export function validateSkillProposalRecord(
     typeof record.target.skillKey !== "string" ||
     typeof record.target.skillDir !== "string" ||
     typeof record.target.skillFile !== "string" ||
+    !isValidTargetBinding(record.target.binding) ||
     !record.scan ||
     typeof record.scan !== "object"
   ) {
     return invalidProposalMetadata();
   }
   return ok(record);
+}
+
+function isValidTargetBinding(value: SkillProposalRecord["target"]["binding"]): boolean {
+  if (value === undefined) {
+    return true;
+  }
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    typeof value.backendId === "string" &&
+    value.backendId.length > 0 &&
+    value.backendId.length <= 128 &&
+    typeof value.targetId === "string" &&
+    value.targetId.length > 0 &&
+    value.targetId.length <= 512 &&
+    typeof value.targetLabel === "string" &&
+    value.targetLabel.length > 0 &&
+    value.targetLabel.length <= 512
+  );
 }
 
 export function parseSkillProposalRecord(raw: unknown): SkillProposalRecord | null {

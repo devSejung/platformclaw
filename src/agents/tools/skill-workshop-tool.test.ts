@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listSkillProposalEvents } from "../../skills/workshop/service.js";
 import { SKILL_AUTHORING_STANDARDS_PROMPT } from "../../skills/workshop/skill-authoring-standards.js";
 import { readSkillProposalRecord } from "../../skills/workshop/store.js";
-import type { SkillWorkshopProposalMutationBudget } from "../../skills/workshop/types.js";
+import type {
+  SkillWorkshopProposalMutationBudget,
+  SkillWorkshopTargetAccess,
+} from "../../skills/workshop/types.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
@@ -421,6 +424,42 @@ describe("skill_workshop tool", () => {
     });
 
     expect(tools.some((tool) => tool.name === "skill_workshop")).toBe(false);
+  });
+
+  it("is exposed only for an explicitly Workshop-capable sandbox target", async () => {
+    const workspaceDir = await tempDirs.make("openclaw-skill-workshop-tool-");
+    const targetAccess = {
+      backendId: "platformclaw-execution",
+      targetId: "allocation-one",
+    } as SkillWorkshopTargetAccess;
+    const tools = createOpenClawTools({
+      workspaceDir,
+      config: {},
+      disablePluginTools: true,
+      sandboxed: true,
+      skillWorkshopTarget: targetAccess,
+    });
+    const tool = tools.find((candidate) => candidate.name === "skill_workshop");
+
+    expect(tool).toBeDefined();
+    if (!tool) {
+      throw new Error("skill_workshop was not exposed");
+    }
+    expect(JSON.stringify(tool.parameters)).toContain(
+      "create/update/revise draft pending proposals",
+    );
+    await expect(
+      tool.execute("call-remote-evaluate", {
+        action: "evaluate",
+        proposal_id: "proposal-one",
+      }),
+    ).rejects.toThrow("lifecycle actions require explicit user action");
+    await expect(
+      tool.execute("call-remote-apply", {
+        action: "apply",
+        proposal_id: "proposal-one",
+      }),
+    ).rejects.toThrow("lifecycle actions require explicit user action");
   });
 
   it.each([0, 1.5, "1.5", "25items", "many"])(
