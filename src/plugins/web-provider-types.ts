@@ -24,7 +24,14 @@ export type WebSearchProviderToolDefinition = {
 export type WebFetchProviderToolDefinition = {
   description: string;
   parameters: TSchema;
-  execute: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  execute: (
+    args: Record<string, unknown>,
+    context?: WebFetchProviderToolExecutionContext,
+  ) => Promise<Record<string, unknown>>;
+};
+
+export type WebFetchProviderToolExecutionContext = {
+  signal?: AbortSignal;
 };
 
 type WebSearchProviderContext = {
@@ -92,6 +99,8 @@ export type WebSearchProviderPlugin = {
   id: WebSearchProviderId;
   label: string;
   hint: string;
+  /** Prevent implicit failover after this provider is selected. Defaults to allowing fallback. */
+  fallbackMode?: "exclusive" | "allow";
   onboardingScopes?: readonly "text-inference"[];
   requiresCredential?: boolean;
   credentialLabel?: string;
@@ -129,6 +138,8 @@ export type WebFetchProviderPlugin = {
   id: WebFetchProviderId;
   label: string;
   hint: string;
+  /** Run this provider before direct HTTP. Defaults to fallback after direct fetch/extraction fails. */
+  executionMode?: "primary" | "fallback";
   requiresCredential?: boolean;
   credentialLabel?: string;
   envVars: string[];

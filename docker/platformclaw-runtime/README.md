@@ -109,6 +109,35 @@ not belong in that environment file; only paths to owner-readable files do.
 Keep the SSH credential master key stable and back it up with the Control DB.
 Keep the Gateway service identity stable across restarts.
 
+### Optional web relay
+
+The bundled `platformclaw-web-relay` plugin preserves normal OpenClaw web tool
+behavior until an endpoint is configured. Add either or both URLs to
+`~/platformclaw/deployment.env`:
+
+```dotenv
+WEB_FETCH_RELAY_URL=https://relay.example/fetch
+WEB_SEARCH_RELAY_URL=https://relay.example/search
+```
+
+`WEB_FETCH_RELAY_URL` routes `web_fetch` through the relay before any direct
+HTTP request. `WEB_SEARCH_RELAY_URL` selects the relay search provider. The two
+variables are independent; an omitted or empty variable leaves that tool on its
+normal direct/provider path. Restart Gateway after changing them:
+
+```bash
+./platformclaw-compose --service-user platformclaw up -d --wait --force-recreate openclaw-gateway
+```
+
+Public relay endpoints need no token. The client omits `x-token` when the
+matching `WEB_FETCH_RELAY_TOKEN` or `WEB_SEARCH_RELAY_TOKEN` process variable is
+absent. Do not put tokens in `deployment.env`; authenticated deployment must
+inject them through an owner-controlled secret mechanism.
+
+Gateway rejects private and special-use `web_fetch` targets before calling the
+relay. The relay service must enforce the same SSRF policy at its own egress
+boundary, including redirects and DNS resolution.
+
 The service account's CA bundle is mounted into both runtime services and set
 through `NODE_EXTRA_CA_CERTS`. `platformclaw-deploy up` seeds a missing file
 from the Ubuntu system bundle and never overwrites an existing file. Replace

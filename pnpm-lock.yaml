@@ -1553,6 +1553,16 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  extensions/platformclaw-web-relay:
+    dependencies:
+      typebox:
+        specifier: 1.3.6
+        version: 1.3.6
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   extensions/platformclaw-user-mcp:
     devDependencies:
       '@openclaw/plugin-sdk':

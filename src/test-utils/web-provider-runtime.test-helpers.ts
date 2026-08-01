@@ -20,6 +20,7 @@ type CommonWebProviderTestParams = {
 };
 
 export type WebSearchTestProviderParams = CommonWebProviderTestParams & {
+  fallbackMode?: PluginWebSearchProviderEntry["fallbackMode"];
   createTool?: PluginWebSearchProviderEntry["createTool"];
   getConfiguredCredentialFallback?: PluginWebSearchProviderEntry["getConfiguredCredentialFallback"];
 };
@@ -62,6 +63,7 @@ export function createWebSearchTestProvider(
 ): PluginWebSearchProviderEntry {
   return {
     ...createCommonProviderFields(params),
+    fallbackMode: params.fallbackMode,
     createTool: params.createTool ?? (() => createDefaultProviderTool(params.id)),
   };
 }

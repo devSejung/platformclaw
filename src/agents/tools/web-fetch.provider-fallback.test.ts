@@ -74,6 +74,67 @@ describe("web_fetch provider fallback normalization", () => {
     expect(resolveWebFetchDefinitionMock).not.toHaveBeenCalled();
   });
 
+  it("runs primary providers before direct HTTP", async () => {
+    const directFetch = vi.fn(async () => new Response("direct response"));
+    global.fetch = withFetchPreconnect(directFetch);
+    const providerExecute = vi.fn(async () => ({
+      status: 200,
+      contentType: "text/plain",
+      text: "relay response",
+    }));
+    resolveWebFetchDefinitionMock.mockReturnValue({
+      provider: { id: "platformclaw-relay", executionMode: "primary" },
+      definition: {
+        description: "relay",
+        parameters: {},
+        execute: providerExecute,
+      },
+    });
+
+    const tool = createWebFetchTool({ config: {} as OpenClawConfig });
+    const controller = new AbortController();
+    const result = await tool?.execute?.(
+      "call-primary-provider",
+      { url: "https://example.com/primary-provider" },
+      controller.signal,
+    );
+
+    expect(providerExecute).toHaveBeenCalledTimes(1);
+    expect(providerExecute).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://example.com/primary-provider" }),
+      { signal: controller.signal },
+    );
+    expect(directFetch).not.toHaveBeenCalled();
+    expect(result?.details).toMatchObject({
+      extractor: "platformclaw-relay",
+      text: expect.stringContaining("relay response"),
+      externalContent: { provider: "platformclaw-relay" },
+    });
+  });
+
+  it("does not bypass a failed primary provider with direct HTTP", async () => {
+    const directFetch = vi.fn(async () => new Response("direct response"));
+    global.fetch = withFetchPreconnect(directFetch);
+    resolveWebFetchDefinitionMock.mockReturnValue({
+      provider: { id: "platformclaw-relay", executionMode: "primary" },
+      definition: {
+        description: "relay",
+        parameters: {},
+        execute: vi.fn(async () => {
+          throw new Error("relay unavailable");
+        }),
+      },
+    });
+
+    const tool = createWebFetchTool({ config: {} as OpenClawConfig });
+    await expect(
+      tool?.execute?.("call-failed-primary-provider", {
+        url: "https://example.com/failed-primary-provider",
+      }),
+    ).rejects.toThrow("relay unavailable");
+    expect(directFetch).not.toHaveBeenCalled();
+  });
+
   it("re-wraps and truncates provider fallback payloads before caching or returning", async () => {
     // Provider implementations may return raw text; core still owns the
     // untrusted-content wrapper and maxChars enforcement.

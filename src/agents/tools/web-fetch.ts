@@ -134,7 +134,7 @@ type WebFetchConfig = NonNullable<OpenClawConfig["tools"]>["web"] extends infer 
   : undefined;
 type ResolveWebFetchDefinition =
   (typeof import("../../web-fetch/runtime.js"))["resolveWebFetchDefinition"];
-type WebFetchProviderFallback = ReturnType<ResolveWebFetchDefinition>;
+type WebFetchProviderResolution = ReturnType<ResolveWebFetchDefinition>;
 type WebFetchRuntimeModule = Pick<
   typeof import("../../web-fetch/runtime.js"),
   "resolveWebFetchDefinition"
@@ -438,7 +438,7 @@ type WebFetchRuntimeParams = {
   providerCacheKey?: string;
   lookupFn?: LookupFn;
   signal?: AbortSignal;
-  resolveProviderFallback: () => Promise<WebFetchProviderFallback>;
+  resolveProvider: () => Promise<WebFetchProviderResolution>;
 };
 
 function normalizeProviderFinalUrl(value: unknown): string | undefined {
@@ -570,15 +570,18 @@ async function maybeFetchProviderWebFetchPayload(
     tookMs: number;
   },
 ): Promise<Record<string, unknown> | null> {
-  const providerFallback = await params.resolveProviderFallback();
+  const providerFallback = await params.resolveProvider();
   if (!providerFallback) {
     return null;
   }
-  const rawPayload = await providerFallback.definition.execute({
-    url: params.urlToFetch,
-    extractMode: params.extractMode,
-    maxChars: params.maxChars,
-  });
+  const rawPayload = await providerFallback.definition.execute(
+    {
+      url: params.urlToFetch,
+      extractMode: params.extractMode,
+      maxChars: params.maxChars,
+    },
+    params.signal ? { signal: params.signal } : undefined,
+  );
   const payload = await normalizeProviderWebFetchPayload({
     providerId: providerFallback.provider.id,
     payload: rawPayload,
@@ -586,6 +589,38 @@ async function maybeFetchProviderWebFetchPayload(
     extractMode: params.extractMode,
     maxChars: params.maxChars,
     tookMs: params.tookMs,
+  });
+  writeCache(FETCH_CACHE, params.cacheKey, payload, params.cacheTtlMs);
+  return payload;
+}
+
+async function maybeFetchPrimaryProviderWebFetchPayload(
+  params: WebFetchRuntimeParams & {
+    cacheKey: string;
+  },
+): Promise<Record<string, unknown> | null> {
+  const provider = await params.resolveProvider();
+  if (provider?.provider.executionMode !== "primary") {
+    return null;
+  }
+  // A primary provider owns egress for this call. Its failure must propagate;
+  // falling through to direct HTTP would bypass operator routing policy.
+  const startedAt = Date.now();
+  const rawPayload = await provider.definition.execute(
+    {
+      url: params.url,
+      extractMode: params.extractMode,
+      maxChars: params.maxChars,
+    },
+    params.signal ? { signal: params.signal } : undefined,
+  );
+  const payload = await normalizeProviderWebFetchPayload({
+    providerId: provider.provider.id,
+    payload: rawPayload,
+    requestedUrl: params.url,
+    extractMode: params.extractMode,
+    maxChars: params.maxChars,
+    tookMs: Date.now() - startedAt,
   });
   writeCache(FETCH_CACHE, params.cacheKey, payload, params.cacheTtlMs);
   return payload;
@@ -620,6 +655,13 @@ async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string
   }
 
   const start = Date.now();
+  const primaryProviderPayload = await maybeFetchPrimaryProviderWebFetchPayload({
+    ...params,
+    cacheKey,
+  });
+  if (primaryProviderPayload) {
+    return primaryProviderPayload;
+  }
   let res: Response;
   let release: (() => Promise<void>) | null;
   let finalUrl = params.url;
@@ -752,7 +794,7 @@ async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string
             extractor = "raw-html";
           } else {
             const providerLabel =
-              (await params.resolveProviderFallback())?.provider.label ?? "provider fallback";
+              (await params.resolveProvider())?.provider.label ?? "provider fallback";
             throw new Error(
               `Web fetch extraction failed: Readability, ${providerLabel}, and basic HTML cleanup returned no content.`,
             );
@@ -876,20 +918,20 @@ export function createWebFetchTool(options?: {
           executionFetch.userAgent) ||
         DEFAULT_FETCH_USER_AGENT;
       const maxResponseBytes = resolveFetchMaxResponseBytes(executionFetch);
-      let providerFallbackResolved = false;
-      let providerFallbackCache: WebFetchProviderFallback;
-      const resolveProviderFallback = async () => {
-        if (!providerFallbackResolved) {
+      let providerResolved = false;
+      let providerCache: WebFetchProviderResolution;
+      const resolveProvider = async () => {
+        if (!providerResolved) {
           const { resolveWebFetchDefinition } = await loadWebFetchRuntime();
-          providerFallbackCache = resolveWebFetchDefinition({
+          providerCache = resolveWebFetchDefinition({
             config,
             sandboxed: options?.sandboxed,
             runtimeWebFetch,
             preferRuntimeProviders,
           });
-          providerFallbackResolved = true;
+          providerResolved = true;
         }
-        return providerFallbackCache;
+        return providerCache;
       };
       const params = args as Record<string, unknown>;
       const url = sanitizeWebFetchUrl(
@@ -933,7 +975,7 @@ export function createWebFetchTool(options?: {
           ...(providerCacheKey ? { providerCacheKey } : {}),
           lookupFn: options?.lookupFn,
           signal,
-          resolveProviderFallback,
+          resolveProvider,
         });
         return jsonResult(result);
       } finally {
