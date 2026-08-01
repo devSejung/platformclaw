@@ -544,7 +544,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     if (this.gatewayConnected && canLoad) {
       this.loadProposals(false);
     }
-    ensureSkillWorkshopAgentIdentity(this.context, this.state.skillWorkshopAgentId);
+    ensureSkillWorkshopAgentIdentity(this.context, this.state?.skillWorkshopAgentId);
     const runtimeConfig = this.context?.runtimeConfig;
     if (
       runtimeConfig &&
