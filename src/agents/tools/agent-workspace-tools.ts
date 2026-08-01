@@ -108,7 +108,7 @@ export function createAgentWorkspaceTools(workspaceDir: string): AnyAgentTool[] 
         if (first < 0) {
           throw new ToolInputError("old_text was not found");
         }
-        if (content.indexOf(oldText, first + oldText.length) >= 0) {
+        if (content.includes(oldText, first + oldText.length)) {
           throw new ToolInputError("old_text must match exactly once");
         }
         const updated = `${content.slice(0, first)}${newText}${content.slice(first + oldText.length)}`;
