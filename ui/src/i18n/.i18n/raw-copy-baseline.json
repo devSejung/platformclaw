@@ -258,6 +258,13 @@
       "kind": "object-property",
       "name": "label",
       "path": "ui/src/lib/agents/display.ts",
+      "text": "memory_write"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/lib/agents/display.ts",
       "text": "message"
     },
     {
