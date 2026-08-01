@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { SandboxContext } from "../../sandbox/types.js";
-import { loadProjectAgentsFile } from "./attempt-bootstrap-prepare.js";
+import { loadProjectAgentsFile } from "./project-agents-file.js";
 
 describe("split-workspace project instructions", () => {
   it("loads AGENTS.md through the active execution filesystem bridge", async () => {
