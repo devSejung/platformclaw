@@ -170,11 +170,8 @@ export class PlatformClawControlUiAdapter {
       "route:sessions",
       "route:activity",
       "route:cron",
-      "route:skills",
+      "route:plugins",
     ];
-    if (identity.globalRole === "admin") {
-      sidebarEntries.push("route:plugins");
-    }
     return {
       accessMode: "personal-agent",
       enabledRouteIds,

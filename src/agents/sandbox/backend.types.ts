@@ -4,6 +4,7 @@
  * Runtime creation and lifecycle cleanup stay behind this backend boundary.
  */
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import type { SkillWorkshopTargetAccess } from "../../skills/workshop/types.js";
 import type { SandboxBackendHandle } from "./backend-handle.types.js";
 import type { SandboxBackendSkillCatalog } from "./backend-handle.types.js";
 import type { SandboxRegistryEntry } from "./registry.js";
@@ -61,6 +62,13 @@ export type SandboxBackendSkillProvider = (params: {
   workspaceDir: string;
 }) => Promise<SandboxBackendSkillCatalog | undefined>;
 
+/** Resolves mutable Workshop access for the agent's current execution target. */
+export type SandboxBackendSkillWorkshopProvider = (params: {
+  agentId: string;
+  config: OpenClawConfig;
+  workspaceDir: string;
+}) => Promise<SkillWorkshopTargetAccess | undefined>;
+
 /** Registry input accepted for sandbox backend registration. */
 export type SandboxBackendRegistration =
   | SandboxBackendFactory
@@ -69,6 +77,7 @@ export type SandboxBackendRegistration =
       manager?: SandboxBackendManager;
       resolveWorkdir?: SandboxBackendWorkdirResolver;
       skills?: SandboxBackendSkillProvider;
+      skillWorkshop?: SandboxBackendSkillWorkshopProvider;
     };
 
 /** Normalized backend registration stored in the sandbox backend registry. */
@@ -77,6 +86,7 @@ export type RegisteredSandboxBackend = {
   manager?: SandboxBackendManager;
   resolveWorkdir?: SandboxBackendWorkdirResolver;
   skills?: SandboxBackendSkillProvider;
+  skillWorkshop?: SandboxBackendSkillWorkshopProvider;
 };
 
 export type { SandboxBackendHandle, SandboxBackendId } from "./backend-handle.types.js";

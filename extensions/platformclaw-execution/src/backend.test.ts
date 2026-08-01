@@ -1,4 +1,8 @@
-import type { CreateSandboxBackendParams, SandboxBackendHandle } from "openclaw/plugin-sdk/sandbox";
+import type {
+  CreateSandboxBackendParams,
+  SandboxBackendHandle,
+  SkillWorkshopTargetAccess,
+} from "openclaw/plugin-sdk/sandbox";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPlatformClawExecutionBackendFactory,
@@ -52,6 +56,7 @@ function createDependencies(
       createHandle(`vm-${target.agentId}-${target.revision}`),
     ),
     listTargetSkills: vi.fn(async () => undefined),
+    createSkillWorkshopTarget: vi.fn(async () => undefined),
   };
 }
 
@@ -156,6 +161,58 @@ describe("PlatformClaw execution backend", () => {
 
     expect(handle.runtimeId).toBe("server-1");
     expect(dependencies.resolveTarget).toHaveBeenCalledOnce();
+  });
+
+  it("exposes local Workshop on Basic and the pinned VM Workshop target on a VM", async () => {
+    const vmTarget: PlatformClawExecutionTargetSnapshot = {
+      kind: "assigned_vm",
+      agentId: "person_one",
+      revision: 4,
+      targetId: "vm-one",
+      allocationId: "allocation-one",
+      vmLabel: "Development VM",
+      safeConnectLabel: "Corporate access",
+      remoteHomeDir: "/srv/person-one",
+      remoteWorkspaceDir: "/srv/person-one/.platformclaw/workspace",
+      endpointHost: "safeconnect.example",
+      endpointPort: 44422,
+      adDomain: "example",
+      adAccount: "person.one",
+      targetAddress: "192.0.2.1",
+      linuxAccount: "person.one",
+      hostKeyAlgorithm: "ssh-ed25519",
+      hostKeyPublicKey: "AAAA-test",
+      hostKeyFingerprint: "SHA256:test",
+    };
+    const dependencies = createDependencies(async () => vmTarget);
+    const catalog = { revision: "vm-one:4", files: [] };
+    const workshopTarget = {
+      backendId: PLATFORMCLAW_EXECUTION_BACKEND_ID,
+      targetId: "allocation-one",
+    } as SkillWorkshopTargetAccess;
+    vi.mocked(dependencies.listTargetSkills).mockResolvedValueOnce(catalog);
+    vi.mocked(dependencies.createSkillWorkshopTarget).mockResolvedValueOnce(workshopTarget);
+
+    const vmHandle = await createPlatformClawExecutionBackendFactory(dependencies)(
+      createParams("person_one"),
+    );
+    expect(dependencies.createSkillWorkshopTarget).toHaveBeenCalledWith({
+      target: expect.objectContaining({ allocationId: "allocation-one" }),
+      catalog,
+    });
+    expect(vmHandle.skillWorkshopTarget).toBe(workshopTarget);
+
+    const basicDependencies = createDependencies(async () => ({
+      kind: "platform_server",
+      agentId: "person_one",
+      revision: 5,
+      targetId: "server-default",
+    }));
+    const basicHandle = await createPlatformClawExecutionBackendFactory(basicDependencies)(
+      createParams("person_one"),
+    );
+    expect(basicHandle.skillWorkshopTarget).toEqual({ kind: "workspace" });
+    expect(basicDependencies.createSkillWorkshopTarget).not.toHaveBeenCalled();
   });
 
   it("fails closed without a prepared owner or with a mismatched owner", async () => {

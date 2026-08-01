@@ -21,6 +21,7 @@ export type {
   SandboxBackendSkillCatalog,
   SandboxBackendSkillFile,
   SandboxBackendSkillProvider,
+  SandboxBackendSkillWorkshopProvider,
   SandboxBackendWorkdirValidation,
   SandboxBackendWorkdirResolver,
   SandboxBackendWorkdirValidator,
@@ -33,6 +34,11 @@ export type {
   CreateSshSandboxBackendWithSessionFactoryOptions,
 } from "../agents/sandbox.js";
 export type { OpenClawConfig } from "../config/config.js";
+export type {
+  SkillWorkshopTargetAccess,
+  SkillWorkshopTargetFile,
+  SkillWorkshopTargetSkill,
+} from "../skills/workshop/types.js";
 
 export {
   buildExecRemoteCommand,
@@ -49,6 +55,7 @@ export {
   getSandboxBackendFactory,
   getSandboxBackendManager,
   getSandboxBackendSkillProvider,
+  getSandboxBackendSkillWorkshopProvider,
   getSandboxBackendWorkdirResolver,
   isToolAllowed,
   registerSandboxBackend,

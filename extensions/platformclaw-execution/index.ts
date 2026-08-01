@@ -3,6 +3,7 @@ import { registerSandboxBackend } from "openclaw/plugin-sdk/sandbox";
 import {
   createPlatformClawExecutionBackendFactory,
   createPlatformClawExecutionSkillProvider,
+  createPlatformClawExecutionSkillWorkshopProvider,
   createUnavailableExecutionDependencies,
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
 } from "./src/backend.js";
@@ -30,6 +31,8 @@ export default definePluginEntry({
         await createPlatformClawExecutionBackendFactory(await dependenciesPromise)(params),
       skills: async (params) =>
         await createPlatformClawExecutionSkillProvider(await dependenciesPromise)(params),
+      skillWorkshop: async (params) =>
+        await createPlatformClawExecutionSkillWorkshopProvider(await dependenciesPromise)(params),
     });
     if (!executionRuntimePromise) {
       return;

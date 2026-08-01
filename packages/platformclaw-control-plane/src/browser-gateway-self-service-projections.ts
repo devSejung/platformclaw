@@ -133,7 +133,14 @@ function projectSkillProposalRecord(
   ) {
     return fail("Gateway returned a skill proposal outside the browser binding");
   }
-  const projected: JsonObject = { ...record, target: { skillName, skillKey } };
+  const binding =
+    target.binding === undefined ? undefined : asObject(target.binding, "target binding", fail);
+  const targetLabel =
+    binding && typeof binding.targetLabel === "string" ? binding.targetLabel : undefined;
+  const projected: JsonObject = {
+    ...record,
+    target: { skillName, skillKey, ...(targetLabel ? { targetLabel } : {}) },
+  };
   delete projected.createdBy;
   delete projected.draftFile;
   delete projected.draftHash;
@@ -161,9 +168,13 @@ function projectSkillProposalManifestEntry(value: unknown, fail: ProjectionFailu
     "createdAt",
     "updatedAt",
     "scanState",
+    "targetLabel",
   ] as const;
   const projected: JsonObject = {};
   for (const field of fields) {
+    if (field === "targetLabel" && entry[field] === undefined) {
+      continue;
+    }
     if (typeof entry[field] !== "string") {
       return fail("Gateway returned an invalid skill proposal manifest entry");
     }
@@ -197,8 +208,13 @@ export function projectBrowserSkillProposalResult(params: {
   }
   if (params.method === "skills.proposals.inspect") {
     const payload = asObject(params.result, "skill proposal inspection", params.fail);
+    const revisionHash = optionalString(payload.revisionHash);
+    if (!revisionHash) {
+      return params.fail("Gateway returned an invalid skill proposal revision");
+    }
     return {
       record: projectSkillProposalRecord(payload.record, params.agentId, params.fail),
+      revisionHash,
       content: payload.content,
       supportFiles: payload.supportFiles,
     };
@@ -212,6 +228,13 @@ export function projectBrowserSkillProposalResult(params: {
       return params.fail("Gateway returned an invalid skill proposal target");
     }
     return { record, targetSkillFile: `${skillKey}/SKILL.md` };
+  }
+  if (params.method === "skills.proposals.evaluate") {
+    const payload = asObject(params.result, "skill proposal evaluation result", params.fail);
+    return {
+      record: projectSkillProposalRecord(payload.record, params.agentId, params.fail),
+      evaluation: payload.evaluation,
+    };
   }
   if (params.method === "skills.proposals.reject") {
     return projectSkillProposalRecord(params.result, params.agentId, params.fail);

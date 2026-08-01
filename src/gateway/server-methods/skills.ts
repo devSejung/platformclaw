@@ -491,6 +491,7 @@ export const skillsHandlers: GatewayRequestHandlers = {
           expectedRevisionHash: parsedParams.expectedRevisionHash,
           correlationId: parsedParams.correlationId,
           trigger: "manual",
+          targetAccess: resolved.targetAccess,
         }),
     });
   },
@@ -514,6 +515,7 @@ export const skillsHandlers: GatewayRequestHandlers = {
           createdBy: "gateway",
           goal: parsedParams.goal,
           evidence: parsedParams.evidence,
+          targetAccess: resolved.targetAccess,
         }),
     });
   },
@@ -537,6 +539,7 @@ export const skillsHandlers: GatewayRequestHandlers = {
           createdBy: "gateway",
           goal: parsedParams.goal,
           evidence: parsedParams.evidence,
+          targetAccess: resolved.targetAccess,
         }),
     });
   },
@@ -561,6 +564,7 @@ export const skillsHandlers: GatewayRequestHandlers = {
           description: parsedParams.description,
           goal: parsedParams.goal,
           evidence: parsedParams.evidence,
+          targetAccess: resolved.targetAccess,
         }),
     });
   },
@@ -646,6 +650,7 @@ export const skillsHandlers: GatewayRequestHandlers = {
           expectedRevisionHash: parsedParams.expectedRevisionHash,
           correlationId: parsedParams.correlationId,
           reason: parsedParams.reason,
+          targetAccess: resolved.targetAccess,
         }),
     });
   },

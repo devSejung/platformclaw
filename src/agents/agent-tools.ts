@@ -1030,6 +1030,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             modelProvider: options?.modelProvider,
             modelId: options?.modelId,
             skillWorkshop: options?.skillWorkshop,
+            skillWorkshopTarget: sandbox?.backend?.skillWorkshopTarget,
             replyToMode: options?.replyToMode,
             hasRepliedRef: options?.hasRepliedRef,
             modelHasVision: options?.modelHasVision,

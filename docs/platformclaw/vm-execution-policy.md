@@ -325,6 +325,36 @@ each run. The Gateway caches only bounded `SKILL.md` content and paths. The
 normal read tool serves that exact immutable content, while referenced scripts
 execute from their existing absolute VM paths.
 
+VM images must install the canonical bundled `skill-creator` tree from this
+release under `/opt/platformclaw/skills/skill-creator`. PlatformClaw does not
+silently copy or update administrator-managed skills during an agent run. This
+keeps referenced scripts on the same VM where commands execute and makes image
+rollout the single version owner.
+
+The normal VM catalog scan runs once while a new execution handle is prepared,
+matching the upstream sandbox snapshot lifecycle. A Skills UI refresh requests
+a fresh scan. Skill Workshop create and evaluate read only the exact target they
+need; update lazily refreshes the catalog to resolve the selected live skill.
+After a successful apply, PlatformClaw refreshes the catalog before reporting
+completion, so the next list/update and the next agent attempt see the change.
+
+`skill_workshop` remains a Gateway-owned model tool. Its ordinary JSON arguments
+never contain SSH credentials, VM hostnames, or hidden paths. For an assigned
+VM, the prepared backend injects a run-pinned target capability: the tool can
+create, update, revise, list, and inspect pending proposals, but only an
+explicit Skill Workshop UI action can evaluate, apply, or reject them. Proposal
+records, events, evaluations, and rollback facts remain in the Gateway state
+SQLite database. Apply writes only
+`$HOME/.platformclaw/workspace/skills/<skill>` on the proposal's original VM
+allocation, using a target-tree compare-and-swap, an exclusive VM lock, and
+rollback recovery. `SKILL.md` is written last. A changed allocation, changed
+tree, unsupported entry, or unavailable VM fails closed; there is no Basic
+workspace fallback and no remote `openclaw` CLI dependency.
+
+The Basic workspace continues to use upstream Workshop storage and mutation.
+Generic Docker and SSH backends remain unchanged; only the private
+`platformclaw-execution` backend advertises the extra Workshop target seam.
+
 ## Upstream synchronization gate
 
 Every `sync/upstream-YYYYMMDD` change must read this page before resolving
@@ -339,6 +369,8 @@ whether upstream changed:
 - prompt hook lifecycle;
 - Control UI settings and navigation extension points;
 - remote Files UI support;
+- Skill Workshop target access, proposal schemas, lifecycle methods, or Control
+  UI proposal projections;
 - plugin SQLite or state-store contracts.
 
 Prefer a newer upstream capability when it satisfies this policy. Do not retain

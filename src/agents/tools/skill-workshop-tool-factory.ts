@@ -1,6 +1,10 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import type { SkillProposalOrigin, SkillWorkshopRunOptions } from "../../skills/workshop/types.js";
+import type {
+  SkillProposalOrigin,
+  SkillWorkshopRunOptions,
+  SkillWorkshopTargetAccess,
+} from "../../skills/workshop/types.js";
 import { createSkillWorkshopTool } from "./skill-workshop-tool.js";
 
 export function createConfiguredSkillWorkshopTool(params: {
@@ -11,6 +15,7 @@ export function createConfiguredSkillWorkshopTool(params: {
   runId?: string;
   messageId?: string | number;
   run?: SkillWorkshopRunOptions;
+  targetAccess?: SkillWorkshopTargetAccess;
 }) {
   const sessionKey = normalizeOptionalString(params.sessionKey);
   const runId = normalizeOptionalString(params.runId);
@@ -31,10 +36,13 @@ export function createConfiguredSkillWorkshopTool(params: {
         ...(messageId ? { messageId } : {}),
       } satisfies SkillProposalOrigin),
     proposalOnly: params.run?.proposalOnly,
+    // Remote VM changes always require the explicit Gateway/UI apply action.
+    draftOnly: params.targetAccess ? true : undefined,
     ...(params.run?.autonomousCapture ? { autonomousCapture: true } : {}),
     proposalMutationBudget:
       params.run?.proposalMutationBudget ??
       (params.run?.proposalOnly ? { remaining: 1 } : undefined),
     proposalReviewCompletion: params.run?.proposalReviewCompletion,
+    targetAccess: params.targetAccess,
   });
 }

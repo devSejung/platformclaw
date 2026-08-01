@@ -25,6 +25,7 @@ import {
   readProposalSupportFiles,
   withSkillProposalTargetLock,
 } from "./store.js";
+import { assertSkillWorkshopTargetAccess, readExternalSkillFile } from "./target-access.js";
 import type {
   SkillProposalEvaluateInput,
   SkillProposalEvaluateResult,
@@ -69,10 +70,13 @@ export async function evaluateSkillProposal(
         throw new Error("Proposal draft changed without updating proposal metadata.");
       }
       const supportFiles = await readProposalSupportFiles(read.record, storeOptions(input.env));
+      assertSkillWorkshopTargetAccess(read.record, input.targetAccess);
       if (
         shouldRunEvaluators &&
         read.record.kind === "create" &&
-        (await readWorkspaceSkillFile(read.record.target.skillFile)) !== null
+        (input.targetAccess
+          ? await readExternalSkillFile(input.targetAccess, read.record.target.skillFile)
+          : await readWorkspaceSkillFile(read.record.target.skillFile)) !== null
       ) {
         throw new SkillProposalCreateTargetConflictError(
           `Skill proposal ${read.record.id} changed before evaluation started.`,
@@ -84,6 +88,7 @@ export async function evaluateSkillProposal(
           ? await buildSkillProposalEvaluationBundles({
               proposal: read,
               supportFiles,
+              targetAccess: input.targetAccess,
             })
           : undefined,
       };
@@ -175,6 +180,7 @@ export async function evaluateSkillProposal(
         try {
           currentTargetTreeSha256 = await readSkillProposalTargetTreeSha256(
             current.record.target.skillDir,
+            input.targetAccess,
           );
         } catch {
           throw new Error(`Skill proposal ${read.record.id} changed while evaluation was running.`);

@@ -7,7 +7,9 @@ import type {
 } from "../../plugins/hook-types.js";
 import { stripProposalFrontmatterForSkill } from "./frontmatter.js";
 import type { PreparedSkillProposalSupportFile } from "./store.js";
+import { assertSkillWorkshopTargetAccess, readExternalSkillTree } from "./target-access.js";
 import type { SkillProposalReadResult } from "./types.js";
+import type { SkillWorkshopTargetAccess } from "./types.js";
 
 const MAX_EVALUATION_FILES = 256;
 const MAX_EVALUATION_FILE_BYTES = 1024 * 1024;
@@ -17,18 +19,26 @@ const EXCLUDED_ROOT_DIRS = new Set([".clawhub", ".clawdhub", ".openclaw"]);
 export async function buildSkillProposalEvaluationBundles(params: {
   proposal: SkillProposalReadResult;
   supportFiles: readonly PreparedSkillProposalSupportFile[];
+  targetAccess?: SkillWorkshopTargetAccess;
 }): Promise<{
   candidate: PluginHookSkillBundleSnapshot;
   baseline?: PluginHookSkillBundleSnapshot;
   targetTreeSha256: string;
 }> {
-  const targetFiles = await readSkillTreeFiles(params.proposal.record.target.skillDir);
+  assertSkillWorkshopTargetAccess(params.proposal.record, params.targetAccess);
+  const targetFiles = params.targetAccess
+    ? (
+        await readExternalSkillTree(params.targetAccess, params.proposal.record.target.skillDir)
+      ).map((file) => fileFromBuffer(file.path, file.content))
+    : await readSkillTreeFiles(params.proposal.record.target.skillDir);
   const targetTreeSha256 = hashSkillTree(targetFiles);
   const skillMdPath =
     params.proposal.record.kind === "create"
       ? "SKILL.md"
       : resolveTargetSkillRelativePath(params.proposal, targetFiles, {
-          recordedTargetExists: await pathExists(params.proposal.record.target.skillFile),
+          recordedTargetExists: params.targetAccess
+            ? targetFiles.some((file) => file.path === "SKILL.md")
+            : await pathExists(params.proposal.record.target.skillFile),
         });
   const candidateSkillMd = fileFromBuffer(
     skillMdPath,
@@ -39,13 +49,23 @@ export async function buildSkillProposalEvaluationBundles(params: {
   );
   const candidateFiles = new Map(targetFiles.map((file) => [file.path, file]));
   if (params.proposal.record.kind === "create") {
-    if (await pathExists(params.proposal.record.target.skillFile)) {
+    if (
+      params.targetAccess
+        ? targetFiles.some((file) => file.path === "SKILL.md")
+        : await pathExists(params.proposal.record.target.skillFile)
+    ) {
       throw new Error(`Target skill already exists: ${params.proposal.record.target.skillFile}`);
     }
     candidateFiles.set(candidateSkillMd.path, candidateSkillMd);
     for (const file of proposedFiles) {
-      const targetFile = path.join(params.proposal.record.target.skillDir, file.path);
-      if (await pathExists(targetFile)) {
+      const targetFile = params.targetAccess
+        ? path.posix.join(params.proposal.record.target.skillDir, file.path)
+        : path.join(params.proposal.record.target.skillDir, file.path);
+      if (
+        params.targetAccess
+          ? targetFiles.some((target) => target.path === file.path)
+          : await pathExists(targetFile)
+      ) {
         throw new Error(`Target support file already exists: ${targetFile}`);
       }
       candidateFiles.set(file.path, file);
@@ -68,8 +88,17 @@ export async function buildSkillProposalEvaluationBundles(params: {
   };
 }
 
-export async function readSkillProposalTargetTreeSha256(skillDir: string): Promise<string> {
-  return hashSkillTree(await readSkillTreeFiles(skillDir));
+export async function readSkillProposalTargetTreeSha256(
+  skillDir: string,
+  targetAccess?: SkillWorkshopTargetAccess,
+): Promise<string> {
+  return hashSkillTree(
+    targetAccess
+      ? (await readExternalSkillTree(targetAccess, skillDir)).map((file) =>
+          fileFromBuffer(file.path, file.content),
+        )
+      : await readSkillTreeFiles(skillDir),
+  );
 }
 
 async function readSkillTreeFiles(skillDir: string): Promise<PluginHookSkillBundleFile[]> {
@@ -183,11 +212,16 @@ function resolveTargetSkillRelativePath(
   targetFiles: readonly PluginHookSkillBundleFile[],
   options: { recordedTargetExists: boolean },
 ): string {
-  const relativePath = path.relative(
-    path.resolve(proposal.record.target.skillDir),
-    path.resolve(proposal.record.target.skillFile),
+  const pathApi = proposal.record.target.binding ? path.posix : path;
+  const relativePath = pathApi.relative(
+    pathApi.resolve(proposal.record.target.skillDir),
+    pathApi.resolve(proposal.record.target.skillFile),
   );
-  if (!relativePath || path.isAbsolute(relativePath) || relativePath.startsWith(`..${path.sep}`)) {
+  if (
+    !relativePath ||
+    pathApi.isAbsolute(relativePath) ||
+    relativePath.startsWith(`..${pathApi.sep}`)
+  ) {
     throw new Error("Skill evaluation target file must be inside the skill directory.");
   }
   const portablePath = relativePath.split(path.sep).join("/");

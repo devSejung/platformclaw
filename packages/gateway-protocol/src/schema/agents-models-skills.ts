@@ -574,6 +574,12 @@ const SkillProposalScanSchema = closedObject({
 });
 
 /** Skill file target that a proposal creates or updates. */
+const SkillProposalTargetBindingSchema = closedObject({
+  backendId: NonEmptyString,
+  targetId: NonEmptyString,
+  targetLabel: NonEmptyString,
+});
+
 const SkillProposalTargetSchema = closedObject({
   skillName: NonEmptyString,
   skillKey: NonEmptyString,
@@ -581,6 +587,7 @@ const SkillProposalTargetSchema = closedObject({
   skillFile: NonEmptyString,
   source: Type.Optional(NonEmptyString),
   currentContentHash: Type.Optional(NonEmptyString),
+  binding: Type.Optional(SkillProposalTargetBindingSchema),
 });
 
 /** Optional runtime origin tying a proposal back to an agent turn. */
@@ -696,6 +703,7 @@ const SkillProposalManifestEntrySchema = closedObject({
   createdAt: NonEmptyString,
   updatedAt: NonEmptyString,
   scanState: SkillProposalScanStateSchema,
+  targetLabel: Type.Optional(NonEmptyString),
 });
 
 /** Lists skill-workshop proposals for the selected agent scope. */

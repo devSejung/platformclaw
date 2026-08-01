@@ -1,6 +1,4 @@
-import { html, type TemplateResult } from "lit";
 import type { SkillStatusReport } from "../../api/types.ts";
-import { t } from "../../i18n/index.ts";
 import type { SkillWorkshopPageContext } from "./source-scope.ts";
 
 type LoadPersonalAccessOptions = {
@@ -46,9 +44,7 @@ export class SkillWorkshopPersonalAccess {
         return;
       }
       this.target = report.executionTarget ?? "platform_server";
-      if (this.target === "platform_server") {
-        await options.loadServerProposals();
-      }
+      await options.loadServerProposals();
     } catch (error) {
       if (this.epoch === epoch) {
         options.onError(error);
@@ -60,23 +56,4 @@ export class SkillWorkshopPersonalAccess {
       }
     }
   }
-}
-
-export function renderAssignedVmWorkshopUnavailable(
-  context: SkillWorkshopPageContext,
-): TemplateResult {
-  return html`
-    <section class="content--skill-workshop">
-      <section class="content-header content-header--page plugins-content-header">
-        <div><h1 class="page-title">${t("tabs.skillWorkshop")}</h1></div>
-      </section>
-      <div class="callout" role="status">
-        <strong>${t("platformClaw.skills.vmWorkshopUnavailableTitle")}</strong>
-        <div class="muted">${t("platformClaw.skills.vmWorkshopUnavailableDescription")}</div>
-        <button class="btn" @click=${() => context.navigate("skills")}>
-          ${t("platformClaw.skills.vmWorkshopUnavailableAction")}
-        </button>
-      </div>
-    </section>
-  `;
 }

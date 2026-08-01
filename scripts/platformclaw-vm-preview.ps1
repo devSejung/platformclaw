@@ -87,6 +87,8 @@ function Get-PreviewPaths {
         GatewayToken = Join-Path $resolvedRoot "gateway-token"
         GatewayServiceIdentity = Join-Path $resolvedRoot "gateway-service-identity.pem"
         ExecutionToken = Join-Path $resolvedRoot "execution-service-token"
+        KnoxWebhookSecret = Join-Path $resolvedRoot "knox-webhook-secret"
+        KnoxServiceToken = Join-Path $resolvedRoot "knox-service-token"
         AdminIds = Join-Path $resolvedRoot "initial-admin-ids"
         CredentialKey = Join-Path $resolvedRoot "ssh-credential-master-key"
         EmployeeAuthCa = Join-Path $resolvedRoot "employee-auth-ca.pem"
@@ -135,6 +137,12 @@ function Initialize-PreviewData {
     }
     if (-not (Test-Path $paths.ExecutionToken)) {
         Write-Utf8NoBom $paths.ExecutionToken (New-RandomHex)
+    }
+    if (-not (Test-Path $paths.KnoxWebhookSecret)) {
+        Write-Utf8NoBom $paths.KnoxWebhookSecret (New-RandomHex)
+    }
+    if (-not (Test-Path $paths.KnoxServiceToken)) {
+        Write-Utf8NoBom $paths.KnoxServiceToken (New-RandomHex)
     }
     if (-not (Test-Path $paths.AdminIds)) {
         Write-Utf8NoBom $paths.AdminIds "admin.user"
@@ -204,6 +212,9 @@ function Set-PreviewEnvironment {
     $env:PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE = $Paths.GatewayToken
     $env:PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE = $Paths.GatewayServiceIdentity
     $env:PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE = $Paths.ExecutionToken
+    $env:PLATFORMCLAW_KNOX_CDEP_URL = "http://127.0.0.1:18081/api/v1/platformclaw/knox/outbound/send"
+    $env:PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE = $Paths.KnoxWebhookSecret
+    $env:PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE = $Paths.KnoxServiceToken
     $env:PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE = $Paths.AdminIds
     $env:PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE = $Paths.CredentialKey
 }
@@ -540,6 +551,8 @@ function Invoke-ExistingPreview {
                 $paths.GatewayToken,
                 $paths.GatewayServiceIdentity,
                 $paths.ExecutionToken,
+                $paths.KnoxWebhookSecret,
+                $paths.KnoxServiceToken,
                 $paths.AdminIds,
                 $paths.CredentialKey,
                 $paths.EmployeeAuthCa,

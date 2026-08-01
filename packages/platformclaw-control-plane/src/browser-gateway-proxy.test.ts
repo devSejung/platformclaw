@@ -397,19 +397,16 @@ describe("BrowserGatewayProxy", () => {
     await expect(
       proxy.request(token, "skills.install", { source: "clawhub", slug: "other" }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
-    await expect(proxy.request(token, "skills.proposals.list", {})).rejects.toMatchObject({
-      code: "method-not-allowed",
+    request.mockResolvedValueOnce(skillProposalListResult());
+    await expect(proxy.request(token, "skills.proposals.list", {})).resolves.toMatchObject({
+      proposals: expect.any(Array),
     });
     expect(getPersonalExecutionProfile).toHaveBeenCalledWith(binding.agentId);
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(3);
     expect(auditEvents).toEqual([
       expect.objectContaining({
         eventType: "browser.gateway.denied",
         details: { method: "skills.install", reason: "method-not-allowed" },
-      }),
-      expect.objectContaining({
-        eventType: "browser.gateway.denied",
-        details: { method: "skills.proposals.list", reason: "method-not-allowed" },
       }),
     ]);
   });
@@ -428,12 +425,17 @@ describe("BrowserGatewayProxy", () => {
     });
     expect(result).toMatchObject({
       record: {
-        target: { skillName: "Calendar Reports", skillKey: "calendar-reports" },
+        target: {
+          skillName: "Calendar Reports",
+          skillKey: "calendar-reports",
+          targetLabel: "Development VM",
+        },
         origin: {
           agentId: binding.agentId,
           sessionKey: `agent:${binding.agentId}:main`,
         },
       },
+      revisionHash: "revision-private",
       content: "# Calendar Reports",
       supportFiles: [],
     });
@@ -441,9 +443,12 @@ describe("BrowserGatewayProxy", () => {
     expect(JSON.stringify(result)).not.toContain("run-private");
     expect(JSON.stringify(result)).not.toContain("message-private");
     expect(JSON.stringify(result)).not.toContain("hash-private");
+    expect(JSON.stringify(result)).not.toContain("allocation-private");
+    expect(JSON.stringify(result)).not.toContain("platformclaw-execution-private");
 
     request.mockResolvedValueOnce(skillProposalListResult());
     const list = await proxy.request<Record<string, unknown>>(token, "skills.proposals.list", {});
+    expect(list).toMatchObject({ proposals: [{ targetLabel: "Development VM" }] });
     expect(JSON.stringify(list)).not.toContain("C:/private");
     expect(JSON.stringify(list)).not.toContain("run-private");
   });

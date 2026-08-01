@@ -4,7 +4,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { registerSandboxBackend } from "../../agents/sandbox/backend.js";
 import { readSkillProposalEvents } from "../../skills/workshop/store-evaluation.js";
+import type { SkillWorkshopTargetAccess } from "../../skills/workshop/types.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
@@ -35,6 +37,8 @@ vi.mock("../../config/config.js", () => ({
 
 vi.mock("../../agents/agent-scope.js", () => ({
   listAgentIds: () => ["main"],
+  resolveAgentConfig: (cfg: { agents?: { entries?: Array<{ id: string }> } }, agentId: string) =>
+    cfg.agents?.entries?.find((entry) => entry.id === agentId),
   resolveDefaultAgentId: () => "main",
   resolveAgentWorkspaceDir: () => mocks.workspaceDir,
 }));
@@ -476,5 +480,46 @@ describe("skills proposal gateway handlers", () => {
       "Skill proposal is not pending",
     );
     expect(mocks.chatSend).not.toHaveBeenCalled();
+  });
+
+  it("resolves and closes the current VM target for evaluation requests", async () => {
+    const close = vi.fn(async () => undefined);
+    const targetAccess = {
+      backendId: "test-vm-workshop",
+      targetId: "allocation-one",
+      targetLabel: "Development VM",
+      close,
+    } as unknown as SkillWorkshopTargetAccess;
+    const resolveWorkshop = vi.fn(async () => targetAccess);
+    const restore = registerSandboxBackend("test-vm-workshop", {
+      factory: async () => {
+        throw new Error("not used");
+      },
+      skillWorkshop: resolveWorkshop,
+    });
+    const config = {
+      agents: {
+        defaults: { sandbox: { backend: "test-vm-workshop", mode: "all" as const } },
+      },
+    };
+    try {
+      const result = await callGatewayHandler(
+        skillsHandlers,
+        "skills.proposals.evaluate",
+        { proposalId: "proposal-1", expectedRevisionHash: "a".repeat(64) },
+        { context: { getRuntimeConfig: () => config } },
+      );
+
+      expect(result.ok).toBe(true);
+      expect(resolveWorkshop).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: "main", workspaceDir: mocks.workspaceDir }),
+      );
+      expect(mocks.evaluateSkillProposal).toHaveBeenCalledWith(
+        expect.objectContaining({ targetAccess }),
+      );
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      restore();
+    }
   });
 });

@@ -351,6 +351,9 @@ function renderDetail(props: SkillWorkshopProps, proposal: SkillWorkshopProposal
           <div class="sw-detail__one-line">${proposal.oneLine}</div>
           <div class="sw-detail__meta">
             <span>${createdLabel}</span>
+            ${proposal.targetLabel
+              ? html`<span>·</span><span>${proposal.targetLabel}</span>`
+              : nothing}
             <span>·</span>
             <span>v${proposal.version}</span>
             <span>·</span>
@@ -433,7 +436,7 @@ function renderActionNotice(notice: SkillWorkshopActionNotice) {
 
 function renderPendingActions(props: SkillWorkshopProps, proposal: SkillWorkshopProposal) {
   const busy = props.actionBusy?.key === proposal.key ? props.actionBusy.action : null;
-  const disabled = Boolean(props.actionBusy);
+  const disabled = Boolean(props.actionBusy) || props.inspectingKey === proposal.key;
   return html`
     <div class="sw-action-bar" aria-busy=${busy ? "true" : "false"}>
       <button
@@ -508,7 +511,7 @@ function renderToday(
   const dateLine = formatTodayDate(Date.now());
   const isPending = hero.status === "pending";
   const busy = props.actionBusy?.key === hero.key ? props.actionBusy.action : null;
-  const disabled = Boolean(props.actionBusy);
+  const disabled = Boolean(props.actionBusy) || props.inspectingKey === hero.key;
   const assistantName = resolveSkillWorkshopAgentName(props, t("skillWorkshop.today.agent"));
   const firstSupportFile = hero.supportFiles[0];
 
@@ -552,7 +555,7 @@ function renderToday(
       <article class="sw-today__hero">
         <div class="sw-today__label">
           <span class="sw-today__ping"></span>
-          ${heroLabel} · ${ageLabel}
+          ${heroLabel} · ${ageLabel} ${hero.targetLabel ? html` · ${hero.targetLabel}` : nothing}
         </div>
         <h2 class="sw-today__name">${hero.slug}</h2>
         <p class="sw-today__one-liner">${hero.oneLine}</p>

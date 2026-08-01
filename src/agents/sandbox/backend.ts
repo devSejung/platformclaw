@@ -11,6 +11,7 @@ import type {
   SandboxBackendManager,
   SandboxBackendRegistration,
   SandboxBackendSkillProvider,
+  SandboxBackendSkillWorkshopProvider,
   SandboxBackendWorkdirResolver,
 } from "./backend.types.js";
 
@@ -22,6 +23,7 @@ export type {
   SandboxBackendRegistration,
   SandboxBackendRuntimeInfo,
   SandboxBackendSkillProvider,
+  SandboxBackendSkillWorkshopProvider,
   SandboxBackendWorkdirValidation,
   SandboxBackendWorkdirResolver,
 } from "./backend.types.js";
@@ -94,6 +96,13 @@ export function getSandboxBackendWorkdirResolver(id: string): SandboxBackendWork
 /** Look up optional target-owned skill discovery for a registered backend. */
 export function getSandboxBackendSkillProvider(id: string): SandboxBackendSkillProvider | null {
   return getSandboxBackendFactories().get(normalizeSandboxBackendId(id))?.skills ?? null;
+}
+
+/** Look up optional mutable Skill Workshop access for a registered backend. */
+export function getSandboxBackendSkillWorkshopProvider(
+  id: string,
+): SandboxBackendSkillWorkshopProvider | null {
+  return getSandboxBackendFactories().get(normalizeSandboxBackendId(id))?.skillWorkshop ?? null;
 }
 
 /** Resolve a backend factory or throw the user-facing configuration error. */

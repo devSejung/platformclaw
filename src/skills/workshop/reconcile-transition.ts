@@ -29,6 +29,11 @@ export async function reconcileInterruptedSkillProposalApply(params: {
   config?: OpenClawConfig;
   store?: SkillWorkshopStoreOptions;
 }): Promise<boolean> {
+  // Backend-owned targets require live backend access. Their caller performs
+  // the same rollback reconciliation after resolving and matching targetId.
+  if (params.record.target.binding) {
+    return false;
+  }
   return await withSkillProposalTargetLock(
     params.record,
     async () => {

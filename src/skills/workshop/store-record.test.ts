@@ -104,4 +104,25 @@ describe("Skill Workshop persisted record validation", () => {
       },
     });
   });
+
+  it("accepts a bounded VM target binding and rejects incomplete bindings", () => {
+    const bound = {
+      ...shippedProposal,
+      target: {
+        ...shippedProposal.target,
+        binding: {
+          backendId: "platformclaw-execution",
+          targetId: "allocation-one",
+          targetLabel: "Development VM",
+        },
+      },
+    };
+    expect(validateSkillProposalRecord(bound)).toEqual({ ok: true, value: bound });
+    expect(
+      validateSkillProposalRecord({
+        ...bound,
+        target: { ...bound.target, binding: { ...bound.target.binding, targetId: "" } },
+      }),
+    ).toMatchObject({ ok: false, error: { code: "invalid-proposal-metadata" } });
+  });
 });

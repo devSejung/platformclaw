@@ -24,6 +24,11 @@ export function skillProposalInspectResult(agentId: string) {
         skillKey: "calendar-reports",
         skillDir: "C:/private/workspace/skills/calendar-reports",
         skillFile: "C:/private/workspace/skills/calendar-reports/SKILL.md",
+        binding: {
+          backendId: "platformclaw-execution-private",
+          targetId: "allocation-private",
+          targetLabel: "Development VM",
+        },
       },
       scan: {
         state: "clean",
@@ -34,6 +39,7 @@ export function skillProposalInspectResult(agentId: string) {
         findings: [],
       },
     },
+    revisionHash: "revision-private",
     content: "# Calendar Reports",
     supportFiles: [],
   };
@@ -55,6 +61,7 @@ export function skillProposalListResult() {
         createdAt: "2026-07-27T00:00:00.000Z",
         updatedAt: "2026-07-27T00:00:00.000Z",
         scanState: "clean",
+        targetLabel: "Development VM",
         skillDir: "C:/private/workspace/skills/calendar-reports",
         runId: "run-private",
       },

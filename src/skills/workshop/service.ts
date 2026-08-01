@@ -11,6 +11,7 @@ import {
   readWorkspaceSkillFile,
   readWorkspaceSupportFile,
 } from "../lifecycle/workspace-skill-write.js";
+import { parseFrontmatter } from "../loading/frontmatter.js";
 import {
   applySkillProposalTransition,
   assertSkillProposalSupportTargetUnchanged,
@@ -45,6 +46,12 @@ import {
   withSkillProposalTargetLock,
   type PreparedSkillProposalSupportFile,
 } from "./store.js";
+import {
+  assertSkillWorkshopTargetAccess,
+  readExternalSkillFile,
+  resolveExternalSkillTarget,
+  skillWorkshopTargetBinding,
+} from "./target-access.js";
 export {
   getSkillProposalRunProgress,
   inspectSkillProposal,
@@ -64,6 +71,8 @@ import {
   type SkillProposalReviseInput,
   type SkillProposalSupportFile,
   type SkillProposalUpdateInput,
+  type SkillWorkshopTargetAccess,
+  type SkillWorkshopTargetSkill,
 } from "./types.js";
 
 type SkillWorkshopWorkspaceOptions = {
@@ -136,8 +145,23 @@ export async function proposeCreateSkill(
   const name = normalizeRequired(input.name, "Skill name");
   const description = normalizeRequired(input.description, "Skill description");
   const config = resolveSkillWorkshopConfig(input.config);
-  const target = resolveSkillProposalTarget({ workspaceDir: input.workspaceDir, skillName: name });
-  if ((await readWorkspaceSkillFile(target.skillFile)) !== null) {
+  const localTarget = resolveSkillProposalTarget({
+    workspaceDir: input.workspaceDir,
+    skillName: name,
+  });
+  const target = input.targetAccess
+    ? {
+        skillKey: localTarget.skillKey,
+        ...resolveExternalSkillTarget({
+          access: input.targetAccess,
+          skillKey: localTarget.skillKey,
+        }),
+      }
+    : localTarget;
+  const currentTargetContent = input.targetAccess
+    ? await readExternalSkillFile(input.targetAccess, target.skillFile)
+    : await readWorkspaceSkillFile(target.skillFile);
+  if (currentTargetContent !== null) {
     throw new Error(`Skill already exists at ${target.skillFile}.`);
   }
 
@@ -191,7 +215,8 @@ export async function proposeCreateSkill(
       skillKey: target.skillKey,
       skillDir: target.skillDir,
       skillFile: target.skillFile,
-      source: "openclaw-workspace",
+      source: input.targetAccess?.source ?? "openclaw-workspace",
+      ...(input.targetAccess ? { binding: skillWorkshopTargetBinding(input.targetAccess) } : {}),
     },
     scan,
     ...(supportFiles.length > 0
@@ -264,20 +289,35 @@ export async function proposeUpdateSkill(
 ): Promise<SkillProposalReadResult> {
   const skillName = normalizeRequired(input.skillName, "Skill name");
   const config = resolveSkillWorkshopConfig(input.config);
-  const status = buildWorkspaceSkillStatus(input.workspaceDir, {
-    config: input.config,
-    agentId: input.agentId,
-  });
-  const targetSkill = resolveSkillStatusEntry(status.skills, skillName);
+  const targetSkill = input.targetAccess
+    ? resolveExternalSkill(input.targetAccess, await input.targetAccess.listSkills(), skillName)
+    : resolveSkillStatusEntry(
+        buildWorkspaceSkillStatus(input.workspaceDir, {
+          config: input.config,
+          agentId: input.agentId,
+        }).skills,
+        skillName,
+      );
   if (!targetSkill) {
     throw new Error(`Skill not found: ${skillName}`);
   }
-  assertWritableSkillTarget(input.workspaceDir, targetSkill);
-  const currentContent = await readWorkspaceSkillFile(targetSkill.filePath);
-  if (currentContent === null) {
-    throw new Error(`Skill file is missing: ${targetSkill.filePath}`);
+  if (!input.targetAccess) {
+    assertWritableSkillTarget(input.workspaceDir, targetSkill as SkillStatusEntry);
   }
-  const description = resolveUpdateProposalDescription(input.description, targetSkill.description);
+  const targetSkillFile = "filePath" in targetSkill ? targetSkill.filePath : targetSkill.skillFile;
+  const targetSkillDir = "baseDir" in targetSkill ? targetSkill.baseDir : targetSkill.skillDir;
+  const currentContent = input.targetAccess
+    ? await readExternalSkillFile(input.targetAccess, targetSkillFile)
+    : await readWorkspaceSkillFile(targetSkillFile);
+  if (currentContent === null) {
+    throw new Error(`Skill file is missing: ${targetSkillFile}`);
+  }
+  const currentDescription =
+    targetSkill.description ?? parseFrontmatter(currentContent).description;
+  const description = resolveUpdateProposalDescription(
+    input.description,
+    normalizeRequired(currentDescription ?? "", "Skill description"),
+  );
 
   const now = new Date().toISOString();
   const prepared = prepareSkillProposalDraft({
@@ -327,14 +367,21 @@ export async function proposeUpdateSkill(
     target: {
       skillName: targetSkill.name,
       skillKey: targetSkill.skillKey,
-      skillDir: targetSkill.baseDir,
-      skillFile: targetSkill.filePath,
+      skillDir: targetSkillDir,
+      skillFile: targetSkillFile,
       source: targetSkill.source,
       currentContentHash: hashSkillProposalContent(currentContent),
+      ...(input.targetAccess ? { binding: skillWorkshopTargetBinding(input.targetAccess) } : {}),
     },
     scan,
     ...(supportFiles.length > 0
-      ? { supportFiles: await buildSupportFileMetadata(supportFiles, targetSkill.baseDir) }
+      ? {
+          supportFiles: await buildSupportFileMetadata(
+            supportFiles,
+            targetSkillDir,
+            input.targetAccess,
+          ),
+        }
       : {}),
     ...(goal ? { goal } : {}),
     ...(evidence ? { evidence } : {}),
@@ -379,11 +426,16 @@ export async function reviseSkillProposal(
   const config = resolveSkillWorkshopConfig(input.config);
   const revision = withPendingSkillProposalMutation(input, "revised", async (read) => {
     const { record } = read;
-    assertInsideWorkspace(input.workspaceDir, record.target.skillFile, "skill file");
-    assertInsideWorkspace(input.workspaceDir, record.target.skillDir, "skill directory");
+    assertSkillWorkshopTargetAccess(record, input.targetAccess);
+    if (!record.target.binding) {
+      assertInsideWorkspace(input.workspaceDir, record.target.skillFile, "skill file");
+      assertInsideWorkspace(input.workspaceDir, record.target.skillDir, "skill directory");
+    }
 
     if (record.kind === "create") {
-      const currentContent = await readWorkspaceSkillFile(record.target.skillFile);
+      const currentContent = input.targetAccess
+        ? await readExternalSkillFile(input.targetAccess, record.target.skillFile)
+        : await readWorkspaceSkillFile(record.target.skillFile);
       if (currentContent !== null) {
         await markSkillProposalStale({
           record,
@@ -393,7 +445,9 @@ export async function reviseSkillProposal(
         });
       }
     } else {
-      const currentContent = await readWorkspaceSkillFile(record.target.skillFile);
+      const currentContent = input.targetAccess
+        ? await readExternalSkillFile(input.targetAccess, record.target.skillFile)
+        : await readWorkspaceSkillFile(record.target.skillFile);
       if (currentContent === null) {
         throw new Error(`Target skill is missing: ${record.target.skillFile}`);
       }
@@ -408,7 +462,7 @@ export async function reviseSkillProposal(
           input,
         });
       }
-      await assertSupportTargetsUnchanged(record, input);
+      await assertSupportTargetsUnchanged(record, input, input.targetAccess);
     }
 
     const supportFiles =
@@ -447,6 +501,7 @@ export async function reviseSkillProposal(
         ? await buildSupportFileMetadata(
             preparedSupportFiles,
             record.kind === "update" ? record.target.skillDir : undefined,
+            input.targetAccess,
           )
         : [];
     const origin = normalizeProposalOrigin(input.origin);
@@ -568,6 +623,7 @@ export async function applySkillProposal(
 async function buildSupportFileMetadata(
   files: readonly PreparedSkillProposalSupportFile[],
   targetSkillDir?: string,
+  targetAccess?: SkillWorkshopTargetAccess,
 ): Promise<SkillProposalSupportFile[]> {
   const out: SkillProposalSupportFile[] = [];
   for (const file of files) {
@@ -577,10 +633,16 @@ async function buildSupportFileMetadata(
       hash: file.hash,
     };
     if (targetSkillDir) {
-      const targetContent = await readWorkspaceSupportFile({
-        skillDir: targetSkillDir,
-        relativePath: file.path,
-      });
+      const targetContent = targetAccess
+        ? await readExternalSkillFile(
+            targetAccess,
+            path.posix.join(targetSkillDir, file.path),
+            256 * 1024,
+          )
+        : await readWorkspaceSupportFile({
+            skillDir: targetSkillDir,
+            relativePath: file.path,
+          });
       metadata.targetExisted = targetContent !== null;
       if (targetContent !== null) {
         metadata.targetContentHash = hashSkillProposalContent(targetContent);
@@ -682,6 +744,7 @@ async function withPendingSkillProposalMutation<T>(
 async function assertSupportTargetsUnchanged(
   record: SkillProposalRecord,
   input: SkillProposalTransitionInput,
+  targetAccess?: SkillWorkshopTargetAccess,
 ): Promise<void> {
   if (record.kind !== "update" || !record.supportFiles) {
     return;
@@ -690,12 +753,34 @@ async function assertSupportTargetsUnchanged(
     if (file.targetExisted === undefined) {
       continue;
     }
-    const currentContent = await readWorkspaceSupportFile({
-      skillDir: record.target.skillDir,
-      relativePath: file.path,
-    });
+    const currentContent = targetAccess
+      ? await readExternalSkillFile(
+          targetAccess,
+          path.posix.join(record.target.skillDir, file.path),
+          256 * 1024,
+        )
+      : await readWorkspaceSupportFile({
+          skillDir: record.target.skillDir,
+          relativePath: file.path,
+        });
     await assertSkillProposalSupportTargetUnchanged({ record, file, currentContent, input });
   }
+}
+
+function resolveExternalSkill(
+  access: SkillWorkshopTargetAccess,
+  skills: readonly SkillWorkshopTargetSkill[],
+  skillName: string,
+): SkillWorkshopTargetSkill | undefined {
+  const normalized = skillName.trim().toLowerCase();
+  const matches = skills.filter(
+    (skill) =>
+      skill.skillKey.toLowerCase() === normalized || skill.name.toLowerCase() === normalized,
+  );
+  if (matches.length > 1) {
+    throw new Error(`Skill name is ambiguous on ${access.targetLabel}: ${skillName}`);
+  }
+  return matches[0];
 }
 
 function assertWritableSkillTarget(workspaceDir: string, skill: SkillStatusEntry): void {

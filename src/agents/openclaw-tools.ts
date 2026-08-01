@@ -18,6 +18,7 @@ import { getActiveSecretsRuntimeConfigSnapshot } from "../secrets/runtime-state.
 import { getActiveRuntimeWebToolsMetadata } from "../secrets/runtime-web-tools-state.js";
 import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
 import type { SkillWorkshopRunOptions } from "../skills/workshop/types.js";
+import type { SkillWorkshopTargetAccess } from "../skills/workshop/types.js";
 import { resolveTranscriptsConfig } from "../transcripts/config.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.js";
 import type { GatewayMessageChannel } from "../utils/message-channel.js";
@@ -160,6 +161,7 @@ export function createOpenClawTools(
     computerContextEpoch?: { value: number };
     /** Internal review-run restrictions and proposal provenance. */
     skillWorkshop?: SkillWorkshopRunOptions;
+    skillWorkshopTarget?: SkillWorkshopTargetAccess | { kind: "workspace" };
     /** If true, nodes action="invoke" can call media-returning commands directly. */
     allowMediaInvokeCommands?: boolean;
     /** Trusted sender identity bit for channel action auth. */
@@ -570,7 +572,7 @@ export function createOpenClawTools(
       sessionAgentId,
       config: resolvedConfig,
     }),
-    ...(options?.sandboxed
+    ...(options?.sandboxed && !options?.skillWorkshopTarget
       ? []
       : [
           createConfiguredSkillWorkshopTool({
@@ -581,6 +583,10 @@ export function createOpenClawTools(
             runId: options?.runId,
             messageId: options?.currentMessageId,
             run: options?.skillWorkshop,
+            targetAccess:
+              options?.skillWorkshopTarget && "backendId" in options.skillWorkshopTarget
+                ? options.skillWorkshopTarget
+                : undefined,
           }),
         ]),
     ...(includeUpdatePlanTool ? [createUpdatePlanTool()] : []),

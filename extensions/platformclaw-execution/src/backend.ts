@@ -4,6 +4,8 @@ import type {
   SandboxBackendHandle,
   SandboxBackendSkillCatalog,
   SandboxBackendSkillProvider,
+  SandboxBackendSkillWorkshopProvider,
+  SkillWorkshopTargetAccess,
 } from "openclaw/plugin-sdk/sandbox";
 
 export const PLATFORMCLAW_EXECUTION_BACKEND_ID = "platformclaw-execution";
@@ -57,6 +59,10 @@ export type PlatformClawExecutionDependencies = {
     refresh: boolean;
     target: Readonly<PlatformClawExecutionTargetSnapshot>;
   }) => Promise<SandboxBackendSkillCatalog | undefined>;
+  createSkillWorkshopTarget: (params: {
+    target: Readonly<PlatformClawExecutionTargetSnapshot>;
+    catalog?: SandboxBackendSkillCatalog;
+  }) => Promise<SkillWorkshopTargetAccess | undefined>;
 };
 
 function serializeRuntimeContext(value: Record<string, unknown>): string {
@@ -130,13 +136,30 @@ export function createPlatformClawExecutionBackendFactory(
       target.kind === "platform_server"
         ? await dependencies.createPlatformServerHandle({ createParams, target })
         : await dependencies.createAssignedVmHandle({ createParams, target });
+    const skillWorkshopTarget =
+      target.kind === "platform_server"
+        ? ({ kind: "workspace" } as const)
+        : await dependencies.createSkillWorkshopTarget({
+            target,
+            ...(skillCatalog ? { catalog: skillCatalog } : {}),
+          });
 
     return {
       ...handle,
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
       runtimePromptContext: buildRuntimePromptContext(target, handle.workdir),
       ...(skillCatalog ? { skillCatalog } : {}),
+      ...(skillWorkshopTarget ? { skillWorkshopTarget } : {}),
     };
+  };
+}
+
+export function createPlatformClawExecutionSkillWorkshopProvider(
+  dependencies: PlatformClawExecutionDependencies,
+): SandboxBackendSkillWorkshopProvider {
+  return async ({ agentId }) => {
+    const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+    return await dependencies.createSkillWorkshopTarget({ target });
   };
 }
 
@@ -158,6 +181,7 @@ export function createUnavailableExecutionDependencies(): PlatformClawExecutionD
     createPlatformServerHandle: unavailable,
     createAssignedVmHandle: unavailable,
     listTargetSkills: unavailable,
+    createSkillWorkshopTarget: unavailable,
   };
 }
 
