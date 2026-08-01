@@ -140,6 +140,8 @@ USER.md
 !.agents/skills/auto-qa/**
 !.agents/skills/autoreview/
 !.agents/skills/autoreview/**
+!.agents/skills/platformclaw-upstream-sync/
+!.agents/skills/platformclaw-upstream-sync/**
 !.agents/skills/release-platformclaw/
 !.agents/skills/release-platformclaw/**
 !.agents/skills/channel-message-flows/
