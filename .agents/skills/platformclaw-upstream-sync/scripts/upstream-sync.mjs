@@ -155,9 +155,10 @@ function inspect(repo, baseRef, targetRef) {
       }).status === 0,
     upstreamOnlyCommits: Number(git(repo, ["rev-list", "--count", `${base}..${target}`]).stdout),
     downstreamOnlyCommits: Number(git(repo, ["rev-list", "--count", `${target}..${base}`]).stdout),
-    targetAlreadyMerged: git(repo, ["merge-base", "--is-ancestor", target, base], {
-      allowFailure: true,
-    }).status === 0,
+    targetAlreadyMerged:
+      git(repo, ["merge-base", "--is-ancestor", target, base], {
+        allowFailure: true,
+      }).status === 0,
     upstreamFiles,
     downstreamFiles,
     overlapFiles,
@@ -175,12 +176,16 @@ function printPlan(report, asJson) {
     for (const value of values) process.stdout.write(`  ${value}\n`);
   };
   process.stdout.write(`Repository: ${report.repository}\n`);
-  process.stdout.write(`Branch: ${report.branch || "detached"}${report.dirty ? " (dirty)" : " (clean)"}\n`);
+  process.stdout.write(
+    `Branch: ${report.branch || "detached"}${report.dirty ? " (dirty)" : " (clean)"}\n`,
+  );
   process.stdout.write(`Base: ${report.baseRef} -> ${report.base}\n`);
   process.stdout.write(`Target: ${report.targetRef} -> ${report.target}\n`);
   process.stdout.write(`Merge base: ${report.mergeBase}\n`);
   process.stdout.write(`Previous upstream sync: ${report.previousSync}\n`);
-  process.stdout.write(`Target descends from previous sync: ${report.targetDescendsFromPreviousSync}\n`);
+  process.stdout.write(
+    `Target descends from previous sync: ${report.targetDescendsFromPreviousSync}\n`,
+  );
   process.stdout.write(`Upstream-only commits: ${report.upstreamOnlyCommits}\n`);
   process.stdout.write(`Downstream-only commits: ${report.downstreamOnlyCommits}\n`);
   process.stdout.write(`Target already merged: ${report.targetAlreadyMerged}\n`);
@@ -188,8 +193,12 @@ function printPlan(report, asJson) {
   process.stdout.write(`Upstream: ${report.remotes.upstream || "missing"}\n`);
   list("Semantic overlap candidates", report.overlapFiles);
   list("Policy-sensitive upstream paths", report.sensitiveUpstreamFiles);
-  process.stdout.write(`\nAll upstream-changed paths: ${report.upstreamFiles.length} (use --json to inspect)\n`);
-  process.stdout.write(`All downstream-changed paths: ${report.downstreamFiles.length} (use --json to inspect)\n`);
+  process.stdout.write(
+    `\nAll upstream-changed paths: ${report.upstreamFiles.length} (use --json to inspect)\n`,
+  );
+  process.stdout.write(
+    `All downstream-changed paths: ${report.downstreamFiles.length} (use --json to inspect)\n`,
+  );
 }
 
 function prepare(repo, values) {
@@ -214,18 +223,22 @@ function prepare(repo, values) {
   git(repo, ["merge-base", base, target]);
   const previousSync = previousUpstreamSync(repo, base);
   if (
-    git(repo, ["merge-base", "--is-ancestor", previousSync, target], { allowFailure: true }).status !== 0
+    git(repo, ["merge-base", "--is-ancestor", previousSync, target], { allowFailure: true })
+      .status !== 0
   ) {
     fail(`target ${target} does not descend from previous upstream sync ${previousSync}`);
   }
-  if (git(repo, ["merge-base", "--is-ancestor", target, base], { allowFailure: true }).status === 0) {
+  if (
+    git(repo, ["merge-base", "--is-ancestor", target, base], { allowFailure: true }).status === 0
+  ) {
     fail(`target ${target} is already merged into base ${base}`);
   }
   git(repo, ["check-ref-format", "--branch", branch]);
 
-  const branchExists = git(repo, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], {
-    allowFailure: true,
-  }).status === 0;
+  const branchExists =
+    git(repo, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], {
+      allowFailure: true,
+    }).status === 0;
   if (branchExists) fail(`branch already exists: ${branch}`);
 
   const worktreePath = path.resolve(repo, worktree);
@@ -264,8 +277,11 @@ function verify(repo, values) {
   if (status) fail("worktree is not clean");
 
   const head = resolveCommit(repo, "HEAD", "head");
-  const parents = git(repo, ["show", "-s", "--format=%P", head]).stdout.split(/\s+/).filter(Boolean);
-  if (parents.length !== 2) fail(`HEAD must be a two-parent merge commit; found ${parents.length} parents`);
+  const parents = git(repo, ["show", "-s", "--format=%P", head])
+    .stdout.split(/\s+/)
+    .filter(Boolean);
+  if (parents.length !== 2)
+    fail(`HEAD must be a two-parent merge commit; found ${parents.length} parents`);
   if (parents[0].toLowerCase() !== base) {
     fail(`merge first parent ${parents[0]} does not equal frozen base ${base}`);
   }
@@ -274,11 +290,14 @@ function verify(repo, values) {
   }
   const previousSync = previousUpstreamSync(repo, base);
   if (
-    git(repo, ["merge-base", "--is-ancestor", previousSync, target], { allowFailure: true }).status !== 0
+    git(repo, ["merge-base", "--is-ancestor", previousSync, target], { allowFailure: true })
+      .status !== 0
   ) {
     fail(`target ${target} does not descend from previous upstream sync ${previousSync}`);
   }
-  if (git(repo, ["merge-base", "--is-ancestor", target, head], { allowFailure: true }).status !== 0) {
+  if (
+    git(repo, ["merge-base", "--is-ancestor", target, head], { allowFailure: true }).status !== 0
+  ) {
     fail("frozen target is not an ancestor of HEAD");
   }
 
@@ -306,9 +325,13 @@ function help() {
   process.stdout.write(`PlatformClaw upstream sync guard\n\n`);
   process.stdout.write(`Commands:\n`);
   process.stdout.write(`  plan    --base <ref> --target <ref> [--repo <path>] [--json]\n`);
-  process.stdout.write(`  prepare --base <ref> --target <40-sha> --branch <sync/upstream-YYYYMMDD> --worktree <path> [--repo <path>] [--json]\n`);
+  process.stdout.write(
+    `  prepare --base <ref> --target <40-sha> --branch <sync/upstream-YYYYMMDD> --worktree <path> [--repo <path>] [--json]\n`,
+  );
   process.stdout.write(`  verify  --base <40-sha> --target <40-sha> [--repo <path>] [--json]\n\n`);
-  process.stdout.write(`The hidden --allow-non-platformclaw flag is only for isolated fixture testing.\n`);
+  process.stdout.write(
+    `The hidden --allow-non-platformclaw flag is only for isolated fixture testing.\n`,
+  );
 }
 
 const { command, values } = parseArgs(process.argv.slice(2));
@@ -320,6 +343,7 @@ if (!["plan", "prepare", "verify"].includes(command)) fail(`unknown command: ${c
 
 const repo = repositoryRoot(values.repo);
 assertPlatformClaw(repo, values["allow-non-platformclaw"]);
-if (command === "plan") printPlan(inspect(repo, values.base || "origin/main", values.target), values.json);
+if (command === "plan")
+  printPlan(inspect(repo, values.base || "origin/main", values.target), values.json);
 if (command === "prepare") prepare(repo, values);
 if (command === "verify") verify(repo, values);

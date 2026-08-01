@@ -67,7 +67,13 @@ test("plans, prepares, and verifies a two-parent upstream sync", () => {
     const base = commitAll(repo, "downstream change");
     git(repo, "update-ref", "refs/remotes/origin/main", base);
     git(repo, "update-ref", "refs/remotes/upstream/main", target);
-    git(repo, "remote", "add", "origin", "https://token:secret@example.com/private/repo.git?token=also-secret");
+    git(
+      repo,
+      "remote",
+      "add",
+      "origin",
+      "https://token:secret@example.com/private/repo.git?token=also-secret",
+    );
     git(repo, "remote", "add", "upstream", "ssh-token@example.org:openclaw/openclaw.git");
 
     const planResult = run("node", [
