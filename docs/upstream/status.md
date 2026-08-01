@@ -139,6 +139,13 @@ the affected contract and must not silently change execution targets, channel
 routing, fallback, workspace, Core File, employee-profile, credential, or
 background-process behavior.
 
+Core File ownership is intentionally split: Agent profile, bootstrap, and
+memory state remain in the Gateway Agent workspace, while `AGENTS.md` follows
+the active project filesystem. Preserve the generic sandbox capability and
+bounded Agent-workspace tool seam; do not replace it with PlatformClaw-specific
+core checks, basename routing, mirroring, or dual-write. Prefer an equivalent
+upstream split-workspace/bootstrap provider when one exists.
+
 Keep upstream integration and VM implementation in separate pull requests.
 Validate the synchronization first, then reapply only the smallest required
 PlatformClaw prerequisite to the synchronized `main`.
