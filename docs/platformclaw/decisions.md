@@ -539,6 +539,15 @@ server users on the unchanged upstream Workshop path. Future upstream syncs
 must prefer a native remote Workshop target contract if it satisfies these
 allocation, approval, CAS, recovery, and no-fallback invariants.
 
+The Workshop tab remains visible in both personal work locations. A
+PlatformClaw UI overlay shows the current work location and each proposal's
+bound target without changing the upstream proposal store or Gateway protocol.
+Proposals remain visible after a location change, but evaluate, revise, and
+apply are disabled when the visible target does not match; reject remains
+available. This is guidance only: the server-side allocation and target checks
+above remain authoritative. A target revision change invalidates and reloads
+the Workshop target and proposal snapshots.
+
 ## Open operational decisions
 
 No remaining decision blocks the SQLite v1 store. Deployment work still needs

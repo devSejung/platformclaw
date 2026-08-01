@@ -15,6 +15,7 @@ import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 import { filterSkillWorkshopProposals } from "../../lib/skill-workshop/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
+import { PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT } from "../../platformclaw/execution-target-events.ts";
 import { PLUGINS_HUB_PANEL_ID, pluginsHubTabs } from "../plugins/plugins-hub.ts";
 import { renderSkillWorkshopHeaderControls, setSkillWorkshopMode } from "./header-controls.ts";
 import {
@@ -108,6 +109,7 @@ function renderSkillWorkshopPage(
   const {
     context,
     workshopAgentName,
+    currentExecutionTarget,
     onRevisionRequest,
     selfLearning,
     onSelfLearningToggle,
@@ -213,6 +215,7 @@ function renderSkillWorkshopPage(
               revisionDraft: state.skillWorkshopRevisionDraft,
               assistantName: context.config.current.assistantIdentity.name,
               workshopAgentName,
+              currentExecutionTarget,
               selfLearning,
               historyScan: state.skillWorkshopHistoryScan,
               counts: countSkillWorkshopProposals(state.skillWorkshopProposals),
@@ -333,6 +336,13 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   private selfLearningBusy = false;
   private selfLearningError: string | null = null;
   private readonly personalAccess = new SkillWorkshopPersonalAccess();
+  private readonly handleExecutionTargetChanged = () => {
+    if (this.context?.accessMode !== "personal-agent") {
+      return;
+    }
+    this.resetSourceState();
+    this.loadProposals(true);
+  };
   private readonly proposalsTask = new Task(this, {
     autoRun: false,
     // State and context identities isolate helper mutations after any source reset.
@@ -514,6 +524,14 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     }
   }
 
+  override connectedCallback() {
+    super.connectedCallback();
+    window.addEventListener(
+      PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT,
+      this.handleExecutionTargetChanged,
+    );
+  }
+
   override updated() {
     // Only kick a load when none is in flight and the last attempt did not
     // fail: loadProposals early-returns resolve immediately and their finally
@@ -680,6 +698,10 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   }
 
   override disconnectedCallback() {
+    window.removeEventListener(
+      PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT,
+      this.handleExecutionTargetChanged,
+    );
     this.subscriptions.clear();
     this.resetSourceState();
     super.disconnectedCallback();
@@ -693,6 +715,8 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
             context: this.context,
             workshopAgentName:
               this.context.agentIdentity.get(this.state.skillWorkshopAgentId)?.name?.trim() ?? "",
+            currentExecutionTarget:
+              this.context.accessMode === "personal-agent" ? this.personalAccess.target : undefined,
             onRevisionRequest: this.onRevisionRequest ?? this.handleRevisionRequest,
             selfLearning:
               this.context.accessMode === "personal-agent"

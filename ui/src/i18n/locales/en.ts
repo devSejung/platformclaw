@@ -108,6 +108,14 @@ export const en: TranslationMap = {
       vmDescription:
         "This list comes from the VM. Refresh and Skill Workshop proposals are available; direct installation stays in the Basic workspace.",
     },
+    workshop: {
+      currentTarget: "Current work location: {target}",
+      loadingTarget: "Loading work location…",
+      proposalTarget: "Target: {target}",
+      targetMismatch:
+        "This proposal belongs to {target}. Switch work location to evaluate, revise, or apply it.",
+      targetMismatchShort: "Switch to {target}",
+    },
     execution: {
       workLocation: "Work location",
       openSettings: "Open work location settings",

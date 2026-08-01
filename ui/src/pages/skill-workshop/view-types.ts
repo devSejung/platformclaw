@@ -8,6 +8,8 @@ import type {
 import type { SkillWorkshopSelfLearning } from "./self-learning.ts";
 import type { SkillWorkshopHistoryScanState } from "./state.ts";
 
+export type SkillWorkshopExecutionTarget = "platform_server" | "assigned_vm";
+
 export type SkillWorkshopProps = {
   loading: boolean;
   error: string | null;
@@ -26,6 +28,7 @@ export type SkillWorkshopProps = {
   revisionDraft: string;
   assistantName: string;
   workshopAgentName: string;
+  currentExecutionTarget?: SkillWorkshopExecutionTarget | null;
   selfLearning: SkillWorkshopSelfLearning | null;
   historyScan: SkillWorkshopHistoryScanState;
   counts: Record<SkillWorkshopStatusFilter, number>;

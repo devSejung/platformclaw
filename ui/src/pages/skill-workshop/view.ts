@@ -50,6 +50,69 @@ const GROUP_LABEL: Record<SkillWorkshopProposal["recencyGroup"], string> = {
   earlier: "skillWorkshop.recency.earlier",
 };
 
+function currentExecutionTargetLabel(props: SkillWorkshopProps): string | null {
+  if (props.currentExecutionTarget === "platform_server") {
+    return t("platformClaw.execution.basic");
+  }
+  if (props.currentExecutionTarget === "assigned_vm") {
+    return t("platformClaw.execution.vm");
+  }
+  return null;
+}
+
+function proposalExecutionTargetLabel(
+  props: SkillWorkshopProps,
+  proposal: SkillWorkshopProposal,
+): string | null {
+  if (props.currentExecutionTarget === undefined) {
+    return proposal.targetLabel?.trim() || null;
+  }
+  return proposal.targetLabel?.trim() || t("platformClaw.execution.basic");
+}
+
+function proposalTargetMismatch(
+  props: SkillWorkshopProps,
+  proposal: SkillWorkshopProposal,
+): boolean {
+  if (!props.currentExecutionTarget) {
+    return false;
+  }
+  const proposalUsesVm = Boolean(proposal.targetLabel?.trim());
+  return (props.currentExecutionTarget === "assigned_vm") !== proposalUsesVm;
+}
+
+function renderCurrentExecutionTarget(props: SkillWorkshopProps) {
+  if (props.currentExecutionTarget === undefined) {
+    return nothing;
+  }
+  const label = currentExecutionTargetLabel(props);
+  return html`
+    <div class="sw-target-context ${label ? "" : "is-loading"}" role="status">
+      <span class="sw-target-context__dot" aria-hidden="true"></span>
+      <span
+        >${label
+          ? t("platformClaw.workshop.currentTarget", { target: label })
+          : t("platformClaw.workshop.loadingTarget")}</span
+      >
+    </div>
+  `;
+}
+
+function targetMismatchMessage(props: SkillWorkshopProps, proposal: SkillWorkshopProposal): string {
+  return t("platformClaw.workshop.targetMismatch", {
+    target: proposalExecutionTargetLabel(props, proposal) ?? "",
+  });
+}
+
+function renderTargetMismatch(props: SkillWorkshopProps, proposal: SkillWorkshopProposal) {
+  if (!proposalTargetMismatch(props, proposal)) {
+    return nothing;
+  }
+  return html`<div class="sw-target-warning" role="note">
+    ${targetMismatchMessage(props, proposal)}
+  </div>`;
+}
+
 export function renderSkillWorkshop(props: SkillWorkshopProps) {
   const filtered = filterSkillWorkshopProposals(props.proposals, props.statusFilter, props.query);
   const selected = filtered.find((p) => p.key === props.selectedKey) ?? filtered[0];
@@ -77,6 +140,7 @@ export function renderSkillWorkshop(props: SkillWorkshopProps) {
 
   return html`
     <section class="skill-workshop sw-mode-${props.mode}">
+      ${renderCurrentExecutionTarget(props)}
       ${props.error
         ? html`<div class="sw-error" role="status">
             <span>${props.error}</span>
@@ -319,6 +383,8 @@ function renderRow(
 ) {
   const isSelected = selected?.key === proposal.key;
   const noveltyClass = proposal.isNew ? "is-new" : "is-seen";
+  const targetLabel = proposalExecutionTargetLabel(props, proposal);
+  const mismatch = proposalTargetMismatch(props, proposal);
   return html`
     <button
       class="sw-row ${noveltyClass} ${isSelected ? "is-selected" : ""}"
@@ -329,7 +395,14 @@ function renderRow(
         <span class="sw-row__title">${proposal.name}</span>
         <span class="sw-row__desc">${proposal.oneLine}</span>
       </span>
-      <span class="sw-row__meta">${proposal.ageLabel}</span>
+      <span class="sw-row__meta">
+        <span>${proposal.ageLabel}</span>
+        ${targetLabel
+          ? html`<span class="sw-row__target ${mismatch ? "is-mismatch" : ""}"
+              >${t("platformClaw.workshop.proposalTarget", { target: targetLabel })}</span
+            >`
+          : nothing}
+      </span>
     </button>
   `;
 }
@@ -342,6 +415,7 @@ function renderDetail(props: SkillWorkshopProps, proposal: SkillWorkshopProposal
     : t("skillWorkshop.detail.created", { time: formatRelative(proposal.createdAt) });
   const detailLoading = props.inspectingKey === proposal.key && !proposal.body;
   const firstSupportFile = proposal.supportFiles[0];
+  const targetLabel = proposalExecutionTargetLabel(props, proposal);
 
   return html`
     <div class="sw-detail">
@@ -351,8 +425,11 @@ function renderDetail(props: SkillWorkshopProps, proposal: SkillWorkshopProposal
           <div class="sw-detail__one-line">${proposal.oneLine}</div>
           <div class="sw-detail__meta">
             <span>${createdLabel}</span>
-            ${proposal.targetLabel
-              ? html`<span>·</span><span>${proposal.targetLabel}</span>`
+            ${targetLabel
+              ? html`<span>·</span
+                  ><span
+                    >${t("platformClaw.workshop.proposalTarget", { target: targetLabel })}</span
+                  >`
               : nothing}
             <span>·</span>
             <span>v${proposal.version}</span>
@@ -419,6 +496,7 @@ function renderDetail(props: SkillWorkshopProps, proposal: SkillWorkshopProposal
       </div>
 
       ${props.actionNotice?.key === proposal.key ? renderActionNotice(props.actionNotice) : nothing}
+      ${proposal.status === "pending" ? renderTargetMismatch(props, proposal) : nothing}
       ${proposal.status === "pending" ? renderPendingActions(props, proposal) : nothing}
     </div>
   `;
@@ -437,11 +515,15 @@ function renderActionNotice(notice: SkillWorkshopActionNotice) {
 function renderPendingActions(props: SkillWorkshopProps, proposal: SkillWorkshopProposal) {
   const busy = props.actionBusy?.key === proposal.key ? props.actionBusy.action : null;
   const disabled = Boolean(props.actionBusy) || props.inspectingKey === proposal.key;
+  const mismatch = proposalTargetMismatch(props, proposal);
+  const targetActionDisabled = disabled || mismatch;
+  const mismatchTitle = mismatch ? targetMismatchMessage(props, proposal) : nothing;
   return html`
     <div class="sw-action-bar" aria-busy=${busy ? "true" : "false"}>
       <button
         class="sw-btn ${busy === "evaluate" ? "is-busy" : ""}"
-        ?disabled=${disabled}
+        ?disabled=${targetActionDisabled}
+        title=${mismatchTitle}
         @click=${() => props.onEvaluate(proposal.key)}
       >
         ${busy === "evaluate"
@@ -450,14 +532,16 @@ function renderPendingActions(props: SkillWorkshopProps, proposal: SkillWorkshop
       </button>
       <button
         class="sw-btn sw-btn--primary ${busy === "apply" ? "is-busy" : ""}"
-        ?disabled=${disabled}
+        ?disabled=${targetActionDisabled}
+        title=${mismatchTitle}
         @click=${() => props.onApply(proposal.key)}
       >
         ${busy === "apply" ? t("skillWorkshop.actions.applying") : t("skillWorkshop.actions.apply")}
       </button>
       <button
         class="sw-btn ${busy === "revise" ? "is-busy" : ""}"
-        ?disabled=${disabled}
+        ?disabled=${targetActionDisabled}
+        title=${mismatchTitle}
         @click=${() => props.onRevise(proposal.key)}
       >
         ${busy === "revise"
@@ -512,6 +596,10 @@ function renderToday(
   const isPending = hero.status === "pending";
   const busy = props.actionBusy?.key === hero.key ? props.actionBusy.action : null;
   const disabled = Boolean(props.actionBusy) || props.inspectingKey === hero.key;
+  const mismatch = proposalTargetMismatch(props, hero);
+  const targetActionDisabled = disabled || mismatch;
+  const mismatchTitle = mismatch ? targetMismatchMessage(props, hero) : nothing;
+  const heroTargetLabel = proposalExecutionTargetLabel(props, hero);
   const assistantName = resolveSkillWorkshopAgentName(props, t("skillWorkshop.today.agent"));
   const firstSupportFile = hero.supportFiles[0];
 
@@ -555,7 +643,10 @@ function renderToday(
       <article class="sw-today__hero">
         <div class="sw-today__label">
           <span class="sw-today__ping"></span>
-          ${heroLabel} · ${ageLabel} ${hero.targetLabel ? html` · ${hero.targetLabel}` : nothing}
+          ${heroLabel} · ${ageLabel}
+          ${heroTargetLabel
+            ? html` · ${t("platformClaw.workshop.proposalTarget", { target: heroTargetLabel })}`
+            : nothing}
         </div>
         <h2 class="sw-today__name">${hero.slug}</h2>
         <p class="sw-today__one-liner">${hero.oneLine}</p>
@@ -587,6 +678,7 @@ function renderToday(
         </div>
 
         ${hero.evaluation ? renderEvaluation(hero.evaluation, true) : nothing}
+        ${isPending ? renderTargetMismatch(props, hero) : nothing}
         ${isPending
           ? html`
               <div class="sw-today__actions" aria-busy=${busy ? "true" : "false"}>
@@ -594,7 +686,8 @@ function renderToday(
                   class="sw-today__big sw-today__big--evaluate ${busy === "evaluate"
                     ? "is-busy"
                     : ""}"
-                  ?disabled=${disabled}
+                  ?disabled=${targetActionDisabled}
+                  title=${mismatchTitle}
                   @click=${() => props.onEvaluate(hero.key)}
                 >
                   ${busy === "evaluate"
@@ -604,7 +697,8 @@ function renderToday(
                 </button>
                 <button
                   class="sw-today__big sw-today__big--primary ${busy === "apply" ? "is-busy" : ""}"
-                  ?disabled=${disabled}
+                  ?disabled=${targetActionDisabled}
+                  title=${mismatchTitle}
                   @click=${() => props.onApply(hero.key)}
                 >
                   ${busy === "apply"
@@ -614,7 +708,8 @@ function renderToday(
                 </button>
                 <button
                   class="sw-today__big sw-today__big--tweak ${busy === "revise" ? "is-busy" : ""}"
-                  ?disabled=${disabled}
+                  ?disabled=${targetActionDisabled}
+                  title=${mismatchTitle}
                   @click=${() => props.onRevise(hero.key)}
                 >
                   ${busy === "revise"
@@ -657,7 +752,15 @@ function renderToday(
                     <button class="sw-today__mini" @click=${() => props.onSelect(p.key)}>
                       <div class="sw-today__mini-name">${p.slug}</div>
                       <div class="sw-today__mini-desc">${p.oneLine}</div>
-                      <div class="sw-today__mini-meta">${p.ageLabel}</div>
+                      <div class="sw-today__mini-meta">
+                        ${p.ageLabel}
+                        ${proposalExecutionTargetLabel(props, p)
+                          ? html` ·
+                            ${t("platformClaw.workshop.proposalTarget", {
+                              target: proposalExecutionTargetLabel(props, p) ?? "",
+                            })}`
+                          : nothing}
+                      </div>
                     </button>
                   `,
                 )}
