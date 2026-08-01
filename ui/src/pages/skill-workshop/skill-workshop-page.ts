@@ -42,6 +42,7 @@ import {
 import { resolveSelfLearning, setSelfLearningEnabled } from "./self-learning.ts";
 import {
   captureSkillWorkshopSourceScope,
+  ensureSkillWorkshopAgentIdentity,
   isCurrentSkillWorkshopSourceScope,
   type SkillWorkshopPageContext,
   type SkillWorkshopSourceScope,
@@ -336,13 +337,6 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   private selfLearningBusy = false;
   private selfLearningError: string | null = null;
   private readonly personalAccess = new SkillWorkshopPersonalAccess();
-  private readonly handleExecutionTargetChanged = () => {
-    if (this.context?.accessMode !== "personal-agent") {
-      return;
-    }
-    this.resetSourceState();
-    this.loadProposals(true);
-  };
   private readonly proposalsTask = new Task(this, {
     autoRun: false,
     // State and context identities isolate helper mutations after any source reset.
@@ -455,6 +449,18 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
         }
       },
     )
+    .effect(
+      () => (this.context?.accessMode === "personal-agent" ? window : undefined),
+      (target) => {
+        const refresh = () => {
+          this.resetSourceState();
+          this.loadProposals(true);
+        };
+        target.addEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
+        return () =>
+          target.removeEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
+      },
+    )
     .watch(
       () => this.context?.agentIdentity,
       (agentIdentity, notify) => agentIdentity.subscribe(notify),
@@ -524,14 +530,6 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     }
   }
 
-  override connectedCallback() {
-    super.connectedCallback();
-    window.addEventListener(
-      PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT,
-      this.handleExecutionTargetChanged,
-    );
-  }
-
   override updated() {
     // Only kick a load when none is in flight and the last attempt did not
     // fail: loadProposals early-returns resolve immediately and their finally
@@ -546,7 +544,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     if (this.gatewayConnected && canLoad) {
       this.loadProposals(false);
     }
-    this.ensureWorkshopAgentIdentity();
+    ensureSkillWorkshopAgentIdentity(this.context, this.state.skillWorkshopAgentId);
     const runtimeConfig = this.context?.runtimeConfig;
     if (
       runtimeConfig &&
@@ -688,20 +686,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     }
   }
 
-  private ensureWorkshopAgentIdentity(): void {
-    const context = this.context;
-    const agentId = this.state?.skillWorkshopAgentId;
-    if (!context || !agentId || context.agentIdentity.get(agentId)) {
-      return;
-    }
-    void context.agentIdentity.ensure([agentId]);
-  }
-
   override disconnectedCallback() {
-    window.removeEventListener(
-      PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT,
-      this.handleExecutionTargetChanged,
-    );
     this.subscriptions.clear();
     this.resetSourceState();
     super.disconnectedCallback();
