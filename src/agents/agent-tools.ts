@@ -574,6 +574,8 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     ...(forceHeartbeatTool ? [HEARTBEAT_RESPONSE_TOOL_NAME] : []),
     ...toolSearchControlAllowlist,
     ...(sandbox?.backend?.capabilities?.separateAgentWorkspace === true &&
+    typeof agentId === "string" &&
+    agentId.length > 0 &&
     options?.senderIsOwner !== false &&
     !isSubagentSessionKey(options?.sessionKey) &&
     !isCronSessionKey(options?.sessionKey)
@@ -944,6 +946,8 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     ...base,
     ...(includeBaseCodingTools &&
     sandbox?.backend?.capabilities?.separateAgentWorkspace === true &&
+    typeof agentId === "string" &&
+    agentId.length > 0 &&
     options?.senderIsOwner !== false &&
     !isSubagentSessionKey(options?.sessionKey) &&
     !isCronSessionKey(options?.sessionKey)
