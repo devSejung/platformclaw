@@ -39,6 +39,7 @@ export function skillProposalInspectResult(agentId: string) {
         findings: [],
       },
     },
+    revisionHash: "revision-private",
     content: "# Calendar Reports",
     supportFiles: [],
   };

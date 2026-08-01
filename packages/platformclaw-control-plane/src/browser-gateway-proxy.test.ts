@@ -435,6 +435,7 @@ describe("BrowserGatewayProxy", () => {
           sessionKey: `agent:${binding.agentId}:main`,
         },
       },
+      revisionHash: "revision-private",
       content: "# Calendar Reports",
       supportFiles: [],
     });

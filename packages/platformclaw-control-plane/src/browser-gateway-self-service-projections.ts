@@ -208,8 +208,13 @@ export function projectBrowserSkillProposalResult(params: {
   }
   if (params.method === "skills.proposals.inspect") {
     const payload = asObject(params.result, "skill proposal inspection", params.fail);
+    const revisionHash = optionalString(payload.revisionHash);
+    if (!revisionHash) {
+      return params.fail("Gateway returned an invalid skill proposal revision");
+    }
     return {
       record: projectSkillProposalRecord(payload.record, params.agentId, params.fail),
+      revisionHash,
       content: payload.content,
       supportFiles: payload.supportFiles,
     };
