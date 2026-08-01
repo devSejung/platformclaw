@@ -98,7 +98,7 @@ export type SkillProposalApplyTransitionDependencies = {
   ) => Promise<SkillProposalReadResult>;
 };
 
-export type SkillProposalTransitionInput = Pick<
+type SkillProposalTransitionInput = Pick<
   SkillProposalActionInput,
   "agentId" | "correlationId" | "env" | "eventActor" | "workspaceDir"
 >;

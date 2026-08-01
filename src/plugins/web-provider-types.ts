@@ -30,7 +30,7 @@ export type WebFetchProviderToolDefinition = {
   ) => Promise<Record<string, unknown>>;
 };
 
-export type WebFetchProviderToolExecutionContext = {
+type WebFetchProviderToolExecutionContext = {
   signal?: AbortSignal;
 };
 

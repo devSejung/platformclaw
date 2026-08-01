@@ -38,7 +38,7 @@ import {
 
 type PreparedSkillProposalSupportFile = SkillProposalSupportFile & { content: string };
 
-export type ExternalSkillMutationOperations = {
+type ExternalSkillMutationOperations = {
   markStale: (params: {
     record: SkillProposalRecord;
     reason: string;
