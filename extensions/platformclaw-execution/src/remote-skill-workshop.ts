@@ -22,7 +22,7 @@ const COMMAND_TIMEOUT_MS = 30_000;
 const SKILL_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/u;
 const SHELL_PARAMETER_OPEN = "${";
 
-export const VM_REMOTE_SKILL_TREE_READ_SCRIPT = String.raw`
+const VM_REMOTE_SKILL_TREE_READ_SCRIPT = String.raw`
 set -eu
 root=$1
 [ -e "$root" ] || exit 0
@@ -51,7 +51,7 @@ while IFS= read -r -d '' entry; do
 done < <(find -P "$root" -mindepth 1 -maxdepth 16 ! -type d -print0 | LC_ALL=C sort -z)
 `;
 
-export const VM_REMOTE_SKILL_TREE_MUTATE_SCRIPT = String.raw`
+const VM_REMOTE_SKILL_TREE_MUTATE_SCRIPT = String.raw`
 set -eu
 root=$1
 mode=$2

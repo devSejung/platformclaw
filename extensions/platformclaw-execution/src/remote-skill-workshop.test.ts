@@ -1,15 +1,11 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { RunSshSandboxCommandParams } from "openclaw/plugin-sdk/sandbox";
 import { resolvePreferredOpenClawTmpDir, withTempWorkspace } from "openclaw/plugin-sdk/temp-path";
 import { describe, expect, it, vi } from "vitest";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
-import {
-  VM_REMOTE_SKILL_TREE_MUTATE_SCRIPT,
-  VM_REMOTE_SKILL_TREE_READ_SCRIPT,
-  VmRemoteSkillWorkshopService,
-} from "./remote-skill-workshop.js";
+import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
 
 const TARGET: AssignedVmTargetSnapshot = {
   kind: "assigned_vm",
@@ -32,53 +28,34 @@ const TARGET: AssignedVmTargetSnapshot = {
   hostKeyFingerprint: "SHA256:approved",
 };
 
-function sha256(content: Buffer | string): string {
-  return createHash("sha256").update(content).digest("hex");
-}
-
-function encodePath(filePath: string): string {
-  return Buffer.from(filePath, "utf8").toString("base64");
-}
-
-function expected(filePath: string, content: string): string {
-  return ["E", encodePath(filePath), sha256(content), Buffer.byteLength(content)].join("\t");
-}
-
-function write(filePath: string, content: string): string {
-  return [
-    "W",
-    encodePath(filePath),
-    Buffer.from(content, "utf8").toString("base64"),
-    Buffer.byteLength(content),
-  ].join("\t");
-}
-
-async function runBashScript(params: {
-  script: string;
-  args: string[];
-  stdin?: string;
-}): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runLocalRemoteCommand(
+  params: RunSshSandboxCommandParams,
+): Promise<{ code: number; stdout: Buffer; stderr: Buffer }> {
   return await new Promise((resolve, reject) => {
-    const child = spawn(
-      "/bin/bash",
-      ["-c", params.script, "platformclaw-workshop-test", ...params.args],
-      {
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
+    const child = spawn("/bin/sh", ["-c", params.remoteCommand], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
+    const onAbort = () => child.kill("SIGTERM");
+    params.signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
     child.on("error", reject);
     child.on("close", (code) => {
-      resolve({
+      params.signal?.removeEventListener("abort", onAbort);
+      const result = {
         code: code ?? -1,
-        stdout: Buffer.concat(stdout).toString("utf8"),
-        stderr: Buffer.concat(stderr).toString("utf8"),
-      });
+        stdout: Buffer.concat(stdout),
+        stderr: Buffer.concat(stderr),
+      };
+      if (result.code !== 0 && !params.allowFailure) {
+        reject(new Error(result.stderr.toString("utf8").trim() || `shell exited ${result.code}`));
+        return;
+      }
+      resolve(result);
     });
-    child.stdin.end(params.stdin ?? "");
+    child.stdin.end(params.stdin ?? Buffer.alloc(0));
   });
 }
 
@@ -90,51 +67,59 @@ describe("VM remote Skill Workshop", () => {
         { rootDir: resolvePreferredOpenClawTmpDir(), prefix: "platformclaw-vm-workshop-" },
         async ({ dir }) => {
           const skillDir = path.join(dir, "workspace", "skills", "demo");
+          const target = {
+            ...TARGET,
+            remoteHomeDir: dir,
+            remoteWorkspaceDir: path.join(dir, "workspace"),
+          };
           const firstSkill = "---\nname: demo\ndescription: First\n---\nRun it.\n";
           const secondSkill = "---\nname: demo\ndescription: Second\n---\nRun safely.\n";
           const reference = "# Reference\n";
-
-          const created = await runBashScript({
-            script: VM_REMOTE_SKILL_TREE_MUTATE_SCRIPT,
-            args: [skillDir, "create"],
-            stdin: `${write("references/guide.md", reference)}\n${write("SKILL.md", firstSkill)}\n`,
+          const service = new VmRemoteSkillWorkshopService({
+            createSession: vi.fn(async () => ({
+              command: "ssh",
+              configPath: path.join(dir, "ssh-config"),
+              host: "vm",
+            })),
+            disposeSession: vi.fn(async () => undefined),
+            runCommand: runLocalRemoteCommand,
           });
-          expect(created).toMatchObject({ code: 0, stderr: "" });
-
-          const read = await runBashScript({
-            script: VM_REMOTE_SKILL_TREE_READ_SCRIPT,
-            args: [skillDir],
+          const access = service.createAccess({
+            target,
+            catalog: { revision: "initial", files: [] },
+            refreshCatalog: vi.fn(async () => ({ revision: "next", files: [] })),
           });
-          expect(read.code).toBe(0);
-          expect(read.stdout).toContain(encodePath("SKILL.md"));
-          expect(read.stdout).toContain(encodePath("references/guide.md"));
 
-          const updated = await runBashScript({
-            script: VM_REMOTE_SKILL_TREE_MUTATE_SCRIPT,
-            args: [skillDir, "update"],
-            stdin: [
-              expected("SKILL.md", firstSkill),
-              expected("references/guide.md", reference),
-              write("SKILL.md", secondSkill),
-              "",
-            ].join("\n"),
+          await access.mutateSkill({
+            mode: "create",
+            skillDir,
+            expectedTree: [],
+            files: [
+              { path: "references/guide.md", content: Buffer.from(reference) },
+              { path: "SKILL.md", content: Buffer.from(firstSkill) },
+            ],
           });
-          expect(updated).toMatchObject({ code: 0, stderr: "" });
+          const createdTree = await access.readSkillTree(skillDir);
+          expect(createdTree.map((file) => file.path)).toEqual(["SKILL.md", "references/guide.md"]);
+
+          await access.mutateSkill({
+            mode: "update",
+            skillDir,
+            expectedTree: createdTree,
+            files: [{ path: "SKILL.md", content: Buffer.from(secondSkill) }],
+          });
           expect(await fs.readFile(path.join(skillDir, "SKILL.md"), "utf8")).toBe(secondSkill);
 
+          const updatedTree = await access.readSkillTree(skillDir);
           await fs.writeFile(path.join(skillDir, "SKILL.md"), `${secondSkill}external\n`);
-          const conflicted = await runBashScript({
-            script: VM_REMOTE_SKILL_TREE_MUTATE_SCRIPT,
-            args: [skillDir, "update"],
-            stdin: [
-              expected("SKILL.md", secondSkill),
-              expected("references/guide.md", reference),
-              write("SKILL.md", firstSkill),
-              "",
-            ].join("\n"),
-          });
-          expect(conflicted.code).toBe(73);
-          expect(conflicted.stderr).toContain("skill target changed");
+          await expect(
+            access.mutateSkill({
+              mode: "update",
+              skillDir,
+              expectedTree: updatedTree,
+              files: [{ path: "SKILL.md", content: Buffer.from(firstSkill) }],
+            }),
+          ).rejects.toThrow("VM skill target changed; reload and retry");
           expect(await fs.readFile(path.join(skillDir, "SKILL.md"), "utf8")).toContain("external");
         },
       );

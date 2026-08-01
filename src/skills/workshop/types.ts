@@ -149,7 +149,7 @@ export type SkillWorkshopTargetAccess = {
   close?: () => Promise<void>;
 };
 
-export type SkillProposalTargetBinding = {
+type SkillProposalTargetBinding = {
   backendId: string;
   targetId: string;
   targetLabel: string;

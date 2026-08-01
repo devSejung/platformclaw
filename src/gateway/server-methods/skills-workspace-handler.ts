@@ -41,7 +41,7 @@ export type ResolvedSkillsWorkspace = Extract<
   { ok: true }
 >;
 
-export type ResolvedSkillWorkshopWorkspace = ResolvedSkillsWorkspace & {
+type ResolvedSkillWorkshopWorkspace = ResolvedSkillsWorkspace & {
   targetAccess?: SkillWorkshopTargetAccess;
 };
 
