@@ -38,6 +38,8 @@ services:
       PLATFORMCLAW_KNOX_WEBHOOK_SECRET_FILE: /run/secrets/platformclaw_knox_webhook_secret
       PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_knox_service_token
       PLATFORMCLAW_SANDBOX_IMAGE: ${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:local}
+      WEB_FETCH_RELAY_URL: ${WEB_FETCH_RELAY_URL:-}
+      WEB_SEARCH_RELAY_URL: ${WEB_SEARCH_RELAY_URL:-}
       NODE_EXTRA_CA_CERTS: /etc/platformclaw/certs/employee-auth-ca.pem
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
     volumes:
