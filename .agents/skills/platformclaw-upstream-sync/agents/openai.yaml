@@ -1,0 +1,4 @@
+interface:
+  display_name: "PlatformClaw Upstream Sync"
+  short_description: "Safely sync OpenClaw upstream into PlatformClaw"
+  default_prompt: "Use $platformclaw-upstream-sync to plan and execute a policy-safe upstream synchronization."
