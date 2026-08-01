@@ -15,6 +15,7 @@ import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 import { filterSkillWorkshopProposals } from "../../lib/skill-workshop/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
+import { PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT } from "../../platformclaw/execution-target-events.ts";
 import { PLUGINS_HUB_PANEL_ID, pluginsHubTabs } from "../plugins/plugins-hub.ts";
 import { renderSkillWorkshopHeaderControls, setSkillWorkshopMode } from "./header-controls.ts";
 import {
@@ -41,6 +42,7 @@ import {
 import { resolveSelfLearning, setSelfLearningEnabled } from "./self-learning.ts";
 import {
   captureSkillWorkshopSourceScope,
+  ensureSkillWorkshopAgentIdentity,
   isCurrentSkillWorkshopSourceScope,
   type SkillWorkshopPageContext,
   type SkillWorkshopSourceScope,
@@ -108,6 +110,7 @@ function renderSkillWorkshopPage(
   const {
     context,
     workshopAgentName,
+    currentExecutionTarget,
     onRevisionRequest,
     selfLearning,
     onSelfLearningToggle,
@@ -213,6 +216,7 @@ function renderSkillWorkshopPage(
               revisionDraft: state.skillWorkshopRevisionDraft,
               assistantName: context.config.current.assistantIdentity.name,
               workshopAgentName,
+              currentExecutionTarget,
               selfLearning,
               historyScan: state.skillWorkshopHistoryScan,
               counts: countSkillWorkshopProposals(state.skillWorkshopProposals),
@@ -445,6 +449,18 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
         }
       },
     )
+    .effect(
+      () => (this.context?.accessMode === "personal-agent" ? window : undefined),
+      (target) => {
+        const refresh = () => {
+          this.resetSourceState();
+          this.loadProposals(true);
+        };
+        target.addEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
+        return () =>
+          target.removeEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
+      },
+    )
     .watch(
       () => this.context?.agentIdentity,
       (agentIdentity, notify) => agentIdentity.subscribe(notify),
@@ -528,7 +544,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     if (this.gatewayConnected && canLoad) {
       this.loadProposals(false);
     }
-    this.ensureWorkshopAgentIdentity();
+    ensureSkillWorkshopAgentIdentity(this.context, this.state?.skillWorkshopAgentId);
     const runtimeConfig = this.context?.runtimeConfig;
     if (
       runtimeConfig &&
@@ -670,15 +686,6 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     }
   }
 
-  private ensureWorkshopAgentIdentity(): void {
-    const context = this.context;
-    const agentId = this.state?.skillWorkshopAgentId;
-    if (!context || !agentId || context.agentIdentity.get(agentId)) {
-      return;
-    }
-    void context.agentIdentity.ensure([agentId]);
-  }
-
   override disconnectedCallback() {
     this.subscriptions.clear();
     this.resetSourceState();
@@ -693,6 +700,8 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
             context: this.context,
             workshopAgentName:
               this.context.agentIdentity.get(this.state.skillWorkshopAgentId)?.name?.trim() ?? "",
+            currentExecutionTarget:
+              this.context.accessMode === "personal-agent" ? this.personalAccess.target : undefined,
             onRevisionRequest: this.onRevisionRequest ?? this.handleRevisionRequest,
             selfLearning:
               this.context.accessMode === "personal-agent"

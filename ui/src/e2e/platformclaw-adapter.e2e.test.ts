@@ -25,6 +25,9 @@ const contexts = new Set<BrowserContext>();
 async function newPage(): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     locale: "en-US",
+    ...(captureUiProofEnabled
+      ? { recordVideo: { dir: proofDir, size: { height: 900, width: 1440 } } }
+      : {}),
     serviceWorkers: "block",
     viewport: { height: 900, width: 1440 },
   });
@@ -65,6 +68,9 @@ function activeSession() {
 
 describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () => {
   beforeAll(async () => {
+    if (captureUiProofEnabled) {
+      await mkdir(proofDir, { recursive: true });
+    }
     browser = await chromium.launch({ executablePath: chromiumExecutablePath });
     try {
       server = await startControlUiE2eServer();
@@ -226,6 +232,92 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       await page.screenshot({
         fullPage: true,
         path: path.join(proofDir, "02-personal-mcp-settings.png"),
+      });
+    }
+  });
+
+  it("shows the current work location and blocks a proposal for another target", async () => {
+    const { page } = await newPage();
+    await installPlatformClawDocument(page);
+    await page.route("**/platformclaw/api/auth/session", (route) =>
+      route.fulfill({ json: activeSession(), status: 200 }),
+    );
+    await installMockGateway(page, {
+      basePath: "/platformclaw/app",
+      assistantName: "Person One Agent",
+      defaultAgentId: "person_one",
+      sessionKey: "agent:person_one:main",
+      methodResponses: {
+        "skills.status": {
+          agentId: "person_one",
+          executionTarget: "platform_server",
+          managedSkillsDir: "managed skills",
+          skills: [],
+          workspaceDir: "personal workspace",
+        },
+        "skills.proposals.inspect": {
+          content: "Create a deterministic VM report workflow.",
+          record: {
+            createdAt: "2026-08-01T12:00:00.000Z",
+            description: "Prepare reports on the assigned VM.",
+            id: "proposal-vm-report",
+            kind: "create",
+            proposedVersion: "v1",
+            status: "pending",
+            target: {
+              skillKey: "vm-report",
+              skillName: "VM Report",
+              targetLabel: "Development VM",
+            },
+            title: "VM Report",
+            updatedAt: "2026-08-01T12:00:00.000Z",
+          },
+          supportFiles: [],
+        },
+        "skills.proposals.list": {
+          proposals: [
+            {
+              createdAt: "2026-08-01T12:00:00.000Z",
+              description: "Prepare reports on the assigned VM.",
+              id: "proposal-vm-report",
+              kind: "create",
+              scanState: "clean",
+              skillKey: "vm-report",
+              skillName: "VM Report",
+              status: "pending",
+              targetLabel: "Development VM",
+              title: "VM Report",
+              updatedAt: "2026-08-01T12:00:00.000Z",
+            },
+          ],
+          schema: "openclaw.skill-workshop.proposals-manifest.v1",
+          updatedAt: "2026-08-01T12:00:00.000Z",
+        },
+      },
+    });
+
+    const response = await page.goto(`${server.baseUrl}platformclaw/app/skills/workshop`);
+    expect(response?.status()).toBe(200);
+    await expect
+      .poll(() => page.getByText("Current work location: Basic workspace").isVisible())
+      .toBe(true);
+    await expect
+      .poll(() => page.getByText("Target: Development VM").first().isVisible())
+      .toBe(true);
+    await expect
+      .poll(() => page.getByText(/This proposal belongs to Development VM/).isVisible())
+      .toBe(true);
+    const actions = page.locator(".sw-action-bar button, .sw-today__actions button");
+    await expect.poll(() => actions.count()).toBe(4);
+    await expect.poll(() => actions.nth(0).isDisabled()).toBe(true);
+    await expect.poll(() => actions.nth(1).isDisabled()).toBe(true);
+    await expect.poll(() => actions.nth(2).isDisabled()).toBe(true);
+    await expect.poll(() => actions.nth(3).isEnabled()).toBe(true);
+
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "01-personal-skill-workshop-target.png"),
       });
     }
   });

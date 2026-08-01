@@ -1,5 +1,6 @@
 import "../components/modal-dialog.ts";
 import { i18n } from "../i18n/index.ts";
+import { notifyPlatformClawExecutionTargetChanged } from "./execution-target-events.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import { PLATFORMCLAW_EXECUTION_API_PATH } from "./web-contract.ts";
 
@@ -142,6 +143,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.message = "";
     this.render();
     try {
+      const previousRevision = this.settings?.targetRevision;
       this.settings = await this.request(path, {
         method: "POST",
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -149,6 +151,9 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       this.pendingTarget = null;
       this.pendingRelease = false;
       this.message = t("platformClaw.execution.saved");
+      if (previousRevision !== undefined && this.settings.targetRevision !== previousRevision) {
+        notifyPlatformClawExecutionTargetChanged();
+      }
     } catch (error) {
       this.message =
         error instanceof Error ? error.message : t("platformClaw.execution.requestFailed");

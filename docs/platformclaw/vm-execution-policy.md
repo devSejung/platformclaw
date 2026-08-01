@@ -355,6 +355,14 @@ The Basic workspace continues to use upstream Workshop storage and mutation.
 Generic Docker and SSH backends remain unchanged; only the private
 `platformclaw-execution` backend advertises the extra Workshop target seam.
 
+The personal Workshop UI is shared across both work locations. It always shows
+the current location and a proposal target (`Basic workspace` for an unbound
+proposal, otherwise the private target label). Location changes reload both
+the target and proposal views. Proposals for another location remain visible,
+but the UI disables evaluate, revise, and apply until the user switches back;
+reject stays available. The UI check does not replace the server's exact
+allocation, revision, and tree validation.
+
 ## Upstream synchronization gate
 
 Every `sync/upstream-YYYYMMDD` change must read this page before resolving
@@ -371,6 +379,8 @@ whether upstream changed:
 - remote Files UI support;
 - Skill Workshop target access, proposal schemas, lifecycle methods, or Control
   UI proposal projections;
+- the minimal PlatformClaw execution-target event and current-target prop passed
+  into the otherwise upstream-owned Workshop view;
 - plugin SQLite or state-store contracts.
 
 Prefer a newer upstream capability when it satisfies this policy. Do not retain

@@ -3,6 +3,7 @@ import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { SessionsListResult } from "../../api/types.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
 import type { SkillWorkshopProposal } from "../../lib/skill-workshop/index.ts";
+import { PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT } from "../../platformclaw/execution-target-events.ts";
 import { createSkillWorkshopState, skillWorkshopRouteData } from "./proposals.ts";
 import type { SkillWorkshopRouteData, SkillWorkshopState } from "./proposals.ts";
 import "./skill-workshop-page.ts";
@@ -274,6 +275,45 @@ describe("SkillWorkshopPage lifecycle", () => {
       ["skills.status", {}],
       ["skills.proposals.list", { agentId: "research" }],
     ]);
+  });
+
+  it("reloads the target and proposals after the work location changes", async () => {
+    let statusCalls = 0;
+    const request = vi.fn(async (method: string) => {
+      if (method === "skills.status") {
+        statusCalls += 1;
+        return {
+          agentId: "research",
+          executionTarget: statusCalls === 1 ? "platform_server" : "assigned_vm",
+          skills: [],
+        };
+      }
+      if (method === "skills.proposals.list") {
+        return {
+          schema: "openclaw.skill-workshop.proposals-manifest.v1",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          proposals: [],
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const page = document.createElement(
+      "openclaw-skill-workshop-page",
+    ) as SkillWorkshopPageTestElement;
+    page.context = createContext(request, { accessMode: "personal-agent" });
+    document.body.append(page);
+
+    await waitForSkillWorkshop(() =>
+      expect(callsFor(request, "skills.proposals.list")).toHaveLength(1),
+    );
+    window.dispatchEvent(new Event(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT));
+
+    await waitForSkillWorkshop(() => expect(callsFor(request, "skills.status")).toHaveLength(2));
+    await waitForSkillWorkshop(() =>
+      expect(callsFor(request, "skills.proposals.list")).toHaveLength(2),
+    );
+    await page.updateComplete;
+    expect(page.querySelector(".sw-target-context")?.textContent).toContain("My development VM");
   });
 
   it("does not issue duplicate list requests while a load is in flight", async () => {

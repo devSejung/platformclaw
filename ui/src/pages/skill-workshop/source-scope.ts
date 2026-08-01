@@ -14,6 +14,16 @@ export type SkillWorkshopSourceScope = {
   navigate: SkillWorkshopPageContext["navigate"];
 };
 
+export function ensureSkillWorkshopAgentIdentity(
+  context: SkillWorkshopPageContext | null | undefined,
+  agentId: string | null | undefined,
+): void {
+  if (!context || !agentId || context.agentIdentity.get(agentId)) {
+    return;
+  }
+  void context.agentIdentity.ensure([agentId]);
+}
+
 export function captureSkillWorkshopSourceScope(params: {
   state: SkillWorkshopState | null | undefined;
   context: SkillWorkshopPageContext | null | undefined;

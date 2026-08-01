@@ -1,4 +1,10 @@
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.workshop.currentTarget": "현재 작업 위치: {target}",
+  "platformClaw.workshop.loadingTarget": "작업 위치 확인 중…",
+  "platformClaw.workshop.proposalTarget": "적용 대상: {target}",
+  "platformClaw.workshop.targetMismatch":
+    "이 제안은 {target}에 연결되어 있습니다. 평가·수정·적용하려면 작업 위치를 전환하세요.",
+  "platformClaw.workshop.targetMismatchShort": "{target}으로 전환 필요",
   "platformClaw.skills.basicTitle": "기본 작업 공간의 스킬",
   "platformClaw.skills.basicDescription":
     "여기에서 개인 Agent의 스킬을 설치하고 수정할 수 있습니다.",

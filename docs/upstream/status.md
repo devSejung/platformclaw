@@ -86,6 +86,9 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 - Assigned-VM Skill Workshop proposal/evaluate/apply implemented by extending
   upstream Workshop with one optional backend-owned target capability; proposal
   state remains in Gateway SQLite and generic Docker/SSH behavior is unchanged
+- Personal Workshop target context implemented as a PlatformClaw UI overlay:
+  the upstream-owned Workshop remains shared, while current-target display,
+  location-change refresh, and mismatched-action guidance stay downstream
 - Owner-preserving employee-profile refresh and credential-free execution
   context projection implemented from the run-pinned backend snapshot
 - PlatformClaw Web login, authenticated Control UI hosting, fixed same-origin
@@ -139,3 +142,10 @@ background-process behavior.
 Keep upstream integration and VM implementation in separate pull requests.
 Validate the synchronization first, then reapply only the smallest required
 PlatformClaw prerequisite to the synchronized `main`.
+
+For Workshop UI conflicts, preserve upstream ownership of proposal rendering,
+storage, and lifecycle. The downstream boundary is limited to
+`ui/src/platformclaw/execution-target-events.ts`, the personal-access target
+prop, target labels, and mismatch affordances. Prefer an upstream generic
+target-context seam when one becomes available; do not fork the Workshop page
+or introduce a second proposal API during synchronization.
