@@ -1,0 +1,382 @@
+import { ContextProvider } from "@lit/context";
+import { html, nothing } from "lit";
+import { state } from "lit/decorators.js";
+import { hasStoredGatewayAuth, type GatewayBrowserClient } from "../api/gateway.ts";
+import type { RouteId } from "../app-routes.ts";
+import "../components/gateway-url-confirmation.ts";
+import "../components/github-link-hovercard-registration.ts";
+import "../components/login-gate.ts";
+import "../components/openclaw-mascot.ts";
+import "../components/tooltip.ts";
+import { t } from "../i18n/index.ts";
+import { isTerminalAvailable } from "../lib/terminal-availability.ts";
+import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
+import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
+import {
+  createPlatformClawControlUiAdapter,
+  type PlatformClawControlUiAdapter,
+  type PlatformClawSessionIdentity,
+} from "../platformclaw/control-ui-adapter.ts";
+import { bootstrapApplication, type ApplicationRuntime } from "./bootstrap.ts";
+import { applicationContext, type ApplicationContext } from "./context.ts";
+import {
+  APPROVAL_PAGE_ELEMENT,
+  isOptionalElementDefined,
+  preloadOptionalElement,
+  TERMINAL_PANEL_ELEMENT,
+} from "./lazy-custom-element.ts";
+import { resolveOnboardingMode } from "./onboarding-mode.ts";
+import { controlUiPublicAssetPath } from "./public-assets.ts";
+
+/**
+ * Terminal-only document mode (`?view=terminal`): the mobile apps embed the
+ * terminal as a full-screen WebView page instead of the whole Control UI.
+ * Fixed per document load — the apps construct the URL, users never toggle it.
+ */
+function isTerminalOnlyView(): boolean {
+  return new URLSearchParams(globalThis.location?.search ?? "").get("view") === "terminal";
+}
+
+export function resolveTerminalThemeMode(): "dark" | "light" {
+  return document.documentElement.dataset.themeMode === "light" ? "light" : "dark";
+}
+
+function renderConnectingSplash() {
+  return html`
+    <main class="connect-splash" role="status" aria-live="polite" aria-label=${t("common.loading")}>
+      <openclaw-mascot mood="thinking" .size=${120}></openclaw-mascot>
+    </main>
+  `;
+}
+
+function renderApprovalDocument(runtime: ApplicationRuntime) {
+  const documentMode = runtime.documentMode;
+  if (documentMode?.kind !== "approval") {
+    return nothing;
+  }
+  return html`
+    <openclaw-approval-page .approvalId=${documentMode.approvalId ?? ""}>
+      <main class="approval-page approval-page--booting" role="status" aria-live="polite">
+        <img
+          class="connect-splash__logo"
+          src=${controlUiPublicAssetPath("favicon.svg", runtime.context.basePath)}
+          alt=""
+        />
+        <span>${t("common.loading")}</span>
+      </main>
+    </openclaw-approval-page>
+  `;
+}
+
+export class OpenClawApp extends OpenClawLightDomElement {
+  // Pinned while a connect submitted from the visible login gate is in
+  // flight, so a failed manual attempt cannot flash the shell in between.
+  @state() private loginGatePinned = false;
+  @state() private loginGatewayUrl = "";
+  @state() private loginToken = "";
+  @state() private loginPassword = "";
+  @state() private loginShowGatewayToken = false;
+  @state() private loginShowGatewayPassword = false;
+  @state() private pendingGatewayUrl: string | null = null;
+  @state() private onboarding = resolveOnboardingMode(globalThis.location?.search ?? "");
+  @state() private platformClawStartupError = false;
+
+  private readonly terminalOnly = isTerminalOnlyView();
+  // Fixed at page load: whether this browser held credentials (token,
+  // password, or stored device token) before the first connect attempt.
+  // Later manual gate submissions are covered by loginGatePinned instead.
+  private initialAuthPresent = false;
+  private runtime: ApplicationRuntime | undefined;
+  private readonly contextProvider = new ContextProvider(this, {
+    context: applicationContext,
+  });
+  private readonly subscriptions = new SubscriptionsController(this);
+  private loginGatewaySource: ApplicationContext["gateway"] | null = null;
+  private loginConnectionClient: GatewayBrowserClient | null = null;
+  private platformClawAdapter: PlatformClawControlUiAdapter | null = null;
+  private connectionEpoch = 0;
+
+  private get context(): ApplicationContext<RouteId> | undefined {
+    return this.runtime?.context;
+  }
+
+  constructor() {
+    super();
+    this.subscriptions
+      .watch(
+        () => this.context?.gateway,
+        (gateway, notify) => gateway.subscribe(notify),
+        (gateway) => this.synchronizeGateway(gateway),
+      )
+      .watch(
+        () => (this.terminalOnly ? this.context?.config : undefined),
+        (config, notify) => config.subscribe(notify),
+      );
+  }
+
+  override connectedCallback() {
+    super.connectedCallback();
+    void import("../components/app-sidebar.ts");
+    this.resetLoginSensitivePresentation();
+    const epoch = ++this.connectionEpoch;
+    this.platformClawAdapter = createPlatformClawControlUiAdapter();
+    if (this.platformClawAdapter) {
+      void this.startPlatformClawApplication(epoch);
+      return;
+    }
+    this.mountRuntime(bootstrapApplication());
+  }
+
+  private async startPlatformClawApplication(epoch: number): Promise<void> {
+    const adapter = this.platformClawAdapter;
+    if (!adapter) {
+      return;
+    }
+    this.platformClawStartupError = false;
+    let identity: PlatformClawSessionIdentity | null;
+    try {
+      identity = await adapter.loadSession(true);
+    } catch {
+      if (epoch === this.connectionEpoch && this.isConnected) {
+        this.platformClawStartupError = true;
+      }
+      return;
+    }
+    if (!identity || epoch !== this.connectionEpoch || !this.isConnected) {
+      return;
+    }
+    const runtime = bootstrapApplication(
+      adapter.applicationOptions(identity, async () => adapter.logout(() => runtime.stop())),
+    );
+    this.mountRuntime(runtime);
+  }
+
+  private retryPlatformClawStartup(): void {
+    if (!this.platformClawAdapter) {
+      return;
+    }
+    void this.startPlatformClawApplication(++this.connectionEpoch);
+  }
+
+  private mountRuntime(runtime: ApplicationRuntime): void {
+    this.runtime = runtime;
+    if (this.terminalOnly) {
+      preloadOptionalElement(this, TERMINAL_PANEL_ELEMENT);
+    }
+    if (runtime.documentMode?.kind === "approval") {
+      preloadOptionalElement(this, APPROVAL_PAGE_ELEMENT);
+    }
+    const context = runtime.context;
+    this.initialAuthPresent =
+      runtime.shellSession !== null || hasStoredGatewayAuth(context.gateway.connection);
+    this.pendingGatewayUrl = runtime.pendingGatewayConnection?.gatewayUrl ?? null;
+    // Context identity changes only across a full app-tree connection epoch;
+    // descendants reconnect and rebuild their controller-owned state afterward.
+    this.contextProvider.setValue(context);
+    this.syncLoginConnection();
+    // The runtime is created after controller hostConnected hooks run. Ensure
+    // their lazy source getters bind on both the initial mount and reconnect.
+    this.requestUpdate();
+    void runtime.start().catch((error: unknown) => {
+      console.error("[openclaw] application start failed", error);
+    });
+  }
+
+  override disconnectedCallback() {
+    this.connectionEpoch += 1;
+    // Stop reactive subscriptions before disposing their application sources.
+    this.subscriptions.clear();
+    this.runtime?.stop();
+    this.runtime = undefined;
+    this.platformClawAdapter = null;
+    this.platformClawStartupError = false;
+    this.loginGatewaySource = null;
+    this.loginConnectionClient = null;
+    this.pendingGatewayUrl = null;
+    this.resetLoginSensitivePresentation();
+    super.disconnectedCallback();
+  }
+
+  private synchronizeGateway(gateway: ApplicationContext["gateway"]) {
+    const sourceChanged = gateway !== this.loginGatewaySource;
+    if (sourceChanged) {
+      this.loginGatewaySource = gateway;
+      this.loginConnectionClient = null;
+      this.resetLoginSensitivePresentation();
+    }
+    const snapshot = gateway.snapshot;
+    const clientChanged = snapshot.client !== this.loginConnectionClient;
+    if (clientChanged) {
+      this.loginConnectionClient = snapshot.client;
+      this.resetLoginSensitivePresentation();
+    }
+    if (sourceChanged || clientChanged) {
+      this.syncLoginConnection(gateway);
+    }
+    if (snapshot.phase === "connected") {
+      this.loginGatePinned = false;
+    }
+  }
+
+  private syncLoginConnection(gateway = this.context?.gateway) {
+    const connection = gateway?.connection;
+    if (!connection) {
+      return;
+    }
+    this.loginGatewayUrl = connection.gatewayUrl;
+    this.loginToken = connection.token;
+    this.loginPassword = connection.password;
+  }
+
+  private resetLoginSensitivePresentation() {
+    this.loginShowGatewayToken = false;
+    this.loginShowGatewayPassword = false;
+  }
+
+  override render() {
+    const context = this.context;
+    const runtime = this.runtime;
+    if (!context || !runtime) {
+      if (this.platformClawStartupError) {
+        return html`
+          <main class="connect-splash" role="alert">
+            <span>${t("platformClaw.startupUnavailable")}</span>
+            <button type="button" @click=${() => this.retryPlatformClawStartup()}>
+              ${t("common.retry")}
+            </button>
+          </main>
+        `;
+      }
+      return html`<main class="app-shell app-shell--booting" aria-busy="true"></main>`;
+    }
+    const gatewaySnapshot = context.gateway.snapshot;
+    const gatewayConnected = gatewaySnapshot.phase === "connected";
+    const gatewayUrlConfirmation = this.pendingGatewayUrl
+      ? html`
+          <openclaw-gateway-url-confirmation
+            .props=${{
+              pendingGatewayUrl: this.pendingGatewayUrl,
+              onConfirm: () => {
+                runtime.confirmPendingGatewayConnection();
+                this.pendingGatewayUrl = null;
+              },
+              onCancel: () => {
+                runtime.cancelPendingGatewayConnection();
+                this.pendingGatewayUrl = null;
+              },
+            }}
+          ></openclaw-gateway-url-confirmation>
+        `
+      : nothing;
+    // Embedded mobile terminals own the whole document. Keep the generic login
+    // gate out of this path or a connecting native session exposes Web UI chrome.
+    if (this.terminalOnly) {
+      const terminalAvailable = isTerminalAvailable(
+        gatewaySnapshot,
+        context.config.current.terminalEnabled ?? false,
+      );
+      // Embedded clients query this host immediately; keep it stable while the chunk loads.
+      return html`
+        <openclaw-terminal-panel
+          .client=${gatewayConnected ? gatewaySnapshot.client : null}
+          .available=${terminalAvailable}
+          .themeMode=${resolveTerminalThemeMode()}
+          fullscreen
+        ></openclaw-terminal-panel>
+        ${!isOptionalElementDefined(TERMINAL_PANEL_ELEMENT) && terminalAvailable
+          ? renderConnectingSplash()
+          : nothing}
+        ${!terminalAvailable && (gatewayConnected || gatewaySnapshot.lastError)
+          ? html`<div class="terminal-view-unavailable">${t("terminal.unavailable")}</div>`
+          : nothing}
+      `;
+    }
+    // Transport drops after an established session keep the shell mounted
+    // (offline presentation + client auto-retry); the login gate is reserved for
+    // credential-less first connects, credential rejections, and manual gate
+    // submissions. A first connect backed by stored credentials paints the
+    // connecting splash instead of flashing the login gate; the gate returns
+    // the moment the attempt fails (lastError set on every close).
+    const initialConnectPending =
+      this.initialAuthPresent &&
+      !gatewayConnected &&
+      gatewaySnapshot.phase !== "reconnecting" &&
+      !this.loginGatePinned &&
+      gatewaySnapshot.lastError === null &&
+      gatewaySnapshot.client !== null;
+    if (initialConnectPending) {
+      return html`
+        <openclaw-tooltip-provider>
+          ${renderConnectingSplash()} ${gatewayUrlConfirmation}
+        </openclaw-tooltip-provider>
+      `;
+    }
+    const showLoginGate =
+      runtime.shellSession === null &&
+      !gatewayConnected &&
+      (this.loginGatePinned || gatewaySnapshot.phase !== "reconnecting");
+    if (showLoginGate) {
+      return html`
+        <openclaw-tooltip-provider>
+          <openclaw-login-gate
+            .props=${{
+              basePath: context.basePath,
+              connected: gatewayConnected,
+              lastError: gatewaySnapshot.lastError,
+              lastErrorCode: gatewaySnapshot.lastErrorCode,
+              hasToken: Boolean(this.loginToken.trim()),
+              hasPassword: Boolean(this.loginPassword.trim()),
+              gatewayUrl: this.loginGatewayUrl,
+              token: this.loginToken,
+              password: this.loginPassword,
+              showGatewayToken: this.loginShowGatewayToken,
+              showGatewayPassword: this.loginShowGatewayPassword,
+              onGatewayUrlChange: (value: string) => {
+                this.loginGatewayUrl = value;
+              },
+              onTokenChange: (value: string) => {
+                this.loginToken = value;
+              },
+              onPasswordChange: (value: string) => {
+                this.loginPassword = value;
+              },
+              onToggleGatewayToken: () => {
+                this.loginShowGatewayToken = !this.loginShowGatewayToken;
+              },
+              onToggleGatewayPassword: () => {
+                this.loginShowGatewayPassword = !this.loginShowGatewayPassword;
+              },
+              onConnect: () => {
+                this.loginGatePinned = true;
+                context.gateway.connect({
+                  gatewayUrl: this.loginGatewayUrl,
+                  token: this.loginToken,
+                  password: this.loginPassword,
+                });
+              },
+            }}
+          ></openclaw-login-gate>
+          ${gatewayUrlConfirmation}
+        </openclaw-tooltip-provider>
+      `;
+    }
+    if (runtime.documentMode?.kind === "approval") {
+      return html`
+        <openclaw-tooltip-provider>
+          ${gatewayUrlConfirmation} ${renderApprovalDocument(runtime)}
+        </openclaw-tooltip-provider>
+      `;
+    }
+    return html`
+      <openclaw-tooltip-provider>
+        <openclaw-github-link-hovercard-provider .client=${gatewaySnapshot.client}>
+          ${gatewayUrlConfirmation}
+          <openclaw-app-shell
+            .runtime=${runtime}
+            .onboarding=${this.onboarding}
+          ></openclaw-app-shell>
+        </openclaw-github-link-hovercard-provider>
+      </openclaw-tooltip-provider>
+    `;
+  }
+}

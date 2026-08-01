@@ -369,7 +369,7 @@ function respondMissingCronJobId(respond: RespondFn, method: string): void {
 
 /** Gateway request handlers for cron jobs and cron run-log access. */
 export const cronHandlers: GatewayRequestHandlers = {
-  wake: ({ params, respond, context, client }) => {
+  wake: async ({ params, respond, context, client }) => {
     if (!assertValidParams(params, validateWakeParams, "wake", respond)) {
       return;
     }
@@ -446,6 +446,9 @@ export const cronHandlers: GatewayRequestHandlers = {
       );
       return;
     }
+    // Gateway becomes request-ready before scheduled services start; load the
+    // wake owner first so an early operator event cannot disappear on cold start.
+    await context.cron.prepareWake?.();
     const result = context.cron.wake({
       mode: p.mode,
       text: p.text,
@@ -560,6 +563,8 @@ export const cronHandlers: GatewayRequestHandlers = {
       respond(
         false,
         undefined,
+        // Wire contract: shipped CLI matchers parse this exact wording for the
+        // name-lookup fallback (isMissingCronGetError). Rename is CLI-display only.
         errorShape(ErrorCodes.INVALID_REQUEST, `cron job not found: ${jobId}`),
       );
       return;

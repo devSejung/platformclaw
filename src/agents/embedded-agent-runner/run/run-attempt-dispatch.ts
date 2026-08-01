@@ -9,6 +9,7 @@ import { applyAuthHeaderOverride, applyLocalNoAuthHeaderOverride } from "../../m
 import type { AgentRuntimePlan } from "../../runtime-plan/types.js";
 import { createToolTerminalObserver } from "../../tool-terminal-outcome.js";
 import type { SystemAgentToolOptions } from "../../tools/system-agent-tool.js";
+import { applyResolvedToolPromptFinalizer } from "./attempt-prompt-tool-policy.js";
 import { runEmbeddedAttemptWithBackend } from "./backend.js";
 import {
   EMBEDDED_RUN_LANE_HEARTBEAT_MS,
@@ -178,6 +179,16 @@ export async function dispatchEmbeddedRunAttempt(input: {
     runtime,
     pluginHarnessOwnsTransport: control.pluginHarnessOwnsTransport,
   });
+  // Plugin harnesses own their tool materialization, so the host cannot attest
+  // a message tool. Finalize conservatively instead of leaking phantom guidance.
+  const pluginHarnessPrompt =
+    control.pluginHarnessOwnsTransport && params.finalizePromptForResolvedTools
+      ? applyResolvedToolPromptFinalizer({
+          prompt: runtime.prompt,
+          activeToolNames: [],
+          finalize: params.finalizePromptForResolvedTools,
+        })
+      : undefined;
   const attemptParams: EmbeddedRunAttemptParams = {
     operation: "attempt",
     sessionId: runtime.sessionId,
@@ -190,6 +201,7 @@ export async function dispatchEmbeddedRunAttempt(input: {
     messageChannel: params.messageChannel,
     messageProvider: params.messageProvider,
     clientCaps: params.clientCaps,
+    toolBindings: params.toolBindings,
     chatType: params.chatType,
     agentAccountId: params.agentAccountId,
     messageTo: params.messageTo,
@@ -236,8 +248,13 @@ export async function dispatchEmbeddedRunAttempt(input: {
         }
       : {}),
     skillsSnapshot: params.skillsSnapshot,
-    prompt: runtime.prompt,
-    transcriptPrompt: params.transcriptPrompt,
+    prompt: pluginHarnessPrompt ?? runtime.prompt,
+    transcriptPrompt:
+      pluginHarnessPrompt !== undefined && params.transcriptPrompt === undefined
+        ? runtime.prompt
+        : params.transcriptPrompt,
+    finalizePromptForResolvedTools:
+      pluginHarnessPrompt === undefined ? params.finalizePromptForResolvedTools : undefined,
     userTurnTranscriptRecorder: params.userTurnTranscriptRecorder,
     skipPreparedUserTurnMessage: runtime.skipPreparedUserTurnMessage,
     currentInboundEventKind: params.currentInboundEventKind,
@@ -375,6 +392,7 @@ export async function dispatchEmbeddedRunAttempt(input: {
     swarmCollector: params.swarmCollector,
     swarmOutputSchema: params.swarmOutputSchema,
     forceRestartSafeTools: params.forceRestartSafeTools,
+    forceCodeModeTools: params.forceCodeModeTools,
     forceMessageTool: params.forceMessageTool,
     enableHeartbeatTool: params.enableHeartbeatTool,
     forceHeartbeatTool: params.forceHeartbeatTool,

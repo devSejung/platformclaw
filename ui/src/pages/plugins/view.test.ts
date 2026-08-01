@@ -335,8 +335,19 @@ describe("renderPlugins", () => {
   it("opens the detail overlay from a row and renders actions and metadata", () => {
     const onShowDetails = vi.fn();
     const clickable = mount(createProps({ onShowDetails }));
-    clickable.querySelector<HTMLElement>('[data-plugin-id="workboard"]')?.click();
+    const row = clickable.querySelector<HTMLElement>('[data-plugin-id="workboard"]');
+    const detailButton = row?.querySelector<HTMLButtonElement>(".plugins-item__detail-button");
+    expect(detailButton).toBeInstanceOf(HTMLButtonElement);
+    expect(detailButton?.type).toBe("button");
+    expect(detailButton?.getAttribute("aria-label")).toBe("Workboard");
+    detailButton?.focus();
+    expect(document.activeElement).toBe(detailButton);
+    detailButton?.click();
+    expect(onShowDetails).toHaveBeenCalledOnce();
     expect(onShowDetails).toHaveBeenCalledWith("workboard");
+
+    row?.click();
+    expect(onShowDetails).toHaveBeenCalledTimes(2);
 
     const onSetEnabled = vi.fn();
     const container = mount(
@@ -568,7 +579,12 @@ describe("renderPlugins", () => {
     expect(result?.dataset.pluginSource).toBe("clawhub");
     expect(normalizedText(result)).toContain("Official");
     expect(normalizedText(result)).toContain("Verified source");
-    expect(normalizedText(result)).toContain("149.3K");
+    expect(normalizedText(result)).toContain(
+      new Intl.NumberFormat(undefined, {
+        notation: "compact",
+        maximumFractionDigits: 1,
+      }).format(149263),
+    );
     expect(normalizedText(result)).toContain("Code plugin");
     result?.querySelector<HTMLButtonElement>('[aria-label="Install Calendar Plus"]')?.click();
     expect(onInstall).toHaveBeenCalledWith(clawHubKey("@openclaw/calendar-plus"), {
@@ -669,6 +685,7 @@ describe("renderPlugins", () => {
       install: undefined,
     });
     const onSetEnabled = vi.fn();
+    const onShowDetails = vi.fn();
     const container = mount(
       createProps({
         activeTab: "discover",
@@ -687,6 +704,7 @@ describe("renderPlugins", () => {
           },
         ],
         onSetEnabled,
+        onShowDetails,
       }),
     );
 
@@ -695,6 +713,13 @@ describe("renderPlugins", () => {
     expect(row.querySelector(".plugins-install")).toBeNull();
     actionButton(row, "Disable")?.click();
     expect(onSetEnabled).toHaveBeenCalledWith("calendar-runtime", false, clawHubKey(packageName));
+    expect(onShowDetails).not.toHaveBeenCalled();
+    const detailButton = row.querySelector<HTMLButtonElement>(".plugins-item__detail-button");
+    expect(detailButton).toBeInstanceOf(HTMLButtonElement);
+    expect(detailButton?.getAttribute("aria-label")).toBe("Calendar Plus");
+    detailButton?.click();
+    expect(onShowDetails).toHaveBeenCalledOnce();
+    expect(onShowDetails).toHaveBeenCalledWith("calendar-runtime");
   });
 
   it("does not present an empty catalog alongside an initial list failure", () => {

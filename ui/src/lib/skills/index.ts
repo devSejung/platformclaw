@@ -9,9 +9,12 @@ import type {
   SkillStatusEntry,
   SkillStatusReport,
 } from "../../api/types.ts";
-import { loadSkillStatusReport } from "./status.ts";
-
-export { loadSkillStatusReport } from "./status.ts";
+import {
+  normalizeSkillApiKeyReplacement,
+  runSkillConfigMutation,
+  skillConfigMutationSuccess,
+  type SkillConfigMutationOwner,
+} from "./config-mutations.ts";
 
 export type ClawHubSearchResult = {
   score: number;
@@ -81,6 +84,7 @@ export type ClawHubSkillSecurityVerdict = {
 type SkillsState = {
   client: GatewayBrowserClient | null;
   connected: boolean;
+  runtimeConfig: SkillConfigMutationOwner;
   skillsAgentId: string | null;
   skillsAgentRevision: number;
   skillsLoading: boolean;
@@ -202,9 +206,31 @@ function currentSkillCardCacheKey(state: SkillsState, skillKey: string): string 
   return skill ? skillCardCacheKey(skill) : undefined;
 }
 
+function skillsAgentParams(
+  agentId: string | null | undefined,
+  refresh = false,
+): { agentId?: string; refresh?: boolean } {
+  const normalized = agentId?.trim();
+  return {
+    ...(normalized ? { agentId: normalized } : {}),
+    ...(refresh ? { refresh: true } : {}),
+  };
+}
+
 function stateSkillsAgentParams(state: Pick<SkillsState, "skillsAgentId">): { agentId?: string } {
   const agentId = state.skillsAgentId?.trim();
   return agentId ? { agentId } : {};
+}
+
+export async function loadSkillStatusReport(
+  client: GatewayBrowserClient,
+  agentId: string | null | undefined,
+  refresh = false,
+): Promise<SkillStatusReport | undefined> {
+  return client.request<SkillStatusReport | undefined>(
+    "skills.status",
+    skillsAgentParams(agentId, refresh),
+  );
 }
 
 type SkillsAgentScope = {
@@ -554,22 +580,28 @@ async function runSkillMutation(
 
 export async function updateSkillEnabled(state: SkillsState, skillKey: string, enabled: boolean) {
   await runSkillMutation(state, skillKey, async (client) => {
-    await client.request("skills.update", { skillKey, enabled });
-    return {
-      kind: "success",
-      message: enabled ? "Skill enabled" : "Skill disabled",
-    };
+    const refreshError = await runSkillConfigMutation(state.runtimeConfig, client, {
+      skillKey,
+      enabled,
+    });
+    return skillConfigMutationSuccess(enabled ? "Skill enabled" : "Skill disabled", refreshError);
   });
 }
 
 export async function saveSkillApiKey(state: SkillsState, skillKey: string) {
+  const apiKey = normalizeSkillApiKeyReplacement(state.skillEdits[skillKey]);
+  if (!apiKey) {
+    return;
+  }
   await runSkillMutation(state, skillKey, async (client) => {
-    const editValue = state.skillEdits[skillKey] ?? "";
-    await client.request("skills.update", { skillKey, apiKey: editValue });
-    return {
-      kind: "success",
-      message: `API key saved — stored in openclaw.json (skills.entries.${skillKey})`,
-    };
+    const refreshError = await runSkillConfigMutation(state.runtimeConfig, client, {
+      skillKey,
+      apiKey,
+    });
+    return skillConfigMutationSuccess(
+      `API key saved — stored in openclaw.json (skills.entries.${skillKey})`,
+      refreshError,
+    );
   });
 }
 
