@@ -169,8 +169,8 @@ describe("Codex app-server attempt context", () => {
       });
 
       expect(context.bootstrapFiles.map((file) => file.name)).not.toContain("AGENTS.md");
-      expect(context.promptContext).not.toContain("gateway project policy");
-      expect(context.promptContext).not.toContain("gateway memory");
+      expect(context.promptContext ?? "").not.toContain("gateway project policy");
+      expect(context.promptContext ?? "").not.toContain("gateway memory");
       expect(context.turnScopedDeveloperInstructions).toContain("gateway user profile");
       expect(context.turnScopedDeveloperInstructions).toContain("agent_workspace_read");
       expect(context.memoryToolRouted).toBe(true);
