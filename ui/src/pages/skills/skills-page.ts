@@ -53,6 +53,12 @@ export type SkillsRouteData = {
   error: string | null;
 };
 
+export function skillsPageAllowedHubTabs(
+  accessMode: ApplicationContext["accessMode"],
+): readonly PluginsHubTab[] | undefined {
+  return accessMode === "personal-agent" ? ["skills", "workshop"] : undefined;
+}
+
 class SkillsPage extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })
   private context!: ApplicationContext;
@@ -407,14 +413,7 @@ class SkillsPage extends OpenClawLightDomElement {
           ${renderHubTabs({
             id: "plugins",
             active: "skills",
-            tabs: pluginsHubTabs(
-              null,
-              this.context.accessMode === "personal-agent"
-                ? this.skillsReport?.executionTarget === "assigned_vm"
-                  ? ["skills"]
-                  : ["skills", "workshop"]
-                : undefined,
-            ),
+            tabs: pluginsHubTabs(null, skillsPageAllowedHubTabs(this.context.accessMode)),
             ariaLabel: t("pluginsPage.hubTablistLabel"),
             panelId: PLUGINS_HUB_PANEL_ID,
             className: "plugins-tabs",
