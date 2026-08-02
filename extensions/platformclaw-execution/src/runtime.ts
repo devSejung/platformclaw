@@ -345,6 +345,7 @@ async function testAssignedVmConnection(params: {
 
 export async function createExecutionDependenciesFromEnvironment(
   env: NodeJS.ProcessEnv = process.env,
+  timing: { logTiming?: (message: string) => void } = {},
 ): Promise<
   PlatformClawExecutionDependencies & {
     testConnection(params: {
@@ -387,11 +388,16 @@ export async function createExecutionDependenciesFromEnvironment(
     throw new Error("execution service token is empty");
   }
   // Runtime is the composition root: remote discovery must not import it back.
-  const remoteSkills = new VmRemoteSkillCatalogService({
-    createSession: async (target) => await createSafeConnectSession(target),
-    disposeSession: disposeSshSandboxSession,
-    runCommand: runSshSandboxCommand,
-  });
+  const remoteSkills = new VmRemoteSkillCatalogService(
+    {
+      createSession: async (target) => await createSafeConnectSession(target),
+      disposeSession: disposeSshSandboxSession,
+      runCommand: runSshSandboxCommand,
+    },
+    {
+      logTiming: timing.logTiming,
+    },
+  );
   const remoteSkillWorkshop = new VmRemoteSkillWorkshopService({
     createSession: async (target) => await createSafeConnectSession(target),
     disposeSession: disposeSshSandboxSession,

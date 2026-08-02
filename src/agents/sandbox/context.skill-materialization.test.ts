@@ -8,9 +8,19 @@ import { registerSandboxBackend } from "./backend.js";
 import { resolveSandboxContext } from "./context.js";
 
 const mocks = vi.hoisted(() => ({
+  logInfo: vi.fn(),
   readRegisteredSandboxRuntimeIds: vi.fn(async () => [] as string[]),
   syncSkillsToWorkspace: vi.fn(async () => []),
   updateRegistry: vi.fn(async () => undefined),
+}));
+
+vi.mock("../../logging/subsystem.js", () => ({
+  createSubsystemLogger: () => ({
+    debug: vi.fn(),
+    info: mocks.logInfo,
+    warn: vi.fn(),
+    error: vi.fn(),
+  }),
 }));
 
 vi.mock("./registry.js", async (importOriginal) => ({
@@ -56,6 +66,7 @@ function createConfig(params: { backend: string; workspaceRoot: string }): OpenC
 }
 
 afterEach(() => {
+  mocks.logInfo.mockClear();
   mocks.readRegisteredSandboxRuntimeIds.mockClear();
   mocks.syncSkillsToWorkspace.mockClear();
   mocks.updateRegistry.mockClear();
@@ -87,6 +98,15 @@ describe("sandbox backend skill materialization", () => {
 
           expect(context?.backend?.skillCatalog?.revision).toBe("remote-catalog:1");
           expect(mocks.syncSkillsToWorkspace).not.toHaveBeenCalled();
+          const timingLine = mocks.logInfo.mock.calls
+            .map(([message]) => String(message))
+            .find((message) => message.includes("event=sandbox_context_timing"));
+          expect(timingLine).toContain("deferredSkills=true");
+          expect(timingLine).toContain("skillsMaterialized=false");
+          expect(timingLine).toContain("backendInclusiveMs=");
+          expect(timingLine).toContain("totalMs=");
+          expect(timingLine).not.toContain(dir);
+          expect(timingLine).not.toContain("agent:main:main");
         } finally {
           restore();
         }

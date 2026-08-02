@@ -5,6 +5,7 @@
  */
 import fs from "node:fs/promises";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   ensureBrowserControlAuth,
   resolveBrowserControlAuth,
@@ -32,6 +33,12 @@ import { assertSshSandboxSecretOwnerAvailable } from "./secret-owner.js";
 import { resolveSandboxWorkspaceLayoutPaths } from "./shared.js";
 import type { SandboxContext, SandboxWorkspaceInfo } from "./types.js";
 import { ensureSandboxWorkspace } from "./workspace.js";
+
+const timingLog = createSubsystemLogger("sandbox-context");
+
+function elapsedMs(startedAt: number): number {
+  return Math.max(0, Math.round((performance.now() - startedAt) * 10) / 10);
+}
 
 async function syncSandboxSkillsToWorkspace(params: {
   sourceWorkspaceDir: string;
@@ -207,40 +214,53 @@ async function resolveProvisionedSandboxContext(
   params: ResolveSandboxContextParams,
   resolved: ResolvedSandboxSession,
 ): Promise<SandboxContext> {
+  const contextStartedAt = performance.now();
+  let phaseStartedAt = contextStartedAt;
   const { rawSessionKey, cfg, runtime } = resolved;
 
   if (cfg.prune.idleHours !== 0 || cfg.prune.maxAgeDays !== 0) {
     await (await import("./prune.js")).maybePruneSandboxes(cfg);
   }
+  const pruneMs = elapsedMs(phaseStartedAt);
 
+  phaseStartedAt = performance.now();
   const layout = await prepareSandboxWorkspaceLayout({
     cfg,
     rawSessionKey,
     config: params.config,
     workspaceDir: params.workspaceDir,
   });
+  const workspaceLayoutMs = elapsedMs(phaseStartedAt);
   const { agentWorkspaceDir, scopeKey, skillsWorkspaceDir, workspaceDir } = layout;
 
   let syncedSkills: Awaited<ReturnType<typeof materializeSandboxSkills>> = {};
   let materializationPromise: Promise<typeof syncedSkills> | undefined;
   let skillsMaterialized = false;
+  let gatewaySkillsMs = 0;
   const materializeSkills = async (): Promise<void> => {
-    materializationPromise ??= materializeSandboxSkills({
-      layout,
-      config: params.config,
-      agentId: runtime.agentId,
-      rawSessionKey,
-      execOverrides: params.execOverrides,
-    });
+    if (!materializationPromise) {
+      const skillsStartedAt = performance.now();
+      materializationPromise = materializeSandboxSkills({
+        layout,
+        config: params.config,
+        agentId: runtime.agentId,
+        rawSessionKey,
+        execOverrides: params.execOverrides,
+      }).finally(() => {
+        gatewaySkillsMs = elapsedMs(skillsStartedAt);
+      });
+    }
     syncedSkills = await materializationPromise;
     skillsMaterialized = true;
   };
 
+  phaseStartedAt = performance.now();
   const docker = await resolveSandboxDockerUser({
     backend: cfg.backend,
     docker: cfg.docker,
     workspaceDir,
   });
+  const dockerUserMs = elapsedMs(phaseStartedAt);
   const resolvedCfg = docker === cfg.docker ? cfg : { ...cfg, docker };
 
   const backendFactory = requireSandboxBackendFactory(resolvedCfg.backend);
@@ -249,10 +269,13 @@ async function resolveProvisionedSandboxContext(
   if (!backendDeferredSkills) {
     await materializeSkills();
   }
+  phaseStartedAt = performance.now();
   const registeredRuntimeIds = await readRegisteredSandboxRuntimeIds({
     backendId: resolvedCfg.backend,
     scopeKey,
   });
+  const registryReadMs = elapsedMs(phaseStartedAt);
+  phaseStartedAt = performance.now();
   const backend = await backendFactory({
     agentId: runtime.agentId,
     sessionKey: rawSessionKey,
@@ -267,11 +290,13 @@ async function resolveProvisionedSandboxContext(
       ? { requireCurrentConfig: params.requireCurrentConfig }
       : {}),
   });
+  const backendInclusiveMs = elapsedMs(phaseStartedAt);
   if (backendDeferredSkills && !backend.skillCatalog && !skillsMaterialized) {
     throw new Error(
       `Sandbox backend "${resolvedCfg.backend}" must materialize Gateway skills before returning a handle without skillCatalog.`,
     );
   }
+  phaseStartedAt = performance.now();
   await updateRegistry({
     containerName: backend.runtimeId,
     backendId: backend.id,
@@ -282,7 +307,9 @@ async function resolveProvisionedSandboxContext(
     image: backend.configLabel ?? resolvedCfg.docker.image,
     configLabelKind: backend.configLabelKind ?? "Image",
   });
+  const registryWriteMs = elapsedMs(phaseStartedAt);
 
+  phaseStartedAt = performance.now();
   const resolvedBrowserConfig = resolvedCfg.browser.enabled
     ? resolveBrowserConfig(params.config?.browser, params.config)
     : undefined;
@@ -322,6 +349,7 @@ async function resolveProvisionedSandboxContext(
           ssrfPolicy: resolvedBrowserConfig?.ssrfPolicy,
         })
       : null;
+  const browserMs = elapsedMs(phaseStartedAt);
 
   const sandboxContext: SandboxContext = {
     enabled: true,
@@ -347,6 +375,10 @@ async function resolveProvisionedSandboxContext(
   sandboxContext.fsBridge =
     backend.createFsBridge?.({ sandbox: sandboxContext }) ??
     createSandboxFsBridge({ sandbox: sandboxContext });
+
+  timingLog.info(
+    `event=sandbox_context_timing status=ok backend=${backend.id} workspaceAccess=${resolvedCfg.workspaceAccess} deferredSkills=${String(backendDeferredSkills)} skillsMaterialized=${String(skillsMaterialized)} pruneMs=${String(pruneMs)} workspaceLayoutMs=${String(workspaceLayoutMs)} dockerUserMs=${String(dockerUserMs)} gatewaySkillsMs=${String(gatewaySkillsMs)} registryReadMs=${String(registryReadMs)} backendInclusiveMs=${String(backendInclusiveMs)} registryWriteMs=${String(registryWriteMs)} browserMs=${String(browserMs)} totalMs=${String(elapsedMs(contextStartedAt))}`,
+  );
 
   return sandboxContext;
 }

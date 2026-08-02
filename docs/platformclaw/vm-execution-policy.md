@@ -356,6 +356,14 @@ silently copy or update administrator-managed skills during an agent run. This
 keeps referenced scripts on the same VM where commands execute and makes image
 rollout the single version owner.
 
+Gateway logs emit bounded context-preparation timings without agent IDs, paths,
+commands, prompts, or credentials. Filter `openclaw logs --follow` for
+`sandbox_context_timing`, `platformclaw_execution_timing`, and
+`platformclaw_vm_skill_catalog_timing`. The catalog event distinguishes
+`cache-hit`, `cache-miss`, `refresh`, and coalesced `inflight` reads; the other
+events break total preparation time into workspace, Gateway skill, target,
+catalog, backend-handle, registry, browser, and Skill Workshop phases.
+
 The normal VM catalog scan runs once while a new execution handle is prepared,
 matching the upstream sandbox snapshot lifecycle. A Skills UI refresh requests
 a fresh scan. Skill Workshop create and evaluate read only the exact target they

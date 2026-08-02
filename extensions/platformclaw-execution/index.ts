@@ -21,14 +21,17 @@ export default definePluginEntry({
     const configured =
       process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS &&
       process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
+    const logTiming = (message: string) => api.logger.info(message);
     const executionRuntimePromise = configured
-      ? createExecutionDependenciesFromEnvironment()
+      ? createExecutionDependenciesFromEnvironment(process.env, { logTiming })
       : undefined;
     const dependenciesPromise =
       executionRuntimePromise ?? Promise.resolve(createUnavailableExecutionDependencies());
     registerSandboxBackend(PLATFORMCLAW_EXECUTION_BACKEND_ID, {
       factory: async (params) =>
-        await createPlatformClawExecutionBackendFactory(await dependenciesPromise)(params),
+        await createPlatformClawExecutionBackendFactory(await dependenciesPromise, {
+          logTiming,
+        })(params),
       skillMaterialization: "backend-deferred",
       skills: async (params) =>
         await createPlatformClawExecutionSkillProvider(await dependenciesPromise)(params),
