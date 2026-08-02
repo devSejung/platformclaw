@@ -56,6 +56,7 @@ function createMonitor(
               failedTtlMs: number;
               failedMaxEntries: number;
             }>;
+        runPumpTask?: (work: () => Promise<void>) => Promise<void>;
         waitForDeliveryIdleBeforeRepump?: boolean;
         waitForDeliveryIdleOnStop?: boolean;
       },
@@ -680,6 +681,48 @@ describe("channel ingress monitor", () => {
       await monitor.stop();
       releaseDelivery();
       await monitor.waitForIdle();
+    });
+  });
+
+  it("keeps the pump task alive through delivery when idle waiting is enabled", async () => {
+    await withQueue(async (queue) => {
+      let releaseDelivery!: () => void;
+      let markDeliveryStarted!: () => void;
+      const deliveryStarted = new Promise<void>((resolve) => {
+        markDeliveryStarted = resolve;
+      });
+      const activePumpTasks = new Set<number>();
+      let nextPumpTaskId = 0;
+      const runPumpTask = vi.fn(async (work: () => Promise<void>) => {
+        const taskId = nextPumpTaskId++;
+        activePumpTasks.add(taskId);
+        try {
+          await work();
+        } finally {
+          activePumpTasks.delete(taskId);
+        }
+      });
+      const monitor = createMonitor(
+        queue,
+        async () => {
+          markDeliveryStarted();
+          await new Promise<void>((resolve) => {
+            releaseDelivery = resolve;
+          });
+        },
+        { runPumpTask, waitForDeliveryIdleBeforeRepump: true },
+      );
+      monitor.start();
+      await monitor.waitForIdle();
+
+      await monitor.admit({ id: "event-admitted-delivery", lane: "a", text: "hello" });
+      await deliveryStarted;
+      expect(activePumpTasks.size).toBe(1);
+
+      releaseDelivery();
+      await monitor.waitForIdle();
+      expect(activePumpTasks.size).toBe(0);
+      await monitor.stop();
     });
   });
 });
