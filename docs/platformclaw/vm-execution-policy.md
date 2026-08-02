@@ -335,10 +335,11 @@ VM administrators install approved global skills under
 release-owned built-in skills under `/opt/platformclaw/bundle/<skill>/SKILL.md`.
 VM users own skills under their remote workspace `skills` and `.agents/skills`.
 Remote discovery is added only to `platformclaw-execution`; generic upstream
-Docker and SSH behavior stays unchanged. Discovery happens at connect/reconnect,
-cache invalidation, or an explicit UI refresh. One immutable snapshot is used
-per run. The first release has no per-agent allowlist because VM global and
-built-in skills are administrator-approved.
+Docker and SSH behavior stays unchanged. Discovery happens on a Gateway cache
+miss, execution-target revision change, or explicit UI refresh. Ordinary runs
+reuse the bounded cached catalog. One immutable snapshot is used per run. The
+first release has no per-agent allowlist because VM global and built-in skills
+are administrator-approved.
 
 VM discovery precedence is remote workspace `skills`, remote workspace
 .agents/skills`, the administrator-managed global directory, then the

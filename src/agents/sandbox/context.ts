@@ -16,7 +16,11 @@ import {
 import { defaultRuntime } from "../../runtime.js";
 import type { SkillEligibilityContext, SkillUsagePath } from "../../skills/types.js";
 import type { ExecPolicyOverrides } from "../exec-defaults.js";
-import { getSandboxBackendWorkdirResolver, requireSandboxBackendFactory } from "./backend.js";
+import {
+  getSandboxBackendSkillMaterializationMode,
+  getSandboxBackendWorkdirResolver,
+  requireSandboxBackendFactory,
+} from "./backend.js";
 import { ensureSandboxBrowser } from "./browser.js";
 import { resolveSandboxConfigForAgent } from "./config.js";
 import { resolveSandboxDockerUser } from "./docker-user.js";
@@ -74,22 +78,21 @@ async function syncSandboxSkillsToWorkspace(params: {
   }
 }
 
-async function ensureSandboxWorkspaceLayout(params: {
-  cfg: ReturnType<typeof resolveSandboxConfigForAgent>;
-  agentId: string;
-  rawSessionKey: string;
-  config?: OpenClawConfig;
-  execOverrides?: ExecPolicyOverrides;
-  workspaceDir?: string;
-}): Promise<{
+type PreparedSandboxWorkspaceLayout = {
   agentWorkspaceDir: string;
   scopeKey: string;
   sandboxWorkspaceDir: string;
+  skillsTargetWorkspaceDir: string;
   skillsWorkspaceDir: string;
-  skillsEligibility?: SkillEligibilityContext;
-  skillUsagePaths?: SkillUsagePath[];
   workspaceDir: string;
-}> {
+};
+
+async function prepareSandboxWorkspaceLayout(params: {
+  cfg: ReturnType<typeof resolveSandboxConfigForAgent>;
+  rawSessionKey: string;
+  config?: OpenClawConfig;
+  workspaceDir?: string;
+}): Promise<PreparedSandboxWorkspaceLayout> {
   const { cfg, rawSessionKey } = params;
   const { agentWorkspaceDir, sandboxWorkspaceDir, scopeKey, skillsWorkspaceDir, workspaceDir } =
     resolveSandboxWorkspaceLayoutPaths({
@@ -98,7 +101,6 @@ async function ensureSandboxWorkspaceLayout(params: {
       workspaceDir: params.workspaceDir,
     });
 
-  let syncedSkills: Awaited<ReturnType<typeof syncSandboxSkillsToWorkspace>>;
   if (cfg.workspaceAccess !== "rw") {
     await ensureSandboxWorkspace(
       sandboxWorkspaceDir,
@@ -106,35 +108,36 @@ async function ensureSandboxWorkspaceLayout(params: {
       params.config?.agents?.defaults?.skipBootstrap,
       params.config?.agents?.defaults?.skipOptionalBootstrapFiles,
     );
-    syncedSkills = await syncSandboxSkillsToWorkspace({
-      sourceWorkspaceDir: agentWorkspaceDir,
-      targetWorkspaceDir: sandboxWorkspaceDir,
-      config: params.config,
-      agentId: params.agentId,
-      rawSessionKey,
-      execOverrides: params.execOverrides,
-    });
   } else {
     await fs.mkdir(workspaceDir, { recursive: true });
-    syncedSkills = await syncSandboxSkillsToWorkspace({
-      sourceWorkspaceDir: agentWorkspaceDir,
-      targetWorkspaceDir: skillsWorkspaceDir,
-      config: params.config,
-      agentId: params.agentId,
-      rawSessionKey,
-      execOverrides: params.execOverrides,
-    });
   }
 
   return {
     agentWorkspaceDir,
     scopeKey,
     sandboxWorkspaceDir,
+    skillsTargetWorkspaceDir:
+      cfg.workspaceAccess === "rw" ? skillsWorkspaceDir : sandboxWorkspaceDir,
     skillsWorkspaceDir,
-    ...(syncedSkills.eligibility ? { skillsEligibility: syncedSkills.eligibility } : {}),
-    ...(syncedSkills.skillUsagePaths ? { skillUsagePaths: syncedSkills.skillUsagePaths } : {}),
     workspaceDir,
   };
+}
+
+async function materializeSandboxSkills(params: {
+  layout: PreparedSandboxWorkspaceLayout;
+  config?: OpenClawConfig;
+  agentId: string;
+  rawSessionKey: string;
+  execOverrides?: ExecPolicyOverrides;
+}) {
+  return await syncSandboxSkillsToWorkspace({
+    sourceWorkspaceDir: params.layout.agentWorkspaceDir,
+    targetWorkspaceDir: params.layout.skillsTargetWorkspaceDir,
+    config: params.config,
+    agentId: params.agentId,
+    rawSessionKey: params.rawSessionKey,
+    execOverrides: params.execOverrides,
+  });
 }
 
 function resolveSandboxSession(params: {
@@ -210,21 +213,28 @@ async function resolveProvisionedSandboxContext(
     await (await import("./prune.js")).maybePruneSandboxes(cfg);
   }
 
-  const {
-    agentWorkspaceDir,
-    scopeKey,
-    skillsEligibility,
-    skillUsagePaths,
-    skillsWorkspaceDir,
-    workspaceDir,
-  } = await ensureSandboxWorkspaceLayout({
+  const layout = await prepareSandboxWorkspaceLayout({
     cfg,
-    agentId: runtime.agentId,
     rawSessionKey,
     config: params.config,
-    execOverrides: params.execOverrides,
     workspaceDir: params.workspaceDir,
   });
+  const { agentWorkspaceDir, scopeKey, skillsWorkspaceDir, workspaceDir } = layout;
+
+  let syncedSkills: Awaited<ReturnType<typeof materializeSandboxSkills>> = {};
+  let materializationPromise: Promise<typeof syncedSkills> | undefined;
+  let skillsMaterialized = false;
+  const materializeSkills = async (): Promise<void> => {
+    materializationPromise ??= materializeSandboxSkills({
+      layout,
+      config: params.config,
+      agentId: runtime.agentId,
+      rawSessionKey,
+      execOverrides: params.execOverrides,
+    });
+    syncedSkills = await materializationPromise;
+    skillsMaterialized = true;
+  };
 
   const docker = await resolveSandboxDockerUser({
     backend: cfg.backend,
@@ -234,6 +244,11 @@ async function resolveProvisionedSandboxContext(
   const resolvedCfg = docker === cfg.docker ? cfg : { ...cfg, docker };
 
   const backendFactory = requireSandboxBackendFactory(resolvedCfg.backend);
+  const backendDeferredSkills =
+    getSandboxBackendSkillMaterializationMode(resolvedCfg.backend) === "backend-deferred";
+  if (!backendDeferredSkills) {
+    await materializeSkills();
+  }
   const registeredRuntimeIds = await readRegisteredSandboxRuntimeIds({
     backendId: resolvedCfg.backend,
     scopeKey,
@@ -246,11 +261,17 @@ async function resolveProvisionedSandboxContext(
     workspaceDir,
     agentWorkspaceDir,
     skillsWorkspaceDir,
+    ...(backendDeferredSkills ? { materializeSkills } : {}),
     cfg: resolvedCfg,
     ...(params.requireCurrentConfig !== undefined
       ? { requireCurrentConfig: params.requireCurrentConfig }
       : {}),
   });
+  if (backendDeferredSkills && !backend.skillCatalog && !skillsMaterialized) {
+    throw new Error(
+      `Sandbox backend "${resolvedCfg.backend}" must materialize Gateway skills before returning a handle without skillCatalog.`,
+    );
+  }
   await updateRegistry({
     containerName: backend.runtimeId,
     backendId: backend.id,
@@ -309,8 +330,8 @@ async function resolveProvisionedSandboxContext(
     workspaceDir,
     agentWorkspaceDir,
     skillsWorkspaceDir,
-    ...(skillsEligibility ? { skillsEligibility } : {}),
-    ...(skillUsagePaths ? { skillUsagePaths } : {}),
+    ...(syncedSkills.eligibility ? { skillsEligibility: syncedSkills.eligibility } : {}),
+    ...(syncedSkills.skillUsagePaths ? { skillUsagePaths: syncedSkills.skillUsagePaths } : {}),
     workspaceAccess: resolvedCfg.workspaceAccess,
     runtimeId: backend.runtimeId,
     runtimeLabel: backend.runtimeLabel,
@@ -363,19 +384,18 @@ export async function ensureSandboxWorkspaceForSession(params: {
   }
   const { rawSessionKey, cfg, runtime } = resolved;
 
-  const {
-    agentWorkspaceDir,
-    scopeKey,
-    skillsEligibility,
-    skillUsagePaths,
-    skillsWorkspaceDir,
-    workspaceDir,
-  } = await ensureSandboxWorkspaceLayout({
+  const layout = await prepareSandboxWorkspaceLayout({
     cfg,
-    agentId: runtime.agentId,
     rawSessionKey,
     config: params.config,
     workspaceDir: params.workspaceDir,
+  });
+  const { agentWorkspaceDir, scopeKey, skillsWorkspaceDir, workspaceDir } = layout;
+  const syncedSkills = await materializeSandboxSkills({
+    layout,
+    config: params.config,
+    agentId: runtime.agentId,
+    rawSessionKey,
   });
 
   const containerWorkdir = resolveSandboxWorkspaceInfoWorkdir({
@@ -391,8 +411,8 @@ export async function ensureSandboxWorkspaceForSession(params: {
     workspaceDir,
     ...(containerWorkdir ? { containerWorkdir } : {}),
     skillsWorkspaceDir,
-    ...(skillsEligibility ? { skillsEligibility } : {}),
-    ...(skillUsagePaths ? { skillUsagePaths } : {}),
+    ...(syncedSkills.eligibility ? { skillsEligibility: syncedSkills.eligibility } : {}),
+    ...(syncedSkills.skillUsagePaths ? { skillUsagePaths: syncedSkills.skillUsagePaths } : {}),
     workspaceAccess: cfg.workspaceAccess,
   };
 }

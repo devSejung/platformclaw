@@ -42,9 +42,17 @@ export type CreateSandboxBackendParams = {
   workspaceDir: string;
   agentWorkspaceDir: string;
   skillsWorkspaceDir?: string;
+  /**
+   * Materializes Gateway-owned skills before a deferred backend creates runtime mounts.
+   * Present only when the backend registers `skillMaterialization: "backend-deferred"`.
+   */
+  materializeSkills?: () => Promise<void>;
   cfg: SandboxConfig;
   requireCurrentConfig?: boolean;
 };
+
+/** Lets a dynamic backend choose between Gateway skills and a target-owned catalog. */
+export type SandboxBackendSkillMaterializationMode = "backend-deferred";
 
 /** Factory that creates a backend handle for a sandbox session. */
 export type SandboxBackendFactory = (
@@ -77,6 +85,7 @@ export type SandboxBackendRegistration =
       manager?: SandboxBackendManager;
       resolveWorkdir?: SandboxBackendWorkdirResolver;
       skills?: SandboxBackendSkillProvider;
+      skillMaterialization?: SandboxBackendSkillMaterializationMode;
       skillWorkshop?: SandboxBackendSkillWorkshopProvider;
     };
 
@@ -86,6 +95,7 @@ export type RegisteredSandboxBackend = {
   manager?: SandboxBackendManager;
   resolveWorkdir?: SandboxBackendWorkdirResolver;
   skills?: SandboxBackendSkillProvider;
+  skillMaterialization?: SandboxBackendSkillMaterializationMode;
   skillWorkshop?: SandboxBackendSkillWorkshopProvider;
 };
 

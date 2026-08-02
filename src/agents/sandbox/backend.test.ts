@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   getSandboxBackendFactory,
   getSandboxBackendManager,
+  getSandboxBackendSkillMaterializationMode,
   getSandboxBackendSkillProvider,
   getSandboxBackendWorkdirResolver,
   registerSandboxBackend,
@@ -72,5 +73,21 @@ describe("sandbox backend registry", () => {
     expect(getSandboxBackendSkillProvider("test-skills")).toBe(skills);
     restore();
     expect(getSandboxBackendSkillProvider("test-skills")).toBeNull();
+  });
+
+  it("registers deferred skill materialization as an opt-in backend contract", () => {
+    const factory = async () => {
+      throw new Error("not used");
+    };
+    const restore = registerSandboxBackend("test-deferred-skills", {
+      factory,
+      skillMaterialization: "backend-deferred",
+    });
+
+    expect(getSandboxBackendSkillMaterializationMode("test-deferred-skills")).toBe(
+      "backend-deferred",
+    );
+    restore();
+    expect(getSandboxBackendSkillMaterializationMode("test-deferred-skills")).toBeNull();
   });
 });
