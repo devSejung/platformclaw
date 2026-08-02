@@ -4,6 +4,7 @@ import {
   type ChannelIngressQueue,
   type ChannelIngressMonitorLifecycle,
 } from "openclaw/plugin-sdk/channel-outbound";
+import { runDetachedWebhookWork } from "openclaw/plugin-sdk/webhook-request-guards";
 import { KnoxOutboundError } from "./outbound.js";
 import { getKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage } from "./types.js";
@@ -75,6 +76,9 @@ export function createKnoxIngress(options: {
       onLog: (message) => options.log?.(`knox: ${message}`),
     },
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+    // The durable drain outlives the relay HTTP acknowledgement. Reserve an
+    // independent Gateway root so later agent work does not inherit a released request lease.
+    runPumpTask: runDetachedWebhookWork,
     admissionMode: "while-running",
     createStoppedError: () => new Error("Knox ingress is stopped"),
     onError: (error) => options.log?.(`knox ingress failed: ${String(error)}`),
