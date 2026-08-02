@@ -65,6 +65,15 @@ export type PlatformClawExecutionDependencies = {
   }) => Promise<SkillWorkshopTargetAccess | undefined>;
 };
 
+type ExecutionTimingOptions = {
+  logTiming?: (message: string) => void;
+  now?: () => number;
+};
+
+function timingMs(now: () => number, startedAt: number): number {
+  return Math.max(0, Math.round((now() - startedAt) * 10) / 10);
+}
+
 function serializeRuntimeContext(value: Record<string, unknown>): string {
   return JSON.stringify(value, null, 2).replace(/[<>&]/gu, (character) => {
     switch (character) {
@@ -117,8 +126,11 @@ function buildRuntimePromptContext(
 
 export function createPlatformClawExecutionBackendFactory(
   dependencies: PlatformClawExecutionDependencies,
+  timing: ExecutionTimingOptions = {},
 ): SandboxBackendFactory {
   return async (createParams) => {
+    const now = timing.now ?? performance.now.bind(performance);
+    const totalStartedAt = now();
     const agentId = createParams.agentId;
     if (!agentId?.trim()) {
       throw new Error("PlatformClaw execution requires a prepared agent owner.");
@@ -126,22 +138,32 @@ export function createPlatformClawExecutionBackendFactory(
 
     // Resolve exactly once per context creation. The copied snapshot keeps a
     // target change from redirecting an already-prepared run mid-execution.
+    let phaseStartedAt = now();
     const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+    const resolveTargetMs = timingMs(now, phaseStartedAt);
     // Cache misses and target revisions discover a fresh VM catalog. Explicit
     // Skills refresh owns same-revision invalidation; ordinary runs reuse it.
+    phaseStartedAt = now();
     const skillCatalog = await dependencies.listTargetSkills({ refresh: false, target });
+    const skillCatalogMs = timingMs(now, phaseStartedAt);
+    let gatewaySkillsMs = 0;
     if (!skillCatalog) {
       if (!createParams.materializeSkills) {
         throw new Error("PlatformClaw Basic workspace requires Gateway skill materialization.");
       }
       // Docker resolves read-only skill mounts while creating its handle, so
       // materialization must finish before delegating to the core backend.
+      phaseStartedAt = now();
       await createParams.materializeSkills();
+      gatewaySkillsMs = timingMs(now, phaseStartedAt);
     }
+    phaseStartedAt = now();
     const handle =
       target.kind === "platform_server"
         ? await dependencies.createPlatformServerHandle({ createParams, target })
         : await dependencies.createAssignedVmHandle({ createParams, target });
+    const backendHandleMs = timingMs(now, phaseStartedAt);
+    phaseStartedAt = now();
     const skillWorkshopTarget =
       target.kind === "platform_server"
         ? ({ kind: "workspace" } as const)
@@ -149,6 +171,11 @@ export function createPlatformClawExecutionBackendFactory(
             target,
             ...(skillCatalog ? { catalog: skillCatalog } : {}),
           });
+    const skillWorkshopMs = timingMs(now, phaseStartedAt);
+
+    timing.logTiming?.(
+      `event=platformclaw_execution_timing status=ok targetKind=${target.kind} targetRevision=${String(target.revision)} catalogFiles=${String(skillCatalog?.files.length ?? 0)} resolveTargetMs=${String(resolveTargetMs)} skillCatalogMs=${String(skillCatalogMs)} gatewaySkillsMs=${String(gatewaySkillsMs)} backendHandleMs=${String(backendHandleMs)} skillWorkshopMs=${String(skillWorkshopMs)} totalMs=${String(timingMs(now, totalStartedAt))}`,
+    );
 
     return {
       ...handle,

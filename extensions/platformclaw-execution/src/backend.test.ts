@@ -97,7 +97,8 @@ describe("PlatformClaw execution backend", () => {
           } satisfies PlatformClawExecutionTargetSnapshot),
     );
     const dependencies = createDependencies(resolveTarget);
-    const factory = createPlatformClawExecutionBackendFactory(dependencies);
+    const logTiming = vi.fn();
+    const factory = createPlatformClawExecutionBackendFactory(dependencies, { logTiming });
     const firstParams = createParams("person_one", "agent:person_two:misleading|scope");
     const secondParams = createParams("person_two", "group-room-123::opaque");
 
@@ -140,6 +141,16 @@ describe("PlatformClaw execution backend", () => {
     expect(second.runtimePromptContext).not.toContain("192.0.2.2");
     expect(second.runtimePromptContext).not.toContain("person.two@external");
     expect(second.capabilities?.separateAgentWorkspace).toBe(true);
+    const timingLines = logTiming.mock.calls.map(([message]) => String(message));
+    expect(timingLines).toHaveLength(2);
+    expect(timingLines).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("targetKind=platform_server"),
+        expect.stringContaining("targetKind=assigned_vm"),
+      ]),
+    );
+    expect(timingLines.every((line) => line.includes("totalMs="))).toBe(true);
+    expect(timingLines.join("\n")).not.toContain("person_two");
   });
 
   it("pins a copied target snapshot for one backend handle", async () => {

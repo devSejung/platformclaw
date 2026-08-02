@@ -124,11 +124,15 @@ describe("VM remote skill catalog", () => {
       stderr: Buffer.alloc(0),
       code: 0,
     }));
-    const service = new VmRemoteSkillCatalogService({
-      createSession,
-      disposeSession,
-      runCommand,
-    });
+    const logTiming = vi.fn();
+    const service = new VmRemoteSkillCatalogService(
+      {
+        createSession,
+        disposeSession,
+        runCommand,
+      },
+      { logTiming },
+    );
 
     const [first, concurrent] = await Promise.all([
       service.list(TARGET, false),
@@ -150,6 +154,18 @@ describe("VM remote skill catalog", () => {
     expect(runCommand).toHaveBeenCalledTimes(3);
     expect(createSession).toHaveBeenCalledTimes(3);
     expect(disposeSession).toHaveBeenCalledTimes(3);
+    const timingLines = logTiming.mock.calls.map(([message]) => String(message));
+    expect(timingLines).toHaveLength(6);
+    expect(timingLines).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("outcome=cache-hit"),
+        expect.stringContaining("outcome=cache-miss"),
+        expect.stringContaining("outcome=refresh"),
+        expect.stringContaining("outcome=inflight"),
+      ]),
+    );
+    expect(timingLines.every((line) => line.includes("durationMs="))).toBe(true);
+    expect(timingLines.join("\n")).not.toContain(TARGET.agentId);
     expect(first.files).toEqual([
       expect.objectContaining({
         source: "platformclaw-vm-bundled",

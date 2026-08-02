@@ -14,6 +14,11 @@ type RemoteSkillIo = {
   runCommand: typeof runSshSandboxCommand;
 };
 
+type RemoteSkillTimingOptions = {
+  logTiming?: (message: string) => void;
+  now?: () => number;
+};
+
 const MAX_SKILLS = 128;
 const MAX_SKILL_BYTES = 64 * 1024;
 const MAX_CATALOG_BYTES = 2 * 1024 * 1024;
@@ -143,26 +148,76 @@ export class VmRemoteSkillCatalogService {
   private readonly cache = new Map<string, SandboxBackendSkillCatalog>();
   private readonly inflight = new Map<string, Promise<SandboxBackendSkillCatalog>>();
 
-  constructor(private readonly io: RemoteSkillIo) {}
+  constructor(
+    private readonly io: RemoteSkillIo,
+    private readonly timing: RemoteSkillTimingOptions = {},
+  ) {}
+
+  private logTiming(params: {
+    startedAt: number;
+    outcome: "cache-hit" | "cache-miss" | "refresh" | "inflight";
+    refresh: boolean;
+    status: "ok" | "error";
+    files?: number;
+  }): void {
+    const now = this.timing.now ?? Date.now;
+    this.timing.logTiming?.(
+      `event=platformclaw_vm_skill_catalog_timing status=${params.status} outcome=${params.outcome} refresh=${String(params.refresh)} durationMs=${String(Math.max(0, now() - params.startedAt))}${params.files === undefined ? "" : ` files=${String(params.files)}`}`,
+    );
+  }
 
   async list(
     target: Readonly<AssignedVmTargetSnapshot>,
     refresh: boolean,
   ): Promise<SandboxBackendSkillCatalog> {
+    const now = this.timing.now ?? Date.now;
+    const startedAt = now();
     const targetPrefix = `${target.agentId}\0${target.targetId}:`;
     const key = `${targetPrefix}${target.revision}`;
     const cached = this.cache.get(key);
     if (cached && !refresh) {
+      this.logTiming({
+        startedAt,
+        outcome: "cache-hit",
+        refresh,
+        status: "ok",
+        files: cached.files.length,
+      });
       return cached;
     }
     const active = this.inflight.get(key);
     if (active) {
-      return await active;
+      try {
+        const catalog = await active;
+        this.logTiming({
+          startedAt,
+          outcome: "inflight",
+          refresh,
+          status: "ok",
+          files: catalog.files.length,
+        });
+        return catalog;
+      } catch (error) {
+        this.logTiming({ startedAt, outcome: "inflight", refresh, status: "error" });
+        throw error;
+      }
     }
+    const outcome = refresh ? "refresh" : "cache-miss";
     const scan = this.scan(target, key, targetPrefix);
     this.inflight.set(key, scan);
     try {
-      return await scan;
+      const catalog = await scan;
+      this.logTiming({
+        startedAt,
+        outcome,
+        refresh,
+        status: "ok",
+        files: catalog.files.length,
+      });
+      return catalog;
+    } catch (error) {
+      this.logTiming({ startedAt, outcome, refresh, status: "error" });
+      throw error;
     } finally {
       if (this.inflight.get(key) === scan) {
         this.inflight.delete(key);
