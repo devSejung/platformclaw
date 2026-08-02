@@ -34,7 +34,7 @@ services:
       PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
       PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_execution_service_token
       PLATFORMCLAW_KNOX_CDEP_URL: ${PLATFORMCLAW_KNOX_CDEP_URL:?set PLATFORMCLAW_KNOX_CDEP_URL}
-      PLATFORMCLAW_KNOX_CONTROL_PLANE_URL: http://control.platformclaw.local:19001/platformclaw/internal/knox/route
+      PLATFORMCLAW_KNOX_CONTROL_PLANE_URL: http://control.platformclaw.local:19002/platformclaw/internal/knox/route
       PLATFORMCLAW_KNOX_WEBHOOK_SECRET_FILE: /run/secrets/platformclaw_knox_webhook_secret
       PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_knox_service_token
       PLATFORMCLAW_SANDBOX_IMAGE: ${PLATFORMCLAW_SANDBOX_IMAGE:-platformclaw-sandbox:local}
@@ -88,7 +88,7 @@ services:
       HOME: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/control/home
       PLATFORMCLAW_PUBLIC_ORIGIN: ${PLATFORMCLAW_PUBLIC_ORIGIN:?set PLATFORMCLAW_PUBLIC_ORIGIN}
       PLATFORMCLAW_LISTEN_HOST: 0.0.0.0
-      PLATFORMCLAW_LISTEN_PORT: "19001"
+      PLATFORMCLAW_LISTEN_PORT: "19002"
       PLATFORMCLAW_DATABASE_PATH: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/control/platformclaw-control.sqlite
       PLATFORMCLAW_CONTROL_UI_ROOT: /app/ui/dist
       PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/workspaces
@@ -120,7 +120,7 @@ services:
         aliases: [control.platformclaw.local]
       platformclaw-control-egress: {}
     ports:
-      - "0.0.0.0:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"
+      - "0.0.0.0:${PLATFORMCLAW_PUBLIC_PORT:-19002}:19002"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     init: true
@@ -132,7 +132,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:19001/platformclaw/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:19002/platformclaw/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 5s
       timeout: 3s
