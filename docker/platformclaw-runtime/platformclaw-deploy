@@ -71,6 +71,7 @@ service_home="$(getent passwd "$service_user" | cut -d: -f6)"
 deploy_root="${PLATFORMCLAW_DEPLOY_ROOT:-$service_home/platformclaw}"
 env_file="${PLATFORMCLAW_ENV_FILE:-$deploy_root/deployment.env}"
 gateway_state="$deploy_root/data/gateway-home/.openclaw"
+gateway_home="$deploy_root/data/gateway-home"
 gateway_state_backup_root="$deploy_root/backups/gateway-state"
 previous_gateway_state_file="$env_file.previous-state"
 control_state="$deploy_root/data/control"
@@ -108,10 +109,11 @@ require_rootless_docker() {
 ensure_layout() {
   if [[ "$(id -u)" == "0" ]]; then
     install -d -o "$runtime_uid" -g "$runtime_gid" -m 0700 "$deploy_root" \
-      "$deploy_root/data" "$gateway_state" "$control_state" "$workspace_root" \
+      "$deploy_root/data" "$gateway_home" "$gateway_state" "$control_state" "$workspace_root" \
       "$secret_root" "$cert_root" "$deploy_root/releases"
   else
     require_service_user
+    [[ -d "$gateway_home" ]] || install -d -m 0700 "$gateway_home"
     install -d -m 0700 "$deploy_root" "$deploy_root/data" "$gateway_state" \
       "$control_state" "$workspace_root" "$secret_root" "$cert_root" "$deploy_root/releases"
   fi
@@ -211,6 +213,27 @@ require_complete_secrets() {
 durable_state_exists() {
   [[ -f "$legacy_state_marker" ]] || \
     [[ -n "$(find "$gateway_state" "$control_state" -mindepth 1 -print -quit)" ]]
+}
+
+prepare_runtime_files() {
+  ensure_layout
+  validate_deployment_env
+  provision_ca
+  if durable_state_exists; then
+    require_complete_secrets
+  fi
+  provision_missing_secrets
+}
+
+require_gateway_restore_access() {
+  local probe
+  if ! probe="$(mktemp -d "$gateway_home/.restore-preflight.XXXXXX")" || \
+    [[ -z "$probe" ]]; then
+    echo "Gateway home must be writable by $service_user before image update: $gateway_home" >&2
+    echo "Repair ownership, then retry: sudo chown $runtime_uid:$runtime_gid -- $gateway_home" >&2
+    return 1
+  fi
+  rmdir "$probe"
 }
 
 quiesce_rootless_sandboxes() {
@@ -453,7 +476,7 @@ restore_gateway_state_backup() {
       ;;
   esac
 
-  if ! staging="$(mktemp -d "$deploy_root/data/gateway-home/.restore.XXXXXX")" || \
+  if ! staging="$(mktemp -d "$gateway_home/.restore.XXXXXX")" || \
     [[ -z "$staging" ]]; then
     echo "Failed to create Gateway state restore staging directory." >&2
     return 1
@@ -630,6 +653,7 @@ apply_images() {
   current_main="$(read_env_value PLATFORMCLAW_IMAGE)"
   current_sandbox="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE)"
   if [[ "$current_main" == "$main_image" && "$current_sandbox" == "$sandbox_image" ]]; then
+    prepare_runtime_files
     "${compose[@]}" up -d --wait
     echo "PlatformClaw already uses: $main_image / $sandbox_image"
     return
@@ -640,6 +664,8 @@ apply_images() {
     echo "Reload its transfer archive before updating; no deployment state was changed." >&2
     exit 1
   fi
+  prepare_runtime_files
+  require_gateway_restore_access
 
   cp -f "$env_file" "$env_file.previous"
   chmod 0600 "$env_file.previous"
@@ -815,13 +841,7 @@ case "$command_name" in
     require_service_user
     require_main_docker
     require_rootless_docker
-    ensure_layout
-    validate_deployment_env
-    provision_ca
-    if durable_state_exists; then
-      require_complete_secrets
-    fi
-    provision_missing_secrets
+    prepare_runtime_files
     main_image="$(read_env_value PLATFORMCLAW_IMAGE)"
     sandbox_image="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE)"
     DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$main_image" >/dev/null
