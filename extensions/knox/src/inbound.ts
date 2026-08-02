@@ -32,6 +32,22 @@ function isRuntimeTimeout(error: unknown): boolean {
   return false;
 }
 
+function isGatewayDrainingError(error: unknown): boolean {
+  let candidate = error;
+  const seen = new Set<object>();
+  while (candidate && typeof candidate === "object" && !seen.has(candidate)) {
+    seen.add(candidate);
+    const value = candidate as { name?: unknown; cause?: unknown };
+    // GatewayDrainingError is a runtime lifecycle signal, not a terminal agent failure.
+    // Rethrowing lets durable ingress retry instead of sending a contradictory final error.
+    if (value.name === "GatewayDrainingError") {
+      return true;
+    }
+    candidate = value.cause;
+  }
+  return false;
+}
+
 export async function dispatchKnoxInbound(params: {
   account: ResolvedKnoxAccount;
   message: KnoxInboundMessage;
@@ -212,7 +228,7 @@ export async function dispatchKnoxInbound(params: {
     await progressTask;
     // A stable final delivery is retried by durable ingress. Sending a distinct
     // error here could produce contradictory terminal messages after an ambiguous timeout.
-    if (error instanceof KnoxOutboundError) {
+    if (error instanceof KnoxOutboundError || isGatewayDrainingError(error)) {
       throw error;
     }
     // A delivered final uses stable idempotency on retry. Never follow it with a
