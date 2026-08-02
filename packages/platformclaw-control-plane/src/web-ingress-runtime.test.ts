@@ -151,6 +151,27 @@ describe("createPlatformClawWebIngressRuntime", () => {
       expect(loginPage.status).toBe(200);
       expect(await loginPage.text()).toContain("<!doctype html>Login");
 
+      const rootEntry = await fetch(`http://127.0.0.1:${port}/`, { redirect: "manual" });
+      expect(rootEntry.status).toBe(302);
+      expect(rootEntry.headers.get("location")).toBe("/platformclaw/app/chat");
+      expect(rootEntry.headers.get("cache-control")).toBe("no-store");
+      expect(rootEntry.headers.get("referrer-policy")).toBe("no-referrer");
+
+      const loginFromRoot = await fetch(`http://127.0.0.1:${port}/`);
+      expect(loginFromRoot.status).toBe(200);
+      expect(loginFromRoot.url).toBe(
+        `http://127.0.0.1:${port}/platformclaw/login?returnTo=%2Fplatformclaw%2Fapp%2Fchat`,
+      );
+      expect(await loginFromRoot.text()).toContain("<!doctype html>Login");
+
+      const rootHead = await fetch(`http://127.0.0.1:${port}/`, {
+        method: "HEAD",
+        redirect: "manual",
+      });
+      expect(rootHead.status).toBe(302);
+      expect(rootHead.headers.get("location")).toBe("/platformclaw/app/chat");
+      expect(await rootHead.text()).toBe("");
+
       const appBeforeLogin = await fetch(
         `http://127.0.0.1:${port}/platformclaw/app/chat?view=compact`,
         { redirect: "manual" },
