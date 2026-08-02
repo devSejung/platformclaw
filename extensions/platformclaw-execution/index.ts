@@ -29,6 +29,7 @@ export default definePluginEntry({
     registerSandboxBackend(PLATFORMCLAW_EXECUTION_BACKEND_ID, {
       factory: async (params) =>
         await createPlatformClawExecutionBackendFactory(await dependenciesPromise)(params),
+      skillMaterialization: "backend-deferred",
       skills: async (params) =>
         await createPlatformClawExecutionSkillProvider(await dependenciesPromise)(params),
       skillWorkshop: async (params) =>

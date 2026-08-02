@@ -127,11 +127,17 @@ export function createPlatformClawExecutionBackendFactory(
     // Resolve exactly once per context creation. The copied snapshot keeps a
     // target change from redirecting an already-prepared run mid-execution.
     const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
-    // Discover before opening a run handle so a malformed remote catalog cannot
-    // strand backend-owned resources that the caller never receives.
-    // A new backend context is a new connection boundary. Refresh here so VM
-    // edits are visible to the next run, then pin that catalog on the handle.
-    const skillCatalog = await dependencies.listTargetSkills({ refresh: true, target });
+    // Cache misses and target revisions discover a fresh VM catalog. Explicit
+    // Skills refresh owns same-revision invalidation; ordinary runs reuse it.
+    const skillCatalog = await dependencies.listTargetSkills({ refresh: false, target });
+    if (!skillCatalog) {
+      if (!createParams.materializeSkills) {
+        throw new Error("PlatformClaw Basic workspace requires Gateway skill materialization.");
+      }
+      // Docker resolves read-only skill mounts while creating its handle, so
+      // materialization must finish before delegating to the core backend.
+      await createParams.materializeSkills();
+    }
     const handle =
       target.kind === "platform_server"
         ? await dependencies.createPlatformServerHandle({ createParams, target })

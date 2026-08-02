@@ -335,8 +335,9 @@ VM administrators install approved shared skills under
 their remote workspace `skills` and `.agents/skills`, plus
 `$HOME/.agents/skills` and `$HOME/.openclaw/skills`. Remote discovery is added
 only to `platformclaw-execution`; generic upstream Docker and SSH behavior stays
-unchanged. Discovery happens at connect/reconnect, cache invalidation, or an
-explicit UI refresh. One immutable snapshot is used per run. The first release
+unchanged. Discovery happens on a Gateway cache miss, execution-target revision
+change, or explicit UI refresh. Ordinary runs reuse the bounded cached catalog.
+One immutable snapshot is used per run. The first release
 has no per-agent allowlist because VM global skills are administrator-approved.
 
 VM discovery precedence is remote workspace `skills`, remote workspace

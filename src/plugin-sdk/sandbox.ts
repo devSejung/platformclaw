@@ -21,6 +21,7 @@ export type {
   SandboxBackendSkillCatalog,
   SandboxBackendSkillFile,
   SandboxBackendSkillProvider,
+  SandboxBackendSkillMaterializationMode,
   SandboxBackendSkillWorkshopProvider,
   SandboxBackendWorkdirValidation,
   SandboxBackendWorkdirResolver,

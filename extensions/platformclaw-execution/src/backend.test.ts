@@ -21,6 +21,7 @@ function createParams(
     scopeKey,
     workspaceDir: `/workspace/${agentId ?? "unknown"}`,
     agentWorkspaceDir: `/agents/${agentId ?? "unknown"}`,
+    materializeSkills: vi.fn(async () => undefined),
     cfg: {} as CreateSandboxBackendParams["cfg"],
   };
 }
@@ -55,7 +56,11 @@ function createDependencies(
     createAssignedVmHandle: vi.fn(async ({ target }) =>
       createHandle(`vm-${target.agentId}-${target.revision}`),
     ),
-    listTargetSkills: vi.fn(async () => undefined),
+    listTargetSkills: vi.fn(async ({ target }) =>
+      target.kind === "assigned_vm"
+        ? { revision: `${target.targetId}:${target.revision}`, files: [] }
+        : undefined,
+    ),
     createSkillWorkshopTarget: vi.fn(async () => undefined),
   };
 }
@@ -109,8 +114,10 @@ describe("PlatformClaw execution backend", () => {
       expect.objectContaining({ createParams: secondParams }),
     );
     expect(dependencies.listTargetSkills).toHaveBeenCalledWith(
-      expect.objectContaining({ refresh: true }),
+      expect.objectContaining({ refresh: false }),
     );
+    expect(firstParams.materializeSkills).toHaveBeenCalledOnce();
+    expect(secondParams.materializeSkills).not.toHaveBeenCalled();
     expect(first).toMatchObject({
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
       runtimeId: "server-person_one-3",
@@ -271,6 +278,23 @@ describe("PlatformClaw execution backend", () => {
       createPlatformClawExecutionBackendFactory(dependencies)(createParams("person_one")),
     ).rejects.toThrow("VM connection unavailable");
     expect(dependencies.createPlatformServerHandle).not.toHaveBeenCalled();
+  });
+
+  it("materializes Basic workspace skills before creating the Docker handle", async () => {
+    const dependencies = createDependencies(async () => ({
+      kind: "platform_server",
+      agentId: "person_one",
+      revision: 1,
+      targetId: "server-default",
+    }));
+    const params = createParams("person_one");
+
+    await createPlatformClawExecutionBackendFactory(dependencies)(params);
+
+    expect(params.materializeSkills).toHaveBeenCalledOnce();
+    expect(vi.mocked(params.materializeSkills!).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(dependencies.createPlatformServerHandle).mock.invocationCallOrder[0]!,
+    );
   });
 
   it("does not create a backend handle when target skill discovery fails", async () => {

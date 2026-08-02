@@ -82,6 +82,13 @@ tracked in `scripts/lib/plugin-sdk-deprecated-public-subpaths.json`; broad
 deprecated re-export barrels are tracked in
 `scripts/lib/plugin-sdk-deprecated-barrel-subpaths.json`.
 
+Sandbox backend plugins use `openclaw/plugin-sdk/sandbox`. Backends that choose
+between Gateway-owned skills and a target-owned `skillCatalog` can register
+`skillMaterialization: "backend-deferred"`. Their factory receives an
+idempotent `materializeSkills()` callback. It must await that callback before
+creating runtime mounts unless the returned handle supplies `skillCatalog`;
+OpenClaw rejects a handle that does neither.
+
 ## Registration API
 
 The `register(api)` callback receives an `OpenClawPluginApi` object with these

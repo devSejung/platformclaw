@@ -119,14 +119,21 @@ describe("VM remote skill catalog", () => {
       service.list(TARGET, false),
     ]);
     const cached = await service.list(TARGET, false);
-    const refreshed = await service.list(TARGET, true);
+    const [refreshed, concurrentRefresh] = await Promise.all([
+      service.list(TARGET, true),
+      service.list(TARGET, true),
+    ]);
+    const revised = await service.list({ ...TARGET, revision: TARGET.revision + 1 }, false);
 
     expect(first).toBe(cached);
     expect(first).toBe(concurrent);
     expect(refreshed).not.toBe(first);
-    expect(runCommand).toHaveBeenCalledTimes(2);
-    expect(createSession).toHaveBeenCalledTimes(2);
-    expect(disposeSession).toHaveBeenCalledTimes(2);
+    expect(concurrentRefresh).toBe(refreshed);
+    expect(revised).not.toBe(refreshed);
+    expect(revised.revision).toBe(`${TARGET.targetId}:${TARGET.revision + 1}`);
+    expect(runCommand).toHaveBeenCalledTimes(3);
+    expect(createSession).toHaveBeenCalledTimes(3);
+    expect(disposeSession).toHaveBeenCalledTimes(3);
     expect(first.files).toEqual([
       expect.objectContaining({
         source: "platformclaw-vm-managed",
