@@ -537,8 +537,9 @@ the current target and requires the original allocation identity, exact
 proposal revision, and exact evaluated tree. Concurrent or external edits fail
 closed. Interrupted writes reconcile from SQLite rollback facts before a retry.
 
-Administrators own `/opt/platformclaw/skills`, including the canonical bundled
-`skill-creator`. Users own only workspace skills. This avoids copying server
+Administrators own global skills under `/opt/platformclaw/skills`. PlatformClaw
+VM images own built-in skills under `/opt/platformclaw/bundle`, including the
+canonical bundled `skill-creator`. Users own only workspace skills. This avoids copying server
 paths into a VM, avoids split bundle versions, and keeps normal PlatformClaw
 server users on the unchanged upstream Workshop path. Future upstream syncs
 must prefer a native remote Workshop target contract if it satisfies these

@@ -22,8 +22,8 @@ const MAX_CACHED_TARGETS = 256;
 const SCAN_TIMEOUT_MS = 15_000;
 const SKILL_SOURCES = new Set([
   "platformclaw-vm-workspace",
-  "platformclaw-vm-user",
   "platformclaw-vm-managed",
+  "platformclaw-vm-bundled",
 ]);
 
 export const VM_REMOTE_SKILL_SCAN_SCRIPT = String.raw`
@@ -56,9 +56,8 @@ scan_root() {
 }
 scan_root "$workspace/skills" "platformclaw-vm-workspace"
 scan_root "$workspace/.agents/skills" "platformclaw-vm-workspace"
-scan_root "$HOME/.agents/skills" "platformclaw-vm-user"
-scan_root "$HOME/.openclaw/skills" "platformclaw-vm-user"
 scan_root "/opt/platformclaw/skills" "platformclaw-vm-managed"
+scan_root "/opt/platformclaw/bundle" "platformclaw-vm-bundled"
 `;
 
 function decodeBase64(value: string, label: string, allowEmpty = false): Buffer {
