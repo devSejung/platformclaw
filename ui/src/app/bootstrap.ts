@@ -238,7 +238,7 @@ export type ApplicationRuntime = {
   stop: () => void;
 };
 
-export type ApplicationSettingsNavigationMode = "inline" | "takeover";
+type ApplicationSettingsNavigationMode = "inline" | "takeover";
 
 export type ApplicationShellSession = {
   readonly primaryLabel: string;
