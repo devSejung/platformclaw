@@ -28,6 +28,30 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+describe("settings navigation mode", () => {
+  it("preserves defaults and allows an embedded product to opt into takeover", () => {
+    const defaultRuntime = bootstrapApplication();
+    const operator = bootstrapApplication({ accessMode: "operator" });
+    const personal = bootstrapApplication({ accessMode: "personal-agent" });
+    const embedded = bootstrapApplication({
+      accessMode: "personal-agent",
+      navigation: { settingsNavigationMode: "takeover" },
+    });
+
+    try {
+      expect(defaultRuntime.settingsNavigationMode).toBe("takeover");
+      expect(operator.settingsNavigationMode).toBe("takeover");
+      expect(personal.settingsNavigationMode).toBe("inline");
+      expect(embedded.settingsNavigationMode).toBe("takeover");
+    } finally {
+      defaultRuntime.stop();
+      operator.stop();
+      personal.stop();
+      embedded.stop();
+    }
+  });
+});
+
 describe("normalizeInitialApplicationLocation", () => {
   it("routes an opaque persisted key without aborting bootstrap", () => {
     expect(

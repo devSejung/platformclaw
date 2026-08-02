@@ -209,14 +209,11 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(adminOptions.enabledRouteIds).toContain("plugins");
     expect(adminOptions.enabledRouteIds).toContain("mcp");
     expect(adminOptions.navigation?.sidebarEntries).toContain("route:plugins");
+    expect(adminOptions.navigation?.settingsNavigationMode).toBe("takeover");
     render(adminOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
     expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
-    expect(
-      document
-        .querySelector<HTMLAnchorElement>(".platformclaw-mcp-navigation")
-        ?.getAttribute("href"),
-    ).toBe("/platformclaw/app/settings/mcp");
+    expect(document.querySelector(".platformclaw-mcp-navigation")).toBeNull();
     expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(0);
     expect(document.querySelectorAll("platformclaw-vm-administration")).toHaveLength(1);
     await customElements.whenDefined("platformclaw-vm-administration");
@@ -248,6 +245,7 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(memberOptions.navigation?.sidebarEntries).toContain("route:plugins");
     expect(memberOptions.navigation?.sidebarEntries).not.toContain("route:skills");
     expect(memberOptions.navigation?.sidebarRouteTargets).toEqual({ plugins: "skills" });
+    expect(memberOptions.navigation?.settingsNavigationMode).toBe("takeover");
     render(memberOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
     expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);

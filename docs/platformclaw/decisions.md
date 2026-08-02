@@ -495,6 +495,10 @@ administrator-approved servers that require a personal credential. An
 administrator sees the global server registry first and their own personal
 credential section below it. Credential-free and shared-credential servers are
 shown in the administrator registry but never create employee setup work.
+PlatformClaw opts into the generic Control UI Settings navigation shell for
+personal-agent sessions, so MCP stays in Settings instead of becoming a raw
+product footer shortcut. The work-location control remains a downstream footer
+accessory; upstream receives only the product-agnostic navigation opt-in.
 The approved URL, credential kind, API-key header, and OAuth scope are part of
 the credential binding and fail closed after a mismatch. MCP policy is
 process-stable; changing it requires a coordinated Gateway and Control restart.

@@ -123,7 +123,7 @@ export function renderApplicationShell(host: ShellViewHost) {
       : null;
   const activePluginTabId = activePluginRef ? pluginTabKey(activePluginRef) : "";
   const settingsTakeover =
-    context.accessMode === "operator" && isSettingsNavigationRoute(activeRoute);
+    runtime.settingsNavigationMode === "takeover" && isSettingsNavigationRoute(activeRoute);
   const operatorChrome = runtime.shellSession === null;
   const runtimeConfig = context.runtimeConfig.state;
   const settingsSearchBlocks = findSettingsSearchBlocks({
