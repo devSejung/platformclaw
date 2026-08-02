@@ -108,8 +108,9 @@ PLATFORMCLAW_TZ=Asia/Seoul
 ```
 
 secret 경로는 `~/platformclaw/secrets`를 가리킨다. `init`은 경로만 기록하며, 첫
-`up` 또는 image 업데이트가 누락된 secret 파일을 서비스 중지 전에 생성한다. 기존
-non-empty secret은 다시 만들지 않는다. 특히 SSH credential master key를 잃으면
+새 설치의 첫 `up`은 누락된 secret 파일을 생성한다. image 업데이트는 기존 Gateway,
+execution, SSH credential secret이 모두 존재해야 시작하며, 신규 Knox secret만 누락된
+경우 이를 서비스 중지 전에 추가한다. 기존 non-empty secret은 다시 만들지 않는다. 특히 SSH credential master key를 잃으면
 Control DB의 저장 credential을 복호화할 수 없다.
 
 `setup`/`up`은 `~/platformclaw/certs/employee-auth-ca.pem`이 없을 때만 Ubuntu CA
@@ -350,6 +351,9 @@ health를 기다린다. health가 통과하면 기존 Agent sandbox를 모두 �
 새 sandbox 이미지로 다시 만들게 한다. Doctor, health, sandbox 제거 중 하나라도 실패하면
 `deployment.env.previous`와 migration 전 Gateway 상태를 함께 복원한 뒤 이전 이미지로
 재기동한다. 이전 이미지와 상태 백업은 rollback을 위해 자동 삭제하지 않는다.
+
+실패한 업데이트를 같은 image ref로 재시도해도 이 절차를 생략하지 않는다. Gateway 상태를
+다시 백업하고 doctor migration을 실행한 뒤에만 서비스를 시작한다.
 
 이미 로드된 tag만 바꿀 때:
 
