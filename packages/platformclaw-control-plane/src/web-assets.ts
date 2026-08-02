@@ -6,6 +6,7 @@ import { extname, join, relative, resolve, sep } from "node:path";
 
 export const PLATFORMCLAW_WEB_LOGIN_PATH = "/platformclaw/login";
 export const PLATFORMCLAW_WEB_APP_PATH = "/platformclaw/app";
+export const PLATFORMCLAW_WEB_DEFAULT_APP_PATH = `${PLATFORMCLAW_WEB_APP_PATH}/chat`;
 export const PLATFORMCLAW_WEB_ASSET_PREFIX = "/platformclaw/assets/";
 export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descriptor";
 
@@ -256,6 +257,14 @@ export function createPlatformClawWebAssetHandler(
   return {
     async handlePublic(req, res) {
       const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+      if (pathname === "/" && (req.method === "GET" || req.method === "HEAD")) {
+        setSecurityHeaders(res);
+        res.setHeader("Location", PLATFORMCLAW_WEB_DEFAULT_APP_PATH);
+        res.setHeader("Cache-Control", "no-store");
+        res.statusCode = 302;
+        res.end();
+        return true;
+      }
       const isLogin = pathname === PLATFORMCLAW_WEB_LOGIN_PATH;
       const asset = assets.get(pathname);
       if (!isLogin && !asset) {
