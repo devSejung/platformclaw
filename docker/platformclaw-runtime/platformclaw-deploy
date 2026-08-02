@@ -203,7 +203,7 @@ require_complete_secrets() {
     [[ -s "$secret_root/$name" ]] || missing_secrets+=("$name")
   done
   if (( ${#missing_secrets[@]} > 0 )); then
-    printf 'Migrated durable state requires its original secrets; missing: %s\n' \
+    printf 'Existing deployment state requires its original secrets; missing: %s\n' \
       "${missing_secrets[*]}" >&2
     echo "Restore them into $secret_root before starting. No replacement keys were generated." >&2
     exit 1
@@ -215,13 +215,25 @@ durable_state_exists() {
     [[ -n "$(find "$gateway_state" "$control_state" -mindepth 1 -print -quit)" ]]
 }
 
-prepare_runtime_files() {
+prepare_runtime_file_layout() {
   ensure_layout
   validate_deployment_env
   provision_ca
+}
+
+prepare_runtime_files() {
+  prepare_runtime_file_layout
   if durable_state_exists; then
     require_complete_secrets
   fi
+  provision_missing_secrets
+}
+
+prepare_image_update_runtime_files() {
+  prepare_runtime_file_layout
+  # An update may add integration secrets, but it must never mint a replacement
+  # deployment identity when the original state is temporarily unavailable.
+  require_complete_secrets
   provision_missing_secrets
 }
 
@@ -641,6 +653,10 @@ apply_images() {
   local current_main
   local current_sandbox
   local gateway_state_backup=""
+  local rollback_main=""
+  local rollback_sandbox=""
+  local rollback_pair_available="0"
+  local same_image_pair="0"
   require_service_user
   require_immutable_image_ref "$main_image" "Main image"
   require_immutable_image_ref "$sandbox_image" "Sandbox image"
@@ -653,23 +669,32 @@ apply_images() {
   current_main="$(read_env_value PLATFORMCLAW_IMAGE)"
   current_sandbox="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE)"
   if [[ "$current_main" == "$main_image" && "$current_sandbox" == "$sandbox_image" ]]; then
-    prepare_runtime_files
-    "${compose[@]}" up -d --wait
-    echo "PlatformClaw already uses: $main_image / $sandbox_image"
-    return
-  fi
-
-  if ! image_pair_available "$current_main" "$current_sandbox"; then
+    same_image_pair="1"
+    if [[ -f "$env_file.previous" ]]; then
+      rollback_main="$(read_env_value PLATFORMCLAW_IMAGE "$env_file.previous")"
+      rollback_sandbox="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE "$env_file.previous")"
+      if [[ "$rollback_main" != "$current_main" || "$rollback_sandbox" != "$current_sandbox" ]] && \
+        image_pair_available "$rollback_main" "$rollback_sandbox"; then
+        rollback_pair_available="1"
+      fi
+    fi
+  elif ! image_pair_available "$current_main" "$current_sandbox"; then
     echo "Current rollback image pair is not available locally: $current_main / $current_sandbox" >&2
     echo "Reload its transfer archive before updating; no deployment state was changed." >&2
     exit 1
+  else
+    rollback_main="$current_main"
+    rollback_sandbox="$current_sandbox"
+    rollback_pair_available="1"
   fi
-  prepare_runtime_files
+  prepare_image_update_runtime_files
   require_gateway_restore_access
 
-  cp -f "$env_file" "$env_file.previous"
-  chmod 0600 "$env_file.previous"
-  set_image_pair "$main_image" "$sandbox_image"
+  if [[ "$same_image_pair" != "1" ]]; then
+    cp -f "$env_file" "$env_file.previous"
+    chmod 0600 "$env_file.previous"
+    set_image_pair "$main_image" "$sandbox_image"
+  fi
 
   # Doctor owns persisted-state upgrades. Keep a quiesced full state snapshot so
   # a failed health check can restore both the old image refs and its DB schema.
@@ -695,11 +720,11 @@ apply_images() {
       exit 1
     }
   fi
-  if image_pair_available "$current_main" "$current_sandbox"; then
-    restore_previous_images
+  if [[ "$rollback_pair_available" == "1" ]]; then
+    set_image_pair "$rollback_main" "$rollback_sandbox"
     "${compose[@]}" up -d --wait || true
   else
-    echo "Rollback images disappeared during the update; keeping the attempted image refs." >&2
+    echo "No distinct rollback image pair is available; services remain stopped." >&2
     echo "No registry pull was attempted. Reload the previous transfer archive before rollback." >&2
   fi
   exit 1

@@ -755,7 +755,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain('runuser -u "$service_user"');
     expect(deploy).toContain('"${legacy_project}_platformclaw-gateway-state"');
     expect(deploy).toContain('"${legacy_project}_platformclaw-workspaces"');
-    expect(deploy).toContain("Migrated durable state requires its original secrets");
+    expect(deploy).toContain("Existing deployment state requires its original secrets");
     expect(deploy).toContain("Refusing to skip durable volume");
     expect(deploy).toContain("Skip empty legacy volume");
     expect(deploy).toContain('legacy_state_marker="$deploy_root/.legacy-durable-state"');
@@ -774,7 +774,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain("doctor --fix --yes --non-interactive");
     expect(deploy).toContain("restoring previous image refs and Gateway state");
     expect(deploy).toContain("Rollback failed. Current deployment env restored");
-    expect(deploy).toContain("PlatformClaw already uses");
+    expect(deploy).not.toContain("PlatformClaw already uses");
     expect(deploy).toContain('image inspect "$previous_sandbox"');
     expect(deploy).toContain("recreate_sandboxes");
     expect(deploy).toContain("node /app/openclaw.mjs sandbox recreate --all --force");
@@ -783,13 +783,31 @@ describe("PlatformClaw Docker runtime", () => {
       deploy.indexOf("require_gateway_restore_access()"),
     );
     expect(prepareRuntimeFiles).toContain("provision_missing_secrets");
+    const prepareImageUpdateRuntimeFiles = deploy.slice(
+      deploy.indexOf("prepare_image_update_runtime_files()"),
+      deploy.indexOf("require_gateway_restore_access()"),
+    );
+    expect(prepareImageUpdateRuntimeFiles.indexOf("require_complete_secrets")).toBeLessThan(
+      prepareImageUpdateRuntimeFiles.indexOf("provision_missing_secrets"),
+    );
     const applyImages = deploy.slice(
       deploy.indexOf("apply_images()"),
       deploy.indexOf('\ncase "$command_name" in'),
     );
-    expect(applyImages.indexOf("prepare_runtime_files")).toBeLessThan(
+    expect(applyImages).toContain('same_image_pair="1"');
+    const sameImageBranch = applyImages.slice(
+      applyImages.indexOf('same_image_pair="1"'),
+      applyImages.indexOf('elif ! image_pair_available "$current_main" "$current_sandbox"'),
+    );
+    expect(sameImageBranch).not.toContain('"${compose[@]}" up -d --wait');
+    expect(sameImageBranch).not.toContain("return");
+    expect(applyImages.indexOf("prepare_image_update_runtime_files")).toBeLessThan(
       applyImages.indexOf('cp -f "$env_file" "$env_file.previous"'),
     );
+    expect(applyImages.indexOf("run_upgrade_doctor")).toBeLessThan(
+      applyImages.indexOf('"${compose[@]}" up -d --wait &&'),
+    );
+    expect(applyImages).toContain('set_image_pair "$rollback_main" "$rollback_sandbox"');
     expect(applyImages.indexOf("require_gateway_restore_access")).toBeLessThan(
       applyImages.indexOf('"${compose[@]}" down'),
     );
