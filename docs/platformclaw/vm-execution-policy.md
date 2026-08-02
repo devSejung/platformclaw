@@ -330,18 +330,19 @@ Server Docker sandboxes retain upstream discovery and materialization. Gateway
 mounts the prepared snapshot read-only at
 `/workspace/.openclaw/sandbox-skills/skills`.
 
-VM administrators install approved shared skills under
-`/opt/platformclaw/skills/<skill>/SKILL.md`. VM users may also own skills under
-their remote workspace `skills` and `.agents/skills`, plus
-`$HOME/.agents/skills` and `$HOME/.openclaw/skills`. Remote discovery is added
-only to `platformclaw-execution`; generic upstream Docker and SSH behavior stays
-unchanged. Discovery happens at connect/reconnect, cache invalidation, or an
-explicit UI refresh. One immutable snapshot is used per run. The first release
-has no per-agent allowlist because VM global skills are administrator-approved.
+VM administrators install approved global skills under
+`/opt/platformclaw/skills/<skill>/SKILL.md`. PlatformClaw VM images install
+release-owned built-in skills under `/opt/platformclaw/bundle/<skill>/SKILL.md`.
+VM users own skills under their remote workspace `skills` and `.agents/skills`.
+Remote discovery is added only to `platformclaw-execution`; generic upstream
+Docker and SSH behavior stays unchanged. Discovery happens at connect/reconnect,
+cache invalidation, or an explicit UI refresh. One immutable snapshot is used
+per run. The first release has no per-agent allowlist because VM global and
+built-in skills are administrator-approved.
 
 VM discovery precedence is remote workspace `skills`, remote workspace
-`.agents/skills`, user `.agents/skills`, user `.openclaw/skills`, then the
-administrator-managed directory. The first matching skill name wins. Discovery
+.agents/skills`, the administrator-managed global directory, then the
+release-owned built-in directory. The first matching skill name wins. Discovery
 uses the existing SafeConnect session and requires the approved Ubuntu VM base
 tools (`bash`, `find`, `stat`, and `base64`); it does not copy skill trees on
 each run. The Gateway caches only bounded `SKILL.md` content and paths. The
@@ -349,7 +350,7 @@ normal read tool serves that exact immutable content, while referenced scripts
 execute from their existing absolute VM paths.
 
 VM images must install the canonical bundled `skill-creator` tree from this
-release under `/opt/platformclaw/skills/skill-creator`. PlatformClaw does not
+release under `/opt/platformclaw/bundle/skill-creator`. PlatformClaw does not
 silently copy or update administrator-managed skills during an agent run. This
 keeps referenced scripts on the same VM where commands execute and makes image
 rollout the single version owner.
