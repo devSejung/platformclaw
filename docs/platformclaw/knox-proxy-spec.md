@@ -506,8 +506,10 @@ Never record their values or production injection paths in this repository.
 Readiness fails when a required value or initialized crypto dependency is
 unavailable.
 
-`platformclaw-deploy init` generates `knox-webhook-secret` and
-`knox-service-token`. The operator copies their values into CDEP's deployment
+`platformclaw-deploy init` creates the deployment layout and records the Knox
+secret-file paths. The first `platformclaw-deploy up` or image update generates
+missing `knox-webhook-secret` and `knox-service-token` files before Compose can
+stop or start services. The operator copies their values into CDEP's deployment
 secret store and sets `PLATFORMCLAW_KNOX_CDEP_URL` in `deployment.env`; secret
 values never belong in `openclaw.json`.
 

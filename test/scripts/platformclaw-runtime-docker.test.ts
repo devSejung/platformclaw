@@ -763,6 +763,9 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain("No registry pull was attempted");
     expect(deploy).toContain("create_gateway_state_backup");
     expect(deploy).toContain("restore_gateway_state_backup");
+    expect(deploy).toContain('gateway_home="$deploy_root/data/gateway-home"');
+    expect(deploy).toContain('"$deploy_root/data" "$gateway_home" "$gateway_state"');
+    expect(deploy).toContain("require_gateway_restore_access");
     expect(deploy).toContain("doctor --fix --yes --non-interactive");
     expect(deploy).toContain("restoring previous image refs and Gateway state");
     expect(deploy).toContain("Rollback failed. Current deployment env restored");
@@ -770,6 +773,21 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain('image inspect "$previous_sandbox"');
     expect(deploy).toContain("recreate_sandboxes");
     expect(deploy).toContain("node /app/openclaw.mjs sandbox recreate --all --force");
+    const prepareRuntimeFiles = deploy.slice(
+      deploy.indexOf("prepare_runtime_files()"),
+      deploy.indexOf("require_gateway_restore_access()"),
+    );
+    expect(prepareRuntimeFiles).toContain("provision_missing_secrets");
+    const applyImages = deploy.slice(
+      deploy.indexOf("apply_images()"),
+      deploy.indexOf('\ncase "$command_name" in'),
+    );
+    expect(applyImages.indexOf("prepare_runtime_files")).toBeLessThan(
+      applyImages.indexOf('cp -f "$env_file" "$env_file.previous"'),
+    );
+    expect(applyImages.indexOf("require_gateway_restore_access")).toBeLessThan(
+      applyImages.indexOf('"${compose[@]}" down'),
+    );
     expect(deploy.indexOf('"${compose[@]}" up -d --wait &&')).toBeLessThan(
       deploy.indexOf('[[ "$current_sandbox" == "$sandbox_image" ]] || recreate_sandboxes'),
     );

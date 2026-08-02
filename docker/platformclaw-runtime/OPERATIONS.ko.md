@@ -107,9 +107,10 @@ PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL=https://<employee-auth-host>/login
 PLATFORMCLAW_TZ=Asia/Seoul
 ```
 
-secret 경로는 `~/platformclaw/secrets`를 가리킨다. image 업데이트 때 secret을 다시
-만들지 않는다. 특히 SSH credential master key를 잃으면 Control DB의 저장 credential을
-복호화할 수 없다.
+secret 경로는 `~/platformclaw/secrets`를 가리킨다. `init`은 경로만 기록하며, 첫
+`up` 또는 image 업데이트가 누락된 secret 파일을 서비스 중지 전에 생성한다. 기존
+non-empty secret은 다시 만들지 않는다. 특히 SSH credential master key를 잃으면
+Control DB의 저장 credential을 복호화할 수 없다.
 
 `setup`/`up`은 `~/platformclaw/certs/employee-auth-ca.pem`이 없을 때만 Ubuntu CA
 bundle로 초기화한다. 사내 TLS
