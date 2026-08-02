@@ -13,6 +13,7 @@ type ComposeService = {
   depends_on?: Record<string, { condition?: string }>;
   entrypoint?: string[];
   environment?: Record<string, string>;
+  healthcheck?: { test?: string[] };
   networks?: Record<string, { aliases?: string[] }>;
   network_mode?: string;
   ports?: string[];
@@ -155,7 +156,11 @@ describe("PlatformClaw Docker runtime", () => {
 
     expect(gateway?.ports).toBeUndefined();
     expect(gateway?.user).toContain("PLATFORMCLAW_RUNTIME_UID");
-    expect(control?.ports).toEqual(["0.0.0.0:${PLATFORMCLAW_PUBLIC_PORT:-19001}:19001"]);
+    expect(control?.ports).toEqual(["0.0.0.0:${PLATFORMCLAW_PUBLIC_PORT:-19002}:19002"]);
+    expect(control?.environment?.PLATFORMCLAW_LISTEN_PORT).toBe("19002");
+    expect(control?.healthcheck?.test).toContain(
+      "fetch('http://127.0.0.1:19002/platformclaw/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+    );
     expect(control?.user).toContain("PLATFORMCLAW_RUNTIME_UID");
     expect(stateInit?.user).toBe("0:0");
     expect(stateInit?.network_mode).toBe("none");
@@ -176,7 +181,7 @@ describe("PlatformClaw Docker runtime", () => {
       "control.platformclaw.local",
     ]);
     expect(gateway?.environment?.PLATFORMCLAW_KNOX_CONTROL_PLANE_URL).toBe(
-      "http://control.platformclaw.local:19001/platformclaw/internal/knox/route",
+      "http://control.platformclaw.local:19002/platformclaw/internal/knox/route",
     );
     expect(control?.environment?.PLATFORMCLAW_GATEWAY_URL).toBe(
       "ws://gateway.platformclaw.local:18789",
