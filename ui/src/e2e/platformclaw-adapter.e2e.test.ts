@@ -50,6 +50,14 @@ async function installPlatformClawDocument(page: Page): Promise<void> {
   });
 }
 
+async function openPlatformClawMcpSettings(page: Page): Promise<void> {
+  await page.goto(`${server.baseUrl}platformclaw/app/settings/appearance`);
+  const settingsSidebar = page.locator(".settings-sidebar");
+  await expect.poll(() => settingsSidebar.isVisible()).toBe(true);
+  await settingsSidebar.getByRole("link", { name: "MCP", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/mcp");
+}
+
 function activeSession() {
   return {
     authenticated: true,
@@ -201,11 +209,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect.poll(() => page.getByText("Reports").first().isVisible()).toBe(true);
     await expect.poll(() => page.getByRole("tab", { name: "Skills" }).isVisible()).toBe(true);
     await expect.poll(() => page.getByRole("tab", { name: "Workshop" }).isVisible()).toBe(true);
-    await expect
-      .poll(() => page.getByRole("link", { name: "MCP", exact: true }).isVisible())
-      .toBe(true);
-    await page.getByRole("link", { name: "MCP", exact: true }).click();
-    await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/mcp");
+    await openPlatformClawMcpSettings(page);
     expect(await gateway.getRequests("config.get")).toHaveLength(0);
 
     const connect = (await gateway.getRequests("connect"))[0];
@@ -368,12 +372,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       operatorScopes: ["operator.read", "operator.write", "operator.admin"],
     });
 
-    await page.goto(`${server.baseUrl}platformclaw/app/chat`);
-    await expect
-      .poll(() => page.getByRole("link", { name: "MCP", exact: true }).isVisible())
-      .toBe(true);
-    await page.getByRole("link", { name: "MCP", exact: true }).click();
-    await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/mcp");
+    await openPlatformClawMcpSettings(page);
     const admin = page.locator("platformclaw-mcp-administration");
     await expect
       .poll(() => admin.getByRole("heading", { name: "MCP server administration" }).isVisible())
@@ -435,12 +434,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       operatorScopes: ["operator.read", "operator.write"],
     });
 
-    await page.goto(`${server.baseUrl}platformclaw/app/chat`);
-    await expect
-      .poll(() => page.getByRole("link", { name: "MCP", exact: true }).isVisible())
-      .toBe(true);
-    await page.getByRole("link", { name: "MCP", exact: true }).click();
-    await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/mcp");
+    await openPlatformClawMcpSettings(page);
     const settings = page.locator("platformclaw-mcp-settings");
     await expect
       .poll(() => settings.getByRole("heading", { name: "Your MCP credentials" }).isVisible())

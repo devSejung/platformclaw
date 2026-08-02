@@ -230,12 +230,15 @@ export type ApplicationRuntime = {
   } | null;
   readonly enabledRouteIds: readonly RouteId[];
   readonly sidebarRouteTargets: SidebarRouteTargets;
+  readonly settingsNavigationMode: ApplicationSettingsNavigationMode;
   readonly shellSession: ApplicationShellSession | null;
   readonly confirmPendingGatewayConnection: () => void;
   readonly cancelPendingGatewayConnection: () => void;
   start: () => Promise<void>;
   stop: () => void;
 };
+
+export type ApplicationSettingsNavigationMode = "inline" | "takeover";
 
 export type ApplicationShellSession = {
   readonly primaryLabel: string;
@@ -260,6 +263,8 @@ export type ApplicationBootstrapOptions = {
   readonly navigation?: {
     readonly sidebarEntries?: readonly string[];
     readonly sidebarRouteTargets?: SidebarRouteTargets;
+    /** Embedded products may opt into the full Settings navigation shell. */
+    readonly settingsNavigationMode?: ApplicationSettingsNavigationMode;
   };
 };
 
@@ -561,6 +566,11 @@ export function bootstrapApplication(
     documentMode,
     enabledRouteIds,
     sidebarRouteTargets: options.navigation?.sidebarRouteTargets ?? {},
+    // Personal-agent embedders historically render settings inline. Keep that
+    // contract unless the product explicitly owns a complete settings surface.
+    settingsNavigationMode:
+      options.navigation?.settingsNavigationMode ??
+      ((options.accessMode ?? "operator") === "operator" ? "takeover" : "inline"),
     shellSession: options.shellSession ?? null,
     get pendingGatewayConnection() {
       return pendingGatewayConnection;

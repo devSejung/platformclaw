@@ -47,15 +47,18 @@ describeControlUiE2e("PlatformClaw employee execution settings", () => {
   });
 
   it("shows the active work location and requires confirmation before switching", async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const page = await browser.newPage({ viewport: { width: 574, height: 789 } });
     await page.route("**/platformclaw/api/execution", async (route) => {
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({
-          activeTarget: "platform_server",
+          activeTarget: "assigned_vm",
           targetRevision: 3,
           credentialStatus: "current",
+          accountId: "person.one",
+          availableVms: [{ id: "development", label: "Development VM" }],
           assignment: {
+            vmHostId: "development",
             status: "ready",
             vmLabel: "Development VM",
             safeConnectLabel: "Corporate access",
@@ -78,12 +81,12 @@ describeControlUiE2e("PlatformClaw employee execution settings", () => {
 
     const component = page.locator("platformclaw-execution-settings");
     const badge = component.getByRole("button", { name: "Open work location settings" });
-    await expect.poll(async () => await badge.textContent()).toContain("Basic workspace");
+    await expect.poll(async () => await badge.textContent()).toContain("My development VM");
     await badge.click();
     await expect
       .poll(async () => await component.getByRole("dialog", { name: "Work location" }).isVisible())
       .toBe(true);
-    await component.getByRole("button", { name: "Use My development VM" }).click();
+    await component.getByRole("button", { name: "Use Basic workspace" }).click();
     await expect
       .poll(async () => component.getByText("Change work location?", { exact: true }).isVisible())
       .toBe(true);
@@ -91,12 +94,26 @@ describeControlUiE2e("PlatformClaw employee execution settings", () => {
       .poll(async () =>
         component
           .getByText(
-            "Change to My development VM. Conversation and Agent settings stay, but files and running processes remain in the previous location.",
+            "Change to Basic workspace. Conversation and Agent settings stay, but files and running processes remain in the previous location.",
           )
           .isVisible(),
       )
       .toBe(true);
-    await screenshot(page, "01-confirm-vm-switch.png");
+    const confirmButton = component.getByRole("button", { name: "Change location" });
+    await expect
+      .poll(() =>
+        confirmButton.evaluate(
+          (element) => (element.getRootNode() as ShadowRoot).activeElement === element,
+        ),
+      )
+      .toBe(true);
+    const footerBox = await component.locator("[data-confirmation-footer]").boundingBox();
+    const confirmBox = await confirmButton.boundingBox();
+    expect(footerBox).not.toBeNull();
+    expect(confirmBox).not.toBeNull();
+    expect(footerBox!.y + footerBox!.height).toBeLessThanOrEqual(789);
+    expect(confirmBox!.y + confirmBox!.height).toBeLessThanOrEqual(789);
+    await screenshot(page, "01-confirm-basic-switch-narrow.png");
     await page.close();
   });
 });

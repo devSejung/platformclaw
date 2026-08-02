@@ -125,33 +125,10 @@ export class PlatformClawControlUiAdapter {
       primaryLabel: identity.displayName,
       secondaryLabel: identity.department || identity.accountId,
       renderFooterAccessory: () => html`
-        <style>
-          .platformclaw-mcp-navigation {
-            box-sizing: border-box;
-            display: flex;
-            min-height: 34px;
-            align-items: center;
-            border-radius: var(--radius-md);
-            padding: 7px 9px;
-            color: var(--text);
-            text-decoration: none;
-          }
-          .platformclaw-mcp-navigation:hover,
-          .platformclaw-mcp-navigation:focus-visible {
-            background: var(--bg-hover);
-            outline: none;
-          }
-        </style>
         <platformclaw-execution-settings
           .fetchImpl=${this.fetchImpl}
           .onUnauthenticated=${onUnauthenticated}
         ></platformclaw-execution-settings>
-        <a
-          class="platformclaw-mcp-navigation"
-          href="${PLATFORMCLAW_APP_PATH}/settings/mcp"
-          title="MCP settings"
-          >MCP</a
-        >
         ${identity.globalRole === "admin"
           ? html`<platformclaw-vm-administration
               .fetchImpl=${this.fetchImpl}
@@ -220,6 +197,7 @@ export class PlatformClawControlUiAdapter {
       navigation: {
         sidebarEntries,
         sidebarRouteTargets: identity.globalRole === "admin" ? undefined : { plugins: "skills" },
+        settingsNavigationMode: "takeover",
       },
       shellSession,
     };

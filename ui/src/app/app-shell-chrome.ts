@@ -532,7 +532,7 @@ export class ShellChromeOwner {
   private isSettingsTakeover(): boolean {
     const routeId = this.host.routeState.routeId;
     return (
-      this.host.context?.accessMode === "operator" &&
+      this.host.runtime?.settingsNavigationMode === "takeover" &&
       routeId !== undefined &&
       isSettingsNavigationRoute(routeId)
     );
