@@ -246,12 +246,20 @@ export async function runEmbeddedAttempt(
         prepareEmbeddedAttemptBootstrap({
           attempt: params,
           effectiveWorkspace,
-          hasReadTool: toolsEnabled && toolsRaw.some((tool) => tool.name === "read"),
+          hasBootstrapFileAccess:
+            toolsEnabled &&
+            (toolsRaw.some((tool) => tool.name === "bootstrap_complete") ||
+              (sandbox?.backend?.capabilities?.separateAgentWorkspace !== true &&
+                toolsRaw.some((tool) => tool.name === "write" || tool.name === "edit"))),
+          hasMemoryReadTools: toolsRaw.some(
+            (tool) => tool.name === "memory_search" || tool.name === "memory_get",
+          ),
           isRawModelRun,
           markStage: (name) => prepStages.mark(name),
           resolvedWorkspace,
           sessionAgentId,
           sessionLabel: params.sessionKey ?? params.sessionId,
+          sandbox,
         }),
       { config: params.config },
     );

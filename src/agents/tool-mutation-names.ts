@@ -7,6 +7,10 @@ import {
 const MUTATING_TOOL_NAMES = new Set([
   "write",
   "edit",
+  "agent_workspace_write",
+  "agent_workspace_edit",
+  "bootstrap_complete",
+  "memory_write",
   "apply_patch",
   "exec",
   "bash",

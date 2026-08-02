@@ -45,6 +45,7 @@ describe("tool-catalog", () => {
       "x_search",
       "memory_search",
       "memory_get",
+      "memory_write",
       "sessions",
       "sessions_list",
       "sessions_history",

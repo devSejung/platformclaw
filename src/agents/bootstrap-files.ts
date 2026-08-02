@@ -21,6 +21,7 @@ import {
 import type { AgentRunSessionTarget } from "./run-session-target.js";
 import {
   DEFAULT_BOOTSTRAP_FILENAME,
+  DEFAULT_AGENTS_FILENAME,
   filterBootstrapFilesForSession,
   isWorkspaceSetupCompleted,
   loadWorkspaceBootstrapFiles,
@@ -204,6 +205,8 @@ export async function resolveBootstrapFilesForRun(params: {
   warn?: (message: string) => void;
   contextMode?: BootstrapContextMode;
   runKind?: BootstrapContextRunKind;
+  /** Project-owned AGENTS.md supplied by the selected execution filesystem. */
+  projectAgentsFile?: WorkspaceBootstrapFile;
 }): Promise<WorkspaceBootstrapFile[]> {
   const sessionKey = params.sessionKey ?? params.sessionId;
   const workspaceSetupCompleted = await isWorkspaceSetupCompletedForContext(params.workspaceDir);
@@ -213,9 +216,14 @@ export async function resolveBootstrapFilesForRun(params: {
         sessionKey: params.sessionKey,
       })
     : await loadWorkspaceBootstrapFiles(params.workspaceDir);
+  const ownerAdjustedFiles = params.projectAgentsFile
+    ? rawFiles.map((file) =>
+        file.name === DEFAULT_AGENTS_FILENAME ? params.projectAgentsFile! : file,
+      )
+    : rawFiles;
   const bootstrapFiles = applyContextModeFilter({
     files: filterCompletedWorkspaceBootstrapFile(
-      filterBootstrapFilesForSession(rawFiles, sessionKey),
+      filterBootstrapFilesForSession(ownerAdjustedFiles, sessionKey),
       workspaceSetupCompleted,
       params.workspaceDir,
     ),

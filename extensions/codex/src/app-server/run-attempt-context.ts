@@ -142,6 +142,7 @@ export async function prepareCodexAttemptContext(
     sessionAgentId,
     memoryToolNames,
     sandboxed: sandbox?.enabled === true,
+    nativeProjectInstructions: sandbox?.backend?.capabilities?.separateAgentWorkspace === true,
   });
   const baseDeveloperInstructions = buildDeveloperInstructions(runtimeParams, {
     dynamicTools: toolBridge.availableSpecs,

@@ -322,7 +322,8 @@ The [VM execution policy](/platformclaw/vm-execution-policy) is the canonical
 product and security contract for personal execution on the PlatformClaw basic
 workspace or one employee-selected, administrator-approved VM/Linux account. It approves a static
 private `platformclaw-execution` backend, run-boundary atomic target changes,
-shared canonical Core Files, mutable managed employee-profile projection,
+split Agent-owned and execution-owned workspace files, mutable managed
+employee-profile projection,
 credential-free per-run runtime context, no automatic VM fallback, independent
 target workspaces, and environment-scoped background-process reconciliation.
 
@@ -412,6 +413,10 @@ the assigned-VM shell backend. Bootstrap must move identity, recommendation,
 plugin, and acknowledgement mutations to typed host/Gateway operations before
 it is enabled for VM-backed employees; installing the OpenClaw CLI in employee
 VMs is not an accepted workaround.
+
+PC-127 resolves this deferral with typed, Gateway-owned Agent workspace and
+bootstrap operations. Bootstrap remains disabled until that contract is
+implemented end to end.
 
 ### PC-123 Expose the bounded personal session surface
 
@@ -547,6 +552,36 @@ apply are disabled when the visible target does not match; reject remains
 available. This is guidance only: the server-side allocation and target checks
 above remain authoritative. A target revision change invalidates and reloads
 the Workshop target and proposal snapshots.
+
+### PC-127 Split Agent state from execution-project instructions
+
+`SOUL.md`, `IDENTITY.md`, `USER.md`, `BOOTSTRAP.md`, and durable memory are
+Agent-owned Gateway state. `AGENTS.md` is project-owned state discovered from
+the selected execution environment. This matches Codex's native environment
+filesystem discovery and prevents an assigned VM from silently overriding an
+Agent profile or a Gateway file from masquerading as VM project policy.
+
+Assigned-VM backends advertise one generic split-workspace capability. Core
+then supplies exact-file Agent workspace operations and an explicit bootstrap
+completion operation. General file tools keep their normal active-workspace
+meaning. There is no basename routing, mirroring, dual-write, fallback reader,
+or compatibility migration. Memory search, read, and append target the
+canonical per-Agent corpus; wiki and combined-search corpus selection remain
+unchanged.
+
+Bootstrap completion first parses the canonical `IDENTITY.md` and commits its
+name, theme, emoji, and avatar to the selected Agent's Gateway config. Only
+after that control-plane write succeeds does it record the per-Agent SQLite
+state and best-effort remove canonical `BOOTSTRAP.md`; a failed identity write
+therefore remains retryable. Tool presence alone is not proof of access.
+Subagents may receive active-project instructions but never the parent Agent
+profile or bootstrap mutation tools. The UI labels Agent files as shared
+across work locations and keeps identity saves on the same Gateway owner path.
+
+This adds no SQLite schema version. It reuses the canonical Agent database and
+the existing setup/attestation rows. Because assigned-VM execution was not
+released, same-named files created during development are not imported,
+deleted, or read as compatibility state; new runs simply stop creating them.
 
 ## Open operational decisions
 

@@ -159,6 +159,14 @@ const CORE_TOOL_DEFINITIONS: CoreToolDefinition[] = [
     includeInOpenClawGroup: true,
   },
   {
+    id: "memory_write",
+    label: "memory_write",
+    description: "Append durable Agent memory",
+    sectionId: "memory",
+    profiles: ["coding"],
+    includeInOpenClawGroup: true,
+  },
+  {
     id: "sessions",
     label: "sessions",
     description: "Session settings: label, pin, archive, groups",

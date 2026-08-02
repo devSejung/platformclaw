@@ -86,6 +86,6 @@ export async function resolveWorkspaceBootstrapRouting(
     workspaceBootstrapPending: workspaceBootstrapPending || hasBootstrapContent,
     hasBootstrapFileAccess:
       params.hasBootstrapFileAccess ||
-      (params.bootstrapFilesProvideAccess !== false && hasBootstrapContent),
+      (params.bootstrapFilesProvideAccess === true && hasBootstrapContent),
   });
 }

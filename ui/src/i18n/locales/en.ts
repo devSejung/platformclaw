@@ -1142,6 +1142,7 @@ export const en: TranslationMap = {
         webFetch: "Fetch web content",
         memorySearch: "Semantic search",
         memoryGet: "Read memory files",
+        memoryWrite: "Save durable Agent memory",
         sessionsList: "List sessions",
         sessionsHistory: "Session history",
         sessionsSend: "Send to session",
@@ -1211,7 +1212,8 @@ export const en: TranslationMap = {
       editFile: "Edit file",
       closePreview: "Close preview",
       coreFilesTitle: "Core Files",
-      coreFilesSubtitle: "Bootstrap persona, identity, and tool guidance.",
+      coreFilesSubtitle:
+        "Profile and bootstrap files belong to the Agent. AGENTS.md belongs to this listed workspace; another execution target can use different project instructions.",
       workspace: "Workspace",
       loadHint: "Load the agent workspace files to edit core instructions.",
       empty: "No files found.",

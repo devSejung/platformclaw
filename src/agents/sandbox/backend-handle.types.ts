@@ -106,6 +106,8 @@ export type SandboxBackendHandle = {
   skillWorkshopTarget?: SkillWorkshopTargetAccess | { kind: "workspace" };
   capabilities?: {
     browser?: boolean;
+    /** Active project files live outside the canonical Gateway Agent workspace. */
+    separateAgentWorkspace?: boolean;
   };
   buildExecSpec(params: {
     command: string;

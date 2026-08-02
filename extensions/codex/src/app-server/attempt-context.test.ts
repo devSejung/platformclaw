@@ -147,6 +147,39 @@ describe("Codex app-server attempt context", () => {
     expect(context.memoryToolRouted).toBe(false);
   });
 
+  it("uses native project instructions and Gateway memory tools for a split workspace", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-split-workspace-"));
+    const sandboxWorkspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-split-project-"));
+    try {
+      await fs.writeFile(path.join(workspaceDir, "AGENTS.md"), "gateway project policy");
+      await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), "gateway memory");
+      await fs.writeFile(path.join(workspaceDir, "USER.md"), "gateway user profile");
+      const context = await buildCodexWorkspaceBootstrapContext({
+        params: {
+          sessionId: "session-1",
+          config: { agents: { defaults: { workspace: workspaceDir } } },
+        } as EmbeddedRunAttemptParams,
+        resolvedWorkspace: workspaceDir,
+        effectiveWorkspace: sandboxWorkspaceDir,
+        sessionKey: "agent:main:session-1",
+        sessionAgentId: "main",
+        memoryToolNames: ["memory_search", "memory_get", "memory_write"],
+        sandboxed: true,
+        nativeProjectInstructions: true,
+      });
+
+      expect(context.bootstrapFiles.map((file) => file.name)).not.toContain("AGENTS.md");
+      expect(context.promptContext ?? "").not.toContain("gateway project policy");
+      expect(context.promptContext ?? "").not.toContain("gateway memory");
+      expect(context.turnScopedDeveloperInstructions).toContain("gateway user profile");
+      expect(context.turnScopedDeveloperInstructions).toContain("agent_workspace_read");
+      expect(context.memoryToolRouted).toBe(true);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+      await fs.rm(sandboxWorkspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("passes agent context to Codex memory collaboration guidance", async () => {
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-agent-memory-"));
     let observedContext:

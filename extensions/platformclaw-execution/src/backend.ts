@@ -147,6 +147,10 @@ export function createPlatformClawExecutionBackendFactory(
     return {
       ...handle,
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
+      capabilities: {
+        ...handle.capabilities,
+        ...(target.kind === "assigned_vm" ? { separateAgentWorkspace: true } : {}),
+      },
       runtimePromptContext: buildRuntimePromptContext(target, handle.workdir),
       ...(skillCatalog ? { skillCatalog } : {}),
       ...(skillWorkshopTarget ? { skillWorkshopTarget } : {}),

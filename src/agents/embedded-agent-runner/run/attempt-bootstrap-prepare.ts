@@ -21,25 +21,30 @@ import {
   resolveBootstrapPromptTruncationWarningMode,
   resolveBootstrapTotalMaxChars,
 } from "../../embedded-agent-helpers.js";
+import type { SandboxContext } from "../../sandbox/types.js";
 import {
   DEFAULT_BOOTSTRAP_FILENAME,
+  DEFAULT_MEMORY_FILENAME,
   isWorkspaceBootstrapPending,
   type WorkspaceBootstrapFile,
 } from "../../workspace.js";
 import { log } from "../logger.js";
 import { remapInjectedContextFilesToWorkspace } from "./attempt.bootstrap-context.js";
 import { resolveAttemptBootstrapContext } from "./attempt.context-engine-helpers.js";
+import { loadProjectAgentsFile } from "./project-agents-file.js";
 import type { EmbeddedRunAttemptParams } from "./types.js";
 
 export async function prepareEmbeddedAttemptBootstrap(params: {
   attempt: EmbeddedRunAttemptParams;
   effectiveWorkspace: string;
-  hasReadTool: boolean;
+  hasBootstrapFileAccess: boolean;
+  hasMemoryReadTools: boolean;
   isRawModelRun: boolean;
   markStage: (name: string) => void;
   resolvedWorkspace: string;
   sessionAgentId: string;
   sessionLabel: string;
+  sandbox?: SandboxContext | null;
 }) {
   const { attempt } = params;
   const suppressAmbientContext =
@@ -50,6 +55,27 @@ export async function prepareEmbeddedAttemptBootstrap(params: {
     workspaceDir: params.resolvedWorkspace,
     warn: (message) => log.warn(message),
   });
+  const projectAgentsFile = await loadProjectAgentsFile({
+    sandbox: params.sandbox,
+    logicalWorkspaceDir: params.resolvedWorkspace,
+  });
+  const resolveFilesForAttempt = async () => {
+    const files = await resolveBootstrapFilesForRun({
+      workspaceDir: params.resolvedWorkspace,
+      config: attempt.config,
+      sessionKey: attempt.sessionKey,
+      sessionId: attempt.sessionId,
+      agentId: params.sessionAgentId,
+      warn: bootstrapWarn,
+      contextMode: attempt.bootstrapContextMode,
+      runKind: attempt.bootstrapContextRunKind,
+      projectAgentsFile,
+    });
+    return params.sandbox?.backend?.capabilities?.separateAgentWorkspace === true &&
+      params.hasMemoryReadTools
+      ? files.filter((file) => file.name !== DEFAULT_MEMORY_FILENAME)
+      : files;
+  };
   let completedBootstrapTurn: boolean | undefined;
   const hasCompletedBootstrapTurnForAttempt = async () => {
     completedBootstrapTurn ??= await hasCompletedBootstrapTurn(attempt.sessionTarget);
@@ -66,7 +92,8 @@ export async function prepareEmbeddedAttemptBootstrap(params: {
       isCanonicalWorkspace: attempt.isCanonicalWorkspace,
       effectiveWorkspace: params.effectiveWorkspace,
       resolvedWorkspace: params.resolvedWorkspace,
-      hasBootstrapFileAccess: params.hasReadTool,
+      hasBootstrapFileAccess: params.hasBootstrapFileAccess,
+      bootstrapFilesProvideAccess: false,
     });
   const shouldProbeContinuationSkip =
     !suppressAmbientContext &&
@@ -83,16 +110,7 @@ export async function prepareEmbeddedAttemptBootstrap(params: {
     contextInjectionMode !== "never" &&
     (bootstrapRouting === undefined || bootstrapRouting.bootstrapMode === "full")
   ) {
-    preloadedBootstrapFiles = await resolveBootstrapFilesForRun({
-      workspaceDir: params.resolvedWorkspace,
-      config: attempt.config,
-      sessionKey: attempt.sessionKey,
-      sessionId: attempt.sessionId,
-      agentId: params.sessionAgentId,
-      warn: bootstrapWarn,
-      contextMode: attempt.bootstrapContextMode,
-      runKind: attempt.bootstrapContextRunKind,
-    });
+    preloadedBootstrapFiles = await resolveFilesForAttempt();
     bootstrapRouting = await resolveBootstrapRouting(preloadedBootstrapFiles);
   }
   bootstrapRouting ??= await resolveBootstrapRouting(preloadedBootstrapFiles);
@@ -110,18 +128,7 @@ export async function prepareEmbeddedAttemptBootstrap(params: {
     bootstrapMode,
     hasCompletedBootstrapTurn: hasCompletedBootstrapTurnForAttempt,
     resolveBootstrapContextForRun: async () => {
-      const bootstrapFiles =
-        preloadedBootstrapFiles ??
-        (await resolveBootstrapFilesForRun({
-          workspaceDir: params.resolvedWorkspace,
-          config: attempt.config,
-          sessionKey: attempt.sessionKey,
-          sessionId: attempt.sessionId,
-          agentId: params.sessionAgentId,
-          warn: bootstrapWarn,
-          contextMode: attempt.bootstrapContextMode,
-          runKind: attempt.bootstrapContextRunKind,
-        }));
+      const bootstrapFiles = preloadedBootstrapFiles ?? (await resolveFilesForAttempt());
       return {
         bootstrapFiles,
         contextFiles: buildBootstrapContextForFiles(bootstrapFiles, {
@@ -175,6 +182,11 @@ export async function prepareEmbeddedAttemptBootstrap(params: {
   if (isEmbeddedMode()) {
     workspaceNotes.push(
       "Running in local embedded mode (no gateway). Most tools work locally. Gateway-dependent tools (canvas, nodes, cron, message, sessions_send, sessions_spawn, gateway) are unavailable. Subagent kill/steer require a gateway. Do not attempt to read gateway-specific files such as sessions.json, gateway.log, or gateway.pid.",
+    );
+  }
+  if (params.sandbox?.backend?.capabilities?.separateAgentWorkspace === true) {
+    workspaceNotes.push(
+      "Agent profile and bootstrap files are outside the active project. Use agent_workspace_read/write/edit for SOUL.md, IDENTITY.md, USER.md, or BOOTSTRAP.md. When the profile is ready, bootstrap_complete syncs IDENTITY.md to Gateway identity config, records completion, and removes BOOTSTRAP.md. Do not run host control-plane CLI commands. General file tools remain scoped to the active project. If an optional bootstrap action has no dedicated tool, skip that optional action; never emulate it in the project shell.",
     );
   }
 

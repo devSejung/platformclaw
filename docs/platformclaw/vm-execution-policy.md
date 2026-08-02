@@ -158,16 +158,39 @@ PlatformClaw-managed denylist inside the home; Linux account permissions remain
 authoritative. Accounts whose canonical home is the filesystem root (`/`) are
 not supported because they would erase this boundary.
 
-Standard Agent Core Files have one canonical server-owned copy shared by both
-targets. PlatformClaw does not create separate VM and server copies of
-`USER.md`, `SOUL.md`, `IDENTITY.md`, `AGENTS.md`, or `TOOLS.md`. The Control UI
-labels these files as Agent settings shared across work locations.
+Workspace files have two owners. `SOUL.md`, `IDENTITY.md`, `USER.md`,
+`BOOTSTRAP.md`, and durable memory belong to the Agent and have one canonical
+copy in its Gateway workspace. `AGENTS.md` belongs to the active project and is
+read from the selected execution target. Codex uses its native selected-
+environment discovery for `AGENTS.md`; other runtimes use the generic sandbox
+project-bootstrap seam. Subagents receive project instructions but not the
+parent Agent's profile or bootstrap state.
 
-The Gateway reads canonical Core Files while constructing the prompt. A VM
-does not need direct database or Core File access. The first VM release keeps
-the existing Core Files UI, defers a general remote Files browser, and uses the
-SSH filesystem bridge for VM file tools. The UI must never display basic
-workspace files as though they came from the VM.
+PlatformClaw does not mirror or dual-write Agent files, intercept matching
+basenames in general file tools, or copy project instructions between targets.
+General `read`, `write`, `edit`, and search tools always address the active
+workspace. When that filesystem is an assigned VM, the backend advertises a
+generic split-workspace capability and core exposes path-bounded Agent
+workspace tools for `SOUL.md`, `IDENTITY.md`, `USER.md`, and `BOOTSTRAP.md`.
+Those tools cannot access arbitrary Gateway paths. Durable recall uses the
+memory tools; writes append to the canonical Agent memory corpus and do not
+change wiki or combined-search corpus ownership.
+
+Bootstrap completion is explicit. The Gateway first parses canonical
+`IDENTITY.md` and commits its supported fields to the selected Agent's config,
+then records the canonical per-Agent SQLite completion/attestation state and
+removes Gateway `BOOTSTRAP.md`. A failed identity config write leaves bootstrap
+pending and retryable; the next turn reloads that state and canonical Agent files.
+Merely having a general read tool, or editing same-named files on a VM, never
+proves bootstrap access or completion. Assigned-VM runs must not create Agent
+Core Files on the VM. The feature was not previously released, so no VM-file
+migration or compatibility reader is required.
+
+The first VM release keeps the existing Agent Core Files UI, clearly labels
+those files as Agent-owned and shared across work locations, defers a general
+remote Files browser, and uses the SSH filesystem bridge for VM project files.
+The UI must never display basic-workspace files as though they came from the
+VM, and identity form saves remain authoritative Gateway Agent updates.
 
 ## Employee profile and runtime context
 

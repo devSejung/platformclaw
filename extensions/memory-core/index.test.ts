@@ -103,6 +103,12 @@ describe("buildPromptSection", () => {
       "Citations are disabled: do not mention file paths or line numbers in replies unless the user explicitly asks.",
     );
   });
+
+  it("directs durable saves through memory_write", () => {
+    const result = buildPromptSection({ availableTools: new Set(["memory_write"]) });
+    expect(result.join("\n")).toContain("use memory_write");
+    expect(result.join("\n")).toContain("active workspace");
+  });
 });
 
 describe("memory-core plugin runtime registration", () => {
@@ -144,6 +150,7 @@ describe("memory-core plugin runtime registration", () => {
     );
 
     expect(toolNames).toContain("intent");
+    expect(toolNames).toContain("memory_write");
     expect(hooks).toContain("before_prompt_build");
     expect(subagentRun).not.toHaveBeenCalled();
   });

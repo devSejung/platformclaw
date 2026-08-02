@@ -37,5 +37,6 @@ export const identity = {
   chooseImage: "Choose image…",
   replaceImage: "Replace image…",
   imageUnusable: "That image can't be used. Pick an image file up to 2 MB.",
-  fileHint: "Saving mirrors identity fields to IDENTITY.md; configured values take precedence.",
+  fileHint:
+    "Saving updates the Gateway Agent identity and mirrors it to IDENTITY.md; configured values take precedence in every work location.",
 };
