@@ -37,6 +37,22 @@ function encodedLine(source: string, filePath: string, content: string): Buffer 
 }
 
 describe("VM remote skill catalog", () => {
+  it("scans distinct workspace, global, and built-in roots in precedence order", () => {
+    const workspace = VM_REMOTE_SKILL_SCAN_SCRIPT.indexOf(
+      'scan_root "$workspace/skills" "platformclaw-vm-workspace"',
+    );
+    const global = VM_REMOTE_SKILL_SCAN_SCRIPT.indexOf(
+      'scan_root "/opt/platformclaw/skills" "platformclaw-vm-managed"',
+    );
+    const bundled = VM_REMOTE_SKILL_SCAN_SCRIPT.indexOf(
+      'scan_root "/opt/platformclaw/bundle" "platformclaw-vm-bundled"',
+    );
+
+    expect(workspace).toBeGreaterThanOrEqual(0);
+    expect(global).toBeGreaterThan(workspace);
+    expect(bundled).toBeGreaterThan(global);
+  });
+
   it.runIf(process.platform !== "win32")(
     "executes the real scanner against a workspace skill",
     async () => {
@@ -101,8 +117,8 @@ describe("VM remote skill catalog", () => {
     const disposeSession = vi.fn(async () => undefined);
     const runCommand = vi.fn(async () => ({
       stdout: encodedLine(
-        "platformclaw-vm-managed",
-        "/opt/platformclaw/skills/release/SKILL.md",
+        "platformclaw-vm-bundled",
+        "/opt/platformclaw/bundle/release/SKILL.md",
         "---\nname: release\ndescription: Release safely\n---\nRun the script.",
       ),
       stderr: Buffer.alloc(0),
@@ -136,8 +152,8 @@ describe("VM remote skill catalog", () => {
     expect(disposeSession).toHaveBeenCalledTimes(3);
     expect(first.files).toEqual([
       expect.objectContaining({
-        source: "platformclaw-vm-managed",
-        filePath: "/opt/platformclaw/skills/release/SKILL.md",
+        source: "platformclaw-vm-bundled",
+        filePath: "/opt/platformclaw/bundle/release/SKILL.md",
       }),
     ]);
     expect(first.eligibility).toEqual({ bins: ["bash", "node"], platforms: ["linux"] });
@@ -168,7 +184,11 @@ describe("VM remote skill catalog", () => {
       createSession: async () => ({ command: "ssh", configPath: "/tmp/config", host: "vm" }),
       disposeSession: async () => undefined,
       runCommand: async () => ({
-        stdout: encodedLine("platformclaw-vm-user", "/users/person.one/skills/empty/SKILL.md", ""),
+        stdout: encodedLine(
+          "platformclaw-vm-workspace",
+          "/users/person.one/skills/empty/SKILL.md",
+          "",
+        ),
         stderr: Buffer.alloc(0),
         code: 0,
       }),
@@ -194,12 +214,12 @@ describe("VM remote skill catalog", () => {
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({
-        stdout: encodedLine("platformclaw-vm-user", "/x/SKILL.md", "ok"),
+        stdout: encodedLine("platformclaw-vm-workspace", "/x/SKILL.md", "ok"),
         stderr: Buffer.alloc(0),
         code: 1,
       })
       .mockResolvedValueOnce({
-        stdout: encodedLine("platformclaw-vm-user", "/x/SKILL.md", "x".repeat(64 * 1024 + 1)),
+        stdout: encodedLine("platformclaw-vm-workspace", "/x/SKILL.md", "x".repeat(64 * 1024 + 1)),
         stderr: Buffer.alloc(0),
         code: 0,
       });

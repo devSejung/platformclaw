@@ -132,7 +132,7 @@ describe("renderSkills", () => {
     props.report = {
       ...expectDefined(props.report, "skills report"),
       executionTarget: "assigned_vm",
-      skills: [createSkill({ source: "platformclaw-vm-user" })],
+      skills: [createSkill({ source: "platformclaw-vm-workspace" })],
     };
 
     render(renderSkills(props), container);
@@ -269,6 +269,28 @@ describe("renderSkills", () => {
     expect(normalizeText(group!.querySelector(".settings-group .settings-row")!)).toContain(
       "Repo Skill",
     );
+  });
+
+  it("groups VM workspace, global, and built-in skills like server skills", async () => {
+    const container = document.createElement("div");
+    const props = createProps({ personalAccess: true });
+    props.report = {
+      ...expectDefined(props.report, "skills report"),
+      executionTarget: "assigned_vm",
+      skills: [
+        createSkill({ name: "VM Workspace", source: "platformclaw-vm-workspace" }),
+        createSkill({ name: "VM Global", source: "platformclaw-vm-managed" }),
+        createSkill({ name: "VM Built-in", source: "platformclaw-vm-bundled" }),
+      ],
+    };
+
+    render(renderSkills(props), container);
+
+    const headings = Array.from(
+      container.querySelectorAll("details.skills-group summary h2.settings-section__heading"),
+      (heading) => normalizeText(heading),
+    );
+    expect(headings).toEqual(["Workspace Skills 1", "Built-in Skills 1", "Installed Skills 1"]);
   });
 
   it("renders alternative missing binaries and exposes their installer", async () => {
