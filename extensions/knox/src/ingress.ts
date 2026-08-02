@@ -77,8 +77,10 @@ export function createKnoxIngress(options: {
     },
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
     // The durable drain outlives the relay HTTP acknowledgement. Reserve an
-    // independent Gateway root so later agent work does not inherit a released request lease.
+    // independent Gateway root and keep its pump alive through delivery so
+    // later agent work does not inherit a released request lease.
     runPumpTask: runDetachedWebhookWork,
+    waitForDeliveryIdleBeforeRepump: true,
     admissionMode: "while-running",
     createStoppedError: () => new Error("Knox ingress is stopped"),
     onError: (error) => options.log?.(`knox ingress failed: ${String(error)}`),

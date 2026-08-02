@@ -18,7 +18,7 @@ vi.mock("openclaw/plugin-sdk/channel-outbound", async () => {
 });
 
 describe("createKnoxIngress", () => {
-  it("runs durable delivery outside the relay request admission", () => {
+  it("keeps detached admission through durable delivery", () => {
     createKnoxIngress({
       accountId: "default",
       queue: {} as never,
@@ -26,7 +26,10 @@ describe("createKnoxIngress", () => {
     });
 
     expect(createChannelIngressMonitor).toHaveBeenCalledWith(
-      expect.objectContaining({ runPumpTask: runDetachedWebhookWork }),
+      expect.objectContaining({
+        runPumpTask: runDetachedWebhookWork,
+        waitForDeliveryIdleBeforeRepump: true,
+      }),
     );
   });
 });
