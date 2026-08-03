@@ -28,6 +28,13 @@ RUN --mount=type=secret,id=platformclaw_apt_sources \
     rm -rf /var/lib/apt/lists/*; \
     useradd --create-home --shell /bin/bash sandbox
 
+# This file intentionally persists in the internal sandbox image so runtime
+# workspace virtualenvs use the approved package indexes. Keep credentials out.
+RUN --mount=type=secret,id=platformclaw_pip_config \
+    if [ -f /run/secrets/platformclaw_pip_config ]; then \
+      install -m 0644 /run/secrets/platformclaw_pip_config /etc/pip.conf; \
+    fi
+
 USER sandbox
 WORKDIR /home/sandbox
 CMD ["sleep", "infinity"]

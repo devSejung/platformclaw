@@ -67,6 +67,28 @@ node scripts/platformclaw-build.mjs --apt-sources C:\secure\jammy.sources.list
 The file is available only while apt packages are installed and is not copied
 into an image layer.
 
+## Configure pip in the sandbox image
+
+Put the credential-free company `pip.conf` at the canonical local build path:
+
+```text
+~/.config/platformclaw/build/pip.conf
+```
+
+`platformclaw-build.mjs` detects that file automatically and installs it as
+`/etc/pip.conf` in the Jammy sandbox image. The build smoke verifies that the
+image contains the exact input bytes. To use a different local file for one
+build, pass it explicitly:
+
+```powershell
+node scripts/platformclaw-build.mjs --pip-config C:\secure\pip.conf
+```
+
+The configuration persists in the transferred sandbox image so `pip` inside a
+workspace virtual environment uses the approved indexes. Do not put passwords,
+tokens, or credential-bearing repository URLs in this file; image readers can
+extract its contents. Keep the file outside Git.
+
 ## Import on Ubuntu
 
 Verify the archive before loading it:
