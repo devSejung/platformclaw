@@ -118,6 +118,18 @@ describe("SQLite execution runtime target", () => {
          WHERE agent_binding_id = ?`,
       )
       .run(allocation.id, 9, binding.id);
+    await store.replaceEncryptedUserSshCredential({
+      actorUserId: user.id,
+      userId: user.id,
+      envelope: {
+        ciphertext: new Uint8Array([1]),
+        nonce: new Uint8Array(12),
+        authTag: new Uint8Array(16),
+        keyId: `sha256:${"A".repeat(43)}`,
+        formatVersion: 1,
+      },
+      replacedAt: 10,
+    });
 
     await expect(store.resolvePersonalExecutionTarget(binding.agentId)).resolves.toMatchObject({
       kind: "assigned_vm",
@@ -126,6 +138,7 @@ describe("SQLite execution runtime target", () => {
       targetId: allocation.id,
       revision: 1,
       allocationId: allocation.id,
+      credentialRevision: 1,
       vmLabel: "Development VM",
       safeConnectLabel: "SafeConnect",
       endpointHost: "safeconnect.example.test",

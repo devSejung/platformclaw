@@ -35,6 +35,7 @@ async function startServer() {
       agentId: "person_one",
       allocationId: "allocation-one",
       targetRevision: 4,
+      credentialRevision: 3,
     })),
     resolveConnectionTarget: vi.fn(),
     changeTarget: vi.fn(),
@@ -98,11 +99,18 @@ describe("PlatformClawExecutionHandoffServer", () => {
         agentId: "person_one",
         allocationId: "allocation-one",
         targetRevision: 4,
+        credentialRevision: 3,
       }),
     ).resolves.toMatchObject({
       token: "grant-token",
       allocationId: "allocation-one",
       targetRevision: 4,
+    });
+    expect(service.issueCredentialGrant).toHaveBeenCalledWith({
+      agentId: "person_one",
+      allocationId: "allocation-one",
+      targetRevision: 4,
+      credentialRevision: 3,
     });
     expect(service.resolveTarget).toHaveBeenCalledWith("person_one");
     await expect(

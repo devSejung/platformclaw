@@ -20,12 +20,14 @@ import {
 } from "./connection-errors.js";
 import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
+import { SafeConnectSshLeaseManager } from "./ssh-lease-manager.js";
 
 const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
 const EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
 const EXECUTION_CONNECTION_TARGET_PATH = "/platformclaw/internal/execution/connection-target";
 const EXECUTION_CHANGE_TARGET_PATH = "/platformclaw/internal/execution/change-target";
 const MAX_HANDOFF_RESPONSE_BYTES = 8 * 1024;
+const VM_CONNECTION_TEST_TIMEOUT_MS = 15_000;
 
 function requireSingleLine(value: string, label: string): string {
   const trimmed = value.trim();
@@ -130,7 +132,10 @@ async function callExecutionHandoff(params: {
   });
 }
 
-export function parseTarget(value: unknown): PlatformClawExecutionTargetSnapshot {
+export function parseTarget(
+  value: unknown,
+  options: { allowMissingCredentialRevision?: boolean } = {},
+): PlatformClawExecutionTargetSnapshot {
   if (!value || typeof value !== "object") {
     throw new Error("execution target is invalid");
   }
@@ -146,6 +151,13 @@ export function parseTarget(value: unknown): PlatformClawExecutionTargetSnapshot
   }
   if (target.kind !== "assigned_vm") {
     throw new Error("execution target kind is invalid");
+  }
+  const credentialRevision = Number(target.credentialRevision ?? 0);
+  if (
+    !Number.isSafeInteger(credentialRevision) ||
+    credentialRevision < (options.allowMissingCredentialRevision ? 0 : 1)
+  ) {
+    throw new Error("credential revision is invalid");
   }
   const remoteHomeDir = requireAbsoluteRemotePath(target.remoteHomeDir, "remote home");
   const remoteWorkspaceDir = requireAbsoluteRemotePath(
@@ -163,6 +175,7 @@ export function parseTarget(value: unknown): PlatformClawExecutionTargetSnapshot
     ...base,
     kind: "assigned_vm",
     allocationId: requireString(target.allocationId, "allocation id"),
+    credentialRevision,
     vmLabel: requireString(target.vmLabel, "VM label"),
     safeConnectLabel: requireString(target.safeConnectLabel, "SafeConnect label"),
     endpointHost: requireSshToken(target.endpointHost, "endpoint host"),
@@ -188,7 +201,10 @@ function requireAbsoluteRemotePath(value: unknown, label: string): string {
   return raw;
 }
 
-function safeConnectConfig(target: AssignedVmTargetSnapshot): string {
+function safeConnectConfig(
+  target: AssignedVmTargetSnapshot,
+  options: { controlPath?: string } = {},
+): string {
   if (
     !Number.isInteger(target.endpointPort) ||
     target.endpointPort < 1 ||
@@ -202,22 +218,33 @@ function safeConnectConfig(target: AssignedVmTargetSnapshot): string {
   const linuxAccount = requireSshToken(target.linuxAccount, "Linux account");
   const targetAddress = requireSshToken(target.targetAddress, "VM address");
   const user = `${adDomain}\\${adAccount}+${linuxAccount}+${targetAddress}`;
+  const multiplexed = Boolean(options.controlPath);
   return [
     "Host platformclaw-safeconnect",
     `  HostName ${endpointHost}`,
     `  Port ${target.endpointPort}`,
     `  User ${user}`,
-    "  BatchMode no",
-    "  PreferredAuthentications keyboard-interactive",
-    "  KbdInteractiveAuthentication yes",
+    `  BatchMode ${multiplexed ? "yes" : "no"}`,
+    `  PreferredAuthentications ${multiplexed ? "publickey" : "keyboard-interactive"}`,
+    `  KbdInteractiveAuthentication ${multiplexed ? "no" : "yes"}`,
     "  PasswordAuthentication no",
-    "  NumberOfPasswordPrompts 1",
+    `  NumberOfPasswordPrompts ${multiplexed ? "0" : "1"}`,
     "  ConnectTimeout 5",
     "  ServerAliveInterval 30",
     "  ServerAliveCountMax 6",
     "  TCPKeepAlive yes",
     "  ControlMaster no",
-    "  ControlPath none",
+    `  ControlPath ${options.controlPath ? quoteOpenSshConfigPath(options.controlPath) : "none"}`,
+    ...(multiplexed
+      ? [
+          "  PubkeyAuthentication no",
+          "  IdentityFile none",
+          "  IdentityAgent none",
+          "  IdentitiesOnly yes",
+          "  HostbasedAuthentication no",
+          "  GSSAPIAuthentication no",
+        ]
+      : []),
     "  StrictHostKeyChecking yes",
     "  UpdateHostKeys no",
     `  UserKnownHostsFile ${KNOWN_HOSTS_PLACEHOLDER}`,
@@ -255,6 +282,7 @@ export async function createSafeConnectSession(
           agentId: target.agentId,
           allocationId: target.allocationId,
           targetRevision: target.revision,
+          credentialRevision: target.credentialRevision,
           ...(options.credentialGrantToken
             ? {
                 credentialBrokerAddress: requireSingleLine(
@@ -284,16 +312,53 @@ export async function createSafeConnectSession(
   }
 }
 
+export async function createMultiplexedSafeConnectSession(
+  target: AssignedVmTargetSnapshot,
+  controlPath: string,
+): Promise<SshSandboxSession> {
+  const session = await createSshSandboxSessionFromConfigText({
+    configText: safeConnectConfig(target, { controlPath }),
+    host: "platformclaw-safeconnect",
+    command: "ssh",
+  });
+  try {
+    const sessionDir = path.dirname(session.configPath);
+    const knownHostsPath = path.join(sessionDir, "known_hosts");
+    const hostPattern =
+      target.endpointPort === 22
+        ? target.endpointHost
+        : `[${target.endpointHost}]:${target.endpointPort}`;
+    await writeFile(
+      knownHostsPath,
+      `${hostPattern} ${requireSshToken(target.hostKeyAlgorithm, "host key algorithm")} ${requireSshToken(target.hostKeyPublicKey, "host public key")}\n`,
+      { mode: 0o600 },
+    );
+    const config = await readFile(session.configPath, "utf8");
+    await writeFile(
+      session.configPath,
+      config.replace(KNOWN_HOSTS_PLACEHOLDER, quoteOpenSshConfigPath(knownHostsPath)),
+      { mode: 0o600 },
+    );
+    return session;
+  } catch (error) {
+    await disposeSshSandboxSession(session);
+    throw error;
+  }
+}
+
 async function testAssignedVmConnection(params: {
   target: AssignedVmTargetSnapshot;
   credentialBrokerAddress: string;
   credentialGrantToken: string;
+  logTiming?: (message: string) => void;
 }): Promise<{
   allocationId: string;
   targetRevision: number;
   remoteHomeDir: string;
   remoteWorkspaceDir: string;
 }> {
+  const startedAt = performance.now();
+  let timingStatus = "failed";
   const session = await createSafeConnectSession(
     params.target,
     "/usr/local/bin/platformclaw-sshpass",
@@ -309,7 +374,7 @@ async function testAssignedVmConnection(params: {
         session,
         remoteCommand:
           'set -eu; test -n "$HOME"; home=$(cd -- "$HOME" && pwd -P); mkdir -p -- "$home/.platformclaw/workspace"; printf \'%s\\n%s\\n\' "$home" "$(id -un)"',
-        signal: AbortSignal.timeout(7_000),
+        signal: AbortSignal.timeout(VM_CONNECTION_TEST_TIMEOUT_MS),
         maxBufferBytes: 4 * 1024,
       });
     } catch (error) {
@@ -332,6 +397,7 @@ async function testAssignedVmConnection(params: {
     ) {
       throw new Error("assigned VM identity response is invalid");
     }
+    timingStatus = "passed";
     return {
       allocationId: params.target.allocationId,
       targetRevision: params.target.revision,
@@ -340,6 +406,9 @@ async function testAssignedVmConnection(params: {
     };
   } finally {
     await disposeSshSandboxSession(session);
+    params.logTiming?.(
+      `event=platformclaw_vm_connection_test_timing status=${timingStatus} durationMs=${String(Math.max(0, Math.round(performance.now() - startedAt)))} timeoutMs=${String(VM_CONNECTION_TEST_TIMEOUT_MS)}`,
+    );
   }
 }
 
@@ -373,6 +442,7 @@ export async function createExecutionDependenciesFromEnvironment(
       target: "platform_server" | "assigned_vm";
       expectedRevision: number;
     }): Promise<PlatformClawExecutionTargetSnapshot>;
+    dispose(): Promise<void>;
   }
 > {
   const brokerAddress = requireSingleLine(
@@ -387,10 +457,16 @@ export async function createExecutionDependenciesFromEnvironment(
   if (!serviceToken) {
     throw new Error("execution service token is empty");
   }
+  const sshLeases = new SafeConnectSshLeaseManager({
+    createAuthenticatedSession: async (target) => await createSafeConnectSession(target),
+    createMultiplexedSession: createMultiplexedSafeConnectSession,
+    disposeSession: disposeSshSandboxSession,
+    logTiming: timing.logTiming,
+  });
   // Runtime is the composition root: remote discovery must not import it back.
   const remoteSkills = new VmRemoteSkillCatalogService(
     {
-      createSession: async (target) => await createSafeConnectSession(target),
+      createSession: async (target) => await sshLeases.createSession(target),
       disposeSession: disposeSshSandboxSession,
       runCommand: runSshSandboxCommand,
     },
@@ -399,13 +475,13 @@ export async function createExecutionDependenciesFromEnvironment(
     },
   );
   const remoteSkillWorkshop = new VmRemoteSkillWorkshopService({
-    createSession: async (target) => await createSafeConnectSession(target),
+    createSession: async (target) => await sshLeases.createSession(target),
     disposeSession: disposeSshSandboxSession,
     runCommand: runSshSandboxCommand,
   });
   return {
     resolveTarget: async ({ agentId }) => {
-      return parseTarget(
+      const target = parseTarget(
         await callExecutionHandoff({
           socketPath: executionHandoffAddress(brokerAddress),
           serviceToken,
@@ -413,6 +489,8 @@ export async function createExecutionDependenciesFromEnvironment(
           body: { agentId },
         }),
       );
+      sshLeases.observeTarget(agentId, target.kind === "assigned_vm" ? target : undefined);
+      return target;
     },
     createPlatformServerHandle: async ({ createParams }) =>
       await requireSandboxBackendFactory("docker")(createParams),
@@ -422,7 +500,7 @@ export async function createExecutionDependenciesFromEnvironment(
         workspaceRoot: target.remoteWorkspaceDir,
         workspaceMode: "existing",
         additionalFilesystemRoots: [{ root: target.remoteHomeDir, access: "rw" }],
-        createSession: async () => await createSafeConnectSession(target),
+        createSession: async () => await sshLeases.createSession(target),
       }),
     listTargetSkills: async ({ refresh, target }) =>
       target.kind === "assigned_vm" ? await remoteSkills.list(target, refresh) : undefined,
@@ -444,6 +522,7 @@ export async function createExecutionDependenciesFromEnvironment(
           path: EXECUTION_CONNECTION_TARGET_PATH,
           body: { agentId },
         }),
+        { allowMissingCredentialRevision: true },
       );
       if (target.kind !== "assigned_vm") {
         throw new Error("assigned VM connection target is unavailable");
@@ -452,6 +531,7 @@ export async function createExecutionDependenciesFromEnvironment(
         target,
         credentialBrokerAddress,
         credentialGrantToken,
+        logTiming: timing.logTiming,
       });
     },
     testCandidateConnection: async ({
@@ -459,7 +539,7 @@ export async function createExecutionDependenciesFromEnvironment(
       credentialBrokerAddress,
       credentialGrantToken,
     }) => {
-      const target = parseTarget(rawTarget);
+      const target = parseTarget(rawTarget, { allowMissingCredentialRevision: true });
       if (target.kind !== "assigned_vm") {
         throw new Error("development VM candidate is invalid");
       }
@@ -467,16 +547,21 @@ export async function createExecutionDependenciesFromEnvironment(
         target,
         credentialBrokerAddress,
         credentialGrantToken,
+        logTiming: timing.logTiming,
       });
     },
-    changeTarget: async ({ agentId, target, expectedRevision }) =>
-      parseTarget(
+    changeTarget: async ({ agentId, target, expectedRevision }) => {
+      const changed = parseTarget(
         await callExecutionHandoff({
           socketPath: executionHandoffAddress(brokerAddress),
           serviceToken,
           path: EXECUTION_CHANGE_TARGET_PATH,
           body: { agentId, target, expectedRevision },
         }),
-      ),
+      );
+      sshLeases.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
+      return changed;
+    },
+    dispose: async () => await sshLeases.dispose(),
   };
 }

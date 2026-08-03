@@ -230,9 +230,10 @@ change it automatically. A user with an assigned VM but no credential receives
 a non-blocking setup card and may continue in the basic workspace.
 
 Chat, files, and background-task surfaces always show the current work
-location. Because SSH may connect per command, the UI reports readiness and
-the last successful connection check rather than claiming a permanent
-connection.
+location. The UI reports readiness and the last successful connection check
+rather than claiming a permanent connection. Gateway may reuse a process-local
+SSH master, but restart, idle expiry, target changes, credential changes, or
+transport loss can require authentication again.
 
 The execution settings surface provides:
 
@@ -455,6 +456,45 @@ the production OpenSSH and `sshpass -d` path. The fixture never claims to model
 proprietary SafeConnect internals, never records a password, and is not shipped
 in the production image. Real enterprise-VM validation remains the release
 gate for network and vendor behavior.
+
+### Redacted enterprise SSH evidence
+
+An approved enterprise endpoint and assigned Ubuntu VM were probed from the
+Gateway container on 2026-08-03. Internal host names, addresses, account names,
+and host-key material are intentionally excluded from Git. The operator-only
+evidence record retains those values outside the repository.
+
+The live probe established these vendor-boundary facts:
+
+- OpenSSH 8.9 and `sshpass` 1.09 completed keyboard-interactive authentication
+  through the separate enterprise endpoint and reached the assigned VM.
+- Three fresh commands took 4.7-5.3 seconds. One authenticated control
+  connection then served 20 sequential commands in 60-96 milliseconds each.
+- One, two, four, and eight concurrent control sessions passed. Admission was
+  variable above eight, so production caps one master at four active channels
+  and queues excess work.
+- An overlapping long and short command passed. A 16 MiB upload/download round
+  trip produced the same SHA-256 value locally, remotely, and after download.
+- The control connection remained usable after two-minute and ten-minute
+  keepalive windows.
+- A refused control session attempted a fresh non-interactive connection and
+  then reported authentication failure. Production treats capacity as queueing,
+  not as evidence that the stored password is stale.
+
+This evidence proves the performance and compatibility basis for multiplexing.
+It does not prove one uninterrupted month-long TCP connection. The operator's
+month-long VS Code session is supporting lifetime evidence only because that
+client may reconnect using cached authentication state.
+
+The execution-service token is mounted mode `0400` for the Gateway runtime UID.
+Gateway processes use that UID. A capability-free UID 0 diagnostic shell cannot
+read the file; this is expected container isolation, not a Gateway permission
+failure.
+
+The implemented lease re-resolves target and credential revisions before reuse,
+uses one single-flight authentication when a dead master must be replaced,
+queues above four active channels, and expires after 24 idle hours. It never
+blindly replays a command after connection loss.
 
 ## See also
 

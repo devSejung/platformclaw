@@ -22,12 +22,16 @@ import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sy
 import { required } from "./sqlite-store-core.js";
 import { readVmAdministrationSnapshot } from "./sqlite-store-execution-admin.js";
 import {
+  rowToAssignedVmExecutionTarget,
   rowToAllocation,
   rowToEndpoint,
   rowToPersonalExecutionSettings,
   rowToVmHost,
 } from "./sqlite-store-execution-mappers.js";
-import { hasCompleteAssignedVmExecutionFields } from "./sqlite-store-execution-readiness.js";
+import {
+  hasCompleteAssignedVmExecutionFields,
+  isReadyAssignedVmExecutionRow,
+} from "./sqlite-store-execution-readiness.js";
 import { SqliteControlPlaneExecutionTargetStore } from "./sqlite-store-execution-target.js";
 import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlite-store-types.js";
 
@@ -262,6 +266,9 @@ export abstract class SqliteControlPlaneExecutionStore
         .selectFrom("vm_allocations")
         .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
         .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
+        .leftJoin("encrypted_user_ssh_credentials", (join) =>
+          join.on("encrypted_user_ssh_credentials.user_id", "=", owner.user_id),
+        )
         .select([
           "vm_allocations.id as allocation_id",
           "vm_allocations.agent_binding_id as agent_binding_id",
@@ -280,40 +287,21 @@ export abstract class SqliteControlPlaneExecutionStore
           "safeconnect_endpoints.host_key_algorithm as host_key_algorithm",
           "safeconnect_endpoints.host_key_public_key as host_key_public_key",
           "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
+          "encrypted_user_ssh_credentials.revision as credential_revision",
+          "encrypted_user_ssh_credentials.status as credential_status",
         ])
         .where("vm_allocations.id", "=", owner.active_allocation_id),
     );
-    if (
-      !vm ||
-      vm.agent_binding_id !== owner.binding_id ||
-      vm.allocation_status !== "ready" ||
-      vm.host_status !== "active" ||
-      vm.endpoint_status !== "active" ||
-      !hasCompleteAssignedVmExecutionFields(vm, true)
-    ) {
+    if (!isReadyAssignedVmExecutionRow(vm, owner.binding_id)) {
       throw new ControlPlaneStateError("assigned VM execution target is not ready");
     }
-    return {
-      kind: "assigned_vm",
+    return rowToAssignedVmExecutionTarget({
       agentId: owner.agent_id,
       userId: owner.user_id,
-      targetId: vm.allocation_id,
-      revision: owner.target_revision,
-      allocationId: vm.allocation_id,
-      vmLabel: vm.vm_label,
-      safeConnectLabel: vm.safeconnect_label,
-      endpointHost: vm.endpoint_host,
-      endpointPort: vm.endpoint_port,
-      adDomain: vm.ad_domain,
-      adAccount: owner.account_id,
-      targetAddress: vm.target_address,
-      linuxAccount: vm.linux_account,
-      remoteHomeDir: vm.remote_home_dir,
-      remoteWorkspaceDir: vm.remote_workspace_dir,
-      hostKeyAlgorithm: vm.host_key_algorithm,
-      hostKeyPublicKey: vm.host_key_public_key,
-      hostKeyFingerprint: vm.host_key_fingerprint,
-    };
+      accountId: owner.account_id,
+      targetRevision: owner.target_revision,
+      row: vm,
+    });
   }
 
   async createSafeConnectEndpoint(params: {

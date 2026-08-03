@@ -62,12 +62,21 @@ Use another browser profile or sign out between the two roles:
    `/users/person_one`; the remote workspace is
    `/users/person_one/.platformclaw/workspace`. The connection test and target
    switch themselves do not require a model provider.
-9. Change back to the PlatformClaw managed environment and confirm the location
-   badge changes without an automatic file sync.
+9. Run several more short commands. Filter Gateway logs for
+   `platformclaw_ssh_master` and `platformclaw_ssh_lease`; exactly one master
+   authentication should be followed by `reused=true` lease events.
+10. Change back to the PlatformClaw managed environment and confirm the location
+    badge changes without an automatic file sync.
 
 Also check one intentional failure: enter any wrong AD password first. The UI
 must reject it without switching execution location. No real employee account,
 password, hostname, or internal address is used by this preview.
+
+The save-time connection probe is a fresh one-shot authentication because the
+new credential is not trusted until this check passes. TCP setup keeps its
+five-second limit; authentication plus the remote identity command has a
+15-second overall limit. Gateway logs
+`platformclaw_vm_connection_test_timing` for diagnosing slow enterprise paths.
 
 ## Stop, inspect, and reset
 

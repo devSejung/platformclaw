@@ -22,6 +22,7 @@ export type ExecutionCredentialGrant = CredentialBrokerGrant & {
   agentId: string;
   allocationId: string;
   targetRevision: number;
+  credentialRevision: number;
 };
 
 export type ExecutionCredentialGrantIssuer = {
@@ -52,6 +53,7 @@ function publicSnapshot(target: ExecutionTarget): ExecutionTargetSnapshot {
     targetId: target.targetId,
     revision: target.revision,
     allocationId: target.allocationId,
+    credentialRevision: target.credentialRevision,
     vmLabel: target.vmLabel,
     safeConnectLabel: target.safeConnectLabel,
     endpointHost: target.endpointHost,
@@ -70,13 +72,19 @@ function publicSnapshot(target: ExecutionTarget): ExecutionTargetSnapshot {
 
 function assertSameVmTarget(
   target: PersonalExecutionTarget,
-  expected: { agentId: string; allocationId: string; targetRevision: number },
+  expected: {
+    agentId: string;
+    allocationId: string;
+    targetRevision: number;
+    credentialRevision: number;
+  },
 ): asserts target is AssignedVmExecutionTarget {
   if (
     target.kind !== "assigned_vm" ||
     target.agentId !== expected.agentId ||
     target.allocationId !== expected.allocationId ||
-    target.revision !== expected.targetRevision
+    target.revision !== expected.targetRevision ||
+    target.credentialRevision !== expected.credentialRevision
   ) {
     throw new ControlPlaneStateError("execution target changed before credential redemption");
   }
@@ -98,6 +106,7 @@ export class ExecutionHandoffService {
     // paths before selection. Executable target resolution never receives these sentinels.
     return publicSnapshot({
       ...target,
+      credentialRevision: 0,
       remoteHomeDir: target.remoteHomeDir ?? "/",
       remoteWorkspaceDir: target.remoteWorkspaceDir ?? "/",
     });
@@ -129,16 +138,20 @@ export class ExecutionHandoffService {
     agentId: string;
     allocationId: string;
     targetRevision: number;
+    credentialRevision: number;
   }): Promise<ExecutionCredentialGrant> {
     const expected = {
       agentId: requireAgentId(params.agentId),
       allocationId: params.allocationId.trim(),
       targetRevision: params.targetRevision,
+      credentialRevision: params.credentialRevision,
     };
     if (
       !expected.allocationId ||
       !Number.isSafeInteger(expected.targetRevision) ||
-      expected.targetRevision < 0
+      expected.targetRevision < 0 ||
+      !Number.isSafeInteger(expected.credentialRevision) ||
+      expected.credentialRevision < 1
     ) {
       throw new ControlPlaneStateError("credential grant target is invalid");
     }
@@ -154,6 +167,7 @@ export class ExecutionHandoffService {
       agentId: target.agentId,
       allocationId: target.allocationId,
       targetRevision: target.revision,
+      credentialRevision: target.credentialRevision,
     };
   }
 }

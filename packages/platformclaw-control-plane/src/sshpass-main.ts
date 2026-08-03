@@ -11,6 +11,7 @@ type SshpassContext = {
   agentId: string;
   allocationId: string;
   targetRevision: number;
+  credentialRevision: number;
   credentialBrokerAddress?: string;
   credentialGrantToken?: string;
 };
@@ -65,6 +66,10 @@ async function run(): Promise<number> {
     address: grant.brokerAddress,
     token: grant.token,
   });
+  if (!context.credentialGrantToken && credential.revision !== context.credentialRevision) {
+    credential.password.fill(0);
+    throw new Error("credential changed before SSH authentication");
+  }
   const passwordInput = Buffer.concat([credential.password, Buffer.from("\n")]);
   credential.password.fill(0);
   let passwordCleared = false;

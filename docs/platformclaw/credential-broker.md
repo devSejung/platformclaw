@@ -10,8 +10,8 @@ title: "PlatformClaw credential broker"
 # PlatformClaw credential broker
 
 `platformclaw-control` owns the SSH credential vault and a private local
-credential broker. The broker is transport infrastructure; it does not yet run
-SSH or make a VM execution backend available.
+credential broker. The broker transports one credential into a Gateway-owned
+SafeConnect master connection; decrypted bytes never enter Gateway state.
 
 ## Grant contract
 
@@ -23,9 +23,33 @@ most 256 grants may wait in one process.
 
 Control exposes target resolution and grant issuance on a separate internal
 listener. The service re-resolves the prepared personal agent, active
-allocation, and target revision before issuing a grant and again when the grant
-is redeemed. A stale or changed target therefore fails closed; a
+allocation, target revision, and credential revision before issuing a grant
+and again when the grant is redeemed. A stale or changed target or credential
+therefore fails closed; a
 user-controlled agent ID is never sufficient authority.
+
+## Gateway connection lease
+
+Gateway owns at most one process-local OpenSSH master for each prepared
+personal Agent and assigned-VM snapshot. The identity includes the allocation,
+target revision, credential revision, endpoint, accounts, target address, and
+approved host key. Any changed identity retires the old master; active commands
+may finish, but new commands use the new snapshot.
+
+The first command authenticates through the one-shot broker and
+`sshpass -d 3`. Later commands use only the owner-private OpenSSH control socket.
+The lease admits four active channels and queues additional callers. This
+conservative cap follows enterprise evidence that admission became variable
+above eight channels. An idle lease expires after 24 hours; use renews the idle
+window. Gateway shutdown closes every master and removes its temporary files.
+
+If a master dies before a later command acquires a session, one shared
+connection attempt authenticates a replacement. PlatformClaw never blindly
+replays a command after transport loss because the remote command may already
+have produced side effects. The runtime emits bounded
+`platformclaw_ssh_master`, `platformclaw_ssh_lease`, and
+`platformclaw_ssh_channel_queue` timing events without accounts, hosts, paths,
+commands, or credentials.
 
 ## Local transport
 

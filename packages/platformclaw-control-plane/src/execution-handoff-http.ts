@@ -364,11 +364,15 @@ export class PlatformClawExecutionHandoffServer {
       if (pathname === PLATFORMCLAW_EXECUTION_GRANT_PATH) {
         const allocationId = typeof body.allocationId === "string" ? body.allocationId : "";
         const targetRevision = body.targetRevision;
+        const credentialRevision = body.credentialRevision;
         if (
           !allocationId ||
           typeof targetRevision !== "number" ||
           !Number.isSafeInteger(targetRevision) ||
-          targetRevision < 0
+          targetRevision < 0 ||
+          typeof credentialRevision !== "number" ||
+          !Number.isSafeInteger(credentialRevision) ||
+          credentialRevision < 1
         ) {
           throw new Error("invalid credential grant target");
         }
@@ -379,6 +383,7 @@ export class PlatformClawExecutionHandoffServer {
             agentId,
             allocationId,
             targetRevision,
+            credentialRevision,
           }),
         );
       }

@@ -64,6 +64,7 @@ export class ExecutionHandoffClient {
     agentId: string;
     allocationId: string;
     targetRevision: number;
+    credentialRevision: number;
   }): Promise<ExecutionCredentialGrant> {
     return (await this.post(PLATFORMCLAW_EXECUTION_GRANT_PATH, params)) as ExecutionCredentialGrant;
   }

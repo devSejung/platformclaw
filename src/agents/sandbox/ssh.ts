@@ -36,6 +36,8 @@ export type SshSandboxSession = {
   command: string;
   configPath: string;
   host: string;
+  /** Caller-owned lifecycle cleanup composed with temporary config removal. */
+  onDispose?: () => Promise<void>;
 };
 
 /** Parameters for one SSH sandbox command execution. */
@@ -672,7 +674,13 @@ export async function createSshSandboxSessionFromSettings(
 
 /** Remove temporary SSH config and materialized secret files. */
 export async function disposeSshSandboxSession(session: SshSandboxSession): Promise<void> {
-  await fs.rm(path.dirname(session.configPath), { recursive: true, force: true });
+  try {
+    await fs.rm(path.dirname(session.configPath), { recursive: true, force: true });
+  } finally {
+    // Session-factory owners use this to release bounded transport capacity.
+    // Always run it even when temporary-file cleanup fails or callers can deadlock.
+    await session.onDispose?.();
+  }
 }
 
 /** Run a remote command through ssh and return buffered stdout/stderr. */
