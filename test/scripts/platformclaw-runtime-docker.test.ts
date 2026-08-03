@@ -41,6 +41,29 @@ function readRepoFile(path: string): string {
 }
 
 describe("PlatformClaw Docker runtime", () => {
+  it("automatically embeds the canonical local pip config only in the sandbox image", () => {
+    const build = readRepoFile("scripts/platformclaw-build.mjs");
+    const sandboxDockerfile = readRepoFile("Dockerfile.sandbox.jammy");
+    const docs = readRepoFile("docs/upstream/jammy-build.md");
+
+    expect(build).toContain(
+      'defaultPipConfigPath = resolve(homedir(), ".config", "platformclaw", "build", "pip.conf")',
+    );
+    expect(build).toContain("--pip-config");
+    expect(build).toContain("id=platformclaw_pip_config");
+    expect(build).toContain("pip config must not contain credentials");
+    expect(build).toContain("Transfer builds require a sandbox pip config");
+    expect(build).toContain("/etc/pip.conf | sha256sum -c -");
+    expect(build).toContain("python3 -m pip config list");
+    expect(sandboxDockerfile).toContain("install -m 0644");
+    expect(sandboxDockerfile).toContain("/etc/pip.conf");
+    expect(sandboxDockerfile).toContain("python-is-python3");
+    for (const dependency of ["urllib3", "Markdown", "markdownify", "Pygments"]) {
+      expect(sandboxDockerfile).toContain(`\"${dependency}==\${PLATFORMCLAW_`);
+    }
+    expect(docs).toContain("~/.config/platformclaw/build/pip.conf");
+  });
+
   it("exports immutable runtime and sandbox image tags in the transfer archive", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
 

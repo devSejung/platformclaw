@@ -12,10 +12,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
+import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import process from "node:process";
 
 const repoRoot = resolve(import.meta.dirname, "..");
+const defaultPipConfigPath = resolve(homedir(), ".config", "platformclaw", "build", "pip.conf");
 
 /**
  * @typedef {object} BuildOptions
@@ -24,6 +26,7 @@ const repoRoot = resolve(import.meta.dirname, "..");
  * @property {boolean} exportImage
  * @property {string} extensions
  * @property {string} outputDir
+ * @property {string | undefined} pipConfig
  * @property {string | undefined} version
  */
 
@@ -54,6 +57,7 @@ function readArgs(argv) {
     exportImage: true,
     extensions: "",
     outputDir: resolve(repoRoot, ".artifacts", "platformclaw"),
+    pipConfig: existsSync(defaultPipConfigPath) ? defaultPipConfigPath : undefined,
     version: undefined,
   };
   const readValue = (index, option) => {
@@ -67,6 +71,9 @@ function readArgs(argv) {
     const arg = argv[index];
     if (arg === "--apt-sources") {
       options.aptSources = resolve(readValue(index, arg));
+      index += 1;
+    } else if (arg === "--pip-config") {
+      options.pipConfig = resolve(readValue(index, arg));
       index += 1;
     } else if (arg === "--extensions") {
       options.extensions = readValue(index, arg);
@@ -86,6 +93,7 @@ function readArgs(argv) {
 
 Options:
   --apt-sources <path>  Private Jammy apt sources file, mounted as a BuildKit secret
+  --pip-config <path>   pip.conf for the Jammy sandbox (default: ${defaultPipConfigPath})
   --extensions <ids>    Comma- or space-separated plugins to bundle for offline use
   --version <value>     Image/artifact version (defaults to package.json version)
   --output-dir <path>   Export directory (defaults to .artifacts/platformclaw)
@@ -267,6 +275,22 @@ const aptSources = options.aptSources;
 if (typeof aptSources === "string" && !existsSync(aptSources)) {
   throw new Error(`APT sources file does not exist: ${aptSources}`);
 }
+const pipConfig = options.pipConfig;
+if (options.exportImage && typeof pipConfig !== "string") {
+  throw new Error(
+    `Transfer builds require a sandbox pip config at ${defaultPipConfigPath} or --pip-config <path>`,
+  );
+}
+if (typeof pipConfig === "string" && !existsSync(pipConfig)) {
+  throw new Error(`pip config file does not exist: ${pipConfig}`);
+}
+if (
+  typeof pipConfig === "string" &&
+  /[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/iu.test(readFileSync(pipConfig, "utf8"))
+) {
+  throw new Error("pip config must not contain credentials embedded in repository URLs");
+}
+const pipConfigSha = typeof pipConfig === "string" ? await sha256File(pipConfig) : undefined;
 
 run("docker", ["version"]);
 run("docker", ["buildx", "version"]);
@@ -303,6 +327,12 @@ const secretArgs =
   typeof aptSources === "string"
     ? ["--secret", `id=platformclaw_apt_sources,src=${aptSources}`]
     : [];
+const sandboxSecretArgs = [
+  ...secretArgs,
+  ...(typeof pipConfig === "string"
+    ? ["--secret", `id=platformclaw_pip_config,src=${pipConfig}`]
+    : []),
+];
 const extensions = [
   ...new Set([
     "admin-http-rpc",
@@ -458,7 +488,7 @@ try {
     "--load",
     "-f",
     "Dockerfile.sandbox.jammy",
-    ...secretArgs,
+    ...sandboxSecretArgs,
     "-t",
     sandboxShaTag,
     ".",
@@ -526,7 +556,16 @@ try {
     sandboxShaTag,
     "bash",
     "-lc",
-    "grep -qx 'VERSION_ID=\"22.04\"' /etc/os-release && jq --version && rg --version",
+    [
+      "grep -qx 'VERSION_ID=\"22.04\"' /etc/os-release",
+      "jq --version",
+      "rg --version",
+      'test "$(readlink -f /usr/bin/python)" = /usr/bin/python3.10',
+      "python -c 'import markdown, markdownify, pygments, urllib3'",
+      pipConfigSha
+        ? `printf '%s  %s\\n' '${pipConfigSha}' /etc/pip.conf | sha256sum -c - && python3 -m pip config list >/dev/null`
+        : "test ! -e /etc/pip.conf",
+    ].join(" && "),
   ]);
 
   if (options.exportImage) {
