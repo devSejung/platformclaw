@@ -456,6 +456,47 @@ proprietary SafeConnect internals, never records a password, and is not shipped
 in the production image. Real enterprise-VM validation remains the release
 gate for network and vendor behavior.
 
+### Redacted enterprise SSH evidence
+
+An approved enterprise endpoint and assigned Ubuntu VM were probed from the
+Gateway container on 2026-08-03. Internal host names, addresses, account names,
+and host-key material are intentionally excluded from this repository. The
+operator-only evidence record retains those values outside Git.
+
+The live probe established the following vendor-boundary facts:
+
+- OpenSSH keyboard-interactive authentication succeeded through the distinct
+  enterprise endpoint and reached the assigned VM account.
+- A single authenticated OpenSSH control connection served 20 sequential
+  command sessions. Fresh connections averaged about 5 seconds; reused
+  sessions averaged about 90 milliseconds.
+- Concurrent control sessions, an overlapping long and short command, and a
+  16 MiB upload/download round trip worked. The uploaded, remote, and downloaded
+  SHA-256 values matched.
+- The control connection remained usable after a two-minute keepalive window.
+- Concurrent session admission varied above eight attempted channels. A
+  rejected control session fell back to a fresh non-interactive connection and
+  then reported an authentication failure. Production must therefore queue at
+  a conservative per-connection limit instead of treating that sequence as a
+  stale password.
+
+This proves that connection reuse can remove repeated authentication overhead;
+it does not yet prove the PlatformClaw credential-broker path, long-duration
+lease lifecycle, revocation, restart recovery, or multi-user isolation. The
+probe container did not expose a readable execution-service token mount and the
+operator supplied the password directly to `sshpass -d` for this vendor test.
+
+An operator also reports using the same enterprise access path from VS Code for
+about one month without visible reauthentication. Treat that as useful lifetime
+evidence, not proof that one TCP connection survived continuously: the client
+may reconnect with cached authentication state.
+
+A production connection lease should re-resolve target and credential revisions
+before reuse. A dead master may trigger one single-flight authentication retry.
+Session-capacity rejection should queue, not reauthenticate. A connection lost
+after a remote command may have started must not cause blind command replay,
+because replay can duplicate side effects.
+
 ## See also
 
 - [PlatformClaw architecture](/platformclaw)
