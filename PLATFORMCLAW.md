@@ -89,8 +89,11 @@ are complete. Reverse-proxy browser proof remains pending. See
 
 VM execution groundwork now includes schema v2, encrypted user SSH credential
 storage, a one-shot local credential broker, authenticated handoff, and a
-SafeConnect handle built on the upstream SSH backend. Deployment grants Gateway
-only the broker socket, execution token, and dedicated rootless Docker endpoint.
+SafeConnect handle built on the upstream SSH backend. Gateway owns a bounded,
+revision-pinned OpenSSH master lease per active assigned-VM target so repeated
+commands do not repeat keyboard-interactive authentication. Deployment grants
+Gateway only the broker socket, execution token, and dedicated rootless Docker
+endpoint.
 It never grants the durable credential key or host Docker socket. Assigned VM
 backends now discover bounded remote skills into an immutable per-run snapshot,
 with explicit refresh exposed through the existing Skills UI. Successful

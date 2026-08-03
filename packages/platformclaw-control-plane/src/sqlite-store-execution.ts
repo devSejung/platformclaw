@@ -262,6 +262,9 @@ export abstract class SqliteControlPlaneExecutionStore
         .selectFrom("vm_allocations")
         .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
         .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
+        .leftJoin("encrypted_user_ssh_credentials", (join) =>
+          join.on("encrypted_user_ssh_credentials.user_id", "=", owner.user_id),
+        )
         .select([
           "vm_allocations.id as allocation_id",
           "vm_allocations.agent_binding_id as agent_binding_id",
@@ -280,6 +283,8 @@ export abstract class SqliteControlPlaneExecutionStore
           "safeconnect_endpoints.host_key_algorithm as host_key_algorithm",
           "safeconnect_endpoints.host_key_public_key as host_key_public_key",
           "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
+          "encrypted_user_ssh_credentials.revision as credential_revision",
+          "encrypted_user_ssh_credentials.status as credential_status",
         ])
         .where("vm_allocations.id", "=", owner.active_allocation_id),
     );
@@ -289,6 +294,10 @@ export abstract class SqliteControlPlaneExecutionStore
       vm.allocation_status !== "ready" ||
       vm.host_status !== "active" ||
       vm.endpoint_status !== "active" ||
+      vm.credential_status !== "current" ||
+      typeof vm.credential_revision !== "number" ||
+      !Number.isSafeInteger(vm.credential_revision) ||
+      vm.credential_revision < 1 ||
       !hasCompleteAssignedVmExecutionFields(vm, true)
     ) {
       throw new ControlPlaneStateError("assigned VM execution target is not ready");
@@ -300,6 +309,7 @@ export abstract class SqliteControlPlaneExecutionStore
       targetId: vm.allocation_id,
       revision: owner.target_revision,
       allocationId: vm.allocation_id,
+      credentialRevision: vm.credential_revision,
       vmLabel: vm.vm_label,
       safeConnectLabel: vm.safeconnect_label,
       endpointHost: vm.endpoint_host,
@@ -710,3 +720,5 @@ export abstract class SqliteControlPlaneExecutionStore
     });
   }
 }
+
+/* oxlint-disable max-lines -- TODO: split this now-oversized execution store by query owner. */

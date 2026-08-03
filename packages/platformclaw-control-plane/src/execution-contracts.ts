@@ -68,6 +68,7 @@ export type AssignedVmExecutionTarget = {
   targetId: string;
   revision: number;
   allocationId: string;
+  credentialRevision: number;
   vmLabel: string;
   safeConnectLabel: string;
   endpointHost: string;
@@ -90,7 +91,7 @@ export type ExecutionTarget = PersonalExecutionTarget | RoomExecutionTarget;
 
 export type AssignedVmConnectionTarget = Omit<
   AssignedVmExecutionTarget,
-  "remoteHomeDir" | "remoteWorkspaceDir"
+  "credentialRevision" | "remoteHomeDir" | "remoteWorkspaceDir"
 > & {
   allocationStatus: VmAllocationStatus;
   remoteHomeDir?: string;

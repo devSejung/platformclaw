@@ -13,6 +13,7 @@ const TARGET: AssignedVmTargetSnapshot = {
   targetId: "vm-one",
   revision: 3,
   allocationId: "allocation-one",
+  credentialRevision: 3,
   vmLabel: "Development VM",
   safeConnectLabel: "Corporate access",
   remoteHomeDir: "/users/person.one",

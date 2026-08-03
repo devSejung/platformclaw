@@ -17,6 +17,7 @@ function assignedVm(revision = 4): AssignedVmExecutionTarget {
     targetId: "allocation-one",
     revision,
     allocationId: "allocation-one",
+    credentialRevision: 3,
     vmLabel: "Development VM",
     safeConnectLabel: "Corporate access",
     endpointHost: "safeconnect.example.test",
@@ -113,6 +114,7 @@ describe("ExecutionHandoffService", () => {
         agentId: "person_one",
         allocationId: "allocation-one",
         targetRevision: 4,
+        credentialRevision: 3,
       }),
     ).resolves.toEqual({
       token: "grant-token",
@@ -121,11 +123,36 @@ describe("ExecutionHandoffService", () => {
       agentId: "person_one",
       allocationId: "allocation-one",
       targetRevision: 4,
+      credentialRevision: 3,
     });
     expect(validate).toBeTypeOf("function");
     await expect(validate?.()).resolves.toBeUndefined();
 
     current = assignedVm(5);
+    await expect(validate?.()).rejects.toThrow("target changed before credential redemption");
+  });
+
+  it("rejects redemption after the credential revision changes", async () => {
+    let current: PersonalExecutionTarget = assignedVm();
+    let validate: (() => Promise<void>) | undefined;
+    const service = new ExecutionHandoffService(
+      executionStore(async () => current),
+      {
+        address: "/run/platformclaw/runtime.sock",
+        issueForUser: (_userId, callback) => {
+          validate = callback;
+          return { token: "grant-token", expiresAt: 30_000 };
+        },
+      },
+    );
+    await service.issueCredentialGrant({
+      agentId: "person_one",
+      allocationId: "allocation-one",
+      targetRevision: 4,
+      credentialRevision: 3,
+    });
+
+    current = { ...assignedVm(), credentialRevision: 4 };
     await expect(validate?.()).rejects.toThrow("target changed before credential redemption");
   });
 
@@ -147,7 +174,12 @@ describe("ExecutionHandoffService", () => {
   });
 
   it("uses path sentinels only for a connection snapshot that still needs probing", async () => {
-    const { remoteHomeDir: _home, remoteWorkspaceDir: _workspace, ...target } = assignedVm();
+    const {
+      credentialRevision: _credentialRevision,
+      remoteHomeDir: _home,
+      remoteWorkspaceDir: _workspace,
+      ...target
+    } = assignedVm();
     const store = executionStore(async () => assignedVm());
     vi.spyOn(store, "resolveAssignedVmConnectionTarget").mockResolvedValue({
       ...target,
@@ -160,7 +192,11 @@ describe("ExecutionHandoffService", () => {
 
     await expect(
       new ExecutionHandoffService(store, broker).resolveConnectionTarget("person_one"),
-    ).resolves.toMatchObject({ remoteHomeDir: "/", remoteWorkspaceDir: "/" });
+    ).resolves.toMatchObject({
+      credentialRevision: 0,
+      remoteHomeDir: "/",
+      remoteWorkspaceDir: "/",
+    });
   });
 
   it("does not issue a VM credential for the basic workspace", async () => {
@@ -181,6 +217,7 @@ describe("ExecutionHandoffService", () => {
         agentId: "person_one",
         allocationId: "allocation-one",
         targetRevision: 2,
+        credentialRevision: 3,
       }),
     ).rejects.toThrow("target changed before credential redemption");
     expect(broker.issueForUser).not.toHaveBeenCalled();

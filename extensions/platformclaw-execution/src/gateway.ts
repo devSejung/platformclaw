@@ -28,6 +28,7 @@ type PlatformClawExecutionGatewayRuntime = {
     target: "platform_server" | "assigned_vm";
     expectedRevision: number;
   }): Promise<PlatformClawExecutionTargetSnapshot>;
+  dispose(): Promise<void>;
 };
 
 export function registerPlatformClawExecutionGateway(

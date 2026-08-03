@@ -23,6 +23,7 @@ type PlatformServerTargetSnapshot = ExecutionTargetBase & {
 export type AssignedVmTargetSnapshot = ExecutionTargetBase & {
   kind: "assigned_vm";
   allocationId: string;
+  credentialRevision: number;
   vmLabel: string;
   safeConnectLabel: string;
   remoteHomeDir: string;
@@ -238,6 +239,8 @@ function pinTargetSnapshot(
   if (candidate.kind === "assigned_vm") {
     if (
       !candidate.allocationId.trim() ||
+      !Number.isSafeInteger(candidate.credentialRevision) ||
+      candidate.credentialRevision < 1 ||
       !candidate.vmLabel.trim() ||
       !candidate.safeConnectLabel.trim() ||
       !candidate.remoteHomeDir.trim() ||

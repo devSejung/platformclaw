@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeTempDir } from "../../../test/helpers/temp-dir.js";
 import {
   buildExecRemoteCommand,
@@ -36,6 +36,22 @@ afterEach(async () => {
 });
 
 describe("sandbox ssh helpers", () => {
+  it("runs caller cleanup when disposing a factory-owned session", async () => {
+    const onDispose = vi.fn(async () => undefined);
+    const session = await createSshSandboxSessionFromSettings({
+      command: "ssh",
+      target: "example.com",
+      strictHostKeyChecking: false,
+      updateHostKeys: false,
+    });
+    session.onDispose = onDispose;
+
+    await disposeSshSandboxSession(session);
+
+    expect(onDispose).toHaveBeenCalledOnce();
+    await expect(fs.access(path.dirname(session.configPath))).rejects.toThrow();
+  });
+
   it("materializes inline ssh auth data into a temp config", async () => {
     // Inline key/cert/known-host material is written to private temp files and
     // referenced from the generated ssh config.

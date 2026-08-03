@@ -41,6 +41,9 @@ export default definePluginEntry({
     if (!executionRuntimePromise) {
       return;
     }
+    api.on("gateway_stop", async () => {
+      await (await executionRuntimePromise).dispose();
+    });
     registerPlatformClawExecutionGateway(api, executionRuntimePromise);
   },
 });
