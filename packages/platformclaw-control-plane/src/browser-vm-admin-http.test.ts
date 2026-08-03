@@ -36,11 +36,13 @@ function createService(
   const getVmAdministrationSnapshot = vi.fn(async () => snapshot);
   const createSafeConnectEndpoint = vi.fn(async () => ({ id: "endpoint-one" }));
   const enableSafeConnectEndpoint = vi.fn(async () => ({ id: "endpoint-one", status: "active" }));
+  const updateVmHostExecutionEnvironment = vi.fn(async () => ({ id: "vm-one" }));
   const store = {
     getVmAdministrationSnapshot,
     listAuditEvents: vi.fn(async () => []),
     createSafeConnectEndpoint,
     enableSafeConnectEndpoint,
+    updateVmHostExecutionEnvironment,
     getPersonalExecutionSettings: vi.fn(async () => null),
   } as unknown as ControlPlaneExecutionManagementStore &
     ControlPlaneEmployeeExecutionStore &
@@ -63,6 +65,7 @@ function createService(
     getVmAdministrationSnapshot,
     createSafeConnectEndpoint,
     enableSafeConnectEndpoint,
+    updateVmHostExecutionEnvironment,
   };
 }
 
@@ -175,5 +178,45 @@ describe("VM administration HTTP", () => {
       endpointId: "endpoint-one",
       enabledAt: 123,
     });
+  });
+
+  it("validates and stores a VM-specific build environment", async () => {
+    const { service, updateVmHostExecutionEnvironment } = createService("admin");
+
+    await service.mutate("user-one", "update-host-execution-environment", {
+      vmHostId: "vm-one",
+      executionEnvironment: {
+        pathPrepend: ["/opt/clang/bin/"],
+        variables: {
+          TOOLCHAIN_PREFIX: "/opt/gcc/bin/aarch64-elf-",
+          CLANG11_PATH: "/opt/clang/bin/",
+        },
+      },
+    });
+
+    expect(updateVmHostExecutionEnvironment).toHaveBeenCalledWith({
+      actorUserId: "user-one",
+      vmHostId: "vm-one",
+      executionEnvironment: {
+        pathPrepend: ["/opt/clang/bin"],
+        variables: {
+          CLANG11_PATH: "/opt/clang/bin/",
+          TOOLCHAIN_PREFIX: "/opt/gcc/bin/aarch64-elf-",
+        },
+      },
+      updatedAt: 123,
+    });
+  });
+
+  it("rejects dangerous VM environment variables before storage", async () => {
+    const { service, updateVmHostExecutionEnvironment } = createService("admin");
+
+    await expect(
+      service.mutate("user-one", "update-host-execution-environment", {
+        vmHostId: "vm-one",
+        executionEnvironment: { pathPrepend: [], variables: { LD_PRELOAD: "/tmp/bad.so" } },
+      }),
+    ).rejects.toThrow("not allowed");
+    expect(updateVmHostExecutionEnvironment).not.toHaveBeenCalled();
   });
 });

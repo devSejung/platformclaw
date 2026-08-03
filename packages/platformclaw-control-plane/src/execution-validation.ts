@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
+import path from "node:path";
 import { domainToASCII } from "node:url";
 import { ControlPlaneStateError } from "./contracts.js";
 
@@ -8,6 +9,135 @@ export type NormalizedOpenSshHostKey = {
   publicKey: string;
   fingerprint: string;
 };
+
+export type VmHostExecutionEnvironment = {
+  pathPrepend: string[];
+  variables: Record<string, string>;
+};
+
+const VM_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
+const VM_ENV_BLOCKED_NAMES = new Set([
+  "BASHOPTS",
+  "BASH_ENV",
+  "CDPATH",
+  "ENV",
+  "GLOBIGNORE",
+  "HOME",
+  "IFS",
+  "LOGNAME",
+  "NODE_OPTIONS",
+  "PATH",
+  "PWD",
+  "SHELL",
+  "SHELLOPTS",
+  "TMPDIR",
+  "USER",
+]);
+const MAX_VM_PATH_ENTRIES = 32;
+const MAX_VM_ENV_VARIABLES = 64;
+const MAX_VM_ENV_VALUE_BYTES = 4096;
+
+function isBlockedVmEnvironmentName(name: string): boolean {
+  const upper = name.toUpperCase();
+  return (
+    VM_ENV_BLOCKED_NAMES.has(upper) ||
+    upper.startsWith("LD_") ||
+    upper.startsWith("DYLD_") ||
+    upper.startsWith("OPENCLAW_") ||
+    upper.startsWith("PLATFORMCLAW_")
+  );
+}
+
+export function normalizeVmHostExecutionEnvironment(
+  value: unknown,
+): VmHostExecutionEnvironment | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    throw new ControlPlaneStateError("vmHost.executionEnvironment must be an object");
+  }
+  const candidate = value as Record<string, unknown>;
+  const rawPaths = candidate.pathPrepend ?? [];
+  const rawVariables = candidate.variables ?? {};
+  if (!Array.isArray(rawPaths) || rawPaths.length > MAX_VM_PATH_ENTRIES) {
+    throw new ControlPlaneStateError("vmHost.pathPrepend must contain at most 32 paths");
+  }
+  if (!rawVariables || typeof rawVariables !== "object" || Array.isArray(rawVariables)) {
+    throw new ControlPlaneStateError("vmHost.variables must be an object");
+  }
+  const paths = [
+    ...new Set(
+      rawPaths.map((entry) => {
+        if (typeof entry !== "string") {
+          throw new ControlPlaneStateError("vmHost.pathPrepend entries must be strings");
+        }
+        const normalized = entry.trim().replace(/\/+$/u, "") || "/";
+        if (
+          !normalized.startsWith("/") ||
+          path.posix.normalize(normalized) !== normalized ||
+          normalized.includes(":") ||
+          normalized.includes("\u0000") ||
+          normalized.includes("\r") ||
+          normalized.includes("\n") ||
+          normalized.split("/").some((part) => part === "." || part === "..")
+        ) {
+          throw new ControlPlaneStateError(
+            "vmHost.pathPrepend entries must be absolute POSIX paths",
+          );
+        }
+        return normalized;
+      }),
+    ),
+  ];
+  const entries = Object.entries(rawVariables);
+  if (entries.length > MAX_VM_ENV_VARIABLES) {
+    throw new ControlPlaneStateError("vmHost.variables must contain at most 64 entries");
+  }
+  const variables: Record<string, string> = {};
+  for (const [name, rawValue] of entries.toSorted(([left], [right]) => left.localeCompare(right))) {
+    if (!VM_ENV_NAME_PATTERN.test(name) || isBlockedVmEnvironmentName(name)) {
+      throw new ControlPlaneStateError(`vmHost environment variable is not allowed: ${name}`);
+    }
+    if (typeof rawValue !== "string") {
+      throw new ControlPlaneStateError(`vmHost environment variable must be a string: ${name}`);
+    }
+    const normalized = rawValue.trim();
+    if (
+      normalized.includes("\u0000") ||
+      normalized.includes("\r") ||
+      normalized.includes("\n") ||
+      Buffer.byteLength(normalized) > MAX_VM_ENV_VALUE_BYTES
+    ) {
+      throw new ControlPlaneStateError(`vmHost environment variable value is invalid: ${name}`);
+    }
+    variables[name] = normalized;
+  }
+  return paths.length > 0 || Object.keys(variables).length > 0
+    ? { pathPrepend: paths, variables }
+    : undefined;
+}
+
+export function parseVmHostExecutionEnvironmentJson(
+  value: string | null | undefined,
+): VmHostExecutionEnvironment | undefined {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    return normalizeVmHostExecutionEnvironment(JSON.parse(value));
+  } catch (error) {
+    if (error instanceof ControlPlaneStateError) {
+      throw error;
+    }
+    throw new ControlPlaneStateError("stored VM execution environment is invalid");
+  }
+}
+
+export function serializeVmHostExecutionEnvironment(value: unknown): string | undefined {
+  const normalized = normalizeVmHostExecutionEnvironment(value);
+  return normalized ? JSON.stringify(normalized) : undefined;
+}
 
 function required(value: string, field: string): string {
   const normalized = value.trim();

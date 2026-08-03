@@ -22,7 +22,10 @@ import {
 } from "./contracts.js";
 import { defaultControlPlaneIdFactory } from "./ids.js";
 import { createSyncKysely, executeSync, takeFirstSync } from "./kysely-sync.js";
-import { initializeControlPlaneSchema } from "./sqlite-schema.js";
+import {
+  ensureVmHostExecutionEnvironmentSchema,
+  initializeControlPlaneSchema,
+} from "./sqlite-schema.js";
 import type {
   AgentBindingRow,
   BrowserSessionRow,
@@ -161,6 +164,7 @@ export abstract class SqliteControlPlaneStoreCore {
   protected readonly sessionPolicy: BrowserSessionPolicy;
   protected readonly initialAdminAccountIds: ReadonlySet<string>;
   protected readonly onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
+  private vmHostExecutionEnvironmentSchemaReady = false;
 
   constructor(options: SqliteControlPlaneStoreOptions) {
     const databaseDirectory = dirname(options.databasePath);
@@ -209,6 +213,14 @@ export abstract class SqliteControlPlaneStoreCore {
         "a control-plane database without an active administrator requires an initial administrator account id",
       );
     }
+  }
+
+  protected ensureVmHostExecutionEnvironmentSchema(): void {
+    if (this.vmHostExecutionEnvironmentSchemaReady) {
+      return;
+    }
+    ensureVmHostExecutionEnvironmentSchema(this.db);
+    this.vmHostExecutionEnvironmentSchemaReady = true;
   }
 
   close(): void {

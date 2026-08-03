@@ -154,6 +154,13 @@ CREATE TABLE vm_hosts (
   UNIQUE (endpoint_id, target_address)
 ) STRICT;
 
+CREATE TABLE vm_host_execution_environments (
+  vm_host_id TEXT PRIMARY KEY REFERENCES vm_hosts(id) ON DELETE CASCADE,
+  config_json TEXT NOT NULL,
+  updated_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
+  updated_at INTEGER NOT NULL
+) STRICT;
+
 CREATE TABLE vm_allocations (
   id TEXT PRIMARY KEY,
   agent_binding_id TEXT NOT NULL REFERENCES agent_bindings(id) ON DELETE RESTRICT,
@@ -354,6 +361,20 @@ CREATE TABLE IF NOT EXISTS mcp_oauth_states (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS mcp_oauth_states_expiry ON mcp_oauth_states(expires_at);
 `;
+
+const VM_HOST_EXECUTION_ENVIRONMENT_SCHEMA = `
+CREATE TABLE IF NOT EXISTS vm_host_execution_environments (
+  vm_host_id TEXT PRIMARY KEY REFERENCES vm_hosts(id) ON DELETE CASCADE,
+  config_json TEXT NOT NULL,
+  updated_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
+  updated_at INTEGER NOT NULL
+) STRICT;
+`;
+
+/** Additive VM feature table; safe for older schema-v2 readers to ignore. */
+export function ensureVmHostExecutionEnvironmentSchema(db: DatabaseSync): void {
+  db.exec(VM_HOST_EXECUTION_ENVIRONMENT_SCHEMA);
+}
 
 /** Additive feature table; safe for older schema-v2 readers to ignore. */
 export function ensureMcpCredentialSchema(db: DatabaseSync): void {

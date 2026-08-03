@@ -67,6 +67,9 @@ function publicSnapshot(target: ExecutionTarget): ExecutionTargetSnapshot {
     hostKeyAlgorithm: target.hostKeyAlgorithm,
     hostKeyPublicKey: target.hostKeyPublicKey,
     hostKeyFingerprint: target.hostKeyFingerprint,
+    ...(target.executionEnvironment
+      ? { executionEnvironment: structuredClone(target.executionEnvironment) }
+      : {}),
   };
 }
 

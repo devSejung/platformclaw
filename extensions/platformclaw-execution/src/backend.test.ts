@@ -32,6 +32,7 @@ function createHandle(runtimeId: string): SandboxBackendHandle {
     runtimeId,
     runtimeLabel: runtimeId,
     workdir: `/${runtimeId}`,
+    env: { SHARED_BUILD_FLAG: "server-default" },
     buildExecSpec: async () => ({
       argv: [runtimeId],
       env: {},
@@ -95,6 +96,13 @@ describe("PlatformClaw execution backend", () => {
             hostKeyAlgorithm: "ssh-ed25519",
             hostKeyPublicKey: "AAAA-test",
             hostKeyFingerprint: "SHA256:test",
+            executionEnvironment: {
+              pathPrepend: ["/opt/clang/bin", "/opt/gcc/bin"],
+              variables: {
+                CLANG11_PATH: "/opt/clang/bin/",
+                SHARED_BUILD_FLAG: "vm-override",
+              },
+            },
           } satisfies PlatformClawExecutionTargetSnapshot),
     );
     const dependencies = createDependencies(resolveTarget);
@@ -142,6 +150,12 @@ describe("PlatformClaw execution backend", () => {
     expect(second.runtimePromptContext).not.toContain("192.0.2.2");
     expect(second.runtimePromptContext).not.toContain("person.two@external");
     expect(second.capabilities?.separateAgentWorkspace).toBe(true);
+    expect(first.env).toEqual({ SHARED_BUILD_FLAG: "server-default" });
+    expect(second.env).toEqual({
+      PATH: "/opt/clang/bin:/opt/gcc/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      CLANG11_PATH: "/opt/clang/bin/",
+      SHARED_BUILD_FLAG: "vm-override",
+    });
     const timingLines = logTiming.mock.calls.map(([message]) => String(message));
     expect(timingLines).toHaveLength(2);
     expect(timingLines).toEqual(

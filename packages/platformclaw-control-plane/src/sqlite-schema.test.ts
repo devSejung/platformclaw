@@ -1,11 +1,33 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
+  ensureVmHostExecutionEnvironmentSchema,
   initializeControlPlaneSchema,
   PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
 } from "./sqlite-schema.js";
 
 describe("PlatformClaw control schema migrations", () => {
+  it("lazily restores the additive VM execution-environment table on schema v2", () => {
+    const db = new DatabaseSync(":memory:");
+    initializeControlPlaneSchema(db);
+    db.exec("DROP TABLE vm_host_execution_environments");
+
+    ensureVmHostExecutionEnvironmentSchema(db);
+    ensureVmHostExecutionEnvironmentSchema(db);
+
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'vm_host_execution_environments'",
+        )
+        .get(),
+    ).toEqual({ name: "vm_host_execution_environments" });
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({
+      user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+    });
+    db.close();
+  });
+
   it("migrates existing personal bindings from v1 and excludes Knox rooms", () => {
     const db = new DatabaseSync(":memory:");
     db.exec(`

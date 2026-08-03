@@ -199,6 +199,59 @@ describe("PlatformClaw VM administration", () => {
     });
   });
 
+  it("submits VM-specific PATH and build variables", async () => {
+    const snapshot = {
+      ...SNAPSHOT,
+      hosts: [
+        {
+          id: "vm-one",
+          endpointId: "endpoint-one",
+          label: "Development VM",
+          targetAddress: "192.0.2.10",
+          status: "active" as const,
+          executionEnvironment: {
+            pathPrepend: ["/opt/old/bin"],
+            variables: { OLD_PREFIX: "/opt/old/bin/prefix-" },
+          },
+        },
+      ],
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(snapshot));
+    mountPlatformClawVmAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+    const element = document.querySelector("platformclaw-vm-administration")!;
+    await vi.waitFor(() => expect(element.shadowRoot?.querySelector("[data-open]")).not.toBeNull());
+    element.shadowRoot?.querySelector<HTMLElement>("[data-open]")?.click();
+    await vi.waitFor(() =>
+      expect(
+        element.shadowRoot?.querySelector("form[data-action='update-host-execution-environment']"),
+      ).not.toBeNull(),
+    );
+    const form = element.shadowRoot?.querySelector<HTMLFormElement>(
+      "form[data-action='update-host-execution-environment']",
+    );
+    if (!form) {
+      throw new Error("VM environment form is missing");
+    }
+    (form.elements.namedItem("pathPrepend") as HTMLTextAreaElement).value =
+      "/opt/clang/bin\n/opt/gcc/bin";
+    (form.elements.namedItem("environmentVariables") as HTMLTextAreaElement).value =
+      "TOOLCHAIN_PREFIX=/opt/gcc/bin/aarch64-elf-\nCLANG11_PATH=/opt/clang/bin/";
+    form.requestSubmit();
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+
+    expect(parseRequestBody(fetchImpl.mock.calls[1]?.[1])).toEqual({
+      action: "update-host-execution-environment",
+      vmHostId: "vm-one",
+      executionEnvironment: {
+        pathPrepend: ["/opt/clang/bin", "/opt/gcc/bin"],
+        variables: {
+          TOOLCHAIN_PREFIX: "/opt/gcc/bin/aarch64-elf-",
+          CLANG11_PATH: "/opt/clang/bin/",
+        },
+      },
+    });
+  });
+
   it("does not reopen after Escape while administration refresh is pending", async () => {
     const pending = deferred<Response>();
     const fetchImpl = vi.fn<typeof fetch>(() => pending.promise);

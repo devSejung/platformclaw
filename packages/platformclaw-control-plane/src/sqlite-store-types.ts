@@ -109,6 +109,13 @@ export type VmHostRow = {
   updated_at: number;
 };
 
+export type VmHostExecutionEnvironmentRow = {
+  vm_host_id: string;
+  config_json: string;
+  updated_by_user_id: string;
+  updated_at: number;
+};
+
 export type VmAllocationRow = {
   id: string;
   agent_binding_id: string;
@@ -182,6 +189,7 @@ export type ControlPlaneDatabase = {
   control_audit_events: AuditEventRow;
   safeconnect_endpoints: SafeConnectEndpointRow;
   vm_hosts: VmHostRow;
+  vm_host_execution_environments: VmHostExecutionEnvironmentRow;
   vm_allocations: VmAllocationRow;
   personal_execution_profiles: PersonalExecutionProfileRow;
   encrypted_user_ssh_credentials: EncryptedUserSshCredentialRow;

@@ -123,6 +123,14 @@ A change follows this sequence:
 
 Any failed prerequisite leaves the previous target and revision active.
 
+Administrators may attach a credential-free build environment to each VM host.
+It consists of bounded absolute PATH-prepend entries and bounded non-secret
+environment variables. The environment is copied into the same immutable
+target snapshot and applies only to user command execution on that VM. It does
+not change the Basic workspace environment, PlatformClaw service processes, or
+an already prepared run. Direct PATH replacement and shell, loader, OpenClaw,
+and PlatformClaw control variables are not supported.
+
 ## Failure behavior
 
 PlatformClaw never silently falls back from a VM to the basic workspace. A

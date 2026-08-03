@@ -18,9 +18,16 @@ state into OpenClaw core and does not give the Gateway direct credential access.
 | -------------------------------- | ------------------------------------------------------ |
 | `safeconnect_endpoints`          | Admin-approved SSH endpoint and pinned host public key |
 | `vm_hosts`                       | Existing target VM reached through one endpoint        |
+| `vm_host_execution_environments` | Optional non-secret build environment for one VM host  |
 | `vm_allocations`                 | Personal agent to VM/Linux-account assignment          |
 | `personal_execution_profiles`    | Active target, allocation reference, target revision   |
 | `encrypted_user_ssh_credentials` | One AES-GCM envelope per PlatformClaw user             |
+
+`vm_host_execution_environments` is an additive schema-v2 feature table. It is
+created idempotently on first VM-environment use, without advancing the schema
+version, so older schema-v2 builds can ignore it. The row stores canonical JSON
+containing PATH-prepend entries and environment variables plus the updating
+administrator and timestamp. Empty configuration removes the row.
 
 SafeConnect endpoint address and VM target address remain separate. The SSH
 username is generated later from endpoint AD domain, bound PlatformClaw account,

@@ -1,9 +1,9 @@
 import { ControlPlaneStateError } from "./contracts.js";
 import type { ExecutionTarget, PersonalExecutionTarget } from "./execution-contracts.js";
 import { takeFirstSync } from "./kysely-sync.js";
-import { SqliteControlPlaneVmSelfServiceStore } from "./sqlite-store-vm-self-service.js";
+import { SqliteControlPlaneVmEnvironmentStore } from "./sqlite-store-vm-environment.js";
 
-export abstract class SqliteControlPlaneExecutionTargetStore extends SqliteControlPlaneVmSelfServiceStore {
+export abstract class SqliteControlPlaneExecutionTargetStore extends SqliteControlPlaneVmEnvironmentStore {
   abstract resolvePersonalExecutionTarget(agentId: string): Promise<PersonalExecutionTarget>;
 
   async resolveExecutionTarget(agentId: string): Promise<ExecutionTarget> {
