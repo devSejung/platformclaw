@@ -201,6 +201,8 @@ export const en: TranslationMap = {
       adminEmpty: "No MCP servers are registered yet.",
       adminName: "Server name",
       adminUrl: "Server URL",
+      adminHttpCredentialWarning:
+        "Warning: credentials sent to an HTTP server are sent without transport encryption and may be intercepted. Use HTTPS whenever possible. OAuth servers still require HTTPS.",
       adminTransport: "Transport",
       adminCredentialMode: "Credential policy",
       adminNoCredential: "No credential — employees use it automatically",

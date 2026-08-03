@@ -299,8 +299,8 @@ export class McpAdministrationService {
       if (mode !== "none" && mode !== "shared" && mode !== "personal") {
         throw new ControlPlaneStateError("MCP credential mode is invalid");
       }
-      if (mode !== "none" && url.protocol !== "https:") {
-        throw new ControlPlaneStateError("MCP servers receiving credentials must use HTTPS");
+      if (mode === "personal" && body.auth === "oauth" && url.protocol !== "https:") {
+        throw new ControlPlaneStateError("MCP OAuth servers must use HTTPS");
       }
       if (!current && Object.hasOwn(servers, name)) {
         throw new ControlPlaneStateError("MCP server configuration is invalid");

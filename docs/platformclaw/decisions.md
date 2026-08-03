@@ -486,8 +486,10 @@ tokens, administrator-pinned API keys, and MCP OAuth. OAuth uses PKCE, a
 single-use state with a ten-minute lifetime, SDK discovery and dynamic client
 registration, and encrypted refresh-token persistence. Credential-free servers
 need no employee setup and never produce a missing-credential prompt.
-Personal-credential server and OAuth endpoints require HTTPS. Control applies
-DNS-pinned SSRF checks to discovery, registration, token, and redirect hops,
+Bearer-token and API-key servers may use plaintext HTTP when an administrator
+accepts the prominent Control UI warning; HTTPS remains strongly recommended.
+OAuth server, authorization, discovery, and token endpoints require HTTPS.
+Control applies DNS-pinned SSRF checks to discovery, registration, token, and redirect hops,
 bounds each network request and response, and serializes refresh-token rotation
 per user and server with revision-checked persistence.
 The same **Settings > MCP** route is visible to employees, but it lists only
