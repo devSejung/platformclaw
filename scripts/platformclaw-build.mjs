@@ -276,6 +276,11 @@ if (typeof aptSources === "string" && !existsSync(aptSources)) {
   throw new Error(`APT sources file does not exist: ${aptSources}`);
 }
 const pipConfig = options.pipConfig;
+if (options.exportImage && typeof pipConfig !== "string") {
+  throw new Error(
+    `Transfer builds require a sandbox pip config at ${defaultPipConfigPath} or --pip-config <path>`,
+  );
+}
 if (typeof pipConfig === "string" && !existsSync(pipConfig)) {
   throw new Error(`pip config file does not exist: ${pipConfig}`);
 }
@@ -555,6 +560,8 @@ try {
       "grep -qx 'VERSION_ID=\"22.04\"' /etc/os-release",
       "jq --version",
       "rg --version",
+      'test "$(readlink -f /usr/bin/python)" = /usr/bin/python3.10',
+      "python -c 'import markdown, markdownify, pygments, urllib3'",
       pipConfigSha
         ? `printf '%s  %s\\n' '${pipConfigSha}' /etc/pip.conf | sha256sum -c - && python3 -m pip config list >/dev/null`
         : "test ! -e /etc/pip.conf",

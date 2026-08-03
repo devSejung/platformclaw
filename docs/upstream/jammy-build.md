@@ -76,9 +76,11 @@ Put the credential-free company `pip.conf` at the canonical local build path:
 ```
 
 `platformclaw-build.mjs` detects that file automatically and installs it as
-`/etc/pip.conf` in the Jammy sandbox image. The build smoke verifies that the
-image contains the exact input bytes. To use a different local file for one
-build, pass it explicitly:
+`/etc/pip.conf` in the Jammy sandbox image. A normal transfer build fails before
+building if the file is absent, so a published sandbox image cannot silently
+omit it. `--no-export` development builds may omit it. The build smoke verifies
+that the image contains the exact input bytes. To use a different local file
+for one build, pass it explicitly:
 
 ```powershell
 node scripts/platformclaw-build.mjs --pip-config C:\secure\pip.conf
@@ -88,6 +90,10 @@ The configuration persists in the transferred sandbox image so `pip` inside a
 workspace virtual environment uses the approved indexes. Do not put passwords,
 tokens, or credential-bearing repository URLs in this file; image readers can
 extract its contents. Keep the file outside Git.
+
+The sandbox image also preinstalls `python-is-python3` plus pinned `urllib3`,
+`Markdown`, `markdownify`, and `Pygments` packages. These are image dependencies,
+so every sandbox receives the same versions without installing them at runtime.
 
 ## Import on Ubuntu
 
