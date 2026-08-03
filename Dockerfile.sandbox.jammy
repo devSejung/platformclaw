@@ -33,19 +33,22 @@ RUN --mount=type=secret,id=platformclaw_apt_sources \
     rm -rf /var/lib/apt/lists/*; \
     useradd --create-home --shell /bin/bash sandbox
 
+# Build dependencies use public PyPI before the runtime-only company config is
+# installed because those indexes may be reachable only from the deployed network.
+RUN python3 -m pip install --no-cache-dir \
+      "urllib3==${PLATFORMCLAW_URLLIB3_VERSION}" \
+      "Markdown==${PLATFORMCLAW_MARKDOWN_VERSION}" \
+      "markdownify==${PLATFORMCLAW_MARKDOWNIFY_VERSION}" \
+      "Pygments==${PLATFORMCLAW_PYGMENTS_VERSION}"; \
+    python -c 'import markdown, markdownify, pygments, urllib3'
+
 # This file intentionally persists in the internal sandbox image so runtime
 # workspace virtualenvs use the approved package indexes. Keep credentials out.
 RUN --mount=type=secret,id=platformclaw_pip_config \
     set -eux; \
     if [ -f /run/secrets/platformclaw_pip_config ]; then \
       install -m 0644 /run/secrets/platformclaw_pip_config /etc/pip.conf; \
-    fi; \
-    python3 -m pip install --no-cache-dir \
-      "urllib3==${PLATFORMCLAW_URLLIB3_VERSION}" \
-      "Markdown==${PLATFORMCLAW_MARKDOWN_VERSION}" \
-      "markdownify==${PLATFORMCLAW_MARKDOWNIFY_VERSION}" \
-      "Pygments==${PLATFORMCLAW_PYGMENTS_VERSION}"; \
-    python -c 'import markdown, markdownify, pygments, urllib3'
+    fi
 
 USER sandbox
 WORKDIR /home/sandbox
