@@ -1,7 +1,12 @@
 import type { SshSandboxSession } from "openclaw/plugin-sdk/sandbox";
 import { describe, expect, it, vi } from "vitest";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
-import { SafeConnectSshLeaseManager, type SafeConnectMasterHandle } from "./ssh-lease-manager.js";
+import { SafeConnectSshLeaseManager } from "./ssh-lease-manager.js";
+
+type StartMaster = NonNullable<
+  ConstructorParameters<typeof SafeConnectSshLeaseManager>[0]["startMaster"]
+>;
+type SafeConnectMasterHandle = Awaited<ReturnType<StartMaster>>;
 
 const TARGET: AssignedVmTargetSnapshot = {
   kind: "assigned_vm",

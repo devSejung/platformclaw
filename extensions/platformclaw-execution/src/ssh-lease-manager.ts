@@ -18,13 +18,13 @@ type MasterExit = {
   error?: Error;
 };
 
-export type SafeConnectMasterHandle = {
+type SafeConnectMasterHandle = {
   isRunning(): boolean;
   onExit(listener: (exit: MasterExit) => void): void;
   stop(): Promise<void>;
 };
 
-export type SafeConnectSshLeaseManagerOptions = {
+type SafeConnectSshLeaseManagerOptions = {
   createAuthenticatedSession: (target: AssignedVmTargetSnapshot) => Promise<SshSandboxSession>;
   createMultiplexedSession: (
     target: AssignedVmTargetSnapshot,
@@ -105,7 +105,7 @@ async function runControlCheck(configPath: string, controlPath: string, host: st
   return { ...exit, stderr };
 }
 
-export async function startSafeConnectMaster(params: {
+async function startSafeConnectMaster(params: {
   session: SshSandboxSession;
   controlPath: string;
 }): Promise<SafeConnectMasterHandle> {
