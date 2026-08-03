@@ -473,7 +473,8 @@ The live probe established the following vendor-boundary facts:
 - Concurrent control sessions, an overlapping long and short command, and a
   16 MiB upload/download round trip worked. The uploaded, remote, and downloaded
   SHA-256 values matched.
-- The control connection remained usable after a two-minute keepalive window.
+- The control connection remained usable after both two-minute and ten-minute
+  keepalive windows.
 - Concurrent session admission varied above eight attempted channels. A
   rejected control session fell back to a fresh non-interactive connection and
   then reported an authentication failure. Production must therefore queue at
@@ -483,8 +484,13 @@ The live probe established the following vendor-boundary facts:
 This proves that connection reuse can remove repeated authentication overhead;
 it does not yet prove the PlatformClaw credential-broker path, long-duration
 lease lifecycle, revocation, restart recovery, or multi-user isolation. The
-probe container did not expose a readable execution-service token mount and the
 operator supplied the password directly to `sshpass -d` for this vendor test.
+
+The execution-service token is mounted mode `0400` and owned by the Gateway
+runtime UID. The Gateway processes run with that same UID. A diagnostic
+`docker exec` shell running as UID 0 could not read the token because the
+container drops all Linux capabilities, including discretionary-access-control
+override. This is expected isolation, not a Gateway permission defect.
 
 An operator also reports using the same enterprise access path from VS Code for
 about one month without visible reauthentication. Treat that as useful lifetime
