@@ -531,6 +531,18 @@ describe("SQLite employee execution store", () => {
         remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
       },
     });
+    await store.replaceEncryptedUserSshCredential({
+      actorUserId: employee.user.id,
+      userId: employee.user.id,
+      envelope: {
+        ciphertext: new Uint8Array([1]),
+        nonce: new Uint8Array(12),
+        authTag: new Uint8Array(16),
+        keyId: `sha256:${"A".repeat(43)}`,
+        formatVersion: 1,
+      },
+      replacedAt: 9_002,
+    });
     await expect(
       store.resolveAssignedVmConnectionTarget(employee.binding.agentId),
     ).resolves.toMatchObject({
