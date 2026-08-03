@@ -1,4 +1,5 @@
 import type {
+  AssignedVmExecutionTarget,
   PersonalExecutionSettings,
   SafeConnectEndpoint,
   VmAllocation,
@@ -6,6 +7,55 @@ import type {
   VmHost,
 } from "./execution-contracts.js";
 import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlite-store-types.js";
+
+type AssignedVmExecutionTargetRow = {
+  allocation_id: string;
+  credential_revision: number;
+  vm_label: string;
+  safeconnect_label: string;
+  endpoint_host: string;
+  endpoint_port: number;
+  ad_domain: string;
+  target_address: string;
+  linux_account: string;
+  remote_home_dir: string;
+  remote_workspace_dir: string;
+  host_key_algorithm: string;
+  host_key_public_key: string;
+  host_key_fingerprint: string;
+};
+
+export function rowToAssignedVmExecutionTarget(params: {
+  agentId: string;
+  userId: string;
+  accountId: string;
+  targetRevision: number;
+  row: AssignedVmExecutionTargetRow;
+}): AssignedVmExecutionTarget {
+  const { row } = params;
+  return {
+    kind: "assigned_vm",
+    agentId: params.agentId,
+    userId: params.userId,
+    targetId: row.allocation_id,
+    revision: params.targetRevision,
+    allocationId: row.allocation_id,
+    credentialRevision: row.credential_revision,
+    vmLabel: row.vm_label,
+    safeConnectLabel: row.safeconnect_label,
+    endpointHost: row.endpoint_host,
+    endpointPort: row.endpoint_port,
+    adDomain: row.ad_domain,
+    adAccount: params.accountId,
+    targetAddress: row.target_address,
+    linuxAccount: row.linux_account,
+    remoteHomeDir: row.remote_home_dir,
+    remoteWorkspaceDir: row.remote_workspace_dir,
+    hostKeyAlgorithm: row.host_key_algorithm,
+    hostKeyPublicKey: row.host_key_public_key,
+    hostKeyFingerprint: row.host_key_fingerprint,
+  };
+}
 
 export function rowToEndpoint(row: SafeConnectEndpointRow): SafeConnectEndpoint {
   return {

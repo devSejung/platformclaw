@@ -22,12 +22,16 @@ import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sy
 import { required } from "./sqlite-store-core.js";
 import { readVmAdministrationSnapshot } from "./sqlite-store-execution-admin.js";
 import {
+  rowToAssignedVmExecutionTarget,
   rowToAllocation,
   rowToEndpoint,
   rowToPersonalExecutionSettings,
   rowToVmHost,
 } from "./sqlite-store-execution-mappers.js";
-import { hasCompleteAssignedVmExecutionFields } from "./sqlite-store-execution-readiness.js";
+import {
+  hasCompleteAssignedVmExecutionFields,
+  isReadyAssignedVmExecutionRow,
+} from "./sqlite-store-execution-readiness.js";
 import { SqliteControlPlaneExecutionTargetStore } from "./sqlite-store-execution-target.js";
 import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlite-store-types.js";
 
@@ -288,42 +292,16 @@ export abstract class SqliteControlPlaneExecutionStore
         ])
         .where("vm_allocations.id", "=", owner.active_allocation_id),
     );
-    if (
-      !vm ||
-      vm.agent_binding_id !== owner.binding_id ||
-      vm.allocation_status !== "ready" ||
-      vm.host_status !== "active" ||
-      vm.endpoint_status !== "active" ||
-      vm.credential_status !== "current" ||
-      typeof vm.credential_revision !== "number" ||
-      !Number.isSafeInteger(vm.credential_revision) ||
-      vm.credential_revision < 1 ||
-      !hasCompleteAssignedVmExecutionFields(vm, true)
-    ) {
+    if (!isReadyAssignedVmExecutionRow(vm, owner.binding_id)) {
       throw new ControlPlaneStateError("assigned VM execution target is not ready");
     }
-    return {
-      kind: "assigned_vm",
+    return rowToAssignedVmExecutionTarget({
       agentId: owner.agent_id,
       userId: owner.user_id,
-      targetId: vm.allocation_id,
-      revision: owner.target_revision,
-      allocationId: vm.allocation_id,
-      credentialRevision: vm.credential_revision,
-      vmLabel: vm.vm_label,
-      safeConnectLabel: vm.safeconnect_label,
-      endpointHost: vm.endpoint_host,
-      endpointPort: vm.endpoint_port,
-      adDomain: vm.ad_domain,
-      adAccount: owner.account_id,
-      targetAddress: vm.target_address,
-      linuxAccount: vm.linux_account,
-      remoteHomeDir: vm.remote_home_dir,
-      remoteWorkspaceDir: vm.remote_workspace_dir,
-      hostKeyAlgorithm: vm.host_key_algorithm,
-      hostKeyPublicKey: vm.host_key_public_key,
-      hostKeyFingerprint: vm.host_key_fingerprint,
-    };
+      accountId: owner.account_id,
+      targetRevision: owner.target_revision,
+      row: vm,
+    });
   }
 
   async createSafeConnectEndpoint(params: {
@@ -720,5 +698,3 @@ export abstract class SqliteControlPlaneExecutionStore
     });
   }
 }
-
-/* oxlint-disable max-lines -- TODO: split this now-oversized execution store by query owner. */
