@@ -66,6 +66,7 @@ const targets: PlatformClawExecutionTargetSnapshot[] = [
     revision: 2,
     targetId: "vm-one",
     allocationId: "allocation-one",
+    credentialRevision: 3,
     vmLabel: "Development VM",
     safeConnectLabel: "Corporate access",
     remoteHomeDir: "/home/employee",
