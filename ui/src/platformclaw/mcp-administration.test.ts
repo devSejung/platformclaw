@@ -146,4 +146,27 @@ describe("PlatformClaw MCP administration", () => {
     expect(auth?.value).toBe("");
     expect(form?.checkValidity()).toBe(false);
   });
+
+  it("warns but still allows header credentials over plaintext HTTP", async () => {
+    const element = mount(vi.fn<typeof fetch>(async () => jsonResponse({ servers: [] })));
+    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Add MCP server"));
+    element.shadowRoot?.querySelector<HTMLElement>("[data-action='add']")?.click();
+
+    const form = element.shadowRoot?.querySelector<HTMLFormElement>("form");
+    const url = form?.querySelector<HTMLInputElement>("[name='url']");
+    const mode = form?.querySelector<HTMLSelectElement>("[name='credentialMode']");
+    const warning = form?.querySelector<HTMLElement>("[data-http-auth-warning]");
+    expect(warning?.hidden).toBe(true);
+
+    if (url && mode) {
+      url.value = "http://mcp.example/mcp";
+      url.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      mode.value = "shared";
+      mode.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    expect(warning?.hidden).toBe(false);
+    expect(warning?.textContent).toContain("sent without transport encryption");
+    expect(form?.querySelector<HTMLButtonElement>("button[type='submit']")?.disabled).toBe(false);
+  });
 });

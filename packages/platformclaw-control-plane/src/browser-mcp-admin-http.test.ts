@@ -211,20 +211,45 @@ describe("MCP administration HTTP", () => {
     });
   });
 
-  it("rejects credentials over plaintext HTTP", async () => {
+  it("allows header credentials over plaintext HTTP", async () => {
+    const { service, call } = createService("admin");
+
+    await service.mutate("save-server", {
+      name: "intranet",
+      url: "http://mcp.example/mcp",
+      transport: "sse",
+      credentialMode: "shared",
+      auth: "bearer",
+      secret: "secret",
+      blockedTools: [],
+    });
+
+    const patchRequest = call.mock.calls[4]?.[1] as { raw?: unknown } | undefined;
+    expect(JSON.parse(String(patchRequest?.raw))).toMatchObject({
+      mcp: {
+        servers: {
+          intranet: {
+            url: "http://mcp.example/mcp",
+            headers: { Authorization: "Bearer secret" },
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps OAuth servers on HTTPS", async () => {
     const { service, call } = createService("admin");
 
     await expect(
       service.mutate("save-server", {
-        name: "unsafe",
+        name: "unsafe-oauth",
         url: "http://mcp.example/mcp",
-        transport: "sse",
-        credentialMode: "shared",
-        auth: "bearer",
-        secret: "secret",
+        transport: "streamable-http",
+        credentialMode: "personal",
+        auth: "oauth",
         blockedTools: [],
       }),
-    ).rejects.toThrow("must use HTTPS");
+    ).rejects.toThrow("OAuth servers must use HTTPS");
     expect(call).toHaveBeenCalledTimes(1);
   });
 
