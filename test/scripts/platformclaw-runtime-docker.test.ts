@@ -58,6 +58,9 @@ describe("PlatformClaw Docker runtime", () => {
     expect(sandboxDockerfile).toContain("install -m 0644");
     expect(sandboxDockerfile).toContain("/etc/pip.conf");
     expect(sandboxDockerfile).toContain("python-is-python3");
+    expect(sandboxDockerfile.indexOf("python3 -m pip install")).toBeLessThan(
+      sandboxDockerfile.indexOf("install -m 0644"),
+    );
     for (const dependency of ["urllib3", "Markdown", "markdownify", "Pygments"]) {
       expect(sandboxDockerfile).toContain(`\"${dependency}==\${PLATFORMCLAW_`);
     }
