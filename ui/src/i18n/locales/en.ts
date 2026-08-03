@@ -278,6 +278,14 @@ export const en: TranslationMap = {
       approveKey: "Approve host key",
       vmLabel: "VM label",
       targetAddress: "Target VM address",
+      executionEnvironment: "Build environment",
+      executionEnvironmentHelp:
+        "Applied only to commands on this VM. Changes take effect for new agent runs.",
+      pathPrepend: "Additional PATH directories, one per line",
+      environmentVariables: "Environment variables, one KEY=value per line",
+      environmentVariablesHelp:
+        "Use non-secret build settings only. Reserved shell, loader, OpenClaw, and PlatformClaw variables are rejected.",
+      saveEnvironment: "Save build environment",
       createHost: "Add VM",
       employee: "Employee",
       vm: "Development VM",

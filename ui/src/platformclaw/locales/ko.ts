@@ -110,6 +110,14 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.vmAdmin.approveKey": "호스트 키 승인",
   "platformClaw.vmAdmin.vmLabel": "VM 이름",
   "platformClaw.vmAdmin.targetAddress": "대상 VM 주소",
+  "platformClaw.vmAdmin.executionEnvironment": "빌드 환경",
+  "platformClaw.vmAdmin.executionEnvironmentHelp":
+    "이 VM에서 실행되는 명령에만 적용됩니다. 변경 사항은 새 Agent 실행부터 반영됩니다.",
+  "platformClaw.vmAdmin.pathPrepend": "추가 PATH 디렉터리 (한 줄에 하나)",
+  "platformClaw.vmAdmin.environmentVariables": "환경변수 (한 줄에 KEY=value 하나)",
+  "platformClaw.vmAdmin.environmentVariablesHelp":
+    "비밀이 아닌 빌드 설정만 입력하세요. 셸, 로더, OpenClaw, PlatformClaw 예약 변수는 거부됩니다.",
+  "platformClaw.vmAdmin.saveEnvironment": "빌드 환경 저장",
   "platformClaw.vmAdmin.createHost": "VM 추가",
   "platformClaw.vmAdmin.employee": "사용자",
   "platformClaw.vmAdmin.vm": "개발 VM",

@@ -6,6 +6,7 @@ import type {
   VmAllocationStatus,
   VmHost,
 } from "./execution-contracts.js";
+import { parseVmHostExecutionEnvironmentJson } from "./execution-validation.js";
 import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlite-store-types.js";
 
 type AssignedVmExecutionTargetRow = {
@@ -23,6 +24,7 @@ type AssignedVmExecutionTargetRow = {
   host_key_algorithm: string;
   host_key_public_key: string;
   host_key_fingerprint: string;
+  execution_environment_json: string | null;
 };
 
 export function rowToAssignedVmExecutionTarget(params: {
@@ -33,6 +35,7 @@ export function rowToAssignedVmExecutionTarget(params: {
   row: AssignedVmExecutionTargetRow;
 }): AssignedVmExecutionTarget {
   const { row } = params;
+  const executionEnvironment = parseVmHostExecutionEnvironmentJson(row.execution_environment_json);
   return {
     kind: "assigned_vm",
     agentId: params.agentId,
@@ -54,6 +57,7 @@ export function rowToAssignedVmExecutionTarget(params: {
     hostKeyAlgorithm: row.host_key_algorithm,
     hostKeyPublicKey: row.host_key_public_key,
     hostKeyFingerprint: row.host_key_fingerprint,
+    ...(executionEnvironment ? { executionEnvironment } : {}),
   };
 }
 
@@ -78,13 +82,17 @@ export function rowToEndpoint(row: SafeConnectEndpointRow): SafeConnectEndpoint 
   };
 }
 
-export function rowToVmHost(row: VmHostRow): VmHost {
+export function rowToVmHost(
+  row: VmHostRow & { execution_environment_json?: string | null },
+): VmHost {
+  const executionEnvironment = parseVmHostExecutionEnvironmentJson(row.execution_environment_json);
   return {
     id: row.id,
     endpointId: row.endpoint_id,
     label: row.label,
     targetAddress: row.target_address,
     status: row.status,
+    ...(executionEnvironment ? { executionEnvironment } : {}),
     createdByUserId: row.created_by_user_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

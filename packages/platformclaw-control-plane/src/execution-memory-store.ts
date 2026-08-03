@@ -16,7 +16,9 @@ import {
   normalizeAdDomain,
   normalizeOpenSshHostKey,
   normalizeSafeConnectHost,
+  normalizeVmHostExecutionEnvironment,
   normalizeVmTargetAddress,
+  type VmHostExecutionEnvironment,
 } from "./execution-validation.js";
 import { nextExecutionResourceId } from "./ids.js";
 
@@ -138,6 +140,7 @@ export class InMemoryExecutionManagementStore implements ControlPlaneExecutionMa
     endpointId: string;
     label: string;
     targetAddress: string;
+    executionEnvironment?: VmHostExecutionEnvironment;
     createdAt: number;
   }): Promise<VmHost> {
     this.options.requireAdmin(params.actorUserId);
@@ -146,6 +149,7 @@ export class InMemoryExecutionManagementStore implements ControlPlaneExecutionMa
       throw new ControlPlaneStateError("VM host requires an active, pinned SafeConnect endpoint");
     }
     const targetAddress = normalizeVmTargetAddress(params.targetAddress);
+    const executionEnvironment = normalizeVmHostExecutionEnvironment(params.executionEnvironment);
     const targetKey = `${endpoint.id}\0${targetAddress}`;
     if (this.hostIdByTarget.has(targetKey)) {
       throw new ControlPlaneConflictError(
@@ -159,6 +163,7 @@ export class InMemoryExecutionManagementStore implements ControlPlaneExecutionMa
       label: required(params.label, "vmHost.label"),
       targetAddress,
       status: "active",
+      ...(executionEnvironment ? { executionEnvironment } : {}),
       createdByUserId: params.actorUserId,
       createdAt: params.createdAt,
       updatedAt: params.createdAt,

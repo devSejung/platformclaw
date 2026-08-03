@@ -31,6 +31,10 @@ function assignedVm(revision = 4): AssignedVmExecutionTarget {
     hostKeyAlgorithm: "ssh-ed25519",
     hostKeyPublicKey: "AAAAC3NzaC1lZDI1NTE5AAAAITest",
     hostKeyFingerprint: "SHA256:test",
+    executionEnvironment: {
+      pathPrepend: ["/opt/clang/bin"],
+      variables: { CC: "/opt/clang/bin/clang" },
+    },
   };
 }
 
@@ -169,6 +173,10 @@ describe("ExecutionHandoffService", () => {
       kind: "assigned_vm",
       allocationId: "allocation-one",
       remoteHomeDir: "/users/linux-one",
+      executionEnvironment: {
+        pathPrepend: ["/opt/clang/bin"],
+        variables: { CC: "/opt/clang/bin/clang" },
+      },
     });
     expect(target).not.toHaveProperty("userId");
   });

@@ -13,6 +13,7 @@ import type {
   ControlPlaneVmLifecycleStore,
   VmAdministrationSnapshot,
 } from "./execution-contracts.js";
+import { normalizeVmHostExecutionEnvironment } from "./execution-validation.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import { probeSafeConnectEndpoint, type SafeConnectProbeResult } from "./safeconnect-probe.js";
 
@@ -130,15 +131,18 @@ export class VmAdministrationService {
           approvedAt: now,
         });
         break;
-      case "hosts":
+      case "hosts": {
+        const executionEnvironment = normalizeVmHostExecutionEnvironment(body.executionEnvironment);
         await this.options.store.createVmHost({
           actorUserId,
           endpointId: stringField(body, "endpointId"),
           label: stringField(body, "label"),
           targetAddress: stringField(body, "targetAddress"),
+          ...(executionEnvironment ? { executionEnvironment } : {}),
           createdAt: now,
         });
         break;
+      }
       case "disable-endpoint":
         await this.options.store.disableSafeConnectEndpoint({
           actorUserId,
@@ -163,6 +167,16 @@ export class VmAdministrationService {
           updatedAt: now,
         });
         break;
+      case "update-host-execution-environment": {
+        const executionEnvironment = normalizeVmHostExecutionEnvironment(body.executionEnvironment);
+        await this.options.store.updateVmHostExecutionEnvironment({
+          actorUserId,
+          vmHostId: stringField(body, "vmHostId"),
+          ...(executionEnvironment ? { executionEnvironment } : {}),
+          updatedAt: now,
+        });
+        break;
+      }
       case "disable-host":
         await this.options.store.disableVmHost({
           actorUserId,

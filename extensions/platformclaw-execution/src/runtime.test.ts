@@ -49,6 +49,29 @@ describe("PlatformClaw SafeConnect session", () => {
     );
   });
 
+  it("accepts bounded VM build environment and rejects launcher injection", () => {
+    expect(
+      parseTarget({
+        ...TARGET,
+        executionEnvironment: {
+          pathPrepend: ["/opt/clang/bin"],
+          variables: { TOOLCHAIN_PREFIX: "/opt/gcc/bin/aarch64-elf-" },
+        },
+      }),
+    ).toMatchObject({
+      executionEnvironment: {
+        pathPrepend: ["/opt/clang/bin"],
+        variables: { TOOLCHAIN_PREFIX: "/opt/gcc/bin/aarch64-elf-" },
+      },
+    });
+    expect(() =>
+      parseTarget({
+        ...TARGET,
+        executionEnvironment: { pathPrepend: [], variables: { LD_PRELOAD: "/tmp/bad.so" } },
+      }),
+    ).toThrow("LD_PRELOAD");
+  });
+
   it("quotes whitespace and OpenSSH percent tokens in generated paths", () => {
     expect(quoteOpenSshConfigPath("/tmp/Person One/100%/known_hosts")).toBe(
       '"/tmp/Person One/100%%/known_hosts"',

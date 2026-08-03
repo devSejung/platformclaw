@@ -1,7 +1,6 @@
 import { ControlPlaneConflictError, ControlPlaneStateError } from "./contracts.js";
 import type {
   AssignedVmConnectionTarget,
-  ControlPlaneVmLifecycleStore,
   ControlPlaneVmSelfServiceStore,
   SafeConnectEndpoint,
   VmAllocation,
@@ -12,6 +11,7 @@ import {
   normalizeLinuxAccount,
   normalizeSafeConnectHost,
   normalizeVmTargetAddress,
+  parseVmHostExecutionEnvironmentJson,
 } from "./execution-validation.js";
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
@@ -22,7 +22,7 @@ import type { VmAllocationRow } from "./sqlite-store-types.js";
 
 export abstract class SqliteControlPlaneVmSelfServiceStore
   extends SqliteControlPlaneAuthStore
-  implements ControlPlaneVmSelfServiceStore, ControlPlaneVmLifecycleStore
+  implements ControlPlaneVmSelfServiceStore
 {
   async getPersonalVmCatalog(params: { actorUserId: string; agentId: string }) {
     const owner = takeFirstSync(
@@ -59,6 +59,7 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
     vmHostId: string;
     linuxAccount: string;
   }): Promise<AssignedVmConnectionTarget> {
+    this.ensureVmHostExecutionEnvironmentSchema();
     const row = takeFirstSync(
       this.db,
       this.query
@@ -77,6 +78,11 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
             .onRef("safeconnect_endpoints.id", "=", "vm_hosts.endpoint_id")
             .on("safeconnect_endpoints.status", "=", "active"),
         )
+        .leftJoin(
+          "vm_host_execution_environments",
+          "vm_host_execution_environments.vm_host_id",
+          "vm_hosts.id",
+        )
         .select([
           "agent_bindings.user_id as user_id",
           "platform_users.account_id as account_id",
@@ -91,6 +97,7 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
           "safeconnect_endpoints.host_key_algorithm as host_key_algorithm",
           "safeconnect_endpoints.host_key_public_key as host_key_public_key",
           "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
+          "vm_host_execution_environments.config_json as execution_environment_json",
         ])
         .where("agent_bindings.agent_id", "=", params.agentId)
         .where("agent_bindings.kind", "=", "personal")
@@ -107,6 +114,9 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
       throw new ControlPlaneStateError("selected development VM is unavailable");
     }
     const allocationId = `candidate:${row.vm_host_id}`;
+    const executionEnvironment = parseVmHostExecutionEnvironmentJson(
+      row.execution_environment_json,
+    );
     return {
       kind: "assigned_vm",
       agentId: params.agentId,
@@ -126,6 +136,7 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
       hostKeyAlgorithm: row.host_key_algorithm,
       hostKeyPublicKey: row.host_key_public_key,
       hostKeyFingerprint: row.host_key_fingerprint,
+      ...(executionEnvironment ? { executionEnvironment } : {}),
     };
   }
 

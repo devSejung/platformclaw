@@ -91,7 +91,28 @@ describe("SQLite execution runtime target", () => {
       endpointId: endpoint.id,
       label: "Development VM",
       targetAddress: "192.0.2.10",
+      executionEnvironment: {
+        pathPrepend: ["/opt/clang/bin"],
+        variables: {
+          CLANG11_PATH: "/opt/clang/bin/",
+          TOOLCHAIN_PREFIX: "/opt/gcc/bin/aarch64-elf-",
+        },
+      },
       createdAt: 6,
+    });
+    await expect(store.getVmAdministrationSnapshot(user.id)).resolves.toMatchObject({
+      hosts: [
+        {
+          id: host.id,
+          executionEnvironment: {
+            pathPrepend: ["/opt/clang/bin"],
+            variables: {
+              CLANG11_PATH: "/opt/clang/bin/",
+              TOOLCHAIN_PREFIX: "/opt/gcc/bin/aarch64-elf-",
+            },
+          },
+        },
+      ],
     });
     const allocation = await store.assignVmToPersonalAgent({
       actorUserId: user.id,
@@ -151,6 +172,29 @@ describe("SQLite execution runtime target", () => {
       remoteWorkspaceDir: "/users/linux-user/.platformclaw/workspace",
       hostKeyAlgorithm: "ssh-ed25519",
       hostKeyFingerprint: hostKey.fingerprint,
+      executionEnvironment: {
+        pathPrepend: ["/opt/clang/bin"],
+        variables: {
+          CLANG11_PATH: "/opt/clang/bin/",
+          TOOLCHAIN_PREFIX: "/opt/gcc/bin/aarch64-elf-",
+        },
+      },
+    });
+
+    await store.updateVmHostExecutionEnvironment({
+      actorUserId: user.id,
+      vmHostId: host.id,
+      executionEnvironment: {
+        pathPrepend: ["/opt/clang-17/bin"],
+        variables: { CC: "/opt/clang-17/bin/clang" },
+      },
+      updatedAt: 11,
+    });
+    await expect(store.resolvePersonalExecutionTarget(binding.agentId)).resolves.toMatchObject({
+      executionEnvironment: {
+        pathPrepend: ["/opt/clang-17/bin"],
+        variables: { CC: "/opt/clang-17/bin/clang" },
+      },
     });
   });
 });

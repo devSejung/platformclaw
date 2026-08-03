@@ -21,7 +21,17 @@ export function readVmAdministrationSnapshot(params: {
   ).rows.map(rowToEndpoint);
   const hosts = executeSync(
     params.db,
-    params.query.selectFrom("vm_hosts").selectAll().orderBy("label").orderBy("id"),
+    params.query
+      .selectFrom("vm_hosts")
+      .leftJoin(
+        "vm_host_execution_environments",
+        "vm_host_execution_environments.vm_host_id",
+        "vm_hosts.id",
+      )
+      .selectAll("vm_hosts")
+      .select("vm_host_execution_environments.config_json as execution_environment_json")
+      .orderBy("vm_hosts.label")
+      .orderBy("vm_hosts.id"),
   ).rows.map(rowToVmHost);
   const agents: VmAdministrationAgent[] = executeSync(
     params.db,

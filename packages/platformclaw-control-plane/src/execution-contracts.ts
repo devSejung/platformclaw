@@ -1,6 +1,8 @@
 export type SafeConnectEndpointStatus = "pending" | "active" | "disabled";
 export type VmHostStatus = "active" | "disabled";
 export type VmAllocationStatus = "assigned" | "ready" | "connection_required" | "revoked";
+export type { VmHostExecutionEnvironment } from "./execution-validation.js";
+import type { VmHostExecutionEnvironment } from "./execution-validation.js";
 
 export type SafeConnectEndpoint = {
   id: string;
@@ -25,6 +27,7 @@ export type VmHost = {
   label: string;
   targetAddress: string;
   status: VmHostStatus;
+  executionEnvironment?: VmHostExecutionEnvironment;
   createdByUserId: string;
   createdAt: number;
   updatedAt: number;
@@ -82,6 +85,7 @@ export type AssignedVmExecutionTarget = {
   hostKeyAlgorithm: string;
   hostKeyPublicKey: string;
   hostKeyFingerprint: string;
+  executionEnvironment?: VmHostExecutionEnvironment;
 };
 
 export type PersonalExecutionTarget = PlatformServerExecutionTarget | AssignedVmExecutionTarget;
@@ -202,6 +206,7 @@ export interface ControlPlaneExecutionManagementStore {
     endpointId: string;
     label: string;
     targetAddress: string;
+    executionEnvironment?: VmHostExecutionEnvironment;
     createdAt: number;
   }): Promise<VmHost>;
   assignVmToPersonalAgent(params: {
@@ -216,6 +221,12 @@ export interface ControlPlaneExecutionManagementStore {
 }
 
 export interface ControlPlaneVmLifecycleStore {
+  updateVmHostExecutionEnvironment(params: {
+    actorUserId: string;
+    vmHostId: string;
+    executionEnvironment?: VmHostExecutionEnvironment;
+    updatedAt: number;
+  }): Promise<VmHost>;
   updateSafeConnectEndpoint(params: {
     actorUserId: string;
     endpointId: string;

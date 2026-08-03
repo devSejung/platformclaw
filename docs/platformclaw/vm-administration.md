@@ -27,6 +27,28 @@ check so bypassing the UI does not bypass authorization.
 The page shows current endpoints, VMs, assignments, and recent VM audit events.
 It never returns stored passwords or credential ciphertext to the browser.
 
+## VM build environment
+
+Administrators may configure a non-secret build environment on each development
+VM. `Additional PATH` accepts absolute POSIX directories, one per line, and
+prepends them to the standard remote command path. `Environment variables`
+accepts one `KEY=value` entry per line. For example:
+
+```text
+TOOLCHAIN_PREFIX=/opt/toolchains/gcc/bin/aarch64-elf-
+CLANG11_PATH=/opt/toolchains/clang/bin/
+```
+
+These values apply only to agent commands on that VM. They do not affect the
+Basic workspace, PlatformClaw services, filesystem bridge operations, or an
+already prepared agent run. A saved change is pinned into the next run's VM
+target snapshot.
+
+Do not store passwords, tokens, or other secrets here. The assigned Linux
+account can inspect its command environment. PlatformClaw rejects direct
+`PATH` replacement and reserved shell, dynamic-loader, OpenClaw, and
+PlatformClaw variables; use the dedicated PATH list instead.
+
 ## Disable and revoke lifecycle
 
 The administration surface supports assignment revocation, VM disablement, and

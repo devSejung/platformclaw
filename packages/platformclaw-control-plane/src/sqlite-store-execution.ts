@@ -15,7 +15,8 @@ import {
   normalizeAdDomain,
   normalizeOpenSshHostKey,
   normalizeSafeConnectHost,
-  normalizeVmTargetAddress,
+  parseVmHostExecutionEnvironmentJson,
+  type VmHostExecutionEnvironment,
 } from "./execution-validation.js";
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
@@ -26,14 +27,14 @@ import {
   rowToAllocation,
   rowToEndpoint,
   rowToPersonalExecutionSettings,
-  rowToVmHost,
 } from "./sqlite-store-execution-mappers.js";
 import {
   hasCompleteAssignedVmExecutionFields,
   isReadyAssignedVmExecutionRow,
 } from "./sqlite-store-execution-readiness.js";
 import { SqliteControlPlaneExecutionTargetStore } from "./sqlite-store-execution-target.js";
-import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlite-store-types.js";
+import type { SafeConnectEndpointRow, VmAllocationRow } from "./sqlite-store-types.js";
+import { createVmHostInTransaction } from "./sqlite-store-vm-host-create.js";
 
 export abstract class SqliteControlPlaneExecutionStore
   extends SqliteControlPlaneExecutionTargetStore
@@ -43,6 +44,7 @@ export abstract class SqliteControlPlaneExecutionStore
     ControlPlaneEmployeeExecutionStore
 {
   async getVmAdministrationSnapshot(actorUserId: string): Promise<VmAdministrationSnapshot> {
+    this.ensureVmHostExecutionEnvironmentSchema();
     return readVmAdministrationSnapshot({
       db: this.db,
       query: this.query,
@@ -51,6 +53,7 @@ export abstract class SqliteControlPlaneExecutionStore
   }
 
   async resolveAssignedVmConnectionTarget(agentId: string): Promise<AssignedVmConnectionTarget> {
+    this.ensureVmHostExecutionEnvironmentSchema();
     const row = takeFirstSync(
       this.db,
       this.query
@@ -63,6 +66,11 @@ export abstract class SqliteControlPlaneExecutionStore
         )
         .innerJoin("vm_allocations", "vm_allocations.agent_binding_id", "agent_bindings.id")
         .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
+        .leftJoin(
+          "vm_host_execution_environments",
+          "vm_host_execution_environments.vm_host_id",
+          "vm_hosts.id",
+        )
         .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
         .select([
           "agent_bindings.agent_id as agent_id",
@@ -87,6 +95,7 @@ export abstract class SqliteControlPlaneExecutionStore
           "safeconnect_endpoints.host_key_algorithm as host_key_algorithm",
           "safeconnect_endpoints.host_key_public_key as host_key_public_key",
           "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
+          "vm_host_execution_environments.config_json as execution_environment_json",
         ])
         .where("agent_bindings.agent_id", "=", agentId)
         .where("agent_bindings.kind", "=", "personal")
@@ -102,6 +111,9 @@ export abstract class SqliteControlPlaneExecutionStore
     ) {
       throw new ControlPlaneStateError("assigned VM connection target is unavailable");
     }
+    const executionEnvironment = parseVmHostExecutionEnvironmentJson(
+      row.execution_environment_json,
+    );
     return {
       kind: "assigned_vm",
       agentId: row.agent_id,
@@ -123,6 +135,7 @@ export abstract class SqliteControlPlaneExecutionStore
       hostKeyAlgorithm: row.host_key_algorithm,
       hostKeyPublicKey: row.host_key_public_key,
       hostKeyFingerprint: row.host_key_fingerprint,
+      ...(executionEnvironment ? { executionEnvironment } : {}),
     };
   }
 
@@ -260,11 +273,17 @@ export abstract class SqliteControlPlaneExecutionStore
     if (!owner.active_allocation_id) {
       throw new ControlPlaneStateError("assigned VM execution target is incomplete");
     }
+    this.ensureVmHostExecutionEnvironmentSchema();
     const vm = takeFirstSync(
       this.db,
       this.query
         .selectFrom("vm_allocations")
         .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
+        .leftJoin(
+          "vm_host_execution_environments",
+          "vm_host_execution_environments.vm_host_id",
+          "vm_hosts.id",
+        )
         .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
         .leftJoin("encrypted_user_ssh_credentials", (join) =>
           join.on("encrypted_user_ssh_credentials.user_id", "=", owner.user_id),
@@ -289,6 +308,7 @@ export abstract class SqliteControlPlaneExecutionStore
           "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
           "encrypted_user_ssh_credentials.revision as credential_revision",
           "encrypted_user_ssh_credentials.status as credential_status",
+          "vm_host_execution_environments.config_json as execution_environment_json",
         ])
         .where("vm_allocations.id", "=", owner.active_allocation_id),
     );
@@ -434,49 +454,27 @@ export abstract class SqliteControlPlaneExecutionStore
     endpointId: string;
     label: string;
     targetAddress: string;
+    executionEnvironment?: VmHostExecutionEnvironment;
     createdAt: number;
   }): Promise<VmHost> {
-    return runImmediateTransaction(this.db, () => {
-      this.requireAdmin(params.actorUserId);
-      const endpoint = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("safeconnect_endpoints")
-          .selectAll()
-          .where("id", "=", params.endpointId),
-      );
-      if (endpoint?.status !== "active") {
-        throw new ControlPlaneStateError("VM host requires an active, pinned SafeConnect endpoint");
-      }
-      const targetAddress = normalizeVmTargetAddress(params.targetAddress);
-      const existing = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("vm_hosts")
-          .select("id")
-          .where("endpoint_id", "=", endpoint.id)
-          .where("target_address", "=", targetAddress),
-      );
-      if (existing) {
-        throw new ControlPlaneConflictError(
-          "vm_host_conflict",
-          `VM host already exists for endpoint and target: ${targetAddress}`,
-        );
-      }
-      const row: VmHostRow = {
-        id: nextExecutionResourceId(this.idFactory, "vm-host"),
-        endpoint_id: endpoint.id,
-        label: required(params.label, "vmHost.label"),
-        target_address: targetAddress,
-        status: "active",
-        created_by_user_id: params.actorUserId,
-        created_at: params.createdAt,
-        updated_at: params.createdAt,
-      };
-      executeSync(this.db, this.query.insertInto("vm_hosts").values(row));
-      this.insertAudit(params.actorUserId, "vm.host.created", "vm-host", row.id, params.createdAt);
-      return rowToVmHost(row);
-    });
+    this.ensureVmHostExecutionEnvironmentSchema();
+    return runImmediateTransaction(this.db, () =>
+      createVmHostInTransaction({
+        db: this.db,
+        query: this.query,
+        idFactory: this.idFactory,
+        requireAdmin: () => void this.requireAdmin(params.actorUserId),
+        insertAudit: (vmHostId) =>
+          this.insertAudit(
+            params.actorUserId,
+            "vm.host.created",
+            "vm-host",
+            vmHostId,
+            params.createdAt,
+          ),
+        input: params,
+      }),
+    );
   }
 
   async assignVmToPersonalAgent(params: {

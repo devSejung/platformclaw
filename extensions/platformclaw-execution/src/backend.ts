@@ -37,6 +37,10 @@ export type AssignedVmTargetSnapshot = ExecutionTargetBase & {
   hostKeyAlgorithm: string;
   hostKeyPublicKey: string;
   hostKeyFingerprint: string;
+  executionEnvironment?: {
+    pathPrepend: readonly string[];
+    variables: Readonly<Record<string, string>>;
+  };
 };
 
 export type PlatformClawExecutionTargetSnapshot =
@@ -125,6 +129,23 @@ function buildRuntimePromptContext(
   ].join("\n");
 }
 
+const VM_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+function buildAssignedVmEnvironment(
+  handle: SandboxBackendHandle,
+  target: Readonly<AssignedVmTargetSnapshot>,
+): Record<string, string> | undefined {
+  const configured = target.executionEnvironment;
+  if (!configured) {
+    return handle.env;
+  }
+  const environment = { ...handle.env, ...configured.variables };
+  if (configured.pathPrepend.length > 0) {
+    environment.PATH = [...configured.pathPrepend, handle.env?.PATH ?? VM_DEFAULT_PATH].join(":");
+  }
+  return environment;
+}
+
 export function createPlatformClawExecutionBackendFactory(
   dependencies: PlatformClawExecutionDependencies,
   timing: ExecutionTimingOptions = {},
@@ -173,6 +194,8 @@ export function createPlatformClawExecutionBackendFactory(
             ...(skillCatalog ? { catalog: skillCatalog } : {}),
           });
     const skillWorkshopMs = timingMs(now, phaseStartedAt);
+    const assignedVmEnvironment =
+      target.kind === "assigned_vm" ? buildAssignedVmEnvironment(handle, target) : undefined;
 
     timing.logTiming?.(
       `event=platformclaw_execution_timing status=ok targetKind=${target.kind} targetRevision=${String(target.revision)} catalogFiles=${String(skillCatalog?.files.length ?? 0)} resolveTargetMs=${String(resolveTargetMs)} skillCatalogMs=${String(skillCatalogMs)} gatewaySkillsMs=${String(gatewaySkillsMs)} backendHandleMs=${String(backendHandleMs)} skillWorkshopMs=${String(skillWorkshopMs)} totalMs=${String(timingMs(now, totalStartedAt))}`,
@@ -181,6 +204,7 @@ export function createPlatformClawExecutionBackendFactory(
     return {
       ...handle,
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
+      ...(assignedVmEnvironment ? { env: assignedVmEnvironment } : {}),
       capabilities: {
         ...handle.capabilities,
         ...(target.kind === "assigned_vm" ? { separateAgentWorkspace: true } : {}),
@@ -248,6 +272,16 @@ function pinTargetSnapshot(
     ) {
       throw new Error("PlatformClaw VM allocation snapshot is incomplete.");
     }
+    const executionEnvironment = candidate.executionEnvironment
+      ? Object.freeze({
+          pathPrepend: Object.freeze([...candidate.executionEnvironment.pathPrepend]),
+          variables: Object.freeze({ ...candidate.executionEnvironment.variables }),
+        })
+      : undefined;
+    return Object.freeze({
+      ...candidate,
+      ...(executionEnvironment ? { executionEnvironment } : {}),
+    });
   }
   return Object.freeze({ ...candidate });
 }
