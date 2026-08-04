@@ -27,6 +27,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "plugins.setEnabled",
   "plugins.uninstall",
   "sessions.abort",
+  "sessions.compact",
   "sessions.create",
   "sessions.delete",
   "sessions.describe",
@@ -37,8 +38,10 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "sessions.observer.visibility",
   "sessions.patch",
   "sessions.preview",
+  "sessions.reset",
   "sessions.resolve",
   "sessions.search",
+  "sessions.steer",
   "sessions.usage",
   "skills.detail",
   "skills.install",
@@ -171,6 +174,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["plugins.setEnabled", new Set(["pluginId", "enabled"])],
   ["plugins.uninstall", new Set(["pluginId"])],
   ["sessions.abort", new Set(["key", "agentId", "clearQueued"])],
+  ["sessions.compact", new Set(["key", "agentId"])],
   [
     "sessions.create",
     new Set([
@@ -234,6 +238,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     ]),
   ],
   ["sessions.preview", new Set(["keys", "limit", "maxChars"])],
+  ["sessions.reset", new Set(["key", "agentId", "reason"])],
   [
     "sessions.resolve",
     new Set([
@@ -248,6 +253,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     ]),
   ],
   ["sessions.search", new Set(["agentId", "sessionKeys", "query", "limit"])],
+  ["sessions.steer", new Set(["key", "agentId", "message"])],
   [
     "sessions.usage",
     new Set([
@@ -374,9 +380,12 @@ export const PLATFORMCLAW_WEB_SESSION_KEY_METHODS = new Map<string, string>([
   ["chat.startup", "sessionKey"],
   ["chat.toolTitles", "sessionKey"],
   ["sessions.abort", "key"],
+  ["sessions.compact", "key"],
   ["sessions.describe", "key"],
   ["sessions.messages.subscribe", "key"],
   ["sessions.messages.unsubscribe", "key"],
   ["sessions.patch", "key"],
+  ["sessions.reset", "key"],
+  ["sessions.steer", "key"],
   ["tools.effective", "sessionKey"],
 ]);

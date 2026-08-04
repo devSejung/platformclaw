@@ -243,13 +243,25 @@ export async function executePreparedReplyAgentRun(
       (activeSessionEntry?.compactionCount ?? 0) > prePreflightCompactionCount;
   } catch (err) {
     const canRotateAfterPreflightFailure =
-      memoryFlushResult.outcome === "exhausted" &&
-      !replyOperation.abortSignal.aborted &&
-      isLikelyContextOverflowError(String(err));
+      !replyOperation.abortSignal.aborted && isLikelyContextOverflowError(String(err));
     if (!canRotateAfterPreflightFailure) {
       throw err;
     }
-    logVerbose(`Preflight compaction could not recover exhausted memory flush: ${String(err)}`);
+    logVerbose(`Preflight compaction could not recover context overflow: ${String(err)}`);
+    if (memoryFlushResult.outcome !== "exhausted") {
+      const rotated = await resetSession({
+        failureLabel: "preflight compaction overflow",
+        buildLogMessage: (nextSessionId) =>
+          `Preflight compaction overflow. Rotating bloated session ${sessionKey} -> ${nextSessionId}.`,
+        cleanupTranscripts: false,
+      });
+      if (!rotated) {
+        throw err;
+      }
+      if (activeSessionEntry?.sessionId) {
+        replyOperation.updateSessionId(activeSessionEntry.sessionId);
+      }
+    }
   }
 
   if (memoryFlushResult.outcome === "exhausted" && !preflightCompactionApplied) {

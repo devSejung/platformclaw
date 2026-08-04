@@ -542,6 +542,32 @@ describe("runReplyAgent runtime config", () => {
     expect(executeAgentTurnMock).not.toHaveBeenCalled();
   });
 
+  it("rotates and continues when preflight compaction itself overflows", async () => {
+    const { replyParams } = createDirectRuntimeReplyParams({
+      shouldFollowup: false,
+      isActive: false,
+    });
+    runMemoryFlushIfNeededMock.mockResolvedValue({
+      sessionEntry: { sessionId: "session-1", updatedAt: 1, compactionCount: 4 },
+      outcome: "skipped",
+    });
+    runPreflightCompactionIfNeededMock.mockRejectedValue(
+      new Error("Preflight compaction required but failed: context_overflow"),
+    );
+    resetReplyRunSessionMock.mockResolvedValue(true);
+
+    await expect(runReplyAgent(replyParams)).resolves.toEqual({ text: "main reply" });
+
+    expect(resetReplyRunSessionMock).toHaveBeenCalledOnce();
+    expect(resetReplyRunSessionMock.mock.calls[0]?.[0]).toMatchObject({
+      options: {
+        failureLabel: "preflight compaction overflow",
+        cleanupTranscripts: false,
+      },
+    });
+    expect(executeAgentTurnMock).toHaveBeenCalledOnce();
+  });
+
   it("does not start the main turn after cancellation during memory flush", async () => {
     const { replyParams } = createDirectRuntimeReplyParams({
       shouldFollowup: false,

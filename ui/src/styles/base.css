@@ -629,6 +629,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* PlatformClaw runs primarily in a browser, where copying diagnostics and
+   operational text is more important than native-app chrome selection rules.
+   Explicit control/drag-handle `user-select: none` rules still win locally. */
+:root[data-platformclaw-hosted] body {
+  user-select: text;
+}
+
 @media (min-width: 1600px) {
   body {
     font-size: 15px;

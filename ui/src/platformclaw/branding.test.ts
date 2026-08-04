@@ -18,6 +18,7 @@ describe("PlatformClaw branding", () => {
   afterEach(() => {
     document.head.replaceChildren();
     document.body.replaceChildren();
+    delete document.documentElement.dataset.platformclawHosted;
   });
 
   it("stays inactive on the upstream Control UI", () => {
@@ -37,6 +38,7 @@ describe("PlatformClaw branding", () => {
       resolvePlatformClawBranding()?.mascotUrl,
     );
     expect(document.querySelector('link[rel="icon"][type="image/png"]')).toBeNull();
+    expect(document.documentElement.dataset.platformclawHosted).toBe("");
   });
 
   it("rebrands shared mascot surfaces without replacing upstream call sites", async () => {

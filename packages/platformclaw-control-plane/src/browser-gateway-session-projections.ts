@@ -34,6 +34,49 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
     input.assertOwnedResultSessionKey(input.prepared.key);
     return { deleted: payload.deleted };
   }
+  if (input.method === "sessions.reset") {
+    input.assertOwnedResultSessionKey(input.prepared.key);
+    return {};
+  }
+  if (input.method === "sessions.compact") {
+    const payload = asObject(input.result, "session compact result", fail);
+    if (typeof payload.compacted !== "boolean") {
+      return input.fail("Gateway returned an invalid session compact result");
+    }
+    input.assertOwnedResultSessionKey(payload.key ?? input.prepared.key);
+    const result =
+      payload.result && typeof payload.result === "object" && !Array.isArray(payload.result)
+        ? (payload.result as JsonObject)
+        : undefined;
+    return {
+      ...(typeof payload.ok === "boolean" ? { ok: payload.ok } : {}),
+      compacted: payload.compacted,
+      ...(typeof payload.reason === "string" ? { reason: payload.reason } : {}),
+      ...(result
+        ? {
+            result: {
+              ...(typeof result.tokensBefore === "number"
+                ? { tokensBefore: result.tokensBefore }
+                : {}),
+              ...(typeof result.tokensAfter === "number"
+                ? { tokensAfter: result.tokensAfter }
+                : {}),
+            },
+          }
+        : {}),
+    };
+  }
+  if (input.method === "sessions.steer") {
+    const payload = asObject(input.result, "session steer result", fail);
+    if (typeof payload.status !== "string") {
+      return input.fail("Gateway returned an invalid session steer result");
+    }
+    input.assertOwnedResultSessionKey(input.prepared.key);
+    return {
+      status: payload.status,
+      ...(typeof payload.runId === "string" ? { runId: payload.runId } : {}),
+    };
+  }
   if (input.method === "sessions.describe") {
     const payload = asObject(input.result, "session description", fail);
     if (payload.session !== null && !input.payloadBelongsToAccess(payload.session)) {

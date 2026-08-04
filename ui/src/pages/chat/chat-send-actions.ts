@@ -31,6 +31,7 @@ import { listStoredChatOutboxes, storedChatOutboxScopeKey } from "./composer-per
 import { formatConnectError } from "./connect-error.ts";
 import {
   OFFLINE_QUEUE_STORAGE_ERROR,
+  recoverUnconfirmedSteer,
   steerQueuedChatMessage as steerQueuedChatMessageLifecycle,
   type SteerSendDependencies,
   type SteerSendResult,
@@ -131,6 +132,12 @@ export function steerQueuedChatMessage(host: ChatHost, id: string) {
 }
 
 export async function resumeStoredChatOutboxes(host: ChatHost) {
+  const unconfirmedSteer = host.chatQueue.find(
+    (item) => item.kind === "steered" && item.sendState === "unconfirmed",
+  );
+  if (unconfirmedSteer) {
+    await recoverUnconfirmedSteer(host, unconfirmedSteer.id, steerSendDependencies);
+  }
   await resumeStoredChatOutboxesDrain(host, chatOutboxDrainDependencies);
 }
 
