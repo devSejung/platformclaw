@@ -93,6 +93,18 @@ initial admin account ID. Non-interactive installs set
 `PLATFORMCLAW_INITIAL_ADMIN_IDS_SOURCE` to an owner-readable file. Routine
 operations need no sudo.
 
+To promote an existing active employee account after its first successful
+login, run this as the service user:
+
+```bash
+./platformclaw-deploy admin add <account-id>
+```
+
+The command changes only that user's global role, records a deployment-operator
+audit event, and is idempotent. It does not rerun setup, replace secrets, reset
+state, or restart containers. The user must reconnect or sign in again before
+an already-open browser connection receives the new role.
+
 Run raw Compose only through the wrapper. It detects UID/GID and home, derives
 the rootless runtime directory, forces the main daemon socket to
 `unix:///var/run/docker.sock`, and reads the stable

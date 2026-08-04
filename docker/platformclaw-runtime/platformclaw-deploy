@@ -26,6 +26,9 @@ Operations:
   logs [service...]           Follow logs
   shell                       Open a shell in openclaw-gateway
 
+Administrators:
+  admin add <account-id>      Promote one existing active user; no restart
+
 OpenClaw config:
   config path                 Print host-editable openclaw.json path
   config shell                Open Gateway shell in the config directory
@@ -956,6 +959,23 @@ case "$command_name" in
         exit 2
         ;;
     esac
+    ;;
+  admin)
+    subcommand="${1:-}"
+    account_id="${2:-}"
+    [[ "$subcommand" == "add" && -n "$account_id" && $# == 2 ]] || {
+      usage >&2
+      exit 2
+    }
+    require_service_user
+    require_main_docker
+    database_path="$control_state/platformclaw-control.sqlite"
+    [[ -f "$database_path" ]] || {
+      echo "PlatformClaw control database does not exist: $database_path" >&2
+      exit 1
+    }
+    "${compose[@]}" run --rm --no-deps platformclaw-control \
+      platformclaw-admin add "$account_id"
     ;;
   ca)
     subcommand="${1:-}"

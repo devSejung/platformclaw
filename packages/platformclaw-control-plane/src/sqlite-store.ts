@@ -1,5 +1,6 @@
 import {
   ControlPlaneAuthorizationError,
+  ControlPlaneNotFoundError,
   ControlPlaneStateError,
   type ControlAuditEvent,
   type ControlPlaneAuditWriter,
@@ -15,7 +16,13 @@ import {
 } from "./contracts.js";
 import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
 import { executeSync, runImmediateTransaction } from "./kysely-sync.js";
-import { normalizeScopeName, required, rowToMembership, rowToScope } from "./sqlite-store-core.js";
+import {
+  normalizeAccountId,
+  normalizeScopeName,
+  required,
+  rowToMembership,
+  rowToScope,
+} from "./sqlite-store-core.js";
 import { SqliteControlPlaneMcpStore } from "./sqlite-store-mcp.js";
 import type { ManagedScopeRow } from "./sqlite-store-types.js";
 
@@ -27,6 +34,40 @@ export class SqliteControlPlaneStore
     ControlPlaneAuditWriter,
     ControlPlaneExecutionManagementStore
 {
+  async addDeploymentAdministrator(params: {
+    accountId: string;
+    changedAt: number;
+  }): Promise<{ user: PlatformUser; changed: boolean }> {
+    return runImmediateTransaction(this.db, () => {
+      const accountId = normalizeAccountId(params.accountId);
+      const target = this.selectUserByAccountId(accountId);
+      if (!target) {
+        throw new ControlPlaneNotFoundError("user", accountId);
+      }
+      if (target.status !== "active") {
+        throw new ControlPlaneStateError(`cannot promote a disabled user: ${accountId}`);
+      }
+      if (target.global_role === "admin") {
+        return { user: this.rowToUser(target), changed: false };
+      }
+      executeSync(
+        this.db,
+        this.query
+          .updateTable("platform_users")
+          .set({ global_role: "admin", updated_at: params.changedAt })
+          .where("id", "=", target.id),
+      );
+      // The service account already owns the control DB. Keep this narrow
+      // maintenance path auditable without pretending a browser user acted.
+      this.insertAudit(null, "user.role.changed", "user", target.id, params.changedAt, {
+        from: target.global_role,
+        to: "admin",
+        source: "deployment-operator",
+      });
+      return { user: this.requireUser(target.id), changed: true };
+    });
+  }
+
   async setUserGlobalRole(params: {
     actorUserId: string;
     targetUserId: string;
