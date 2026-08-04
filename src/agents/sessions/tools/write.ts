@@ -70,6 +70,8 @@ const WriteToolOutputSchema = Type.Union([
  * Override these to delegate file writing to remote systems (for example SSH).
  */
 export interface WriteOperations {
+  /** Resolve a user-supplied path for this write backend. */
+  resolvePath?: (filePath: string, cwd: string) => string | Promise<string>;
   /** Write content to a file */
   writeFile: (absolutePath: string, content: string) => Promise<void>;
   /** Create directory recursively */
@@ -549,7 +551,7 @@ export function createWriteToolDefinition(
       void toolCallId;
       void onUpdate;
       void ctx;
-      const absolutePath = resolveToCwd(path, cwd);
+      const absolutePath = await (ops.resolvePath?.(path, cwd) ?? resolveToCwd(path, cwd));
       const dir = dirname(absolutePath);
       return withFileMutationQueue(absolutePath, async () => {
         const precheck = await readOriginalWriteState(absolutePath, content, ops);

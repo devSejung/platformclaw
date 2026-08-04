@@ -119,7 +119,7 @@ function buildRuntimePromptContext(
           workspaceBoundary:
             "Basic workspace and My development VM keep independent files and processes.",
           filesystemAccess:
-            "File tools and command workdirs may use the full Linux home. Paths outside it stay unavailable to file tools.",
+            "Relative file paths start at activeWorkspace. In file tools, ~ and ~/... mean linuxHome. File tools and command workdirs may use the full Linux home; paths outside it stay unavailable.",
         };
   return [
     "<platformclaw_execution_context>",

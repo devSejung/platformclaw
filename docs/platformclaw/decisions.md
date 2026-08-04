@@ -576,6 +576,13 @@ or compatibility migration. Memory search, read, and append target the
 canonical per-Agent corpus; wiki and combined-search corpus selection remain
 unchanged.
 
+For assigned VMs, exact `~` and `~/...` file-tool paths resolve to the
+connection-verified remote Linux home while relative paths remain rooted at the
+remote project workspace. The pre-compaction maintenance turn is not an
+execution-project operation: its restricted read and append-only write stay on
+the Gateway Agent workspace. No separate `memory_flush` tool, memory mirror,
+VM fallback, or dual write is introduced.
+
 Bootstrap completion first parses the canonical `IDENTITY.md` and commits its
 name, theme, emoji, and avatar to the selected Agent's Gateway config. Only
 after that control-plane write succeeds does it record the per-Agent SQLite

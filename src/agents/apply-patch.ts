@@ -20,6 +20,7 @@ import type { MemoryWriteProvenanceObserver } from "./memory-write-provenance.js
 import { resolvePathFromInput } from "./path-policy.js";
 import type { AgentTool } from "./runtime/index.js";
 import { assertSandboxPath } from "./sandbox-paths.js";
+import { isPathInsideContainerRoot } from "./sandbox/path-utils.js";
 import {
   withFileMutationQueue,
   withFileMutationQueues,
@@ -360,18 +361,26 @@ async function resolvePatchPath(
   aliasPolicy: PathAliasPolicy = PATH_ALIAS_POLICIES.strict,
 ): Promise<{ resolved: string; display: string }> {
   if (options.sandbox) {
-    const resolved = options.sandbox.bridge.resolvePath({
-      filePath,
-      cwd: options.cwd,
-    });
-    if (options.workspaceOnly !== false && resolved.hostPath) {
-      await assertSandboxPath({
-        filePath: resolved.hostPath,
-        cwd: options.cwd,
-        root: options.cwd,
-        allowFinalSymlinkForUnlink: aliasPolicy.allowFinalSymlinkForUnlink,
-        allowFinalHardlinkForUnlink: aliasPolicy.allowFinalHardlinkForUnlink,
-      });
+    const resolved = options.sandbox.bridge.resolveUserPath
+      ? options.sandbox.bridge.resolveUserPath({ filePath, cwd: options.cwd })
+      : options.sandbox.bridge.resolvePath({ filePath, cwd: options.cwd });
+    if (options.workspaceOnly !== false) {
+      if (resolved.hostPath) {
+        await assertSandboxPath({
+          filePath: resolved.hostPath,
+          cwd: options.cwd,
+          root: options.cwd,
+          allowFinalSymlinkForUnlink: aliasPolicy.allowFinalSymlinkForUnlink,
+          allowFinalHardlinkForUnlink: aliasPolicy.allowFinalHardlinkForUnlink,
+        });
+      } else if (
+        options.sandbox.containerRoot &&
+        !isPathInsideContainerRoot(options.sandbox.containerRoot, resolved.containerPath)
+      ) {
+        throw new Error(
+          `Path escapes sandbox root (${options.sandbox.containerRoot ?? "remote workspace"}): ${resolved.containerPath}`,
+        );
+      }
     }
     return {
       resolved: resolved.hostPath ?? resolved.containerPath,

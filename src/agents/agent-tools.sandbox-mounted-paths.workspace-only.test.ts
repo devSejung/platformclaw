@@ -104,6 +104,30 @@ function createSandboxFsTools(params: { sandbox: UnsafeMountedSandbox; workspace
 }
 
 describe("tools.fs.workspaceOnly", () => {
+  it("guards backend home aliases after resolving them to remote container paths", async () => {
+    const root = path.resolve("C:/local/workspace");
+    const execute = vi.fn(async () => ({ content: [] }));
+    const guarded = wrapToolWorkspaceRootGuardWithOptions(
+      { name: "read", execute } as never,
+      root,
+      {
+        containerWorkdir: "/users/worker/.platformclaw/workspace",
+        resolveGuardPath: (filePath) =>
+          filePath.startsWith("~/")
+            ? `/users/worker/${filePath.slice(2)}`
+            : `/users/worker/.platformclaw/workspace/${filePath}`,
+      },
+    );
+
+    await expect(guarded.execute("home-alias", { path: "~/secret.txt" })).rejects.toThrow(
+      /Path escapes sandbox root/i,
+    );
+    await expect(guarded.execute("workspace-relative", { path: "note.txt" })).resolves.toEqual({
+      content: [],
+    });
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
   it("preserves valid UTF-8 BOM bytes through real sandbox edit and patch bridges", async () => {
     await withUnsafeMountedSandboxHarness(async ({ sandboxRoot, sandbox }) => {
       const filePath = path.join(sandboxRoot, "source.txt");

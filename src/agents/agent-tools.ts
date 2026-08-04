@@ -130,8 +130,6 @@ import {
 } from "./tools/cron-tool.js";
 import { wrapToolWithGatewayCallerIdentity } from "./tools/gateway-caller-context.js";
 
-const MEMORY_FLUSH_ALLOWED_TOOL_NAMES = new Set(["read", "write"]);
-
 type GuardContainerMount = {
   containerRoot: string;
   hostRoot: string;
@@ -620,7 +618,10 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   const workspaceRoot = capabilityProfile.workspace.workspaceRoot;
   const runtimeRoot = capabilityProfile.workspace.runtimeRoot;
   const codingRoot = sandboxRoot ?? runtimeRoot;
-  const memoryFlushWriteRoot = sandboxRoot ?? workspaceRoot;
+  const resolveSandboxUserPath = sandboxFsBridge?.resolveUserPath
+    ? (filePath: string) =>
+        sandboxFsBridge.resolveUserPath!({ filePath, cwd: sandboxRoot }).containerPath
+    : undefined;
   // Flush exposes one append-only target; its fallback records inherited taint after success.
   const memoryWriteProvenance = isMemoryFlushRun
     ? undefined
@@ -696,6 +697,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
                   readOnlyWorkspaceSkillMounts,
                 ),
                 containerWorkdir: sandbox.containerWorkdir,
+                resolveGuardPath: resolveSandboxUserPath,
               })
             : sandboxed;
           base.push(
@@ -837,7 +839,11 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
           cwd: codingRoot,
           sandbox:
             sandboxRoot && allowWorkspaceWrites
-              ? { root: sandboxRoot, bridge: sandboxFsBridge! }
+              ? {
+                  root: sandboxRoot,
+                  containerRoot: sandbox.containerWorkdir,
+                  bridge: sandboxFsBridge!,
+                }
               : undefined,
           workspaceOnly: applyPatchWorkspaceOnly,
           memoryWriteProvenance,
@@ -966,6 +972,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
                   sandboxRoot,
                   {
                     containerWorkdir: sandbox.containerWorkdir,
+                    resolveGuardPath: resolveSandboxUserPath,
                   },
                 )
               : createSandboxedEditTool({
@@ -983,6 +990,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
                   sandboxRoot,
                   {
                     containerWorkdir: sandbox.containerWorkdir,
+                    resolveGuardPath: resolveSandboxUserPath,
                   },
                 )
               : createSandboxedWriteTool({
@@ -1092,26 +1100,23 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       : undefined;
   const toolsForMemoryFlush: AnyAgentTool[] = isMemoryFlushRun && memoryFlushWritePath ? [] : tools;
   if (isMemoryFlushRun && memoryFlushWritePath) {
-    for (const tool of tools) {
-      if (!MEMORY_FLUSH_ALLOWED_TOOL_NAMES.has(tool.name)) {
-        continue;
-      }
-      if (tool.name === "write") {
-        toolsForMemoryFlush.push(
-          wrapToolMemoryFlushAppendOnlyWrite(tool, {
-            root: memoryFlushWriteRoot,
-            relativePath: memoryFlushWritePath,
-            containerWorkdir: sandbox?.containerWorkdir,
-            sandbox:
-              sandboxRoot && sandboxFsBridge
-                ? { root: sandboxRoot, bridge: sandboxFsBridge }
-                : undefined,
-          }),
-        );
-        continue;
-      }
-      toolsForMemoryFlush.push(tool);
-    }
+    // Agent memory is Gateway-owned even when project tools run on a separate backend.
+    // Keep maintenance reads and the single append target on the canonical Agent workspace.
+    const memoryRead = wrapToolWorkspaceRootGuard(
+      createOpenClawReadTool(createReadTool(workspaceRoot), {
+        modelContextWindowTokens: options?.modelContextWindowTokens,
+        imageSanitization,
+      }),
+      workspaceRoot,
+    );
+    const memoryWrite = createHostWorkspaceWriteTool(workspaceRoot, { workspaceOnly: true });
+    toolsForMemoryFlush.push(
+      memoryRead,
+      wrapToolMemoryFlushAppendOnlyWrite(memoryWrite, {
+        root: workspaceRoot,
+        relativePath: memoryFlushWritePath,
+      }),
+    );
   }
   const unavailableCoreToolReason =
     isMemoryFlushRun && memoryFlushWritePath

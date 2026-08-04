@@ -166,6 +166,14 @@ PlatformClaw-managed denylist inside the home; Linux account permissions remain
 authoritative. Accounts whose canonical home is the filesystem root (`/`) are
 not supported because they would erase this boundary.
 
+Relative file-tool paths start at `${HOME}/.platformclaw/workspace`. The exact
+path `~` and paths beginning with `~/` resolve to the assigned account's stored,
+connection-verified Linux home. Names such as `~other` are ordinary relative
+path text and are not user-home aliases. The backend applies this expansion
+before its existing allowed-root, canonical-parent, symlink, hardlink, and
+write-access checks. When `tools.fs.workspaceOnly` is enabled, paths resolved
+outside the active workspace remain rejected even if they are inside the home.
+
 Workspace files have two owners. `SOUL.md`, `IDENTITY.md`, `USER.md`,
 `BOOTSTRAP.md`, and durable memory belong to the Agent and have one canonical
 copy in its Gateway workspace. `AGENTS.md` belongs to the active project and is
@@ -176,13 +184,22 @@ parent Agent's profile or bootstrap state.
 
 PlatformClaw does not mirror or dual-write Agent files, intercept matching
 basenames in general file tools, or copy project instructions between targets.
-General `read`, `write`, `edit`, and search tools always address the active
-workspace. When that filesystem is an assigned VM, the backend advertises a
+General `read`, `write`, `edit`, patch, and search tools address the active
+execution filesystem. Relative paths use its active workspace; allowed absolute
+paths and the assigned-VM home alias can address the wider execution boundary.
+When that filesystem is an assigned VM, the backend advertises a
 generic split-workspace capability and core exposes path-bounded Agent
 workspace tools for `SOUL.md`, `IDENTITY.md`, `USER.md`, and `BOOTSTRAP.md`.
 Those tools cannot access arbitrary Gateway paths. Durable recall uses the
 memory tools; writes append to the canonical Agent memory corpus and do not
 change wiki or combined-search corpus ownership.
+
+The silent pre-compaction memory-maintenance turn follows the same ownership
+rule. Its restricted read and append-only write tools always use the canonical
+Gateway Agent workspace, even while ordinary project tools use an assigned VM.
+There is no public `memory_flush` tool, VM fallback, mirror, or dual-write path.
+Target-preparation failures enter the normal bounded maintenance-failure path
+instead of aborting the user's reply.
 
 Bootstrap completion is explicit. The Gateway first parses canonical
 `IDENTITY.md` and commits its supported fields to the selected Agent's config,
@@ -415,6 +432,8 @@ whether upstream changed:
 - prepared agent ownership or opaque scope handling;
 - local and SSH execution backends;
 - filesystem bridge behavior;
+- backend-owned user-path resolution, including assigned-VM `~` semantics;
+- pre-compaction memory-tool routing to the canonical Gateway Agent workspace;
 - process persistence, registry, and restart reconciliation;
 - prompt hook lifecycle;
 - Control UI settings and navigation extension points;

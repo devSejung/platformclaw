@@ -57,6 +57,7 @@ export type CreateSshSandboxBackendWithSessionFactoryOptions = {
   workspaceRoot: string;
   createSession: SshSandboxSessionFactory;
   workspaceMode?: "mirror" | "existing";
+  remoteHomeDir?: string;
   additionalFilesystemRoots?: readonly RemoteShellSandboxFilesystemRoot[];
 };
 
@@ -182,6 +183,19 @@ export async function createSshSandboxBackendWithSessionFactory(
   const additionalFilesystemRoots = normalizeAdditionalFilesystemRoots(
     options.additionalFilesystemRoots,
   );
+  const remoteHomeDir = options.remoteHomeDir
+    ? normalizeRemotePath(options.remoteHomeDir.trim())
+    : undefined;
+  if (
+    remoteHomeDir &&
+    (!path.posix.isAbsolute(remoteHomeDir) ||
+      remoteHomeDir === "/" ||
+      !additionalFilesystemRoots.some((root) => isRemotePathInsideRoot(root.root, remoteHomeDir)))
+  ) {
+    throw new Error(
+      "SSH sandbox remote home must be an absolute non-root allowed filesystem root.",
+    );
+  }
   const impl = new SshSandboxBackendImpl({
     createParams: params,
     target: targetLabel,
@@ -192,6 +206,7 @@ export async function createSshSandboxBackendWithSessionFactory(
     createSession: options.createSession,
     workspaceMode,
     additionalFilesystemRoots,
+    remoteHomeDir,
   });
   return impl.asHandle();
 }
@@ -208,6 +223,7 @@ class SshSandboxBackendImpl {
       createSession: SshSandboxSessionFactory;
       workspaceMode: "mirror" | "existing";
       additionalFilesystemRoots: readonly RemoteShellSandboxFilesystemRoot[];
+      remoteHomeDir?: string;
     },
   ) {}
 
@@ -230,6 +246,7 @@ class SshSandboxBackendImpl {
       ],
       remoteWorkspaceDir: this.params.runtimePaths.remoteWorkspaceDir,
       remoteAgentWorkspaceDir: this.params.runtimePaths.remoteAgentWorkspaceDir,
+      ...(this.params.remoteHomeDir ? { remoteHomeDir: this.params.remoteHomeDir } : {}),
       additionalFilesystemRoots: this.params.additionalFilesystemRoots,
       buildExecSpec: async ({ command, workdir, env, usePty }) => {
         const remoteWorkdir = workdir ?? this.params.runtimePaths.remoteWorkspaceDir;

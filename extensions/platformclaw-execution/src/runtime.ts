@@ -575,6 +575,7 @@ export async function createExecutionDependenciesFromEnvironment(
         targetLabel: `${target.endpointHost}:${target.endpointPort}`,
         workspaceRoot: target.remoteWorkspaceDir,
         workspaceMode: "existing",
+        remoteHomeDir: target.remoteHomeDir,
         additionalFilesystemRoots: [{ root: target.remoteHomeDir, access: "rw" }],
         createSession: async () => await sshLeases.createSession(target),
       }),

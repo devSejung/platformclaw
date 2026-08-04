@@ -1130,6 +1130,7 @@ describe("applyPatch", () => {
       cwd: "/local/workspace",
       sandbox: {
         root: "/local/workspace",
+        containerRoot: "/sandbox",
         bridge: bridge as never,
       },
     });
@@ -1140,5 +1141,35 @@ describe("applyPatch", () => {
       filePath: "/sandbox/source.txt",
       cwd: "/local/workspace",
     });
+  });
+
+  it("rejects a remote home alias when apply_patch is workspace-only", async () => {
+    const bridge = {
+      resolvePath: ({ filePath }: { filePath: string }) => ({
+        relativePath: filePath,
+        containerPath: `/workspace/${filePath}`,
+      }),
+      resolveUserPath: ({ filePath }: { filePath: string }) => ({
+        relativePath: filePath,
+        containerPath: filePath.startsWith("~/")
+          ? `/users/worker/${filePath.slice(2)}`
+          : `/workspace/${filePath}`,
+      }),
+    };
+    const patch = `*** Begin Patch
+*** Add File: ~/outside.txt
++blocked
+*** End Patch`;
+
+    await expect(
+      applyPatch(patch, {
+        cwd: "/local/workspace",
+        sandbox: {
+          root: "/local/workspace",
+          containerRoot: "/workspace",
+          bridge: bridge as never,
+        },
+      }),
+    ).rejects.toThrow(/Path escapes sandbox root/);
   });
 });

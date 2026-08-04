@@ -20,6 +20,8 @@ export type SandboxFsStat = {
 
 /** Filesystem operations exposed across the sandbox boundary. */
 export type SandboxFsBridge = {
+  /** Resolve model-facing path syntax owned by this backend (for example a remote home alias). */
+  resolveUserPath?(params: { filePath: string; cwd?: string }): SandboxResolvedPath;
   resolvePath(params: { filePath: string; cwd?: string }): SandboxResolvedPath;
   /** Reads a safely opened regular file, rejecting growth beyond an optional byte limit. */
   readFile(params: {

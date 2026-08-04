@@ -4,7 +4,7 @@ import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 
 type ApplyPatchOptions = {
   cwd: string;
-  sandbox?: { root: string; bridge: SandboxFsBridge };
+  sandbox?: { root: string; containerRoot?: string; bridge: SandboxFsBridge };
   workspaceOnly?: boolean;
   signal?: AbortSignal;
 };

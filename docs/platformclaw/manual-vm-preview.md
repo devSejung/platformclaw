@@ -58,14 +58,21 @@ Use another browser profile or sign out between the two roles:
    is created only after the connection test succeeds.
 7. Change the work location to **Personal VM**.
 8. If a model provider is configured, start a chat and ask the Agent to run
-   `whoami`, `pwd`, and create then read a small file. The remote home is
+   `whoami`, `pwd`, create and read `relative-proof.txt`, then create and read
+   `~/home-proof.txt`. Confirm the relative file is under the remote workspace
+   and the home proof is directly under the remote home. The remote home is
    `/users/person_one`; the remote workspace is
    `/users/person_one/.platformclaw/workspace`. The connection test and target
    switch themselves do not require a model provider.
-9. Run several more short commands. Filter Gateway logs for
-   `platformclaw_ssh_master` and `platformclaw_ssh_lease`; exactly one master
-   authentication should be followed by `reused=true` lease events.
-10. Change back to the PlatformClaw managed environment and confirm the location
+9. Ask the Agent to remember a harmless unique marker. Confirm memory search
+   returns it from the Agent corpus and that no matching `memory/*.md` file was
+   created in the VM workspace or VM home. Trigger a conversation long enough
+   for pre-compaction maintenance when practical and repeat the same ownership
+   check.
+10. Run several more short commands. Filter Gateway logs for
+    `platformclaw_ssh_master` and `platformclaw_ssh_lease`; exactly one master
+    authentication should be followed by `reused=true` lease events.
+11. Change back to the PlatformClaw managed environment and confirm the location
     badge changes without an automatic file sync.
 
 Also check one intentional failure: enter any wrong AD password first. The UI

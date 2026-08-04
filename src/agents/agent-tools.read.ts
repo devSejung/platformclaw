@@ -809,6 +809,8 @@ export function wrapToolWorkspaceRootGuardWithOptions(
       hostRoot: string;
     }[];
     containerWorkdir?: string;
+    /** Resolve backend-owned model path syntax before enforcing the workspace boundary. */
+    resolveGuardPath?: (filePath: string) => string | Promise<string>;
     pathParamKeys?: readonly string[];
     normalizeGuardedPathParams?: boolean;
   },
@@ -833,14 +835,15 @@ export function wrapToolWorkspaceRootGuardWithOptions(
           normalizedRecord ??= { ...record };
           normalizedRecord[key] = filePath;
         }
+        const resolvedGuardPath = await (options?.resolveGuardPath?.(filePath) ?? filePath);
         let guardedRoot = root;
         let workspaceMapping: ReturnType<typeof mapContainerPathToRoot> | undefined;
-        let sandboxPath = filePath;
+        let sandboxPath = resolvedGuardPath;
         for (const mount of [...(options?.additionalContainerMounts ?? [])].toSorted(
           (a, b) => b.containerRoot.length - a.containerRoot.length,
         )) {
           const mountMapping = mapContainerPathToRoot({
-            filePath,
+            filePath: resolvedGuardPath,
             root: mount.hostRoot,
             containerRoot: mount.containerRoot,
           });
@@ -852,7 +855,7 @@ export function wrapToolWorkspaceRootGuardWithOptions(
         }
         if (guardedRoot === root) {
           workspaceMapping = mapContainerPathToRoot({
-            filePath,
+            filePath: resolvedGuardPath,
             root,
             containerRoot: options?.containerWorkdir,
           });
@@ -1033,7 +1036,10 @@ function createSandboxReadOperations(params: SandboxToolParams) {
       if (classifyMediaReferenceSource(normalizedMediaSource).isMediaStoreUrl) {
         return resolveMediaReferenceSandboxPath(normalizedMediaSource, "media/inbound").resolved;
       }
-      return resolveContainerPathCandidate(filePath) ?? filePath;
+      const candidate = resolveContainerPathCandidate(filePath) ?? filePath;
+      return params.bridge.resolveUserPath
+        ? params.bridge.resolveUserPath({ filePath: candidate, cwd: params.root }).containerPath
+        : candidate;
     },
     decodeText: ({ buffer, absolutePath }: { buffer: Buffer; absolutePath: string }) =>
       params.bridge.resolvePath({ filePath: absolutePath, cwd: params.root }).hostPath
@@ -1053,6 +1059,12 @@ function createSandboxReadOperations(params: SandboxToolParams) {
 function createSandboxWriteOperations(params: SandboxToolParams) {
   return withMemoryWriteProvenance(
     {
+      ...(params.bridge.resolveUserPath
+        ? {
+            resolvePath: (filePath: string) =>
+              params.bridge.resolveUserPath!({ filePath, cwd: params.root }).containerPath,
+          }
+        : {}),
       mkdir: async (dir: string) => {
         await params.bridge.mkdirp({ filePath: dir, cwd: params.root });
       },
@@ -1071,6 +1083,12 @@ function createSandboxWriteOperations(params: SandboxToolParams) {
 function createSandboxEditOperations(params: SandboxToolParams) {
   return withMemoryWriteProvenance(
     {
+      ...(params.bridge.resolveUserPath
+        ? {
+            resolvePath: (filePath: string) =>
+              params.bridge.resolveUserPath!({ filePath, cwd: params.root }).containerPath,
+          }
+        : {}),
       readFile: (absolutePath: string) =>
         params.bridge.readFile({ filePath: absolutePath, cwd: params.root }),
       writeFile: (absolutePath: string, content: string) =>

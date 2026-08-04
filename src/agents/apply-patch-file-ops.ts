@@ -12,6 +12,8 @@ import { decodeUtf8File } from "./utf8-file.js";
 
 export type SandboxApplyPatchConfig = {
   root: string;
+  /** Backend workspace path used for remote workspace-only enforcement. */
+  containerRoot?: string;
   bridge: SandboxFsBridge;
 };
 

@@ -114,8 +114,16 @@ function mountPriority(mount: RemoteMountInfo): number {
 }
 
 export function normalizeContainerPath(value: string): string {
-  const normalized = normalizeSandboxContainerPath(value.trim() || "/");
+  const normalized = normalizeSandboxContainerPath(value || "/");
   return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
+/** Expands only the current-user home aliases understood by remote file tools. */
+export function expandRemoteHomeAlias(filePath: string, remoteHomeDir?: string): string {
+  if (!remoteHomeDir || (filePath !== "~" && !filePath.startsWith("~/"))) {
+    return filePath;
+  }
+  return filePath === "~" ? remoteHomeDir : path.posix.join(remoteHomeDir, filePath.slice(2));
 }
 
 export function toPosixRelative(root: string, candidate: string): string {
