@@ -94,6 +94,8 @@ const EDIT_MISMATCH_HINT_LIMIT = 800;
  * Override these to delegate file editing to remote systems (for example SSH).
  */
 export interface EditOperations {
+  /** Resolve a user-supplied path for this edit backend. */
+  resolvePath?: (filePath: string, cwd: string) => string | Promise<string>;
   /** Read file contents as a Buffer */
   readFile: (absolutePath: string) => Promise<Buffer>;
   /** Write content to a file */
@@ -414,7 +416,7 @@ export function createEditToolDefinition(
       void onUpdate;
       void ctx;
       const { path, edits: originalEdits } = validateEditInput(input);
-      const absolutePath = resolveToCwd(path, cwd);
+      const absolutePath = await (ops.resolvePath?.(path, cwd) ?? resolveToCwd(path, cwd));
 
       return withFileMutationQueue(absolutePath, async () => {
         if (signal?.aborted) {

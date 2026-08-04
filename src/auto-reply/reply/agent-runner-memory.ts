@@ -1253,10 +1253,6 @@ export async function runMemoryFlushIfNeeded(params: {
       nowMs: memoryFlushNowMs,
     }) ?? memoryFlushPlan;
   const memoryFlushWritePath = activeMemoryFlushPlan.relativePath;
-  await memoryDeps.ensureMemoryFlushTargetFile({
-    workspaceDir: params.followupRun.run.workspaceDir,
-    relativePath: memoryFlushWritePath,
-  });
   const memoryFlushAbsolutePath = path.join(
     params.followupRun.run.workspaceDir,
     memoryFlushWritePath,
@@ -1268,9 +1264,7 @@ export async function runMemoryFlushIfNeeded(params: {
       }
       throw error;
     });
-  // Capture one baseline before any write can start. Per-write snapshots can
-  // pair a failed later write with an earlier success and miss mixed content.
-  const memoryFlushContentBefore = await readMemoryFlushContent();
+  let memoryFlushContentBefore: string;
   let memoryFlushWroteTarget = false;
   const flushSystemPrompt = [
     params.followupRun.run.extraSystemPrompt,
@@ -1280,6 +1274,13 @@ export async function runMemoryFlushIfNeeded(params: {
     .join("\n\n");
   let postCompactionSessionId: string | undefined;
   try {
+    await memoryDeps.ensureMemoryFlushTargetFile({
+      workspaceDir: params.followupRun.run.workspaceDir,
+      relativePath: memoryFlushWritePath,
+    });
+    // Capture one baseline before any write can start. Per-write snapshots can
+    // pair a failed later write with an earlier success and miss mixed content.
+    memoryFlushContentBefore = await readMemoryFlushContent();
     const selection = resolveMemoryFlushModelFallbackOptions(
       params.followupRun.run,
       activeMemoryFlushPlan.model,

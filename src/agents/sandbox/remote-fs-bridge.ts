@@ -23,6 +23,7 @@ import {
   buildRemoteProtectedSkillMounts,
   compareRemoteMountsByContainerPath,
   compareRemoteMountsByLocalPath,
+  expandRemoteHomeAlias,
   normalizeContainerPath,
   type RemoteMountInfo,
   type RemoteMountSource,
@@ -49,6 +50,8 @@ type MountInfo = RemoteMountInfo;
 export type RemoteShellSandboxHandle = {
   remoteWorkspaceDir: string;
   remoteAgentWorkspaceDir: string;
+  /** Canonical login home for model-facing `~` and `~/...` paths. */
+  remoteHomeDir?: string;
   additionalFilesystemRoots?: readonly RemoteShellSandboxFilesystemRoot[];
   runRemoteShellScript(params: SandboxBackendCommandParams): Promise<SandboxBackendCommandResult>;
 };
@@ -84,6 +87,11 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       relativePath: target.relativePath,
       containerPath: target.containerPath,
     };
+  }
+
+  resolveUserPath(params: { filePath: string; cwd?: string }): SandboxResolvedPath {
+    const filePath = expandRemoteHomeAlias(params.filePath, this.runtime.remoteHomeDir);
+    return this.resolvePath({ ...params, filePath });
   }
 
   async readFile(params: {
@@ -415,7 +423,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
   private resolveTarget(params: { filePath: string; cwd?: string }): ResolvedRemotePath {
     const workspaceRoot = path.resolve(this.sandbox.workspaceDir);
     const mounts = this.getMounts();
-    const input = params.filePath.trim();
+    const input = params.filePath;
     const inputPosix = input.replace(/\\/g, "/");
     const maybeContainerMount = path.posix.isAbsolute(inputPosix)
       ? this.resolveMountByContainerPath(mounts, normalizeContainerPath(inputPosix))

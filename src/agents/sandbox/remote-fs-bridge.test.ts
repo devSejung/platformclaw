@@ -43,6 +43,7 @@ function createStatRuntime(
 function createLocalRemoteRuntime(params: {
   remoteWorkspaceDir: string;
   remoteAgentWorkspaceDir: string;
+  remoteHomeDir?: string;
   additionalFilesystemRoots?: RemoteShellSandboxHandle["additionalFilesystemRoots"];
 }) {
   // Execute remote shell snippets locally so the bridge scripts are exercised
@@ -51,6 +52,7 @@ function createLocalRemoteRuntime(params: {
   const runtime: RemoteShellSandboxHandle = {
     remoteWorkspaceDir: params.remoteWorkspaceDir,
     remoteAgentWorkspaceDir: params.remoteAgentWorkspaceDir,
+    remoteHomeDir: params.remoteHomeDir,
     additionalFilesystemRoots: params.additionalFilesystemRoots,
     runRemoteShellScript: async (command) => {
       calls.push(command);
@@ -144,6 +146,39 @@ describe("remote sandbox fs bridge", () => {
       bridge.resolvePath({ filePath: "src/index.ts", cwd: "/users/worker/projects/demo" }),
     ).toMatchObject({ containerPath: "/users/worker/projects/demo/src/index.ts" });
     expect(() => bridge.resolvePath({ filePath: "/etc/passwd" })).toThrow(/escapes allowed mounts/);
+  });
+
+  it("resolves only exact home aliases against the backend-owned remote home", () => {
+    const workspaceDir = path.resolve("C:/local/workspace");
+    const bridge = createRemoteShellSandboxFsBridge({
+      sandbox: createSandbox({ workspaceDir, agentWorkspaceDir: workspaceDir }),
+      runtime: {
+        remoteWorkspaceDir: "/users/worker/.platformclaw/workspace",
+        remoteAgentWorkspaceDir: "/users/worker/.platformclaw/workspace/.openclaw/agent",
+        remoteHomeDir: "/users/worker",
+        additionalFilesystemRoots: [{ root: "/users/worker", access: "rw" }],
+        runRemoteShellScript: async () => shellResult(""),
+      },
+    });
+
+    expect(bridge.resolveUserPath?.({ filePath: "~" })).toMatchObject({
+      containerPath: "/users/worker",
+    });
+    expect(bridge.resolveUserPath?.({ filePath: "~/.claude/settings.json" })).toMatchObject({
+      containerPath: "/users/worker/.claude/settings.json",
+    });
+    expect(bridge.resolveUserPath?.({ filePath: "src/index.ts" })).toMatchObject({
+      containerPath: "/users/worker/.platformclaw/workspace/src/index.ts",
+    });
+    expect(bridge.resolveUserPath?.({ filePath: "~other/file.txt" })).toMatchObject({
+      containerPath: "/users/worker/.platformclaw/workspace/~other/file.txt",
+    });
+    expect(bridge.resolveUserPath?.({ filePath: " ~/notes.txt" })).toMatchObject({
+      containerPath: "/users/worker/.platformclaw/workspace/ ~/notes.txt",
+    });
+    expect(bridge.resolveUserPath?.({ filePath: "~/notes.txt " })).toMatchObject({
+      containerPath: "/users/worker/notes.txt ",
+    });
   });
 
   it.runIf(process.platform !== "win32")(

@@ -2029,6 +2029,53 @@ describe("createOpenClawCodingTools", () => {
     }
   });
 
+  it("keeps memory flush read and append on the Gateway workspace with a separate sandbox", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-memory-gateway-"));
+    const sandboxDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-memory-remote-"));
+    const memoryRelativePath = "memory/2026-08-05.md";
+    try {
+      await fs.mkdir(path.join(workspaceDir, "memory"), { recursive: true });
+      await fs.mkdir(path.join(sandboxDir, "memory"), { recursive: true });
+      await fs.writeFile(path.join(workspaceDir, memoryRelativePath), "gateway seed", "utf8");
+      await fs.writeFile(path.join(sandboxDir, memoryRelativePath), "remote decoy", "utf8");
+      const sandbox = createAgentToolsSandboxContext({
+        workspaceDir: sandboxDir,
+        fsBridge: createHostSandboxFsBridge(sandboxDir),
+      });
+      const tools = createOpenClawCodingTools({
+        workspaceDir,
+        sandbox,
+        trigger: "memory",
+        memoryFlushWritePath: memoryRelativePath,
+      });
+
+      const readResult = await requireToolExecute(requireTool(tools, "read"))(
+        "tool-memory-flush-read",
+        { path: memoryRelativePath },
+      );
+      expect(JSON.stringify(readResult.content)).toContain("gateway seed");
+      await expect(
+        requireToolExecute(requireTool(tools, "read"))("tool-memory-flush-read-outside", {
+          path: path.join(path.dirname(workspaceDir), "outside-secret.txt"),
+        }),
+      ).rejects.toThrow(/Path escapes sandbox root/i);
+      await requireToolExecute(requireTool(tools, "write"))("tool-memory-flush-write", {
+        path: memoryRelativePath,
+        content: "gateway append",
+      });
+
+      await expect(fs.readFile(path.join(workspaceDir, memoryRelativePath), "utf8")).resolves.toBe(
+        "gateway seed\ngateway append",
+      );
+      await expect(fs.readFile(path.join(sandboxDir, memoryRelativePath), "utf8")).resolves.toBe(
+        "remote decoy",
+      );
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+      await fs.rm(sandboxDir, { recursive: true, force: true });
+    }
+  });
+
   it("records ordinary write, edit, and apply_patch memory provenance from turn taint", async () => {
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-memory-write-taint-"));
     const rollback = vi.fn(async () => {});

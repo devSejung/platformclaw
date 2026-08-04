@@ -157,15 +157,17 @@ inspect or dismiss existing stored rows.
 
 ## Memory tools
 
-The agent has three tools for working with memory:
+The default memory plugin provides these tools for working with memory:
 
 - **`memory_search`** — finds relevant notes using semantic search, even when
   the wording differs from the original.
 - **`memory_get`** — reads a specific memory file or line range.
+- **`memory_write`** — appends durable text to the canonical Agent `MEMORY.md`.
 - **`intent`** — creates, lists, or explicitly cancels event-conditioned
   standing intents. Time-based reminders continue to use scheduled tasks.
 
-Both tools are provided by the active memory plugin (default: `memory-core`).
+The active memory plugin (default: `memory-core`) owns these operations and the
+corpus they read or mutate.
 
 ## Memory search
 
@@ -233,6 +235,8 @@ Before [compaction](/concepts/compaction) summarizes your conversation,
 OpenClaw runs a silent turn that reminds the agent to save important context
 to memory files. This is on by default; set
 `agents.defaults.compaction.memoryFlush.enabled: false` to turn it off.
+This uses the maintenance turn's restricted read and append-only write surface;
+it does not expose a separate `memory_flush` tool.
 
 To keep that housekeeping turn on a local model, set an exact override that
 applies only to the memory-flush turn (it does not inherit the active

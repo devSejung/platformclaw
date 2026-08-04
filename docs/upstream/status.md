@@ -146,6 +146,13 @@ bounded Agent-workspace tool seam; do not replace it with PlatformClaw-specific
 core checks, basename routing, mirroring, or dual-write. Prefer an equivalent
 upstream split-workspace/bootstrap provider when one exists.
 
+Assigned-VM file tools also depend on the generic backend-owned user-path
+resolver: exact `~` and `~/...` paths mean the verified remote Linux home, while
+relative paths mean the remote workspace. Preserve remote workspace-only
+enforcement after resolution. Pre-compaction maintenance read/append tools must
+stay on the canonical Gateway Agent workspace even when the active execution
+backend is remote; do not route them through the sandbox filesystem bridge.
+
 Keep upstream integration and VM implementation in separate pull requests.
 Validate the synchronization first, then reapply only the smallest required
 PlatformClaw prerequisite to the synchronized `main`.

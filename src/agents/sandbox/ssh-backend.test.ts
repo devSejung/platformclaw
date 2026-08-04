@@ -572,6 +572,7 @@ describe("ssh sandbox backend", () => {
         targetLabel: "assigned-vm",
         workspaceRoot: "/users/worker/.platformclaw/workspace",
         workspaceMode: "existing",
+        remoteHomeDir: "/users/worker",
         additionalFilesystemRoots: [{ root: "/users/worker/", access: "rw" }],
         createSession: async () => createSession(),
       },
@@ -579,6 +580,22 @@ describe("ssh sandbox backend", () => {
 
     expect(backend.workdir).toBe("/users/worker/.platformclaw/workspace");
     expect(backend.workdirRoots).toContain("/users/worker");
+    expect(
+      backend
+        .createFsBridge?.({
+          sandbox: {
+            workspaceDir: "/tmp/local-workspace",
+            agentWorkspaceDir: "/tmp/local-agent",
+            workspaceAccess: "rw",
+            containerName: "assigned-vm",
+            containerWorkdir: "/users/worker/.platformclaw/workspace",
+            docker: {},
+          },
+        })
+        .resolveUserPath?.({ filePath: "~/notes.txt" }),
+    ).toMatchObject({
+      containerPath: "/users/worker/notes.txt",
+    });
     await expect(backend.validateWorkdir?.("/users/worker/projects/demo")).resolves.toBe(
       "/users/worker/projects/demo",
     );

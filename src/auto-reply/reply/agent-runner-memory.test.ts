@@ -496,7 +496,6 @@ describe("runMemoryFlushIfNeeded", () => {
       totalTokens: 80_000,
       compactionCount: 1,
     };
-
     await runMemoryFlushIfNeeded({
       cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
       followupRun: createTestFollowupRun({ workspaceDir: rootDir, senderIsOwner: false }),
@@ -1005,6 +1004,40 @@ describe("runMemoryFlushIfNeeded", () => {
         }),
       }),
     );
+  });
+
+  it("tracks target preparation failures without starting the model run", async () => {
+    const storePath = path.join(rootDir, "sessions.json");
+    const sessionEntry: SessionEntry = {
+      sessionId: "session",
+      updatedAt: Date.now(),
+      totalTokens: 80_000,
+      compactionCount: 1,
+    };
+    await writeTestSessionStore(storePath, "main", sessionEntry);
+    ensureMemoryFlushTargetFileMock.mockRejectedValueOnce(new Error("memory target unavailable"));
+
+    const result = await runMemoryFlushIfNeeded({
+      cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
+      followupRun: createTestFollowupRun({ workspaceDir: rootDir }),
+      sessionCtx: { Provider: "whatsapp" } as unknown as TemplateContext,
+      defaultModel: "anthropic/claude-opus-4-7",
+      agentCfgContextTokens: 100_000,
+      resolvedVerboseLevel: "off",
+      sessionEntry,
+      sessionStore: { main: sessionEntry },
+      sessionKey: "main",
+      storePath,
+      isHeartbeat: false,
+      replyOperation: createReplyOperation(),
+    });
+
+    expect(result.outcome).toBe("failed");
+    expect(loadMainSessionEntry(storePath).memoryFlush).toEqual({
+      kind: "failed",
+      failureCount: 1,
+    });
+    expect(runEmbeddedAgentMock).not.toHaveBeenCalled();
   });
 
   it("does not track failure on abort error", async () => {
