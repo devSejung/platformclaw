@@ -7641,6 +7641,48 @@ describe("handleSendChat", () => {
     }
   });
 
+  it("reconciles an unconfirmed steer on reconnect with the same idempotency key", async () => {
+    const original = {
+      id: "reconnect-unconfirmed-steer",
+      text: "tighten the plan",
+      createdAt: 1,
+      kind: "steered" as const,
+      sendRunId: "stable-steer-run",
+      sendState: "unconfirmed" as const,
+      sessionKey: "agent:main:main",
+      agentId: "main",
+    };
+    const host = makeHost({
+      requestHandlers: {
+        "chat.send": { status: "in_flight", runId: original.sendRunId },
+      },
+      chatRunId: "active-run",
+      chatQueue: [original],
+      sessionKey: original.sessionKey,
+    });
+    expect(admitQueuedMessageForSession(host, host.sessionKey, original)).toBe(true);
+
+    await retryReconnectableQueuedChatSends(host);
+
+    expect(host.request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        idempotencyKey: original.sendRunId,
+        queueMode: "steer",
+      }),
+    );
+    expect(listStoredChatOutboxes(host)).toEqual([]);
+    expect(host.chatQueue).toMatchObject([
+      {
+        id: original.id,
+        kind: "steered",
+        pendingRunId: "active-run",
+        sendRunId: original.sendRunId,
+      },
+    ]);
+    expect(host.lastError).toBeNull();
+  });
+
   it("makes a definitive Gateway steer rejection retryable without an ambiguity warning", async () => {
     const message =
       "Gateway parameter is not available to browser users: chat.send.exampleParameter";

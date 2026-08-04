@@ -39,6 +39,10 @@ export function applyPlatformClawDocumentBranding(root: Document = document): bo
     return false;
   }
 
+  // The hosted browser surface is document-heavy: errors, logs, configuration,
+  // and transcripts must remain selectable even though upstream app chrome
+  // disables selection by default.
+  root.documentElement.dataset.platformclawHosted = "";
   const svgIcon = root.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]');
   if (svgIcon) {
     svgIcon.href = branding.mascotUrl;

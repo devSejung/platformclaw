@@ -231,6 +231,7 @@ export async function sendQueuedChatMessageWithQueueMode(
   id: string,
   queueMode: QueueMode | undefined,
   dependencies: SteerSendDependencies,
+  options: { recoverUnconfirmed?: boolean } = {},
 ): Promise<void> {
   if (!host.connected || !hasAbortableSessionRun(host)) {
     return;
@@ -243,7 +244,11 @@ export async function sendQueuedChatMessageWithQueueMode(
       entry.id === id &&
       !entry.pendingRunId &&
       !entry.localCommandName &&
-      (entry.sendState === undefined || entry.sendState === "waiting-idle"),
+      (entry.sendState === undefined ||
+        entry.sendState === "waiting-idle" ||
+        (options.recoverUnconfirmed === true &&
+          entry.kind === "steered" &&
+          entry.sendState === "unconfirmed")),
   );
   if (!item) {
     return;
@@ -259,6 +264,7 @@ export async function sendQueuedChatMessageWithQueueMode(
   // replay the original queued turn after active-run admission may have succeeded.
   const claimed = updateQueuedMessage(host, id, (entry) => ({
     ...entry,
+    ...(isSteer ? { kind: "steered" as const } : {}),
     sendError: unconfirmedError,
     sendRunId: entry.sendRunId ?? generateUUID(),
     sendState: "unconfirmed",
@@ -400,4 +406,16 @@ export function steerQueuedChatMessage(
   dependencies: SteerSendDependencies,
 ): Promise<void> {
   return sendQueuedChatMessageWithQueueMode(host, id, "steer", dependencies);
+}
+
+export function recoverUnconfirmedSteer(
+  host: SteerLifecycleHost,
+  id: string,
+  dependencies: SteerSendDependencies,
+): Promise<void> {
+  // Replaying the same chat.send idempotency key reconciles an ambiguous ACK:
+  // Gateway returns the accepted result or admits the steer exactly once.
+  return sendQueuedChatMessageWithQueueMode(host, id, "steer", dependencies, {
+    recoverUnconfirmed: true,
+  });
 }

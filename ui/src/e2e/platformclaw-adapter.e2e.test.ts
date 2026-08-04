@@ -50,6 +50,21 @@ async function installPlatformClawDocument(page: Page): Promise<void> {
   });
 }
 
+async function dragAcross(page: Page, selector: string): Promise<string> {
+  const locator = page.locator(selector).first();
+  await locator.scrollIntoViewIfNeeded();
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error(`Expected a visible selection target: ${selector}`);
+  }
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + Math.max(3, box.width - 2), y, { steps: 8 });
+  await page.mouse.up();
+  return page.evaluate(() => globalThis.getSelection()?.toString() ?? "");
+}
+
 async function openPlatformClawMcpSettings(page: Page): Promise<void> {
   await page.goto(`${server.baseUrl}platformclaw/app/settings/appearance`);
   const settingsSidebar = page.locator(".settings-sidebar");
@@ -236,6 +251,37 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       await page.screenshot({
         fullPage: true,
         path: path.join(proofDir, "02-personal-mcp-settings.png"),
+      });
+    }
+  });
+
+  it("keeps browser diagnostics and settings text selectable", async () => {
+    const { page } = await newPage();
+    await installPlatformClawDocument(page);
+    await page.route("**/platformclaw/api/auth/session", (route) =>
+      route.fulfill({ json: activeSession(), status: 200 }),
+    );
+    await installMockGateway(page, {
+      basePath: "/platformclaw/app",
+      defaultAgentId: "person_one",
+      sessionKey: "agent:person_one:main",
+    });
+
+    await page.goto(`${server.baseUrl}platformclaw/app/settings/appearance`);
+    const intro = page.locator(".settings-page__intro");
+    await expect.poll(() => intro.isVisible()).toBe(true);
+    expect(
+      await page.evaluate(() => ({
+        hosted: document.documentElement.hasAttribute("data-platformclaw-hosted"),
+        selection: getComputedStyle(document.querySelector<HTMLElement>(".content")!).userSelect,
+      })),
+    ).toEqual({ hosted: true, selection: "text" });
+    expect(await dragAcross(page, ".settings-page__intro")).not.toBe("");
+
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "04-selectable-settings-text.png"),
       });
     }
   });
