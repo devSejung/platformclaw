@@ -174,8 +174,11 @@ RUN chmod 0755 /home/node && \
       /var/lib/platformclaw/control /var/lib/platformclaw/workspaces && \
     chmod 755 /usr/local/bin/platformclaw-gateway /usr/local/bin/platformclaw-runtime-entrypoint \
       /usr/local/bin/platformclaw-migrate-workspaces \
+      /app/packages/platformclaw-control-plane/dist/admin-main.mjs \
       /app/packages/platformclaw-control-plane/dist/server-main.mjs \
       /app/packages/platformclaw-control-plane/dist/sshpass-main.mjs && \
+    ln -s /app/packages/platformclaw-control-plane/dist/admin-main.mjs \
+      /usr/local/bin/platformclaw-admin && \
     ln -s /app/packages/platformclaw-control-plane/dist/server-main.mjs \
       /usr/local/bin/platformclaw-control && \
     ln -s /app/packages/platformclaw-control-plane/dist/sshpass-main.mjs \

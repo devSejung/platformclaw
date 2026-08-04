@@ -771,6 +771,8 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain("--cap-add CHOWN");
     expect(deploy).toContain('cmp -s "$legacy_secret" "$target_secret"');
     expect(deploy).toContain("config edit");
+    expect(deploy).toContain("admin add <account-id>");
+    expect(deploy).toContain("platformclaw-admin add");
     expect(deploy).toContain("restart_gateway_and_wait");
     expect(deploy).toContain("require_immutable_image_ref");
     expect(deploy).toContain('"${compose[@]}" restart openclaw-gateway platformclaw-control');
@@ -804,6 +806,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain('image inspect "$previous_sandbox"');
     expect(deploy).toContain("recreate_sandboxes");
     expect(deploy).toContain("node /app/openclaw.mjs sandbox recreate --all --force");
+    expect(readRepoFile("Dockerfile.jammy")).toContain("/usr/local/bin/platformclaw-admin");
     const prepareRuntimeFiles = deploy.slice(
       deploy.indexOf("prepare_runtime_files()"),
       deploy.indexOf("require_gateway_restore_access()"),

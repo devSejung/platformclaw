@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/server-main.ts", "src/sshpass-main.ts"],
+  entry: ["src/index.ts", "src/admin-main.ts", "src/server-main.ts", "src/sshpass-main.ts"],
   platform: "node",
   format: "esm",
   dts: true,

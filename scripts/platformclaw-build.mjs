@@ -515,6 +515,7 @@ try {
       "claude --version",
       "nano-pdf --help >/dev/null",
       "openclaw --version",
+      "test -x /usr/local/bin/platformclaw-admin",
       "test -x /usr/local/bin/platformclaw-control",
       "test -x /usr/local/bin/platformclaw-sshpass",
       "test -f /app/ui/dist/platformclaw-login.html",

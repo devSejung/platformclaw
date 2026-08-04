@@ -250,6 +250,20 @@ PLATFORMCLAW_INITIAL_ADMIN_IDS_SOURCE=/secure/path/initial-admin-ids \
 curl -fsS http://127.0.0.1:19002/platformclaw/health
 ```
 
+### 1.6 기존 사용자에게 관리자 권한 추가
+
+대상 사용자는 직원 인증으로 한 번 이상 로그인하여 Control DB에 등록된 active 사용자여야
+한다. 서비스 사용자로 다음 명령을 실행한다.
+
+```bash
+./platformclaw-deploy admin add <account-id>
+```
+
+이 명령은 기존 DB, workspace, secret, 이미지를 초기화하지 않고 컨테이너를 재시작하지도
+않는다. 이미 관리자인 계정에는 아무 변경도 하지 않는다. 신규 승격은 Control audit에
+`deployment-operator` 출처로 기록된다. 대상 사용자는 열려 있는 브라우저 연결을 다시
+연결하거나 로그아웃 후 로그인하여 새 권한을 적용한다.
+
 ## 2. OpenClaw config 설정
 
 ### 2.1 호스트에서 직접 편집

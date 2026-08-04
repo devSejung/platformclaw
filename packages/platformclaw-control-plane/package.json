@@ -9,6 +9,7 @@
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "bin": {
+    "platformclaw-admin": "./dist/admin-main.mjs",
     "platformclaw-control": "./dist/server-main.mjs",
     "platformclaw-sshpass": "./dist/sshpass-main.mjs"
   },
