@@ -24,11 +24,7 @@ import {
   adoptSessionApprovalReplay as adoptSessionApprovalReplayState,
   clearExecApprovalTimers,
   clearResolvedExecApprovalPrompt,
-  enqueueExecApprovalPrompt,
   isStaleApprovalResolutionError,
-  parseApprovalRequestedEvent,
-  parseExecApprovalResolved,
-  parseSessionApprovalTransition,
   resolveApprovalRequest,
   type ExecApprovalDecision,
   type ExecApprovalPromptState,
@@ -41,6 +37,7 @@ import {
   createOverlayPairingPendingCount,
   readOverlayOperatorAccessTransition,
 } from "./overlays-access.ts";
+import { handleOverlayApprovalEvent } from "./overlays-approval-events.ts";
 import {
   isPendingUpdateHandoffSentinel,
   readUpdateAvailable,
@@ -477,34 +474,7 @@ export function createApplicationOverlays(
     ) {
       return;
     }
-    if (event.event === "session.approval") {
-      const transition = parseSessionApprovalTransition(event.payload);
-      if (transition?.phase === "pending") {
-        enqueueExecApprovalPrompt(promptState, transition.approval);
-        publish();
-      } else if (transition?.phase === "terminal") {
-        clearResolvedExecApprovalPrompt(promptState, transition.id);
-        publish();
-      }
-      return;
-    }
-    const requestedApproval = parseApprovalRequestedEvent(event.event, event.payload);
-    if (requestedApproval) {
-      enqueueExecApprovalPrompt(promptState, requestedApproval);
-      publish();
-      return;
-    }
-    if (
-      event.event === "exec.approval.resolved" ||
-      event.event === "plugin.approval.resolved" ||
-      event.event === "openclaw.approval.resolved"
-    ) {
-      const resolved = parseExecApprovalResolved(event.payload);
-      if (resolved) {
-        clearResolvedExecApprovalPrompt(promptState, resolved.id);
-        publish();
-      }
-    }
+    handleOverlayApprovalEvent(event, promptState, publish);
   });
   synchronizeGateway(gateway.snapshot);
 

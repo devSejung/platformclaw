@@ -155,7 +155,7 @@ describe("session-scoped approvals", () => {
         truncated: false,
       }),
     ).toBe(true);
-    expect(state.execApprovalQueue.map((item) => item.id).sort()).toEqual([
+    expect(state.execApprovalQueue.map((item) => item.id).toSorted()).toEqual([
       "approval-session-1",
       "global",
     ]);
