@@ -86,7 +86,7 @@ describe("PlatformClaw execution backend", () => {
             vmLabel: "Person Two VM",
             safeConnectLabel: "Corporate access",
             remoteHomeDir: "/srv/person-two",
-            remoteWorkspaceDir: "/srv/person-two",
+            remoteWorkspaceDir: "/srv/person-two/.platformclaw/workspace",
             endpointHost: "safeconnect.example",
             endpointPort: 44422,
             adDomain: "example",
@@ -144,8 +144,20 @@ describe("PlatformClaw execution backend", () => {
     expect(second.runtimePromptContext).toContain('"safeHostLabel": "Corporate access"');
     expect(second.runtimePromptContext).toContain('"linuxAccount": "person.two"');
     expect(second.runtimePromptContext).toContain('"linuxHome": "/srv/person-two"');
-    expect(second.runtimePromptContext).toContain("full Linux home");
-    expect(second.runtimePromptContext).toContain('"activeWorkspace": "/vm-person_two-7"');
+    expect(second.runtimePromptContext).toContain(
+      "linuxHome and activeWorkspace are different roots",
+    );
+    expect(second.runtimePromptContext).toContain("HOME and ~ mean linuxHome");
+    expect(second.runtimePromptContext).toContain(
+      "the default working directory and relative paths mean activeWorkspace",
+    );
+    expect(second.runtimePromptContext).toContain(
+      "Never prefix activeWorkspace to paths beginning with ~ or /",
+    );
+    expect(second.runtimePromptContext).toContain(
+      '"activeWorkspace": "/srv/person-two/.platformclaw/workspace"',
+    );
+    expect(second.runtimePromptContext).not.toContain('"activeWorkspace": "/vm-person_two-7"');
     expect(second.runtimePromptContext).not.toContain("safeconnect.example");
     expect(second.runtimePromptContext).not.toContain("192.0.2.2");
     expect(second.runtimePromptContext).not.toContain("person.two@external");

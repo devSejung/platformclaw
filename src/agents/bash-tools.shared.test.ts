@@ -3,7 +3,12 @@
  * Covers strict env parsing and compact session labels.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { chunkString, deriveSessionName, readEnvInt } from "./bash-tools.shared.js";
+import {
+  buildSandboxEnv,
+  chunkString,
+  deriveSessionName,
+  readEnvInt,
+} from "./bash-tools.shared.js";
 
 describe("readEnvInt", () => {
   afterEach(() => {
@@ -87,5 +92,20 @@ describe("chunkString", () => {
 
   it("preserves every code point across mixed chunk boundaries", () => {
     expect(chunkString("aa🚀bb", 2)).toEqual(["aa", "🚀", "bb"]);
+  });
+});
+
+describe("buildSandboxEnv", () => {
+  it("preserves a backend-owned HOME instead of replacing it with the workdir", () => {
+    expect(
+      buildSandboxEnv({
+        defaultPath: "/usr/bin:/bin",
+        containerWorkdir: "/remote/workspace",
+        sandboxEnv: { HOME: "/remote/home" },
+      }),
+    ).toEqual({
+      PATH: "/usr/bin:/bin",
+      HOME: "/remote/home",
+    });
   });
 });

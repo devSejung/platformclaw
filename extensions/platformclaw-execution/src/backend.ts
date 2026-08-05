@@ -94,7 +94,7 @@ function serializeRuntimeContext(value: Record<string, unknown>): string {
 
 function buildRuntimePromptContext(
   target: Readonly<PlatformClawExecutionTargetSnapshot>,
-  activeWorkspace: string,
+  basicWorkspace: string,
 ): string {
   const context =
     target.kind === "platform_server"
@@ -102,7 +102,7 @@ function buildRuntimePromptContext(
           workLocation: "Basic workspace",
           activeTarget: target.kind,
           targetLabel: "Basic workspace",
-          activeWorkspace,
+          activeWorkspace: basicWorkspace,
           targetRevision: target.revision,
           workspaceBoundary:
             "Basic workspace and My development VM keep independent files and processes.",
@@ -114,12 +114,12 @@ function buildRuntimePromptContext(
           safeHostLabel: target.safeConnectLabel,
           linuxAccount: target.linuxAccount,
           linuxHome: target.remoteHomeDir,
-          activeWorkspace,
+          activeWorkspace: target.remoteWorkspaceDir,
           targetRevision: target.revision,
           workspaceBoundary:
             "Basic workspace and My development VM keep independent files and processes.",
           filesystemAccess:
-            "Relative file paths start at activeWorkspace. In file tools, ~ and ~/... mean linuxHome. File tools and command workdirs may use the full Linux home; paths outside it stay unavailable.",
+            "linuxHome and activeWorkspace are different roots. In shell commands, HOME and ~ mean linuxHome; the default working directory and relative paths mean activeWorkspace. In file tools, ~ and ~/... mean linuxHome, while relative paths mean activeWorkspace. Command workdirs may use absolute paths inside linuxHome. Never prefix activeWorkspace to paths beginning with ~ or /. Paths outside linuxHome stay unavailable.",
         };
   return [
     "<platformclaw_execution_context>",
