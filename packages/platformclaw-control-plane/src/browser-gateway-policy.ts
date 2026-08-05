@@ -42,6 +42,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "sessions.resolve",
   "sessions.search",
   "sessions.steer",
+  "sessions.subscribe",
   "sessions.usage",
   "skills.detail",
   "skills.install",
@@ -254,6 +255,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ],
   ["sessions.search", new Set(["agentId", "sessionKeys", "query", "limit"])],
   ["sessions.steer", new Set(["key", "agentId", "message"])],
+  ["sessions.subscribe", new Set()],
   [
     "sessions.usage",
     new Set([

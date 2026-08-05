@@ -22,6 +22,8 @@ import {
 // constrained by BrowserGatewayProxy and its read/write hello projection.
 const REQUIRED_SERVICE_SCOPES = ["operator.read", "operator.write", "operator.admin"] as const;
 const MAX_AUTOMATIC_PAIRING_RESTARTS = 2;
+const SESSION_SUBSCRIPTION_RETRY_BASE_MS = 250;
+const SESSION_SUBSCRIPTION_RETRY_MAX_MS = 5_000;
 
 export type PlatformClawGatewayBackend = BrowserGatewayRpc & {
   start(): void;
@@ -76,6 +78,7 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
   private readonly listeners = new Set<(event: EventFrame) => void>();
   private readonly disconnectListeners = new Set<() => void>();
   private hello: HelloOk | null = null;
+  private connectionEpoch = 0;
   private pairingAttempt: Promise<boolean> | null = null;
   private pairingRetryCount = 0;
 
@@ -97,9 +100,10 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
         }
       },
       onHelloOk: (hello) => {
-        this.hello = hasRequiredServiceScopes(hello) ? hello : null;
-        if (this.hello) {
-          this.pairingRetryCount = 0;
+        const epoch = ++this.connectionEpoch;
+        this.hello = null;
+        if (hasRequiredServiceScopes(hello)) {
+          void this.activateSessionEvents(hello, epoch, options.client.onConnectError);
         }
         configuredOnHello?.(hello);
       },
@@ -137,6 +141,7 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
         }
       },
       onClose: (code, reason, info) => {
+        this.connectionEpoch += 1;
         this.hello = null;
         for (const listener of this.disconnectListeners) {
           listener();
@@ -151,6 +156,7 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
   }
 
   stop(): void {
+    this.connectionEpoch += 1;
     this.hello = null;
     this.client.stop();
   }
@@ -174,6 +180,45 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
       throw new Error("private Gateway connection is unavailable");
     }
     return (await this.client.request(method, params)) as T;
+  }
+
+  private async activateSessionEvents(
+    hello: HelloOk,
+    epoch: number,
+    reportError: ((error: Error) => void) | undefined,
+    attempt = 0,
+  ): Promise<void> {
+    try {
+      const result = await this.client.request("sessions.subscribe", {});
+      if (epoch !== this.connectionEpoch) {
+        return;
+      }
+      if (
+        !result ||
+        typeof result !== "object" ||
+        (result as { subscribed?: unknown }).subscribed !== true
+      ) {
+        throw new Error("Gateway session event subscription was not acknowledged");
+      }
+      this.hello = hello;
+      this.pairingRetryCount = 0;
+    } catch (error) {
+      if (epoch !== this.connectionEpoch) {
+        return;
+      }
+      reportError?.(
+        error instanceof Error ? error : new Error("Gateway session event subscription failed"),
+      );
+      const delayMs = Math.min(
+        SESSION_SUBSCRIPTION_RETRY_BASE_MS * 2 ** Math.min(attempt, 5),
+        SESSION_SUBSCRIPTION_RETRY_MAX_MS,
+      );
+      setTimeout(() => {
+        if (epoch === this.connectionEpoch) {
+          void this.activateSessionEvents(hello, epoch, reportError, attempt + 1);
+        }
+      }, delayMs);
+    }
   }
 
   private isPairingRequired(error: Error): error is GatewayClientRequestError {

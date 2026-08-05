@@ -31,7 +31,9 @@ describe("PlatformClawGatewayRuntimeClient", () => {
     let configured: GatewayClientOptions | undefined;
     const start = vi.fn();
     const stop = vi.fn();
-    const request = vi.fn(async () => ({ ok: true }));
+    const request = vi.fn(async (method: string) =>
+      method === "sessions.subscribe" ? { subscribed: true } : { ok: true },
+    );
     const backend = new PlatformClawGatewayRuntimeClient({
       client: { url: "ws://127.0.0.1:18789", token: "test-auth-token" },
       createClient: (options) => {
@@ -49,8 +51,10 @@ describe("PlatformClawGatewayRuntimeClient", () => {
     await expect(backend.request("status")).rejects.toThrow("unavailable");
 
     configured?.onHelloOk?.(hello());
+    await vi.waitFor(() => expect(backend.getHello()).not.toBeNull());
     await expect(backend.request("status", { quiet: true })).resolves.toEqual({ ok: true });
-    expect(request).toHaveBeenCalledWith("status", { quiet: true });
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.subscribe", {});
+    expect(request).toHaveBeenNthCalledWith(2, "status", { quiet: true });
 
     const event: EventFrame = { type: "event", event: "tick", payload: { ts: 1 } };
     configured?.onEvent?.(event);
@@ -65,6 +69,72 @@ describe("PlatformClawGatewayRuntimeClient", () => {
     unsubscribeDisconnect();
     backend.stop();
     expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("waits for each session subscription and ignores stale reconnect acknowledgements", async () => {
+    let configured: GatewayClientOptions | undefined;
+    const acknowledgements: Array<(value: { subscribed: true }) => void> = [];
+    const request = vi.fn(
+      () =>
+        new Promise<{ subscribed: true }>((resolve) => {
+          acknowledgements.push(resolve);
+        }),
+    );
+    const backend = new PlatformClawGatewayRuntimeClient({
+      client: { url: "ws://127.0.0.1:18789" },
+      createClient: (options) => {
+        configured = options;
+        return { start: vi.fn(), stop: vi.fn(), request };
+      },
+    });
+    const firstHello = hello();
+    const secondHello = hello();
+    secondHello.server.connId = "replacement";
+
+    configured?.onHelloOk?.(firstHello);
+    expect(backend.getHello()).toBeNull();
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.subscribe", {});
+
+    configured?.onClose?.(1006, "reconnecting");
+    configured?.onHelloOk?.(secondHello);
+    expect(request).toHaveBeenNthCalledWith(2, "sessions.subscribe", {});
+
+    acknowledgements[0]?.({ subscribed: true });
+    await Promise.resolve();
+    expect(backend.getHello()).toBeNull();
+
+    acknowledgements[1]?.({ subscribed: true });
+    await vi.waitFor(() => expect(backend.getHello()?.server.connId).toBe("replacement"));
+  });
+
+  it("recovers readiness after a transient session subscription failure", async () => {
+    vi.useFakeTimers();
+    try {
+      let configured: GatewayClientOptions | undefined;
+      const connectError = vi.fn();
+      const request = vi
+        .fn<() => Promise<unknown>>()
+        .mockRejectedValueOnce(new Error("temporary subscription failure"))
+        .mockResolvedValueOnce({ subscribed: true });
+      const backend = new PlatformClawGatewayRuntimeClient({
+        client: { url: "ws://127.0.0.1:18789", onConnectError: connectError },
+        createClient: (options) => {
+          configured = options;
+          return { start: vi.fn(), stop: vi.fn(), request };
+        },
+      });
+
+      configured?.onHelloOk?.(hello());
+      await vi.waitFor(() => expect(connectError).toHaveBeenCalledOnce());
+      expect(backend.getHello()).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(backend.getHello()).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not report readiness when the Gateway omits a required service scope", async () => {

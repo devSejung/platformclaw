@@ -70,6 +70,7 @@ type ToolStreamHost = {
   knownAgentRunIds?: Set<string>;
   waitingApprovalStatuses?: Map<string, WaitingApprovalStatus>;
   waitingApprovalResolvedIds?: Set<string>;
+  requestUpdate?: () => void;
   sessions: Pick<SessionCapability, "setModelOverride">;
 };
 
@@ -312,10 +313,11 @@ function scheduleToolStreamSync(host: ToolStreamHost, force = false) {
   if (host.toolStreamSyncTimer != null) {
     return;
   }
-  host.toolStreamSyncTimer = window.setTimeout(
-    () => flushToolStreamSync(host),
-    TOOL_STREAM_THROTTLE_MS,
-  );
+  host.toolStreamSyncTimer = window.setTimeout(() => {
+    flushToolStreamSync(host);
+    // The initial event rendered before this deferred projection existed.
+    host.requestUpdate?.();
+  }, TOOL_STREAM_THROTTLE_MS);
 }
 
 export function resetToolStream(host: ToolStreamHost) {

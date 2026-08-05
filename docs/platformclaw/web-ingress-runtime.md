@@ -32,6 +32,14 @@ The ingress holds one private operator Gateway connection through the public
 `@openclaw/gateway-client` package. Operator credentials never enter a browser
 frame, cookie, response, or projected Gateway hello.
 
+That private connection owns the connection-scoped `sessions.subscribe`
+lifecycle. Each Gateway hello or reconnect must acknowledge the subscription
+before ingress reports ready, so current, externally started, and reconnected
+session tool activity all use the upstream `session.tool` path. Browser
+`sessions.subscribe` receives a local capability acknowledgement; browser
+`sessions.unsubscribe` is not exposed because one tab must not disable the
+process-wide subscription for every other tab.
+
 ## HTTP and WebSocket surfaces
 
 | Path                             | Method        | Purpose                                                      |
@@ -119,6 +127,9 @@ Never put real employee records or passwords in a committed fixture.
   operator capabilities, and upstream connection IDs are not projected.
 - Event sequence numbers and state versions from the private operator stream
   are not exposed.
+- The private Gateway connection is not ready until its session event
+  subscription is active; stale acknowledgements from replaced connections
+  cannot restore readiness.
 - Unknown methods and newly added upstream parameters fail closed until the
   browser policy is reviewed.
 - Background task list, detail, cancellation, and live upsert events are
