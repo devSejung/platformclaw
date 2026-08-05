@@ -135,7 +135,7 @@ describe("control UI session PR subscriptions", () => {
 
   it("keeps trusted backend subscription slots independent on one connection", async () => {
     vi.useFakeTimers();
-    const load = vi.fn(async () => READY);
+    const load = vi.fn(async (_params: ControlUiSessionPullRequestsParams) => READY);
     const broadcastToConnIds = vi.fn();
     active = createControlUiSessionPullRequestSubscriptions({ broadcastToConnIds, load });
 
