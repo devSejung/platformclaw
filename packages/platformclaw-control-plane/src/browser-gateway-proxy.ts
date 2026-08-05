@@ -438,7 +438,7 @@ export class BrowserGatewayProxy {
       }
       return { ...params, agentId: access.binding.agentId, emitCommandHooks: false };
     }
-    if (method === "sessions.observer.ask") {
+    if (method.startsWith("sessions.companion.")) {
       this.assertions.ownedSessionKey(access.binding.agentId, params.sessionKey, "sessionKey");
       return params;
     }

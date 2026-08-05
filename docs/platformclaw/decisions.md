@@ -281,6 +281,13 @@ shared Gateway boundary. Filesystem paths, cross-agent results, system
 configuration, Agent policy mutations, and operator surfaces stay behind the
 BFF policy.
 
+The Session Files rail is a separate read-only surface: browser users may list
+and read files only through an owned session with the personal Agent pinned by
+the BFF. The proxy removes the Gateway workspace root from results. Owned
+session rewind and transcript artifact list/download follow the same
+request-and-result ownership checks; session file writes, host reveal, and diff
+remain unavailable.
+
 A single PlatformClaw UI adapter owns the fixed same-origin Gateway URL,
 personal-agent access mode, session-expiry redirect, route availability,
 identity summary, and logout. Detailed visual design is deferred. UI hiding is

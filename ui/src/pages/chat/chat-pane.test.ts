@@ -505,6 +505,18 @@ describe("chat pane keyboard shortcuts", () => {
       entryUrl: "/__openclaw__/canvas/canvas-1/index.html",
     };
     pane.active = true;
+    pane.context = {
+      ...pane.context,
+      gateway: {
+        ...pane.context.gateway,
+        snapshot: {
+          ...pane.context.gateway.snapshot,
+          hello: {
+            features: { methods: ["sessions.files.list", "sessions.files.get"] },
+          },
+        },
+      },
+    } as ApplicationContext;
     state.connected = false;
     state.sidebarContent = canvasContent;
     state.sidebarLayout = openSlot({ columns: [] }, "detail");
@@ -531,6 +543,19 @@ describe("chat pane keyboard shortcuts", () => {
     pane.active = false;
     const inactivePaneEvent = dispatchSidebarShortcut(pane);
     expect(inactivePaneEvent.defaultPrevented).toBe(false);
+    expect(createSessionWorkspaceProps(state).collapsed).toBe(true);
+  });
+
+  it("ignores the workspace shortcut when file methods are not advertised", () => {
+    const { pane, state } = createTestChatPane({
+      client: {} as GatewayBrowserClient,
+      sessions: {} as SessionCapability,
+    });
+    pane.active = true;
+
+    const event = dispatchSidebarShortcut(pane);
+
+    expect(event.defaultPrevented).toBe(false);
     expect(createSessionWorkspaceProps(state).collapsed).toBe(true);
   });
 });

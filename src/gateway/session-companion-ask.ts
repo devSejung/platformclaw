@@ -37,7 +37,7 @@ const DELTA_MAX_BYTES = 4 * 1024;
 const MAX_CONCURRENT_ASKS = 6;
 const ASK_RATE_WINDOW_MS = 60_000;
 const MAX_ASKS_PER_RATE_WINDOW = 12;
-const MAX_ASKS_PER_CONNECTION_RATE_WINDOW = 4;
+const MAX_ASKS_PER_CONNECTION_AGENT_RATE_WINDOW = 4;
 
 type SessionCompanionPromptMessage = {
   role: "user" | "assistant";
@@ -377,7 +377,7 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
   const setTimeoutFn = params.setTimeoutFn ?? setTimeout;
   const clearTimeoutFn = params.clearTimeoutFn ?? clearTimeout;
   const controllers = new Map<string, AbortController>();
-  const admissions: Array<{ connId: string; admittedAt: number }> = [];
+  const admissions: Array<{ connId: string; agentId: string; admittedAt: number }> = [];
 
   const ask = async (request: {
     sessionKey: string;
@@ -396,29 +396,32 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
         "The session companion is answering another question.",
       );
     }
+    const cfg = params.getConfig();
+    const observerSnapshot = params.sessionObserver.getCompanionSnapshot(sessionKey);
+    const agentId = observerSnapshot.agentId || resolveSessionAgentId({ sessionKey, config: cfg });
     const admittedAt = params.now();
     const cutoff = admittedAt - ASK_RATE_WINDOW_MS;
     while ((admissions[0]?.admittedAt ?? admittedAt) < cutoff) {
       admissions.shift();
     }
-    const connectionAdmissions = admissions.filter(
-      (admission) => admission.connId === request.connId,
+    const ownerAdmissions = admissions.filter(
+      (admission) => admission.connId === request.connId && admission.agentId === agentId,
     );
     const globalRetryAfterMs =
       admissions.length >= MAX_ASKS_PER_RATE_WINDOW
         ? Math.max(1, (admissions[0]?.admittedAt ?? admittedAt) + ASK_RATE_WINDOW_MS - admittedAt)
         : 0;
-    const connectionRetryAfterMs =
-      connectionAdmissions.length >= MAX_ASKS_PER_CONNECTION_RATE_WINDOW
+    const ownerRetryAfterMs =
+      ownerAdmissions.length >= MAX_ASKS_PER_CONNECTION_AGENT_RATE_WINDOW
         ? Math.max(
             1,
-            (connectionAdmissions[0]?.admittedAt ?? admittedAt) + ASK_RATE_WINDOW_MS - admittedAt,
+            (ownerAdmissions[0]?.admittedAt ?? admittedAt) + ASK_RATE_WINDOW_MS - admittedAt,
           )
         : 0;
     if (
       controllers.size >= MAX_CONCURRENT_ASKS ||
       globalRetryAfterMs > 0 ||
-      connectionRetryAfterMs > 0
+      ownerRetryAfterMs > 0
     ) {
       throw new SessionCompanionAskError(
         "rate-limited",
@@ -426,14 +429,11 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
         Math.max(
           controllers.size >= MAX_CONCURRENT_ASKS ? ASK_TIMEOUT_MS : 0,
           globalRetryAfterMs,
-          connectionRetryAfterMs,
+          ownerRetryAfterMs,
         ),
       );
     }
 
-    const cfg = params.getConfig();
-    const observerSnapshot = params.sessionObserver.getCompanionSnapshot(sessionKey);
-    const agentId = observerSnapshot.agentId || resolveSessionAgentId({ sessionKey, config: cfg });
     const utilityModelRef = resolveUtilityModelRef({ cfg, agentId });
     if (!utilityModelRef) {
       throw new SessionCompanionAskError(
@@ -455,7 +455,7 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
     }
     thread.busy = true;
     thread.lastUsedAt = admittedAt;
-    admissions.push({ connId: request.connId, admittedAt });
+    admissions.push({ connId: request.connId, agentId, admittedAt });
     const controller = new AbortController();
     controllers.set(sessionKey, controller);
     const timeout = setTimeoutFn(() => controller.abort(), ASK_TIMEOUT_MS);

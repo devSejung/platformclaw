@@ -11,10 +11,18 @@ function upstreamHello(): HelloOk {
     features: {
       methods: [
         "agents.list",
+        "artifacts.download",
+        "artifacts.list",
         "chat.send",
         "plugins.list",
-        "sessions.observer.ask",
+        "sessions.companion.ask",
+        "sessions.companion.reset",
+        "sessions.companion.state",
+        "sessions.files.get",
+        "sessions.files.list",
+        "sessions.fork",
         "sessions.observer.visibility",
+        "sessions.rewind",
         "users.self",
       ],
       events: ["chat", "tick", "presence", "session.observer"],
@@ -79,10 +87,18 @@ describe("projectPlatformClawBrowserHello", () => {
     expect(projected.features).toEqual({
       methods: [
         "agents.list",
+        "artifacts.download",
+        "artifacts.list",
         "chat.send",
         "commands.list",
-        "sessions.observer.ask",
+        "sessions.companion.ask",
+        "sessions.companion.reset",
+        "sessions.companion.state",
+        "sessions.files.get",
+        "sessions.files.list",
+        "sessions.fork",
         "sessions.observer.visibility",
+        "sessions.rewind",
         "users.self",
       ],
       events: ["tick", "chat", "session.observer"],
@@ -126,6 +142,7 @@ describe("projectPlatformClawBrowserHello", () => {
     });
 
     expect(projected.features.methods).toContain("plugins.list");
+    expect(projected.features.methods).toContain("sessions.rewind");
     expect(projected.auth.scopes).toEqual(["operator.read", "operator.write", "operator.admin"]);
     expect(projected.snapshot.presence[0]).toMatchObject({ instanceId: "browser-instance" });
   });

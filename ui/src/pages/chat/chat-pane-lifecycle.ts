@@ -17,6 +17,7 @@ import {
   type BrowserAnnotationDraft,
 } from "../../components/browser/browser-annotation.ts";
 import { t } from "../../i18n/index.ts";
+import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
 import { resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
 import { resolveChatPaneObserverRunId } from "../../lib/observer-digest.ts";
 import { sessionPullRequestsForGateway } from "../../lib/session-pull-requests.ts";
@@ -323,7 +324,11 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
       resolveAsciiShortcutKey(event) === "b"
     ) {
       const state = this.state;
-      if (!state) {
+      if (
+        !state ||
+        isGatewayMethodAdvertised(this.context.gateway.snapshot, "sessions.files.list") !== true ||
+        isGatewayMethodAdvertised(this.context.gateway.snapshot, "sessions.files.get") !== true
+      ) {
         return;
       }
       event.preventDefault();

@@ -336,12 +336,15 @@ function loadWorkspace(
         search: workspace.browserSearch,
         agentId,
       });
-      const artifacts = await state.client?.request<{
-        artifacts?: SessionWorkspaceListResult["artifacts"];
-      } | null>("artifacts.list", {
-        sessionKey,
-        ...(agentId ? { agentId } : {}),
-      });
+      const artifacts =
+        isGatewayMethodAdvertised(state, "artifacts.list") === true
+          ? await state.client?.request<{
+              artifacts?: SessionWorkspaceListResult["artifacts"];
+            } | null>("artifacts.list", {
+              sessionKey,
+              ...(agentId ? { agentId } : {}),
+            })
+          : null;
       const current = currentWorkspaceState(state);
       if (current !== workspace || current.requestId !== requestId) {
         return;

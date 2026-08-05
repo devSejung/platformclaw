@@ -40,6 +40,34 @@ session tool activity all use the upstream `session.tool` path. Browser
 `sessions.unsubscribe` is not exposed because one tab must not disable the
 process-wide subscription for every other tab.
 
+The projected method list must match the current Control UI RPC names and
+capability checks. Session companion access uses `sessions.companion.ask`,
+`sessions.companion.state`, and `sessions.companion.reset`; the retired
+`sessions.observer.ask` name is not a compatibility surface. Companion
+questions are checked against the owned session before forwarding. Because one
+private Gateway connection multiplexes personal Agents, the Gateway applies
+its connection-local companion limit per resolved Agent while retaining the
+process-wide limit.
+
+Session list filters such as `boardFace` and `creatorId` may narrow the
+server-pinned personal-Agent result. Fork and rewind are writes restricted to
+sessions owned by that personal Agent; rewind cannot select another employee's
+session. Unsupported Control UI actions are hidden through projected method
+advertisement instead of being rendered as dead controls.
+
+The Session Files rail exposes only `sessions.files.list` and
+`sessions.files.get`. The proxy pins the personal Agent, validates the session
+key, and returns relative browser paths without the Gateway workspace root or
+other host-absolute paths. `sessions.files.set`, `sessions.files.reveal`, and
+`sessions.diff` remain blocked. This read-only Session Files surface is
+separate from the Agent page's bounded Core Files editor.
+
+Transcript attachments and other downloadable session artifacts use
+`artifacts.list` and `artifacts.download` with an owned `sessionKey`.
+Browser-supplied `runId` and `taskId` scopes are rejected, returned artifact
+metadata is revalidated against the same Agent boundary, and `artifacts.get`
+remains unadvertised because the Control UI does not require it.
+
 ## HTTP and WebSocket surfaces
 
 | Path                             | Method        | Purpose                                                      |
@@ -132,6 +160,8 @@ Never put real employee records or passwords in a committed fixture.
   cannot restore readiness.
 - Unknown methods and newly added upstream parameters fail closed until the
   browser policy is reviewed.
+- Every visible Control UI action must either use an advertised method or be
+  hidden; policy denials must not leave clickable controls that always fail.
 - Background task list, detail, cancellation, and live upsert events are
   restricted to the authenticated personal Agent. Ownership-free task deletion
   and registry restoration events are not forwarded through the shared Gateway

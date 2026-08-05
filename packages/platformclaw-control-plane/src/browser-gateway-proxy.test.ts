@@ -99,11 +99,18 @@ describe("BrowserGatewayProxy", () => {
     });
     expect(agents.agents[0]).not.toHaveProperty("workspace");
     expect(agents.agents[0]).not.toHaveProperty("agentRuntime");
-    await expect(proxy.request(token, "sessions.list", {})).resolves.toMatchObject({
+    await expect(
+      proxy.request(token, "sessions.list", {
+        boardFace: "dashboard",
+        creatorId: "creator-1",
+      }),
+    ).resolves.toMatchObject({
       total: 25,
       sessions: [{ key: `agent:${binding.agentId}:main` }],
     });
     expect(request).toHaveBeenLastCalledWith("sessions.list", {
+      boardFace: "dashboard",
+      creatorId: "creator-1",
       agentId: binding.agentId,
       includeGlobal: false,
       includeUnknown: false,

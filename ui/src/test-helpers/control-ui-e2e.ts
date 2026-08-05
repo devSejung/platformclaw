@@ -410,6 +410,7 @@ function normalizeScenario(
     basePathWithSlash.length > 1 && basePathWithSlash.endsWith("/")
       ? basePathWithSlash.slice(0, -1)
       : basePathWithSlash;
+  const responseMethods = Object.keys(scenario.methodResponses ?? {});
   return {
     agentModel:
       scenario.agentModel === undefined ? "openai/gpt-5.5" : scenario.agentModel?.trim() || null,
@@ -431,7 +432,16 @@ function normalizeScenario(
     devGitBranch: scenario.devGitBranch?.trim() || "",
     deviceAuthMigrationPending: scenario.deviceAuthMigrationPending ?? false,
     deviceToken: scenario.deviceToken?.trim() || "e2e-device-token",
-    featureMethods: scenario.featureMethods ?? ["chat.metadata", "chat.startup"],
+    featureMethods:
+      scenario.featureMethods ??
+      Array.from(
+        new Set([
+          "chat.metadata",
+          "chat.startup",
+          ...responseMethods,
+          ...(responseMethods.includes("sessions.files.list") ? ["sessions.files.get"] : []),
+        ]),
+      ),
     historyMessages: scenario.historyMessages ?? [],
     methodResponses: scenario.methodResponses ?? {},
     inFlightRun: scenario.inFlightRun ?? null,

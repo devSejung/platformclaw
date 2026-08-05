@@ -29,7 +29,7 @@ function createHarness(overrides?: {
     messages: Array<{ role: "user" | "assistant"; content: string; ts: number }>;
     systemPrompt: string;
   }) => Promise<string>;
-  snapshot?: () => SessionObserverCompanionSnapshot;
+  snapshot?: (sessionKey: string) => SessionObserverCompanionSnapshot;
 }) {
   const cfg: OpenClawConfig = {};
   const readSeedMessages = vi.fn(
@@ -135,7 +135,7 @@ describe("session companion asks", () => {
     harness.service.dispose();
   });
 
-  it("enforces the per-connection rate window", async () => {
+  it("enforces the per-connection-agent rate window", async () => {
     vi.useFakeTimers();
     const harness = createHarness();
     for (let index = 0; index < 4; index += 1) {
@@ -156,6 +156,38 @@ describe("session companion asks", () => {
       retryAfterMs: 60_000,
     } satisfies Partial<SessionCompanionAskError>);
     expect(harness.run).toHaveBeenCalledTimes(4);
+    harness.service.dispose();
+  });
+
+  it("isolates agents multiplexed through one connection", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness({
+      snapshot: (sessionKey) => ({
+        agentId: sessionKey.includes("agent:other:") ? "other" : "main",
+        notes: [],
+      }),
+    });
+    for (let index = 0; index < 4; index += 1) {
+      await harness.service.ask({
+        sessionKey: `agent:main:session-${index}`,
+        question: `Main question ${index}?`,
+        connId: "shared-conn",
+      });
+    }
+    await expect(
+      harness.service.ask({
+        sessionKey: "agent:other:main",
+        question: "Other agent question?",
+        connId: "shared-conn",
+      }),
+    ).resolves.toMatchObject({ answer: expect.any(String) });
+    await expect(
+      harness.service.ask({
+        sessionKey: "agent:main:overflow",
+        question: "One too many for main?",
+        connId: "shared-conn",
+      }),
+    ).rejects.toMatchObject({ reason: "rate-limited" });
     harness.service.dispose();
   });
 
