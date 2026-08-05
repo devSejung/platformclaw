@@ -80,7 +80,8 @@ describe("createPlatformClawWebIngressRuntime", () => {
           return {
             start: () => options.onHelloOk?.(hello()),
             stop,
-            request: async () => ({}),
+            request: async (method) =>
+              method === "sessions.subscribe" ? { subscribed: true } : {},
           };
         },
       },

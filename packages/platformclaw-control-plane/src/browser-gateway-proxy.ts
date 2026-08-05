@@ -196,6 +196,10 @@ export class BrowserGatewayProxy {
     if (method === "users.self") {
       return projectBrowserSelfUser(access.user) as T;
     }
+    if (method === "sessions.subscribe") {
+      // The process-wide private Gateway client owns this connection-scoped subscription.
+      return { subscribed: true } as T;
+    }
     const specialCronResult = await requestSpecialCronResult(
       this.browserCronContext(access),
       method,
@@ -442,6 +446,9 @@ export class BrowserGatewayProxy {
       if (typeof params.visible !== "boolean") {
         throw new BrowserGatewayProxyError("invalid-params", "visible must be a boolean");
       }
+      return params;
+    }
+    if (method === "sessions.subscribe") {
       return params;
     }
     if (method === "tasks.get" || method === "tasks.cancel") {

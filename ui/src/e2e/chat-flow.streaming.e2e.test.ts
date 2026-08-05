@@ -3,6 +3,7 @@ import {
   chatThreadDistanceFromBottom,
   createChatFlowE2eSuite,
   installMockGateway,
+  pauseVirtualClock,
   requireRecord,
   requireString,
   scrollChatThreadToTop,
@@ -632,6 +633,64 @@ suite.define(() => {
       });
 
       expect(visibleOrder).toEqual(["assistant stream", "tool card"]);
+    } finally {
+      await suite.closeBrowserContext(context);
+    }
+  });
+
+  it("renders a running tool at the deferred projection boundary without a reload", async () => {
+    const context = await suite.newBrowserContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 900, width: 1280 },
+    });
+    const page = await context.newPage();
+    await page.clock.install();
+    const gateway = await installMockGateway(page);
+
+    try {
+      await page.goto(`${suite.server.baseUrl}chat`);
+      await page.locator(".agent-chat__composer-combobox textarea").fill("show live tool work");
+      await page.getByRole("button", { name: "Send message" }).click();
+
+      const sendRequest = await gateway.waitForRequest("chat.send");
+      const params = requireRecord(sendRequest.params);
+      const runId = requireString(params.idempotencyKey, "chat send idempotency key");
+      await pauseVirtualClock(page);
+      await gateway.emitGatewayEvent("agent", {
+        data: {
+          args: { path: "notes.txt" },
+          name: "read",
+          phase: "start",
+          toolCallId: "call-live",
+        },
+        runId,
+        seq: 1,
+        sessionKey: "main",
+        stream: "tool",
+        ts: Date.now(),
+      });
+
+      await page.clock.runFor(80);
+      const toolBubble = page.locator('[data-message-id^="tool:assistant:call-live"]');
+      await toolBubble.locator(".chat-tool-row--running").waitFor({ timeout: 10_000 });
+
+      await gateway.emitGatewayEvent("agent", {
+        data: {
+          name: "read",
+          phase: "result",
+          result: "file contents",
+          toolCallId: "call-live",
+        },
+        runId,
+        seq: 2,
+        sessionKey: "main",
+        stream: "tool",
+        ts: Date.now(),
+      });
+      await page.clock.runFor(80);
+      await expect.poll(() => toolBubble.locator(".chat-tool-row--running").count()).toBe(0);
+      expect(await toolBubble.count()).toBe(1);
     } finally {
       await suite.closeBrowserContext(context);
     }

@@ -8,6 +8,16 @@
 - Last upstream sync: 2026-08-01 on `sync/upstream-20260801` through upstream commit `02457657f012d33e141c710d92671d1bc4a519e9`
 - Initial sync state: local `main`, `origin/main`, and `upstream/main` identical
 
+### Bounded post-sync backports
+
+- Control UI deferred tool projection repaint: the focused `requestUpdate`
+  hunk and regression test from OpenClaw PR #117191, commit
+  `ad409a8285153076570126e01bb5423276df30b1`, landed after the current sync
+  cutoff and are carried temporarily downstream. No other session, archive,
+  focus, pagination, tool identity, or fallback changes from that upstream PR
+  are included. Remove this backport marker when a later upstream sync contains
+  that commit.
+
 ## Legacy Comparison Baseline
 
 - Previous PlatformClaw reference repository: sibling `../platform-agent`

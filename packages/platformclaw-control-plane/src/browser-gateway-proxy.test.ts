@@ -57,6 +57,15 @@ describe("BrowserGatewayProxy", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("acknowledges the runtime-owned session event subscription locally", async () => {
+    const { proxy, request, token } = await setup();
+
+    await expect(proxy.request(token, "sessions.subscribe", {})).resolves.toEqual({
+      subscribed: true,
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("projects browser-safe agent rows and preserves scoped session pagination", async () => {
     const { binding, proxy, request, token } = await setup();
     request
