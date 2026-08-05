@@ -2309,6 +2309,97 @@ describe("createOpenClawCodingTools", () => {
     }
   });
 
+  it("edits and writes split-workspace backend paths without Gateway memory classification", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-split-workspace-"));
+    const files = new Map<string, string>([["/users/worker/project/source.txt", "before\n"]]);
+    const recordWriteProvenance = vi.fn<NonNullable<MemoryFlushPlan["recordWriteProvenance"]>>(
+      async () => {},
+    );
+    registerMemoryCapability("memory-core", {
+      flushPlanResolver: () => ({
+        softThresholdTokens: 1,
+        forceFlushTranscriptBytes: 1,
+        reserveTokensFloor: 1,
+        prompt: "flush",
+        systemPrompt: "flush",
+        relativePath: "memory/2026-07-29.md",
+        recordWriteProvenance,
+      }),
+    });
+    const resolvePath = (filePath: string) =>
+      filePath.startsWith("~/") ? `/users/worker/${filePath.slice(2)}` : filePath;
+    const sandbox = createAgentToolsSandboxContext({
+      workspaceDir,
+      workspaceAccess: "rw",
+      fsBridge: {
+        resolvePath: ({ filePath }) => ({
+          relativePath: filePath,
+          containerPath: resolvePath(filePath),
+        }),
+        resolveUserPath: ({ filePath }) => ({
+          relativePath: filePath,
+          containerPath: resolvePath(filePath),
+        }),
+        readFile: async ({ filePath }) => Buffer.from(files.get(filePath) ?? "", "utf8"),
+        writeFile: async ({ filePath, data }) => {
+          files.set(filePath, Buffer.isBuffer(data) ? data.toString("utf8") : data);
+        },
+        mkdirp: async () => {},
+        remove: async ({ filePath }) => {
+          files.delete(filePath);
+        },
+        rename: async ({ from, to }) => {
+          const content = files.get(from);
+          if (content !== undefined) {
+            files.set(to, content);
+            files.delete(from);
+          }
+        },
+        stat: async ({ filePath }) =>
+          files.has(filePath)
+            ? { type: "file", size: files.get(filePath)!.length, mtimeMs: 0 }
+            : null,
+      },
+    });
+    sandbox.backend = {
+      id: "split-workspace-test",
+      runtimeId: "split-workspace-test",
+      runtimeLabel: "split-workspace-test",
+      workdir: "/users/worker/.platformclaw/workspace",
+      capabilities: { separateAgentWorkspace: true },
+    } as never;
+
+    try {
+      const tools = createOpenClawCodingTools({
+        workspaceDir,
+        sandbox,
+        config: { tools: { fs: { workspaceOnly: false } } },
+        senderIsOwner: true,
+        toolConstructionPlan: {
+          includeBaseCodingTools: true,
+          includeShellTools: false,
+          includeChannelTools: false,
+          includeOpenClawTools: false,
+          includePluginTools: false,
+        },
+      });
+      await requireToolExecute(requireTool(tools, "edit"))("edit-remote-home", {
+        path: "~/project/source.txt",
+        edits: [{ oldText: "before", newText: "after" }],
+      });
+      await requireToolExecute(requireTool(tools, "write"))("write-remote-home", {
+        path: "~/project/new.txt",
+        content: "created\n",
+      });
+
+      expect(files.get("/users/worker/project/source.txt")).toBe("after\n");
+      expect(files.get("/users/worker/project/new.txt")).toBe("created\n");
+      expect(recordWriteProvenance).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects legacy alias parameters", async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-legacy-alias-"));
     try {
