@@ -134,13 +134,12 @@ const VM_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin
 function buildAssignedVmEnvironment(
   handle: SandboxBackendHandle,
   target: Readonly<AssignedVmTargetSnapshot>,
-): Record<string, string> | undefined {
+): Record<string, string> {
   const configured = target.executionEnvironment;
-  if (!configured) {
-    return handle.env;
-  }
-  const environment = { ...handle.env, ...configured.variables };
-  if (configured.pathPrepend.length > 0) {
+  // Core sandbox exec defaults HOME to its workdir. An assigned VM must instead
+  // expose the connection-verified account home so the remote shell expands ~ correctly.
+  const environment = { ...handle.env, ...configured?.variables, HOME: target.remoteHomeDir };
+  if (configured && configured.pathPrepend.length > 0) {
     environment.PATH = [...configured.pathPrepend, handle.env?.PATH ?? VM_DEFAULT_PATH].join(":");
   }
   return environment;

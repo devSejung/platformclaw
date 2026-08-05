@@ -155,6 +155,7 @@ describe("PlatformClaw execution backend", () => {
       PATH: "/opt/clang/bin:/opt/gcc/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
       CLANG11_PATH: "/opt/clang/bin/",
       SHARED_BUILD_FLAG: "vm-override",
+      HOME: "/srv/person-two",
     });
     const timingLines = logTiming.mock.calls.map(([message]) => String(message));
     expect(timingLines).toHaveLength(2);
@@ -237,6 +238,10 @@ describe("PlatformClaw execution backend", () => {
       catalog,
     });
     expect(vmHandle.skillWorkshopTarget).toBe(workshopTarget);
+    expect(vmHandle.env).toEqual({
+      SHARED_BUILD_FLAG: "server-default",
+      HOME: "/srv/person-one",
+    });
 
     const basicDependencies = createDependencies(async () => ({
       kind: "platform_server",
