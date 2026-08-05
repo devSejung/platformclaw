@@ -94,7 +94,7 @@ function serializeRuntimeContext(value: Record<string, unknown>): string {
 
 function buildRuntimePromptContext(
   target: Readonly<PlatformClawExecutionTargetSnapshot>,
-  activeWorkspace: string,
+  basicWorkspace: string,
 ): string {
   const context =
     target.kind === "platform_server"
@@ -102,7 +102,7 @@ function buildRuntimePromptContext(
           workLocation: "Basic workspace",
           activeTarget: target.kind,
           targetLabel: "Basic workspace",
-          activeWorkspace,
+          activeWorkspace: basicWorkspace,
           targetRevision: target.revision,
           workspaceBoundary:
             "Basic workspace and My development VM keep independent files and processes.",
@@ -114,12 +114,12 @@ function buildRuntimePromptContext(
           safeHostLabel: target.safeConnectLabel,
           linuxAccount: target.linuxAccount,
           linuxHome: target.remoteHomeDir,
-          activeWorkspace,
+          activeWorkspace: target.remoteWorkspaceDir,
           targetRevision: target.revision,
           workspaceBoundary:
             "Basic workspace and My development VM keep independent files and processes.",
           filesystemAccess:
-            "Relative file paths start at activeWorkspace. In file tools, ~ and ~/... mean linuxHome. File tools and command workdirs may use the full Linux home; paths outside it stay unavailable.",
+            "linuxHome and activeWorkspace are different roots. In shell commands, HOME and ~ mean linuxHome; the default working directory and relative paths mean activeWorkspace. In file tools, ~ and ~/... mean linuxHome, while relative paths mean activeWorkspace. Command workdirs may use absolute paths inside linuxHome. Never prefix activeWorkspace to paths beginning with ~ or /. Paths outside linuxHome stay unavailable.",
         };
   return [
     "<platformclaw_execution_context>",
@@ -134,13 +134,16 @@ const VM_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin
 function buildAssignedVmEnvironment(
   handle: SandboxBackendHandle,
   target: Readonly<AssignedVmTargetSnapshot>,
-): Record<string, string> | undefined {
+): Record<string, string> {
   const configured = target.executionEnvironment;
-  if (!configured) {
-    return handle.env;
-  }
-  const environment = { ...handle.env, ...configured.variables };
-  if (configured.pathPrepend.length > 0) {
+  // Core sandbox exec defaults HOME to its workdir. An assigned VM must instead
+  // expose the connection-verified account home so the remote shell expands ~ correctly.
+  const environment: Record<string, string> = {
+    ...handle.env,
+    ...configured?.variables,
+    HOME: target.remoteHomeDir,
+  };
+  if (configured && configured.pathPrepend.length > 0) {
     environment.PATH = [...configured.pathPrepend, handle.env?.PATH ?? VM_DEFAULT_PATH].join(":");
   }
   return environment;

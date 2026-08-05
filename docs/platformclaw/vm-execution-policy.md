@@ -166,6 +166,14 @@ PlatformClaw-managed denylist inside the home; Linux account permissions remain
 authoritative. Accounts whose canonical home is the filesystem root (`/`) are
 not supported because they would erase this boundary.
 
+The Linux account home and active Agent workspace are distinct roots. For an
+assigned VM, shell `HOME` and shell `~` always mean the connection-verified
+Linux account home, while the default command working directory remains the
+active workspace. Relative paths therefore start in the active workspace;
+changing the working directory never changes `HOME` or shell `~`. This override
+is assigned-VM-only. The Basic workspace keeps the upstream Docker sandbox
+environment and working-directory behavior.
+
 Relative file-tool paths start at `${HOME}/.platformclaw/workspace`. The exact
 path `~` and paths beginning with `~/` resolve to the assigned account's stored,
 connection-verified Linux home. Names such as `~other` are ordinary relative

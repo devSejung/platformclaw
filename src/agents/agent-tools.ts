@@ -623,17 +623,20 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
         sandboxFsBridge.resolveUserPath!({ filePath, cwd: sandboxRoot }).containerPath
     : undefined;
   // Flush exposes one append-only target; its fallback records inherited taint after success.
-  const memoryWriteProvenance = isMemoryFlushRun
-    ? undefined
-    : createMemoryWriteProvenanceObserver({
-        mutationRoot: sandboxRoot ?? workspaceRoot,
-        workspaceDir: workspaceRoot,
-        plan: resolveMemoryFlushPlan({ cfg: options?.config }) ?? {},
-        resolveOriginClass: () =>
-          options?.senderIsOwner === false || options?.isTurnTainted?.() === true
-            ? "untrusted"
-            : "agent",
-      });
+  // Split-workspace backends mutate project files on another filesystem; Gateway
+  // memory provenance belongs to the separate Agent workspace, not those paths.
+  const memoryWriteProvenance =
+    isMemoryFlushRun || sandbox?.backend?.capabilities?.separateAgentWorkspace === true
+      ? undefined
+      : createMemoryWriteProvenanceObserver({
+          mutationRoot: sandboxRoot ?? workspaceRoot,
+          workspaceDir: workspaceRoot,
+          plan: resolveMemoryFlushPlan({ cfg: options?.config }) ?? {},
+          resolveOriginClass: () =>
+            options?.senderIsOwner === false || options?.isTurnTainted?.() === true
+              ? "untrusted"
+              : "agent",
+        });
   const includeCoreTools = options?.includeCoreTools !== false;
   const toolConstructionPlan = options?.toolConstructionPlan ?? {
     includeBaseCodingTools: includeCoreTools,

@@ -104,6 +104,49 @@ function createSandboxFsTools(params: { sandbox: UnsafeMountedSandbox; workspace
 }
 
 describe("tools.fs.workspaceOnly", () => {
+  it("edits a backend home alias outside the workspace when the policy is disabled", async () => {
+    const root = path.resolve("C:/local/workspace");
+    const target = "/users/worker/projects/demo/source.txt";
+    const writeFile = vi.fn(async () => undefined);
+    const bridge = {
+      resolvePath: ({ filePath }: { filePath: string }) => ({
+        relativePath: filePath,
+        containerPath: filePath,
+      }),
+      resolveUserPath: ({ filePath }: { filePath: string }) => ({
+        relativePath: filePath,
+        containerPath: filePath.startsWith("~/")
+          ? `/users/worker/${filePath.slice(2)}`
+          : `/users/worker/.platformclaw/workspace/${filePath}`,
+      }),
+      stat: vi.fn(async ({ filePath }: { filePath: string }) =>
+        filePath === target ? { type: "file", size: 7, mtimeMs: 0 } : null,
+      ),
+      readFile: vi.fn(async ({ filePath }: { filePath: string }) =>
+        Buffer.from(filePath === target ? "before\n" : "", "utf8"),
+      ),
+      writeFile,
+    };
+    const sandbox = {
+      workspaceDir: root,
+      fsBridge: bridge,
+    } as unknown as UnsafeMountedSandbox;
+    const { editTool } = expectReadWriteEditTools(
+      createSandboxFsTools({ sandbox, workspaceOnly: false }),
+    );
+
+    await editTool?.execute("edit-home-alias", {
+      path: "~/projects/demo/source.txt",
+      edits: [{ oldText: "before", newText: "after" }],
+    });
+
+    expect(writeFile).toHaveBeenCalledWith({
+      filePath: target,
+      cwd: root,
+      data: "after\n",
+    });
+  });
+
   it("guards backend home aliases after resolving them to remote container paths", async () => {
     const root = path.resolve("C:/local/workspace");
     const execute = vi.fn(async () => ({ content: [] }));
