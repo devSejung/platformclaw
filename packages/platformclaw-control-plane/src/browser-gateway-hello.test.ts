@@ -13,8 +13,12 @@ function upstreamHello(): HelloOk {
         "agents.list",
         "chat.send",
         "plugins.list",
-        "sessions.observer.ask",
+        "sessions.companion.ask",
+        "sessions.companion.reset",
+        "sessions.companion.state",
+        "sessions.fork",
         "sessions.observer.visibility",
+        "sessions.rewind",
         "users.self",
       ],
       events: ["chat", "tick", "presence", "session.observer"],
@@ -81,7 +85,10 @@ describe("projectPlatformClawBrowserHello", () => {
         "agents.list",
         "chat.send",
         "commands.list",
-        "sessions.observer.ask",
+        "sessions.companion.ask",
+        "sessions.companion.reset",
+        "sessions.companion.state",
+        "sessions.fork",
         "sessions.observer.visibility",
         "users.self",
       ],
@@ -126,6 +133,7 @@ describe("projectPlatformClawBrowserHello", () => {
     });
 
     expect(projected.features.methods).toContain("plugins.list");
+    expect(projected.features.methods).toContain("sessions.rewind");
     expect(projected.auth.scopes).toEqual(["operator.read", "operator.write", "operator.admin"]);
     expect(projected.snapshot.presence[0]).toMatchObject({ instanceId: "browser-instance" });
   });

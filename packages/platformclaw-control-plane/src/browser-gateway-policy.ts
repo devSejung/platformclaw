@@ -28,16 +28,20 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "plugins.uninstall",
   "sessions.abort",
   "sessions.compact",
+  "sessions.companion.ask",
+  "sessions.companion.reset",
+  "sessions.companion.state",
   "sessions.create",
   "sessions.delete",
   "sessions.describe",
+  "sessions.fork",
   "sessions.list",
   "sessions.messages.subscribe",
   "sessions.messages.unsubscribe",
-  "sessions.observer.ask",
   "sessions.observer.visibility",
   "sessions.patch",
   "sessions.preview",
+  "sessions.rewind",
   "sessions.reset",
   "sessions.resolve",
   "sessions.search",
@@ -176,6 +180,9 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["plugins.uninstall", new Set(["pluginId"])],
   ["sessions.abort", new Set(["key", "agentId", "clearQueued"])],
   ["sessions.compact", new Set(["key", "agentId"])],
+  ["sessions.companion.ask", new Set(["sessionKey", "question"])],
+  ["sessions.companion.reset", new Set(["sessionKey"])],
+  ["sessions.companion.state", new Set(["sessionKey"])],
   [
     "sessions.create",
     new Set([
@@ -194,6 +201,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ],
   ["sessions.delete", new Set(["key", "agentId", "deleteTranscript", "archivedOnly"])],
   ["sessions.describe", new Set(["key", "includeDerivedTitles", "includeLastMessage"])],
+  ["sessions.fork", new Set(["sessionKey", "entryId", "agentId"])],
   [
     "sessions.list",
     new Set([
@@ -208,6 +216,8 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "includeDerivedTitles",
       "includeLastMessage",
       "label",
+      "boardFace",
+      "creatorId",
       "spawnedBy",
       "agentId",
       "search",
@@ -216,7 +226,6 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ],
   ["sessions.messages.subscribe", new Set(["key", "agentId"])],
   ["sessions.messages.unsubscribe", new Set(["key", "agentId"])],
-  ["sessions.observer.ask", new Set(["sessionKey", "question"])],
   ["sessions.observer.visibility", new Set(["visible"])],
   [
     "sessions.patch",
@@ -225,6 +234,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "agentId",
       "label",
       "category",
+      "boardFace",
       "icon",
       "archived",
       "pinned",
@@ -239,6 +249,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     ]),
   ],
   ["sessions.preview", new Set(["keys", "limit", "maxChars"])],
+  ["sessions.rewind", new Set(["sessionKey", "entryId", "agentId"])],
   ["sessions.reset", new Set(["key", "agentId", "reason"])],
   [
     "sessions.resolve",
@@ -372,6 +383,7 @@ export const PLATFORMCLAW_WEB_ADMIN_METHODS = new Set<string>([
   "plugins.search",
   "plugins.setEnabled",
   "plugins.uninstall",
+  "sessions.rewind",
 ]);
 
 export const PLATFORMCLAW_WEB_SESSION_KEY_METHODS = new Map<string, string>([
@@ -384,10 +396,12 @@ export const PLATFORMCLAW_WEB_SESSION_KEY_METHODS = new Map<string, string>([
   ["sessions.abort", "key"],
   ["sessions.compact", "key"],
   ["sessions.describe", "key"],
+  ["sessions.fork", "sessionKey"],
   ["sessions.messages.subscribe", "key"],
   ["sessions.messages.unsubscribe", "key"],
   ["sessions.patch", "key"],
   ["sessions.reset", "key"],
+  ["sessions.rewind", "sessionKey"],
   ["sessions.steer", "key"],
   ["tools.effective", "sessionKey"],
 ]);

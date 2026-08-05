@@ -52,7 +52,7 @@ import {
 
 export abstract class ChatPaneHeader extends ChatPaneContext {
   protected renderPaneHeader(
-    sessionWorkspace: SessionWorkspaceProps,
+    sessionWorkspace: SessionWorkspaceProps | undefined,
     backgroundTasks: BackgroundTasksProps,
     row: GatewaySessionRow | undefined,
     catalog: boolean,

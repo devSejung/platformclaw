@@ -114,6 +114,34 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await server?.close();
   });
 
+  it("hides session controls omitted by the projected Gateway hello", async () => {
+    const { page } = await newPage();
+    await installPlatformClawDocument(page);
+    await page.route("**/platformclaw/api/auth/session", (route) =>
+      route.fulfill({ json: activeSession(), status: 200 }),
+    );
+    const gateway = await installMockGateway(page, {
+      basePath: "/platformclaw/app",
+      defaultAgentId: "person_one",
+      featureMethods: [
+        "chat.startup",
+        "sessions.companion.ask",
+        "sessions.companion.reset",
+        "sessions.companion.state",
+        "sessions.fork",
+        "sessions.steer",
+      ],
+      historyMessages: [{ role: "user", content: "Keep this session bounded." }],
+      sessionKey: "agent:person_one:main",
+    });
+
+    await page.goto(`${server.baseUrl}platformclaw/app/chat`);
+    await page.getByText("Keep this session bounded.").waitFor({ timeout: 10_000 });
+    expect(await page.locator(".chat-workspace-toggle").count()).toBe(0);
+    expect(await page.getByRole("button", { name: "Rewind" }).count()).toBe(0);
+    expect(await gateway.getRequests("sessions.files.list")).toHaveLength(0);
+  });
+
   it("opens the owned-agent self-service surface through the cookie-authenticated proxy", async () => {
     const { page } = await newPage();
     await installPlatformClawDocument(page);

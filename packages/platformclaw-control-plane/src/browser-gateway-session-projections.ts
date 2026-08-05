@@ -16,6 +16,21 @@ function asObject(value: unknown, label: string, fail: (message: string) => neve
   return value as JsonObject;
 }
 
+function projectEditorAttachments(value: unknown): Array<{ mimeType: string; data: string }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+    const attachment = entry as JsonObject;
+    return typeof attachment.mimeType === "string" && typeof attachment.data === "string"
+      ? [{ mimeType: attachment.mimeType, data: attachment.data }]
+      : [];
+  });
+}
+
 export function projectBrowserSessionResult(input: ProjectBrowserSessionResultParams): unknown {
   const fail = (message: string): never => input.fail(message);
   if (input.method === "sessions.patch") {
@@ -75,6 +90,25 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
     return {
       status: payload.status,
       ...(typeof payload.runId === "string" ? { runId: payload.runId } : {}),
+    };
+  }
+  if (input.method === "sessions.fork") {
+    const payload = asObject(input.result, "session fork result", fail);
+    input.assertOwnedResultSessionKey(payload.sessionKey);
+    const editorAttachments = projectEditorAttachments(payload.editorAttachments);
+    return {
+      sessionKey: payload.sessionKey,
+      ...(typeof payload.editorText === "string" ? { editorText: payload.editorText } : {}),
+      ...(editorAttachments.length > 0 ? { editorAttachments } : {}),
+    };
+  }
+  if (input.method === "sessions.rewind") {
+    const payload = asObject(input.result, "session rewind result", fail);
+    input.assertOwnedResultSessionKey(input.prepared.sessionKey);
+    const editorAttachments = projectEditorAttachments(payload.editorAttachments);
+    return {
+      ...(typeof payload.editorText === "string" ? { editorText: payload.editorText } : {}),
+      ...(editorAttachments.length > 0 ? { editorAttachments } : {}),
     };
   }
   if (input.method === "sessions.describe") {

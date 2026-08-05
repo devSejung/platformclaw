@@ -21,6 +21,10 @@ import {
   taskTitle,
   type TaskSummary,
 } from "../../../lib/tasks/data.ts";
+import {
+  WORKSPACE_RAIL_MAX_WIDTH,
+  WORKSPACE_RAIL_SIDE_MIN_PANE_WIDTH,
+} from "../chat-pane-shared.ts";
 import { renderTaskDetail, renderTaskRow } from "./chat-background-task-row.ts";
 import { newestTaskSnapshot } from "./chat-background-tasks-shared.ts";
 import type { BackgroundTasksProps } from "./chat-background-tasks.types.ts";
@@ -73,6 +77,29 @@ export type BackgroundTasksHost = {
   backgroundTasksState?: BackgroundTasksState;
   requestUpdate?: () => void;
 };
+
+export function createBackgroundTasksLayout(
+  host: BackgroundTasksHost,
+  options: {
+    chatLayoutWidth: number;
+    workspaceSideDocked: boolean;
+    onOpenSession: (sessionKey: string) => void;
+  },
+): { props: BackgroundTasksProps; chatMainWidth: number } {
+  const props = createBackgroundTasksProps(host, {
+    narrowLayout:
+      options.chatLayoutWidth <
+      WORKSPACE_RAIL_SIDE_MIN_PANE_WIDTH +
+        (options.workspaceSideDocked ? WORKSPACE_RAIL_MAX_WIDTH : 0),
+    onOpenSession: options.onOpenSession,
+  });
+  const sideRailCount =
+    (options.workspaceSideDocked ? 1 : 0) + (!props.collapsed && !props.narrowLayout ? 1 : 0);
+  return {
+    props,
+    chatMainWidth: options.chatLayoutWidth - sideRailCount * WORKSPACE_RAIL_MAX_WIDTH,
+  };
+}
 
 // Bounded like the Tasks page: active tasks get their own query because the
 // ledger pages newest-first and long-running work can hide behind newer

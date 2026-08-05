@@ -40,6 +40,23 @@ session tool activity all use the upstream `session.tool` path. Browser
 `sessions.unsubscribe` is not exposed because one tab must not disable the
 process-wide subscription for every other tab.
 
+The projected method list must match the current Control UI RPC names and
+capability checks. Session companion access uses `sessions.companion.ask`,
+`sessions.companion.state`, and `sessions.companion.reset`; the retired
+`sessions.observer.ask` name is not a compatibility surface. Companion
+questions are checked against the owned session before forwarding. Because one
+private Gateway connection multiplexes personal Agents, the Gateway applies
+its connection-local companion limit per resolved Agent while retaining the
+process-wide limit.
+
+Session list filters such as `boardFace` and `creatorId` may narrow the
+server-pinned personal-Agent result. Fork is a personal-session write; rewind
+remains administrator-only. Unsupported Control UI actions are hidden through
+projected method advertisement instead of being rendered as dead controls. In
+particular, `sessions.files.*` and `sessions.diff` remain blocked: those
+upstream methods expose a broader workspace surface than the bounded personal
+Agent file policy.
+
 ## HTTP and WebSocket surfaces
 
 | Path                             | Method        | Purpose                                                      |
@@ -132,6 +149,8 @@ Never put real employee records or passwords in a committed fixture.
   cannot restore readiness.
 - Unknown methods and newly added upstream parameters fail closed until the
   browser policy is reviewed.
+- Every visible Control UI action must either use an advertised method or be
+  hidden; policy denials must not leave clickable controls that always fail.
 - Background task list, detail, cancellation, and live upsert events are
   restricted to the authenticated personal Agent. Ownership-free task deletion
   and registry restoration events are not forwarded through the shared Gateway

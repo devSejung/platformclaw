@@ -14,10 +14,9 @@ describe("BrowserGatewayProxy session lifecycle", () => {
         archivedTranscripts: ["/private/transcript.jsonl"],
       });
 
-    await expect(proxy.request(token, "sessions.patch", { key, archived: true })).resolves.toEqual({
-      ok: true,
-      key,
-    });
+    await expect(
+      proxy.request(token, "sessions.patch", { key, archived: true, boardFace: "dashboard" }),
+    ).resolves.toEqual({ ok: true, key });
     await expect(proxy.request(token, "sessions.patch", { key, archived: false })).resolves.toEqual(
       { ok: true, key },
     );
@@ -29,7 +28,7 @@ describe("BrowserGatewayProxy session lifecycle", () => {
     ).resolves.toEqual({ deleted: true });
 
     expect(request.mock.calls).toEqual([
-      ["sessions.patch", { key, archived: true, agentId: binding.agentId }],
+      ["sessions.patch", { key, archived: true, boardFace: "dashboard", agentId: binding.agentId }],
       ["sessions.patch", { key, archived: false, agentId: binding.agentId }],
       ["sessions.delete", { key, deleteTranscript: true, agentId: binding.agentId }],
     ]);
@@ -81,7 +80,78 @@ describe("BrowserGatewayProxy session lifecycle", () => {
       proxy.request(token, "sessions.compact", { key: "agent:other:thread" }),
     ).rejects.toMatchObject({ code: "cross-agent-denied" });
     await expect(
+      proxy.request(token, "sessions.steer", {
+        key: "agent:other:thread",
+        message: "cross the boundary",
+      }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+    await expect(
       proxy.request(token, "sessions.compact", { key, maxLines: 20 }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
+  });
+
+  it("allows owned forks and rejects foreign fork results", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const source = `agent:${binding.agentId}:source`;
+    const fork = `agent:${binding.agentId}:fork`;
+    request
+      .mockResolvedValueOnce({
+        sessionKey: fork,
+        editorText: "continue",
+        editorAttachments: [
+          { mimeType: "image/png", data: "aGVsbG8=" },
+          { mimeType: 42, data: "rejected" },
+        ],
+        privatePath: "/srv/private",
+      })
+      .mockResolvedValueOnce({ sessionKey: "agent:other:fork" });
+
+    await expect(
+      proxy.request(token, "sessions.fork", { sessionKey: source, entryId: "entry-1" }),
+    ).resolves.toEqual({
+      sessionKey: fork,
+      editorText: "continue",
+      editorAttachments: [{ mimeType: "image/png", data: "aGVsbG8=" }],
+    });
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.fork", {
+      sessionKey: source,
+      entryId: "entry-1",
+      agentId: binding.agentId,
+    });
+    await expect(
+      proxy.request(token, "sessions.fork", { sessionKey: source, entryId: "entry-2" }),
+    ).rejects.toMatchObject({ code: "upstream-result-denied" });
+    await expect(
+      proxy.request(token, "sessions.fork", {
+        sessionKey: "agent:other:source",
+        entryId: "entry-3",
+      }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+  });
+
+  it("allows rewind only for a PlatformClaw administrator", async () => {
+    const member = await setup();
+    const memberKey = `agent:${member.binding.agentId}:main`;
+    await expect(
+      member.proxy.request(member.token, "sessions.rewind", {
+        sessionKey: memberKey,
+        entryId: "entry-1",
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+
+    const admin = await setup({ admin: true });
+    const adminKey = `agent:${admin.binding.agentId}:main`;
+    admin.request.mockResolvedValueOnce({ editorText: "retry", privatePath: "/srv/private" });
+    await expect(
+      admin.proxy.request(admin.token, "sessions.rewind", {
+        sessionKey: adminKey,
+        entryId: "entry-1",
+      }),
+    ).resolves.toEqual({ editorText: "retry" });
+    expect(admin.request).toHaveBeenCalledWith("sessions.rewind", {
+      sessionKey: adminKey,
+      entryId: "entry-1",
+      agentId: admin.binding.agentId,
+    });
   });
 });

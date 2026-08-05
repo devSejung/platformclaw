@@ -25,7 +25,6 @@ import { createChatModelSetupBanner, requiresChatModelSetup } from "./chat-model
 import { ChatPaneHeader } from "./chat-pane-header.ts";
 import {
   SESSION_RAIL_DOCK_MIN_WIDTH,
-  WORKSPACE_RAIL_MAX_WIDTH,
   WORKSPACE_RAIL_SIDE_MIN_PANE_WIDTH,
 } from "./chat-pane-shared.ts";
 import {
@@ -49,15 +48,11 @@ import {
   selectedChatSessionRow,
 } from "./chat-state-route.ts";
 import { renderChat, type ChatProps } from "./chat-view.ts";
-import { createBackgroundTasksProps } from "./components/chat-background-tasks.ts";
+import { createBackgroundTasksLayout } from "./components/chat-background-tasks.ts";
 import { renderChatControls } from "./components/chat-controls.ts";
 import { renderChatImageLightbox } from "./components/chat-image-lightbox.ts";
 import { chatPullRequestId, createPullRequestBranch } from "./components/chat-pull-requests.ts";
-import {
-  createSessionWorkspaceProps,
-  openSessionWorkspaceFile,
-  revealSessionWorkspaceFile,
-} from "./components/chat-session-workspace.ts";
+import { createAdvertisedSessionWorkspace } from "./components/chat-session-workspace.ts";
 import { hasAbortableSessionRun } from "./run-lifecycle.ts";
 import {
   SIDEBAR_NARROW_BREAKPOINT_PX,
@@ -195,27 +190,21 @@ export class ChatPane extends ChatPaneHeader {
     const chatLayoutWidth = sidebarRegionCollapsed
       ? this.paneWidth
       : (sidebarChatColumn?.width ?? sidebarPrimaryWidth(sidebarLayout, this.paneWidth));
-    const sessionWorkspace = createSessionWorkspaceProps(state, {
+    const workspace = createAdvertisedSessionWorkspace({
+      state,
       draftScope: this.paneId,
       narrowLayout: chatLayoutWidth < WORKSPACE_RAIL_SIDE_MIN_PANE_WIDTH,
     });
-    const railSideDocked =
-      !sessionWorkspace.collapsed &&
-      !sessionWorkspace.narrowLayout &&
-      sessionWorkspace.dock !== "bottom";
-    // The workspace rail claims the first side slot; tasks need room for both columns.
-    const backgroundTasks = createBackgroundTasksProps(state, {
-      narrowLayout:
-        chatLayoutWidth <
-        WORKSPACE_RAIL_SIDE_MIN_PANE_WIDTH + (railSideDocked ? WORKSPACE_RAIL_MAX_WIDTH : 0),
+    const sessionWorkspace = workspace.props;
+    const taskLayout = createBackgroundTasksLayout(state, {
+      chatLayoutWidth,
+      workspaceSideDocked: workspace.sideDocked,
       onOpenSession: (sessionKey) => {
         this.onPaneSessionChange?.(this.paneId, sessionKey);
       },
     });
-    const tasksSideDocked = !backgroundTasks.collapsed && !backgroundTasks.narrowLayout;
-    // Only side-docked rails narrow the conversation region.
-    const sideRailCount = (railSideDocked ? 1 : 0) + (tasksSideDocked ? 1 : 0);
-    const chatMainWidth = chatLayoutWidth - sideRailCount * WORKSPACE_RAIL_MAX_WIDTH;
+    const backgroundTasks = taskLayout.props;
+    const chatMainWidth = taskLayout.chatMainWidth;
     const selectedSessionRailMode =
       this.sessionRailModeSessionKey === state.sessionKey ? this.sessionRailMode : "hidden";
     const selfUser = resolveCurrentSelfUser({
@@ -456,8 +445,8 @@ export class ChatPane extends ChatPaneHeader {
         hasOperatorWriteAccess(this.context.gateway.snapshot.hello?.auth ?? null),
       onAcceptTaskSuggestion: (suggestion) => void this.acceptTaskSuggestion(suggestion),
       onDismissTaskSuggestion: (suggestion) => void this.dismissTaskSuggestion(suggestion),
-      onOpenWorkspaceFile: (target) => openSessionWorkspaceFile(state, target),
-      onRevealWorkspaceFile: (path) => revealSessionWorkspaceFile(state, path),
+      onOpenWorkspaceFile: workspace.openFile,
+      onRevealWorkspaceFile: workspace.revealFile,
       onRefresh: () => {
         if (catalogKey) {
           void this.loadCatalogSession(catalogKey, false);
@@ -536,7 +525,10 @@ export class ChatPane extends ChatPaneHeader {
         state.chatReplyTarget = target;
         state.requestUpdate?.();
       },
-      onRewindMessage: (entryId) => this.rewindToMessage(entryId),
+      onRewindMessage:
+        isGatewayMethodAdvertised(this.context.gateway.snapshot, "sessions.rewind") === true
+          ? (entryId) => this.rewindToMessage(entryId)
+          : undefined,
       onForkMessage: (entryId) => this.forkFromMessage(entryId),
       onNewSession: () => void this.createSession(),
       onClearHistory: () => void clearChatHistory(state),
@@ -619,9 +611,8 @@ export class ChatPane extends ChatPaneHeader {
               .canvasPluginSurfaceUrl=${state.canvasPluginSurfaceUrl}
               .embedSandboxMode=${state.embedSandboxMode}
               .allowExternalEmbedUrls=${state.allowExternalEmbedUrls}
-              .onOpenWorkspaceFile=${(target: { path: string; line?: number | null }) =>
-                openSessionWorkspaceFile(state, target)}
-              .onRevealInWorkspace=${(path: string) => revealSessionWorkspaceFile(state, path)}
+              .onOpenWorkspaceFile=${workspace.openFile}
+              .onRevealInWorkspace=${workspace.revealFile}
               .onOpenImage=${(item: Parameters<typeof state.handleOpenImage>[0]) =>
                 state.handleOpenImage(item, state.beginImageOpen())}
               .embedded=${true}

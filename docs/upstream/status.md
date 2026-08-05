@@ -18,6 +18,25 @@
   are included. Remove this backport marker when a later upstream sync contains
   that commit.
 
+### PlatformClaw downstream policy repairs
+
+- Browser Gateway policy is downstream-owned. It now tracks the current
+  upstream Control UI companion RPC trio, permits only owned-session companion
+  and fork calls, keeps rewind administrator-only, and accepts the current
+  narrowing fields used by session lists and board-face persistence.
+- Current upstream `main` already gates session mutation actions through
+  `a45feb39151` and `af2f9c4cdc5` plus their later access-control refactors.
+  This branch carries only the equivalent rewind gate because importing that
+  post-sync chain would exceed the repair boundary. The session workspace gate
+  is still absent at upstream `d85920c03e2`; PlatformClaw does not advertise
+  `sessions.files.*` or `sessions.diff`, so those controls are hidden rather
+  than granted broader filesystem authority.
+- The Gateway companion per-client limiter is keyed by connection plus resolved
+  Agent so PlatformClaw's shared private connection does not merge all personal
+  Agents into one four-question bucket. No Gateway protocol change or
+  browser-supplied rate-limit identity was added. Upstream `d85920c03e2` still
+  keys this limit by connection only.
+
 ## Legacy Comparison Baseline
 
 - Previous PlatformClaw reference repository: sibling `../platform-agent`
