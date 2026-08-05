@@ -149,7 +149,7 @@ export class BrowserGatewaySessionPullRequestSubscriptions {
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;
       const retry = this.barrier.then(async () => {
-        for (const connectionId of [...this.dirty]) {
+        for (const connectionId of Array.from(this.dirty)) {
           try {
             await this.reconcile(connectionId);
           } catch {

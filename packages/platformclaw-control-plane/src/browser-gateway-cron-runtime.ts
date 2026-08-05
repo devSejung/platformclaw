@@ -203,7 +203,7 @@ async function requestOwnedJobCronRuns(params: {
   const entries: JsonObject[] = [];
   let pageOffset = 0;
   const targetCount = params.offset + params.limit;
-  let total = 0;
+  let total: number;
   for (;;) {
     const pageLimit = Math.min(CRON_RUN_PAGE_LIMIT, Math.max(1, targetCount - entries.length));
     const rawPage = await params.runtime.gateway.request("cron.runs", {

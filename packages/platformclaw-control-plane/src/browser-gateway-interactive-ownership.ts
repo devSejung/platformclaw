@@ -362,7 +362,7 @@ export class BrowserGatewayInteractiveOwnership {
     const allowedDecisions = Array.isArray(presentation?.allowedDecisions)
       ? presentation.allowedDecisions
           .map(nonEmptyString)
-          .filter((value): value is string => !!value)
+          .filter((value): value is string => value !== undefined)
       : [];
     if (
       !id ||

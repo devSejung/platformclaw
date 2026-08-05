@@ -18,10 +18,9 @@ import {
   preflightCronMutation,
   prepareCronRequest,
   projectCronResult,
-  requestSpecialCronResult,
 } from "./browser-gateway-cron-controller.js";
-import { projectBrowserCronEvent } from "./browser-gateway-cron-policy.js";
-import { BrowserGatewayInteractiveOwnership } from "./browser-gateway-interactive-ownership.js";
+export { PLATFORMCLAW_WEB_GATEWAY_EVENTS } from "./browser-gateway-event-policy.js";
+import { BrowserGatewayLiveCapabilities } from "./browser-gateway-live-capabilities.js";
 import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-visibility.js";
 import {
   browserEventPayloadBelongsToAccess,
@@ -39,7 +38,6 @@ import {
   projectBrowserModelChoice,
 } from "./browser-gateway-projections.js";
 import { projectBrowserSessionResult } from "./browser-gateway-session-projections.js";
-import { BrowserGatewaySessionPullRequestSubscriptions } from "./browser-gateway-session-pull-requests.js";
 export {
   PLATFORMCLAW_WEB_GATEWAY_METHODS,
   type PlatformClawWebGatewayMethod,
@@ -58,40 +56,6 @@ import {
   browserTaskEventBelongsToAccess,
   projectBrowserTaskResult,
 } from "./browser-gateway-task-policy.js";
-export const PLATFORMCLAW_WEB_GATEWAY_EVENTS = [
-  "shutdown",
-  "tick",
-  "agent",
-  "chat",
-  "chat.send_timing",
-  "chat.side_result",
-  "session.message",
-  "session.observer",
-  "session.operation",
-  "session.tool",
-  "sessions.changed",
-  "session.approval",
-  "question.requested",
-  "question.resolved",
-  "cron",
-  "controlUi.sessionPullRequests.changed",
-  "task.suggestion",
-  "skills.changed",
-  "task",
-] as const;
-
-const SAFE_GLOBAL_EVENTS = new Set<string>(["shutdown", "tick", "skills.changed"]);
-const SESSION_SCOPED_EVENTS = new Set<string>([
-  "agent",
-  "chat",
-  "chat.send_timing",
-  "chat.side_result",
-  "session.message",
-  "session.observer",
-  "session.operation",
-  "session.tool",
-  "sessions.changed",
-]);
 type JsonObject = Record<string, unknown>;
 
 function asObject(value: unknown, label: string): JsonObject {
@@ -111,9 +75,8 @@ function optionalString(value: unknown): string | undefined {
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
 export class BrowserGatewayProxy {
   private readonly assertions: BrowserGatewayAssertions;
-  private readonly interactiveOwnership: BrowserGatewayInteractiveOwnership;
+  private readonly liveCapabilities: BrowserGatewayLiveCapabilities;
   private readonly observerVisibility: BrowserGatewayObserverVisibility;
-  private readonly pullRequestSubscriptions: BrowserGatewaySessionPullRequestSubscriptions;
 
   constructor(private readonly options: BrowserGatewayProxyOptions) {
     this.assertions = new BrowserGatewayAssertions(
@@ -131,18 +94,12 @@ export class BrowserGatewayProxy {
           "session observer visibility connection is no longer active",
         ),
     );
-    const inactiveConnectionError = () =>
-      new BrowserGatewayProxyError("invalid-params", "browser connection is no longer active");
-    this.interactiveOwnership = new BrowserGatewayInteractiveOwnership(
+    this.liveCapabilities = new BrowserGatewayLiveCapabilities(
       options.gateway,
+      (sessionKey) => options.resolveAgentIdFromSessionKey(sessionKey),
       (code, message): never => {
         throw new BrowserGatewayProxyError(code, message);
       },
-    );
-    this.pullRequestSubscriptions = new BrowserGatewaySessionPullRequestSubscriptions(
-      options.gateway,
-      options.resolveAgentIdFromSessionKey,
-      inactiveConnectionError,
     );
   }
 
@@ -234,41 +191,16 @@ export class BrowserGatewayProxy {
       // The process-wide private Gateway client owns this connection-scoped subscription.
       return { subscribed: true } as T;
     }
-    try {
-      if (method === "controlUi.sessionPullRequests.subscribe") {
-        if (!context?.connectionId) {
-          throw new BrowserGatewayProxyError(
-            "invalid-params",
-            "session pull request subscription requires a browser connection",
-          );
-        }
-        return (await this.pullRequestSubscriptions.replace(
-          context.connectionId,
-          prepared.sessionKeys as string[],
-          prepared.refreshSessionKeys as string[] | undefined,
-        )) as T;
-      }
-      const specialCronResult = await requestSpecialCronResult(
-        this.browserCronContext(access),
-        method,
-        prepared,
-      );
-      if (specialCronResult.handled) {
-        return specialCronResult.result as T;
-      }
-      const interactiveResult = await this.interactiveOwnership.request(
-        this.browserInteractiveAccess(access),
-        method,
-        prepared,
-      );
-      if (interactiveResult.handled) {
-        return interactiveResult.result as T;
-      }
-    } catch (error) {
-      if (error instanceof BrowserGatewayProxyError) {
-        await this.auditDeniedRequest(access, method, error.code);
-      }
-      throw error;
+    const specialResult = await this.liveCapabilities.requestSpecial({
+      agentId: access.binding.agentId,
+      method,
+      params: prepared,
+      context,
+      cronContext: this.browserCronContext(access),
+      auditDenied: async (reason) => await this.auditDeniedRequest(access, method, reason),
+    });
+    if (specialResult.handled) {
+      return specialResult.result as T;
     }
     // Keep commands.list on filtered metadata so browser visibility and execution cannot drift.
     const upstreamMethod = method === "commands.list" ? "chat.metadata" : method;
@@ -380,64 +312,31 @@ export class BrowserGatewayProxy {
     } catch {
       return null;
     }
-    if (SAFE_GLOBAL_EVENTS.has(event.event)) {
-      return event;
-    }
-    const interactiveEvent = this.interactiveOwnership.filterEvent(
-      this.browserInteractiveAccess(access),
+    return this.liveCapabilities.filterEvent({
+      agentId: access.binding.agentId,
       event,
-    );
-    if (interactiveEvent !== undefined) {
-      return interactiveEvent;
-    }
-    if (event.event === "cron") {
-      const payload = projectBrowserCronEvent({
-        payload: event.payload,
-        agentId: access.binding.agentId,
-        sessionKeyBelongsToAgent: (sessionKey) =>
-          this.options.resolveAgentIdFromSessionKey(sessionKey) === access.binding.agentId,
-      });
-      return payload ? { ...event, payload } : null;
-    }
-    if (event.event === "controlUi.sessionPullRequests.changed") {
-      if (!context?.connectionId) {
-        return null;
-      }
-      const payload = this.pullRequestSubscriptions.projectEvent(
-        context.connectionId,
-        access.binding.agentId,
-        event.payload,
-      );
-      return payload ? { ...event, payload } : null;
-    }
-    if (event.event === "task") {
-      return browserTaskEventBelongsToAccess(this.browserTaskAccess(access), event.payload)
-        ? event
-        : null;
-    }
-    if (
-      !SESSION_SCOPED_EVENTS.has(event.event) ||
-      !this.eventPayloadBelongsToAccess(access, event.payload)
-    ) {
-      return null;
-    }
-    return event;
+      context,
+      taskEventBelongsToAccess: (payload) =>
+        browserTaskEventBelongsToAccess(this.browserTaskAccess(access), payload),
+      eventPayloadBelongsToAccess: (payload) =>
+        browserEventPayloadBelongsToAccess(this.browserTaskAccess(access), payload),
+    });
   }
 
   registerBrowserConnection(connectionId: string): void {
     this.observerVisibility.registerConnection(connectionId);
-    this.pullRequestSubscriptions.registerConnection(connectionId);
+    this.liveCapabilities.registerConnection(connectionId);
   }
 
   handleGatewayDisconnect(): void {
     this.observerVisibility.handleGatewayDisconnect();
-    this.pullRequestSubscriptions.handleGatewayDisconnect();
+    this.liveCapabilities.handleGatewayDisconnect();
   }
 
   async releaseBrowserConnection(connectionId: string): Promise<void> {
     await Promise.allSettled([
       this.observerVisibility.releaseConnection(connectionId),
-      this.pullRequestSubscriptions.releaseConnection(connectionId),
+      this.liveCapabilities.releaseConnection(connectionId),
     ]);
   }
 
@@ -504,9 +403,9 @@ export class BrowserGatewayProxy {
       return params;
     }
     if (
-      method.startsWith("approval.") ||
-      method.startsWith("question.") ||
-      method.startsWith("taskSuggestions.")
+      this.liveCapabilities.prepareRequest(method, params, (values, field) =>
+        this.assertions.sessionKeyArray(access.binding.agentId, values, field, false),
+      )
     ) {
       return params;
     }
@@ -553,24 +452,6 @@ export class BrowserGatewayProxy {
     if (method === "sessions.subscribe") {
       return params;
     }
-    if (method === "controlUi.sessionPullRequests.subscribe") {
-      if (!Array.isArray(params.sessionKeys)) {
-        throw new BrowserGatewayProxyError("invalid-params", "sessionKeys must be an array");
-      }
-      this.assertions.sessionKeyArray(
-        access.binding.agentId,
-        params.sessionKeys,
-        "sessionKeys",
-        false,
-      );
-      this.assertions.sessionKeyArray(
-        access.binding.agentId,
-        params.refreshSessionKeys,
-        "refreshSessionKeys",
-        false,
-      );
-      return params;
-    }
     if (method === "tasks.get" || method === "tasks.cancel") {
       return params;
     }
@@ -585,16 +466,6 @@ export class BrowserGatewayProxy {
     if (keyField) {
       this.assertions.optionalAgentId(access.binding.agentId, params.agentId, method);
       this.assertions.ownedSessionKey(access.binding.agentId, params[keyField], keyField);
-      if (
-        method === "sessions.messages.subscribe" &&
-        params.includeApprovals !== undefined &&
-        params.includeApprovals !== true
-      ) {
-        throw new BrowserGatewayProxyError(
-          "invalid-params",
-          "includeApprovals must be true when provided",
-        );
-      }
       if (method === "chat.send") {
         const gatewayParams = { ...params };
         delete gatewayParams["__controlUiReconnectResume"];
@@ -625,17 +496,9 @@ export class BrowserGatewayProxy {
     if (method.startsWith("cron.")) {
       return projectCronResult(this.browserCronContext(access), method, result);
     }
-    if (method === "sessions.messages.subscribe") {
-      const payload = asObject(result, `${method} result`);
-      return payload.approvalReplay === undefined
-        ? payload
-        : {
-            ...payload,
-            approvalReplay: this.interactiveOwnership.projectApprovalReplay(
-              this.browserInteractiveAccess(access),
-              payload.approvalReplay,
-            ),
-          };
+    const liveResult = this.liveCapabilities.projectResult(access.binding.agentId, method, result);
+    if (liveResult.handled) {
+      return liveResult.result;
     }
     const sessionResult = projectBrowserSessionResult({
       method,
@@ -841,20 +704,8 @@ export class BrowserGatewayProxy {
     };
   }
 
-  private browserInteractiveAccess(access: BrowserGatewayAccess) {
-    return {
-      agentId: access.binding.agentId,
-      resolveAgentIdFromSessionKey: (sessionKey: string) =>
-        this.options.resolveAgentIdFromSessionKey(sessionKey),
-    };
-  }
-
   private payloadBelongsToAccess(access: BrowserGatewayAccess, payload: unknown): boolean {
     return browserPayloadBelongsToAccess(this.browserTaskAccess(access), payload);
-  }
-
-  private eventPayloadBelongsToAccess(access: BrowserGatewayAccess, payload: unknown): boolean {
-    return browserEventPayloadBelongsToAccess(this.browserTaskAccess(access), payload);
   }
 
   private async auditDeniedRequest(

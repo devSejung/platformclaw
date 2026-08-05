@@ -30,6 +30,7 @@ import {
   type BrowserGatewayAccess,
   type BrowserGatewayEvent,
 } from "./browser-gateway-proxy.js";
+import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-ordering.js";
 import {
   handlePlatformClawMcpAdministrationRequest,
   type McpAdministrationService,
@@ -58,26 +59,6 @@ const MAX_CONCURRENT_BROWSER_REQUESTS = 8;
 // The upstream Control UI opens a burst of independent RPCs after connect. Keep enough
 // headroom for that supported client while bounding work retained by an untrusted browser.
 const MAX_PENDING_BROWSER_REQUESTS = 64;
-const MUTATING_BROWSER_METHODS = new Set([
-  "approval.resolve",
-  "agents.files.set",
-  "chat.abort",
-  "chat.send",
-  "controlUi.sessionPullRequests.subscribe",
-  "cron.add",
-  "cron.remove",
-  "cron.run",
-  "cron.update",
-  "question.resolve",
-  "sessions.abort",
-  "sessions.create",
-  "sessions.delete",
-  "sessions.observer.visibility",
-  "sessions.patch",
-  "taskSuggestions.accept",
-  "taskSuggestions.dismiss",
-]);
-
 export type PlatformClawBrowserGatewayPolicy = {
   resolveAccess(token: string, touch?: boolean): Promise<BrowserGatewayAccess>;
   registerBrowserConnection?(connectionId: string): void;
@@ -680,7 +661,7 @@ export class PlatformClawWebIngressServer {
 
     const handleOrderedRequest = async (frame: RequestFrame): Promise<void> => {
       const priorMutations = mutationBarrier;
-      if (MUTATING_BROWSER_METHODS.has(frame.method)) {
+      if (isMutatingBrowserGatewayMethod(frame.method)) {
         const current = priorMutations.then(async () => {
           if (!connectionClosed) {
             await handleRequest(frame);

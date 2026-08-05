@@ -185,7 +185,7 @@ describe("PlatformClawGatewayRuntimeClient", () => {
               clientId: "gateway-client",
               clientMode: "backend",
               role: "operator",
-              scopes: [...serviceScopes].reverse(),
+              scopes: serviceScopes.toReversed(),
             },
           ],
         };
@@ -242,7 +242,7 @@ describe("PlatformClawGatewayRuntimeClient", () => {
               clientId: "gateway-client",
               clientMode: "backend",
               role: "operator",
-              scopes: [...serviceScopes].reverse(),
+              scopes: serviceScopes.toReversed(),
             },
           ],
         };
