@@ -5,6 +5,7 @@ import {
 import {
   assertOwnedBrowserCronJob,
   requestBrowserCronList,
+  requestBrowserCronRuns,
   requestBrowserCronStatus,
 } from "./browser-gateway-cron-runtime.js";
 import { isConfiguredBrowserModel } from "./browser-gateway-self-service-projections.js";
@@ -195,7 +196,7 @@ export async function requestSpecialCronResult(
     }
     return {
       handled: true,
-      result: { entries: [], total: 0, limit, offset, nextOffset: null, hasMore: false },
+      result: await requestBrowserCronRuns(cronRuntime, prepared, { limit, offset }),
     };
   }
   return { handled: false };

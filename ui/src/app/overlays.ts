@@ -21,12 +21,14 @@ import {
   EMPTY_DEVICE_AUTH_MIGRATION,
 } from "./device-auth-migration-loader.ts";
 import {
+  adoptSessionApprovalReplay as adoptSessionApprovalReplayState,
   clearExecApprovalTimers,
   clearResolvedExecApprovalPrompt,
   enqueueExecApprovalPrompt,
   isStaleApprovalResolutionError,
   parseApprovalRequestedEvent,
   parseExecApprovalResolved,
+  parseSessionApprovalTransition,
   resolveApprovalRequest,
   type ExecApprovalDecision,
   type ExecApprovalPromptState,
@@ -79,6 +81,7 @@ export type ApplicationOverlays = {
   subscribe: (listener: (snapshot: ApplicationOverlaySnapshot) => void) => () => void;
   runUpdate: () => Promise<void>;
   decideApproval: (decision: ExecApprovalDecision, approvalId?: string) => Promise<void>;
+  adoptSessionApprovalReplay: (replay: unknown) => void;
   openDevicePairSetup: () => Promise<void>;
   refreshDevicePairSetup: () => Promise<void>;
   setDevicePairSetupAccess: (access: DevicePairSetupAccess) => Promise<void>;
@@ -474,6 +477,17 @@ export function createApplicationOverlays(
     ) {
       return;
     }
+    if (event.event === "session.approval") {
+      const transition = parseSessionApprovalTransition(event.payload);
+      if (transition?.phase === "pending") {
+        enqueueExecApprovalPrompt(promptState, transition.approval);
+        publish();
+      } else if (transition?.phase === "terminal") {
+        clearResolvedExecApprovalPrompt(promptState, transition.id);
+        publish();
+      }
+      return;
+    }
     const requestedApproval = parseApprovalRequestedEvent(event.event, event.payload);
     if (requestedApproval) {
       enqueueExecApprovalPrompt(promptState, requestedApproval);
@@ -501,6 +515,18 @@ export function createApplicationOverlays(
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    adoptSessionApprovalReplay(replay) {
+      if (
+        disposed ||
+        !operatorAccess.canReviewApprovals ||
+        !readGatewayOperatorAccess(gateway.snapshot).canReviewApprovals
+      ) {
+        return;
+      }
+      if (adoptSessionApprovalReplayState(promptState, replay)) {
+        publish();
+      }
     },
     async runUpdate() {
       const client = gateway.snapshot.client;

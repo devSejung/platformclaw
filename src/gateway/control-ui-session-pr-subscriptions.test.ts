@@ -37,6 +37,22 @@ describe("control UI session PR subscriptions", () => {
     expect(
       parseControlUiSessionPullRequestsSubscribeParams({
         sessionKeys: ["watched"],
+        subscriptionId: " backend-tab ",
+      }),
+    ).toEqual({
+      sessionKeys: ["watched"],
+      refreshSessionKeys: [],
+      subscriptionId: "backend-tab",
+    });
+    expect(
+      parseControlUiSessionPullRequestsSubscribeParams({
+        sessionKeys: ["watched"],
+        subscriptionId: "x".repeat(129),
+      }),
+    ).toBeNull();
+    expect(
+      parseControlUiSessionPullRequestsSubscribeParams({
+        sessionKeys: ["watched"],
         refreshSessionKeys: ["watched"],
       }),
     ).toEqual({ sessionKeys: ["watched"], refreshSessionKeys: ["watched"] });
@@ -115,6 +131,27 @@ describe("control UI session PR subscriptions", () => {
         .map(([params]) => params.sessionKey)
         .toSorted((left, right) => left.localeCompare(right)),
     ).toEqual(["only-a", "only-b", "shared"]);
+  });
+
+  it("keeps trusted backend subscription slots independent on one connection", async () => {
+    vi.useFakeTimers();
+    const load = vi.fn(async () => READY);
+    const broadcastToConnIds = vi.fn();
+    active = createControlUiSessionPullRequestSubscriptions({ broadcastToConnIds, load });
+
+    await active.replace("conn-shared", ["only-a", "shared"], undefined, "browser-a");
+    await active.replace("conn-shared", ["only-b", "shared"], undefined, "browser-b");
+    await active.replace("conn-shared", [], undefined, "browser-a");
+    load.mockClear();
+
+    await active.pollNow();
+
+    expect(
+      load.mock.calls
+        .map(([params]) => params.sessionKey)
+        .toSorted((left, right) => left.localeCompare(right)),
+    ).toEqual(["only-b", "shared"]);
+    expect(broadcastToConnIds.mock.calls.at(-1)?.[2]).toEqual(new Set(["conn-shared"]));
   });
 
   it("loads agent-scoped global watch keys from the owning agent store", async () => {

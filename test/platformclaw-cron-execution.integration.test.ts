@@ -145,6 +145,7 @@ describe("PlatformClaw scheduled agent execution", () => {
             scopeKey: `agent:${job.agentId}:cron:${job.id}`,
             workspaceDir: `/workspace/${job.agentId}`,
             agentWorkspaceDir: `/agents/${job.agentId}`,
+            materializeSkills: async () => undefined,
             cfg,
           });
           const spec = await backend.buildExecSpec({

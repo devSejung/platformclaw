@@ -19,6 +19,12 @@ export const CONTROL_UI_SESSION_PULL_REQUESTS_CHANGED_EVENT =
 /** Maximum session keys retained by one Control UI PR subscription. */
 export const CONTROL_UI_SESSION_PULL_REQUESTS_MAX_KEYS = 200;
 
+/** Maximum opaque backend subscription id length used by multiplexing proxies. */
+export const CONTROL_UI_SESSION_PULL_REQUESTS_SUBSCRIPTION_ID_MAX_LENGTH = 128;
+
+/** Maximum independent PR watch sets retained for one trusted backend connection. */
+export const CONTROL_UI_SESSION_PULL_REQUESTS_MAX_BACKEND_SUBSCRIPTIONS = 512;
+
 /** Reserved query key for the sandbox cookie capability probe. */
 export const CONTROL_UI_PLUGIN_AUTH_PROBE_QUERY = "__openclaw_plugin_frame_auth_probe";
 

@@ -240,23 +240,36 @@ credentials. The HTTP/WebSocket listener is a separate hosting slice and uses
 this policy boundary rather than reimplementing authorization. It speaks the
 upstream Gateway frame protocol, reuses the public Gateway client for the
 private connection, replaces the operator hello with a browser-safe projection,
-and regenerates event sequence numbers after filtering.
-Events without an owned session key, including raw agent-run events, are
-dropped; session-scoped chat and tool events are the browser streaming surface.
+and regenerates event sequence numbers after filtering. Session-keyed raw
+`agent` events are part of that owned streaming surface so commentary, tool,
+and lifecycle updates do not wait for transcript reload. Sessionless or
+cross-Agent agent events remain dropped.
+
+Events whose terminal form omits ownership use bounded, process-local owner
+registries populated at the authoritative requested/list/replay boundary.
+This applies to questions, task suggestions, and session approvals. Approval
+subscriptions opt in through `sessions.messages.subscribe`; replay and live
+events are filtered to the owned session, and the browser may resolve only an
+ID, kind, and one-time decision recorded by that projection. Persistent
+`allow-always` host policy is not session-scoped and is removed. Cron events
+are reduced to owned job invalidations, and Control UI pull-request watches
+are multiplexed per browser connection rather than sharing the private
+Gateway connection's replacement slot. `skills.changed` is a safe global
+cache invalidation and carries no skill contents.
 
 The listener requires one configured public origin and does not infer external
 authority from forwarded headers. Operator secret resolution, persistent path
 selection, process supervision, reverse-proxy routing, and Control UI login
 bootstrap remain deployment composition responsibilities.
 
-Because the private Gateway client has operator read/write/admin authority required for trusted
-chat provenance controls, browser
+Because the private Gateway client has operator read/write/admin plus question
+and approval authority required for trusted chat provenance controls, browser
 messages use only `chat.send`, with command interpretation and external
-delivery forced off. Session creation cannot include an initial message or
-task, approval replay is not exposed, and operator command catalogs are not
-advertised. Browser commands require a later least-privilege Gateway identity
-or the separately enforced browser command policy; browsers never receive or
-inherit the control-process credential or its admin scope.
+delivery forced off. That service authority never transfers to the browser:
+the projected hello exposes only the browser's reviewed question and
+session-approval capabilities, while each RPC and event is independently
+re-authorized. Operator command catalogs are not advertised. Browsers never
+receive or inherit the control-process credential or its admin scope.
 Model selection is limited to the configured catalog and cannot carry a raw
 model/auth-profile override. Browser session patches cannot archive sessions
 because the operator path would also disable bound administrator cron jobs.
@@ -407,11 +420,12 @@ pagination, regardless of their current delivery or payload fields.
 Automation list and derived status reads always disable delivery previews;
 resolved routing labels and details are not part of the employee surface.
 
-Employee cron run history remains hidden. Existing history rows do not carry
-immutable Agent, schedule, payload, and session provenance, so authorizing them
-from a job's mutable current definition could disclose an earlier privileged
-run. A future history surface must persist and filter on execution-time
-provenance rather than reconstructing authority from the current job.
+Employee cron run history exposes only operational fields for jobs that still
+pass the immutable owner-envelope policy. The BFF queries each owned job,
+revalidates any run session key against the personal Agent, and strips summary,
+error, diagnostics, delivery traces, and other model output. The browser sees
+status, timing, delivery state, model/provider, bounded token usage, and the
+current safe job name; a privileged or foreign job response fails closed.
 
 Bootstrap remains deferred. The upstream `BOOTSTRAP.md` currently instructs
 the agent to execute host control-plane CLI commands such as

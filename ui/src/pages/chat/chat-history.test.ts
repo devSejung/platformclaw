@@ -85,6 +85,42 @@ function activeHistory(
 }
 
 describe("syncSelectedSessionMessageSubscription", () => {
+  it("requests and adopts approval replay when the Gateway advertises session approvals", async () => {
+    const replay = {
+      sessionKey: "agent:main:main",
+      updatedAtMs: 1,
+      approvals: [],
+      truncated: false,
+    };
+    const subscribeMessages = vi.fn(async () => ({
+      key: "agent:main:main",
+      agentId: null,
+      includeApprovals: true as const,
+      approvalReplay: replay,
+    }));
+    const adopt = vi.fn();
+    const state = createState({ messages: [] });
+    state.sessionKey = "agent:main:main";
+    state.hello = {
+      features: { events: ["session.approval"] },
+      auth: { role: "operator", scopes: ["operator.approvals"] },
+    } as ChatState["hello"];
+    state.onSessionApprovalReplay = adopt;
+    state.sessions = {
+      setModelOverride: vi.fn(),
+      subscribeMessages,
+      unsubscribeMessages: vi.fn(async () => undefined),
+    };
+
+    await syncSelectedSessionMessageSubscription(state as never);
+
+    expect(subscribeMessages).toHaveBeenCalledWith("agent:main:main", {
+      agentId: undefined,
+      includeApprovals: true,
+    });
+    expect(adopt).toHaveBeenCalledExactlyOnceWith(replay);
+  });
+
   it("starts the new subscription before the previous unsubscribe settles", async () => {
     let resolveUnsubscribe: () => void = () => undefined;
     const unsubscribeMessages = vi.fn(

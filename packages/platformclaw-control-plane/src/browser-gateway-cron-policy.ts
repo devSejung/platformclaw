@@ -246,6 +246,42 @@ export function browserCronJobIsSafe(
   );
 }
 
+const BROWSER_CRON_EVENT_ACTIONS = new Set([
+  "added",
+  "updated",
+  "removed",
+  "started",
+  "finished",
+  "scheduled",
+]);
+
+/** Projects a global Gateway cron event only after its persisted owner envelope is verified. */
+export function projectBrowserCronEvent(params: {
+  payload: unknown;
+  agentId: string;
+  sessionKeyBelongsToAgent: (sessionKey: string) => boolean;
+}): JsonObject | null {
+  if (!params.payload || typeof params.payload !== "object" || Array.isArray(params.payload)) {
+    return null;
+  }
+  const payload = params.payload as JsonObject;
+  const job = payload.job;
+  const jobId = optionalString(payload.jobId);
+  const action = optionalString(payload.action);
+  if (
+    !jobId ||
+    !action ||
+    !BROWSER_CRON_EVENT_ACTIONS.has(action) ||
+    !browserCronJobIsSafe(job, params.agentId, params.sessionKeyBelongsToAgent) ||
+    optionalString((job as JsonObject).id) !== jobId
+  ) {
+    return null;
+  }
+  // UI only needs invalidation. Raw summaries, diagnostics, and delivery traces
+  // can describe an older privileged definition and must not cross this boundary.
+  return { action, jobId };
+}
+
 export function assertBrowserCronJobResult(params: {
   result: unknown;
   agentId: string;

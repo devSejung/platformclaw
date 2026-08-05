@@ -260,7 +260,9 @@ describe("PlatformClawWebIngressServer", () => {
             mainSessionKey: "agent:person_one:main",
           },
         },
-        auth: { scopes: ["operator.read", "operator.write"] },
+        auth: {
+          scopes: ["operator.read", "operator.write", "operator.approvals", "operator.questions"],
+        },
       },
     });
 

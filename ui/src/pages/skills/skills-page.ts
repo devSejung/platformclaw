@@ -59,6 +59,47 @@ export function skillsPageAllowedHubTabs(
   return accessMode === "personal-agent" ? ["skills", "workshop"] : undefined;
 }
 
+export class SkillsChangedRefreshQueue {
+  private pending = false;
+  private running: Promise<void> | null = null;
+  private generation = 0;
+
+  constructor(
+    private readonly canRefresh: () => boolean,
+    private readonly refresh: () => Promise<void>,
+  ) {}
+
+  invalidate(active: boolean): void {
+    if (!active) {
+      return;
+    }
+    this.pending = true;
+    this.drain();
+  }
+
+  drain(): void {
+    if (!this.pending || this.running || !this.canRefresh()) {
+      return;
+    }
+    this.pending = false;
+    const generation = this.generation;
+    const running = this.refresh().finally(() => {
+      if (this.generation !== generation || this.running !== running) {
+        return;
+      }
+      this.running = null;
+      this.drain();
+    });
+    this.running = running;
+  }
+
+  reset(): void {
+    this.generation += 1;
+    this.pending = false;
+    this.running = null;
+  }
+}
+
 class SkillsPage extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })
   private context!: ApplicationContext;
@@ -111,6 +152,10 @@ class SkillsPage extends OpenClawLightDomElement {
   private routeDataEnabled = true;
   private hasBoundGatewaySource = false;
   private debouncedClawHubSearchQuery = "";
+  private readonly skillsChangedRefresh = new SkillsChangedRefreshQueue(
+    () => this.connected && !this.skillsLoading && !this.skillOperation,
+    () => loadSkills(this, { refresh: true }),
+  );
   private readonly agentsTask = new Task(this, {
     autoRun: false,
     args: () =>
@@ -148,8 +193,19 @@ class SkillsPage extends OpenClawLightDomElement {
         const resetForSourceBind = this.hasBoundGatewaySource;
         this.hasBoundGatewaySource = true;
         const cleanup = gateway.subscribe((snapshot) => this.applyGatewaySnapshot(snapshot));
+        const cleanupEvents = gateway.subscribeEvents((event) => {
+          if (event.event !== "skills.changed") {
+            return;
+          }
+          this.skillsChangedRefresh.invalidate(
+            this.skillsReport !== null || this.skillsError !== null || this.skillsLoading,
+          );
+        });
         this.applyGatewaySnapshot(gateway.snapshot, resetForSourceBind);
-        return cleanup;
+        return () => {
+          cleanup();
+          cleanupEvents();
+        };
       },
     )
     .effect(
@@ -170,6 +226,10 @@ class SkillsPage extends OpenClawLightDomElement {
       this.applyRouteData();
       this.ensureInitialData();
     }
+  }
+
+  override updated() {
+    this.skillsChangedRefresh.drain();
   }
 
   override disconnectedCallback() {
@@ -209,6 +269,7 @@ class SkillsPage extends OpenClawLightDomElement {
   }
 
   private resetLoadedSkillState() {
+    this.skillsChangedRefresh.reset();
     void this.agentsTask.run([null, null]);
     void this.clawhubSearchTask.run([null, ""]);
     if (this.clawhubSearchTimer) {

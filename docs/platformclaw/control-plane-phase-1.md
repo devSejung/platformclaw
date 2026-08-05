@@ -234,9 +234,14 @@ boundary and its HTTP/WebSocket listener. The deployment composition layer must
 inject the private Gateway client credential and public origin without exposing
 either through browser configuration.
 Until Gateway provides a least-privilege downstream identity, browser messages
-use only command-suppressed `chat.send`; session creation cannot carry an
-initial message or task. Browsers cannot request approval replay or deliver to
-an external channel through the control process credential.
+use only command-suppressed `chat.send`. The control service holds question and
+approval scopes, but the browser receives only owned question records and
+session-scoped approval replay/events through bounded ID registries. It cannot
+persist host approval policy or deliver to an external channel through the
+control process credential. Raw Agent events, cron invalidations, task
+suggestions, and pull-request updates cross the proxy only after their
+Agent/session/connection owner projection; `skills.changed` carries only a
+refresh signal.
 Browsers also cannot supply abort run IDs; cancellation is resolved from their
 owned session key.
 

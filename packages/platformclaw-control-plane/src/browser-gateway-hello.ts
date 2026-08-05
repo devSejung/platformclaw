@@ -8,7 +8,12 @@ import {
   type BrowserGatewayAccess,
 } from "./browser-gateway-proxy.js";
 
-const BROWSER_OPERATOR_SCOPES = ["operator.read", "operator.write"] as const;
+const BROWSER_OPERATOR_SCOPES = [
+  "operator.read",
+  "operator.write",
+  "operator.approvals",
+  "operator.questions",
+] as const;
 const BROWSER_ADMIN_SCOPES = [...BROWSER_OPERATOR_SCOPES, "operator.admin"] as const;
 
 export function projectPlatformClawBrowserHello(params: {

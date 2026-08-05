@@ -1,3 +1,4 @@
+import { GATEWAY_CLIENT_MODES } from "../../../packages/gateway-protocol/src/client-info.js";
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
 import { ControlUiGitHubError } from "../control-ui-github-api.js";
 import {
@@ -62,8 +63,35 @@ export function createControlUiHandlers(
         );
         return;
       }
+      if (
+        parsed.subscriptionId &&
+        (client?.connect?.client?.mode !== GATEWAY_CLIENT_MODES.BACKEND ||
+          !client.connect.scopes?.includes("operator.admin"))
+      ) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.FORBIDDEN,
+            "session pull request subscription multiplexing requires a trusted backend",
+          ),
+        );
+        return;
+      }
       if (parsed.refreshSessionKeys.length > 0) {
-        await subscriptions.replace(connId, parsed.sessionKeys, new Set(parsed.refreshSessionKeys));
+        const refreshSessionKeys = new Set(parsed.refreshSessionKeys);
+        if (parsed.subscriptionId) {
+          await subscriptions.replace(
+            connId,
+            parsed.sessionKeys,
+            refreshSessionKeys,
+            parsed.subscriptionId,
+          );
+        } else {
+          await subscriptions.replace(connId, parsed.sessionKeys, refreshSessionKeys);
+        }
+      } else if (parsed.subscriptionId) {
+        await subscriptions.replace(connId, parsed.sessionKeys, undefined, parsed.subscriptionId);
       } else {
         await subscriptions.replace(connId, parsed.sessionKeys);
       }

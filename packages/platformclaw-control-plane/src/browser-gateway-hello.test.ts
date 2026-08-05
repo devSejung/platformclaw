@@ -124,7 +124,7 @@ describe("projectPlatformClawBrowserHello", () => {
     });
     expect(projected.auth).toEqual({
       role: "operator",
-      scopes: ["operator.read", "operator.write"],
+      scopes: ["operator.read", "operator.write", "operator.approvals", "operator.questions"],
     });
     expect(projected.policy).toMatchObject({
       allowedSessionVisibilities: [],
@@ -143,7 +143,61 @@ describe("projectPlatformClawBrowserHello", () => {
 
     expect(projected.features.methods).toContain("plugins.list");
     expect(projected.features.methods).toContain("sessions.rewind");
-    expect(projected.auth.scopes).toEqual(["operator.read", "operator.write", "operator.admin"]);
+    expect(projected.auth.scopes).toEqual([
+      "operator.read",
+      "operator.write",
+      "operator.approvals",
+      "operator.questions",
+      "operator.admin",
+    ]);
     expect(projected.snapshot.presence[0]).toMatchObject({ instanceId: "browser-instance" });
+  });
+
+  it("advertises personal-agent interactive and invalidation capabilities", () => {
+    const upstream = upstreamHello();
+    upstream.features.methods.push(
+      "approval.resolve",
+      "controlUi.sessionPullRequests.subscribe",
+      "question.get",
+      "question.list",
+      "question.resolve",
+      "taskSuggestions.accept",
+      "taskSuggestions.dismiss",
+      "taskSuggestions.list",
+    );
+    upstream.features.events.push(
+      "agent",
+      "session.approval",
+      "question.requested",
+      "question.resolved",
+      "cron",
+      "controlUi.sessionPullRequests.changed",
+      "task.suggestion",
+      "skills.changed",
+    );
+    const projected = projectPlatformClawBrowserHello({
+      upstream,
+      access,
+      connectionId: "browser-1",
+    });
+    expect(projected.features.methods).toEqual(
+      expect.arrayContaining([
+        "approval.resolve",
+        "controlUi.sessionPullRequests.subscribe",
+        "question.resolve",
+        "taskSuggestions.accept",
+      ]),
+    );
+    expect(projected.features.events).toEqual(
+      expect.arrayContaining([
+        "agent",
+        "session.approval",
+        "question.requested",
+        "cron",
+        "controlUi.sessionPullRequests.changed",
+        "task.suggestion",
+        "skills.changed",
+      ]),
+    );
   });
 });

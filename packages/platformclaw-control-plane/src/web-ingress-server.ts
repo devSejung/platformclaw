@@ -59,14 +59,23 @@ const MAX_CONCURRENT_BROWSER_REQUESTS = 8;
 // headroom for that supported client while bounding work retained by an untrusted browser.
 const MAX_PENDING_BROWSER_REQUESTS = 64;
 const MUTATING_BROWSER_METHODS = new Set([
+  "approval.resolve",
   "agents.files.set",
   "chat.abort",
   "chat.send",
+  "controlUi.sessionPullRequests.subscribe",
+  "cron.add",
+  "cron.remove",
+  "cron.run",
+  "cron.update",
+  "question.resolve",
   "sessions.abort",
   "sessions.create",
   "sessions.delete",
   "sessions.observer.visibility",
   "sessions.patch",
+  "taskSuggestions.accept",
+  "taskSuggestions.dismiss",
 ]);
 
 export type PlatformClawBrowserGatewayPolicy = {
@@ -78,7 +87,11 @@ export type PlatformClawBrowserGatewayPolicy = {
     params?: unknown,
     context?: { connectionId: string },
   ): Promise<unknown>;
-  filterEvent(token: string, event: BrowserGatewayEvent): Promise<BrowserGatewayEvent | null>;
+  filterEvent(
+    token: string,
+    event: BrowserGatewayEvent,
+    context?: { connectionId: string },
+  ): Promise<BrowserGatewayEvent | null>;
   handleGatewayDisconnect?(): void;
   releaseBrowserConnection?(connectionId: string): Promise<void>;
 };
@@ -538,7 +551,7 @@ export class PlatformClawWebIngressServer {
         closeUnauthorized();
         return;
       }
-      const filtered = await this.options.gatewayProxy.filterEvent(token, event);
+      const filtered = await this.options.gatewayProxy.filterEvent(token, event, { connectionId });
       if (!filtered) {
         return;
       }

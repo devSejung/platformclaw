@@ -440,7 +440,8 @@ export class ChatPane extends ChatPaneHeader {
         void this.resolveCurrentSessionSuggestion(suggestion, resolution),
       canAcceptTaskSuggestions:
         state.connected &&
-        hasOperatorAdminAccess(this.context.gateway.snapshot.hello?.auth ?? null),
+        (this.context.accessMode === "personal-agent" ||
+          hasOperatorAdminAccess(this.context.gateway.snapshot.hello?.auth ?? null)),
       canDismissTaskSuggestions:
         state.connected &&
         hasOperatorWriteAccess(this.context.gateway.snapshot.hello?.auth ?? null),
