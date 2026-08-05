@@ -70,7 +70,13 @@ describe("createPlatformClawDeploymentRuntime", () => {
           url: config.gatewayUrl,
           token: config.gatewayAuth,
           role: "operator",
-          scopes: ["operator.read", "operator.write", "operator.admin"],
+          scopes: [
+            "operator.read",
+            "operator.write",
+            "operator.admin",
+            "operator.approvals",
+            "operator.questions",
+          ],
         },
       },
     });

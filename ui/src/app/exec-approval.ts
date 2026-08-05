@@ -35,7 +35,7 @@ export type ExecApprovalRequest = {
   sessionScoped?: true;
 };
 
-export type SessionApprovalTransition =
+type SessionApprovalTransition =
   | { phase: "pending"; approval: ExecApprovalRequest }
   | { phase: "terminal"; id: string };
 
@@ -354,7 +354,7 @@ export function parseSessionApprovalTransition(payload: unknown): SessionApprova
   return payload.phase === "terminal" && id ? { phase: "terminal", id } : null;
 }
 
-export function parseSessionApprovalReplay(payload: unknown): ExecApprovalRequest[] | null {
+function parseSessionApprovalReplay(payload: unknown): ExecApprovalRequest[] | null {
   if (!isRecord(payload) || !Array.isArray(payload.approvals)) {
     return null;
   }
