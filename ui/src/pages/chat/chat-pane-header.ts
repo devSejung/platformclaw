@@ -36,8 +36,12 @@ import {
 } from "./components/chat-pane-header.ts";
 import { renderChatSessionSharing } from "./components/chat-session-sharing.ts";
 import {
+  createSessionWorkspaceProps,
+  openSessionWorkspaceFile,
   renderSessionDiffToggle,
   renderSessionWorkspaceToggle,
+  revealSessionWorkspaceFile,
+  type SessionWorkspaceHost,
   type SessionWorkspaceProps,
 } from "./components/chat-session-workspace.ts";
 import type { SessionDiscussionPanelConfig } from "./components/session-discussion-panel.ts";
@@ -51,6 +55,26 @@ import {
 } from "./sidebar-layout.ts";
 
 export abstract class ChatPaneHeader extends ChatPaneContext {
+  protected createAdvertisedSessionWorkspace(
+    state: SessionWorkspaceHost,
+    options: { draftScope: string; narrowLayout: boolean },
+  ) {
+    const available =
+      isGatewayMethodAdvertised(state, "sessions.files.list") === true &&
+      isGatewayMethodAdvertised(state, "sessions.files.get") === true;
+    if (!available) {
+      return { props: undefined, sideDocked: false, openFile: undefined, revealFile: undefined };
+    }
+    const props = createSessionWorkspaceProps(state, options);
+    return {
+      props,
+      sideDocked: !props.collapsed && !props.narrowLayout && props.dock !== "bottom",
+      openFile: (target: Parameters<typeof openSessionWorkspaceFile>[1]) =>
+        openSessionWorkspaceFile(state, target),
+      revealFile: (path: string) => revealSessionWorkspaceFile(state, path),
+    };
+  }
+
   protected renderPaneHeader(
     sessionWorkspace: SessionWorkspaceProps | undefined,
     backgroundTasks: BackgroundTasksProps,

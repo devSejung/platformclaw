@@ -1,7 +1,6 @@
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import {
-  createAdvertisedSessionWorkspace,
   createSessionWorkspaceProps,
   openSessionWorkspaceFile,
   renderSessionWorkspaceRail,
@@ -19,26 +18,6 @@ function gatewayHello(methods: string[], scopes = ["operator.admin"]) {
 }
 
 describe("toggleSessionWorkspace", () => {
-  it("hides workspace access unless both read methods are advertised", () => {
-    const state = {
-      client: null,
-      connected: false,
-      handleOpenSidebar: vi.fn(),
-      hello: gatewayHello(["sessions.files.list"]),
-      sessionKey: "agent:main:current",
-      sessions: {},
-    } as unknown as SessionWorkspaceHost;
-
-    expect(
-      createAdvertisedSessionWorkspace({ state, draftScope: "pane-left", narrowLayout: false }),
-    ).toEqual({ props: undefined, sideDocked: false, openFile: undefined, revealFile: undefined });
-
-    state.hello = gatewayHello(["sessions.files.list", "sessions.files.get"]);
-    expect(
-      createAdvertisedSessionWorkspace({ state, draftScope: "pane-left", narrowLayout: false }),
-    ).toMatchObject({ props: { collapsed: true }, sideDocked: false });
-  });
-
   it("expands and collapses the session workspace rail", () => {
     const requestUpdate = vi.fn();
     const state = {

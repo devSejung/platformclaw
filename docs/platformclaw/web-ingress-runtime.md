@@ -50,12 +50,23 @@ its connection-local companion limit per resolved Agent while retaining the
 process-wide limit.
 
 Session list filters such as `boardFace` and `creatorId` may narrow the
-server-pinned personal-Agent result. Fork is a personal-session write; rewind
-remains administrator-only. Unsupported Control UI actions are hidden through
-projected method advertisement instead of being rendered as dead controls. In
-particular, `sessions.files.*` and `sessions.diff` remain blocked: those
-upstream methods expose a broader workspace surface than the bounded personal
-Agent file policy.
+server-pinned personal-Agent result. Fork and rewind are writes restricted to
+sessions owned by that personal Agent; rewind cannot select another employee's
+session. Unsupported Control UI actions are hidden through projected method
+advertisement instead of being rendered as dead controls.
+
+The Session Files rail exposes only `sessions.files.list` and
+`sessions.files.get`. The proxy pins the personal Agent, validates the session
+key, and returns relative browser paths without the Gateway workspace root or
+other host-absolute paths. `sessions.files.set`, `sessions.files.reveal`, and
+`sessions.diff` remain blocked. This read-only Session Files surface is
+separate from the Agent page's bounded Core Files editor.
+
+Transcript attachments and other downloadable session artifacts use
+`artifacts.list` and `artifacts.download` with an owned `sessionKey`.
+Browser-supplied `runId` and `taskId` scopes are rejected, returned artifact
+metadata is revalidated against the same Agent boundary, and `artifacts.get`
+remains unadvertised because the Control UI does not require it.
 
 ## HTTP and WebSocket surfaces
 

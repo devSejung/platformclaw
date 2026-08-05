@@ -116,34 +116,6 @@ export type SessionWorkspaceHost = {
   handleOpenSidebar: (content: SidebarContent) => void;
 };
 
-export function createAdvertisedSessionWorkspace(params: {
-  state: SessionWorkspaceHost;
-  draftScope: string;
-  narrowLayout: boolean;
-}): {
-  props: SessionWorkspaceProps | undefined;
-  sideDocked: boolean;
-  openFile: ((target: Parameters<typeof openSessionWorkspaceFile>[1]) => void) | undefined;
-  revealFile: ((path: string) => void) | undefined;
-} {
-  const available =
-    isGatewayMethodAdvertised(params.state, "sessions.files.list") === true &&
-    isGatewayMethodAdvertised(params.state, "sessions.files.get") === true;
-  if (!available) {
-    return { props: undefined, sideDocked: false, openFile: undefined, revealFile: undefined };
-  }
-  const props = createSessionWorkspaceProps(params.state, {
-    draftScope: params.draftScope,
-    narrowLayout: params.narrowLayout,
-  });
-  return {
-    props,
-    sideDocked: !props.collapsed && !props.narrowLayout && props.dock !== "bottom",
-    openFile: (target) => openSessionWorkspaceFile(params.state, target),
-    revealFile: (path) => revealSessionWorkspaceFile(params.state, path),
-  };
-}
-
 /** Agent owning the pane's current session: explicit key scope first, then the
  * assistant/default agent. */
 function paneSessionAgentId(state: SessionScopeHostWithKey): string {

@@ -4,6 +4,8 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "agents.files.list",
   "agents.files.set",
   "agents.list",
+  "artifacts.download",
+  "artifacts.list",
   "chat.abort",
   "chat.history",
   "chat.message.get",
@@ -34,6 +36,8 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "sessions.create",
   "sessions.delete",
   "sessions.describe",
+  "sessions.files.get",
+  "sessions.files.list",
   "sessions.fork",
   "sessions.list",
   "sessions.messages.subscribe",
@@ -80,6 +84,8 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["agents.files.list", new Set(["agentId"])],
   ["agents.files.set", new Set(["agentId", "name", "content"])],
   ["agents.list", new Set()],
+  ["artifacts.download", new Set(["sessionKey", "artifactId", "agentId"])],
+  ["artifacts.list", new Set(["sessionKey", "agentId"])],
   ["chat.abort", new Set(["sessionKey", "agentId", "preserveSideRuns", "runId"])],
   [
     "chat.history",
@@ -201,6 +207,8 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ],
   ["sessions.delete", new Set(["key", "agentId", "deleteTranscript", "archivedOnly"])],
   ["sessions.describe", new Set(["key", "includeDerivedTitles", "includeLastMessage"])],
+  ["sessions.files.get", new Set(["sessionKey", "path", "agentId"])],
+  ["sessions.files.list", new Set(["sessionKey", "path", "search", "agentId"])],
   ["sessions.fork", new Set(["sessionKey", "entryId", "agentId"])],
   [
     "sessions.list",
@@ -383,7 +391,6 @@ export const PLATFORMCLAW_WEB_ADMIN_METHODS = new Set<string>([
   "plugins.search",
   "plugins.setEnabled",
   "plugins.uninstall",
-  "sessions.rewind",
 ]);
 
 export const PLATFORMCLAW_WEB_SESSION_KEY_METHODS = new Map<string, string>([
@@ -393,9 +400,13 @@ export const PLATFORMCLAW_WEB_SESSION_KEY_METHODS = new Map<string, string>([
   ["chat.send", "sessionKey"],
   ["chat.startup", "sessionKey"],
   ["chat.toolTitles", "sessionKey"],
+  ["artifacts.download", "sessionKey"],
+  ["artifacts.list", "sessionKey"],
   ["sessions.abort", "key"],
   ["sessions.compact", "key"],
   ["sessions.describe", "key"],
+  ["sessions.files.get", "sessionKey"],
+  ["sessions.files.list", "sessionKey"],
   ["sessions.fork", "sessionKey"],
   ["sessions.messages.subscribe", "key"],
   ["sessions.messages.unsubscribe", "key"],

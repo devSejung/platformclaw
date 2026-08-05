@@ -25,6 +25,7 @@ import { createChatModelSetupBanner, requiresChatModelSetup } from "./chat-model
 import { ChatPaneHeader } from "./chat-pane-header.ts";
 import {
   SESSION_RAIL_DOCK_MIN_WIDTH,
+  WORKSPACE_RAIL_MAX_WIDTH,
   WORKSPACE_RAIL_SIDE_MIN_PANE_WIDTH,
 } from "./chat-pane-shared.ts";
 import {
@@ -48,11 +49,10 @@ import {
   selectedChatSessionRow,
 } from "./chat-state-route.ts";
 import { renderChat, type ChatProps } from "./chat-view.ts";
-import { createBackgroundTasksLayout } from "./components/chat-background-tasks.ts";
+import { createBackgroundTasksProps } from "./components/chat-background-tasks.ts";
 import { renderChatControls } from "./components/chat-controls.ts";
 import { renderChatImageLightbox } from "./components/chat-image-lightbox.ts";
 import { chatPullRequestId, createPullRequestBranch } from "./components/chat-pull-requests.ts";
-import { createAdvertisedSessionWorkspace } from "./components/chat-session-workspace.ts";
 import { hasAbortableSessionRun } from "./run-lifecycle.ts";
 import {
   SIDEBAR_NARROW_BREAKPOINT_PX,
@@ -190,21 +190,22 @@ export class ChatPane extends ChatPaneHeader {
     const chatLayoutWidth = sidebarRegionCollapsed
       ? this.paneWidth
       : (sidebarChatColumn?.width ?? sidebarPrimaryWidth(sidebarLayout, this.paneWidth));
-    const workspace = createAdvertisedSessionWorkspace({
-      state,
+    const workspace = this.createAdvertisedSessionWorkspace(state, {
       draftScope: this.paneId,
       narrowLayout: chatLayoutWidth < WORKSPACE_RAIL_SIDE_MIN_PANE_WIDTH,
     });
     const sessionWorkspace = workspace.props;
-    const taskLayout = createBackgroundTasksLayout(state, {
-      chatLayoutWidth,
-      workspaceSideDocked: workspace.sideDocked,
+    const backgroundTasks = createBackgroundTasksProps(state, {
+      narrowLayout:
+        chatLayoutWidth <
+        WORKSPACE_RAIL_SIDE_MIN_PANE_WIDTH + (workspace.sideDocked ? WORKSPACE_RAIL_MAX_WIDTH : 0),
       onOpenSession: (sessionKey) => {
         this.onPaneSessionChange?.(this.paneId, sessionKey);
       },
     });
-    const backgroundTasks = taskLayout.props;
-    const chatMainWidth = taskLayout.chatMainWidth;
+    const tasksSideDocked = !backgroundTasks.collapsed && !backgroundTasks.narrowLayout;
+    const sideRailCount = (workspace.sideDocked ? 1 : 0) + (tasksSideDocked ? 1 : 0);
+    const chatMainWidth = chatLayoutWidth - sideRailCount * WORKSPACE_RAIL_MAX_WIDTH;
     const selectedSessionRailMode =
       this.sessionRailModeSessionKey === state.sessionKey ? this.sessionRailMode : "hidden";
     const selfUser = resolveCurrentSelfUser({

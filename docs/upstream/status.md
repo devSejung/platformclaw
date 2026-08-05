@@ -22,15 +22,27 @@
 
 - Browser Gateway policy is downstream-owned. It now tracks the current
   upstream Control UI companion RPC trio, permits only owned-session companion
-  and fork calls, keeps rewind administrator-only, and accepts the current
-  narrowing fields used by session lists and board-face persistence.
+  fork, and rewind calls, and accepts the current narrowing fields used by
+  session lists and board-face persistence.
 - Current upstream `main` already gates session mutation actions through
   `a45feb39151` and `af2f9c4cdc5` plus their later access-control refactors.
   This branch carries only the equivalent rewind gate because importing that
-  post-sync chain would exceed the repair boundary. The session workspace gate
-  is still absent at upstream `d85920c03e2`; PlatformClaw does not advertise
-  `sessions.files.*` or `sessions.diff`, so those controls are hidden rather
-  than granted broader filesystem authority.
+  post-sync chain would exceed the repair boundary. At the audited post-sync
+  comparison commit `d85920c03e250da8fc5a33d3fab3f5c9b5925fca`, the session
+  workspace gate is still absent. PlatformClaw advertises only owned-session
+  `sessions.files.list` and `sessions.files.get`; it strips the Gateway
+  workspace root and keeps `sessions.files.set`, `sessions.files.reveal`, and
+  `sessions.diff` blocked.
+- Owned-session transcript artifact access advertises only `artifacts.list`
+  and `artifacts.download`. The browser cannot select `runId` or `taskId`, and
+  returned artifact identity is revalidated before data or a managed URL
+  crosses the shared Gateway boundary.
+- These workspace, artifact, and rewind changes are downstream Browser Gateway
+  policy and response projection only. They do not modify the Gateway protocol,
+  upstream handlers, filesystem resolution, transcript storage, or artifact
+  storage. A later upstream sync must preserve Agent pinning, owned-session
+  checks, parameter narrowing, and host-path removal unless upstream provides
+  an equivalent generic tenant-ownership seam.
 - The Gateway companion per-client limiter is keyed by connection plus resolved
   Agent so PlatformClaw's shared private connection does not merge all personal
   Agents into one four-question bucket. No Gateway protocol change or
