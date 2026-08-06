@@ -137,9 +137,29 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
 
     await page.goto(`${server.baseUrl}platformclaw/app/chat`);
     await page.getByText("Keep this session bounded.").waitFor({ timeout: 10_000 });
+    await expect.poll(() => page.title()).toMatch(/— PlatformClaw$/u);
     expect(await page.locator(".chat-workspace-toggle").count()).toBe(0);
     expect(await page.getByRole("button", { name: "Rewind" }).count()).toBe(0);
     expect(await gateway.getRequests("sessions.files.list")).toHaveLength(0);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => page.locator(".topbar-brand").isVisible()).toBe(true);
+    expect(await page.locator(".topbar-brand__title").textContent()).toBe("PlatformClaw");
+    expect(await page.locator(".topbar-brand__logo").getAttribute("src")).toMatch(
+      /platformclaw-pixel\.svg/u,
+    );
+    await page.locator(".topbar-nav-toggle").click();
+    await expect
+      .poll(() => page.locator(".sidebar-account__secondary").textContent())
+      .toBe("Employee · Platform Lab");
+
+    if (captureUiProofEnabled) {
+      await mkdir(proofDir, { recursive: true });
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "00-platformclaw-shell-mobile.png"),
+      });
+    }
   });
 
   it("opens the owned-agent self-service surface through the cookie-authenticated proxy", async () => {

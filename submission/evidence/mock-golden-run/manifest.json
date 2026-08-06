@@ -1,0 +1,25 @@
+{
+  "source_commit": "dae6d288c6f0d6e543955c13f73a03967b794e6c",
+  "run_id": "golden-run-000001",
+  "correlation_id": "mock-correlation-001",
+  "generated_at": "2026-08-07T12:00:00.000Z",
+  "user_alias": "user-a",
+  "resource_alias": "mock-board-001",
+  "mode": "mock",
+  "commands": [
+    "pnpm --filter @platformclaw/control-plane build",
+    "node scripts/submission/collect-mock-evidence.mjs"
+  ],
+  "result": "passed",
+  "evidence_paths": [
+    "submission/evidence/mock-golden-run/SUMMARY.md",
+    "submission/evidence/mock-golden-run/build-result.json",
+    "submission/evidence/mock-golden-run/board-lease-result.json",
+    "submission/evidence/mock-golden-run/board-validation-result.json",
+    "submission/evidence/mock-golden-run/report-result.json",
+    "submission/evidence/mock-golden-run/knox-result.json",
+    "submission/evidence/mock-golden-run/verification-result.json",
+    "submission/evidence/mock-golden-run/screenshots/mock-run-overview.svg",
+    "submission/evidence/mock-golden-run/screenshots/mock-run-overview.png"
+  ]
+}

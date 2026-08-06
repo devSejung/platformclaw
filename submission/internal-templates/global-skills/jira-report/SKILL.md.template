@@ -1,0 +1,16 @@
+---
+name: platformclaw-jira-report
+description: Create or update an approved Jira record from a sanitized PlatformClaw Run and immutable evidence references.
+---
+
+# Jira Report
+
+Use the Run ID, correlation ID, source commit, artifact digest, board result and sanitized evidence references.
+
+1. Validate the approved project and issue schema.
+2. Build a bounded summary without credentials or private infrastructure details.
+3. Create or update idempotently using the Run correlation key.
+4. Return the issue key, safe reference and delivery result.
+5. On failure, preserve all prior Run and hardware evidence.
+
+Do not attach raw logs until the masking policy has approved them.

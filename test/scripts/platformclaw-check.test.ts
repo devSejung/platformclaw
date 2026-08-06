@@ -53,6 +53,42 @@ describe("PlatformClaw shared checks", () => {
     ]);
   });
 
+  it("selects execution, user MCP, Board Farm, and skill policy checks", () => {
+    const plan = classifyPlatformClawChanges([
+      "extensions/platformclaw-execution/src/remote-skills.ts",
+      "extensions/platformclaw-user-mcp/src/runtime.ts",
+      "packages/platformclaw-control-plane/src/board-farm/runtime.ts",
+    ]);
+
+    expect(surfacesForPlan(plan)).toEqual([
+      "control-plane",
+      "platformclaw-execution",
+      "platformclaw-user-mcp",
+      "board-farm",
+      "skill-policy",
+    ]);
+  });
+
+  it("selects submission document and evidence checks", () => {
+    const plan = classifyPlatformClawChanges([
+      "docs/submission/README.md",
+      "submission/evaluation-map.yaml",
+    ]);
+
+    expect(surfacesForPlan(plan)).toEqual(["submission-docs", "submission-evidence"]);
+    expect(
+      createPlatformClawCheckCommands(["submission-docs", "submission-evidence"]).map(
+        (entry) => entry.label,
+      ),
+    ).toEqual([
+      "check submission document consistency",
+      "check submission blindness",
+      "check offline submission slides",
+      "check submission evaluation map",
+      "check submission internal requirements",
+    ]);
+  });
+
   it("rejects unknown check surfaces", () => {
     expect(() => createPlatformClawCheckCommands(["unknown"])).toThrow(
       "unknown PlatformClaw check surface",

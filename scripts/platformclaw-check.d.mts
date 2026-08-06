@@ -4,7 +4,13 @@ export type PlatformClawCheckSurface =
   | "admin-http-rpc"
   | "control-plane"
   | "knox"
+  | "platformclaw-execution"
+  | "platformclaw-user-mcp"
+  | "board-farm"
+  | "skill-policy"
   | "planner"
+  | "submission-docs"
+  | "submission-evidence"
   | "ui";
 
 export type PlatformClawCheckCommand = {

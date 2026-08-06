@@ -299,6 +299,8 @@ export function renderApplicationShell(host: ShellViewHost) {
         : nothing}
       <openclaw-app-topbar
         .basePath=${context.basePath}
+        .brandName=${runtime.shellSession?.productName ?? "OpenClaw"}
+        .brandIconUrl=${runtime.shellSession?.productIconUrl ?? ""}
         .searchDisabled=${!operatorChrome}
         .navDrawerOpen=${navDrawerOpen}
         .onboarding=${onboarding}

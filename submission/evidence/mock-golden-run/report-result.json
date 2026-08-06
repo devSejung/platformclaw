@@ -1,0 +1,9 @@
+{
+  "mode": "mock",
+  "result": "passed",
+  "provider": "jira-style-mock-adapter",
+  "report_key": "MOCK-001",
+  "locator": "mock-report://golden-run-000001",
+  "summary": "Firmware fixture build and deterministic board validation passed.",
+  "evidence_count": 4
+}

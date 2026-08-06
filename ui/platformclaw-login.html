@@ -20,8 +20,13 @@
         <div class="login-mascot" data-login-mascot aria-hidden="true"></div>
         <div class="login-card__heading">
           <h2 id="login-title">PlatformClaw</h2>
-          <p>업무 계정으로 워크스페이스에 로그인하세요.</p>
+          <p>로그인 후 내 Agent, Workspace, 실행 대상을 한곳에서 확인하세요.</p>
         </div>
+        <ul class="login-context" aria-label="PlatformClaw 작업 경계">
+          <li>개인 Agent</li>
+          <li>격리 Workspace</li>
+          <li>정책 기반 VM · Sandbox</li>
+        </ul>
         <form data-login-form novalidate>
           <label>
             <span>계정</span>
@@ -53,7 +58,9 @@
         <p class="login-status" data-login-status aria-live="polite">
           기존 로그인 상태를 확인하고 있습니다.
         </p>
-        <p class="login-privacy">인증 정보는 브라우저에 저장되지 않습니다.</p>
+        <p class="login-privacy">
+          비밀번호는 브라우저에 저장되지 않으며, 역할과 실행 권한은 서버 정책으로 결정됩니다.
+        </p>
       </section>
     </main>
     <script type="module" src="/src/platformclaw/login.ts"></script>

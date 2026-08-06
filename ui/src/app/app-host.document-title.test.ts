@@ -12,7 +12,10 @@ type ShellDocumentTitleState = {
     summarizeStoredChatOutboxes: () => { total: number };
   } | null;
   routeState: { routeId?: RouteId };
-  runtime?: { context: ApplicationContext };
+  runtime?: {
+    context: ApplicationContext;
+    shellSession?: { productName?: string } | null;
+  };
   syncDocumentTitle: () => void;
 };
 
@@ -21,12 +24,15 @@ function roster(defaultId: string, agents: GatewayAgentRow[]): AgentsListResult 
 }
 
 describe("OpenClaw shell document title", () => {
-  function createShell(context?: ApplicationContext): ShellDocumentTitleState {
+  function createShell(
+    context?: ApplicationContext,
+    shellSession?: { productName?: string } | null,
+  ): ShellDocumentTitleState {
     const shell = document.createElement(
       "openclaw-app-shell",
     ) as unknown as ShellDocumentTitleState;
     if (context) {
-      shell.runtime = { context };
+      shell.runtime = { context, shellSession };
     }
     return shell;
   }
@@ -70,6 +76,15 @@ describe("OpenClaw shell document title", () => {
     shell.routeState = { routeId: "usage" };
     shell.syncDocumentTitle();
     expect(document.title).toBe("Usage — OpenClaw");
+  });
+
+  it("uses an embedded product name for the hosted shell", () => {
+    const shell = createShell(createContext({ sessions: null }), { productName: "PlatformClaw" });
+    shell.routeState = { routeId: "usage" };
+
+    shell.syncDocumentTitle();
+
+    expect(document.title).toBe("Usage — PlatformClaw");
   });
 
   it("uses the active session's derived title for a non-main chat", () => {

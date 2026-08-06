@@ -1,0 +1,446 @@
+{
+  "schema_version": 1,
+  "claims": [
+    {
+      "id": "CLM-T01",
+      "criterion": "technical",
+      "status": "IMPLEMENTED",
+      "summary": "Enterprise identity를 PlatformUser로 정규화하고 사용자별 Agent, browser session, execution profile을 Control Plane이 소유한다.",
+      "code_paths": [
+        "packages/platformclaw-control-plane/src/contracts.ts",
+        "packages/platformclaw-control-plane/src/memory-store.ts"
+      ],
+      "test_paths": [
+        "packages/platformclaw-control-plane/src/memory-store.test.ts",
+        "packages/platformclaw-control-plane/src/browser-auth-service.test.ts"
+      ],
+      "docs_paths": [
+        "ARCHITECTURE.md",
+        "docs/submission/04_CONTROL_PLANE_VM_SANDBOX.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/verification-result.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "외부 제출 증거는 결정적 인증 fixture를 사용하며 실제 사내 identity provider 응답은 포함하지 않는다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-T02",
+      "criterion": "technical",
+      "status": "IMPLEMENTED",
+      "summary": "동시 로그인에도 개인 Agent provisioning을 single-flight하고 계정에서 안정적인 Agent ID를 만든다.",
+      "code_paths": [
+        "packages/platformclaw-control-plane/src/browser-auth-service.ts",
+        "packages/platformclaw-control-plane/src/personal-agent-provisioner.ts"
+      ],
+      "test_paths": [
+        "packages/platformclaw-control-plane/src/browser-auth-service.test.ts",
+        "packages/platformclaw-control-plane/src/personal-agent-provisioner.test.ts"
+      ],
+      "docs_paths": [
+        "docs/submission/02_USER_SCENARIOS.md",
+        "docs/submission/09_OPERATIONS_FAILURE_RECOVERY.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/verification-result.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "Mock Golden Run은 Gateway workspace 생성을 기록하는 provisioner fixture를 사용한다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-T03",
+      "criterion": "technical",
+      "status": "IMPLEMENTED",
+      "summary": "Browser Gateway proxy가 authenticated Agent 소유권을 preflight하고 foreign session, run, file, artifact 접근을 거절한다.",
+      "code_paths": [
+        "packages/platformclaw-control-plane/src/browser-gateway-proxy.ts",
+        "packages/platformclaw-control-plane/src/browser-gateway-ownership.ts"
+      ],
+      "test_paths": [
+        "packages/platformclaw-control-plane/src/browser-gateway-proxy.test.ts",
+        "packages/platformclaw-control-plane/src/browser-gateway-proxy.sessions.test.ts"
+      ],
+      "docs_paths": [
+        "docs/submission/03_SECURITY_AND_ISOLATION.md",
+        "docs/submission/12_CODE_MAP.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/verification-result.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "외부 evidence의 교차 사용자 검증은 Board Farm run 경계까지 포함하지만 실제 다중 브라우저 화면 녹화는 내부 단계다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-T04",
+      "criterion": "technical",
+      "status": "IMPLEMENTED",
+      "summary": "개인 Agent에 승인된 VM을 할당하고 target revision, canonical remote home, SSH lease를 고정하며 조용한 fallback을 금지한다.",
+      "code_paths": [
+        "packages/platformclaw-control-plane/src/execution-memory-store.ts",
+        "extensions/platformclaw-execution/src/backend.ts",
+        "extensions/platformclaw-execution/src/ssh-lease-manager.ts"
+      ],
+      "test_paths": [
+        "packages/platformclaw-control-plane/src/execution-store.test.ts",
+        "extensions/platformclaw-execution/src/backend.test.ts",
+        "extensions/platformclaw-execution/src/ssh-lease-manager.test.ts"
+      ],
+      "docs_paths": [
+        "docs/submission/04_CONTROL_PLANE_VM_SANDBOX.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/build-result.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "외부 Golden Run은 안전한 platform-server mock sandbox를 선택하며 실제 사내 VM 접속은 내부 검증 대상이다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-T05",
+      "criterion": "technical",
+      "status": "IMPLEMENTED",
+      "summary": "SSH와 MCP credential을 암호화된 envelope로 저장하고 local one-shot grant로만 실행기에 전달한다.",
+      "code_paths": [
+        "packages/platformclaw-control-plane/src/ssh-credential-vault.ts",
+        "packages/platformclaw-control-plane/src/credential-broker-grants.ts",
+        "packages/platformclaw-control-plane/src/mcp-credential-vault.ts"
+      ],
+      "test_paths": [
+        "packages/platformclaw-control-plane/src/ssh-credential-vault.test.ts",
+        "packages/platformclaw-control-plane/src/credential-broker-grants.test.ts",
+        "packages/platformclaw-control-plane/src/mcp-credential-vault.test.ts"
+      ],
+      "docs_paths": [
+        "docs/submission/03_SECURITY_AND_ISOLATION.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/verification-result.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "실제 secret 값과 내부 endpoint는 제출물에 포함하지 않는다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-T06",
+      "criterion": "technical",
+      "status": "IMPLEMENTED",
+      "summary": "관리자 소유 Global MCP policy와 사용자별 personal credential을 분리하고 endpoint·credential kind drift를 fail closed한다.",
+      "code_paths": [
+        "packages/platformclaw-control-plane/src/browser-mcp-admin-http.ts",
+        "packages/platformclaw-control-plane/src/browser-mcp-http.ts",
+        "extensions/platformclaw-user-mcp/src/runtime.ts"
+      ],
+      "test_paths": [
+        "packages/platformclaw-control-plane/src/browser-mcp-admin-http.test.ts",
+        "packages/platformclaw-control-plane/src/browser-mcp-http.test.ts",
+        "extensions/platformclaw-user-mcp/src/runtime.test.ts"
+      ],
+      "docs_paths": [
+        "docs/submission/03_SECURITY_AND_ISOLATION.md",
+        "docs/submission/12_CODE_MAP.md"
+      ],
+      "mock_evidence_paths": [],
+      "actual_evidence_paths": [],
+      "limitations": "실제 사내 MCP server 등록과 credential 입력은 배포 환경에서 수행해야 한다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-T07",
+      "criterion": "technical",
+      "status": "IMPLEMENTED_WITH_LIMITATIONS",
+      "summary": "선택된 VM의 bounded Skill catalog를 검색하고 allocation identity에 고정된 Skill 변경 proposal을 적용한다.",
+      "code_paths": [
+        "extensions/platformclaw-execution/src/remote-skills.ts",
+        "extensions/platformclaw-execution/src/remote-skill-workshop.ts"
+      ],
+      "test_paths": [
+        "extensions/platformclaw-execution/src/remote-skills.test.ts",
+        "extensions/platformclaw-execution/src/remote-skill-workshop.test.ts"
+      ],
+      "docs_paths": [
+        "docs/submission/07_GLOBAL_SKILLS_POLICY.md"
+      ],
+      "mock_evidence_paths": [],
+      "actual_evidence_paths": [],
+      "limitations": "Global Skills의 사내 원본 설치와 provenance 확정은 IR-003부터 IR-006까지의 내부 작업이다.",
+      "internal_requirement_id": "IR-003"
+    },
+    {
+      "id": "CLM-T08",
+      "criterion": "technical",
+      "status": "IMPLEMENTED_WITH_LIMITATIONS",
+      "summary": "Ubuntu Linux Docker 배포, rootless sandbox daemon routing, managed config, runtime smoke 경로가 저장소에 포함된다.",
+      "code_paths": [
+        "docker/platformclaw-runtime/compose.yaml",
+        "scripts/e2e/platformclaw-runtime-docker.sh"
+      ],
+      "test_paths": [
+        "test/scripts/platformclaw-runtime-docker.test.ts",
+        "docker/platformclaw-runtime/compose.smoke.yaml"
+      ],
+      "docs_paths": [
+        "docs/submission/04_CONTROL_PLANE_VM_SANDBOX.md",
+        "docs/submission/10_TESTING_AND_CI.md"
+      ],
+      "mock_evidence_paths": [],
+      "actual_evidence_paths": [],
+      "limitations": "최종 사내 이미지와 network policy를 사용한 runtime 결과는 외부 저장소에서 재현할 수 없다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-C01",
+      "criterion": "creativity",
+      "status": "MOCK_VERIFIED",
+      "summary": "요청, 개인 Agent, Workspace, build, Board Farm lease, hardware validation, report, Knox-style result를 하나의 correlation 흐름으로 연결한다.",
+      "code_paths": [
+        "scripts/submission/collect-mock-evidence.mjs",
+        "packages/platformclaw-control-plane/src/board-farm/service.ts"
+      ],
+      "test_paths": [
+        "packages/platformclaw-control-plane/src/board-farm/service.test.ts"
+      ],
+      "docs_paths": [
+        "README.md",
+        "PRD.md",
+        "docs/submission/02_USER_SCENARIOS.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/manifest.json",
+        "submission/evidence/mock-golden-run/SUMMARY.md"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "Report와 Knox 결과는 명시적으로 MOCK adapter 결과이며 실제 시스템 성공을 뜻하지 않는다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-C02",
+      "criterion": "creativity",
+      "status": "MOCK_VERIFIED",
+      "summary": "Board Farm lease에 FIFO, owner authorization, heartbeat, bounded renewal, expiration, cancellation, cleanup, restart recovery를 적용한다.",
+      "code_paths": [
+        "packages/platformclaw-control-plane/src/board-farm/contracts.ts",
+        "packages/platformclaw-control-plane/src/board-farm/service.ts",
+        "packages/platformclaw-control-plane/src/board-farm/mock-adapter.ts"
+      ],
+      "test_paths": [
+        "packages/platformclaw-control-plane/src/board-farm/service.test.ts"
+      ],
+      "docs_paths": [
+        "docs/submission/06_BOARD_FARM_MCP_CONTRACT.md",
+        "docs/submission/09_OPERATIONS_FAILURE_RECOVERY.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/board-lease-result.json",
+        "submission/evidence/mock-golden-run/board-validation-result.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "외부 검증은 credential-free deterministic adapter이며 실제 Board Farm protocol mapping은 IR-001과 IR-002가 필요하다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-C03",
+      "criterion": "creativity",
+      "status": "IMPLEMENTED_WITH_LIMITATIONS",
+      "summary": "Knox DM은 개인 Agent와 선택된 target으로, Group Room은 방별 Agent와 platform server로 분리한다.",
+      "code_paths": [
+        "packages/platformclaw-control-plane/src/knox-routing-service.ts",
+        "packages/platformclaw-control-plane/src/execution-handoff-service.ts"
+      ],
+      "test_paths": [
+        "packages/platformclaw-control-plane/src/knox-routing-service.test.ts",
+        "packages/platformclaw-control-plane/src/execution-handoff-service.test.ts"
+      ],
+      "docs_paths": [
+        "docs/submission/05_KNOX_PERSONAL_GROUP_POLICY.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/knox-result.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "실제 Knox outbound 결과 전달은 IR-007에서 연결하고 실증해야 한다.",
+      "internal_requirement_id": "IR-007"
+    },
+    {
+      "id": "CLM-P01",
+      "criterion": "completeness",
+      "status": "IMPLEMENTED",
+      "summary": "PlatformClaw login, favicon, 한국어 용어, execution과 MCP 설정, loading·error·retry 상태를 restricted Control UI에 제공한다.",
+      "code_paths": [
+        "ui/src/platformclaw/branding.ts",
+        "ui/src/platformclaw/login.ts",
+        "ui/src/platformclaw/execution-settings.ts",
+        "ui/src/platformclaw/mcp-settings.ts"
+      ],
+      "test_paths": [
+        "ui/src/platformclaw/branding.test.ts",
+        "ui/src/platformclaw/login.test.ts",
+        "ui/src/platformclaw/execution-settings.test.ts",
+        "ui/src/platformclaw/mcp-settings.test.ts"
+      ],
+      "docs_paths": [
+        "docs/submission/08_UI_UX_AND_THEME.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/screenshots/mock-run-overview.png"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "제출 screenshot에는 MOCK label을 유지하며 실제 내부 사용자 데이터 화면은 포함하지 않는다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-P02",
+      "criterion": "completeness",
+      "status": "MOCK_VERIFIED",
+      "summary": "build 실패는 보드 할당 전에 종료하고 validation·cleanup 실패 증거, stale lease 회수, 재시작 복구를 보존한다.",
+      "code_paths": [
+        "packages/platformclaw-control-plane/src/board-farm/service.ts",
+        "packages/platformclaw-control-plane/src/restart-reconciler.ts"
+      ],
+      "test_paths": [
+        "packages/platformclaw-control-plane/src/board-farm/service.test.ts",
+        "packages/platformclaw-control-plane/src/restart-reconciler.test.ts"
+      ],
+      "docs_paths": [
+        "docs/submission/09_OPERATIONS_FAILURE_RECOVERY.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/verification-result.json",
+        "submission/evidence/mock-golden-run/board-validation-result.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "실제 hardware failure와 operator recovery의 관측 증거는 내부 Golden Run에서 추가해야 한다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-P03",
+      "criterion": "completeness",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "summary": "실제 VM code change부터 build, board lease, deploy, boot, validation, report, Knox 전달까지 Golden Run을 완료한다.",
+      "code_paths": [
+        "scripts/submission/collect-mock-evidence.mjs"
+      ],
+      "test_paths": [
+        "submission/internal-templates/board-farm-mcp/ACCEPTANCE_TESTS.md"
+      ],
+      "docs_paths": [
+        "docs/submission/14_INTERNAL_HANDOFF.md",
+        "docs/submission/15_DEMO_PLAN.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/manifest.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "사내 VM, 실제 board, Board Farm, Jira, Knox 접근이 없어 외부 준비 branch에서는 완료할 수 없다.",
+      "internal_requirement_id": "IR-009"
+    },
+    {
+      "id": "CLM-B01",
+      "criterion": "business_value",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "summary": "도구 전환 시간, end-to-end lead time, 자동 증거 수집률, 재시도 성공률을 실제 Golden Run으로 측정한다.",
+      "code_paths": [],
+      "test_paths": [],
+      "docs_paths": [
+        "docs/submission/11_BUSINESS_VALUE.md",
+        "docs/submission/14_INTERNAL_HANDOFF.md"
+      ],
+      "mock_evidence_paths": [],
+      "actual_evidence_paths": [],
+      "limitations": "현재 문서는 측정 정의만 제공하며 검증되지 않은 시간 절감 수치를 주장하지 않는다.",
+      "internal_requirement_id": "IR-010"
+    },
+    {
+      "id": "CLM-M01",
+      "criterion": "communication",
+      "status": "IMPLEMENTED",
+      "summary": "주장, 코드, 테스트, 문서, MOCK·actual evidence, 내부 요구사항을 machine-checkable map으로 연결한다.",
+      "code_paths": [
+        "scripts/submission/check-evaluation-map.mjs",
+        "scripts/submission/check-document-consistency.mjs",
+        "scripts/submission/check-blindness.mjs"
+      ],
+      "test_paths": [
+        "test/scripts/platformclaw-submission-utils.test.ts",
+        "test/scripts/platformclaw-submission-workflow.test.ts"
+      ],
+      "docs_paths": [
+        "EVALUATION.md",
+        "submission/SUBMISSION_MANIFEST.md",
+        "docs/submission/10_TESTING_AND_CI.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/manifest.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "Final Gate는 내부 evidence와 5분 이내 영상이 들어오기 전까지 의도적으로 실패한다.",
+      "internal_requirement_id": null
+    },
+    {
+      "id": "CLM-I01",
+      "criterion": "completeness",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "summary": "BoardFarmAdapter를 실제 사내 MCP tool과 인증 endpoint에 연결한다.",
+      "code_paths": [
+        "packages/platformclaw-control-plane/src/board-farm/contracts.ts",
+        "submission/internal-templates/board-farm-mcp/adapter.template.ts"
+      ],
+      "test_paths": [
+        "submission/internal-templates/board-farm-mcp/ACCEPTANCE_TESTS.md"
+      ],
+      "docs_paths": [
+        "docs/submission/06_BOARD_FARM_MCP_CONTRACT.md"
+      ],
+      "mock_evidence_paths": [
+        "submission/evidence/mock-golden-run/board-lease-result.json"
+      ],
+      "actual_evidence_paths": [],
+      "limitations": "실제 MCP server URL, tool schema, auth 방식은 민감정보 없이 내부에서 매핑해야 한다.",
+      "internal_requirement_id": "IR-001"
+    },
+    {
+      "id": "CLM-I02",
+      "criterion": "completeness",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "summary": "Firmware Build, Board Validation, Jira Report, Result Notification Global Skills를 승인된 내부 provenance로 설치한다.",
+      "code_paths": [
+        "submission/internal-templates/global-skills/firmware-build/SKILL.md.template",
+        "submission/internal-templates/global-skills/board-validation/SKILL.md.template",
+        "submission/internal-templates/global-skills/jira-report/SKILL.md.template",
+        "submission/internal-templates/global-skills/result-notification/SKILL.md.template"
+      ],
+      "test_paths": [
+        "submission/internal-templates/global-skills/firmware-build/ACCEPTANCE_TESTS.md",
+        "submission/internal-templates/global-skills/board-validation/ACCEPTANCE_TESTS.md",
+        "submission/internal-templates/global-skills/jira-report/ACCEPTANCE_TESTS.md",
+        "submission/internal-templates/global-skills/result-notification/ACCEPTANCE_TESTS.md"
+      ],
+      "docs_paths": [
+        "docs/submission/07_GLOBAL_SKILLS_POLICY.md",
+        "docs/submission/14_INTERNAL_HANDOFF.md"
+      ],
+      "mock_evidence_paths": [],
+      "actual_evidence_paths": [],
+      "limitations": "외부 branch는 실행 template과 acceptance contract만 제공하며 내부 Skill 원문이나 URL을 포함하지 않는다.",
+      "internal_requirement_id": "IR-003"
+    },
+    {
+      "id": "CLM-I03",
+      "criterion": "communication",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "summary": "실제 흐름, 실패·복구, 비즈니스 결과를 5분 이내 MP4로 기록한다.",
+      "code_paths": [],
+      "test_paths": [],
+      "docs_paths": [
+        "docs/submission/15_DEMO_PLAN.md",
+        "submission/video/FINAL_VIDEO_CHECKLIST.md"
+      ],
+      "mock_evidence_paths": [],
+      "actual_evidence_paths": [],
+      "limitations": "첨부된 참고 영상은 약 7분 48초로 제출 제한을 넘으므로 최종 영상 증거로 사용할 수 없다.",
+      "internal_requirement_id": "IR-011"
+    }
+  ]
+}

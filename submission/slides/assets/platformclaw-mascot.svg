@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 66 66"
+  width="528"
+  height="528"
+  preserveAspectRatio="xMidYMid meet"
+  shape-rendering="crispEdges"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">PlatformClaw arcade pixel crab mascot</title>
+  <desc id="desc">A transparent, strict-grid teal crab mascot with two white block eyes.</desc>
+
+  <!--
+    Canonical grid
+    - Logical canvas: 66 × 66 cells
+    - 1 SVG user unit = 1 logical pixel
+    - Original 1254 viewBox: 66 × 19, therefore 19 original units per cell
+    - All coordinates and dimensions below are integers
+  -->
+
+  <g id="platformclaw" fill="#0F7C72">
+    <!-- Lower body and legs. -->
+    <path
+      id="body-core"
+      d="M19 32H47V36H50V41H47V44H50V51H47V48H45V46H42V48H39V45H27V48H24V46H21V48H19V51H16V44H19V41H16V36H19Z"
+    />
+
+    <!-- These overlap the arm stems and keep the silhouette connected in raised-arm frames. -->
+    <g id="arm-connectors">
+      <rect x="19" y="28" width="3" height="4" />
+      <rect x="44" y="28" width="3" height="4" />
+    </g>
+
+    <!-- Left arm/claw. -->
+    <path
+      id="left-claw"
+      d="M16 15H21V22H24V18H27V27H24V30H22V32H19V30H16V27H13V18H16Z"
+    />
+
+    <!-- Right arm/claw. -->
+    <path
+      id="right-claw"
+      d="M45 15H50V18H53V27H50V30H47V32H44V30H42V27H39V18H42V22H45Z"
+    />
+  </g>
+
+  <!-- The white blocks are the eyes themselves, not pupils. -->
+  <g id="eyes" fill="#FFFFFF">
+    <rect id="left-eye" x="27" y="35" width="2" height="4" />
+    <rect id="right-eye" x="37" y="35" width="2" height="4" />
+  </g>
+</svg>

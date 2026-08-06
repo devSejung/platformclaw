@@ -40,6 +40,8 @@
     "src/gateway/server-methods/CLAUDE.md",
     "src/auto-reply/reply/export-html/",
     "src/canvas-host/a2ui/a2ui.bundle.js",
+    "submission/evaluation-map.yaml",
+    "submission/internal-requirements.yaml",
     "test/fixtures/agents/prompt-snapshots/codex-model-catalog/*.instructions.md",
     "test/fixtures/agents/prompt-snapshots/happy-path/*.md",
     "vendor/",

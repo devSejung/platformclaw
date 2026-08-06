@@ -1,0 +1,42 @@
+{
+  "mode": "mock",
+  "result": "passed",
+  "run_id": "golden-run-000001",
+  "checks": {
+    "mock_employee_login": true,
+    "personal_agent_created": true,
+    "separate_user_agents": true,
+    "workspace_confirmed": true,
+    "safe_execution_target_selected": true,
+    "fixture_source_changed": true,
+    "fixture_build_passed": true,
+    "build_failure_blocks_board": true,
+    "board_lease_acquired": true,
+    "heartbeat_and_renewal": true,
+    "deploy_boot_validate_passed": true,
+    "evidence_preserved": true,
+    "report_created": true,
+    "knox_result_created": true,
+    "restart_reload_passed": true,
+    "cross_user_access_denied": true,
+    "cleanup_released_board": true,
+    "raw_tokens_omitted": true
+  },
+  "cross_user_error_code": "not_authorized",
+  "public_users": [
+    {
+      "alias": "user-a",
+      "agent_id": "mock_user_a",
+      "workspace": "/mock/workspaces/mock_user_a",
+      "execution_target": "platform_server_mock_sandbox",
+      "session_status": "active"
+    },
+    {
+      "alias": "user-b",
+      "agent_id": "mock_user_b",
+      "workspace": "/mock/workspaces/mock_user_b",
+      "execution_target": "platform_server_mock_sandbox",
+      "session_status": "active"
+    }
+  ]
+}

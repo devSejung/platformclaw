@@ -1,112 +1,78 @@
 # PlatformClaw
 
-## Project
+## 제품
 
-PlatformClaw is a private, enterprise-oriented downstream of OpenClaw. It starts cleanly from the latest OpenClaw upstream instead of continuing to expand the previous PlatformClaw codebase. Existing capabilities will be migrated incrementally, one capability at a time.
+PlatformClaw는 각 엔지니어에게 독립된 Assistant, Workspace, Execution Target과 정책 경계를 제공하는 멀티유저 AI 엔지니어링 플랫폼이다. 인증된 Web 또는 Knox 요청을 개인·그룹 Agent에 연결하고, 할당 VM 또는 정책 Sandbox에서 코드 수정과 빌드를 수행하며, Board Farm 하드웨어 검증·증거·Jira·Knox 결과까지 하나의 추적 가능한 작업으로 완성하는 것을 목표로 한다.
 
-The goals are to:
+현재 저장소는 OpenClaw의 generic Gateway/Agent/Session/Tool/Plugin/Sandbox 기반을 유지하는 private downstream이다. enterprise 기능은 `packages/platformclaw-control-plane`, private plugins, deployment wrapper와 제한된 UI 경계에 배치한다. upstream ancestry를 보존하며 wholesale fork divergence를 만들지 않는다.
 
-- keep OpenClaw upstream practical to track over the long term;
-- isolate PlatformClaw enterprise capabilities behind maintainable boundaries.
+## 현재 구현
 
-## Current State
+- Multi-user identity, browser session, personal Agent provisioning과 request/result/event authorization
+- SQLite control state, audit와 restart reconciliation
+- Personal VM assignment, SafeConnect/SSH backend, encrypted credential envelope, one-shot broker와 SSH master lease
+- rootless Docker Sandbox 정책과 Linux Docker runtime smoke
+- personal MCP credential boundary와 administrator-owned global MCP policy
+- Knox DM/room routing 계약과 room Agent provisioning
+- restricted employee Web ingress와 PlatformClaw login/theme/execution/MCP UI
+- remote skill discovery, explicit refresh와 per-run target snapshot
+- Board Farm contract와 Mock Golden Path 준비
 
-- Local repository: `C:\dev\platformclaw`
+실제 Board Farm adapter, 사내 Global Skills, Jira 및 Knox 실제 delivery, actual Golden Run과 영상은 `INTERNAL_INTEGRATION_REQUIRED`이다. 상세 상태는 `submission/evaluation-map.yaml`이 기준이다.
+
+## Repository facts
+
 - Development host: Windows
-- Primary agent environment: Codex Windows app
-- Final runtime: Ubuntu Linux
-- Final validation: Linux Docker containers
-- Deployment artifact: Docker image
-- Company transfer: `docker save` to `docker load`
-- `origin`: `https://github.com/devSejung/platformclaw`
+- Final runtime and validation authority: Ubuntu Linux Docker
+- `origin`: private PlatformClaw repository
 - `upstream`: `https://github.com/openclaw/openclaw.git`
-- Baseline commit: `17c2ce05d8021b969f9e822a34e92535145922d5`
-- The Jammy company deployment profile is the first capability being migrated.
-- The first control-plane contract slice now lives in
-  `packages/platformclaw-control-plane` with in-memory and SQLite stores,
-  employee browser-session runtime assembly, and Gateway-backed personal-agent
-  provisioning. A protocol-compatible Web ingress listener now composes browser
-  authentication with the fail-closed Gateway policy. The control-process
-  entry point now wires deployment secrets and persistent paths. Linux Compose
-  supervision, persistent volumes, secret mounts, and deterministic runtime
-  smoke are implemented; reverse-proxy browser proof remains pending.
-- The clean OpenClaw Linux Docker build and focused credential-free test baseline has been validated.
-- Personal VM execution uses a private plugin boundary. Schema v2 stores
-  SafeConnect endpoints, VM hosts, personal allocations, execution profiles,
-  and encrypted credential envelopes. The authenticated handoff is active for
-  personal agents. Server execution delegates to upstream Docker through a
-  dedicated rootless daemon; Knox room provisioning must select Docker directly.
+- Submission prep baseline: `dae6d288c6f0d6e543955c13f73a03967b794e6c`
+- Confirmed upstream common ancestor: `02457657f012d33e141c710d92671d1bc4a519e9`
 
-## Why This Rebuild Exists
+## Architecture boundary
 
-The previous PlatformClaw directly modified multiple OpenClaw core areas, making upstream synchronization and long-term maintenance difficult. This rebuild starts from current upstream, analyzes ownership boundaries and extension points first, and then migrates capabilities in small units.
+- core는 plugin-agnostic을 유지한다.
+- enterprise owner-specific behavior는 `packages/platformclaw-control-plane` 또는 private plugin이 소유한다.
+- credential은 source, config, browser, transcript, Workspace에 저장하지 않는다.
+- runtime state와 plugin KV는 SQLite를 사용한다.
+- Windows-only path나 case-insensitive 동작에 의존하지 않는다.
+- actual internal evidence는 Mock와 분리한다.
 
-## Capability Areas
+## 개발과 검증
 
-These areas are candidates for future evaluation and migration. They are not an approved architecture:
+```bash
+node scripts/platformclaw-check.mjs --changed --quick
+node scripts/platformclaw-check.mjs --changed
+pnpm test:docker:platformclaw-runtime
+pnpm submission:verify:external
+```
 
-- multi-user account, session, and workspace isolation
-- enterprise authentication and organization/permission handling
-- runtime credential resolution and policy
-- Skill Hub and managed skill execution
-- Knox messaging integration
-- remote execution and filesystem bridge
-- Docker-based enterprise deployment
-- operational UI, retry, recovery, cron, and automation
+사내 연동 후:
 
-## Development Principles
+```bash
+pnpm submission:verify:final
+```
 
-- Do not copy the previous codebase wholesale.
-- Migrate capabilities through small, capability-focused PRs.
-- Investigate current OpenClaw structure and extension points first.
-- When a core change is unavoidable, keep it generic and minimal.
-- Treat Windows only as the development host; judge final behavior in Linux Docker.
-- Do not introduce Windows-only runtime dependencies.
-- Run `node scripts/platformclaw-check.mjs --changed --quick` during PlatformClaw development. Before push or PR, run it without `--quick`; GitHub uses the same surface command groups. Keep upstream-wide checks for shared or core paths.
-- Do not freeze unconfirmed interface names or directory structures in documentation.
+Windows linked worktree에서는 `pnpm install`과 tracked `node_modules`에 대한 Git restore/checkout/reset을 실행하지 않는다. primary checkout toolchain 또는 repository wrapper를 재사용한다.
 
-## Git Workflow
+## Git workflow
 
-- `main`: validated PlatformClaw baseline
-- `feature/*`: feature development
-- `fix/*`: bug fixes
-- `refactor/*`: bounded structural improvements
-- `sync/upstream-YYYYMMDD`: temporary upstream import, conflict resolution, and validation
+- `main`: 검증된 PlatformClaw baseline
+- `feature/*`: 기능
+- `fix/*`: 수정
+- `refactor/*`: 구조 개선
+- `sync/upstream-YYYYMMDD`: upstream integration
+- `submission/hello-ai-2026-prep`: 외부 준비
+- `submission/hello-ai-2026-final`: 사내 finalization에서만 생성
 
-Bring upstream changes from `upstream/main` into a sync branch, validate them there, and merge them into `main` through a PR.
+upstream 변경은 임시 sync branch에서 검증한 뒤 merge한다. main에 직접 적용하지 않는다.
 
-## Current Phase
+## 관련 문서
 
-Production Docker deployment migration and validation remains in progress.
-Control-plane Phase 1 implementation is now also in progress for enterprise
-identity, server sessions, idempotent agent provisioning, and Web and Knox
-ingress authorization. The contract, in-memory store, approved SQLite v1 store,
-employee auth, personal-agent provisioner, Web Gateway policy proxy, restricted
-Control UI, deployable ingress entry point, and Linux Compose runtime smoke
-are complete. Reverse-proxy browser proof remains pending. See
-`docs/platformclaw/control-plane-phase-1.md` and
-`docs/platformclaw/decisions.md`.
-
-VM execution groundwork now includes schema v2, encrypted user SSH credential
-storage, a one-shot local credential broker, authenticated handoff, and a
-SafeConnect handle built on the upstream SSH backend. Gateway owns a bounded,
-revision-pinned OpenSSH master lease per active assigned-VM target so repeated
-commands do not repeat keyboard-interactive authentication. Deployment grants
-Gateway only the broker socket, execution token, and dedicated rootless Docker
-endpoint.
-It never grants the durable credential key or host Docker socket. Assigned VM
-backends now discover bounded remote skills into an immutable per-run snapshot,
-with explicit refresh exposed through the existing Skills UI. Successful
-employee authentication atomically refreshes mutable directory profile fields,
-and each personal run receives credential-free context from its pinned
-execution-target snapshot.
-
-Next steps:
-
-1. Establish project guidance and state documentation.
-2. Validate each upstream sync against the Linux Docker build/test baseline.
-3. Inventory previous PlatformClaw capabilities and core changes.
-4. Decide migration order and architecture boundaries.
-5. Migrate capabilities through small PRs.
-
-Do not begin capability migration without an explicit request.
+- `README.md`: 3분 제품 진입점
+- `PRD.md`: 요구사항과 acceptance
+- `ARCHITECTURE.md`: component와 trust boundary
+- `EVALUATION.md`: 심사 항목별 독립 근거
+- `ATTRIBUTION.md`: upstream·legacy·사내 자산 구분
+- `docs/platformclaw/`: 구현·운영 상세
+- `docs/submission/`: 제출 근거와 사내 인계

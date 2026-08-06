@@ -126,6 +126,10 @@ describeE2e("PlatformClaw login", () => {
       const hero = page.locator("[data-login-hero]");
       expect(await card.isVisible()).toBe(true);
       expect(await hero.isVisible()).toBe(false);
+      await expect.poll(() => page.getByText("개인 Agent", { exact: true }).isVisible()).toBe(true);
+      await expect
+        .poll(() => page.getByText("정책 기반 VM · Sandbox", { exact: true }).isVisible())
+        .toBe(true);
 
       await page.mouse.move(360, 100);
       const idleX = await page

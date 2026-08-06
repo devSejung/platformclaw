@@ -219,6 +219,27 @@ input {
   line-height: 1.55;
 }
 
+.login-context {
+  display: flex;
+  margin: -0.75rem 0 1.5rem;
+  padding: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem;
+  list-style: none;
+}
+
+.login-context li {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--login-hairline);
+  border-radius: 9999px;
+  color: var(--login-muted);
+  background: var(--login-canvas);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
 form {
   display: grid;
   gap: 1rem;

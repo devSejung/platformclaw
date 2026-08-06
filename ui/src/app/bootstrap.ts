@@ -243,6 +243,9 @@ type ApplicationSettingsNavigationMode = "inline" | "takeover";
 export type ApplicationShellSession = {
   readonly primaryLabel: string;
   readonly secondaryLabel?: string;
+  /** Product branding for an authenticated embedded shell. */
+  readonly productName?: string;
+  readonly productIconUrl?: string;
   /** Product-specific controls rendered inside the stable account footer. */
   readonly renderFooterAccessory?: () => unknown;
   readonly onLogout: () => Promise<void>;

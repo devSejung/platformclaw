@@ -1,12 +1,12 @@
 import mascotUrl from "./platformclaw-pixel.svg?url";
 import { PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME } from "./web-contract.ts";
 
-type PlatformClawBranding = {
+export type PlatformClawBranding = {
   mascotUrl: string;
   productName: "PlatformClaw";
 };
 
-const PLATFORMCLAW_BRANDING: PlatformClawBranding = {
+export const PLATFORMCLAW_BRANDING: PlatformClawBranding = {
   mascotUrl,
   productName: "PlatformClaw",
 };
@@ -43,6 +43,7 @@ export function applyPlatformClawDocumentBranding(root: Document = document): bo
   // and transcripts must remain selectable even though upstream app chrome
   // disables selection by default.
   root.documentElement.dataset.platformclawHosted = "";
+  root.title = branding.productName;
   const svgIcon = root.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]');
   if (svgIcon) {
     svgIcon.href = branding.mascotUrl;

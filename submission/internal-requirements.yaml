@@ -1,0 +1,338 @@
+{
+  "schema_version": 1,
+  "status": "INTERNAL_INTEGRATION_REQUIRED",
+  "requirements": [
+    {
+      "id": "IR-001",
+      "summary": "실제 Board Farm MCP adapter 구현 및 등록",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "packages/platformclaw-control-plane/src/board-farm",
+        "submission/internal-templates/board-farm-mcp/adapter.template.ts"
+      ],
+      "required_internal_info": [
+        "approved MCP source",
+        "tool request and response schema"
+      ],
+      "secret_input": "none",
+      "commands": [
+        "node scripts/run-vitest.mjs packages/platformclaw-control-plane/src/board-farm"
+      ],
+      "expected_result": "actual adapter가 domain contract tests를 통과한다",
+      "failure_location": "adapter contract test and Control Plane service log",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/board-lease-result.json"
+      ],
+      "docs_to_update": [
+        "docs/submission/06_BOARD_FARM_MCP_CONTRACT.md",
+        "submission/evaluation-map.yaml"
+      ],
+      "final_gate_rule": "actual adapter source와 test가 없으면 실패"
+    },
+    {
+      "id": "IR-002",
+      "summary": "Board Farm 인증, Tool mapping과 endpoint 설정",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "docker/platformclaw-runtime",
+        "submission/internal-templates/board-farm-mcp/config.example.yaml"
+      ],
+      "required_internal_info": [
+        "endpoint reference",
+        "authentication mechanism",
+        "approved tool names"
+      ],
+      "secret_input": "deployment-owned secret file or approved secret mount",
+      "commands": [
+        "pnpm submission:verify:final"
+      ],
+      "expected_result": "readiness와 exact Tool mapping이 secret 출력 없이 통과한다",
+      "failure_location": "deployment readiness and Board Farm adapter log",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/board-lease-result.json"
+      ],
+      "docs_to_update": [
+        "docs/submission/14_INTERNAL_HANDOFF.md"
+      ],
+      "final_gate_rule": "endpoint, auth와 tool proof가 없으면 실패"
+    },
+    {
+      "id": "IR-003",
+      "summary": "PlatformClaw Global Skill baseline 설치와 provenance 기록",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "submission/internal-templates/global-skills"
+      ],
+      "required_internal_info": [
+        "managed skill root",
+        "approved versions and source commits"
+      ],
+      "secret_input": "none",
+      "commands": [
+        "pnpm submission:verify:final"
+      ],
+      "expected_result": "skill name, version, digest와 source가 actual manifest에 기록된다",
+      "failure_location": "skill discovery and final gate output",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/verification-result.json"
+      ],
+      "docs_to_update": [
+        "docs/submission/07_GLOBAL_SKILLS_POLICY.md"
+      ],
+      "final_gate_rule": "provenance 누락 시 실패"
+    },
+    {
+      "id": "IR-004",
+      "summary": "실제 Firmware Build Skill 연결",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "submission/internal-templates/global-skills/firmware-build"
+      ],
+      "required_internal_info": [
+        "build command",
+        "artifact location and digest rule"
+      ],
+      "secret_input": "approved build credential mount when required",
+      "commands": [
+        "pnpm submission:verify:final"
+      ],
+      "expected_result": "실제 build result와 artifact digest가 생성된다",
+      "failure_location": "build skill result and referenced log",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/build-result.json"
+      ],
+      "docs_to_update": [
+        "docs/submission/14_INTERNAL_HANDOFF.md"
+      ],
+      "final_gate_rule": "actual build evidence가 없으면 실패"
+    },
+    {
+      "id": "IR-005",
+      "summary": "실제 Board Validation Skill 연결",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "submission/internal-templates/global-skills/board-validation"
+      ],
+      "required_internal_info": [
+        "deploy, boot and validation commands",
+        "pass and failure criteria"
+      ],
+      "secret_input": "Board adapter boundary only",
+      "commands": [
+        "pnpm submission:verify:final"
+      ],
+      "expected_result": "deploy, boot, validation과 failure evidence가 생성된다",
+      "failure_location": "validation skill result and Board adapter log",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/board-validation-result.json"
+      ],
+      "docs_to_update": [
+        "docs/submission/06_BOARD_FARM_MCP_CONTRACT.md"
+      ],
+      "final_gate_rule": "actual boot and validation evidence가 없으면 실패"
+    },
+    {
+      "id": "IR-006",
+      "summary": "실제 Jira Report Skill 연결",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "submission/internal-templates/global-skills/jira-report"
+      ],
+      "required_internal_info": [
+        "approved project and issue schema",
+        "evidence link policy"
+      ],
+      "secret_input": "approved connector secret mount",
+      "commands": [
+        "pnpm submission:verify:final"
+      ],
+      "expected_result": "Run과 evidence를 참조하는 Jira result가 생성된다",
+      "failure_location": "Jira skill result",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/report-result.json"
+      ],
+      "docs_to_update": [
+        "docs/submission/11_BUSINESS_VALUE.md"
+      ],
+      "final_gate_rule": "actual report result가 없으면 실패"
+    },
+    {
+      "id": "IR-007",
+      "summary": "실제 Knox Result delivery와 CDEP 설정",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "extensions/knox",
+        "submission/internal-templates/global-skills/result-notification"
+      ],
+      "required_internal_info": [
+        "CDEP endpoint reference",
+        "sender and result policy"
+      ],
+      "secret_input": "Knox service secret files",
+      "commands": [
+        "pnpm submission:verify:final"
+      ],
+      "expected_result": "DM과 Group policy, final delivery ID가 actual evidence에 기록된다",
+      "failure_location": "Knox plugin and CDEP delivery log",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/knox-result.json"
+      ],
+      "docs_to_update": [
+        "docs/submission/05_KNOX_PERSONAL_GROUP_POLICY.md"
+      ],
+      "final_gate_rule": "actual Knox delivery proof가 없으면 실패"
+    },
+    {
+      "id": "IR-008",
+      "summary": "사내 정책과 system 정보로 내부 문서 및 deployment 보완",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "docs/submission/14_INTERNAL_HANDOFF.md",
+        "docker/platformclaw-runtime"
+      ],
+      "required_internal_info": [
+        "approved identity, RBAC, network and retention policy"
+      ],
+      "secret_input": "references only; no values in repository",
+      "commands": [
+        "pnpm submission:verify:external"
+      ],
+      "expected_result": "문서는 sanitized되고 source config는 secret file reference만 사용한다",
+      "failure_location": "blindness and document consistency gate",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/verification-result.json"
+      ],
+      "docs_to_update": [
+        "ARCHITECTURE.md",
+        "docs/submission/03_SECURITY_AND_ISOLATION.md"
+      ],
+      "final_gate_rule": "policy mismatch 또는 sensitive data가 있으면 실패"
+    },
+    {
+      "id": "IR-009",
+      "summary": "실제 VM, build, Board와 channel Golden Run 실행",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "submission/evidence/actual-golden-run"
+      ],
+      "required_internal_info": [
+        "approved test aliases, VM, source fixture and board resource"
+      ],
+      "secret_input": "deployment-owned mounts only",
+      "commands": [
+        "pnpm submission:verify:final"
+      ],
+      "expected_result": "Web, Knox DM, Group, cross-user denial과 closed loop가 같은 source commit으로 통과한다",
+      "failure_location": "actual manifest and per-step result",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/manifest.json"
+      ],
+      "docs_to_update": [
+        "README.md",
+        "EVALUATION.md",
+        "submission/evaluation-map.yaml"
+      ],
+      "final_gate_rule": "actual Golden Run manifest가 없거나 Mock를 참조하면 실패"
+    },
+    {
+      "id": "IR-010",
+      "summary": "실제 evidence, screenshot과 business metric 수집",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "submission/evidence/actual-golden-run"
+      ],
+      "required_internal_info": [
+        "metric baseline",
+        "masking policy"
+      ],
+      "secret_input": "none",
+      "commands": [
+        "pnpm submission:verify:final"
+      ],
+      "expected_result": "sanitized evidence와 measured metric이 정의와 함께 기록된다",
+      "failure_location": "evidence and metric validators",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/verification-result.json"
+      ],
+      "docs_to_update": [
+        "docs/submission/11_BUSINESS_VALUE.md",
+        "submission/slides/index.html"
+      ],
+      "final_gate_rule": "fabricated or missing metric, unmasked screenshot이면 실패"
+    },
+    {
+      "id": "IR-011",
+      "summary": "5분 이내 최종 MP4 녹화",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "submission/video"
+      ],
+      "required_internal_info": [
+        "approved capture environment"
+      ],
+      "secret_input": "none",
+      "commands": [
+        "pnpm submission:verify:final"
+      ],
+      "expected_result": "MP4 duration, codec, resolution과 masking checklist가 통과한다",
+      "failure_location": "video metadata and final gate",
+      "evidence_paths": [
+        "submission/video"
+      ],
+      "docs_to_update": [
+        "submission/video/FINAL_VIDEO_CHECKLIST.md"
+      ],
+      "final_gate_rule": "MP4 없음, 5분 초과 또는 sensitive data 노출 시 실패"
+    },
+    {
+      "id": "IR-012",
+      "summary": "내부 최종 검증과 모든 CI green 확인",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "submission/INTERNAL_FINALIZATION_CHECKLIST.md"
+      ],
+      "required_internal_info": [
+        "self-hosted runner availability if used"
+      ],
+      "secret_input": "runner secret store only",
+      "commands": [
+        "pnpm submission:verify:final"
+      ],
+      "expected_result": "final gate와 required CI가 모두 green이다",
+      "failure_location": "terminal output and GitHub Actions job",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/verification-result.json"
+      ],
+      "docs_to_update": [
+        "docs/submission/16_EXTERNAL_PREP_REPORT.md"
+      ],
+      "final_gate_rule": "INTERNAL_INTEGRATION_REQUIRED가 남거나 CI가 red면 실패"
+    },
+    {
+      "id": "IR-013",
+      "summary": "final branch commit, push와 tag",
+      "status": "INTERNAL_INTEGRATION_REQUIRED",
+      "target_files": [
+        "submission/SUBMISSION_MANIFEST.md"
+      ],
+      "required_internal_info": [
+        "private origin access",
+        "submission URL"
+      ],
+      "secret_input": "Git credential manager only",
+      "commands": [
+        "git push -u origin submission/hello-ai-2026-final",
+        "git push origin hello-ai-2026-final"
+      ],
+      "expected_result": "private remote branch, tag와 접근 권한이 확인된다",
+      "failure_location": "git or GitHub Actions output",
+      "evidence_paths": [
+        "submission/evidence/actual-golden-run/verification-result.json"
+      ],
+      "docs_to_update": [
+        "submission/SUBMISSION_MANIFEST.md"
+      ],
+      "final_gate_rule": "final commit, tag와 remote 확인이 없으면 제출 완료 아님"
+    }
+  ]
+}

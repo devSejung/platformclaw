@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PlatformClaw — HELLO AI 제출 발표</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #eafbf8;
+        --muted: #9ebbb6;
+        --teal: #20b8a9;
+        --teal-2: #0f7c72;
+        --lime: #c5f36a;
+        --amber: #ffca6a;
+        --red: #ff7b74;
+        --panel: #102522;
+        --line: #2a4b46;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+      body {
+        background: #071310;
+        color: var(--ink);
+        font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+      }
+      .deck {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      .slide {
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: min(100vw, calc(100vh * 16 / 9));
+        height: min(100vh, calc(100vw * 9 / 16));
+        aspect-ratio: 16 / 9;
+        padding: 5.6% 6.5% 5%;
+        background: linear-gradient(140deg, #0a1b18 0%, #0e211e 55%, #092824 100%);
+        transform: translateX(112vw);
+        transition: transform 240ms ease;
+        overflow: hidden;
+      }
+      .slide::after {
+        content: "";
+        position: absolute;
+        right: -9%;
+        bottom: -22%;
+        width: 42%;
+        aspect-ratio: 1;
+        border: 2px solid #17433c;
+        transform: rotate(24deg);
+      }
+      .slide.active {
+        transform: translateX(0);
+        z-index: 2;
+      }
+      .slide.past {
+        transform: translateX(-112vw);
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+      h1 {
+        max-width: 13ch;
+        font-size: clamp(2.2rem, 5vw, 5.7rem);
+        line-height: 0.98;
+        letter-spacing: -0.055em;
+      }
+      h2 {
+        max-width: 16ch;
+        font-size: clamp(1.9rem, 3.5vw, 4rem);
+        line-height: 1.08;
+        letter-spacing: -0.045em;
+      }
+      h3 {
+        font-size: clamp(1rem, 1.65vw, 1.7rem);
+        color: var(--lime);
+      }
+      p,
+      li {
+        font-size: clamp(0.82rem, 1.3vw, 1.38rem);
+        line-height: 1.52;
+      }
+      ul {
+        margin: 0.7rem 0 0;
+        padding-left: 1.25em;
+      }
+      li + li {
+        margin-top: 0.35em;
+      }
+      code {
+        border: 1px solid var(--line);
+        border-radius: 0.35em;
+        background: #071511;
+        color: #aaf3e9;
+        padding: 0.12em 0.35em;
+        font-family: Consolas, monospace;
+      }
+      .eyebrow {
+        color: var(--teal);
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .lead {
+        max-width: 52ch;
+        color: #c7ddd9;
+        font-size: clamp(1rem, 1.65vw, 1.75rem);
+      }
+      .accent {
+        color: var(--lime);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2.2vw;
+        align-items: center;
+      }
+      .grid-3 {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.25vw;
+      }
+      .panel {
+        position: relative;
+        z-index: 1;
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        background: #102522;
+        padding: 1.25rem;
+      }
+      .panel strong {
+        color: #fff;
+      }
+      .metric {
+        font-size: clamp(1.7rem, 3vw, 3.6rem);
+        font-weight: 900;
+        color: var(--lime);
+      }
+      .flow {
+        display: flex;
+        align-items: stretch;
+        gap: 0.65vw;
+        margin-top: 2rem;
+      }
+      .step {
+        flex: 1;
+        position: relative;
+        z-index: 1;
+        min-height: 7rem;
+        border: 1px solid var(--line);
+        border-radius: 0.7rem;
+        background: #0e2824;
+        padding: 0.75rem;
+        font-size: clamp(0.72rem, 1vw, 1.05rem);
+        font-weight: 750;
+      }
+      .arrow {
+        align-self: center;
+        color: var(--teal);
+        font-size: 1.5rem;
+      }
+      .tag {
+        display: inline-block;
+        border: 1px solid #447d73;
+        border-radius: 999px;
+        padding: 0.25em 0.65em;
+        color: #b9eee6;
+        font-size: 0.75em;
+      }
+      .tag.mock {
+        border-color: var(--amber);
+        color: var(--amber);
+        font-weight: 900;
+      }
+      .status {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.6rem 1rem;
+        align-items: center;
+      }
+      .status > div {
+        border-bottom: 1px solid #24423d;
+        padding: 0.45rem 0;
+      }
+      .ok {
+        color: var(--lime);
+      }
+      .limited {
+        color: var(--amber);
+      }
+      .terminal {
+        border: 1px solid #285149;
+        border-radius: 0.7rem;
+        background: #040b09;
+        padding: 1rem;
+        font-family: Consolas, monospace;
+        font-size: clamp(0.72rem, 1vw, 1.05rem);
+        line-height: 1.6;
+      }
+      .terminal .prompt {
+        color: var(--teal);
+      }
+      .terminal .pass {
+        color: var(--lime);
+      }
+      .mock-ui {
+        border: 1px solid #38625a;
+        border-radius: 0.9rem;
+        background: #071310;
+        overflow: hidden;
+      }
+      .mock-bar {
+        display: flex;
+        gap: 0.4rem;
+        padding: 0.7rem;
+        background: #17312c;
+      }
+      .dot {
+        width: 0.65rem;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: #4f7971;
+      }
+      .mock-body {
+        display: grid;
+        grid-template-columns: 28% 72%;
+        min-height: 19rem;
+      }
+      .mock-nav {
+        padding: 1rem;
+        border-right: 1px solid #294740;
+      }
+      .mock-content {
+        padding: 1.2rem;
+      }
+      .mascot {
+        width: min(18vw, 14rem);
+        height: auto;
+        image-rendering: pixelated;
+      }
+      .mascot.small {
+        width: min(8vw, 6rem);
+      }
+      .brand-row {
+        display: flex;
+        align-items: center;
+        gap: 1.1rem;
+      }
+      .slide-no {
+        position: absolute;
+        left: 6.5%;
+        bottom: 2.3%;
+        color: #76958f;
+        font:
+          700 0.72rem Consolas,
+          monospace;
+      }
+      .corner-brand {
+        position: absolute;
+        right: 5.5%;
+        top: 4%;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        color: #76a49c;
+        font-size: 0.72rem;
+        letter-spacing: 0.12em;
+      }
+      .controls {
+        position: fixed;
+        z-index: 20;
+        right: 1rem;
+        bottom: 1rem;
+        display: flex;
+        gap: 0.4rem;
+      }
+      button {
+        border: 1px solid #3b675f;
+        border-radius: 0.5rem;
+        background: #102d28;
+        color: var(--ink);
+        padding: 0.55rem 0.8rem;
+        cursor: pointer;
+      }
+      .rule {
+        height: 3px;
+        width: 5.5rem;
+        background: var(--teal);
+        margin: 1rem 0 1.6rem;
+      }
+      .danger {
+        color: var(--red);
+      }
+      @media print {
+        html,
+        body {
+          overflow: visible;
+          background: white;
+        }
+        .deck {
+          height: auto;
+        }
+        .slide,
+        .slide.active,
+        .slide.past {
+          position: relative;
+          transform: translateX(0);
+          break-after: page;
+          width: 100vw;
+          height: 56.25vw;
+        }
+        .controls {
+          transform: translateX(200vw);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="deck" aria-label="PlatformClaw 제출 발표">
+      <section class="slide active">
+        <div class="grid-2">
+          <div>
+            <p class="eyebrow">HELLO AI · 2026</p>
+            <h1>요청에서 실보드 증거까지, 하나의 엔지니어링 루프</h1>
+            <p class="lead">
+              PlatformClaw는 각 엔지니어에게 독립된 Assistant, Workspace, Execution Target과 정책
+              경계를 제공하는 멀티유저 AI 엔지니어링 플랫폼입니다.
+            </p>
+          </div>
+          <div class="brand-row">
+            <img
+              class="mascot"
+              src="assets/platformclaw-mascot.svg"
+              alt="PlatformClaw 픽셀 마스코트"
+            />
+          </div>
+        </div>
+        <span class="slide-no">01 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Problem</p>
+        <h2>AI가 코드를 바꿔도, 하드웨어 검증은 여전히 끊겨 있습니다</h2>
+        <div class="rule"></div>
+        <div class="grid-3">
+          <article class="panel">
+            <h3>도구 전환</h3>
+            <p>대화, IDE, VM, 빌드 서버, 보드 예약, 이슈 작성, 메신저를 사람이 이어 붙입니다.</p>
+          </article>
+          <article class="panel">
+            <h3>소유권 공백</h3>
+            <p>누구의 Agent·세션·작업공간·자격 증명인지 경계가 흐리면 자동화가 위험해집니다.</p>
+          </article>
+          <article class="panel">
+            <h3>증거 단절</h3>
+            <p>빌드 성공과 보드 결과, 재시도, 보고서가 한 실행으로 추적되지 않습니다.</p>
+          </article>
+        </div>
+        <span class="slide-no">02 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Closed loop</p>
+        <h2>한 요청을 추적 가능한 작업으로 닫습니다</h2>
+        <div class="flow">
+          <div class="step">Web·Knox<br />요청</div>
+          <div class="arrow">→</div>
+          <div class="step">개인·그룹<br />Agent</div>
+          <div class="arrow">→</div>
+          <div class="step">Workspace<br />코드 수정</div>
+          <div class="arrow">→</div>
+          <div class="step">VM·Sandbox<br />빌드</div>
+          <div class="arrow">→</div>
+          <div class="step">Board Farm<br />Lease·검증</div>
+          <div class="arrow">→</div>
+          <div class="step">Evidence<br />Report·Knox</div>
+        </div>
+        <p class="lead" style="margin-top: 2rem">
+          모든 단계는 같은 <code>run_id</code>와 <code>correlation_id</code>로 연결되고, 실패도
+          보존되는 결과가 됩니다.
+        </p>
+        <span class="slide-no">03 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Multi-user control plane</p>
+        <h2>인증보다 어려운 것은 끝까지 소유권을 지키는 일입니다</h2>
+        <div class="grid-2">
+          <div class="panel">
+            <h3>User A</h3>
+            <p>Personal Agent A<br />Session A<br />Workspace A<br />Execution Target A</p>
+          </div>
+          <div class="panel">
+            <h3>User B</h3>
+            <p>Personal Agent B<br />Session B<br />Workspace B<br />Execution Target B</p>
+          </div>
+        </div>
+        <p class="lead" style="margin-top: 1.4rem">
+          <span class="danger">교차 접근은 Gateway 호출 전에 거절</span>하며, 브라우저에 개인 자격
+          증명을 노출하지 않습니다.
+        </p>
+        <span class="slide-no">04 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Execution boundary</p>
+        <h2>개인 Agent는 자신의 Workspace와 선택된 실행 위치만 봅니다</h2>
+        <div class="grid-3">
+          <article class="panel">
+            <h3>Basic</h3>
+            <p>플랫폼 서버의 격리 Sandbox. 기본값이며 개인 작업공간을 사용합니다.</p>
+          </article>
+          <article class="panel">
+            <h3>Assigned VM</h3>
+            <p>승인된 VM 할당과 revision을 고정하고 SSH lease를 재사용합니다.</p>
+          </article>
+          <article class="panel">
+            <h3>Skills</h3>
+            <p>선택된 target에서 bounded catalog를 읽고 실행 snapshot을 고정합니다.</p>
+          </article>
+        </div>
+        <p class="muted" style="margin-top: 1.5rem">
+          선택한 VM 연결이 실패해도 더 약한 실행 위치로 조용히 fallback하지 않습니다.
+        </p>
+        <span class="slide-no">05 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Knox policy</p>
+        <h2>DM은 개인 Agent로, Group Room은 공유 Agent로</h2>
+        <div class="grid-2">
+          <article class="panel">
+            <h3>DM</h3>
+            <ul>
+              <li>사전 Web 로그인을 확인</li>
+              <li>개인 main session으로 route</li>
+              <li>개인 VM 선택을 유지</li>
+            </ul>
+          </article>
+          <article class="panel">
+            <h3>Group Room</h3>
+            <ul>
+              <li>방별 Agent를 idempotent provision</li>
+              <li>개인 VM·개인 credential 금지</li>
+              <li>플랫폼 Sandbox에서 실행</li>
+            </ul>
+          </article>
+        </div>
+        <p class="lead" style="margin-top: 1.5rem">
+          대화 채널은 transport이고, 실행·소유권 정책은 Control Plane이 소유합니다.
+        </p>
+        <span class="slide-no">06 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Board Farm</p>
+        <h2>빌드가 성공해야 보드를 빌리고, Lease가 살아 있어야 검증합니다</h2>
+        <div class="flow">
+          <div class="step">Build<br /><span class="ok">PASS</span></div>
+          <div class="arrow">→</div>
+          <div class="step">Acquire<br />Lease</div>
+          <div class="arrow">→</div>
+          <div class="step">Deploy<br />Artifact</div>
+          <div class="arrow">→</div>
+          <div class="step">Boot &amp;<br />Validate</div>
+          <div class="arrow">→</div>
+          <div class="step">Release<br />Evidence</div>
+        </div>
+        <div class="grid-3" style="margin-top: 1.3rem">
+          <div class="panel">
+            <strong>TTL + Heartbeat</strong><br /><span class="muted">stale owner 회수</span>
+          </div>
+          <div class="panel">
+            <strong>Idempotency</strong><br /><span class="muted">중복 요청 억제</span>
+          </div>
+          <div class="panel">
+            <strong>Cross-user deny</strong><br /><span class="muted">owner 일치 강제</span>
+          </div>
+        </div>
+        <span class="slide-no">07 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Credential boundary</p>
+        <h2>브라우저는 비밀번호를 저장하지 않고, 실행기는 한 번만 받습니다</h2>
+        <div class="grid-2">
+          <div class="panel">
+            <h3>Control Plane</h3>
+            <p>암호화된 credential envelope와 endpoint binding, revision을 관리합니다.</p>
+          </div>
+          <div class="panel">
+            <h3>Execution plugin</h3>
+            <p>local one-shot grant를 redeem하고 SSH master lease에만 사용합니다.</p>
+          </div>
+        </div>
+        <ul>
+          <li>HttpOnly browser session</li>
+          <li>관리자 소유 Global MCP 정책 + 사용자별 encrypted credential</li>
+          <li>URL credential, endpoint mismatch, stale revision은 fail closed</li>
+        </ul>
+        <span class="slide-no">08 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Failure is a state</p>
+        <h2>실패를 숨기지 않고, 다시 시작할 위치를 남깁니다</h2>
+        <div class="status panel">
+          <div>Build 실패</div>
+          <div class="ok">Board 단계 진입 금지</div>
+          <div>Lease heartbeat 만료</div>
+          <div class="ok">stale recovery 후 재할당</div>
+          <div>Validation 실패</div>
+          <div class="ok">로그·관측값 보존</div>
+          <div>Report 또는 Knox 실패</div>
+          <div class="ok">작업 결과 유지 + retry 가능</div>
+          <div>프로세스 재시작</div>
+          <div class="ok">저장된 run 조회·복구</div>
+        </div>
+        <span class="slide-no">09 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Restricted Control UI</p>
+        <h2>직원이 필요한 상태만, PlatformClaw 언어로</h2>
+        <div class="grid-2">
+          <div class="mock-ui" aria-label="MOCK UI 상태 예시">
+            <div class="mock-bar">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span
+              ><span class="tag mock">MOCK UI</span>
+            </div>
+            <div class="mock-body">
+              <div class="mock-nav">
+                PlatformClaw<br /><br />Assistant<br />Workspace<br />Execution<br />Board Run
+              </div>
+              <div class="mock-content">
+                <h3>실행 위치</h3>
+                <div class="panel">Assigned VM · Ready</div>
+                <h3 style="margin-top: 1rem">Board 검증</h3>
+                <div class="panel">Lease active · 08:42 remaining</div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <ul>
+              <li>PlatformClaw login·favicon·한국어</li>
+              <li>개인·관리자 action 분리</li>
+              <li>Loading, empty, error, retry 상태</li>
+              <li>내부 Gateway metadata 숨김</li>
+            </ul>
+          </div>
+        </div>
+        <span class="slide-no">10 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Business value</p>
+        <h2>도구 자동화가 아니라 엔지니어링 리드타임의 연결 비용을 줄입니다</h2>
+        <div class="grid-3">
+          <article class="panel">
+            <div class="metric">1</div>
+            <p>요청부터 증거·보고까지 하나의 추적 단위</p>
+          </article>
+          <article class="panel">
+            <div class="metric">0</div>
+            <p>브라우저에 노출되는 VM·MCP 비밀값</p>
+          </article>
+          <article class="panel">
+            <div class="metric">N</div>
+            <p>정책 경계를 유지하며 확장되는 사용자·보드·Skill</p>
+          </article>
+        </div>
+        <p class="muted" style="margin-top: 1.4rem">
+          실제 시간 절감·성공률은 내부 Golden Run에서 측정하며, 사전에는 추정치로 제시하지 않습니다.
+        </p>
+        <span class="slide-no">11 / 13</span>
+      </section>
+
+      <section class="slide">
+        <p class="eyebrow">Provenance</p>
+        <h2>OpenClaw의 범용 기반 위에, 기업형 작업 경계를 새로 설계했습니다</h2>
+        <div class="grid-2">
+          <article class="panel">
+            <h3>OpenClaw에서 유지</h3>
+            <p>
+              Gateway, Agent, Session, Tool, Plugin SDK, Sandbox의 generic contract와 Git ancestry.
+            </p>
+          </article>
+          <article class="panel">
+            <h3>PlatformClaw에서 개발</h3>
+            <p>
+              Enterprise identity, 멀티유저 Control Plane, 개인 VM·credential 경계, Knox routing,
+              제한 UI, Board Farm workflow.
+            </p>
+          </article>
+        </div>
+        <p class="lead" style="margin-top: 1.5rem">
+          기존 사내 Board Farm·Jira·Global Skills는
+          <span class="limited">INTERNAL_INTEGRATION_REQUIRED</span>로 분리하고 출처를 명시합니다.
+        </p>
+        <span class="slide-no">12 / 13</span>
+      </section>
+
+      <section class="slide">
+        <div class="grid-2">
+          <div>
+            <p class="eyebrow">Evidence plan</p>
+            <h2>외부에서 반복 가능한 MOCK, 내부에서만 완성 가능한 실증</h2>
+            <p><span class="tag mock">MOCK VERIFIED</span></p>
+            <p>
+              결정적 adapter로 build → lease → deploy → boot → validate → report → Knox 결과와 격리
+              거절을 재현합니다.
+            </p>
+            <p><span class="tag">INTERNAL FINAL</span></p>
+            <p>
+              실제 Board Farm·Jira·Knox·보드 결과, 비즈니스 지표, 5분 이내 영상을 별도 Final Gate로
+              교체합니다.
+            </p>
+          </div>
+          <div class="terminal">
+            <span class="prompt">$</span> pnpm submission:test:mock<br /><span class="pass"
+              >PASS</span
+            >
+            mode=mock result=passed<br /><span class="prompt">$</span> pnpm
+            submission:verify:external<br /><span class="pass">PASS</span> claims · evidence ·
+            slides · blindness<br /><br /><span class="muted"
+              >Final: pnpm submission:verify:final</span
+            >
+          </div>
+        </div>
+        <span class="slide-no">13 / 13</span>
+      </section>
+    </main>
+
+    <div class="corner-brand">
+      <img class="mascot small" src="assets/platformclaw-mascot.svg" alt="" /> PLATFORMCLAW
+    </div>
+    <nav class="controls" aria-label="슬라이드 이동">
+      <button id="previous" type="button" aria-label="이전 슬라이드">←</button>
+      <button id="next" type="button" aria-label="다음 슬라이드">→</button>
+    </nav>
+    <script>
+      const slides = [...document.querySelectorAll(".slide")];
+      let current = 0;
+      function show(next) {
+        current = Math.max(0, Math.min(slides.length - 1, next));
+        slides.forEach((slide, index) => {
+          slide.classList.toggle("active", index === current);
+          slide.classList.toggle("past", index < current);
+        });
+      }
+      document.querySelector("#previous").addEventListener("click", () => show(current - 1));
+      document.querySelector("#next").addEventListener("click", () => show(current + 1));
+      document.addEventListener("keydown", (event) => {
+        if (["ArrowRight", "PageDown", " "].includes(event.key)) show(current + 1);
+        if (["ArrowLeft", "PageUp"].includes(event.key)) show(current - 1);
+        if (event.key === "Home") show(0);
+        if (event.key === "End") show(slides.length - 1);
+      });
+    </script>
+  </body>
+</html>

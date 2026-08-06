@@ -1,0 +1,17 @@
+---
+name: platformclaw-board-validation
+description: Deploy a verified artifact to an owned Board Farm lease, boot it, validate it, and preserve evidence.
+---
+
+# Board Validation
+
+Require a successful build result, matching artifact digest and active owned lease.
+
+1. Deploy the artifact using the lease-bound adapter.
+2. Boot the leased board with the approved profile.
+3. Run the bounded validation suite.
+4. Record evidence with phase, operation ID, SHA-256 and sanitized locator.
+5. Release or clean up the lease.
+6. Return pass/fail without deleting evidence from completed phases.
+
+Never select a different board or retry a non-idempotent operation outside the domain policy.

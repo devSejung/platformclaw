@@ -119,6 +119,9 @@ export const en: TranslationMap = {
     execution: {
       workLocation: "Work location",
       openSettings: "Open work location settings",
+      targetReady: "Execution target ready",
+      targetAttention: "VM setup required",
+      targetUnavailable: "Work location unavailable",
       current: "Current work location",
       basic: "Basic workspace",
       vm: "My development VM",

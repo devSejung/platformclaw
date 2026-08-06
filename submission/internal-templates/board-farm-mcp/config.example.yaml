@@ -1,0 +1,16 @@
+schema_version: 1
+adapter: internal-board-farm
+endpoint_ref: "<DEPLOYMENT_OWNED_ENDPOINT_REFERENCE>"
+authentication:
+  method: secret_file
+  secret_file: "<APPROVED_SECRET_FILE_PATH>"
+tools:
+  deploy: "<APPROVED_DEPLOY_TOOL>"
+  boot: "<APPROVED_BOOT_TOOL>"
+  validate: "<APPROVED_VALIDATE_TOOL>"
+  cleanup: "<APPROVED_CLEANUP_TOOL>"
+timeouts:
+  connect_ms: 5000
+  operation_ms: 120000
+evidence:
+  locator_policy: sanitized-reference-only

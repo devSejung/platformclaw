@@ -500,6 +500,7 @@ class OpenClawShell
     const title = formatDocumentTitle({
       context: primaryContext,
       attentionCount: context.overlays.snapshot.approvalQueue.length,
+      brandName: this.runtime?.shellSession?.productName,
       offline: context.gateway.snapshot.phase !== "connected",
       queuedCount: this.outboxStoreRuntime?.summarizeStoredChatOutboxes(outboxScopeHost).total ?? 0,
     });

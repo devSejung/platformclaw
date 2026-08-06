@@ -1,0 +1,144 @@
+name: PlatformClaw HELLO AI Submission
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches:
+      - submission/hello-ai-2026-prep
+      - submission/hello-ai-2026-final
+  workflow_dispatch:
+    inputs:
+      run_internal_final:
+        description: Run the evidence-only final gate on a verified internal runner
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  external:
+    name: External submission gate
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          filter: blob:none
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: "false"
+          install-deps: "true"
+
+      - name: Resolve validation range
+        id: range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA="${HEAD_SHA}^"
+          fi
+          echo "base=$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Validate changed PlatformClaw surfaces
+        env:
+          VALIDATION_BASE: ${{ steps.range.outputs.base }}
+          VALIDATION_HEAD: ${{ github.sha }}
+        run: >-
+          node scripts/platformclaw-check.mjs
+          --changed
+          --base "$VALIDATION_BASE"
+          --head "$VALIDATION_HEAD"
+
+      - name: Validate documentation inventory and links
+        run: |
+          pnpm docs:list
+          pnpm docs:check-links
+
+      - name: Validate deployment composition
+        env:
+          PLATFORMCLAW_COMPANY_APT_SOURCES: /tmp/platformclaw-empty-apt-sources
+          PLATFORMCLAW_CREDENTIAL_BROKER_VOLUME_NAME: platformclaw-ci-credential-broker-1000-1000
+          PLATFORMCLAW_DEPLOY_HOST_ROOT: /tmp/platformclaw-deploy
+          PLATFORMCLAW_DEPLOY_ROOT: /var/lib/platformclaw
+          PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE: /tmp/platformclaw-employee-auth-ca.pem
+          PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: https://auth.example.test/login
+          PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_KNOX_CDEP_URL: https://cdep.example.test/api/v1/platformclaw/knox/outbound/send
+          PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE: /tmp/platformclaw-empty-secret
+          PLATFORMCLAW_PUBLIC_ORIGIN: https://platformclaw.example.test
+          PLATFORMCLAW_REPO_ROOT: ${{ github.workspace }}
+          PLATFORMCLAW_RUNTIME_GID: "1000"
+          PLATFORMCLAW_RUNTIME_UID: "1000"
+          PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR: /tmp/platformclaw-sandbox-docker
+          PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR: /tmp/platformclaw-sandbox.tar
+          PLATFORMCLAW_SMOKE_WORKSPACE_DIR: /tmp/platformclaw-workspaces
+          PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE: /tmp/platformclaw-empty-secret
+        run: |
+          touch "$PLATFORMCLAW_COMPANY_APT_SOURCES"
+          touch "$PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE"
+          touch "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"
+          docker compose -f docker/platformclaw-jammy/compose.yaml config --quiet
+          docker compose \
+            -f docker/platformclaw-runtime/compose.yaml \
+            -f docker/platformclaw-runtime/compose.smoke.yaml \
+            config --quiet
+
+      - name: Run deterministic mock golden path
+        run: pnpm submission:test:mock
+
+      - name: Run external submission verification
+        run: pnpm submission:verify:external
+
+      - name: Run Docker runtime smoke
+        run: pnpm test:docker:platformclaw-runtime
+
+      - name: Validate workflow contracts
+        run: node scripts/check-workflows.mjs
+
+  final-internal:
+    name: Internal final evidence gate
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.run_internal_final &&
+      github.ref == 'refs/heads/submission/hello-ai-2026-final'
+    runs-on: [self-hosted, linux, platformclaw-internal]
+    environment: platformclaw-internal-final
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          filter: blob:none
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: "false"
+          install-deps: "true"
+
+      - name: Verify mounted internal evidence
+        run: pnpm submission:verify:final

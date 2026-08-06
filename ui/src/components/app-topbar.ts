@@ -13,12 +13,16 @@ class AppTopbar extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) navDrawerOpen = false;
   @property({ attribute: false }) onboarding = false;
   @property({ attribute: false }) basePath = "";
+  @property({ attribute: false }) brandName = "OpenClaw";
+  @property({ attribute: false }) brandIconUrl = "";
   @property({ attribute: false }) onToggleDrawer?: (trigger: HTMLElement) => void;
   @property({ attribute: false }) onOpenPalette?: () => void;
   @property({ attribute: false }) searchDisabled = false;
 
   override render() {
     const drawerLabel = this.navDrawerOpen ? t("nav.collapse") : t("nav.expand");
+    const brandIconUrl =
+      this.brandIconUrl || controlUiPublicAssetPath("apple-touch-icon.png", this.basePath);
     return html`
       <header
         class="topbar"
@@ -41,14 +45,9 @@ class AppTopbar extends OpenClawLightDomContentsElement {
           <!-- The Mac app used to float a native drag strip over this brand
                row; the web now asks the host to move the window itself. -->
           <div class="topnav-shell__content" @mousedown=${beginNativeWindowDrag}>
-            <div class="topbar-brand" aria-label="OpenClaw">
-              <img
-                class="topbar-brand__logo"
-                src=${controlUiPublicAssetPath("apple-touch-icon.png", this.basePath)}
-                alt=""
-                aria-hidden="true"
-              />
-              <span class="topbar-brand__title">OpenClaw</span>
+            <div class="topbar-brand" aria-label=${this.brandName}>
+              <img class="topbar-brand__logo" src=${brandIconUrl} alt="" aria-hidden="true" />
+              <span class="topbar-brand__title">${this.brandName}</span>
             </div>
           </div>
           <div class="topnav-shell__actions">

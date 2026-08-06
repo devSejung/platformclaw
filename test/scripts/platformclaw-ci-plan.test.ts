@@ -50,6 +50,43 @@ describe("classifyPlatformClawChanges", () => {
     expect(plan.needs_changed_surface_checks).toBe(false);
   });
 
+  it("routes execution and user MCP plugins through focused checks", () => {
+    const plan = classifyPlatformClawChanges([
+      "extensions/platformclaw-execution/src/backend.ts",
+      "extensions/platformclaw-user-mcp/src/runtime.ts",
+    ]);
+
+    expect(plan.mode).toBe("platformclaw");
+    expect(plan.needs_execution_checks).toBe(true);
+    expect(plan.needs_user_mcp_checks).toBe(true);
+    expect(plan.needs_changed_surface_checks).toBe(false);
+  });
+
+  it("routes Board Farm and skill policy changes explicitly", () => {
+    const plan = classifyPlatformClawChanges([
+      "packages/platformclaw-control-plane/src/board-farm/runtime.ts",
+      "submission/internal-templates/global-skills/firmware-build/SKILL.md.template",
+    ]);
+
+    expect(plan.needs_board_farm_checks).toBe(true);
+    expect(plan.needs_skill_policy_checks).toBe(true);
+  });
+
+  it("keeps submission documents and evidence on submission gates", () => {
+    const plan = classifyPlatformClawChanges([
+      "README.md",
+      "docs/submission/00_EVALUATION_REQUIREMENTS.md",
+      "submission/evaluation-map.yaml",
+      "submission/slides/index.html",
+    ]);
+
+    expect(plan.mode).toBe("docs");
+    expect(plan.needs_docs_checks).toBe(true);
+    expect(plan.needs_submission_docs_checks).toBe(true);
+    expect(plan.needs_submission_evidence_checks).toBe(true);
+    expect(plan.needs_changed_surface_checks).toBe(false);
+  });
+
   it("keeps lockfile-only changes on upstream checks", () => {
     const plan = classifyPlatformClawChanges(["pnpm-lock.yaml"]);
 
@@ -57,9 +94,29 @@ describe("classifyPlatformClawChanges", () => {
     expect(plan.needs_changed_surface_checks).toBe(true);
   });
 
+  it("treats the root submission script manifest as overlay metadata", () => {
+    const plan = classifyPlatformClawChanges([
+      "package.json",
+      "scripts/submission/verify-external.mjs",
+    ]);
+
+    expect(plan.mode).toBe("platformclaw");
+    expect(plan.needs_planner_tests).toBe(true);
+    expect(plan.needs_changed_surface_checks).toBe(false);
+  });
+
+  it("keeps a root package manifest-only change on upstream checks", () => {
+    const plan = classifyPlatformClawChanges(["package.json"]);
+
+    expect(plan.mode).toBe("upstream");
+    expect(plan.needs_changed_surface_checks).toBe(true);
+  });
+
   it("validates workflow and planner changes", () => {
     const plan = classifyPlatformClawChanges([
+      ".github/actionlint.yaml",
       ".github/workflows/platformclaw-ci.yml",
+      ".oxfmtrc.jsonc",
       "scripts/platformclaw-ci-plan.d.mts",
       "scripts/platformclaw-check.d.mts",
     ]);

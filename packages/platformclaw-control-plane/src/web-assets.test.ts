@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { getDeterministicFreePortBlock } from "../../../src/test-utils/ports.js";
 import {
   createPlatformClawWebAssetHandler,
   PLATFORMCLAW_WEB_APP_PATH,
@@ -14,6 +15,15 @@ import {
 
 const tempDirectories: string[] = [];
 const PUBLIC_ORIGIN = "https://platformclaw.example";
+
+async function listenOnBrowserSafePort(server: ReturnType<typeof createServer>): Promise<void> {
+  // Browser fetch rejects several legacy ports before sending a request. Keep
+  // this HTTP contract test on the shared deterministic safe-port range.
+  const port = await getDeterministicFreePortBlock({ offsets: [0] });
+  await new Promise<void>((resolve) => {
+    server.listen(port, "127.0.0.1", resolve);
+  });
+}
 
 function fixtureRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "platformclaw-web-assets-"));
@@ -44,9 +54,7 @@ async function serveFixture(root: string): Promise<{
       }
     });
   });
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", resolve);
-  });
+  await listenOnBrowserSafePort(server);
   const port = (server.address() as AddressInfo).port;
   return {
     origin: `http://127.0.0.1:${port}`,
@@ -82,9 +90,7 @@ async function serveApplicationFixture(root: string): Promise<{
       }
     });
   });
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", resolve);
-  });
+  await listenOnBrowserSafePort(server);
   const port = (server.address() as AddressInfo).port;
   return {
     origin: `http://127.0.0.1:${port}`,

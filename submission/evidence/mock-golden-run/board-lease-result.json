@@ -1,0 +1,17 @@
+{
+  "mode": "mock",
+  "result": "passed",
+  "run_id": "golden-run-000001",
+  "lease_id": "golden-lease-000003",
+  "board_id": "mock-board-001",
+  "profile": "firmware-devkit",
+  "capabilities": [
+    "flash",
+    "serial-console"
+  ],
+  "acquired_state": "active",
+  "renewed_expires_at": 1786104600010,
+  "released_state": "released",
+  "access_token_exposed": false,
+  "idempotent_replay": true
+}

@@ -396,12 +396,14 @@ export function titleForRoute(routeId: NavigationRouteId): string {
 export function formatDocumentTitle(options: {
   context: string;
   attentionCount?: number;
+  brandName?: string;
   offline?: boolean;
   queuedCount?: number;
 }): string {
-  const base = options.context.endsWith("OpenClaw")
+  const brandName = options.brandName?.trim() || "OpenClaw";
+  const base = options.context.endsWith(brandName)
     ? options.context
-    : `${options.context} — OpenClaw`;
+    : `${options.context} — ${brandName}`;
   if (options.offline) {
     const queued =
       options.queuedCount && options.queuedCount > 0

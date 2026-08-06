@@ -16,6 +16,9 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.execution.current": "현재 작업 위치",
   "platformClaw.execution.basic": "기본 작업 공간",
   "platformClaw.execution.vm": "내 개발 VM",
+  "platformClaw.execution.targetReady": "실행 위치 준비됨",
+  "platformClaw.execution.targetAttention": "VM 설정 필요",
+  "platformClaw.execution.targetUnavailable": "작업 위치 확인 불가",
   "platformClaw.execution.useBasic": "기본 작업 공간 사용",
   "platformClaw.execution.useVm": "내 개발 VM 사용",
   "platformClaw.execution.boundary":

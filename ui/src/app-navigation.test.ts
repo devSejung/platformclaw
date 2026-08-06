@@ -1,6 +1,6 @@
 // @vitest-environment node
 // Control UI tests cover navigation behavior.
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   SETTINGS_NAVIGATION_GROUPS,
   SIDEBAR_NAV_ROUTES,
@@ -21,8 +21,13 @@ import {
 import { createApplicationRouter, routeIdFromPath, type RouteId } from "./app-routes.ts";
 import { pathForSession } from "./app-session-path-builder.ts";
 import { sessionRefFromPath } from "./app-session-route-paths.ts";
+import { i18n } from "./i18n/index.ts";
 import { sessionNavigationTarget } from "./lib/sessions/route-navigation.ts";
 import { pluginTabKey, pluginTabRefFromSearch, pluginTabSearch } from "./pages/plugin/route.ts";
+
+beforeAll(async () => {
+  await i18n.setLocale("en");
+});
 
 type SessionUrlContractCase = {
   sessionKey: string;
@@ -259,6 +264,15 @@ describe("formatDocumentTitle", () => {
   it("does not duplicate a context ending in the brand", () => {
     expect(formatDocumentTitle({ context: "Ask OpenClaw" })).toBe("Ask OpenClaw");
     expect(formatDocumentTitle({ context: "OpenClaw" })).toBe("OpenClaw");
+  });
+
+  it("supports an embedded product brand without changing the default", () => {
+    expect(formatDocumentTitle({ context: "Usage", brandName: "PlatformClaw" })).toBe(
+      "Usage — PlatformClaw",
+    );
+    expect(formatDocumentTitle({ context: "PlatformClaw", brandName: "PlatformClaw" })).toBe(
+      "PlatformClaw",
+    );
   });
 
   it("prefixes a positive attention count", () => {

@@ -1,0 +1,58 @@
+{
+  "mode": "mock",
+  "result": "passed",
+  "run_id": "golden-run-000001",
+  "workflow_status": "succeeded",
+  "phases": [
+    {
+      "phase": "deploy",
+      "status": "passed",
+      "kind": "mock-board-farm-operation",
+      "locator": "mock-evidence://golden-run-000001/deploy",
+      "sha256": "3344467107b27b87b22e6aed48cb4ce85c6d3f3b75b66109046e7a304b1a3214"
+    },
+    {
+      "phase": "boot",
+      "status": "passed",
+      "kind": "mock-board-farm-operation",
+      "locator": "mock-evidence://golden-run-000001/boot",
+      "sha256": "c7c66b4c3d9c7d0932d186ca386f2640791276bc8ea332973aae3cbe0181d1f0"
+    },
+    {
+      "phase": "validate",
+      "status": "passed",
+      "kind": "mock-board-farm-operation",
+      "locator": "mock-evidence://golden-run-000001/validate",
+      "sha256": "c2867f7297a1e40ff9a8ef417d361ea190de515a5f4208b00a36ea154841d083"
+    },
+    {
+      "phase": "cleanup",
+      "status": "passed",
+      "kind": "mock-board-farm-operation",
+      "locator": "mock-evidence://golden-run-000001/cleanup",
+      "sha256": "fa5bbddd7936d8e9d28ec39dd6d16225c64887357bd62396a8bbc2bef961a17a"
+    }
+  ],
+  "adapter_calls": [
+    {
+      "phase": "deploy",
+      "operation_id": "golden-run-000001:deploy:v1",
+      "board_id": "mock-board-001"
+    },
+    {
+      "phase": "boot",
+      "operation_id": "golden-run-000001:boot:v1",
+      "board_id": "mock-board-001"
+    },
+    {
+      "phase": "validate",
+      "operation_id": "golden-run-000001:validate:v1",
+      "board_id": "mock-board-001"
+    },
+    {
+      "phase": "cleanup",
+      "operation_id": "golden-run-000001:cleanup:v1",
+      "board_id": "mock-board-001"
+    }
+  ]
+}

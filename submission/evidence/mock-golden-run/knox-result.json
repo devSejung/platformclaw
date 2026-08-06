@@ -1,0 +1,13 @@
+{
+  "mode": "mock",
+  "result": "passed",
+  "provider": "knox-style-mock-adapter",
+  "target_alias": "user-a",
+  "locator": "mock-knox-result://golden-run-000001",
+  "message_fields": [
+    "run_id",
+    "board_alias",
+    "validation_status",
+    "report_key"
+  ]
+}

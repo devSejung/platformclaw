@@ -1,0 +1,16 @@
+---
+name: platformclaw-firmware-build
+description: Build an approved firmware target and return a content-addressed artifact result.
+---
+
+# Firmware Build
+
+Use only the Run's pinned source revision, execution target and approved build profile.
+
+1. Validate the source revision and clean fixture policy.
+2. Run the approved build command through the selected execution backend.
+3. On failure, return a stable failure code and bounded log references; do not request a Board Farm lease.
+4. On success, calculate the artifact SHA-256 digest.
+5. Return artifact ID, digest, sanitized locator, timestamps and bounded log references.
+
+Never print credentials, internal endpoints or user identifiers. Do not infer success from file existence alone.

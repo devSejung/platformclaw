@@ -41,6 +41,9 @@ describe("PlatformClaw execution settings", () => {
 
     await vi.waitFor(() => {
       expect(element.shadowRoot?.textContent).toContain("기본 작업 공간");
+      expect(
+        element.shadowRoot?.querySelector("[data-action='open']")?.getAttribute("aria-label"),
+      ).toContain("실행 위치 준비됨");
     });
     element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
 
@@ -83,6 +86,58 @@ describe("PlatformClaw execution settings", () => {
       "Conversation and Agent settings stay. Files and processes do not move.",
     );
     expect(element.shadowRoot?.textContent).toContain("Development VM");
+    expect(
+      element.shadowRoot?.querySelector("[data-action='open']")?.getAttribute("data-status"),
+    ).toBe("ready");
+    expect(element.shadowRoot?.textContent).toContain("Sandbox · Basic workspace");
+  });
+
+  it("shows a failed work-location check and retries from the same control", async () => {
+    await i18n.setLocale("ko");
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error("Execution service unavailable"))
+      .mockResolvedValueOnce(jsonResponse(SETTINGS));
+    mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
+    const element = document.querySelector("platformclaw-execution-settings")!;
+
+    await vi.waitFor(() => {
+      expect(element.shadowRoot?.textContent).toContain("작업 위치 확인 불가");
+    });
+    const badge = element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']");
+    expect(badge?.getAttribute("data-status")).toBe("error");
+    badge?.click();
+    expect(element.shadowRoot?.querySelector("[role='alert']")?.textContent).toContain(
+      "Execution service unavailable",
+    );
+
+    element.shadowRoot?.querySelector<HTMLElement>("[data-action='refresh']")?.click();
+
+    await vi.waitFor(() => {
+      expect(element.shadowRoot?.textContent).toContain("Sandbox · 기본 작업 공간");
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks an assigned VM that still needs credentials as actionable", async () => {
+    await i18n.setLocale("ko");
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        ...SETTINGS,
+        credentialStatus: "missing",
+        assignment: { ...SETTINGS.assignment, status: "connection_required" },
+      }),
+    );
+    mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
+    const element = document.querySelector("platformclaw-execution-settings")!;
+
+    await vi.waitFor(() => {
+      expect(
+        element.shadowRoot?.querySelector("[data-action='open']")?.getAttribute("data-status"),
+      ).toBe("attention");
+    });
+    element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+    expect(element.shadowRoot?.textContent).toContain("VM 설정 필요");
   });
 
   it("requires confirmation before changing to the assigned VM", async () => {

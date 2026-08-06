@@ -11,6 +11,12 @@ export type PlatformClawChangePlan = {
   needs_package_checks: boolean;
   needs_admin_http_rpc_checks: boolean;
   needs_knox_checks: boolean;
+  needs_execution_checks: boolean;
+  needs_user_mcp_checks: boolean;
+  needs_board_farm_checks: boolean;
+  needs_skill_policy_checks: boolean;
+  needs_submission_docs_checks: boolean;
+  needs_submission_evidence_checks: boolean;
   needs_planner_tests: boolean;
   needs_workflow_checks: boolean;
   needs_ui_checks: boolean;

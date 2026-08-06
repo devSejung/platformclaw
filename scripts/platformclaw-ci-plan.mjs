@@ -6,9 +6,17 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 const EXACT_OVERLAY_PATHS = new Set([
+  ".github/actionlint.yaml",
   ".github/workflows/platformclaw-ci.yml",
   ".github/workflows/platformclaw-full-ci.yml",
+  ".github/workflows/platformclaw-submission.yml",
+  ".oxfmtrc.jsonc",
+  "ARCHITECTURE.md",
+  "ATTRIBUTION.md",
+  "EVALUATION.md",
   "PLATFORMCLAW.md",
+  "PRD.md",
+  "README.md",
   "scripts/mock_employee_auth.py",
   "scripts/e2e/platformclaw-runtime-docker.sh",
   "scripts/platformclaw-ci-plan.d.mts",
@@ -21,14 +29,20 @@ const EXACT_OVERLAY_PATHS = new Set([
 ]);
 
 const OVERLAY_PREFIXES = [
+  "docs/assets/platformclaw/",
   "docs/platformclaw/",
+  "docs/submission/",
   "extensions/admin-http-rpc/",
   "extensions/knox/",
+  "extensions/platformclaw-execution/",
+  "extensions/platformclaw-user-mcp/",
   "packages/platformclaw-control-plane/",
+  "scripts/submission/",
+  "submission/",
   "ui/src/platformclaw/",
 ];
 
-const SHARED_METADATA_PATHS = new Set(["pnpm-lock.yaml"]);
+const SHARED_METADATA_PATHS = new Set(["package.json", "pnpm-lock.yaml"]);
 
 function normalizePath(file) {
   return file.replaceAll("\\", "/").replace(/^\.\//, "");
@@ -45,13 +59,24 @@ function isOverlayPath(file) {
   );
 }
 
+function isDocumentationOnlyPath(file) {
+  return (
+    file.endsWith(".md") ||
+    file.startsWith("docs/assets/platformclaw/") ||
+    file.startsWith("submission/")
+  );
+}
+
 export function classifyPlatformClawChanges(inputFiles) {
   const files = [...new Set(inputFiles.map(normalizePath).filter(Boolean))].toSorted(
     (left, right) => left.localeCompare(right),
   );
   const hasChanges = files.length > 0;
   const hasDocsChanges = files.some(
-    (file) => file === "PLATFORMCLAW.md" || file.startsWith("docs/platformclaw/"),
+    (file) =>
+      file === "PLATFORMCLAW.md" ||
+      file.startsWith("docs/platformclaw/") ||
+      file.startsWith("docs/submission/"),
   );
   const hasPackageChanges = files.some((file) =>
     file.startsWith("packages/platformclaw-control-plane/"),
@@ -60,12 +85,47 @@ export function classifyPlatformClawChanges(inputFiles) {
     file.startsWith("extensions/admin-http-rpc/"),
   );
   const hasKnoxChanges = files.some((file) => file.startsWith("extensions/knox/"));
+  const hasExecutionChanges = files.some((file) =>
+    file.startsWith("extensions/platformclaw-execution/"),
+  );
+  const hasUserMcpChanges = files.some((file) =>
+    file.startsWith("extensions/platformclaw-user-mcp/"),
+  );
+  const hasBoardFarmChanges = files.some((file) =>
+    file.startsWith("packages/platformclaw-control-plane/src/board-farm/"),
+  );
+  const hasSkillPolicyChanges = files.some(
+    (file) =>
+      file.startsWith("extensions/platformclaw-execution/src/remote-skill") ||
+      file.startsWith("submission/internal-templates/global-skills/") ||
+      file === "docs/submission/07_GLOBAL_SKILLS_POLICY.md",
+  );
+  const hasSubmissionDocsChanges = files.some(
+    (file) =>
+      ["ARCHITECTURE.md", "ATTRIBUTION.md", "EVALUATION.md", "PRD.md", "README.md"].includes(
+        file,
+      ) ||
+      file.startsWith("docs/submission/") ||
+      file === "submission/README.md" ||
+      file === "submission/SUBMISSION_MANIFEST.md" ||
+      file === "submission/INTERNAL_FINALIZATION_CHECKLIST.md" ||
+      file.startsWith("submission/internal-templates/") ||
+      file.startsWith("submission/slides/") ||
+      file.startsWith("submission/video/"),
+  );
+  const hasSubmissionEvidenceChanges = files.some(
+    (file) =>
+      file === "submission/evaluation-map.yaml" ||
+      file === "submission/internal-requirements.yaml" ||
+      file.startsWith("submission/evidence/"),
+  );
   const hasPlannerChanges = files.some(
     (file) =>
       file === "scripts/platformclaw-ci-plan.mjs" ||
       file === "scripts/platformclaw-ci-plan.d.mts" ||
       file === "scripts/platformclaw-check.mjs" ||
       file === "scripts/platformclaw-check.d.mts" ||
+      file.startsWith("scripts/submission/") ||
       file.startsWith("test/scripts/platformclaw-"),
   );
   const hasWorkflowChanges = files.some((file) =>
@@ -89,9 +149,7 @@ export function classifyPlatformClawChanges(inputFiles) {
   const hasUpstreamSurface = files.some(
     (file) => !isOverlayPath(file) && (!SHARED_METADATA_PATHS.has(file) || !hasOverlayChanges),
   );
-  const hasCodeChanges = files.some(
-    (file) => file !== "PLATFORMCLAW.md" && !file.startsWith("docs/platformclaw/"),
-  );
+  const hasCodeChanges = files.some((file) => !isDocumentationOnlyPath(file));
 
   return {
     files,
@@ -110,6 +168,12 @@ export function classifyPlatformClawChanges(inputFiles) {
     needs_package_checks: hasPackageChanges,
     needs_admin_http_rpc_checks: hasAdminHttpRpcChanges,
     needs_knox_checks: hasKnoxChanges,
+    needs_execution_checks: hasExecutionChanges,
+    needs_user_mcp_checks: hasUserMcpChanges,
+    needs_board_farm_checks: hasBoardFarmChanges,
+    needs_skill_policy_checks: hasSkillPolicyChanges,
+    needs_submission_docs_checks: hasSubmissionDocsChanges,
+    needs_submission_evidence_checks: hasSubmissionEvidenceChanges,
     needs_planner_tests: hasPlannerChanges,
     needs_workflow_checks: hasWorkflowChanges,
     needs_ui_checks: hasUiChanges,

@@ -1,0 +1,17 @@
+{
+  "mode": "mock",
+  "result": "passed",
+  "source_change": {
+    "fixture": "firmware-ready-flag.ts",
+    "before_sha256": "355f163684163f6a6fd69c241758f74661223d6fea319c583d2b6c3b541bf3e4",
+    "after_sha256": "e37ecd54535f3a5ccc7e15932a4b910a41ae2000fcf9d0b901f31d538c9fbcd2",
+    "changed_lines": 1
+  },
+  "artifact": {
+    "id": "firmware-fixture-001",
+    "digest": "e37ecd54535f3a5ccc7e15932a4b910a41ae2000fcf9d0b901f31d538c9fbcd2",
+    "locator": "mock-artifact://firmware/firmware-fixture-001"
+  },
+  "execution_target": "platform_server_mock_sandbox",
+  "completed_at": "2026-08-07T12:00:00.000Z"
+}

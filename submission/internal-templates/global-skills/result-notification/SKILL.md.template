@@ -1,0 +1,16 @@
+---
+name: platformclaw-result-notification
+description: Deliver a sanitized PlatformClaw Run result through the approved Knox path and return a durable delivery outcome.
+---
+
+# Result Notification
+
+Require a terminal Run summary and safe Jira/evidence reference.
+
+1. Select DM or room from the pre-authorized Run context; never infer a recipient.
+2. Render a bounded user-safe summary.
+3. Send with the Run idempotency key.
+4. Return delivery ID, accepted time and status.
+5. On failure, keep the Run, Jira result and evidence and return retryability.
+
+Do not send credentials, internal endpoints, raw board identifiers or unmasked logs.

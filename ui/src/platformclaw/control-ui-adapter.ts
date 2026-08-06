@@ -2,6 +2,7 @@ import { html, nothing } from "lit";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
+import { PLATFORMCLAW_BRANDING } from "./branding.ts";
 import "./execution-settings.ts";
 import "./mcp-administration.ts";
 import "./mcp-settings.ts";
@@ -123,7 +124,9 @@ export class PlatformClawControlUiAdapter {
     };
     const shellSession: ApplicationShellSession = {
       primaryLabel: identity.displayName,
-      secondaryLabel: identity.department || identity.accountId,
+      secondaryLabel: `${identity.globalRole === "admin" ? "Admin" : "Employee"} · ${identity.department || identity.accountId}`,
+      productName: PLATFORMCLAW_BRANDING.productName,
+      productIconUrl: PLATFORMCLAW_BRANDING.mascotUrl,
       renderFooterAccessory: () => html`
         <platformclaw-execution-settings
           .fetchImpl=${this.fetchImpl}

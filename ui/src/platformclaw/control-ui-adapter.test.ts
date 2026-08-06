@@ -1,5 +1,6 @@
 import { render } from "lit";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PLATFORMCLAW_BRANDING } from "./branding.ts";
 import { createPlatformClawControlUiAdapter } from "./control-ui-adapter.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "./web-contract.ts";
 
@@ -92,7 +93,9 @@ describe("PlatformClawControlUiAdapter", () => {
       },
       shellSession: {
         primaryLabel: "Jung Seungon",
-        secondaryLabel: "Platform",
+        secondaryLabel: "Employee · Platform",
+        productName: "PlatformClaw",
+        productIconUrl: PLATFORMCLAW_BRANDING.mascotUrl,
       },
     });
     expect(fetchImpl).toHaveBeenCalledWith(

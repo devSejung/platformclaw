@@ -16,15 +16,26 @@ const node = process.execPath;
 const oxfmt = resolve(repoRoot, "node_modules", "oxfmt", "bin", "oxfmt");
 
 const FORMAT_PATHS = [
+  "ARCHITECTURE.md",
+  "ATTRIBUTION.md",
+  "EVALUATION.md",
+  "package.json",
+  "PRD.md",
+  "README.md",
   "packages/platformclaw-control-plane",
   "extensions/admin-http-rpc",
   "extensions/knox",
+  "extensions/platformclaw-execution",
+  "extensions/platformclaw-user-mcp",
   "scripts/platformclaw-check.d.mts",
   "scripts/platformclaw-ci-plan.d.mts",
   "scripts/platformclaw-*.mjs",
   "test/scripts/platformclaw-*.test.ts",
   ".github/workflows/platformclaw-*.yml",
   "docs/platformclaw",
+  "docs/submission",
+  "scripts/submission",
+  "submission",
   "ui/platformclaw-*.html",
   "ui/src/platformclaw",
   "ui/vite.platformclaw-login.config.ts",
@@ -93,6 +104,43 @@ const SURFACE_COMMANDS = {
     ]),
     command("test Knox channel", node, ["scripts/run-vitest.mjs", "extensions/knox"]),
   ],
+  "platformclaw-execution": [
+    command("lint PlatformClaw execution", node, [
+      "scripts/run-oxlint.mjs",
+      "--tsconfig",
+      "config/tsconfig/oxlint.core.json",
+      "extensions/platformclaw-execution",
+    ]),
+    command("test PlatformClaw execution", node, [
+      "scripts/run-vitest.mjs",
+      "extensions/platformclaw-execution",
+    ]),
+  ],
+  "platformclaw-user-mcp": [
+    command("lint PlatformClaw user MCP", node, [
+      "scripts/run-oxlint.mjs",
+      "--tsconfig",
+      "config/tsconfig/oxlint.core.json",
+      "extensions/platformclaw-user-mcp",
+    ]),
+    command("test PlatformClaw user MCP", node, [
+      "scripts/run-vitest.mjs",
+      "extensions/platformclaw-user-mcp",
+    ]),
+  ],
+  "board-farm": [
+    command("test Board Farm contract", node, [
+      "scripts/run-vitest.mjs",
+      "packages/platformclaw-control-plane/src/board-farm",
+    ]),
+  ],
+  "skill-policy": [
+    command("test PlatformClaw skill policy", node, [
+      "scripts/run-vitest.mjs",
+      "extensions/platformclaw-execution/src/remote-skills.test.ts",
+      "extensions/platformclaw-execution/src/remote-skill-workshop.test.ts",
+    ]),
+  ],
   planner: [
     command("lint PlatformClaw CI planner", node, [
       "scripts/run-oxlint.mjs",
@@ -104,6 +152,8 @@ const SURFACE_COMMANDS = {
       "scripts/platformclaw-ci-plan.mjs",
       "test/scripts/platformclaw-check.test.ts",
       "test/scripts/platformclaw-ci-plan.test.ts",
+      "test/scripts/platformclaw-submission-workflow.test.ts",
+      "test/scripts/platformclaw-submission-utils.test.ts",
     ]),
     command("validate script declarations", node, ["scripts/check-script-declarations.mjs"]),
     command("test PlatformClaw CI planner", node, [
@@ -111,6 +161,25 @@ const SURFACE_COMMANDS = {
       "test/scripts/platformclaw-check.test.ts",
       "test/scripts/platformclaw-ci-plan.test.ts",
       "test/scripts/platformclaw-runtime-docker.test.ts",
+      "test/scripts/platformclaw-submission-workflow.test.ts",
+      "test/scripts/platformclaw-submission-utils.test.ts",
+    ]),
+  ],
+  "submission-docs": [
+    command("check submission document consistency", node, [
+      "scripts/submission/check-document-consistency.mjs",
+    ]),
+    command("check submission blindness", node, ["scripts/submission/check-blindness.mjs"]),
+    command("check offline submission slides", node, [
+      "scripts/submission/check-offline-slides.mjs",
+    ]),
+  ],
+  "submission-evidence": [
+    command("check submission evaluation map", node, [
+      "scripts/submission/check-evaluation-map.mjs",
+    ]),
+    command("check submission internal requirements", node, [
+      "scripts/submission/check-internal-requirements.mjs",
     ]),
   ],
   ui: [
@@ -157,11 +226,29 @@ export function surfacesForPlan(plan) {
   if (plan.needs_knox_checks) {
     surfaces.push("knox");
   }
+  if (plan.needs_execution_checks) {
+    surfaces.push("platformclaw-execution");
+  }
+  if (plan.needs_user_mcp_checks) {
+    surfaces.push("platformclaw-user-mcp");
+  }
+  if (plan.needs_board_farm_checks) {
+    surfaces.push("board-farm");
+  }
+  if (plan.needs_skill_policy_checks) {
+    surfaces.push("skill-policy");
+  }
   if (plan.needs_planner_tests) {
     surfaces.push("planner");
   }
   if (plan.needs_ui_checks) {
     surfaces.push("ui");
+  }
+  if (plan.needs_submission_docs_checks) {
+    surfaces.push("submission-docs");
+  }
+  if (plan.needs_submission_evidence_checks) {
+    surfaces.push("submission-evidence");
   }
   return surfaces;
 }

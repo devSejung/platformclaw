@@ -22,8 +22,10 @@ describe("PlatformClaw branding", () => {
   });
 
   it("stays inactive on the upstream Control UI", () => {
+    document.title = "OpenClaw Control";
     expect(resolvePlatformClawBranding()).toBeNull();
     expect(applyPlatformClawDocumentBranding()).toBe(false);
+    expect(document.title).toBe("OpenClaw Control");
   });
 
   it("uses the canonical mascot as the PlatformClaw favicon", () => {
@@ -39,6 +41,7 @@ describe("PlatformClaw branding", () => {
     );
     expect(document.querySelector('link[rel="icon"][type="image/png"]')).toBeNull();
     expect(document.documentElement.dataset.platformclawHosted).toBe("");
+    expect(document.title).toBe("PlatformClaw");
   });
 
   it("rebrands shared mascot surfaces without replacing upstream call sites", async () => {
