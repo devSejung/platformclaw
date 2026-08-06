@@ -108,6 +108,58 @@ describe("McpCredentialVault", () => {
     store.close();
   });
 
+  it.each(["bearer", "api_key"] as const)(
+    "stores and resolves personal %s credentials for an HTTP server",
+    async (kind) => {
+      const { store, vault, user, binding } = await harness();
+      await vault.replace({
+        actorUserId: user.id,
+        userId: user.id,
+        serverName: "intranet",
+        payload:
+          kind === "bearer"
+            ? {
+                kind,
+                serverUrl: "http://mcp.example.test/intranet",
+                token: "secret-token",
+              }
+            : {
+                kind,
+                serverUrl: "http://mcp.example.test/intranet",
+                headerName: "X-Api-Key",
+                value: "secret-key",
+              },
+        updatedAt: 2_000,
+      });
+
+      await expect(vault.resolveForAgent(binding.agentId, "intranet")).resolves.toEqual({
+        headers:
+          kind === "bearer"
+            ? { Authorization: "Bearer secret-token" }
+            : { "X-Api-Key": "secret-key" },
+        revision: 1,
+      });
+      store.close();
+    },
+  );
+
+  it("rejects personal OAuth credentials for an HTTP server", async () => {
+    const { store, vault, user } = await harness();
+    await expect(
+      vault.replace({
+        actorUserId: user.id,
+        userId: user.id,
+        serverName: "oauth",
+        payload: {
+          kind: "oauth",
+          serverUrl: "http://mcp.example.test/oauth",
+        },
+        updatedAt: 2_000,
+      }),
+    ).rejects.toThrow("OAuth server URL must use HTTPS");
+    store.close();
+  });
+
   it("binds ciphertext to both user and server with authenticated data", async () => {
     const { store, vault, user, cipher } = await harness();
     await vault.replace({
