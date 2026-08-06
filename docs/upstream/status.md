@@ -31,7 +31,10 @@
   projected hello scopes, and personal-agent UI gating remain downstream
   PlatformClaw policy.
 - The private service identity now requests `operator.questions` and
-  `operator.approvals` in addition to its existing scopes. Existing exact
+  `operator.approvals` in addition to its existing scopes. Existing legacy
+  service identities whose approved scopes include `operator.admin` remain
+  ready because Gateway treats that grant as covering every `operator.*`
+  capability, even when Hello projects only the original scope list. Exact
   PlatformClaw service-device scope upgrades are auto-approved; arbitrary
   device, role, public-key, or scope changes remain fail-closed.
 

@@ -20,7 +20,7 @@ import {
 // The private service client—not the browser projection—must attach trusted
 // chat provenance controls required by Gateway. Browser requests remain
 // constrained by BrowserGatewayProxy and its read/write hello projection.
-const REQUIRED_SERVICE_SCOPES = [
+export const PLATFORMCLAW_GATEWAY_SERVICE_SCOPES = [
   "operator.read",
   "operator.write",
   "operator.admin",
@@ -75,7 +75,15 @@ function sameStringSet(
 
 function hasRequiredServiceScopes(hello: HelloOk): boolean {
   const scopes = hello.auth?.scopes ?? [];
-  return REQUIRED_SERVICE_SCOPES.every((scope) => scopes.includes(scope));
+  if (hello.auth?.role !== "operator") {
+    return false;
+  }
+  // Gateway authorizes every operator capability through operator.admin, but
+  // legacy pairing records still project only their original approved scopes.
+  return (
+    scopes.includes("operator.admin") ||
+    PLATFORMCLAW_GATEWAY_SERVICE_SCOPES.every((scope) => scopes.includes(scope))
+  );
 }
 
 /** Owns the single private operator connection shared by browser ingress sessions. */
@@ -244,7 +252,7 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
       !details.requestId ||
       details.deviceId !== pairing.identity.deviceId ||
       details.requestedRole !== "operator" ||
-      !sameStringSet(details.requestedScopes, REQUIRED_SERVICE_SCOPES)
+      !sameStringSet(details.requestedScopes, PLATFORMCLAW_GATEWAY_SERVICE_SCOPES)
     ) {
       throw new Error("Gateway service pairing details did not match the configured identity");
     }
@@ -258,7 +266,7 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
         pending.clientId === GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT &&
         pending.clientMode === GATEWAY_CLIENT_MODES.BACKEND &&
         pending.role === "operator" &&
-        sameStringSet(pending.scopes, REQUIRED_SERVICE_SCOPES),
+        sameStringSet(pending.scopes, PLATFORMCLAW_GATEWAY_SERVICE_SCOPES),
     );
     if (matches.length !== 1) {
       throw new Error("Gateway service pairing request was missing or ambiguous");

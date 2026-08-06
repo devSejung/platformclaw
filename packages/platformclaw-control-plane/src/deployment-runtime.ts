@@ -2,6 +2,7 @@ import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-pr
 import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
 import type { PlatformClawDeploymentConfig } from "./deployment-config.js";
 import { HttpGatewayAdminRpcClient } from "./gateway-admin-rpc-client.js";
+import { PLATFORMCLAW_GATEWAY_SERVICE_SCOPES } from "./gateway-runtime-client.js";
 import { loadGatewayServiceIdentity } from "./gateway-service-identity.js";
 import { GatewayKnoxRoomAgentProvisioner } from "./knox-room-agent-provisioner.js";
 import { GatewayPersonalAgentProvisioner } from "./personal-agent-provisioner.js";
@@ -72,13 +73,7 @@ export function createPlatformClawDeploymentRuntime(
         clientDisplayName: "PlatformClaw Control",
         mode: GATEWAY_CLIENT_MODES.BACKEND,
         role: "operator",
-        scopes: [
-          "operator.read",
-          "operator.write",
-          "operator.admin",
-          "operator.approvals",
-          "operator.questions",
-        ],
+        scopes: [...PLATFORMCLAW_GATEWAY_SERVICE_SCOPES],
       },
     },
     adminRpc: rpc,
