@@ -2,7 +2,11 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { parseUserMcpServerPolicies } from "./src/config.js";
 import { createUserMcpConnectionRuntime } from "./src/runtime.js";
 
-export function configuredHttpUrl(config: unknown, serverName: string): string {
+export function configuredRemoteUrl(
+  config: unknown,
+  serverName: string,
+  auth: "bearer" | "api_key" | "oauth",
+): string {
   const root = config as { mcp?: { servers?: Record<string, unknown> } };
   const raw = root.mcp?.servers?.[serverName];
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -10,16 +14,24 @@ export function configuredHttpUrl(config: unknown, serverName: string): string {
   }
   const url = (raw as Record<string, unknown>).url;
   if (typeof url !== "string" || url.length > 2_048) {
-    throw new Error(`MCP server ${serverName} must use an HTTPS URL`);
+    throw new Error(`MCP server ${serverName} must use an HTTP(S) URL`);
   }
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error(`MCP server ${serverName} must use an HTTPS URL`);
+    throw new Error(`MCP server ${serverName} must use an HTTP(S) URL`);
   }
-  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hash) {
-    throw new Error(`MCP server ${serverName} must use a safe HTTPS URL`);
+  if (
+    (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+    parsed.username ||
+    parsed.password ||
+    parsed.hash
+  ) {
+    throw new Error(`MCP server ${serverName} must use a safe HTTP(S) URL`);
+  }
+  if (auth === "oauth" && parsed.protocol !== "https:") {
+    throw new Error(`OAuth MCP server ${serverName} must use an HTTPS URL`);
   }
   return parsed.toString();
 }
@@ -35,7 +47,7 @@ export default definePluginEntry({
     const policies = parseUserMcpServerPolicies(api.pluginConfig);
     const catalog = policies.map((policy) => ({
       ...policy,
-      url: configuredHttpUrl(api.config, policy.serverName),
+      url: configuredRemoteUrl(api.config, policy.serverName, policy.auth),
     }));
     const runtime = policies.length > 0 ? createUserMcpConnectionRuntime() : undefined;
     for (const policy of policies) {

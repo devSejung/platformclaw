@@ -30,16 +30,25 @@ function requireHeaderName(value: string): string {
   return normalized;
 }
 
-function requireServerUrl(value: string): string {
+function requireServerUrl(value: string, kind: McpCredentialKind): string {
   try {
     const url = new URL(value);
-    if (url.protocol === "https:" && !url.username && !url.password && !url.hash) {
+    if (
+      (url.protocol === "https:" || (kind !== "oauth" && url.protocol === "http:")) &&
+      !url.username &&
+      !url.password &&
+      !url.hash
+    ) {
       return url.toString();
     }
   } catch {
     // Fall through to the stable state error below.
   }
-  throw new ControlPlaneStateError("MCP credential server URL must use HTTPS");
+  throw new ControlPlaneStateError(
+    kind === "oauth"
+      ? "MCP OAuth server URL must use HTTPS"
+      : "MCP credential server URL must use HTTP or HTTPS",
+  );
 }
 
 function normalizeOAuthScope(value: string | undefined): string | undefined {
@@ -159,14 +168,14 @@ export class McpCredentialVault {
     if (payload.kind === "bearer") {
       return {
         kind: payload.kind,
-        serverUrl: requireServerUrl(payload.serverUrl),
+        serverUrl: requireServerUrl(payload.serverUrl, payload.kind),
         token: requireSecret(payload.token),
       };
     }
     if (payload.kind === "api_key") {
       return {
         kind: payload.kind,
-        serverUrl: requireServerUrl(payload.serverUrl),
+        serverUrl: requireServerUrl(payload.serverUrl, payload.kind),
         headerName: requireHeaderName(payload.headerName),
         value: requireSecret(payload.value),
       };
@@ -178,7 +187,7 @@ export class McpCredentialVault {
     return {
       ...payload,
       kind: "oauth",
-      serverUrl: requireServerUrl(payload.serverUrl),
+      serverUrl: requireServerUrl(payload.serverUrl, payload.kind),
       ...(scope ? { scope } : { scope: undefined }),
     };
   }

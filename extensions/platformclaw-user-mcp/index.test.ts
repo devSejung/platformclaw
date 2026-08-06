@@ -1,18 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { configuredHttpUrl } from "./index.js";
+import { configuredRemoteUrl } from "./index.js";
 
-describe("configuredHttpUrl", () => {
-  it("requires HTTPS for servers receiving personal credentials", () => {
+describe("configuredRemoteUrl", () => {
+  it.each(["bearer", "api_key"] as const)(
+    "allows personal %s credentials over administrator-approved HTTP",
+    (auth) => {
+      expect(
+        configuredRemoteUrl(
+          { mcp: { servers: { private: { url: "http://mcp.example.test" } } } },
+          "private",
+          auth,
+        ),
+      ).toBe("http://mcp.example.test/");
+    },
+  );
+
+  it("keeps personal OAuth on HTTPS", () => {
     expect(() =>
-      configuredHttpUrl(
+      configuredRemoteUrl(
         { mcp: { servers: { private: { url: "http://mcp.example.test" } } } },
         "private",
+        "oauth",
       ),
-    ).toThrow("HTTPS");
+    ).toThrow("OAuth");
     expect(
-      configuredHttpUrl(
+      configuredRemoteUrl(
         { mcp: { servers: { private: { url: "https://mcp.example.test" } } } },
         "private",
+        "oauth",
       ),
     ).toBe("https://mcp.example.test/");
   });
