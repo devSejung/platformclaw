@@ -165,6 +165,28 @@ describe("PlatformClawGatewayRuntimeClient", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("accepts a legacy operator admin grant that covers newer operator scopes", async () => {
+    let configured: GatewayClientOptions | undefined;
+    const request = vi.fn(async () => ({ subscribed: true }));
+    const backend = new PlatformClawGatewayRuntimeClient({
+      client: { url: "ws://127.0.0.1:18789" },
+      createClient: (options) => {
+        configured = options;
+        return { start: vi.fn(), stop: vi.fn(), request };
+      },
+    });
+    const legacyAdmin = hello();
+    legacyAdmin.auth = {
+      role: "operator",
+      scopes: ["operator.read", "operator.write", "operator.admin"],
+    };
+
+    configured?.onHelloOk?.(legacyAdmin);
+
+    await vi.waitFor(() => expect(backend.getHello()).toBe(legacyAdmin));
+    expect(request).toHaveBeenCalledWith("sessions.subscribe", {});
+  });
+
   it("approves only its exact first-enrollment request and reconnects", async () => {
     let configured: GatewayClientOptions | undefined;
     const start = vi.fn();
