@@ -778,12 +778,18 @@ function handleLifecycleApprovalEvent(host: ToolStreamHost, payload: AgentEventP
 
 function readPreambleProgressEvent(
   payload: AgentEventPayload,
-): { text: string; itemId?: string } | null {
-  if (payload.stream !== "item") {
-    return null;
-  }
+): { text: string; itemId?: string; append?: true } | null {
   const data = payload.data ?? {};
-  if (data.kind !== "preamble") {
+  if (payload.stream === "assistant" && data.phase === "commentary") {
+    const itemId = toTrimmedString(data.itemId) ?? `assistant-commentary:${payload.runId}`;
+    if (typeof data.delta === "string" && data.delta) {
+      const text = stripInlineDirectiveTagsForDelivery(data.delta).text;
+      return text ? { text, itemId, append: true } : null;
+    }
+    const text = normalizePreambleProgressText(data.text);
+    return text || data.replace === true ? { text, itemId } : null;
+  }
+  if (payload.stream !== "item" || data.kind !== "preamble") {
     return null;
   }
   const rawItemId =
@@ -837,7 +843,13 @@ function handlePreambleProgressEvent(host: ToolStreamHost, payload: AgentEventPa
       return true;
     }
     host.chatStreamSegments = host.chatStreamSegments.map((segment, index) =>
-      index === existingIndex ? { ...segment, text: progress.text, runId: payload.runId } : segment,
+      index === existingIndex
+        ? {
+            ...segment,
+            text: progress.append ? `${segment.text}${progress.text}` : progress.text,
+            runId: payload.runId,
+          }
+        : segment,
     );
     return true;
   }

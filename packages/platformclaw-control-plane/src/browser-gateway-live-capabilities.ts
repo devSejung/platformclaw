@@ -11,6 +11,7 @@ import {
 } from "./browser-gateway-cron-controller.js";
 import { projectBrowserGatewayEvent } from "./browser-gateway-event-policy.js";
 import { BrowserGatewayInteractiveOwnership } from "./browser-gateway-interactive-ownership.js";
+import { BrowserGatewaySessionMessageSubscriptions } from "./browser-gateway-session-message-subscriptions.js";
 import { BrowserGatewaySessionPullRequestSubscriptions } from "./browser-gateway-session-pull-requests.js";
 
 type JsonObject = Record<string, unknown>;
@@ -20,6 +21,7 @@ const INTERACTIVE_METHOD_PREFIXES = ["approval.", "question.", "taskSuggestions.
 
 export class BrowserGatewayLiveCapabilities {
   private readonly interactiveOwnership: BrowserGatewayInteractiveOwnership;
+  private readonly messageSubscriptions: BrowserGatewaySessionMessageSubscriptions;
   private readonly pullRequestSubscriptions: BrowserGatewaySessionPullRequestSubscriptions;
 
   constructor(
@@ -28,6 +30,9 @@ export class BrowserGatewayLiveCapabilities {
     private readonly fail: (code: BrowserGatewayProxyErrorCode, message: string) => never,
   ) {
     this.interactiveOwnership = new BrowserGatewayInteractiveOwnership(gateway, fail);
+    this.messageSubscriptions = new BrowserGatewaySessionMessageSubscriptions(gateway, () =>
+      fail("invalid-params", "browser connection is no longer active"),
+    );
     this.pullRequestSubscriptions = new BrowserGatewaySessionPullRequestSubscriptions(
       gateway,
       (sessionKey) => resolveAgentIdFromSessionKey(sessionKey),
@@ -133,6 +138,7 @@ export class BrowserGatewayLiveCapabilities {
   }
 
   registerConnection(connectionId: string): void {
+    this.messageSubscriptions.registerConnection(connectionId);
     this.pullRequestSubscriptions.registerConnection(connectionId);
   }
 
@@ -141,7 +147,10 @@ export class BrowserGatewayLiveCapabilities {
   }
 
   async releaseConnection(connectionId: string): Promise<void> {
-    await this.pullRequestSubscriptions.releaseConnection(connectionId);
+    await Promise.allSettled([
+      this.messageSubscriptions.releaseConnection(connectionId),
+      this.pullRequestSubscriptions.releaseConnection(connectionId),
+    ]);
   }
 
   private access(agentId: string) {
@@ -157,6 +166,32 @@ export class BrowserGatewayLiveCapabilities {
     params: JsonObject;
     context?: BrowserGatewayRequestContext;
   }): Promise<SpecialRequestResult> {
+    if (
+      options.method === "sessions.messages.subscribe" ||
+      options.method === "sessions.messages.unsubscribe"
+    ) {
+      if (!options.context?.connectionId) {
+        return this.fail(
+          "invalid-params",
+          "session message subscription requires a browser connection",
+        );
+      }
+      const result =
+        options.method === "sessions.messages.subscribe"
+          ? await this.messageSubscriptions.subscribe(options.context.connectionId, {
+              key: options.params.key as string,
+              agentId: options.params.agentId as string | undefined,
+              ...(options.params.includeApprovals === true ? { includeApprovals: true } : {}),
+            })
+          : await this.messageSubscriptions.unsubscribe(options.context.connectionId, {
+              key: options.params.key as string,
+              agentId: options.params.agentId as string | undefined,
+            });
+      if (options.method === "sessions.messages.subscribe") {
+        return this.projectResult(options.agentId, options.method, result);
+      }
+      return { handled: true, result };
+    }
     if (options.method === "controlUi.sessionPullRequests.subscribe") {
       if (!options.context?.connectionId) {
         return this.fail(
