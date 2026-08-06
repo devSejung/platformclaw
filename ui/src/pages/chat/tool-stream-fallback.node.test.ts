@@ -305,6 +305,46 @@ describe("app-tool-stream fallback lifecycle handling", () => {
     vi.useRealTimers();
   });
 
+  it("accumulates embedded assistant commentary in the live transcript", () => {
+    useToolStreamFakeTimers();
+    const host = createHost({ chatRunId: "run-1" });
+
+    handleAgentEvent(host, {
+      runId: "run-1",
+      seq: 1,
+      stream: "assistant",
+      ts: Date.now(),
+      sessionKey: "main",
+      data: {
+        phase: "commentary",
+        itemId: "commentary-1",
+        delta: "Checking",
+      },
+    });
+    handleAgentEvent(host, {
+      runId: "run-1",
+      seq: 2,
+      stream: "assistant",
+      ts: Date.now(),
+      sessionKey: "main",
+      data: {
+        phase: "commentary",
+        itemId: "commentary-1",
+        delta: " the live path",
+      },
+    });
+
+    expect(host.chatStreamSegments).toEqual([
+      {
+        text: "Checking the live path",
+        ts: TOOL_STREAM_TEST_NOW,
+        runId: "run-1",
+        itemId: "commentary-1",
+      },
+    ]);
+    vi.useRealTimers();
+  });
+
   it.each([
     { progressText: "Another run's commentary", name: "replace" },
     { progressText: "", name: "clear" },

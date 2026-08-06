@@ -7,6 +7,22 @@ describe("BrowserGatewayProxy live capabilities", () => {
     const sessionKey = `agent:${binding.agentId}:main`;
     const agentEvent = { event: "agent", payload: { sessionKey, agentId: binding.agentId } };
     await expect(proxy.filterEvent(token, agentEvent)).resolves.toEqual(agentEvent);
+    const chatEvent = {
+      event: "chat",
+      payload: {
+        sessionKey,
+        agentId: binding.agentId,
+        runId: "run-1",
+        state: "delta",
+        deltaText: "Still working",
+      },
+    };
+    await expect(proxy.filterEvent(token, chatEvent)).resolves.toEqual(chatEvent);
+    const messageEvent = {
+      event: "session.message",
+      payload: { sessionKey, agentId: binding.agentId, message: { role: "assistant" } },
+    };
+    await expect(proxy.filterEvent(token, messageEvent)).resolves.toEqual(messageEvent);
     await expect(
       proxy.filterEvent(token, {
         event: "agent",
@@ -50,6 +66,8 @@ describe("BrowserGatewayProxy live capabilities", () => {
 
   it("binds session approval replay and permits only session-scoped decisions", async () => {
     const { binding, proxy, request, token } = await setup();
+    const connectionId = "browser-tab-approval";
+    proxy.registerBrowserConnection(connectionId);
     const sessionKey = `agent:${binding.agentId}:main`;
     const approval = {
       id: "approval-1",
@@ -74,10 +92,12 @@ describe("BrowserGatewayProxy live capabilities", () => {
         truncated: false,
       },
     });
-    const subscribed = await proxy.request(token, "sessions.messages.subscribe", {
-      key: sessionKey,
-      includeApprovals: true,
-    });
+    const subscribed = await proxy.request(
+      token,
+      "sessions.messages.subscribe",
+      { key: sessionKey, includeApprovals: true },
+      { connectionId },
+    );
     expect(subscribed).toMatchObject({
       approvalReplay: {
         approvals: [{ presentation: { allowedDecisions: ["allow-once", "deny"] } }],
