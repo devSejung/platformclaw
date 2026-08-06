@@ -113,6 +113,8 @@ export function createPageState(
   const appConfig = context.config.current;
   const state = {
     sessions: context.sessions,
+    onSessionApprovalReplay: (replay: unknown) =>
+      context.overlays.adoptSessionApprovalReplay(replay),
     initialUserMessage: context.initialUserMessage,
     settings,
     password: "",

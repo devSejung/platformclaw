@@ -1,5 +1,6 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
+import { GATEWAY_CLIENT_MODES } from "../../../packages/gateway-protocol/src/client-info.js";
 import type { ControlUiGitHubPreview } from "../control-ui-contract.js";
 import { ControlUiGitHubError } from "../control-ui-github-api.js";
 import { createControlUiHandlers } from "./control-ui.js";
@@ -141,6 +142,61 @@ describe("controlUi.sessionPullRequests.subscribe", () => {
 
     expect(replace).toHaveBeenCalledWith("conn-control-ui", []);
     expect(respond).toHaveBeenCalledWith(true, { subscribed: false }, undefined);
+  });
+
+  it("allows trusted backends to multiplex independent subscription slots", async () => {
+    const replace = vi.fn().mockResolvedValue(undefined);
+    const handlers = createControlUiHandlers(vi.fn());
+    const respond = vi.fn<RespondFn>();
+
+    await expectDefined(
+      handlers["controlUi.sessionPullRequests.subscribe"],
+      'handlers["controlUi.sessionPullRequests.subscribe"] test invariant',
+    )(
+      requestOptions({ sessionKeys: ["agent:main:main"], subscriptionId: "browser-a" }, respond, {
+        client: {
+          connId: "conn-control-ui",
+          connect: {
+            client: { mode: GATEWAY_CLIENT_MODES.BACKEND },
+            scopes: ["operator.read", "operator.admin"],
+          },
+        } as never,
+        context: { controlUiSessionPullRequests: { replace } },
+      }),
+    );
+
+    expect(replace).toHaveBeenCalledWith(
+      "conn-control-ui",
+      ["agent:main:main"],
+      undefined,
+      "browser-a",
+    );
+    expect(respond).toHaveBeenCalledWith(true, { subscribed: true }, undefined);
+  });
+
+  it("rejects multiplexing from non-backend clients", async () => {
+    const replace = vi.fn().mockResolvedValue(undefined);
+    const handlers = createControlUiHandlers(vi.fn());
+    const respond = vi.fn<RespondFn>();
+
+    await expectDefined(
+      handlers["controlUi.sessionPullRequests.subscribe"],
+      'handlers["controlUi.sessionPullRequests.subscribe"] test invariant',
+    )(
+      requestOptions({ sessionKeys: ["agent:main:main"], subscriptionId: "browser-a" }, respond, {
+        client: {
+          connId: "conn-control-ui",
+          connect: { client: { mode: "ui" }, scopes: ["operator.admin"] },
+        } as never,
+        context: { controlUiSessionPullRequests: { replace } },
+      }),
+    );
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(false, undefined, {
+      code: "FORBIDDEN",
+      message: "session pull request subscription multiplexing requires a trusted backend",
+    });
   });
 
   it("rejects malformed replace-sets", async () => {

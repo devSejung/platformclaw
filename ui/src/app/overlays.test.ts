@@ -51,6 +51,65 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("session approval projection", () => {
+  const pending = {
+    id: "session-approval-1",
+    status: "pending",
+    urlPath: "/approvals/session-approval-1",
+    createdAtMs: 1_000,
+    expiresAtMs: Date.now() + 60_000,
+    presentation: {
+      kind: "exec",
+      commandText: "pnpm test",
+      allowedDecisions: ["allow-once", "deny"],
+    },
+  };
+
+  it("adopts replay, handles terminal events, and uses the unified resolver", async () => {
+    const request = vi.fn<RequestFn>((method) =>
+      Promise.resolve(method.endsWith(".list") ? [] : {}),
+    );
+    const harness = createGatewayHarness(null, false);
+    const overlays = createApplicationOverlays(harness.gateway);
+    harness.update({
+      client: client(request),
+      phase: "connected",
+      hello: {
+        auth: { role: "operator", scopes: ["operator.approvals"] },
+      } as ApplicationGatewaySnapshot["hello"],
+    });
+    overlays.adoptSessionApprovalReplay({
+      sessionKey: "agent:main:main",
+      updatedAtMs: 1,
+      approvals: [pending],
+      truncated: false,
+    });
+    expect(overlays.snapshot.approvalQueue).toHaveLength(1);
+
+    harness.emitEvent("session.approval", {
+      sessionKey: "agent:main:main",
+      updatedAtMs: 2,
+      phase: "terminal",
+      approval: { ...pending, status: "denied" },
+    });
+    expect(overlays.snapshot.approvalQueue).toHaveLength(0);
+
+    harness.emitEvent("session.approval", {
+      sessionKey: "agent:main:main",
+      updatedAtMs: 3,
+      phase: "pending",
+      approval: pending,
+    });
+    await overlays.decideApproval("allow-once");
+    expect(request).toHaveBeenCalledWith("approval.resolve", {
+      id: "session-approval-1",
+      kind: "exec",
+      decision: "allow-once",
+    });
+    overlays.dispose();
+  });
+});
+
 describe("device-auth upgrade migration", () => {
   beforeEach(() => {
     peekStoredDeviceIdentityIdMock.mockReturnValue("browser-1");
@@ -71,7 +130,9 @@ describe("device-auth upgrade migration", () => {
     });
 
     await vi.waitFor(() => {
-      expect(overlays.snapshot.deviceAuthMigration.error).toContain("HTTPS or localhost");
+      expect(overlays.snapshot.deviceAuthMigration.error).toBe(
+        i18n.t("login.deviceAuthMigration.secureContextRequired"),
+      );
     });
     expect(overlays.snapshot.deviceAuthMigration.requestId).toBeNull();
     expect(request).not.toHaveBeenCalledWith("device.pair.list", expect.anything());
@@ -217,8 +278,8 @@ describe("device-auth upgrade migration", () => {
     });
 
     await vi.waitFor(() => {
-      expect(overlays.snapshot.deviceAuthMigration.error).toContain(
-        "pairing request is not available",
+      expect(overlays.snapshot.deviceAuthMigration.error).toBe(
+        i18n.t("login.deviceAuthMigration.pendingUnavailable"),
       );
     });
     expect(overlays.snapshot.deviceAuthMigration.requestId).toBeNull();

@@ -31,7 +31,13 @@ export type ExecApprovalRequest = {
   proposalHash?: string | null;
   createdAtMs: number;
   expiresAtMs: number;
+  /** Uses the session-scoped unified resolver instead of host-global approval RPCs. */
+  sessionScoped?: true;
 };
+
+type SessionApprovalTransition =
+  | { phase: "pending"; approval: ExecApprovalRequest }
+  | { phase: "terminal"; id: string };
 
 type ExecApprovalResolved = {
   id: string;
@@ -252,15 +258,150 @@ export function parseApprovalRequestedEvent(
     : null;
 }
 
+function parseSessionApprovalSnapshot(
+  payload: unknown,
+  sessionKey: string,
+): ExecApprovalRequest | null {
+  if (!isRecord(payload) || payload.status !== "pending" || !isRecord(payload.presentation)) {
+    return null;
+  }
+  const id = normalizeOptionalString(payload.id) ?? "";
+  const createdAtMs = typeof payload.createdAtMs === "number" ? payload.createdAtMs : 0;
+  const expiresAtMs = typeof payload.expiresAtMs === "number" ? payload.expiresAtMs : 0;
+  const presentation = payload.presentation;
+  const kind = presentation.kind;
+  const allowedDecisions = parseAllowedDecisions(presentation.allowedDecisions);
+  if (!id || !createdAtMs || !expiresAtMs || !allowedDecisions) {
+    return null;
+  }
+  const common = { id, createdAtMs, expiresAtMs, sessionScoped: true as const };
+  if (kind === "exec") {
+    const command = normalizeOptionalString(presentation.commandText) ?? "";
+    if (!command) {
+      return null;
+    }
+    return {
+      ...common,
+      kind,
+      request: {
+        command,
+        host: typeof presentation.host === "string" ? presentation.host : null,
+        agentId: typeof presentation.agentId === "string" ? presentation.agentId : null,
+        sessionKey,
+        allowedDecisions,
+      },
+    };
+  }
+  if (kind === "plugin") {
+    const title = normalizeOptionalString(presentation.title) ?? "";
+    const description = normalizeOptionalString(presentation.description);
+    if (!title || !description) {
+      return null;
+    }
+    return {
+      ...common,
+      kind,
+      request: {
+        command: title,
+        agentId: typeof presentation.agentId === "string" ? presentation.agentId : null,
+        sessionKey,
+        allowedDecisions,
+      },
+      pluginTitle: title,
+      pluginDescription: description,
+      pluginSeverity: typeof presentation.severity === "string" ? presentation.severity : null,
+      pluginId: typeof presentation.pluginId === "string" ? presentation.pluginId : null,
+    };
+  }
+  if (kind === "system-agent") {
+    const title = normalizeOptionalString(presentation.title) ?? "";
+    const description = normalizeOptionalString(presentation.description);
+    const proposalHash = normalizeOptionalString(presentation.proposalHash);
+    if (!title || !description || !proposalHash) {
+      return null;
+    }
+    return {
+      ...common,
+      kind,
+      request: {
+        command: title,
+        agentId: typeof presentation.agentId === "string" ? presentation.agentId : null,
+        sessionKey,
+        allowedDecisions,
+      },
+      pluginTitle: title,
+      pluginDescription: description,
+      proposalHash,
+    };
+  }
+  return null;
+}
+
+export function parseSessionApprovalTransition(payload: unknown): SessionApprovalTransition | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+  const sessionKey = normalizeOptionalString(payload.sessionKey) ?? "";
+  const approval = payload.approval;
+  if (!sessionKey || !isRecord(approval)) {
+    return null;
+  }
+  if (payload.phase === "pending") {
+    const parsed = parseSessionApprovalSnapshot(approval, sessionKey);
+    return parsed ? { phase: "pending", approval: parsed } : null;
+  }
+  const id = normalizeOptionalString(approval.id) ?? "";
+  return payload.phase === "terminal" && id ? { phase: "terminal", id } : null;
+}
+
+function parseSessionApprovalReplay(payload: unknown): ExecApprovalRequest[] | null {
+  if (!isRecord(payload) || !Array.isArray(payload.approvals)) {
+    return null;
+  }
+  const sessionKey = normalizeOptionalString(payload.sessionKey) ?? "";
+  if (!sessionKey) {
+    return null;
+  }
+  return payload.approvals
+    .map((approval) => parseSessionApprovalSnapshot(approval, sessionKey))
+    .filter((approval): approval is ExecApprovalRequest => approval !== null);
+}
+
+export function adoptSessionApprovalReplay(
+  state: ExecApprovalPromptState,
+  payload: unknown,
+): boolean {
+  const approvals = parseSessionApprovalReplay(payload);
+  const sessionKey = isRecord(payload) ? normalizeOptionalString(payload.sessionKey) : null;
+  if (!approvals || !sessionKey) {
+    return false;
+  }
+  const removedIds = state.execApprovalQueue
+    .filter((entry) => entry.sessionScoped && entry.request.sessionKey === sessionKey)
+    .map((entry) => entry.id);
+  state.execApprovalQueue = state.execApprovalQueue.filter(
+    (entry) => !(entry.sessionScoped && entry.request.sessionKey === sessionKey),
+  );
+  for (const id of removedIds) {
+    clearApprovalExpiryTimer(state, id);
+  }
+  for (const approval of approvals) {
+    enqueueExecApprovalPrompt(state, approval);
+  }
+  pruneExecApprovalErrors(state);
+  synchronizeApprovalCountdownTimer(state);
+  return true;
+}
+
 export async function resolveApprovalRequest(
   client: NonNullable<ExecApprovalPromptState["client"]>,
   approval: ExecApprovalRequest,
   decision: ExecApprovalDecision,
 ): Promise<void> {
-  if (approval.kind === "system-agent") {
+  if (approval.sessionScoped || approval.kind === "system-agent") {
     await client.request("approval.resolve", {
       id: approval.id,
-      kind: "system-agent",
+      kind: approval.kind,
       decision,
     });
     return;

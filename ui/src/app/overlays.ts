@@ -21,12 +21,10 @@ import {
   EMPTY_DEVICE_AUTH_MIGRATION,
 } from "./device-auth-migration-loader.ts";
 import {
+  adoptSessionApprovalReplay as adoptSessionApprovalReplayState,
   clearExecApprovalTimers,
   clearResolvedExecApprovalPrompt,
-  enqueueExecApprovalPrompt,
   isStaleApprovalResolutionError,
-  parseApprovalRequestedEvent,
-  parseExecApprovalResolved,
   resolveApprovalRequest,
   type ExecApprovalDecision,
   type ExecApprovalPromptState,
@@ -39,6 +37,7 @@ import {
   createOverlayPairingPendingCount,
   readOverlayOperatorAccessTransition,
 } from "./overlays-access.ts";
+import { handleOverlayApprovalEvent } from "./overlays-approval-events.ts";
 import {
   isPendingUpdateHandoffSentinel,
   readUpdateAvailable,
@@ -79,6 +78,7 @@ export type ApplicationOverlays = {
   subscribe: (listener: (snapshot: ApplicationOverlaySnapshot) => void) => () => void;
   runUpdate: () => Promise<void>;
   decideApproval: (decision: ExecApprovalDecision, approvalId?: string) => Promise<void>;
+  adoptSessionApprovalReplay: (replay: unknown) => void;
   openDevicePairSetup: () => Promise<void>;
   refreshDevicePairSetup: () => Promise<void>;
   setDevicePairSetupAccess: (access: DevicePairSetupAccess) => Promise<void>;
@@ -474,23 +474,7 @@ export function createApplicationOverlays(
     ) {
       return;
     }
-    const requestedApproval = parseApprovalRequestedEvent(event.event, event.payload);
-    if (requestedApproval) {
-      enqueueExecApprovalPrompt(promptState, requestedApproval);
-      publish();
-      return;
-    }
-    if (
-      event.event === "exec.approval.resolved" ||
-      event.event === "plugin.approval.resolved" ||
-      event.event === "openclaw.approval.resolved"
-    ) {
-      const resolved = parseExecApprovalResolved(event.payload);
-      if (resolved) {
-        clearResolvedExecApprovalPrompt(promptState, resolved.id);
-        publish();
-      }
-    }
+    handleOverlayApprovalEvent(event, promptState, publish);
   });
   synchronizeGateway(gateway.snapshot);
 
@@ -501,6 +485,18 @@ export function createApplicationOverlays(
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    adoptSessionApprovalReplay(replay) {
+      if (
+        disposed ||
+        !operatorAccess.canReviewApprovals ||
+        !readGatewayOperatorAccess(gateway.snapshot).canReviewApprovals
+      ) {
+        return;
+      }
+      if (adoptSessionApprovalReplayState(promptState, replay)) {
+        publish();
+      }
     },
     async runUpdate() {
       const client = gateway.snapshot.client;

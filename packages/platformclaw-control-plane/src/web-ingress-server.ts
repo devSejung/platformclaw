@@ -30,6 +30,7 @@ import {
   type BrowserGatewayAccess,
   type BrowserGatewayEvent,
 } from "./browser-gateway-proxy.js";
+import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-ordering.js";
 import {
   handlePlatformClawMcpAdministrationRequest,
   type McpAdministrationService,
@@ -58,17 +59,6 @@ const MAX_CONCURRENT_BROWSER_REQUESTS = 8;
 // The upstream Control UI opens a burst of independent RPCs after connect. Keep enough
 // headroom for that supported client while bounding work retained by an untrusted browser.
 const MAX_PENDING_BROWSER_REQUESTS = 64;
-const MUTATING_BROWSER_METHODS = new Set([
-  "agents.files.set",
-  "chat.abort",
-  "chat.send",
-  "sessions.abort",
-  "sessions.create",
-  "sessions.delete",
-  "sessions.observer.visibility",
-  "sessions.patch",
-]);
-
 export type PlatformClawBrowserGatewayPolicy = {
   resolveAccess(token: string, touch?: boolean): Promise<BrowserGatewayAccess>;
   registerBrowserConnection?(connectionId: string): void;
@@ -78,7 +68,11 @@ export type PlatformClawBrowserGatewayPolicy = {
     params?: unknown,
     context?: { connectionId: string },
   ): Promise<unknown>;
-  filterEvent(token: string, event: BrowserGatewayEvent): Promise<BrowserGatewayEvent | null>;
+  filterEvent(
+    token: string,
+    event: BrowserGatewayEvent,
+    context?: { connectionId: string },
+  ): Promise<BrowserGatewayEvent | null>;
   handleGatewayDisconnect?(): void;
   releaseBrowserConnection?(connectionId: string): Promise<void>;
 };
@@ -538,7 +532,7 @@ export class PlatformClawWebIngressServer {
         closeUnauthorized();
         return;
       }
-      const filtered = await this.options.gatewayProxy.filterEvent(token, event);
+      const filtered = await this.options.gatewayProxy.filterEvent(token, event, { connectionId });
       if (!filtered) {
         return;
       }
@@ -667,7 +661,7 @@ export class PlatformClawWebIngressServer {
 
     const handleOrderedRequest = async (frame: RequestFrame): Promise<void> => {
       const priorMutations = mutationBarrier;
-      if (MUTATING_BROWSER_METHODS.has(frame.method)) {
+      if (isMutatingBrowserGatewayMethod(frame.method)) {
         const current = priorMutations.then(async () => {
           if (!connectionClosed) {
             await handleRequest(frame);

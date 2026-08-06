@@ -20,6 +20,21 @@
 
 ### PlatformClaw downstream policy repairs
 
+- Browser live-capability repair branch base: PlatformClaw `main`
+  `2697c66474bd9f5f04db312eed400eb5aa38e04c`; comparison was frozen against
+  upstream `main` `4e53edb8780f7392b68cc2073397dd8e0da39a1f`. The only generic upstream
+  surface changed by this repair is an additive, trusted-backend-only
+  `subscriptionId` slot for `controlUi.sessionPullRequests.subscribe`; legacy
+  direct Control UI calls retain their connection-scoped behavior. Browser
+  connection IDs are injected by PlatformClaw and never accepted from browser
+  parameters. All event allowlists, owner registries/projections, cron policy,
+  projected hello scopes, and personal-agent UI gating remain downstream
+  PlatformClaw policy.
+- The private service identity now requests `operator.questions` and
+  `operator.approvals` in addition to its existing scopes. Existing exact
+  PlatformClaw service-device scope upgrades are auto-approved; arbitrary
+  device, role, public-key, or scope changes remain fail-closed.
+
 - Browser Gateway policy is downstream-owned. It now tracks the current
   upstream Control UI companion RPC trio, permits only owned-session companion
   fork, and rewind calls, and accepts the current narrowing fields used by

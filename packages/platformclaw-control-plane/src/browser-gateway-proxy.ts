@@ -18,8 +18,9 @@ import {
   preflightCronMutation,
   prepareCronRequest,
   projectCronResult,
-  requestSpecialCronResult,
 } from "./browser-gateway-cron-controller.js";
+export { PLATFORMCLAW_WEB_GATEWAY_EVENTS } from "./browser-gateway-event-policy.js";
+import { BrowserGatewayLiveCapabilities } from "./browser-gateway-live-capabilities.js";
 import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-visibility.js";
 import {
   browserEventPayloadBelongsToAccess,
@@ -55,24 +56,6 @@ import {
   browserTaskEventBelongsToAccess,
   projectBrowserTaskResult,
 } from "./browser-gateway-task-policy.js";
-export const PLATFORMCLAW_WEB_GATEWAY_EVENTS = [
-  "shutdown",
-  "tick",
-  "chat",
-  "chat.send_timing",
-  "chat.side_result",
-  "session.message",
-  "session.observer",
-  "session.operation",
-  "session.tool",
-  "sessions.changed",
-  "task",
-] as const;
-
-const SAFE_GLOBAL_EVENTS = new Set<string>(["shutdown", "tick"]);
-const SESSION_SCOPED_EVENTS = new Set<string>(
-  PLATFORMCLAW_WEB_GATEWAY_EVENTS.filter((event) => event !== "shutdown" && event !== "tick"),
-);
 type JsonObject = Record<string, unknown>;
 
 function asObject(value: unknown, label: string): JsonObject {
@@ -92,6 +75,7 @@ function optionalString(value: unknown): string | undefined {
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
 export class BrowserGatewayProxy {
   private readonly assertions: BrowserGatewayAssertions;
+  private readonly liveCapabilities: BrowserGatewayLiveCapabilities;
   private readonly observerVisibility: BrowserGatewayObserverVisibility;
 
   constructor(private readonly options: BrowserGatewayProxyOptions) {
@@ -109,6 +93,13 @@ export class BrowserGatewayProxy {
           "invalid-params",
           "session observer visibility connection is no longer active",
         ),
+    );
+    this.liveCapabilities = new BrowserGatewayLiveCapabilities(
+      options.gateway,
+      (sessionKey) => options.resolveAgentIdFromSessionKey(sessionKey),
+      (code, message): never => {
+        throw new BrowserGatewayProxyError(code, message);
+      },
     );
   }
 
@@ -200,13 +191,16 @@ export class BrowserGatewayProxy {
       // The process-wide private Gateway client owns this connection-scoped subscription.
       return { subscribed: true } as T;
     }
-    const specialCronResult = await requestSpecialCronResult(
-      this.browserCronContext(access),
+    const specialResult = await this.liveCapabilities.requestSpecial({
+      agentId: access.binding.agentId,
       method,
-      prepared,
-    );
-    if (specialCronResult.handled) {
-      return specialCronResult.result as T;
+      params: prepared,
+      context,
+      cronContext: this.browserCronContext(access),
+      auditDenied: async (reason) => await this.auditDeniedRequest(access, method, reason),
+    });
+    if (specialResult.handled) {
+      return specialResult.result as T;
     }
     // Keep commands.list on filtered metadata so browser visibility and execution cannot drift.
     const upstreamMethod = method === "commands.list" ? "chat.metadata" : method;
@@ -309,6 +303,7 @@ export class BrowserGatewayProxy {
   async filterEvent(
     token: string,
     event: BrowserGatewayEvent,
+    context?: BrowserGatewayRequestContext,
   ): Promise<BrowserGatewayEvent | null> {
     let access: BrowserGatewayAccess;
     try {
@@ -317,33 +312,32 @@ export class BrowserGatewayProxy {
     } catch {
       return null;
     }
-    if (SAFE_GLOBAL_EVENTS.has(event.event)) {
-      return event;
-    }
-    if (event.event === "task") {
-      return browserTaskEventBelongsToAccess(this.browserTaskAccess(access), event.payload)
-        ? event
-        : null;
-    }
-    if (
-      !SESSION_SCOPED_EVENTS.has(event.event) ||
-      !this.eventPayloadBelongsToAccess(access, event.payload)
-    ) {
-      return null;
-    }
-    return event;
+    return this.liveCapabilities.filterEvent({
+      agentId: access.binding.agentId,
+      event,
+      context,
+      taskEventBelongsToAccess: (payload) =>
+        browserTaskEventBelongsToAccess(this.browserTaskAccess(access), payload),
+      eventPayloadBelongsToAccess: (payload) =>
+        browserEventPayloadBelongsToAccess(this.browserTaskAccess(access), payload),
+    });
   }
 
   registerBrowserConnection(connectionId: string): void {
     this.observerVisibility.registerConnection(connectionId);
+    this.liveCapabilities.registerConnection(connectionId);
   }
 
   handleGatewayDisconnect(): void {
     this.observerVisibility.handleGatewayDisconnect();
+    this.liveCapabilities.handleGatewayDisconnect();
   }
 
   async releaseBrowserConnection(connectionId: string): Promise<void> {
-    await this.observerVisibility.releaseConnection(connectionId);
+    await Promise.allSettled([
+      this.observerVisibility.releaseConnection(connectionId),
+      this.liveCapabilities.releaseConnection(connectionId),
+    ]);
   }
 
   private prepareRequest(
@@ -406,6 +400,13 @@ export class BrowserGatewayProxy {
     }
     if (method === "sessions.preview") {
       this.assertions.sessionKeyArray(access.binding.agentId, params.keys, "keys", true);
+      return params;
+    }
+    if (
+      this.liveCapabilities.prepareRequest(method, params, (values, field) =>
+        this.assertions.sessionKeyArray(access.binding.agentId, values, field, false),
+      )
+    ) {
       return params;
     }
     if (method === "sessions.describe") {
@@ -494,6 +495,10 @@ export class BrowserGatewayProxy {
   ): unknown {
     if (method.startsWith("cron.")) {
       return projectCronResult(this.browserCronContext(access), method, result);
+    }
+    const liveResult = this.liveCapabilities.projectResult(access.binding.agentId, method, result);
+    if (liveResult.handled) {
+      return liveResult.result;
     }
     const sessionResult = projectBrowserSessionResult({
       method,
@@ -701,10 +706,6 @@ export class BrowserGatewayProxy {
 
   private payloadBelongsToAccess(access: BrowserGatewayAccess, payload: unknown): boolean {
     return browserPayloadBelongsToAccess(this.browserTaskAccess(access), payload);
-  }
-
-  private eventPayloadBelongsToAccess(access: BrowserGatewayAccess, payload: unknown): boolean {
-    return browserEventPayloadBelongsToAccess(this.browserTaskAccess(access), payload);
   }
 
   private async auditDeniedRequest(

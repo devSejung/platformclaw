@@ -20,7 +20,13 @@ import {
 // The private service client—not the browser projection—must attach trusted
 // chat provenance controls required by Gateway. Browser requests remain
 // constrained by BrowserGatewayProxy and its read/write hello projection.
-const REQUIRED_SERVICE_SCOPES = ["operator.read", "operator.write", "operator.admin"] as const;
+const REQUIRED_SERVICE_SCOPES = [
+  "operator.read",
+  "operator.write",
+  "operator.admin",
+  "operator.approvals",
+  "operator.questions",
+] as const;
 const MAX_AUTOMATIC_PAIRING_RESTARTS = 2;
 const SESSION_SUBSCRIPTION_RETRY_BASE_MS = 250;
 const SESSION_SUBSCRIPTION_RETRY_MAX_MS = 5_000;
@@ -234,7 +240,7 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
   ): Promise<void> {
     const details = readPairingConnectErrorDetails(error.details);
     if (
-      details?.reason !== "not-paired" ||
+      (details?.reason !== "not-paired" && details?.reason !== "scope-upgrade") ||
       !details.requestId ||
       details.deviceId !== pairing.identity.deviceId ||
       details.requestedRole !== "operator" ||

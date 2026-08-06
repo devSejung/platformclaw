@@ -2,11 +2,14 @@
 // Control UI tests cover exec approval behavior.
 import { describe, expect, it, vi } from "vitest";
 import {
+  adoptSessionApprovalReplay,
   clearExecApprovalTimers,
   clearResolvedExecApprovalPrompt,
   enqueueExecApprovalPrompt,
   isStaleApprovalResolutionError,
   parseApprovalRequestedEvent,
+  parseSessionApprovalTransition,
+  resolveApprovalRequest,
   refreshPendingApprovalQueue,
   type ExecApprovalPromptState,
   type ExecApprovalRequest,
@@ -92,6 +95,79 @@ describe("parseExecApprovalRequested", () => {
     });
 
     expect(result?.request.runId).toBe("engine-run-1");
+  });
+});
+
+describe("session-scoped approvals", () => {
+  const pending = {
+    id: "approval-session-1",
+    status: "pending",
+    urlPath: "/approvals/approval-session-1",
+    createdAtMs: 1_000,
+    expiresAtMs: Date.now() + 60_000,
+    presentation: {
+      kind: "exec",
+      commandText: "pnpm test",
+      agentId: "agent-a",
+      allowedDecisions: ["allow-once", "deny"],
+    },
+  };
+
+  it("parses pending and terminal session transitions", () => {
+    expect(
+      parseSessionApprovalTransition({
+        sessionKey: "agent:agent-a:main",
+        phase: "pending",
+        approval: pending,
+      }),
+    ).toMatchObject({
+      phase: "pending",
+      approval: {
+        id: "approval-session-1",
+        sessionScoped: true,
+        request: { command: "pnpm test", sessionKey: "agent:agent-a:main" },
+      },
+    });
+    expect(
+      parseSessionApprovalTransition({
+        sessionKey: "agent:agent-a:main",
+        phase: "terminal",
+        approval: { ...pending, status: "denied" },
+      }),
+    ).toEqual({ phase: "terminal", id: "approval-session-1" });
+  });
+
+  it("replaces only the replayed session queue and resolves through approval.resolve", async () => {
+    const request = vi.fn<RequestFn>(() => Promise.resolve({}));
+    const state = createPromptState(request, [
+      createExecApproval({
+        id: "stale",
+        sessionScoped: true,
+        request: { command: "old", sessionKey: "agent:agent-a:main" },
+      }),
+      createExecApproval({ id: "global" }),
+    ]);
+    expect(
+      adoptSessionApprovalReplay(state, {
+        sessionKey: "agent:agent-a:main",
+        updatedAtMs: 2_000,
+        approvals: [pending],
+        truncated: false,
+      }),
+    ).toBe(true);
+    expect(state.execApprovalQueue.map((item) => item.id).toSorted()).toEqual([
+      "approval-session-1",
+      "global",
+    ]);
+    const approval = state.execApprovalQueue.find((item) => item.id === "approval-session-1");
+    expect(approval).toBeDefined();
+    await resolveApprovalRequest(state.client!, approval!, "allow-once");
+    expect(request).toHaveBeenLastCalledWith("approval.resolve", {
+      id: "approval-session-1",
+      kind: "exec",
+      decision: "allow-once",
+    });
+    clearExecApprovalTimers(state);
   });
 });
 

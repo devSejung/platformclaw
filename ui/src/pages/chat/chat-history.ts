@@ -302,6 +302,7 @@ export type ChatState = {
   sessions?: Partial<SessionCapability>;
   chatSessionMessageSubscriptionRequestedKey?: string | null;
   chatSessionMessageSubscription?: SessionMessageSubscription | null;
+  onSessionApprovalReplay?: (replay: unknown) => void;
   chatBranches?: SessionBranch[];
   chatBranchesSessionKey?: string | null;
   chatBranchesConnectionEpoch?: number | null;
@@ -811,6 +812,11 @@ export async function syncSelectedSessionMessageSubscription(
       shouldSubscribe && isCurrent()
         ? state.sessions.subscribeMessages(nextKey, {
             agentId: nextSubscriptionAgentId ?? undefined,
+            ...(state.onSessionApprovalReplay &&
+            state.hello?.features?.events?.includes("session.approval") &&
+            state.hello.auth?.scopes?.includes("operator.approvals")
+              ? { includeApprovals: true }
+              : {}),
           })
         : Promise.resolve(null);
     // Gateway subscriptions are independent canonical-key entries. Overlap the old
@@ -869,6 +875,9 @@ export async function syncSelectedSessionMessageSubscription(
         paneRequests.pendingSubscriptionReleases.add(subscribed);
       }
       return;
+    }
+    if (subscribed.approvalReplay !== undefined) {
+      state.onSessionApprovalReplay?.(subscribed.approvalReplay);
     }
     state.chatSessionMessageSubscriptionRequestedKey = nextKey;
     state.chatSessionMessageSubscription = subscribed;

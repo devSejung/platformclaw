@@ -1,10 +1,47 @@
 import { describe, expect, it } from "vitest";
+import { projectBrowserCronEvent } from "./browser-gateway-cron-policy.js";
 import {
   safeCronJob,
   setupBrowserGatewayProxyTest as setup,
 } from "./browser-gateway-proxy.test-harness.js";
 
 describe("BrowserGatewayProxy cron", () => {
+  it("projects owned cron invalidations without raw run output", () => {
+    const agentId = "first-user";
+    const job = safeCronJob(agentId);
+    const sessionKeyBelongsToAgent = (sessionKey: string) =>
+      sessionKey.startsWith(`agent:${agentId}:`);
+
+    expect(
+      projectBrowserCronEvent({
+        payload: {
+          action: "finished",
+          jobId: job.id,
+          job,
+          summary: "private model output",
+          error: "private stderr",
+          delivery: { intended: { channel: "private" } },
+        },
+        agentId,
+        sessionKeyBelongsToAgent,
+      }),
+    ).toEqual({ action: "finished", jobId: job.id });
+    expect(
+      projectBrowserCronEvent({
+        payload: { action: "finished", jobId: job.id, job: { ...job, agentId: "other" } },
+        agentId,
+        sessionKeyBelongsToAgent,
+      }),
+    ).toBeNull();
+    expect(
+      projectBrowserCronEvent({
+        payload: { action: "removed", jobId: job.id },
+        agentId,
+        sessionKeyBelongsToAgent,
+      }),
+    ).toBeNull();
+  });
+
   it("scopes cron listing and status to the browser Agent", async () => {
     const { binding, proxy, request, token } = await setup();
     const job = safeCronJob(binding.agentId, {
@@ -77,8 +114,9 @@ describe("BrowserGatewayProxy cron", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("does not expose cron run history without immutable execution provenance", async () => {
+  it("returns an empty run-history page when the owned registry has no jobs", async () => {
     const { proxy, request, token } = await setup();
+    request.mockResolvedValueOnce({ jobs: [], total: 0, hasMore: false });
 
     await expect(proxy.request(token, "cron.runs", { scope: "all", limit: 25 })).resolves.toEqual({
       entries: [],
@@ -88,16 +126,66 @@ describe("BrowserGatewayProxy cron", () => {
       nextOffset: null,
       hasMore: false,
     });
-    expect(request).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledExactlyOnceWith(
+      "cron.list",
+      expect.objectContaining({ includeDisabled: true, limit: 200, offset: 0 }),
+    );
   });
 
-  it("treats cron history without a job selector as all-scope", async () => {
-    const { proxy, request, token } = await setup();
-
-    await expect(proxy.request(token, "cron.runs", { limit: 50 })).resolves.toMatchObject({
-      entries: [],
+  it("projects owned run history and strips definition-sensitive output", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const job = safeCronJob(binding.agentId, { name: "Owned summary" });
+    request.mockResolvedValueOnce({ jobs: [job], total: 1, hasMore: false }).mockResolvedValueOnce({
+      entries: [
+        {
+          ts: 1_000,
+          jobId: job.id,
+          action: "finished",
+          status: "error",
+          error: "privileged stderr",
+          summary: "privileged output",
+          deliveryError: "private route",
+          sessionKey: `agent:${binding.agentId}:cron:${job.id}`,
+          runAtMs: 900,
+          durationMs: 100,
+        },
+      ],
+      total: 1,
+      offset: 0,
+      limit: 50,
+      hasMore: false,
     });
-    expect(request).not.toHaveBeenCalled();
+
+    await expect(proxy.request(token, "cron.runs", { limit: 50 })).resolves.toEqual({
+      entries: [
+        {
+          ts: 1_000,
+          jobId: job.id,
+          action: "finished",
+          status: "error",
+          sessionKey: `agent:${binding.agentId}:cron:${job.id}`,
+          runAtMs: 900,
+          durationMs: 100,
+          jobName: "Owned summary",
+        },
+      ],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      nextOffset: null,
+      hasMore: false,
+    });
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "cron.runs",
+      expect.objectContaining({
+        agentId: binding.agentId,
+        scope: "job",
+        id: job.id,
+        limit: 50,
+        offset: 0,
+      }),
+    );
   });
 
   it("allows bounded delivery changes and strips privileged delivery settings", async () => {

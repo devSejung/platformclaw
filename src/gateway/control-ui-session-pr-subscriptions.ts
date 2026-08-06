@@ -7,7 +7,9 @@ import type {
 } from "./control-ui-contract.js";
 import {
   CONTROL_UI_SESSION_PULL_REQUESTS_CHANGED_EVENT,
+  CONTROL_UI_SESSION_PULL_REQUESTS_MAX_BACKEND_SUBSCRIPTIONS,
   CONTROL_UI_SESSION_PULL_REQUESTS_MAX_KEYS,
+  CONTROL_UI_SESSION_PULL_REQUESTS_SUBSCRIPTION_ID_MAX_LENGTH,
 } from "./control-ui-contract.js";
 import type { ControlUiSessionPullRequestsParams } from "./control-ui-session-prs.js";
 import type { GatewayBroadcastToConnIdsFn } from "./server-broadcast-types.js";
@@ -30,6 +32,7 @@ type ControlUiSessionPullRequestSubscriptions = {
     connId: string,
     sessionKeys: readonly string[],
     refreshSessionKeys?: ReadonlySet<string>,
+    subscriptionId?: string,
   ) => Promise<void>;
   unsubscribe: (connId: string) => void;
   pollNow: () => Promise<void>;
@@ -97,15 +100,28 @@ function parseSessionKeys(value: unknown): string[] | null {
 
 export function parseControlUiSessionPullRequestsSubscribeParams(
   value: unknown,
-): { sessionKeys: string[]; refreshSessionKeys: string[] } | null {
+): { sessionKeys: string[]; refreshSessionKeys: string[]; subscriptionId?: string } | null {
   if (!value || typeof value !== "object" || !("sessionKeys" in value)) {
     return null;
   }
-  const raw = value as { sessionKeys?: unknown; refreshSessionKeys?: unknown };
+  const raw = value as {
+    sessionKeys?: unknown;
+    refreshSessionKeys?: unknown;
+    subscriptionId?: unknown;
+  };
   const sessionKeys = parseSessionKeys(raw.sessionKeys);
   const refreshSessionKeys =
     raw.refreshSessionKeys === undefined ? [] : parseSessionKeys(raw.refreshSessionKeys);
   if (!sessionKeys || !refreshSessionKeys) {
+    return null;
+  }
+  const subscriptionId =
+    typeof raw.subscriptionId === "string" ? raw.subscriptionId.trim() : undefined;
+  if (
+    raw.subscriptionId !== undefined &&
+    (!subscriptionId ||
+      subscriptionId.length > CONTROL_UI_SESSION_PULL_REQUESTS_SUBSCRIPTION_ID_MAX_LENGTH)
+  ) {
     return null;
   }
   const watched = new Set(sessionKeys);
@@ -114,7 +130,7 @@ export function parseControlUiSessionPullRequestsSubscribeParams(
       return null;
     }
   }
-  return { sessionKeys, refreshSessionKeys };
+  return { sessionKeys, refreshSessionKeys, ...(subscriptionId ? { subscriptionId } : {}) };
 }
 
 /**
@@ -124,8 +140,10 @@ export function parseControlUiSessionPullRequestsSubscribeParams(
 export function createControlUiSessionPullRequestSubscriptions(
   deps: SubscriptionDeps,
 ): ControlUiSessionPullRequestSubscriptions {
-  const subscriptions = new Map<string, Set<string>>();
-  const replacementTokens = new Map<string, object>();
+  // Direct clients use the default slot. Trusted backend proxies get bounded
+  // named slots so independent downstream connections cannot replace each other.
+  const subscriptions = new Map<string, Map<string, Set<string>>>();
+  const replacementTokens = new Map<string, Map<string, object>>();
   const snapshots = new Map<
     string,
     { hash: string; snapshot: ControlUiSessionPullRequestSnapshot }
@@ -139,12 +157,19 @@ export function createControlUiSessionPullRequestSubscriptions(
   const load = deps.load ?? loadSessionPullRequests;
   let timer: ReturnType<typeof globalThis.setTimeout> | null = null;
   let stopped = false;
+  const defaultSubscriptionId = "";
+
+  const subscriptionsForConnection = (connId: string): Map<string, Set<string>> =>
+    subscriptions.get(connId) ?? new Map<string, Set<string>>();
 
   const subscribersForKey = (sessionKey: string): Set<string> => {
     const connIds = new Set<string>();
-    for (const [connId, keys] of subscriptions) {
-      if (keys.has(sessionKey)) {
-        connIds.add(connId);
+    for (const [connId, slots] of subscriptions) {
+      for (const keys of slots.values()) {
+        if (keys.has(sessionKey)) {
+          connIds.add(connId);
+          break;
+        }
       }
     }
     return connIds;
@@ -152,9 +177,11 @@ export function createControlUiSessionPullRequestSubscriptions(
 
   const watchedKeys = (): Set<string> => {
     const keys = new Set<string>();
-    for (const watched of subscriptions.values()) {
-      for (const key of watched) {
-        keys.add(key);
+    for (const slots of subscriptions.values()) {
+      for (const watched of slots.values()) {
+        for (const key of watched) {
+          keys.add(key);
+        }
       }
     }
     return keys;
@@ -247,6 +274,7 @@ export function createControlUiSessionPullRequestSubscriptions(
     connId: string,
     sessionKeys: readonly string[],
     refreshSessionKeys: ReadonlySet<string> = new Set(),
+    subscriptionId = defaultSubscriptionId,
   ) => {
     if (stopped) {
       return;
@@ -255,11 +283,24 @@ export function createControlUiSessionPullRequestSubscriptions(
     if (!normalizedConnId) {
       return;
     }
+    const normalizedSubscriptionId = subscriptionId.trim();
+    const tokenSlots = replacementTokens.get(normalizedConnId) ?? new Map<string, object>();
     const replacementToken = {};
-    replacementTokens.set(normalizedConnId, replacementToken);
+    tokenSlots.set(normalizedSubscriptionId, replacementToken);
+    replacementTokens.set(normalizedConnId, tokenSlots);
     const next = new Set(sessionKeys);
+    const currentSlots = subscriptionsForConnection(normalizedConnId);
     if (next.size === 0) {
-      subscriptions.delete(normalizedConnId);
+      currentSlots.delete(normalizedSubscriptionId);
+      tokenSlots.delete(normalizedSubscriptionId);
+      if (currentSlots.size === 0) {
+        subscriptions.delete(normalizedConnId);
+      } else {
+        subscriptions.set(normalizedConnId, currentSlots);
+      }
+      if (tokenSlots.size === 0) {
+        replacementTokens.delete(normalizedConnId);
+      }
       pruneOrphans();
       if (watchedKeys().size === 0 && timer !== null) {
         clearTimer(timer);
@@ -267,7 +308,15 @@ export function createControlUiSessionPullRequestSubscriptions(
       }
       return;
     }
-    subscriptions.set(normalizedConnId, next);
+    if (
+      !currentSlots.has(normalizedSubscriptionId) &&
+      currentSlots.size >= CONTROL_UI_SESSION_PULL_REQUESTS_MAX_BACKEND_SUBSCRIPTIONS
+    ) {
+      tokenSlots.delete(normalizedSubscriptionId);
+      throw new Error("too many session pull request subscriptions for connection");
+    }
+    currentSlots.set(normalizedSubscriptionId, next);
+    subscriptions.set(normalizedConnId, currentSlots);
     pruneOrphans();
     schedulePoll();
 
@@ -281,7 +330,9 @@ export function createControlUiSessionPullRequestSubscriptions(
       const snapshot = cached ?? (await loadSnapshot(sessionKey, refresh));
       // A later replace-set owns the connection immediately; an older async
       // initial load must never publish keys after that ownership changed.
-      if (replacementTokens.get(normalizedConnId) !== replacementToken) {
+      if (
+        replacementTokens.get(normalizedConnId)?.get(normalizedSubscriptionId) !== replacementToken
+      ) {
         return;
       }
       const hash = snapshotHash(snapshot);

@@ -27,7 +27,13 @@ function hello(): HelloOk {
     },
     auth: {
       role: "operator",
-      scopes: ["operator.read", "operator.write", "operator.admin"],
+      scopes: [
+        "operator.read",
+        "operator.write",
+        "operator.admin",
+        "operator.approvals",
+        "operator.questions",
+      ],
     },
     policy: { maxPayload: 1_024, maxBufferedBytes: 2_048, tickIntervalMs: 30_000 },
   };

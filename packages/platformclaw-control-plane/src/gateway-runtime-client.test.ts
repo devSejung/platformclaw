@@ -6,6 +6,14 @@ import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import { PlatformClawGatewayRuntimeClient } from "./gateway-runtime-client.js";
 import type { GatewayServiceIdentity } from "./gateway-service-identity.js";
 
+const serviceScopes = [
+  "operator.read",
+  "operator.write",
+  "operator.admin",
+  "operator.approvals",
+  "operator.questions",
+];
+
 function hello(): HelloOk {
   return {
     type: "hello-ok",
@@ -20,7 +28,7 @@ function hello(): HelloOk {
     },
     auth: {
       role: "operator",
-      scopes: ["operator.read", "operator.write", "operator.admin"],
+      scopes: serviceScopes,
     },
     policy: { maxPayload: 1_024, maxBufferedBytes: 2_048, tickIntervalMs: 30_000 },
   };
@@ -177,7 +185,7 @@ describe("PlatformClawGatewayRuntimeClient", () => {
               clientId: "gateway-client",
               clientMode: "backend",
               role: "operator",
-              scopes: ["operator.admin", "operator.write", "operator.read"],
+              scopes: serviceScopes.toReversed(),
             },
           ],
         };
@@ -201,7 +209,7 @@ describe("PlatformClawGatewayRuntimeClient", () => {
         requestId: "request-1",
         deviceId: identity.deviceId,
         requestedRole: "operator",
-        requestedScopes: ["operator.read", "operator.write", "operator.admin"],
+        requestedScopes: serviceScopes,
       }),
     });
 
@@ -220,10 +228,27 @@ describe("PlatformClawGatewayRuntimeClient", () => {
     });
   });
 
-  it("does not auto-approve identity or permission upgrades", async () => {
+  it("auto-approves only the service identity's exact scope upgrade", async () => {
     let configured: GatewayClientOptions | undefined;
     const connectErrors: Error[] = [];
-    const call = vi.fn();
+    const call = vi.fn(async (method: string) => {
+      if (method === "device.pair.list") {
+        return {
+          pending: [
+            {
+              requestId: "request-2",
+              deviceId: identity.deviceId,
+              publicKey: identity.publicKeyRawBase64Url,
+              clientId: "gateway-client",
+              clientMode: "backend",
+              role: "operator",
+              scopes: serviceScopes.toReversed(),
+            },
+          ],
+        };
+      }
+      return { ok: true };
+    });
     const identity: GatewayServiceIdentity = {
       deviceId: "service-device",
       privateKeyPem: "private",
@@ -250,14 +275,14 @@ describe("PlatformClawGatewayRuntimeClient", () => {
         requestId: "request-2",
         deviceId: identity.deviceId,
         requestedRole: "operator",
-        requestedScopes: ["operator.read", "operator.write", "operator.admin"],
+        requestedScopes: serviceScopes,
       }),
     });
 
     configured?.onConnectError?.(error);
-    await Promise.resolve();
-
-    expect(call).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(call).toHaveBeenLastCalledWith("device.pair.approve", { requestId: "request-2" }),
+    );
     expect(connectErrors).toContain(error);
   });
 
@@ -288,7 +313,7 @@ describe("PlatformClawGatewayRuntimeClient", () => {
               clientId: "gateway-client",
               clientMode: "backend",
               role: "operator",
-              scopes: ["operator.read", "operator.write", "operator.admin"],
+              scopes: serviceScopes,
             },
           ],
         };
@@ -316,7 +341,7 @@ describe("PlatformClawGatewayRuntimeClient", () => {
           requestId,
           deviceId: identity.deviceId,
           requestedRole: "operator",
-          requestedScopes: ["operator.read", "operator.write", "operator.admin"],
+          requestedScopes: serviceScopes,
         }),
       });
     const paused = {
