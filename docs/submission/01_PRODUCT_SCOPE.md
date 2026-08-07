@@ -31,6 +31,7 @@ title: "제출 제품 범위"
 | upstream native app paths                        | OpenClaw     | consumer/native clients                             | 미사용  | protocol/release/test tooling       | RETAIN_BUT_HIDDEN | 제출 runtime에서 비빌드·비노출 | submission scope audit          |
 | unrelated providers/skills/docs/tests/workflows  | OpenClaw     | upstream ecosystem                                  | 미사용  | upstream maintenance                | RETAIN_BUT_HIDDEN | 안전한 deletion closure 미입증 | changed-surface gate            |
 | remote OpenClaw README banner                    | OpenClaw     | upstream marketing                                  | 미사용  | 없음                                | REMOVE            | 제출 first impression과 무관   | README local asset scan         |
+| `CONTRIBUTING.md`                                | OpenClaw     | upstream 기여·Discord·PR 안내                       | 미사용  | root docs 참조만 존재               | REMOVE            | 제출/runtime과 무관            | link audit + CI                 |
 
 ## 제품 Surface 정책
 

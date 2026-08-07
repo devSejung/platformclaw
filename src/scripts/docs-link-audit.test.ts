@@ -76,7 +76,7 @@ describe("docs-link-audit", () => {
     ].join("\n");
     fs.mkdirSync(path.join(docsRoot, "providers"), { recursive: true });
     fs.writeFileSync(path.join(docsRoot, "providers", "example.md"), source, "utf8");
-    for (const filename of ["README.md", "CONTRIBUTING.md", "SECURITY.md"]) {
+    for (const filename of ["README.md", "SECURITY.md"]) {
       fs.writeFileSync(
         path.join(fixtureRoot, filename),
         `<div>\n  [${filename}](https://root.test)\n</div>\n`,
@@ -86,8 +86,8 @@ describe("docs-link-audit", () => {
     try {
       const outputRoot = path.join(fixtureRoot, ".audit");
       expect(prepareExternalLinkAuditTree(fixtureRoot, outputRoot)).toEqual({
-        files: 4,
-        projectedLinks: 14,
+        files: 3,
+        projectedLinks: 13,
       });
       const prepared = fs.readFileSync(
         path.join(outputRoot, "docs", "providers", "example.md"),
@@ -127,7 +127,7 @@ describe("docs-link-audit", () => {
       ]) {
         expect(prepared).not.toContain(url);
       }
-      for (const filename of ["README.md", "CONTRIBUTING.md", "SECURITY.md"]) {
+      for (const filename of ["README.md", "SECURITY.md"]) {
         expect(fs.readFileSync(path.join(outputRoot, filename), "utf8")).toContain(
           'href="https://root.test"',
         );
@@ -145,14 +145,14 @@ describe("docs-link-audit", () => {
       path.join(fixtureRoot, "docs", "legacy.md"),
       "<!doctype html>\n<pre>\n[hidden](https://hidden.example.test)\n</pre>\n<Note>\ntext <code>[inline hidden](https://same.example.test)</code> [inline real](https://same.example.test)\n[legacy](https://legacy.example.test)\n</Note>\n<Pre>\n[component](https://component.example.test)\n</Pre>\n[reference][legacy-ref]\n\n[legacy-ref]: https://reference.example.test\n<style><code>[style hidden](https://style.example.test)</code></style> [style real](https://style.example.test)\n```html\n<code>\n[fenced hidden](https://fenced-hidden.example.test)\n```\n<Note>\n[after fence](https://after-fence.example.test)\n</Note>\n",
     );
-    for (const filename of ["README.md", "CONTRIBUTING.md", "SECURITY.md"]) {
+    for (const filename of ["README.md", "SECURITY.md"]) {
       fs.writeFileSync(path.join(fixtureRoot, filename), "");
     }
 
     try {
       const outputRoot = path.join(fixtureRoot, ".audit");
       expect(prepareExternalLinkAuditTree(fixtureRoot, outputRoot)).toEqual({
-        files: 4,
+        files: 3,
         projectedLinks: 6,
       });
       const prepared = fs

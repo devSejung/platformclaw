@@ -55,7 +55,6 @@ jobs:
             --exclude '^https://github\.com/openclaw/maintainers/'
             --exclude '^https://(claude\.ai|help\.openai\.com|openai\.com|platform\.openai\.com|support\.discord\.com|www\.npmjs\.com|www\.raspberrypi\.com)/'
             './README.md'
-            './CONTRIBUTING.md'
             './SECURITY.md'
             './docs/**/*.md'
             './docs/**/*.mdx'
@@ -91,7 +90,6 @@ jobs:
           --format markdown
           --output .artifacts/docs-external-links/permanent-redirects.md
           './README.md'
-          './CONTRIBUTING.md'
           './SECURITY.md'
           './docs/**/*.md'
           './docs/**/*.mdx'
