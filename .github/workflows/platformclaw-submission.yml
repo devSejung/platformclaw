@@ -29,7 +29,9 @@ jobs:
   external:
     name: External submission gate
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-24.04
+    # Ubuntu 24.04 restricts unprivileged user namespaces, which prevents the
+    # rootless DinD smoke daemon from starting. Jammy also matches the runtime image.
+    runs-on: ubuntu-22.04
     timeout-minutes: 180
     steps:
       - name: Checkout

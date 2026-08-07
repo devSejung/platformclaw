@@ -21,6 +21,12 @@ describe("PlatformClaw submission workflow", () => {
     expect(workflow).toContain("pnpm test:docker:platformclaw-runtime");
   });
 
+  it("runs the rootless Docker submission gate on the Jammy kernel policy", () => {
+    expect(workflow).toContain("runs-on: ubuntu-22.04");
+    expect(workflow).toContain("rootless DinD smoke daemon");
+    expect(workflow).not.toContain("runs-on: ubuntu-24.04");
+  });
+
   it("never presents the internal final gate as a hosted-runner proof", () => {
     expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
     expect(workflow).toContain("inputs.run_internal_final");
