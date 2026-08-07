@@ -20,7 +20,7 @@ title: "5분 Demo 계획"
 | 3:15–3:50 | evidence와 Jira               | Run-linked report, failure 보존               | manifest, Jira       |
 | 3:50–4:15 | Knox result                   | sanitized visible outcome                     | delivery proof       |
 | 4:15–4:40 | User B deny, Group Room       | tenant isolation, personal VM/credential 금지 | denial + room target |
-| 4:40–5:00 | business와 scope              | 측정값, OpenClaw 출처, 남은 제한 없음         | metric + attribution |
+| 4:40–5:00 | business와 scope              | 측정값, 외부 기반 출처, 남은 제한 없음        | metric + attribution |
 
 ## 화면 순서
 
@@ -49,7 +49,7 @@ title: "5분 Demo 계획"
 
 ## Narration 원칙
 
-실제 동작과 제한을 함께 말한다. OpenClaw 기반과 해커톤 신규 범위를 숨기지 않는다. 점수나 심사자 행동을 요청하지 않는다. 측정하지 않은 숫자를 말하지 않는다.
+실제 동작과 제한을 함께 말한다. 외부 기반, POC 비재사용과 해커톤 신규 범위를 숨기지 않는다. 점수나 심사자 행동을 요청하지 않는다. 측정하지 않은 숫자를 말하지 않는다.
 
 ## Backup
 

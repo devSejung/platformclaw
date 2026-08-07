@@ -103,7 +103,7 @@ Knox room은 `group-{chatroomId}` Agent와 해당 Agent의 `main` session을 ide
 - upstream consumer channel·native app을 해커톤 제품 surface로 노출: `OUT_OF_SCOPE`
 - 외부 환경에서 실제 사내 Board Farm/Jira/Knox 호출: `OUT_OF_SCOPE`
 - 사내 측정 전 임의의 시간 절감·성공률 수치 제시: `OUT_OF_SCOPE`
-- OpenClaw generic core namespace와 protocol을 PlatformClaw 이름으로 전면 변경: `OUT_OF_SCOPE`
+- generic core namespace와 protocol을 PlatformClaw 이름으로 전면 변경: `OUT_OF_SCOPE`
 
 ## 9. 성공 조건과 측정
 

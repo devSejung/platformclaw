@@ -4,7 +4,7 @@
 
 PlatformClaw는 여러 엔지니어가 각자의 Assistant를 통해 사용자 소유의 개인 개발 공간과 assigned VM에 안전하게 접속하도록 하는 멀티유저 AI 엔지니어링 플랫폼이다. 인증된 Web 또는 Knox 요청을 개인·그룹 Agent에 연결하고, 개인 개발 VM 또는 정책 Sandbox에서 코드 수정과 빌드를 수행한 뒤 Board Farm MCP로 보드를 임대·제어하며, 검증·증거·Jira·Knox 결과까지 하나의 추적 가능한 작업으로 완성하는 것을 목표로 한다.
 
-현재 저장소는 OpenClaw의 generic Gateway/Agent/Session/Tool/Plugin/Sandbox 기반을 유지하는 private downstream이다. enterprise 기능은 `packages/platformclaw-control-plane`, private plugins, deployment wrapper와 제한된 UI 경계에 배치한다. upstream ancestry를 보존하며 wholesale fork divergence를 만들지 않는다.
+현재 저장소는 generic Gateway/Agent/Session/Tool/Plugin/Sandbox 기반을 유지하는 private downstream이다. enterprise 기능은 `packages/platformclaw-control-plane`, private plugins, deployment wrapper와 제한된 UI 경계에 배치한다. upstream ancestry를 보존하며 wholesale fork divergence를 만들지 않는다. 외부 기반의 출처와 라이선스는 `ATTRIBUTION.md`가 소유한다.
 
 ## 현재 구현
 

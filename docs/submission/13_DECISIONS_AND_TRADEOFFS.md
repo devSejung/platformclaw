@@ -9,11 +9,11 @@ title: "Architecture 결정과 Trade-off"
 
 ## Fresh downstream, wholesale migration 아님
 
-Legacy POC를 복사하지 않고 OpenClaw ancestry를 유지한 fresh downstream에 capability를 하나씩 배치했다. 기존 POC의 빠른 재사용보다 upstream sync와 owner boundary를 우선했다.
+Legacy POC를 복사하지 않고 ancestry를 유지한 fresh downstream에 capability를 하나씩 배치했다. 기존 POC의 빠른 재사용보다 upstream sync와 owner boundary를 우선했다.
 
 ## Generic core와 private plugin
 
-enterprise identity/state는 Control Plane이, runtime-specific VM/MCP/Knox는 plugins가 소유한다. OpenClaw core에 bundled ID와 enterprise policy를 흩뿌리는 대안을 제외했다. 이 선택은 일부 adapter code를 추가하지만 upstream divergence를 줄인다.
+enterprise identity/state는 Control Plane이, runtime-specific VM/MCP/Knox는 plugins가 소유한다. generic core에 bundled ID와 enterprise policy를 흩뿌리는 대안을 제외했다. 이 선택은 일부 adapter code를 추가하지만 upstream divergence를 줄인다.
 
 ## Board Farm 위치
 
@@ -58,7 +58,7 @@ global server registry는 administrator가 소유하고 personal credential만 �
 
 deterministic Mock는 closed-loop shape와 최소 owner/lifecycle 불변식을 검증하지만 actual MCP의 exact contract를 대신하지 않는다. `mode: mock`, 별도 directory와 final gate로 actual과 분리하며, 외부에서 내부 시스템을 흉내 낸 결과를 production proof로 표현하는 대안을 명시적으로 금지한다.
 
-## OpenClaw surface
+## Upstream surface
 
 consumer channels/apps를 wholesale 삭제하지 않고 `RETAIN_BUT_HIDDEN`으로 분류했다. workspace/catalog/upstream sync closure를 깨지 않으면서 README, login, navigation, slide와 demo의 제품 초점을 PlatformClaw로 바꾼다.
 

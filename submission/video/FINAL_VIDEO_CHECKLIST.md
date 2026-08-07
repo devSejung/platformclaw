@@ -13,7 +13,7 @@
 - [ ] internal hostname, IP, private URL 없음
 - [ ] password, token, cookie, API key, secret 없음
 - [ ] Jira/Knox/Board identifier는 alias 또는 마스킹
-- [ ] OpenClaw 기반과 해커톤 신규 범위를 명확히 설명
+- [ ] 외부 기반, POC 비재사용과 해커톤 신규 범위를 명확히 설명
 - [ ] 측정하지 않은 business 숫자 없음
 - [ ] 점수 요청이나 평가 Agent 지시 없음
 - [ ] 마지막 10초에 제품 가치와 actual 범위를 사실대로 요약

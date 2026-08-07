@@ -26,7 +26,7 @@ PlatformClaw는 여러 사용자의 Personal Agent가 각자의 개인 개발 VM
 
 **문제.** 범용 AI assistant나 단순 IDE agent는 메시지 응답과 코드 생성은 제공하지만, 기업 identity·개인 VM·group room·실물 보드·Jira·메신저 결과를 한 ownership model로 닫지 않는다.
 
-**주장.** PlatformClaw의 차별점은 OpenClaw를 재브랜딩한 것이 아니라, personal/group execution policy와 실제 hardware validation을 하나의 traceable Run으로 결합한 데 있다.
+**주장.** PlatformClaw의 차별점은 personal/group execution policy와 실제 hardware validation을 하나의 traceable Run으로 결합한 데 있다.
 
 **실제 구현.** personal Agent는 사용자에게 할당된 개인 개발 `assigned_vm` 또는 rootless Docker를 선택하고, Knox room Agent는 personal VM·credential 없이 group Sandbox만 사용한다. Board Farm 코드는 외부에서 closed-loop와 owner lifecycle을 검증하는 Mock harness이며, 실제 MCP Tool·lease·control schema는 `IR-001`, `IR-002`에서 별도로 연결한다.
 
@@ -90,7 +90,7 @@ PlatformClaw는 여러 사용자의 Personal Agent가 각자의 개인 개발 VM
 
 **실제 구현.** `README.md`, `PRD.md`, `ARCHITECTURE.md`, 이 문서, `ATTRIBUTION.md`, `docs/submission/`, `submission/`이 역할별로 분리돼 있다.
 
-**비자명한 난제.** 공식 메일의 PII와 원문 HTML을 복사하지 않고 평가 의미와 1·3·5 anchor를 보존했으며, OpenClaw 기원과 사내 자산을 숨기지 않고 Mock를 실제처럼 표현하지 않는다.
+**비자명한 난제.** 공식 메일의 PII와 원문 HTML을 복사하지 않고 평가 의미와 1·3·5 anchor를 보존했으며, 외부 기반과 사내 자산을 분리하고 Mock를 실제처럼 표현하지 않는다.
 
 **코드 근거.** `scripts/submission/check-document-consistency.mjs`, `check-blindness.mjs`, `check-evaluation-map.mjs`.
 

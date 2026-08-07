@@ -13,7 +13,7 @@ PlatformClaw는 **여러 엔지니어가 각자의 Assistant를 통해 사용자
 | 질문                  | 답                                                                                                                                                                                                                                                               |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 어떤 문제인가?        | 펌웨어·SoC 개발자는 요청, 코드, 개인 VM, 빌드 시스템, Board Farm, Jira와 메신저를 오가며 수동으로 맥락과 증거를 전달한다. 사용자별 자격 증명·작업공간 경계도 쉽게 흐려진다.                                                                                      |
-| 무엇을 만들었나?      | Employee Auth, 사용자별 Agent·Workspace, 개인 개발 VM 접속, rootless Sandbox, one-shot credential, Knox 정책과 Board Farm 연동 경계를 OpenClaw 기반 위에 통합했다.                                                                                               |
+| 무엇을 만들었나?      | Employee Auth, 사용자별 Agent·Workspace, 개인 개발 VM 접속, rootless Sandbox, one-shot credential, Knox 정책과 Board Farm 연동 경계를 하나의 멀티유저 플랫폼으로 통합했다.                                                                                       |
 | 무엇이 실제 구현인가? | Control Plane, 소유권 검사, Agent provisioning, VM/Sandbox routing, credential vault/broker, MCP 경계, 제한된 Control UI와 Linux Docker runtime이다.                                                                                                             |
 | 무엇이 Mock인가?      | VM build 결과를 받아 lease·deploy·boot·validation·report·Knox 결과까지 재현하는 closed-loop harness다. 실제 MCP의 Tool·인증·lease/control 정책을 대신하지 않으며 모든 산출물은 `mode: mock`이다.                                                                 |
 | 무엇이 아직 필요한가? | 실제 사내 endpoint·정책·secret mount를 사용하는 Board Farm/Global Skill/Jira/Knox 연결, actual Golden Run, 측정값, 5분 MP4와 final branch/tag다.                                                                                                                 |
@@ -81,7 +81,7 @@ flowchart LR
 
 ### 창의성 25% — 기존 AI assistant와 무엇이 다른가?
 
-**답:** 채팅이나 코드 생성에서 끝나지 않고, 기업 identity를 사용자별 개인 개발 VM과 연결하고 그 실행 결과를 하드웨어 lease·control·evidence·report까지 하나의 Run으로 결합한다. OpenClaw를 단순 rebranding한 것이 아니라 multi-user engineering control plane과 hardware-validation integration boundary를 추가했다.
+**답:** 채팅이나 코드 생성에서 끝나지 않고, 기업 identity를 사용자별 개인 개발 VM과 연결하고 그 실행 결과를 하드웨어 lease·control·evidence·report까지 하나의 Run으로 결합한다. 핵심 신규 가치는 multi-user engineering control plane과 hardware-validation integration boundary다.
 
 - Knox DM은 개인 Agent와 선택 target으로, Group Room은 방 전용 Agent와 platform Sandbox로 분리
 - channel이 문자열을 보고 정책을 추측하지 않고 Control Plane이 route와 target을 결정
@@ -164,7 +164,7 @@ flowchart TB
 
 ## 저장소 구조
 
-이 저장소는 OpenClaw의 Git ancestry와 generic runtime을 보존한 private downstream이다. 따라서 전체 저장소가 PlatformClaw 신규 코드인 것은 아니다. 심사에 직접 관련된 구조는 다음과 같다.
+이 저장소는 외부 기반의 Git ancestry와 generic runtime을 보존한 downstream이다. 따라서 전체 저장소가 PlatformClaw 신규 코드인 것은 아니다. 심사에 직접 관련된 구조는 다음과 같다.
 
 ```text
 platformclaw/
@@ -187,7 +187,7 @@ platformclaw/
 │  ├─ internal-templates/                # Board Farm·Global Skill 내부 연결 계약
 │  ├─ slides/index.html                  # offline 프로젝트 소개서
 │  └─ video/                             # 5분 MP4 규칙과 최종 산출물 위치
-├─ src/, packages/, extensions/          # 보존된 OpenClaw generic core와 plugin ecosystem
+├─ src/, packages/, extensions/          # 보존된 generic core와 plugin ecosystem
 ├─ PRD.md                                # 제품 요구
 ├─ ARCHITECTURE.md                       # architecture와 trust boundary
 ├─ EVALUATION.md                         # 평가 항목별 서술 근거
@@ -201,7 +201,7 @@ platformclaw/
 | Operator UX     | `ui/src/platformclaw/`                                        | employee login, 제한된 navigation, execution/MCP/admin 상태                         |
 | Runtime         | `docker/platformclaw-runtime/`                                | Linux composition, read-only/secret mount, private Gateway, rootless Sandbox        |
 | Proof           | `scripts/e2e/`, `scripts/submission/`, `submission/evidence/` | 실제 runtime smoke와 Mock/actual이 분리된 제출 근거                                 |
-| Upstream base   | generic `src/`, `packages/`, `extensions/`                    | OpenClaw Gateway, Agent, Session, Tool, Plugin SDK와 호환성                         |
+| Upstream base   | generic `src/`, `packages/`, `extensions/`                    | Gateway, Agent, Session, Tool, Plugin SDK 호환성                                    |
 
 전체 path의 `KEEP` / `RETAIN_BUT_HIDDEN` / `REMOVE` 분류는 [제품 범위표](docs/submission/01_PRODUCT_SCOPE.md), 기능 단위 source·test·runtime 연결은 [Code Map](docs/submission/12_CODE_MAP.md)에서 확인할 수 있다.
 
@@ -270,11 +270,11 @@ pnpm submission:verify:final
 | 내부 연결 절차              | [submission/INTERNAL_FINALIZATION_CHECKLIST.md](submission/INTERNAL_FINALIZATION_CHECKLIST.md) |
 | HTML 소개서                 | [submission/slides/index.html](submission/slides/index.html)                                   |
 | 5분 demo scenario           | [docs/submission/15_DEMO_PLAN.md](docs/submission/15_DEMO_PLAN.md)                             |
-| OpenClaw·legacy·해커톤 범위 | [ATTRIBUTION.md](ATTRIBUTION.md)                                                               |
+| 출처·POC·해커톤 범위        | [ATTRIBUTION.md](ATTRIBUTION.md)                                                               |
 
-## OpenClaw 기반과 해커톤 구현 범위
+## 출처와 해커톤 구현 범위
 
-이 저장소는 OpenClaw의 generic Gateway, Agent, Session, Tool, Plugin SDK와 Sandbox 기반을 유지한 private downstream이다. 해커톤 구현은 fresh OpenClaw fork 위에 enterprise identity, multi-user authorization, personal execution, credential boundary, Knox policy, operator UI와 closed-loop hardware workflow contract를 통합했다.
+기존 POC는 컨셉 가능성만 확인했으며 source를 현재 저장소에 복사하거나 재사용하지 않았다. 현재 PlatformClaw 제품 구현은 모두 해커톤 기간에 개발했다. 확인된 최초 제품 commit은 2026-07-18의 `7b58338354708179ae4303363b0c9af0a90e4f92`이고, 확인된 upstream common ancestor와 제출 baseline도 모두 7월 3일 이후다. 외부 기반, Git 근거와 법적 고지는 [ATTRIBUTION.md](ATTRIBUTION.md)에 분리했다.
 
 제출과 무관한 upstream consumer channel·native app 경로는 package exports, plugin build, protocol guard와 test classifier의 dependency closure 때문에 source tree에 남아 있지만, 제출 runtime에서 구성·빌드·노출하지 않는 `RETAIN_BUT_HIDDEN`이다. README·UI·slides·demo·지원 기능 목록은 PlatformClaw 경로만 보여 준다. 삭제 audit와 상세 구분은 [ATTRIBUTION.md](ATTRIBUTION.md), path별 scope는 [01_PRODUCT_SCOPE.md](docs/submission/01_PRODUCT_SCOPE.md)에 있다. 원 라이선스는 [LICENSE](LICENSE), 제3자 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 보존한다.
 

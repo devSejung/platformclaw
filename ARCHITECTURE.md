@@ -1,6 +1,6 @@
 # PlatformClaw Architecture
 
-PlatformClaw는 여러 사용자의 Personal Agent가 각자의 개인 개발 VM에 접속하고 Board Farm MCP를 사용하도록 격리하는 멀티유저 AI 엔지니어링 플랫폼이다. OpenClaw generic runtime에 enterprise identity, tenant authorization, credential, Knox와 hardware workflow를 명시적 owner boundary로 추가한다. 실선은 현재 코드 또는 Mock contract, 점선은 `INTERNAL_INTEGRATION_REQUIRED`인 사내 연결을 뜻한다.
+PlatformClaw는 여러 사용자의 Personal Agent가 각자의 개인 개발 VM에 접속하고 Board Farm MCP를 사용하도록 격리하는 멀티유저 AI 엔지니어링 플랫폼이다. generic agent runtime에 enterprise identity, tenant authorization, credential, Knox와 hardware workflow를 명시적 owner boundary로 추가한다. 실선은 현재 코드 또는 Mock contract, 점선은 `INTERNAL_INTEGRATION_REQUIRED`인 사내 연결을 뜻한다.
 
 ## 1. System Context
 
@@ -11,7 +11,7 @@ flowchart LR
   A["Administrator"] --> AU["Admin UI"]
   W --> C["Control Plane"]
   K --> X["Knox plugin"] --> C
-  C --> G["OpenClaw Gateway"]
+  C --> G["Agent Gateway"]
   G --> S["Rootless Sandbox"]
   G --> V["User-owned Development VM"]
   G -. MCP .-> B["Internal Board Farm"]

@@ -1,13 +1,13 @@
 ---
 summary: "PlatformClaw 제출 runtime의 KEEP, REMOVE, RETAIN_BUT_HIDDEN 범위"
 read_when:
-  - "OpenClaw 기반 경로와 PlatformClaw 제출 surface를 구분할 때"
+  - "upstream 기반 경로와 PlatformClaw 제출 surface를 구분할 때"
 title: "제출 제품 범위"
 ---
 
 # 제출 제품 범위
 
-제출 runtime의 첫 화면과 Golden Path는 PlatformClaw다. OpenClaw generic core와 plugin ecosystem은 ancestry·dependency를 보존하되, consumer channel 중심 surface는 사용자 경로에서 숨긴다.
+제출 runtime의 첫 화면과 Golden Path는 PlatformClaw다. upstream generic core와 plugin ecosystem은 ancestry·dependency를 보존하되, consumer channel 중심 surface는 사용자 경로에서 숨긴다.
 
 ## 분류 기준
 
@@ -26,12 +26,12 @@ title: "제출 제품 범위"
 | `extensions/admin-http-rpc/`                     | PlatformClaw | bounded admin RPC                                   | 사용    | 직접                                | KEEP              | admin boundary                 | plugin tests                    |
 | `ui/src/platformclaw/`                           | PlatformClaw | login, brand, execution/MCP/admin UI                | 사용    | 직접                                | KEEP              | primary Web UX                 | UI tests/build                  |
 | `docker/platformclaw-runtime/`                   | PlatformClaw | Linux deployment, rootless Sandbox                  | 사용    | 직접                                | KEEP              | final runtime                  | Compose + smoke                 |
-| `src/agents/`, `src/gateway/`, `src/plugin-sdk/` | OpenClaw     | generic Agent/Gateway/SDK                           | 사용    | 직접                                | KEEP              | core contract                  | upstream gates                  |
-| upstream consumer channel plugin paths           | OpenClaw     | 범용 message transport                              | 미사용  | package exports, build/test catalog | RETAIN_BUT_HIDDEN | 제출 runtime에서 비활성·비노출 | product copy + dependency audit |
-| upstream native app paths                        | OpenClaw     | consumer/native clients                             | 미사용  | protocol/release/test tooling       | RETAIN_BUT_HIDDEN | 제출 runtime에서 비빌드·비노출 | submission scope audit          |
-| unrelated providers/skills/docs/tests/workflows  | OpenClaw     | upstream ecosystem                                  | 미사용  | upstream maintenance                | RETAIN_BUT_HIDDEN | 안전한 deletion closure 미입증 | changed-surface gate            |
-| remote OpenClaw README banner                    | OpenClaw     | upstream marketing                                  | 미사용  | 없음                                | REMOVE            | 제출 first impression과 무관   | README local asset scan         |
-| `CONTRIBUTING.md`                                | OpenClaw     | upstream 기여·Discord·PR 안내                       | 미사용  | root docs 참조만 존재               | REMOVE            | 제출/runtime과 무관            | link audit + CI                 |
+| `src/agents/`, `src/gateway/`, `src/plugin-sdk/` | Upstream     | generic Agent/Gateway/SDK                           | 사용    | 직접                                | KEEP              | core contract                  | upstream gates                  |
+| upstream consumer channel plugin paths           | Upstream     | 범용 message transport                              | 미사용  | package exports, build/test catalog | RETAIN_BUT_HIDDEN | 제출 runtime에서 비활성·비노출 | product copy + dependency audit |
+| upstream native app paths                        | Upstream     | consumer/native clients                             | 미사용  | protocol/release/test tooling       | RETAIN_BUT_HIDDEN | 제출 runtime에서 비빌드·비노출 | submission scope audit          |
+| unrelated providers/skills/docs/tests/workflows  | Upstream     | upstream ecosystem                                  | 미사용  | upstream maintenance                | RETAIN_BUT_HIDDEN | 안전한 deletion closure 미입증 | changed-surface gate            |
+| remote upstream README banner                    | Upstream     | upstream marketing                                  | 미사용  | 없음                                | REMOVE            | 제출 first impression과 무관   | README local asset scan         |
+| `CONTRIBUTING.md`                                | Upstream     | upstream 기여·community·PR 안내                     | 미사용  | root docs 참조만 존재               | REMOVE            | 제출/runtime과 무관            | link audit + CI                 |
 
 ## 제품 Surface 정책
 

@@ -20,7 +20,7 @@ title: "외부 준비 Review Report"
 
 ## Pass 2 — 창의성
 
-- 발견: OpenClaw fork 재브랜딩으로 보일 위험
+- 발견: 외부 기반의 단순 재브랜딩으로 보일 위험
 - 수정: fresh upstream, 해커톤 신규 enterprise boundary, Legacy POC와 internal asset을 ATTRIBUTION에서 분리
 - 발견: hardware closed loop의 신규 가치가 추상적
 - 수정: Run, target revision, artifact digest, lease, evidence, report/notification의 연결을 diagram과 contract로 구체화
@@ -45,7 +45,7 @@ title: "외부 준비 Review Report"
 
 ## Pass 5 — 전달력
 
-- 발견: 기존 README가 OpenClaw consumer assistant 중심
+- 발견: 기존 README가 범용 consumer assistant 중심
 - 수정: PlatformClaw 3분 funnel, local mascot, 상태 표, Golden Path와 attribution으로 교체
 - 발견: 공식 메일 원문에 PII와 tracking markup 포함
 - 수정: 원문은 commit하지 않고 `00_EVALUATION_REQUIREMENTS.md`에 익명 의미·비중·anchor만 보존

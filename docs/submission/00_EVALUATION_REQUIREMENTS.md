@@ -68,7 +68,7 @@ Open source를 사용하거나 기존 프로젝트를 확장하거나 대규모 
 
 ## PlatformClaw 적용
 
-- `ATTRIBUTION.md`: OpenClaw, Legacy POC, 해커톤 신규 구현과 사내 자산 분리
+- `ATTRIBUTION.md`: 외부 기반, Legacy POC, 해커톤 신규 구현과 사내 자산 분리
 - `submission/evaluation-map.yaml`: 모든 claim의 code/test/docs/evidence 연결
 - `submission/evidence/`: Mock와 actual evidence 분리
 - `submission/slides/index.html`: offline HTML 소개서

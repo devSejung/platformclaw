@@ -1,137 +1,25 @@
-## OpenClaw Vision
+# PlatformClaw Vision
 
-OpenClaw is the AI that actually does things.
-It runs on your devices, in your channels, with your rules.
+PlatformClaw는 여러 개발자가 각자의 Personal Agent를 통해 자신이 소유한 개발 공간과 할당된 VM에서 안전하게 작업하고, 그 결과를 실제 보드 검증까지 연결하는 멀티유저 AI 엔지니어링 플랫폼이다.
 
-This document explains the current state and direction of the project.
-We are still early, so iteration is fast.
-Project overview and developer docs: [`README.md`](README.md)
+## 제품 방향
 
-OpenClaw started as a personal playground to learn AI and build something genuinely useful:
-an assistant that can run real tasks on a real computer.
-It evolved through several names and shells: Warelay -> Clawdbot -> Moltbot -> OpenClaw.
+- Personal Agent는 인증된 사용자의 Workspace, VM, credential만 사용한다.
+- Group Agent는 개인 자원에 접근하지 않고 승인된 공용 Sandbox만 사용한다.
+- 코드 수정과 빌드는 개인 개발 VM에서 수행한다.
+- 빌드 산출물은 Board Farm MCP를 통해 lease, deploy, boot, control, validation 단계로 전달한다.
+- 모든 단계는 하나의 Run과 correlation ID로 연결하고, 결과·실패·증거를 명시적으로 남긴다.
+- 여러 사용자가 동시에 사용해도 사용자·Agent·Workspace·VM·credential 경계가 섞이지 않아야 한다.
 
-The goal: a personal assistant that is easy to use, supports a wide range of platforms, and respects privacy and security.
+## 구현 원칙
 
-The current focus is:
+- 권한은 UI가 아니라 서버의 request, result, event 경계에서 검사한다.
+- credential은 암호화 저장하고 실행 시점에 one-shot으로 전달한다.
+- 내부 endpoint, 인증 방식, Global Skills와 실제 측정값은 공개 저장소에 넣지 않는다.
+- Mock 결과와 actual 결과를 디렉터리, manifest, gate에서 분리한다.
+- 실제 사내 연동을 모르면 추측하지 않고 `INTERNAL_INTEGRATION_REQUIRED`와 `TODO(INTERNAL)`로 남긴다.
+- 제출 runtime과 문서는 PlatformClaw Golden Path에 집중한다. 직접 관련 없는 consumer channel과 native app은 노출하지 않는다.
 
-Priority:
+## 완료 기준
 
-- Security and safe defaults
-- Bug fixes and stability
-- Setup reliability and first-run UX
-
-Next priorities:
-
-- Supporting all major model providers
-- Improving support for major messaging channels (and adding a few high-demand ones)
-- Performance and test infrastructure
-- Better computer-use and agent harness capabilities
-- Ergonomics across CLI and web frontend
-- Companion apps on macOS, iOS, Android, Windows, and Linux
-
-Contribution rules:
-
-- One PR = one issue/topic. Do not bundle multiple unrelated fixes/features.
-- PRs over ~5,000 changed lines are reviewed only in exceptional circumstances.
-- Do not open large batches of tiny PRs at once; each PR has review cost.
-- For very small related fixes, grouping into one focused PR is encouraged.
-
-Configuration compatibility:
-
-OpenClaw runtime code reads the current configuration schema only.
-We do not keep long-lived aliases or compatibility branches that silently accept old, renamed, or malformed config keys.
-
-When a config change makes existing user config invalid, the same change needs a doctor migration.
-`openclaw doctor --fix` should detect the old shape, explain it, back it up when needed, and rewrite it to the canonical format.
-Core-owned config and auth state are repaired in core doctor code; plugin-owned config is repaired by that plugin's doctor contract.
-
-## Security
-
-Security in OpenClaw is a deliberate tradeoff: strong defaults without killing capability.
-The goal is to stay powerful for real work while making risky paths explicit and operator-controlled.
-
-Canonical security policy and reporting:
-
-- [`SECURITY.md`](SECURITY.md)
-
-We prioritize secure defaults, but also expose clear knobs for trusted high-power workflows.
-
-Privacy follows the same default rule.
-OpenClaw sends no usage analytics, tracking identifiers, or attribution tags unless the operator turned that on themselves.
-A change that needs such signals waits until an explicit user-facing opt-in exists for them.
-
-## Plugins & Memory
-
-OpenClaw has an extensive plugin API.
-Core stays lean; optional capabilities should usually ship as plugins.
-We are generally slimming down core while expanding what plugins can do.
-If a useful feature cannot be built as a plugin yet, we welcome PRs and design discussions that extend the plugin API instead of adding one-off core behavior.
-
-Two layers, two bars.
-The core carries a per-call tax: each core tool, prompt line, and config key reaches every operator on every model request, so additions there face the strictest scrutiny.
-Plugins, skills, channels, and apps carry no such tax, and we want that surface to keep growing.
-When our contribution rules read as hostile to a feature, re-check the layer: usually they object to where it plugs in, not to the feature existing.
-
-Recurring demand defines interfaces.
-Once several independent PRs or requests wire in the same kind of capability, the right response is a contract, not a queue of merges: land the seam in core or the SDK, port the bundled implementation onto it, and let the remaining candidates ship as plugins against it.
-
-There are two broad plugin styles:
-
-- Code plugins run OpenClaw plugin code and are appropriate for deeper runtime extension.
-- Bundle-style plugins package stable external surfaces such as skills, MCP servers, and related configuration.
-
-Prefer bundle-style plugins when they can express the capability.
-They have a smaller, more stable interface and better security boundaries.
-Use code plugins when the capability needs runtime hooks, providers, channels, tools, or other in-process extension points.
-
-Preferred plugin path is npm package distribution plus local extension loading for development.
-If you build a plugin, host and maintain it in your own repository.
-The bar for adding optional plugins to core is intentionally high.
-Plugin docs: [`docs/tools/plugin.md`](docs/tools/plugin.md)
-Plugin discovery, official publisher status, provenance, and security review live in [ClawHub](https://clawhub.ai/).
-OpenClaw docs should document core extension points; plugin promotion belongs in ClawHub, preferably under vetted org publishers for official plugins.
-
-Memory is a special plugin slot where only one memory plugin can be active at a time.
-Today we ship multiple memory options; over time we plan to converge on one recommended default path.
-
-### Skills
-
-We still ship some bundled skills for baseline UX.
-New skills should be published through [ClawHub](https://clawhub.ai/) first, not added to core by default.
-Official or bundled promotion should require a clear product, security, or maintainer-ownership reason.
-
-### MCP Support
-
-OpenClaw supports MCP as both a server and a runtime integration surface.
-MCP details live in [`docs/cli/mcp.md`](docs/cli/mcp.md).
-
-The project goal is pragmatic MCP support without duplicating existing agent,
-tool, ACPX, plugin, or ClawHub paths.
-
-### Setup
-
-OpenClaw is currently terminal-first by design.
-This keeps setup explicit: users see docs, auth, permissions, and security posture up front.
-
-Long term, we want easier onboarding flows as hardening matures.
-We do not want convenience wrappers that hide critical security decisions from users.
-
-### Why TypeScript?
-
-OpenClaw is primarily an orchestration system: prompts, tools, protocols, and integrations.
-TypeScript was chosen to keep OpenClaw hackable by default.
-It is widely known, fast to iterate in, and easy to read, modify, and extend.
-
-## What We Will Not Merge (For Now)
-
-- New core skills when they can live on [ClawHub](https://clawhub.ai/)
-- Full-doc translation sets for all docs (deferred; we plan AI-generated translations later)
-- Commercial service integrations that do not clearly fit the model-provider category
-- Wrapper channels around already supported channels without a clear capability or security gap
-- MCP work that duplicates existing MCP, ACPX, plugin, or ClawHub paths without a clear product or security gap
-- Agent-hierarchy frameworks (manager-of-managers / nested planner trees) as a default architecture
-- Heavy orchestration layers that duplicate existing agent and tool infrastructure
-
-This list is a roadmap guardrail, not a law of physics.
-Strong user demand and strong technical rationale can change it.
+공개 범위에서는 identity, ownership, personal VM execution, Sandbox, credential, Board Farm domain contract와 deterministic Mock closed loop를 검증한다. 최종 사내 완료는 실제 MCP·Global Skills·Jira·Knox 연결, actual Golden Run, 측정값, 5분 영상과 final gate 통과로 판단한다.

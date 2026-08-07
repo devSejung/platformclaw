@@ -1,3 +1,8 @@
+# Board Farm MCP Adapter Scaffold
+
+이 파일은 compile 대상이 아니다. 실제 MCP Tool schema를 확인한 뒤 사내 source owner에서 구현한다. 현재 코드는 deterministic Mock phase adapter의 형태만 보여 주며 lease·renew·control·release 계약을 추측하지 않는다.
+
+```ts
 import type {
   BoardFarmAdapter,
   BoardFarmAdapterOperation,
@@ -20,8 +25,8 @@ export type InternalBoardFarmClient = {
   }>;
 };
 
-// TODO(INTERNAL): add the approved MCP lease, renew/heartbeat, control and
-// release request/response types here. Their exact schema is intentionally not guessed.
+// TODO(INTERNAL): add approved MCP lease, renew/heartbeat, control and release
+// request/response types. Exact schema is intentionally not guessed.
 
 /**
  * Partial Mock-phase scaffold only. It does not implement the actual MCP
@@ -70,3 +75,4 @@ export class InternalBoardFarmAdapterTemplate implements BoardFarmAdapter {
         };
   }
 }
+```

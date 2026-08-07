@@ -8,7 +8,7 @@
       "status": "INTERNAL_INTEGRATION_REQUIRED",
       "target_files": [
         "packages/platformclaw-control-plane/src/board-farm",
-        "submission/internal-templates/board-farm-mcp/adapter.template.ts"
+        "submission/internal-templates/board-farm-mcp/adapter.template.md"
       ],
       "required_internal_info": [
         "approved MCP source",

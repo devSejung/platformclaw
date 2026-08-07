@@ -385,7 +385,7 @@
       "summary": "BoardFarmAdapter를 실제 사내 MCP tool과 인증 endpoint에 연결한다.",
       "code_paths": [
         "packages/platformclaw-control-plane/src/board-farm/contracts.ts",
-        "submission/internal-templates/board-farm-mcp/adapter.template.ts"
+        "submission/internal-templates/board-farm-mcp/adapter.template.md"
       ],
       "test_paths": [
         "submission/internal-templates/board-farm-mcp/ACCEPTANCE_TESTS.md"

@@ -9,7 +9,7 @@
 - `validate(BoardFarmAdapterOperation)`
 - `cleanup(BoardFarmCleanupOperation)`
 
-실제 MCP에는 최소한 lease, renew/heartbeat, approved control action과 release가 필요하다. exact Tool 이름, request/response와 오류 schema는 외부에서 추측하지 않고 사내 담당자가 이 문서와 `adapter.template.ts`의 `TODO(INTERNAL)`을 채운다.
+실제 MCP에는 최소한 lease, renew/heartbeat, approved control action과 release가 필요하다. exact Tool 이름, request/response와 오류 schema는 외부에서 추측하지 않고 사내 담당자가 이 문서와 `adapter.template.md`의 `TODO(INTERNAL)`을 채운다.
 
 모든 method는 `BoardFarmAdapterResult`를 반환한다. transport error를 throw할 수 있지만 credential, raw internal URL 또는 board serial을 message에 포함하지 않는다. Domain service가 생성한 `operationId`를 MCP idempotency key로 mapping한다.
 
@@ -20,7 +20,7 @@
 ## Integration
 
 1. approved MCP 문서에서 lease·renew·control·release와 deploy/boot/validate Tool schema를 확정한다.
-2. `adapter.template.ts`의 `TODO(INTERNAL)`을 사내 source owner에서 구현한다.
+2. `adapter.template.md`의 예제를 사내 source owner로 옮기고 `TODO(INTERNAL)`을 구현한다.
 3. approved MCP SDK/client types를 직접 import한다.
 4. process startup factory에서 actual integration을 구성한다.
 5. auth와 endpoint는 deployment secret/config로 주입한다.
