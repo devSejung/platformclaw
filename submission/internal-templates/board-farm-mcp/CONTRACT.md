@@ -19,7 +19,7 @@
 
 ## Integration
 
-MCP 서버 본체는 기존 사내 repository와 service deployment가 소유하며 PlatformClaw 저장소로 복사하지 않는다. 이 저장소에는 domain contract에 연결하는 client adapter, startup wiring과 secret reference만 둔다.
+MCP 서버 본체는 기존 사내 repository와 service deployment가 소유하며 PlatformClaw product source에 vendor하지 않는다. 평가자가 원본 repository에 접근할 수 없을 때만 provenance를 기록한 sanitized snapshot을 `submission/external-components/board-farm-mcp/source/`에 둘 수 있다. PlatformClaw product code에는 domain contract에 연결하는 client adapter, startup wiring과 secret reference만 둔다.
 
 1. approved MCP 문서에서 lease·renew·control·release와 deploy/boot/validate Tool schema를 확정한다.
 2. `adapter.template.md`의 예제를 사내 source owner로 옮기고 `TODO(INTERNAL)`을 구현한다.

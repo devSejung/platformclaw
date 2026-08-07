@@ -36,7 +36,7 @@ title: "Code Map"
 | Retry/recovery/cleanup/audit        | `IMPLEMENTED_WITH_LIMITATIONS`  | reconciler, stores, lease managers                                                 | focused tests                                  | Docker + Mock             | actual failure `IR-009`          |
 | Linux Docker deployment             | `IMPLEMENTED_WITH_LIMITATIONS`  | `docker/platformclaw-runtime/`, build script                                       | config guards                                  | Docker smoke              | internal deploy `IR-009`         |
 | Board Farm contract                 | `MOCK_VERIFIED`                 | `packages/platformclaw-control-plane/src/board-farm/`                              | board-farm tests                               | Mock evidence             | `IR-001`, `IR-002`               |
-| Global Build/Validation/Jira/Notify | `INTERNAL_INTEGRATION_REQUIRED` | templates only                                                                     | acceptance templates                           | none actual               | `IR-003`~`IR-007`                |
+| Global Build/Validation/Jira/Notify | `INTERNAL_INTEGRATION_REQUIRED` | planned `submission/global-skills/`; templates currently                           | acceptance templates; actual tests required    | none actual               | `IR-003`~`IR-007`                |
 
 ## Path rules
 
@@ -44,3 +44,4 @@ title: "Code Map"
 - plugin production code는 core `src/**`를 deep import하지 않는다.
 - source/test가 없는 `IMPLEMENTED` claim은 허용하지 않는다.
 - Runtime proof가 필요한 완성도 claim은 Mock 또는 actual evidence path를 가져야 한다.
+- 별도 repository인 Board Farm MCP의 provenance/snapshot은 `submission/external-components/board-farm-mcp/`, PlatformClaw adapter source는 Control Plane owner에 둔다.

@@ -61,6 +61,7 @@
       "summary": "PlatformClaw Global Skill baseline 설치와 provenance 기록",
       "status": "INTERNAL_INTEGRATION_REQUIRED",
       "target_files": [
+        "submission/global-skills",
         "submission/internal-templates/global-skills"
       ],
       "required_internal_info": [
@@ -86,6 +87,7 @@
       "summary": "실제 Firmware Build Skill 연결",
       "status": "INTERNAL_INTEGRATION_REQUIRED",
       "target_files": [
+        "submission/global-skills",
         "submission/internal-templates/global-skills/firmware-build"
       ],
       "required_internal_info": [
@@ -111,6 +113,7 @@
       "summary": "실제 Board Validation Skill 연결",
       "status": "INTERNAL_INTEGRATION_REQUIRED",
       "target_files": [
+        "submission/global-skills",
         "submission/internal-templates/global-skills/board-validation"
       ],
       "required_internal_info": [
@@ -136,6 +139,7 @@
       "summary": "실제 Jira Report Skill 연결",
       "status": "INTERNAL_INTEGRATION_REQUIRED",
       "target_files": [
+        "submission/global-skills",
         "submission/internal-templates/global-skills/jira-report"
       ],
       "required_internal_info": [
@@ -162,6 +166,7 @@
       "status": "INTERNAL_INTEGRATION_REQUIRED",
       "target_files": [
         "extensions/knox",
+        "submission/global-skills",
         "submission/internal-templates/global-skills/result-notification"
       ],
       "required_internal_info": [

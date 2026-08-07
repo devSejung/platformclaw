@@ -9,7 +9,7 @@ title: "Global Skills 정책"
 
 ## 상태
 
-실제 PlatformClaw Global Skill 설치·구현과 사내 Build/Validation/Jira/Notification Skill 연결은 `INTERNAL_INTEGRATION_REQUIRED`(`IR-003`~`IR-007`)이다. 외부 branch에는 contract와 acceptance template만 둔다.
+실제 PlatformClaw Global Skill 구현과 사내 Build/Validation/Jira/Notification 연결은 `INTERNAL_INTEGRATION_REQUIRED`(`IR-003`~`IR-007`)이다. 평가용 sanitized source root는 `submission/global-skills/`, 작성 contract와 acceptance template은 `submission/internal-templates/global-skills/`다. 현재 actual Skill source가 아직 추가되지 않았으므로 상태를 승격하지 않는다.
 
 ## Ownership
 
@@ -47,4 +47,4 @@ Run start에서 target revision, skill name/version/digest/provenance와 eligibi
 
 ## Acceptance
 
-각 template의 `ACCEPTANCE_TESTS.md`를 통과하고, source path·version·digest·owner를 actual manifest에 기록한다. secret은 environment value가 아니라 file/mount reference로 주입한다.
+각 actual Skill은 `submission/global-skills/<skill-name>/`에 `SKILL.md`, Python source, dependency lock과 test를 함께 둔다. 대응 template의 `ACCEPTANCE_TESTS.md`를 통과하고, source path·version·digest·owner를 actual manifest에 기록한다. secret은 environment value가 아니라 file/mount reference로 주입한다.

@@ -46,7 +46,7 @@ POC는 컨셉의 기술적 가능성을 확인하기 위한 별도 실험이었�
 
 ## 사내 자산
 
-실제 Board Farm MCP, 사내 인증·endpoint, Global Skills, Jira·Knox 연결, 실제 보드·VM·정책·측정값은 `INTERNAL_INTEGRATION_REQUIRED`다. 공개 저장소에는 계약, template, acceptance gate만 두며 source나 credential을 포함하지 않는다.
+실제 Board Farm MCP 연결, 사내 인증·endpoint, Global Skills, Jira·Knox 연결, 실제 보드·VM·정책·측정값은 `INTERNAL_INTEGRATION_REQUIRED`다. 공개 저장소에는 계약, template, acceptance gate와 평가용 sanitized source만 둘 수 있다. credential, private endpoint와 사내 식별자는 포함하지 않는다. 별도 Board Farm MCP repository의 평가 provenance 또는 snapshot은 `submission/external-components/board-farm-mcp/`, 실제 Global Skill source는 `submission/global-skills/`가 소유한다.
 
 ## 제출 데이터 위생
 

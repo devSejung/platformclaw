@@ -15,6 +15,8 @@ Board Farm lease lifecycle과 deterministic closed-loop harness는 `MOCK_VERIFIE
 
 `packages/platformclaw-control-plane/src/board-farm/`은 completed build result에서 시작하는 deterministic Mock Run, lease ownership/lifecycle과 evidence reference를 소유한다. 실제 보드 자원과 lease·renew·control·release 동작은 사내 Board Farm MCP가 소유한다. Control Plane은 authenticated user/Agent/Run context를 전달하고 결과를 기록해야 하지만, exact Tool 이름·schema·auth를 모르는 외부 branch에서 Mock contract를 실제 MCP contract로 고정하지 않는다.
 
+Board Farm MCP server는 별도 repository다. 평가용 repository URL·commit·license 또는 접근 제한 시 sanitized snapshot은 `submission/external-components/board-farm-mcp/`에 두고, PlatformClaw adapter contract와 혼합하지 않는다.
+
 ## Required operations
 
 | Operation      | 입력                                                         | 성공 결과                           | 핵심 오류                       |

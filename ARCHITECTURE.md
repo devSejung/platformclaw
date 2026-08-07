@@ -247,7 +247,7 @@ sequenceDiagram
   W->>E: preserve both terminal outcomes
 ```
 
-Templates: `submission/internal-templates/global-skills/jira-report/`, `result-notification/`. 실제 구현은 `IR-006`, `IR-007`.
+평가용 actual source root는 `submission/global-skills/`, 작성 template은 `submission/internal-templates/global-skills/jira-report/`, `result-notification/`이다. 실제 구현과 연결은 `IR-006`, `IR-007`이다.
 
 ## 13. Failure and Retry
 

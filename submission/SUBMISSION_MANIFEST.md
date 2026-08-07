@@ -23,6 +23,13 @@
 | Mock   | `submission/evidence/mock-golden-run/`   | `MOCK_VERIFIED`                 | external deterministic proof   |
 | Actual | `submission/evidence/actual-golden-run/` | `INTERNAL_INTEGRATION_REQUIRED` | internal hardware/report proof |
 
+## 평가 Source
+
+| Component                  | Path                                             | 현재 상태                                         |
+| -------------------------- | ------------------------------------------------ | ------------------------------------------------- |
+| PlatformClaw Global Skills | `submission/global-skills/`                      | source root 준비, actual source 미제공            |
+| External Board Farm MCP    | `submission/external-components/board-farm-mcp/` | provenance root 준비, repo metadata/source 미제공 |
+
 ## Verification
 
 ```bash

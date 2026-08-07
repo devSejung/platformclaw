@@ -184,6 +184,8 @@ platformclaw/
 ├─ submission/
 │  ├─ evidence/mock-golden-run/          # 외부 재현 가능, 항상 mode: mock
 │  ├─ evidence/actual-golden-run/        # 사내 실제 Run 전에는 비어 있어야 함
+│  ├─ external-components/               # 별도 repo인 Board Farm MCP의 평가 provenance
+│  ├─ global-skills/                     # 평가용 실제 Skill·Python source 위치
 │  ├─ internal-templates/                # Board Farm·Global Skill 내부 연결 계약
 │  ├─ slides/index.html                  # offline 프로젝트 소개서
 │  └─ video/                             # 5분 MP4 규칙과 최종 산출물 위치
@@ -205,6 +207,22 @@ platformclaw/
 
 전체 path의 `KEEP` / `RETAIN_BUT_HIDDEN` / `REMOVE` 분류는 [제품 범위표](docs/submission/01_PRODUCT_SCOPE.md), 기능 단위 source·test·runtime 연결은 [Code Map](docs/submission/12_CODE_MAP.md)에서 확인할 수 있다.
 
+### 평가용 사내 자산을 넣는 위치
+
+Board Farm MCP server는 PlatformClaw 외부의 별도 repository다. 평가용 metadata와 공개 가능한 source는 `submission/external-components/board-farm-mcp/`에 둔다.
+
+```text
+submission/external-components/board-farm-mcp/
+├─ README.md       # 원본 repository, exact commit SHA, license, 재현 명령
+├─ source/         # 필요할 때만 .git을 제외한 sanitized source snapshot
+├─ tests/          # 공개 가능한 contract/dry-run tests
+└─ EVALUATION.md   # PlatformClaw adapter 연결과 평가 방법
+```
+
+심사자가 원본 repository에 접근할 수 있으면 `README.md`에 URL과 commit SHA를 기록하고 source를 중복 복사하지 않는다. private repository라 접근할 수 없으면 secret·사내 URL·board 식별자를 제거한 snapshot만 `source/`에 넣는다. private Git submodule은 평가 checkout 실패 위험 때문에 사용하지 않는다. PlatformClaw client adapter 계약은 [Board Farm MCP template](submission/internal-templates/board-farm-mcp/)에 별도로 둔다.
+
+Python script를 포함한 실제 Global Skill source는 `submission/global-skills/<skill-name>/`에 둔다. 각 directory 안에 `SKILL.md`, `scripts/*.py`, dependency lock과 test를 함께 넣는다. [Global Skills source 규칙](submission/global-skills/README.md)에 정확한 구조가 있다. `submission/internal-templates/global-skills/`는 실제 source 위치가 아니라 작성 참고본이다.
+
 ## 구현 상태와 증거
 
 상태 어휘의 정의는 [제출 문서 안내](docs/submission/README.md)를 따른다.
@@ -219,7 +237,7 @@ platformclaw/
 | Personal MCP credential boundary                          | `IMPLEMENTED`                   | [MCP control-plane source](packages/platformclaw-control-plane/src/), [user MCP plugin](extensions/platformclaw-user-mcp/src/)                                                 | 실제 server registry는 관리자 설정                |
 | Knox DM/Group routing contract                            | `IMPLEMENTED_WITH_LIMITATIONS`  | [Knox plugin](extensions/knox/src/), routing tests                                                                                                                             | actual CDEP delivery는 `IR-007`                   |
 | Board Farm lifecycle · closed-loop Mock                   | `MOCK_VERIFIED`                 | [Board Farm source](packages/platformclaw-control-plane/src/board-farm/), [Mock evidence](submission/evidence/mock-golden-run/)                                                | actual MCP lease/control/auth는 `IR-001`·`IR-002` |
-| Build/Validation/Jira/Notification Global Skills          | `INTERNAL_INTEGRATION_REQUIRED` | [sanitized templates](submission/internal-templates/global-skills/)                                                                                                            | `IR-003`~`IR-007`                                 |
+| Build/Validation/Jira/Notification Global Skills          | `INTERNAL_INTEGRATION_REQUIRED` | [실제 source 위치](submission/global-skills/) · [sanitized templates](submission/internal-templates/global-skills/)                                                            | `IR-003`~`IR-007`                                 |
 | Actual Golden Run · measured value · 5분 MP4              | `INTERNAL_INTEGRATION_REQUIRED` | [actual evidence contract](submission/evidence/actual-golden-run/), [video checklist](submission/video/FINAL_VIDEO_CHECKLIST.md)                                               | `IR-009`~`IR-011`                                 |
 
 ## 외부에서 재현하는 Mock 데모

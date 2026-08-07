@@ -15,7 +15,7 @@ PlatformClaw는 여러 개발자가 각자의 Personal Agent를 통해 자신이
 
 - 권한은 UI가 아니라 서버의 request, result, event 경계에서 검사한다.
 - credential은 암호화 저장하고 실행 시점에 one-shot으로 전달한다.
-- 내부 endpoint, 인증 방식, Global Skills와 실제 측정값은 공개 저장소에 넣지 않는다.
+- 내부 endpoint, 인증 값과 실제 측정값은 공개 저장소에 넣지 않는다. 평가 가능한 Global Skill source는 secret과 사내 식별자를 제거한 뒤 명시된 제출 경로에 둔다.
 - Mock 결과와 actual 결과를 디렉터리, manifest, gate에서 분리한다.
 - 실제 사내 연동을 모르면 추측하지 않고 `INTERNAL_INTEGRATION_REQUIRED`와 `TODO(INTERNAL)`로 남긴다.
 - 제출 runtime과 문서는 PlatformClaw Golden Path에 집중한다. 직접 관련 없는 consumer channel과 native app은 노출하지 않는다.
