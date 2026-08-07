@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
 import "./mcp-administration.ts";
+import { PLATFORMCLAW_MCP_CATALOG_CHANGED_EVENT } from "./mcp-catalog-events.ts";
 
 type AdminElement = HTMLElement & {
   fetchImpl: typeof fetch;
@@ -79,6 +80,10 @@ describe("PlatformClaw MCP administration", () => {
         }),
       );
     const element = mount(fetchImpl);
+    const catalogChanged = vi.fn();
+    window.addEventListener(PLATFORMCLAW_MCP_CATALOG_CHANGED_EVENT, catalogChanged, {
+      once: true,
+    });
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Add MCP server"));
     element.shadowRoot?.querySelector<HTMLElement>("[data-action='add']")?.click();
     const name = element.shadowRoot?.querySelector<HTMLInputElement>("[name='name']");
@@ -108,6 +113,7 @@ describe("PlatformClaw MCP administration", () => {
         enabled: true,
       }),
     });
+    await vi.waitFor(() => expect(catalogChanged).toHaveBeenCalledOnce());
   });
 
   it("redirects through the adapter when the session expires", async () => {

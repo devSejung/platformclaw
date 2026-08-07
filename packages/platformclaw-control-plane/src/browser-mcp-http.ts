@@ -133,6 +133,10 @@ export class EmployeeMcpService {
     });
   }
 
+  invalidateCatalog(): void {
+    this.catalogPromise = undefined;
+  }
+
   async authenticate(token: string) {
     const auth = await this.options.authService.authenticateToken(token);
     if (auth.status !== "active") {
@@ -313,8 +317,8 @@ export class EmployeeMcpService {
 
   private async catalog(): Promise<UserMcpServerPolicy[]> {
     if (!this.catalogPromise) {
-      // Policy is process-stable. Changes require a coordinated Gateway + Control
-      // restart; a transient bootstrap failure may retry without rediscovery polling.
+      // Policy is process-stable between explicit administrator mutations; a
+      // transient bootstrap failure may retry without rediscovery polling.
       const pending = this.options.adminRpc
         .call<CatalogResponse>("platformclaw-user-mcp.catalog", {})
         .then((result) => {

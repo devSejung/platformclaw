@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
+import { PLATFORMCLAW_MCP_CATALOG_CHANGED_EVENT } from "./mcp-catalog-events.ts";
 import "./mcp-settings.ts";
 
 type McpSettingsElement = HTMLElement & {
@@ -60,6 +61,25 @@ describe("PlatformClaw MCP settings", () => {
     expect(element.shadowRoot?.textContent).toContain("docs");
     expect(element.shadowRoot?.textContent).toContain("Scope: repo:read");
     expect(element.shadowRoot?.textContent).not.toContain("Add server");
+  });
+
+  it("refreshes when an administrator changes the personal MCP catalog", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ servers: [] }))
+      .mockResolvedValueOnce(jsonResponse(SETTINGS));
+    mountPlatformClawMcpSettings({ fetchImpl, onUnauthenticated: vi.fn() });
+    const element = mountedElement();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.textContent).toContain(
+        "No administrator-approved personal credential is required.",
+      ),
+    );
+
+    window.dispatchEvent(new Event(PLATFORMCLAW_MCP_CATALOG_CHANGED_EVENT));
+
+    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("docs"));
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("explains empty credential submissions instead of silently ignoring them", async () => {

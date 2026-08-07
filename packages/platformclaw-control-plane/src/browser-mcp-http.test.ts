@@ -260,6 +260,21 @@ describe("EmployeeMcpService", () => {
       servers: expect.arrayContaining([expect.objectContaining({ serverName: "docs" })]),
     });
   });
+
+  it("reloads an initially empty catalog after an administrator changes MCP policy", async () => {
+    const { adminRpc, service } = harness();
+    adminRpc.call.mockResolvedValueOnce({ servers: [] });
+    await expect(service.getSettings("user-one")).resolves.toEqual({ servers: [] });
+
+    service.invalidateCatalog();
+
+    await expect(service.getSettings("user-one")).resolves.toEqual({
+      servers: expect.arrayContaining([expect.objectContaining({ serverName: "docs" })]),
+    });
+    expect(
+      adminRpc.call.mock.calls.filter(([method]) => method === "platformclaw-user-mcp.catalog"),
+    ).toHaveLength(2);
+  });
 });
 
 describe("MCP OAuth browser callback", () => {

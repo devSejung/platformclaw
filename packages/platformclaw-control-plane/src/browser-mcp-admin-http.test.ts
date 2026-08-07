@@ -35,12 +35,15 @@ function createService(
       user: { id: "user-one", globalRole: role },
     })),
   } as unknown as BrowserAuthService;
+  const onCatalogChanged = vi.fn();
   return {
     service: new McpAdministrationService({
       authService,
       adminRpc: { call } as unknown as GatewayAdminRpc,
+      onCatalogChanged,
     }),
     call,
+    onCatalogChanged,
   };
 }
 
@@ -117,7 +120,7 @@ describe("MCP administration HTTP", () => {
   });
 
   it("registers a credential-free server with every tool allowed by default", async () => {
-    const { service, call } = createService("admin");
+    const { service, call, onCatalogChanged } = createService("admin");
 
     await service.mutate("save-server", {
       name: "docs",
@@ -168,6 +171,7 @@ describe("MCP administration HTTP", () => {
     expect(call).toHaveBeenNthCalledWith(8, "platformclaw-user-mcp.invalidateAgent", {
       agentId: "agent-two",
     });
+    expect(onCatalogChanged).toHaveBeenCalledOnce();
   });
 
   it("stores only personal policy metadata for per-user credentials", async () => {

@@ -1,5 +1,6 @@
 import { i18n } from "../i18n/index.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
+import { PLATFORMCLAW_MCP_CATALOG_CHANGED_EVENT } from "./mcp-catalog-events.ts";
 import { PLATFORMCLAW_MCP_API_PATH } from "./web-contract.ts";
 
 type McpServerSetting = {
@@ -43,6 +44,7 @@ class PlatformClawMcpSettingsElement extends HTMLElement {
   private busyServer = "";
   private message = "";
   private readonly secretDrafts = new Map<string, string>();
+  private readonly handleCatalogChanged = () => void this.refresh();
   private unsubscribeLocale = () => {};
 
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
@@ -51,11 +53,13 @@ class PlatformClawMcpSettingsElement extends HTMLElement {
   confirmRemove: (message: string) => boolean = (message) => window.confirm(message);
 
   connectedCallback(): void {
+    window.addEventListener(PLATFORMCLAW_MCP_CATALOG_CHANGED_EVENT, this.handleCatalogChanged);
     this.unsubscribeLocale = i18n.subscribe(() => void this.initialize(false));
     void this.initialize(true);
   }
 
   disconnectedCallback(): void {
+    window.removeEventListener(PLATFORMCLAW_MCP_CATALOG_CHANGED_EVENT, this.handleCatalogChanged);
     this.unsubscribeLocale();
     this.secretDrafts.clear();
   }
