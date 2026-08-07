@@ -278,10 +278,10 @@ export function assertBoardFarmStateSnapshot(
       requireState(run.build.status === "failed", "build-failed run has a successful build");
       requireState(run.failureCode === run.build.failureCode, "build failure code is inconsistent");
       requireState(run.failureCategory === "build", "build failure category is inconsistent");
-      requireState(run.leaseId === undefined, "build-failed run has a lease");
+      requireState(run.leaseId === undefined, "mock build-failed run has a lease");
     } else {
-      requireState(run.build.status === "succeeded", "leased run has no successful build");
-      requireState(isCanonicalId(run.leaseId), "successful-build run has no lease");
+      requireState(run.build.status === "succeeded", "mock leased run has no build artifact");
+      requireState(isCanonicalId(run.leaseId), "mock runnable workflow has no lease");
       requireState(leases.get(run.leaseId)?.runId === run.id, "run lease reference is invalid");
     }
     if (run.status === "failed") {

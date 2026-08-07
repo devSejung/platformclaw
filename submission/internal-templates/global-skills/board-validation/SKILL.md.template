@@ -5,7 +5,7 @@ description: Deploy a verified artifact to an owned Board Farm lease, boot it, v
 
 # Board Validation
 
-Require a successful build result, matching artifact digest and active owned lease.
+Require an explicit verified artifact digest and active owned lease before deploy.
 
 1. Deploy the artifact using the lease-bound adapter.
 2. Boot the leased board with the approved profile.

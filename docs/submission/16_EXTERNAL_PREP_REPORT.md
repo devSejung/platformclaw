@@ -12,7 +12,7 @@ title: "외부 준비 Review Report"
 ## Pass 1 — 기술성
 
 - 발견: Board Farm actual integration과 Mock contract를 같은 완료 상태로 표현할 위험
-- 수정: domain/adapter boundary, `MOCK_VERIFIED`, `IR-001`·`IR-002`와 build gate 명시
+- 수정: Mock lifecycle과 actual MCP lease/control boundary, `MOCK_VERIFIED`, `IR-001`·`IR-002` 명시
 - 발견: browser UI hiding이 authorization으로 오인될 위험
 - 수정: request/result/event의 server owner check를 보안 문서와 architecture에 연결
 - 발견: 재시작 시 불완전하거나 조작된 Board Farm snapshot이 canonical state로 유입될 수 있는 신뢰 경계

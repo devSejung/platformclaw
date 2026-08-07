@@ -1,6 +1,6 @@
 # Board Validation Skill Acceptance
 
-- [ ] build success, artifact digest and lease owner required
+- [ ] explicit artifact digest and active lease owner required before deploy
 - [ ] deploy precedes boot; boot precedes validate
 - [ ] operation ID is preserved for retries
 - [ ] each phase records digested evidence

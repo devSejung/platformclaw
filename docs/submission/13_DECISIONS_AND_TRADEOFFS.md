@@ -19,7 +19,7 @@ enterprise identity/state는 Control Plane이, runtime-specific VM/MCP/Knox는 p
 
 `packages/platformclaw-control-plane/src/board-farm/`을 선택했다.
 
-- lease state가 Run/user/Agent ownership과 build gate를 공유
+- Mock lease state가 Run/user/Agent ownership과 correlation을 공유
 - existing Control Plane test/build/SQLite direction에 자연스럽게 포함
 - domain contract와 MCP adapter를 분리 가능
 - 아직 독립 package lifecycle·version이 필요한 근거가 부족
@@ -30,7 +30,7 @@ enterprise identity/state는 Control Plane이, runtime-specific VM/MCP/Knox는 p
 - [LAVA scheduler](https://lava.readthedocs.io/en/latest/technical-references/services/lava-scheduler/)는 device job scheduling을 제공하므로 사내 Board Farm의 실행 backend 후보로 재사용할 수 있다.
 - [OpenHTF](https://github.com/google/openhtf)는 test phase, measurement와 attachment를 제공하므로 validation/evidence adapter 후보로 재사용할 수 있다.
 
-PlatformClaw의 custom 범위는 이 도구들을 대체하는 scheduler나 test framework가 아니다. authenticated user ownership, build gate, correlation/evidence와 Jira/Knox handoff를 하나의 Control Plane contract로 소유하고, 선택한 backend를 adapter boundary 뒤에 연결하는 부분이다.
+PlatformClaw의 custom 범위는 이 도구들을 대체하는 scheduler나 test framework가 아니다. authenticated user ownership, 개인 개발 VM 접속, correlation/evidence와 Jira/Knox handoff를 하나의 Control Plane contract로 소유하고, 실제 Board Farm lease/control은 MCP boundary 뒤에 연결하는 부분이다.
 
 `packages/platformclaw-board-farm/` 대안은 독립 배포·storage owner가 생길 때 재검토한다. 지금 분리하면 persistence와 authorization을 중복시킬 위험이 있다.
 
@@ -56,7 +56,7 @@ global server registry는 administrator가 소유하고 personal credential만 �
 
 ## Mock와 Actual
 
-동일 domain contract를 통과하는 deterministic Mock를 제공하지만 `mode: mock`, 별도 directory와 final gate로 actual과 분리한다. 외부에서 내부 시스템을 흉내 낸 결과를 production proof로 표현하는 대안을 명시적으로 금지한다.
+deterministic Mock는 closed-loop shape와 최소 owner/lifecycle 불변식을 검증하지만 actual MCP의 exact contract를 대신하지 않는다. `mode: mock`, 별도 directory와 final gate로 actual과 분리하며, 외부에서 내부 시스템을 흉내 낸 결과를 production proof로 표현하는 대안을 명시적으로 금지한다.
 
 ## OpenClaw surface
 

@@ -1,16 +1,16 @@
 # HELLO AI 평가 근거
 
-PlatformClaw는 각 엔지니어에게 독립된 Assistant, Workspace, Execution Target과 정책 경계를 제공한다. 이 문서는 공식 5개 항목을 각각 독립적으로 읽을 수 있게 구성한다. 점수를 요청하지 않으며, 현재 코드·테스트·Runtime evidence와 제한을 함께 제시한다. 세부 claim의 기준은 `submission/evaluation-map.yaml`이다.
+PlatformClaw는 여러 사용자의 Personal Agent가 각자의 개인 개발 VM에 접속하고 Board Farm MCP를 사용하도록 격리하는 멀티유저 AI 엔지니어링 플랫폼이다. 이 문서는 공식 5개 항목을 각각 독립적으로 읽을 수 있게 구성한다. 점수를 요청하지 않으며, 현재 코드·테스트·Runtime evidence와 제한을 함께 제시한다. 세부 claim의 기준은 `submission/evaluation-map.yaml`이다.
 
 ## 기술성 — 30%
 
 **문제.** 여러 사용자의 identity, session, Workspace, VM, credential과 하드웨어 lease를 한 agent runtime에 연결하면 교차 사용자 노출, stale target 실행, 중복 lease와 secret 누출 위험이 생긴다.
 
-**주장.** PlatformClaw는 identity와 실행의 owner boundary를 Control Plane에 두고, request/result/event를 personal Agent로 고정하며, credential을 encrypted envelope와 one-shot local handoff로 전달한다. Board Farm은 build gate, lease state machine, evidence 보존 계약으로 분리한다.
+**주장.** PlatformClaw는 identity와 실행의 owner boundary를 Control Plane에 두고, request/result/event를 personal Agent로 고정하며, credential을 encrypted envelope와 one-shot local handoff로 전달한다. 각 사용자는 자신의 개인 개발 VM에서 코드 수정과 빌드를 수행하고, Board Farm MCP lease·control은 별도 integration boundary로 연결한다.
 
 **실제 구현.** `packages/platformclaw-control-plane/src/`가 principal, session, provisioning, VM allocation, target revision, encrypted SSH/MCP state와 audit를 소유한다. `extensions/platformclaw-execution/src/`는 assigned VM backend, bounded SSH master lease, remote skill snapshot을 구현한다. `docker/platformclaw-runtime/`은 rootless Docker endpoint와 secret mount를 분리한다.
 
-**비자명한 난제.** 같은 사용자에 대한 concurrent provisioning single-flight, request뿐 아니라 result/event projection까지의 tenant authorization, credential revision이 바뀔 때 기존 SSH lease retirement, restart 중 provisioning reconciliation, DNS-pinned OAuth SSRF boundary, build 이전 board lease 금지가 핵심이다.
+**비자명한 난제.** 같은 사용자에 대한 concurrent provisioning single-flight, request뿐 아니라 result/event projection까지의 tenant authorization, 사용자별 VM allocation과 Workspace 고정, credential revision이 바뀔 때 기존 SSH lease retirement, restart 중 provisioning reconciliation, DNS-pinned OAuth SSRF boundary와 board lease owner isolation이 핵심이다.
 
 **코드 근거.** `browser-auth-service.ts`, `browser-gateway-proxy.ts`, `execution-handoff-service.ts`, `ssh-credential-vault.ts`, `mcp-credential-vault.ts`, `extensions/platformclaw-execution/src/ssh-lease-manager.ts`, `packages/platformclaw-control-plane/src/board-farm/`.
 
@@ -28,7 +28,7 @@ PlatformClaw는 각 엔지니어에게 독립된 Assistant, Workspace, Execution
 
 **주장.** PlatformClaw의 차별점은 OpenClaw를 재브랜딩한 것이 아니라, personal/group execution policy와 실제 hardware validation을 하나의 traceable Run으로 결합한 데 있다.
 
-**실제 구현.** personal Agent는 개인 `assigned_vm` 또는 rootless Docker를 선택하고, Knox room Agent는 personal VM·credential 없이 group Sandbox만 사용한다. Board Farm domain은 MCP adapter와 분리되어 외부 Mock와 내부 actual adapter가 동일한 contract를 따르도록 설계된다.
+**실제 구현.** personal Agent는 사용자에게 할당된 개인 개발 `assigned_vm` 또는 rootless Docker를 선택하고, Knox room Agent는 personal VM·credential 없이 group Sandbox만 사용한다. Board Farm 코드는 외부에서 closed-loop와 owner lifecycle을 검증하는 Mock harness이며, 실제 MCP Tool·lease·control schema는 `IR-001`, `IR-002`에서 별도로 연결한다.
 
 **비자명한 난제.** channel이 product policy를 추측하지 않게 Control Plane이 route와 target을 결정하고, Mock가 실제처럼 보이지 않으면서도 production domain state machine을 통과하도록 evidence를 구조화했다.
 

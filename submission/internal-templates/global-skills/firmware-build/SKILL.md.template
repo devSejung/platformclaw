@@ -9,7 +9,7 @@ Use only the Run's pinned source revision, execution target and approved build p
 
 1. Validate the source revision and clean fixture policy.
 2. Run the approved build command through the selected execution backend.
-3. On failure, return a stable failure code and bounded log references; do not request a Board Farm lease.
+3. On failure, return a stable failure code and bounded log references; do not report a deploy result. Lease retention or release follows the actual Board Farm MCP policy.
 4. On success, calculate the artifact SHA-256 digest.
 5. Return artifact ID, digest, sanitized locator, timestamps and bounded log references.
 

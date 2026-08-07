@@ -370,7 +370,7 @@
           </article>
           <article class="panel">
             <h3>증거 단절</h3>
-            <p>빌드 성공과 보드 결과, 재시도, 보고서가 한 실행으로 추적되지 않습니다.</p>
+            <p>개인 개발 VM의 build와 보드 제어, 재시도, 보고서가 한 실행으로 추적되지 않습니다.</p>
           </article>
         </div>
         <span class="slide-no">02 / 13</span>
@@ -429,7 +429,7 @@
           </article>
           <article class="panel">
             <h3>Assigned VM</h3>
-            <p>승인된 VM 할당과 revision을 고정하고 SSH lease를 재사용합니다.</p>
+            <p>사용자에게 할당된 개인 개발 VM과 Workspace에 접속하고 SSH lease를 재사용합니다.</p>
           </article>
           <article class="panel">
             <h3>Skills</h3>
@@ -471,15 +471,15 @@
 
       <section class="slide">
         <p class="eyebrow">Board Farm</p>
-        <h2>빌드가 성공해야 보드를 빌리고, Lease가 살아 있어야 검증합니다</h2>
+        <h2>개인 VM에서 빌드하고, Board Farm MCP로 보드를 빌려 제어합니다</h2>
         <div class="flow">
-          <div class="step">Build<br /><span class="ok">PASS</span></div>
+          <div class="step">Personal VM<br />Code·Build</div>
           <div class="arrow">→</div>
           <div class="step">Acquire<br />Lease</div>
           <div class="arrow">→</div>
           <div class="step">Deploy<br />Artifact</div>
           <div class="arrow">→</div>
-          <div class="step">Boot &amp;<br />Validate</div>
+          <div class="step">Boot·Control<br />Validate</div>
           <div class="arrow">→</div>
           <div class="step">Release<br />Evidence</div>
         </div>

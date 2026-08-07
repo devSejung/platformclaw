@@ -51,11 +51,13 @@ for (const path of requiredFiles) {
   }
 }
 
-const canonicalDescription =
-  "각 엔지니어에게 독립된 Assistant, Workspace, Execution Target과 정책 경계를 제공";
+const canonicalProductFacts = ["멀티유저", "개인 개발 VM", "Board Farm MCP"];
 for (const path of ["README.md", "PRD.md", "ARCHITECTURE.md", "EVALUATION.md"]) {
-  if (!readText(path).includes(canonicalDescription)) {
-    throw new Error(`${path} is missing the canonical product description`);
+  const contents = readText(path);
+  for (const fact of canonicalProductFacts) {
+    if (!contents.includes(fact)) {
+      throw new Error(`${path} is missing canonical product fact: ${fact}`);
+    }
   }
 }
 

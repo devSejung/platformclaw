@@ -19,21 +19,21 @@ pnpm submission:verify:external
 
 ## Requirement 순서
 
-| ID       | 작업                          | 주요 대상                                     | 완료 proof                 |
-| -------- | ----------------------------- | --------------------------------------------- | -------------------------- |
-| `IR-001` | 실제 Board Farm MCP adapter   | Control Plane board-farm adapter registration | contract tests             |
-| `IR-002` | Board Farm auth/Tool/endpoint | deployment secret/config                      | readiness + tool mapping   |
-| `IR-003` | Global Skill baseline         | managed skill root                            | version/provenance         |
-| `IR-004` | Firmware Build Skill          | global skill                                  | actual artifact digest     |
-| `IR-005` | Board Validation Skill        | global skill                                  | boot/validation result     |
-| `IR-006` | Jira Report Skill             | global skill                                  | issue result               |
-| `IR-007` | Knox Result delivery          | result notification + CDEP                    | delivery ID                |
-| `IR-008` | 내부 policy/docs              | deployment and docs                           | sanitized review           |
-| `IR-009` | actual Golden Run             | `actual-golden-run/`                          | Web/DM/Group/VM/board flow |
-| `IR-010` | actual evidence/metrics       | manifest + metrics                            | measured values            |
-| `IR-011` | MP4                           | `submission/video/`                           | <=5m metadata              |
-| `IR-012` | internal final validation     | final gate                                    | all green                  |
-| `IR-013` | final Git state               | branch/commit/push/tag                        | remote confirmation        |
+| ID       | 작업                            | 주요 대상                        | 완료 proof                            |
+| -------- | ------------------------------- | -------------------------------- | ------------------------------------- |
+| `IR-001` | 실제 Board Farm MCP integration | lease·renew·control·release seam | actual MCP contract tests             |
+| `IR-002` | Board Farm auth/Tool/endpoint   | deployment secret/config         | readiness + exact Tool mapping        |
+| `IR-003` | Global Skill baseline           | managed skill root               | version/provenance                    |
+| `IR-004` | Firmware Build Skill            | global skill                     | actual artifact digest                |
+| `IR-005` | Board Validation Skill          | global skill                     | deploy/boot/control/validation result |
+| `IR-006` | Jira Report Skill               | global skill                     | issue result                          |
+| `IR-007` | Knox Result delivery            | result notification + CDEP       | delivery ID                           |
+| `IR-008` | 내부 policy/docs                | deployment and docs              | sanitized review                      |
+| `IR-009` | actual Golden Run               | `actual-golden-run/`             | Web/DM/Group/VM/board flow            |
+| `IR-010` | actual evidence/metrics         | manifest + metrics               | measured values                       |
+| `IR-011` | MP4                             | `submission/video/`              | <=5m metadata                         |
+| `IR-012` | internal final validation       | final gate                       | all green                             |
+| `IR-013` | final Git state                 | branch/commit/push/tag           | remote confirmation                   |
 
 정확한 checkbox, target file, secret input, command, expected result, failure location, evidence와 gate는 `submission/INTERNAL_FINALIZATION_CHECKLIST.md`에 있다.
 

@@ -61,6 +61,10 @@ export type BoardFarmBuildResult =
   | { status: "succeeded"; artifact: BoardFarmBuildArtifact; completedAt: number }
   | { status: "failed"; failureCode: string; completedAt: number };
 
+/**
+ * Input to the deterministic closed-loop submission harness.
+ * The actual Board Farm MCP lease/control schema remains an IR-001 integration contract.
+ */
 export type BoardFarmSubmitRequest = {
   actorUserId: string;
   userAlias: string;

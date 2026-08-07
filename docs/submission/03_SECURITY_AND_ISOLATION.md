@@ -64,7 +64,8 @@ PlatformClaw의 보안 단위는 browser tab이나 UI route가 아니라 authent
 
 ## Board Farm Boundary
 
-- build success가 lease prerequisite다.
+- Board Farm lease/control은 authenticated user·Agent·Run owner와 실제 MCP 정책을 따른다. build status를 lease 권한으로 사용하지 않는다.
+- artifact digest는 board deploy 단계에서 검증한다.
 - lease는 requesting user/Agent/Run과 resource를 묶고 cross-user release/renew를 거부한다.
 - adapter credential은 browser, model prompt와 evidence에 포함하지 않는다.
 - Mock adapter는 production credential을 받지 않는다.

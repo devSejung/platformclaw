@@ -4,7 +4,7 @@
   <img src="docs/assets/platformclaw/mascot.svg" width="128" alt="PlatformClaw 픽셀 마스코트">
 </p>
 
-PlatformClaw는 각 엔지니어에게 독립된 Assistant, Workspace, Execution Target과 정책 경계를 제공하고, **코드 변경 → 빌드 → 하드웨어 검증 → 증거 → Jira → Knox 결과**를 하나의 추적 가능한 Run으로 연결하는 멀티유저 AI 엔지니어링 플랫폼이다.
+PlatformClaw는 **여러 엔지니어가 각자의 Assistant를 통해 사용자 소유의 개인 개발 공간과 assigned VM에 안전하게 접속**하고, **코드 변경 → 빌드 → Board Farm MCP 보드 임대·제어 → 검증 → 증거 → Jira → Knox 결과**를 하나의 추적 가능한 Run으로 연결하는 멀티유저 AI 엔지니어링 플랫폼이다.
 
 > **제출 범위 원칙** — 코드와 테스트가 있는 기능만 구현으로 표시한다. 외부에서 재현할 수 있는 전체 흐름은 명시적으로 `MOCK_VERIFIED`이며, 실제 Board Farm·사내 Global Skill·Jira·Knox·측정값은 actual evidence가 생길 때까지 `INTERNAL_INTEGRATION_REQUIRED`다.
 
@@ -13,9 +13,9 @@ PlatformClaw는 각 엔지니어에게 독립된 Assistant, Workspace, Execution
 | 질문                  | 답                                                                                                                                                                                                                                                               |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 어떤 문제인가?        | 펌웨어·SoC 개발자는 요청, 코드, 개인 VM, 빌드 시스템, Board Farm, Jira와 메신저를 오가며 수동으로 맥락과 증거를 전달한다. 사용자별 자격 증명·작업공간 경계도 쉽게 흐려진다.                                                                                      |
-| 무엇을 만들었나?      | Employee Auth, 개인·그룹 Agent, 격리 Workspace, assigned VM/rootless Sandbox, one-shot credential, Knox 정책, Board Farm lease 계약과 evidence pipeline을 OpenClaw 기반 위에 통합했다.                                                                           |
+| 무엇을 만들었나?      | Employee Auth, 사용자별 Agent·Workspace, 개인 개발 VM 접속, rootless Sandbox, one-shot credential, Knox 정책과 Board Farm 연동 경계를 OpenClaw 기반 위에 통합했다.                                                                                               |
 | 무엇이 실제 구현인가? | Control Plane, 소유권 검사, Agent provisioning, VM/Sandbox routing, credential vault/broker, MCP 경계, 제한된 Control UI와 Linux Docker runtime이다.                                                                                                             |
-| 무엇이 Mock인가?      | build 이후 Board Farm lease·deploy·boot·validation·report·Knox 결과까지의 외부 재현 Golden Path다. 모든 산출물은 `mode: mock`으로 표시된다.                                                                                                                      |
+| 무엇이 Mock인가?      | VM build 결과를 받아 lease·deploy·boot·validation·report·Knox 결과까지 재현하는 closed-loop harness다. 실제 MCP의 Tool·인증·lease/control 정책을 대신하지 않으며 모든 산출물은 `mode: mock`이다.                                                                 |
 | 무엇이 아직 필요한가? | 실제 사내 endpoint·정책·secret mount를 사용하는 Board Farm/Global Skill/Jira/Knox 연결, actual Golden Run, 측정값, 5분 MP4와 final branch/tag다.                                                                                                                 |
 | 어디서 검증하나?      | [평가 근거](EVALUATION.md), [기능별 코드 지도](docs/submission/12_CODE_MAP.md), [machine-readable claim map](submission/evaluation-map.yaml), [Mock evidence](submission/evidence/mock-golden-run/)에서 claim → code → test → runtime evidence를 추적할 수 있다. |
 
@@ -28,7 +28,7 @@ PlatformClaw는 각 엔지니어에게 독립된 Assistant, Workspace, Execution
 - 실패가 build, lease, boot, validation, report 중 어디에서 발생했는지
 - 결과와 로그를 Jira와 메신저에 어떻게 안전하게 전달할지
 
-PlatformClaw는 이 경계를 Control Plane이 소유하게 한다. 브라우저나 채널은 제품 정책을 추측하지 않고, 인증된 principal과 Agent owner, 고정된 execution target, Run correlation ID를 따라간다. 자격 증명은 저장된 암호화 envelope에서 실행 시점의 one-shot handoff로만 전달하고, Board Farm lease와 evidence는 독립된 domain contract로 관리한다.
+PlatformClaw는 이 경계를 Control Plane이 소유하게 한다. 브라우저나 채널은 제품 정책을 추측하지 않고, 인증된 principal과 Agent owner, 사용자에게 할당된 개인 개발 VM, 고정된 execution target과 Run correlation ID를 따라간다. 자격 증명은 저장된 암호화 envelope에서 실행 시점의 one-shot handoff로만 전달한다. Board Farm MCP는 개인 VM 실행 backend와 분리된 도구 경계에서 보드 lease와 control을 제공한다.
 
 ## Golden Path
 
@@ -42,12 +42,12 @@ flowchart LR
   E --> G["그룹 Workspace"]
   F --> H{"Execution Target"}
   G --> I["Platform Sandbox"]
-  H -->|Personal| J["Assigned VM"]
+  H -->|Personal| J["개인 개발 VM 접속"]
   H -->|Basic| I
   J --> K["Code Change · Build"]
   I --> K
-  K --> L["Board Farm Lease"]
-  L --> M["Deploy · Boot · Validate"]
+  K --> L["Board Farm MCP · Lease"]
+  L --> M["Deploy · Boot · Control · Validate"]
   M --> N["Evidence Bundle"]
   N --> O["Jira Report"]
   O --> P["Knox Result"]
@@ -55,7 +55,7 @@ flowchart LR
 
 핵심 정책은 두 가지다.
 
-1. Personal Agent는 소유자에게 할당된 VM 또는 rootless Sandbox를 선택할 수 있다.
+1. Personal Agent는 사용자의 기존 개인 개발 공간인 assigned VM에 접속해 그 Workspace에서 코드를 수정하고 빌드할 수 있다. 여러 사용자의 Agent·Workspace·VM·credential은 서로 섞이지 않는다.
 2. Group Agent는 개인 VM·개인 credential을 상속하지 않고 platform Sandbox와 그룹 경계만 사용한다.
 
 현재 외부 환경에서는 인증·소유권·VM/Sandbox·credential·Knox routing의 코드 경계와 Board Farm domain contract를 검증한다. 전체 closed loop는 deterministic Mock으로 재현한다. 실제 보드·Jira·Knox 성공은 [actual evidence 디렉터리](submission/evidence/actual-golden-run/)가 채워지고 final gate를 통과하기 전까지 주장하지 않는다.
@@ -72,7 +72,7 @@ flowchart LR
 - 동시 로그인 시 personal Agent provisioning single-flight와 restart reconciliation
 - assigned VM target revision 고정, SafeConnect/SSH bounded master lease
 - SSH·MCP credential 암호화 저장과 local one-shot broker grant
-- build 성공 전 board lease 금지, FIFO/heartbeat/renew/expire/cancel/cleanup state machine
+- Board Farm lease의 owner authorization, FIFO/heartbeat/renew/expire/cancel/cleanup state machine
 - rootless Docker daemon과 host Docker socket 분리
 
 **현재 판정:** 핵심 Control Plane·VM·credential·Sandbox는 `IMPLEMENTED`; Board Farm closed loop는 `MOCK_VERIFIED`; actual adapter/auth는 `INTERNAL_INTEGRATION_REQUIRED`.
@@ -81,11 +81,11 @@ flowchart LR
 
 ### 창의성 25% — 기존 AI assistant와 무엇이 다른가?
 
-**답:** 채팅이나 코드 생성에서 끝나지 않고, 기업 identity와 개인·그룹 실행 정책을 실제 하드웨어 검증의 lease·evidence·report까지 하나의 Run으로 결합한다. OpenClaw를 단순 rebranding한 것이 아니라 multi-user engineering control plane과 hardware-validation contract를 추가했다.
+**답:** 채팅이나 코드 생성에서 끝나지 않고, 기업 identity를 사용자별 개인 개발 VM과 연결하고 그 실행 결과를 하드웨어 lease·control·evidence·report까지 하나의 Run으로 결합한다. OpenClaw를 단순 rebranding한 것이 아니라 multi-user engineering control plane과 hardware-validation integration boundary를 추가했다.
 
 - Knox DM은 개인 Agent와 선택 target으로, Group Room은 방 전용 Agent와 platform Sandbox로 분리
 - channel이 문자열을 보고 정책을 추측하지 않고 Control Plane이 route와 target을 결정
-- 실제 Board Farm adapter와 deterministic Mock adapter가 같은 domain contract를 구현
+- 실제 Board Farm MCP의 exact Tool mapping은 사내에서 연결하고, 외부에서는 별도 deterministic Mock harness로 흐름과 evidence 형식만 검증
 - Mock 결과도 actual처럼 보이게 포장하지 않고 manifest와 모든 결과에 `mode: mock` 유지
 
 **현재 판정:** policy integration은 `IMPLEMENTED_WITH_LIMITATIONS`; 전체 hardware loop는 `MOCK_VERIFIED`.
@@ -136,7 +136,7 @@ flowchart TB
   end
 
   subgraph Runtime["Execution Runtime"]
-    VM["Assigned VM · SafeConnect / SSH"]
+    VM["개인 개발 VM · SafeConnect / SSH"]
     SANDBOX["Rootless Docker Sandbox"]
     MCP["Personal / Global MCP · Skills"]
   end
@@ -169,9 +169,9 @@ flowchart TB
 ```text
 platformclaw/
 ├─ packages/platformclaw-control-plane/  # identity, ownership, VM, credential, Board Farm owner
-│  └─ src/board-farm/                    # lease state machine, adapter contract, Mock adapter
+│  └─ src/board-farm/                    # deterministic Mock lifecycle과 evidence harness
 ├─ extensions/
-│  ├─ platformclaw-execution/            # assigned VM / rootless Sandbox execution backend
+│  ├─ platformclaw-execution/            # 사용자 소유 개인 개발 VM / Sandbox 접속 backend
 │  ├─ platformclaw-user-mcp/             # 사용자별 MCP credential injection
 │  ├─ knox/                              # Knox transport와 CDEP contract
 │  └─ admin-http-rpc/                    # 제한된 관리자 RPC
@@ -194,14 +194,14 @@ platformclaw/
 └─ ATTRIBUTION.md                        # upstream·legacy·해커톤 범위 분리
 ```
 
-| 계층            | 책임                                                          | 여기서 확인할 것                                                             |
-| --------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Product owner   | `packages/platformclaw-control-plane/`                        | 사용자·Agent·session·target·credential·lease의 authoritative state와 정책    |
-| Plugin boundary | PlatformClaw `extensions/`                                    | 실행 backend, Knox transport, per-user MCP처럼 owner별 integration           |
-| Operator UX     | `ui/src/platformclaw/`                                        | employee login, 제한된 navigation, execution/MCP/admin 상태                  |
-| Runtime         | `docker/platformclaw-runtime/`                                | Linux composition, read-only/secret mount, private Gateway, rootless Sandbox |
-| Proof           | `scripts/e2e/`, `scripts/submission/`, `submission/evidence/` | 실제 runtime smoke와 Mock/actual이 분리된 제출 근거                          |
-| Upstream base   | generic `src/`, `packages/`, `extensions/`                    | OpenClaw Gateway, Agent, Session, Tool, Plugin SDK와 호환성                  |
+| 계층            | 책임                                                          | 여기서 확인할 것                                                                    |
+| --------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Product owner   | `packages/platformclaw-control-plane/`                        | 사용자·Agent·session·target·credential의 authoritative state와 Mock lease lifecycle |
+| Plugin boundary | PlatformClaw `extensions/`                                    | 실행 backend, Knox transport, per-user MCP처럼 owner별 integration                  |
+| Operator UX     | `ui/src/platformclaw/`                                        | employee login, 제한된 navigation, execution/MCP/admin 상태                         |
+| Runtime         | `docker/platformclaw-runtime/`                                | Linux composition, read-only/secret mount, private Gateway, rootless Sandbox        |
+| Proof           | `scripts/e2e/`, `scripts/submission/`, `submission/evidence/` | 실제 runtime smoke와 Mock/actual이 분리된 제출 근거                                 |
+| Upstream base   | generic `src/`, `packages/`, `extensions/`                    | OpenClaw Gateway, Agent, Session, Tool, Plugin SDK와 호환성                         |
 
 전체 path의 `KEEP` / `RETAIN_BUT_HIDDEN` / `REMOVE` 분류는 [제품 범위표](docs/submission/01_PRODUCT_SCOPE.md), 기능 단위 source·test·runtime 연결은 [Code Map](docs/submission/12_CODE_MAP.md)에서 확인할 수 있다.
 
@@ -209,18 +209,18 @@ platformclaw/
 
 상태 어휘의 정의는 [제출 문서 안내](docs/submission/README.md)를 따른다.
 
-| 기능                                                | 상태                            | 코드·테스트·runtime 근거                                                                                                                                                       | 남은 경계                               |
-| --------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
-| Multi-user Control Plane · Employee Auth contract   | `IMPLEMENTED_WITH_LIMITATIONS`  | [browser auth](packages/platformclaw-control-plane/src/browser-auth-service.ts), 동명 test                                                                                     | 실제 사내 IdP endpoint는 배포 시 설정   |
-| Browser session · user/Agent/session authorization  | `IMPLEMENTED`                   | [Gateway proxy](packages/platformclaw-control-plane/src/browser-gateway-proxy.ts), proxy/session tests                                                                         | 외부 인증 fixture 사용                  |
-| Idempotent personal/group Agent provisioning        | `IMPLEMENTED`                   | [personal provisioner](packages/platformclaw-control-plane/src/personal-agent-provisioner.ts), [Knox routing](packages/platformclaw-control-plane/src/knox-routing-service.ts) | 실제 Knox 운영 delivery 별도            |
-| Assigned VM · SafeConnect/SSH · one-shot credential | `IMPLEMENTED`                   | [execution source](packages/platformclaw-control-plane/src/), [execution plugin](extensions/platformclaw-execution/src/)                                                       | 실제 VM endpoint·계정 필요              |
-| Rootless Docker Sandbox routing                     | `IMPLEMENTED`                   | [runtime compose](docker/platformclaw-runtime/compose.yaml), [Docker smoke](scripts/e2e/platformclaw-runtime-docker.sh)                                                        | Linux Docker가 최종 권위                |
-| Personal MCP credential boundary                    | `IMPLEMENTED`                   | [MCP control-plane source](packages/platformclaw-control-plane/src/), [user MCP plugin](extensions/platformclaw-user-mcp/src/)                                                 | 실제 server registry는 관리자 설정      |
-| Knox DM/Group routing contract                      | `IMPLEMENTED_WITH_LIMITATIONS`  | [Knox plugin](extensions/knox/src/), routing tests                                                                                                                             | actual CDEP delivery는 `IR-007`         |
-| Board Farm domain contract · closed-loop Mock       | `MOCK_VERIFIED`                 | [Board Farm source](packages/platformclaw-control-plane/src/board-farm/), [Mock evidence](submission/evidence/mock-golden-run/)                                                | actual adapter/auth는 `IR-001`·`IR-002` |
-| Build/Validation/Jira/Notification Global Skills    | `INTERNAL_INTEGRATION_REQUIRED` | [sanitized templates](submission/internal-templates/global-skills/)                                                                                                            | `IR-003`~`IR-007`                       |
-| Actual Golden Run · measured value · 5분 MP4        | `INTERNAL_INTEGRATION_REQUIRED` | [actual evidence contract](submission/evidence/actual-golden-run/), [video checklist](submission/video/FINAL_VIDEO_CHECKLIST.md)                                               | `IR-009`~`IR-011`                       |
+| 기능                                                      | 상태                            | 코드·테스트·runtime 근거                                                                                                                                                       | 남은 경계                                         |
+| --------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| Multi-user Control Plane · Employee Auth contract         | `IMPLEMENTED_WITH_LIMITATIONS`  | [browser auth](packages/platformclaw-control-plane/src/browser-auth-service.ts), 동명 test                                                                                     | 실제 사내 IdP endpoint는 배포 시 설정             |
+| Browser session · user/Agent/session authorization        | `IMPLEMENTED`                   | [Gateway proxy](packages/platformclaw-control-plane/src/browser-gateway-proxy.ts), proxy/session tests                                                                         | 외부 인증 fixture 사용                            |
+| Idempotent personal/group Agent provisioning              | `IMPLEMENTED`                   | [personal provisioner](packages/platformclaw-control-plane/src/personal-agent-provisioner.ts), [Knox routing](packages/platformclaw-control-plane/src/knox-routing-service.ts) | 실제 Knox 운영 delivery 별도                      |
+| 개인 개발 VM 접속 · SafeConnect/SSH · one-shot credential | `IMPLEMENTED`                   | [execution source](packages/platformclaw-control-plane/src/), [execution plugin](extensions/platformclaw-execution/src/)                                                       | 실제 VM endpoint·계정 필요                        |
+| Rootless Docker Sandbox routing                           | `IMPLEMENTED`                   | [runtime compose](docker/platformclaw-runtime/compose.yaml), [Docker smoke](scripts/e2e/platformclaw-runtime-docker.sh)                                                        | Linux Docker가 최종 권위                          |
+| Personal MCP credential boundary                          | `IMPLEMENTED`                   | [MCP control-plane source](packages/platformclaw-control-plane/src/), [user MCP plugin](extensions/platformclaw-user-mcp/src/)                                                 | 실제 server registry는 관리자 설정                |
+| Knox DM/Group routing contract                            | `IMPLEMENTED_WITH_LIMITATIONS`  | [Knox plugin](extensions/knox/src/), routing tests                                                                                                                             | actual CDEP delivery는 `IR-007`                   |
+| Board Farm lifecycle · closed-loop Mock                   | `MOCK_VERIFIED`                 | [Board Farm source](packages/platformclaw-control-plane/src/board-farm/), [Mock evidence](submission/evidence/mock-golden-run/)                                                | actual MCP lease/control/auth는 `IR-001`·`IR-002` |
+| Build/Validation/Jira/Notification Global Skills          | `INTERNAL_INTEGRATION_REQUIRED` | [sanitized templates](submission/internal-templates/global-skills/)                                                                                                            | `IR-003`~`IR-007`                                 |
+| Actual Golden Run · measured value · 5분 MP4              | `INTERNAL_INTEGRATION_REQUIRED` | [actual evidence contract](submission/evidence/actual-golden-run/), [video checklist](submission/video/FINAL_VIDEO_CHECKLIST.md)                                               | `IR-009`~`IR-011`                                 |
 
 ## 외부에서 재현하는 Mock 데모
 
@@ -276,17 +276,17 @@ pnpm submission:verify:final
 
 이 저장소는 OpenClaw의 generic Gateway, Agent, Session, Tool, Plugin SDK와 Sandbox 기반을 유지한 private downstream이다. 해커톤 구현은 fresh OpenClaw fork 위에 enterprise identity, multi-user authorization, personal execution, credential boundary, Knox policy, operator UI와 closed-loop hardware workflow contract를 통합했다.
 
-Telegram, WhatsApp, Discord, Slack, 모바일·데스크톱 app 등 upstream 경로는 ancestry·workspace dependency와 향후 sync를 위해 보존하지만 제출 runtime의 주 사용자 경로에서는 숨긴 `RETAIN_BUT_HIDDEN`이다. 삭제·신규·기존 자산의 상세 구분은 [ATTRIBUTION.md](ATTRIBUTION.md), path별 scope는 [01_PRODUCT_SCOPE.md](docs/submission/01_PRODUCT_SCOPE.md)에 있다. 원 라이선스는 [LICENSE](LICENSE), 제3자 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 보존한다.
+제출과 무관한 upstream consumer channel·native app 경로는 package exports, plugin build, protocol guard와 test classifier의 dependency closure 때문에 source tree에 남아 있지만, 제출 runtime에서 구성·빌드·노출하지 않는 `RETAIN_BUT_HIDDEN`이다. README·UI·slides·demo·지원 기능 목록은 PlatformClaw 경로만 보여 준다. 삭제 audit와 상세 구분은 [ATTRIBUTION.md](ATTRIBUTION.md), path별 scope는 [01_PRODUCT_SCOPE.md](docs/submission/01_PRODUCT_SCOPE.md)에 있다. 원 라이선스는 [LICENSE](LICENSE), 제3자 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 보존한다.
 
 ## 사내에서 남은 Requirement
 
 “남은 사내 작업”은 추상적인 TODO가 아니라 [submission/internal-requirements.yaml](submission/internal-requirements.yaml)의 검증 가능한 `IR-001`~`IR-013`이다.
 
-| 범위             | Requirement       | 완료 조건                                                                                                    |
-| ---------------- | ----------------- | ------------------------------------------------------------------------------------------------------------ |
-| 실제 integration | `IR-001`~`IR-007` | actual Board Farm adapter/auth/tool mapping, Global Skill provenance, build/validation/Jira/Knox result 생성 |
-| 정책·실행·측정   | `IR-008`~`IR-010` | sanitized internal policy 반영, 같은 commit의 actual Golden Run, screenshot·business metric 검증             |
-| 제출 마감        | `IR-011`~`IR-013` | 5분 이내 MP4, 모든 final gate와 CI green, final branch push와 tag 확인                                       |
+| 범위             | Requirement       | 완료 조건                                                                                                              |
+| ---------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 실제 integration | `IR-001`~`IR-007` | actual Board Farm MCP lease/control/auth/Tool mapping, Global Skill provenance, build/validation/Jira/Knox result 생성 |
+| 정책·실행·측정   | `IR-008`~`IR-010` | sanitized internal policy 반영, 같은 commit의 actual Golden Run, screenshot·business metric 검증                       |
+| 제출 마감        | `IR-011`~`IR-013` | 5분 이내 MP4, 모든 final gate와 CI green, final branch push와 tag 확인                                                 |
 
 각 항목에는 필요한 내부 정보, secret 입력 경계, 실행 명령, 예상 결과, 실패 위치, evidence path와 final gate rule이 정의되어 있다. 실제 endpoint·credential·사내 사용자 정보는 저장소에 넣지 않는다. 정확한 실행 순서는 [Internal Finalization Checklist](submission/INTERNAL_FINALIZATION_CHECKLIST.md)에 있다.
 

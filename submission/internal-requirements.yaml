@@ -4,7 +4,7 @@
   "requirements": [
     {
       "id": "IR-001",
-      "summary": "실제 Board Farm MCP adapter 구현 및 등록",
+      "summary": "실제 Board Farm MCP lease/control integration 구현 및 등록",
       "status": "INTERNAL_INTEGRATION_REQUIRED",
       "target_files": [
         "packages/platformclaw-control-plane/src/board-farm",
@@ -18,8 +18,8 @@
       "commands": [
         "node scripts/run-vitest.mjs packages/platformclaw-control-plane/src/board-farm"
       ],
-      "expected_result": "actual adapter가 domain contract tests를 통과한다",
-      "failure_location": "adapter contract test and Control Plane service log",
+      "expected_result": "actual MCP lease, renew, control, release와 owner context mapping이 contract tests를 통과한다",
+      "failure_location": "actual MCP contract test and Control Plane service log",
       "evidence_paths": [
         "submission/evidence/actual-golden-run/board-lease-result.json"
       ],
@@ -27,7 +27,7 @@
         "docs/submission/06_BOARD_FARM_MCP_CONTRACT.md",
         "submission/evaluation-map.yaml"
       ],
-      "final_gate_rule": "actual adapter source와 test가 없으면 실패"
+      "final_gate_rule": "actual MCP lease/control source와 test가 없으면 실패"
     },
     {
       "id": "IR-002",
@@ -114,14 +114,14 @@
         "submission/internal-templates/global-skills/board-validation"
       ],
       "required_internal_info": [
-        "deploy, boot and validation commands",
+        "deploy, boot, control and validation commands",
         "pass and failure criteria"
       ],
       "secret_input": "Board adapter boundary only",
       "commands": [
         "pnpm submission:verify:final"
       ],
-      "expected_result": "deploy, boot, validation과 failure evidence가 생성된다",
+      "expected_result": "deploy, boot, approved control, validation과 failure evidence가 생성된다",
       "failure_location": "validation skill result and Board adapter log",
       "evidence_paths": [
         "submission/evidence/actual-golden-run/board-validation-result.json"
@@ -129,7 +129,7 @@
       "docs_to_update": [
         "docs/submission/06_BOARD_FARM_MCP_CONTRACT.md"
       ],
-      "final_gate_rule": "actual boot and validation evidence가 없으면 실패"
+      "final_gate_rule": "actual boot, control and validation evidence가 없으면 실패"
     },
     {
       "id": "IR-006",

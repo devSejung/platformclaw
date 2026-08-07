@@ -243,7 +243,7 @@ describe("BoardFarmService lease lifecycle", () => {
     expect(service.getRun("user-c", next.run.id).status).toBe("cancelled");
   });
 
-  it("gates failed builds before queueing or touching hardware", () => {
+  it("short-circuits a failed build in the deterministic closed-loop harness", () => {
     const { service, adapter, store } = harness();
     const submission = service.submit(
       request("user-a", "failed-build", {

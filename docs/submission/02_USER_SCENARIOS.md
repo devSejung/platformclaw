@@ -26,7 +26,7 @@ title: "사용자 Scenario"
 4. UI가 identity, Agent와 current Execution Target을 표시한다.
 5. request/result/event는 personal Agent와 owned session으로 재검증된다.
 6. Basic은 rootless Docker, assigned VM은 revision-pinned SSH backend로 실행한다.
-7. build 성공 후에만 Board Farm workflow로 넘어간다.
+7. Agent가 개인 개발 VM에서 코드 수정과 빌드를 수행하고, 별도 Board Farm MCP로 보드를 lease·control한다.
 
 현재 상태: `IMPLEMENTED_WITH_LIMITATIONS`; actual 사내 Golden Run은 `IR-009`.
 
@@ -52,7 +52,7 @@ room별 `group-{chatroomId}` Agent를 single-flight provisioning한다. 개인 A
 
 - authentication failure: session을 만들지 않고 user-safe error
 - provisioning conflict: ownership을 overwrite하지 않고 binding failure 기록
-- build failure: Board Farm lease 단계 진입 금지
+- build failure: build result를 명시적으로 남기고 deploy 성공으로 오인하지 않음; 실제 MCP lease 유지·해제 정책은 `IR-001`, `IR-002`에서 확정
 - lease timeout/stale: 명시적 terminal/recovery state와 evidence 유지
 - validation/report/notification failure: 이전 evidence와 Run 상태 보존
 - retry: 같은 correlation ID, 새로운 attempt, idempotency key 보존

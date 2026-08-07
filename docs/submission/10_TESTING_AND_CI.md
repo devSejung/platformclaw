@@ -29,7 +29,7 @@ Snapshot-only test는 security와 behavior claim의 근거로 사용하지 않�
 | Sandbox          | rootless daemon, Workspace mount, no host socket         | `platformclaw-runtime-docker.sh`                                   |
 | Knox             | DM/room route, HMAC, sender preservation, delivery error | Control/Knox tests                                                 |
 | MCP/Skill        | credential isolation, invalidate, snapshot refresh       | MCP and remote-skill tests                                         |
-| Board Farm       | build gate, cross-user, timeout, renew, stale, evidence  | board-farm tests                                                   |
+| Board Farm Mock  | owner, queue, timeout, renew, stale, cleanup, evidence   | board-farm tests                                                   |
 | workflow         | failure stop, report/notification evidence preservation  | Mock Golden Path                                                   |
 | UI               | role, theme, loading/error/retry, target/MCP             | `ui/src/e2e/platformclaw-*.test.ts`                                |
 

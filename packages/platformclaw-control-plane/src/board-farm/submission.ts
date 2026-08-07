@@ -66,6 +66,8 @@ export function submitBoardFarmRequest(
   request: BoardFarmSubmitRequest,
   now: number,
 ): BoardFarmSubmission {
+  // This mock workflow begins with a completed VM build result. Short-circuiting
+  // a failed result here must not be treated as the actual MCP lease policy.
   const actorUserId = requireBoardFarmId(request.actorUserId, "actorUserId");
   const userAlias = requireBoardFarmId(request.userAlias, "userAlias");
   const jobId = requireBoardFarmId(request.jobId, "jobId");

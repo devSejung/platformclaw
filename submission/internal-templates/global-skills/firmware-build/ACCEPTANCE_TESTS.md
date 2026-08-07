@@ -4,7 +4,7 @@
 - [ ] pinned source revision and target enforced
 - [ ] success returns artifact ID, SHA-256 and sanitized locator
 - [ ] failure returns stable code and evidence references
-- [ ] failure invokes Board Farm zero times
+- [ ] failure is preserved and cannot be reported as a successful deploy
 - [ ] timeout/cancellation cleans subprocesses
 - [ ] retry is deterministic and does not confuse artifacts
 - [ ] logs contain no secret, personal identity or internal hostname

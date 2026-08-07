@@ -294,7 +294,7 @@
       "id": "CLM-P02",
       "criterion": "completeness",
       "status": "MOCK_VERIFIED",
-      "summary": "build 실패는 보드 할당 전에 종료하고 validation·cleanup 실패 증거, stale lease 회수, 재시작 복구를 보존한다.",
+      "summary": "Mock closed loop는 failed build를 명시적으로 종료하고 validation·cleanup 실패 증거, stale lease 회수와 재시작 복구를 보존한다. 이 순서는 실제 MCP lease prerequisite가 아니다.",
       "code_paths": [
         "packages/platformclaw-control-plane/src/board-farm/service.ts",
         "packages/platformclaw-control-plane/src/restart-reconciler.ts"
@@ -318,7 +318,7 @@
       "id": "CLM-P03",
       "criterion": "completeness",
       "status": "INTERNAL_INTEGRATION_REQUIRED",
-      "summary": "실제 VM code change부터 build, board lease, deploy, boot, validation, report, Knox 전달까지 Golden Run을 완료한다.",
+      "summary": "실제 개인 개발 VM code change·build와 Board Farm MCP lease·deploy·boot·control·validation, report, Knox 전달까지 Golden Run을 완료한다.",
       "code_paths": [
         "scripts/submission/collect-mock-evidence.mjs"
       ],

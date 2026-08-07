@@ -13,6 +13,8 @@ title: "Control Plane, VM과 Sandbox"
 
 상태: `IMPLEMENTED`.
 
+PlatformClaw의 핵심 개인 경로는 단순히 VM을 새로 만드는 기능이 아니다. 여러 사용자의 Personal Agent가 각 사용자에게 이미 할당된 사내 개발 VM과 Workspace에 접속해 코드 수정·빌드를 수행할 수 있게 하되, 다른 사용자의 VM·Workspace·credential로 넘어가지 못하게 하는 시스템이다.
+
 ## Personal Agent와 Workspace
 
 login 시 `BrowserAuthService`가 principal upsert와 Personal Agent reservation을 수행하고 `GatewayPersonalAgentProvisioner`가 정확한 Agent, Workspace와 profile owner를 검증한다. concurrent login은 동일 binding을 사용한다. incomplete provisioning은 `RestartReconciler`가 public ingress 전 처리한다.
@@ -26,7 +28,7 @@ login 시 `BrowserAuthService`가 principal upsert와 Personal Agent reservation
 
 ## Execution Target
 
-`platform_server`와 `assigned_vm`은 서로 다른 workspace·runtime이다. 사용자는 administrator-approved VM catalog에서만 선택한다. candidate connection이 remote home/workspace와 host key를 검증한 뒤 allocation을 revision-checked commit한다. target change는 Run boundary에서 atomic snapshot으로 적용되고 자동 fallback은 없다.
+`platform_server`와 `assigned_vm`은 서로 다른 workspace·runtime이다. 사용자는 administrator-approved catalog에서 자신에게 할당된 개인 개발 VM만 선택한다. candidate connection이 remote home/workspace와 host key를 검증한 뒤 allocation을 revision-checked commit한다. target change는 Run boundary에서 atomic snapshot으로 적용되고 자동 fallback은 없다.
 
 상태: `IMPLEMENTED`; 실제 사내 VM proof는 `IR-009`.
 
@@ -61,4 +63,4 @@ assigned VM skill discovery는 bounded scanner 결과를 target revision별 cach
 
 - 실제 SafeConnect/VM 주소와 credential은 source에 없으며 actual proof는 사내에서 수행한다.
 - group room의 실제 membership과 Docker run proof는 `IR-009`.
-- Board Farm execution은 VM/Sandbox backend의 일부가 아니라 별도 domain workflow다.
+- Board Farm lease/control은 VM/Sandbox backend의 일부가 아니라 별도 사내 MCP integration이다.

@@ -20,7 +20,13 @@ export type InternalBoardFarmClient = {
   }>;
 };
 
-/** Replace only the transport client; Control Plane retains lease and owner policy. */
+// TODO(INTERNAL): add the approved MCP lease, renew/heartbeat, control and
+// release request/response types here. Their exact schema is intentionally not guessed.
+
+/**
+ * Partial Mock-phase scaffold only. It does not implement the actual MCP
+ * lease/control surface; complete TODO(INTERNAL) after reading the approved schema.
+ */
 export class InternalBoardFarmAdapterTemplate implements BoardFarmAdapter {
   constructor(private readonly client: InternalBoardFarmClient) {}
 

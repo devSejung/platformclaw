@@ -1,6 +1,6 @@
 # PlatformClaw Architecture
 
-PlatformClaw는 각 엔지니어에게 독립된 Assistant, Workspace, Execution Target과 정책 경계를 제공하며, OpenClaw generic runtime에 enterprise identity, tenant authorization, credential, Knox와 Board Farm workflow를 명시적 owner boundary로 추가한다. 실선은 현재 코드 또는 Mock contract, 점선은 `INTERNAL_INTEGRATION_REQUIRED`인 사내 연결을 뜻한다.
+PlatformClaw는 여러 사용자의 Personal Agent가 각자의 개인 개발 VM에 접속하고 Board Farm MCP를 사용하도록 격리하는 멀티유저 AI 엔지니어링 플랫폼이다. OpenClaw generic runtime에 enterprise identity, tenant authorization, credential, Knox와 hardware workflow를 명시적 owner boundary로 추가한다. 실선은 현재 코드 또는 Mock contract, 점선은 `INTERNAL_INTEGRATION_REQUIRED`인 사내 연결을 뜻한다.
 
 ## 1. System Context
 
@@ -13,8 +13,8 @@ flowchart LR
   K --> X["Knox plugin"] --> C
   C --> G["OpenClaw Gateway"]
   G --> S["Rootless Sandbox"]
-  G --> V["Assigned VM"]
-  G -.-> B["Internal Board Farm"]
+  G --> V["User-owned Development VM"]
+  G -. MCP .-> B["Internal Board Farm"]
   B -.-> J["Jira"]
   J -.-> K
 ```
@@ -104,7 +104,7 @@ sequenceDiagram
   participant C as Control Plane
   participant H as Handoff Socket
   participant P as Execution Plugin
-  participant V as Assigned VM
+  participant V as Personal Development VM
   U->>C: select approved VM
   C->>V: candidate connection probe
   V-->>C: remote home/workspace
@@ -170,11 +170,11 @@ flowchart LR
 
 근거: `knox-routing-service.ts`, `knox-room-agent-provisioner.ts`, `knox-routing-service.test.ts`. External sender는 room Agent 호출만 가능하며 personal identity로 승격되지 않는다.
 
-## 9. Board Farm Lease
+## 9. Board Farm MCP Lease와 Control
 
 ```mermaid
 stateDiagram-v2
-  [*] --> queued: successful build
+  [*] --> queued: authorized MCP lease request
   queued --> active: resource allocated
   active --> active: heartbeat or bounded renew
   active --> releasing: release
@@ -192,24 +192,26 @@ stateDiagram-v2
   expired --> [*]
 ```
 
-Domain 경로는 `packages/platformclaw-control-plane/src/board-farm/contracts.ts`, `service.ts`, `state-machine.ts`, `memory-store.ts`, `mock-adapter.ts`. 실제 MCP adapter와 auth는 `IR-001`, `IR-002`; 제출 외부 상태는 `MOCK_VERIFIED`.
+Domain 경로는 `packages/platformclaw-control-plane/src/board-farm/contracts.ts`, `service.ts`, `state-machine.ts`, `memory-store.ts`, `mock-adapter.ts`. 이 코드는 completed build result에서 시작하는 deterministic Mock harness이며 실제 MCP lease policy의 source of truth가 아니다. 실제 MCP Tool schema, lease·renew·control·release mapping과 auth는 `IR-001`, `IR-002`; 제출 외부 상태는 `MOCK_VERIFIED`다.
 
 ## 10. Hardware Validation
 
 ```mermaid
 flowchart LR
-  B["Successful Build"] --> L["Lease"]
-  L --> D["Artifact Deploy"]
-  D --> O["Board Boot"]
+  P["Personal Agent"] --> VM["User-owned Development VM"]
+  VM --> C["Code Change"] --> B["Build Artifact"]
+  P --> M["Board Farm MCP"] --> L["Lease Board"]
+  B --> D["Deploy Artifact"]
+  L --> D
+  D --> O["Boot · Control"]
   O --> V["Validation Suite"]
   V --> E["Evidence Bundle"]
-  B -. failed .-> X["Stop before Lease"]
   D -. failed .-> E
   O -. failed .-> E
   V -. failed .-> E
 ```
 
-Mock adapter는 단계별 결과를 보존한다. 실제 Build Skill, Board Validation Skill과 board evidence는 `IR-004`, `IR-005`, `IR-009`.
+lease는 build status가 아니라 Board Farm MCP의 resource availability와 owner policy로 결정한다. artifact는 deploy 단계에서 필요하다. Mock adapter는 completed build result를 입력받아 이후 단계별 결과를 보존하지만 이 편의상 순서를 실제 MCP 정책으로 규정하지 않는다. 실제 Build Skill, Board Validation Skill과 board evidence는 `IR-004`, `IR-005`, `IR-009`다.
 
 ## 11. Evidence Flow
 
@@ -296,7 +298,7 @@ flowchart TB
   subgraph Personal["Per-user boundary"]
     PA["Personal Agent"]
     PW["Workspace"]
-    VM["Assigned VM"]
+    VM["User-owned Development VM"]
   end
   subgraph Internal["Internal integration"]
     BF["Board Farm"]
@@ -326,13 +328,13 @@ flowchart TB
   GW --> EX["platformclaw-execution"]
   EX --> VM["Assigned VM"]
   KN["CDEP"] --> RP
-  GW -. internal only .-> BF["Board Farm MCP"]
+  GW -. internal only .-> BF["Board Farm MCP · lease/control"]
 ```
 
 근거: `docker/platformclaw-runtime/compose.yaml`, `platformclaw-runtime-entrypoint`, `server-main.ts`, `scripts/platformclaw-build.mjs`. Reverse proxy와 internal endpoint 값은 deployment-owned configuration이며 source에 고정하지 않는다.
 
 ## Board Farm package 결정
 
-Lease는 전체 engineering Run의 상태와 user/Agent ownership을 따라야 하므로 `packages/platformclaw-control-plane/src/board-farm/`을 선택했다. 독립 package를 만들지 않은 이유는 현재 domain store와 workflow authorization이 Control Plane의 canonical Run owner에 가깝고, 별도 package가 dependency와 persistence owner를 조기에 분리하기 때문이다. MCP adapter는 contract 밖의 내부 integration으로 분리해 Mock와 actual 구현을 교체할 수 있게 한다.
+Mock lease lifecycle은 전체 engineering Run의 user/Agent ownership을 검증하기 위해 `packages/platformclaw-control-plane/src/board-farm/`에 둔다. actual Board Farm lease·control은 사내 MCP가 소유하며 Control Plane은 authenticated user/Agent/Run context를 전달하고 결과를 기록한다. exact Tool schema를 모르는 외부 branch에서 Mock interface를 실제 MCP contract로 고정하지 않는다.
 
 대안과 제한은 `docs/submission/13_DECISIONS_AND_TRADEOFFS.md`, 상세 계약은 `docs/submission/06_BOARD_FARM_MCP_CONTRACT.md`에 있다.

@@ -2,7 +2,7 @@
 
 ## Invariants
 
-- failed build는 `build_failed` Run으로 끝나고 lease를 만들지 않는다.
+- lease authorization은 build status가 아니라 authenticated user/Agent/Run owner와 실제 MCP resource policy를 따른다.
 - queue ordering은 canonical sequence를 사용한다.
 - 한 board에는 live lease가 하나만 존재한다.
 - lease access는 user ID, lease ID와 one-shot access token을 함께 검증한다.
@@ -20,4 +20,4 @@ Run: `build_failed`, `queued`, `leased`, `deploying`, `booting`, `validating`, `
 
 Resource: `available`, `leased`, `cleanup_pending`, `quarantined`.
 
-상태와 schema의 source of truth는 `packages/platformclaw-control-plane/src/board-farm/contracts.ts`와 `schema.ts`다.
+위 Lease 상태는 Mock lifecycle에서 검증한 최소 안전 불변식이다. 실제 MCP state와 revision mapping은 `IR-001`, `IR-002`에서 확정한다. `packages/platformclaw-control-plane/src/board-farm/contracts.ts`와 `schema.ts`의 `build_failed` Run은 completed build result에서 시작하는 Mock harness 상태이며 실제 MCP lease prerequisite가 아니다.

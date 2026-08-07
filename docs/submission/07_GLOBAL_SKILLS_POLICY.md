@@ -40,7 +40,7 @@ Run start에서 target revision, skill name/version/digest/provenance와 eligibi
 ## Failure contract
 
 - missing/unavailable skill: Run 전 fail closed, enablement/설치 경로 제시
-- build failure: Board Farm 호출 금지
+- build failure: 실패 결과를 보존하고 deploy 성공으로 오인하지 않음; Board Farm lease 유지·해제는 실제 MCP 정책에 위임
 - validation failure: evidence 보존
 - Jira/notification failure: Run 상태와 prior evidence 보존, retry 가능한 결과
 - version/digest mismatch: actual evidence gate 실패
