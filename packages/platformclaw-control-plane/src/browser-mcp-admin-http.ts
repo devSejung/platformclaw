@@ -241,7 +241,11 @@ function clearRecordKeys(value: unknown): Record<string, null> {
 
 export class McpAdministrationService {
   constructor(
-    private readonly options: { authService: BrowserAuthService; adminRpc: GatewayAdminRpc },
+    private readonly options: {
+      authService: BrowserAuthService;
+      adminRpc: GatewayAdminRpc;
+      onCatalogChanged?: () => void;
+    },
   ) {}
 
   async authenticate(token: string) {
@@ -388,6 +392,9 @@ export class McpAdministrationService {
         note: `PlatformClaw MCP administration: ${action} ${name}`,
       }),
     );
+    // config.patch committed the policy even if Gateway recovery below fails.
+    // Clear Control's process-stable projection at the fact-owning boundary.
+    this.options.onCatalogChanged?.();
     await this.invalidateAgentConnectionsAfterWrite();
     const policies = personalPolicies(updatedConfig);
     return {

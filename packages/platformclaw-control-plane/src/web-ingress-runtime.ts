@@ -172,6 +172,7 @@ export function createPlatformClawWebIngressRuntime(
   const mcpAdministration = new McpAdministrationService({
     authService: auth.service,
     adminRpc: options.adminRpc,
+    ...(mcpService ? { onCatalogChanged: () => mcpService.invalidateCatalog() } : {}),
   });
   const restartReconciler = new AgentRestartReconciler({
     store: auth.store,

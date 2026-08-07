@@ -1,5 +1,6 @@
 import { i18n } from "../i18n/index.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
+import { notifyPlatformClawMcpCatalogChanged } from "./mcp-catalog-events.ts";
 import { PLATFORMCLAW_MCP_ADMIN_API_PATH } from "./web-contract.ts";
 
 type AdminMcpServer = {
@@ -114,6 +115,7 @@ class PlatformClawMcpAdministrationElement extends HTMLElement {
       this.servers = (await this.request({ method: "POST", body: JSON.stringify(body) })).servers;
       this.editing = undefined;
       this.message = t("platformClaw.mcp.adminSaved");
+      notifyPlatformClawMcpCatalogChanged();
     } catch (error) {
       this.message = error instanceof Error ? error.message : t("platformClaw.mcp.adminFailed");
     } finally {
