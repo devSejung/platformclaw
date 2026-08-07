@@ -19,10 +19,12 @@
 
 ## Integration
 
+MCP 서버 본체는 기존 사내 repository와 service deployment가 소유하며 PlatformClaw 저장소로 복사하지 않는다. 이 저장소에는 domain contract에 연결하는 client adapter, startup wiring과 secret reference만 둔다.
+
 1. approved MCP 문서에서 lease·renew·control·release와 deploy/boot/validate Tool schema를 확정한다.
 2. `adapter.template.md`의 예제를 사내 source owner로 옮기고 `TODO(INTERNAL)`을 구현한다.
-3. approved MCP SDK/client types를 직접 import한다.
-4. process startup factory에서 actual integration을 구성한다.
+3. approved MCP SDK/client types를 직접 import한다. schema를 확인하기 전에는 새 package나 plugin path를 추측하지 않는다.
+4. `packages/platformclaw-control-plane/src/board-farm/`의 domain contract와 process startup factory에 actual integration을 연결한다.
 5. auth와 endpoint는 deployment secret/config로 주입한다.
 6. actual acceptance suite와 sanitized Golden Run을 실행한다.
 

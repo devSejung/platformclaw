@@ -5,6 +5,8 @@ description: Create or update an approved Jira record from a sanitized PlatformC
 
 # Jira Report
 
+Install the approved Skill at `/opt/platformclaw/skills/platformclaw-jira-report/SKILL.md`. Keep its scripts, references and assets under the same managed Skill directory. This template directory is not a runtime installation root.
+
 Use the Run ID, correlation ID, source commit, artifact digest, board result and sanitized evidence references.
 
 1. Validate the approved project and issue schema.
