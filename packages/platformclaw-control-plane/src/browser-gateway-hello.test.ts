@@ -164,6 +164,8 @@ describe("projectPlatformClawBrowserHello", () => {
       "taskSuggestions.accept",
       "taskSuggestions.dismiss",
       "taskSuggestions.list",
+      "tasks.dismiss",
+      "tasks.retry",
     );
     upstream.features.events.push(
       "agent",
@@ -186,6 +188,8 @@ describe("projectPlatformClawBrowserHello", () => {
         "controlUi.sessionPullRequests.subscribe",
         "question.resolve",
         "taskSuggestions.accept",
+        "tasks.dismiss",
+        "tasks.retry",
       ]),
     );
     expect(projected.features.events).toEqual(

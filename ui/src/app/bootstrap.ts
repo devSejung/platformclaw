@@ -37,8 +37,8 @@ import type {
   ApplicationContext,
   ApplicationNavigationPreferences,
   ApplicationNavigationPreferencesSnapshot,
-  ApplicationSkillWorkshopRevisionHandoff,
   ApplicationTheme,
+  ApplicationThemeServerSelection,
 } from "./context.ts";
 import { syncCustomThemeStyleTag } from "./custom-theme.ts";
 import { createApplicationGateway } from "./gateway-store.ts";
@@ -55,6 +55,7 @@ import {
   saveSettings,
   type UiSettings,
 } from "./settings.ts";
+import { createSkillWorkshopRevisionHandoff } from "./skill-workshop-revision-handoff.ts";
 import { createStartupLifecycle, type StartupStep } from "./startup-lifecycle.ts";
 import { resolveApplicationStartupSettings } from "./startup-settings.ts";
 import { startThemeTransition } from "./theme-transition.ts";
@@ -83,6 +84,7 @@ function createApplicationTheme(
   initialSettings: UiSettings,
 ): ApplicationTheme & { dispose: () => void } {
   let settings = initialSettings;
+  let serverSelection: ApplicationThemeServerSelection | null = null;
   let systemThemeCleanup: (() => void) | undefined;
   const listeners = new Set<() => void>();
 
@@ -123,6 +125,13 @@ function createApplicationTheme(
   return {
     get mode() {
       return settings.themeMode;
+    },
+    get serverSelection() {
+      return serverSelection;
+    },
+    recordServerSelection(theme, scope) {
+      serverSelection = { revision: (serverSelection?.revision ?? 0) + 1, scope, theme };
+      publish();
     },
     setMode(mode: ThemeMode, element) {
       const currentSettings = loadSettings();
@@ -196,26 +205,6 @@ function createApplicationNavigationPreferences(
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
-    },
-  };
-}
-
-function createSkillWorkshopRevisionHandoff(): ApplicationSkillWorkshopRevisionHandoff {
-  let pending: Parameters<ApplicationSkillWorkshopRevisionHandoff["prepare"]>[0] | null = null;
-  return {
-    prepare: (handoff) => {
-      pending = handoff;
-    },
-    consume: (sessionKey) => {
-      if (!pending || pending.sessionKey !== sessionKey) {
-        return null;
-      }
-      const handoff = pending;
-      pending = null;
-      return handoff;
-    },
-    clear: () => {
-      pending = null;
     },
   };
 }
@@ -309,6 +298,14 @@ export function bootstrapApplication(
         },
       }
     : resolvedStartup;
+  if (
+    startup.location.pathname !== startupLocation.pathname ||
+    startup.location.search !== startupLocation.search ||
+    startup.location.hash !== startupLocation.hash
+  ) {
+    // Remove URL credentials before deferred routing or Gateway authentication can expose them.
+    history.replace(startup.location);
+  }
   if (startup.changed) {
     if (documentMode) {
       persistSessionToken(startup.settings.gatewayUrl, startup.settings.token);
@@ -340,6 +337,10 @@ export function bootstrapApplication(
       persistDefaultConnectionSettings: options.gateway ? false : documentMode === null,
       browserDeviceAuth: options.gateway?.browserDeviceAuth,
       onClose: options.gateway?.onClose,
+      basePath,
+      ...(startup.pendingBootstrapProfile
+        ? { bootstrapProfile: startup.pendingBootstrapProfile }
+        : {}),
     },
   );
   const agents = createAgentCapability(gateway);
@@ -424,6 +425,9 @@ export function bootstrapApplication(
           gatewayUrl: startup.pendingGatewayUrl,
           token: startup.pendingGatewayToken ?? "",
           bootstrapToken: startup.pendingBootstrapToken ?? "",
+          ...(startup.pendingBootstrapProfile
+            ? { bootstrapProfile: startup.pendingBootstrapProfile }
+            : {}),
         }
       : null;
   let lastPostConnectClient: GatewayBrowserClient | null = null;
@@ -496,6 +500,7 @@ export function bootstrapApplication(
       gatewayUrl: pending.gatewayUrl,
       token: pending.token,
       bootstrapToken: pending.bootstrapToken,
+      bootstrapProfile: pending.bootstrapProfile,
     });
   };
   const cancelPendingGatewayConnection = () => {

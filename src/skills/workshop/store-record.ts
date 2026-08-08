@@ -1,3 +1,4 @@
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { err, ok, type Result } from "@openclaw/normalization-core/result";
 import type {
   PluginHookSkillEvaluationFinding,
@@ -48,8 +49,8 @@ export function assertProposalId(proposalId: string): void {
 export function validateSkillProposalRecord(
   raw: unknown,
 ): Result<SkillProposalRecord, SkillProposalRecordValidationError> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return invalidProposalMetadata();
+  if (!isRecord(raw)) {
+    return invalidMetadata("proposal");
   }
   const record = raw as SkillProposalRecord;
   if (
@@ -77,7 +78,7 @@ export function validateSkillProposalRecord(
     !record.scan ||
     typeof record.scan !== "object"
   ) {
-    return invalidProposalMetadata();
+    return invalidMetadata("proposal");
   }
   return ok(record);
 }
@@ -107,7 +108,7 @@ export function parseSkillProposalRecord(raw: unknown): SkillProposalRecord | nu
 }
 
 export function parseSkillProposalEvaluation(raw: unknown): SkillProposalEvaluation | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+  if (!isRecord(raw)) {
     return null;
   }
   const value = raw as SkillProposalEvaluation;
@@ -140,7 +141,7 @@ export function parseSkillProposalEvaluation(raw: unknown): SkillProposalEvaluat
 function isValidEvaluationOutcome(
   value: unknown,
 ): value is PluginHookSkillProposalEvaluationOutcome {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return false;
   }
   const outcome = value as PluginHookSkillProposalEvaluationOutcome;
@@ -166,7 +167,7 @@ function isValidEvaluationOutcome(
 }
 
 function isValidEvaluationResult(value: unknown): value is PluginHookSkillProposalEvaluateResult {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return false;
   }
   const result = value as PluginHookSkillProposalEvaluateResult;
@@ -215,7 +216,7 @@ function isValidEvaluationMetrics(
   if (value === undefined) {
     return true;
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return false;
   }
   const entries = Object.entries(value);
@@ -241,7 +242,7 @@ function isValidSupportFileList(value: unknown): boolean {
   }
   const seen = new Set<string>();
   for (const item of value) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
+    if (!isRecord(item)) {
       return false;
     }
     const file = item as SkillProposalSupportFile;
@@ -277,8 +278,8 @@ function isValidSupportFileList(value: unknown): boolean {
 export function validateSkillProposalRollback(
   raw: unknown,
 ): Result<SkillProposalRollback, SkillProposalRecordValidationError> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return invalidRollbackMetadata();
+  if (!isRecord(raw)) {
+    return invalidMetadata("rollback");
   }
   const rollback = raw as SkillProposalRollback;
   if (
@@ -293,7 +294,7 @@ export function validateSkillProposalRollback(
     (rollback.previousContent !== undefined && typeof rollback.previousContent !== "string") ||
     (rollback.supportFiles !== undefined && !Array.isArray(rollback.supportFiles))
   ) {
-    return invalidRollbackMetadata();
+    return invalidMetadata("rollback");
   }
   return ok(rollback);
 }
@@ -303,22 +304,11 @@ export function parseSkillProposalRollback(raw: unknown): SkillProposalRollback 
   return result.ok ? result.value : null;
 }
 
-function invalidProposalMetadata(): Result<
-  SkillProposalRecord,
-  SkillProposalRecordValidationError
-> {
+function invalidMetadata<T>(
+  kind: "proposal" | "rollback",
+): Result<T, SkillProposalRecordValidationError> {
   return err({
-    code: "invalid-proposal-metadata",
-    message: "invalid proposal metadata",
-  });
-}
-
-function invalidRollbackMetadata(): Result<
-  SkillProposalRollback,
-  SkillProposalRecordValidationError
-> {
-  return err({
-    code: "invalid-rollback-metadata",
-    message: "invalid rollback metadata",
+    code: `invalid-${kind}-metadata`,
+    message: `invalid ${kind} metadata`,
   });
 }

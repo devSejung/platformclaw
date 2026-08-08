@@ -229,7 +229,7 @@ describe("BrowserGatewayProxy", () => {
     ).resolves.toEqual({ ok: true, key });
   });
 
-  it("scopes background task reads to the authenticated agent", async () => {
+  it("scopes direct background task reads to the authenticated agent", async () => {
     const { binding, proxy, request, token } = await setup();
     const ownedTask = {
       id: "task-owned",
@@ -237,22 +237,7 @@ describe("BrowserGatewayProxy", () => {
       agentId: binding.agentId,
       sessionKey: `agent:${binding.agentId}:main`,
     };
-    request
-      .mockResolvedValueOnce({ tasks: [ownedTask] })
-      .mockResolvedValueOnce({ task: { ...ownedTask, prompt: "Inspect the workspace" } });
-
-    await expect(
-      proxy.request(token, "tasks.list", {
-        agentId: binding.agentId,
-        status: ["queued", "running"],
-        limit: 50,
-      }),
-    ).resolves.toEqual({ tasks: [ownedTask] });
-    expect(request).toHaveBeenNthCalledWith(1, "tasks.list", {
-      agentId: binding.agentId,
-      status: ["queued", "running"],
-      limit: 50,
-    });
+    request.mockResolvedValueOnce({ task: { ...ownedTask, prompt: "Inspect the workspace" } });
     await expect(proxy.request(token, "tasks.get", { taskId: ownedTask.id })).resolves.toEqual({
       task: { ...ownedTask, prompt: "Inspect the workspace" },
     });
@@ -273,6 +258,12 @@ describe("BrowserGatewayProxy", () => {
     await expect(proxy.request(token, "tasks.list", {})).resolves.toEqual({
       tasks: [ownedListTask],
       nextCursor: "cursor-2",
+    });
+    expect(request).toHaveBeenNthCalledWith(1, "tasks.list", {
+      agentId: binding.agentId,
+    });
+    await expect(proxy.request(token, "tasks.list", { agentId: "other" })).rejects.toMatchObject({
+      code: "cross-agent-denied",
     });
 
     const ownedTask = {

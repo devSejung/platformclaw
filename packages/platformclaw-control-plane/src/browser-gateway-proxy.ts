@@ -54,6 +54,8 @@ import {
 } from "./browser-gateway-self-service-projections.js";
 import {
   browserTaskEventBelongsToAccess,
+  isBrowserTaskMethod,
+  preflightBrowserTaskMutation,
   projectBrowserTaskResult,
 } from "./browser-gateway-task-policy.js";
 type JsonObject = Record<string, unknown>;
@@ -163,9 +165,13 @@ export class BrowserGatewayProxy {
           "browser model selection is limited to configured models",
         );
       }
-      if (method === "tasks.cancel") {
-        await this.assertOwnedTask(access, prepared.taskId);
-      }
+      await preflightBrowserTaskMutation({
+        method,
+        request: prepared,
+        loadTask: (taskId) => this.options.gateway.request("tasks.get", { taskId }),
+        assertOwnedResult: (taskId, result) =>
+          this.filterResult(access, "tasks.get", { taskId }, result),
+      });
       await preflightCronMutation(this.browserCronContext(access), method, prepared);
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
@@ -452,7 +458,9 @@ export class BrowserGatewayProxy {
     if (method === "sessions.subscribe") {
       return params;
     }
-    if (method === "tasks.get" || method === "tasks.cancel") {
+    // Task mutations and direct reads are owner-checked separately. Listing still
+    // needs the shared agent-only policy below to pin the query to this browser.
+    if (isBrowserTaskMethod(method) && method !== "tasks.list") {
       return params;
     }
     if (PLATFORMCLAW_WEB_AGENT_ONLY_METHODS.has(method)) {
@@ -514,10 +522,13 @@ export class BrowserGatewayProxy {
     if (sessionResult !== undefined) {
       return sessionResult;
     }
-    if (method === "tasks.list" || method === "tasks.get" || method === "tasks.cancel") {
+    if (isBrowserTaskMethod(method)) {
       return projectBrowserTaskResult({
         access: this.browserTaskAccess(access),
         method,
+        ...(method === "tasks.retry" || method === "tasks.dismiss"
+          ? { requestedTaskIds: new Set(prepared.taskIds as string[]) }
+          : {}),
         result,
         fail: (message) => {
           throw new BrowserGatewayProxyError("upstream-result-denied", message);
@@ -667,15 +678,6 @@ export class BrowserGatewayProxy {
       return { ok: true, key: payload.key };
     }
     return result;
-  }
-
-  private async assertOwnedTask(access: BrowserGatewayAccess, rawTaskId: unknown): Promise<void> {
-    const taskId = optionalString(rawTaskId);
-    if (!taskId) {
-      throw new BrowserGatewayProxyError("invalid-params", "tasks.cancel requires a task id");
-    }
-    const result = await this.options.gateway.request("tasks.get", { taskId });
-    this.filterResult(access, "tasks.get", { taskId }, result);
   }
 
   private browserCronContext(access: BrowserGatewayAccess) {

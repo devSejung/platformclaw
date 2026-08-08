@@ -86,7 +86,6 @@ const REPLAY_SAFE_TOOL_NAMES = new Set([
   "image",
   "ls",
   "memory_get",
-  "memory_search",
   "pdf",
   "read",
   "search",

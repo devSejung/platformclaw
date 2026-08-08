@@ -1,5 +1,5 @@
 {
-  "startupJsGzipBytes": 327434,
-  "reason": "merge upstream canvas lease with bounded PlatformClaw self-service routes",
-  "updatedAt": "2026-07-28"
+  "startupJsGzipBytes": 331530,
+  "reason": "2026.8.1-branch-point-UI-controllers-plus-PlatformClaw-restricted-routes",
+  "updatedAt": "2026-08-08"
 }

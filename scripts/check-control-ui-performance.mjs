@@ -24,9 +24,9 @@ export const CONTROL_UI_STARTUP_JS_GZIP_TOLERANCE_BYTES = 1024;
 export const CONTROL_UI_PERFORMANCE_BUDGETS = Object.freeze({
   startupJsRequests: 18,
   startupCssRequests: 1,
-  // 320 KiB covers the synchronized session creator UI plus PlatformClaw's
-  // startup account and route-policy overlay, with ~2 KiB explicit headroom.
-  startupJsGzipBytes: 320 * KIB,
+  // 325 KiB covers the 2026.8.1 branch-point UI controllers plus PlatformClaw's
+  // startup account and restricted-route overlay, with ~1 KiB explicit headroom.
+  startupJsGzipBytes: 325 * KIB,
   // 45 KiB CSS ceilings maintainer-approved 2026-07 alongside the interleaved
   // sidebar zone styling; headroom over the ~36.5 KiB post-diet baseline.
   startupCssGzipBytes: 45 * KIB,

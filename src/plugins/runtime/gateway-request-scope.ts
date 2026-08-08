@@ -49,6 +49,21 @@ export function withPluginRuntimeGatewayRequestScope<T>(
   return pluginRuntimeGatewayRequestScope.run(scope, run);
 }
 
+/** Runs work against an owned registry handle while preserving any gateway request facts. */
+export function withPluginRuntimeRegistryScope<T>(
+  registry: PluginRegistry | undefined,
+  run: () => T,
+): T {
+  if (!registry) {
+    return run();
+  }
+  const current = pluginRuntimeGatewayRequestScope.getStore();
+  return pluginRuntimeGatewayRequestScope.run(
+    { isWebchatConnect: () => false, ...current, pluginRegistry: registry },
+    run,
+  );
+}
+
 /**
  * Runs work under the current gateway request scope while attaching plugin identity.
  */

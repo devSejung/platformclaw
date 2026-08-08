@@ -73,8 +73,10 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "skills.skillCard",
   "skills.status",
   "tasks.cancel",
+  "tasks.dismiss",
   "tasks.get",
   "tasks.list",
+  "tasks.retry",
   "taskSuggestions.accept",
   "taskSuggestions.dismiss",
   "taskSuggestions.list",
@@ -164,7 +166,10 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     ]),
   ],
   ["cron.remove", new Set(["expectedConfigRevision", "id", "jobId"])],
-  ["cron.run", new Set(["expectedConfigRevision", "id", "jobId", "mode"])],
+  [
+    "cron.run",
+    new Set(["expectedConfigRevision", "expectedProcessInstanceId", "id", "jobId", "mode"]),
+  ],
   [
     "cron.runs",
     new Set([
@@ -354,8 +359,10 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["skills.skillCard", new Set(["agentId", "skillKey"])],
   ["skills.status", new Set(["agentId", "refresh"])],
   ["tasks.cancel", new Set(["taskId", "reason"])],
+  ["tasks.dismiss", new Set(["taskIds"])],
   ["tasks.get", new Set(["taskId"])],
   ["tasks.list", new Set(["status", "agentId", "sessionKey", "limit", "cursor"])],
+  ["tasks.retry", new Set(["taskIds"])],
   ["taskSuggestions.accept", new Set(["taskId"])],
   ["taskSuggestions.dismiss", new Set(["taskId", "reason"])],
   ["taskSuggestions.list", new Set(["agentId", "sessionKey"])],
