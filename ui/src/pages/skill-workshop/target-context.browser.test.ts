@@ -30,6 +30,13 @@ function propsFor(
   mode: SkillWorkshopProps["mode"],
 ): SkillWorkshopProps {
   return {
+    access: {
+      canEvaluate: true,
+      canApply: true,
+      canRevise: true,
+      canReject: true,
+      canScanHistory: true,
+    },
     loading: false,
     error: null,
     inspectingKey: null,
