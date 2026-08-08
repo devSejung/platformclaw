@@ -119,6 +119,7 @@ export type TestChatPane = HTMLElement & {
 export function createSessionContext(
   client: GatewayBrowserClient,
   sessions: SessionCapability,
+  methods = ["taskSuggestions.list", "session.suggestions.list", "sessions.patch"],
 ): ApplicationContext {
   const eventListeners = new Set<GatewayEventListener>();
   const agentSelectionListeners = new Set<(state: { selectedId: string | null }) => void>();
@@ -132,9 +133,7 @@ export function createSessionContext(
         client,
         phase: "connected" as const,
         hello: {
-          features: {
-            methods: ["taskSuggestions.list", "session.suggestions.list", "sessions.patch"],
-          },
+          features: { methods },
         },
       },
       connection: { gatewayUrl: "ws://example.test", token: "", bootstrapToken: "", password: "" },
@@ -186,6 +185,7 @@ export function createSessionContext(
 export function createTestChatPane(params: {
   client: GatewayBrowserClient;
   sessions: SessionCapability;
+  methods?: string[];
 }) {
   const pane = document.createElement("openclaw-chat-pane") as unknown as TestChatPane;
   Object.defineProperty(pane, "isConnected", {
@@ -234,7 +234,7 @@ export function createTestChatPane(params: {
     state.sidebarFocusPanelId = panelId;
     state.sidebarFocusVersion += 1;
   };
-  pane.context = createSessionContext(params.client, params.sessions);
+  pane.context = createSessionContext(params.client, params.sessions, params.methods);
   pane.state = state;
   pane.connectedClient = params.client;
   pane.connectionGeneration = 4;

@@ -589,10 +589,7 @@ export function createOpenClawTools(
             runId: options?.runId,
             messageId: options?.currentMessageId,
             run: options?.skillWorkshop,
-            targetAccess:
-              options?.skillWorkshopTarget && "backendId" in options.skillWorkshopTarget
-                ? options.skillWorkshopTarget
-                : undefined,
+            targetAccess: options?.skillWorkshopTarget,
           }),
         ]),
     ...(includeUpdatePlanTool ? [createUpdatePlanTool()] : []),

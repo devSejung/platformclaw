@@ -48,6 +48,7 @@ import {
 } from "./components/chat-session-workspace.ts";
 import type { SessionDiscussionPanelConfig } from "./components/session-discussion-panel.ts";
 import { hasAbortableSessionRun } from "./run-lifecycle.ts";
+import { supportsSessionWorkspace } from "./session-workspace-access.ts";
 import {
   SIDEBAR_NARROW_BREAKPOINT_PX,
   activatePanel,
@@ -61,10 +62,7 @@ export abstract class ChatPaneHeader extends ChatPaneContext {
     state: SessionWorkspaceHost,
     options: { draftScope: string; narrowLayout: boolean },
   ) {
-    const available =
-      isGatewayMethodAdvertised(state, "sessions.files.list") === true &&
-      isGatewayMethodAdvertised(state, "sessions.files.get") === true;
-    if (!available) {
+    if (!supportsSessionWorkspace(state)) {
       return { props: undefined, sideDocked: false, openFile: undefined, revealFile: undefined };
     }
     const props = createSessionWorkspaceProps(state, options);

@@ -568,25 +568,17 @@ describe("chat pane keyboard shortcuts", () => {
   it("toggles only the active pane's session workspace", () => {
     const client = {} as GatewayBrowserClient;
     const sessions = {} as SessionCapability;
-    const { pane, state } = createTestChatPane({ client, sessions });
+    const { pane, state } = createTestChatPane({
+      client,
+      sessions,
+      methods: ["sessions.files.list", "sessions.files.get"],
+    });
     const canvasContent: SidebarContent = {
       kind: "canvas",
       docId: "canvas-1",
       entryUrl: "/__openclaw__/canvas/canvas-1/index.html",
     };
     pane.active = true;
-    pane.context = {
-      ...pane.context,
-      gateway: {
-        ...pane.context.gateway,
-        snapshot: {
-          ...pane.context.gateway.snapshot,
-          hello: {
-            features: { methods: ["sessions.files.list", "sessions.files.get"] },
-          },
-        },
-      },
-    } as ApplicationContext;
     state.connected = false;
     state.sidebarContent = canvasContent;
     state.sidebarLayout = openSlot({ columns: [] }, "detail");

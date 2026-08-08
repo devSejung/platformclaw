@@ -11,8 +11,7 @@ import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 import { filterSkillWorkshopProposals } from "../../lib/skill-workshop/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
-import { PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT } from "../../platformclaw/execution-target-events.ts";
-import { PLUGINS_HUB_PANEL_ID, pluginsHubTabs } from "../plugins/plugins-hub.ts";
+import { PLUGINS_HUB_PANEL_ID } from "../plugins/plugins-hub.ts";
 import { canCallWorkshopAdminMethod, resolveWorkshopAccess } from "./access.ts";
 import { renderSkillWorkshopHeaderControls, setSkillWorkshopMode } from "./header-controls.ts";
 import {
@@ -20,8 +19,13 @@ import {
   runSkillWorkshopPageHistoryScan,
 } from "./history-scan-page-controller.ts";
 import type { SkillWorkshopRenderContext, SkillWorkshopRevisionRequest } from "./page-types.ts";
-import { SkillWorkshopPersonalAccess } from "./personal-access.ts";
-import { selectPluginsHubTab } from "./plugins-hub-navigation.ts";
+import {
+  loadSkillWorkshopProposals,
+  resolvePersonalAwareSelfLearning,
+  SkillWorkshopPersonalAccess,
+  subscribeToExecutionTargetChanges,
+} from "./personal-access.ts";
+import { selectPluginsHubTab, workshopPluginsHubTabs } from "./plugins-hub-navigation.ts";
 import {
   countSkillWorkshopProposals,
   createSkillWorkshopState,
@@ -33,11 +37,12 @@ import {
   type SkillWorkshopState,
 } from "./proposals.ts";
 import { resolveSkillWorkshopRevisionSessionKey } from "./revision-session.ts";
-import { resolveSelfLearning, setSelfLearningEnabled } from "./self-learning.ts";
+import { setSelfLearningEnabled } from "./self-learning.ts";
 import {
   captureSkillWorkshopSourceScope,
   ensureSkillWorkshopAgentIdentity,
   isCurrentSkillWorkshopSourceScope,
+  resolveWorkshopAgentName,
   type SkillWorkshopPageContext,
   type SkillWorkshopSourceScope,
 } from "./source-scope.ts";
@@ -80,10 +85,7 @@ function renderSkillWorkshopPage(
         ${renderHubTabs({
           id: "plugins",
           active: "workshop",
-          tabs: pluginsHubTabs(
-            null,
-            context.accessMode === "personal-agent" ? ["skills", "workshop"] : undefined,
-          ),
+          tabs: workshopPluginsHubTabs(context.accessMode),
           ariaLabel: t("pluginsPage.hubTablistLabel"),
           panelId: PLUGINS_HUB_PANEL_ID,
           className: "plugins-tabs",
@@ -422,15 +424,12 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     )
     .effect(
       () => (this.context?.accessMode === "personal-agent" ? window : undefined),
-      (target) => {
-        const refresh = () => {
-          this.resetSourceState();
-          this.loadProposals(true);
-        };
-        target.addEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
-        return () =>
-          target.removeEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
-      },
+      (target) =>
+        subscribeToExecutionTargetChanges(
+          target,
+          () => this.resetSourceState(),
+          () => this.loadProposals(true),
+        ),
     )
     .watch(
       () => this.context?.agentIdentity,
@@ -627,33 +626,14 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
   }
 
   private loadProposals(force: boolean) {
-    const state = this.state;
-    const context = this.context;
-    if (!state || !context || context.gateway.snapshot.phase !== "connected") {
-      return;
-    }
-    if (context.accessMode === "personal-agent") {
-      state.skillWorkshopError = this.personalAccess.prepareRetry(force, state.skillWorkshopError);
-      if (this.personalAccess.target === null) {
-        void this.personalAccess.load({
-          context,
-          loadServerProposals: () =>
-            this.proposalsTask.run([
-              context,
-              state,
-              context.agentSelection.state.selectedId,
-              force,
-            ]),
-          onError: (error) => {
-            state.skillWorkshopError =
-              error instanceof Error ? error.message : "Could not load the current work location.";
-          },
-          onUpdate: this.requestPageUpdate,
-        });
-        return;
-      }
-    }
-    void this.proposalsTask.run([context, state, context.agentSelection.state.selectedId, force]);
+    loadSkillWorkshopProposals({
+      access: this.personalAccess,
+      context: this.context,
+      state: this.state,
+      force,
+      runProposals: (args) => this.proposalsTask.run(args),
+      onUpdate: this.requestPageUpdate,
+    });
   }
 
   private readonly handleHistoryScan = () => {
@@ -722,21 +702,15 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
           this.state,
           {
             context: this.context,
-            workshopAgentName:
-              this.context.agentIdentity.get(this.state.skillWorkshopAgentId)?.name?.trim() ?? "",
-            currentExecutionTarget:
-              this.context.accessMode === "personal-agent" ? this.personalAccess.target : undefined,
+            workshopAgentName: resolveWorkshopAgentName(this.context, this.state),
+            currentExecutionTarget: this.personalAccess.targetFor(this.context),
             onEvaluate: this.handleEvaluation,
             onRevisionSubmit: this.handleRevisionSubmit,
-            selfLearning:
-              this.context.accessMode === "personal-agent"
-                ? null
-                : resolveSelfLearning(
-                    this.context.runtimeConfig,
-                    this.selfLearningBusy,
-                    this.selfLearningError,
-                    canCallWorkshopAdminMethod(this.context.gateway.snapshot, "config.patch"),
-                  ),
+            selfLearning: resolvePersonalAwareSelfLearning({
+              context: this.context,
+              busy: this.selfLearningBusy,
+              error: this.selfLearningError,
+            }),
             onSelfLearningToggle: this.handleSelfLearningToggle,
             onHistoryScan: this.handleHistoryScan,
             onRetry: () => this.loadProposals(true),

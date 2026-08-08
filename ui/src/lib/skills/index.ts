@@ -18,6 +18,7 @@ import {
   skillConfigMutationSuccess,
   type SkillConfigMutationOwner,
 } from "./config-mutations.ts";
+import { loadSkillStatusReport } from "./status.ts";
 
 export type ClawHubSkillDetail = {
   skill: {
@@ -199,32 +200,12 @@ function currentSkillCardCacheKey(state: SkillsState, skillKey: string): string 
   return skill ? skillCardCacheKey(skill) : undefined;
 }
 
-function skillsAgentParams(
-  agentId: string | null | undefined,
-  refresh = false,
-): { agentId?: string; refresh?: boolean } {
-  const normalized = agentId?.trim();
-  return {
-    ...(normalized ? { agentId: normalized } : {}),
-    ...(refresh ? { refresh: true } : {}),
-  };
-}
-
 function stateSkillsAgentParams(state: Pick<SkillsState, "skillsAgentId">): { agentId?: string } {
   const agentId = state.skillsAgentId?.trim();
   return agentId ? { agentId } : {};
 }
 
-export async function loadSkillStatusReport(
-  client: GatewayBrowserClient,
-  agentId: string | null | undefined,
-  refresh = false,
-): Promise<SkillStatusReport | undefined> {
-  return client.request<SkillStatusReport | undefined>(
-    "skills.status",
-    skillsAgentParams(agentId, refresh),
-  );
-}
+export { loadSkillStatusReport } from "./status.ts";
 
 type SkillsAgentScope = {
   agentId: string | null;

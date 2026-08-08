@@ -15,13 +15,15 @@ export function createConfiguredSkillWorkshopTool(params: {
   runId?: string;
   messageId?: string | number;
   run?: SkillWorkshopRunOptions;
-  targetAccess?: SkillWorkshopTargetAccess;
+  targetAccess?: SkillWorkshopTargetAccess | { kind: "workspace" };
 }) {
   const sessionKey = normalizeOptionalString(params.sessionKey);
   const runId = normalizeOptionalString(params.runId);
   const messageId = normalizeOptionalString(
     params.messageId === undefined ? undefined : String(params.messageId),
   );
+  const targetAccess =
+    params.targetAccess && "backendId" in params.targetAccess ? params.targetAccess : undefined;
   return createSkillWorkshopTool({
     workspaceDir: params.workspaceDir,
     config: params.config,
@@ -37,12 +39,12 @@ export function createConfiguredSkillWorkshopTool(params: {
       } satisfies SkillProposalOrigin),
     proposalOnly: params.run?.proposalOnly,
     // Remote VM changes always require the explicit Gateway/UI apply action.
-    draftOnly: params.targetAccess ? true : undefined,
+    draftOnly: targetAccess ? true : undefined,
     ...(params.run?.autonomousCapture ? { autonomousCapture: true } : {}),
     proposalMutationBudget:
       params.run?.proposalMutationBudget ??
       (params.run?.proposalOnly ? { remaining: 1 } : undefined),
     proposalReviewCompletion: params.run?.proposalReviewCompletion,
-    targetAccess: params.targetAccess,
+    targetAccess,
   });
 }

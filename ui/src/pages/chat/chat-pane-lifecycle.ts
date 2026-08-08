@@ -17,7 +17,6 @@ import {
   type BrowserAnnotationDraft,
 } from "../../components/browser/browser-annotation.ts";
 import { t } from "../../i18n/index.ts";
-import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
 import { resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
 import { resolveChatPaneObserverRunId } from "../../lib/observer-digest.ts";
 import { readSessionMethodAccess } from "../../lib/session-method-access.ts";
@@ -59,6 +58,7 @@ import { CHAT_COMPOSER_DRAFT_STORAGE_ERROR } from "./composer-persistence.ts";
 import { exportChatMarkdown } from "./export.ts";
 import { admitInitialTurnHandoff, admitInitialUserMessageHandoff } from "./initial-turn-handoff.ts";
 import { readChatSessionSnapshot } from "./session-message-cache.ts";
+import { supportsSessionWorkspace } from "./session-workspace-access.ts";
 
 const COMPOSER_PREFILL_ATTENTION_DURATION_MS = 1_200;
 const COMPOSER_PREFILL_ATTENTION_CLASS = "agent-chat__input--prefill-attention";
@@ -379,11 +379,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
       resolveAsciiShortcutKey(event) === "b"
     ) {
       const state = this.state;
-      if (
-        !state ||
-        isGatewayMethodAdvertised(this.context.gateway.snapshot, "sessions.files.list") !== true ||
-        isGatewayMethodAdvertised(this.context.gateway.snapshot, "sessions.files.get") !== true
-      ) {
+      if (!state || !supportsSessionWorkspace(this.context.gateway.snapshot)) {
         return;
       }
       event.preventDefault();

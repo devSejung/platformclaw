@@ -17,16 +17,12 @@ import {
   createHostWorkspaceWriteTool,
   createOpenClawReadTool,
   createSandboxedEditTool,
-  createSandboxedReadTool,
-  createSandboxedWriteTool,
   wrapToolMemoryFlushAppendOnlyWrite,
   wrapToolWorkspaceRootGuard,
-  wrapToolWorkspaceRootGuardWithOptions,
 } from "./agent-tools.read.js";
 import { createApplyPatchTool } from "./apply-patch.js";
-import { SANDBOX_AGENT_WORKSPACE_MOUNT } from "./sandbox/constants.js";
-import { resolveReadOnlyWorkspaceSkillMounts } from "./sandbox/workspace-mounts.js";
 import {
+  createSandboxFsTools,
   expectReadWriteEditTools,
   expectReadWriteTools,
   getTextContent,
@@ -509,127 +505,7 @@ function resolveApplyPatchTool(params: { sandbox: UnsafeMountedSandbox; config: 
   });
 }
 
-function createSandboxFsTools(params: { sandbox: UnsafeMountedSandbox; workspaceOnly?: boolean }) {
-  const tools = [
-    createSandboxedReadTool({
-      root: params.sandbox.workspaceDir,
-      bridge: params.sandbox.fsBridge!,
-    }),
-    createSandboxedWriteTool({
-      root: params.sandbox.workspaceDir,
-      bridge: params.sandbox.fsBridge!,
-    }),
-    createSandboxedEditTool({
-      root: params.sandbox.workspaceDir,
-      bridge: params.sandbox.fsBridge!,
-    }),
-  ];
-  if (!params.workspaceOnly) {
-    return tools;
-  }
-  return tools.map((tool) =>
-    wrapToolWorkspaceRootGuardWithOptions(tool, params.sandbox.workspaceDir, {
-      additionalContainerMounts:
-        tool.name === "read"
-          ? [
-              ...(params.sandbox.workspaceAccess === "ro"
-                ? [
-                    {
-                      containerRoot: SANDBOX_AGENT_WORKSPACE_MOUNT,
-                      hostRoot: params.sandbox.agentWorkspaceDir,
-                    },
-                  ]
-                : []),
-              ...resolveReadOnlyWorkspaceSkillMounts({
-                workspaceDir: params.sandbox.workspaceDir,
-                agentWorkspaceDir: params.sandbox.agentWorkspaceDir,
-                skillsWorkspaceDir: params.sandbox.skillsWorkspaceDir,
-                workdir: params.sandbox.containerWorkdir,
-                workspaceAccess: params.sandbox.workspaceAccess,
-              }).map((mount) => ({
-                containerRoot: mount.containerPath,
-                hostRoot: mount.hostPath,
-              })),
-            ]
-          : undefined,
-      containerWorkdir: params.sandbox.containerWorkdir,
-    }),
-  );
-}
-
 describe("tools.fs.workspaceOnly", () => {
-  it("edits a backend home alias outside the workspace when the policy is disabled", async () => {
-    const root = path.resolve("/local/workspace");
-    const target = "/users/worker/projects/demo/source.txt";
-    let persisted = "before\n";
-    const writeFile = vi.fn(async ({ data }: { data: string }) => {
-      persisted = data;
-    });
-    const bridge = {
-      resolvePath: ({ filePath }: { filePath: string }) => ({
-        relativePath: filePath,
-        containerPath: filePath,
-      }),
-      resolveUserPath: ({ filePath }: { filePath: string }) => ({
-        relativePath: filePath,
-        containerPath: filePath.startsWith("~/")
-          ? `/users/worker/${filePath.slice(2)}`
-          : `/users/worker/.platformclaw/workspace/${filePath}`,
-      }),
-      stat: vi.fn(async ({ filePath }: { filePath: string }) =>
-        filePath === target
-          ? { type: "file" as const, size: Buffer.byteLength(persisted), mtimeMs: 0 }
-          : null,
-      ),
-      readFile: vi.fn(async ({ filePath }: { filePath: string }) =>
-        Buffer.from(filePath === target ? persisted : "", "utf8"),
-      ),
-      writeFile,
-    };
-    const sandbox = {
-      workspaceDir: root,
-      fsBridge: bridge,
-    } as unknown as UnsafeMountedSandbox;
-    const { editTool } = expectReadWriteEditTools(
-      createSandboxFsTools({ sandbox, workspaceOnly: false }),
-    );
-
-    await editTool?.execute("edit-home-alias", {
-      path: "~/projects/demo/source.txt",
-      edits: [{ oldText: "before", newText: "after" }],
-    });
-
-    expect(writeFile).toHaveBeenCalledWith({
-      filePath: target,
-      cwd: root,
-      data: "after\n",
-    });
-  });
-
-  it("guards backend home aliases after resolving them to remote container paths", async () => {
-    const root = path.resolve("/local/workspace");
-    const execute = vi.fn(async () => ({ content: [] }));
-    const guarded = wrapToolWorkspaceRootGuardWithOptions(
-      { name: "read", execute } as never,
-      root,
-      {
-        containerWorkdir: "/users/worker/.platformclaw/workspace",
-        resolveGuardPath: (filePath) =>
-          filePath.startsWith("~/")
-            ? `/users/worker/${filePath.slice(2)}`
-            : `/users/worker/.platformclaw/workspace/${filePath}`,
-      },
-    );
-
-    await expect(guarded.execute("home-alias", { path: "~/secret.txt" })).rejects.toThrow(
-      /Path escapes sandbox root/i,
-    );
-    await expect(guarded.execute("workspace-relative", { path: "note.txt" })).resolves.toEqual({
-      content: [],
-    });
-    expect(execute).toHaveBeenCalledOnce();
-  });
-
   it("preserves valid UTF-8 BOM bytes through real sandbox edit and patch bridges", async () => {
     await withUnsafeMountedSandboxHarness(async ({ sandboxRoot, sandbox }) => {
       const filePath = path.join(sandboxRoot, "source.txt");

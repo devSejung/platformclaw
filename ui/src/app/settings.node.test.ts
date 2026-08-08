@@ -182,17 +182,7 @@ describe("loadSettings default gateway URL derivation", () => {
     );
   });
 
-  it("defaults the chat send shortcut to enter", () => {
-    setTestLocation({
-      protocol: "https:",
-      host: "gateway.example:8443",
-      pathname: "/",
-    });
-
-    expect(loadSettings().chatSendShortcut).toBe("enter");
-  });
-
-  it("defaults new browser profiles to the PlatformClaw light theme", () => {
+  it("defaults new browser profiles to the PlatformClaw theme and enter shortcut", () => {
     setTestLocation({
       protocol: "https:",
       host: "gateway.example:8443",
@@ -200,6 +190,7 @@ describe("loadSettings default gateway URL derivation", () => {
     });
 
     expect(loadSettings()).toMatchObject({
+      chatSendShortcut: "enter",
       theme: "platformclaw",
       themeMode: "light",
     });
