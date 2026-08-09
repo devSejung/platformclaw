@@ -448,12 +448,14 @@ describe("BrowserGatewayProxy cron", () => {
         id: "job-1",
         mode: "force",
         expectedConfigRevision: "revision-1",
+        expectedProcessInstanceId: "process-1",
       }),
     ).resolves.toMatchObject({ ok: true, ran: true });
     expect(request).toHaveBeenNthCalledWith(2, "cron.run", {
       id: "job-1",
       mode: "force",
       expectedConfigRevision: "revision-1",
+      expectedProcessInstanceId: "process-1",
     });
   });
 

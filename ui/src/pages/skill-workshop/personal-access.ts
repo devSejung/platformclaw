@@ -1,4 +1,8 @@
 import type { SkillStatusReport } from "../../api/types.ts";
+import { PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT } from "../../platformclaw/execution-target-events.ts";
+import { canCallWorkshopAdminMethod } from "./access.ts";
+import type { SkillWorkshopState } from "./proposals.ts";
+import { resolveSelfLearning } from "./self-learning.ts";
 import type { SkillWorkshopPageContext } from "./source-scope.ts";
 
 type LoadPersonalAccessOptions = {
@@ -13,6 +17,10 @@ export class SkillWorkshopPersonalAccess {
   loading = false;
   private attempted = false;
   private epoch = 0;
+
+  targetFor(context: SkillWorkshopPageContext) {
+    return context.accessMode === "personal-agent" ? this.target : undefined;
+  }
 
   reset() {
     this.epoch += 1;
@@ -56,4 +64,70 @@ export class SkillWorkshopPersonalAccess {
       }
     }
   }
+}
+
+export function loadSkillWorkshopProposals(params: {
+  access: SkillWorkshopPersonalAccess;
+  context: SkillWorkshopPageContext | null | undefined;
+  state: SkillWorkshopState | null | undefined;
+  force: boolean;
+  runProposals: (
+    args: [SkillWorkshopPageContext, SkillWorkshopState, string | null, boolean],
+  ) => Promise<unknown>;
+  onUpdate: () => void;
+}): void {
+  const { context, state } = params;
+  if (!state || !context || context.gateway.snapshot.phase !== "connected") {
+    return;
+  }
+  if (context.accessMode === "personal-agent") {
+    state.skillWorkshopError = params.access.prepareRetry(params.force, state.skillWorkshopError);
+    if (params.access.target === null) {
+      void params.access.load({
+        context,
+        loadServerProposals: () =>
+          params.runProposals([
+            context,
+            state,
+            context.agentSelection.state.selectedId,
+            params.force,
+          ]),
+        onError: (error) => {
+          state.skillWorkshopError =
+            error instanceof Error ? error.message : "Could not load the current work location.";
+        },
+        onUpdate: params.onUpdate,
+      });
+      return;
+    }
+  }
+  void params.runProposals([context, state, context.agentSelection.state.selectedId, params.force]);
+}
+
+export function subscribeToExecutionTargetChanges(
+  target: Window,
+  reset: () => void,
+  load: () => void,
+) {
+  const refresh = () => {
+    reset();
+    load();
+  };
+  target.addEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
+  return () => target.removeEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
+}
+
+export function resolvePersonalAwareSelfLearning(params: {
+  context: SkillWorkshopPageContext;
+  busy: boolean;
+  error: string | null;
+}) {
+  return params.context.accessMode === "personal-agent"
+    ? null
+    : resolveSelfLearning(
+        params.context.runtimeConfig,
+        params.busy,
+        params.error,
+        canCallWorkshopAdminMethod(params.context.gateway.snapshot, "config.patch"),
+      );
 }

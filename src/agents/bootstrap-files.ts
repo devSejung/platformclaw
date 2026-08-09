@@ -4,6 +4,7 @@
  */
 import path from "node:path";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import type { ChatType } from "../channels/chat-type.js";
 import { readRecentSessionTranscriptActiveEvents } from "../config/sessions/session-accessor.js";
 import type { AgentContextInjection } from "../config/types.agent-defaults.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -22,10 +23,12 @@ import type { AgentRunSessionTarget } from "./run-session-target.js";
 import {
   DEFAULT_BOOTSTRAP_FILENAME,
   DEFAULT_AGENTS_FILENAME,
+  DEFAULT_MEMORY_FILENAME,
   filterBootstrapFilesForSession,
   isWorkspaceSetupCompleted,
   loadWorkspaceBootstrapFiles,
   type WorkspaceBootstrapFile,
+  workspaceFilesShareSourceIdentity,
 } from "./workspace.js";
 
 export type BootstrapContextMode = "full" | "lightweight";
@@ -195,12 +198,32 @@ async function isWorkspaceSetupCompletedForContext(workspaceDir: string): Promis
   }
 }
 
+function filterBootstrapFilesAfterHooks(params: {
+  files: WorkspaceBootstrapFile[];
+  session: {
+    sessionKey?: string;
+    chatType?: ChatType;
+    workspaceDir: string;
+  };
+  protectedRootMemoryFile?: WorkspaceBootstrapFile;
+}): WorkspaceBootstrapFile[] {
+  const sessionFiltered = filterBootstrapFilesForSession(params.files, params.session);
+  const rootMemoryFile = params.protectedRootMemoryFile;
+  if (!rootMemoryFile) {
+    return sessionFiltered;
+  }
+  // Hooks can relabel or alias loader-produced records. Reapply lexical/session
+  // policy first, then enforce the root-memory source captured by the pinned open.
+  return sessionFiltered.filter((file) => !workspaceFilesShareSourceIdentity(file, rootMemoryFile));
+}
+
 /** Resolves hook-adjusted, session-filtered bootstrap files for a run. */
 export async function resolveBootstrapFilesForRun(params: {
   workspaceDir: string;
   config?: OpenClawConfig;
   sessionKey?: string;
   sessionId?: string;
+  chatType?: ChatType;
   agentId?: string;
   warn?: (message: string) => void;
   contextMode?: BootstrapContextMode;
@@ -209,6 +232,11 @@ export async function resolveBootstrapFilesForRun(params: {
   projectAgentsFile?: WorkspaceBootstrapFile;
 }): Promise<WorkspaceBootstrapFile[]> {
   const sessionKey = params.sessionKey ?? params.sessionId;
+  const session = {
+    sessionKey,
+    chatType: params.chatType,
+    workspaceDir: params.workspaceDir,
+  };
   const workspaceSetupCompleted = await isWorkspaceSetupCompletedForContext(params.workspaceDir);
   const rawFiles = params.sessionKey
     ? await getOrLoadBootstrapFiles({
@@ -221,9 +249,16 @@ export async function resolveBootstrapFilesForRun(params: {
         file.name === DEFAULT_AGENTS_FILENAME ? params.projectAgentsFile! : file,
       )
     : rawFiles;
+  const rootMemoryFile = ownerAdjustedFiles.find(
+    (file) => file.name === DEFAULT_MEMORY_FILENAME && !file.missing,
+  );
+  const protectedRootMemoryFile =
+    rootMemoryFile && filterBootstrapFilesForSession([rootMemoryFile], session).length === 0
+      ? rootMemoryFile
+      : undefined;
   const bootstrapFiles = applyContextModeFilter({
     files: filterCompletedWorkspaceBootstrapFile(
-      filterBootstrapFilesForSession(ownerAdjustedFiles, sessionKey),
+      filterBootstrapFilesForSession(ownerAdjustedFiles, session),
       workspaceSetupCompleted,
       params.workspaceDir,
     ),
@@ -240,7 +275,11 @@ export async function resolveBootstrapFilesForRun(params: {
     agentId: params.agentId,
   });
   const filteredUpdated = filterCompletedWorkspaceBootstrapFile(
-    updated,
+    filterBootstrapFilesAfterHooks({
+      files: updated,
+      session,
+      protectedRootMemoryFile,
+    }),
     workspaceSetupCompleted,
     params.workspaceDir,
   );
@@ -253,6 +292,7 @@ export async function resolveBootstrapContextForRun(params: {
   config?: OpenClawConfig;
   sessionKey?: string;
   sessionId?: string;
+  chatType?: ChatType;
   agentId?: string;
   warn?: (message: string) => void;
   contextMode?: BootstrapContextMode;

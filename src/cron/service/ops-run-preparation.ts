@@ -15,14 +15,14 @@ import {
 import { locked } from "./locked.js";
 import { markManualCronJobActive, ownsStreamSource } from "./ops-shared.js";
 import {
+  activateQueuedCronRun,
   clearQueuedCronRunReservationMarker,
   isQueuedCronRunReservationCurrent,
   isQueuedCronRunReservationMarkerCurrent,
   releaseQueuedCronRun,
   reserveQueuedCronRun,
-  updateQueuedCronRunReservationMarker,
 } from "./run-admission.js";
-import type { CronEvent, CronServiceState } from "./state.js";
+import type { CronEvent, CronServiceState, DeferredCronNotifications } from "./state.js";
 import { emit } from "./state.js";
 import {
   ensureLoaded,
@@ -152,6 +152,7 @@ async function skipInvalidPersistedManualRun(params: {
   error: unknown;
 }) {
   const rollbackSnapshot = snapshotStoreForRollback(params.state);
+  const postPersistNotifications: DeferredCronNotifications = [];
   const endedAt = params.state.deps.nowMs();
   const errorText = normalizeCronRunErrorText(params.error);
   const diagnostics = createCronRunDiagnosticsFromError("cron-preflight", errorText, {
@@ -168,7 +169,10 @@ async function skipInvalidPersistedManualRun(params: {
       startedAt: endedAt,
       endedAt,
     },
-    { scheduleMode: params.mode === "force" ? "preserve" : "advance" },
+    {
+      scheduleMode: params.mode === "force" ? "preserve" : "advance",
+      deferredNotifications: postPersistNotifications,
+    },
   );
 
   emitCronRunFinished(
@@ -193,14 +197,24 @@ async function skipInvalidPersistedManualRun(params: {
 
   recomputeNextRunsForMaintenance(params.state, {
     recomputeExpired: true,
+    deferredNotifications: postPersistNotifications,
     ...(params.mode === "force"
       ? {
           preserveExpiredPacedNextRunJobId: params.job.id,
         }
       : {}),
   });
-  await persistOrRestore(params.state, rollbackSnapshot);
+  await persistOrRestore(params.state, rollbackSnapshot, { postPersistNotifications });
   armTimer(params.state);
+}
+
+function recomputeManualRunPreflight(state: CronServiceState, id: string, mode?: "due" | "force") {
+  // Preflight is advisory and may be called by read-shaped queue checks. Do not
+  // let a schedule error turn that check into an auto-disable transition.
+  return recomputeNextRunsForMaintenance(state, {
+    ...(mode === "force" ? { preserveExpiredPacedNextRunJobId: id } : {}),
+    skipScheduleErrorHandling: true,
+  });
 }
 
 async function inspectManualRunPreflight(
@@ -224,10 +238,7 @@ async function inspectManualRunPreflight(
     // Normalize job tick state (clears stale runningAtMs markers) before
     // checking if already running, so a stale marker from a crashed Phase-1
     // persist does not block manual triggers for up to STUCK_RUN_MS (#17554).
-    recomputeNextRunsForMaintenance(
-      state,
-      mode === "force" ? { preserveExpiredPacedNextRunJobId: id } : undefined,
-    );
+    recomputeManualRunPreflight(state, id, mode);
     const job = findJobOrThrow(state, id);
     await opts?.precondition?.(structuredClone(job), state.deps.nowMs());
     if (!admitsStreamSourceRun(job, opts?.streamScheduleKey, opts?.streamSourceIdentity)) {
@@ -305,10 +316,7 @@ export async function prepareManualRun(
     // The initial preflight is advisory. A command-lane wait or another cron
     // run can change this job before its reservation is persisted.
     await ensureLoaded(state, { skipRecompute: true });
-    recomputeNextRunsForMaintenance(
-      state,
-      mode === "force" ? { preserveExpiredPacedNextRunJobId: id } : undefined,
-    );
+    recomputeManualRunPreflight(state, id, mode);
     const job = findJobOrThrow(state, id);
     await opts?.precondition?.(structuredClone(job), state.deps.nowMs());
     if (!admitsStreamSourceRun(job, opts?.streamScheduleKey, opts?.streamSourceIdentity)) {
@@ -463,39 +471,18 @@ export async function activatePreparedManualRun(
       return { ok: true, ran: false, reason: "invalid-spec" } as const;
     }
 
-    const startedAt = state.deps.nowMs();
-    const previousLastError = job.state.lastError;
-    const activationRollbackSnapshot = snapshotStoreForRollback(state);
-    delete job.state.queuedAtMs;
-    job.state.runningAtMs = startedAt;
-    job.state.lastError = undefined;
-    // A failed write restores the durable reservation; run() owns releasing
-    // that queued claim for every activation failure before it propagates.
-    await persistOrRestore(state, activationRollbackSnapshot);
-    updateQueuedCronRunReservationMarker(
+    const activation = await activateQueuedCronRun({
       state,
-      prepared.jobId,
-      prepared.reservationIdentity,
-      startedAt,
-      previousLastError,
-    );
-    if (state.stopped || state.restartRecoveryPending) {
-      job.state.lastError = previousLastError;
-      const rollbackSnapshot = snapshotStoreForRollback(state);
-      delete job.state.runningAtMs;
-      try {
-        await persistOrRestore(state, rollbackSnapshot);
-      } catch (error) {
+      job,
+      reservationIdentity: prepared.reservationIdentity,
+      onUnavailableRollbackError: async () => {
         await releasePreparedManualReservationWithRetry(state, prepared);
-        throw error;
-      }
-      releaseQueuedCronRun(state, prepared.jobId, prepared.reservationIdentity);
-      return {
-        ok: true,
-        ran: false,
-        reason: state.stopped ? "stopped" : "restart-recovery-pending",
-      } as const;
+      },
+    });
+    if (activation.kind === "unavailable") {
+      return { ok: true, ran: false, reason: activation.reason } as const;
     }
+    const { startedAt } = activation;
     emit(state, { jobId: job.id, action: "started", job, runAtMs: startedAt });
     const taskRunId = tryCreateCronTaskRun({
       state,

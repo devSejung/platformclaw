@@ -1,6 +1,6 @@
 import type { QueueMode } from "../../../../src/auto-reply/reply/queue/types.js";
 import { t } from "../../i18n/index.ts";
-import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
+import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { generateUUID } from "../../lib/uuid.ts";
 import { loadChatBranches, loadChatHistory, type ChatState } from "./chat-history.ts";
 import {
@@ -16,6 +16,7 @@ import {
 } from "./chat-queue.ts";
 import type { ChatSendAck } from "./chat-send-ack.ts";
 import type { ChatHost } from "./chat-send-contract.ts";
+import { chatOutboxDrainDependencies, deliverChatQueueItem } from "./chat-send-delivery.ts";
 import {
   canSendVolatileQueueItem,
   reconnectSafeQueuedSendState,
@@ -26,7 +27,6 @@ import {
   requestChatSend,
   resolveDisplayedLeafEntryId,
 } from "./chat-send-request.ts";
-import { chatOutboxDrainDependencies, sendQueuedChatMessage } from "./chat-send.ts";
 import { listStoredChatOutboxes, storedChatOutboxScopeKey } from "./composer-persistence.ts";
 import { formatConnectError } from "./connect-error.ts";
 import {
@@ -77,9 +77,7 @@ async function attemptChatMessageWithGeneratedRunId(
     setChatError(state, null);
   }
   const runId = options.runId ?? generateUUID();
-  // Only an authoritative history/cache commit can advance this token. Optimistic
-  // sends do not know their persisted leaf id; direct sends must fail closed while
-  // restored outbox drains intentionally omit the precondition.
+  // Direct sends fail closed on the authoritative leaf; restored drains omit it.
   const expectedLeafEntryId = resolveDisplayedLeafEntryId(state);
   try {
     const ack = await requestChatSend(state, {
@@ -104,12 +102,26 @@ async function attemptChatMessageWithGeneratedRunId(
   }
 }
 
+function findStoredOutbox(host: ChatHost, id: string) {
+  return listStoredChatOutboxes(host).find(({ queue }) => queue.some((item) => item.id === id));
+}
+
+const resetRetryState = (
+  entry: ChatQueueItem,
+  sendState: ChatQueueItem["sendState"],
+): ChatQueueItem => ({
+  ...entry,
+  sendAttempts: 0,
+  sendError: undefined,
+  sendRequestStartedAtMs: undefined,
+  sendRunId: entry.sendState === "failed" ? generateUUID() : entry.sendRunId,
+  sendState,
+});
+
 export const steerSendDependencies: SteerSendDependencies = {
   loadChatHistory: (host) => void loadChatHistory(host as unknown as ChatState),
   resumeRestoredOutbox: (host, itemId) => {
-    const restoredOutbox = listStoredChatOutboxes(host).find((outbox) =>
-      outbox.queue.some((item) => item.id === itemId),
-    );
+    const restoredOutbox = findStoredOutbox(host as ChatHost, itemId);
     if (!host.chatRunId && restoredOutbox) {
       void scheduleStoredChatOutboxDrain(
         host as ChatHost,
@@ -127,9 +139,8 @@ export const steerSendDependencies: SteerSendDependencies = {
     ),
 };
 
-export function steerQueuedChatMessage(host: ChatHost, id: string) {
-  return steerQueuedChatMessageLifecycle(host, id, steerSendDependencies);
-}
+export const steerQueuedChatMessage = (host: ChatHost, id: string) =>
+  steerQueuedChatMessageLifecycle(host, id, steerSendDependencies);
 
 export async function resumeStoredChatOutboxes(host: ChatHost) {
   const unconfirmedSteer = host.chatQueue.find(
@@ -141,13 +152,10 @@ export async function resumeStoredChatOutboxes(host: ChatHost) {
   await resumeStoredChatOutboxesDrain(host, chatOutboxDrainDependencies);
 }
 
-export async function flushChatQueueForEvent(host: ChatHost) {
-  await flushStoredChatOutbox(host, chatOutboxDrainDependencies);
-}
+export const flushChatQueueForEvent = (host: ChatHost) =>
+  flushStoredChatOutbox(host, chatOutboxDrainDependencies);
 
-export async function retryReconnectableQueuedChatSends(host: ChatHost) {
-  await resumeStoredChatOutboxes(host);
-}
+export const retryReconnectableQueuedChatSends = resumeStoredChatOutboxes;
 
 export async function retryQueuedChatMessage(host: ChatHost, id: string) {
   const item = host.chatQueue.find((entry) => entry.id === id);
@@ -161,9 +169,7 @@ export async function retryQueuedChatMessage(host: ChatHost, id: string) {
   ) {
     return;
   }
-  let outbox = listStoredChatOutboxes(host).find((candidate) =>
-    candidate.queue.some((entry) => entry.id === item.id),
-  );
+  let outbox = findStoredOutbox(host, item.id);
   if (!outbox) {
     const wasVolatile = isVolatileQueuedMessage(host, item.id);
     if (!admitQueuedMessageForSession(host, item.sessionKey ?? host.sessionKey, item)) {
@@ -174,53 +180,31 @@ export async function retryQueuedChatMessage(host: ChatHost, id: string) {
         (item.sendState === "failed" || item.sendState === "unconfirmed") &&
         canSendVolatileQueueItem(host, item)
       ) {
-        const retry = updateVolatileQueuedMessage(host, id, (entry) => ({
-          ...entry,
-          sendAttempts: 0,
-          sendError: undefined,
-          sendRunId: entry.sendState === "failed" ? generateUUID() : entry.sendRunId,
-          sendState: undefined,
-        }));
+        const retry = updateVolatileQueuedMessage(host, id, (entry) =>
+          resetRetryState(entry, undefined),
+        );
         if (!retry) {
           setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
           return;
         }
-        await sendQueuedChatMessage(
-          host,
-          retry.id,
-          {
-            routingSessionKey: retry.sessionKey ?? host.sessionKey,
-            storageMode: "memory",
-          },
-          retry.sessionKey ?? host.sessionKey,
-        );
+        await deliverChatQueueItem(host, retry, {
+          routingSessionKey: retry.sessionKey ?? host.sessionKey,
+          storageMode: "memory",
+        });
         return;
       }
       setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
       return;
     }
-    outbox = listStoredChatOutboxes(host).find((candidate) =>
-      candidate.queue.some((entry) => entry.id === item.id),
-    );
   }
-  if (!outbox) {
-    setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
-    return;
-  }
-  const retry = updateQueuedMessage(host, id, (entry) => ({
-    ...entry,
-    sendAttempts: 0,
-    sendError: undefined,
-    sendRunId: entry.sendState === "failed" ? generateUUID() : entry.sendRunId,
-    sendState: reconnectSafeQueuedSendState(host),
-  }));
+  const retry = updateQueuedMessage(host, id, (entry) =>
+    resetRetryState(entry, reconnectSafeQueuedSendState(host)),
+  );
   if (!retry) {
     setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
     return;
   }
-  outbox = listStoredChatOutboxes(host).find((candidate) =>
-    candidate.queue.some((entry) => entry.id === retry.id),
-  );
+  outbox = findStoredOutbox(host, retry.id);
   if (!outbox) {
     setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
     return;

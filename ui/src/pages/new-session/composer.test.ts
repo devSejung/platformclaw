@@ -16,8 +16,10 @@ function renderComposer(
   overrides: {
     canSubmit?: boolean;
     requiresModifier?: boolean;
+    submitDisabledReason?: string;
     submitting?: boolean;
     messageLocked?: boolean;
+    incognitoDisabledReason?: string;
     visibility?: NewSessionVisibility;
     draftAvailable?: boolean;
     incognitoAvailable?: boolean;
@@ -49,9 +51,11 @@ function renderComposer(
       incognitoAvailable: overrides.incognitoAvailable,
       modelControl: new NewSessionModelControl(() => undefined),
       requiresModifier: overrides.requiresModifier ?? false,
+      submitDisabledReason: overrides.submitDisabledReason,
       submitting: overrides.submitting ?? false,
       textareaController,
       messageLocked: overrides.messageLocked,
+      incognitoDisabledReason: overrides.incognitoDisabledReason,
       onInput: overrides.onInput ?? (() => undefined),
       onVisibilityChange: overrides.onVisibilityChange,
       onSubmit: overrides.onSubmit ?? (() => undefined),
@@ -248,6 +252,22 @@ describe("new-session composer sizing lifecycle", () => {
 });
 
 describe("new-session composer attachment drops", () => {
+  it("surfaces authorization reasons on disabled session controls", () => {
+    const { composer } = renderComposer({
+      canSubmit: false,
+      incognitoDisabledReason: "This action requires operator.admin access.",
+      submitDisabledReason: "This action requires operator.write access.",
+    });
+    const submitTooltip = composer.querySelector<HTMLElement>("openclaw-tooltip");
+    const incognito = composer.querySelector<HTMLButtonElement>('[role="switch"]');
+
+    expect((submitTooltip as HTMLElement & { content?: string })?.content).toBe(
+      "This action requires operator.write access.",
+    );
+    expect(incognito?.disabled).toBe(true);
+    expect(incognito?.title).toBe("This action requires operator.admin access.");
+  });
+
   it("renders only the incognito pill when drafts are unavailable, off by default", () => {
     const onVisibilityChange = vi.fn();
     const { composer } = renderComposer({ onVisibilityChange });

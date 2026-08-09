@@ -24,7 +24,7 @@ import {
   resolveCurrentDefaultAgentId,
   resolveEffectiveJobAgentId,
 } from "./ops-shared.js";
-import type { CronServiceState } from "./state.js";
+import type { CronServiceState, DeferredCronNotifications } from "./state.js";
 import { emit } from "./state.js";
 import { ensureLoaded, persistOrRestore, snapshotStoreForRollback } from "./store.js";
 import { applyJobResult, armTimer } from "./timer.js";
@@ -111,6 +111,7 @@ export async function recordExternalFailure(
       return;
     }
     const snapshot = snapshotStoreForRollback(state);
+    const postPersistNotifications: DeferredCronNotifications = [];
     const now = state.deps.nowMs();
     const sourceIdentity = job.state.streamSourceIdentity;
     Object.assign(job.state, statePatch);
@@ -118,13 +119,18 @@ export async function recordExternalFailure(
     // Source restarts are counted separately, but terminal exhaustion should
     // enter the same alert/history path as a fifth consecutive payload error.
     job.state.consecutiveErrors = Math.max(job.state.consecutiveErrors ?? 0, 4);
-    applyJobResult(state, job, {
-      status: "error",
-      error,
-      executionStarted: false,
-      startedAt: now,
-      endedAt: now,
-    });
+    applyJobResult(
+      state,
+      job,
+      {
+        status: "error",
+        error,
+        executionStarted: false,
+        startedAt: now,
+        endedAt: now,
+      },
+      { deferredNotifications: postPersistNotifications },
+    );
     // Stream schedules are event-driven; applyJobResult's generic recurring
     // backoff must never turn source failure into a time-due payload run.
     job.state.nextRunAtMs = undefined;
@@ -138,7 +144,7 @@ export async function recordExternalFailure(
       durationMs: 0,
       failureNotificationDelivery: failureNotificationDeliveryFromJobState(job),
     });
-    await persistOrRestore(state, snapshot);
+    await persistOrRestore(state, snapshot, { postPersistNotifications });
     armTimer(state);
   });
 }

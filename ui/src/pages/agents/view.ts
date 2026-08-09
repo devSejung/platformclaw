@@ -94,6 +94,14 @@ type ToolsEffectiveState = {
 };
 
 type AgentsProps = {
+  access: {
+    canCreateAgent: boolean;
+    canPatchConfig: boolean;
+    canUpdateConfig: boolean;
+    canUpdateIdentity: boolean;
+    canWriteFiles: boolean;
+    canRunCron: boolean;
+  };
   basePath: string;
   authToken: string | null;
   loading: boolean;
@@ -201,7 +209,9 @@ export function renderAgents(props: AgentsProps) {
               .authToken=${props.authToken}
               .disabled=${props.loading}
               .onSelect=${props.onSelectAgent}
-              .onCreateAgent=${props.personalAccess ? null : props.onCreateAgent}
+              .onCreateAgent=${!props.personalAccess && props.access.canCreateAgent
+                ? props.onCreateAgent
+                : null}
             ></openclaw-agent-select>
           </div>
           <div class="agents-toolbar-actions">
@@ -220,7 +230,8 @@ export function renderAgents(props: AgentsProps) {
                         <button
                           type="button"
                           class="btn btn--sm btn--ghost"
-                          ?disabled=${Boolean(defaultId && selectedAgent.id === defaultId)}
+                          ?disabled=${!props.access.canUpdateConfig ||
+                          Boolean(defaultId && selectedAgent.id === defaultId)}
                           @click=${() => props.onSetDefault(selectedAgent.id)}
                         >
                           ${defaultId && selectedAgent.id === defaultId
@@ -295,6 +306,8 @@ export function renderAgents(props: AgentsProps) {
                         identityDraft: props.identityDraft,
                         identitySaving: props.identitySaving,
                         identityError: props.identityError,
+                        canUpdateConfig: props.access.canUpdateConfig,
+                        canUpdateIdentity: props.access.canUpdateIdentity,
                         configLoading: props.config.loading,
                         configSaving: props.config.saving,
                         configDirty: props.config.dirty,
@@ -322,6 +335,7 @@ export function renderAgents(props: AgentsProps) {
                       agentFileContents: props.agentFiles.contents,
                       agentFileDrafts: props.agentFiles.drafts,
                       agentFileSaving: props.agentFiles.saving,
+                      canWrite: props.access.canWriteFiles,
                       onLoadFiles: props.onLoadFiles,
                       onSelectFile: props.onSelectFile,
                       onFileDraftChange: props.onFileDraftChange,
@@ -344,6 +358,7 @@ export function renderAgents(props: AgentsProps) {
                       toolsEffectiveResult: props.toolsEffective.result,
                       runtimeSessionKey: props.runtimeSessionKey,
                       runtimeSessionMatchesSelectedAgent: props.runtimeSessionMatchesSelectedAgent,
+                      canUpdateConfig: props.access.canUpdateConfig,
                       onProfileChange: props.onToolsProfileChange,
                       onOverridesChange: props.onToolsOverridesChange,
                       onConfigReload: props.onConfigReload,
@@ -362,6 +377,8 @@ export function renderAgents(props: AgentsProps) {
                       configSaving: props.config.saving,
                       configDirty: props.config.dirty,
                       filter: props.agentSkills.filter,
+                      canPatchConfig: props.access.canPatchConfig,
+                      canUpdateConfig: props.access.canUpdateConfig,
                       onFilterChange: props.onSkillsFilterChange,
                       onRefresh: props.onSkillsRefresh,
                       onToggle: props.onAgentSkillToggle,
@@ -409,6 +426,7 @@ export function renderAgents(props: AgentsProps) {
                       scopedNextWakeAtMs: props.cron.scopedNextWakeAtMs,
                       loading: props.cron.loading,
                       error: props.cron.error,
+                      canRunNow: props.access.canRunCron,
                       onRefresh: props.onCronRefresh,
                       onLoadMore: props.onCronLoadMore,
                       onRunNow: props.onCronRunNow,

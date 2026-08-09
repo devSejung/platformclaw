@@ -200,6 +200,7 @@ describe("CronPage editor state sync", () => {
     const job: CronJob = {
       id: "access-job",
       name: "Readably scheduled task",
+      description: "Inspect this task without changing its permissions",
       enabled: true,
       createdAtMs: 0,
       updatedAtMs: 0,
@@ -207,6 +208,7 @@ describe("CronPage editor state sync", () => {
       sessionTarget: "isolated",
       wakeMode: "now",
       payload: { kind: "agentTurn", message: "digest", model: "openai/gpt-5.2" },
+      state: {},
     };
     const request = vi.fn(async (method: string) => {
       if (method === "cron.list") {
@@ -235,6 +237,9 @@ describe("CronPage editor state sync", () => {
     await waitForCronPage(() =>
       expect(page.querySelector('[data-test-id="cron-row-access-job"]')).not.toBeNull(),
     );
+    expect(
+      page.querySelector('[data-test-id="cron-row-description-access-job"]')?.textContent,
+    ).toContain(job.description);
     expect(Boolean(page.querySelector('[data-test-id="cron-new-task"]'))).toBe(canManage);
     expect(Boolean(page.querySelector('[data-test-id="cron-row-run-access-job"]'))).toBe(canManage);
     expect(Boolean(page.querySelector('[data-test-id="cron-row-toggle-access-job"]'))).toBe(
@@ -257,6 +262,9 @@ describe("CronPage editor state sync", () => {
         expect(page.querySelector('[data-test-id="cron-detail-tab-history"]')).not.toBeNull(),
       );
     }
+    expect(page.querySelector('[data-test-id="cron-detail-description"]')?.textContent).toContain(
+      job.description,
+    );
     expect(Boolean(page.querySelector('[data-test-id="cron-run-now"]'))).toBe(canManage);
     expect(Boolean(page.querySelector('[data-test-id="cron-toggle-enabled"]'))).toBe(canManage);
 

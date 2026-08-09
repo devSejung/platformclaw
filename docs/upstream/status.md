@@ -5,18 +5,8 @@
 - Upstream repository: `https://github.com/openclaw/openclaw.git`
 - Origin repository: `https://github.com/devSejung/platformclaw`
 - Baseline commit: `17c2ce05d8021b969f9e822a34e92535145922d5`
-- Last upstream sync: 2026-08-01 on `sync/upstream-20260801` through upstream commit `02457657f012d33e141c710d92671d1bc4a519e9`
+- Last upstream sync: 2026-08-09 on `sync/upstream-20260809` through upstream commit `c37ba84f662aca1b2d384846ee59654e88ddfc50`
 - Initial sync state: local `main`, `origin/main`, and `upstream/main` identical
-
-### Bounded post-sync backports
-
-- Control UI deferred tool projection repaint: the focused `requestUpdate`
-  hunk and regression test from OpenClaw PR #117191, commit
-  `ad409a8285153076570126e01bb5423276df30b1`, landed after the current sync
-  cutoff and are carried temporarily downstream. No other session, archive,
-  focus, pagination, tool identity, or fallback changes from that upstream PR
-  are included. Remove this backport marker when a later upstream sync contains
-  that commit.
 
 ### PlatformClaw downstream policy repairs
 
@@ -42,15 +32,13 @@
   upstream Control UI companion RPC trio, permits only owned-session companion
   fork, and rewind calls, and accepts the current narrowing fields used by
   session lists and board-face persistence.
-- Current upstream `main` already gates session mutation actions through
-  `a45feb39151` and `af2f9c4cdc5` plus their later access-control refactors.
-  This branch carries only the equivalent rewind gate because importing that
-  post-sync chain would exceed the repair boundary. At the audited post-sync
-  comparison commit `d85920c03e250da8fc5a33d3fab3f5c9b5925fca`, the session
-  workspace gate is still absent. PlatformClaw advertises only owned-session
-  `sessions.files.list` and `sessions.files.get`; it strips the Gateway
-  workspace root and keeps `sessions.files.set`, `sessions.files.reveal`, and
-  `sessions.diff` blocked.
+- The synced upstream session access chain gates mutation and workspace actions
+  through ownership, membership, visibility, and draft policy. PlatformClaw
+  still advertises only the narrower browser-owned session surface, strips the
+  Gateway workspace root, and keeps browser file mutation, reveal, and diff
+  methods blocked. The private service may hold broader Gateway authority, but
+  browser Hello projection and the Browser Gateway allowlist remain the
+  effective user boundary.
 - Owned-session transcript artifact access advertises only `artifacts.list`
   and `artifacts.download`. The browser cannot select `runId` or `taskId`, and
   returned artifact identity is revalidated before data or a managed URL
@@ -117,6 +105,26 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
   request registry seams.
 - Regenerated bundled channel metadata from the upstream result plus the
   private Knox channel surface.
+
+## 2026-08-09 Sync Contract Audit
+
+- Froze the integration at
+  `c37ba84f662aca1b2d384846ee59654e88ddfc50`, the exact merge base of upstream
+  `main` and `release/2026.8.1`. Release-only and later-main commits are outside
+  this sync; the merge preserves the recorded upstream ancestry.
+- Adopted the upstream session ownership, membership, visibility, and draft
+  enforcement chain while retaining PlatformClaw employee identity, personal
+  Agent isolation, restricted browser scopes, parameter allowlists, and
+  response projection.
+- Adopted the upstream Agent coding-tool owner split, bootstrap privacy rules,
+  canonical remote-path pinning, and request-scoped plugin registry while
+  retaining split Agent/project workspaces, assigned-VM home resolution,
+  canonical memory maintenance, requester identity, and backend-owned MCP
+  resolution.
+- Adopted the upstream Control UI page-controller, session-access, task, cron,
+  and Skill Workshop lifecycle changes. PlatformClaw UI restrictions remain a
+  minimal overlay for personal Agent access, owned-session scope, configured
+  execution targets, and Workshop target mismatch handling.
 
 ## Completed
 

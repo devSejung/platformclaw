@@ -24,6 +24,13 @@ export function ensureSkillWorkshopAgentIdentity(
   void context.agentIdentity.ensure([agentId]);
 }
 
+export function resolveWorkshopAgentName(
+  context: SkillWorkshopPageContext,
+  state: SkillWorkshopState,
+): string {
+  return context.agentIdentity.get(state.skillWorkshopAgentId)?.name?.trim() ?? "";
+}
+
 export function captureSkillWorkshopSourceScope(params: {
   state: SkillWorkshopState | null | undefined;
   context: SkillWorkshopPageContext | null | undefined;

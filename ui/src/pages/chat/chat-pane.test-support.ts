@@ -36,6 +36,7 @@ export type TestChatPane = HTMLElement & {
   connectedCallback: () => void;
   connectionGeneration: number;
   createSession: () => Promise<boolean>;
+  restoreArchivedSession: (sessionKey: string) => Promise<void>;
   disconnectedCallback: () => void;
   acceptTaskSuggestion: (suggestion: TaskSuggestion) => Promise<void>;
   handleDocumentKeydown: (event: KeyboardEvent) => void;
@@ -118,8 +119,11 @@ export type TestChatPane = HTMLElement & {
 export function createSessionContext(
   client: GatewayBrowserClient,
   sessions: SessionCapability,
+  methods = ["taskSuggestions.list", "session.suggestions.list", "sessions.patch"],
 ): ApplicationContext {
   const eventListeners = new Set<GatewayEventListener>();
+  const agentSelectionListeners = new Set<(state: { selectedId: string | null }) => void>();
+  const agentSelectionState = { selectedId: "main" as string | null };
   const snapshotListeners = new Set<
     (snapshot: ApplicationContext["gateway"]["snapshot"]) => void
   >();
@@ -129,9 +133,7 @@ export function createSessionContext(
         client,
         phase: "connected" as const,
         hello: {
-          features: {
-            methods: ["taskSuggestions.list", "session.suggestions.list"],
-          },
+          features: { methods },
         },
       },
       connection: { gatewayUrl: "ws://example.test", token: "", bootstrapToken: "", password: "" },
@@ -156,6 +158,19 @@ export function createSessionContext(
       },
     },
     agents: { state: { agentsList: null } },
+    agentSelection: {
+      state: agentSelectionState,
+      set: (agentId: string | null) => {
+        agentSelectionState.selectedId = agentId;
+        for (const listener of agentSelectionListeners) {
+          listener(agentSelectionState);
+        }
+      },
+      subscribe: (listener: (state: { selectedId: string | null }) => void) => {
+        agentSelectionListeners.add(listener);
+        return () => agentSelectionListeners.delete(listener);
+      },
+    },
     config: {
       current: {
         assistantIdentity: { name: "Molty" },
@@ -170,6 +185,7 @@ export function createSessionContext(
 export function createTestChatPane(params: {
   client: GatewayBrowserClient;
   sessions: SessionCapability;
+  methods?: string[];
 }) {
   const pane = document.createElement("openclaw-chat-pane") as unknown as TestChatPane;
   Object.defineProperty(pane, "isConnected", {
@@ -218,7 +234,7 @@ export function createTestChatPane(params: {
     state.sidebarFocusPanelId = panelId;
     state.sidebarFocusVersion += 1;
   };
-  pane.context = createSessionContext(params.client, params.sessions);
+  pane.context = createSessionContext(params.client, params.sessions, params.methods);
   pane.state = state;
   pane.connectedClient = params.client;
   pane.connectionGeneration = 4;

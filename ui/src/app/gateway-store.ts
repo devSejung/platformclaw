@@ -1,3 +1,4 @@
+import type { ControlUiBootstrapProfileHint } from "../../../src/gateway/control-ui-contract.js";
 // Control UI module owns the application gateway store: the reactive
 // snapshot around GatewayBrowserClient consumed by the app shell.
 import type { EventLogEntry } from "../api/event-log.ts";
@@ -70,6 +71,8 @@ export function createApplicationGateway(
     persistDefaultConnectionSettings?: boolean;
     browserDeviceAuth?: boolean;
     onClose?: (info: { code: number; reason: string; willRetry: boolean }) => void;
+    basePath?: string;
+    bootstrapProfile?: ControlUiBootstrapProfileHint;
   } = {},
 ): ApplicationGateway {
   let settings = initialSettings;
@@ -78,6 +81,7 @@ export function createApplicationGateway(
     gatewayUrl: settings.gatewayUrl,
     token: settings.token,
     bootstrapToken: initialBootstrapToken,
+    ...(options.bootstrapProfile ? { bootstrapProfile: options.bootstrapProfile } : {}),
     password: initialPassword,
   };
   let snapshot: ApplicationGatewaySnapshot = {
@@ -267,7 +271,14 @@ export function createApplicationGateway(
   const connect = (overrides: ApplicationGatewayConnectOptions = {}) => {
     stopped = false;
     const { sessionKey: requestedSessionKey, ...connectionOverrides } = overrides;
-    const nextConnection = { ...connection, ...connectionOverrides };
+    const nextConnection = {
+      ...connection,
+      ...connectionOverrides,
+      ...(connectionOverrides.bootstrapToken !== undefined &&
+      connectionOverrides.bootstrapProfile === undefined
+        ? { bootstrapProfile: undefined }
+        : {}),
+    };
     const hasRequestedSessionKey = requestedSessionKey !== undefined;
     const nextSessionKey = hasRequestedSessionKey
       ? requestedSessionKey.trim()
@@ -292,6 +303,7 @@ export function createApplicationGateway(
         settings: { token: nextConnection.token },
         password: nextConnection.password,
       }),
+      options.basePath,
     );
     updateSettings(
       {
@@ -315,6 +327,7 @@ export function createApplicationGateway(
       bootstrapToken: nextConnection.bootstrapToken.trim()
         ? nextConnection.bootstrapToken
         : undefined,
+      bootstrapProfile: nextConnection.bootstrapProfile,
       password: nextConnection.password.trim() ? nextConnection.password : undefined,
       clientName: "openclaw-control-ui",
       clientVersion: CONTROL_UI_BUILD_INFO.version ?? "dev",
@@ -332,8 +345,9 @@ export function createApplicationGateway(
             settings: { token: nextConnection.token },
             password: nextConnection.password,
           }),
+          options.basePath,
         );
-        connection = { ...connection, bootstrapToken: "" };
+        connection = { ...connection, bootstrapToken: "", bootstrapProfile: undefined };
         if (persistConnectionSettings) {
           settings = loadSettings();
         }
