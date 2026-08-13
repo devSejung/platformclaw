@@ -399,7 +399,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     }
     const finalStep = this.tourIndex === steps.length - 1;
     return html`<div class="tour-layer">
-      <div class="tour-backdrop" @click=${this.closeTour}></div>
+      <div class="tour-backdrop" @click=${() => this.closeTour()}></div>
       <div class="tour-highlight" style=${this.tourHighlightStyle}></div>
       <section
         class="tour-popover"
@@ -412,7 +412,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
           class="tour-close"
           type="button"
           aria-label=${t("platformClaw.voc.close")}
-          @click=${this.closeTour}
+          @click=${() => this.closeTour()}
         >
           ×
         </button>

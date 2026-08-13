@@ -82,7 +82,9 @@ describe("platformclaw-quick-actions", () => {
 
     first.remove();
     const completed = await mount();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => {
+      requestAnimationFrame(resolve);
+    });
     expect(completed.shadowRoot?.querySelector(".tour-popover")).toBeNull();
 
     completed.shadowRoot?.querySelector<HTMLButtonElement>('[data-tour="guide"]')?.click();

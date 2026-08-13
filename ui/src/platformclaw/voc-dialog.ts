@@ -200,7 +200,7 @@ export class PlatformClawVocDialogElement extends OpenClawLitElement {
             <button
               class="close"
               type="button"
-              @click=${this.close}
+              @click=${() => this.close()}
               aria-label=${t("platformClaw.voc.close")}
             >
               ×
@@ -254,11 +254,11 @@ export class PlatformClawVocDialogElement extends OpenClawLitElement {
           </div>
           <footer>
             ${this.result
-              ? html`<button class="primary" type="button" @click=${this.close}>
+              ? html`<button class="primary" type="button" @click=${() => this.close()}>
                   ${t("platformClaw.voc.done")}
                 </button>`
               : html`
-                  <button type="button" ?disabled=${this.submitting} @click=${this.close}>
+                  <button type="button" ?disabled=${this.submitting} @click=${() => this.close()}>
                     ${t("platformClaw.voc.cancel")}
                   </button>
                   <button
