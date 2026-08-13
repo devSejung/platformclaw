@@ -32,7 +32,6 @@
     "@tanstack/lit-virtual": "3.13.35",
     "@tanstack/virtual-core": "3.17.6",
     "dompurify": "3.4.12",
-    "driver.js": "1.8.0",
     "ghostty-web": "0.4.0",
     "highlight.js": "11.11.1",
     "json5": "2.2.3",

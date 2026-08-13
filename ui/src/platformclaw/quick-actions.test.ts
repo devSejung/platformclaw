@@ -1,23 +1,5 @@
-import type { Config, Driver, PopoverDOM } from "driver.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
-
-const driverMock = vi.hoisted(() => ({
-  config: null as Config | null,
-  destroy: vi.fn(),
-  drive: vi.fn(),
-}));
-
-vi.mock("driver.js", () => ({
-  driver: (config: Config): Driver => {
-    driverMock.config = config;
-    return {
-      destroy: driverMock.destroy,
-      drive: driverMock.drive,
-    } as unknown as Driver;
-  },
-}));
-
 import {
   PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY,
   PlatformClawQuickActionsElement,
@@ -34,43 +16,20 @@ async function mount(options: { admin?: boolean; vocEnabled?: boolean } = {}) {
   return element;
 }
 
-function popoverDom(): PopoverDOM {
-  const footer = document.createElement("footer");
-  return {
-    wrapper: document.createElement("div"),
-    arrow: document.createElement("div"),
-    title: document.createElement("div"),
-    description: document.createElement("div"),
-    footer,
-    progress: document.createElement("span"),
-    previousButton: document.createElement("button"),
-    nextButton: document.createElement("button"),
-    closeButton: document.createElement("button"),
-    footerButtons: document.createElement("span"),
-  };
-}
-
 describe("platformclaw-quick-actions", () => {
   beforeEach(async () => {
     document.body.innerHTML = "";
     localStorage.clear();
     await i18n.setLocale("en");
-    driverMock.config = null;
-    driverMock.destroy.mockClear();
-    driverMock.drive.mockClear();
   });
 
   it("renders the compact role-aware grid and server-owned VOC action", async () => {
     localStorage.setItem(PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY, "true");
-    const admin = await mount({
-      admin: true,
-      vocEnabled: true,
-    });
+    const admin = await mount({ admin: true, vocEnabled: true });
 
     expect(admin.shadowRoot?.querySelector("platformclaw-execution-settings")).not.toBeNull();
     expect(admin.shadowRoot?.querySelector("platformclaw-vm-administration")).not.toBeNull();
-    const voc = admin.shadowRoot?.querySelector<HTMLButtonElement>('[data-tour="voc"]');
-    voc?.click();
+    admin.shadowRoot?.querySelector<HTMLButtonElement>('[data-tour="voc"]')?.click();
     await admin.updateComplete;
     expect(admin.shadowRoot?.querySelector("platformclaw-voc-dialog")).not.toBeNull();
     const adminItems = [...(admin.shadowRoot?.querySelector(".grid")?.children ?? [])];
@@ -97,49 +56,53 @@ describe("platformclaw-quick-actions", () => {
     await i18n.setLocale("ko");
     const member = await mount({ vocEnabled: true });
 
-    await vi.waitFor(() => {
-      expect(member.shadowRoot?.textContent).toContain("가이드");
+    await vi.waitFor(() => expect(member.shadowRoot?.textContent).toContain("가이드"));
+    await vi.waitFor(() =>
       expect(
         member.shadowRoot?.querySelector("platformclaw-execution-settings")?.shadowRoot
           ?.textContent,
-      ).toContain("VM 서버");
-    });
+      ).toContain("VM 서버"),
+    );
     await vi.waitFor(() =>
-      expect(driverMock.config?.steps?.[0]?.popover?.title).toBe(
+      expect(member.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
         "PlatformClaw에 오신 것을 환영합니다",
       ),
     );
-    expect(driverMock.config?.nextBtnText).toBe("다음");
+    expect(member.shadowRoot?.querySelector(".tour-next")?.textContent?.trim()).toBe("다음");
   });
 
   it("starts automatically until the user completes or suppresses the versioned tour", async () => {
-    await mount();
-    await vi.waitFor(() => expect(driverMock.drive).toHaveBeenCalledOnce());
+    const first = await mount();
+    await vi.waitFor(() => expect(first.shadowRoot?.querySelector(".tour-popover")).not.toBeNull());
 
-    const popover = popoverDom();
-    driverMock.config?.onPopoverRender?.(popover, {} as never);
-    const suppress = popover.footer.querySelector<HTMLButtonElement>(".platformclaw-tour-never");
-    expect(suppress?.textContent).toBe("Don't show again");
-    suppress?.click();
+    first.shadowRoot?.querySelector<HTMLButtonElement>(".tour-never")?.click();
+    await first.updateComplete;
     expect(localStorage.getItem(PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY)).toBe("true");
-    expect(driverMock.destroy).toHaveBeenCalledOnce();
+    expect(first.shadowRoot?.querySelector(".tour-popover")).toBeNull();
 
-    document.body.innerHTML = "";
-    driverMock.drive.mockClear();
+    first.remove();
     const completed = await mount();
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    expect(driverMock.drive).not.toHaveBeenCalled();
+    expect(completed.shadowRoot?.querySelector(".tour-popover")).toBeNull();
 
     completed.shadowRoot?.querySelector<HTMLButtonElement>('[data-tour="guide"]')?.click();
-    await vi.waitFor(() => expect(driverMock.drive).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(completed.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
+    );
   });
 
   it("records completion when the final step is done", async () => {
-    await mount();
-    await vi.waitFor(() => expect(driverMock.config).not.toBeNull());
+    const element = await mount();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
+    );
 
-    driverMock.config?.onDoneClick?.(undefined, {} as never, {} as never);
+    for (let index = 0; index < 7; index += 1) {
+      element.shadowRoot?.querySelector<HTMLButtonElement>(".tour-next")?.click();
+      await element.updateComplete;
+    }
+
     expect(localStorage.getItem(PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY)).toBe("true");
-    expect(driverMock.destroy).toHaveBeenCalledOnce();
+    expect(element.shadowRoot?.querySelector(".tour-popover")).toBeNull();
   });
 });

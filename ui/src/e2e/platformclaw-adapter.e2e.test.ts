@@ -179,7 +179,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => quickActions.getByRole("button", { name: "VOC" }).isVisible())
       .toBe(true);
-    await expect.poll(() => page.locator(".driver-popover").isVisible()).toBe(true);
+    await expect.poll(() => page.locator(".tour-popover").isVisible()).toBe(true);
     await expect
       .poll(() => page.getByRole("heading", { name: "Welcome to PlatformClaw" }).isVisible())
       .toBe(true);
@@ -192,7 +192,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     }
 
     await page.getByRole("button", { name: "Don't show again" }).click();
-    await expect.poll(() => page.locator(".driver-popover").count()).toBe(0);
+    await expect.poll(() => page.locator(".tour-popover").count()).toBe(0);
     expect(
       await page.evaluate(() => localStorage.getItem("platformclaw.product-tour.v1.completed")),
     ).toBe("true");
@@ -201,9 +201,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => quickActions.getByRole("button", { name: "Guide" }).isVisible())
       .toBe(true);
-    await expect.poll(() => page.locator(".driver-popover").count()).toBe(0);
+    await expect.poll(() => page.locator(".tour-popover").count()).toBe(0);
     await quickActions.getByRole("button", { name: "Guide" }).click();
-    await expect.poll(() => page.locator(".driver-popover").isVisible()).toBe(true);
+    await expect.poll(() => page.locator(".tour-popover").isVisible()).toBe(true);
   });
 
   it("opens the owned-agent self-service surface through the cookie-authenticated proxy", async () => {
