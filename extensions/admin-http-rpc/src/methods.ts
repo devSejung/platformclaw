@@ -15,6 +15,7 @@ const ADMIN_HTTP_RPC_ALLOWED_METHOD_GROUPS = {
     "gateway.suspend.resume",
   ],
   discovery: ["commands.list"],
+  skills: ["skills.upload.begin", "skills.upload.chunk", "skills.upload.commit", "skills.install"],
   config: [
     "config.get",
     "config.schema",

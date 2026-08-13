@@ -2360,6 +2360,9 @@ importers:
       '@openclaw/normalization-core':
         specifier: workspace:*
         version: link:../normalization-core
+      jszip:
+        specifier: 3.10.1
+        version: 3.10.1
       kysely:
         specifier: 0.29.4
         version: 0.29.4
@@ -2369,6 +2372,9 @@ importers:
       ws:
         specifier: 8.21.1
         version: 8.21.1
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
     devDependencies:
       '@types/proper-lockfile':
         specifier: 4.1.4

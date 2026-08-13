@@ -12,6 +12,7 @@ export const PLATFORMCLAW_MCP_API_PATH = "/platformclaw/api/mcp";
 export const PLATFORMCLAW_MCP_ADMIN_API_PATH = "/platformclaw/api/admin/mcp";
 export const PLATFORMCLAW_VM_ADMIN_API_PATH = "/platformclaw/api/admin/vm";
 export const PLATFORMCLAW_VOC_API_PATH = "/platformclaw/api/voc";
+export const PLATFORMCLAW_SKILL_HUB_API_PATH = "/platformclaw/api/skill-hub";
 export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descriptor";
 
 const PLATFORMCLAW_ENABLED_ROUTES = [

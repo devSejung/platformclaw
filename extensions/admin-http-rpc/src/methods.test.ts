@@ -13,5 +13,9 @@ describe("admin HTTP RPC method allowlist", () => {
     expect(isAdminHttpRpcAllowedMethod("platformclaw-execution.changeTarget")).toBe(true);
     expect(isAdminHttpRpcAllowedMethod("platformclaw-user-mcp.catalog")).toBe(true);
     expect(isAdminHttpRpcAllowedMethod("platformclaw-user-mcp.invalidateAgent")).toBe(true);
+    expect(isAdminHttpRpcAllowedMethod("skills.upload.begin")).toBe(true);
+    expect(isAdminHttpRpcAllowedMethod("skills.upload.chunk")).toBe(true);
+    expect(isAdminHttpRpcAllowedMethod("skills.upload.commit")).toBe(true);
+    expect(isAdminHttpRpcAllowedMethod("skills.install")).toBe(true);
   });
 });

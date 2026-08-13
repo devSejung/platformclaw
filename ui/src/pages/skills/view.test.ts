@@ -101,6 +101,22 @@ function createProps(overrides: Partial<SkillsProps> = {}): SkillsProps {
     clawhubDetailLoading: false,
     clawhubDetailError: null,
     clawhubInstallMessage: null,
+    skillHubConfig: null,
+    skillHubConfigLoading: false,
+    skillHubQuery: "",
+    skillHubResults: null,
+    skillHubSearchLoading: false,
+    skillHubError: null,
+    skillHubDetailRef: null,
+    skillHubDetail: null,
+    skillHubDetailLoading: false,
+    skillHubSelectedVersion: "",
+    skillHubPublishSkill: null,
+    skillHubPublishNamespace: "",
+    skillHubPublishVersion: "0.1.0",
+    skillHubPublishVisibility: "PUBLIC",
+    skillHubOperation: null,
+    skillHubMessage: null,
     onAgentChange: () => undefined,
     onFilterChange: () => undefined,
     onStatusFilterChange: () => undefined,
@@ -116,6 +132,18 @@ function createProps(overrides: Partial<SkillsProps> = {}): SkillsProps {
     onClawHubDetailOpen: () => undefined,
     onClawHubDetailClose: () => undefined,
     onClawHubInstall: () => undefined,
+    onSkillHubQueryChange: () => undefined,
+    onSkillHubSearch: () => undefined,
+    onSkillHubDetailOpen: () => undefined,
+    onSkillHubDetailClose: () => undefined,
+    onSkillHubVersionChange: () => undefined,
+    onSkillHubInstall: () => undefined,
+    onSkillHubPublishOpen: () => undefined,
+    onSkillHubPublishClose: () => undefined,
+    onSkillHubPublishNamespaceChange: () => undefined,
+    onSkillHubPublishVersionChange: () => undefined,
+    onSkillHubPublishVisibilityChange: () => undefined,
+    onSkillHubPublish: () => undefined,
     ...overrides,
   };
 }
@@ -143,6 +171,40 @@ describe("renderSkills", () => {
     expect(normalizeText(container)).toContain("Skills on My development VM");
     expect(normalizeText(container)).not.toContain("Search ClawHub");
     expect(container.querySelectorAll("wa-switch.settings-toggle")).toHaveLength(0);
+  });
+
+  it("integrates Skill Hub search and workspace publishing for personal access", () => {
+    const container = document.createElement("div");
+    const onSkillHubDetailOpen = vi.fn();
+    const onSkillHubPublishOpen = vi.fn();
+    const props = createProps({
+      personalAccess: true,
+      skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+      skillHubResults: [
+        {
+          namespace: "engineering",
+          slug: "shared-skill",
+          latestVersion: "2.0.0",
+          summary: "Shared skill",
+        },
+      ],
+      onSkillHubDetailOpen,
+      onSkillHubPublishOpen,
+    });
+    props.report = {
+      ...expectDefined(props.report, "skills report"),
+      skills: [createSkill({ source: "openclaw-workspace", skillKey: "repo-skill" })],
+    };
+
+    render(renderSkills(props), container);
+
+    expect(normalizeText(container)).toContain("engineering/shared-skill");
+    expect(normalizeText(container)).toContain("Publish to Hub");
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
+    buttons.find((button) => button.textContent?.includes("Details"))?.click();
+    buttons.find((button) => button.textContent?.includes("Publish to Hub"))?.click();
+    expect(onSkillHubDetailOpen).toHaveBeenCalledWith("engineering", "shared-skill");
+    expect(onSkillHubPublishOpen).toHaveBeenCalledWith("repo-skill");
   });
 
   it("renders the agent selector and routes agent changes", async () => {

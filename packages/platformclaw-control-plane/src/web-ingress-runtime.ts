@@ -31,6 +31,8 @@ import {
   type PersonalAgentRestartRecoveryProbe,
   type RestartReconciliationSummary,
 } from "./restart-reconciler.js";
+import type { SkillHubAdapter } from "./skill-hub-adapter.js";
+import { SkillHubService } from "./skill-hub-service.js";
 import { SshCredentialBroker } from "./ssh-credential-broker.js";
 import { createPlatformClawWebAssetHandler } from "./web-assets.js";
 import {
@@ -69,6 +71,13 @@ export type PlatformClawWebIngressRuntimeOptions = {
     roomProvisioner: KnoxRoomAgentProvisioner;
   };
   knoxIngressProxyUrl?: string;
+  skillHub?: {
+    adapter: SkillHubAdapter;
+    workspaceRoot: string;
+    allowedNamespaces: readonly string[];
+    publishNamespaceGroups: Readonly<Record<string, string>>;
+    maxPackageBytes: number;
+  };
   ingress?: Pick<
     PlatformClawWebIngressOptions,
     "gatewayPath" | "healthPath" | "maxPayloadBytes" | "resolveClientIp"
@@ -183,6 +192,19 @@ export function createPlatformClawWebIngressRuntime(
         ...(options.employeeAuth?.fetchImpl ? { fetchImpl: options.employeeAuth.fetchImpl } : {}),
       })
     : undefined;
+  const skillHub = options.skillHub
+    ? new SkillHubService({
+        authService: auth.service,
+        store: auth.store,
+        adapter: options.skillHub.adapter,
+        adminRpc: options.adminRpc,
+        workspaceRoot: options.skillHub.workspaceRoot,
+        allowedNamespaces: options.skillHub.allowedNamespaces,
+        publishNamespaceGroups: options.skillHub.publishNamespaceGroups,
+        maxPackageBytes: options.skillHub.maxPackageBytes,
+        ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+      })
+    : undefined;
   const restartReconciler = new AgentRestartReconciler({
     store: auth.store,
     personalAgentProbe: options.restartRecoveryProbe,
@@ -208,6 +230,7 @@ export function createPlatformClawWebIngressRuntime(
     vmAdministrationService: vmAdministration,
     mcpAdministrationService: mcpAdministration,
     ...(vocService ? { vocService } : {}),
+    ...(skillHub ? { skillHubService: skillHub } : {}),
     ...(knoxRouting ? { knoxRouting } : {}),
     ...(options.knoxIngressProxyUrl
       ? { knoxIngressProxy: { targetUrl: options.knoxIngressProxyUrl } }

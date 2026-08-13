@@ -37,6 +37,17 @@ import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import {
+  installPlatformClawHubSkill,
+  loadPlatformClawSkillHubConfig,
+  loadPlatformClawSkillHubDetail,
+  publishPlatformClawWorkspaceSkill,
+  searchPlatformClawSkillHub,
+  type PlatformClawSkillHubConfig,
+  type PlatformClawSkillHubDetail,
+  type PlatformClawSkillHubMessage,
+  type PlatformClawSkillHubSearchItem,
+} from "../../platformclaw/skill-hub.ts";
+import {
   PLUGINS_HUB_PANEL_ID,
   pluginsHubTabs,
   type PluginsHubTab,
@@ -137,6 +148,22 @@ class SkillsPage extends OpenClawLightDomElement {
   @state() skillCardContentKeys: Record<string, string> = {};
   @state() skillCardLoadingKey: string | null = null;
   @state() skillCardErrors: Record<string, string> = {};
+  @state() skillHubConfig: PlatformClawSkillHubConfig | null = null;
+  @state() skillHubConfigLoading = false;
+  @state() skillHubQuery = "";
+  @state() skillHubResults: PlatformClawSkillHubSearchItem[] | null = null;
+  @state() skillHubSearchLoading = false;
+  @state() skillHubError: string | null = null;
+  @state() skillHubDetailRef: { namespace: string; slug: string } | null = null;
+  @state() skillHubDetail: PlatformClawSkillHubDetail | null = null;
+  @state() skillHubDetailLoading = false;
+  @state() skillHubSelectedVersion = "";
+  @state() skillHubPublishSkill: string | null = null;
+  @state() skillHubPublishNamespace = "";
+  @state() skillHubPublishVersion = "0.1.0";
+  @state() skillHubPublishVisibility = "PUBLIC";
+  @state() skillHubOperation: "publish" | "install" | null = null;
+  @state() skillHubMessage: PlatformClawSkillHubMessage | null = null;
 
   get runtimeConfig(): ApplicationContext["runtimeConfig"] {
     return this.context.runtimeConfig;
@@ -266,6 +293,19 @@ class SkillsPage extends OpenClawLightDomElement {
     this.skillCardContentKeys = {};
     this.skillCardLoadingKey = null;
     this.skillCardErrors = {};
+    this.skillHubConfig = null;
+    this.skillHubConfigLoading = false;
+    this.skillHubQuery = "";
+    this.skillHubResults = null;
+    this.skillHubSearchLoading = false;
+    this.skillHubError = null;
+    this.skillHubDetailRef = null;
+    this.skillHubDetail = null;
+    this.skillHubDetailLoading = false;
+    this.skillHubSelectedVersion = "";
+    this.skillHubPublishSkill = null;
+    this.skillHubOperation = null;
+    this.skillHubMessage = null;
   }
 
   private applyRouteData() {
@@ -304,6 +344,14 @@ class SkillsPage extends OpenClawLightDomElement {
     }
     if (!this.skillsReport && !this.skillsLoading) {
       void loadSkills(this);
+    }
+    if (
+      this.context.accessMode === "personal-agent" &&
+      !this.skillHubConfig &&
+      !this.skillHubConfigLoading &&
+      !this.skillHubError
+    ) {
+      void this.loadSkillHubConfig();
     }
     if (
       this.clawhubSearchQuery.trim() &&
@@ -410,6 +458,113 @@ class SkillsPage extends OpenClawLightDomElement {
     );
   }
 
+  private async loadSkillHubConfig() {
+    this.skillHubConfigLoading = true;
+    try {
+      this.skillHubConfig = await loadPlatformClawSkillHubConfig();
+      this.skillHubPublishNamespace = this.skillHubConfig.namespaces[0] ?? "";
+    } catch (error) {
+      this.skillHubError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.skillHubConfigLoading = false;
+    }
+  }
+
+  private async searchSkillHub() {
+    this.skillHubSearchLoading = true;
+    this.skillHubError = null;
+    this.skillHubMessage = null;
+    try {
+      this.skillHubResults = (await searchPlatformClawSkillHub(this.skillHubQuery.trim())).items;
+    } catch (error) {
+      this.skillHubError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.skillHubSearchLoading = false;
+    }
+  }
+
+  private async openSkillHubDetail(namespace: string, slug: string) {
+    this.skillHubDetailRef = { namespace, slug };
+    this.skillHubDetail = null;
+    this.skillHubDetailLoading = true;
+    this.skillHubError = null;
+    try {
+      this.skillHubDetail = await loadPlatformClawSkillHubDetail(namespace, slug);
+      this.skillHubSelectedVersion =
+        this.skillHubDetail.versions.find((version) => version.downloadAvailable)?.version ?? "";
+    } catch (error) {
+      this.skillHubError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.skillHubDetailLoading = false;
+    }
+  }
+
+  private openSkillHubPublish(skill: string) {
+    this.skillHubPublishSkill = skill;
+    this.skillHubPublishVersion = "0.1.0";
+    this.skillHubPublishNamespace =
+      this.skillHubPublishNamespace || this.skillHubConfig?.namespaces[0] || "";
+    this.skillHubMessage = null;
+  }
+
+  private async publishSkillHub() {
+    const skill = this.skillHubPublishSkill;
+    if (!skill || this.skillHubOperation) {
+      return;
+    }
+    this.skillHubOperation = "publish";
+    this.skillHubMessage = null;
+    try {
+      const result = await publishPlatformClawWorkspaceSkill({
+        skill,
+        namespace: this.skillHubPublishNamespace,
+        version: this.skillHubPublishVersion,
+        visibility: this.skillHubPublishVisibility,
+      });
+      this.skillHubMessage = {
+        kind: "success",
+        text: t("skillsPage.skillHub.published", {
+          skill: `${result.namespace}/${result.slug}@${result.version}`,
+        }),
+      };
+      this.skillHubPublishSkill = null;
+    } catch (error) {
+      this.skillHubMessage = {
+        kind: "error",
+        text: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      this.skillHubOperation = null;
+    }
+  }
+
+  private async installSkillHub() {
+    const ref = this.skillHubDetailRef;
+    if (!ref || !this.skillHubSelectedVersion || this.skillHubOperation) {
+      return;
+    }
+    this.skillHubOperation = "install";
+    this.skillHubMessage = null;
+    try {
+      await installPlatformClawHubSkill({ ...ref, version: this.skillHubSelectedVersion });
+      this.skillHubMessage = {
+        kind: "success",
+        text: t("skillsPage.skillHub.installed", {
+          skill: `${ref.namespace}/${ref.slug}@${this.skillHubSelectedVersion}`,
+        }),
+      };
+      this.skillHubDetailRef = null;
+      await loadSkills(this, { refresh: true });
+    } catch (error) {
+      this.skillHubMessage = {
+        kind: "error",
+        text: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      this.skillHubOperation = null;
+    }
+  }
+
   private selectHubTab(tab: PluginsHubTab) {
     if (tab === "skills") {
       return;
@@ -482,6 +637,22 @@ class SkillsPage extends OpenClawLightDomElement {
             clawhubDetailLoading: this.clawhubDetailLoading,
             clawhubDetailError: this.clawhubDetailError,
             clawhubInstallMessage: this.clawhubInstallMessage,
+            skillHubConfig: this.skillHubConfig,
+            skillHubConfigLoading: this.skillHubConfigLoading,
+            skillHubQuery: this.skillHubQuery,
+            skillHubResults: this.skillHubResults,
+            skillHubSearchLoading: this.skillHubSearchLoading,
+            skillHubError: this.skillHubError,
+            skillHubDetailRef: this.skillHubDetailRef,
+            skillHubDetail: this.skillHubDetail,
+            skillHubDetailLoading: this.skillHubDetailLoading,
+            skillHubSelectedVersion: this.skillHubSelectedVersion,
+            skillHubPublishSkill: this.skillHubPublishSkill,
+            skillHubPublishNamespace: this.skillHubPublishNamespace,
+            skillHubPublishVersion: this.skillHubPublishVersion,
+            skillHubPublishVisibility: this.skillHubPublishVisibility,
+            skillHubOperation: this.skillHubOperation,
+            skillHubMessage: this.skillHubMessage,
             onAgentChange: (agentId) => this.changeAgent(agentId),
             onFilterChange: (next) => (this.skillsFilter = next),
             onStatusFilterChange: (next) => (this.skillsStatusFilter = next),
@@ -520,6 +691,21 @@ class SkillsPage extends OpenClawLightDomElement {
                 void installFromClawHub(this, slug, acknowledgeClawHubRisk, version);
               }
             },
+            onSkillHubQueryChange: (query) => (this.skillHubQuery = query),
+            onSkillHubSearch: () => void this.searchSkillHub(),
+            onSkillHubDetailOpen: (namespace, slug) =>
+              void this.openSkillHubDetail(namespace, slug),
+            onSkillHubDetailClose: () => (this.skillHubDetailRef = null),
+            onSkillHubVersionChange: (version) => (this.skillHubSelectedVersion = version),
+            onSkillHubInstall: () => void this.installSkillHub(),
+            onSkillHubPublishOpen: (skill) => this.openSkillHubPublish(skill),
+            onSkillHubPublishClose: () => (this.skillHubPublishSkill = null),
+            onSkillHubPublishNamespaceChange: (namespace) =>
+              (this.skillHubPublishNamespace = namespace),
+            onSkillHubPublishVersionChange: (version) => (this.skillHubPublishVersion = version),
+            onSkillHubPublishVisibilityChange: (visibility) =>
+              (this.skillHubPublishVisibility = visibility),
+            onSkillHubPublish: () => void this.publishSkillHub(),
           })}
         </wa-tab-panel>
       `)}
