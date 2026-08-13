@@ -38,6 +38,7 @@ export type PlatformClawWebDescriptor = {
   loginPath: typeof PLATFORMCLAW_LOGIN_PATH;
   logoutPath: typeof PLATFORMCLAW_LOGOUT_API_PATH;
   sessionPath: typeof PLATFORMCLAW_SESSION_API_PATH;
+  vocUrl: string | null;
   enabledRoutes: typeof PLATFORMCLAW_ENABLED_ROUTES;
 };
 
@@ -47,6 +48,7 @@ export const PLATFORMCLAW_WEB_DESCRIPTOR: PlatformClawWebDescriptor = {
   loginPath: PLATFORMCLAW_LOGIN_PATH,
   logoutPath: PLATFORMCLAW_LOGOUT_API_PATH,
   sessionPath: PLATFORMCLAW_SESSION_API_PATH,
+  vocUrl: null,
   enabledRoutes: PLATFORMCLAW_ENABLED_ROUTES,
 };
 
@@ -57,6 +59,7 @@ const PLATFORMCLAW_WEB_DESCRIPTOR_KEYS = [
   "logoutPath",
   "mode",
   "sessionPath",
+  "vocUrl",
 ] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -80,13 +83,30 @@ export function parsePlatformClawWebDescriptor(value: unknown): PlatformClawWebD
     value.loginPath !== PLATFORMCLAW_WEB_DESCRIPTOR.loginPath ||
     value.logoutPath !== PLATFORMCLAW_WEB_DESCRIPTOR.logoutPath ||
     value.sessionPath !== PLATFORMCLAW_WEB_DESCRIPTOR.sessionPath ||
+    (value.vocUrl !== null && typeof value.vocUrl !== "string") ||
     !Array.isArray(value.enabledRoutes) ||
     value.enabledRoutes.length !== PLATFORMCLAW_ENABLED_ROUTES.length ||
     value.enabledRoutes.some((route, index) => route !== PLATFORMCLAW_ENABLED_ROUTES[index])
   ) {
     throw new Error("PlatformClaw Web descriptor values are invalid");
   }
-  return PLATFORMCLAW_WEB_DESCRIPTOR;
+  let vocUrl: string | null = null;
+  if (typeof value.vocUrl === "string") {
+    try {
+      const parsed = new URL(value.vocUrl);
+      if (
+        (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+        parsed.username ||
+        parsed.password
+      ) {
+        throw new Error("invalid URL");
+      }
+      vocUrl = parsed.toString();
+    } catch {
+      throw new Error("PlatformClaw Web descriptor VOC URL is invalid");
+    }
+  }
+  return { ...PLATFORMCLAW_WEB_DESCRIPTOR, vocUrl };
 }
 
 export function readPlatformClawWebDescriptor(root: ParentNode): PlatformClawWebDescriptor {

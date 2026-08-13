@@ -16,6 +16,7 @@ export const PLATFORMCLAW_WEB_DESCRIPTOR = {
   loginPath: PLATFORMCLAW_WEB_LOGIN_PATH,
   logoutPath: "/platformclaw/api/auth/logout",
   sessionPath: "/platformclaw/api/auth/session",
+  vocUrl: null,
   enabledRoutes: [
     "chat",
     "new-session",
@@ -43,6 +44,7 @@ export type PlatformClawWebAssetHandler = {
 
 export type PlatformClawWebAssetOptions = {
   publicOrigin: string;
+  vocUrl?: string;
 };
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
@@ -197,7 +199,14 @@ function escapeHtmlAttribute(value: string): string {
     .replaceAll(">", "&gt;");
 }
 
-function prepareApplicationDocument(source: string): {
+type PlatformClawWebDescriptorPayload = Omit<typeof PLATFORMCLAW_WEB_DESCRIPTOR, "vocUrl"> & {
+  readonly vocUrl: string | null;
+};
+
+function prepareApplicationDocument(
+  source: string,
+  descriptor: PlatformClawWebDescriptorPayload,
+): {
   content: Buffer;
   inlineScriptHashes: string[];
 } {
@@ -211,10 +220,10 @@ function prepareApplicationDocument(source: string): {
   if (!headOpen?.[0] || headOpen.index < 0) {
     throw new Error("PlatformClaw Control UI document is missing <head>");
   }
-  const descriptor = escapeHtmlAttribute(JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR));
+  const serializedDescriptor = escapeHtmlAttribute(JSON.stringify(descriptor));
   const injection = [
     '<base href="/platformclaw/" />',
-    `<meta name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}" content="${descriptor}" />`,
+    `<meta name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}" content="${serializedDescriptor}" />`,
   ].join("\n    ");
   // Base must precede every upstream URL-bearing element or the browser may
   // start fetching relative assets against the deep application route.
@@ -243,7 +252,10 @@ export function createPlatformClawWebAssetHandler(
   const root = realpathSync(resolve(rootDirectory));
   const loginFile = assertRegularFileInsideRoot(root, join(root, "platformclaw-login.html"));
   const applicationFile = assertRegularFileInsideRoot(root, join(root, "index.html"));
-  const applicationDocument = prepareApplicationDocument(readFileSync(applicationFile, "utf8"));
+  const applicationDocument = prepareApplicationDocument(readFileSync(applicationFile, "utf8"), {
+    ...PLATFORMCLAW_WEB_DESCRIPTOR,
+    vocUrl: options.vocUrl ?? null,
+  });
   const websocketOrigin = resolveWebSocketOrigin(options.publicOrigin);
   const assetsDirectory = realpathSync(join(root, "assets"));
   if (!assetsDirectory.startsWith(`${root}${sep}`)) {

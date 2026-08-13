@@ -13,6 +13,7 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   listenPort: "PLATFORMCLAW_LISTEN_PORT",
   databasePath: "PLATFORMCLAW_DATABASE_PATH",
   controlUiRoot: "PLATFORMCLAW_CONTROL_UI_ROOT",
+  vocUrl: "PLATFORMCLAW_VOC_URL",
   workspaceRoot: "PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT",
   initialAdminAccountIdsFile: "PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE",
   gatewayUrl: "PLATFORMCLAW_GATEWAY_URL",
@@ -30,6 +31,7 @@ export type PlatformClawDeploymentConfig = {
   listenPort: number;
   databasePath: string;
   controlUiRoot: string;
+  vocUrl?: string;
   workspaceRoot: string;
   initialAdminAccountIds: readonly string[];
   gatewayUrl: string;
@@ -64,6 +66,17 @@ function parsePublicOrigin(raw: string): string {
     throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin} must be an HTTP(S) origin`);
   }
   return url.origin;
+}
+
+function parseOptionalHttpUrl(raw: string | undefined, name: string): string | undefined {
+  if (!raw?.trim()) {
+    return undefined;
+  }
+  const url = new URL(raw);
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
+    throw new Error(`${name} must be an HTTP(S) URL without embedded credentials`);
+  }
+  return url.toString();
 }
 
 function parseGatewayUrl(raw: string): { websocketUrl: string; adminRpcUrl: string } {
@@ -156,12 +169,17 @@ export function loadPlatformClawDeploymentConfig(
     requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile),
     PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile,
   );
+  const vocUrl = parseOptionalHttpUrl(
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.vocUrl],
+    PLATFORMCLAW_DEPLOYMENT_ENV.vocUrl,
+  );
   return {
     publicOrigin: parsePublicOrigin(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin)),
     listenHost: env[PLATFORMCLAW_DEPLOYMENT_ENV.listenHost]?.trim() || DEFAULT_LISTEN_HOST,
     listenPort,
     databasePath: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.databasePath)),
     controlUiRoot: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.controlUiRoot)),
+    ...(vocUrl ? { vocUrl } : {}),
     workspaceRoot: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.workspaceRoot)),
     initialAdminAccountIds,
     gatewayUrl: gateway.websocketUrl,

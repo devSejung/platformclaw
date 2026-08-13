@@ -185,6 +185,7 @@ The process requires these deployment-owned values:
 | `PLATFORMCLAW_LISTEN_PORT`                    | Listener port; defaults to `19001`         |
 | `PLATFORMCLAW_DATABASE_PATH`                  | Persistent control-plane SQLite path       |
 | `PLATFORMCLAW_CONTROL_UI_ROOT`                | Built Control UI asset directory           |
+| `PLATFORMCLAW_VOC_URL`                        | Optional employee VOC intake URL           |
 | `PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT`        | Parent directory for personal workspaces   |
 | `PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE` | Initial administrator IDs secret file      |
 | `PLATFORMCLAW_GATEWAY_URL`                    | Private Gateway WS(S) origin               |

@@ -35,13 +35,16 @@ async function newPage(): Promise<{ context: BrowserContext; page: Page }> {
   return { context, page: await context.newPage() };
 }
 
-async function installPlatformClawDocument(page: Page): Promise<void> {
+async function installPlatformClawDocument(
+  page: Page,
+  descriptorValue = PLATFORMCLAW_WEB_DESCRIPTOR,
+): Promise<void> {
   const response = await page.request.get(server.baseUrl);
   const source = await response.text();
   const headers = response.headers();
   const status = response.status();
   await page.route("**/platformclaw/app/**", async (route) => {
-    const descriptor = `<meta name="platformclaw-web-descriptor" content='${JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR)}'>`;
+    const descriptor = `<meta name="platformclaw-web-descriptor" content='${JSON.stringify(descriptorValue)}'>`;
     await route.fulfill({
       body: source.replace("</head>", `${descriptor}</head>`),
       headers,
@@ -140,6 +143,65 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     expect(await page.locator(".chat-workspace-toggle").count()).toBe(0);
     expect(await page.getByRole("button", { name: "Rewind" }).count()).toBe(0);
     expect(await gateway.getRequests("sessions.files.list")).toHaveLength(0);
+  });
+
+  it("shows the first-run guide and keeps the compact quick actions available", async () => {
+    const { page } = await newPage();
+    await installPlatformClawDocument(page, {
+      ...PLATFORMCLAW_WEB_DESCRIPTOR,
+      vocUrl: "https://voc.company.example/intake",
+    });
+    await page.route("**/platformclaw/api/auth/session", (route) =>
+      route.fulfill({ json: activeSession(), status: 200 }),
+    );
+    await page.route("**/platformclaw/api/execution", (route) =>
+      route.fulfill({
+        json: {
+          accountId: "person.one",
+          activeTarget: "platform_server",
+          assignment: null,
+          availableVms: [],
+          credentialStatus: "missing",
+          targetRevision: 0,
+        },
+        status: 200,
+      }),
+    );
+    await installMockGateway(page, {
+      basePath: "/platformclaw/app",
+      defaultAgentId: "person_one",
+      sessionKey: "agent:person_one:main",
+    });
+
+    await page.goto(`${server.baseUrl}platformclaw/app/chat`);
+    const quickActions = page.locator("platformclaw-quick-actions");
+    await expect.poll(() => quickActions.isVisible()).toBe(true);
+    await expect.poll(() => quickActions.getByRole("link", { name: "VOC" }).isVisible()).toBe(true);
+    await expect.poll(() => page.locator(".driver-popover").isVisible()).toBe(true);
+    await expect
+      .poll(() => page.getByRole("heading", { name: "Welcome to PlatformClaw" }).isVisible())
+      .toBe(true);
+
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05-first-run-guide.png"),
+      });
+    }
+
+    await page.getByRole("button", { name: "Don't show again" }).click();
+    await expect.poll(() => page.locator(".driver-popover").count()).toBe(0);
+    expect(
+      await page.evaluate(() => localStorage.getItem("platformclaw.product-tour.v1.completed")),
+    ).toBe("true");
+
+    await page.reload();
+    await expect
+      .poll(() => quickActions.getByRole("button", { name: "Guide" }).isVisible())
+      .toBe(true);
+    await expect.poll(() => page.locator(".driver-popover").count()).toBe(0);
+    await quickActions.getByRole("button", { name: "Guide" }).click();
+    await expect.poll(() => page.locator(".driver-popover").isVisible()).toBe(true);
   });
 
   it("opens the owned-agent self-service surface through the cookie-authenticated proxy", async () => {

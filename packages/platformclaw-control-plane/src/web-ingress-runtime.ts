@@ -59,6 +59,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   adminRpc: GatewayAdminRpc;
   publicOrigin: string;
   controlUiRoot: string;
+  vocUrl?: string;
   loginRateLimiter?: MemoryBrowserLoginRateLimiterOptions;
   credentialBrokerAddress?: string;
   executionServiceToken?: string;
@@ -205,6 +206,7 @@ export function createPlatformClawWebIngressRuntime(
     ...(mcpService ? { mcpService } : {}),
     webAssets: createPlatformClawWebAssetHandler(options.controlUiRoot, {
       publicOrigin: options.publicOrigin,
+      ...(options.vocUrl ? { vocUrl: options.vocUrl } : {}),
     }),
     ...options.ingress,
   });

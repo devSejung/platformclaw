@@ -48,11 +48,26 @@ describe("PlatformClaw Web descriptor", () => {
   });
 
   it("accepts only the fixed browser bootstrap contract", () => {
-    expect(parsePlatformClawWebDescriptor({ ...PLATFORMCLAW_WEB_DESCRIPTOR })).toBe(
+    expect(parsePlatformClawWebDescriptor({ ...PLATFORMCLAW_WEB_DESCRIPTOR })).toEqual(
       PLATFORMCLAW_WEB_DESCRIPTOR,
     );
     document.head.innerHTML = `<meta name="platformclaw-web-descriptor" content='${JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR)}'>`;
-    expect(readPlatformClawWebDescriptor(document)).toBe(PLATFORMCLAW_WEB_DESCRIPTOR);
+    expect(readPlatformClawWebDescriptor(document)).toEqual(PLATFORMCLAW_WEB_DESCRIPTOR);
+  });
+
+  it("accepts a bounded HTTP(S) VOC destination", () => {
+    expect(
+      parsePlatformClawWebDescriptor({
+        ...PLATFORMCLAW_WEB_DESCRIPTOR,
+        vocUrl: "https://voc.company.example/intake",
+      }).vocUrl,
+    ).toBe("https://voc.company.example/intake");
+    expect(() =>
+      parsePlatformClawWebDescriptor({
+        ...PLATFORMCLAW_WEB_DESCRIPTOR,
+        vocUrl: "javascript:alert(1)",
+      }),
+    ).toThrow("VOC URL is invalid");
   });
 
   it.each([

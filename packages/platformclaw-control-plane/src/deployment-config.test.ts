@@ -56,10 +56,12 @@ function fixtureEnv(): NodeJS.ProcessEnv {
 describe("loadPlatformClawDeploymentConfig", () => {
   it("loads paths, bounded secrets, and derived private Gateway endpoints", () => {
     const env = fixtureEnv();
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.vocUrl] = "https://voc.company.example/intake";
     const config = loadPlatformClawDeploymentConfig(env);
 
     expect(config).toMatchObject({
       publicOrigin: "http://127.0.0.1:19001",
+      vocUrl: "https://voc.company.example/intake",
       listenHost: "127.0.0.1",
       listenPort: 19001,
       initialAdminAccountIds: ["person.one", "person.two"],
@@ -110,6 +112,7 @@ describe("loadPlatformClawDeploymentConfig", () => {
     [PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin, "http://example.test/path"],
     [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayUrl, "ws://user@example.test"],
     [PLATFORMCLAW_DEPLOYMENT_ENV.listenPort, "70000"],
+    [PLATFORMCLAW_DEPLOYMENT_ENV.vocUrl, "javascript:alert(1)"],
   ])("rejects invalid %s", (name, value) => {
     const env = fixtureEnv();
     env[name] = value;
