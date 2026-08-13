@@ -7,7 +7,7 @@ import { PLATFORMCLAW_VOC_API_PATH } from "./web-contract.ts";
 
 type VocResult = { ok: true; issueKey: string; issueUrl: string };
 
-export class PlatformClawVocDialogElement extends OpenClawLitElement {
+class PlatformClawVocDialogElement extends OpenClawLitElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   @property({ attribute: false }) onUnauthenticated: () => void = () => undefined;
   @state() private subject = "";

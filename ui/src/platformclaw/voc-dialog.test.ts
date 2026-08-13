@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
-import { PlatformClawVocDialogElement } from "./voc-dialog.ts";
+import "./voc-dialog.ts";
 
 afterEach(async () => {
   document.body.innerHTML = "";
@@ -20,9 +20,11 @@ describe("platformclaw-voc-dialog", () => {
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
     );
-    const element = document.createElement(
-      "platformclaw-voc-dialog",
-    ) as PlatformClawVocDialogElement;
+    const element = document.createElement("platformclaw-voc-dialog") as HTMLElement & {
+      fetchImpl: typeof fetch;
+      updateComplete: Promise<unknown>;
+      shadowRoot: ShadowRoot;
+    };
     element.fetchImpl = fetchImpl;
     document.body.append(element);
     await element.updateComplete;
