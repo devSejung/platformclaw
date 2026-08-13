@@ -1,5 +1,6 @@
 import type { Config, Driver, PopoverDOM } from "driver.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { i18n } from "../i18n/index.ts";
 
 const driverMock = vi.hoisted(() => ({
   config: null as Config | null,
@@ -22,12 +23,12 @@ import {
   PlatformClawQuickActionsElement,
 } from "./quick-actions.ts";
 
-async function mount(options: { admin?: boolean; vocUrl?: string | null } = {}) {
+async function mount(options: { admin?: boolean; vocEnabled?: boolean } = {}) {
   const element = document.createElement(
     "platformclaw-quick-actions",
   ) as PlatformClawQuickActionsElement;
   element.admin = options.admin ?? false;
-  element.vocUrl = options.vocUrl ?? null;
+  element.vocEnabled = options.vocEnabled ?? false;
   document.body.append(element);
   await element.updateComplete;
   return element;
@@ -50,32 +51,65 @@ function popoverDom(): PopoverDOM {
 }
 
 describe("platformclaw-quick-actions", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     document.body.innerHTML = "";
     localStorage.clear();
+    await i18n.setLocale("en");
     driverMock.config = null;
     driverMock.destroy.mockClear();
     driverMock.drive.mockClear();
   });
 
-  it("renders the compact role-aware grid and bounded VOC link", async () => {
+  it("renders the compact role-aware grid and server-owned VOC action", async () => {
     localStorage.setItem(PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY, "true");
     const admin = await mount({
       admin: true,
-      vocUrl: "https://voc.company.example/intake",
+      vocEnabled: true,
     });
 
     expect(admin.shadowRoot?.querySelector("platformclaw-execution-settings")).not.toBeNull();
     expect(admin.shadowRoot?.querySelector("platformclaw-vm-administration")).not.toBeNull();
-    const voc = admin.shadowRoot?.querySelector<HTMLAnchorElement>('[data-tour="voc"]');
-    expect(voc?.href).toBe("https://voc.company.example/intake");
-    expect(voc?.target).toBe("_blank");
-    expect(voc?.rel).toBe("noopener noreferrer");
+    const voc = admin.shadowRoot?.querySelector<HTMLButtonElement>('[data-tour="voc"]');
+    voc?.click();
+    await admin.updateComplete;
+    expect(admin.shadowRoot?.querySelector("platformclaw-voc-dialog")).not.toBeNull();
+    const adminItems = [...(admin.shadowRoot?.querySelector(".grid")?.children ?? [])];
+    expect(adminItems.map((item) => item.localName)).toEqual([
+      "button",
+      "button",
+      "platformclaw-execution-settings",
+      "platformclaw-vm-administration",
+    ]);
 
     admin.remove();
-    const member = await mount();
+    const member = await mount({ vocEnabled: true });
     expect(member.shadowRoot?.querySelector("platformclaw-vm-administration")).toBeNull();
-    expect(member.shadowRoot?.querySelector('[data-tour="voc"]')).toBeNull();
+    const memberExecution = member.shadowRoot?.querySelector("platformclaw-execution-settings");
+    expect(memberExecution?.classList.contains("span-two")).toBe(true);
+    expect(
+      [...(member.shadowRoot?.querySelector(".grid")?.children ?? [])].map(
+        (item) => item.localName,
+      ),
+    ).toEqual(["button", "button", "platformclaw-execution-settings"]);
+  });
+
+  it("uses the PlatformClaw-owned Korean quick actions and tour copy", async () => {
+    await i18n.setLocale("ko");
+    const member = await mount({ vocEnabled: true });
+
+    await vi.waitFor(() => {
+      expect(member.shadowRoot?.textContent).toContain("가이드");
+      expect(
+        member.shadowRoot?.querySelector("platformclaw-execution-settings")?.shadowRoot
+          ?.textContent,
+      ).toContain("VM 서버");
+    });
+    await vi.waitFor(() =>
+      expect(driverMock.config?.steps?.[0]?.popover?.title).toBe(
+        "PlatformClaw에 오신 것을 환영합니다",
+      ),
+    );
+    expect(driverMock.config?.nextBtnText).toBe("다음");
   });
 
   it("starts automatically until the user completes or suppresses the versioned tour", async () => {

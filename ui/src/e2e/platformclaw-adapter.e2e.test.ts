@@ -149,7 +149,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     const { page } = await newPage();
     await installPlatformClawDocument(page, {
       ...PLATFORMCLAW_WEB_DESCRIPTOR,
-      vocUrl: "https://voc.company.example/intake",
+      vocEnabled: true,
     });
     await page.route("**/platformclaw/api/auth/session", (route) =>
       route.fulfill({ json: activeSession(), status: 200 }),
@@ -176,7 +176,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await page.goto(`${server.baseUrl}platformclaw/app/chat`);
     const quickActions = page.locator("platformclaw-quick-actions");
     await expect.poll(() => quickActions.isVisible()).toBe(true);
-    await expect.poll(() => quickActions.getByRole("link", { name: "VOC" }).isVisible()).toBe(true);
+    await expect
+      .poll(() => quickActions.getByRole("button", { name: "VOC" }).isVisible())
+      .toBe(true);
     await expect.poll(() => page.locator(".driver-popover").isVisible()).toBe(true);
     await expect
       .poll(() => page.getByRole("heading", { name: "Welcome to PlatformClaw" }).isVisible())

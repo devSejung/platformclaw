@@ -55,19 +55,19 @@ describe("PlatformClaw Web descriptor", () => {
     expect(readPlatformClawWebDescriptor(document)).toEqual(PLATFORMCLAW_WEB_DESCRIPTOR);
   });
 
-  it("accepts a bounded HTTP(S) VOC destination", () => {
+  it("accepts only the server-owned VOC capability flag", () => {
     expect(
       parsePlatformClawWebDescriptor({
         ...PLATFORMCLAW_WEB_DESCRIPTOR,
-        vocUrl: "https://voc.company.example/intake",
-      }).vocUrl,
-    ).toBe("https://voc.company.example/intake");
+        vocEnabled: true,
+      }).vocEnabled,
+    ).toBe(true);
     expect(() =>
       parsePlatformClawWebDescriptor({
         ...PLATFORMCLAW_WEB_DESCRIPTOR,
-        vocUrl: "javascript:alert(1)",
+        vocEnabled: "true",
       }),
-    ).toThrow("VOC URL is invalid");
+    ).toThrow("descriptor values are invalid");
   });
 
   it.each([

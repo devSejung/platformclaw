@@ -16,7 +16,7 @@ export const PLATFORMCLAW_WEB_DESCRIPTOR = {
   loginPath: PLATFORMCLAW_WEB_LOGIN_PATH,
   logoutPath: "/platformclaw/api/auth/logout",
   sessionPath: "/platformclaw/api/auth/session",
-  vocUrl: null,
+  vocEnabled: false,
   enabledRoutes: [
     "chat",
     "new-session",
@@ -44,7 +44,7 @@ export type PlatformClawWebAssetHandler = {
 
 export type PlatformClawWebAssetOptions = {
   publicOrigin: string;
-  vocUrl?: string;
+  vocEnabled?: boolean;
 };
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
@@ -199,8 +199,8 @@ function escapeHtmlAttribute(value: string): string {
     .replaceAll(">", "&gt;");
 }
 
-type PlatformClawWebDescriptorPayload = Omit<typeof PLATFORMCLAW_WEB_DESCRIPTOR, "vocUrl"> & {
-  readonly vocUrl: string | null;
+type PlatformClawWebDescriptorPayload = Omit<typeof PLATFORMCLAW_WEB_DESCRIPTOR, "vocEnabled"> & {
+  readonly vocEnabled: boolean;
 };
 
 function prepareApplicationDocument(
@@ -254,7 +254,7 @@ export function createPlatformClawWebAssetHandler(
   const applicationFile = assertRegularFileInsideRoot(root, join(root, "index.html"));
   const applicationDocument = prepareApplicationDocument(readFileSync(applicationFile, "utf8"), {
     ...PLATFORMCLAW_WEB_DESCRIPTOR,
-    vocUrl: options.vocUrl ?? null,
+    vocEnabled: options.vocEnabled ?? false,
   });
   const websocketOrigin = resolveWebSocketOrigin(options.publicOrigin);
   const assetsDirectory = realpathSync(join(root, "assets"));

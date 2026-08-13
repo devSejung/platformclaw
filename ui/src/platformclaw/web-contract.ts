@@ -11,6 +11,7 @@ export const PLATFORMCLAW_EXECUTION_API_PATH = "/platformclaw/api/execution";
 export const PLATFORMCLAW_MCP_API_PATH = "/platformclaw/api/mcp";
 export const PLATFORMCLAW_MCP_ADMIN_API_PATH = "/platformclaw/api/admin/mcp";
 export const PLATFORMCLAW_VM_ADMIN_API_PATH = "/platformclaw/api/admin/vm";
+export const PLATFORMCLAW_VOC_API_PATH = "/platformclaw/api/voc";
 export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descriptor";
 
 const PLATFORMCLAW_ENABLED_ROUTES = [
@@ -38,7 +39,7 @@ export type PlatformClawWebDescriptor = {
   loginPath: typeof PLATFORMCLAW_LOGIN_PATH;
   logoutPath: typeof PLATFORMCLAW_LOGOUT_API_PATH;
   sessionPath: typeof PLATFORMCLAW_SESSION_API_PATH;
-  vocUrl: string | null;
+  vocEnabled: boolean;
   enabledRoutes: typeof PLATFORMCLAW_ENABLED_ROUTES;
 };
 
@@ -48,7 +49,7 @@ export const PLATFORMCLAW_WEB_DESCRIPTOR: PlatformClawWebDescriptor = {
   loginPath: PLATFORMCLAW_LOGIN_PATH,
   logoutPath: PLATFORMCLAW_LOGOUT_API_PATH,
   sessionPath: PLATFORMCLAW_SESSION_API_PATH,
-  vocUrl: null,
+  vocEnabled: false,
   enabledRoutes: PLATFORMCLAW_ENABLED_ROUTES,
 };
 
@@ -59,7 +60,7 @@ const PLATFORMCLAW_WEB_DESCRIPTOR_KEYS = [
   "logoutPath",
   "mode",
   "sessionPath",
-  "vocUrl",
+  "vocEnabled",
 ] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -83,30 +84,14 @@ export function parsePlatformClawWebDescriptor(value: unknown): PlatformClawWebD
     value.loginPath !== PLATFORMCLAW_WEB_DESCRIPTOR.loginPath ||
     value.logoutPath !== PLATFORMCLAW_WEB_DESCRIPTOR.logoutPath ||
     value.sessionPath !== PLATFORMCLAW_WEB_DESCRIPTOR.sessionPath ||
-    (value.vocUrl !== null && typeof value.vocUrl !== "string") ||
+    typeof value.vocEnabled !== "boolean" ||
     !Array.isArray(value.enabledRoutes) ||
     value.enabledRoutes.length !== PLATFORMCLAW_ENABLED_ROUTES.length ||
     value.enabledRoutes.some((route, index) => route !== PLATFORMCLAW_ENABLED_ROUTES[index])
   ) {
     throw new Error("PlatformClaw Web descriptor values are invalid");
   }
-  let vocUrl: string | null = null;
-  if (typeof value.vocUrl === "string") {
-    try {
-      const parsed = new URL(value.vocUrl);
-      if (
-        (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
-        parsed.username ||
-        parsed.password
-      ) {
-        throw new Error("invalid URL");
-      }
-      vocUrl = parsed.toString();
-    } catch {
-      throw new Error("PlatformClaw Web descriptor VOC URL is invalid");
-    }
-  }
-  return { ...PLATFORMCLAW_WEB_DESCRIPTOR, vocUrl };
+  return { ...PLATFORMCLAW_WEB_DESCRIPTOR, vocEnabled: value.vocEnabled };
 }
 
 export function readPlatformClawWebDescriptor(root: ParentNode): PlatformClawWebDescriptor {

@@ -71,14 +71,14 @@ afterEach(() => {
 
 async function serveApplicationFixture(
   root: string,
-  vocUrl?: string,
+  vocEnabled = false,
 ): Promise<{
   origin: string;
   close(): Promise<void>;
 }> {
   const handler = createPlatformClawWebAssetHandler(root, {
     publicOrigin: PUBLIC_ORIGIN,
-    ...(vocUrl ? { vocUrl } : {}),
+    vocEnabled,
   });
   const server = createServer((req, res) => {
     void handler.handleApplication(req, res).then((handled) => {
@@ -154,10 +154,7 @@ describe("createPlatformClawWebAssetHandler", () => {
   });
 
   it("serves the upstream application document with a bounded descriptor", async () => {
-    const fixture = await serveApplicationFixture(
-      fixtureRoot(),
-      "https://voc.company.example/intake",
-    );
+    const fixture = await serveApplicationFixture(fixtureRoot(), true);
     try {
       const response = await fetch(`${fixture.origin}${PLATFORMCLAW_WEB_APP_PATH}/chat`);
       const body = await response.text();
@@ -178,7 +175,7 @@ describe("createPlatformClawWebAssetHandler", () => {
       );
       expect(body).toContain(`name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}"`);
       expect(body).toContain("&quot;enabledRoutes&quot;");
-      expect(body).toContain("&quot;vocUrl&quot;:&quot;https://voc.company.example/intake&quot;");
+      expect(body).toContain("&quot;vocEnabled&quot;:true");
       expect(body).toContain(
         "&quot;enabledRoutes&quot;:[&quot;chat&quot;,&quot;new-session&quot;,&quot;activity&quot;,&quot;sessions&quot;,&quot;usage&quot;,&quot;agents&quot;,&quot;tasks&quot;,&quot;cron&quot;,&quot;appearance&quot;,&quot;profile&quot;,&quot;notifications&quot;,&quot;about&quot;,&quot;skills&quot;,&quot;skill-workshop&quot;,&quot;plugins&quot;,&quot;mcp&quot;]",
       );

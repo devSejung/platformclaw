@@ -43,6 +43,7 @@ import {
   handlePlatformClawVmAdministrationRequest,
   type VmAdministrationService,
 } from "./browser-vm-admin-http.js";
+import { handlePlatformClawVocRequest, type JiraVocService } from "./browser-voc-http.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import { handlePlatformClawKnoxIngressProxy } from "./knox-ingress-proxy.js";
 import { handlePlatformClawKnoxRoutingRequest } from "./knox-routing-http.js";
@@ -87,6 +88,7 @@ export type PlatformClawWebIngressOptions = {
   vmAdministrationService?: VmAdministrationService;
   mcpAdministrationService?: McpAdministrationService;
   mcpService?: EmployeeMcpService;
+  vocService?: JiraVocService;
   knoxRouting?: { service: KnoxRoutingService; serviceToken: string };
   knoxIngressProxy?: { targetUrl: string };
   webAssets?: PlatformClawWebAssetHandler;
@@ -336,6 +338,16 @@ export class PlatformClawWebIngressServer {
         rateLimiter: this.options.loginRateLimiter,
       });
       if (handled) {
+        return;
+      }
+      if (
+        this.options.vocService &&
+        (await handlePlatformClawVocRequest(req, res, {
+          service: this.options.vocService,
+          readJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
         return;
       }
       if (

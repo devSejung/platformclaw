@@ -3,9 +3,9 @@ import { until } from "lit/directives/until.js";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
-import { t } from "../i18n/index.ts";
 import "./mcp-administration.ts";
 import "./mcp-settings.ts";
+import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -117,14 +117,14 @@ export class PlatformClawControlUiAdapter {
       this.clearBrowserSessionState();
       this.redirectToLogin(true);
     };
-    const quickActions = import("./quick-actions.ts")
+    const quickActions = Promise.all([import("./quick-actions.ts"), loadPlatformClawLocale()])
       .then(
         () => html`
           <platformclaw-quick-actions
             .fetchImpl=${this.fetchImpl}
             .onUnauthenticated=${onUnauthenticated}
             .admin=${identity.globalRole === "admin"}
-            .vocUrl=${this.descriptor.vocUrl}
+            .vocEnabled=${this.descriptor.vocEnabled}
           ></platformclaw-quick-actions>
         `,
       )

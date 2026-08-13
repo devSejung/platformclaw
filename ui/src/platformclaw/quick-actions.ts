@@ -2,9 +2,10 @@ import type { Driver, PopoverDOM } from "driver.js";
 import { css, html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import { icons } from "../components/icons.ts";
-import { t } from "../i18n/index.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
+import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import "./execution-settings.ts";
+import "./voc-dialog.ts";
 
 export const PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY = "platformclaw.product-tour.v1.completed";
 
@@ -45,9 +46,10 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   @property({ attribute: false }) onUnauthenticated: () => void = () => undefined;
   @property({ type: Boolean }) admin = false;
-  @property({ attribute: false }) vocUrl: string | null = null;
+  @property({ type: Boolean }) vocEnabled = false;
   @state() private guideError = "";
   @state() private guideLoading = false;
+  @state() private vocOpen = false;
 
   private activeTour: Driver | null = null;
   private automaticLaunchAttempted = false;
@@ -131,7 +133,16 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
 
   protected override firstUpdated(_changedProperties: PropertyValues): void {
     super.firstUpdated(_changedProperties);
-    globalThis.requestAnimationFrame(() => void this.launchTour("automatic"));
+    globalThis.requestAnimationFrame(() => void this.initialize());
+  }
+
+  private async initialize(): Promise<void> {
+    await loadPlatformClawLocale();
+    if (!this.isConnected) {
+      return;
+    }
+    this.requestUpdate();
+    await this.launchTour("automatic");
   }
 
   private completeTour(): void {
@@ -182,6 +193,8 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     this.guideLoading = true;
     this.guideError = "";
     try {
+      await loadPlatformClawLocale();
+      this.requestUpdate();
       const [{ driver }] = await Promise.all([
         import("driver.js"),
         import("driver.js/dist/driver.css"),
@@ -283,36 +296,22 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   }
 
   override render() {
-    const itemCount = 2 + Number(this.admin) + Number(Boolean(this.vocUrl));
     return html`
       <div class="grid" aria-label=${t("platformClaw.quickActions.label")}>
-        <platformclaw-execution-settings
-          data-tour="work-location"
-          .fetchImpl=${this.fetchImpl}
-          .onUnauthenticated=${this.onUnauthenticated}
-        ></platformclaw-execution-settings>
-        ${this.vocUrl
-          ? html`<a
+        ${this.vocEnabled
+          ? html`<button
               class="action"
+              type="button"
               data-tour="voc"
-              href=${this.vocUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+              @click=${() => (this.vocOpen = true)}
               aria-label=${t("platformClaw.quickActions.voc")}
             >
               ${icons.messageSquare}<span class="label">${t("platformClaw.quickActions.voc")}</span>
-            </a>`
-          : null}
-        ${this.admin
-          ? html`<platformclaw-vm-administration
-              data-tour="vm-admin"
-              .fetchImpl=${this.fetchImpl}
-              .onUnauthenticated=${this.onUnauthenticated}
-            ></platformclaw-vm-administration>`
+            </button>`
           : null}
         <button
           type="button"
-          class="action ${itemCount % 2 === 1 ? "span-two" : ""}"
+          class="action ${this.vocEnabled ? "" : "span-two"}"
           data-tour="guide"
           ?disabled=${this.guideLoading}
           @click=${() => void this.launchTour("manual")}
@@ -320,8 +319,29 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         >
           ${icons.book}<span class="label">${t("platformClaw.quickActions.guide")}</span>
         </button>
+        <platformclaw-execution-settings
+          class=${this.admin ? "" : "span-two"}
+          data-tour="work-location"
+          .compactLabelKey=${"platformClaw.quickActions.vmServer"}
+          .fetchImpl=${this.fetchImpl}
+          .onUnauthenticated=${this.onUnauthenticated}
+        ></platformclaw-execution-settings>
+        ${this.admin
+          ? html`<platformclaw-vm-administration
+              data-tour="vm-admin"
+              .fetchImpl=${this.fetchImpl}
+              .onUnauthenticated=${this.onUnauthenticated}
+            ></platformclaw-vm-administration>`
+          : null}
       </div>
       ${this.guideError ? html`<p class="error" role="status">${this.guideError}</p>` : null}
+      ${this.vocOpen
+        ? html`<platformclaw-voc-dialog
+            .fetchImpl=${this.fetchImpl}
+            .onUnauthenticated=${this.onUnauthenticated}
+            @voc-close=${() => (this.vocOpen = false)}
+          ></platformclaw-voc-dialog>`
+        : null}
     `;
   }
 }

@@ -185,7 +185,7 @@ The process requires these deployment-owned values:
 | `PLATFORMCLAW_LISTEN_PORT`                    | Listener port; defaults to `19001`         |
 | `PLATFORMCLAW_DATABASE_PATH`                  | Persistent control-plane SQLite path       |
 | `PLATFORMCLAW_CONTROL_UI_ROOT`                | Built Control UI asset directory           |
-| `PLATFORMCLAW_VOC_URL`                        | Optional employee VOC intake URL           |
+| `PLATFORMCLAW_JIRA_VOC_CONFIG_FILE`           | Optional Jira VOC JSON secret file         |
 | `PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT`        | Parent directory for personal workspaces   |
 | `PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE` | Initial administrator IDs secret file      |
 | `PLATFORMCLAW_GATEWAY_URL`                    | Private Gateway WS(S) origin               |
@@ -204,6 +204,28 @@ Initial administrator IDs, the Gateway operator token, and the SSH credential
 master key are read from bounded regular files. Production mounts those files
 as Docker secrets. No default administrator, operator credential, or encryption
 key exists.
+
+When `PLATFORMCLAW_JIRA_VOC_CONFIG_FILE` is set, the employee UI exposes a VOC
+form and the BFF creates the Jira issue with the authenticated employee as
+reporter metadata. The file is a bounded regular JSON secret with this shape:
+
+```json
+{
+  "baseUrl": "https://jira.example.com",
+  "projectKey": "VOC",
+  "parentIssueKey": "VOC-1",
+  "issueType": "Task",
+  "assignee": "voc.owner",
+  "components": ["PlatformClaw"],
+  "coworkerField": "customfield_12345",
+  "defaultCoworkers": ["voc.watcher"],
+  "authorization": "Bearer <deployment-secret>"
+}
+```
+
+Only `baseUrl`, `projectKey`, `issueType`, and `authorization` are required.
+The file stays server-side; the browser descriptor receives only a capability
+flag and never receives the Jira URL or credential.
 
 ## Current boundary
 
