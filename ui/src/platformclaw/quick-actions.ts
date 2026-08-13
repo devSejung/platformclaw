@@ -394,6 +394,9 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     }
     const steps = this.tourSteps();
     const step = steps[this.tourIndex];
+    if (!step) {
+      return null;
+    }
     const finalStep = this.tourIndex === steps.length - 1;
     return html`<div class="tour-layer">
       <div class="tour-backdrop" @click=${this.closeTour}></div>

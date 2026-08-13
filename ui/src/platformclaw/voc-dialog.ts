@@ -10,7 +10,7 @@ type VocResult = { ok: true; issueKey: string; issueUrl: string };
 export class PlatformClawVocDialogElement extends OpenClawLitElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   @property({ attribute: false }) onUnauthenticated: () => void = () => undefined;
-  @state() private title = "";
+  @state() private subject = "";
   @state() private description = "";
   @state() private confirming = false;
   @state() private submitting = false;
@@ -148,7 +148,7 @@ export class PlatformClawVocDialogElement extends OpenClawLitElement {
   }
 
   private async submit(): Promise<void> {
-    if (this.submitting || !this.title.trim() || !this.description.trim()) {
+    if (this.submitting || !this.subject.trim() || !this.description.trim()) {
       return;
     }
     this.submitting = true;
@@ -158,7 +158,7 @@ export class PlatformClawVocDialogElement extends OpenClawLitElement {
         method: "POST",
         credentials: "same-origin",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify({ title: this.title, description: this.description }),
+        body: JSON.stringify({ title: this.subject, description: this.description }),
       });
       if (response.status === 401) {
         this.onUnauthenticated();
@@ -178,7 +178,7 @@ export class PlatformClawVocDialogElement extends OpenClawLitElement {
   }
 
   override render() {
-    const valid = Boolean(this.title.trim() && this.description.trim());
+    const valid = Boolean(this.subject.trim() && this.description.trim());
     return html`
       <openclaw-modal-dialog
         label=${t("platformClaw.voc.title")}
@@ -223,10 +223,10 @@ export class PlatformClawVocDialogElement extends OpenClawLitElement {
                       maxlength="200"
                       placeholder=${t("platformClaw.voc.subjectPlaceholder")}
                       autofocus
-                      .value=${this.title}
+                      .value=${this.subject}
                       ?disabled=${this.submitting}
                       @input=${(event: InputEvent) => {
-                        this.title = (event.currentTarget as HTMLInputElement).value;
+                        this.subject = (event.currentTarget as HTMLInputElement).value;
                         this.confirming = false;
                       }}
                     />
