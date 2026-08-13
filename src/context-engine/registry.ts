@@ -2,7 +2,6 @@
 import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
 import type { OpenClawConfig } from "../config/types.js";
 import { createAbortError } from "../infra/abort-signal.js";
-import { getPluginCompatRecord } from "../plugins/compat/registry.js";
 import type {
   ContextEngineFactory,
   ContextEngineFactoryContext,
@@ -62,7 +61,6 @@ function wrapResolvedContextEngine(
     factoryCtx?: ContextEngineFactoryContext;
   },
 ): ContextEngine {
-  const removeAfter = getPluginCompatRecord("context-engine-legacy-host-param-default").removeAfter;
   const accepted = engine.info.acceptedHostParams;
   const fallback =
     metadata.defaultEngineId &&
@@ -83,14 +81,10 @@ function wrapResolvedContextEngine(
         }))
     : undefined;
   const projectParams = (params: Record<string, unknown>) => {
-    // Removal(2026-08-12): undeclared engines get full params. Contract: context-engine-legacy-host-param-default.
-    const useLegacyDefault =
-      removeAfter !== undefined && new Date().toISOString().slice(0, 10) <= removeAfter;
-    const currentAccepted = accepted ?? (useLegacyDefault ? [] : undefined);
-    return currentAccepted
+    return accepted
       ? Object.fromEntries(
           Object.entries(params).filter(
-            ([key]) => currentAccepted.includes(key) || !CONTEXT_ENGINE_HOST_PARAMS.has(key),
+            ([key]) => accepted.includes(key) || !CONTEXT_ENGINE_HOST_PARAMS.has(key),
           ),
         )
       : params;

@@ -91,6 +91,7 @@ services:
       PLATFORMCLAW_LISTEN_PORT: "19002"
       PLATFORMCLAW_DATABASE_PATH: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/control/platformclaw-control.sqlite
       PLATFORMCLAW_CONTROL_UI_ROOT: /app/ui/dist
+      PLATFORMCLAW_VOC_URL: ${PLATFORMCLAW_VOC_URL:-}
       PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/workspaces
       PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE: /run/secrets/platformclaw_initial_admin_ids
       PLATFORMCLAW_GATEWAY_URL: ws://gateway.platformclaw.local:18789

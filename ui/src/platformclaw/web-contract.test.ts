@@ -48,11 +48,26 @@ describe("PlatformClaw Web descriptor", () => {
   });
 
   it("accepts only the fixed browser bootstrap contract", () => {
-    expect(parsePlatformClawWebDescriptor({ ...PLATFORMCLAW_WEB_DESCRIPTOR })).toBe(
+    expect(parsePlatformClawWebDescriptor({ ...PLATFORMCLAW_WEB_DESCRIPTOR })).toEqual(
       PLATFORMCLAW_WEB_DESCRIPTOR,
     );
     document.head.innerHTML = `<meta name="platformclaw-web-descriptor" content='${JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR)}'>`;
-    expect(readPlatformClawWebDescriptor(document)).toBe(PLATFORMCLAW_WEB_DESCRIPTOR);
+    expect(readPlatformClawWebDescriptor(document)).toEqual(PLATFORMCLAW_WEB_DESCRIPTOR);
+  });
+
+  it("accepts only the server-owned VOC capability flag", () => {
+    expect(
+      parsePlatformClawWebDescriptor({
+        ...PLATFORMCLAW_WEB_DESCRIPTOR,
+        vocEnabled: true,
+      }).vocEnabled,
+    ).toBe(true);
+    expect(() =>
+      parsePlatformClawWebDescriptor({
+        ...PLATFORMCLAW_WEB_DESCRIPTOR,
+        vocEnabled: "true",
+      }),
+    ).toThrow("descriptor values are invalid");
   });
 
   it.each([

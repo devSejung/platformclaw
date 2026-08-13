@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   loadPlatformClawDeploymentConfig,
@@ -56,10 +56,30 @@ function fixtureEnv(): NodeJS.ProcessEnv {
 describe("loadPlatformClawDeploymentConfig", () => {
   it("loads paths, bounded secrets, and derived private Gateway endpoints", () => {
     const env = fixtureEnv();
+    const vocConfigFile = join(
+      dirname(env[PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile] ?? ""),
+      "jira-voc.json",
+    );
+    writeFileSync(
+      vocConfigFile,
+      JSON.stringify({
+        baseUrl: "https://jira.company.example",
+        projectKey: "VOC",
+        issueType: "Task",
+        authorization: "Bearer test",
+      }),
+    );
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.jiraVocConfigFile] = vocConfigFile;
     const config = loadPlatformClawDeploymentConfig(env);
 
     expect(config).toMatchObject({
       publicOrigin: "http://127.0.0.1:19001",
+      jiraVoc: {
+        baseUrl: "https://jira.company.example",
+        projectKey: "VOC",
+        issueType: "Task",
+        authorization: "Bearer test",
+      },
       listenHost: "127.0.0.1",
       listenPort: 19001,
       initialAdminAccountIds: ["person.one", "person.two"],

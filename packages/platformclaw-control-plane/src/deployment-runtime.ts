@@ -79,6 +79,7 @@ export function createPlatformClawDeploymentRuntime(
     adminRpc: rpc,
     publicOrigin: config.publicOrigin,
     controlUiRoot: config.controlUiRoot,
+    ...(config.jiraVoc ? { jiraVoc: config.jiraVoc } : {}),
     credentialBrokerAddress: config.credentialBrokerAddress,
     executionServiceToken: config.executionServiceToken,
     knoxIngressProxyUrl: new URL(

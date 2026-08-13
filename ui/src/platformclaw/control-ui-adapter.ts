@@ -1,10 +1,11 @@
 import { html, nothing } from "lit";
+import { until } from "lit/directives/until.js";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
-import "./execution-settings.ts";
 import "./mcp-administration.ts";
 import "./mcp-settings.ts";
+import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -112,30 +113,38 @@ export class PlatformClawControlUiAdapter {
     identity: PlatformClawSessionIdentity,
     onLogout: () => Promise<void>,
   ): ApplicationBootstrapOptions {
+    const onUnauthenticated = () => {
+      this.clearBrowserSessionState();
+      this.redirectToLogin(true);
+    };
+    const quickActions = Promise.all([import("./quick-actions.ts"), loadPlatformClawLocale()])
+      .then(
+        () => html`
+          <platformclaw-quick-actions
+            .fetchImpl=${this.fetchImpl}
+            .onUnauthenticated=${onUnauthenticated}
+            .admin=${identity.globalRole === "admin"}
+            .vocEnabled=${this.descriptor.vocEnabled}
+          ></platformclaw-quick-actions>
+        `,
+      )
+      .catch(
+        () =>
+          html`<p class="muted" role="status">${t("platformClaw.quickActions.unavailable")}</p>`,
+      );
     if (identity.globalRole === "admin") {
       void import("./vm-administration.ts").catch(() => {
         // A stale deployment chunk must not break the upstream Control UI session.
       });
     }
-    const onUnauthenticated = () => {
-      this.clearBrowserSessionState();
-      this.redirectToLogin(true);
-    };
     const shellSession: ApplicationShellSession = {
       primaryLabel: identity.displayName,
       secondaryLabel: identity.department || identity.accountId,
-      renderFooterAccessory: () => html`
-        <platformclaw-execution-settings
-          .fetchImpl=${this.fetchImpl}
-          .onUnauthenticated=${onUnauthenticated}
-        ></platformclaw-execution-settings>
-        ${identity.globalRole === "admin"
-          ? html`<platformclaw-vm-administration
-              .fetchImpl=${this.fetchImpl}
-              .onUnauthenticated=${onUnauthenticated}
-            ></platformclaw-vm-administration>`
-          : nothing}
-      `,
+      renderFooterAccessory: () =>
+        until(
+          quickActions,
+          html`<p class="muted" role="status">${t("platformClaw.quickActions.loading")}</p>`,
+        ),
       onLogout,
     };
     const enabledRouteIds = this.descriptor.enabledRoutes.filter(

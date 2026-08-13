@@ -18,6 +18,7 @@ describe("PlatformClawControlUiAdapter", () => {
   beforeEach(() => {
     document.head.innerHTML = "";
     document.body.innerHTML = "";
+    localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
   });
 
   it("stays inactive for the unmodified upstream Control UI document", () => {
@@ -212,12 +213,21 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(adminOptions.navigation?.settingsNavigationMode).toBe("takeover");
     render(adminOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
-    expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll("platformclaw-quick-actions")).toHaveLength(1);
+    });
     expect(document.querySelector(".platformclaw-mcp-navigation")).toBeNull();
     expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(0);
-    expect(document.querySelectorAll("platformclaw-vm-administration")).toHaveLength(1);
+    const adminQuickActions = document.querySelector("platformclaw-quick-actions")!;
+    await (adminQuickActions as HTMLElement & { updateComplete: Promise<unknown> }).updateComplete;
+    expect(
+      adminQuickActions.shadowRoot?.querySelectorAll("platformclaw-execution-settings"),
+    ).toHaveLength(1);
+    expect(
+      adminQuickActions.shadowRoot?.querySelectorAll("platformclaw-vm-administration"),
+    ).toHaveLength(1);
     await customElements.whenDefined("platformclaw-vm-administration");
-    const administration = document.querySelector(
+    const administration = adminQuickActions.shadowRoot?.querySelector(
       "platformclaw-vm-administration",
     ) as HTMLElement & {
       fetchImpl: typeof fetch;
@@ -248,9 +258,18 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(memberOptions.navigation?.settingsNavigationMode).toBe("takeover");
     render(memberOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
-    expect(document.querySelectorAll("platformclaw-execution-settings")).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll("platformclaw-quick-actions")).toHaveLength(1);
+    });
+    const memberQuickActions = document.querySelector("platformclaw-quick-actions")!;
+    await (memberQuickActions as HTMLElement & { updateComplete: Promise<unknown> }).updateComplete;
+    expect(
+      memberQuickActions.shadowRoot?.querySelectorAll("platformclaw-execution-settings"),
+    ).toHaveLength(1);
     expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(0);
-    expect(document.querySelector("platformclaw-vm-administration")).toBeNull();
+    expect(
+      memberQuickActions.shadowRoot?.querySelector("platformclaw-vm-administration"),
+    ).toBeNull();
     const memberMcpModule = await memberOptions.routeOverrides?.mcp?.component?.();
     render(memberMcpModule?.render(undefined), document.body);
     expect(document.querySelector("platformclaw-mcp-administration")).toBeNull();

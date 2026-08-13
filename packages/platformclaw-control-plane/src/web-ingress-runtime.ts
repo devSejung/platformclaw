@@ -13,6 +13,7 @@ import {
 import { McpAdministrationService } from "./browser-mcp-admin-http.js";
 import { EmployeeMcpService } from "./browser-mcp-http.js";
 import { VmAdministrationService } from "./browser-vm-admin-http.js";
+import { JiraVocService, type JiraVocConfig } from "./browser-voc-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
 import {
   deriveExecutionHandoffAddress,
@@ -59,6 +60,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   adminRpc: GatewayAdminRpc;
   publicOrigin: string;
   controlUiRoot: string;
+  jiraVoc?: JiraVocConfig;
   loginRateLimiter?: MemoryBrowserLoginRateLimiterOptions;
   credentialBrokerAddress?: string;
   executionServiceToken?: string;
@@ -174,6 +176,13 @@ export function createPlatformClawWebIngressRuntime(
     adminRpc: options.adminRpc,
     ...(mcpService ? { onCatalogChanged: () => mcpService.invalidateCatalog() } : {}),
   });
+  const vocService = options.jiraVoc
+    ? new JiraVocService({
+        authService: auth.service,
+        config: options.jiraVoc,
+        ...(options.employeeAuth?.fetchImpl ? { fetchImpl: options.employeeAuth.fetchImpl } : {}),
+      })
+    : undefined;
   const restartReconciler = new AgentRestartReconciler({
     store: auth.store,
     personalAgentProbe: options.restartRecoveryProbe,
@@ -198,6 +207,7 @@ export function createPlatformClawWebIngressRuntime(
     executionService: employeeExecution,
     vmAdministrationService: vmAdministration,
     mcpAdministrationService: mcpAdministration,
+    ...(vocService ? { vocService } : {}),
     ...(knoxRouting ? { knoxRouting } : {}),
     ...(options.knoxIngressProxyUrl
       ? { knoxIngressProxy: { targetUrl: options.knoxIngressProxyUrl } }
@@ -205,6 +215,7 @@ export function createPlatformClawWebIngressRuntime(
     ...(mcpService ? { mcpService } : {}),
     webAssets: createPlatformClawWebAssetHandler(options.controlUiRoot, {
       publicOrigin: options.publicOrigin,
+      vocEnabled: Boolean(vocService),
     }),
     ...options.ingress,
   });

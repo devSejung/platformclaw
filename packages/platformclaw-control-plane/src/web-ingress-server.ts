@@ -17,7 +17,6 @@ import {
   handlePlatformClawBrowserAuthRequest,
   readPlatformClawSessionCookie,
   type BrowserLoginRateLimiter,
-  type JsonBodyReader,
 } from "./browser-auth-http.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import {
@@ -31,6 +30,7 @@ import {
   type BrowserGatewayEvent,
 } from "./browser-gateway-proxy.js";
 import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-ordering.js";
+import { readBrowserJsonBody, sendBrowserJson } from "./browser-http-shared.js";
 import {
   handlePlatformClawMcpAdministrationRequest,
   type McpAdministrationService,
@@ -43,6 +43,7 @@ import {
   handlePlatformClawVmAdministrationRequest,
   type VmAdministrationService,
 } from "./browser-vm-admin-http.js";
+import { handlePlatformClawVocRequest, type JiraVocService } from "./browser-voc-http.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import { handlePlatformClawKnoxIngressProxy } from "./knox-ingress-proxy.js";
 import { handlePlatformClawKnoxRoutingRequest } from "./knox-routing-http.js";
@@ -87,6 +88,7 @@ export type PlatformClawWebIngressOptions = {
   vmAdministrationService?: VmAdministrationService;
   mcpAdministrationService?: McpAdministrationService;
   mcpService?: EmployeeMcpService;
+  vocService?: JiraVocService;
   knoxRouting?: { service: KnoxRoutingService; serviceToken: string };
   knoxIngressProxy?: { targetUrl: string };
   webAssets?: PlatformClawWebAssetHandler;
@@ -120,39 +122,9 @@ function normalizePublicOrigin(value: string): string {
   return parsed.origin;
 }
 
-const readJsonBody: JsonBodyReader = async (req, maxBytes) => {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  let exceeded = false;
-  for await (const rawChunk of req) {
-    const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
-    size += chunk.byteLength;
-    if (size > maxBytes) {
-      exceeded = true;
-      continue;
-    }
-    chunks.push(chunk);
-  }
-  if (exceeded) {
-    return { ok: false, error: "request body too large" };
-  }
-  try {
-    return { ok: true, value: JSON.parse(Buffer.concat(chunks).toString("utf8")) };
-  } catch {
-    return { ok: false, error: "invalid JSON body" };
-  }
-};
-
 function requestOrigin(req: IncomingMessage): string | undefined {
   const value = req.headers.origin;
   return Array.isArray(value) ? value[0] : value;
-}
-
-function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
-  res.statusCode = statusCode;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Cache-Control", "no-store");
-  res.end(JSON.stringify(body));
 }
 
 function rejectUpgrade(socket: Duplex, statusCode: number, statusText: string): void {
@@ -328,7 +300,7 @@ export class PlatformClawWebIngressServer {
     try {
       const handled = await handlePlatformClawBrowserAuthRequest(req, res, {
         service: this.options.authService,
-        readJsonBody,
+        readJsonBody: readBrowserJsonBody,
         clientIp: this.options.resolveClientIp?.(req) ?? req.socket.remoteAddress,
         gatewayUrl: this.browserGatewayUrl(),
         requestIsSecure: this.publicOrigin.startsWith("https://"),
@@ -339,10 +311,20 @@ export class PlatformClawWebIngressServer {
         return;
       }
       if (
+        this.options.vocService &&
+        (await handlePlatformClawVocRequest(req, res, {
+          service: this.options.vocService,
+          readJsonBody: readBrowserJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
         this.options.executionService &&
         (await handlePlatformClawEmployeeExecutionRequest(req, res, {
           service: this.options.executionService,
-          readJsonBody,
+          readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))
       ) {
@@ -352,7 +334,7 @@ export class PlatformClawWebIngressServer {
         this.options.mcpService &&
         (await handlePlatformClawEmployeeMcpRequest(req, res, {
           service: this.options.mcpService,
-          readJsonBody,
+          readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))
       ) {
@@ -362,7 +344,7 @@ export class PlatformClawWebIngressServer {
         this.options.mcpAdministrationService &&
         (await handlePlatformClawMcpAdministrationRequest(req, res, {
           service: this.options.mcpAdministrationService,
-          readJsonBody,
+          readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))
       ) {
@@ -372,7 +354,7 @@ export class PlatformClawWebIngressServer {
         this.options.vmAdministrationService &&
         (await handlePlatformClawVmAdministrationRequest(req, res, {
           service: this.options.vmAdministrationService,
-          readJsonBody,
+          readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))
       ) {
@@ -388,7 +370,7 @@ export class PlatformClawWebIngressServer {
         this.options.knoxRouting &&
         (await handlePlatformClawKnoxRoutingRequest(req, res, {
           ...this.options.knoxRouting,
-          readJsonBody,
+          readJsonBody: readBrowserJsonBody,
         }))
       ) {
         return;
@@ -431,13 +413,13 @@ export class PlatformClawWebIngressServer {
       const pathname = requestUrl.pathname;
       if (pathname === this.healthPath && (req.method === "GET" || req.method === "HEAD")) {
         const ready = this.options.gateway.getHello() !== null;
-        sendJson(res, ready ? 200 : 503, req.method === "HEAD" ? undefined : { ready });
+        sendBrowserJson(res, ready ? 200 : 503, req.method === "HEAD" ? undefined : { ready });
         return;
       }
-      sendJson(res, 404, { error: "not found" });
+      sendBrowserJson(res, 404, { error: "not found" });
     } catch {
       if (!res.headersSent) {
-        sendJson(res, 500, { error: "internal server error" });
+        sendBrowserJson(res, 500, { error: "internal server error" });
       } else {
         res.destroy();
       }

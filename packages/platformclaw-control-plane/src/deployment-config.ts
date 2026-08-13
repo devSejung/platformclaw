@@ -1,5 +1,7 @@
 import { lstatSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import type { JiraVocConfig } from "./browser-voc-http.js";
+import { parseJiraVocConfig } from "./jira-voc-config.js";
 import { McpCredentialCipher } from "./mcp-credential-crypto.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 
@@ -13,6 +15,7 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   listenPort: "PLATFORMCLAW_LISTEN_PORT",
   databasePath: "PLATFORMCLAW_DATABASE_PATH",
   controlUiRoot: "PLATFORMCLAW_CONTROL_UI_ROOT",
+  jiraVocConfigFile: "PLATFORMCLAW_JIRA_VOC_CONFIG_FILE",
   workspaceRoot: "PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT",
   initialAdminAccountIdsFile: "PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE",
   gatewayUrl: "PLATFORMCLAW_GATEWAY_URL",
@@ -30,6 +33,7 @@ export type PlatformClawDeploymentConfig = {
   listenPort: number;
   databasePath: string;
   controlUiRoot: string;
+  jiraVoc?: JiraVocConfig;
   workspaceRoot: string;
   initialAdminAccountIds: readonly string[];
   gatewayUrl: string;
@@ -106,7 +110,7 @@ function readServiceToken(filePath: string, envName: string): string {
   return token;
 }
 
-function readDeploymentSecret(filePath: string, label: string): string {
+export function readDeploymentSecret(filePath: string, label: string): string {
   const resolvedPath = resolve(filePath);
   const stat = lstatSync(resolvedPath);
   if (stat.isSymbolicLink() || !stat.isFile()) {
@@ -156,12 +160,20 @@ export function loadPlatformClawDeploymentConfig(
     requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile),
     PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile,
   );
+  const jiraVocConfigFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.jiraVocConfigFile]?.trim();
   return {
     publicOrigin: parsePublicOrigin(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin)),
     listenHost: env[PLATFORMCLAW_DEPLOYMENT_ENV.listenHost]?.trim() || DEFAULT_LISTEN_HOST,
     listenPort,
     databasePath: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.databasePath)),
     controlUiRoot: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.controlUiRoot)),
+    ...(jiraVocConfigFile
+      ? {
+          jiraVoc: parseJiraVocConfig(
+            readDeploymentSecret(jiraVocConfigFile, PLATFORMCLAW_DEPLOYMENT_ENV.jiraVocConfigFile),
+          ),
+        }
+      : {}),
     workspaceRoot: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.workspaceRoot)),
     initialAdminAccountIds,
     gatewayUrl: gateway.websocketUrl,

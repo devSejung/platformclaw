@@ -122,37 +122,13 @@ describe("context-engine host parameter projection", () => {
     });
   });
 
-  it("uses the legacy parameter set for undeclared engines during the window", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-29T12:00:00Z"));
+  it("passes full host parameters to undeclared engines", async () => {
     const assembleCalls: Array<Record<string, unknown>> = [];
     const compactCalls: Array<Record<string, unknown>> = [];
     const engineId = registerProbeEngine({ assembleCalls, compactCalls });
-
     await invokeHostParamMethods(
       await resolveContextEngine({ plugins: { slots: { contextEngine: engineId } } }),
     );
-
-    for (const call of [...assembleCalls, ...compactCalls]) {
-      expect(call).not.toHaveProperty("sessionKey");
-      expect(call).not.toHaveProperty("runtimeSettings");
-    }
-    expect(assembleCalls[0]).not.toHaveProperty("prompt");
-    expect(compactCalls[0]).not.toHaveProperty("sessionTarget");
-    expect(compactCalls[0]).not.toHaveProperty("runtimeContext");
-    expect(compactCalls[0]).toHaveProperty("sessionId", "session-1");
-  });
-
-  it("passes full host parameters to undeclared engines after the window", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-29T12:00:00Z"));
-    const assembleCalls: Array<Record<string, unknown>> = [];
-    const compactCalls: Array<Record<string, unknown>> = [];
-    const engineId = registerProbeEngine({ assembleCalls, compactCalls });
-    const engine = await resolveContextEngine({ plugins: { slots: { contextEngine: engineId } } });
-
-    vi.setSystemTime(new Date("2026-08-13T00:00:00Z"));
-    await invokeHostParamMethods(engine);
 
     expect(assembleCalls[0]).toHaveProperty("sessionKey", "agent:main:session-1");
     expect(assembleCalls[0]).toHaveProperty("prompt", "hello");
@@ -185,8 +161,6 @@ describe("context-engine host parameter projection", () => {
   });
 
   it("does not mutate frozen engines reused by a factory", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-29T12:00:00Z"));
     const engineId = `host-param-frozen-${++engineCounter}`;
     const assemble = vi.fn<ContextEngine["assemble"]>(async (params) => ({
       messages: params.messages,
@@ -220,8 +194,8 @@ describe("context-engine host parameter projection", () => {
 
     expect(assemble).toHaveBeenCalledTimes(2);
     expect(assemble.mock.calls.map(([params]) => params)).toEqual([
-      { sessionId: "session-1", messages: [message] },
-      { sessionId: "session-2", messages: [message] },
+      { sessionId: "session-1", sessionKey: "first", messages: [message] },
+      { sessionId: "session-2", sessionKey: "second", messages: [message] },
     ]);
   });
 });
