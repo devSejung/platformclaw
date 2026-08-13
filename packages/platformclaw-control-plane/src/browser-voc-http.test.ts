@@ -86,7 +86,12 @@ describe("PlatformClaw VOC HTTP", () => {
     });
     const request = fetchImpl.mock.calls[0]?.[1];
     expect(request?.headers).toMatchObject({ Authorization: "Bearer secret" });
-    const payload = JSON.parse(String(request?.body)) as { fields: Record<string, unknown> };
+    const requestBody = request?.body;
+    expect(typeof requestBody).toBe("string");
+    if (typeof requestBody !== "string") {
+      throw new Error("Expected Jira request body to be JSON text");
+    }
+    const payload = JSON.parse(requestBody) as { fields: Record<string, unknown> };
     expect(payload.fields).toMatchObject({
       project: { key: "VOC" },
       parent: { key: "VOC-1" },
