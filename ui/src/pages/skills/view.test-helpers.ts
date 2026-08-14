@@ -10,7 +10,7 @@ export function normalizeText(node: Element | DocumentFragment): string {
 export function createSkill(overrides: Partial<SkillStatusEntry> = {}): SkillStatusEntry {
   return {
     name: "Repo Skill",
-    description: "Skill description",
+    description: "",
     source: "workspace",
     filePath: "/tmp/skill",
     baseDir: "/tmp",
