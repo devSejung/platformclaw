@@ -1,17 +1,17 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import type { ControlPlaneAuditWriter, ControlPlaneStore } from "./contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import { IflytekSkillHubAdapter } from "./skill-hub-adapter.js";
 import { SkillHubService } from "./skill-hub-service.js";
 
-const roots: string[] = [];
 const servers: Server[] = [];
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 afterEach(async () => {
   await Promise.all(
@@ -24,7 +24,6 @@ afterEach(async () => {
         }),
     ),
   );
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("PlatformClaw Skill Hub integration", () => {
@@ -112,8 +111,7 @@ describe("PlatformClaw Skill Hub integration", () => {
       throw new Error("registry fixture did not listen");
     }
 
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "platformclaw-skill-hub-integration-"));
-    roots.push(workspaceRoot);
+    const workspaceRoot = tempDirs.make("platformclaw-skill-hub-integration-");
     const skillDir = path.join(workspaceRoot, "agent-one", "skills", "demo-skill");
     await mkdir(skillDir, { recursive: true });
     await writeFile(

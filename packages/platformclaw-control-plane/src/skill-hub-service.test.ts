@@ -1,19 +1,15 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import type { ControlPlaneAuditWriter, ControlPlaneStore, PlatformUser } from "./contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import type { SkillHubAdapter } from "./skill-hub-adapter.js";
 import { SkillHubService, SkillHubServiceError } from "./skill-hub-service.js";
 
-const roots: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
-});
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 const user: PlatformUser = {
   id: "user-1",
@@ -27,8 +23,7 @@ const user: PlatformUser = {
 };
 
 async function fixture(groups: string[] = ["engineering"]) {
-  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "platformclaw-skill-hub-"));
-  roots.push(workspaceRoot);
+  const workspaceRoot = tempDirs.make("platformclaw-skill-hub-");
   const skillDir = path.join(workspaceRoot, "agent-1", "skills", "demo-skill");
   await mkdir(skillDir, { recursive: true });
   await writeFile(
