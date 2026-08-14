@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
 import { mountPlatformClawExecutionSettings } from "./execution-settings.ts";
-import { PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT } from "./execution-target-events.ts";
+import { subscribeToPlatformClawExecutionTargetChanges } from "./execution-target-events.ts";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -104,7 +104,7 @@ describe("PlatformClaw execution settings", () => {
       .mockResolvedValueOnce(jsonResponse(SETTINGS))
       .mockResolvedValueOnce(jsonResponse(changedSettings));
     const listener = vi.fn();
-    window.addEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, listener);
+    const unsubscribe = subscribeToPlatformClawExecutionTargetChanges(window, listener, () => {});
     mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = document.querySelector("platformclaw-execution-settings")!;
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Basic workspace"));
@@ -114,7 +114,7 @@ describe("PlatformClaw execution settings", () => {
     element.shadowRoot?.querySelector<HTMLElement>("[data-action='confirm-switch']")?.click();
 
     await vi.waitFor(() => expect(listener).toHaveBeenCalledOnce());
-    window.removeEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, listener);
+    unsubscribe();
   });
 
   it("keeps an Escape-cancelled work-location dialog closed", async () => {

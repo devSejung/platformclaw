@@ -3,7 +3,7 @@ import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { SessionsListResult } from "../../api/types.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
 import type { SkillWorkshopProposal } from "../../lib/skill-workshop/index.ts";
-import { PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT } from "../../platformclaw/execution-target-events.ts";
+import { notifyPlatformClawExecutionTargetChanged } from "../../platformclaw/execution-target-events.ts";
 import { createSkillWorkshopState, skillWorkshopRouteData } from "./proposals.ts";
 import type { SkillWorkshopRouteData, SkillWorkshopState } from "./proposals.ts";
 import "./skill-workshop-page.ts";
@@ -310,7 +310,7 @@ describe("SkillWorkshopPage lifecycle", () => {
     await waitForSkillWorkshop(() =>
       expect(callsFor(request, "skills.proposals.list")).toHaveLength(1),
     );
-    window.dispatchEvent(new Event(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT));
+    notifyPlatformClawExecutionTargetChanged();
 
     await waitForSkillWorkshop(() => expect(callsFor(request, "skills.status")).toHaveLength(2));
     await waitForSkillWorkshop(() =>
