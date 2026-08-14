@@ -39,6 +39,7 @@ import {
   handlePlatformClawEmployeeMcpRequest,
   type EmployeeMcpService,
 } from "./browser-mcp-http.js";
+import { handlePlatformClawSkillHubRequest } from "./browser-skill-hub-http.js";
 import {
   handlePlatformClawVmAdministrationRequest,
   type VmAdministrationService,
@@ -48,6 +49,7 @@ import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import { handlePlatformClawKnoxIngressProxy } from "./knox-ingress-proxy.js";
 import { handlePlatformClawKnoxRoutingRequest } from "./knox-routing-http.js";
 import type { KnoxRoutingService } from "./knox-routing-service.js";
+import type { SkillHubService } from "./skill-hub-service.js";
 import type { PlatformClawWebAssetHandler } from "./web-assets.js";
 import { isPlatformClawApplicationPath, PLATFORMCLAW_WEB_LOGIN_PATH } from "./web-assets.js";
 
@@ -89,6 +91,7 @@ export type PlatformClawWebIngressOptions = {
   mcpAdministrationService?: McpAdministrationService;
   mcpService?: EmployeeMcpService;
   vocService?: JiraVocService;
+  skillHubService?: SkillHubService;
   knoxRouting?: { service: KnoxRoutingService; serviceToken: string };
   knoxIngressProxy?: { targetUrl: string };
   webAssets?: PlatformClawWebAssetHandler;
@@ -354,6 +357,16 @@ export class PlatformClawWebIngressServer {
         this.options.vmAdministrationService &&
         (await handlePlatformClawVmAdministrationRequest(req, res, {
           service: this.options.vmAdministrationService,
+          readJsonBody: readBrowserJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
+        this.options.skillHubService &&
+        (await handlePlatformClawSkillHubRequest(req, res, {
+          service: this.options.skillHubService,
           readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))

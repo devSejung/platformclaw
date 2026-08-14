@@ -126,6 +126,36 @@ describe("loadPlatformClawDeploymentConfig", () => {
     expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("must contain 32 to 512 bytes");
   });
 
+  it("loads an optional Skill Hub adapter configuration from server-only values", () => {
+    const env = fixtureEnv();
+    const tokenPath = join(
+      resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.databasePath] ?? "", "..", ".."),
+      "skill-hub-token",
+    );
+    writeFileSync(tokenPath, "skill-hub-service-token", { mode: 0o600 });
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl] = "https://skillhub.example.test/registry";
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile] = tokenPath;
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces] =
+      "Engineering=ENG-Skill-Publishers, shared=*,engineering=eng-skill-publishers";
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubMaxPackageBytes] = "2097152";
+
+    expect(loadPlatformClawDeploymentConfig(env).skillHub).toEqual({
+      url: "https://skillhub.example.test/registry",
+      token: "skill-hub-service-token",
+      namespacePolicies: [
+        { namespace: "engineering", accessGroup: "eng-skill-publishers" },
+        { namespace: "shared", accessGroup: "*" },
+      ],
+      maxPackageBytes: 2 * 1024 * 1024,
+    });
+  });
+
+  it("rejects a partial Skill Hub configuration", () => {
+    const env = fixtureEnv();
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl] = "https://skillhub.example.test";
+    expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("must be set together");
+  });
+
   it.each([
     [PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin, "http://example.test/path"],
     [PLATFORMCLAW_DEPLOYMENT_ENV.gatewayUrl, "ws://user@example.test"],

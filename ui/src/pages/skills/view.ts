@@ -43,6 +43,12 @@ import {
   type SkillMessageMap,
 } from "../../lib/skills/index.ts";
 import { normalizeLowercaseStringOrEmpty } from "../../lib/string-coerce.ts";
+import type {
+  PlatformClawSkillHubConfig,
+  PlatformClawSkillHubDetail,
+  PlatformClawSkillHubMessage,
+  PlatformClawSkillHubSearchItem,
+} from "../../platformclaw/skill-hub.ts";
 
 function safeExternalHref(raw?: string): string | null {
   if (!raw) {
@@ -92,6 +98,22 @@ type SkillsProps = {
     acknowledgeVersion?: string;
     acknowledgeLabel?: string;
   } | null;
+  skillHubConfig: PlatformClawSkillHubConfig | null;
+  skillHubConfigLoading: boolean;
+  skillHubQuery: string;
+  skillHubResults: PlatformClawSkillHubSearchItem[] | null;
+  skillHubSearchLoading: boolean;
+  skillHubError: string | null;
+  skillHubDetailRef: { namespace: string; slug: string } | null;
+  skillHubDetail: PlatformClawSkillHubDetail | null;
+  skillHubDetailLoading: boolean;
+  skillHubSelectedVersion: string;
+  skillHubPublishSkill: string | null;
+  skillHubPublishNamespace: string;
+  skillHubPublishVersion: string;
+  skillHubPublishVisibility: string;
+  skillHubOperation: "publish" | "install" | null;
+  skillHubMessage: PlatformClawSkillHubMessage | null;
   onFilterChange: (next: string) => void;
   onAgentChange: (agentId: string) => void;
   onStatusFilterChange: (next: SkillsStatusFilter) => void;
@@ -107,6 +129,18 @@ type SkillsProps = {
   onClawHubDetailOpen: (slug: string) => void;
   onClawHubDetailClose: () => void;
   onClawHubInstall: (slug: string, acknowledgeClawHubRisk?: boolean, version?: string) => void;
+  onSkillHubQueryChange: (query: string) => void;
+  onSkillHubSearch: () => void;
+  onSkillHubDetailOpen: (namespace: string, slug: string) => void;
+  onSkillHubDetailClose: () => void;
+  onSkillHubVersionChange: (version: string) => void;
+  onSkillHubInstall: () => void;
+  onSkillHubPublishOpen: (skill: string) => void;
+  onSkillHubPublishClose: () => void;
+  onSkillHubPublishNamespaceChange: (namespace: string) => void;
+  onSkillHubPublishVersionChange: (version: string) => void;
+  onSkillHubPublishVisibilityChange: (visibility: string) => void;
+  onSkillHubPublish: () => void;
 };
 
 type StatusTabDef = { id: SkillsStatusFilter; labelKey: string };
@@ -291,7 +325,9 @@ export function renderSkills(props: SkillsProps) {
               </div>
             </div>`
           : nothing}
-        ${personalVm ? nothing : renderClawHubSection(props)}
+        ${props.personalAccess
+          ? renderPlatformClawSkillHubSection(props)
+          : renderClawHubSection(props)}
         ${filtered.length === 0
           ? renderSettingsEmpty(
               !props.connected && !props.report
@@ -304,6 +340,222 @@ export function renderSkills(props: SkillsProps) {
     )}
     ${detailSkill ? renderSkillDetail(detailSkill, props) : nothing}
     ${props.clawhubDetailSlug && !personalVm ? renderClawHubDetailDialog(props) : nothing}
+    ${props.skillHubDetailRef ? renderPlatformClawSkillHubDetail(props) : nothing}
+    ${props.skillHubPublishSkill && !personalVm
+      ? renderPlatformClawSkillHubPublish(props)
+      : nothing}
+  `;
+}
+
+function renderPlatformClawSkillHubSection(props: SkillsProps) {
+  return renderSettingsSection(
+    {
+      title: t("skillsPage.skillHub.title"),
+      description: t("skillsPage.skillHub.subtitle"),
+    },
+    html`
+      <div class="settings-row">
+        <input
+          class="settings-input plugins-row-input"
+          .value=${props.skillHubQuery}
+          @input=${(event: Event) =>
+            props.onSkillHubQueryChange((event.target as HTMLInputElement).value)}
+          @keydown=${(event: KeyboardEvent) => {
+            if (event.key === "Enter") {
+              props.onSkillHubSearch();
+            }
+          }}
+          placeholder=${t("skillsPage.skillHub.searchPlaceholder")}
+          autocomplete="off"
+          name="platformclaw-skill-hub-search"
+        />
+        <button
+          class="btn"
+          ?disabled=${props.skillHubSearchLoading || !props.skillHubConfig}
+          @click=${props.onSkillHubSearch}
+        >
+          ${props.skillHubSearchLoading
+            ? t("skillsPage.skillHub.searching")
+            : t("skillsPage.skillHub.search")}
+        </button>
+      </div>
+      ${props.skillHubConfigLoading
+        ? html`<div class="muted plugins-group-message">${t("skillsPage.skillHub.loading")}</div>`
+        : nothing}
+      ${props.skillHubError
+        ? html`<div class="callout danger plugins-group-message">${props.skillHubError}</div>`
+        : nothing}
+      ${props.skillHubMessage
+        ? html`<div
+            class="callout ${props.skillHubMessage.kind === "error"
+              ? "danger"
+              : "success"} plugins-group-message"
+          >
+            ${props.skillHubMessage.text}
+          </div>`
+        : nothing}
+      ${props.skillHubResults?.length === 0
+        ? renderSettingsEmpty(t("skillsPage.skillHub.noResults"))
+        : (props.skillHubResults?.map(
+            (result) => html`
+              <div class="settings-row plugins-item plugins-item--clickable">
+                <button
+                  type="button"
+                  class="settings-row__text plugins-item__detail-button"
+                  @click=${() => props.onSkillHubDetailOpen(result.namespace, result.slug)}
+                >
+                  <span class="settings-row__title">${result.namespace}/${result.slug}</span>
+                  <span class="settings-row__desc">${clampText(result.summary, 140)}</span>
+                </button>
+                <div class="settings-row__control">
+                  ${renderSettingsValue(`v${result.latestVersion}`)}
+                  <button
+                    class="btn btn--sm"
+                    @click=${() => props.onSkillHubDetailOpen(result.namespace, result.slug)}
+                  >
+                    ${t("skillsPage.skillHub.details")}
+                  </button>
+                </div>
+              </div>
+            `,
+          ) ?? nothing)}
+    `,
+  );
+}
+
+function skillHubDetailText(
+  detail: PlatformClawSkillHubDetail | null,
+  field: "displayName" | "summary",
+): string {
+  const value = detail?.skill[field];
+  return typeof value === "string" ? value : "";
+}
+
+function renderPlatformClawSkillHubDetail(props: SkillsProps) {
+  const ref = props.skillHubDetailRef!;
+  const displayName = skillHubDetailText(props.skillHubDetail, "displayName") || ref.slug;
+  const summary = skillHubDetailText(props.skillHubDetail, "summary");
+  const targetLabel = t(
+    props.report?.executionTarget === "assigned_vm"
+      ? "platformClaw.execution.vm"
+      : "platformClaw.execution.basic",
+  );
+  return html`
+    <openclaw-modal-dialog label=${displayName} @modal-cancel=${props.onSkillHubDetailClose}>
+      <div class="md-preview-dialog__panel">
+        <div class="md-preview-dialog__header">
+          <div class="md-preview-dialog__title">${ref.namespace}/${displayName}</div>
+          <button class="btn btn--sm" @click=${props.onSkillHubDetailClose}>
+            ${t("skillsPage.close")}
+          </button>
+        </div>
+        <div
+          class="md-preview-dialog__body"
+          style="display: grid; gap: 16px; align-content: start;"
+        >
+          ${props.skillHubDetailLoading
+            ? html`<div class="muted">${t("skillsPage.skillHub.loading")}</div>`
+            : props.skillHubError
+              ? html`<div class="callout danger">${props.skillHubError}</div>`
+              : html`
+                  ${summary ? html`<div>${summary}</div>` : nothing}
+                  <label class="field">
+                    <span>${t("skillsPage.skillHub.version")}</span>
+                    <select
+                      .value=${props.skillHubSelectedVersion}
+                      @change=${(event: Event) =>
+                        props.onSkillHubVersionChange((event.target as HTMLSelectElement).value)}
+                    >
+                      ${props.skillHubDetail?.versions.map(
+                        (version) => html`
+                          <option value=${version.version} ?disabled=${!version.downloadAvailable}>
+                            ${version.version}${version.downloadAvailable
+                              ? ""
+                              : ` (${t("skillsPage.skillHub.unavailable")})`}
+                          </option>
+                        `,
+                      )}
+                    </select>
+                  </label>
+                  <button
+                    class="btn primary"
+                    ?disabled=${!props.skillHubSelectedVersion || props.skillHubOperation !== null}
+                    @click=${props.onSkillHubInstall}
+                  >
+                    ${props.skillHubOperation === "install"
+                      ? t("skillsPage.skillHub.installing")
+                      : t("skillsPage.skillHub.install", { target: targetLabel })}
+                  </button>
+                `}
+        </div>
+      </div>
+    </openclaw-modal-dialog>
+  `;
+}
+
+function renderPlatformClawSkillHubPublish(props: SkillsProps) {
+  return html`
+    <openclaw-modal-dialog
+      label=${t("skillsPage.skillHub.publishToHub")}
+      @modal-cancel=${props.onSkillHubPublishClose}
+    >
+      <div class="md-preview-dialog__panel">
+        <div class="md-preview-dialog__header">
+          <div class="md-preview-dialog__title">
+            ${t("skillsPage.skillHub.publishTitle", { skill: props.skillHubPublishSkill ?? "" })}
+          </div>
+          <button class="btn btn--sm" @click=${props.onSkillHubPublishClose}>
+            ${t("skillsPage.close")}
+          </button>
+        </div>
+        <div class="md-preview-dialog__body" style="display: grid; gap: 16px;">
+          <label class="field">
+            <span>${t("skillsPage.skillHub.namespace")}</span>
+            <select
+              .value=${props.skillHubPublishNamespace}
+              @change=${(event: Event) =>
+                props.onSkillHubPublishNamespaceChange((event.target as HTMLSelectElement).value)}
+            >
+              ${props.skillHubConfig?.namespaces.map(
+                (namespace) => html`<option value=${namespace}>${namespace}</option>`,
+              )}
+            </select>
+          </label>
+          <label class="field">
+            <span>${t("skillsPage.skillHub.version")}</span>
+            <input
+              .value=${props.skillHubPublishVersion}
+              @input=${(event: Event) =>
+                props.onSkillHubPublishVersionChange((event.target as HTMLInputElement).value)}
+              placeholder="1.0.0"
+            />
+          </label>
+          <label class="field">
+            <span>${t("skillsPage.skillHub.visibility")}</span>
+            <select
+              .value=${props.skillHubPublishVisibility}
+              @change=${(event: Event) =>
+                props.onSkillHubPublishVisibilityChange((event.target as HTMLSelectElement).value)}
+            >
+              <option value="PUBLIC">${t("skillsPage.skillHub.public")}</option>
+              <option value="NAMESPACE_ONLY">${t("skillsPage.skillHub.namespaceOnly")}</option>
+              <option value="PRIVATE">${t("skillsPage.skillHub.private")}</option>
+            </select>
+          </label>
+          <button
+            class="btn primary"
+            ?disabled=${props.skillHubOperation !== null ||
+            !props.skillHubPublishNamespace ||
+            !props.skillHubPublishVersion}
+            @click=${props.onSkillHubPublish}
+          >
+            ${props.skillHubOperation === "publish"
+              ? t("skillsPage.skillHub.publishing")
+              : t("skillsPage.skillHub.publish")}
+          </button>
+        </div>
+      </div>
+    </openclaw-modal-dialog>
   `;
 }
 
@@ -620,6 +872,15 @@ function renderSkill(skill: SkillStatusEntry, props: SkillsProps) {
           : skill.clawhub?.status === "invalid"
             ? renderSettingsStatus({ kind: "warn", label: t("skillsPage.invalidLink") })
             : nothing}
+        ${props.personalAccess && skill.source === "openclaw-workspace" && props.skillHubConfig
+          ? html`<button
+              class="btn btn--sm"
+              ?disabled=${locked || props.skillHubOperation !== null}
+              @click=${() => props.onSkillHubPublishOpen(skill.skillKey)}
+            >
+              ${t("skillsPage.skillHub.publishToHub")}
+            </button>`
+          : nothing}
         ${props.personalAccess
           ? nothing
           : renderSettingsToggle({

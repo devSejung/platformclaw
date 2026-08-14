@@ -8,6 +8,7 @@ import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 const DEFAULT_LISTEN_HOST = "127.0.0.1";
 const DEFAULT_LISTEN_PORT = 19_001;
 const MAX_SECRET_FILE_BYTES = 16 * 1024;
+const DEFAULT_SKILL_HUB_MAX_PACKAGE_BYTES = 10 * 1024 * 1024;
 
 export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   publicOrigin: "PLATFORMCLAW_PUBLIC_ORIGIN",
@@ -25,6 +26,10 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   credentialBrokerAddress: "PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS",
   executionServiceTokenFile: "PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE",
   knoxServiceTokenFile: "PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE",
+  skillHubUrl: "PLATFORMCLAW_SKILL_HUB_URL",
+  skillHubTokenFile: "PLATFORMCLAW_SKILL_HUB_TOKEN_FILE",
+  skillHubNamespaces: "PLATFORMCLAW_SKILL_HUB_NAMESPACES",
+  skillHubMaxPackageBytes: "PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES",
 } as const;
 
 export type PlatformClawDeploymentConfig = {
@@ -45,6 +50,12 @@ export type PlatformClawDeploymentConfig = {
   credentialBrokerAddress: string;
   executionServiceToken: string;
   knoxServiceToken: string;
+  skillHub?: {
+    url: string;
+    token: string;
+    namespacePolicies: readonly { namespace: string; accessGroup: string }[];
+    maxPackageBytes: number;
+  };
 };
 
 function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -100,6 +111,78 @@ function parsePort(raw: string | undefined, name: string, defaultPort: number): 
     throw new Error(`${name} must be between 1 and 65535`);
   }
   return port;
+}
+
+function parsePositiveInteger(raw: string | undefined, name: string, fallback: number): number {
+  if (!raw?.trim()) {
+    return fallback;
+  }
+  if (!/^\d+$/u.test(raw.trim())) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function loadSkillHubConfig(env: NodeJS.ProcessEnv): PlatformClawDeploymentConfig["skillHub"] {
+  const url = env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl]?.trim();
+  const tokenFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile]?.trim();
+  const namespaceList = env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces]?.trim();
+  if (!url && !tokenFile && !namespaceList) {
+    return undefined;
+  }
+  if (!url || !tokenFile || !namespaceList) {
+    throw new Error(
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl}, ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile}, and ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces} must be set together`,
+    );
+  }
+  const parsed = new URL(url);
+  if (
+    (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl} must be an HTTP(S) URL`);
+  }
+  const namespacePolicies = [
+    ...new Map(
+      namespaceList
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map((value) => {
+          const separator = value.indexOf("=");
+          const namespace = (separator === -1 ? value : value.slice(0, separator))
+            .trim()
+            .toLowerCase();
+          const accessGroup = (separator === -1 ? value : value.slice(separator + 1))
+            .trim()
+            .toLowerCase();
+          if (!namespace || !accessGroup) {
+            throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces} is invalid`);
+          }
+          return [namespace, accessGroup] as const;
+        }),
+    ),
+  ].map(([namespace, accessGroup]) => ({ namespace, accessGroup }));
+  if (namespacePolicies.length === 0) {
+    throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces} is empty`);
+  }
+  return {
+    url: parsed.toString(),
+    token: readDeploymentSecret(tokenFile, PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile),
+    namespacePolicies,
+    maxPackageBytes: parsePositiveInteger(
+      env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubMaxPackageBytes],
+      PLATFORMCLAW_DEPLOYMENT_ENV.skillHubMaxPackageBytes,
+      DEFAULT_SKILL_HUB_MAX_PACKAGE_BYTES,
+    ),
+  };
 }
 
 function readServiceToken(filePath: string, envName: string): string {
@@ -161,6 +244,7 @@ export function loadPlatformClawDeploymentConfig(
     PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile,
   );
   const jiraVocConfigFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.jiraVocConfigFile]?.trim();
+  const skillHub = loadSkillHubConfig(env);
   return {
     publicOrigin: parsePublicOrigin(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin)),
     listenHost: env[PLATFORMCLAW_DEPLOYMENT_ENV.listenHost]?.trim() || DEFAULT_LISTEN_HOST,
@@ -196,5 +280,6 @@ export function loadPlatformClawDeploymentConfig(
       requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.knoxServiceTokenFile),
       PLATFORMCLAW_DEPLOYMENT_ENV.knoxServiceTokenFile,
     ),
+    ...(skillHub ? { skillHub } : {}),
   };
 }

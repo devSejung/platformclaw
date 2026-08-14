@@ -6,6 +6,7 @@ import { PLATFORMCLAW_GATEWAY_SERVICE_SCOPES } from "./gateway-runtime-client.js
 import { loadGatewayServiceIdentity } from "./gateway-service-identity.js";
 import { GatewayKnoxRoomAgentProvisioner } from "./knox-room-agent-provisioner.js";
 import { GatewayPersonalAgentProvisioner } from "./personal-agent-provisioner.js";
+import { IflytekSkillHubAdapter } from "./skill-hub-adapter.js";
 import {
   createPlatformClawWebIngressRuntime,
   type PlatformClawWebIngressRuntime,
@@ -93,5 +94,25 @@ export function createPlatformClawDeploymentRuntime(
         workspaceRoot: config.workspaceRoot,
       }),
     },
+    ...(config.skillHub
+      ? {
+          skillHub: {
+            adapter: new IflytekSkillHubAdapter({
+              baseUrl: config.skillHub.url,
+              token: config.skillHub.token,
+              maxArchiveBytes: config.skillHub.maxPackageBytes,
+            }),
+            workspaceRoot: config.workspaceRoot,
+            allowedNamespaces: config.skillHub.namespacePolicies.map((policy) => policy.namespace),
+            namespaceAccessGroups: Object.fromEntries(
+              config.skillHub.namespacePolicies.map((policy) => [
+                policy.namespace,
+                policy.accessGroup,
+              ]),
+            ),
+            maxPackageBytes: config.skillHub.maxPackageBytes,
+          },
+        }
+      : {}),
   });
 }

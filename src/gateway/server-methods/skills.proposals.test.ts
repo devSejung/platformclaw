@@ -27,10 +27,12 @@ const mocks = vi.hoisted(() => ({
   rejectSkillProposal: vi.fn(),
   reviseSkillProposal: vi.fn(),
   workspaceDir: "",
+  config: {} as Record<string, unknown>,
+  installUploadedSkillArchive: vi.fn(),
 }));
 
 vi.mock("../../config/config.js", () => ({
-  getRuntimeConfig: () => ({}),
+  getRuntimeConfig: () => mocks.config,
   resetConfigRuntimeState: () => undefined,
   writeConfigFile: vi.fn(),
 }));
@@ -55,7 +57,7 @@ vi.mock("../../skills/lifecycle/install.js", () => ({
 }));
 
 vi.mock("../../skills/lifecycle/upload-install.js", () => ({
-  installUploadedSkillArchive: vi.fn(),
+  installUploadedSkillArchive: mocks.installUploadedSkillArchive,
 }));
 
 vi.mock("../../infra/clawhub.js", () => ({
@@ -103,6 +105,8 @@ describe("skills proposal gateway handlers", () => {
       prefix: "openclaw-skills-proposals-gateway-state-",
     });
     mocks.chatSend.mockReset();
+    mocks.config = {};
+    mocks.installUploadedSkillArchive.mockReset();
     mocks.chatSend.mockImplementation(async ({ respond }) => {
       respond(true, { runId: "run-skill-workshop-revision", status: "started" }, undefined);
     });
@@ -133,6 +137,66 @@ describe("skills proposal gateway handlers", () => {
   afterEach(async () => {
     await testState.cleanup();
     await tempDirs.cleanup();
+  });
+
+  it("routes an uploaded archive to a pinned sandbox backend without local fallback", async () => {
+    mocks.config = {
+      agents: { defaults: { sandbox: { backend: "test-remote", mode: "all" } } },
+    };
+    const targetAccess = { install: vi.fn() };
+    let runExclusiveCalls = 0;
+    const runExclusive = async <T>(operation: () => Promise<T>): Promise<T> => {
+      runExclusiveCalls += 1;
+      return await operation();
+    };
+    const restore = registerSandboxBackend("test-remote", {
+      factory: vi.fn() as never,
+      skillInstall: vi.fn(async ({ expectedTargetRevision }) => {
+        expect(expectedTargetRevision).toBe(9);
+        return {
+          kind: "backend" as const,
+          access: targetAccess,
+          runExclusive,
+        };
+      }),
+    });
+    mocks.installUploadedSkillArchive.mockResolvedValue({
+      ok: true,
+      message: "Installed remote-demo",
+      stdout: "",
+      stderr: "",
+      code: 0,
+      slug: "remote-demo",
+      targetDir: "/remote/workspace/skills/remote-demo",
+      sha256: "a".repeat(64),
+    });
+    try {
+      const result = await callGatewayHandler(
+        skillsHandlers,
+        "skills.install",
+        {
+          source: "upload",
+          destination: "sandbox-backend",
+          expectedTargetRevision: 9,
+          uploadId: "11111111-1111-4111-8111-111111111111",
+          slug: "remote-demo",
+        },
+        {
+          context: {
+            getRuntimeConfig: () => mocks.config,
+            broadcast: vi.fn(),
+          },
+        },
+      );
+
+      expect(result.ok).toBe(true);
+      expect(mocks.installUploadedSkillArchive).toHaveBeenCalledWith(
+        expect.objectContaining({ targetAccess }),
+      );
+      expect(runExclusiveCalls).toBe(1);
+    } finally {
+      restore();
+    }
   });
 
   it("creates, lists, inspects, and applies a proposal", async () => {

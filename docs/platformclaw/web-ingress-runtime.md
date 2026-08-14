@@ -75,6 +75,7 @@ remains unadvertised because the Control UI does not require it.
 | `/platformclaw/api/auth/login`   | `POST`        | Authenticate an employee and issue the opaque session cookie |
 | `/platformclaw/api/auth/logout`  | `POST`        | Revoke the active browser session and clear its cookie       |
 | `/platformclaw/api/auth/session` | `GET`, `HEAD` | Return the current browser authentication state              |
+| `/platformclaw/api/skill-hub/*`  | `GET`, `POST` | Search, publish, and install registry skills                 |
 | `/platformclaw/gateway`          | WebSocket     | Expose the policy-filtered OpenClaw Gateway protocol         |
 | `/platformclaw/health`           | `GET`, `HEAD` | Report whether the private Gateway connection is ready       |
 
@@ -194,6 +195,10 @@ The process requires these deployment-owned values:
 | `PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS`      | Unix socket or Windows named-pipe address  |
 | `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`        | Employee-auth login endpoint               |
 | `PLATFORMCLAW_EMPLOYEE_AUTH_BEARER_TOKEN`     | Optional employee-auth service bearer      |
+| `PLATFORMCLAW_SKILL_HUB_URL`                  | Optional pinned SkillHub service URL       |
+| `PLATFORMCLAW_SKILL_HUB_TOKEN_FILE`           | SkillHub server API-token secret file      |
+| `PLATFORMCLAW_SKILL_HUB_NAMESPACES`           | Comma-separated authorized namespaces      |
+| `PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES`    | Optional archive and expansion byte limit  |
 
 The Gateway token is shared with the private `admin-http-rpc` endpoint used for
 personal-agent provisioning. The control process derives that HTTP endpoint

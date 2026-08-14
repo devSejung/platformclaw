@@ -1,5 +1,4 @@
 import type { SkillStatusReport } from "../../api/types.ts";
-import { PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT } from "../../platformclaw/execution-target-events.ts";
 import { canCallWorkshopAdminMethod } from "./access.ts";
 import type { SkillWorkshopState } from "./proposals.ts";
 import { resolveSelfLearning } from "./self-learning.ts";
@@ -102,19 +101,6 @@ export function loadSkillWorkshopProposals(params: {
     }
   }
   void params.runProposals([context, state, context.agentSelection.state.selectedId, params.force]);
-}
-
-export function subscribeToExecutionTargetChanges(
-  target: Window,
-  reset: () => void,
-  load: () => void,
-) {
-  const refresh = () => {
-    reset();
-    load();
-  };
-  target.addEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
-  return () => target.removeEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
 }
 
 export function resolvePersonalAwareSelfLearning(params: {

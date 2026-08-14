@@ -97,6 +97,7 @@ describe("PlatformClaw scheduled agent execution", () => {
         ),
         listTargetSkills: vi.fn(async () => undefined),
         createSkillWorkshopTarget: vi.fn(async () => undefined),
+        createSkillInstallTarget: vi.fn(async () => undefined),
       };
       const restore = registerSandboxBackend(
         PLATFORMCLAW_EXECUTION_BACKEND_ID,

@@ -6,10 +6,12 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import {
   createPlatformClawExecutionBackendFactory,
+  createPlatformClawExecutionSkillInstallProvider,
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
   type PlatformClawExecutionDependencies,
   type PlatformClawExecutionTargetSnapshot,
 } from "./backend.js";
+import { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordinator.js";
 
 function createParams(
   agentId?: string,
@@ -63,6 +65,7 @@ function createDependencies(
         : undefined,
     ),
     createSkillWorkshopTarget: vi.fn(async () => undefined),
+    createSkillInstallTarget: vi.fn(async () => undefined),
   };
 }
 
@@ -372,5 +375,112 @@ describe("PlatformClaw execution backend", () => {
       createPlatformClawExecutionBackendFactory(dependencies)(createParams("person_one")),
     ).rejects.toThrow("catalog is invalid");
     expect(dependencies.createAssignedVmHandle).not.toHaveBeenCalled();
+  });
+
+  it("pins the VM revision before resolving a remote skill installer", async () => {
+    const dependencies = createDependencies(async () => ({
+      kind: "assigned_vm",
+      agentId: "person_one",
+      revision: 4,
+      targetId: "vm-one",
+      allocationId: "allocation-one",
+      credentialRevision: 3,
+      vmLabel: "Development VM",
+      safeConnectLabel: "Corporate access",
+      remoteHomeDir: "/srv/person-one",
+      remoteWorkspaceDir: "/srv/person-one/workspace",
+      endpointHost: "safeconnect.example",
+      endpointPort: 44422,
+      adDomain: "example",
+      adAccount: "person.one",
+      targetAddress: "192.0.2.1",
+      linuxAccount: "person.one",
+      hostKeyAlgorithm: "ssh-ed25519",
+      hostKeyPublicKey: "AAAA-test",
+      hostKeyFingerprint: "SHA256:test",
+    }));
+    const provider = createPlatformClawExecutionSkillInstallProvider(
+      dependencies,
+      new PlatformClawTargetMutationCoordinator(),
+    );
+
+    await expect(
+      provider({
+        agentId: "person_one",
+        config: {} as never,
+        workspaceDir: "/basic",
+        expectedTargetRevision: 3,
+      }),
+    ).rejects.toThrow("target changed");
+    expect(dependencies.createSkillInstallTarget).not.toHaveBeenCalled();
+  });
+
+  it("revalidates the Basic target after acquiring the shared mutation guard", async () => {
+    let target: PlatformClawExecutionTargetSnapshot = {
+      kind: "platform_server",
+      agentId: "person_one",
+      revision: 1,
+      targetId: "platform-server",
+    };
+    const dependencies = createDependencies(async () => target);
+    const mutations = new PlatformClawTargetMutationCoordinator();
+    const provider = createPlatformClawExecutionSkillInstallProvider(dependencies, mutations);
+    const installTarget = await provider({
+      agentId: "person_one",
+      config: {} as never,
+      workspaceDir: "/basic",
+      expectedTargetRevision: 1,
+    });
+    target = {
+      kind: "assigned_vm",
+      agentId: "person_one",
+      revision: 2,
+      targetId: "vm-one",
+      allocationId: "allocation-one",
+      credentialRevision: 3,
+      vmLabel: "Development VM",
+      safeConnectLabel: "Corporate access",
+      remoteHomeDir: "/srv/person-one",
+      remoteWorkspaceDir: "/srv/person-one/workspace",
+      endpointHost: "safeconnect.example",
+      endpointPort: 44422,
+      adDomain: "example",
+      adAccount: "person.one",
+      targetAddress: "192.0.2.1",
+      linuxAccount: "person.one",
+      hostKeyAlgorithm: "ssh-ed25519",
+      hostKeyPublicKey: "AAAA-test",
+      hostKeyFingerprint: "SHA256:test",
+    };
+    const operation = vi.fn(async () => undefined);
+
+    await expect(installTarget.runExclusive(operation)).rejects.toThrow("target changed");
+    expect(operation).not.toHaveBeenCalled();
+    expect(mutations.isHeld("person_one")).toBe(false);
+  });
+
+  it("holds the shared mutation guard for the complete install operation", async () => {
+    const dependencies = createDependencies(async () => ({
+      kind: "platform_server",
+      agentId: "person_one",
+      revision: 1,
+      targetId: "platform-server",
+    }));
+    const mutations = new PlatformClawTargetMutationCoordinator();
+    const provider = createPlatformClawExecutionSkillInstallProvider(dependencies, mutations);
+    const installTarget = await provider({
+      agentId: "person_one",
+      config: {} as never,
+      workspaceDir: "/basic",
+      expectedTargetRevision: 1,
+    });
+
+    await installTarget.runExclusive(async () => {
+      expect(mutations.tryAcquire("person_one", "target-change")).toBeNull();
+    });
+
+    const release = mutations.tryAcquire("person_one", "target-change");
+    expect(release).not.toBeNull();
+    release?.();
   });
 });

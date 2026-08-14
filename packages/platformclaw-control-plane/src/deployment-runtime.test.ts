@@ -99,4 +99,30 @@ describe("createPlatformClawDeploymentRuntime", () => {
     expect(options?.resolveAgentIdFromSessionKey("agent:person_one:main")).toBe("person_one");
     expect(options?.resolveAgentIdFromSessionKey("agent:Person.One:main")).toBeNull();
   });
+
+  it("wires Skill Hub through a server-only adapter", () => {
+    const runtime = {} as PlatformClawWebIngressRuntime;
+    const createRuntime = vi.fn((_options: PlatformClawWebIngressRuntimeOptions) => runtime);
+    createPlatformClawDeploymentRuntime(
+      {
+        ...config,
+        skillHub: {
+          url: "https://skillhub.example.test",
+          token: "server-only-token",
+          namespacePolicies: [{ namespace: "engineering", accessGroup: "eng-skill-publishers" }],
+          maxPackageBytes: 1024,
+        },
+      },
+      { createRuntime },
+    );
+
+    expect(createRuntime.mock.calls[0]?.[0].skillHub).toMatchObject({
+      workspaceRoot: config.workspaceRoot,
+      allowedNamespaces: ["engineering"],
+      namespaceAccessGroups: { engineering: "eng-skill-publishers" },
+      maxPackageBytes: 1024,
+      adapter: expect.any(Object),
+    });
+    expect(createRuntime.mock.calls[0]?.[0].skillHub).not.toHaveProperty("token");
+  });
 });

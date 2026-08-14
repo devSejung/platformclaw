@@ -25,7 +25,11 @@ import {
   validateSkillsUpdateParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { resolveNodeExecEligibility } from "../../agents/exec-defaults.js";
-import { getSandboxBackendSkillProvider } from "../../agents/sandbox/backend.js";
+import {
+  getSandboxBackendSkillInstallProvider,
+  getSandboxBackendSkillProvider,
+} from "../../agents/sandbox/backend.js";
+import type { SandboxBackendSkillInstallTarget } from "../../agents/sandbox/backend.js";
 import { resolveSandboxConfigForAgent } from "../../agents/sandbox/config.js";
 import { listAgentWorkspaceDirs } from "../../agents/workspace-dirs.js";
 import { redactConfigObject } from "../../config/redact-snapshot.js";
@@ -36,6 +40,7 @@ import { getOrCreatePromise } from "../../shared/lazy-promise.js";
 import { updateSkillConfigEntry } from "../../skills/config/mutations.js";
 import { collectSkillBins } from "../../skills/discovery/bins.js";
 import { buildWorkspaceSkillStatus } from "../../skills/discovery/status.js";
+import type { SkillArchiveInstallTargetAccess } from "../../skills/lifecycle/archive-install.js";
 import {
   installSkillFromClawHub,
   readLocalSkillCardContentSync,
@@ -746,17 +751,50 @@ export const skillsHandlers: GatewayRequestHandlers = {
         force?: boolean;
         sha256?: string;
         timeoutMs?: number;
+        destination?: "workspace" | "sandbox-backend";
+        expectedTargetRevision?: number;
       };
-      const result = await installUploadedSkillArchive({
-        uploadId: p.uploadId,
-        slug: p.slug,
-        force: Boolean(p.force),
-        sha256: p.sha256,
-        timeoutMs: p.timeoutMs,
-        workspaceDir: workspaceDirRaw,
-        config: cfg,
-        log: context.logGateway,
-      });
+      let targetAccess: SkillArchiveInstallTargetAccess | undefined;
+      let installTarget: SandboxBackendSkillInstallTarget | undefined;
+      if (p.destination === "sandbox-backend") {
+        const sandboxConfig = resolveSandboxConfigForAgent(cfg, resolved.agentId);
+        const provider = getSandboxBackendSkillInstallProvider(sandboxConfig.backend);
+        if (!provider) {
+          respond(
+            false,
+            { ok: false, error: "The active sandbox backend does not support skill installation." },
+            errorShape(
+              ErrorCodes.UNAVAILABLE,
+              "The active sandbox backend does not support skill installation.",
+            ),
+          );
+          return;
+        }
+        installTarget = await provider({
+          agentId: resolved.agentId,
+          config: cfg,
+          workspaceDir: workspaceDirRaw,
+          expectedTargetRevision: p.expectedTargetRevision,
+        });
+        targetAccess = installTarget.kind === "backend" ? installTarget.access : undefined;
+      }
+      const install = async () =>
+        await installUploadedSkillArchive({
+          uploadId: p.uploadId,
+          slug: p.slug,
+          force: Boolean(p.force),
+          sha256: p.sha256,
+          timeoutMs: p.timeoutMs,
+          workspaceDir: workspaceDirRaw,
+          config: cfg,
+          log: context.logGateway,
+          targetAccess,
+        });
+      const result = installTarget ? await installTarget.runExclusive(install) : await install();
+      if (result.ok && targetAccess) {
+        // Remote workspaces have no local watcher to emit the canonical refresh event.
+        context.broadcast("skills.changed", { reason: "remote-node" });
+      }
       const errorCode =
         !result.ok && result.errorKind === "invalid-request"
           ? ErrorCodes.INVALID_REQUEST

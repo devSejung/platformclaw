@@ -4,6 +4,7 @@ import type { ArchiveLogger } from "../../infra/archive.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import {
   installSkillArchiveFromPath,
+  type SkillArchiveInstallTargetAccess,
   type SkillArchiveInstallFailureKind,
   validateRequestedSkillSlug,
 } from "./archive-install.js";
@@ -59,6 +60,7 @@ export async function installUploadedSkillArchive(params: {
   config: OpenClawConfig;
   log?: ArchiveLogger;
   store?: SkillUploadStore;
+  targetAccess?: SkillArchiveInstallTargetAccess;
 }): Promise<UploadedSkillInstallResult> {
   const store = params.store ?? defaultSkillUploadStore;
   if (!areUploadedSkillArchivesEnabled(params.config)) {
@@ -110,6 +112,7 @@ export async function installUploadedSkillArchive(params: {
           source: { kind: "upload", authority: "user", mutable: false, network: false },
           requestedSpecifier: `upload:${params.uploadId}`,
         },
+        targetAccess: params.targetAccess,
       });
       if (!install.ok) {
         const errorKind = uploadInstallFailureErrorKind(install.failureKind);
