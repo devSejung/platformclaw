@@ -697,6 +697,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(smokeScript).toMatch(
       /jq -e '\.authenticated == true and \.user\.accountId == "person\.one"' \\\s+"\$sso_session_response"/u,
     );
+    expect(smokeScript).toContain("curl --fail-with-body --location");
     expect(mock?.secrets).toContain("platformclaw_employee_auth_adsso_secret");
     expect(mock?.command).toContain("--adsso-secret-file");
     expect(control?.depends_on).toBeUndefined();

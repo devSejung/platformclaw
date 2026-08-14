@@ -147,7 +147,7 @@ curl --fail --silent --show-error "$origin/platformclaw/health" |
 curl --fail --silent --show-error "$origin/platformclaw/login" |
   grep -q 'data-platformclaw-login'
 
-curl --fail --location --silent --show-error \
+curl --fail-with-body --location --silent --show-error \
   --cookie-jar "$sso_cookie_jar" \
   "$origin/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fchat" >/dev/null
 curl --fail --silent --show-error \
