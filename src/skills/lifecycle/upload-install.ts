@@ -61,6 +61,7 @@ export async function installUploadedSkillArchive(params: {
   log?: ArchiveLogger;
   store?: SkillUploadStore;
   targetAccess?: SkillArchiveInstallTargetAccess;
+  expectedSkillRevision?: string;
 }): Promise<UploadedSkillInstallResult> {
   const store = params.store ?? defaultSkillUploadStore;
   if (!areUploadedSkillArchivesEnabled(params.config)) {
@@ -113,6 +114,9 @@ export async function installUploadedSkillArchive(params: {
           requestedSpecifier: `upload:${params.uploadId}`,
         },
         targetAccess: params.targetAccess,
+        ...(params.expectedSkillRevision
+          ? { expectedSkillRevision: params.expectedSkillRevision }
+          : {}),
       });
       if (!install.ok) {
         const errorKind = uploadInstallFailureErrorKind(install.failureKind);

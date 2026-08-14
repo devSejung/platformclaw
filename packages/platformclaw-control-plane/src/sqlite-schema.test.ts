@@ -2,11 +2,36 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   ensureVmHostExecutionEnvironmentSchema,
+  ensureSkillHubStateSchema,
   initializeControlPlaneSchema,
   PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
 } from "./sqlite-schema.js";
 
 describe("PlatformClaw control schema migrations", () => {
+  it("lazily creates additive Skill Hub ownership, ACL, inbox, jobs, and bindings", () => {
+    const db = new DatabaseSync(":memory:");
+    initializeControlPlaneSchema(db);
+    ensureSkillHubStateSchema(db);
+    ensureSkillHubStateSchema(db);
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'skill_hub_%' ORDER BY name",
+        )
+        .all(),
+    ).toEqual([
+      { name: "skill_hub_governance_jobs" },
+      { name: "skill_hub_namespace_bindings" },
+      { name: "skill_hub_notifications" },
+      { name: "skill_hub_skill_access" },
+      { name: "skill_hub_skill_ownership" },
+    ]);
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({
+      user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+    });
+    db.close();
+  });
+
   it("lazily restores the additive VM execution-environment table on schema v2", () => {
     const db = new DatabaseSync(":memory:");
     initializeControlPlaneSchema(db);

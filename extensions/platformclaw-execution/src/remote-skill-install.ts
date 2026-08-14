@@ -16,6 +16,7 @@ stage=$1
 target=$2
 skills=$3
 mode=$4
+expected_revision=$5
 command -v flock >/dev/null 2>&1 || { printf 'flock is required\n' >&2; exit 69; }
 [ -d "$stage" ] && [ ! -L "$stage" ] || { printf 'invalid skill staging directory\n' >&2; exit 65; }
 mkdir -p -- "$skills"
@@ -34,9 +35,33 @@ exec 9<"$skills"
 flock -x 9
 cleanup() { rm -rf -- "$stage"; }
 trap cleanup EXIT HUP INT TERM
-[ "$mode" = install ] || { printf 'VM skill updates are not supported\n' >&2; exit 65; }
-[ ! -e "$target" ] || { printf 'skill already exists\n' >&2; exit 73; }
-mv -- "$stage" "$target"
+if [ "$mode" = install ]; then
+  [ ! -e "$target" ] || { printf 'skill already exists\n' >&2; exit 73; }
+  mv -- "$stage" "$target"
+elif [ "$mode" = update ]; then
+  [ -d "$target" ] && [ ! -L "$target" ] || { printf 'skill is missing or invalid\n' >&2; exit 73; }
+  [ -n "$expected_revision" ] || { printf 'expected skill revision is required\n' >&2; exit 65; }
+  actual_revision="sha256:$(sha256sum -- "$target/SKILL.md" | cut -c1-16)"
+  [ "$actual_revision" = "$expected_revision" ] || { printf 'skill changed; reload and retry\n' >&2; exit 73; }
+  backup="$skills/.platformclaw-skill-backup-$$"
+  [ ! -e "$backup" ] || { printf 'skill backup collision\n' >&2; exit 73; }
+  rollback() {
+    if [ -d "$backup" ] && [ ! -L "$backup" ]; then
+      rm -rf -- "$target"
+      mv -- "$backup" "$target"
+    fi
+  }
+  trap 'rollback; cleanup' EXIT HUP INT TERM
+  mv -- "$target" "$backup"
+  mv -- "$stage" "$target"
+  # Commit before cleanup: backup deletion failure must preserve the new target,
+  # never roll back from a partially deleted backup.
+  trap cleanup EXIT HUP INT TERM
+  rm -rf -- "$backup" || printf 'skill backup cleanup failed\n' >&2
+else
+  printf 'invalid skill install mode\n' >&2
+  exit 65
+fi
 `;
 
 type RemoteSkillInstallIo = {
@@ -56,10 +81,7 @@ export class VmRemoteSkillInstallerService {
     const target = params.target;
     const skillsDir = path.posix.join(target.remoteWorkspaceDir, "skills");
     return {
-      install: async ({ sourceDir, slug, mode, timeoutMs }) => {
-        if (mode !== "install") {
-          throw new Error("VM skill updates are not supported.");
-        }
+      install: async ({ sourceDir, slug, mode, timeoutMs, expectedSkillRevision }) => {
         const stagingRoot = path.posix.join(
           target.remoteWorkspaceDir,
           ".openclaw",
@@ -88,6 +110,7 @@ export class VmRemoteSkillInstallerService {
               targetDir,
               skillsDir,
               mode,
+              expectedSkillRevision ?? "",
             ]),
             allowFailure: true,
             signal,

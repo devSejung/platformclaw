@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createPlatformClawExecutionBackendFactory,
   createPlatformClawExecutionSkillInstallProvider,
+  createPlatformClawExecutionSkillProvider,
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
   type PlatformClawExecutionDependencies,
   type PlatformClawExecutionTargetSnapshot,
@@ -482,5 +483,85 @@ describe("PlatformClaw execution backend", () => {
     const release = mutations.tryAcquire("person_one", "target-change");
     expect(release).not.toBeNull();
     release?.();
+  });
+
+  it("pins an explicit install target independently of the active execution target", async () => {
+    const resolveTarget = vi.fn(
+      async ({ agentId, target }: { agentId: string; target?: string }) => {
+        expect(target).toBe("platform_server");
+        return {
+          kind: "platform_server" as const,
+          agentId,
+          revision: 9,
+          targetId: "platform-server" as const,
+        };
+      },
+    );
+    const dependencies = createDependencies(resolveTarget);
+    const provider = createPlatformClawExecutionSkillInstallProvider(
+      dependencies,
+      new PlatformClawTargetMutationCoordinator(),
+    );
+    const target = await provider({
+      agentId: "person_one",
+      config: {} as never,
+      workspaceDir: "/basic",
+      backendTarget: "platform_server",
+      expectedTargetRevision: 9,
+    });
+    await target.runExclusive(async () => undefined);
+    expect(resolveTarget).toHaveBeenCalledTimes(2);
+    expect(target.kind).toBe("workspace");
+  });
+
+  it("lists an explicit target independently of the active execution target", async () => {
+    const resolveTarget = vi.fn(
+      async ({ agentId, target }: { agentId: string; target?: string }) => ({
+        kind: target === "assigned_vm" ? ("assigned_vm" as const) : ("platform_server" as const),
+        agentId,
+        revision: 9,
+        targetId: target === "assigned_vm" ? "vm-one" : "platform-server",
+        ...(target === "assigned_vm"
+          ? {
+              allocationId: "allocation-one",
+              credentialRevision: 3,
+              vmLabel: "VM",
+              safeConnectLabel: "SafeConnect",
+              remoteHomeDir: "/home/person_one",
+              remoteWorkspaceDir: "/home/person_one/workspace",
+              endpointHost: "vm.example",
+              endpointPort: 22,
+              adDomain: "example",
+              adAccount: "person.one",
+              targetAddress: "192.0.2.1",
+              linuxAccount: "person_one",
+              hostKeyAlgorithm: "ssh-ed25519",
+              hostKeyPublicKey: "AAAA-test",
+              hostKeyFingerprint: "SHA256:test",
+            }
+          : {}),
+      }),
+    );
+    const dependencies = createDependencies(resolveTarget as never);
+    const provider = createPlatformClawExecutionSkillProvider(dependencies);
+
+    await provider({
+      agentId: "person_one",
+      config: {} as never,
+      workspaceDir: "/basic",
+      refresh: true,
+      backendTarget: "assigned_vm",
+    });
+
+    expect(resolveTarget).toHaveBeenCalledWith({
+      agentId: "person_one",
+      target: "assigned_vm",
+    });
+    expect(dependencies.listTargetSkills).toHaveBeenCalledWith(
+      expect.objectContaining({
+        refresh: true,
+        target: expect.objectContaining({ kind: "assigned_vm" }),
+      }),
+    );
   });
 });

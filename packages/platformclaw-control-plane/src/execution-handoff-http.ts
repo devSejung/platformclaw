@@ -333,7 +333,17 @@ export class PlatformClawExecutionHandoffServer {
         return;
       }
       if (pathname === PLATFORMCLAW_EXECUTION_TARGET_PATH) {
-        sendJson(res, 200, await this.service.resolveTarget(agentId));
+        const target = body.target;
+        if (target !== undefined && target !== "platform_server" && target !== "assigned_vm") {
+          throw new Error("invalid requested execution target");
+        }
+        sendJson(
+          res,
+          200,
+          target
+            ? await this.service.resolveTarget(agentId, target)
+            : await this.service.resolveTarget(agentId),
+        );
         return;
       }
       if (pathname === PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH) {

@@ -27,6 +27,7 @@ const MAX_CACHED_TARGETS = 256;
 const SCAN_TIMEOUT_MS = 15_000;
 const SKILL_SOURCES = new Set([
   "platformclaw-vm-workspace",
+  "platformclaw-vm-agents",
   "platformclaw-vm-managed",
   "platformclaw-vm-bundled",
 ]);
@@ -60,7 +61,7 @@ scan_root() {
   done < <(find -P "$root" -mindepth 2 -maxdepth 5 -type f -name SKILL.md -print0 2>/dev/null | sort -z)
 }
 scan_root "$workspace/skills" "platformclaw-vm-workspace"
-scan_root "$workspace/.agents/skills" "platformclaw-vm-workspace"
+scan_root "$workspace/.agents/skills" "platformclaw-vm-agents"
 scan_root "/opt/platformclaw/skills" "platformclaw-vm-managed"
 scan_root "/opt/platformclaw/bundle" "platformclaw-vm-bundled"
 `;

@@ -37,9 +37,13 @@ export class ExecutionHandoffClient {
     }
   }
 
-  async resolveTarget(agentId: string): Promise<ExecutionTargetSnapshot> {
+  async resolveTarget(
+    agentId: string,
+    target?: "platform_server" | "assigned_vm",
+  ): Promise<ExecutionTargetSnapshot> {
     return (await this.post(PLATFORMCLAW_EXECUTION_TARGET_PATH, {
       agentId,
+      ...(target ? { target } : {}),
     })) as ExecutionTargetSnapshot;
   }
 

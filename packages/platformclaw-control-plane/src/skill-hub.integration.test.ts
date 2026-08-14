@@ -5,9 +5,9 @@ import JSZip from "jszip";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
-import type { ControlPlaneAuditWriter, ControlPlaneStore } from "./contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import { IflytekSkillHubAdapter } from "./skill-hub-adapter.js";
+import type { SkillHubStore } from "./skill-hub-service-support.js";
 import { SkillHubService } from "./skill-hub-service.js";
 
 const servers: Server[] = [];
@@ -62,6 +62,7 @@ describe("PlatformClaw Skill Hub integration", () => {
           JSON.stringify({
             code: 0,
             data: {
+              id: 10,
               namespace: "engineering",
               slug: "demo-skill",
               version: "2.0.0",
@@ -77,6 +78,7 @@ describe("PlatformClaw Skill Hub integration", () => {
           JSON.stringify({
             code: 0,
             data: {
+              id: 10,
               namespace: "engineering",
               slug: "demo-skill",
               displayName: "Demo Skill",
@@ -140,6 +142,7 @@ describe("PlatformClaw Skill Hub integration", () => {
     } as unknown as BrowserAuthService;
     const store = {
       getPersonalExecutionProfile: vi.fn(async () => null),
+      getVmAllocationForAgent: vi.fn(async () => null),
       getPersonalAgentBinding: vi.fn(async () => ({
         id: "binding-one",
         kind: "personal",
@@ -150,7 +153,20 @@ describe("PlatformClaw Skill Hub integration", () => {
         updatedAt: 1,
       })),
       recordAuditEvent: vi.fn(async (params) => ({ id: "audit-one", ...params })),
-    } as unknown as ControlPlaneStore & ControlPlaneAuditWriter;
+      getSkillHubOwnership: vi.fn(async () => null),
+      recordSkillHubPublication: vi.fn(async (params) => ({
+        namespace: params.namespace,
+        slug: params.slug,
+        ownerUserId: params.ownerUserId,
+        visibility: params.visibility,
+        currentVersion: params.version,
+        updatedAt: params.changedAt,
+      })),
+      reconcileInactiveSkillHubOwners: vi.fn(async () => ({ reassigned: 0, unassigned: 0 })),
+      hasSkillHubAccess: vi.fn(async () => false),
+      getSkillHubNamespaceBinding: vi.fn(async () => null),
+      enqueueSkillHubGovernanceJob: vi.fn(async () => undefined),
+    } as unknown as SkillHubStore;
     const service = new SkillHubService({
       authService,
       store,
@@ -182,7 +198,7 @@ describe("PlatformClaw Skill Hub integration", () => {
         namespace: "engineering",
         slug: "demo-skill",
         version: "2.0.0",
-        expectedTarget: "platform_server",
+        destination: "platform_server",
       }),
     ).resolves.toMatchObject({ ok: true });
 
@@ -205,6 +221,7 @@ describe("PlatformClaw Skill Hub integration", () => {
       }),
     ]);
     expect(rpcCalls.map(([method]) => method)).toEqual([
+      "skills.status",
       "skills.upload.begin",
       "skills.upload.chunk",
       "skills.upload.commit",

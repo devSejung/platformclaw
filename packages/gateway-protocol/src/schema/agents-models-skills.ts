@@ -291,6 +291,7 @@ export const ModelsProbeResultSchema = closedObject({
 export const SkillsStatusParamsSchema = closedObject({
   agentId: Type.Optional(NonEmptyString),
   refresh: Type.Optional(Type.Boolean()),
+  backendTarget: Type.Optional(NonEmptyString),
 });
 
 /** Empty request payload for listing available skill bins. */
@@ -371,6 +372,8 @@ export const SkillsInstallParamsSchema = Type.Union([
       Type.Union([Type.Literal("workspace"), Type.Literal("sandbox-backend")]),
     ),
     expectedTargetRevision: Type.Optional(Type.Integer({ minimum: 0 })),
+    backendTarget: Type.Optional(NonEmptyString),
+    expectedSkillRevision: Type.Optional(Type.String({ pattern: "^sha256:[a-f0-9]{16}$" })),
     force: Type.Optional(Type.Boolean()),
     sha256: Type.Optional(Sha256String),
     timeoutMs: Type.Optional(Type.Integer({ minimum: 1000 })),

@@ -9,6 +9,7 @@ export type SkillHubSearchItem = {
 };
 
 export type SkillHubSkillDetail = {
+  id: number;
   namespace: string;
   slug: string;
   displayName: string;
@@ -22,6 +23,7 @@ export type SkillHubSkillDetail = {
 };
 
 export type SkillHubVersion = {
+  id: number;
   version: string;
   status: string;
   changelog?: string;
@@ -31,13 +33,31 @@ export type SkillHubVersion = {
   downloadAvailable: boolean;
 };
 
+export type SkillHubSecurityAudit = {
+  scannerType: string;
+  verdict: string;
+  isSafe?: boolean;
+  maxSeverity?: string;
+  findingsCount?: number;
+  scannedAt?: string;
+};
+
+export type SkillHubPublishArchive = Buffer | { path: string; size: number };
+
+function isSkillHubArchiveFile(
+  archive: SkillHubPublishArchive,
+): archive is Exclude<SkillHubPublishArchive, Buffer> {
+  return !Buffer.isBuffer(archive);
+}
+
 export interface SkillHubAdapter {
   search(query: string, limit: number): Promise<{ items: SkillHubSearchItem[]; total: number }>;
   getSkill(namespace: string, slug: string): Promise<SkillHubSkillDetail>;
   listVersions(namespace: string, slug: string): Promise<SkillHubVersion[]>;
+  listSecurityAudits(skillId: number, versionId: number): Promise<SkillHubSecurityAudit[]>;
   publish(params: {
     namespace: string;
-    archive: Buffer;
+    archive: SkillHubPublishArchive;
     filename: string;
     visibility: SkillHubVisibility;
   }): Promise<{ namespace: string; slug: string; version: string; visibility: SkillHubVisibility }>;
@@ -104,6 +124,13 @@ function visibilityValue(value: unknown, label: string): SkillHubVisibility {
 
 function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function positiveInteger(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    throw new SkillHubAdapterError(`Skill Hub returned invalid ${label}`);
+  }
+  return value;
 }
 
 async function readBounded(response: Response, limit: number): Promise<Buffer> {
@@ -186,17 +213,34 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     if (!Array.isArray(data.items) || typeof data.total !== "number") {
       throw new SkillHubAdapterError("Skill Hub returned invalid search results");
     }
+    const rawItems = data.items.map((item) => {
+      const value = record(item, "search item");
+      return {
+        namespace: stringValue(value.namespace, "search namespace"),
+        slug: stringValue(value.slug, "search slug"),
+        latestVersion: stringValue(value.latestVersion, "search version"),
+        summary: typeof value.summary === "string" ? value.summary : "",
+      };
+    });
+    const items: SkillHubSearchItem[] = [];
+    // v0.2.16 intentionally omits visibility from CLI search. Hydrate the bounded
+    // result set through the canonical detail API instead of inventing a field.
+    for (let offset = 0; offset < rawItems.length; offset += 5) {
+      const batch = rawItems.slice(offset, offset + 5);
+      const details = await Promise.all(
+        batch.map((item) => this.getSkill(item.namespace, item.slug)),
+      );
+      for (let index = 0; index < batch.length; index += 1) {
+        const item = batch[index]!;
+        const detail = details[index]!;
+        if (detail.namespace !== item.namespace || detail.slug !== item.slug) {
+          throw new SkillHubAdapterError("Skill Hub returned mismatched search details");
+        }
+        items.push({ ...item, visibility: detail.visibility });
+      }
+    }
     return {
-      items: data.items.map((item) => {
-        const value = record(item, "search item");
-        return {
-          namespace: stringValue(value.namespace, "search namespace"),
-          slug: stringValue(value.slug, "search slug"),
-          latestVersion: stringValue(value.latestVersion, "search version"),
-          summary: typeof value.summary === "string" ? value.summary : "",
-          visibility: visibilityValue(value.visibility, "search visibility"),
-        };
-      }),
+      items,
       total: data.total,
     };
   }
@@ -215,6 +259,7 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     const ratingAvg = optionalNumber(data.ratingAvg);
     const ratingCount = optionalNumber(data.ratingCount);
     return {
+      id: positiveInteger(data.id, "skill id"),
       namespace: stringValue(data.namespace, "skill namespace"),
       slug: stringValue(data.slug, "skill slug"),
       displayName: stringValue(data.displayName, "skill display name"),
@@ -240,6 +285,7 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     for (const item of data.items) {
       const value = record(item, "version");
       versions.push({
+        id: positiveInteger(value.id, "version id"),
         version: stringValue(value.version, "version number"),
         status: stringValue(value.status, "version status"),
         ...(typeof value.changelog === "string" ? { changelog: value.changelog } : {}),
@@ -252,22 +298,80 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     return versions;
   }
 
+  async listSecurityAudits(skillId: number, versionId: number): Promise<SkillHubSecurityAudit[]> {
+    const data = apiData(
+      await this.jsonRequest(
+        this.url(
+          `api/v1/skills/${encodePath(String(skillId))}/versions/${encodePath(String(versionId))}/security-audit`,
+        ),
+      ),
+    );
+    if (!Array.isArray(data)) {
+      throw new SkillHubAdapterError("Skill Hub returned invalid security audits");
+    }
+    return data.map((item) => {
+      const value = record(item, "security audit");
+      const isSafe = typeof value.isSafe === "boolean" ? value.isSafe : undefined;
+      const findingsCount = optionalNumber(value.findingsCount);
+      return Object.assign(
+        {
+          scannerType: stringValue(value.scannerType, "scanner type"),
+          verdict: stringValue(value.verdict, "scanner verdict"),
+        },
+        isSafe === undefined ? {} : { isSafe },
+        typeof value.maxSeverity === "string" ? { maxSeverity: value.maxSeverity } : {},
+        findingsCount === undefined ? {} : { findingsCount },
+        typeof value.scannedAt === "string" ? { scannedAt: value.scannedAt } : {},
+      );
+    });
+  }
+
   async publish(params: {
     namespace: string;
-    archive: Buffer;
+    archive: SkillHubPublishArchive;
     filename: string;
     visibility: SkillHubVisibility;
   }) {
-    const form = new FormData();
-    const archiveBytes = new Uint8Array(params.archive.byteLength);
-    archiveBytes.set(params.archive);
-    form.set("file", new Blob([archiveBytes]), params.filename);
-    form.set("visibility", params.visibility);
+    let init: RequestInit;
+    if (!isSkillHubArchiveFile(params.archive)) {
+      const form = new FormData();
+      const archiveBytes = new Uint8Array(params.archive.byteLength);
+      archiveBytes.set(params.archive);
+      form.set("file", new Blob([archiveBytes]), params.filename);
+      form.set("visibility", params.visibility);
+      init = { method: "POST", body: form };
+    } else {
+      const archive = params.archive;
+      const boundary = `platformclaw-${randomBytes(18).toString("hex")}`;
+      const prefix = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="visibility"\r\n\r\n${params.visibility}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${params.filename}"\r\nContent-Type: application/zip\r\n\r\n`,
+        "utf8",
+      );
+      const suffix = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
+      const body = Readable.toWeb(
+        Readable.from(
+          (async function* () {
+            yield prefix;
+            yield* createReadStream(archive.path);
+            yield suffix;
+          })(),
+        ),
+      );
+      init = {
+        method: "POST",
+        body,
+        headers: {
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "Content-Length": String(prefix.byteLength + archive.size + suffix.byteLength),
+        },
+        duplex: "half",
+      } as RequestInit;
+    }
     const data = record(
       apiData(
         await this.jsonRequest(
           this.url(`api/cli/v1/skills/${encodePath(params.namespace)}/publish`),
-          { method: "POST", body: form },
+          init,
         ),
       ),
       "publish result",
@@ -369,3 +473,6 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     }
   }
 }
+import { randomBytes } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";

@@ -5,6 +5,7 @@ import {
   PLATFORMCLAW_SKILL_HUB_PATH,
 } from "./browser-skill-hub-http.js";
 import type { SkillHubService } from "./skill-hub-service.js";
+import { SkillHubServiceError } from "./skill-hub-service.js";
 
 function responseHarness() {
   let body = "";
@@ -77,5 +78,52 @@ describe("Skill Hub browser HTTP", () => {
     );
     expect(harness.response.statusCode).toBe(403);
     expect(readJsonBody).not.toHaveBeenCalled();
+  });
+
+  it("returns the structured version-change contract without leaking server state", async () => {
+    const service = {
+      authenticate: vi.fn(async () => actor),
+      install: vi.fn(async () => {
+        throw new SkillHubServiceError("confirm upgrade", 409, {
+          code: "version-change-required",
+          currentVersion: "1.0.0",
+          requestedVersion: "2.0.0",
+          direction: "upgrade",
+        });
+      }),
+    } as unknown as SkillHubService;
+    const harness = responseHarness();
+    await handlePlatformClawSkillHubRequest(
+      {
+        url: `${PLATFORMCLAW_SKILL_HUB_PATH}/install`,
+        method: "POST",
+        headers: { cookie: "platformclaw_session=session-token" },
+      } as IncomingMessage,
+      harness.response,
+      {
+        service,
+        readJsonBody: vi.fn(async () => ({
+          ok: true as const,
+          value: {
+            namespace: "engineering",
+            slug: "demo-skill",
+            version: "2.0.0",
+            destination: "platform_server",
+          },
+        })),
+        isMutationOriginAllowed: () => true,
+      },
+    );
+
+    expect(harness.response.statusCode).toBe(409);
+    expect(harness.json()).toEqual({
+      error: "confirm upgrade",
+      details: {
+        code: "version-change-required",
+        currentVersion: "1.0.0",
+        requestedVersion: "2.0.0",
+        direction: "upgrade",
+      },
+    });
   });
 });

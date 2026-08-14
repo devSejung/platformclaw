@@ -111,6 +111,7 @@ function installClawHubSkillDeduped(params: ClawHubInstallParams): Promise<ClawH
 async function buildRemoteAwareWorkspaceSkillStatus(
   resolved: ResolvedSkillsWorkspace,
   refresh = false,
+  backendTarget?: string,
 ) {
   // Remote skill availability depends on the agent's executable-node surface,
   // not only the workspace contents, so status reports include live eligibility.
@@ -119,22 +120,35 @@ async function buildRemoteAwareWorkspaceSkillStatus(
     agentId: resolved.agentId,
   });
   const sandboxConfig = resolveSandboxConfigForAgent(resolved.cfg, resolved.agentId);
+  const backendProvider = getSandboxBackendSkillProvider(sandboxConfig.backend);
   const backendCatalog =
     // Status represents every skill this agent can receive. `non-main` still enables the
     // backend for non-main sessions, so only an explicitly disabled sandbox is local-only.
-    sandboxConfig.mode !== "off"
-      ? await getSandboxBackendSkillProvider(sandboxConfig.backend)?.({
+    sandboxConfig.mode !== "off" || backendTarget !== undefined
+      ? await backendProvider?.({
           agentId: resolved.agentId,
           config: resolved.cfg,
           refresh,
           workspaceDir: resolved.workspaceDir,
+          ...(backendTarget ? { backendTarget } : {}),
         })
       : undefined;
+  if (backendTarget === "assigned_vm" && !backendCatalog) {
+    throw new Error("The selected sandbox backend target does not provide a skill catalog.");
+  }
   const backendEligibility = backendCatalog
     ? resolveSandboxBackendSkillEligibility(backendCatalog)
     : undefined;
   const localEligibility = getRemoteSkillEligibility({ advertiseExecNode: nodeSkills.canExec });
-  if (sandboxConfig.mode === "non-main" && backendCatalog) {
+  if (backendTarget === "assigned_vm" && backendCatalog) {
+    return buildWorkspaceSkillStatus(resolved.workspaceDir, {
+      config: resolved.cfg,
+      agentId: resolved.agentId,
+      entries: prepareSandboxBackendSkillEntries(backendCatalog),
+      eligibility: { nodeSkills, remote: backendEligibility },
+    });
+  }
+  if (sandboxConfig.mode === "non-main" && backendCatalog && backendTarget === undefined) {
     // `non-main` exposes two real execution surfaces. Build each side against its own
     // requirements, then report both instead of evaluating local skills as VM skills.
     const local = buildWorkspaceSkillStatus(resolved.workspaceDir, {
@@ -241,7 +255,11 @@ export const skillsHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      const report = await buildRemoteAwareWorkspaceSkillStatus(resolved, params.refresh === true);
+      const report = await buildRemoteAwareWorkspaceSkillStatus(
+        resolved,
+        params.refresh === true,
+        params.backendTarget,
+      );
       respond(true, report, undefined);
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatErrorMessage(err)));
@@ -753,6 +771,8 @@ export const skillsHandlers: GatewayRequestHandlers = {
         timeoutMs?: number;
         destination?: "workspace" | "sandbox-backend";
         expectedTargetRevision?: number;
+        backendTarget?: string;
+        expectedSkillRevision?: string;
       };
       let targetAccess: SkillArchiveInstallTargetAccess | undefined;
       let installTarget: SandboxBackendSkillInstallTarget | undefined;
@@ -775,6 +795,7 @@ export const skillsHandlers: GatewayRequestHandlers = {
           config: cfg,
           workspaceDir: workspaceDirRaw,
           expectedTargetRevision: p.expectedTargetRevision,
+          backendTarget: p.backendTarget,
         });
         targetAccess = installTarget.kind === "backend" ? installTarget.access : undefined;
       }
@@ -789,6 +810,7 @@ export const skillsHandlers: GatewayRequestHandlers = {
           config: cfg,
           log: context.logGateway,
           targetAccess,
+          ...(p.expectedSkillRevision ? { expectedSkillRevision: p.expectedSkillRevision } : {}),
         });
       const result = installTarget ? await installTarget.runExclusive(install) : await install();
       if (result.ok && targetAccess) {
