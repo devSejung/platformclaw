@@ -55,19 +55,15 @@ function fixture() {
     uploadDirectory: vi.fn(async () => undefined),
     runCommand,
   };
-  const refreshCatalog = vi.fn(async () => undefined);
-  const verifyCurrentTarget = vi.fn(async () => undefined);
   const access = new VmRemoteSkillInstallerService(io as never).createAccess({
     target,
-    verifyCurrentTarget,
-    refreshCatalog,
   });
-  return { access, io, refreshCatalog, verifyCurrentTarget };
+  return { access, io };
 }
 
 describe("VM remote skill installer", () => {
   it("stages inside the remote workspace and refreshes after atomic installation", async () => {
-    const { access, io, refreshCatalog } = fixture();
+    const { access, io } = fixture();
 
     await expect(
       access.install({
@@ -86,12 +82,11 @@ describe("VM remote skill installer", () => {
         ),
       }),
     );
-    expect(refreshCatalog).toHaveBeenCalledOnce();
     expect(io.disposeSession).toHaveBeenCalledOnce();
   });
 
   it("cleans staging and disposes the SSH session after an upload failure", async () => {
-    const { access, io, refreshCatalog } = fixture();
+    const { access, io } = fixture();
     io.uploadDirectory.mockRejectedValueOnce(new Error("upload failed"));
 
     await expect(
@@ -103,25 +98,6 @@ describe("VM remote skill installer", () => {
       }),
     ).rejects.toThrow("upload failed");
     expect(io.runCommand).toHaveBeenCalledOnce();
-    expect(refreshCatalog).not.toHaveBeenCalled();
-    expect(io.disposeSession).toHaveBeenCalledOnce();
-  });
-
-  it("rechecks the target after upload and before remote commit", async () => {
-    const { access, io, refreshCatalog, verifyCurrentTarget } = fixture();
-    verifyCurrentTarget.mockRejectedValueOnce(new Error("target changed"));
-
-    await expect(
-      access.install({
-        sourceDir: "/local/extracted",
-        slug: "demo-skill",
-        mode: "install",
-        timeoutMs: 30_000,
-      }),
-    ).rejects.toThrow("target changed");
-    expect(io.uploadDirectory).toHaveBeenCalledOnce();
-    expect(io.runCommand).toHaveBeenCalledOnce();
-    expect(refreshCatalog).not.toHaveBeenCalled();
     expect(io.disposeSession).toHaveBeenCalledOnce();
   });
 
@@ -152,8 +128,6 @@ describe("VM remote skill installer", () => {
             runCommand: runLocalRemoteCommand,
           }).createAccess({
             target: { ...target, remoteHomeDir: dir, remoteWorkspaceDir: workspaceDir },
-            verifyCurrentTarget: vi.fn(async () => undefined),
-            refreshCatalog: vi.fn(async () => undefined),
           });
 
           await access.install({
@@ -203,8 +177,6 @@ describe("VM remote skill installer", () => {
             runCommand: runLocalRemoteCommand,
           }).createAccess({
             target: { ...target, remoteHomeDir: dir, remoteWorkspaceDir: workspaceDir },
-            verifyCurrentTarget: vi.fn(async () => undefined),
-            refreshCatalog: vi.fn(async () => undefined),
           });
 
           await expect(

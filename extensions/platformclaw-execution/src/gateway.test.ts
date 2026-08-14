@@ -6,6 +6,7 @@ import {
   PlatformClawVmAuthenticationError,
 } from "./connection-errors.js";
 import { registerPlatformClawExecutionGateway } from "./gateway.js";
+import { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordinator.js";
 
 type GatewayHandler = Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];
 type BeforeRunHandler = Parameters<OpenClawPluginApi["on"]>[1];
@@ -28,8 +29,13 @@ function createHarness(runtime: {
       methods.set(name, handler);
     }),
   };
-  registerPlatformClawExecutionGateway(api as never, Promise.resolve(runtime as never));
-  return { beforeRun: () => beforeRun!, methods };
+  const targetMutations = new PlatformClawTargetMutationCoordinator();
+  registerPlatformClawExecutionGateway(
+    api as never,
+    Promise.resolve(runtime as never),
+    targetMutations,
+  );
+  return { beforeRun: () => beforeRun!, methods, targetMutations };
 }
 
 describe("SafeConnect authentication failure classification", () => {
@@ -168,6 +174,34 @@ describe("PlatformClaw execution Gateway methods", () => {
     expect(harness.beforeRun()({} as never, { agentId: "person_one" } as never)).toMatchObject({
       outcome: "pass",
     });
+  });
+
+  it("rejects a target change during skill commit without blocking agent runs", async () => {
+    const runtime = {
+      testConnection: vi.fn(),
+      testCandidateConnection: vi.fn(),
+      changeTarget: vi.fn(),
+    };
+    const harness = createHarness(runtime);
+    const release = harness.targetMutations.tryAcquire("person_one", "skill-install");
+    const respond = vi.fn();
+
+    await harness.methods.get("platformclaw-execution.changeTarget")!({
+      params: { agentId: "person_one", target: "assigned_vm", expectedRevision: 1 },
+      context: { chatAbortControllers: new Map() },
+      respond,
+    } as never);
+
+    expect(runtime.changeTarget).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ code: "CONFLICT" }),
+    );
+    expect(harness.beforeRun()({} as never, { agentId: "person_one" } as never)).toMatchObject({
+      outcome: "pass",
+    });
+    release?.();
   });
 
   it("preserves an optimistic-revision conflict from the control plane", async () => {

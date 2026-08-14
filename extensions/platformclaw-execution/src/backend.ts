@@ -9,6 +9,7 @@ import type {
   SkillWorkshopTargetAccess,
   SkillArchiveInstallTargetAccess,
 } from "openclaw/plugin-sdk/sandbox";
+import type { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordinator.js";
 
 export const PLATFORMCLAW_EXECUTION_BACKEND_ID = "platformclaw-execution";
 
@@ -72,7 +73,6 @@ export type PlatformClawExecutionDependencies = {
   }) => Promise<SkillWorkshopTargetAccess | undefined>;
   createSkillInstallTarget: (params: {
     target: Readonly<PlatformClawExecutionTargetSnapshot>;
-    verifyCurrentTarget: () => Promise<void>;
   }) => Promise<SkillArchiveInstallTargetAccess | undefined>;
 };
 
@@ -245,31 +245,44 @@ export function createPlatformClawExecutionSkillProvider(
 
 export function createPlatformClawExecutionSkillInstallProvider(
   dependencies: PlatformClawExecutionDependencies,
+  mutations: PlatformClawTargetMutationCoordinator,
 ): SandboxBackendSkillInstallProvider {
   return async ({ agentId, expectedTargetRevision }) => {
     const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
     if (expectedTargetRevision !== undefined && target.revision !== expectedTargetRevision) {
       throw new Error("PlatformClaw execution target changed; reload and retry.");
     }
-    if (target.kind === "platform_server") {
-      return { kind: "workspace" };
-    }
-    const verifyCurrentTarget = async (): Promise<void> => {
-      const current = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
-      if (
-        current.kind !== "assigned_vm" ||
-        current.targetId !== target.targetId ||
-        current.revision !== target.revision ||
-        current.allocationId !== target.allocationId
-      ) {
-        throw new Error("PlatformClaw execution target changed; reload and retry.");
+    const runExclusive = async <T>(operation: () => Promise<T>): Promise<T> => {
+      const release = mutations.tryAcquire(agentId, "skill-install");
+      if (!release) {
+        throw new Error("PlatformClaw work location mutation is already in progress.");
+      }
+      try {
+        // Re-resolve only after taking the shared guard. This closes both the
+        // provider-to-install and verify-to-commit target-switch races.
+        const current = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+        if (
+          current.kind !== target.kind ||
+          current.targetId !== target.targetId ||
+          current.revision !== target.revision ||
+          (current.kind === "assigned_vm" &&
+            (target.kind !== "assigned_vm" || current.allocationId !== target.allocationId))
+        ) {
+          throw new Error("PlatformClaw execution target changed; reload and retry.");
+        }
+        return await operation();
+      } finally {
+        release();
       }
     };
-    const access = await dependencies.createSkillInstallTarget({ target, verifyCurrentTarget });
+    if (target.kind === "platform_server") {
+      return { kind: "workspace", runExclusive };
+    }
+    const access = await dependencies.createSkillInstallTarget({ target });
     if (!access) {
       throw new Error("PlatformClaw VM skill installation is unavailable.");
     }
-    return { kind: "backend", access };
+    return { kind: "backend", access, runExclusive };
   };
 }
 

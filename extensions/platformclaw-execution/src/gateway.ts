@@ -1,6 +1,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { PlatformClawExecutionTargetSnapshot } from "./backend.js";
 import { classifyVmConnectionFailure } from "./connection-errors.js";
+import type { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordinator.js";
 
 type PlatformClawExecutionGatewayRuntime = {
   testConnection(params: {
@@ -34,11 +35,11 @@ type PlatformClawExecutionGatewayRuntime = {
 export function registerPlatformClawExecutionGateway(
   api: Pick<OpenClawPluginApi, "logger" | "on" | "registerGatewayMethod">,
   runtimePromise: Promise<PlatformClawExecutionGatewayRuntime>,
+  targetMutations: PlatformClawTargetMutationCoordinator,
 ): void {
-  const changingAgents = new Set<string>();
   api.on("before_agent_run", (_event, context) => {
     const agentId = context.agentId?.trim();
-    return agentId && changingAgents.has(agentId)
+    return agentId && targetMutations.isHeld(agentId, "target-change")
       ? {
           outcome: "block",
           reason: "execution target change is in progress",
@@ -149,14 +150,14 @@ export function registerPlatformClawExecutionGateway(
         });
         return;
       }
-      if (changingAgents.has(agentId)) {
+      const releaseMutation = targetMutations.tryAcquire(agentId, "target-change");
+      if (!releaseMutation) {
         respond(false, undefined, {
           code: "CONFLICT",
-          message: "work location is already changing",
+          message: "work location or workspace skill mutation is already in progress",
         });
         return;
       }
-      changingAgents.add(agentId);
       try {
         const active = [...context.chatAbortControllers.values()].some(
           (entry) => entry.agentId?.trim() === agentId,
@@ -179,7 +180,7 @@ export function registerPlatformClawExecutionGateway(
             : "work location service is unavailable",
         });
       } finally {
-        changingAgents.delete(agentId);
+        releaseMutation();
       }
     },
     { scope: "operator.admin" },

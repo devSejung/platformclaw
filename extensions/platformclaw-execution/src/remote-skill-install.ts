@@ -49,11 +49,7 @@ type RemoteSkillInstallIo = {
 export class VmRemoteSkillInstallerService {
   constructor(private readonly io: RemoteSkillInstallIo) {}
 
-  createAccess(params: {
-    target: AssignedVmTargetSnapshot;
-    verifyCurrentTarget: () => Promise<void>;
-    refreshCatalog: () => Promise<unknown>;
-  }): SkillArchiveInstallTargetAccess {
+  createAccess(params: { target: AssignedVmTargetSnapshot }): SkillArchiveInstallTargetAccess {
     const target = params.target;
     const skillsDir = path.posix.join(target.remoteWorkspaceDir, "skills");
     return {
@@ -78,8 +74,6 @@ export class VmRemoteSkillInstallerService {
             remoteRootDir: target.remoteWorkspaceDir,
             signal,
           });
-          // Recheck after the long upload so a target switch cannot commit to the captured VM.
-          await params.verifyCurrentTarget();
           const result = await this.io.runCommand({
             session,
             remoteCommand: buildRemoteCommand([
@@ -101,7 +95,6 @@ export class VmRemoteSkillInstallerService {
           if (result.code !== 0) {
             throw new Error(`VM skill install failed (${result.code})`);
           }
-          await params.refreshCatalog();
           return { targetDir };
         } finally {
           await this.io

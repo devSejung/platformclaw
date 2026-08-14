@@ -105,8 +105,10 @@ validates it, and stages it through the Gateway upload installer for the
 authenticated user's Agent. The browser sends the work location it displayed
 only as a stale-screen guard. The control process resolves the authoritative
 execution profile again, and the Gateway pins its target revision before any
-mutation. A target switch during the request fails visibly; installation never
-falls back from a VM to the Basic workspace.
+mutation. Target selection and the actual workspace install are serialized for
+each Agent, and the pinned target is revalidated after that guard is acquired.
+A concurrent target switch or stale screen therefore fails visibly;
+installation never falls back from a VM to the Basic workspace.
 
 Basic installs use the canonical local workspace installer. Assigned-VM installs
 reuse the same upload extraction and security scan, then the execution plugin
@@ -185,7 +187,8 @@ tests:
 
 ```bash
 node scripts/run-vitest.mjs packages/platformclaw-control-plane/src/skill-hub-adapter.test.ts packages/platformclaw-control-plane/src/skill-hub-service.test.ts packages/platformclaw-control-plane/src/deployment-config.test.ts
-node scripts/run-vitest.mjs ui/src/pages/skills/view.test.ts
+node scripts/run-vitest.mjs extensions/platformclaw-execution/src/backend.test.ts extensions/platformclaw-execution/src/gateway.test.ts extensions/platformclaw-execution/src/remote-skill-install.test.ts extensions/platformclaw-execution/src/target-mutation-coordinator.test.ts
+node scripts/run-vitest.mjs ui/src/pages/skills/view.skill-hub.test.ts
 ```
 
 Then build the two changed packages:

@@ -10,6 +10,7 @@ import {
 } from "./src/backend.js";
 import { registerPlatformClawExecutionGateway } from "./src/gateway.js";
 import { createExecutionDependenciesFromEnvironment } from "./src/runtime.js";
+import { PlatformClawTargetMutationCoordinator } from "./src/target-mutation-coordinator.js";
 
 export default definePluginEntry({
   id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
@@ -28,6 +29,7 @@ export default definePluginEntry({
       : undefined;
     const dependenciesPromise =
       executionRuntimePromise ?? Promise.resolve(createUnavailableExecutionDependencies());
+    const targetMutations = new PlatformClawTargetMutationCoordinator();
     registerSandboxBackend(PLATFORMCLAW_EXECUTION_BACKEND_ID, {
       factory: async (params) =>
         await createPlatformClawExecutionBackendFactory(await dependenciesPromise, {
@@ -37,7 +39,10 @@ export default definePluginEntry({
       skills: async (params) =>
         await createPlatformClawExecutionSkillProvider(await dependenciesPromise)(params),
       skillInstall: async (params) =>
-        await createPlatformClawExecutionSkillInstallProvider(await dependenciesPromise)(params),
+        await createPlatformClawExecutionSkillInstallProvider(
+          await dependenciesPromise,
+          targetMutations,
+        )(params),
       skillWorkshop: async (params) =>
         await createPlatformClawExecutionSkillWorkshopProvider(await dependenciesPromise)(params),
     });
@@ -47,6 +52,6 @@ export default definePluginEntry({
     api.on("gateway_stop", async () => {
       await (await executionRuntimePromise).dispose();
     });
-    registerPlatformClawExecutionGateway(api, executionRuntimePromise);
+    registerPlatformClawExecutionGateway(api, executionRuntimePromise, targetMutations);
   },
 });
