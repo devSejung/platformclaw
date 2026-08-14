@@ -1,6 +1,7 @@
 import { lstatSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { JiraVocConfig } from "./browser-voc-http.js";
+import { normalizeEmployeeSsoLoginUrl, type EmployeeSsoConfig } from "./employee-sso.js";
 import { parseJiraVocConfig } from "./jira-voc-config.js";
 import { McpCredentialCipher } from "./mcp-credential-crypto.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
@@ -17,6 +18,8 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   databasePath: "PLATFORMCLAW_DATABASE_PATH",
   controlUiRoot: "PLATFORMCLAW_CONTROL_UI_ROOT",
   jiraVocConfigFile: "PLATFORMCLAW_JIRA_VOC_CONFIG_FILE",
+  employeeAuthAdSsoUrl: "PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL",
+  employeeAuthAdSsoSecretFile: "PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE",
   workspaceRoot: "PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT",
   initialAdminAccountIdsFile: "PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE",
   gatewayUrl: "PLATFORMCLAW_GATEWAY_URL",
@@ -41,6 +44,7 @@ export type PlatformClawDeploymentConfig = {
   databasePath: string;
   controlUiRoot: string;
   jiraVoc?: JiraVocConfig;
+  employeeSso?: EmployeeSsoConfig;
   workspaceRoot: string;
   initialAdminAccountIds: readonly string[];
   gatewayUrl: string;
@@ -209,6 +213,29 @@ function readServiceToken(filePath: string, envName: string): string {
   return token;
 }
 
+function loadOptionalEmployeeSsoConfig(env: NodeJS.ProcessEnv): EmployeeSsoConfig | undefined {
+  const loginUrl = env[PLATFORMCLAW_DEPLOYMENT_ENV.employeeAuthAdSsoUrl]?.trim();
+  const secretFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.employeeAuthAdSsoSecretFile]?.trim();
+  if (!loginUrl && !secretFile) {
+    return undefined;
+  }
+  if (!loginUrl || !secretFile) {
+    throw new Error(
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.employeeAuthAdSsoUrl} and ${PLATFORMCLAW_DEPLOYMENT_ENV.employeeAuthAdSsoSecretFile} must be configured together`,
+    );
+  }
+  const handoffSecret = readDeploymentSecret(
+    secretFile,
+    PLATFORMCLAW_DEPLOYMENT_ENV.employeeAuthAdSsoSecretFile,
+  );
+  if (Buffer.byteLength(handoffSecret, "utf8") < 32) {
+    throw new Error(
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.employeeAuthAdSsoSecretFile} must contain at least 32 bytes`,
+    );
+  }
+  return { loginUrl: normalizeEmployeeSsoLoginUrl(loginUrl), handoffSecret };
+}
+
 export function readDeploymentSecret(filePath: string, label: string): string {
   const resolvedPath = resolve(filePath);
   const stat = lstatSync(resolvedPath);
@@ -261,6 +288,7 @@ export function loadPlatformClawDeploymentConfig(
   );
   const jiraVocConfigFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.jiraVocConfigFile]?.trim();
   const skillHub = loadSkillHubConfig(env, initialAdminAccountIds[0]!);
+  const employeeSso = loadOptionalEmployeeSsoConfig(env);
   return {
     publicOrigin: parsePublicOrigin(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin)),
     listenHost: env[PLATFORMCLAW_DEPLOYMENT_ENV.listenHost]?.trim() || DEFAULT_LISTEN_HOST,
@@ -274,6 +302,7 @@ export function loadPlatformClawDeploymentConfig(
           ),
         }
       : {}),
+    ...(employeeSso ? { employeeSso } : {}),
     workspaceRoot: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.workspaceRoot)),
     initialAdminAccountIds,
     gatewayUrl: gateway.websocketUrl,

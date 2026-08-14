@@ -41,6 +41,7 @@ import {
   type VmAdministrationService,
 } from "./browser-vm-admin-http.js";
 import { handlePlatformClawVocRequest, type JiraVocService } from "./browser-voc-http.js";
+import type { EmployeeSsoService } from "./employee-sso.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import { handlePlatformClawKnoxIngressProxy } from "./knox-ingress-proxy.js";
 import { handlePlatformClawKnoxRoutingRequest } from "./knox-routing-http.js";
@@ -74,6 +75,7 @@ const MAX_PENDING_BROWSER_REQUESTS = 64;
 export type PlatformClawWebIngressOptions = {
   publicOrigin: string;
   authService: BrowserAuthService;
+  employeeSsoService?: EmployeeSsoService;
   loginRateLimiter: BrowserLoginRateLimiter;
   gatewayProxy: PlatformClawBrowserGatewayPolicy;
   gateway: PlatformClawGatewayBackend;
@@ -302,6 +304,7 @@ export class PlatformClawWebIngressServer {
         requestIsSecure: this.publicOrigin.startsWith("https://"),
         isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         rateLimiter: this.options.loginRateLimiter,
+        ...(this.options.employeeSsoService ? { ssoService: this.options.employeeSsoService } : {}),
       });
       if (handled) {
         return;

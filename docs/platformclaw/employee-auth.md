@@ -2,6 +2,7 @@
 summary: "PlatformClaw employee authentication, browser session, and profile provisioning contract"
 read_when:
   - Integrating the current LDAP-compatible employee login service
+  - Connecting the PlatformClaw 1.0 ADSSO handoff to PlatformClaw 2.0
   - Implementing the PlatformClaw web BFF or employee-profile provisioning
 title: "PlatformClaw employee authentication"
 ---
@@ -53,6 +54,36 @@ Legacy `agentId` and `sessionKey` response fields are deliberately ignored.
 The personal agent binding derives `agentId` from the canonical account ID by
 replacing `.` with `_`, and current OpenClaw routing owns the session key.
 
+## ADSSO login contract
+
+The login page always shows `ADSSO 로그인` below the password form. Configure
+both values to enable the button's server-side flow:
+
+```text
+PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL=https://<employee-auth-host>/adsso
+PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE=/run/secrets/platformclaw_employee_auth_adsso_secret
+```
+
+The URL is normalized to an `/adsso/login` endpoint. Production URLs must use
+HTTPS; plain HTTP is accepted only for a loopback mock. The secret file must be
+a bounded regular file containing at least 32 bytes and must match the signing
+secret used by the PlatformClaw 1.0 employee-auth service.
+
+The browser starts at `GET /employee/auth/adsso`. PlatformClaw stores only a
+bounded same-origin return route, then redirects to the configured ADSSO login
+endpoint. The external service returns to
+`GET /employee/auth/sso-callback?token=<signed-handoff>`. The callback accepts
+the version 1 `platformclaw-auth` HMAC-SHA256 handoff for the `platformclaw`
+audience, requires a lifetime of at most 60 seconds, and rejects replayed,
+expired, malformed, or incorrectly signed tokens.
+
+After verification, the SAML principal uses the same PlatformClaw 2.0 user,
+personal-agent provisioning, opaque browser session, and session-limit owner as
+password login. Legacy signed `agentId` and `sessionKey` values are validated
+for contract compatibility but never establish authority in PlatformClaw 2.0.
+If ADSSO deployment configuration is absent, the button returns to the login
+page with an explicit unavailable message instead of failing silently.
+
 ## Profile provisioning
 
 Successful authentication produces two different objects:
@@ -76,6 +107,8 @@ session. A later login retries the failed binding idempotently.
 
 The framework-neutral HTTP boundary currently handles:
 
+- `GET /employee/auth/adsso`
+- `GET /employee/auth/sso-callback`
 - `POST /platformclaw/api/auth/login`
 - `GET /platformclaw/api/auth/session`
 - `POST /platformclaw/api/auth/logout`
@@ -134,17 +167,19 @@ databases created before the employee-auth adapter introduced a distinct
 legacy reader or migration. A migration requires a separate approved schema
 change after deployment begins.
 
-## Legacy mock smoke
+## Local mock smoke
 
-Until the mock is moved into this repository, start the legacy fixture from the
-adjacent `platform-agent` checkout:
+Start the repository mock with a generated development secret:
 
 ```powershell
-python ..\platform-agent\scripts\mock_employee_auth.py --bind 127.0.0.1 --port 18080
+$secretFile = Join-Path $env:TEMP "platformclaw-adsso-secret"
+[IO.File]::WriteAllText($secretFile, ("s" * 32))
+python scripts\mock_employee_auth.py --bind 127.0.0.1 --port 18080 --adsso-secret-file $secretFile --platformclaw-origin http://127.0.0.1:19001
 $env:PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL = "http://127.0.0.1:18080/login"
+$env:PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL = "http://127.0.0.1:18080/adsso"
+$env:PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE = $secretFile
 ```
 
-That mock intentionally implements only a subset of the production profile.
-Use an `--accounts-file` fixture when testing optional profile fields. Tests
-must use fake employees and must never copy a production auth response into the
-repository.
+The mock exercises password login and the signed ADSSO redirect. Use an
+`--accounts-file` fixture for additional fake profiles. Never copy a production
+auth response or signing secret into the repository.

@@ -226,26 +226,28 @@ pnpm platformclaw:control
 
 The process requires these deployment-owned values:
 
-| Environment variable                          | Purpose                                    |
-| --------------------------------------------- | ------------------------------------------ |
-| `PLATFORMCLAW_PUBLIC_ORIGIN`                  | Exact browser HTTP(S) origin               |
-| `PLATFORMCLAW_LISTEN_HOST`                    | Listener host; defaults to `127.0.0.1`     |
-| `PLATFORMCLAW_LISTEN_PORT`                    | Listener port; defaults to `19001`         |
-| `PLATFORMCLAW_DATABASE_PATH`                  | Persistent control-plane SQLite path       |
-| `PLATFORMCLAW_CONTROL_UI_ROOT`                | Built Control UI asset directory           |
-| `PLATFORMCLAW_JIRA_VOC_CONFIG_FILE`           | Optional Jira VOC JSON secret file         |
-| `PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT`        | Parent directory for personal workspaces   |
-| `PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE` | Initial administrator IDs secret file      |
-| `PLATFORMCLAW_GATEWAY_URL`                    | Private Gateway WS(S) origin               |
-| `PLATFORMCLAW_GATEWAY_TOKEN_FILE`             | Private Gateway operator-token secret file |
-| `PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE` | 32-byte Base64 SSH credential key file     |
-| `PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS`      | Unix socket or Windows named-pipe address  |
-| `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`        | Employee-auth login endpoint               |
-| `PLATFORMCLAW_EMPLOYEE_AUTH_BEARER_TOKEN`     | Optional employee-auth service bearer      |
-| `PLATFORMCLAW_SKILL_HUB_URL`                  | Optional pinned SkillHub service URL       |
-| `PLATFORMCLAW_SKILL_HUB_TOKEN_FILE`           | SkillHub server API-token secret file      |
-| `PLATFORMCLAW_SKILL_HUB_NAMESPACES`           | Comma-separated authorized namespaces      |
-| `PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES`    | Optional archive and expansion byte limit  |
+| Environment variable                           | Purpose                                    |
+| ---------------------------------------------- | ------------------------------------------ |
+| `PLATFORMCLAW_PUBLIC_ORIGIN`                   | Exact browser HTTP(S) origin               |
+| `PLATFORMCLAW_LISTEN_HOST`                     | Listener host; defaults to `127.0.0.1`     |
+| `PLATFORMCLAW_LISTEN_PORT`                     | Listener port; defaults to `19001`         |
+| `PLATFORMCLAW_DATABASE_PATH`                   | Persistent control-plane SQLite path       |
+| `PLATFORMCLAW_CONTROL_UI_ROOT`                 | Built Control UI asset directory           |
+| `PLATFORMCLAW_JIRA_VOC_CONFIG_FILE`            | Optional Jira VOC JSON secret file         |
+| `PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT`         | Parent directory for personal workspaces   |
+| `PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE`  | Initial administrator IDs secret file      |
+| `PLATFORMCLAW_GATEWAY_URL`                     | Private Gateway WS(S) origin               |
+| `PLATFORMCLAW_GATEWAY_TOKEN_FILE`              | Private Gateway operator-token secret file |
+| `PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE`  | 32-byte Base64 SSH credential key file     |
+| `PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS`       | Unix socket or Windows named-pipe address  |
+| `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`         | Employee-auth login endpoint               |
+| `PLATFORMCLAW_EMPLOYEE_AUTH_BEARER_TOKEN`      | Optional employee-auth service bearer      |
+| `PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL`         | External ADSSO base or login endpoint      |
+| `PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE` | ADSSO handoff signing-secret file          |
+| `PLATFORMCLAW_SKILL_HUB_URL`                   | Optional pinned SkillHub service URL       |
+| `PLATFORMCLAW_SKILL_HUB_TOKEN_FILE`            | SkillHub server API-token secret file      |
+| `PLATFORMCLAW_SKILL_HUB_NAMESPACES`            | Comma-separated authorized namespaces      |
+| `PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES`     | Optional archive and expansion byte limit  |
 
 The Gateway token is shared with the private `admin-http-rpc` endpoint used for
 personal-agent provisioning. The control process derives that HTTP endpoint

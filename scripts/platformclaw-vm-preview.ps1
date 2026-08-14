@@ -92,6 +92,7 @@ function Get-PreviewPaths {
         AdminIds = Join-Path $resolvedRoot "initial-admin-ids"
         CredentialKey = Join-Path $resolvedRoot "ssh-credential-master-key"
         EmployeeAuthCa = Join-Path $resolvedRoot "employee-auth-ca.pem"
+        EmployeeAuthAdSsoSecret = Join-Path $resolvedRoot "employee-auth-adsso-secret"
     }
 }
 
@@ -149,6 +150,9 @@ function Initialize-PreviewData {
     }
     if (-not (Test-Path $paths.CredentialKey)) {
         Write-Utf8NoBom $paths.CredentialKey (New-RandomBase64)
+    }
+    if (-not (Test-Path $paths.EmployeeAuthAdSsoSecret)) {
+        Write-Utf8NoBom $paths.EmployeeAuthAdSsoSecret (New-RandomHex)
     }
     return $paths
 }
@@ -208,7 +212,9 @@ function Set-PreviewEnvironment {
     $env:PLATFORMCLAW_PUBLIC_PORT = "$Port"
     $env:PLATFORMCLAW_PUBLIC_ORIGIN = "http://127.0.0.1:$Port"
     $env:PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL = "http://127.0.0.1:18080/login"
+    $env:PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL = "http://127.0.0.1:18080/adsso"
     $env:PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE = $Paths.EmployeeAuthCa
+    $env:PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE = $Paths.EmployeeAuthAdSsoSecret
     $env:PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE = $Paths.GatewayToken
     $env:PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE = $Paths.GatewayServiceIdentity
     $env:PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE = $Paths.ExecutionToken
@@ -556,6 +562,7 @@ function Invoke-ExistingPreview {
                 $paths.AdminIds,
                 $paths.CredentialKey,
                 $paths.EmployeeAuthCa,
+                $paths.EmployeeAuthAdSsoSecret,
                 $paths.Marker
             )) {
                 if (Test-Path $ownedPath) {

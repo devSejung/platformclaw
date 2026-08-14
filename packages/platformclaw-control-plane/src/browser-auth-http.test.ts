@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -7,6 +8,11 @@ import {
 } from "./browser-auth-http.js";
 import { BrowserAuthService } from "./browser-auth-service.js";
 import type { ControlPlaneIdFactory } from "./contracts.js";
+import {
+  EmployeeSsoService,
+  PLATFORMCLAW_ADSSO_PATH,
+  PLATFORMCLAW_SSO_CALLBACK_PATH,
+} from "./employee-sso.js";
 import { InMemoryControlPlaneStore } from "./memory-store.js";
 
 function ids(): ControlPlaneIdFactory {
@@ -77,7 +83,108 @@ function createRateLimiter() {
   };
 }
 
+function signSsoHandoff(): string {
+  const source = Buffer.from(
+    JSON.stringify({
+      contractVersion: 1,
+      kind: "sso",
+      issuer: "platformclaw-auth",
+      audience: "platformclaw",
+      authMethod: "saml",
+      employeeId: "seungon.jung",
+      name: "Seungon Jung",
+      department: "Platform",
+      agentId: "legacy-agent",
+      sessionKey: "agent:legacy-agent:main",
+      iat: 1,
+      exp: 61,
+    }),
+    "utf8",
+  );
+  return `${source.toString("base64url")}.${createHmac("sha256", "s".repeat(32))
+    .update(source)
+    .digest("base64url")}`;
+}
+
 describe("PlatformClaw browser auth HTTP boundary", () => {
+  it("redirects ADSSO through the 1.0 paths and returns to the requested 2.0 page", async () => {
+    const service = createService();
+    const ssoService = new EmployeeSsoService({
+      authService: service,
+      config: {
+        loginUrl: "https://auth.example.test/adsso",
+        handoffSecret: "s".repeat(32),
+      },
+      now: () => 1_000,
+    });
+    const start = responseHarness();
+    await handlePlatformClawBrowserAuthRequest(
+      {
+        url: `${PLATFORMCLAW_ADSSO_PATH}?returnTo=%2Fplatformclaw%2Fapp%2Fsessions`,
+        method: "GET",
+        headers: {},
+      } as IncomingMessage,
+      start.res,
+      {
+        service,
+        ssoService,
+        requestIsSecure: true,
+        isMutationOriginAllowed: () => true,
+        rateLimiter: createRateLimiter(),
+        readJsonBody: vi.fn(),
+      },
+    );
+    expect(start.res.statusCode).toBe(302);
+    expect(start.headers.get("Location")).toBe("https://auth.example.test/adsso/login");
+    const returnCookie = String(start.headers.get("Set-Cookie"));
+    expect(returnCookie).toContain("platformclaw_sso_return_to=");
+    expect(returnCookie).toContain("HttpOnly");
+    expect(returnCookie).toContain("Secure");
+
+    const callback = responseHarness();
+    await handlePlatformClawBrowserAuthRequest(
+      {
+        url: `${PLATFORMCLAW_SSO_CALLBACK_PATH}?token=${encodeURIComponent(signSsoHandoff())}`,
+        method: "GET",
+        headers: { cookie: returnCookie.split(";", 1)[0] },
+      } as IncomingMessage,
+      callback.res,
+      {
+        service,
+        ssoService,
+        requestIsSecure: true,
+        isMutationOriginAllowed: () => true,
+        rateLimiter: createRateLimiter(),
+        readJsonBody: vi.fn(),
+      },
+    );
+    expect(callback.res.statusCode).toBe(302);
+    expect(callback.headers.get("Location")).toBe("/platformclaw/app/sessions");
+    expect(callback.headers.get("Set-Cookie")).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`${PLATFORMCLAW_SESSION_COOKIE}=test-token-factory`),
+        expect.stringContaining("platformclaw_sso_return_to=; Max-Age=0"),
+      ]),
+    );
+  });
+
+  it("returns to login with a visible error when ADSSO is not configured", async () => {
+    const harness = responseHarness();
+    await handlePlatformClawBrowserAuthRequest(
+      { url: PLATFORMCLAW_ADSSO_PATH, method: "GET", headers: {} } as IncomingMessage,
+      harness.res,
+      {
+        service: createService(),
+        requestIsSecure: false,
+        isMutationOriginAllowed: () => true,
+        rateLimiter: createRateLimiter(),
+        readJsonBody: vi.fn(),
+      },
+    );
+    expect(harness.res.statusCode).toBe(302);
+    expect(harness.headers.get("Location")).toBe("/platformclaw/login?adssoError=unavailable");
+  });
+
   it("sets an HttpOnly secure cookie and never returns the opaque token in JSON", async () => {
     const harness = responseHarness();
     const handled = await handlePlatformClawBrowserAuthRequest(

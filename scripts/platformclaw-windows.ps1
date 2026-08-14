@@ -32,7 +32,9 @@ $runtimeEnvironmentNames = @(
     "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
     "PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS",
     "PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE",
-    "PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL"
+    "PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL",
+    "PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL",
+    "PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE"
 )
 
 function Write-Step {
@@ -354,6 +356,12 @@ function Initialize-Runtime {
     $env:PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = "\\.\pipe\platformclaw-credential-broker-$Port"
     $env:PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = $executionServiceTokenFile
     $env:PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL = "http://127.0.0.1:$EmployeeAuthPort/login"
+    $adssoSecretFile = Join-Path $controlRoot "employee-auth-adsso-secret"
+    if (-not (Test-Path $adssoSecretFile)) {
+        Write-Utf8NoBom $adssoSecretFile (New-RandomToken)
+    }
+    $env:PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL = "http://127.0.0.1:$EmployeeAuthPort/adsso"
+    $env:PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE = $adssoSecretFile
 
     # This preview owns its isolated config, so apply upstream doctor migrations before Gateway
     # startup. Without this step an upstream schema change can strand otherwise valid preview data.
@@ -467,7 +475,9 @@ function Start-PlatformClaw {
         Assert-PortAvailable $internalPort "Control internal execution"
 
         $pythonPrefix = ($python.Prefix | ForEach-Object { "'$_'" }) -join " "
-        $pythonCommand = "& '$($python.Command)' $pythonPrefix 'scripts\mock_employee_auth.py' --bind 127.0.0.1 --port $EmployeeAuthPort"
+        $adssoSecretFile = $env:PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE.Replace("'", "''")
+        $platformclawOrigin = $env:PLATFORMCLAW_PUBLIC_ORIGIN.Replace("'", "''")
+        $pythonCommand = "& '$($python.Command)' $pythonPrefix 'scripts\mock_employee_auth.py' --bind 127.0.0.1 --port $EmployeeAuthPort --adsso-secret-file '$adssoSecretFile' --platformclaw-origin '$platformclawOrigin'"
         $auth = Start-VisibleShell "PlatformClaw - employee auth mock" $sourceRoot $pythonCommand
         $startedProcesses += $auth
         Wait-HttpEndpoint "http://127.0.0.1:$EmployeeAuthPort/healthz" "Employee auth mock"

@@ -18,6 +18,7 @@ export * from "./contracts.js";
 export * from "./credential-broker-grants.js";
 export * from "./credential-broker-local.js";
 export * from "./employee-auth-client.js";
+export * from "./employee-sso.js";
 export * from "./employee-profile-artifact.js";
 export * from "./execution-contracts.js";
 export * from "./execution-handoff-http.js";

@@ -98,6 +98,10 @@ describe("createPlatformClawWebIngressRuntime", () => {
       } satisfies GatewayAdminRpc,
       publicOrigin: "http://127.0.0.1:3000",
       controlUiRoot,
+      employeeSso: {
+        loginUrl: "https://auth.example.test/adsso",
+        handoffSecret: "s".repeat(32),
+      },
       credentialBrokerAddress,
       executionServiceToken: "execution-service-token-with-32-bytes",
     });
@@ -157,6 +161,12 @@ describe("createPlatformClawWebIngressRuntime", () => {
       const loginPage = await fetch(`http://127.0.0.1:${port}/platformclaw/login`);
       expect(loginPage.status).toBe(200);
       expect(await loginPage.text()).toContain("<!doctype html>Login");
+
+      const adssoStart = await fetch(`http://127.0.0.1:${port}/employee/auth/adsso`, {
+        redirect: "manual",
+      });
+      expect(adssoStart.status).toBe(302);
+      expect(adssoStart.headers.get("location")).toBe("https://auth.example.test/adsso/login");
 
       const rootEntry = await fetch(`http://127.0.0.1:${port}/`, { redirect: "manual" });
       expect(rootEntry.status).toBe(302);

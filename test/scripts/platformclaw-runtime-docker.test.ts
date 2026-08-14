@@ -223,6 +223,7 @@ describe("PlatformClaw Docker runtime", () => {
       "platformclaw_ssh_credential_master_key",
       "platformclaw_skill_hub_token",
       "platformclaw_skill_hub_bootstrap_password",
+      "platformclaw_employee_auth_adsso_secret",
     ]);
     expect(gateway?.secrets).toEqual([
       "platformclaw_gateway_token",
@@ -683,6 +684,11 @@ describe("PlatformClaw Docker runtime", () => {
     expect(control?.environment?.PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL).toBe(
       "http://127.0.0.1:18080/login",
     );
+    expect(control?.environment?.PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL).toBe(
+      "http://127.0.0.1:18080/adsso",
+    );
+    expect(mock?.secrets).toContain("platformclaw_employee_auth_adsso_secret");
+    expect(mock?.command).toContain("--adsso-secret-file");
     expect(control?.depends_on).toBeUndefined();
   });
 

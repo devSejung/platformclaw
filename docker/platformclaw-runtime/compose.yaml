@@ -108,6 +108,8 @@ services:
       PLATFORMCLAW_SKILL_HUB_NAMESPACES: ${PLATFORMCLAW_SKILL_HUB_NAMESPACES:-}
       PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES: ${PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES:-524288000}
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL}
+      PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL}
+      PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE: /run/secrets/platformclaw_employee_auth_adsso_secret
       NODE_EXTRA_CA_CERTS: /etc/platformclaw/certs/employee-auth-ca.pem
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
     volumes:
@@ -124,6 +126,7 @@ services:
       - platformclaw_ssh_credential_master_key
       - platformclaw_skill_hub_token
       - platformclaw_skill_hub_bootstrap_password
+      - platformclaw_employee_auth_adsso_secret
     networks:
       platformclaw-gateway-backplane:
         aliases: [control.platformclaw.local]
@@ -388,3 +391,5 @@ secrets:
     file: ${PLATFORMCLAW_SKILL_HUB_COOKIE_SECRET_FILE:-/dev/null}
   platformclaw_skill_hub_bootstrap_password:
     file: ${PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_SECRET_FILE:-/dev/null}
+  platformclaw_employee_auth_adsso_secret:
+    file: ${PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE:?set PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE}

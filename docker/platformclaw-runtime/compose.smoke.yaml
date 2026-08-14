@@ -107,10 +107,24 @@ services:
     network_mode: service:platformclaw-control
     volumes:
       - ${PLATFORMCLAW_REPO_ROOT:?set PLATFORMCLAW_REPO_ROOT}/scripts/mock_employee_auth.py:/smoke/mock_employee_auth.py:ro
+    secrets:
+      - platformclaw_employee_auth_adsso_secret
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     init: true
-    command: ["python3", "/smoke/mock_employee_auth.py", "--bind", "127.0.0.1", "--port", "18080"]
+    command:
+      [
+        "python3",
+        "/smoke/mock_employee_auth.py",
+        "--bind",
+        "127.0.0.1",
+        "--port",
+        "18080",
+        "--adsso-secret-file",
+        "/run/secrets/platformclaw_employee_auth_adsso_secret",
+        "--platformclaw-origin",
+        "${PLATFORMCLAW_PUBLIC_ORIGIN:?set PLATFORMCLAW_PUBLIC_ORIGIN}",
+      ]
     healthcheck:
       test:
         [
@@ -126,6 +140,7 @@ services:
   platformclaw-control:
     environment:
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: http://127.0.0.1:18080/login
+      PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL: http://127.0.0.1:18080/adsso
     volumes:
       - platformclaw-smoke-control-state:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/control
       - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/workspaces

@@ -17,6 +17,7 @@ import { PlatformClawBrowserMediaRelay } from "./browser-media-http.js";
 import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import { JiraVocService, type JiraVocConfig } from "./browser-voc-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
+import { EmployeeSsoService, type EmployeeSsoConfig } from "./employee-sso.js";
 import {
   deriveExecutionHandoffAddress,
   PlatformClawExecutionHandoffServer,
@@ -70,6 +71,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   adminRpc: GatewayAdminRpc;
   publicOrigin: string;
   controlUiRoot: string;
+  employeeSso?: EmployeeSsoConfig;
   jiraVoc?: JiraVocConfig;
   loginRateLimiter?: MemoryBrowserLoginRateLimiterOptions;
   credentialBrokerAddress?: string;
@@ -165,6 +167,13 @@ export function createPlatformClawWebIngressRuntime(
         )
       : undefined;
   const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
+  const employeeSsoService = options.employeeSso
+    ? new EmployeeSsoService({
+        authService: auth.service,
+        config: options.employeeSso,
+        ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+      })
+    : undefined;
   const knoxRouting = options.knoxRouting
     ? {
         service: new KnoxRoutingService({
@@ -256,6 +265,7 @@ export function createPlatformClawWebIngressRuntime(
   const server = new PlatformClawWebIngressServer({
     publicOrigin: options.publicOrigin,
     authService: auth.service,
+    ...(employeeSsoService ? { employeeSsoService } : {}),
     loginRateLimiter: new MemoryBrowserLoginRateLimiter(options.loginRateLimiter),
     gatewayProxy,
     gateway,

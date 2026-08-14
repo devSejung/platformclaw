@@ -15,6 +15,7 @@ function fixture(): HTMLElement {
       <p data-login-error role="alert" hidden></p>
       <button type="submit" disabled>세션 확인 중…</button>
     </form>
+    <a data-login-adsso href="/employee/auth/adsso">ADSSO 로그인</a>
     <p data-login-status></p>`;
   document.body.append(root);
   return root;
@@ -64,6 +65,9 @@ describe("PlatformClawLoginController", () => {
       expect.objectContaining({ credentials: "include", signal: expect.any(AbortSignal) }),
     );
     expect(root.querySelector<HTMLInputElement>('input[name="identifier"]')?.disabled).toBe(false);
+    expect(root.querySelector<HTMLAnchorElement>("[data-login-adsso]")?.getAttribute("href")).toBe(
+      "/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fchat",
+    );
   });
 
   it("enables sign-in when session bootstrap stalls", async () => {
@@ -77,6 +81,14 @@ describe("PlatformClawLoginController", () => {
     );
     const { root } = await start(fetchImpl, 5);
     expect(root.querySelector("button")?.textContent).toBe("로그인");
+  });
+
+  it("shows a clear error when ADSSO is unavailable", async () => {
+    window.history.replaceState({}, "", "/platformclaw/login?adssoError=unavailable");
+    const { root } = await start(async () => response({ authenticated: false }));
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain(
+      "ADSSO 로그인 서비스를 사용할 수 없습니다",
+    );
   });
 
   it("clears the secret field after rejected credentials", async () => {
@@ -108,6 +120,9 @@ describe("PlatformClawLoginController", () => {
       .mockResolvedValueOnce(response({ authenticated: false }))
       .mockResolvedValueOnce(response({ authenticated: true }));
     const { root, navigate } = await start(fetchImpl);
+    expect(root.querySelector<HTMLAnchorElement>("[data-login-adsso]")?.getAttribute("href")).toBe(
+      "/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fsessions",
+    );
     submit(root);
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/platformclaw/app/sessions"));
   });

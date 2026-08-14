@@ -84,7 +84,9 @@ PY
 )"
 export PLATFORMCLAW_PUBLIC_ORIGIN="http://127.0.0.1:$PLATFORMCLAW_PUBLIC_PORT"
 export PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL="http://127.0.0.1:18080/login"
+export PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL="http://127.0.0.1:18080/adsso"
 export PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE="$work_dir/employee-auth-ca.pem"
+export PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE="$work_dir/employee-auth-adsso-secret"
 export PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE="$work_dir/gateway-token"
 export PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE="$work_dir/execution-service-token"
 export PLATFORMCLAW_KNOX_CDEP_URL="http://127.0.0.1:18081/api/v1/platformclaw/knox/outbound/send"
@@ -102,6 +104,7 @@ openssl rand -hex 32 >"$PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE"
 openssl rand -hex 32 >"$PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE"
 openssl genpkey -algorithm ED25519 -out "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE"
 openssl rand -base64 32 >"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
+openssl rand -hex 32 >"$PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE"
 cp /etc/ssl/certs/ca-certificates.crt "$PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE"
 credential_key_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE")"
 execution_service_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE")"
@@ -114,6 +117,7 @@ chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE" \
   "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE" \
   "$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE" \
   "$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE" \
+  "$PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE" \
   "$PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE"
 
 echo "==> Starting PlatformClaw runtime smoke"
@@ -126,6 +130,8 @@ origin="$PLATFORMCLAW_PUBLIC_ORIGIN"
 cookie_jar="$work_dir/cookies.txt"
 login_response="$work_dir/login.json"
 session_response="$work_dir/session.json"
+sso_cookie_jar="$work_dir/sso-cookies.txt"
+sso_session_response="$work_dir/sso-session.json"
 app_document="$work_dir/app.html"
 admin_cookie_jar="$work_dir/admin-cookies.txt"
 admin_response="$work_dir/admin-login.json"
@@ -138,6 +144,15 @@ curl --fail --silent --show-error "$origin/platformclaw/health" |
   jq -e '.ready == true' >/dev/null
 curl --fail --silent --show-error "$origin/platformclaw/login" |
   grep -q 'data-platformclaw-login'
+
+curl --fail --location --silent --show-error \
+  --cookie-jar "$sso_cookie_jar" \
+  "$origin/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fchat" >/dev/null
+curl --fail --silent --show-error \
+  --cookie "$sso_cookie_jar" \
+  "$origin/platformclaw/api/auth/session" >"$sso_session_response"
+jq -e '.authenticated == true and .agent.agentId == "person_one"' \
+  "$sso_session_response" >/dev/null
 
 curl --fail --silent --show-error \
   --cookie-jar "$cookie_jar" \
