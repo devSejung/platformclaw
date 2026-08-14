@@ -36,7 +36,7 @@ import {
 import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
-import { PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT } from "../../platformclaw/execution-target-events.ts";
+import { subscribeToPlatformClawExecutionTargetChanges } from "../../platformclaw/execution-target-events.ts";
 import {
   installPlatformClawHubSkill,
   loadPlatformClawSkillHubConfig,
@@ -229,20 +229,16 @@ class SkillsPage extends OpenClawLightDomElement {
       },
     )
     .effect(
-      () => this.context?.accessMode === "personal-agent",
-      (personalAccess) => {
-        if (!personalAccess) {
-          return;
-        }
-        const refresh = () => {
-          this.resetLoadedSkillState();
-          this.ensureInitialData();
-          this.requestUpdate();
-        };
-        window.addEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
-        return () =>
-          window.removeEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
-      },
+      () => (this.context?.accessMode === "personal-agent" ? window : undefined),
+      (target) =>
+        subscribeToPlatformClawExecutionTargetChanges(
+          target,
+          () => this.resetLoadedSkillState(),
+          () => {
+            this.ensureInitialData();
+            this.requestUpdate();
+          },
+        ),
     );
 
   override willUpdate(changed: PropertyValues<this>) {

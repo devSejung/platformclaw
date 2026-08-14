@@ -11,6 +11,7 @@ import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 import { filterSkillWorkshopProposals } from "../../lib/skill-workshop/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
+import { subscribeToPlatformClawExecutionTargetChanges } from "../../platformclaw/execution-target-events.ts";
 import { PLUGINS_HUB_PANEL_ID } from "../plugins/plugins-hub.ts";
 import { canCallWorkshopAdminMethod, resolveWorkshopAccess } from "./access.ts";
 import { renderSkillWorkshopHeaderControls, setSkillWorkshopMode } from "./header-controls.ts";
@@ -23,7 +24,6 @@ import {
   loadSkillWorkshopProposals,
   resolvePersonalAwareSelfLearning,
   SkillWorkshopPersonalAccess,
-  subscribeToExecutionTargetChanges,
 } from "./personal-access.ts";
 import { selectPluginsHubTab, workshopPluginsHubTabs } from "./plugins-hub-navigation.ts";
 import {
@@ -425,7 +425,7 @@ class SkillWorkshopPage extends OpenClawLightDomElement {
     .effect(
       () => (this.context?.accessMode === "personal-agent" ? window : undefined),
       (target) =>
-        subscribeToExecutionTargetChanges(
+        subscribeToPlatformClawExecutionTargetChanges(
           target,
           () => this.resetSourceState(),
           () => this.loadProposals(true),
