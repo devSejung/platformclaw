@@ -12,7 +12,7 @@ export type PlatformClawSkillHubSearchItem = {
   summary: string;
 };
 
-export type PlatformClawSkillHubVersion = {
+type PlatformClawSkillHubVersion = {
   version: string;
   status: string;
   changelog?: string;
