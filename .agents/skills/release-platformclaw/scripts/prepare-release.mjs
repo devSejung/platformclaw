@@ -110,8 +110,11 @@ const bundleFiles = [
   ["platformclaw-deploy", true],
   ["deployment.env.example", false],
   ["init-state", true],
+  ["bootstrap-skillhub.mjs", true],
   ["migrate-workspace-owner", true],
   ["migrate-workspaces", true],
+  ["SKILLHUB-LICENSE.txt", false],
+  ["SKILLHUB-NOTICE.md", false],
   ["OPERATIONS.ko.md", false, "platformclaw-company-install-ko.md"],
 ];
 try {

@@ -79,9 +79,13 @@ gateway_state_backup_root="$deploy_root/backups/gateway-state"
 previous_gateway_state_file="$env_file.previous-state"
 control_state="$deploy_root/data/control"
 workspace_root="$deploy_root/data/workspaces"
+skillhub_state="$deploy_root/data/skillhub"
+skillhub_state_backup_root="$deploy_root/backups/skillhub-state"
+previous_skillhub_state_file="$env_file.previous-skillhub-state"
 secret_root="$deploy_root/secrets"
 cert_root="$deploy_root/certs"
 legacy_state_marker="$deploy_root/.legacy-durable-state"
+skillhub_state_marker="$deploy_root/.skillhub-durable-state"
 compose=("$script_dir/platformclaw-compose" --service-user "$service_user")
 rootless=(env "XDG_RUNTIME_DIR=/run/user/$runtime_uid" "DOCKER_HOST=unix:///run/user/$runtime_uid/docker.sock" docker)
 cleanup_daemons=()
@@ -113,12 +117,15 @@ ensure_layout() {
   if [[ "$(id -u)" == "0" ]]; then
     install -d -o "$runtime_uid" -g "$runtime_gid" -m 0700 "$deploy_root" \
       "$deploy_root/data" "$gateway_home" "$gateway_state" "$control_state" "$workspace_root" \
-      "$secret_root" "$cert_root" "$deploy_root/releases"
+      "$skillhub_state/postgres" "$skillhub_state/redis" "$skillhub_state/storage" \
+      "$secret_root" "$cert_root" "$deploy_root/releases" "$deploy_root/backups"
   else
     require_service_user
     [[ -d "$gateway_home" ]] || install -d -m 0700 "$gateway_home"
     install -d -m 0700 "$deploy_root" "$deploy_root/data" "$gateway_state" \
-      "$control_state" "$workspace_root" "$secret_root" "$cert_root" "$deploy_root/releases"
+      "$control_state" "$workspace_root" "$skillhub_state/postgres" \
+      "$skillhub_state/redis" "$skillhub_state/storage" "$secret_root" "$cert_root" \
+      "$deploy_root/releases" "$deploy_root/backups"
   fi
 }
 
@@ -167,6 +174,11 @@ provision_missing_secrets() {
   generate_secret "$secret_root/knox-webhook-secret" openssl rand -hex 32
   generate_secret "$secret_root/knox-service-token" openssl rand -hex 32
   generate_secret "$secret_root/ssh-credential-master-key" openssl rand -base64 32
+  if skillhub_enabled; then
+    generate_secret "$secret_root/skillhub-postgres-password" openssl rand -hex 32
+    generate_secret "$secret_root/skillhub-cookie-secret" openssl rand -hex 32
+    generate_secret "$secret_root/skillhub-bootstrap-password" openssl rand -base64 36
+  fi
   if [[ ! -f "$secret_root/initial-admin-ids" ]]; then
     if [[ -n "$initial_admin_source" ]]; then
       install -m 0400 "$initial_admin_source" "$secret_root/initial-admin-ids"
@@ -182,6 +194,11 @@ provision_missing_secrets() {
     "$secret_root/knox-service-token" \
     "$secret_root/initial-admin-ids" \
     "$secret_root/ssh-credential-master-key"
+  if skillhub_enabled; then
+    chmod 0400 "$secret_root/skillhub-postgres-password" \
+      "$secret_root/skillhub-cookie-secret" \
+      "$secret_root/skillhub-bootstrap-password"
+  fi
 }
 
 generate_secret() {
@@ -205,12 +222,108 @@ require_complete_secrets() {
   for name in gateway-token gateway-service-identity.pem execution-service-token initial-admin-ids ssh-credential-master-key; do
     [[ -s "$secret_root/$name" ]] || missing_secrets+=("$name")
   done
+  if skillhub_enabled && [[ -f "$skillhub_state_marker" ]]; then
+    for name in skillhub-postgres-password skillhub-cookie-secret skillhub-bootstrap-password; do
+      [[ -s "$secret_root/$name" ]] || missing_secrets+=("$name")
+    done
+  fi
   if (( ${#missing_secrets[@]} > 0 )); then
     printf 'Existing deployment state requires its original secrets; missing: %s\n' \
       "${missing_secrets[*]}" >&2
     echo "Restore them into $secret_root before starting. No replacement keys were generated." >&2
     exit 1
   fi
+}
+
+skillhub_enabled() {
+  [[ -f "$env_file" ]] && [[ "$(read_env_value PLATFORMCLAW_SKILL_HUB_ENABLED)" == "true" ]]
+}
+
+preflight_skillhub_resources() {
+  skillhub_enabled || return
+  local available_kib
+  local memory_kib
+  local required_disk_kib=20971520
+  [[ -f "$skillhub_state_marker" ]] && required_disk_kib=5242880
+  memory_kib="$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)"
+  available_kib="$(df -Pk "$deploy_root" | awk 'NR == 2 { print $4 }')"
+  if (( memory_kib < 4194304 )); then
+    echo "SkillHub requires at least 4 GiB host RAM; detected $((memory_kib / 1024)) MiB." >&2
+    exit 1
+  fi
+  if (( available_kib < required_disk_kib )); then
+    echo "SkillHub requires at least $((required_disk_kib / 1048576)) GiB free under $deploy_root; detected $((available_kib / 1024)) MiB." >&2
+    exit 1
+  fi
+}
+
+require_skillhub_images() {
+  skillhub_enabled || return
+  local key
+  local image
+  for key in PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE \
+    PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE; do
+    image="$(read_env_value "$key")"
+    DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$image" >/dev/null || {
+      echo "Bundled SkillHub image is missing: $image" >&2
+      echo "Load the current PlatformClaw transfer archive; no registry pull was attempted." >&2
+      exit 1
+    }
+  done
+}
+
+bootstrap_skillhub() {
+  skillhub_enabled || return
+  local token_file="$secret_root/skillhub-token"
+  local token_source="${PLATFORMCLAW_SKILL_HUB_TOKEN_SOURCE:-}"
+  local create_token="false"
+  local network_name
+  local project_name="${PLATFORMCLAW_COMPOSE_PROJECT:-platformclaw}"
+  local runtime_image
+  if [[ ! -s "$token_file" && -n "$token_source" ]]; then
+    [[ -r "$token_source" ]] || { echo "SkillHub token source is unreadable: $token_source" >&2; exit 1; }
+    install -m 0400 "$token_source" "$token_file"
+  fi
+  "${compose[@]}" up -d --wait skillhub-server
+  if [[ ! -s "$token_file" ]]; then
+    echo "Bootstrap the private SkillHub API token"
+    create_token="true"
+    umask 077
+    : >"$token_file"
+    chmod 0600 "$token_file"
+  fi
+  network_name="$(DOCKER_HOST=unix:///var/run/docker.sock docker network ls \
+    --filter "label=com.docker.compose.project=$project_name" \
+    --filter "label=com.docker.compose.network=platformclaw-skillhub" \
+    --format '{{.Name}}')"
+  [[ -n "$network_name" && "$network_name" != *$'\n'* ]] || {
+    echo "Cannot resolve the private SkillHub Compose network." >&2
+    exit 1
+  }
+  runtime_image="$(read_env_value PLATFORMCLAW_IMAGE)"
+  if ! DOCKER_HOST=unix:///var/run/docker.sock docker run --rm --network "$network_name" \
+    --read-only --user "$runtime_uid:$runtime_gid" --cap-drop ALL \
+    --security-opt no-new-privileges:true \
+    --env SKILLHUB_BASE_URL=http://skillhub.platformclaw.local:8080 \
+    --env "SKILLHUB_NAMESPACES=$(read_env_value PLATFORMCLAW_SKILL_HUB_NAMESPACES)" \
+    --env "SKILLHUB_CREATE_TOKEN=$create_token" \
+    --env SKILLHUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/bootstrap-password \
+    --env SKILLHUB_TOKEN_OUTPUT_FILE=/run/secrets/control-token \
+    --volume "$secret_root/skillhub-bootstrap-password:/run/secrets/bootstrap-password:ro" \
+    --volume "$token_file:/run/secrets/control-token" \
+    --volume "$script_dir/bootstrap-skillhub.mjs:/opt/platformclaw/bootstrap-skillhub.mjs:ro" \
+    --entrypoint node "$runtime_image" /opt/platformclaw/bootstrap-skillhub.mjs; then
+    [[ "$create_token" != "true" ]] || rm -f "$token_file"
+      echo "SkillHub token/namespace bootstrap failed; Hub remains internal and Control was not started." >&2
+      exit 1
+  fi
+  if [[ "$create_token" == "true" ]]; then
+    IFS= read -r token <"$token_file" || true
+    [[ "$token" == sk_* ]] || { rm -f "$token_file"; echo "SkillHub returned no bootstrap token." >&2; exit 1; }
+    chmod 0400 "$token_file"
+  fi
+  touch "$skillhub_state_marker"
+  chmod 0600 "$skillhub_state_marker"
 }
 
 durable_state_exists() {
@@ -327,6 +440,27 @@ validate_deployment_env() {
   fi
   require_immutable_image_ref "$(read_env_value PLATFORMCLAW_IMAGE)" "Main image"
   require_immutable_image_ref "$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE)" "Sandbox image"
+  if skillhub_enabled; then
+    for key in PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE \
+      PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE \
+      PLATFORMCLAW_SKILL_HUB_URL PLATFORMCLAW_SKILL_HUB_TOKEN_FILE \
+      PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE \
+      PLATFORMCLAW_SKILL_HUB_NAMESPACES PLATFORMCLAW_SKILL_HUB_TOKEN_SECRET_FILE \
+      PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE \
+      PLATFORMCLAW_SKILL_HUB_COOKIE_SECRET_FILE \
+      PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_SECRET_FILE; do
+      value="$(read_env_value "$key")"
+      [[ -n "$value" && "$value" != *'<'* && "$value" != *'>'* ]] || invalid+=("$key")
+    done
+    if (( ${#invalid[@]} > 0 )); then
+      printf 'Configure SkillHub values in %s before startup: %s\n' "$env_file" "${invalid[*]}" >&2
+      exit 1
+    fi
+    for key in PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE \
+      PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE; do
+      require_immutable_image_ref "$(read_env_value "$key")" "$key"
+    done
+  fi
 }
 
 restart_gateway_and_wait() {
@@ -516,6 +650,55 @@ restore_gateway_state_backup() {
   echo "Gateway state restored. Failed update state retained: $failed_state"
 }
 
+create_skillhub_state_backup() {
+  skillhub_state_backup=""
+  skillhub_enabled || return
+  install -d -m 0700 "$skillhub_state_backup_root"
+  local archive="skillhub-state-$(date -u +%Y%m%dT%H%M%SZ)-$$.tar"
+  local runtime_image
+  runtime_image="$(read_env_value PLATFORMCLAW_IMAGE)"
+  DOCKER_HOST=unix:///var/run/docker.sock docker run --rm --network none --read-only \
+    --user 0:0 --cap-drop ALL --cap-add DAC_READ_SEARCH \
+    --security-opt no-new-privileges:true \
+    --volume "$skillhub_state:/source:ro" \
+    --volume "$skillhub_state_backup_root:/backup" \
+    --entrypoint bash "$runtime_image" -ceu \
+    'tar -C /source -cpf "/backup/$1" .' -- "$archive" || {
+      rm -f "$skillhub_state_backup_root/$archive"
+      echo "Failed to back up SkillHub state; image update was not started." >&2
+      return 1
+    }
+  skillhub_state_backup="$skillhub_state_backup_root/$archive"
+  printf '%s\n' "$skillhub_state_backup" >"$previous_skillhub_state_file"
+  chmod 0600 "$previous_skillhub_state_file"
+  echo "SkillHub state backup: $skillhub_state_backup"
+}
+
+restore_skillhub_state_backup() {
+  local backup="$1"
+  local backup_root_resolved
+  local backup_resolved
+  skillhub_enabled || return
+  [[ -f "$backup" ]] || { echo "SkillHub state backup is unavailable: $backup" >&2; return 1; }
+  backup_root_resolved="$(realpath -e "$skillhub_state_backup_root")"
+  backup_resolved="$(realpath -e "$backup")"
+  [[ "$(dirname "$backup_resolved")" == "$backup_root_resolved" && "$backup_resolved" == *.tar ]] || {
+    echo "Refusing SkillHub restore outside $skillhub_state_backup_root: $backup" >&2
+    return 1
+  }
+  backup="$backup_resolved"
+  local runtime_image
+  runtime_image="$(read_env_value PLATFORMCLAW_IMAGE)"
+  DOCKER_HOST=unix:///var/run/docker.sock docker run --rm --network none --read-only \
+    --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE --cap-add CHOWN --cap-add FOWNER \
+    --security-opt no-new-privileges:true \
+    --volume "$skillhub_state:/target" \
+    --volume "$backup:/backup.tar:ro" \
+    --entrypoint bash "$runtime_image" -ceu \
+    'find /target -mindepth 1 -xdev -depth -delete && tar -C /target -xpf /backup.tar'
+  echo "SkillHub state restored: $backup"
+}
+
 run_upgrade_doctor() {
   echo "Run OpenClaw state migrations with the new image"
   "${compose[@]}" run --rm --no-deps openclaw-gateway \
@@ -656,6 +839,7 @@ apply_images() {
   local current_main
   local current_sandbox
   local gateway_state_backup=""
+  local skillhub_state_backup=""
   local rollback_main=""
   local rollback_sandbox=""
   local rollback_pair_available="0"
@@ -691,6 +875,8 @@ apply_images() {
     rollback_pair_available="1"
   fi
   prepare_image_update_runtime_files
+  preflight_skillhub_resources
+  require_skillhub_images
   require_gateway_restore_access
 
   if [[ "$same_image_pair" != "1" ]]; then
@@ -704,7 +890,9 @@ apply_images() {
   if "${compose[@]}" config --quiet && \
     "${compose[@]}" down && \
     create_gateway_state_backup && \
+    create_skillhub_state_backup && \
     run_upgrade_doctor && \
+    bootstrap_skillhub && \
     "${compose[@]}" up -d --wait && \
     { [[ "$current_sandbox" == "$sandbox_image" ]] || recreate_sandboxes; }; then
     echo "PlatformClaw updated: $main_image / $sandbox_image"
@@ -722,6 +910,12 @@ apply_images() {
       echo "Automatic Gateway state restore failed; services remain stopped." >&2
       exit 1
     }
+    if [[ -n "$skillhub_state_backup" ]]; then
+      restore_skillhub_state_backup "$skillhub_state_backup" || {
+        echo "Automatic SkillHub state restore failed; services remain stopped." >&2
+        exit 1
+      }
+    fi
   fi
   if [[ "$rollback_pair_available" == "1" ]]; then
     set_image_pair "$rollback_main" "$rollback_sandbox"
@@ -870,10 +1064,13 @@ case "$command_name" in
     require_main_docker
     require_rootless_docker
     prepare_runtime_files
+    preflight_skillhub_resources
     main_image="$(read_env_value PLATFORMCLAW_IMAGE)"
     sandbox_image="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE)"
     DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$main_image" >/dev/null
     "${rootless[@]}" image inspect "$sandbox_image" >/dev/null
+    require_skillhub_images
+    bootstrap_skillhub
     "${compose[@]}" config --quiet
     "${compose[@]}" up -d --wait
     "${compose[@]}" ps
@@ -1022,11 +1219,34 @@ case "$command_name" in
         require_immutable_image_ref "$previous_sandbox" "Previous sandbox image"
         DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$previous_main" >/dev/null
         "${rootless[@]}" image inspect "$previous_sandbox" >/dev/null
+        previous_gateway_backup=""
+        previous_skillhub_backup=""
+        [[ -f "$previous_gateway_state_file" ]] && previous_gateway_backup="$(<"$previous_gateway_state_file")"
+        [[ -f "$previous_skillhub_state_file" ]] && previous_skillhub_backup="$(<"$previous_skillhub_state_file")"
+        [[ -n "$previous_gateway_backup" && -d "$previous_gateway_backup" ]] || {
+          echo "Previous Gateway state backup is unavailable; refusing image-only rollback." >&2
+          exit 1
+        }
         current_backup="$env_file.failed.$(date -u +%Y%m%dT%H%M%SZ)"
         cp -p "$env_file" "$current_backup"
+        "${compose[@]}" down
+        create_gateway_state_backup
+        current_gateway_backup="$gateway_state_backup"
+        create_skillhub_state_backup
+        current_skillhub_backup="$skillhub_state_backup"
         restore_previous_images
-        if ! "${compose[@]}" up -d --wait; then
+        rollback_ok=1
+        restore_gateway_state_backup "$previous_gateway_backup" || rollback_ok=0
+        if [[ -n "$previous_skillhub_backup" ]]; then
+          restore_skillhub_state_backup "$previous_skillhub_backup" || rollback_ok=0
+        fi
+        if [[ "$rollback_ok" == "1" ]]; then
+          bootstrap_skillhub && "${compose[@]}" up -d --wait || rollback_ok=0
+        fi
+        if [[ "$rollback_ok" != "1" ]]; then
           cp -p "$current_backup" "$env_file"
+          restore_gateway_state_backup "$current_gateway_backup" || true
+          [[ -z "$current_skillhub_backup" ]] || restore_skillhub_state_backup "$current_skillhub_backup" || true
           "${compose[@]}" up -d --wait || true
           echo "Rollback failed. Current deployment env restored; failed attempt saved: $current_backup" >&2
           exit 1

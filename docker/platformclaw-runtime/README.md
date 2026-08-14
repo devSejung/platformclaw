@@ -204,13 +204,22 @@ config reconciliation instead of silently widening access to other plugins.
 `platformclaw-deploy image update` restores the previous image pair and Gateway
 state if this migration requirement is missed.
 
-The transfer archive contains both the main and sandbox images. The deployment
+The transfer archive contains the main and sandbox images plus the exact
+SkillHub v0.2.16 server/scanner and pinned PostgreSQL/Redis object images. The
+Hub services have no host ports and share only an internal network with
+Control. Existing two-image archives remain usable by deployments whose
+`PLATFORMCLAW_SKILL_HUB_ENABLED` is absent or `false`. New deployments enable
+the bundled Hub and keep its database, Redis AOF, and package storage under
+`~/platformclaw/data/skillhub/`. Initial startup requires 4 GiB RAM and 20 GiB
+free space; later restarts retain a 5 GiB free-space floor.
+
+The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
 health, recreates existing agent sandboxes with the new image, and restores the
 prior environment on failure. Before startup it stops the stack, saves a full
 Gateway-state snapshot, and runs `openclaw doctor --fix --yes --non-interactive`
 with the new image. If Doctor or health validation fails, it restores both the
-old image refs and the pre-migration Gateway state before restarting the old
+old image refs and the pre-migration Gateway and SkillHub state before restarting the old
 stack. Compose never pulls these private image names from a registry, and
 update refuses to start unless the current rollback pair exists locally.
 Previous images and the reported state snapshot remain available for an

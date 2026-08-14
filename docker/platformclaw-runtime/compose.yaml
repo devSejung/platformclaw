@@ -101,6 +101,12 @@ services:
       PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: /run/platformclaw-credential-broker/credential.sock
       PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_execution_service_token
       PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE: /run/secrets/platformclaw_knox_service_token
+      PLATFORMCLAW_SKILL_HUB_URL: ${PLATFORMCLAW_SKILL_HUB_URL:-}
+      PLATFORMCLAW_SKILL_HUB_TOKEN_FILE: ${PLATFORMCLAW_SKILL_HUB_TOKEN_FILE:-}
+      PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE: ${PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE:-}
+      PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID: ${PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID:-}
+      PLATFORMCLAW_SKILL_HUB_NAMESPACES: ${PLATFORMCLAW_SKILL_HUB_NAMESPACES:-}
+      PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES: ${PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES:-524288000}
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL}
       NODE_EXTRA_CA_CERTS: /etc/platformclaw/certs/employee-auth-ca.pem
       TZ: ${PLATFORMCLAW_TZ:-Asia/Seoul}
@@ -116,10 +122,13 @@ services:
       - platformclaw_initial_admin_ids
       - platformclaw_knox_service_token
       - platformclaw_ssh_credential_master_key
+      - platformclaw_skill_hub_token
+      - platformclaw_skill_hub_bootstrap_password
     networks:
       platformclaw-gateway-backplane:
         aliases: [control.platformclaw.local]
       platformclaw-control-egress: {}
+      platformclaw-skillhub: {}
     ports:
       - "0.0.0.0:${PLATFORMCLAW_PUBLIC_PORT:-19002}:19002"
     cap_drop: [ALL]
@@ -139,6 +148,169 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+
+  skillhub-postgres-init:
+    profiles: [skillhub]
+    image: ${PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE:-platformclaw-skillhub-postgres:44c4ee9810ef}
+    pull_policy: never
+    user: "0:0"
+    network_mode: none
+    volumes:
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/skillhub/postgres:/data
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    entrypoint: ["sh", "-ceu", "chown -R postgres:postgres /data"]
+    restart: "no"
+
+  skillhub-postgres:
+    profiles: [skillhub]
+    image: ${PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE:-platformclaw-skillhub-postgres:44c4ee9810ef}
+    pull_policy: never
+    depends_on:
+      skillhub-postgres-init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: skillhub
+      POSTGRES_USER: skillhub
+      POSTGRES_PASSWORD_FILE: /run/secrets/platformclaw_skill_hub_postgres_password
+    volumes:
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/skillhub/postgres:/var/lib/postgresql/data
+    secrets: [platformclaw_skill_hub_postgres_password]
+    networks: [platformclaw-skillhub]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skillhub -d skillhub"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  skillhub-redis-init:
+    profiles: [skillhub]
+    image: ${PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE:-platformclaw-skillhub-redis:e7723ff73d96}
+    pull_policy: never
+    user: "0:0"
+    network_mode: none
+    volumes:
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/skillhub/redis:/data
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    entrypoint: ["sh", "-ceu", "chown -R redis:redis /data"]
+    restart: "no"
+
+  skillhub-redis:
+    profiles: [skillhub]
+    image: ${PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE:-platformclaw-skillhub-redis:e7723ff73d96}
+    pull_policy: never
+    depends_on:
+      skillhub-redis-init:
+        condition: service_completed_successfully
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/skillhub/redis:/data
+    networks: [platformclaw-skillhub]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  skillhub-storage-init:
+    profiles: [skillhub]
+    image: ${PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE:-platformclaw-skillhub-server:6e133c006e49}
+    pull_policy: never
+    user: "0:0"
+    network_mode: none
+    volumes:
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/skillhub/storage:/data
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    entrypoint: ["sh", "-ceu", "chown -R app:app /data"]
+    restart: "no"
+
+  skillhub-scanner:
+    profiles: [skillhub]
+    image: ${PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE:-platformclaw-skillhub-scanner:6e133c006e49}
+    pull_policy: never
+    networks: [platformclaw-skillhub]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  skillhub-server:
+    profiles: [skillhub]
+    image: ${PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE:-platformclaw-skillhub-server:6e133c006e49}
+    pull_policy: never
+    depends_on:
+      skillhub-postgres:
+        condition: service_healthy
+      skillhub-redis:
+        condition: service_healthy
+      skillhub-scanner:
+        condition: service_healthy
+      skillhub-storage-init:
+        condition: service_completed_successfully
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://skillhub-postgres:5432/skillhub
+      SPRING_DATASOURCE_USERNAME: skillhub
+      SPRING_DATA_REDIS_HOST: skillhub-redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SKILLHUB_STORAGE_PROVIDER: local
+      STORAGE_BASE_PATH: /var/lib/skillhub/storage
+      SKILLHUB_SECURITY_SCANNER_ENABLED: "true"
+      SKILLHUB_SECURITY_SCANNER_URL: http://skillhub-scanner:8000
+      SKILLHUB_SECURITY_SCANNER_MODE: upload
+      SKILLHUB_SECURITY_SCANNER_READ_TIMEOUT: "600000"
+      SKILLHUB_SCANNER_USE_LLM: "false"
+      SKILLHUB_SCANNER_USE_VIRUSTOTAL: "false"
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: 500MB
+      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: 500MB
+      SKILLHUB_PUBLISH_MAX_FILE_COUNT: "100"
+      SKILLHUB_PUBLISH_MAX_SINGLE_FILE_SIZE: "262144000"
+      SKILLHUB_PUBLISH_MAX_PACKAGE_SIZE: "1073741824"
+      SKILLHUB_AUTH_DIRECT_ENABLED: "true"
+      BOOTSTRAP_ADMIN_ENABLED: "true"
+      BOOTSTRAP_ADMIN_USER_ID: platformclaw-bootstrap
+      BOOTSTRAP_ADMIN_USERNAME: platformclaw-bootstrap
+      BOOTSTRAP_ADMIN_DISPLAY_NAME: PlatformClaw Bootstrap
+      BOOTSTRAP_ADMIN_EMAIL: platformclaw-bootstrap@localhost
+      SKILLHUB_SERVICE_VERSION: v0.2.16
+      SKILLHUB_SERVICE_ENVIRONMENT: platformclaw
+    secrets:
+      - platformclaw_skill_hub_postgres_password
+      - platformclaw_skill_hub_cookie_secret
+      - platformclaw_skill_hub_bootstrap_password
+    volumes:
+      - ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/skillhub/storage:/var/lib/skillhub/storage
+    networks:
+      platformclaw-skillhub:
+        aliases: [skillhub.platformclaw.local]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    entrypoint:
+      - sh
+      - -ceu
+      - |
+        export SPRING_DATASOURCE_PASSWORD="$$(cat /run/secrets/platformclaw_skill_hub_postgres_password)"
+        export SKILLHUB_DOWNLOAD_ANON_COOKIE_SECRET="$$(cat /run/secrets/platformclaw_skill_hub_cookie_secret)"
+        export BOOTSTRAP_ADMIN_PASSWORD="$$(cat /run/secrets/platformclaw_skill_hub_bootstrap_password)"
+        exec java -XX:MaxRAMPercentage=75.0 -jar app.jar
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
 
   platformclaw-workspace-migration:
     image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
@@ -190,6 +362,8 @@ networks:
     internal: true
   platformclaw-gateway-egress:
   platformclaw-control-egress:
+  platformclaw-skillhub:
+    internal: true
 
 secrets:
   platformclaw_gateway_token:
@@ -206,3 +380,11 @@ secrets:
     file: ${PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE:?set PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE}
   platformclaw_ssh_credential_master_key:
     file: ${PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE:?set PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE}
+  platformclaw_skill_hub_token:
+    file: ${PLATFORMCLAW_SKILL_HUB_TOKEN_SECRET_FILE:-/dev/null}
+  platformclaw_skill_hub_postgres_password:
+    file: ${PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE:-/dev/null}
+  platformclaw_skill_hub_cookie_secret:
+    file: ${PLATFORMCLAW_SKILL_HUB_COOKIE_SECRET_FILE:-/dev/null}
+  platformclaw_skill_hub_bootstrap_password:
+    file: ${PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_SECRET_FILE:-/dev/null}
