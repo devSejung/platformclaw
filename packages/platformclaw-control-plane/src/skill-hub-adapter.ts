@@ -328,7 +328,7 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     url: URL,
     init: RequestInit,
     authenticated: boolean,
-    redirect: RequestRedirect = "error",
+    redirect: NonNullable<RequestInit["redirect"]> = "error",
   ): Promise<Response> {
     let response: Response;
     try {
