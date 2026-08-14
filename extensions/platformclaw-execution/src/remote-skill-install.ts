@@ -49,7 +49,10 @@ type RemoteSkillInstallIo = {
 export class VmRemoteSkillInstallerService {
   constructor(private readonly io: RemoteSkillInstallIo) {}
 
-  createAccess(params: { target: AssignedVmTargetSnapshot }): SkillArchiveInstallTargetAccess {
+  createAccess(params: {
+    target: AssignedVmTargetSnapshot;
+    refreshCatalog: () => Promise<unknown>;
+  }): SkillArchiveInstallTargetAccess {
     const target = params.target;
     const skillsDir = path.posix.join(target.remoteWorkspaceDir, "skills");
     return {
@@ -95,6 +98,9 @@ export class VmRemoteSkillInstallerService {
           if (result.code !== 0) {
             throw new Error(`VM skill install failed (${result.code})`);
           }
+          // The target revision does not change for a workspace mutation, so
+          // refresh the revision-keyed catalog before releasing the install guard.
+          await params.refreshCatalog();
           return { targetDir };
         } finally {
           await this.io

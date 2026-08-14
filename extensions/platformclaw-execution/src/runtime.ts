@@ -598,7 +598,12 @@ export async function createExecutionDependenciesFromEnvironment(
           })
         : undefined,
     createSkillInstallTarget: async ({ target }) =>
-      target.kind === "assigned_vm" ? remoteSkillInstaller.createAccess({ target }) : undefined,
+      target.kind === "assigned_vm"
+        ? remoteSkillInstaller.createAccess({
+            target,
+            refreshCatalog: async () => await remoteSkills.list(target, true),
+          })
+        : undefined,
     testConnection: async ({ agentId, credentialBrokerAddress, credentialGrantToken }) => {
       // This endpoint consumes the probe-only connection snapshot. It discovers
       // canonical HOME before any executable backend snapshot can be created.

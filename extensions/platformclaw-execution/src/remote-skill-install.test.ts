@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
 import { VmRemoteSkillInstallerService } from "./remote-skill-install.js";
+import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 
 async function runLocalRemoteCommand(
   params: RunSshSandboxCommandParams,
@@ -55,15 +56,17 @@ function fixture() {
     uploadDirectory: vi.fn(async () => undefined),
     runCommand,
   };
+  const refreshCatalog = vi.fn(async () => undefined);
   const access = new VmRemoteSkillInstallerService(io as never).createAccess({
     target,
+    refreshCatalog,
   });
-  return { access, io };
+  return { access, io, refreshCatalog };
 }
 
 describe("VM remote skill installer", () => {
   it("stages inside the remote workspace and refreshes after atomic installation", async () => {
-    const { access, io } = fixture();
+    const { access, io, refreshCatalog } = fixture();
 
     await expect(
       access.install({
@@ -82,11 +85,12 @@ describe("VM remote skill installer", () => {
         ),
       }),
     );
+    expect(refreshCatalog).toHaveBeenCalledOnce();
     expect(io.disposeSession).toHaveBeenCalledOnce();
   });
 
   it("cleans staging and disposes the SSH session after an upload failure", async () => {
-    const { access, io } = fixture();
+    const { access, io, refreshCatalog } = fixture();
     io.uploadDirectory.mockRejectedValueOnce(new Error("upload failed"));
 
     await expect(
@@ -98,7 +102,58 @@ describe("VM remote skill installer", () => {
       }),
     ).rejects.toThrow("upload failed");
     expect(io.runCommand).toHaveBeenCalledOnce();
+    expect(refreshCatalog).not.toHaveBeenCalled();
     expect(io.disposeSession).toHaveBeenCalledOnce();
+  });
+
+  it("replaces a primed VM catalog after a successful install", async () => {
+    const session = { command: "ssh", args: [], configPath: "/tmp/config", host: "vm" };
+    const encodeCatalog = (name: string) =>
+      Buffer.from(
+        `@platform\tlinux\t\nplatformclaw-vm-workspace\t${Buffer.from(`/srv/person-one/workspace/skills/${name}/SKILL.md`).toString("base64")}\t${Buffer.from(`---\nname: ${name}\ndescription: Demo\n---\n`).toString("base64")}\n`,
+      );
+    const catalogRunCommand = vi
+      .fn()
+      .mockResolvedValueOnce({
+        stdout: encodeCatalog("old-skill"),
+        stderr: Buffer.alloc(0),
+        code: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: encodeCatalog("demo-skill"),
+        stderr: Buffer.alloc(0),
+        code: 0,
+      });
+    const catalog = new VmRemoteSkillCatalogService({
+      createSession: vi.fn(async () => session),
+      disposeSession: vi.fn(async () => undefined),
+      runCommand: catalogRunCommand,
+    });
+    await catalog.list(target, false);
+    const installerRunCommand = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), code: 0 })
+      .mockResolvedValue({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), code: 0 });
+    const access = new VmRemoteSkillInstallerService({
+      createSession: vi.fn(async () => session),
+      disposeSession: vi.fn(async () => undefined),
+      uploadDirectory: vi.fn(async () => undefined),
+      runCommand: installerRunCommand,
+    } as never).createAccess({
+      target,
+      refreshCatalog: async () => await catalog.list(target, true),
+    });
+
+    await access.install({
+      sourceDir: "/local/extracted",
+      slug: "demo-skill",
+      mode: "install",
+      timeoutMs: 30_000,
+    });
+    const ordinaryRead = await catalog.list(target, false);
+
+    expect(ordinaryRead.files[0]?.filePath).toContain("/demo-skill/SKILL.md");
+    expect(catalogRunCommand).toHaveBeenCalledTimes(2);
   });
 
   it.runIf(process.platform !== "win32")(
@@ -128,6 +183,7 @@ describe("VM remote skill installer", () => {
             runCommand: runLocalRemoteCommand,
           }).createAccess({
             target: { ...target, remoteHomeDir: dir, remoteWorkspaceDir: workspaceDir },
+            refreshCatalog: vi.fn(async () => undefined),
           });
 
           await access.install({
@@ -177,6 +233,7 @@ describe("VM remote skill installer", () => {
             runCommand: runLocalRemoteCommand,
           }).createAccess({
             target: { ...target, remoteHomeDir: dir, remoteWorkspaceDir: workspaceDir },
+            refreshCatalog: vi.fn(async () => undefined),
           });
 
           await expect(
