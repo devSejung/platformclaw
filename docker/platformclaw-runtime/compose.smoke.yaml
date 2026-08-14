@@ -117,7 +117,7 @@ services:
         "python3",
         "/smoke/mock_employee_auth.py",
         "--bind",
-        "127.0.0.1",
+        "0.0.0.0",
         "--port",
         "18080",
         "--adsso-secret-file",
@@ -140,7 +140,9 @@ services:
   platformclaw-control:
     environment:
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: http://127.0.0.1:18080/login
-      PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL: http://127.0.0.1:18080/adsso
+      PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL}
+    ports:
+      - "127.0.0.1:${PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT:?set PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT}:18080"
     volumes:
       - platformclaw-smoke-control-state:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/control
       - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/workspaces

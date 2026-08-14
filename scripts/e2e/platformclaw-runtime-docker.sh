@@ -75,16 +75,18 @@ docker save --output "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR" "$PLATFORMCLAW_SAND
 # Docker creates archive output with an implementation-defined mode. The
 # non-root image loader only needs immutable read access to this ephemeral file.
 chmod 0444 "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR"
-export PLATFORMCLAW_PUBLIC_PORT="$(python3 - <<'PY'
+read -r PLATFORMCLAW_PUBLIC_PORT PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT < <(python3 - <<'PY'
 import socket
-with socket.socket() as sock:
-    sock.bind(("127.0.0.1", 0))
-    print(sock.getsockname()[1])
+with socket.socket() as public_sock, socket.socket() as employee_auth_sock:
+    public_sock.bind(("127.0.0.1", 0))
+    employee_auth_sock.bind(("127.0.0.1", 0))
+    print(public_sock.getsockname()[1], employee_auth_sock.getsockname()[1])
 PY
-)"
+)
+export PLATFORMCLAW_PUBLIC_PORT PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT
 export PLATFORMCLAW_PUBLIC_ORIGIN="http://127.0.0.1:$PLATFORMCLAW_PUBLIC_PORT"
 export PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL="http://127.0.0.1:18080/login"
-export PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL="http://127.0.0.1:18080/adsso"
+export PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL="http://127.0.0.1:$PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT/adsso"
 export PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE="$work_dir/employee-auth-ca.pem"
 export PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE="$work_dir/employee-auth-adsso-secret"
 export PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE="$work_dir/gateway-token"
