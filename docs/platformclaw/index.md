@@ -31,6 +31,8 @@ and Knox direct or group conversations:
 - [Web ingress runtime](/platformclaw/web-ingress-runtime)
 - [Web login bootstrap plan](/platformclaw/web-login-bootstrap-plan)
 - [Skill Hub integration](/platformclaw/skill-hub)
+- [Skill Hub product policy](/platformclaw/skill-hub-policy)
+- [Skill Hub architecture](/platformclaw/skill-hub-architecture)
 - [Knox Proxy integration contract](/platformclaw/knox-proxy-spec)
 - [Private downstream CI](/platformclaw/private-downstream-ci)
 - [Windows main preview](/platformclaw/windows-main-preview)

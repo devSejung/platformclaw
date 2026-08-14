@@ -9,20 +9,43 @@ title: "Skill Hub integration"
 
 # Skill Hub integration
 
-PlatformClaw connects its existing Skills page to a separately deployed SkillHub
-registry. Employees can publish a real Agent workspace skill without selecting a
-ZIP, search the shared registry, inspect versions, and install one exact version
-into the personal Agent's active Basic or assigned-VM workspace.
+PlatformClaw connects its existing Skills page to an internal, company-wide
+Skill Hub. Employees can publish a real Agent workspace skill without selecting
+a ZIP, search the catalog, inspect versions, and install one exact version into
+the personal Agent's active Basic or assigned-VM workspace.
+
+The managed deployment runs the registry on the same PlatformClaw server and
+ships it through the existing PlatformClaw release archive and deployment flow.
+See [Skill Hub product policy](/platformclaw/skill-hub-policy) for ownership,
+ACL, scanning, and notification behavior, and
+[Skill Hub architecture](/platformclaw/skill-hub-architecture) for the migration
+boundary.
 
 The integration targets `iflytek/skillhub` tag `v0.2.16`, commit
 `6e133c006e492dc3f468d91b21960aff1d577150`. Do not upgrade the adapter from this
 snapshot without reviewing its API contracts and repeating the integration tests.
-SkillHub's source and portal UI are not copied or embedded in PlatformClaw.
+SkillHub's service remains a separate internal container. Its React portal,
+OAuth, logo, and branding are not embedded. PlatformClaw independently ports the
+upstream catalog information architecture into its Lit UI and theme.
 
 ## Before you begin
 
-Deploy SkillHub separately and create a server-side API token with the
-`skill:publish` scope for each namespace PlatformClaw may use. PlatformClaw uses
+The standard `platformclaw-<version>-<sha12>.tar` contains PlatformClaw, sandbox,
+SkillHub server, scanner, PostgreSQL, and Redis images. Keep the existing release
+procedure:
+
+```bash
+./platformclaw-deploy init
+./platformclaw-deploy image load platformclaw-<version>-<sha12>.tar
+./platformclaw-deploy up
+./platformclaw-deploy status
+```
+
+New deployments enable the internal SkillHub profile by default. Existing
+deployments without `PLATFORMCLAW_SKILL_HUB_ENABLED=true` retain their previous
+two-image behavior until the operator opts in. The wrapper generates and mounts
+server-only secrets, bootstraps approved namespaces and a scoped API token, and
+never publishes registry, database, Redis, or scanner ports. PlatformClaw uses
 its existing employee session and personal-Agent binding; it does not enable
 SkillHub OAuth in the browser.
 
@@ -43,7 +66,7 @@ through `skills.upload.begin`, `skills.upload.chunk`, `skills.upload.commit`, an
 `skills.install`; it does not add a second archive extractor or write directly
 into an Agent workspace.
 
-## Configure the control process
+## Advanced external-registry configuration
 
 Mount the SkillHub token as a regular, server-readable secret file. Configure the
 adapter on the PlatformClaw control process:
@@ -52,12 +75,12 @@ adapter on the PlatformClaw control process:
 PLATFORMCLAW_SKILL_HUB_URL=https://skillhub.internal.example
 PLATFORMCLAW_SKILL_HUB_TOKEN_FILE=/run/secrets/platformclaw_skill_hub_token
 PLATFORMCLAW_SKILL_HUB_NAMESPACES=engineering=eng-skill-publishers,shared=*
-PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES=10485760
+PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES=524288000
 ```
 
-The URL, token file, and namespace list must be set together. The package limit
-is optional and defaults to 10 MiB. `PLATFORMCLAW_SKILL_HUB_NAMESPACES` is the
-PlatformClaw authorization boundary. Each entry is
+The URL, token file, and namespace list must be set together. The managed
+deployment generates these values; set them manually only for an external
+registry. `PLATFORMCLAW_SKILL_HUB_NAMESPACES` is the bootstrap allowlist. Each entry is
 `namespace=employee-group`; `*` allows any active employee, and a bare
 `namespace` requires an employee group with the same name. Administrators may
 publish to every configured namespace. Members see only namespaces permitted by
@@ -89,7 +112,7 @@ The server resolves the authenticated user's active personal-Agent binding and
 packages that Agent's real workspace directory. It requires a root `SKILL.md`
 with valid YAML frontmatter, a `name` equal to the skill directory, and a
 non-empty `description`. The chosen version is written only into the temporary
-in-memory ZIP; the workspace `SKILL.md` is unchanged.
+package; the workspace `SKILL.md` is unchanged.
 
 ## Search and install a version
 
@@ -115,12 +138,19 @@ reuse the same upload extraction and security scan, then the execution plugin
 streams only the approved extracted tree over its server-side SSH session. It
 stages under the remote workspace's `.openclaw/skill-installs`, validates the
 remote tree, locks the `skills` directory, and atomically moves it into
-`workspace/skills/<slug>`. Staging is removed on success or failure. Existing
-target directories are not overwritten; publish a new version under the same
-Hub skill, then install it only where that workspace does not already contain a
-conflicting skill directory.
+`workspace/skills/<slug>`. Staging is removed on success or failure. Installing
+the exact version already present is a no-op. An upgrade or downgrade returns
+the current and requested versions and requires a second confirmation. The Basic
+and VM installers use sibling staging and backup directories to replace
+atomically and restore the old tree if validation or commit fails.
 
 ## Validation and security limits
+
+The compressed ZIP ceiling is **500 MiB**. Browser ingress streams to an
+owner-only temporary file with a running cap. Validation then enforces **1 GiB
+expanded content**, **250 MiB per entry**, and **100 entries** without trusting
+central-directory sizes. The scanner timeout is ten minutes. LLM and VirusTotal
+analyzers are explicitly disabled.
 
 Both publication and installation reject:
 
@@ -129,10 +159,10 @@ Both publication and installation reject:
   escapes;
 - a missing, oversized, malformed, or name-mismatched `SKILL.md`;
 - a `SKILL.md` version that differs from the exact version requested for install;
-- more than 256 archive entries;
-- compressed or extracted content beyond the configured package limit; and
-- a destination directory that already exists in the selected Basic or VM
-  workspace.
+- more than 100 archive entries;
+- a compressed archive over 500 MiB, expanded content over 1 GiB, or one entry
+  over 250 MiB; and
+- an unconfirmed version replacement.
 
 The control-plane preflight streams every decompressed entry through cumulative
 and per-manifest byte limits instead of trusting ZIP size metadata. The existing
@@ -140,6 +170,27 @@ Gateway archive extractor and install security policy then perform the
 authoritative extraction and destination checks. Successful publish and install
 operations create control-plane audit records without package contents or
 credentials.
+
+## Catalog lifecycle
+
+The managed integration adds:
+
+- skills are owned through the company Team, Group, and Part hierarchy, with
+  explicit per-user ACLs;
+- normal versions publish automatically after the scanner passes;
+- every version shows its current scan state and risk badge;
+- owners and PlatformClaw administrators may force publication for any severity
+  only with a reason and audit record;
+- owners can transfer ownership immediately, while an inactive owner's skills
+  move to the unit Primary Admin or the unassigned owner queue;
+- lifecycle events produce notifications without making delivery success the
+  source of truth; and
+- LLM scanning and VirusTotal remain off.
+
+The Skill Hub page exposes current risk badges, the persistent notification
+inbox, ZIP publication, owner transfer, explicit employee grants, forced
+publication, and administrator namespace/unassigned-owner views. Server-side
+policy remains authoritative even if a browser calls the BFF directly.
 
 ## API boundary
 
@@ -168,9 +219,9 @@ remote filesystem path.
 - **Uploaded skill archive installs are disabled**: set
   `skills.install.allowUploadedArchives: true` on the private Gateway and restart
   it.
-- **Skill already exists**: the integration deliberately blocks overwrite.
-  Remove or rename the local skill through an approved workspace workflow before
-  installing.
+- **Version change requires confirmation**: review the current and requested
+  versions, then use the explicit replacement action. A stale confirmation is
+  rejected.
 - **Execution target changed**: reload the Skills page and retry against the work
   location now shown. PlatformClaw will not silently install into the other
   workspace.
@@ -188,7 +239,7 @@ tests:
 ```bash
 node scripts/run-vitest.mjs packages/platformclaw-control-plane/src/skill-hub-adapter.test.ts packages/platformclaw-control-plane/src/skill-hub-service.test.ts packages/platformclaw-control-plane/src/deployment-config.test.ts
 node scripts/run-vitest.mjs extensions/platformclaw-execution/src/backend.test.ts extensions/platformclaw-execution/src/gateway.test.ts extensions/platformclaw-execution/src/remote-skill-install.test.ts extensions/platformclaw-execution/src/target-mutation-coordinator.test.ts
-node scripts/run-vitest.mjs ui/src/pages/skills/view.skill-hub.test.ts
+node scripts/run-vitest.mjs ui/src/pages/skills/view.skill-hub.test.ts ui/src/pages/skill-hub/skill-hub-page.test.ts
 ```
 
 Then build the two changed packages:
@@ -197,3 +248,7 @@ Then build the two changed packages:
 pnpm --filter @platformclaw/control-plane build
 pnpm --dir ui build
 ```
+
+Also prove the existing PlatformClaw archive, checksum, transfer, load,
+persistence, backup, restore, and rollback path. Do not introduce a second Skill
+Hub release archive or independent upgrade procedure.

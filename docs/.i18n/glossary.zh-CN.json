@@ -280,6 +280,14 @@
     "target": "Skills 配置"
   },
   {
+    "source": "Skill Hub product policy",
+    "target": "Skill Hub 产品策略"
+  },
+  {
+    "source": "Skill Hub architecture",
+    "target": "Skill Hub 架构"
+  },
+  {
     "source": "Self-learning",
     "target": "自我学习"
   },
