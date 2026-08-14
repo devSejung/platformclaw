@@ -113,7 +113,7 @@ describeE2e("PlatformClaw login", () => {
           /platformclaw-pixel\.svg/,
         );
         const adssoLogin = page.getByRole("link", { name: "ADSSO 로그인" });
-        await expect(adssoLogin).toBeVisible();
+        expect(await adssoLogin.isVisible()).toBe(true);
         expect(await adssoLogin.getAttribute("href")).toBe(
           "/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fchat",
         );
@@ -131,7 +131,7 @@ describeE2e("PlatformClaw login", () => {
       const hero = page.locator("[data-login-hero]");
       expect(await card.isVisible()).toBe(true);
       expect(await hero.isVisible()).toBe(false);
-      await expect(page.getByRole("link", { name: "ADSSO 로그인" })).toBeVisible();
+      expect(await page.getByRole("link", { name: "ADSSO 로그인" }).isVisible()).toBe(true);
 
       await page.mouse.move(360, 100);
       const idleX = await page
