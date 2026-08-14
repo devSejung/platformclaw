@@ -677,6 +677,7 @@ describe("PlatformClaw Docker runtime", () => {
       readRepoFile("docker/platformclaw-runtime/compose.smoke.yaml"),
     ) as ComposeConfig;
     const smokeScript = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
+    const employeeAuthMock = readRepoFile("scripts/mock_employee_auth.py");
     const mock = smokeCompose.services["employee-auth-mock"];
     const control = smokeCompose.services["platformclaw-control"];
 
@@ -699,6 +700,9 @@ describe("PlatformClaw Docker runtime", () => {
     );
     expect(smokeScript).toContain("curl --fail-with-body --location");
     expect(smokeScript).toContain('cat "$sso_flow_response" >&2');
+    // Contract v1 signs employeeId as the canonical login identity. The shared
+    // password/ADSSO fixture must therefore present the same identity on both paths.
+    expect(employeeAuthMock).toContain('"employeeId": "person.one"');
     expect(mock?.secrets).toContain("platformclaw_employee_auth_adsso_secret");
     expect(mock?.command).toContain("--adsso-secret-file");
     expect(control?.depends_on).toBeUndefined();

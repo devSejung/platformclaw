@@ -20,7 +20,7 @@ DEFAULT_ACCOUNTS = [
     {
         "identifier": "person.one",
         "password": "test-password",
-        "employeeId": "1001",
+        "employeeId": "person.one",
         "accountId": "person.one",
         "subject": "ldap:person.one",
         "displayName": "Person One",
