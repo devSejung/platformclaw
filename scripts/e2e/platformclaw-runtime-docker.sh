@@ -153,7 +153,7 @@ curl --fail --location --silent --show-error \
 curl --fail --silent --show-error \
   --cookie "$sso_cookie_jar" \
   "$origin/platformclaw/api/auth/session" >"$sso_session_response"
-jq -e '.authenticated == true and .agent.agentId == "person_one"' \
+jq -e '.authenticated == true and .user.accountId == "person.one"' \
   "$sso_session_response" >/dev/null
 
 curl --fail --silent --show-error \

@@ -694,6 +694,9 @@ describe("PlatformClaw Docker runtime", () => {
     expect(smokeScript).toContain(
       'PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL="http://127.0.0.1:$PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT/adsso"',
     );
+    expect(smokeScript).toMatch(
+      /jq -e '\.authenticated == true and \.user\.accountId == "person\.one"' \\\s+"\$sso_session_response"/u,
+    );
     expect(mock?.secrets).toContain("platformclaw_employee_auth_adsso_secret");
     expect(mock?.command).toContain("--adsso-secret-file");
     expect(control?.depends_on).toBeUndefined();
