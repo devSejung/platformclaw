@@ -133,6 +133,7 @@ cookie_jar="$work_dir/cookies.txt"
 login_response="$work_dir/login.json"
 session_response="$work_dir/session.json"
 sso_cookie_jar="$work_dir/sso-cookies.txt"
+sso_flow_response="$work_dir/sso-flow-response.txt"
 sso_session_response="$work_dir/sso-session.json"
 app_document="$work_dir/app.html"
 admin_cookie_jar="$work_dir/admin-cookies.txt"
@@ -147,9 +148,13 @@ curl --fail --silent --show-error "$origin/platformclaw/health" |
 curl --fail --silent --show-error "$origin/platformclaw/login" |
   grep -q 'data-platformclaw-login'
 
-curl --fail-with-body --location --silent --show-error \
+if ! curl --fail-with-body --location --silent --show-error \
   --cookie-jar "$sso_cookie_jar" \
-  "$origin/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fchat" >/dev/null
+  --output "$sso_flow_response" \
+  "$origin/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fchat"; then
+  cat "$sso_flow_response" >&2
+  exit 1
+fi
 curl --fail --silent --show-error \
   --cookie "$sso_cookie_jar" \
   "$origin/platformclaw/api/auth/session" >"$sso_session_response"
