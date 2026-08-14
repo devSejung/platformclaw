@@ -15,6 +15,7 @@ export {
   getSandboxBackendFactory,
   getSandboxBackendManager,
   getSandboxBackendSkillProvider,
+  getSandboxBackendSkillInstallProvider,
   getSandboxBackendSkillWorkshopProvider,
   getSandboxBackendWorkdirResolver,
   registerSandboxBackend,
@@ -72,12 +73,15 @@ export type {
   SandboxBackendSkillCatalog,
   SandboxBackendSkillFile,
   SandboxBackendSkillProvider,
+  SandboxBackendSkillInstallProvider,
+  SandboxBackendSkillInstallTarget,
   SandboxBackendSkillMaterializationMode,
   SandboxBackendSkillWorkshopProvider,
   SandboxBackendWorkdirValidation,
   SandboxBackendWorkdirResolver,
   SandboxBackendWorkdirValidator,
 } from "./sandbox/backend.js";
+export type { SkillArchiveInstallTargetAccess } from "../skills/lifecycle/archive-install.js";
 export type {
   RemoteShellSandboxFilesystemRoot,
   RemoteShellSandboxHandle,

@@ -6,6 +6,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import {
   createPlatformClawExecutionBackendFactory,
+  createPlatformClawExecutionSkillInstallProvider,
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
   type PlatformClawExecutionDependencies,
   type PlatformClawExecutionTargetSnapshot,
@@ -63,6 +64,7 @@ function createDependencies(
         : undefined,
     ),
     createSkillWorkshopTarget: vi.fn(async () => undefined),
+    createSkillInstallTarget: vi.fn(async () => undefined),
   };
 }
 
@@ -372,5 +374,40 @@ describe("PlatformClaw execution backend", () => {
       createPlatformClawExecutionBackendFactory(dependencies)(createParams("person_one")),
     ).rejects.toThrow("catalog is invalid");
     expect(dependencies.createAssignedVmHandle).not.toHaveBeenCalled();
+  });
+
+  it("pins the VM revision before resolving a remote skill installer", async () => {
+    const dependencies = createDependencies(async () => ({
+      kind: "assigned_vm",
+      agentId: "person_one",
+      revision: 4,
+      targetId: "vm-one",
+      allocationId: "allocation-one",
+      credentialRevision: 3,
+      vmLabel: "Development VM",
+      safeConnectLabel: "Corporate access",
+      remoteHomeDir: "/srv/person-one",
+      remoteWorkspaceDir: "/srv/person-one/workspace",
+      endpointHost: "safeconnect.example",
+      endpointPort: 44422,
+      adDomain: "example",
+      adAccount: "person.one",
+      targetAddress: "192.0.2.1",
+      linuxAccount: "person.one",
+      hostKeyAlgorithm: "ssh-ed25519",
+      hostKeyPublicKey: "AAAA-test",
+      hostKeyFingerprint: "SHA256:test",
+    }));
+    const provider = createPlatformClawExecutionSkillInstallProvider(dependencies);
+
+    await expect(
+      provider({
+        agentId: "person_one",
+        config: {} as never,
+        workspaceDir: "/basic",
+        expectedTargetRevision: 3,
+      }),
+    ).rejects.toThrow("target changed");
+    expect(dependencies.createSkillInstallTarget).not.toHaveBeenCalled();
   });
 });

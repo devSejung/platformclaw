@@ -25,7 +25,10 @@ import {
   validateSkillsUpdateParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { resolveNodeExecEligibility } from "../../agents/exec-defaults.js";
-import { getSandboxBackendSkillProvider } from "../../agents/sandbox/backend.js";
+import {
+  getSandboxBackendSkillInstallProvider,
+  getSandboxBackendSkillProvider,
+} from "../../agents/sandbox/backend.js";
 import { resolveSandboxConfigForAgent } from "../../agents/sandbox/config.js";
 import { listAgentWorkspaceDirs } from "../../agents/workspace-dirs.js";
 import { redactConfigObject } from "../../config/redact-snapshot.js";
@@ -746,7 +749,32 @@ export const skillsHandlers: GatewayRequestHandlers = {
         force?: boolean;
         sha256?: string;
         timeoutMs?: number;
+        destination?: "workspace" | "sandbox-backend";
+        expectedTargetRevision?: number;
       };
+      let targetAccess;
+      if (p.destination === "sandbox-backend") {
+        const sandboxConfig = resolveSandboxConfigForAgent(cfg, resolved.agentId);
+        const provider = getSandboxBackendSkillInstallProvider(sandboxConfig.backend);
+        if (!provider) {
+          respond(
+            false,
+            { ok: false, error: "The active sandbox backend does not support skill installation." },
+            errorShape(
+              ErrorCodes.UNAVAILABLE,
+              "The active sandbox backend does not support skill installation.",
+            ),
+          );
+          return;
+        }
+        const target = await provider({
+          agentId: resolved.agentId,
+          config: cfg,
+          workspaceDir: workspaceDirRaw,
+          expectedTargetRevision: p.expectedTargetRevision,
+        });
+        targetAccess = target.kind === "backend" ? target.access : undefined;
+      }
       const result = await installUploadedSkillArchive({
         uploadId: p.uploadId,
         slug: p.slug,
@@ -756,7 +784,12 @@ export const skillsHandlers: GatewayRequestHandlers = {
         workspaceDir: workspaceDirRaw,
         config: cfg,
         log: context.logGateway,
+        targetAccess,
       });
+      if (result.ok && targetAccess) {
+        // Remote workspaces have no local watcher to emit the canonical refresh event.
+        context.broadcast("skills.changed", { reason: "remote-node" });
+      }
       const errorCode =
         !result.ok && result.errorKind === "invalid-request"
           ? ErrorCodes.INVALID_REQUEST

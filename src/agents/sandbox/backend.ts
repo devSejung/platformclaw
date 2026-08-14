@@ -11,6 +11,7 @@ import type {
   SandboxBackendManager,
   SandboxBackendRegistration,
   SandboxBackendSkillProvider,
+  SandboxBackendSkillInstallProvider,
   SandboxBackendSkillMaterializationMode,
   SandboxBackendSkillWorkshopProvider,
   SandboxBackendWorkdirResolver,
@@ -24,6 +25,8 @@ export type {
   SandboxBackendRegistration,
   SandboxBackendRuntimeInfo,
   SandboxBackendSkillProvider,
+  SandboxBackendSkillInstallProvider,
+  SandboxBackendSkillInstallTarget,
   SandboxBackendSkillMaterializationMode,
   SandboxBackendSkillWorkshopProvider,
   SandboxBackendWorkdirValidation,
@@ -98,6 +101,13 @@ export function getSandboxBackendWorkdirResolver(id: string): SandboxBackendWork
 /** Look up optional target-owned skill discovery for a registered backend. */
 export function getSandboxBackendSkillProvider(id: string): SandboxBackendSkillProvider | null {
   return getSandboxBackendFactories().get(normalizeSandboxBackendId(id))?.skills ?? null;
+}
+
+/** Look up optional archive installation for a target-owned skill workspace. */
+export function getSandboxBackendSkillInstallProvider(
+  id: string,
+): SandboxBackendSkillInstallProvider | null {
+  return getSandboxBackendFactories().get(normalizeSandboxBackendId(id))?.skillInstall ?? null;
 }
 
 /** Look up whether a backend defers Gateway skill materialization until target resolution. */

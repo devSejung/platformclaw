@@ -46,6 +46,16 @@ type SkillArchiveInstallPolicy = {
   source?: InstallPolicySource;
 };
 
+/** Backend-owned destination for an already extracted and policy-approved skill tree. */
+export type SkillArchiveInstallTargetAccess = {
+  install(params: {
+    sourceDir: string;
+    slug: string;
+    mode: "install" | "update";
+    timeoutMs: number;
+  }): Promise<{ targetDir: string }>;
+};
+
 /** Result shape for installing a skill archive into a workspace skills dir. */
 type SkillArchiveInstallResult =
   | { ok: true; targetDir: string }
@@ -143,6 +153,7 @@ export async function installExtractedSkillRoot(params: {
   logger?: ArchiveLogger;
   policy?: SkillArchiveInstallPolicy;
   rootMarkers?: readonly string[];
+  targetAccess?: SkillArchiveInstallTargetAccess;
 }): Promise<SkillArchiveInstallResult> {
   try {
     if (
@@ -153,19 +164,22 @@ export async function installExtractedSkillRoot(params: {
     ) {
       return installFailure("archive is missing SKILL.md", "invalid-request");
     }
-    let targetDir: string;
-    try {
-      targetDir = resolveWorkspaceSkillInstallDir(params.workspaceDir, params.slug);
-    } catch (err) {
-      return installFailure(formatErrorMessage(err), "invalid-request");
-    }
-    const targetExists = await pathExists(targetDir);
-    const effectiveMode = params.mode === "update" && targetExists ? "update" : "install";
-    if (params.mode === "install" && targetExists) {
-      return installFailure(
-        `Skill already exists at ${targetDir}. Re-run with force/update.`,
-        "invalid-request",
-      );
+    let targetDir: string | undefined;
+    let effectiveMode = params.mode;
+    if (!params.targetAccess) {
+      try {
+        targetDir = resolveWorkspaceSkillInstallDir(params.workspaceDir, params.slug);
+      } catch (err) {
+        return installFailure(formatErrorMessage(err), "invalid-request");
+      }
+      const targetExists = await pathExists(targetDir);
+      effectiveMode = params.mode === "update" && targetExists ? "update" : "install";
+      if (params.mode === "install" && targetExists) {
+        return installFailure(
+          `Skill already exists at ${targetDir}. Re-run with force/update.`,
+          "invalid-request",
+        );
+      }
     }
     const changeSource = resolveCommittedSkillChangeSource(params.policy?.origin.type);
     const sourceVersionValue =
@@ -176,7 +190,7 @@ export async function installExtractedSkillRoot(params: {
         : undefined;
     const shouldDispatchChange = hasCommittedSkillChangeHooks();
     const before =
-      shouldDispatchChange && effectiveMode === "update"
+      targetDir && shouldDispatchChange && effectiveMode === "update"
         ? await snapshotCommittedSkillArtifactBestEffort({
             skillDir: targetDir,
             skillKey: params.slug,
@@ -203,6 +217,22 @@ export async function installExtractedSkillRoot(params: {
           scanBlockedFailureKind(scanResult.blocked),
         );
       }
+    }
+
+    if (params.targetAccess) {
+      // The backend owns remote commit/catalog refresh; local artifact hooks cannot snapshot it.
+      return {
+        ok: true,
+        ...(await params.targetAccess.install({
+          sourceDir: params.extractedRoot,
+          slug: params.slug,
+          mode: effectiveMode,
+          timeoutMs: params.timeoutMs ?? 120_000,
+        })),
+      };
+    }
+    if (!targetDir) {
+      return installFailure("skill install target is unavailable", "unavailable");
     }
 
     const install = await installPackageDir({
@@ -249,6 +279,7 @@ export async function installSkillArchiveFromPath(params: {
   timeoutMs?: number;
   logger?: ArchiveLogger;
   policy?: SkillArchiveInstallPolicy;
+  targetAccess?: SkillArchiveInstallTargetAccess;
 }): Promise<SkillArchiveInstallResult> {
   const result = await withExtractedArchiveRoot({
     archivePath: params.archivePath,
@@ -265,6 +296,7 @@ export async function installSkillArchiveFromPath(params: {
         timeoutMs: params.timeoutMs,
         logger: params.logger,
         policy: params.policy,
+        targetAccess: params.targetAccess,
       }),
   });
   if (!result.ok) {

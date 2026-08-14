@@ -21,6 +21,8 @@ export type {
   SandboxBackendSkillCatalog,
   SandboxBackendSkillFile,
   SandboxBackendSkillProvider,
+  SandboxBackendSkillInstallProvider,
+  SandboxBackendSkillInstallTarget,
   SandboxBackendSkillMaterializationMode,
   SandboxBackendSkillWorkshopProvider,
   SandboxBackendWorkdirValidation,
@@ -40,6 +42,7 @@ export type {
   SkillWorkshopTargetFile,
   SkillWorkshopTargetSkill,
 } from "../skills/workshop/types.js";
+export type { SkillArchiveInstallTargetAccess } from "../skills/lifecycle/archive-install.js";
 
 export {
   buildExecRemoteCommand,
@@ -56,6 +59,7 @@ export {
   getSandboxBackendFactory,
   getSandboxBackendManager,
   getSandboxBackendSkillProvider,
+  getSandboxBackendSkillInstallProvider,
   getSandboxBackendSkillWorkshopProvider,
   getSandboxBackendWorkdirResolver,
   isToolAllowed,

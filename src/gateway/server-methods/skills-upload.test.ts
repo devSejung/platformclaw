@@ -98,6 +98,7 @@ function makeContext(
 ) {
   return {
     getRuntimeConfig: () => config,
+    broadcast: vi.fn(),
     logGateway: {
       debug: vi.fn(),
       error: vi.fn(),

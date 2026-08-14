@@ -4,6 +4,7 @@
  * Runtime creation and lifecycle cleanup stay behind this backend boundary.
  */
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import type { SkillArchiveInstallTargetAccess } from "../../skills/lifecycle/archive-install.js";
 import type { SkillWorkshopTargetAccess } from "../../skills/workshop/types.js";
 import type { SandboxBackendHandle } from "./backend-handle.types.js";
 import type { SandboxBackendSkillCatalog } from "./backend-handle.types.js";
@@ -77,6 +78,19 @@ export type SandboxBackendSkillWorkshopProvider = (params: {
   workspaceDir: string;
 }) => Promise<SkillWorkshopTargetAccess | undefined>;
 
+/** Pinned destination selected by a sandbox backend for one archive install. */
+export type SandboxBackendSkillInstallTarget =
+  | { kind: "workspace" }
+  | { kind: "backend"; access: SkillArchiveInstallTargetAccess };
+
+/** Resolves an archive-install destination owned by the active sandbox backend target. */
+export type SandboxBackendSkillInstallProvider = (params: {
+  agentId: string;
+  config: OpenClawConfig;
+  workspaceDir: string;
+  expectedTargetRevision?: number;
+}) => Promise<SandboxBackendSkillInstallTarget>;
+
 /** Registry input accepted for sandbox backend registration. */
 export type SandboxBackendRegistration =
   | SandboxBackendFactory
@@ -85,6 +99,7 @@ export type SandboxBackendRegistration =
       manager?: SandboxBackendManager;
       resolveWorkdir?: SandboxBackendWorkdirResolver;
       skills?: SandboxBackendSkillProvider;
+      skillInstall?: SandboxBackendSkillInstallProvider;
       skillMaterialization?: SandboxBackendSkillMaterializationMode;
       skillWorkshop?: SandboxBackendSkillWorkshopProvider;
     };
@@ -95,6 +110,7 @@ export type RegisteredSandboxBackend = {
   manager?: SandboxBackendManager;
   resolveWorkdir?: SandboxBackendWorkdirResolver;
   skills?: SandboxBackendSkillProvider;
+  skillInstall?: SandboxBackendSkillInstallProvider;
   skillMaterialization?: SandboxBackendSkillMaterializationMode;
   skillWorkshop?: SandboxBackendSkillWorkshopProvider;
 };

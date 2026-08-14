@@ -3,9 +3,11 @@ import type {
   SandboxBackendFactory,
   SandboxBackendHandle,
   SandboxBackendSkillCatalog,
+  SandboxBackendSkillInstallProvider,
   SandboxBackendSkillProvider,
   SandboxBackendSkillWorkshopProvider,
   SkillWorkshopTargetAccess,
+  SkillArchiveInstallTargetAccess,
 } from "openclaw/plugin-sdk/sandbox";
 
 export const PLATFORMCLAW_EXECUTION_BACKEND_ID = "platformclaw-execution";
@@ -68,6 +70,10 @@ export type PlatformClawExecutionDependencies = {
     target: Readonly<PlatformClawExecutionTargetSnapshot>;
     catalog?: SandboxBackendSkillCatalog;
   }) => Promise<SkillWorkshopTargetAccess | undefined>;
+  createSkillInstallTarget: (params: {
+    target: Readonly<PlatformClawExecutionTargetSnapshot>;
+    verifyCurrentTarget: () => Promise<void>;
+  }) => Promise<SkillArchiveInstallTargetAccess | undefined>;
 };
 
 type ExecutionTimingOptions = {
@@ -237,6 +243,36 @@ export function createPlatformClawExecutionSkillProvider(
   };
 }
 
+export function createPlatformClawExecutionSkillInstallProvider(
+  dependencies: PlatformClawExecutionDependencies,
+): SandboxBackendSkillInstallProvider {
+  return async ({ agentId, expectedTargetRevision }) => {
+    const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+    if (expectedTargetRevision !== undefined && target.revision !== expectedTargetRevision) {
+      throw new Error("PlatformClaw execution target changed; reload and retry.");
+    }
+    if (target.kind === "platform_server") {
+      return { kind: "workspace" };
+    }
+    const verifyCurrentTarget = async (): Promise<void> => {
+      const current = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+      if (
+        current.kind !== "assigned_vm" ||
+        current.targetId !== target.targetId ||
+        current.revision !== target.revision ||
+        current.allocationId !== target.allocationId
+      ) {
+        throw new Error("PlatformClaw execution target changed; reload and retry.");
+      }
+    };
+    const access = await dependencies.createSkillInstallTarget({ target, verifyCurrentTarget });
+    if (!access) {
+      throw new Error("PlatformClaw VM skill installation is unavailable.");
+    }
+    return { kind: "backend", access };
+  };
+}
+
 export function createUnavailableExecutionDependencies(): PlatformClawExecutionDependencies {
   const unavailable = async (): Promise<never> => {
     throw new Error("PlatformClaw execution target resolution is not configured.");
@@ -247,6 +283,7 @@ export function createUnavailableExecutionDependencies(): PlatformClawExecutionD
     createAssignedVmHandle: unavailable,
     listTargetSkills: unavailable,
     createSkillWorkshopTarget: unavailable,
+    createSkillInstallTarget: unavailable,
   };
 }
 

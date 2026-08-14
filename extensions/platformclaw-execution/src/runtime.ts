@@ -7,6 +7,7 @@ import {
   disposeSshSandboxSession,
   requireSandboxBackendFactory,
   runSshSandboxCommand,
+  uploadDirectoryToSshTarget,
   type SshSandboxSession,
 } from "openclaw/plugin-sdk/sandbox";
 import type {
@@ -18,6 +19,7 @@ import {
   isSshpassAuthenticationFailure,
   PlatformClawVmAuthenticationError,
 } from "./connection-errors.js";
+import { VmRemoteSkillInstallerService } from "./remote-skill-install.js";
 import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 import { SafeConnectSshLeaseManager } from "./ssh-lease-manager.js";
@@ -555,6 +557,12 @@ export async function createExecutionDependenciesFromEnvironment(
     disposeSession: disposeSshSandboxSession,
     runCommand: runSshSandboxCommand,
   });
+  const remoteSkillInstaller = new VmRemoteSkillInstallerService({
+    createSession: async (target) => await sshLeases.createSession(target),
+    disposeSession: disposeSshSandboxSession,
+    runCommand: runSshSandboxCommand,
+    uploadDirectory: uploadDirectoryToSshTarget,
+  });
   return {
     resolveTarget: async ({ agentId }) => {
       const target = parseTarget(
@@ -586,6 +594,14 @@ export async function createExecutionDependenciesFromEnvironment(
         ? remoteSkillWorkshop.createAccess({
             target,
             ...(catalog ? { catalog } : {}),
+            refreshCatalog: async () => await remoteSkills.list(target, true),
+          })
+        : undefined,
+    createSkillInstallTarget: async ({ target, verifyCurrentTarget }) =>
+      target.kind === "assigned_vm"
+        ? remoteSkillInstaller.createAccess({
+            target,
+            verifyCurrentTarget,
             refreshCatalog: async () => await remoteSkills.list(target, true),
           })
         : undefined,

@@ -367,6 +367,10 @@ export const SkillsInstallParamsSchema = Type.Union([
     source: Type.Literal("upload"),
     uploadId: NonEmptyString,
     slug: NonEmptyString,
+    destination: Type.Optional(
+      Type.Union([Type.Literal("workspace"), Type.Literal("sandbox-backend")]),
+    ),
+    expectedTargetRevision: Type.Optional(Type.Integer({ minimum: 0 })),
     force: Type.Optional(Type.Boolean()),
     sha256: Type.Optional(Sha256String),
     timeoutMs: Type.Optional(Type.Integer({ minimum: 1000 })),
