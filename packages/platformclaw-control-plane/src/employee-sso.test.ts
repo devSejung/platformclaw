@@ -20,8 +20,8 @@ function ids(): ControlPlaneIdFactory {
   };
 }
 
-function sign(payload: Record<string, unknown>, secret = handoffSecret): string {
-  const source = Buffer.from(JSON.stringify(payload), "utf8");
+function sign(signedPayload: Record<string, unknown>, secret = handoffSecret): string {
+  const source = Buffer.from(JSON.stringify(signedPayload), "utf8");
   const signature = createHmac("sha256", secret).update(source).digest("base64url");
   return `${source.toString("base64url")}.${signature}`;
 }
