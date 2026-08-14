@@ -40,4 +40,36 @@ describe("renderSkills Skill Hub", () => {
     expect(onSkillHubDetailOpen).toHaveBeenCalledWith("engineering", "shared-skill");
     expect(onSkillHubPublishOpen).toHaveBeenCalledWith("repo-skill");
   });
+
+  it("keeps discovery available and names the assigned VM install destination", () => {
+    const container = document.createElement("div");
+    const props = createProps({
+      personalAccess: true,
+      skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+      skillHubDetailRef: { namespace: "engineering", slug: "shared-skill" },
+      skillHubDetail: {
+        skill: {
+          namespace: "engineering",
+          slug: "shared-skill",
+          displayName: "Shared Skill",
+          summary: "Shared skill",
+          visibility: "PUBLIC",
+          status: "PUBLISHED",
+        },
+        versions: [{ version: "2.0.0", status: "PUBLISHED", downloadAvailable: true }],
+      },
+      skillHubSelectedVersion: "2.0.0",
+    });
+    props.report = {
+      ...expectDefined(props.report, "skills report"),
+      executionTarget: "assigned_vm",
+      skills: [createSkill({ source: "platformclaw-vm-workspace", skillKey: "vm-skill" })],
+    };
+
+    render(renderSkills(props), container);
+
+    expect(normalizeText(container)).toContain("Skill Hub");
+    expect(normalizeText(container)).toContain("Install to My development VM");
+    expect(normalizeText(container)).not.toContain("Publish to Hub");
+  });
 });

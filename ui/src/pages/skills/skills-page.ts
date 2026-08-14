@@ -36,6 +36,7 @@ import {
 import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
+import { PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT } from "../../platformclaw/execution-target-events.ts";
 import {
   installPlatformClawHubSkill,
   loadPlatformClawSkillHubConfig,
@@ -225,6 +226,22 @@ class SkillsPage extends OpenClawLightDomElement {
         this.reconcileAgentState();
         this.ensureInitialData();
         return cleanup;
+      },
+    )
+    .effect(
+      () => this.context?.accessMode === "personal-agent",
+      (personalAccess) => {
+        if (!personalAccess) {
+          return;
+        }
+        const refresh = () => {
+          this.resetLoadedSkillState();
+          this.ensureInitialData();
+          this.requestUpdate();
+        };
+        window.addEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
+        return () =>
+          window.removeEventListener(PLATFORMCLAW_EXECUTION_TARGET_CHANGED_EVENT, refresh);
       },
     );
 
@@ -546,11 +563,20 @@ class SkillsPage extends OpenClawLightDomElement {
     this.skillHubOperation = "install";
     this.skillHubMessage = null;
     try {
-      await installPlatformClawHubSkill({ ...ref, version: this.skillHubSelectedVersion });
+      await installPlatformClawHubSkill({
+        ...ref,
+        version: this.skillHubSelectedVersion,
+        expectedTarget: this.skillsReport?.executionTarget ?? "platform_server",
+      });
       this.skillHubMessage = {
         kind: "success",
         text: t("skillsPage.skillHub.installed", {
           skill: `${ref.namespace}/${ref.slug}@${this.skillHubSelectedVersion}`,
+          target: t(
+            this.skillsReport?.executionTarget === "assigned_vm"
+              ? "platformClaw.execution.vm"
+              : "platformClaw.execution.basic",
+          ),
         }),
       };
       this.skillHubDetailRef = null;

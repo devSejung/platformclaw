@@ -12,7 +12,7 @@ title: "Skill Hub integration"
 PlatformClaw connects its existing Skills page to a separately deployed SkillHub
 registry. Employees can publish a real Agent workspace skill without selecting a
 ZIP, search the shared registry, inspect versions, and install one exact version
-into their personal Agent workspace.
+into the personal Agent's active Basic or assigned-VM workspace.
 
 The integration targets `iflytek/skillhub` tag `v0.2.16`, commit
 `6e133c006e492dc3f468d91b21960aff1d577150`. Do not upgrade the adapter from this
@@ -96,14 +96,27 @@ in-memory ZIP; the workspace `SKILL.md` is unchanged.
 1. Search **Skill Hub** on the same Skills page.
 2. Open a result to inspect its summary and published versions.
 3. Choose a version whose download is available.
-4. Select **Install to workspace**.
+4. Confirm the current work location, then select **Install to Basic workspace**
+   or **Install to My development VM**.
 
 PlatformClaw downloads the exact
 `/api/cli/v1/skills/{namespace}/{slug}/versions/{version}/download` resource,
 validates it, and stages it through the Gateway upload installer for the
-authenticated user's Agent. Existing target directories are not overwritten;
-publish a new version under the same Hub skill, then install it only where that
-workspace does not already contain a conflicting skill directory.
+authenticated user's Agent. The browser sends the work location it displayed
+only as a stale-screen guard. The control process resolves the authoritative
+execution profile again, and the Gateway pins its target revision before any
+mutation. A target switch during the request fails visibly; installation never
+falls back from a VM to the Basic workspace.
+
+Basic installs use the canonical local workspace installer. Assigned-VM installs
+reuse the same upload extraction and security scan, then the execution plugin
+streams only the approved extracted tree over its server-side SSH session. It
+stages under the remote workspace's `.openclaw/skill-installs`, validates the
+remote tree, locks the `skills` directory, and atomically moves it into
+`workspace/skills/<slug>`. Staging is removed on success or failure. Existing
+target directories are not overwritten; publish a new version under the same
+Hub skill, then install it only where that workspace does not already contain a
+conflicting skill directory.
 
 ## Validation and security limits
 
@@ -116,7 +129,8 @@ Both publication and installation reject:
 - a `SKILL.md` version that differs from the exact version requested for install;
 - more than 256 archive entries;
 - compressed or extracted content beyond the configured package limit; and
-- a destination directory that already exists when the Gateway installs it.
+- a destination directory that already exists in the selected Basic or VM
+  workspace.
 
 The control-plane preflight streams every decompressed entry through cumulative
 and per-manifest byte limits instead of trusting ZIP size metadata. The existing
@@ -140,7 +154,9 @@ The pinned adapter uses these SkillHub `v0.2.16` endpoints:
 The browser calls only same-origin `/platformclaw/api/skill-hub/*` endpoints with
 its HttpOnly PlatformClaw session cookie. Browser responses contain registry
 metadata and operation results, never the SkillHub base URL, bearer token, or
-private Gateway credential.
+private Gateway credential. The install response also projects only the skill
+identity, exact version, and resolved target kind; it never returns a local or
+remote filesystem path.
 
 ## Troubleshooting
 
@@ -153,6 +169,9 @@ private Gateway credential.
 - **Skill already exists**: the integration deliberately blocks overwrite.
   Remove or rename the local skill through an approved workspace workflow before
   installing.
+- **Execution target changed**: reload the Skills page and retry against the work
+  location now shown. PlatformClaw will not silently install into the other
+  workspace.
 - **Skill Hub archive expands past the configured size limit**: reduce the
   package or raise the server limit after reviewing storage and extraction risk.
 - **Skill Hub is unavailable**: verify the pinned SkillHub service, internal

@@ -46,7 +46,11 @@ async function fixture(groups: string[] = ["engineering"]) {
     user: { ...user, groups },
   }));
   const recordAuditEvent = vi.fn(async (params) => ({ id: "audit-1", ...params }));
+  const getPersonalExecutionProfile = vi.fn<ControlPlaneStore["getPersonalExecutionProfile"]>(
+    async () => null,
+  );
   const store = {
+    getPersonalExecutionProfile,
     getPersonalAgentBinding: vi.fn(async () => ({
       id: "binding-1",
       kind: "personal" as const,
@@ -102,6 +106,7 @@ async function fixture(groups: string[] = ["engineering"]) {
     adapterMocks,
     adminRpcCall,
     recordAuditEvent,
+    getPersonalExecutionProfile,
   };
 }
 
@@ -210,7 +215,12 @@ describe("SkillHubService", () => {
     adapterMocks.download.mockResolvedValue(await makeArchive());
 
     await expect(
-      service.install(actor, { namespace: "engineering", slug: "demo-skill", version: "1.0.0" }),
+      service.install(actor, {
+        namespace: "engineering",
+        slug: "demo-skill",
+        version: "1.0.0",
+        expectedTarget: "platform_server",
+      }),
     ).rejects.toBeInstanceOf(SkillHubServiceError);
     expect(adminRpcCall).not.toHaveBeenCalled();
   });
@@ -219,7 +229,9 @@ describe("SkillHubService", () => {
     const { workspaceRoot, actor, adapterMocks, adminRpcCall } = await fixture();
     const service = new SkillHubService({
       authService: { authenticateToken: vi.fn() } as unknown as BrowserAuthService,
-      store: {} as ControlPlaneStore & ControlPlaneAuditWriter,
+      store: {
+        getPersonalExecutionProfile: vi.fn(async () => null),
+      } as unknown as ControlPlaneStore & ControlPlaneAuditWriter,
       adapter: adapterMocks as SkillHubAdapter,
       adminRpc: { call: adminRpcCall } as unknown as GatewayAdminRpc,
       workspaceRoot,
@@ -235,7 +247,12 @@ describe("SkillHubService", () => {
     );
 
     await expect(
-      service.install(actor, { namespace: "engineering", slug: "demo-skill", version: "1.0.0" }),
+      service.install(actor, {
+        namespace: "engineering",
+        slug: "demo-skill",
+        version: "1.0.0",
+        expectedTarget: "platform_server",
+      }),
     ).rejects.toThrow("expands past");
     expect(adminRpcCall).not.toHaveBeenCalled();
   });
@@ -254,8 +271,18 @@ describe("SkillHubService", () => {
     });
 
     await expect(
-      service.install(actor, { namespace: "engineering", slug: "demo-skill", version: "1.0.0" }),
-    ).resolves.toMatchObject({ ok: true });
+      service.install(actor, {
+        namespace: "engineering",
+        slug: "demo-skill",
+        version: "1.0.0",
+        expectedTarget: "platform_server",
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      slug: "demo-skill",
+      version: "1.0.0",
+      target: "platform_server",
+    });
     expect(adminRpcCall.mock.calls.map(([method]) => method)).toEqual([
       "skills.upload.begin",
       "skills.upload.chunk",
@@ -264,8 +291,101 @@ describe("SkillHubService", () => {
     ]);
     expect(adminRpcCall).toHaveBeenLastCalledWith(
       "skills.install",
-      expect.objectContaining({ agentId: "agent-1", source: "upload", force: false }),
+      expect.objectContaining({
+        agentId: "agent-1",
+        source: "upload",
+        force: false,
+        destination: "sandbox-backend",
+        expectedTargetRevision: 0,
+      }),
     );
+  });
+
+  it("pins an assigned VM target without exposing the Gateway destination", async () => {
+    const { service, actor, adapterMocks, adminRpcCall, getPersonalExecutionProfile } =
+      await fixture();
+    getPersonalExecutionProfile.mockResolvedValue({
+      agentBindingId: "binding-1",
+      activeTarget: "assigned_vm",
+      activeAllocationId: "allocation-1",
+      targetRevision: 7,
+      updatedAt: 1,
+    });
+    adapterMocks.download.mockResolvedValue(await skillArchive());
+    adminRpcCall.mockImplementation(async (method) => {
+      if (method === "skills.upload.begin") {
+        return { uploadId: "upload-1" };
+      }
+      if (method === "skills.install") {
+        return { ok: true, slug: "demo-skill", targetDir: "/private/vm/path" };
+      }
+      return { ok: true };
+    });
+
+    await expect(
+      service.install(actor, {
+        namespace: "engineering",
+        slug: "demo-skill",
+        version: "1.0.0",
+        expectedTarget: "assigned_vm",
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      slug: "demo-skill",
+      version: "1.0.0",
+      target: "assigned_vm",
+    });
+    expect(adminRpcCall).toHaveBeenLastCalledWith(
+      "skills.install",
+      expect.objectContaining({
+        destination: "sandbox-backend",
+        expectedTargetRevision: 7,
+      }),
+    );
+  });
+
+  it("rejects a stale browser target before downloading", async () => {
+    const { service, actor, adapterMocks, adminRpcCall, getPersonalExecutionProfile } =
+      await fixture();
+    getPersonalExecutionProfile.mockResolvedValue({
+      agentBindingId: "binding-1",
+      activeTarget: "assigned_vm",
+      activeAllocationId: "allocation-1",
+      targetRevision: 8,
+      updatedAt: 1,
+    });
+
+    await expect(
+      service.install(actor, {
+        namespace: "engineering",
+        slug: "demo-skill",
+        version: "1.0.0",
+        expectedTarget: "platform_server",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(adapterMocks.download).not.toHaveBeenCalled();
+    expect(adminRpcCall).not.toHaveBeenCalled();
+  });
+
+  it("rejects publishing while the authoritative target is an assigned VM", async () => {
+    const { service, actor, adapterMocks, getPersonalExecutionProfile } = await fixture();
+    getPersonalExecutionProfile.mockResolvedValue({
+      agentBindingId: "binding-1",
+      activeTarget: "assigned_vm",
+      activeAllocationId: "allocation-1",
+      targetRevision: 8,
+      updatedAt: 1,
+    });
+
+    await expect(
+      service.publish(actor, {
+        skill: "demo-skill",
+        namespace: "engineering",
+        version: "1.0.0",
+        visibility: "PUBLIC",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(adapterMocks.publish).not.toHaveBeenCalled();
   });
 
   it("rejects an archive whose SKILL.md declares a different requested version", async () => {
@@ -273,7 +393,12 @@ describe("SkillHubService", () => {
     adapterMocks.download.mockResolvedValue(await skillArchive({ version: "9.9.9" }));
 
     await expect(
-      service.install(actor, { namespace: "engineering", slug: "demo-skill", version: "1.0.0" }),
+      service.install(actor, {
+        namespace: "engineering",
+        slug: "demo-skill",
+        version: "1.0.0",
+        expectedTarget: "platform_server",
+      }),
     ).rejects.toThrow("does not match");
     expect(adminRpcCall).not.toHaveBeenCalled();
   });
@@ -326,7 +451,12 @@ describe("SkillHubService", () => {
       statusCode: 403,
     });
     await expect(
-      service.install(actor, { namespace: "engineering", slug: "demo-skill", version: "1.0.0" }),
+      service.install(actor, {
+        namespace: "engineering",
+        slug: "demo-skill",
+        version: "1.0.0",
+        expectedTarget: "platform_server",
+      }),
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(adapterMocks.download).not.toHaveBeenCalled();
     expect(adminRpcCall).not.toHaveBeenCalled();

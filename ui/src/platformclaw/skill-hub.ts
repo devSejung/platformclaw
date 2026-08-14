@@ -90,6 +90,12 @@ export function installPlatformClawHubSkill(params: {
   namespace: string;
   slug: string;
   version: string;
-}): Promise<Record<string, unknown>> {
+  expectedTarget: "platform_server" | "assigned_vm";
+}): Promise<{
+  ok: true;
+  slug: string;
+  version: string;
+  target: "platform_server" | "assigned_vm";
+}> {
   return request("/install", { method: "POST", body: JSON.stringify(params) });
 }

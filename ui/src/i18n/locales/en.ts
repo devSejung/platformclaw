@@ -155,7 +155,7 @@ export const en: TranslationMap = {
       basicDescription: "You can install and modify skills for your personal Agent here.",
       vmTitle: "Skills on My development VM",
       vmDescription:
-        "This list comes from the VM. Refresh and Skill Workshop proposals are available; direct installation stays in the Basic workspace.",
+        "This list comes from the VM. Refresh, Skill Workshop proposals, and Skill Hub installs apply to this VM workspace.",
     },
     workshop: {
       currentTarget: "Current work location: {target}",
@@ -1999,7 +1999,7 @@ export const en: TranslationMap = {
       details: "Details",
       version: "Version",
       unavailable: "unavailable",
-      install: "Install to workspace",
+      install: "Install to {target}",
       installing: "Installing…",
       publishToHub: "Publish to Hub",
       publishTitle: "Publish {skill}",
@@ -2011,7 +2011,7 @@ export const en: TranslationMap = {
       publish: "Publish",
       publishing: "Publishing…",
       published: "Published {skill}",
-      installed: "Installed {skill}",
+      installed: "Installed {skill} to {target}",
     },
     install: "Install",
     installing: "Installing…",

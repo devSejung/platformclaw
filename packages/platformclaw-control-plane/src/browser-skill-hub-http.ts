@@ -125,6 +125,7 @@ export async function handlePlatformClawSkillHubRequest(
             namespace: stringField(body, "namespace"),
             slug: stringField(body, "slug"),
             version: stringField(body, "version"),
+            expectedTarget: executionTargetField(body, "expectedTarget"),
           }),
         );
         return true;
@@ -140,4 +141,15 @@ export async function handlePlatformClawSkillHubRequest(
     });
   }
   return true;
+}
+
+function executionTargetField(
+  body: Record<string, unknown>,
+  key: string,
+): "platform_server" | "assigned_vm" {
+  const value = stringField(body, key);
+  if (value !== "platform_server" && value !== "assigned_vm") {
+    throw new SkillHubServiceError("invalid expected execution target", 400);
+  }
+  return value;
 }

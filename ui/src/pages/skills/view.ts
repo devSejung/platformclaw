@@ -325,11 +325,9 @@ export function renderSkills(props: SkillsProps) {
               </div>
             </div>`
           : nothing}
-        ${personalVm
-          ? nothing
-          : props.personalAccess
-            ? renderPlatformClawSkillHubSection(props)
-            : renderClawHubSection(props)}
+        ${props.personalAccess
+          ? renderPlatformClawSkillHubSection(props)
+          : renderClawHubSection(props)}
         ${filtered.length === 0
           ? renderSettingsEmpty(
               !props.connected && !props.report
@@ -342,7 +340,7 @@ export function renderSkills(props: SkillsProps) {
     )}
     ${detailSkill ? renderSkillDetail(detailSkill, props) : nothing}
     ${props.clawhubDetailSlug && !personalVm ? renderClawHubDetailDialog(props) : nothing}
-    ${props.skillHubDetailRef && !personalVm ? renderPlatformClawSkillHubDetail(props) : nothing}
+    ${props.skillHubDetailRef ? renderPlatformClawSkillHubDetail(props) : nothing}
     ${props.skillHubPublishSkill && !personalVm
       ? renderPlatformClawSkillHubPublish(props)
       : nothing}
@@ -437,6 +435,11 @@ function renderPlatformClawSkillHubDetail(props: SkillsProps) {
   const ref = props.skillHubDetailRef!;
   const displayName = skillHubDetailText(props.skillHubDetail, "displayName") || ref.slug;
   const summary = skillHubDetailText(props.skillHubDetail, "summary");
+  const targetLabel = t(
+    props.report?.executionTarget === "assigned_vm"
+      ? "platformClaw.execution.vm"
+      : "platformClaw.execution.basic",
+  );
   return html`
     <openclaw-modal-dialog label=${displayName} @modal-cancel=${props.onSkillHubDetailClose}>
       <div class="md-preview-dialog__panel">
@@ -446,7 +449,10 @@ function renderPlatformClawSkillHubDetail(props: SkillsProps) {
             ${t("skillsPage.close")}
           </button>
         </div>
-        <div class="md-preview-dialog__body" style="display: grid; gap: 16px;">
+        <div
+          class="md-preview-dialog__body"
+          style="display: grid; gap: 16px; align-content: start;"
+        >
           ${props.skillHubDetailLoading
             ? html`<div class="muted">${t("skillsPage.skillHub.loading")}</div>`
             : props.skillHubError
@@ -478,7 +484,7 @@ function renderPlatformClawSkillHubDetail(props: SkillsProps) {
                   >
                     ${props.skillHubOperation === "install"
                       ? t("skillsPage.skillHub.installing")
-                      : t("skillsPage.skillHub.install")}
+                      : t("skillsPage.skillHub.install", { target: targetLabel })}
                   </button>
                 `}
         </div>

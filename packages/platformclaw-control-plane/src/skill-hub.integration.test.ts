@@ -139,6 +139,7 @@ describe("PlatformClaw Skill Hub integration", () => {
       })),
     } as unknown as BrowserAuthService;
     const store = {
+      getPersonalExecutionProfile: vi.fn(async () => null),
       getPersonalAgentBinding: vi.fn(async () => ({
         id: "binding-one",
         kind: "personal",
@@ -181,6 +182,7 @@ describe("PlatformClaw Skill Hub integration", () => {
         namespace: "engineering",
         slug: "demo-skill",
         version: "2.0.0",
+        expectedTarget: "platform_server",
       }),
     ).resolves.toMatchObject({ ok: true });
 

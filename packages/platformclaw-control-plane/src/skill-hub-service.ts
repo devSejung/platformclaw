@@ -46,6 +46,7 @@ type SkillHubServiceOptions = {
 };
 
 type AuthenticatedWorkspace = { user: PlatformUser; agentId: string; workspaceDir: string };
+type SkillInstallTarget = "platform_server" | "assigned_vm";
 
 function safeName(raw: string, label: string, pattern: RegExp): string {
   const value = raw.trim().toLowerCase();
@@ -311,6 +312,13 @@ export class SkillHubService {
     actor: AuthenticatedWorkspace,
     params: { skill: string; namespace: string; version: string; visibility: string },
   ) {
+    const execution = await this.resolveExecutionTarget(actor.agentId);
+    if (execution.activeTarget !== "platform_server") {
+      throw new SkillHubServiceError(
+        "Switch to the Basic workspace before publishing a workspace skill.",
+        409,
+      );
+    }
     const skill = safeName(params.skill, "skill", SKILL_KEY_PATTERN);
     const namespace = this.authorizePublishNamespace(actor.user, params.namespace);
     const version = validVersion(params.version);
@@ -341,8 +349,17 @@ export class SkillHubService {
 
   async install(
     actor: AuthenticatedWorkspace,
-    params: { namespace: string; slug: string; version: string },
+    params: {
+      namespace: string;
+      slug: string;
+      version: string;
+      expectedTarget: SkillInstallTarget;
+    },
   ) {
+    const execution = await this.resolveExecutionTarget(actor.agentId);
+    if (params.expectedTarget !== execution.activeTarget) {
+      throw new SkillHubServiceError("Execution target changed; reload and retry.", 409);
+    }
     const namespace = this.authorizeNamespace(params.namespace);
     const slug = safeName(params.slug, "skill slug", SKILL_KEY_PATTERN);
     const version = validVersion(params.version);
@@ -384,12 +401,36 @@ export class SkillHubService {
       slug,
       force: false,
       sha256,
+      destination: "sandbox-backend",
+      expectedTargetRevision: execution.targetRevision,
     });
+    if (result.ok !== true || result.slug !== slug) {
+      throw new SkillHubServiceError("Gateway returned an invalid install result", 503);
+    }
     await this.audit(actor.user.id, "skill-hub.install", `${namespace}/${slug}@${version}`, {
       agentId: actor.agentId,
       sha256,
     });
-    return result;
+    return {
+      ok: true,
+      slug,
+      version,
+      target: execution.activeTarget,
+    };
+  }
+
+  private async resolveExecutionTarget(agentId: string): Promise<{
+    activeTarget: SkillInstallTarget;
+    targetRevision: number;
+  }> {
+    const profile = await this.options.store.getPersonalExecutionProfile(agentId);
+    if (!profile) {
+      return { activeTarget: "platform_server", targetRevision: 0 };
+    }
+    if (profile.activeTarget === "assigned_vm" && !profile.activeAllocationId) {
+      throw new SkillHubServiceError("Assigned VM target is unavailable; reload and retry.", 409);
+    }
+    return { activeTarget: profile.activeTarget, targetRevision: profile.targetRevision };
   }
 
   private authorizeNamespace(raw: string): string {
