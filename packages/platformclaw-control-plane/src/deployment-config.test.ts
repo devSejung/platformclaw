@@ -143,8 +143,8 @@ describe("loadPlatformClawDeploymentConfig", () => {
       url: "https://skillhub.example.test/registry",
       token: "skill-hub-service-token",
       namespacePolicies: [
-        { namespace: "engineering", publishGroup: "eng-skill-publishers" },
-        { namespace: "shared", publishGroup: "*" },
+        { namespace: "engineering", accessGroup: "eng-skill-publishers" },
+        { namespace: "shared", accessGroup: "*" },
       ],
       maxPackageBytes: 2 * 1024 * 1024,
     });

@@ -23,16 +23,31 @@ export type PlatformClawSkillHubVersion = {
 };
 
 export type PlatformClawSkillHubDetail = {
-  skill: Record<string, unknown>;
+  skill: {
+    namespace: string;
+    slug: string;
+    displayName: string;
+    summary: string;
+    visibility: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
+    status: string;
+    downloadCount?: number;
+    starCount?: number;
+    ratingAvg?: number;
+    ratingCount?: number;
+  };
   versions: PlatformClawSkillHubVersion[];
 };
 
 export type PlatformClawSkillHubMessage = { kind: "success" | "error"; text: string };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (init?.body) {
+    headers.set("Content-Type", "application/json");
+  }
   const response = await fetch(`${PLATFORMCLAW_SKILL_HUB_API_PATH}${path}`, {
     ...init,
-    headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
+    headers,
   });
   const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
   if (!response.ok) {

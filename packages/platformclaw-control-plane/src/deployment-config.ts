@@ -53,7 +53,7 @@ export type PlatformClawDeploymentConfig = {
   skillHub?: {
     url: string;
     token: string;
-    namespacePolicies: readonly { namespace: string; publishGroup: string }[];
+    namespacePolicies: readonly { namespace: string; accessGroup: string }[];
     maxPackageBytes: number;
   };
 };
@@ -160,16 +160,16 @@ function loadSkillHubConfig(env: NodeJS.ProcessEnv): PlatformClawDeploymentConfi
           const namespace = (separator === -1 ? value : value.slice(0, separator))
             .trim()
             .toLowerCase();
-          const publishGroup = (separator === -1 ? value : value.slice(separator + 1))
+          const accessGroup = (separator === -1 ? value : value.slice(separator + 1))
             .trim()
             .toLowerCase();
-          if (!namespace || !publishGroup) {
+          if (!namespace || !accessGroup) {
             throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces} is invalid`);
           }
-          return [namespace, publishGroup] as const;
+          return [namespace, accessGroup] as const;
         }),
     ),
-  ].map(([namespace, publishGroup]) => ({ namespace, publishGroup }));
+  ].map(([namespace, accessGroup]) => ({ namespace, accessGroup }));
   if (namespacePolicies.length === 0) {
     throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces} is empty`);
   }

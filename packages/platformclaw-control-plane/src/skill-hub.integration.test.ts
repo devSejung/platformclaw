@@ -15,9 +15,14 @@ const servers: Server[] = [];
 
 afterEach(async () => {
   await Promise.all(
-    servers
-      .splice(0)
-      .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+    servers.splice(0).map(
+      (server) =>
+        new Promise<void>((resolve) => {
+          server.close(() => {
+            resolve();
+          });
+        }),
+    ),
   );
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -67,6 +72,23 @@ describe("PlatformClaw Skill Hub integration", () => {
         );
         return;
       }
+      if (req.method === "GET" && req.url === "/api/v1/skills/engineering/demo-skill") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            code: 0,
+            data: {
+              namespace: "engineering",
+              slug: "demo-skill",
+              displayName: "Demo Skill",
+              summary: "Demo",
+              visibility: "PUBLIC",
+              status: "PUBLISHED",
+            },
+          }),
+        );
+        return;
+      }
       if (
         req.method === "GET" &&
         req.url === "/api/cli/v1/skills/engineering/demo-skill/versions/2.0.0/download"
@@ -80,7 +102,11 @@ describe("PlatformClaw Skill Hub integration", () => {
       res.end();
     });
     servers.push(registry);
-    await new Promise<void>((resolve) => registry.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => {
+      registry.listen(0, "127.0.0.1", () => {
+        resolve();
+      });
+    });
     const address = registry.address();
     if (!address || typeof address === "string") {
       throw new Error("registry fixture did not listen");
@@ -166,6 +192,11 @@ describe("PlatformClaw Skill Hub integration", () => {
         url: "/api/cli/v1/skills/engineering/publish",
         authorization: "Bearer registry-server-token",
         contentType: expect.stringContaining("multipart/form-data"),
+      }),
+      expect.objectContaining({
+        method: "GET",
+        url: "/api/v1/skills/engineering/demo-skill",
+        authorization: "Bearer registry-server-token",
       }),
       expect.objectContaining({
         method: "GET",

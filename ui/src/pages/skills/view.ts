@@ -425,7 +425,10 @@ function renderPlatformClawSkillHubSection(props: SkillsProps) {
   );
 }
 
-function skillHubDetailText(detail: PlatformClawSkillHubDetail | null, field: string): string {
+function skillHubDetailText(
+  detail: PlatformClawSkillHubDetail | null,
+  field: "displayName" | "summary",
+): string {
   const value = detail?.skill[field];
   return typeof value === "string" ? value : "";
 }
@@ -445,7 +448,7 @@ function renderPlatformClawSkillHubDetail(props: SkillsProps) {
         </div>
         <div class="md-preview-dialog__body" style="display: grid; gap: 16px;">
           ${props.skillHubDetailLoading
-            ? html`<div class="muted">Loading…</div>`
+            ? html`<div class="muted">${t("skillsPage.skillHub.loading")}</div>`
             : props.skillHubError
               ? html`<div class="callout danger">${props.skillHubError}</div>`
               : html`

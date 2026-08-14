@@ -1,16 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readPlatformClawSessionCookie, type JsonBodyReader } from "./browser-auth-http.js";
+import { sendBrowserJson } from "./browser-http-shared.js";
 import { SkillHubService, SkillHubServiceError } from "./skill-hub-service.js";
 
 export const PLATFORMCLAW_SKILL_HUB_PATH = "/platformclaw/api/skill-hub";
 const BODY_LIMIT_BYTES = 16 * 1024;
-
-function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
-  res.statusCode = statusCode;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Cache-Control", "no-store");
-  res.end(JSON.stringify(body));
-}
 
 function objectBody(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -57,51 +51,61 @@ export async function handlePlatformClawSkillHubRequest(
     actor = token ? await options.service.authenticate(token) : null;
   } catch (error) {
     const status = error instanceof SkillHubServiceError ? error.statusCode : 503;
-    sendJson(res, status, { error: error instanceof Error ? error.message : "request failed" });
+    sendBrowserJson(res, status, {
+      error: error instanceof Error ? error.message : "request failed",
+    });
     return true;
   }
   if (!actor) {
-    sendJson(res, 401, { error: "authentication required" });
+    sendBrowserJson(res, 401, { error: "authentication required" });
     return true;
   }
   const method = (req.method ?? "GET").toUpperCase();
   try {
     if (method === "GET") {
       if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/config`) {
-        sendJson(res, 200, options.service.config(actor.user));
+        sendBrowserJson(res, 200, options.service.config(actor.user));
         return true;
       }
       if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/search`) {
         const rawLimit = url.searchParams.get("limit");
         const limit = rawLimit === null ? 20 : Number(rawLimit);
-        sendJson(res, 200, await options.service.search(url.searchParams.get("q") ?? "", limit));
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.search(actor.user, url.searchParams.get("q") ?? "", limit),
+        );
         return true;
       }
       const match = new RegExp(`^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)$`, "u").exec(
         url.pathname,
       );
       if (match) {
-        sendJson(
+        sendBrowserJson(
           res,
           200,
-          await options.service.detail(decodeSegment(match[1]), decodeSegment(match[2])),
+          await options.service.detail(
+            actor.user,
+            decodeSegment(match[1]!),
+            decodeSegment(match[2]!),
+          ),
         );
         return true;
       }
     }
     if (method === "POST") {
       if (!options.isMutationOriginAllowed(req)) {
-        sendJson(res, 403, { error: "origin not allowed" });
+        sendBrowserJson(res, 403, { error: "origin not allowed" });
         return true;
       }
       const read = await options.readJsonBody(req, BODY_LIMIT_BYTES);
       if (!read.ok) {
-        sendJson(res, 400, { error: read.error });
+        sendBrowserJson(res, 400, { error: read.error });
         return true;
       }
       const body = objectBody(read.value);
       if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/publish`) {
-        sendJson(
+        sendBrowserJson(
           res,
           200,
           await options.service.publish(actor, {
@@ -114,7 +118,7 @@ export async function handlePlatformClawSkillHubRequest(
         return true;
       }
       if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/install`) {
-        sendJson(
+        sendBrowserJson(
           res,
           200,
           await options.service.install(actor, {
@@ -131,7 +135,9 @@ export async function handlePlatformClawSkillHubRequest(
     res.end("Method Not Allowed");
   } catch (error) {
     const status = error instanceof SkillHubServiceError ? error.statusCode : 503;
-    sendJson(res, status, { error: error instanceof Error ? error.message : "request failed" });
+    sendBrowserJson(res, status, {
+      error: error instanceof Error ? error.message : "request failed",
+    });
   }
   return true;
 }

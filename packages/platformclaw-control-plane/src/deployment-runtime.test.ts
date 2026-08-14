@@ -102,14 +102,14 @@ describe("createPlatformClawDeploymentRuntime", () => {
 
   it("wires Skill Hub through a server-only adapter", () => {
     const runtime = {} as PlatformClawWebIngressRuntime;
-    const createRuntime = vi.fn(() => runtime);
+    const createRuntime = vi.fn((_options: PlatformClawWebIngressRuntimeOptions) => runtime);
     createPlatformClawDeploymentRuntime(
       {
         ...config,
         skillHub: {
           url: "https://skillhub.example.test",
           token: "server-only-token",
-          namespacePolicies: [{ namespace: "engineering", publishGroup: "eng-skill-publishers" }],
+          namespacePolicies: [{ namespace: "engineering", accessGroup: "eng-skill-publishers" }],
           maxPackageBytes: 1024,
         },
       },
@@ -119,7 +119,7 @@ describe("createPlatformClawDeploymentRuntime", () => {
     expect(createRuntime.mock.calls[0]?.[0].skillHub).toMatchObject({
       workspaceRoot: config.workspaceRoot,
       allowedNamespaces: ["engineering"],
-      publishNamespaceGroups: { engineering: "eng-skill-publishers" },
+      namespaceAccessGroups: { engineering: "eng-skill-publishers" },
       maxPackageBytes: 1024,
       adapter: expect.any(Object),
     });

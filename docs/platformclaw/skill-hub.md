@@ -61,10 +61,11 @@ PlatformClaw authorization boundary. Each entry is
 `namespace=employee-group`; `*` allows any active employee, and a bare
 `namespace` requires an employee group with the same name. Administrators may
 publish to every configured namespace. Members see only namespaces permitted by
-their existing PlatformClaw identity groups in the publish dialog. Attempts to
-publish elsewhere fail before the registry is called. Search and installation
-remain available across the configured registry namespaces. SkillHub applies
-its own token and namespace permissions again at publication time.
+their existing PlatformClaw identity groups in the publish dialog. Public skills
+remain searchable by every active employee. Namespace-only and private skills
+are returned, opened, and installed only for administrators or members of that
+namespace's configured employee group. SkillHub applies its token and namespace
+permissions again at publication time.
 
 Never put the token in `openclaw.json`, a browser runtime descriptor, a client
 environment variable, or a reverse-proxy header visible to the browser. The
@@ -112,15 +113,17 @@ Both publication and installation reject:
 - symbolic links, junction escapes, non-file workspace entries, and realpath
   escapes;
 - a missing, oversized, malformed, or name-mismatched `SKILL.md`;
+- a `SKILL.md` version that differs from the exact version requested for install;
 - more than 256 archive entries;
 - compressed or extracted content beyond the configured package limit; and
 - a destination directory that already exists when the Gateway installs it.
 
-The control-plane preflight reads ZIP central-directory sizes before inflating
-files, then the existing Gateway archive extractor and install security policy
-perform the authoritative extraction and destination checks. Successful publish
-and install operations create control-plane audit records without package
-contents or credentials.
+The control-plane preflight streams every decompressed entry through cumulative
+and per-manifest byte limits instead of trusting ZIP size metadata. The existing
+Gateway archive extractor and install security policy then perform the
+authoritative extraction and destination checks. Successful publish and install
+operations create control-plane audit records without package contents or
+credentials.
 
 ## API boundary
 

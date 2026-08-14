@@ -8,10 +8,14 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function requestUrl(input: string | URL | Request): URL {
+  return new URL(input instanceof Request ? input.url : input.toString());
+}
+
 describe("IflytekSkillHubAdapter", () => {
   it("uses the pinned v0.2.16 CLI and portal API contracts", async () => {
-    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(String(input));
+    const fetchImpl = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
+      const url = requestUrl(input);
       if (url.pathname.endsWith("/api/cli/v1/skills/search")) {
         return json({
           code: 0,
@@ -22,6 +26,7 @@ describe("IflytekSkillHubAdapter", () => {
                 slug: "demo-skill",
                 latestVersion: "1.2.3",
                 summary: "Demo",
+                visibility: "PUBLIC",
               },
             ],
             total: 1,
@@ -48,7 +53,18 @@ describe("IflytekSkillHubAdapter", () => {
           },
         });
       }
-      return json({ code: 0, data: { namespace: "engineering", slug: "demo-skill" } });
+      return json({
+        code: 0,
+        data: {
+          namespace: "engineering",
+          slug: "demo-skill",
+          displayName: "Demo Skill",
+          summary: "Demo",
+          visibility: "PUBLIC",
+          status: "PUBLISHED",
+          ownerId: "must-not-reach-browser",
+        },
+      });
     });
     const adapter = new IflytekSkillHubAdapter({
       baseUrl: "https://skillhub.example.test/root/",
@@ -58,12 +74,14 @@ describe("IflytekSkillHubAdapter", () => {
     });
 
     await expect(adapter.search("demo", 20)).resolves.toMatchObject({ total: 1 });
-    await adapter.getSkill("engineering", "demo-skill");
+    await expect(adapter.getSkill("engineering", "demo-skill")).resolves.not.toHaveProperty(
+      "ownerId",
+    );
     await expect(adapter.listVersions("engineering", "demo-skill")).resolves.toEqual([
       expect.objectContaining({ version: "1.2.3", downloadAvailable: true }),
     ]);
 
-    expect(fetchImpl.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+    expect(fetchImpl.mock.calls.map(([input]) => requestUrl(input).pathname)).toEqual([
       "/root/api/cli/v1/skills/search",
       "/root/api/v1/skills/engineering/demo-skill",
       "/root/api/v1/skills/engineering/demo-skill/versions",
@@ -71,6 +89,32 @@ describe("IflytekSkillHubAdapter", () => {
     for (const [, init] of fetchImpl.mock.calls) {
       expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer server-secret-token");
     }
+  });
+
+  it("downloads from a presigned redirect without forwarding registry authorization", async () => {
+    const archive = Buffer.from("zip");
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.hostname === "skillhub.example.test") {
+        expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer server-secret-token");
+        expect(init?.redirect).toBe("manual");
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "https://objects.example.test/presigned" },
+        });
+      }
+      expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+      return new Response(archive);
+    });
+    const adapter = new IflytekSkillHubAdapter({
+      baseUrl: "https://skillhub.example.test",
+      token: "server-secret-token",
+      maxArchiveBytes: 1024,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    await expect(adapter.download("engineering", "demo-skill", "1.0.0")).resolves.toEqual(archive);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("publishes multipart data without exposing the bearer token in returned errors", async () => {

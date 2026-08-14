@@ -63,9 +63,16 @@ async function fixture(groups: string[] = ["engineering"]) {
     })),
     recordAuditEvent,
   } as unknown as ControlPlaneStore & ControlPlaneAuditWriter;
-  const adapter: SkillHubAdapter = {
-    search: vi.fn(async () => ({ items: [], total: 0 })),
-    getSkill: vi.fn(async () => ({})),
+  const adapterMocks = {
+    search: vi.fn<SkillHubAdapter["search"]>(async () => ({ items: [], total: 0 })),
+    getSkill: vi.fn(async () => ({
+      namespace: "engineering",
+      slug: "demo-skill",
+      displayName: "Demo Skill",
+      summary: "Demo",
+      visibility: "PUBLIC",
+      status: "PUBLISHED",
+    })),
     listVersions: vi.fn(async () => []),
     publish: vi.fn(async (params) => ({
       namespace: params.namespace,
@@ -75,7 +82,9 @@ async function fixture(groups: string[] = ["engineering"]) {
     })),
     download: vi.fn(),
   };
-  const adminRpc = { call: vi.fn() } as unknown as GatewayAdminRpc;
+  const adapter = adapterMocks as SkillHubAdapter;
+  const adminRpcCall = vi.fn();
+  const adminRpc = { call: adminRpcCall } as unknown as GatewayAdminRpc;
   const service = new SkillHubService({
     authService: { authenticateToken } as unknown as BrowserAuthService,
     store,
@@ -90,12 +99,21 @@ async function fixture(groups: string[] = ["engineering"]) {
   if (!actor) {
     throw new Error("fixture authentication failed");
   }
-  return { workspaceRoot, skillDir, service, actor, adapter, adminRpc, recordAuditEvent };
+  return {
+    workspaceRoot,
+    skillDir,
+    service,
+    actor,
+    adapterMocks,
+    adminRpcCall,
+    recordAuditEvent,
+  };
 }
 
 async function skillArchive(
   params: {
     name?: string;
+    version?: string;
     extra?: (zip: JSZip) => void;
     body?: string;
   } = {},
@@ -103,15 +121,34 @@ async function skillArchive(
   const zip = new JSZip();
   zip.file(
     "SKILL.md",
-    `---\nname: ${params.name ?? "demo-skill"}\ndescription: Demo\nversion: 1.0.0\n---\n${params.body ?? "Instructions"}`,
+    `---\nname: ${params.name ?? "demo-skill"}\ndescription: Demo\nversion: ${params.version ?? "1.0.0"}\n---\n${params.body ?? "Instructions"}`,
   );
   params.extra?.(zip);
   return await zip.generateAsync({ type: "nodebuffer", platform: "UNIX", compression: "DEFLATE" });
 }
 
+function overwriteCentralUncompressedSize(
+  archive: Buffer,
+  filename: string,
+  declaredSize: number,
+): Buffer {
+  const patched = Buffer.from(archive);
+  for (let offset = 0; offset <= patched.byteLength - 46; offset += 1) {
+    if (patched.readUInt32LE(offset) !== 0x02014b50) {
+      continue;
+    }
+    const nameLength = patched.readUInt16LE(offset + 28);
+    if (patched.subarray(offset + 46, offset + 46 + nameLength).toString("utf8") === filename) {
+      patched.writeUInt32LE(declaredSize, offset + 24);
+      return patched;
+    }
+  }
+  throw new Error(`ZIP central directory entry not found: ${filename}`);
+}
+
 describe("SkillHubService", () => {
   it("packages the real workspace skill and overrides only the published version", async () => {
-    const { service, actor, adapter, skillDir, recordAuditEvent } = await fixture();
+    const { service, actor, adapterMocks, skillDir, recordAuditEvent } = await fixture();
 
     await expect(
       service.publish(actor, {
@@ -122,7 +159,7 @@ describe("SkillHubService", () => {
       }),
     ).resolves.toMatchObject({ slug: "demo-skill", version: "1.2.3" });
 
-    const publish = vi.mocked(adapter.publish);
+    const publish = adapterMocks.publish;
     const archive = publish.mock.calls[0]?.[0].archive;
     const zip = await JSZip.loadAsync(archive!);
     expect(await zip.file("SKILL.md")!.async("string")).toContain("version: 1.2.3");
@@ -134,7 +171,7 @@ describe("SkillHubService", () => {
   });
 
   it("rejects a configured namespace when the member lacks its publish group", async () => {
-    const { service, actor, adapter } = await fixture([]);
+    const { service, actor, adapterMocks } = await fixture([]);
     await expect(
       service.publish(actor, {
         skill: "demo-skill",
@@ -143,7 +180,7 @@ describe("SkillHubService", () => {
         visibility: "PUBLIC",
       }),
     ).rejects.toMatchObject({ statusCode: 403 });
-    expect(adapter.publish).not.toHaveBeenCalled();
+    expect(adapterMocks.publish).not.toHaveBeenCalled();
   });
 
   it("rejects a workspace symbolic link instead of packaging its target", async () => {
@@ -174,40 +211,44 @@ describe("SkillHubService", () => {
     ],
     ["invalid SKILL.md", () => skillArchive({ name: "wrong-skill" })],
   ])("blocks downloaded archives with %s", async (_label, makeArchive) => {
-    const { service, actor, adapter, adminRpc } = await fixture();
-    vi.mocked(adapter.download).mockResolvedValue(await makeArchive());
+    const { service, actor, adapterMocks, adminRpcCall } = await fixture();
+    adapterMocks.download.mockResolvedValue(await makeArchive());
 
     await expect(
       service.install(actor, { namespace: "engineering", slug: "demo-skill", version: "1.0.0" }),
     ).rejects.toBeInstanceOf(SkillHubServiceError);
-    expect(adminRpc.call).not.toHaveBeenCalled();
+    expect(adminRpcCall).not.toHaveBeenCalled();
   });
 
-  it("blocks a compressed archive whose extracted size exceeds the package limit", async () => {
-    const { workspaceRoot, actor, adapter, adminRpc } = await fixture();
+  it("streams to the package limit even when ZIP metadata understates extracted size", async () => {
+    const { workspaceRoot, actor, adapterMocks, adminRpcCall } = await fixture();
     const service = new SkillHubService({
       authService: { authenticateToken: vi.fn() } as unknown as BrowserAuthService,
       store: {} as ControlPlaneStore & ControlPlaneAuditWriter,
-      adapter,
-      adminRpc,
+      adapter: adapterMocks as SkillHubAdapter,
+      adminRpc: { call: adminRpcCall } as unknown as GatewayAdminRpc,
       workspaceRoot,
       allowedNamespaces: ["engineering"],
       maxPackageBytes: 1024,
     });
-    vi.mocked(adapter.download).mockResolvedValue(
-      await skillArchive({ extra: (zip) => zip.file("large.txt", "x".repeat(4096)) }),
+    adapterMocks.download.mockResolvedValue(
+      overwriteCentralUncompressedSize(
+        await skillArchive({ extra: (zip) => zip.file("large.txt", "x".repeat(4096)) }),
+        "large.txt",
+        1,
+      ),
     );
 
     await expect(
       service.install(actor, { namespace: "engineering", slug: "demo-skill", version: "1.0.0" }),
     ).rejects.toThrow("expands past");
-    expect(adminRpc.call).not.toHaveBeenCalled();
+    expect(adminRpcCall).not.toHaveBeenCalled();
   });
 
   it("uploads a validated exact version through the existing Gateway skill installer", async () => {
-    const { service, actor, adapter, adminRpc } = await fixture();
-    vi.mocked(adapter.download).mockResolvedValue(await skillArchive());
-    vi.mocked(adminRpc.call).mockImplementation(async (method) => {
+    const { service, actor, adapterMocks, adminRpcCall } = await fixture();
+    adapterMocks.download.mockResolvedValue(await skillArchive());
+    adminRpcCall.mockImplementation(async (method) => {
       if (method === "skills.upload.begin") {
         return { uploadId: "upload-1" };
       }
@@ -220,15 +261,79 @@ describe("SkillHubService", () => {
     await expect(
       service.install(actor, { namespace: "engineering", slug: "demo-skill", version: "1.0.0" }),
     ).resolves.toMatchObject({ ok: true });
-    expect(vi.mocked(adminRpc.call).mock.calls.map(([method]) => method)).toEqual([
+    expect(adminRpcCall.mock.calls.map(([method]) => method)).toEqual([
       "skills.upload.begin",
       "skills.upload.chunk",
       "skills.upload.commit",
       "skills.install",
     ]);
-    expect(adminRpc.call).toHaveBeenLastCalledWith(
+    expect(adminRpcCall).toHaveBeenLastCalledWith(
       "skills.install",
       expect.objectContaining({ agentId: "agent-1", source: "upload", force: false }),
     );
+  });
+
+  it("rejects an archive whose SKILL.md declares a different requested version", async () => {
+    const { service, actor, adapterMocks, adminRpcCall } = await fixture();
+    adapterMocks.download.mockResolvedValue(await skillArchive({ version: "9.9.9" }));
+
+    await expect(
+      service.install(actor, { namespace: "engineering", slug: "demo-skill", version: "1.0.0" }),
+    ).rejects.toThrow("does not match");
+    expect(adminRpcCall).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mismatched publish response before recording success", async () => {
+    const { service, actor, adapterMocks, recordAuditEvent } = await fixture();
+    adapterMocks.publish.mockResolvedValue({
+      namespace: "engineering",
+      slug: "other-skill",
+      version: "1.2.3",
+      visibility: "PUBLIC",
+    });
+
+    await expect(
+      service.publish(actor, {
+        skill: "demo-skill",
+        namespace: "engineering",
+        version: "1.2.3",
+        visibility: "PUBLIC",
+      }),
+    ).rejects.toMatchObject({ statusCode: 502 });
+    expect(recordAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it("filters and blocks restricted skills for users outside the namespace group", async () => {
+    const { service, actor, adapterMocks, adminRpcCall } = await fixture([]);
+    adapterMocks.search.mockResolvedValue({
+      items: [
+        {
+          namespace: "engineering",
+          slug: "demo-skill",
+          latestVersion: "1.0.0",
+          summary: "Demo",
+          visibility: "PRIVATE",
+        },
+      ],
+      total: 1,
+    });
+    adapterMocks.getSkill.mockResolvedValue({
+      namespace: "engineering",
+      slug: "demo-skill",
+      displayName: "Demo Skill",
+      summary: "Demo",
+      visibility: "NAMESPACE_ONLY",
+      status: "PUBLISHED",
+    });
+
+    await expect(service.search(actor.user, "demo")).resolves.toEqual({ items: [], total: 0 });
+    await expect(service.detail(actor.user, "engineering", "demo-skill")).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    await expect(
+      service.install(actor, { namespace: "engineering", slug: "demo-skill", version: "1.0.0" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(adapterMocks.download).not.toHaveBeenCalled();
+    expect(adminRpcCall).not.toHaveBeenCalled();
   });
 });

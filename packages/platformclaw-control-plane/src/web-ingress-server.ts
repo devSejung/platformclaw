@@ -367,7 +367,7 @@ export class PlatformClawWebIngressServer {
         this.options.skillHubService &&
         (await handlePlatformClawSkillHubRequest(req, res, {
           service: this.options.skillHubService,
-          readJsonBody,
+          readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))
       ) {

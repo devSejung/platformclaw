@@ -5,6 +5,20 @@ export type SkillHubSearchItem = {
   slug: string;
   latestVersion: string;
   summary: string;
+  visibility: SkillHubVisibility;
+};
+
+export type SkillHubSkillDetail = {
+  namespace: string;
+  slug: string;
+  displayName: string;
+  summary: string;
+  visibility: SkillHubVisibility;
+  status: string;
+  downloadCount?: number;
+  starCount?: number;
+  ratingAvg?: number;
+  ratingCount?: number;
 };
 
 export type SkillHubVersion = {
@@ -19,7 +33,7 @@ export type SkillHubVersion = {
 
 export interface SkillHubAdapter {
   search(query: string, limit: number): Promise<{ items: SkillHubSearchItem[]; total: number }>;
-  getSkill(namespace: string, slug: string): Promise<Record<string, unknown>>;
+  getSkill(namespace: string, slug: string): Promise<SkillHubSkillDetail>;
   listVersions(namespace: string, slug: string): Promise<SkillHubVersion[]>;
   publish(params: {
     namespace: string;
@@ -78,6 +92,18 @@ function stringValue(value: unknown, label: string): string {
     throw new SkillHubAdapterError(`Skill Hub returned invalid ${label}`);
   }
   return value.trim();
+}
+
+function visibilityValue(value: unknown, label: string): SkillHubVisibility {
+  const visibility = stringValue(value, label);
+  if (visibility !== "PUBLIC" && visibility !== "NAMESPACE_ONLY" && visibility !== "PRIVATE") {
+    throw new SkillHubAdapterError(`Skill Hub returned invalid ${label}`);
+  }
+  return visibility;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 async function readBounded(response: Response, limit: number): Promise<Buffer> {
@@ -168,14 +194,15 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
           slug: stringValue(value.slug, "search slug"),
           latestVersion: stringValue(value.latestVersion, "search version"),
           summary: typeof value.summary === "string" ? value.summary : "",
+          visibility: visibilityValue(value.visibility, "search visibility"),
         };
       }),
       total: data.total,
     };
   }
 
-  async getSkill(namespace: string, slug: string): Promise<Record<string, unknown>> {
-    return record(
+  async getSkill(namespace: string, slug: string): Promise<SkillHubSkillDetail> {
+    const data = record(
       apiData(
         await this.jsonRequest(
           this.url(`api/v1/skills/${encodePath(namespace)}/${encodePath(slug)}`),
@@ -183,6 +210,22 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
       ),
       "skill detail",
     );
+    const downloadCount = optionalNumber(data.downloadCount);
+    const starCount = optionalNumber(data.starCount);
+    const ratingAvg = optionalNumber(data.ratingAvg);
+    const ratingCount = optionalNumber(data.ratingCount);
+    return {
+      namespace: stringValue(data.namespace, "skill namespace"),
+      slug: stringValue(data.slug, "skill slug"),
+      displayName: stringValue(data.displayName, "skill display name"),
+      summary: typeof data.summary === "string" ? data.summary : "",
+      visibility: visibilityValue(data.visibility, "skill visibility"),
+      status: stringValue(data.status, "skill status"),
+      ...(downloadCount === undefined ? {} : { downloadCount }),
+      ...(starCount === undefined ? {} : { starCount }),
+      ...(ratingAvg === undefined ? {} : { ratingAvg }),
+      ...(ratingCount === undefined ? {} : { ratingCount }),
+    };
   }
 
   async listVersions(namespace: string, slug: string): Promise<SkillHubVersion[]> {
@@ -193,9 +236,10 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     if (!Array.isArray(data.items)) {
       throw new SkillHubAdapterError("Skill Hub returned invalid versions");
     }
-    return data.items.map((item) => {
+    const versions: SkillHubVersion[] = [];
+    for (const item of data.items) {
       const value = record(item, "version");
-      return {
+      versions.push({
         version: stringValue(value.version, "version number"),
         status: stringValue(value.status, "version status"),
         ...(typeof value.changelog === "string" ? { changelog: value.changelog } : {}),
@@ -203,8 +247,9 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
         ...(typeof value.totalSize === "number" ? { totalSize: value.totalSize } : {}),
         ...(typeof value.publishedAt === "string" ? { publishedAt: value.publishedAt } : {}),
         downloadAvailable: value.downloadAvailable === true,
-      };
-    });
+      });
+    }
+    return versions;
   }
 
   async publish(params: {
@@ -214,7 +259,9 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     visibility: SkillHubVisibility;
   }) {
     const form = new FormData();
-    form.set("file", new Blob([params.archive]), params.filename);
+    const archiveBytes = new Uint8Array(params.archive.byteLength);
+    archiveBytes.set(params.archive);
+    form.set("file", new Blob([archiveBytes]), params.filename);
     form.set("visibility", params.visibility);
     const data = record(
       apiData(
@@ -229,16 +276,37 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
       namespace: stringValue(data.namespace, "published namespace"),
       slug: stringValue(data.slug, "published slug"),
       version: stringValue(data.version, "published version"),
-      visibility: stringValue(data.visibility, "published visibility") as SkillHubVisibility,
+      visibility: visibilityValue(data.visibility, "published visibility"),
     };
   }
 
   async download(namespace: string, slug: string, version: string): Promise<Buffer> {
-    const response = await this.request(
+    let response = await this.fetchResponse(
       this.url(
         `api/cli/v1/skills/${encodePath(namespace)}/${encodePath(slug)}/versions/${encodePath(version)}/download`,
       ),
+      {},
+      true,
+      "manual",
     );
+    if (response.status === 302) {
+      const location = response.headers.get("location");
+      let redirectUrl: URL;
+      try {
+        redirectUrl = new URL(location ?? "");
+      } catch {
+        throw new SkillHubAdapterError("Skill Hub returned an invalid download redirect");
+      }
+      if (
+        (redirectUrl.protocol !== "http:" && redirectUrl.protocol !== "https:") ||
+        redirectUrl.username ||
+        redirectUrl.password
+      ) {
+        throw new SkillHubAdapterError("Skill Hub returned an invalid download redirect");
+      }
+      response = await this.fetchResponse(redirectUrl, {}, false);
+    }
+    await this.ensureOk(response);
     return await readBounded(response, this.maxArchiveBytes);
   }
 
@@ -251,17 +319,36 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
   }
 
   private async request(url: URL, init: RequestInit = {}): Promise<Response> {
+    const response = await this.fetchResponse(url, init, true);
+    await this.ensureOk(response);
+    return response;
+  }
+
+  private async fetchResponse(
+    url: URL,
+    init: RequestInit,
+    authenticated: boolean,
+    redirect: RequestRedirect = "error",
+  ): Promise<Response> {
     let response: Response;
     try {
+      const headers = new Headers(init.headers);
+      if (authenticated) {
+        headers.set("Authorization", `Bearer ${this.#token}`);
+      }
       response = await this.fetchImpl(url, {
         ...init,
-        headers: { Authorization: `Bearer ${this.#token}`, ...init.headers },
-        redirect: "error",
+        headers,
+        redirect,
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch {
       throw new SkillHubAdapterError("Skill Hub is unavailable");
     }
+    return response;
+  }
+
+  private async ensureOk(response: Response): Promise<void> {
     if (!response.ok) {
       const body = await readBounded(response, MAX_JSON_BYTES).catch(() => Buffer.alloc(0));
       let message = `Skill Hub request failed (${response.status})`;
@@ -280,6 +367,5 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
       }
       throw new SkillHubAdapterError(message, response.status);
     }
-    return response;
   }
 }

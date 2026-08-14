@@ -104,10 +104,10 @@ export function createPlatformClawDeploymentRuntime(
             }),
             workspaceRoot: config.workspaceRoot,
             allowedNamespaces: config.skillHub.namespacePolicies.map((policy) => policy.namespace),
-            publishNamespaceGroups: Object.fromEntries(
+            namespaceAccessGroups: Object.fromEntries(
               config.skillHub.namespacePolicies.map((policy) => [
                 policy.namespace,
-                policy.publishGroup,
+                policy.accessGroup,
               ]),
             ),
             maxPackageBytes: config.skillHub.maxPackageBytes,

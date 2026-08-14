@@ -40,7 +40,7 @@ type SkillHubServiceOptions = {
   adminRpc: GatewayAdminRpc;
   workspaceRoot: string;
   allowedNamespaces: readonly string[];
-  publishNamespaceGroups?: Readonly<Record<string, string>>;
+  namespaceAccessGroups?: Readonly<Record<string, string>>;
   maxPackageBytes: number;
   now?: () => number;
 };
@@ -76,12 +76,16 @@ function isInside(parent: string, candidate: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-function parseSkillMarkdown(source: string, expectedName: string, version?: string): string {
+function parseSkillMarkdown(
+  source: string,
+  expectedName: string,
+  version?: string,
+): { source: string; version?: string } {
   const match = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)([\s\S]*)$/u.exec(source);
   if (!match) {
     throw new SkillHubServiceError("SKILL.md must contain YAML frontmatter", 400);
   }
-  const document = parseDocument(match[1]);
+  const document = parseDocument(match[1]!);
   if (document.errors.length > 0 || !isMap(document.contents)) {
     throw new SkillHubServiceError("SKILL.md contains invalid YAML frontmatter", 400);
   }
@@ -93,10 +97,19 @@ function parseSkillMarkdown(source: string, expectedName: string, version?: stri
   if (typeof description !== "string" || !description.trim()) {
     throw new SkillHubServiceError("SKILL.md description is required", 400);
   }
+  const declaredVersion = document.get("version");
+  if (declaredVersion !== undefined && typeof declaredVersion !== "string") {
+    throw new SkillHubServiceError("SKILL.md version must be a string", 400);
+  }
   if (version) {
     document.set("version", version);
   }
-  return `---\n${document.toString().trimEnd()}\n---\n${match[2]}`;
+  return {
+    source: `---\n${document.toString().trimEnd()}\n---\n${match[2]}`,
+    ...(version === undefined && declaredVersion !== undefined
+      ? { version: declaredVersion.trim() }
+      : {}),
+  };
 }
 
 function zipEntryPath(entry: JSZipObject): string {
@@ -116,23 +129,69 @@ function zipEntryPath(entry: JSZipObject): string {
   return original;
 }
 
-function zipEntrySize(entry: JSZipObject): number {
-  const internal = entry as JSZipObject & { _data?: { uncompressedSize?: unknown } };
-  const value = internal._data?.uncompressedSize;
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    throw new SkillHubServiceError("Skill Hub archive contains invalid size metadata", 400);
-  }
-  return value;
-}
-
 function isZipSymlink(entry: JSZipObject): boolean {
   const permissions = entry.unixPermissions;
   return typeof permissions === "number" && (permissions & 0o170000) === 0o120000;
 }
 
+async function readZipEntryBounded(
+  entry: JSZipObject,
+  extracted: { bytes: number },
+  maxPackageBytes: number,
+): Promise<Buffer | undefined> {
+  const retain = entry.name === "SKILL.md";
+  return await new Promise<Buffer | undefined>((resolve, reject) => {
+    const stream = entry.nodeStream("nodebuffer") as NodeJS.ReadableStream & {
+      destroy(): void;
+    };
+    const chunks: Buffer[] = [];
+    let entryBytes = 0;
+    let settled = false;
+    const fail = (error: SkillHubServiceError): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      stream.pause();
+      stream.destroy();
+      reject(error);
+    };
+    stream.on("data", (rawChunk: Buffer | string) => {
+      const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+      entryBytes += chunk.byteLength;
+      extracted.bytes += chunk.byteLength;
+      if (extracted.bytes > maxPackageBytes || (retain && entryBytes > MAX_SKILL_MD_BYTES)) {
+        fail(
+          new SkillHubServiceError(
+            retain
+              ? "Skill Hub archive is missing a valid SKILL.md"
+              : "Skill Hub archive expands past the configured size limit",
+            400,
+          ),
+        );
+        return;
+      }
+      if (retain) {
+        chunks.push(chunk);
+      }
+    });
+    stream.once("error", () => {
+      fail(new SkillHubServiceError("Skill Hub returned an invalid ZIP archive", 400));
+    });
+    stream.once("end", () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(retain ? Buffer.concat(chunks, entryBytes) : undefined);
+    });
+  });
+}
+
 async function validateDownloadedArchive(
   archive: Buffer,
   expectedSlug: string,
+  expectedVersion: string,
   maxPackageBytes: number,
 ): Promise<void> {
   if (archive.byteLength === 0 || archive.byteLength > maxPackageBytes) {
@@ -150,42 +209,43 @@ async function validateDownloadedArchive(
   if (entries.length === 0 || entries.length > MAX_SKILL_FILES) {
     throw new SkillHubServiceError("Skill Hub archive contains too many files", 400);
   }
-  let extractedBytes = 0;
+  const extracted = { bytes: 0 };
+  let skillMarkdown: Buffer | undefined;
   for (const entry of entries) {
     zipEntryPath(entry);
     if (isZipSymlink(entry)) {
       throw new SkillHubServiceError("Skill Hub archive contains a symbolic link", 400);
     }
-    if (!entry.dir) {
-      extractedBytes += zipEntrySize(entry);
-      if (extractedBytes > maxPackageBytes) {
-        throw new SkillHubServiceError(
-          "Skill Hub archive expands past the configured size limit",
-          400,
-        );
-      }
+    if (entry.dir) {
+      continue;
+    }
+    const content = await readZipEntryBounded(entry, extracted, maxPackageBytes);
+    if (content) {
+      skillMarkdown = content;
     }
   }
-  const skillMarkdown = zip.file("SKILL.md");
-  if (!skillMarkdown || zipEntrySize(skillMarkdown) > MAX_SKILL_MD_BYTES) {
+  if (!skillMarkdown) {
     throw new SkillHubServiceError("Skill Hub archive is missing a valid SKILL.md", 400);
   }
-  parseSkillMarkdown(await skillMarkdown.async("string"), expectedSlug);
+  const metadata = parseSkillMarkdown(skillMarkdown.toString("utf8"), expectedSlug);
+  if (metadata.version !== expectedVersion) {
+    throw new SkillHubServiceError("SKILL.md version does not match the requested version", 400);
+  }
 }
 
 export class SkillHubService {
   private readonly workspaceRoot: string;
   private readonly namespaces: ReadonlySet<string>;
-  private readonly publishNamespaceGroups: ReadonlyMap<string, string>;
+  private readonly namespaceAccessGroups: ReadonlyMap<string, string>;
 
   constructor(private readonly options: SkillHubServiceOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
     this.namespaces = new Set(
       options.allowedNamespaces.map((value) => safeName(value, "namespace", NAMESPACE_PATTERN)),
     );
-    this.publishNamespaceGroups = new Map(
+    this.namespaceAccessGroups = new Map(
       [...this.namespaces].map((namespace) => {
-        const configuredGroup = options.publishNamespaceGroups?.[namespace]?.trim().toLowerCase();
+        const configuredGroup = options.namespaceAccessGroups?.[namespace]?.trim().toLowerCase();
         return [namespace, configuredGroup || namespace] as const;
       }),
     );
@@ -222,22 +282,28 @@ export class SkillHubService {
     };
   }
 
-  async search(query: string, limit = 20) {
+  async search(user: PlatformUser, query: string, limit = 20) {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
       throw new SkillHubServiceError("limit must be between 1 and 50", 400);
     }
     const result = await this.adapterCall(() => this.options.adapter.search(query.trim(), limit));
-    const items = result.items.filter((item) => this.namespaces.has(item.namespace.toLowerCase()));
+    const items = result.items.filter(
+      (item) =>
+        this.namespaces.has(item.namespace.toLowerCase()) &&
+        this.canAccessVisibility(user, item.namespace.toLowerCase(), item.visibility),
+    );
     return { items, total: items.length };
   }
 
-  async detail(namespaceRaw: string, slugRaw: string) {
+  async detail(user: PlatformUser, namespaceRaw: string, slugRaw: string) {
     const namespace = this.authorizeNamespace(namespaceRaw);
     const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
-    const [skill, versions] = await Promise.all([
-      this.adapterCall(() => this.options.adapter.getSkill(namespace, slug)),
-      this.adapterCall(() => this.options.adapter.listVersions(namespace, slug)),
-    ]);
+    const skill = await this.adapterCall(() => this.options.adapter.getSkill(namespace, slug));
+    this.validateSkillIdentity(skill.namespace, skill.slug, namespace, slug);
+    this.authorizeVisibility(user, namespace, skill.visibility);
+    const versions = await this.adapterCall(() =>
+      this.options.adapter.listVersions(namespace, slug),
+    );
     return { skill, versions };
   }
 
@@ -258,6 +324,14 @@ export class SkillHubService {
         visibility,
       }),
     );
+    if (
+      result.namespace !== namespace ||
+      result.slug !== skill ||
+      result.version !== version ||
+      result.visibility !== visibility
+    ) {
+      throw new SkillHubServiceError("Skill Hub returned a mismatched publish result", 502);
+    }
     await this.audit(actor.user.id, "skill-hub.publish", `${namespace}/${skill}@${version}`, {
       visibility,
       archiveBytes: archive.byteLength,
@@ -272,10 +346,13 @@ export class SkillHubService {
     const namespace = this.authorizeNamespace(params.namespace);
     const slug = safeName(params.slug, "skill slug", SKILL_KEY_PATTERN);
     const version = validVersion(params.version);
+    const detail = await this.adapterCall(() => this.options.adapter.getSkill(namespace, slug));
+    this.validateSkillIdentity(detail.namespace, detail.slug, namespace, slug);
+    this.authorizeVisibility(actor.user, namespace, detail.visibility);
     const archive = await this.adapterCall(() =>
       this.options.adapter.download(namespace, slug, version),
     );
-    await validateDownloadedArchive(archive, slug, this.options.maxPackageBytes);
+    await validateDownloadedArchive(archive, slug, version, this.options.maxPackageBytes);
     const sha256 = createHash("sha256").update(archive).digest("hex");
     const begin = await this.gatewayCall<{ uploadId: string }>("skills.upload.begin", {
       kind: "skill-archive",
@@ -338,12 +415,41 @@ export class SkillHubService {
     if (user.globalRole === "admin") {
       return true;
     }
-    const requiredGroup = this.publishNamespaceGroups.get(namespace);
+    const requiredGroup = this.namespaceAccessGroups.get(namespace);
     return (
       requiredGroup === "*" ||
       (requiredGroup !== undefined &&
         user.groups.some((group) => group.trim().toLowerCase() === requiredGroup))
     );
+  }
+
+  private canAccessVisibility(
+    user: PlatformUser,
+    namespace: string,
+    visibility: SkillHubVisibility,
+  ): boolean {
+    return visibility === "PUBLIC" || this.canPublish(user, namespace);
+  }
+
+  private authorizeVisibility(
+    user: PlatformUser,
+    namespace: string,
+    visibility: SkillHubVisibility,
+  ): void {
+    if (!this.canAccessVisibility(user, namespace, visibility)) {
+      throw new SkillHubServiceError("this Skill Hub skill is not available to this user", 403);
+    }
+  }
+
+  private validateSkillIdentity(
+    actualNamespace: string,
+    actualSlug: string,
+    expectedNamespace: string,
+    expectedSlug: string,
+  ): void {
+    if (actualNamespace !== expectedNamespace || actualSlug !== expectedSlug) {
+      throw new SkillHubServiceError("Skill Hub returned mismatched skill details", 502);
+    }
   }
 
   private async packageWorkspaceSkill(
@@ -416,7 +522,10 @@ export class SkillHubService {
           if (bytes.byteLength > MAX_SKILL_MD_BYTES) {
             throw new SkillHubServiceError("SKILL.md exceeds the size limit", 400);
           }
-          bytes = Buffer.from(parseSkillMarkdown(bytes.toString("utf8"), skill, version), "utf8");
+          bytes = Buffer.from(
+            parseSkillMarkdown(bytes.toString("utf8"), skill, version).source,
+            "utf8",
+          );
           sawSkillMarkdown = true;
         }
         totalBytes += bytes.byteLength;

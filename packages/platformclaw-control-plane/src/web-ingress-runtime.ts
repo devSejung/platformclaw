@@ -75,7 +75,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
     adapter: SkillHubAdapter;
     workspaceRoot: string;
     allowedNamespaces: readonly string[];
-    publishNamespaceGroups: Readonly<Record<string, string>>;
+    namespaceAccessGroups: Readonly<Record<string, string>>;
     maxPackageBytes: number;
   };
   ingress?: Pick<
@@ -200,7 +200,7 @@ export function createPlatformClawWebIngressRuntime(
         adminRpc: options.adminRpc,
         workspaceRoot: options.skillHub.workspaceRoot,
         allowedNamespaces: options.skillHub.allowedNamespaces,
-        publishNamespaceGroups: options.skillHub.publishNamespaceGroups,
+        namespaceAccessGroups: options.skillHub.namespaceAccessGroups,
         maxPackageBytes: options.skillHub.maxPackageBytes,
         ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
       })
