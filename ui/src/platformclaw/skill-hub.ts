@@ -65,7 +65,7 @@ export type PlatformClawSkillHubDetail = {
   access?: PlatformClawSkillHubAccessGrant[];
 };
 
-export type PlatformClawSkillHubAccessGrant = {
+type PlatformClawSkillHubAccessGrant = {
   userId: string;
   expiresAt: number | null;
   inheritVersions: boolean;
