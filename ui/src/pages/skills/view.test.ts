@@ -3,150 +3,14 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentsListResult, SkillStatusEntry, SkillStatusReport } from "../../api/types.ts";
+import type { SkillStatusReport } from "../../api/types.ts";
 import { i18n } from "../../i18n/index.ts";
 import { clawhubVerdictKey } from "../../lib/skills/index.ts";
 import { getRenderedModalDialog } from "../../test-helpers/modal-dialog.ts";
+import { createProps, createSkill, normalizeText } from "./view.test-helpers.ts";
 import { renderSkills } from "./view.ts";
 
-type SkillsProps = Parameters<typeof renderSkills>[0];
-
 const dialogRestores: Array<() => void> = [];
-
-function normalizeText(node: Element | DocumentFragment): string {
-  return node.textContent?.replace(/\s+/g, " ").trim() ?? "";
-}
-
-function createSkill(overrides: Partial<SkillStatusEntry> = {}): SkillStatusEntry {
-  return {
-    name: "Repo Skill",
-    description: "Skill description",
-    source: "workspace",
-    filePath: "/tmp/skill",
-    baseDir: "/tmp",
-    skillKey: "repo-skill",
-    bundled: false,
-    primaryEnv: "OPENAI_API_KEY",
-    emoji: undefined,
-    homepage: "https://example.com",
-    always: false,
-    disabled: false,
-    blockedByAllowlist: false,
-    blockedByAgentFilter: false,
-    eligible: true,
-    requirements: {
-      anyBins: [],
-      bins: [],
-      env: [],
-      config: [],
-      os: [],
-    },
-    missing: {
-      anyBins: [],
-      bins: [],
-      env: [],
-      config: [],
-      os: [],
-    },
-    configChecks: [],
-    install: [],
-    ...overrides,
-  };
-}
-
-function createProps(overrides: Partial<SkillsProps> = {}): SkillsProps {
-  const report: SkillStatusReport = {
-    workspaceDir: "/tmp/workspace",
-    managedSkillsDir: "/tmp/skills",
-    skills: [createSkill()],
-  };
-  const agentsList: AgentsListResult = {
-    defaultId: "main",
-    mainKey: "main",
-    scope: "project",
-    agents: [
-      { id: "main", name: "Main" },
-      { id: "research", identity: { name: "Research", avatar: "R" } },
-    ],
-  };
-
-  return {
-    canUpdate: true,
-    canInstall: true,
-    connected: true,
-    loading: false,
-    report,
-    agentsList,
-    selectedAgentId: "main",
-    error: null,
-    filter: "",
-    statusFilter: "all",
-    edits: {},
-    operation: null,
-    messages: {},
-    detailKey: null,
-    detailTab: "overview",
-    clawhubVerdicts: {},
-    clawhubVerdictsLoading: false,
-    clawhubVerdictsError: null,
-    skillCardContents: {},
-    skillCardLoadingKey: null,
-    skillCardErrors: {},
-    clawhubQuery: "",
-    clawhubResults: null,
-    clawhubSearchLoading: false,
-    clawhubSearchError: null,
-    clawhubDetail: null,
-    clawhubDetailSlug: null,
-    clawhubDetailLoading: false,
-    clawhubDetailError: null,
-    clawhubInstallMessage: null,
-    skillHubConfig: null,
-    skillHubConfigLoading: false,
-    skillHubQuery: "",
-    skillHubResults: null,
-    skillHubSearchLoading: false,
-    skillHubError: null,
-    skillHubDetailRef: null,
-    skillHubDetail: null,
-    skillHubDetailLoading: false,
-    skillHubSelectedVersion: "",
-    skillHubPublishSkill: null,
-    skillHubPublishNamespace: "",
-    skillHubPublishVersion: "0.1.0",
-    skillHubPublishVisibility: "PUBLIC",
-    skillHubOperation: null,
-    skillHubMessage: null,
-    onAgentChange: () => undefined,
-    onFilterChange: () => undefined,
-    onStatusFilterChange: () => undefined,
-    onRefresh: () => undefined,
-    onToggle: () => undefined,
-    onEdit: () => undefined,
-    onSaveKey: () => undefined,
-    onInstall: () => undefined,
-    onDetailOpen: () => undefined,
-    onDetailClose: () => undefined,
-    onDetailTabChange: () => undefined,
-    onClawHubQueryChange: () => undefined,
-    onClawHubDetailOpen: () => undefined,
-    onClawHubDetailClose: () => undefined,
-    onClawHubInstall: () => undefined,
-    onSkillHubQueryChange: () => undefined,
-    onSkillHubSearch: () => undefined,
-    onSkillHubDetailOpen: () => undefined,
-    onSkillHubDetailClose: () => undefined,
-    onSkillHubVersionChange: () => undefined,
-    onSkillHubInstall: () => undefined,
-    onSkillHubPublishOpen: () => undefined,
-    onSkillHubPublishClose: () => undefined,
-    onSkillHubPublishNamespaceChange: () => undefined,
-    onSkillHubPublishVersionChange: () => undefined,
-    onSkillHubPublishVisibilityChange: () => undefined,
-    onSkillHubPublish: () => undefined,
-    ...overrides,
-  };
-}
 
 describe("renderSkills", () => {
   afterEach(async () => {
@@ -171,40 +35,6 @@ describe("renderSkills", () => {
     expect(normalizeText(container)).toContain("Skills on My development VM");
     expect(normalizeText(container)).not.toContain("Search ClawHub");
     expect(container.querySelectorAll("wa-switch.settings-toggle")).toHaveLength(0);
-  });
-
-  it("integrates Skill Hub search and workspace publishing for personal access", () => {
-    const container = document.createElement("div");
-    const onSkillHubDetailOpen = vi.fn();
-    const onSkillHubPublishOpen = vi.fn();
-    const props = createProps({
-      personalAccess: true,
-      skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
-      skillHubResults: [
-        {
-          namespace: "engineering",
-          slug: "shared-skill",
-          latestVersion: "2.0.0",
-          summary: "Shared skill",
-        },
-      ],
-      onSkillHubDetailOpen,
-      onSkillHubPublishOpen,
-    });
-    props.report = {
-      ...expectDefined(props.report, "skills report"),
-      skills: [createSkill({ source: "openclaw-workspace", skillKey: "repo-skill" })],
-    };
-
-    render(renderSkills(props), container);
-
-    expect(normalizeText(container)).toContain("engineering/shared-skill");
-    expect(normalizeText(container)).toContain("Publish to Hub");
-    const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
-    buttons.find((button) => button.textContent?.includes("Details"))?.click();
-    buttons.find((button) => button.textContent?.includes("Publish to Hub"))?.click();
-    expect(onSkillHubDetailOpen).toHaveBeenCalledWith("engineering", "shared-skill");
-    expect(onSkillHubPublishOpen).toHaveBeenCalledWith("repo-skill");
   });
 
   it("renders the agent selector and routes agent changes", async () => {
