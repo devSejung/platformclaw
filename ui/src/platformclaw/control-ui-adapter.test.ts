@@ -74,6 +74,7 @@ describe("PlatformClawControlUiAdapter", () => {
         "about",
         "skills",
         "skill-workshop",
+        "skill-hub",
         "mcp",
       ],
       navigation: {

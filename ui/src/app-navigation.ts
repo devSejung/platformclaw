@@ -33,6 +33,7 @@ export const SIDEBAR_NAV_ROUTES = [
 const PLUGINS_HUB_ROUTES: ReadonlySet<NavigationRouteId> = new Set([
   "plugins",
   "skills",
+  "skill-hub",
   "skill-workshop",
 ]);
 
@@ -235,6 +236,7 @@ const NAVIGATION_ICONS: NavigationItem = {
   cron: "calendarClock",
   tasks: "listChecks",
   skills: "zap",
+  "skill-hub": "book",
   plugins: "puzzle",
   "skill-workshop": "wrench",
   nodes: "monitorSmartphone",
@@ -341,6 +343,7 @@ const NAVIGATION_COPY: Record<NavigationRouteId, { titleKey: string; subtitleKey
   cron: { titleKey: "tabs.cron", subtitleKey: "subtitles.cron" },
   tasks: { titleKey: "tabs.tasks", subtitleKey: "subtitles.tasks" },
   skills: { titleKey: "tabs.skills", subtitleKey: "subtitles.skills" },
+  "skill-hub": { titleKey: "tabs.skillHub", subtitleKey: "subtitles.skillHub" },
   plugins: { titleKey: "tabs.plugins", subtitleKey: "subtitles.plugins" },
   "skill-workshop": {
     titleKey: "tabs.skillWorkshop",

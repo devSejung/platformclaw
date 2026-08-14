@@ -52,7 +52,12 @@ import {
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { fetchPluginIconBlobUrl } from "./icon-loader.ts";
-import { PLUGINS_HUB_PANEL_ID, pluginsHubTabs, type PluginsHubTab } from "./plugins-hub.ts";
+import {
+  PLUGINS_HUB_PANEL_ID,
+  pluginsHubTabs,
+  routeForPluginsHubTab,
+  type PluginsHubTab,
+} from "./plugins-hub.ts";
 import type { ConnectorSuggestion } from "./presentation.ts";
 import { pluginArtPath } from "./presentation.ts";
 import { canonicalPluginsRouteLocation, pluginsHubTabForRoute } from "./route-data.ts";
@@ -600,7 +605,10 @@ class PluginsPage extends OpenClawLightDomElement {
       });
       return;
     }
-    this.context.navigate(tab === "skills" ? "skills" : "skill-workshop");
+    const route = routeForPluginsHubTab(tab);
+    if (route) {
+      this.context.navigate(route);
+    }
   }
 
   private changeTab(tab: PluginsTab) {

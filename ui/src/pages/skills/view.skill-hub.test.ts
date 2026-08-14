@@ -6,23 +6,13 @@ import { describe, expect, it, vi } from "vitest";
 import { createProps, createSkill, normalizeText } from "./view.test-helpers.ts";
 import { renderSkills } from "./view.ts";
 
-describe("renderSkills Skill Hub", () => {
-  it("integrates search and workspace publishing for personal access", () => {
+describe("renderSkills Skill Hub publishing", () => {
+  it("keeps workspace publishing on Skills and moves discovery to its own tab", () => {
     const container = document.createElement("div");
-    const onSkillHubDetailOpen = vi.fn();
     const onSkillHubPublishOpen = vi.fn();
     const props = createProps({
       personalAccess: true,
       skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
-      skillHubResults: [
-        {
-          namespace: "engineering",
-          slug: "shared-skill",
-          latestVersion: "2.0.0",
-          summary: "Shared skill",
-        },
-      ],
-      onSkillHubDetailOpen,
       onSkillHubPublishOpen,
     });
     props.report = {
@@ -32,33 +22,20 @@ describe("renderSkills Skill Hub", () => {
 
     render(renderSkills(props), container);
 
-    expect(normalizeText(container)).toContain("engineering/shared-skill");
+    expect(normalizeText(container)).not.toContain("Search Skill Hub");
     expect(normalizeText(container)).toContain("Publish to Hub");
-    const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
-    buttons.find((button) => button.textContent?.includes("Details"))?.click();
-    buttons.find((button) => button.textContent?.includes("Publish to Hub"))?.click();
-    expect(onSkillHubDetailOpen).toHaveBeenCalledWith("engineering", "shared-skill");
+    const publish = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Publish to Hub"),
+    );
+    publish?.click();
     expect(onSkillHubPublishOpen).toHaveBeenCalledWith("repo-skill");
   });
 
-  it("keeps discovery available and names the assigned VM install destination", () => {
+  it("does not offer server-side workspace publishing for an assigned VM skill", () => {
     const container = document.createElement("div");
     const props = createProps({
       personalAccess: true,
       skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
-      skillHubDetailRef: { namespace: "engineering", slug: "shared-skill" },
-      skillHubDetail: {
-        skill: {
-          namespace: "engineering",
-          slug: "shared-skill",
-          displayName: "Shared Skill",
-          summary: "Shared skill",
-          visibility: "PUBLIC",
-          status: "PUBLISHED",
-        },
-        versions: [{ version: "2.0.0", status: "PUBLISHED", downloadAvailable: true }],
-      },
-      skillHubSelectedVersion: "2.0.0",
     });
     props.report = {
       ...expectDefined(props.report, "skills report"),
@@ -68,8 +45,7 @@ describe("renderSkills Skill Hub", () => {
 
     render(renderSkills(props), container);
 
-    expect(normalizeText(container)).toContain("Skill Hub");
-    expect(normalizeText(container)).toContain("Install to My development VM");
+    expect(normalizeText(container)).not.toContain("Search Skill Hub");
     expect(normalizeText(container)).not.toContain("Publish to Hub");
   });
 });
