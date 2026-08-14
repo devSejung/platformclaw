@@ -81,7 +81,6 @@ export type {
   SandboxBackendWorkdirResolver,
   SandboxBackendWorkdirValidator,
 } from "./sandbox/backend.js";
-export type { SkillArchiveInstallTargetAccess } from "../skills/lifecycle/archive-install.js";
 export type {
   RemoteShellSandboxFilesystemRoot,
   RemoteShellSandboxHandle,

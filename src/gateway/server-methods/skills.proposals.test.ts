@@ -144,11 +144,20 @@ describe("skills proposal gateway handlers", () => {
       agents: { defaults: { sandbox: { backend: "test-remote", mode: "all" } } },
     };
     const targetAccess = { install: vi.fn() };
+    let runExclusiveCalls = 0;
+    const runExclusive = async <T>(operation: () => Promise<T>): Promise<T> => {
+      runExclusiveCalls += 1;
+      return await operation();
+    };
     const restore = registerSandboxBackend("test-remote", {
       factory: vi.fn() as never,
       skillInstall: vi.fn(async ({ expectedTargetRevision }) => {
         expect(expectedTargetRevision).toBe(9);
-        return { kind: "backend" as const, access: targetAccess };
+        return {
+          kind: "backend" as const,
+          access: targetAccess,
+          runExclusive,
+        };
       }),
     });
     mocks.installUploadedSkillArchive.mockResolvedValue({
@@ -184,6 +193,7 @@ describe("skills proposal gateway handlers", () => {
       expect(mocks.installUploadedSkillArchive).toHaveBeenCalledWith(
         expect.objectContaining({ targetAccess }),
       );
+      expect(runExclusiveCalls).toBe(1);
     } finally {
       restore();
     }

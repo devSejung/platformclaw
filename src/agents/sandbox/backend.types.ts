@@ -80,8 +80,12 @@ export type SandboxBackendSkillWorkshopProvider = (params: {
 
 /** Pinned destination selected by a sandbox backend for one archive install. */
 export type SandboxBackendSkillInstallTarget =
-  | { kind: "workspace" }
-  | { kind: "backend"; access: SkillArchiveInstallTargetAccess };
+  | { kind: "workspace"; runExclusive<T>(operation: () => Promise<T>): Promise<T> }
+  | {
+      kind: "backend";
+      access: SkillArchiveInstallTargetAccess;
+      runExclusive<T>(operation: () => Promise<T>): Promise<T>;
+    };
 
 /** Resolves an archive-install destination owned by the active sandbox backend target. */
 export type SandboxBackendSkillInstallProvider = (params: {

@@ -29,6 +29,7 @@ import {
   getSandboxBackendSkillInstallProvider,
   getSandboxBackendSkillProvider,
 } from "../../agents/sandbox/backend.js";
+import type { SandboxBackendSkillInstallTarget } from "../../agents/sandbox/backend.js";
 import { resolveSandboxConfigForAgent } from "../../agents/sandbox/config.js";
 import { listAgentWorkspaceDirs } from "../../agents/workspace-dirs.js";
 import { redactConfigObject } from "../../config/redact-snapshot.js";
@@ -39,6 +40,7 @@ import { getOrCreatePromise } from "../../shared/lazy-promise.js";
 import { updateSkillConfigEntry } from "../../skills/config/mutations.js";
 import { collectSkillBins } from "../../skills/discovery/bins.js";
 import { buildWorkspaceSkillStatus } from "../../skills/discovery/status.js";
+import type { SkillArchiveInstallTargetAccess } from "../../skills/lifecycle/archive-install.js";
 import {
   installSkillFromClawHub,
   readLocalSkillCardContentSync,
@@ -752,7 +754,8 @@ export const skillsHandlers: GatewayRequestHandlers = {
         destination?: "workspace" | "sandbox-backend";
         expectedTargetRevision?: number;
       };
-      let targetAccess;
+      let targetAccess: SkillArchiveInstallTargetAccess | undefined;
+      let installTarget: SandboxBackendSkillInstallTarget | undefined;
       if (p.destination === "sandbox-backend") {
         const sandboxConfig = resolveSandboxConfigForAgent(cfg, resolved.agentId);
         const provider = getSandboxBackendSkillInstallProvider(sandboxConfig.backend);
@@ -767,25 +770,27 @@ export const skillsHandlers: GatewayRequestHandlers = {
           );
           return;
         }
-        const target = await provider({
+        installTarget = await provider({
           agentId: resolved.agentId,
           config: cfg,
           workspaceDir: workspaceDirRaw,
           expectedTargetRevision: p.expectedTargetRevision,
         });
-        targetAccess = target.kind === "backend" ? target.access : undefined;
+        targetAccess = installTarget.kind === "backend" ? installTarget.access : undefined;
       }
-      const result = await installUploadedSkillArchive({
-        uploadId: p.uploadId,
-        slug: p.slug,
-        force: Boolean(p.force),
-        sha256: p.sha256,
-        timeoutMs: p.timeoutMs,
-        workspaceDir: workspaceDirRaw,
-        config: cfg,
-        log: context.logGateway,
-        targetAccess,
-      });
+      const install = async () =>
+        await installUploadedSkillArchive({
+          uploadId: p.uploadId,
+          slug: p.slug,
+          force: Boolean(p.force),
+          sha256: p.sha256,
+          timeoutMs: p.timeoutMs,
+          workspaceDir: workspaceDirRaw,
+          config: cfg,
+          log: context.logGateway,
+          targetAccess,
+        });
+      const result = installTarget ? await installTarget.runExclusive(install) : await install();
       if (result.ok && targetAccess) {
         // Remote workspaces have no local watcher to emit the canonical refresh event.
         context.broadcast("skills.changed", { reason: "remote-node" });
