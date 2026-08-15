@@ -19,15 +19,15 @@ import {
 } from "./browser-gateway-cron-controller.js";
 export { PLATFORMCLAW_WEB_GATEWAY_EVENTS } from "./browser-gateway-event-policy.js";
 import { BrowserGatewayLiveCapabilities } from "./browser-gateway-live-capabilities.js";
-import {
-  prepareBrowserMemoryRequest,
-  projectBrowserMemoryResult,
-} from "./browser-gateway-memory.js";
 import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-visibility.js";
 import {
   browserEventPayloadBelongsToAccess,
   browserPayloadBelongsToAccess,
 } from "./browser-gateway-ownership.js";
+import {
+  prepareBrowserPersonalReadRequest,
+  projectBrowserPersonalReadResult,
+} from "./browser-gateway-personal-reads.js";
 import {
   PLATFORMCLAW_WEB_ADMIN_METHODS,
   PLATFORMCLAW_WEB_AGENT_ONLY_METHODS,
@@ -403,6 +403,19 @@ export class BrowserGatewayProxy {
       this.assertions.sessionKeyArray(access.binding.agentId, params.keys, "keys", true);
       return params;
     }
+    const personalReadParams = prepareBrowserPersonalReadRequest({
+      method,
+      request: params,
+      agentId: access.binding.agentId,
+      assertOptionalAgentId: (value, label) =>
+        this.assertions.optionalAgentId(access.binding.agentId, value, label),
+      fail: (message) => {
+        throw new BrowserGatewayProxyError("method-not-allowed", message);
+      },
+    });
+    if (personalReadParams !== undefined) {
+      return personalReadParams;
+    }
     if (
       this.liveCapabilities.prepareRequest(method, params, (values, field) =>
         this.assertions.sessionKeyArray(access.binding.agentId, values, field, false),
@@ -439,19 +452,6 @@ export class BrowserGatewayProxy {
         );
       }
       return { ...params, agentId: access.binding.agentId, emitCommandHooks: false };
-    }
-    const memoryParams = prepareBrowserMemoryRequest({
-      method,
-      request: params,
-      agentId: access.binding.agentId,
-      assertOptionalAgentId: (value, label) =>
-        this.assertions.optionalAgentId(access.binding.agentId, value, label),
-      fail: (message) => {
-        throw new BrowserGatewayProxyError("method-not-allowed", message);
-      },
-    });
-    if (memoryParams !== undefined) {
-      return memoryParams;
     }
     if (method.startsWith("sessions.companion.")) {
       this.assertions.ownedSessionKey(access.binding.agentId, params.sessionKey, "sessionKey");
@@ -542,7 +542,7 @@ export class BrowserGatewayProxy {
         },
       });
     }
-    const memoryResult = projectBrowserMemoryResult({
+    const personalReadResult = projectBrowserPersonalReadResult({
       method,
       request: prepared,
       result,
@@ -551,8 +551,8 @@ export class BrowserGatewayProxy {
         throw new BrowserGatewayProxyError("upstream-result-denied", message);
       },
     });
-    if (memoryResult !== undefined) {
-      return memoryResult;
+    if (personalReadResult !== undefined) {
+      return personalReadResult;
     }
     if (method.startsWith("agents.files.")) {
       return projectBrowserAgentFiles({
