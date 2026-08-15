@@ -592,7 +592,6 @@ describe("gateway client capability tool filtering", () => {
     expect(
       hasTool(
         createOpenClawTools({
-          agentId: "person_one",
           agentSessionKey: "agent:person_one:main",
           clientCaps: ["inline-widgets"],
           sandboxed: true,
