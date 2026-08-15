@@ -237,7 +237,8 @@ export function createPlatformClawWebIngressRuntime(
         gatewayOrigin: options.mediaGateway.origin,
         gatewayAuth: options.mediaGateway.auth,
         gatewayProxy,
-        resolveAgentIdFromSessionKey: options.resolveAgentIdFromSessionKey,
+        resolveAgentIdFromSessionKey: (sessionKey) =>
+          options.resolveAgentIdFromSessionKey(sessionKey),
         ...(options.mediaGateway.fetchImpl ? { fetchImpl: options.mediaGateway.fetchImpl } : {}),
         ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
       })

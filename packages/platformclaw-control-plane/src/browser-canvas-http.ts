@@ -21,7 +21,7 @@ const RESPONSE_HEADER_ALLOWLIST = [
 type BrowserCanvasAccess = { binding: { agentId: string } };
 
 export type PlatformClawBrowserCanvasPolicy = {
-  resolveAccess(token: string, touch?: boolean): Promise<BrowserCanvasAccess>;
+  resolveAccess(this: void, token: string, touch?: boolean): Promise<BrowserCanvasAccess>;
 };
 
 export type PlatformClawBrowserCanvasRelayOptions = {

@@ -25,7 +25,9 @@ async function listen(
       }
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
   return { server, origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
 
@@ -34,9 +36,12 @@ describe("PlatformClaw browser Canvas relay", () => {
 
   afterEach(async () => {
     await Promise.all(
-      servers
-        .splice(0)
-        .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+      servers.splice(0).map(
+        (server) =>
+          new Promise<void>((resolve) => {
+            server.close(() => resolve());
+          }),
+      ),
     );
   });
 
@@ -106,7 +111,8 @@ describe("PlatformClaw browser Canvas relay", () => {
     const documentUrl = `${runtime.origin}${capabilityPath}/__openclaw__/canvas/documents/cv_owned/index.html`;
 
     expect((await fetch(documentUrl)).status).toBe(401);
-    vi.mocked(policy.resolveAccess).mockResolvedValueOnce({
+    const resolveAccess = vi.mocked(policy.resolveAccess);
+    resolveAccess.mockResolvedValueOnce({
       binding: { agentId: "employee-two" },
     });
     expect((await fetch(documentUrl, { headers: { Cookie: SESSION_COOKIE } })).status).toBe(404);

@@ -25,7 +25,9 @@ async function listen(
       }
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
   return { server, origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
 
@@ -41,9 +43,12 @@ describe("PlatformClaw browser media relay", () => {
 
   afterEach(async () => {
     await Promise.all(
-      servers
-        .splice(0)
-        .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+      servers.splice(0).map(
+        (server) =>
+          new Promise<void>((resolve) => {
+            server.close(() => resolve());
+          }),
+      ),
     );
   });
 
@@ -58,7 +63,9 @@ describe("PlatformClaw browser media relay", () => {
       ],
     });
     const upstreamFetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = new URL(String(input));
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      );
       expect(init?.headers).not.toEqual(expect.objectContaining({ Cookie: expect.anything() }));
       if (url.searchParams.get("meta") === "1") {
         expect(new Headers(init?.headers).get("authorization")).toBe("Bearer service-secret");
@@ -99,7 +106,7 @@ describe("PlatformClaw browser media relay", () => {
     expect(payload.mediaTicket).toMatch(/^v1\./u);
     expect(payload.mediaTicket).not.toContain("upstream-ticket");
     expect(payload.mediaTicketExpiresAt).toBe(new Date(301_000).toISOString());
-    expect(policy.request).toHaveBeenCalledWith("browser-token", "chat.history", {
+    expect(vi.mocked(policy.request)).toHaveBeenCalledWith("browser-token", "chat.history", {
       sessionKey: OWN_SESSION,
       limit: 1000,
       maxChars: 500_000,
@@ -211,6 +218,6 @@ describe("PlatformClaw browser media relay", () => {
       `${runtime.origin}/api/chat/media/outgoing/${encodeURIComponent(OWN_SESSION)}/attachment-1/full?mediaTicket=signed`,
     );
     expect(response.status).toBe(401);
-    expect(policy.resolveAccess).not.toHaveBeenCalled();
+    expect(vi.mocked(policy.resolveAccess)).not.toHaveBeenCalled();
   });
 });

@@ -24,11 +24,7 @@ import {
   type EmployeeExecutionService,
 } from "./browser-execution-http.js";
 import { projectPlatformClawBrowserHello } from "./browser-gateway-hello.js";
-import {
-  BrowserGatewayProxyError,
-  type BrowserGatewayAccess,
-  type BrowserGatewayEvent,
-} from "./browser-gateway-proxy.js";
+import { BrowserGatewayProxyError } from "./browser-gateway-proxy.js";
 import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-ordering.js";
 import { readBrowserJsonBody, sendBrowserJson } from "./browser-http-shared.js";
 import {
@@ -52,6 +48,17 @@ import type { KnoxRoutingService } from "./knox-routing-service.js";
 import type { SkillHubService } from "./skill-hub-service.js";
 import type { PlatformClawWebAssetHandler } from "./web-assets.js";
 import { isPlatformClawApplicationPath, PLATFORMCLAW_WEB_LOGIN_PATH } from "./web-assets.js";
+import type {
+  PlatformClawBrowserCanvasRelay,
+  PlatformClawBrowserGatewayPolicy,
+  PlatformClawBrowserMediaRelay,
+} from "./web-ingress-contracts.js";
+
+export type {
+  PlatformClawBrowserCanvasRelay,
+  PlatformClawBrowserGatewayPolicy,
+  PlatformClawBrowserMediaRelay,
+} from "./web-ingress-contracts.js";
 
 export const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
 export const PLATFORMCLAW_HEALTH_PATH = "/platformclaw/health";
@@ -64,37 +71,6 @@ const MAX_CONCURRENT_BROWSER_REQUESTS = 8;
 // The upstream Control UI opens a burst of independent RPCs after connect. Keep enough
 // headroom for that supported client while bounding work retained by an untrusted browser.
 const MAX_PENDING_BROWSER_REQUESTS = 64;
-export type PlatformClawBrowserGatewayPolicy = {
-  resolveAccess(token: string, touch?: boolean): Promise<BrowserGatewayAccess>;
-  registerBrowserConnection?(connectionId: string): void;
-  request(
-    token: string,
-    method: string,
-    params?: unknown,
-    context?: { connectionId: string },
-  ): Promise<unknown>;
-  filterEvent(
-    token: string,
-    event: BrowserGatewayEvent,
-    context?: { connectionId: string },
-  ): Promise<BrowserGatewayEvent | null>;
-  handleGatewayDisconnect?(): void;
-  releaseBrowserConnection?(connectionId: string): Promise<void>;
-};
-
-export type PlatformClawBrowserMediaRelay = {
-  handle(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
-};
-
-export type PlatformClawBrowserCanvasRelay = {
-  issueSurface(access: BrowserGatewayAccess): {
-    pluginSurfaceUrls: { canvas: string };
-    expiresAtMs: number;
-  };
-  refresh(token: string, params: unknown): Promise<unknown>;
-  handle(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
-};
-
 export type PlatformClawWebIngressOptions = {
   publicOrigin: string;
   authService: BrowserAuthService;

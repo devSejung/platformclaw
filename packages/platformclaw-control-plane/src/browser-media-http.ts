@@ -37,8 +37,8 @@ const RESPONSE_HEADER_ALLOWLIST = [
 type BrowserMediaAccess = { binding: { agentId: string } };
 
 export type PlatformClawBrowserMediaPolicy = {
-  resolveAccess(token: string, touch?: boolean): Promise<BrowserMediaAccess>;
-  request<T = unknown>(token: string, method: string, params?: unknown): Promise<T>;
+  resolveAccess(this: void, token: string, touch?: boolean): Promise<BrowserMediaAccess>;
+  request<T = unknown>(this: void, token: string, method: string, params?: unknown): Promise<T>;
 };
 
 export type PlatformClawBrowserMediaRelayOptions = {
@@ -199,10 +199,8 @@ export class PlatformClawBrowserMediaRelay {
     match: RegExpExecArray,
     access: BrowserMediaAccess,
   ): Promise<true> {
-    const sessionKey = decodeOwnedSessionKey(
-      match[1] ?? "",
-      access.binding.agentId,
-      this.options.resolveAgentIdFromSessionKey,
+    const sessionKey = decodeOwnedSessionKey(match[1] ?? "", access.binding.agentId, (value) =>
+      this.options.resolveAgentIdFromSessionKey(value),
     );
     // Managed downloads must carry the exact short-lived capability minted by
     // artifacts.download; the browser cookie alone is never an upstream bearer.
