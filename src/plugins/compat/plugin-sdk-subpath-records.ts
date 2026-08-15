@@ -1,15 +1,19 @@
 import type { PluginCompatRecord } from "./types.js";
 
 type SeedFields = "code" | "owner" | "removeAfter" | "replacement";
-type DeprecatedPluginSdkSubpathSeed = Pick<PluginCompatRecord, SeedFields> &
-  Record<"subpath", string>;
+type PluginSdkSubpathSeed = Pick<PluginCompatRecord, SeedFields> &
+  Record<"subpath", string> &
+  Partial<Pick<PluginCompatRecord, "status">>;
 
-const DEPRECATED_PLUGIN_SDK_SUBPATH_SEEDS = [
+const PLATFORMCLAW_UPSTREAM_SYNC_REVIEW_AFTER = "2026-09-30";
+
+const PLUGIN_SDK_SUBPATH_SEEDS = [
   {
     code: "plugin-sdk-channel-streaming-subpath",
     subpath: "channel-streaming",
+    status: "removal-pending",
     owner: "channel",
-    removeAfter: "2026-08-15",
+    removeAfter: PLATFORMCLAW_UPSTREAM_SYNC_REVIEW_AFTER,
     replacement: "`openclaw/plugin-sdk/channel-outbound`",
   },
   {
@@ -23,8 +27,9 @@ const DEPRECATED_PLUGIN_SDK_SUBPATH_SEEDS = [
   {
     code: "plugin-sdk-inbound-reply-dispatch-subpath",
     subpath: "inbound-reply-dispatch",
+    status: "removal-pending",
     owner: "channel",
-    removeAfter: "2026-08-15",
+    removeAfter: PLATFORMCLAW_UPSTREAM_SYNC_REVIEW_AFTER,
     replacement: "`openclaw/plugin-sdk/channel-inbound` and `openclaw/plugin-sdk/channel-outbound`",
   },
   {
@@ -45,38 +50,43 @@ const DEPRECATED_PLUGIN_SDK_SUBPATH_SEEDS = [
   {
     code: "plugin-sdk-text-runtime-subpath",
     subpath: "text-runtime",
+    status: "removal-pending",
     owner: "sdk",
-    removeAfter: "2026-08-15",
+    removeAfter: PLATFORMCLAW_UPSTREAM_SYNC_REVIEW_AFTER,
     replacement:
       "`openclaw/plugin-sdk/logging-core`, `openclaw/plugin-sdk/text-chunking`, `openclaw/plugin-sdk/text-utility-runtime`, and `openclaw/plugin-sdk/string-coerce-runtime`",
   },
   {
     code: "plugin-sdk-channel-secret-runtime-subpath",
     subpath: "channel-secret-runtime",
+    status: "removal-pending",
     owner: "channel",
-    removeAfter: "2026-08-15",
+    removeAfter: PLATFORMCLAW_UPSTREAM_SYNC_REVIEW_AFTER,
     replacement:
       "`openclaw/plugin-sdk/channel-secret-basic-runtime` and `openclaw/plugin-sdk/channel-secret-tts-runtime`",
   },
   {
     code: "plugin-sdk-agent-config-primitives-subpath",
     subpath: "agent-config-primitives",
+    status: "removal-pending",
     owner: "config",
-    removeAfter: "2026-08-15",
+    removeAfter: PLATFORMCLAW_UPSTREAM_SYNC_REVIEW_AFTER,
     replacement: "`openclaw/plugin-sdk/channel-config-schema`",
   },
   {
     code: "plugin-sdk-matrix-subpath",
     subpath: "matrix",
+    status: "removal-pending",
     owner: "channel",
-    removeAfter: "2026-08-15",
+    removeAfter: PLATFORMCLAW_UPSTREAM_SYNC_REVIEW_AFTER,
     replacement: "`openclaw/plugin-sdk/run-command`",
   },
   {
     code: "plugin-sdk-channel-logging-subpath",
     subpath: "channel-logging",
+    status: "removal-pending",
     owner: "channel",
-    removeAfter: "2026-08-15",
+    removeAfter: PLATFORMCLAW_UPSTREAM_SYNC_REVIEW_AFTER,
     replacement: "`openclaw/plugin-sdk/channel-inbound` and `openclaw/plugin-sdk/channel-outbound`",
   },
   {
@@ -96,30 +106,35 @@ const DEPRECATED_PLUGIN_SDK_SUBPATH_SEEDS = [
   {
     code: "plugin-sdk-group-access-subpath",
     subpath: "group-access",
+    status: "removal-pending",
     owner: "channel",
-    removeAfter: "2026-08-15",
+    removeAfter: PLATFORMCLAW_UPSTREAM_SYNC_REVIEW_AFTER,
     replacement: "`openclaw/plugin-sdk/channel-ingress-runtime`",
   },
   {
     code: "plugin-sdk-zod-subpath",
     subpath: "zod",
+    status: "removal-pending",
     owner: "sdk",
-    removeAfter: "2026-08-15",
+    removeAfter: PLATFORMCLAW_UPSTREAM_SYNC_REVIEW_AFTER,
     replacement: "the direct `zod` package import",
   },
-] as const satisfies readonly DeprecatedPluginSdkSubpathSeed[];
+] as const satisfies readonly PluginSdkSubpathSeed[];
 
-export const DEPRECATED_PLUGIN_SDK_SUBPATH_RECORDS = DEPRECATED_PLUGIN_SDK_SUBPATH_SEEDS.map(
-  ({ code, subpath, owner, removeAfter, replacement }) =>
+export const DEPRECATED_PLUGIN_SDK_SUBPATH_RECORDS = PLUGIN_SDK_SUBPATH_SEEDS.map(
+  ({ code, subpath, status = "deprecated", owner, removeAfter, replacement }) =>
     ({
       code,
-      status: "deprecated" as const,
+      status,
       owner,
       introduced: "2026-07-06",
       deprecated: "2026-07-06",
       warningStarts: "2026-07-06",
       removeAfter,
-      replacement,
+      replacement:
+        status === "removal-pending"
+          ? `${replacement}; PlatformClaw removal remains blocked until a verified upstream sync adopts the owning migration`
+          : replacement,
       docsPath: "/plugins/sdk-migration",
       surfaces: [`openclaw/plugin-sdk/${subpath}`],
       diagnostics: [

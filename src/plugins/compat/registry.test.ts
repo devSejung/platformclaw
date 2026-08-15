@@ -25,6 +25,17 @@ const removalDatePendingCompatCodes = new Set<PluginCompatCode>([
   "plugin-sdk-tool-plugin-public-demotion",
   "agent-harness-sdk-alias",
 ]);
+const platformClawUpstreamSyncBlockedCompatCodes = new Set<PluginCompatCode>([
+  "plugin-sdk-channel-streaming-subpath",
+  "plugin-sdk-inbound-reply-dispatch-subpath",
+  "plugin-sdk-text-runtime-subpath",
+  "plugin-sdk-channel-secret-runtime-subpath",
+  "plugin-sdk-agent-config-primitives-subpath",
+  "plugin-sdk-matrix-subpath",
+  "plugin-sdk-channel-logging-subpath",
+  "plugin-sdk-group-access-subpath",
+  "plugin-sdk-zod-subpath",
+]);
 const deprecationMarkingCodes = [
   "plugin-sdk-channel-setup-input-fields",
   "plugin-sdk-broad-runtime-barrels",
@@ -127,6 +138,18 @@ describe("plugin compatibility registry", () => {
       "openclaw/plugin-sdk/agent-harness",
       "openclaw/plugin-sdk/agent-harness-runtime",
     ]);
+  });
+
+  it("keeps due upstream removals pending until PlatformClaw adopts the owning sync", () => {
+    const records = new Map(listPluginCompatRecords().map((record) => [record.code, record]));
+
+    for (const code of platformClawUpstreamSyncBlockedCompatCodes) {
+      expect(records.get(code)).toMatchObject({
+        status: "removal-pending",
+        removeAfter: "2026-09-30",
+      });
+      expect(records.get(code)?.replacement).toContain("verified upstream sync");
+    }
   });
 
   it("tracks the deprecation-marking families through the approved window", () => {
