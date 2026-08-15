@@ -1,6 +1,7 @@
 import { installPlatformClawLoginHero } from "./login-hero.ts";
 import { installPlatformClawLoginMascot } from "./login-mascot.ts";
 import {
+  PLATFORMCLAW_ADSSO_PATH,
   PLATFORMCLAW_LOGIN_API_PATH,
   PLATFORMCLAW_SESSION_API_PATH,
   resolvePlatformClawReturnTo,
@@ -16,6 +17,7 @@ type LoginElements = {
   identifier: HTMLInputElement;
   secretInput: HTMLInputElement;
   submit: HTMLButtonElement;
+  ssoLink: HTMLAnchorElement;
   error: HTMLElement;
   status: HTMLElement;
 };
@@ -47,6 +49,7 @@ function readElements(root: ParentNode): LoginElements {
     identifier: requiredElement(root, 'input[name="identifier"]', HTMLInputElement),
     secretInput: requiredElement(root, 'input[name="password"]', HTMLInputElement),
     submit: requiredElement(root, 'button[type="submit"]', HTMLButtonElement),
+    ssoLink: requiredElement(root, "[data-login-adsso]", HTMLAnchorElement),
     error: requiredElement(root, "[data-login-error]", HTMLElement),
     status: requiredElement(root, "[data-login-status]", HTMLElement),
   };
@@ -91,6 +94,7 @@ export class PlatformClawLoginController {
   private readonly navigate: (path: string) => void;
   private readonly sessionCheckTimeoutMs: number;
   private phase: LoginPhase = "checking";
+  private initialError?: string;
 
   constructor(root: ParentNode, options: PlatformClawLoginOptions = {}) {
     this.elements = readElements(root);
@@ -100,6 +104,13 @@ export class PlatformClawLoginController {
       : (input, init) => globalThis.fetch(input, init);
     const location = options.location ?? window.location;
     this.returnTo = resolvePlatformClawReturnTo(location);
+    const loginUrl = new URL(location.href);
+    if (loginUrl.searchParams.get("adssoError") === "unavailable") {
+      this.initialError = "ADSSO 로그인 서비스를 사용할 수 없습니다. 관리자에게 문의해 주세요.";
+    }
+    const ssoUrl = new URL(PLATFORMCLAW_ADSSO_PATH, location.origin);
+    ssoUrl.searchParams.set("returnTo", this.returnTo);
+    this.elements.ssoLink.href = `${ssoUrl.pathname}${ssoUrl.search}`;
     this.navigate = options.navigate ?? ((path) => window.location.assign(path));
     this.sessionCheckTimeoutMs = options.sessionCheckTimeoutMs ?? SESSION_CHECK_TIMEOUT_MS;
   }
@@ -154,7 +165,9 @@ export class PlatformClawLoginController {
       window.clearTimeout(timeout);
     }
     this.phase = "ready";
-    this.render();
+    const initialError = this.initialError;
+    this.initialError = undefined;
+    this.render(initialError);
   }
 
   private async submit(event: SubmitEvent): Promise<void> {

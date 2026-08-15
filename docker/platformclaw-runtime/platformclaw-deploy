@@ -257,6 +257,14 @@ preflight_skillhub_resources() {
   fi
 }
 
+require_adsso_secret() {
+  if [[ ! -s "$secret_root/employee-auth-adsso-secret" ]]; then
+    echo "Missing shared ADSSO handoff secret: $secret_root/employee-auth-adsso-secret" >&2
+    echo "Install the PlatformClaw 1.0 signing secret there before starting." >&2
+    exit 1
+  fi
+}
+
 require_skillhub_images() {
   skillhub_enabled || return
   local key
@@ -335,6 +343,7 @@ prepare_runtime_file_layout() {
   ensure_layout
   validate_deployment_env
   provision_ca
+  require_adsso_secret
 }
 
 prepare_runtime_files() {
@@ -423,7 +432,8 @@ validate_deployment_env() {
   local value
   local invalid=()
   for key in PLATFORMCLAW_IMAGE PLATFORMCLAW_SANDBOX_IMAGE PLATFORMCLAW_PUBLIC_ORIGIN \
-    PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE \
+    PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL \
+    PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE \
     PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE \
     PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE \
     PLATFORMCLAW_KNOX_CDEP_URL PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE \
@@ -958,7 +968,8 @@ case "$command_name" in
       sed "s|<deploy-root>|$deploy_root|g" "$script_dir/deployment.env.example" >"$env_file"
       chmod 0600 "$env_file"
       echo "Created $env_file"
-      echo "Edit public origin, employee auth URL, and image tags before starting."
+      echo "Edit public origin, employee auth URLs, and image tags before starting."
+      echo "Install the shared ADSSO handoff secret at $secret_root/employee-auth-adsso-secret."
     else
       echo "Keep existing $env_file"
     fi

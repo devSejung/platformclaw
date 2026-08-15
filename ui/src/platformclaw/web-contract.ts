@@ -4,6 +4,7 @@ const PLATFORMCLAW_LOGIN_PATH = "/platformclaw/login";
 export const PLATFORMCLAW_APP_PATH = "/platformclaw/app";
 export const PLATFORMCLAW_DEFAULT_APP_PATH = `${PLATFORMCLAW_APP_PATH}/chat`;
 export const PLATFORMCLAW_LOGIN_API_PATH = "/platformclaw/api/auth/login";
+export const PLATFORMCLAW_ADSSO_PATH = "/employee/auth/adsso";
 const PLATFORMCLAW_LOGOUT_API_PATH = "/platformclaw/api/auth/logout";
 export const PLATFORMCLAW_SESSION_API_PATH = "/platformclaw/api/auth/session";
 const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";

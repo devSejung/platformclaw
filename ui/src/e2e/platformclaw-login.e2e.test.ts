@@ -112,6 +112,11 @@ describeE2e("PlatformClaw login", () => {
         expect(await page.locator('link[rel="icon"]').getAttribute("href")).toMatch(
           /platformclaw-pixel\.svg/,
         );
+        const adssoLogin = page.getByRole("link", { name: "ADSSO 로그인" });
+        expect(await adssoLogin.isVisible()).toBe(true);
+        expect(await adssoLogin.getAttribute("href")).toBe(
+          "/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fchat",
+        );
         await screenshot(page, `desktop-${mode}.png`);
       } finally {
         await context.close();
@@ -126,6 +131,7 @@ describeE2e("PlatformClaw login", () => {
       const hero = page.locator("[data-login-hero]");
       expect(await card.isVisible()).toBe(true);
       expect(await hero.isVisible()).toBe(false);
+      expect(await page.getByRole("link", { name: "ADSSO 로그인" }).isVisible()).toBe(true);
 
       await page.mouse.move(360, 100);
       const idleX = await page

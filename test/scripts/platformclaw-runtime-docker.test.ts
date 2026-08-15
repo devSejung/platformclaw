@@ -62,7 +62,7 @@ describe("PlatformClaw Docker runtime", () => {
       sandboxDockerfile.indexOf("install -m 0644"),
     );
     for (const dependency of ["urllib3", "Markdown", "markdownify", "Pygments"]) {
-      expect(sandboxDockerfile).toContain(`\"${dependency}==\${PLATFORMCLAW_`);
+      expect(sandboxDockerfile).toContain(`"${dependency}==\${PLATFORMCLAW_`);
     }
     expect(docs).toContain("~/.config/platformclaw/build/pip.conf");
   });
@@ -223,6 +223,7 @@ describe("PlatformClaw Docker runtime", () => {
       "platformclaw_ssh_credential_master_key",
       "platformclaw_skill_hub_token",
       "platformclaw_skill_hub_bootstrap_password",
+      "platformclaw_employee_auth_adsso_secret",
     ]);
     expect(gateway?.secrets).toEqual([
       "platformclaw_gateway_token",
@@ -638,6 +639,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(preview).toContain("EmployeeAuthCa = Join-Path");
     expect(preview).toContain("Initialize-PreviewCa $Paths");
     expect(preview).toContain("PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE");
+    expect(preview).toContain('PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT = "18080"');
     expect(preview).toContain("PLATFORMCLAW_KNOX_CDEP_URL");
     expect(preview).toContain("PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE");
     expect(preview).toContain("PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE");
@@ -671,18 +673,39 @@ describe("PlatformClaw Docker runtime", () => {
     expect(preview).not.toContain("PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY=");
   });
 
-  it("keeps the HTTP employee auth mock on the control loopback", () => {
+  it("keeps password auth private while exposing the browser ADSSO mock on loopback", () => {
     const smokeCompose = parse(
       readRepoFile("docker/platformclaw-runtime/compose.smoke.yaml"),
     ) as ComposeConfig;
+    const smokeScript = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
+    const employeeAuthMock = readRepoFile("scripts/mock_employee_auth.py");
     const mock = smokeCompose.services["employee-auth-mock"];
     const control = smokeCompose.services["platformclaw-control"];
 
     expect(mock?.network_mode).toBe("service:platformclaw-control");
-    expect(mock?.command).toContain("127.0.0.1");
+    expect(mock?.command).toContain("0.0.0.0");
     expect(control?.environment?.PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL).toBe(
       "http://127.0.0.1:18080/login",
     );
+    expect(control?.environment?.PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL).toBe(
+      "${PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL}",
+    );
+    expect(control?.ports).toEqual([
+      "127.0.0.1:${PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT:?set PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT}:18080",
+    ]);
+    expect(smokeScript).toContain(
+      'PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL="http://127.0.0.1:$PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT/adsso"',
+    );
+    expect(smokeScript).toMatch(
+      /jq -e '\.authenticated == true and \.user\.accountId == "person\.one"' \\\s+"\$sso_session_response"/u,
+    );
+    expect(smokeScript).toContain("curl --fail-with-body --location");
+    expect(smokeScript).toContain('cat "$sso_flow_response" >&2');
+    // Contract v1 signs employeeId as the canonical login identity. The shared
+    // password/ADSSO fixture must therefore present the same identity on both paths.
+    expect(employeeAuthMock).toContain('"employeeId": "person.one"');
+    expect(mock?.secrets).toContain("platformclaw_employee_auth_adsso_secret");
+    expect(mock?.command).toContain("--adsso-secret-file");
     expect(control?.depends_on).toBeUndefined();
   });
 

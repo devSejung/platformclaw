@@ -283,6 +283,49 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+.login-divider {
+  display: grid;
+  margin: 1.1rem 0;
+  align-items: center;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.75rem;
+  color: var(--login-muted-soft);
+  font-size: 0.72rem;
+}
+
+.login-divider::before,
+.login-divider::after {
+  height: 1px;
+  background: var(--login-hairline);
+  content: "";
+}
+
+.login-sso-button {
+  display: grid;
+  min-height: 2.75rem;
+  place-items: center;
+  border: 1px solid var(--login-primary);
+  border-radius: 0.5rem;
+  color: var(--login-primary);
+  background: transparent;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.login-sso-button:active {
+  color: var(--login-canvas);
+  background: var(--login-primary);
+}
+
+.login-sso-button:focus-visible {
+  outline: 3px solid var(--login-focus);
+  outline-offset: 2px;
+}
+
 .login-error {
   margin: 0;
   padding: 0.72rem 0.8rem;
@@ -397,6 +440,7 @@ button:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   input,
   button,
+  .login-sso-button,
   .login-mascot__runner,
   .login-mascot__svg #eyes {
     transition: none;

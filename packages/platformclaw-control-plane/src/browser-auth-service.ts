@@ -9,9 +9,15 @@ import type {
 import type {
   EmployeeAuthenticator,
   EmployeeAuthRequestContext,
+  EmployeeAuthenticationResult,
   EmployeeDirectoryProfile,
   EmployeePasswordCredentials,
 } from "./employee-auth-client.js";
+
+type EmployeeAuthenticationSuccess = Extract<
+  EmployeeAuthenticationResult,
+  { status: "authenticated" }
+>;
 
 export type PersonalAgentProvisioningRequest = {
   user: PlatformUser;
@@ -81,6 +87,18 @@ export class BrowserAuthService {
     if (auth.status === "unavailable") {
       return { status: "auth-unavailable", message: auth.message };
     }
+
+    return this.loginAuthenticated({
+      auth,
+      currentSession: params.currentSession,
+    });
+  }
+
+  async loginAuthenticated(params: {
+    auth: EmployeeAuthenticationSuccess;
+    currentSession?: { value: string };
+  }): Promise<BrowserLoginResult> {
+    const { auth } = params;
 
     // Version directory data by completed authentication order, not request start order.
     const authenticatedAt = (this.options.now ?? Date.now)();

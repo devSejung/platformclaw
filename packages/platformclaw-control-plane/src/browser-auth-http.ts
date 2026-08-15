@@ -1,6 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import { BROWSER_SESSION_POLICY } from "./contracts.js";
+import {
+  PLATFORMCLAW_ADSSO_PATH,
+  PLATFORMCLAW_SSO_CALLBACK_PATH,
+  type EmployeeSsoService,
+} from "./employee-sso.js";
 
 export const PLATFORMCLAW_SESSION_COOKIE = "platformclaw_session";
 export const PLATFORMCLAW_LOGIN_PATH = "/platformclaw/api/auth/login";
@@ -9,6 +14,10 @@ export const PLATFORMCLAW_SESSION_PATH = "/platformclaw/api/auth/session";
 
 const LOGIN_BODY_LIMIT_BYTES = 64 * 1024;
 const LOGIN_RATE_LIMIT_SCOPE = "platformclaw-browser-login";
+const SSO_RETURN_COOKIE = "platformclaw_sso_return_to";
+const SSO_RETURN_COOKIE_MAX_AGE_SECONDS = 5 * 60;
+const PLATFORMCLAW_DEFAULT_APP_PATH = "/platformclaw/app/chat";
+const PLATFORMCLAW_LOGIN_PAGE_PATH = "/platformclaw/login";
 
 export type BrowserLoginRateLimiter = {
   check(
@@ -34,6 +43,7 @@ export type BrowserAuthHttpOptions = {
   requestIsSecure: boolean;
   isMutationOriginAllowed(req: IncomingMessage): boolean;
   rateLimiter: BrowserLoginRateLimiter;
+  ssoService?: EmployeeSsoService;
 };
 
 type LoginBody = {
@@ -75,13 +85,13 @@ function serializeSessionCookie(value: string, secure: boolean, clear = false): 
   return parts.join("; ");
 }
 
-export function readPlatformClawSessionCookie(req: IncomingMessage): string | undefined {
+function readCookie(req: IncomingMessage, cookieName: string): string | undefined {
   const raw = Array.isArray(req.headers.cookie)
     ? req.headers.cookie.join("; ")
     : (req.headers.cookie ?? "");
   for (const item of raw.split(";")) {
     const [name, ...rest] = item.split("=");
-    if (name?.trim() !== PLATFORMCLAW_SESSION_COOKIE) {
+    if (name?.trim() !== cookieName) {
       continue;
     }
     const value = rest.join("=").trim();
@@ -92,6 +102,41 @@ export function readPlatformClawSessionCookie(req: IncomingMessage): string | un
     }
   }
   return undefined;
+}
+
+export function readPlatformClawSessionCookie(req: IncomingMessage): string | undefined {
+  return readCookie(req, PLATFORMCLAW_SESSION_COOKIE);
+}
+
+function serializeSsoReturnCookie(value: string, secure: boolean, clear = false): string {
+  const parts = [`${SSO_RETURN_COOKIE}=${encodeURIComponent(value)}`];
+  if (clear) {
+    parts.push("Max-Age=0", "Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+  } else {
+    parts.push(`Max-Age=${SSO_RETURN_COOKIE_MAX_AGE_SECONDS}`);
+  }
+  parts.push("Path=/employee/auth", "HttpOnly", "SameSite=Lax");
+  if (secure) {
+    parts.push("Secure");
+  }
+  return parts.join("; ");
+}
+
+function normalizeSsoReturnTo(value: string | null): string {
+  if (!value || value.includes("\\")) {
+    return PLATFORMCLAW_DEFAULT_APP_PATH;
+  }
+  try {
+    const url = new URL(value, "http://platformclaw.local");
+    const isAppPath =
+      url.pathname === "/platformclaw/app" || url.pathname.startsWith("/platformclaw/app/");
+    if (url.origin !== "http://platformclaw.local" || !isAppPath) {
+      return PLATFORMCLAW_DEFAULT_APP_PATH;
+    }
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return PLATFORMCLAW_DEFAULT_APP_PATH;
+  }
 }
 
 function clearSessionCookie(res: ServerResponse, secure: boolean): void {
@@ -110,7 +155,70 @@ export async function handlePlatformClawBrowserAuthRequest(
   options: BrowserAuthHttpOptions,
 ): Promise<boolean> {
   const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+  const requestUrl = new URL(req.url ?? "/", "http://localhost");
   const method = (req.method ?? "GET").toUpperCase();
+
+  if (pathname === PLATFORMCLAW_ADSSO_PATH) {
+    if (method !== "GET") {
+      methodNotAllowed(res, "GET");
+      return true;
+    }
+    if (!options.ssoService) {
+      res.statusCode = 302;
+      res.setHeader("Location", `${PLATFORMCLAW_LOGIN_PAGE_PATH}?adssoError=unavailable`);
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Referrer-Policy", "no-referrer");
+      res.end();
+      return true;
+    }
+    appendSetCookie(
+      res,
+      serializeSsoReturnCookie(
+        normalizeSsoReturnTo(requestUrl.searchParams.get("returnTo")),
+        options.requestIsSecure,
+      ),
+    );
+    res.statusCode = 302;
+    res.setHeader("Location", options.ssoService.loginUrl);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.end();
+    return true;
+  }
+
+  if (pathname === PLATFORMCLAW_SSO_CALLBACK_PATH) {
+    if (method !== "GET") {
+      methodNotAllowed(res, "GET");
+      return true;
+    }
+    if (!options.ssoService) {
+      sendJson(res, 503, { authenticated: false, message: "employee ADSSO is not configured" });
+      return true;
+    }
+    const currentSessionValue = readPlatformClawSessionCookie(req);
+    const result = await options.ssoService.complete(
+      requestUrl.searchParams.get("token") ?? undefined,
+      currentSessionValue ? { value: currentSessionValue } : undefined,
+    );
+    if (result.status === "invalid-handoff") {
+      sendJson(res, 401, { authenticated: false, message: "invalid or expired SSO callback" });
+      return true;
+    }
+    if (result.status !== "authenticated") {
+      const status =
+        result.status === "session-limit" ? 409 : result.status === "account-disabled" ? 403 : 503;
+      sendJson(res, status, { authenticated: false, reason: result.status });
+      return true;
+    }
+    appendSetCookie(res, serializeSessionCookie(result.token, options.requestIsSecure));
+    appendSetCookie(res, serializeSsoReturnCookie("", options.requestIsSecure, true));
+    res.statusCode = 302;
+    res.setHeader("Location", normalizeSsoReturnTo(readCookie(req, SSO_RETURN_COOKIE) ?? null));
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.end();
+    return true;
+  }
 
   if (pathname === PLATFORMCLAW_LOGIN_PATH) {
     if (method !== "POST") {

@@ -75,16 +75,20 @@ docker save --output "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR" "$PLATFORMCLAW_SAND
 # Docker creates archive output with an implementation-defined mode. The
 # non-root image loader only needs immutable read access to this ephemeral file.
 chmod 0444 "$PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR"
-export PLATFORMCLAW_PUBLIC_PORT="$(python3 - <<'PY'
+read -r PLATFORMCLAW_PUBLIC_PORT PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT < <(python3 - <<'PY'
 import socket
-with socket.socket() as sock:
-    sock.bind(("127.0.0.1", 0))
-    print(sock.getsockname()[1])
+with socket.socket() as public_sock, socket.socket() as employee_auth_sock:
+    public_sock.bind(("127.0.0.1", 0))
+    employee_auth_sock.bind(("127.0.0.1", 0))
+    print(public_sock.getsockname()[1], employee_auth_sock.getsockname()[1])
 PY
-)"
+)
+export PLATFORMCLAW_PUBLIC_PORT PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT
 export PLATFORMCLAW_PUBLIC_ORIGIN="http://127.0.0.1:$PLATFORMCLAW_PUBLIC_PORT"
 export PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL="http://127.0.0.1:18080/login"
+export PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL="http://127.0.0.1:$PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT/adsso"
 export PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE="$work_dir/employee-auth-ca.pem"
+export PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE="$work_dir/employee-auth-adsso-secret"
 export PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE="$work_dir/gateway-token"
 export PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE="$work_dir/execution-service-token"
 export PLATFORMCLAW_KNOX_CDEP_URL="http://127.0.0.1:18081/api/v1/platformclaw/knox/outbound/send"
@@ -102,6 +106,7 @@ openssl rand -hex 32 >"$PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE"
 openssl rand -hex 32 >"$PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE"
 openssl genpkey -algorithm ED25519 -out "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE"
 openssl rand -base64 32 >"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
+openssl rand -hex 32 >"$PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE"
 cp /etc/ssl/certs/ca-certificates.crt "$PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE"
 credential_key_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE")"
 execution_service_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE")"
@@ -114,6 +119,7 @@ chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE" \
   "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE" \
   "$PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE" \
   "$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE" \
+  "$PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE" \
   "$PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE"
 
 echo "==> Starting PlatformClaw runtime smoke"
@@ -126,6 +132,9 @@ origin="$PLATFORMCLAW_PUBLIC_ORIGIN"
 cookie_jar="$work_dir/cookies.txt"
 login_response="$work_dir/login.json"
 session_response="$work_dir/session.json"
+sso_cookie_jar="$work_dir/sso-cookies.txt"
+sso_flow_response="$work_dir/sso-flow-response.txt"
+sso_session_response="$work_dir/sso-session.json"
 app_document="$work_dir/app.html"
 admin_cookie_jar="$work_dir/admin-cookies.txt"
 admin_response="$work_dir/admin-login.json"
@@ -138,6 +147,19 @@ curl --fail --silent --show-error "$origin/platformclaw/health" |
   jq -e '.ready == true' >/dev/null
 curl --fail --silent --show-error "$origin/platformclaw/login" |
   grep -q 'data-platformclaw-login'
+
+if ! curl --fail-with-body --location --silent --show-error \
+  --cookie-jar "$sso_cookie_jar" \
+  --output "$sso_flow_response" \
+  "$origin/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fchat"; then
+  cat "$sso_flow_response" >&2
+  exit 1
+fi
+curl --fail --silent --show-error \
+  --cookie "$sso_cookie_jar" \
+  "$origin/platformclaw/api/auth/session" >"$sso_session_response"
+jq -e '.authenticated == true and .user.accountId == "person.one"' \
+  "$sso_session_response" >/dev/null
 
 curl --fail --silent --show-error \
   --cookie-jar "$cookie_jar" \

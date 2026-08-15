@@ -35,6 +35,10 @@ const config: PlatformClawDeploymentConfig = {
     defaultCoworkers: [],
     authorization: "Bearer test",
   },
+  employeeSso: {
+    loginUrl: "https://auth.example.test/adsso/login",
+    handoffSecret: "s".repeat(32),
+  },
   workspaceRoot: "/state/workspaces",
   initialAdminAccountIds: ["person.one"],
   gatewayUrl: "ws://127.0.0.1:18789",
@@ -64,6 +68,7 @@ describe("createPlatformClawDeploymentRuntime", () => {
       publicOrigin: config.publicOrigin,
       controlUiRoot: config.controlUiRoot,
       jiraVoc: config.jiraVoc,
+      employeeSso: config.employeeSso,
       credentialBrokerAddress: config.credentialBrokerAddress,
       executionServiceToken: config.executionServiceToken,
       knoxIngressProxyUrl: "http://127.0.0.1:18789/api/v1/platformclaw/knox/inbound",

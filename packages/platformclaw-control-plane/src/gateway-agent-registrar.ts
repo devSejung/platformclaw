@@ -62,7 +62,7 @@ export class GatewayAgentRegistrar {
 
   async ensureAgent(agentId: string): Promise<string> {
     const workspace = this.workspaceForAgent(agentId);
-    const current = await this.getConfiguredAgent(agentId);
+    const current = await this.getConfiguredAgentWhenAvailable(agentId);
     if (current) {
       this.verifyWorkspace(agentId, current.workspace, workspace);
       await this.waitForAgentRuntime(agentId, workspace);
@@ -86,7 +86,7 @@ export class GatewayAgentRegistrar {
       }
       let existing: AgentSummary | undefined;
       try {
-        existing = await this.getConfiguredAgent(agentId);
+        existing = await this.getConfiguredAgentWhenAvailable(agentId);
       } catch (lookupError) {
         if (
           error.code === "INVALID_REQUEST" ||
@@ -132,6 +132,24 @@ export class GatewayAgentRegistrar {
       throw new Error("Gateway agents.list returned an invalid agents list");
     }
     return agents.find((agent) => agent.id === agentId);
+  }
+
+  private async getConfiguredAgentWhenAvailable(
+    agentId: string,
+  ): Promise<AgentSummary | undefined> {
+    for (const retryDelayMs of CONFIG_APPLY_RETRY_DELAYS_MS) {
+      if (retryDelayMs > 0) {
+        await delay(retryDelayMs);
+      }
+      try {
+        return await this.getConfiguredAgent(agentId);
+      } catch (error) {
+        if (!(error instanceof GatewayAdminRpcError) || error.code !== "UNAVAILABLE") {
+          throw error;
+        }
+      }
+    }
+    throw new Error("Gateway agent registry did not become available");
   }
 
   private verifyWorkspace(agentId: string, actual: string | undefined, expected: string): void {

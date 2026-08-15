@@ -25,12 +25,14 @@ function fixtureEnv(): NodeJS.ProcessEnv {
   const executionServiceTokenFile = join(root, "execution-service-token");
   const knoxServiceTokenFile = join(root, "knox-service-token");
   const gatewayServiceIdentityFile = join(root, "gateway-service-identity.pem");
+  const employeeAuthAdSsoSecretFile = join(root, "employee-auth-adsso-secret");
   const { privateKey } = generateKeyPairSync("ed25519");
   writeFileSync(tokenFile, "test-gateway-token\n", { mode: 0o600 });
   writeFileSync(adminFile, "Person.One\nperson.two,person.one\n", { mode: 0o600 });
   writeFileSync(credentialKeyFile, Buffer.alloc(32, 7).toString("base64"), { mode: 0o600 });
   writeFileSync(executionServiceTokenFile, "e".repeat(32), { mode: 0o600 });
   writeFileSync(knoxServiceTokenFile, "k".repeat(32), { mode: 0o600 });
+  writeFileSync(employeeAuthAdSsoSecretFile, "s".repeat(32), { mode: 0o600 });
   writeFileSync(gatewayServiceIdentityFile, privateKey.export({ type: "pkcs8", format: "pem" }), {
     mode: 0o600,
   });
@@ -50,6 +52,8 @@ function fixtureEnv(): NodeJS.ProcessEnv {
         : join(root, "broker.sock"),
     [PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile]: executionServiceTokenFile,
     [PLATFORMCLAW_DEPLOYMENT_ENV.knoxServiceTokenFile]: knoxServiceTokenFile,
+    [PLATFORMCLAW_DEPLOYMENT_ENV.employeeAuthAdSsoUrl]: "https://auth.example.test/adsso",
+    [PLATFORMCLAW_DEPLOYMENT_ENV.employeeAuthAdSsoSecretFile]: employeeAuthAdSsoSecretFile,
   };
 }
 
@@ -79,6 +83,10 @@ describe("loadPlatformClawDeploymentConfig", () => {
         projectKey: "VOC",
         issueType: "Task",
         authorization: "Bearer test",
+      },
+      employeeSso: {
+        loginUrl: "https://auth.example.test/adsso/login",
+        handoffSecret: "s".repeat(32),
       },
       listenHost: "127.0.0.1",
       listenPort: 19001,
@@ -159,6 +167,21 @@ describe("loadPlatformClawDeploymentConfig", () => {
     const env = fixtureEnv();
     env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl] = "https://skillhub.example.test";
     expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("must be set together");
+  });
+
+  it("requires both ADSSO settings and a bounded handoff secret", () => {
+    const missingSecret = fixtureEnv();
+    delete missingSecret[PLATFORMCLAW_DEPLOYMENT_ENV.employeeAuthAdSsoSecretFile];
+    expect(() => loadPlatformClawDeploymentConfig(missingSecret)).toThrow(
+      "must be configured together",
+    );
+
+    const shortSecret = fixtureEnv();
+    const secretPath = shortSecret[PLATFORMCLAW_DEPLOYMENT_ENV.employeeAuthAdSsoSecretFile] ?? "";
+    writeFileSync(secretPath, "too-short");
+    expect(() => loadPlatformClawDeploymentConfig(shortSecret)).toThrow(
+      "must contain at least 32 bytes",
+    );
   });
 
   it.each([

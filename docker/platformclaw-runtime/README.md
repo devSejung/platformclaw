@@ -121,6 +121,13 @@ not belong in that environment file; only paths to owner-readable files do.
 Keep the SSH credential master key stable and back it up with the Control DB.
 Keep the Gateway service identity stable across restarts.
 
+Set `PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL` to the employee-auth ADSSO base or
+login endpoint. Install the PlatformClaw 1.0 handoff signing secret at the path
+named by `PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE`; the deployment
+does not generate this shared secret. The Control container receives it as a
+read-only Docker secret and exposes neither the value nor its host path to the
+browser.
+
 ### Optional web relay
 
 The bundled `platformclaw-web-relay` plugin preserves normal OpenClaw web tool

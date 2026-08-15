@@ -192,6 +192,47 @@ describe("GatewayPersonalAgentProvisioner", () => {
     expect(call).toHaveBeenNthCalledWith(6, "platformclaw.profile.seed", expect.any(Object));
   });
 
+  it("waits for the agent registry during cold Gateway startup", async () => {
+    vi.useFakeTimers();
+    try {
+      const workspaceRoot = path.resolve("test-workspaces");
+      const workspace = path.join(workspaceRoot, "account_name");
+      const profileSeed = createProfileSeedResponder(workspace);
+      let configRead = 0;
+      const { rpc } = createRpc((method, params) => {
+        if (method === "agents.list") {
+          configRead += 1;
+          if (configRead === 1) {
+            throw new GatewayAdminRpcError("Gateway Admin RPC unavailable", "UNAVAILABLE");
+          }
+          return configRead === 2
+            ? agentsResponse([])
+            : agentsResponse([{ id: "account_name", workspace }]);
+        }
+        if (method === "agents.create") {
+          return { ok: true, agentId: "account_name", workspace };
+        }
+        if (method === "platformclaw.agent.runtimeStatus") {
+          return runtimeReadyResponse(workspace);
+        }
+        const fileResponse = profileSeed.handle(method, params);
+        if (fileResponse) {
+          return fileResponse;
+        }
+        throw new Error(`unexpected method: ${method}`);
+      });
+      const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
+
+      const provisioning = provisioner.provisionOrRefresh(request());
+      await vi.runAllTimersAsync();
+
+      await expect(provisioning).resolves.toBeUndefined();
+      expect(configRead).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("allows a cold runtime publication to outlast the previous short retry window", async () => {
     vi.useFakeTimers();
     try {

@@ -104,6 +104,7 @@ PLATFORMCLAW_SANDBOX_IMAGE=platformclaw-sandbox:<sha12>
 PLATFORMCLAW_PUBLIC_ORIGIN=https://<platformclaw-host>
 PLATFORMCLAW_PUBLIC_PORT=19002
 PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL=https://<employee-auth-host>/login
+PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL=https://<employee-auth-host>/adsso
 PLATFORMCLAW_TZ=Asia/Seoul
 ```
 
