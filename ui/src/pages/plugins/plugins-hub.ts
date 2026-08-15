@@ -16,7 +16,7 @@ export function routeForPluginsHubTab(
   return tab === "workshop" ? "skill-workshop" : null;
 }
 
-export function pluginsHubTabs(
+function pluginsHubTabs(
   installedCount: number | null = null,
   allowedTabs?: readonly PluginsHubTab[],
 ): ReadonlyArray<HubTabOption<PluginsHubTab>> {
