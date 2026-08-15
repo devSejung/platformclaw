@@ -48,6 +48,7 @@ export function resolveAssistantAttachmentAvailability(
   basePath: string | undefined,
   authToken: string | null | undefined,
   onRequestUpdate: (() => void) | undefined,
+  sessionKey?: string,
 ): AssistantAttachmentAvailability {
   if (!isLocalAssistantAttachmentSource(source)) {
     return { status: "available" };
@@ -64,7 +65,7 @@ export function resolveAssistantAttachmentAvailability(
     };
   }
   const normalizedAuthToken = authToken?.trim() ?? "";
-  const cacheKey = `${basePath ?? ""}::${normalizedAuthToken}::${source}`;
+  const cacheKey = `${basePath ?? ""}::${normalizedAuthToken}::${sessionKey ?? ""}::${source}`;
   const resource = observeChatMediaResource<AssistantAttachmentAvailability>(
     "assistant-attachment",
     cacheKey,
@@ -154,7 +155,7 @@ export function resolveAssistantAttachmentAvailability(
         ),
       ASSISTANT_ATTACHMENT_METADATA_FETCH_TIMEOUT_MS,
     );
-    const pending = fetch(buildAssistantAttachmentMetaUrl(source, basePath), {
+    const pending = fetch(buildAssistantAttachmentMetaUrl(source, basePath, sessionKey), {
       method: "GET",
       headers,
       credentials: "same-origin",
@@ -525,6 +526,7 @@ export function renderAssistantAttachments(
   onRequestOpenImage?: () => number,
   onOpenImage?: (item: ImageLightboxItem, requestVersion?: number) => void,
   resolveArtifactDownload?: ArtifactDownloadResolver,
+  sessionKey?: string,
 ) {
   if (attachments.length === 0) {
     return nothing;
@@ -538,6 +540,7 @@ export function renderAssistantAttachments(
           basePath,
           authToken,
           onRequestUpdate,
+          sessionKey,
         );
         const managedAvailability =
           assistantAvailability.status === "available"
@@ -563,6 +566,7 @@ export function renderAssistantAttachments(
                   attachment.url,
                   basePath,
                   assistantAvailability.mediaTicket,
+                  sessionKey,
                 )
               : managedAvailability.url
             : null;

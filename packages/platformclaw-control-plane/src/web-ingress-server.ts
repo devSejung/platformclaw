@@ -56,7 +56,9 @@ import { isPlatformClawApplicationPath, PLATFORMCLAW_WEB_LOGIN_PATH } from "./we
 export const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
 export const PLATFORMCLAW_HEALTH_PATH = "/platformclaw/health";
 
-const DEFAULT_MAX_PAYLOAD_BYTES = 8 * 1024 * 1024;
+// Match the upstream Gateway ceiling. Composer attachments are base64 JSON, so
+// usable file bytes remain lower without widening the private Gateway contract.
+const DEFAULT_MAX_PAYLOAD_BYTES = 25 * 1024 * 1024;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 const MAX_CONCURRENT_BROWSER_REQUESTS = 8;
 // The upstream Control UI opens a burst of independent RPCs after connect. Keep enough
@@ -80,6 +82,19 @@ export type PlatformClawBrowserGatewayPolicy = {
   releaseBrowserConnection?(connectionId: string): Promise<void>;
 };
 
+export type PlatformClawBrowserMediaRelay = {
+  handle(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
+};
+
+export type PlatformClawBrowserCanvasRelay = {
+  issueSurface(access: BrowserGatewayAccess): {
+    pluginSurfaceUrls: { canvas: string };
+    expiresAtMs: number;
+  };
+  refresh(token: string, params: unknown): Promise<unknown>;
+  handle(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
+};
+
 export type PlatformClawWebIngressOptions = {
   publicOrigin: string;
   authService: BrowserAuthService;
@@ -94,6 +109,8 @@ export type PlatformClawWebIngressOptions = {
   skillHubService?: SkillHubService;
   knoxRouting?: { service: KnoxRoutingService; serviceToken: string };
   knoxIngressProxy?: { targetUrl: string };
+  mediaRelay?: PlatformClawBrowserMediaRelay;
+  canvasRelay?: PlatformClawBrowserCanvasRelay;
   webAssets?: PlatformClawWebAssetHandler;
   gatewayPath?: string;
   healthPath?: string;
@@ -388,6 +405,14 @@ export class PlatformClawWebIngressServer {
       ) {
         return;
       }
+      // Media bytes use HTTP, not the browser Gateway WebSocket. Resolve this
+      // exact authenticated surface before the application SPA fallback.
+      if (this.options.mediaRelay && (await this.options.mediaRelay.handle(req, res))) {
+        return;
+      }
+      if (this.options.canvasRelay && (await this.options.canvasRelay.handle(req, res))) {
+        return;
+      }
       const requestUrl = new URL(req.url ?? "/", this.publicOrigin);
       if (this.options.webAssets && isPlatformClawApplicationPath(requestUrl.pathname)) {
         if (req.method !== "GET" && req.method !== "HEAD") {
@@ -578,12 +603,14 @@ export class PlatformClawWebIngressServer {
         if (connectionClosed || websocket.readyState !== WebSocket.OPEN) {
           return;
         }
+        const canvasSurface = this.options.canvasRelay?.issueSurface(access);
         const hello = projectPlatformClawBrowserHello({
           upstream,
           access,
           connectionId,
           clientInstanceId: params.client.instanceId,
           maxPayloadBytes: this.options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES,
+          ...(canvasSurface ? { canvasSurfaceUrl: canvasSurface.pluginSurfaceUrls.canvas } : {}),
         });
         unsubscribe = this.options.gateway.subscribe((event) => {
           eventChain = eventChain
@@ -614,6 +641,11 @@ export class PlatformClawWebIngressServer {
         return;
       }
       try {
+        if (frame.method === "plugin.surface.refresh" && this.options.canvasRelay) {
+          const payload = await this.options.canvasRelay.refresh(token, frame.params);
+          send(responseOk(frame.id, payload));
+          return;
+        }
         const payload = await this.options.gatewayProxy.request(token, frame.method, frame.params, {
           connectionId,
         });

@@ -21,7 +21,7 @@ async function createStateDir(): Promise<string> {
   return stateDir;
 }
 
-async function capture(url: string, method = "GET") {
+async function capture(url: string, method = "GET", headers: IncomingMessage["headers"] = {}) {
   const response = {
     statusCode: 200,
     headers: {} as Record<string, number | string | string[]>,
@@ -36,7 +36,7 @@ async function capture(url: string, method = "GET") {
     },
   };
   const handled = await handleCanvasDocumentHttpRequest(
-    { method, url } as IncomingMessage,
+    { method, url, headers } as IncomingMessage,
     response as unknown as ServerResponse,
   );
   return { handled, ...response, text: response.body.toString("utf8") };
@@ -79,6 +79,31 @@ describe("core canvas document host", () => {
     const response = await capture(document.entryUrl);
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-security-policy"]).toBeUndefined();
+  });
+
+  it("honors a trusted agent-owner pin without revealing foreign documents", async () => {
+    const stateDir = await createStateDir();
+    const document = await createCanvasDocument(
+      {
+        id: "owned-1",
+        kind: "html_bundle",
+        entrypoint: { type: "html", value: "<html><body>private</body></html>" },
+        ownerAgentId: "employee-one",
+      },
+      { stateDir },
+    );
+    expect(
+      (
+        await capture(document.entryUrl, "GET", {
+          "x-openclaw-canvas-owner-agent-id": "employee-one",
+        })
+      ).statusCode,
+    ).toBe(200);
+    const foreign = await capture(document.entryUrl, "GET", {
+      "x-openclaw-canvas-owner-agent-id": "employee-two",
+    });
+    expect(foreign.statusCode).toBe(404);
+    expect(foreign.text).toBe("not found");
   });
 
   it("serves Content-Length on HEAD responses", async () => {

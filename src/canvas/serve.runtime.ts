@@ -9,6 +9,9 @@ import {
   type CanvasDocumentManifest,
 } from "./documents.js";
 
+/** Trusted reverse proxies may pin a Canvas read to its creating agent. */
+export const CANVAS_OWNER_AGENT_HEADER = "x-openclaw-canvas-owner-agent-id";
+
 async function readRootFile(root: Awaited<ReturnType<typeof fsRoot>>, relativePath: string) {
   try {
     const opened = await root.open(relativePath);
@@ -25,10 +28,10 @@ async function readRootFile(root: Awaited<ReturnType<typeof fsRoot>>, relativePa
   }
 }
 
-async function resolveDocumentSandbox(
+async function readDocumentManifest(
   root: Awaited<ReturnType<typeof fsRoot>>,
   relativePath: string,
-): Promise<"scripts" | undefined> {
+): Promise<CanvasDocumentManifest | undefined> {
   const documentId = relativePath.split(path.sep)[0];
   if (!documentId) {
     return undefined;
@@ -38,8 +41,7 @@ async function resolveDocumentSandbox(
     return undefined;
   }
   try {
-    const manifest = JSON.parse(opened.data.toString("utf8")) as CanvasDocumentManifest;
-    return manifest.cspSandbox === "scripts" ? "scripts" : undefined;
+    return JSON.parse(opened.data.toString("utf8")) as CanvasDocumentManifest;
   } catch {
     return undefined;
   }
@@ -65,6 +67,19 @@ export async function handleCanvasDocumentHttpRequest(
     const documentsDir = resolveCanvasDocumentsDir();
     const relativePath = path.relative(documentsDir, localPath);
     const root = await fsRoot(documentsDir);
+    const manifest = await readDocumentManifest(root, relativePath);
+    const requiredOwner = req.headers[CANVAS_OWNER_AGENT_HEADER];
+    if (
+      requiredOwner !== undefined &&
+      (typeof requiredOwner !== "string" ||
+        !requiredOwner ||
+        manifest?.ownerAgentId !== requiredOwner)
+    ) {
+      res.statusCode = 404;
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.end("not found");
+      return true;
+    }
     const opened = await readRootFile(root, relativePath);
     if (!opened) {
       res.statusCode = 404;
@@ -85,7 +100,7 @@ export async function handleCanvasDocumentHttpRequest(
       const body = opened.data.toString("utf8");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Content-Length", String(Buffer.byteLength(body)));
-      if ((await resolveDocumentSandbox(root, relativePath)) === "scripts") {
+      if (manifest?.cspSandbox === "scripts") {
         res.setHeader("Content-Security-Policy", "sandbox allow-scripts");
       }
       if (req.method === "HEAD") {

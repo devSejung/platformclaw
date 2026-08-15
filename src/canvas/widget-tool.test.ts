@@ -253,8 +253,9 @@ describe("show_widget", () => {
         path.join(resolveCanvasDocumentDir(stateDir, viewId), "manifest.json"),
         "utf8",
       ),
-    ) as { cspSandbox?: string };
+    ) as { cspSandbox?: string; ownerAgentId?: string };
     expect(manifest.cspSandbox).toBe("scripts");
+    expect(manifest.ownerAgentId).toBe("main");
   });
 
   it("keeps unpinned behavior unchanged without a board call", async () => {

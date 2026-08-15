@@ -153,6 +153,25 @@ describe("projectPlatformClawBrowserHello", () => {
     expect(projected.snapshot.presence[0]).toMatchObject({ instanceId: "browser-instance" });
   });
 
+  it("projects only the BFF-owned Canvas surface and refresh method", () => {
+    const upstream = upstreamHello();
+    upstream.features.methods.push("plugin.surface.refresh");
+    upstream.pluginSurfaceUrls = {
+      canvas: "http://private-gateway/__openclaw__/cap/private-token",
+    };
+    const projected = projectPlatformClawBrowserHello({
+      upstream,
+      access,
+      connectionId: "browser-canvas",
+      canvasSurfaceUrl: "https://platform.test/__openclaw__/cap/public-token",
+    });
+    expect(projected.pluginSurfaceUrls).toEqual({
+      canvas: "https://platform.test/__openclaw__/cap/public-token",
+    });
+    expect(projected.features.methods).toContain("plugin.surface.refresh");
+    expect(JSON.stringify(projected)).not.toContain("private-token");
+  });
+
   it("advertises personal-agent interactive and invalidation capabilities", () => {
     const upstream = upstreamHello();
     upstream.features.methods.push(

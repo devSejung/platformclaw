@@ -211,6 +211,7 @@ export function renderGroupedMessage(
   const imageRenderOptions = {
     localMediaPreviewRoots: opts.localMediaPreviewRoots ?? [],
     basePath: opts.basePath,
+    sessionKey: opts.sessionKey,
     authToken: opts.assistantAttachmentAuthToken,
     onRequestUpdate: opts.onRequestUpdate,
     onRequestOpenImage: opts.onRequestOpenImage,
@@ -428,6 +429,7 @@ export function renderGroupedMessage(
                         opts.onRequestOpenImage,
                         opts.onOpenImage,
                         opts.resolveArtifactDownload,
+                        opts.sessionKey,
                       )}
                       ${assistantViewContent}
                       ${reasoningMarkdown
@@ -495,6 +497,7 @@ export function renderGroupedMessage(
               opts.onRequestOpenImage,
               opts.onOpenImage,
               opts.resolveArtifactDownload,
+              opts.sessionKey,
             )}
             ${reasoningMarkdown
               ? html`<div class="chat-thinking">

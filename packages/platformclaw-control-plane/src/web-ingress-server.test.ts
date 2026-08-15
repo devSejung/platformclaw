@@ -194,6 +194,42 @@ describe("PlatformClawWebIngressServer", () => {
     server = undefined;
   });
 
+  it("routes mounted assistant media before the application document fallback", async () => {
+    const gateway = new FakeGateway();
+    const { policy } = createPolicy();
+    const handleApplication = vi.fn(async () => true);
+    server = new PlatformClawWebIngressServer({
+      publicOrigin: PUBLIC_ORIGIN,
+      authService: {} as BrowserAuthService,
+      loginRateLimiter: {
+        check: () => ({ allowed: true, retryAfterMs: 0 }),
+        recordFailure: vi.fn(),
+      },
+      gatewayProxy: policy,
+      gateway,
+      mediaRelay: {
+        handle: vi.fn(async (_req, res) => {
+          res.statusCode = 200;
+          res.end("media-bytes");
+          return true;
+        }),
+      },
+      webAssets: {
+        handlePublic: vi.fn(async () => false),
+        handleApplication,
+      },
+    });
+    await server.listen({ host: "127.0.0.1", port: 0 });
+    const port = (server.address() as AddressInfo).port;
+
+    const response = await fetch(
+      `http://127.0.0.1:${port}/platformclaw/app/__openclaw__/assistant-media?source=media%3A%2F%2Finbound%2Ftest`,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("media-bytes");
+    expect(handleApplication).not.toHaveBeenCalled();
+  });
+
   it("speaks the Gateway wire protocol while enforcing browser session ownership", async () => {
     const gateway = new FakeGateway();
     const { policy, registerBrowserConnection, releaseBrowserConnection, request, revoke } =

@@ -116,6 +116,7 @@ export function buildAssistantAttachmentUrl(
   source: string,
   basePath?: string,
   mediaTicket?: string | null,
+  sessionKey?: string,
 ): string {
   if (!isLocalAssistantAttachmentSource(source)) {
     return source;
@@ -126,6 +127,10 @@ export function buildAssistantAttachmentUrl(
   const normalizedMediaTicket = mediaTicket?.trim();
   if (normalizedMediaTicket) {
     params.set("mediaTicket", normalizedMediaTicket);
+  }
+  const normalizedSessionKey = sessionKey?.trim();
+  if (normalizedSessionKey) {
+    params.set("sessionKey", normalizedSessionKey);
   }
   return `${normalizedBasePath}/__openclaw__/assistant-media?${params.toString()}`;
 }

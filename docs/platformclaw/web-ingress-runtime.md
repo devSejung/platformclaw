@@ -68,16 +68,46 @@ Browser-supplied `runId` and `taskId` scopes are rejected, returned artifact
 metadata is revalidated against the same Agent boundary, and `artifacts.get`
 remains unadvertised because the Control UI does not require it.
 
+Attachment bytes use a separate same-origin HTTP bridge. Managed artifact URLs
+must carry the short-lived capability minted by `artifacts.download`. Inbound
+uploads require an active browser cookie, an owned session key, and an exact
+structured media fact in that session's user transcript before the BFF mints a
+short-lived ticket. Browser cookies, Gateway credentials, redirects, and
+unapproved response headers never cross the bridge.
+
+Inline Canvas widgets use an independent BFF capability. The browser hello
+contains only a short-lived, employee-bound PlatformClaw surface URL; the
+private Gateway capability is never projected. Canvas documents record their
+creating Agent, and the relay sends that owner constraint to the Gateway for
+every HTML or asset read. A valid browser cookie, matching employee capability,
+and matching document owner are all required. `plugin.surface.refresh` rotates
+only the employee's BFF capability.
+
+Canvas remains available when the employee selects an assigned VM. The agent
+loop and `show_widget` document owner stay on the Gateway; only project shell
+and file tools move through the assigned-VM sandbox backend. A widget may show
+results computed on that VM, but it does not implicitly expose VM files or turn
+VM paths into browser URLs.
+
+The browser WebSocket payload ceiling matches the upstream Gateway at 25 MiB.
+Because composer attachments are base64 inside a JSON request, the practical
+single-file limit is below 18.75 MiB after envelope overhead. Supporting 100 MB
+files requires a future streaming HTTP upload surface; increasing the WebSocket
+limit alone would create roughly 133 MB frames and bypass the upstream ceiling.
+
 ## HTTP and WebSocket surfaces
 
-| Path                             | Method        | Purpose                                                      |
-| -------------------------------- | ------------- | ------------------------------------------------------------ |
-| `/platformclaw/api/auth/login`   | `POST`        | Authenticate an employee and issue the opaque session cookie |
-| `/platformclaw/api/auth/logout`  | `POST`        | Revoke the active browser session and clear its cookie       |
-| `/platformclaw/api/auth/session` | `GET`, `HEAD` | Return the current browser authentication state              |
-| `/platformclaw/api/skill-hub/*`  | `GET`, `POST` | Search, publish, and install registry skills                 |
-| `/platformclaw/gateway`          | WebSocket     | Expose the policy-filtered OpenClaw Gateway protocol         |
-| `/platformclaw/health`           | `GET`, `HEAD` | Report whether the private Gateway connection is ready       |
+| Path                                                  | Method        | Purpose                                                      |
+| ----------------------------------------------------- | ------------- | ------------------------------------------------------------ |
+| `/platformclaw/api/auth/login`                        | `POST`        | Authenticate an employee and issue the opaque session cookie |
+| `/platformclaw/api/auth/logout`                       | `POST`        | Revoke the active browser session and clear its cookie       |
+| `/platformclaw/api/auth/session`                      | `GET`, `HEAD` | Return the current browser authentication state              |
+| `/platformclaw/api/skill-hub/*`                       | `GET`, `POST` | Search, publish, and install registry skills                 |
+| `/platformclaw/app/__openclaw__/assistant-media`      | `GET`, `HEAD` | Check or download transcript-owned inbound uploads           |
+| `/api/chat/media/outgoing/*`                          | `GET`, `HEAD` | Download an owned artifact with its Gateway media ticket     |
+| `/__openclaw__/cap/*/__openclaw__/canvas/documents/*` | `GET`, `HEAD` | Render an Agent-owned Canvas document through a BFF lease    |
+| `/platformclaw/gateway`                               | WebSocket     | Expose the policy-filtered OpenClaw Gateway protocol         |
+| `/platformclaw/health`                                | `GET`, `HEAD` | Report whether the private Gateway connection is ready       |
 
 Login, logout, and WebSocket upgrade requests require the exact configured
 public origin. The listener does not trust forwarded headers when calculating

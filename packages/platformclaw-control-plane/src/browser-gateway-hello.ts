@@ -22,6 +22,7 @@ export function projectPlatformClawBrowserHello(params: {
   connectionId: string;
   clientInstanceId?: string;
   maxPayloadBytes?: number;
+  canvasSurfaceUrl?: string;
 }): HelloOk {
   const upstreamMethods = new Set(params.upstream.features.methods);
   const upstreamEvents = new Set(params.upstream.features.events);
@@ -35,6 +36,7 @@ export function projectPlatformClawBrowserHello(params: {
     features: {
       methods: PLATFORMCLAW_WEB_GATEWAY_METHODS.filter(
         (method) =>
+          (method !== "plugin.surface.refresh" || Boolean(params.canvasSurfaceUrl)) &&
           (method === "commands.list" || upstreamMethods.has(method)) &&
           (params.access.user.globalRole === "admin" ||
             !PLATFORMCLAW_WEB_ADMIN_METHODS.has(method)),
@@ -82,5 +84,6 @@ export function projectPlatformClawBrowserHello(params: {
           ? params.upstream.policy.maxPayload
           : Math.min(params.upstream.policy.maxPayload, params.maxPayloadBytes),
     },
+    ...(params.canvasSurfaceUrl ? { pluginSurfaceUrls: { canvas: params.canvasSurfaceUrl } } : {}),
   };
 }
