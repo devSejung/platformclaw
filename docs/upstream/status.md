@@ -176,18 +176,18 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 
 ## Migration Status
 
-| Capability                             | Status                                | Related PR/commit                     |
-| -------------------------------------- | ------------------------------------- | ------------------------------------- |
-| Branding and product boundary          | Not started                           | -                                     |
-| Account/session/workspace isolation    | Web runtime implemented               | `packages/platformclaw-control-plane` |
-| Enterprise authentication              | LDAP-phase adapter implemented        | `packages/platformclaw-control-plane` |
-| Credential runtime and policy          | Vault and local broker implemented    | `packages/platformclaw-control-plane` |
-| Skill Hub                              | VM Workshop integration in progress   | `feature/vm-skill-workshop`           |
-| Knox adapter                           | Control-plane contracts implemented   | `packages/platformclaw-control-plane` |
-| Remote execution and filesystem bridge | Backend foundation in progress        | `extensions/platformclaw-execution`   |
-| Operations UI, retry and recovery      | Employee Web shell implemented        | `ui/src/platformclaw`                 |
-| Cron and automation                    | Agent-scoped self-service in progress | `feature/employee-cron-self-service`  |
-| Production Docker deployment           | In progress                           | `feature/jammy-company-build`         |
+| Capability                             | Status                                                        | Related PR/commit                     |
+| -------------------------------------- | ------------------------------------------------------------- | ------------------------------------- |
+| Branding and product boundary          | Not started                                                   | -                                     |
+| Account/session/workspace isolation    | Web runtime implemented                                       | `packages/platformclaw-control-plane` |
+| Enterprise authentication              | LDAP-phase adapter implemented                                | `packages/platformclaw-control-plane` |
+| Credential runtime and policy          | Vault and local broker implemented                            | `packages/platformclaw-control-plane` |
+| Skill Hub                              | Embedded registry, scanner governance, Basic and VM lifecycle | `packages/platformclaw-control-plane` |
+| Knox adapter                           | Control-plane contracts implemented                           | `packages/platformclaw-control-plane` |
+| Remote execution and filesystem bridge | Backend foundation in progress                                | `extensions/platformclaw-execution`   |
+| Operations UI, retry and recovery      | Employee Web shell implemented                                | `ui/src/platformclaw`                 |
+| Cron and automation                    | Agent-scoped self-service in progress                         | `feature/employee-cron-self-service`  |
+| Production Docker deployment           | In progress                                                   | `feature/jammy-company-build`         |
 
 ## Update Rule
 

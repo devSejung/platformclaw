@@ -157,7 +157,10 @@ export type VmAdministrationSnapshot = {
 
 export interface ControlPlaneExecutionRuntimeStore {
   resolveExecutionTarget(agentId: string): Promise<ExecutionTarget>;
-  resolvePersonalExecutionTarget(agentId: string): Promise<PersonalExecutionTarget>;
+  resolvePersonalExecutionTarget(
+    agentId: string,
+    requestedTarget?: "platform_server" | "assigned_vm",
+  ): Promise<PersonalExecutionTarget>;
 }
 
 export interface ControlPlaneExecutionTargetStore extends ControlPlaneExecutionRuntimeStore {

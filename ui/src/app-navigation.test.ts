@@ -1,6 +1,6 @@
 // @vitest-environment node
 // Control UI tests cover navigation behavior.
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   SETTINGS_NAVIGATION_GROUPS,
   SIDEBAR_NAV_ROUTES,
@@ -21,6 +21,7 @@ import {
 import { createApplicationRouter, routeIdFromPath, type RouteId } from "./app-routes.ts";
 import { pathForSession } from "./app-session-path-builder.ts";
 import { sessionRefFromPath } from "./app-session-route-paths.ts";
+import { i18n } from "./i18n/index.ts";
 import { sessionNavigationTarget } from "./lib/sessions/route-navigation.ts";
 import { pluginTabKey, pluginTabRefFromSearch, pluginTabSearch } from "./pages/plugin/route.ts";
 
@@ -30,6 +31,10 @@ type SessionUrlContractCase = {
   mainKey: string | undefined;
   expectedPath: string | null;
 };
+
+beforeEach(async () => {
+  await i18n.setLocale("en");
+});
 
 // Keep in sync with extensions/clickclack/src/discussions/service.test.ts.
 // The publishable plugin cannot import this workspace package or its test fixtures.
@@ -129,6 +134,7 @@ const ALL_ROUTES: RouteId[] = Array.from(
     ...SIDEBAR_NAV_ROUTES,
     "skills",
     "skill-workshop",
+    "skill-hub",
     // Hub tabs and settings subpages route without their own nav entry.
     "worktrees",
     "memory-import",
@@ -201,6 +207,7 @@ describe("navigationIconForRoute", () => {
       tasks: "listChecks",
       agents: "bot",
       skills: "zap",
+      "skill-hub": "book",
       plugins: "puzzle",
       "skill-workshop": "wrench",
       nodes: "monitorSmartphone",
@@ -321,6 +328,7 @@ describe("titleForRoute", () => {
       tasks: "Tasks",
       agents: "Agents",
       skills: "Skills",
+      "skill-hub": "Skill Hub",
       plugins: "Plugins",
       "skill-workshop": "Skill Workshop",
       nodes: "Devices",
@@ -369,6 +377,7 @@ describe("subtitleForRoute", () => {
       tasks: "Background tasks: subagents, automation runs, CLI.",
       agents: "Workspaces, tools, identities.",
       skills: "Skills and API keys.",
+      "skill-hub": "Find, review, and install company skills.",
       plugins: "Install and manage optional capabilities.",
       "skill-workshop": "Review, refine, and apply proposals before they become live skills.",
       nodes: "Paired devices, pairing approvals, and exec bindings.",
@@ -779,9 +788,11 @@ describe("SIDEBAR_NAV_ROUTES", () => {
   it("collapses the plugins hub to a single sidebar entry", () => {
     expect(SIDEBAR_NAV_ROUTES).not.toContain("skills");
     expect(SIDEBAR_NAV_ROUTES).not.toContain("skill-workshop");
+    expect(SIDEBAR_NAV_ROUTES).not.toContain("skill-hub");
     expect(isPluginsHubRoute("plugins")).toBe(true);
     expect(isPluginsHubRoute("skills")).toBe(true);
     expect(isPluginsHubRoute("skill-workshop")).toBe(true);
+    expect(isPluginsHubRoute("skill-hub")).toBe(true);
     expect(isPluginsHubRoute("sessions")).toBe(false);
   });
 

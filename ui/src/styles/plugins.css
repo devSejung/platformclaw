@@ -6,6 +6,18 @@
   margin: 0;
 }
 
+.plugins-hub-shell {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Every hub route owns different content, but its navigation must not move
+   when a title gains actions or a subtitle. */
+.plugins-hub-shell > .plugins-content-header {
+  align-items: flex-start;
+  min-height: 56px;
+}
+
 /* Hub tab strip aligned with the settings page column below it
    (1120px matches .settings-page--wide). */
 .plugins-hub-tabs-row {

@@ -30,6 +30,7 @@ const PLATFORMCLAW_ENABLED_ROUTES = [
   "about",
   "skills",
   "skill-workshop",
+  "skill-hub",
   "plugins",
   "mcp",
 ] as const satisfies readonly RouteId[];

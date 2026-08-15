@@ -13,6 +13,26 @@ type SkillStatus = ReturnType<typeof buildWorkspaceSkillStatus>["skills"][number
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("buildWorkspaceSkillStatus", () => {
+  it("projects the declared version for target-aware install comparisons", () => {
+    const report = buildWorkspaceSkillStatus("/tmp/ws", {
+      entries: [
+        {
+          skill: createCanonicalFixtureSkill({
+            name: "versioned-skill",
+            description: "test",
+            filePath: "/tmp/versioned-skill/SKILL.md",
+            baseDir: "/tmp/versioned-skill",
+            source: "openclaw-workspace",
+          }),
+          frontmatter: { name: "versioned-skill", description: "test", version: "2.3.4" },
+        },
+      ],
+    });
+
+    expect(report.skills.find((skill) => skill.skillKey === "versioned-skill")?.version).toBe(
+      "2.3.4",
+    );
+  });
   it("reports blank env requirements as missing", () => {
     const envName = "OPENCLAW_TEST_BLANK_SKILL_STATUS";
     const original = process.env[envName];

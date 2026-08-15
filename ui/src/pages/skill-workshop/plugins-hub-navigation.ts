@@ -1,23 +1,21 @@
 import { pathForPluginsHubTab } from "../../app-route-paths.ts";
 import type { ApplicationContext } from "../../app/context.ts";
-import { pluginsHubTabs, type PluginsHubTab } from "../plugins/plugins-hub.ts";
-
-export function workshopPluginsHubTabs(accessMode: ApplicationContext["accessMode"]) {
-  return pluginsHubTabs(null, accessMode === "personal-agent" ? ["skills", "workshop"] : undefined);
-}
+import { routeForPluginsHubTab, type PluginsHubTab } from "../plugins/plugins-hub.ts";
 
 export function selectPluginsHubTab(
   context: Pick<ApplicationContext, "basePath" | "navigate">,
   tab: PluginsHubTab,
 ) {
-  if (tab === "workshop") {
+  const route = routeForPluginsHubTab(tab);
+  if (route) {
+    if (route !== "skill-workshop") {
+      context.navigate(route);
+    }
     return;
   }
-  if (tab === "skills") {
-    context.navigate("skills");
-    return;
+  if (tab === "installed" || tab === "discover") {
+    context.navigate("plugins", {
+      pathname: pathForPluginsHubTab(tab, context.basePath),
+    });
   }
-  context.navigate("plugins", {
-    pathname: pathForPluginsHubTab(tab, context.basePath),
-  });
 }

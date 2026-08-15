@@ -70,9 +70,11 @@ describe("PlatformClaw Docker runtime", () => {
   it("exports immutable runtime and sandbox image tags in the transfer archive", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
 
-    expect(build).toContain(
-      'run("docker", ["save", "-o", artifactTemp, runtimeShaTag, sandboxShaTag])',
-    );
+    expect(build).toContain('"ghcr.io/iflytek/skillhub-server@sha256:80a22a90');
+    expect(build).toContain('"ghcr.io/iflytek/skillhub-scanner@sha256:45275e86');
+    expect(build).toContain('"postgres:16-alpine@sha256:44c4ee98');
+    expect(build).toContain('"redis:7-alpine@sha256:e7723ff7');
+    expect(build).toContain("...bundledImages.map((image) => image.target)");
     expect(build).not.toContain(
       'run("docker", ["save", "-o", artifactPath, runtimeVersionTag, sandboxVersionTag])',
     );
@@ -219,6 +221,8 @@ describe("PlatformClaw Docker runtime", () => {
       "platformclaw_initial_admin_ids",
       "platformclaw_knox_service_token",
       "platformclaw_ssh_credential_master_key",
+      "platformclaw_skill_hub_token",
+      "platformclaw_skill_hub_bootstrap_password",
     ]);
     expect(gateway?.secrets).toEqual([
       "platformclaw_gateway_token",
@@ -245,6 +249,67 @@ describe("PlatformClaw Docker runtime", () => {
     expect(gateway?.tmpfs).toEqual([
       "${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home:uid=${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user},gid=${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user},mode=0700",
     ]);
+  });
+
+  it("embeds SkillHub v0.2.16 as an internal, persistent, health-gated profile", () => {
+    const compose = parse(
+      readRepoFile("docker/platformclaw-runtime/compose.yaml"),
+    ) as ComposeConfig;
+    const server = compose.services["skillhub-server"];
+    const scanner = compose.services["skillhub-scanner"];
+    const postgres = compose.services["skillhub-postgres"];
+    const redis = compose.services["skillhub-redis"];
+    const control = compose.services["platformclaw-control"];
+
+    for (const service of [server, scanner, postgres, redis]) {
+      expect(service?.profiles).toEqual(["skillhub"]);
+      expect(service?.ports).toBeUndefined();
+      expect(service?.pull_policy).toBe("never");
+    }
+    expect(server?.environment?.SKILLHUB_SERVICE_VERSION).toBe("v0.2.16");
+    expect(server?.environment?.SKILLHUB_STORAGE_PROVIDER).toBe("local");
+    expect(server?.environment?.SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE).toBe("500MB");
+    expect(server?.environment?.SKILLHUB_PUBLISH_MAX_PACKAGE_SIZE).toBe("1073741824");
+    expect(server?.environment?.SKILLHUB_PUBLISH_MAX_SINGLE_FILE_SIZE).toBe("262144000");
+    expect(server?.environment?.SKILLHUB_SCANNER_USE_LLM).toBe("false");
+    expect(server?.environment?.SKILLHUB_SCANNER_USE_VIRUSTOTAL).toBe("false");
+    expect(control?.environment?.PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES).toBe(
+      "${PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES:-524288000}",
+    );
+    expect(server?.volumes).toContain(
+      "${PLATFORMCLAW_DEPLOY_HOST_ROOT:?run platformclaw-compose with a service user}/data/skillhub/storage:/var/lib/skillhub/storage",
+    );
+    expect(postgres?.volumes?.[0]).toContain("/data/skillhub/postgres:");
+    expect(redis?.volumes?.[0]).toContain("/data/skillhub/redis:");
+    expect(server?.networks).toHaveProperty("platformclaw-skillhub");
+    expect(control?.networks).toHaveProperty("platformclaw-skillhub");
+    expect(server?.healthcheck?.test).toContain("http://127.0.0.1:8080/actuator/health");
+    expect(scanner?.healthcheck?.test).toContain("http://127.0.0.1:8000/health");
+
+    const deploy = readRepoFile("docker/platformclaw-runtime/platformclaw-deploy");
+    expect(deploy).toContain("preflight_skillhub_resources");
+    expect(deploy).toContain("bootstrap-skillhub.mjs");
+    expect(deploy).toContain("create_skillhub_state_backup");
+    expect(deploy).toContain("restore_skillhub_state_backup");
+    expect(deploy).toContain("SkillHub requires at least 4 GiB host RAM");
+    expect(deploy).toContain("local required_disk_kib=20971520");
+    expect(deploy).toContain("required_disk_kib=5242880");
+
+    const wrapper = readRepoFile("docker/platformclaw-runtime/platformclaw-compose");
+    expect(wrapper).toContain("--profile skillhub");
+    expect(wrapper).toContain('== "true"');
+    expect(wrapper).toContain("PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID");
+    expect(wrapper).toContain("initial_admin_file");
+    expect(wrapper).not.toContain(":-true}");
+
+    const releasePrepare = readRepoFile(
+      ".agents/skills/release-platformclaw/scripts/prepare-release.mjs",
+    );
+    expect(releasePrepare).toContain('["SKILLHUB-LICENSE.txt", false]');
+    expect(releasePrepare).toContain('["SKILLHUB-NOTICE.md", false]');
+    expect(readRepoFile("docker/platformclaw-runtime/SKILLHUB-NOTICE.md")).toContain(
+      "6e133c006e492dc3f468d91b21960aff1d577150",
+    );
   });
 
   it("seeds the required private admin RPC without storing a token", () => {

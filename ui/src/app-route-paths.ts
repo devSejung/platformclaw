@@ -58,6 +58,7 @@ const APP_ROUTE_DEFINITIONS = {
   usage: { path: "/usage" },
   debug: { path: "/debug" },
   logs: { path: "/logs" },
+  "skill-hub": { path: "/skills/hub" },
   "skill-workshop": { path: "/skills/workshop" },
   skills: { path: "/skills" },
   plugins: { path: "/settings/plugins" },

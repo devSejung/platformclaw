@@ -323,6 +323,30 @@ const runtimeVersionTag = `platformclaw:${version}`;
 const runtimeShaTag = `platformclaw:${shortSha}`;
 const sandboxVersionTag = `platformclaw-sandbox:${version}`;
 const sandboxShaTag = `platformclaw-sandbox:${shortSha}`;
+// SkillHub stays a separate service. Release builds only mirror the exact v0.2.16
+// object images into immutable local tags so the company transfer remains one tar.
+const bundledImages = [
+  {
+    source:
+      "ghcr.io/iflytek/skillhub-server@sha256:80a22a90c9855224a83663ad069cea80ec42ecb5e44c863b58be2fa2869f75b9",
+    target: "platformclaw-skillhub-server:6e133c006e49",
+  },
+  {
+    source:
+      "ghcr.io/iflytek/skillhub-scanner@sha256:45275e86b05fdcec1811d5b47c47a87d0639b75be3197aa5ba3a0ce2977a7815",
+    target: "platformclaw-skillhub-scanner:6e133c006e49",
+  },
+  {
+    source:
+      "postgres:16-alpine@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6",
+    target: "platformclaw-skillhub-postgres:44c4ee9810ef",
+  },
+  {
+    source:
+      "redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2",
+    target: "platformclaw-skillhub-redis:e7723ff73d96",
+  },
+];
 const secretArgs =
   typeof aptSources === "string"
     ? ["--secret", `id=platformclaw_apt_sources,src=${aptSources}`]
@@ -570,6 +594,10 @@ try {
   ]);
 
   if (options.exportImage) {
+    for (const image of bundledImages) {
+      run("docker", ["pull", image.source]);
+      run("docker", ["image", "tag", image.source, image.target]);
+    }
     mkdirSync(options.outputDir, { recursive: true });
     const artifactName = `platformclaw-${version}-${shortSha}.tar`;
     const artifactPath = resolve(options.outputDir, artifactName);
@@ -602,7 +630,14 @@ try {
       publicationChecksumPath = checksumPath;
       publicationArtifactBackup = `${artifactPath}.backup-${publicationLockOwner.token}`;
       publicationChecksumBackup = `${checksumPath}.backup-${publicationLockOwner.token}`;
-      run("docker", ["save", "-o", artifactTemp, runtimeShaTag, sandboxShaTag]);
+      run("docker", [
+        "save",
+        "-o",
+        artifactTemp,
+        runtimeShaTag,
+        sandboxShaTag,
+        ...bundledImages.map((image) => image.target),
+      ]);
       const digest = await sha256File(artifactTemp);
       writeFileSync(checksumTemp, `${digest}  ${basename(artifactPath)}\n`, "utf8");
       publicationReplacementStarted = true;

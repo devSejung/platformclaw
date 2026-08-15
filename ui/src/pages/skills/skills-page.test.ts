@@ -1,15 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SkillsChangedRefreshQueue, skillsPageAllowedHubTabs } from "./skills-page.ts";
-
-describe("Skills page plugin hub navigation", () => {
-  it("keeps Workshop discoverable for personal agents on every execution target", () => {
-    expect(skillsPageAllowedHubTabs("personal-agent")).toEqual(["skills", "workshop"]);
-  });
-
-  it("keeps the complete plugin hub for administrators", () => {
-    expect(skillsPageAllowedHubTabs(undefined)).toBeUndefined();
-  });
-});
+import { SkillsChangedRefreshQueue } from "./skills-page.ts";
 
 describe("SkillsChangedRefreshQueue", () => {
   it("ignores invalidation before the initial status load", () => {

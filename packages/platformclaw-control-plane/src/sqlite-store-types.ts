@@ -178,6 +178,61 @@ export type McpOAuthStateRow = {
   created_at: number;
 };
 
+export type SkillHubOwnershipRow = {
+  namespace: string;
+  slug: string;
+  owner_user_id: string | null;
+  previous_owner_user_id: string | null;
+  visibility: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
+  current_version: string;
+  updated_at: number;
+};
+
+export type SkillHubAccessRow = {
+  namespace: string;
+  slug: string;
+  user_id: string;
+  granted_by_user_id: string;
+  expires_at: number | null;
+  inherit_versions: number;
+  granted_version: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type SkillHubNotificationRow = {
+  id: string;
+  user_id: string;
+  kind: string;
+  namespace: string | null;
+  slug: string | null;
+  message: string;
+  created_at: number;
+  read_at: number | null;
+};
+
+export type SkillHubGovernanceJobRow = {
+  namespace: string;
+  slug: string;
+  version: string;
+  owner_user_id: string | null;
+  state: "pending" | "approved" | "blocked" | "failed";
+  attempts: number;
+  next_attempt_at: number;
+  last_error: string | null;
+  updated_at: number;
+};
+
+export type SkillHubNamespaceBindingRow = {
+  namespace: string;
+  scope_kind: "team" | "group" | "part";
+  scope_id: string | null;
+  visibility_ceiling: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
+  created_by_user_id: string;
+  created_at: number;
+  updated_at: number;
+};
+
 export type ControlPlaneDatabase = {
   platform_users: PlatformUserRow;
   enterprise_identities: EnterpriseIdentityRow;
@@ -195,4 +250,9 @@ export type ControlPlaneDatabase = {
   encrypted_user_ssh_credentials: EncryptedUserSshCredentialRow;
   encrypted_user_mcp_credentials: EncryptedUserMcpCredentialRow;
   mcp_oauth_states: McpOAuthStateRow;
+  skill_hub_skill_ownership: SkillHubOwnershipRow;
+  skill_hub_skill_access: SkillHubAccessRow;
+  skill_hub_notifications: SkillHubNotificationRow;
+  skill_hub_governance_jobs: SkillHubGovernanceJobRow;
+  skill_hub_namespace_bindings: SkillHubNamespaceBindingRow;
 };

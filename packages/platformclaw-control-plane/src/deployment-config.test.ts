@@ -133,11 +133,14 @@ describe("loadPlatformClawDeploymentConfig", () => {
       "skill-hub-token",
     );
     writeFileSync(tokenPath, "skill-hub-service-token", { mode: 0o600 });
+    const bootstrapPasswordPath = `${tokenPath}-bootstrap`;
+    writeFileSync(bootstrapPasswordPath, "skill-hub-bootstrap-password", { mode: 0o600 });
     env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl] = "https://skillhub.example.test/registry";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile] = tokenPath;
     env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces] =
       "Engineering=ENG-Skill-Publishers, shared=*,engineering=eng-skill-publishers";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubMaxPackageBytes] = "2097152";
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile] = bootstrapPasswordPath;
 
     expect(loadPlatformClawDeploymentConfig(env).skillHub).toEqual({
       url: "https://skillhub.example.test/registry",
@@ -147,6 +150,8 @@ describe("loadPlatformClawDeploymentConfig", () => {
         { namespace: "shared", accessGroup: "*" },
       ],
       maxPackageBytes: 2 * 1024 * 1024,
+      bootstrapPassword: "skill-hub-bootstrap-password",
+      primaryAdminUserId: "person.one",
     });
   });
 

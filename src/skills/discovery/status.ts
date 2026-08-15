@@ -52,6 +52,10 @@ export type SkillStatusEntry = {
   filePath: string;
   baseDir: string;
   skillKey: string;
+  /** Declared package version from SKILL.md, when present. */
+  version?: string;
+  /** Content revision of SKILL.md used for compare-and-swap updates. */
+  revision?: string;
   primaryEnv?: string;
   emoji?: string;
   homepage?: string;
@@ -321,6 +325,8 @@ function buildSkillStatus(
     filePath: entry.skill.filePath,
     baseDir: entry.skill.baseDir,
     skillKey,
+    ...(entry.frontmatter.version ? { version: entry.frontmatter.version } : {}),
+    revision: entry.skill.promptVersion,
     primaryEnv: entry.metadata?.primaryEnv,
     emoji,
     homepage,

@@ -564,13 +564,13 @@ export async function createExecutionDependenciesFromEnvironment(
     uploadDirectory: uploadDirectoryToSshTarget,
   });
   return {
-    resolveTarget: async ({ agentId }) => {
+    resolveTarget: async ({ agentId, target: requestedTarget }) => {
       const target = parseTarget(
         await callExecutionHandoff({
           socketPath: executionHandoffAddress(brokerAddress),
           serviceToken,
           path: EXECUTION_TARGET_PATH,
-          body: { agentId },
+          body: { agentId, ...(requestedTarget ? { target: requestedTarget } : {}) },
         }),
       );
       sshLeases.observeTarget(agentId, target.kind === "assigned_vm" ? target : undefined);

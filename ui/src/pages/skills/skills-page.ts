@@ -4,13 +4,11 @@ import { html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import type { AgentsListResult, SkillStatusReport } from "../../api/types.ts";
 import { titleForRoute } from "../../app-navigation.ts";
-import { pathForPluginsHubTab } from "../../app-route-paths.ts";
 import {
   applicationContext,
   type ApplicationContext,
   type ApplicationGatewaySnapshot,
 } from "../../app/context.ts";
-import { renderHubTabs } from "../../components/hub-tabs.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
 import { t } from "../../i18n/index.ts";
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
@@ -38,19 +36,15 @@ import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { subscribeToPlatformClawExecutionTargetChanges } from "../../platformclaw/execution-target-events.ts";
 import {
-  installPlatformClawHubSkill,
   loadPlatformClawSkillHubConfig,
-  loadPlatformClawSkillHubDetail,
   publishPlatformClawWorkspaceSkill,
-  searchPlatformClawSkillHub,
   type PlatformClawSkillHubConfig,
-  type PlatformClawSkillHubDetail,
   type PlatformClawSkillHubMessage,
-  type PlatformClawSkillHubSearchItem,
 } from "../../platformclaw/skill-hub.ts";
+import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
 import {
   PLUGINS_HUB_PANEL_ID,
-  pluginsHubTabs,
+  routeForPluginsHubTab,
   type PluginsHubTab,
 } from "../plugins/plugins-hub.ts";
 import { renderSkills, type SkillDetailTab, type SkillsStatusFilter } from "./view.ts";
@@ -64,12 +58,6 @@ export type SkillsRouteData = {
   report: SkillStatusReport | null;
   error: string | null;
 };
-
-export function skillsPageAllowedHubTabs(
-  accessMode: ApplicationContext["accessMode"],
-): readonly PluginsHubTab[] | undefined {
-  return accessMode === "personal-agent" ? ["skills", "workshop"] : undefined;
-}
 
 export class SkillsChangedRefreshQueue {
   private pending = false;
@@ -151,14 +139,7 @@ class SkillsPage extends OpenClawLightDomElement {
   @state() skillCardErrors: Record<string, string> = {};
   @state() skillHubConfig: PlatformClawSkillHubConfig | null = null;
   @state() skillHubConfigLoading = false;
-  @state() skillHubQuery = "";
-  @state() skillHubResults: PlatformClawSkillHubSearchItem[] | null = null;
-  @state() skillHubSearchLoading = false;
   @state() skillHubError: string | null = null;
-  @state() skillHubDetailRef: { namespace: string; slug: string } | null = null;
-  @state() skillHubDetail: PlatformClawSkillHubDetail | null = null;
-  @state() skillHubDetailLoading = false;
-  @state() skillHubSelectedVersion = "";
   @state() skillHubPublishSkill: string | null = null;
   @state() skillHubPublishNamespace = "";
   @state() skillHubPublishVersion = "0.1.0";
@@ -308,14 +289,7 @@ class SkillsPage extends OpenClawLightDomElement {
     this.skillCardErrors = {};
     this.skillHubConfig = null;
     this.skillHubConfigLoading = false;
-    this.skillHubQuery = "";
-    this.skillHubResults = null;
-    this.skillHubSearchLoading = false;
     this.skillHubError = null;
-    this.skillHubDetailRef = null;
-    this.skillHubDetail = null;
-    this.skillHubDetailLoading = false;
-    this.skillHubSelectedVersion = "";
     this.skillHubPublishSkill = null;
     this.skillHubOperation = null;
     this.skillHubMessage = null;
@@ -483,35 +457,6 @@ class SkillsPage extends OpenClawLightDomElement {
     }
   }
 
-  private async searchSkillHub() {
-    this.skillHubSearchLoading = true;
-    this.skillHubError = null;
-    this.skillHubMessage = null;
-    try {
-      this.skillHubResults = (await searchPlatformClawSkillHub(this.skillHubQuery.trim())).items;
-    } catch (error) {
-      this.skillHubError = error instanceof Error ? error.message : String(error);
-    } finally {
-      this.skillHubSearchLoading = false;
-    }
-  }
-
-  private async openSkillHubDetail(namespace: string, slug: string) {
-    this.skillHubDetailRef = { namespace, slug };
-    this.skillHubDetail = null;
-    this.skillHubDetailLoading = true;
-    this.skillHubError = null;
-    try {
-      this.skillHubDetail = await loadPlatformClawSkillHubDetail(namespace, slug);
-      this.skillHubSelectedVersion =
-        this.skillHubDetail.versions.find((version) => version.downloadAvailable)?.version ?? "";
-    } catch (error) {
-      this.skillHubError = error instanceof Error ? error.message : String(error);
-    } finally {
-      this.skillHubDetailLoading = false;
-    }
-  }
-
   private openSkillHubPublish(skill: string) {
     this.skillHubPublishSkill = skill;
     this.skillHubPublishVersion = "0.1.0";
@@ -551,76 +496,25 @@ class SkillsPage extends OpenClawLightDomElement {
     }
   }
 
-  private async installSkillHub() {
-    const ref = this.skillHubDetailRef;
-    if (!ref || !this.skillHubSelectedVersion || this.skillHubOperation) {
-      return;
-    }
-    this.skillHubOperation = "install";
-    this.skillHubMessage = null;
-    try {
-      await installPlatformClawHubSkill({
-        ...ref,
-        version: this.skillHubSelectedVersion,
-        expectedTarget: this.skillsReport?.executionTarget ?? "platform_server",
-      });
-      this.skillHubMessage = {
-        kind: "success",
-        text: t("skillsPage.skillHub.installed", {
-          skill: `${ref.namespace}/${ref.slug}@${this.skillHubSelectedVersion}`,
-          target: t(
-            this.skillsReport?.executionTarget === "assigned_vm"
-              ? "platformClaw.execution.vm"
-              : "platformClaw.execution.basic",
-          ),
-        }),
-      };
-      this.skillHubDetailRef = null;
-      await loadSkills(this, { refresh: true });
-    } catch (error) {
-      this.skillHubMessage = {
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      this.skillHubOperation = null;
-    }
-  }
-
   private selectHubTab(tab: PluginsHubTab) {
-    if (tab === "skills") {
-      return;
+    const route = routeForPluginsHubTab(tab);
+    if (route) {
+      this.context.navigate(route);
     }
-    if (tab === "workshop") {
-      this.context.navigate("skill-workshop");
-      return;
-    }
-    this.context.navigate("plugins", {
-      pathname: pathForPluginsHubTab(tab, this.context.basePath),
-    });
   }
 
   override render() {
     const agents = this.context.agents.state;
     const error = this.skillsError ?? agents.agentsError;
-    return html`
-      <section class="content-header content-header--page plugins-content-header">
+    return renderPluginsHubShell({
+      context: this.context,
+      active: "skills",
+      header: html`<section class="content-header content-header--page plugins-content-header">
         <div>
           <h1 class="page-title">${titleForRoute("skills")}</h1>
         </div>
-      </section>
-      ${renderSettingsWorkspace(html`
-        <div class="plugins-hub-tabs-row">
-          ${renderHubTabs({
-            id: "plugins",
-            active: "skills",
-            tabs: pluginsHubTabs(null, skillsPageAllowedHubTabs(this.context.accessMode)),
-            ariaLabel: t("pluginsPage.hubTablistLabel"),
-            panelId: PLUGINS_HUB_PANEL_ID,
-            className: "plugins-tabs",
-            onSelect: (tab) => this.selectHubTab(tab),
-          })}
-        </div>
+      </section>`,
+      content: renderSettingsWorkspace(html`
         <wa-tab-panel
           id=${PLUGINS_HUB_PANEL_ID}
           name="skills"
@@ -660,15 +554,6 @@ class SkillsPage extends OpenClawLightDomElement {
             clawhubDetailError: this.clawhubDetailError,
             clawhubInstallMessage: this.clawhubInstallMessage,
             skillHubConfig: this.skillHubConfig,
-            skillHubConfigLoading: this.skillHubConfigLoading,
-            skillHubQuery: this.skillHubQuery,
-            skillHubResults: this.skillHubResults,
-            skillHubSearchLoading: this.skillHubSearchLoading,
-            skillHubError: this.skillHubError,
-            skillHubDetailRef: this.skillHubDetailRef,
-            skillHubDetail: this.skillHubDetail,
-            skillHubDetailLoading: this.skillHubDetailLoading,
-            skillHubSelectedVersion: this.skillHubSelectedVersion,
             skillHubPublishSkill: this.skillHubPublishSkill,
             skillHubPublishNamespace: this.skillHubPublishNamespace,
             skillHubPublishVersion: this.skillHubPublishVersion,
@@ -713,13 +598,6 @@ class SkillsPage extends OpenClawLightDomElement {
                 void installFromClawHub(this, slug, acknowledgeClawHubRisk, version);
               }
             },
-            onSkillHubQueryChange: (query) => (this.skillHubQuery = query),
-            onSkillHubSearch: () => void this.searchSkillHub(),
-            onSkillHubDetailOpen: (namespace, slug) =>
-              void this.openSkillHubDetail(namespace, slug),
-            onSkillHubDetailClose: () => (this.skillHubDetailRef = null),
-            onSkillHubVersionChange: (version) => (this.skillHubSelectedVersion = version),
-            onSkillHubInstall: () => void this.installSkillHub(),
             onSkillHubPublishOpen: (skill) => this.openSkillHubPublish(skill),
             onSkillHubPublishClose: () => (this.skillHubPublishSkill = null),
             onSkillHubPublishNamespaceChange: (namespace) =>
@@ -730,8 +608,9 @@ class SkillsPage extends OpenClawLightDomElement {
             onSkillHubPublish: () => void this.publishSkillHub(),
           })}
         </wa-tab-panel>
-      `)}
-    `;
+      `),
+      onSelect: (tab) => this.selectHubTab(tab),
+    });
   }
 }
 

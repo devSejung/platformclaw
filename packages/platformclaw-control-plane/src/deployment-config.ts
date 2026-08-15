@@ -30,6 +30,8 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   skillHubTokenFile: "PLATFORMCLAW_SKILL_HUB_TOKEN_FILE",
   skillHubNamespaces: "PLATFORMCLAW_SKILL_HUB_NAMESPACES",
   skillHubMaxPackageBytes: "PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES",
+  skillHubBootstrapPasswordFile: "PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE",
+  skillHubPrimaryAdminId: "PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID",
 } as const;
 
 export type PlatformClawDeploymentConfig = {
@@ -55,6 +57,8 @@ export type PlatformClawDeploymentConfig = {
     token: string;
     namespacePolicies: readonly { namespace: string; accessGroup: string }[];
     maxPackageBytes: number;
+    bootstrapPassword: string;
+    primaryAdminUserId: string;
   };
 };
 
@@ -127,16 +131,21 @@ function parsePositiveInteger(raw: string | undefined, name: string, fallback: n
   return value;
 }
 
-function loadSkillHubConfig(env: NodeJS.ProcessEnv): PlatformClawDeploymentConfig["skillHub"] {
+function loadSkillHubConfig(
+  env: NodeJS.ProcessEnv,
+  defaultPrimaryAdminUserId: string,
+): PlatformClawDeploymentConfig["skillHub"] {
   const url = env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl]?.trim();
   const tokenFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile]?.trim();
   const namespaceList = env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces]?.trim();
-  if (!url && !tokenFile && !namespaceList) {
+  const bootstrapPasswordFile =
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile]?.trim();
+  if (!url && !tokenFile && !namespaceList && !bootstrapPasswordFile) {
     return undefined;
   }
-  if (!url || !tokenFile || !namespaceList) {
+  if (!url || !tokenFile || !namespaceList || !bootstrapPasswordFile) {
     throw new Error(
-      `${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl}, ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile}, and ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces} must be set together`,
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl}, ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile}, ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces}, and ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile} must be set together`,
     );
   }
   const parsed = new URL(url);
@@ -182,6 +191,13 @@ function loadSkillHubConfig(env: NodeJS.ProcessEnv): PlatformClawDeploymentConfi
       PLATFORMCLAW_DEPLOYMENT_ENV.skillHubMaxPackageBytes,
       DEFAULT_SKILL_HUB_MAX_PACKAGE_BYTES,
     ),
+    bootstrapPassword: readDeploymentSecret(
+      bootstrapPasswordFile,
+      PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile,
+    ),
+    primaryAdminUserId:
+      env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubPrimaryAdminId]?.trim().toLowerCase() ||
+      defaultPrimaryAdminUserId,
   };
 }
 
@@ -244,7 +260,7 @@ export function loadPlatformClawDeploymentConfig(
     PLATFORMCLAW_DEPLOYMENT_ENV.sshCredentialMasterKeyFile,
   );
   const jiraVocConfigFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.jiraVocConfigFile]?.trim();
-  const skillHub = loadSkillHubConfig(env);
+  const skillHub = loadSkillHubConfig(env, initialAdminAccountIds[0]!);
   return {
     publicOrigin: parsePublicOrigin(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin)),
     listenHost: env[PLATFORMCLAW_DEPLOYMENT_ENV.listenHost]?.trim() || DEFAULT_LISTEN_HOST,

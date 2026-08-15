@@ -26,7 +26,6 @@ describe("IflytekSkillHubAdapter", () => {
                 slug: "demo-skill",
                 latestVersion: "1.2.3",
                 summary: "Demo",
-                visibility: "PUBLIC",
               },
             ],
             total: 1,
@@ -40,6 +39,7 @@ describe("IflytekSkillHubAdapter", () => {
           data: {
             items: [
               {
+                id: 20,
                 version: "1.2.3",
                 status: "PUBLISHED",
                 fileCount: 2,
@@ -56,6 +56,7 @@ describe("IflytekSkillHubAdapter", () => {
       return json({
         code: 0,
         data: {
+          id: 10,
           namespace: "engineering",
           slug: "demo-skill",
           displayName: "Demo Skill",
@@ -83,6 +84,7 @@ describe("IflytekSkillHubAdapter", () => {
 
     expect(fetchImpl.mock.calls.map(([input]) => requestUrl(input).pathname)).toEqual([
       "/root/api/cli/v1/skills/search",
+      "/root/api/v1/skills/engineering/demo-skill",
       "/root/api/v1/skills/engineering/demo-skill",
       "/root/api/v1/skills/engineering/demo-skill/versions",
     ]);

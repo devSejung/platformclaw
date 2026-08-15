@@ -99,8 +99,16 @@ export class ExecutionHandoffService {
     private readonly credentialBroker: ExecutionCredentialGrantIssuer,
   ) {}
 
-  async resolveTarget(agentId: string): Promise<ExecutionTargetSnapshot> {
-    return publicSnapshot(await this.store.resolveExecutionTarget(requireAgentId(agentId)));
+  async resolveTarget(
+    agentId: string,
+    requestedTarget?: "platform_server" | "assigned_vm",
+  ): Promise<ExecutionTargetSnapshot> {
+    const normalized = requireAgentId(agentId);
+    return publicSnapshot(
+      requestedTarget
+        ? await this.store.resolvePersonalExecutionTarget(normalized, requestedTarget)
+        : await this.store.resolveExecutionTarget(normalized),
+    );
   }
 
   async resolveConnectionTarget(agentId: string) {
@@ -158,10 +166,13 @@ export class ExecutionHandoffService {
     ) {
       throw new ControlPlaneStateError("credential grant target is invalid");
     }
-    const target = await this.store.resolvePersonalExecutionTarget(expected.agentId);
+    const target = await this.store.resolvePersonalExecutionTarget(expected.agentId, "assigned_vm");
     assertSameVmTarget(target, expected);
     const grant = this.credentialBroker.issueForUser(target.userId, async () => {
-      const current = await this.store.resolvePersonalExecutionTarget(expected.agentId);
+      const current = await this.store.resolvePersonalExecutionTarget(
+        expected.agentId,
+        "assigned_vm",
+      );
       assertSameVmTarget(current, expected);
     });
     return {

@@ -1,4 +1,5 @@
 // Archive install helpers extract and validate skill archives during installation.
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ArchiveLogger } from "../../infra/archive.js";
@@ -12,6 +13,7 @@ import {
   type InstallSecurityScanResult,
 } from "../../plugins/install-security-scan.js";
 import type { InstallPolicyOrigin, InstallPolicySource } from "../../security/install-policy.js";
+import { computeSkillPromptVersion } from "../loading/skill-version.js";
 import {
   dispatchCommittedSkillChangeBestEffort,
   hasCommittedSkillChangeHooks,
@@ -53,6 +55,7 @@ export type SkillArchiveInstallTargetAccess = {
     slug: string;
     mode: "install" | "update";
     timeoutMs: number;
+    expectedSkillRevision?: string;
   }): Promise<{ targetDir: string }>;
 };
 
@@ -154,6 +157,7 @@ export async function installExtractedSkillRoot(params: {
   policy?: SkillArchiveInstallPolicy;
   rootMarkers?: readonly string[];
   targetAccess?: SkillArchiveInstallTargetAccess;
+  expectedSkillRevision?: string;
 }): Promise<SkillArchiveInstallResult> {
   try {
     if (
@@ -228,11 +232,22 @@ export async function installExtractedSkillRoot(params: {
           slug: params.slug,
           mode: effectiveMode,
           timeoutMs: params.timeoutMs ?? 120_000,
+          ...(params.expectedSkillRevision
+            ? { expectedSkillRevision: params.expectedSkillRevision }
+            : {}),
         })),
       };
     }
     if (!targetDir) {
       return installFailure("skill install target is unavailable", "unavailable");
+    }
+    if (effectiveMode === "update" && params.expectedSkillRevision) {
+      const currentRevision = computeSkillPromptVersion(
+        await readFile(path.join(targetDir, "SKILL.md"), "utf8"),
+      );
+      if (currentRevision !== params.expectedSkillRevision) {
+        return installFailure("skill changed; reload and retry", "invalid-request");
+      }
     }
 
     const install = await installPackageDir({
@@ -280,6 +295,7 @@ export async function installSkillArchiveFromPath(params: {
   logger?: ArchiveLogger;
   policy?: SkillArchiveInstallPolicy;
   targetAccess?: SkillArchiveInstallTargetAccess;
+  expectedSkillRevision?: string;
 }): Promise<SkillArchiveInstallResult> {
   const result = await withExtractedArchiveRoot({
     archivePath: params.archivePath,
@@ -297,6 +313,9 @@ export async function installSkillArchiveFromPath(params: {
         logger: params.logger,
         policy: params.policy,
         targetAccess: params.targetAccess,
+        ...(params.expectedSkillRevision
+          ? { expectedSkillRevision: params.expectedSkillRevision }
+          : {}),
       }),
   });
   if (!result.ok) {

@@ -372,6 +372,36 @@ describe("skill archive install", () => {
     expect(event.before.revision.treeSha256).not.toBe(event.after.revision.treeSha256);
   });
 
+  it("rejects a stale skill revision before replacing the existing tree", async () => {
+    const root = await tempDirs.make("openclaw-skill-revision-cas-");
+    const workspaceDir = path.join(root, "workspace");
+    const extractedRoot = path.join(root, "extracted");
+    const targetDir = path.join(workspaceDir, "skills", "revision-cas");
+    await fs.mkdir(extractedRoot, { recursive: true });
+    await fs.mkdir(targetDir, { recursive: true });
+    await fs.writeFile(
+      path.join(targetDir, "SKILL.md"),
+      versionedSkillFileContent("Current", "1.0.0"),
+    );
+    await fs.writeFile(
+      path.join(extractedRoot, "SKILL.md"),
+      versionedSkillFileContent("Replacement", "2.0.0"),
+    );
+
+    await expect(
+      installExtractedSkillRoot({
+        workspaceDir,
+        slug: "revision-cas",
+        extractedRoot,
+        mode: "update",
+        expectedSkillRevision: "sha256:0000000000000000",
+      }),
+    ).resolves.toMatchObject({ ok: false, error: "skill changed; reload and retry" });
+    await expect(fs.readFile(path.join(targetDir, "SKILL.md"), "utf8")).resolves.toContain(
+      "name: Current",
+    );
+  });
+
   it("does not emit when an archive mutation fails", async () => {
     const root = await tempDirs.make("openclaw-skill-change-failure-");
     const workspaceDir = path.join(root, "workspace");

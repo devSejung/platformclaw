@@ -126,7 +126,13 @@ CA가 필요하면 승인된 PEM bundle로 이 파일을 교체한다. Gateway�
 
 ### 1.4 이미지 로드
 
-Release의 단일 transfer tar에는 메인 이미지와 sandbox 이미지가 함께 들어 있다.
+Release의 단일 transfer tar에는 메인·sandbox 이미지와 고정된 SkillHub v0.2.16
+server/scanner, PostgreSQL, Redis 이미지가 함께 들어 있다. SkillHub는 host port를
+열지 않고 Control과 internal network만 공유한다. 새 설치의 영속 데이터는
+`~/platformclaw/data/skillhub/{postgres,redis,storage}`에 저장된다. SkillHub 활성화 시
+최초 시작 전 최소 RAM 4 GiB와 배포 경로 여유 공간 20 GiB를 검사하며 이후
+재시작은 여유 공간 5 GiB를 하한으로 검사한다. 기존 2-image
+archive 설치는 `PLATFORMCLAW_SKILL_HUB_ENABLED`가 없거나 `false`이면 계속 지원한다.
 
 ```bash
 sha256sum --check platformclaw-<version>-<sha12>.tar.sha256
@@ -359,7 +365,8 @@ docker compose down --volumes
 ```
 
 스크립트가 두 daemon에 이미지를 로드하고 `deployment.env`의 image ref를 바꾼다. 서비스가
-정지된 동안 전체 Gateway `.openclaw` 상태를 `~/platformclaw/backups/gateway-state/`에
+정지된 동안 전체 Gateway `.openclaw` 상태를 `~/platformclaw/backups/gateway-state/`에,
+SkillHub 상태를 `~/platformclaw/backups/skillhub-state/`에
 백업하고, 새 이미지로 `openclaw doctor --fix --yes --non-interactive`를 실행한 뒤 Compose
 health를 기다린다. health가 통과하면 기존 Agent sandbox를 모두 제거하여 다음 실행부터
 새 sandbox 이미지로 다시 만들게 한다. Doctor, health, sandbox 제거 중 하나라도 실패하면

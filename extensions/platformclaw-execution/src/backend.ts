@@ -52,6 +52,7 @@ export type PlatformClawExecutionTargetSnapshot =
 
 type PlatformClawExecutionTargetResolver = (params: {
   agentId: string;
+  target?: "platform_server" | "assigned_vm";
 }) => Promise<PlatformClawExecutionTargetSnapshot>;
 
 type TargetHandleFactory<TTarget extends PlatformClawExecutionTargetSnapshot> = (params: {
@@ -237,8 +238,21 @@ export function createPlatformClawExecutionSkillWorkshopProvider(
 export function createPlatformClawExecutionSkillProvider(
   dependencies: PlatformClawExecutionDependencies,
 ): SandboxBackendSkillProvider {
-  return async ({ agentId, refresh }) => {
-    const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+  return async ({ agentId, refresh, backendTarget }) => {
+    if (
+      backendTarget !== undefined &&
+      backendTarget !== "platform_server" &&
+      backendTarget !== "assigned_vm"
+    ) {
+      throw new Error("PlatformClaw skill catalog target is invalid.");
+    }
+    const target = pinTargetSnapshot(
+      await dependencies.resolveTarget({
+        agentId,
+        ...(backendTarget ? { target: backendTarget } : {}),
+      }),
+      agentId,
+    );
     return await dependencies.listTargetSkills({ refresh, target });
   };
 }
@@ -247,8 +261,22 @@ export function createPlatformClawExecutionSkillInstallProvider(
   dependencies: PlatformClawExecutionDependencies,
   mutations: PlatformClawTargetMutationCoordinator,
 ): SandboxBackendSkillInstallProvider {
-  return async ({ agentId, expectedTargetRevision }) => {
-    const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+  return async ({ agentId, expectedTargetRevision, backendTarget }) => {
+    if (
+      backendTarget !== undefined &&
+      backendTarget !== "platform_server" &&
+      backendTarget !== "assigned_vm"
+    ) {
+      throw new Error("PlatformClaw skill installation target is invalid.");
+    }
+    const requestedTarget = backendTarget;
+    const target = pinTargetSnapshot(
+      await dependencies.resolveTarget({
+        agentId,
+        ...(requestedTarget ? { target: requestedTarget } : {}),
+      }),
+      agentId,
+    );
     if (expectedTargetRevision !== undefined && target.revision !== expectedTargetRevision) {
       throw new Error("PlatformClaw execution target changed; reload and retry.");
     }
@@ -260,7 +288,13 @@ export function createPlatformClawExecutionSkillInstallProvider(
       try {
         // Re-resolve only after taking the shared guard. This closes both the
         // provider-to-install and verify-to-commit target-switch races.
-        const current = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+        const current = pinTargetSnapshot(
+          await dependencies.resolveTarget({
+            agentId,
+            ...(requestedTarget ? { target: requestedTarget } : {}),
+          }),
+          agentId,
+        );
         if (
           current.kind !== target.kind ||
           current.targetId !== target.targetId ||

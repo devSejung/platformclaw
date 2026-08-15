@@ -69,6 +69,8 @@ export type SandboxBackendSkillProvider = (params: {
   config: OpenClawConfig;
   refresh: boolean;
   workspaceDir: string;
+  /** Backend-owned target selector; validated and authorized by the registered backend. */
+  backendTarget?: string;
 }) => Promise<SandboxBackendSkillCatalog | undefined>;
 
 /** Resolves mutable Workshop access for the agent's current execution target. */
@@ -93,6 +95,8 @@ export type SandboxBackendSkillInstallProvider = (params: {
   config: OpenClawConfig;
   workspaceDir: string;
   expectedTargetRevision?: number;
+  /** Backend-owned target selector; validated and authorized by the registered backend. */
+  backendTarget?: string;
 }) => Promise<SandboxBackendSkillInstallTarget>;
 
 /** Registry input accepted for sandbox backend registration. */

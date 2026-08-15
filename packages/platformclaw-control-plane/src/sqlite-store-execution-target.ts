@@ -4,7 +4,10 @@ import { takeFirstSync } from "./kysely-sync.js";
 import { SqliteControlPlaneVmEnvironmentStore } from "./sqlite-store-vm-environment.js";
 
 export abstract class SqliteControlPlaneExecutionTargetStore extends SqliteControlPlaneVmEnvironmentStore {
-  abstract resolvePersonalExecutionTarget(agentId: string): Promise<PersonalExecutionTarget>;
+  abstract resolvePersonalExecutionTarget(
+    agentId: string,
+    requestedTarget?: "platform_server" | "assigned_vm",
+  ): Promise<PersonalExecutionTarget>;
 
   async resolveExecutionTarget(agentId: string): Promise<ExecutionTarget> {
     const normalizedAgentId = agentId.trim();

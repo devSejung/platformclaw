@@ -233,7 +233,10 @@ export abstract class SqliteControlPlaneExecutionStore
     return await this.resolvePersonalExecutionTarget(params.agentId);
   }
 
-  async resolvePersonalExecutionTarget(agentId: string): Promise<PersonalExecutionTarget> {
+  async resolvePersonalExecutionTarget(
+    agentId: string,
+    requestedTarget?: "platform_server" | "assigned_vm",
+  ): Promise<PersonalExecutionTarget> {
     const owner = takeFirstSync(
       this.db,
       this.query
@@ -261,7 +264,8 @@ export abstract class SqliteControlPlaneExecutionStore
     if (!owner || owner.binding_state !== "active" || owner.user_status !== "active") {
       throw new ControlPlaneStateError("active personal execution target is unavailable");
     }
-    if (owner.active_target === "platform_server") {
+    const target = requestedTarget ?? owner.active_target;
+    if (target === "platform_server") {
       return {
         kind: "platform_server",
         agentId: owner.agent_id,
@@ -270,48 +274,47 @@ export abstract class SqliteControlPlaneExecutionStore
         revision: owner.target_revision,
       };
     }
-    if (!owner.active_allocation_id) {
-      throw new ControlPlaneStateError("assigned VM execution target is incomplete");
-    }
     this.ensureVmHostExecutionEnvironmentSchema();
-    const vm = takeFirstSync(
-      this.db,
-      this.query
-        .selectFrom("vm_allocations")
-        .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
-        .leftJoin(
-          "vm_host_execution_environments",
-          "vm_host_execution_environments.vm_host_id",
-          "vm_hosts.id",
-        )
-        .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
-        .leftJoin("encrypted_user_ssh_credentials", (join) =>
-          join.on("encrypted_user_ssh_credentials.user_id", "=", owner.user_id),
-        )
-        .select([
-          "vm_allocations.id as allocation_id",
-          "vm_allocations.agent_binding_id as agent_binding_id",
-          "vm_allocations.status as allocation_status",
-          "vm_allocations.linux_account as linux_account",
-          "vm_allocations.remote_home_dir as remote_home_dir",
-          "vm_allocations.remote_workspace_dir as remote_workspace_dir",
-          "vm_hosts.status as host_status",
-          "vm_hosts.label as vm_label",
-          "vm_hosts.target_address as target_address",
-          "safeconnect_endpoints.status as endpoint_status",
-          "safeconnect_endpoints.label as safeconnect_label",
-          "safeconnect_endpoints.host as endpoint_host",
-          "safeconnect_endpoints.port as endpoint_port",
-          "safeconnect_endpoints.ad_domain as ad_domain",
-          "safeconnect_endpoints.host_key_algorithm as host_key_algorithm",
-          "safeconnect_endpoints.host_key_public_key as host_key_public_key",
-          "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
-          "encrypted_user_ssh_credentials.revision as credential_revision",
-          "encrypted_user_ssh_credentials.status as credential_status",
-          "vm_host_execution_environments.config_json as execution_environment_json",
-        ])
-        .where("vm_allocations.id", "=", owner.active_allocation_id),
-    );
+    let vmQuery = this.query
+      .selectFrom("vm_allocations")
+      .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
+      .leftJoin(
+        "vm_host_execution_environments",
+        "vm_host_execution_environments.vm_host_id",
+        "vm_hosts.id",
+      )
+      .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
+      .leftJoin("encrypted_user_ssh_credentials", (join) =>
+        join.on("encrypted_user_ssh_credentials.user_id", "=", owner.user_id),
+      )
+      .select([
+        "vm_allocations.id as allocation_id",
+        "vm_allocations.agent_binding_id as agent_binding_id",
+        "vm_allocations.status as allocation_status",
+        "vm_allocations.linux_account as linux_account",
+        "vm_allocations.remote_home_dir as remote_home_dir",
+        "vm_allocations.remote_workspace_dir as remote_workspace_dir",
+        "vm_hosts.status as host_status",
+        "vm_hosts.label as vm_label",
+        "vm_hosts.target_address as target_address",
+        "safeconnect_endpoints.status as endpoint_status",
+        "safeconnect_endpoints.label as safeconnect_label",
+        "safeconnect_endpoints.host as endpoint_host",
+        "safeconnect_endpoints.port as endpoint_port",
+        "safeconnect_endpoints.ad_domain as ad_domain",
+        "safeconnect_endpoints.host_key_algorithm as host_key_algorithm",
+        "safeconnect_endpoints.host_key_public_key as host_key_public_key",
+        "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
+        "encrypted_user_ssh_credentials.revision as credential_revision",
+        "encrypted_user_ssh_credentials.status as credential_status",
+        "vm_host_execution_environments.config_json as execution_environment_json",
+      ]);
+    vmQuery = requestedTarget
+      ? vmQuery
+          .where("vm_allocations.agent_binding_id", "=", owner.binding_id)
+          .where("vm_allocations.status", "!=", "revoked")
+      : vmQuery.where("vm_allocations.id", "=", owner.active_allocation_id ?? "");
+    const vm = takeFirstSync(this.db, vmQuery);
     if (!isReadyAssignedVmExecutionRow(vm, owner.binding_id)) {
       throw new ControlPlaneStateError("assigned VM execution target is not ready");
     }

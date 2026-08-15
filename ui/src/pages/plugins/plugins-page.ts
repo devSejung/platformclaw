@@ -14,7 +14,6 @@ import {
 } from "../../app/context.ts";
 import { resolveControlUiAuthCandidates } from "../../app/control-ui-auth.ts";
 import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
-import { renderHubTabs } from "../../components/hub-tabs.ts";
 import type { McpServerForm } from "../../components/mcp-server-form.ts";
 import { renderDocsLink } from "../../components/settings-ui.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
@@ -52,7 +51,8 @@ import {
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { fetchPluginIconBlobUrl } from "./icon-loader.ts";
-import { PLUGINS_HUB_PANEL_ID, pluginsHubTabs, type PluginsHubTab } from "./plugins-hub.ts";
+import { renderPluginsHubShell } from "./plugins-hub-shell.ts";
+import { routeForPluginsHubTab, type PluginsHubTab } from "./plugins-hub.ts";
 import type { ConnectorSuggestion } from "./presentation.ts";
 import { pluginArtPath } from "./presentation.ts";
 import { canonicalPluginsRouteLocation, pluginsHubTabForRoute } from "./route-data.ts";
@@ -600,7 +600,10 @@ class PluginsPage extends OpenClawLightDomElement {
       });
       return;
     }
-    this.context.navigate(tab === "skills" ? "skills" : "skill-workshop");
+    const route = routeForPluginsHubTab(tab);
+    if (route) {
+      this.context.navigate(route);
+    }
   }
 
   private changeTab(tab: PluginsTab) {
@@ -980,8 +983,10 @@ class PluginsPage extends OpenClawLightDomElement {
 
   override render() {
     const blockedReason = this.mutationBlockedReason();
-    return html`
-      <section class="content-header content-header--page plugins-content-header">
+    return renderPluginsHubShell({
+      context: this.context,
+      active: this.activeTab,
+      header: html`<section class="content-header content-header--page plugins-content-header">
         <div>
           <h1 class="page-title">${titleForRoute("plugins")}</h1>
           <div class="page-subtitle">
@@ -989,21 +994,8 @@ class PluginsPage extends OpenClawLightDomElement {
             ${renderDocsLink(PLUGINS_DOCS_URL, t("common.learnMore"))}
           </div>
         </div>
-      </section>
-      ${renderSettingsWorkspace(html`
-        <div class="plugins-hub-tabs-row">
-          ${renderHubTabs({
-            id: "plugins",
-            active: this.activeTab,
-            tabs: pluginsHubTabs(
-              this.result?.plugins.filter((plugin) => plugin.installed).length ?? 0,
-            ),
-            ariaLabel: t("pluginsPage.hubTablistLabel"),
-            panelId: PLUGINS_HUB_PANEL_ID,
-            className: "plugins-tabs",
-            onSelect: (tab) => this.selectHubTab(tab),
-          })}
-        </div>
+      </section>`,
+      content: renderSettingsWorkspace(html`
         ${renderPlugins({
           connected: this.gateway.connected,
           loading: this.loading,
@@ -1056,8 +1048,9 @@ class PluginsPage extends OpenClawLightDomElement {
           },
           onMcpAdd: (form) => void this.addMcpServer(form),
         })}
-      `)}
-    `;
+      `),
+      onSelect: (tab) => this.selectHubTab(tab),
+    });
   }
 }
 

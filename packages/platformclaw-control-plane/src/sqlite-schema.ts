@@ -371,6 +371,88 @@ CREATE TABLE IF NOT EXISTS vm_host_execution_environments (
 ) STRICT;
 `;
 
+const SKILL_HUB_STATE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS skill_hub_skill_ownership (
+  namespace TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  owner_user_id TEXT REFERENCES platform_users(id) ON DELETE SET NULL,
+  previous_owner_user_id TEXT REFERENCES platform_users(id) ON DELETE SET NULL,
+  visibility TEXT NOT NULL CHECK (visibility IN ('PUBLIC', 'NAMESPACE_ONLY', 'PRIVATE')),
+  current_version TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (namespace, slug)
+) STRICT;
+CREATE INDEX IF NOT EXISTS skill_hub_skill_ownership_owner
+  ON skill_hub_skill_ownership(owner_user_id);
+
+CREATE TABLE IF NOT EXISTS skill_hub_skill_access (
+  namespace TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
+  granted_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
+  expires_at INTEGER,
+  inherit_versions INTEGER NOT NULL CHECK (inherit_versions IN (0, 1)),
+  granted_version TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (namespace, slug, user_id),
+  FOREIGN KEY (namespace, slug)
+    REFERENCES skill_hub_skill_ownership(namespace, slug) ON DELETE CASCADE,
+  CHECK (
+    (inherit_versions = 1 AND granted_version IS NULL) OR
+    (inherit_versions = 0 AND granted_version IS NOT NULL)
+  )
+) STRICT;
+CREATE INDEX IF NOT EXISTS skill_hub_skill_access_user
+  ON skill_hub_skill_access(user_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS skill_hub_notifications (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  namespace TEXT,
+  slug TEXT,
+  message TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  read_at INTEGER
+) STRICT;
+CREATE INDEX IF NOT EXISTS skill_hub_notifications_inbox
+  ON skill_hub_notifications(user_id, read_at, created_at);
+
+CREATE TABLE IF NOT EXISTS skill_hub_governance_jobs (
+  namespace TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  version TEXT NOT NULL,
+  owner_user_id TEXT REFERENCES platform_users(id) ON DELETE SET NULL,
+  state TEXT NOT NULL CHECK (state IN ('pending', 'approved', 'blocked', 'failed')),
+  attempts INTEGER NOT NULL CHECK (attempts >= 0),
+  next_attempt_at INTEGER NOT NULL,
+  last_error TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (namespace, slug, version),
+  FOREIGN KEY (namespace, slug)
+    REFERENCES skill_hub_skill_ownership(namespace, slug) ON DELETE CASCADE
+) STRICT;
+CREATE INDEX IF NOT EXISTS skill_hub_governance_jobs_due
+  ON skill_hub_governance_jobs(state, next_attempt_at);
+
+CREATE TABLE IF NOT EXISTS skill_hub_namespace_bindings (
+  namespace TEXT PRIMARY KEY,
+  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('team', 'group', 'part')),
+  scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
+  visibility_ceiling TEXT NOT NULL CHECK (
+    visibility_ceiling IN ('PUBLIC', 'NAMESPACE_ONLY', 'PRIVATE')
+  ),
+  created_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CHECK (
+    (scope_kind = 'team' AND scope_id IS NULL) OR
+    (scope_kind IN ('group', 'part') AND scope_id IS NOT NULL)
+  )
+) STRICT;
+`;
+
 /** Additive VM feature table; safe for older schema-v2 readers to ignore. */
 export function ensureVmHostExecutionEnvironmentSchema(db: DatabaseSync): void {
   db.exec(VM_HOST_EXECUTION_ENVIRONMENT_SCHEMA);
@@ -379,6 +461,11 @@ export function ensureVmHostExecutionEnvironmentSchema(db: DatabaseSync): void {
 /** Additive feature table; safe for older schema-v2 readers to ignore. */
 export function ensureMcpCredentialSchema(db: DatabaseSync): void {
   db.exec(MCP_CREDENTIAL_SCHEMA);
+}
+
+/** Additive Skill Hub state; safe for older schema-v2 readers to ignore. */
+export function ensureSkillHubStateSchema(db: DatabaseSync): void {
+  db.exec(SKILL_HUB_STATE_SCHEMA);
 }
 
 export function initializeControlPlaneSchema(db: DatabaseSync): void {

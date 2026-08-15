@@ -32,6 +32,7 @@ import {
   type RestartReconciliationSummary,
 } from "./restart-reconciler.js";
 import type { SkillHubAdapter } from "./skill-hub-adapter.js";
+import type { SkillHubGovernanceClient } from "./skill-hub-governance-client.js";
 import { SkillHubService } from "./skill-hub-service.js";
 import { SshCredentialBroker } from "./ssh-credential-broker.js";
 import { createPlatformClawWebAssetHandler } from "./web-assets.js";
@@ -77,6 +78,8 @@ export type PlatformClawWebIngressRuntimeOptions = {
     allowedNamespaces: readonly string[];
     namespaceAccessGroups: Readonly<Record<string, string>>;
     maxPackageBytes: number;
+    governance: SkillHubGovernanceClient;
+    primaryAdminUserId: string;
   };
   ingress?: Pick<
     PlatformClawWebIngressOptions,
@@ -202,6 +205,8 @@ export function createPlatformClawWebIngressRuntime(
         allowedNamespaces: options.skillHub.allowedNamespaces,
         namespaceAccessGroups: options.skillHub.namespaceAccessGroups,
         maxPackageBytes: options.skillHub.maxPackageBytes,
+        governance: options.skillHub.governance,
+        primaryAdminUserId: options.skillHub.primaryAdminUserId,
         ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
       })
     : undefined;
@@ -245,7 +250,10 @@ export function createPlatformClawWebIngressRuntime(
   let closed = false;
   let preparing: Promise<RestartReconciliationSummary> | undefined;
   const prepare = (): Promise<RestartReconciliationSummary> => {
-    preparing ??= restartReconciler.reconcile();
+    preparing ??= restartReconciler.reconcile().then(async (summary) => {
+      await skillHub?.processGovernanceQueue();
+      return summary;
+    });
     return preparing;
   };
   return {
@@ -282,6 +290,7 @@ export function createPlatformClawWebIngressRuntime(
           try {
             await credentialBroker?.close();
           } finally {
+            skillHub?.close();
             auth.close();
           }
         }
