@@ -121,28 +121,29 @@ const PLUGIN_SDK_SUBPATH_SEEDS = [
   },
 ] as const satisfies readonly PluginSdkSubpathSeed[];
 
-export const DEPRECATED_PLUGIN_SDK_SUBPATH_RECORDS = PLUGIN_SDK_SUBPATH_SEEDS.map(
-  ({ code, subpath, status = "deprecated", owner, removeAfter, replacement }) =>
-    ({
-      code,
-      status,
-      owner,
-      introduced: "2026-07-06",
-      deprecated: "2026-07-06",
-      warningStarts: "2026-07-06",
-      removeAfter,
-      replacement:
-        status === "removal-pending"
-          ? `${replacement}; PlatformClaw removal remains blocked until a verified upstream sync adopts the owning migration`
-          : replacement,
-      docsPath: "/plugins/sdk-migration",
-      surfaces: [`openclaw/plugin-sdk/${subpath}`],
-      diagnostics: [
-        "repository deprecated API usage guard for core and bundled plugins; no external runtime import warning",
-      ],
-      tests: ["src/plugins/compat/registry.test.ts"],
-    }) satisfies PluginCompatRecord,
-) satisfies readonly PluginCompatRecord[];
+export const DEPRECATED_PLUGIN_SDK_SUBPATH_RECORDS = PLUGIN_SDK_SUBPATH_SEEDS.map((seed) => {
+  const { code, subpath, owner, removeAfter, replacement } = seed;
+  const status = "status" in seed ? seed.status : "deprecated";
+  return {
+    code,
+    status,
+    owner,
+    introduced: "2026-07-06",
+    deprecated: "2026-07-06",
+    warningStarts: "2026-07-06",
+    removeAfter,
+    replacement:
+      status === "removal-pending"
+        ? `${replacement}; PlatformClaw removal remains blocked until a verified upstream sync adopts the owning migration`
+        : replacement,
+    docsPath: "/plugins/sdk-migration",
+    surfaces: [`openclaw/plugin-sdk/${subpath}`],
+    diagnostics: [
+      "repository deprecated API usage guard for core and bundled plugins; no external runtime import warning",
+    ],
+    tests: ["src/plugins/compat/registry.test.ts"],
+  } satisfies PluginCompatRecord;
+}) satisfies readonly PluginCompatRecord[];
 
 const BUNDLED_ONLY_PUBLIC_PLUGIN_SDK_SUBPATH_SEEDS = [
   {
