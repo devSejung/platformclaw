@@ -4,6 +4,7 @@ import {
   type EmployeeBrowserAuthRuntimeOptions,
 } from "./browser-auth-runtime.js";
 import type { PersonalAgentProvisioner } from "./browser-auth-service.js";
+import { PlatformClawBrowserCanvasRelay } from "./browser-canvas-http.js";
 import { EmployeeExecutionService } from "./browser-execution-http.js";
 import { BrowserGatewayProxy } from "./browser-gateway-proxy.js";
 import {
@@ -12,6 +13,7 @@ import {
 } from "./browser-login-rate-limiter.js";
 import { McpAdministrationService } from "./browser-mcp-admin-http.js";
 import { EmployeeMcpService } from "./browser-mcp-http.js";
+import { PlatformClawBrowserMediaRelay } from "./browser-media-http.js";
 import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import { JiraVocService, type JiraVocConfig } from "./browser-voc-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
@@ -60,6 +62,11 @@ export type PlatformClawWebIngressRuntimeOptions = {
     | "mcpCredentialCipher"
   >;
   gatewayClient: PlatformClawGatewayRuntimeClientOptions;
+  mediaGateway?: {
+    origin: string;
+    auth: string;
+    fetchImpl?: typeof fetch;
+  };
   adminRpc: GatewayAdminRpc;
   publicOrigin: string;
   controlUiRoot: string;
@@ -225,12 +232,35 @@ export function createPlatformClawWebIngressRuntime(
     resolveAgentIdFromSessionKey: (sessionKey) => options.resolveAgentIdFromSessionKey(sessionKey),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
+  const mediaRelay = options.mediaGateway
+    ? new PlatformClawBrowserMediaRelay({
+        gatewayOrigin: options.mediaGateway.origin,
+        gatewayAuth: options.mediaGateway.auth,
+        gatewayProxy,
+        resolveAgentIdFromSessionKey: (sessionKey) =>
+          options.resolveAgentIdFromSessionKey(sessionKey),
+        ...(options.mediaGateway.fetchImpl ? { fetchImpl: options.mediaGateway.fetchImpl } : {}),
+        ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+      })
+    : undefined;
+  const canvasRelay = options.mediaGateway
+    ? new PlatformClawBrowserCanvasRelay({
+        publicOrigin: options.publicOrigin,
+        gatewayOrigin: options.mediaGateway.origin,
+        gatewayAuth: options.mediaGateway.auth,
+        gatewayProxy,
+        ...(options.mediaGateway.fetchImpl ? { fetchImpl: options.mediaGateway.fetchImpl } : {}),
+        ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+      })
+    : undefined;
   const server = new PlatformClawWebIngressServer({
     publicOrigin: options.publicOrigin,
     authService: auth.service,
     loginRateLimiter: new MemoryBrowserLoginRateLimiter(options.loginRateLimiter),
     gatewayProxy,
     gateway,
+    ...(mediaRelay ? { mediaRelay } : {}),
+    ...(canvasRelay ? { canvasRelay } : {}),
     executionService: employeeExecution,
     vmAdministrationService: vmAdministration,
     mcpAdministrationService: mcpAdministration,

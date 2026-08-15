@@ -61,8 +61,12 @@ export function bumpAssistantAttachmentAvailabilityRenderVersion(): void {
     (assistantAttachmentAvailabilityRenderVersion + 1) % Number.MAX_SAFE_INTEGER;
 }
 
-export function buildAssistantAttachmentMetaUrl(source: string, basePath?: string): string {
-  const attachmentUrl = buildAssistantAttachmentUrl(source, basePath);
+export function buildAssistantAttachmentMetaUrl(
+  source: string,
+  basePath?: string,
+  sessionKey?: string,
+): string {
+  const attachmentUrl = buildAssistantAttachmentUrl(source, basePath, undefined, sessionKey);
   return `${attachmentUrl}${attachmentUrl.includes("?") ? "&" : "?"}meta=1`;
 }
 

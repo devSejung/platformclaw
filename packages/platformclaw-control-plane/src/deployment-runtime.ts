@@ -76,7 +76,14 @@ export function createPlatformClawDeploymentRuntime(
         mode: GATEWAY_CLIENT_MODES.BACKEND,
         role: "operator",
         scopes: [...PLATFORMCLAW_GATEWAY_SERVICE_SCOPES],
+        // Browser chat supports core inline Canvas widgets; the shared service
+        // connection carries that client capability into agent tool gating.
+        caps: ["inline-widgets"],
       },
+    },
+    mediaGateway: {
+      origin: new URL(config.gatewayAdminRpcUrl).origin,
+      auth: config.gatewayAuth,
     },
     adminRpc: rpc,
     publicOrigin: config.publicOrigin,

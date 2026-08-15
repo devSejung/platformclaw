@@ -588,6 +588,19 @@ describe("gateway client capability tool filtering", () => {
     ).toBe(true);
   });
 
+  it("keeps Canvas available when project tools execute in a sandbox backend", () => {
+    expect(
+      hasTool(
+        createOpenClawTools({
+          agentSessionKey: "agent:person_one:main",
+          clientCaps: ["inline-widgets"],
+          sandboxed: true,
+        }),
+        "show_widget",
+      ),
+    ).toBe(true);
+  });
+
   it("keeps the core widget tool out of Discord sessions", () => {
     expect(
       hasTool(

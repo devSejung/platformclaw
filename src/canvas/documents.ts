@@ -30,6 +30,8 @@ type CanvasDocumentCreateInput = {
   assets?: CanvasDocumentAsset[];
   surface?: "assistant_message" | "tool_card" | "sidebar";
   retentionScope?: string;
+  /** Agent that materialized this document, for trusted multi-tenant relays. */
+  ownerAgentId?: string;
   /** Serve with a CSP sandbox header so direct opens get an opaque origin. */
   cspSandbox?: "scripts";
 };
@@ -45,6 +47,7 @@ export type CanvasDocumentManifest = {
   externalUrl?: string;
   surface?: "assistant_message" | "tool_card" | "sidebar";
   retentionScope?: string;
+  ownerAgentId?: string;
   cspSandbox?: "scripts";
   assets: Array<{
     logicalPath: string;
@@ -366,6 +369,7 @@ export async function createCanvasDocument(
       : {}),
     ...(input.surface ? { surface: input.surface } : {}),
     ...(input.retentionScope ? { retentionScope: input.retentionScope } : {}),
+    ...(input.ownerAgentId?.trim() ? { ownerAgentId: input.ownerAgentId.trim() } : {}),
     ...(input.cspSandbox ? { cspSandbox: input.cspSandbox } : {}),
     createdAt: new Date().toISOString(),
     entryUrl: entry.entryUrl,

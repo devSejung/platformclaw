@@ -205,6 +205,7 @@ export function createShowWidgetTool(options: ShowWidgetToolOptions = {}): AnyAg
           entrypoint: { type: "html", value: wrappedDocument },
           surface: "assistant_message",
           retentionScope: resolveRetentionScope(options),
+          ...(options.agentId?.trim() ? { ownerAgentId: options.agentId.trim() } : {}),
           // Direct navigation must not run widget script as the Control UI origin.
           cspSandbox: "scripts",
         },
