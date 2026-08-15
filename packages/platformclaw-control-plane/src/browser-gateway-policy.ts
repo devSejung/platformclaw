@@ -26,6 +26,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "cron.update",
   "models.list",
   "memory.search",
+  "approval.history",
   "approval.get",
   "approval.resolve",
   "plugins.install",
@@ -196,6 +197,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["cron.update", new Set(["expectedConfigRevision", "id", "jobId", "patch"])],
   ["models.list", new Set(["view"])],
   ["memory.search", new Set(["agentId", "query"])],
+  ["approval.history", new Set(["agentId", "cursor", "kind", "limit"])],
   ["approval.get", new Set(["id"])],
   ["approval.resolve", new Set(["id", "kind", "decision"])],
   [
@@ -397,6 +399,7 @@ export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
   "agents.files.list",
   "agents.files.set",
   "agents.workspace.get",
+  "approval.history",
   "chat.metadata",
   "commands.list",
   "memory.search",

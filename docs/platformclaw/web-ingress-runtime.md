@@ -71,6 +71,14 @@ search-provider metadata are not projected. Selecting an assigned VM does not
 change this ownership: long-term memory remains in the Gateway-hosted personal
 Agent workspace, while VM project files stay behind the sandbox file tools.
 
+The Approvals view can page through the personal Agent's 30-day terminal
+approval history with `approval.history`. The BFF pins the source-Agent filter
+before dispatch, rejects any returned row outside that binding, and removes
+optional host, plugin, session, and resolver identifiers from the browser
+projection. Pending approvals continue through the separate live session
+ownership flow. Assigned-VM approvals record the same personal Agent owner, so
+their terminal history appears here without exposing VM connection metadata.
+
 Transcript attachments and other downloadable session artifacts use
 `artifacts.list` and `artifacts.download` with an owned `sessionKey`.
 Browser-supplied `runId` and `taskId` scopes are rejected, returned artifact

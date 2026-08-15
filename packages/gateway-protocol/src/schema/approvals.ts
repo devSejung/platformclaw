@@ -234,6 +234,7 @@ export const ApprovalHistoryParamsSchema = closedObject({
   cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
   kind: Type.Optional(ApprovalKindSchema),
+  agentId: Type.Optional(NonEmptyString),
 });
 
 /** Newest-first page from the retained terminal approval ledger. */

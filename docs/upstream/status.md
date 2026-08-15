@@ -43,6 +43,10 @@
   and `artifacts.download`. The browser cannot select `runId` or `taskId`, and
   returned artifact identity is revalidated before data or a managed URL
   crosses the shared Gateway boundary.
+- Personal approval history adds the generic optional `agentId` filter to
+  `approval.history`. PlatformClaw always pins it to the browser binding and
+  projects only terminal rows for that Agent; direct operator calls that omit
+  the filter retain the upstream global history behavior.
 - These workspace, artifact, and rewind changes are downstream Browser Gateway
   policy and response projection only. They do not modify the Gateway protocol,
   upstream handlers, filesystem resolution, transcript storage, or artifact

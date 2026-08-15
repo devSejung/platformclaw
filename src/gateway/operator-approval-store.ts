@@ -826,6 +826,7 @@ export function listTerminalOperatorApprovals(
     cursor?: string;
     limit?: number;
     kind?: OperatorApprovalKind;
+    agentId?: string;
     nowMs?: number;
     databaseOptions?: OpenClawStateDatabaseOptions;
   } = {},
@@ -834,6 +835,10 @@ export function listTerminalOperatorApprovals(
     ? (params.limit ?? OPERATOR_APPROVAL_HISTORY_DEFAULT_LIMIT)
     : OPERATOR_APPROVAL_HISTORY_DEFAULT_LIMIT;
   const resultLimit = Math.max(1, Math.min(requestedLimit, OPERATOR_APPROVAL_HISTORY_MAX_LIMIT));
+  const agentId =
+    params.agentId === undefined
+      ? undefined
+      : requireString(params.agentId, "operator approval history agent id");
   // Enforce the same 30-day retention the UI promises, independent of whether a
   // prune has run recently, so history can never surface rows past the window.
   const retentionCutoffMs = (params.nowMs ?? Date.now()) - OPERATOR_APPROVAL_TERMINAL_RETENTION_MS;
@@ -860,6 +865,10 @@ export function listTerminalOperatorApprovals(
       .limit(batchLimit);
     if (params.kind) {
       query = query.where("kind", "=", params.kind);
+    }
+    // Tenant filters precede keyset pagination so cursors can only name rows in that Agent's page.
+    if (agentId) {
+      query = query.where("source_agent_id", "=", agentId);
     }
     if (cursor) {
       const pageCursor = cursor;

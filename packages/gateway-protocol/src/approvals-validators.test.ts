@@ -209,12 +209,18 @@ describe("unified approval protocol validators", () => {
     } as const;
 
     expect(validateApprovalHistoryParams({})).toBe(true);
-    expect(validateApprovalHistoryParams({ cursor: "cursor", limit: 50, kind: "plugin" })).toBe(
-      true,
-    );
+    expect(
+      validateApprovalHistoryParams({
+        agentId: "release",
+        cursor: "cursor",
+        limit: 50,
+        kind: "plugin",
+      }),
+    ).toBe(true);
     expect(validateApprovalHistoryParams({ limit: 0 })).toBe(false);
     expect(validateApprovalHistoryParams({ limit: 101 })).toBe(false);
     expect(validateApprovalHistoryParams({ kind: "tool" })).toBe(false);
+    expect(validateApprovalHistoryParams({ agentId: "" })).toBe(false);
 
     expect(validateApprovalHistoryResult({ items: [terminal], nextCursor: "next" })).toBe(true);
     expect(validateApprovalHistoryResult({ items: [{ ...execRecord, status: "pending" }] })).toBe(

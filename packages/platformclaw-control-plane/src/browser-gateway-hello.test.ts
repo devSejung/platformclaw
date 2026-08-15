@@ -186,6 +186,18 @@ describe("projectPlatformClawBrowserHello", () => {
     );
   });
 
+  it("advertises personal approval history only when the Gateway supports it", () => {
+    const upstream = upstreamHello();
+    upstream.features.methods.push("approval.history");
+    const projected = projectPlatformClawBrowserHello({
+      upstream,
+      access,
+      connectionId: "browser-approval-history",
+    });
+
+    expect(projected.features.methods).toContain("approval.history");
+  });
+
   it("advertises personal-agent interactive and invalidation capabilities", () => {
     const upstream = upstreamHello();
     upstream.features.methods.push(
