@@ -341,7 +341,7 @@ describe("unified approval handlers", () => {
     const firstPage = await invoke({
       handlers,
       method: "approval.history",
-      body: { limit: 1 },
+      body: { agentId: "main", limit: 1 },
       client: createClient({ deviceId: "reviewer" }),
       context: createContext("/operator/"),
     });
@@ -360,7 +360,7 @@ describe("unified approval handlers", () => {
     const secondPage = await invoke({
       handlers,
       method: "approval.history",
-      body: { cursor: firstResult.nextCursor, limit: 1 },
+      body: { agentId: "main", cursor: firstResult.nextCursor, limit: 1 },
       client: createClient({ deviceId: "reviewer" }),
     });
     expect(secondPage.ok).toBe(true);

@@ -291,6 +291,7 @@ export function createApprovalHandlers(
           cursor: historyParams.cursor,
           limit: historyParams.limit,
           kind: historyParams.kind,
+          agentId: historyParams.agentId,
           databaseOptions: params.databaseOptions,
         });
       } catch (error) {

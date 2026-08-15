@@ -246,6 +246,54 @@ describe("operator approval store", () => {
     ).toEqual(["plugin-new"]);
   });
 
+  it("filters terminal history by source Agent before keyset pagination", () => {
+    const databaseOptions = createDatabaseOptions();
+    const ownedApproval = (id: string, agentId: string, createdAtMs: number) => {
+      const entry = approval(id, { createdAtMs });
+      return {
+        ...entry,
+        source: {
+          ...entry.source,
+          agentId,
+          sessionKey: `agent:${agentId}:main`,
+        },
+      };
+    };
+    for (const entry of [
+      ownedApproval("alice-new", "alice", 1_003),
+      ownedApproval("bob-middle", "bob", 1_002),
+      ownedApproval("alice-old", "alice", 1_001),
+    ]) {
+      insertOperatorApproval({ approval: entry, databaseOptions });
+      resolveOperatorApproval({
+        id: entry.id,
+        decision: "deny",
+        resolver: { kind: "device", id: "reviewer" },
+        nowMs: entry.createdAtMs + 1_000,
+        databaseOptions,
+      });
+    }
+
+    const firstPage = listTerminalOperatorApprovals({
+      agentId: "alice",
+      limit: 1,
+      nowMs: 3_000,
+      databaseOptions,
+    });
+    expect(firstPage.records.map((record) => record.id)).toEqual(["alice-new"]);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+
+    const secondPage = listTerminalOperatorApprovals({
+      agentId: "alice",
+      cursor: firstPage.nextCursor,
+      limit: 1,
+      nowMs: 3_000,
+      databaseOptions,
+    });
+    expect(secondPage.records.map((record) => record.id)).toEqual(["alice-old"]);
+    expect(secondPage.nextCursor).toBeUndefined();
+  });
+
   it("excludes terminal rows resolved before the 30-day retention cutoff", () => {
     const databaseOptions = createDatabaseOptions();
     const day = 24 * 60 * 60_000;
