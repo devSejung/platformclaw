@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import {
   PlatformClawBrowserMediaRelay,
   type PlatformClawBrowserMediaPolicy,
@@ -31,10 +31,17 @@ async function listen(
   return { server, origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
 
-function createPolicy(history: unknown): PlatformClawBrowserMediaPolicy {
+function createPolicy(history: unknown): PlatformClawBrowserMediaPolicy & {
+  requestMock: Mock<(token: string, method: string, params?: unknown) => Promise<unknown>>;
+} {
+  const requestMock = vi.fn(
+    async (_token: string, _method: string, _params?: unknown): Promise<unknown> => history,
+  );
   return {
     resolveAccess: vi.fn(async () => ({ binding: { agentId: "employee-one" } })),
-    request: vi.fn(async () => history),
+    request: async <T = unknown>(token: string, method: string, params?: unknown) =>
+      (await requestMock(token, method, params)) as T,
+    requestMock,
   };
 }
 
@@ -106,7 +113,7 @@ describe("PlatformClaw browser media relay", () => {
     expect(payload.mediaTicket).toMatch(/^v1\./u);
     expect(payload.mediaTicket).not.toContain("upstream-ticket");
     expect(payload.mediaTicketExpiresAt).toBe(new Date(301_000).toISOString());
-    expect(vi.mocked(policy.request)).toHaveBeenCalledWith("browser-token", "chat.history", {
+    expect(policy.requestMock).toHaveBeenCalledWith("browser-token", "chat.history", {
       sessionKey: OWN_SESSION,
       limit: 1000,
       maxChars: 500_000,
@@ -169,12 +176,13 @@ describe("PlatformClaw browser media relay", () => {
 
   it("relays only signed managed media for the active agent session", async () => {
     const policy = createPolicy({ messages: [] });
-    const upstreamFetch = vi.fn(async () => {
+    const upstreamFetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
       return new Response("managed-bytes", {
         status: 206,
         headers: { "Content-Range": "bytes 0-12/13", "Content-Type": "application/pdf" },
       });
-    }) as typeof fetch;
+    });
+    const upstreamFetch = upstreamFetchMock as typeof fetch;
     const relay = new PlatformClawBrowserMediaRelay({
       gatewayOrigin: "http://private-gateway.invalid",
       gatewayAuth: "service-secret",
@@ -191,7 +199,7 @@ describe("PlatformClaw browser media relay", () => {
     });
     expect(own.status).toBe(206);
     expect(await own.text()).toBe("managed-bytes");
-    const forwardedHeaders = new Headers(upstreamFetch.mock.calls[0]?.[1]?.headers);
+    const forwardedHeaders = new Headers(upstreamFetchMock.mock.calls[0]?.[1]?.headers);
     expect(forwardedHeaders.has("authorization")).toBe(false);
     expect(forwardedHeaders.get("range")).toBe("bytes=0-12");
     const foreignPath = `/api/chat/media/outgoing/${encodeURIComponent("agent:employee-two:main")}/attachment-1/full`;
