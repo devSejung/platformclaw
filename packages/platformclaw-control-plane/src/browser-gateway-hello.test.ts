@@ -172,6 +172,20 @@ describe("projectPlatformClawBrowserHello", () => {
     expect(JSON.stringify(projected)).not.toContain("private-token");
   });
 
+  it("advertises personal memory reads only when the Gateway supports them", () => {
+    const upstream = upstreamHello();
+    upstream.features.methods.push("memory.search", "agents.workspace.get");
+    const projected = projectPlatformClawBrowserHello({
+      upstream,
+      access,
+      connectionId: "browser-memory",
+    });
+
+    expect(projected.features.methods).toEqual(
+      expect.arrayContaining(["memory.search", "agents.workspace.get"]),
+    );
+  });
+
   it("advertises personal-agent interactive and invalidation capabilities", () => {
     const upstream = upstreamHello();
     upstream.features.methods.push(
