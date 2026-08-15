@@ -2,7 +2,6 @@ import { consume } from "@lit/context";
 import { html, nothing } from "lit";
 import { state } from "lit/decorators.js";
 import { applicationContext, type ApplicationContext } from "../../app/context.ts";
-import { renderHubTabs } from "../../components/hub-tabs.ts";
 import "../../components/modal-dialog.ts";
 import { t } from "../../i18n/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
@@ -34,9 +33,9 @@ import {
 } from "../../platformclaw/skill-hub.ts";
 import "../../styles/plugins.css";
 import "../../styles/skill-hub.css";
+import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
 import {
   PLUGINS_HUB_PANEL_ID,
-  pluginsHubTabs,
   routeForPluginsHubTab,
   type PluginsHubTab,
 } from "../plugins/plugins-hub.ts";
@@ -550,11 +549,14 @@ class SkillHubPage extends OpenClawLightDomElement {
   }
 
   override render() {
-    return html`<section class="content--skill-hub">
-      <section class="content-header content-header--page plugins-content-header">
+    return renderPluginsHubShell({
+      context: this.context,
+      active: "skill-hub",
+      className: "content--skill-hub",
+      header: html`<section class="content-header content-header--page plugins-content-header">
         <div>
           <h1 class="page-title">${t("tabs.skillHub")}</h1>
-          <p class="page-subtitle">${t("subtitles.skillHub")}</p>
+          <div class="page-subtitle">${t("subtitles.skillHub")}</div>
         </div>
         <div class="skill-hub-header-actions">
           ${this.config?.admin
@@ -579,130 +581,121 @@ class SkillHubPage extends OpenClawLightDomElement {
               : nothing}
           </button>
         </div>
-      </section>
-      <div class="plugins-hub-tabs-row">
-        ${renderHubTabs({
-          id: "plugins",
-          active: "skill-hub",
-          tabs: pluginsHubTabs(null, ["skills", "workshop", "skill-hub"]),
-          ariaLabel: t("pluginsPage.hubTablistLabel"),
-          panelId: PLUGINS_HUB_PANEL_ID,
-          className: "plugins-tabs",
-          onSelect: (tab) => this.selectHubTab(tab),
+      </section>`,
+      content: html`<wa-tab-panel
+          id=${PLUGINS_HUB_PANEL_ID}
+          name="skill-hub"
+          active
+          aria-labelledby="plugins-tab-skill-hub"
+        >
+          <main class="skill-hub-page">
+            <section class="skill-hub-hero">
+              <div>
+                <span class="skill-hub-eyebrow">${t("skillHubPage.companyRegistry")}</span>
+                <h2>${t("skillHubPage.heroTitle")}</h2>
+                <p>${t("skillHubPage.heroDescription")}</p>
+                ${this.config
+                  ? html`<p class="skill-hub-registry-status">
+                      ${t("skillHubPage.namespacesAvailable", {
+                        count: String(this.config.namespaces.length),
+                      })}
+                    </p>`
+                  : nothing}
+              </div>
+              <div class="skill-hub-search">
+                <input
+                  class="settings-input"
+                  .value=${this.query}
+                  placeholder=${t("skillsPage.skillHub.searchPlaceholder")}
+                  @input=${(event: Event) =>
+                    (this.query = (event.target as HTMLInputElement).value)}
+                  @keydown=${(event: KeyboardEvent) => {
+                    if (event.key === "Enter") {
+                      void this.search();
+                    }
+                  }}
+                />
+                <button class="btn primary" ?disabled=${this.loading} @click=${() => this.search()}>
+                  ${this.loading
+                    ? t("skillsPage.skillHub.searching")
+                    : t("skillsPage.skillHub.search")}
+                </button>
+              </div>
+            </section>
+            ${this.error ? html`<div class="callout danger">${this.error}</div>` : nothing}
+            ${this.message
+              ? html`<div class="callout ${this.message.kind === "error" ? "danger" : "success"}">
+                  ${this.message.text}
+                </div>`
+              : nothing}
+            <section class="skill-hub-results" aria-busy=${this.loading ? "true" : "false"}>
+              <header>
+                <h2>${t("skillHubPage.catalog")}</h2>
+                <span>${t("skillHubPage.resultCount", { count: String(this.total) })}</span>
+              </header>
+              ${this.loading && !this.results
+                ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
+                : this.results?.length
+                  ? html`<div class="skill-hub-grid">
+                      ${this.results.map((item) => this.renderCard(item))}
+                    </div>`
+                  : html`<div class="skill-hub-state">${t("skillsPage.skillHub.noResults")}</div>`}
+            </section>
+          </main>
+        </wa-tab-panel>
+        ${this.renderDetail()}
+        ${renderSkillHubNotifications({
+          open: this.notificationsOpen,
+          loading: this.notificationsLoading,
+          items: this.notifications,
+          onClose: () => (this.notificationsOpen = false),
+          onMarkAllRead: () => void this.markAllNotificationsRead(),
         })}
-      </div>
-      <wa-tab-panel
-        id=${PLUGINS_HUB_PANEL_ID}
-        name="skill-hub"
-        active
-        aria-labelledby="plugins-tab-skill-hub"
-      >
-        <main class="skill-hub-page">
-          <section class="skill-hub-hero">
-            <div>
-              <span class="skill-hub-eyebrow">${t("skillHubPage.companyRegistry")}</span>
-              <h2>${t("skillHubPage.heroTitle")}</h2>
-              <p>${t("skillHubPage.heroDescription")}</p>
-              ${this.config
-                ? html`<p class="skill-hub-registry-status">
-                    ${t("skillHubPage.namespacesAvailable", {
-                      count: String(this.config.namespaces.length),
-                    })}
-                  </p>`
-                : nothing}
-            </div>
-            <div class="skill-hub-search">
-              <input
-                class="settings-input"
-                .value=${this.query}
-                placeholder=${t("skillsPage.skillHub.searchPlaceholder")}
-                @input=${(event: Event) => (this.query = (event.target as HTMLInputElement).value)}
-                @keydown=${(event: KeyboardEvent) => {
-                  if (event.key === "Enter") {
-                    void this.search();
-                  }
-                }}
-              />
-              <button class="btn primary" ?disabled=${this.loading} @click=${() => this.search()}>
-                ${this.loading
-                  ? t("skillsPage.skillHub.searching")
-                  : t("skillsPage.skillHub.search")}
-              </button>
-            </div>
-          </section>
-          ${this.error ? html`<div class="callout danger">${this.error}</div>` : nothing}
-          ${this.message
-            ? html`<div class="callout ${this.message.kind === "error" ? "danger" : "success"}">
-                ${this.message.text}
-              </div>`
-            : nothing}
-          <section class="skill-hub-results" aria-busy=${this.loading ? "true" : "false"}>
-            <header>
-              <h2>${t("skillHubPage.catalog")}</h2>
-              <span>${t("skillHubPage.resultCount", { count: String(this.total) })}</span>
-            </header>
-            ${this.loading && !this.results
-              ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
-              : this.results?.length
-                ? html`<div class="skill-hub-grid">
-                    ${this.results.map((item) => this.renderCard(item))}
-                  </div>`
-                : html`<div class="skill-hub-state">${t("skillsPage.skillHub.noResults")}</div>`}
-          </section>
-        </main>
-      </wa-tab-panel>
-      ${this.renderDetail()}
-      ${renderSkillHubNotifications({
-        open: this.notificationsOpen,
-        loading: this.notificationsLoading,
-        items: this.notifications,
-        onClose: () => (this.notificationsOpen = false),
-        onMarkAllRead: () => void this.markAllNotificationsRead(),
-      })}
-      ${renderSkillHubUpload({
-        open: this.uploadOpen,
-        config: this.config,
-        file: this.uploadFile,
-        slug: this.uploadSlug,
-        namespace: this.uploadNamespace,
-        version: this.uploadVersion,
-        visibility: this.uploadVisibility,
-        busy: this.uploading,
-        onClose: () => (this.uploadOpen = false),
-        onFile: (file) => (this.uploadFile = file),
-        onSlug: (value) => (this.uploadSlug = value),
-        onNamespace: (value) => (this.uploadNamespace = value),
-        onVersion: (value) => (this.uploadVersion = value),
-        onVisibility: (value) => (this.uploadVisibility = value),
-        onPublish: () => void this.publishZip(),
-      })}
-      ${renderSkillHubAdmin({
-        open: this.adminOpen,
-        loading: this.adminLoading,
-        busy: this.adminBusy,
-        bindings: this.namespaceBindings,
-        scopes: this.managedScopes,
-        unassigned: this.unassignedSkills,
-        draft: this.adminDraft,
-        onClose: () => (this.adminOpen = false),
-        onDraft: (draft) => (this.adminDraft = draft),
-        onSave: () => void this.saveNamespaceBinding(),
-        onRemove: (namespace) => void this.removeNamespaceBinding(namespace),
-      })}
-      ${renderSkillHubVersionChange({
-        open: this.pendingVersionChange !== null,
-        currentVersion: this.pendingVersionChange?.currentVersion ?? "",
-        requestedVersion: this.pendingVersionChange?.requestedVersion ?? "",
-        direction: this.pendingVersionChange?.direction ?? "upgrade",
-        busy: this.installing !== null,
-        onClose: () => (this.pendingVersionChange = null),
-        onConfirm: () => {
-          if (this.pendingVersionChange) {
-            void this.install(this.pendingVersionChange.target, this.pendingVersionChange);
-          }
-        },
-      })}
-    </section>`;
+        ${renderSkillHubUpload({
+          open: this.uploadOpen,
+          config: this.config,
+          file: this.uploadFile,
+          slug: this.uploadSlug,
+          namespace: this.uploadNamespace,
+          version: this.uploadVersion,
+          visibility: this.uploadVisibility,
+          busy: this.uploading,
+          onClose: () => (this.uploadOpen = false),
+          onFile: (file) => (this.uploadFile = file),
+          onSlug: (value) => (this.uploadSlug = value),
+          onNamespace: (value) => (this.uploadNamespace = value),
+          onVersion: (value) => (this.uploadVersion = value),
+          onVisibility: (value) => (this.uploadVisibility = value),
+          onPublish: () => void this.publishZip(),
+        })}
+        ${renderSkillHubAdmin({
+          open: this.adminOpen,
+          loading: this.adminLoading,
+          busy: this.adminBusy,
+          bindings: this.namespaceBindings,
+          scopes: this.managedScopes,
+          unassigned: this.unassignedSkills,
+          draft: this.adminDraft,
+          onClose: () => (this.adminOpen = false),
+          onDraft: (draft) => (this.adminDraft = draft),
+          onSave: () => void this.saveNamespaceBinding(),
+          onRemove: (namespace) => void this.removeNamespaceBinding(namespace),
+        })}
+        ${renderSkillHubVersionChange({
+          open: this.pendingVersionChange !== null,
+          currentVersion: this.pendingVersionChange?.currentVersion ?? "",
+          requestedVersion: this.pendingVersionChange?.requestedVersion ?? "",
+          direction: this.pendingVersionChange?.direction ?? "upgrade",
+          busy: this.installing !== null,
+          onClose: () => (this.pendingVersionChange = null),
+          onConfirm: () => {
+            if (this.pendingVersionChange) {
+              void this.install(this.pendingVersionChange.target, this.pendingVersionChange);
+            }
+          },
+        })}`,
+      onSelect: (tab) => this.selectHubTab(tab),
+    });
   }
 }
 

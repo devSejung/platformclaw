@@ -9,7 +9,6 @@ import {
   type ApplicationContext,
   type ApplicationGatewaySnapshot,
 } from "../../app/context.ts";
-import { renderHubTabs } from "../../components/hub-tabs.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
 import { t } from "../../i18n/index.ts";
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
@@ -42,9 +41,9 @@ import {
   type PlatformClawSkillHubConfig,
   type PlatformClawSkillHubMessage,
 } from "../../platformclaw/skill-hub.ts";
+import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
 import {
   PLUGINS_HUB_PANEL_ID,
-  pluginsHubTabs,
   routeForPluginsHubTab,
   type PluginsHubTab,
 } from "../plugins/plugins-hub.ts";
@@ -59,12 +58,6 @@ export type SkillsRouteData = {
   report: SkillStatusReport | null;
   error: string | null;
 };
-
-export function skillsPageAllowedHubTabs(
-  accessMode: ApplicationContext["accessMode"],
-): readonly PluginsHubTab[] | undefined {
-  return accessMode === "personal-agent" ? ["skills", "workshop", "skill-hub"] : undefined;
-}
 
 export class SkillsChangedRefreshQueue {
   private pending = false;
@@ -513,24 +506,15 @@ class SkillsPage extends OpenClawLightDomElement {
   override render() {
     const agents = this.context.agents.state;
     const error = this.skillsError ?? agents.agentsError;
-    return html`
-      <section class="content-header content-header--page plugins-content-header">
+    return renderPluginsHubShell({
+      context: this.context,
+      active: "skills",
+      header: html`<section class="content-header content-header--page plugins-content-header">
         <div>
           <h1 class="page-title">${titleForRoute("skills")}</h1>
         </div>
-      </section>
-      ${renderSettingsWorkspace(html`
-        <div class="plugins-hub-tabs-row">
-          ${renderHubTabs({
-            id: "plugins",
-            active: "skills",
-            tabs: pluginsHubTabs(null, skillsPageAllowedHubTabs(this.context.accessMode)),
-            ariaLabel: t("pluginsPage.hubTablistLabel"),
-            panelId: PLUGINS_HUB_PANEL_ID,
-            className: "plugins-tabs",
-            onSelect: (tab) => this.selectHubTab(tab),
-          })}
-        </div>
+      </section>`,
+      content: renderSettingsWorkspace(html`
         <wa-tab-panel
           id=${PLUGINS_HUB_PANEL_ID}
           name="skills"
@@ -624,8 +608,9 @@ class SkillsPage extends OpenClawLightDomElement {
             onSkillHubPublish: () => void this.publishSkillHub(),
           })}
         </wa-tab-panel>
-      `)}
-    `;
+      `),
+      onSelect: (tab) => this.selectHubTab(tab),
+    });
   }
 }
 

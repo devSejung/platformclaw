@@ -1,17 +1,6 @@
 import { pathForPluginsHubTab } from "../../app-route-paths.ts";
 import type { ApplicationContext } from "../../app/context.ts";
-import {
-  pluginsHubTabs,
-  routeForPluginsHubTab,
-  type PluginsHubTab,
-} from "../plugins/plugins-hub.ts";
-
-export function workshopPluginsHubTabs(accessMode: ApplicationContext["accessMode"]) {
-  return pluginsHubTabs(
-    null,
-    accessMode === "personal-agent" ? ["skills", "workshop", "skill-hub"] : undefined,
-  );
-}
+import { routeForPluginsHubTab, type PluginsHubTab } from "../plugins/plugins-hub.ts";
 
 export function selectPluginsHubTab(
   context: Pick<ApplicationContext, "basePath" | "navigate">,

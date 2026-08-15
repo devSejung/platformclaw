@@ -95,6 +95,8 @@ export type ApplicationInitialUserMessageHandoff = {
 export type ApplicationContext<TRouteId extends string = string> = {
   readonly basePath: string;
   readonly accessMode?: ApplicationAccessMode;
+  /** Canonical route availability resolved by the product bootstrap. */
+  readonly isRouteEnabled?: (routeId: TRouteId) => boolean;
   readonly gateway: ApplicationGateway;
   readonly agents: AgentCapability;
   readonly agentIdentity: AgentIdentityCapability;

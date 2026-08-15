@@ -1,3 +1,5 @@
+import type { RouteId } from "../../app-route-paths.ts";
+import type { ApplicationContext } from "../../app/context.ts";
 import type { HubTabOption } from "../../components/hub-tabs.ts";
 import { t } from "../../i18n/index.ts";
 
@@ -27,4 +29,26 @@ export function pluginsHubTabs(
   ];
   const allowed = allowedTabs ? new Set(allowedTabs) : null;
   return allowed ? tabs.filter((tab) => allowed.has(tab.value)) : tabs;
+}
+
+const PLUGINS_HUB_TAB_ROUTES: Readonly<Record<PluginsHubTab, RouteId>> = {
+  installed: "plugins",
+  discover: "plugins",
+  skills: "skills",
+  workshop: "skill-workshop",
+  "skill-hub": "skill-hub",
+};
+
+export function pluginsHubTabsForContext(
+  context?: Pick<ApplicationContext<RouteId>, "accessMode" | "isRouteEnabled">,
+): ReadonlyArray<HubTabOption<PluginsHubTab>> {
+  if (context?.isRouteEnabled) {
+    return pluginsHubTabs().filter((tab) =>
+      context.isRouteEnabled?.(PLUGINS_HUB_TAB_ROUTES[tab.value]),
+    );
+  }
+  return pluginsHubTabs(
+    null,
+    context?.accessMode === "personal-agent" ? ["skills", "workshop", "skill-hub"] : undefined,
+  );
 }

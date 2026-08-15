@@ -509,6 +509,7 @@ export function bootstrapApplication(
   const context: ApplicationContext<RouteId> = {
     basePath,
     accessMode: options.accessMode ?? "operator",
+    isRouteEnabled: (routeId) => enabledRouteIds.includes(routeId),
     gateway,
     agents,
     agentIdentity,
