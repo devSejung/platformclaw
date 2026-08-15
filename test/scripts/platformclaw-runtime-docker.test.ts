@@ -639,6 +639,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(preview).toContain("EmployeeAuthCa = Join-Path");
     expect(preview).toContain("Initialize-PreviewCa $Paths");
     expect(preview).toContain("PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE");
+    expect(preview).toContain('PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT = "18080"');
     expect(preview).toContain("PLATFORMCLAW_KNOX_CDEP_URL");
     expect(preview).toContain("PLATFORMCLAW_KNOX_WEBHOOK_SECRET_SECRET_FILE");
     expect(preview).toContain("PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE");

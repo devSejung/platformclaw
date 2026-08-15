@@ -230,6 +230,7 @@ describe("PlatformClaw shared check workflow", () => {
       PLATFORMCLAW_DEPLOY_ROOT: "/var/lib/platformclaw",
       PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE: "/tmp/platformclaw-employee-auth-ca.pem",
       PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL: "https://auth.example.test/adsso",
+      PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT: "18080",
       PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE: "/tmp/platformclaw-empty-secret",
       PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE: "/tmp/platformclaw-empty-secret",
       PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE: "/tmp/platformclaw-empty-secret",
