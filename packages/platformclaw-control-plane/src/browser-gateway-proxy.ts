@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
-import {
-  projectBrowserCommands,
-  resolveBrowserCommandSuppression,
-} from "./browser-command-policy.js";
+import { resolveBrowserCommandSuppression } from "./browser-command-policy.js";
 import { resolveBrowserGatewayAccess } from "./browser-gateway-access.js";
 import { BrowserGatewayAssertions } from "./browser-gateway-assertions.js";
+import { projectBrowserCatalogResult } from "./browser-gateway-catalog-projections.js";
 import {
   BrowserGatewayProxyError,
   type BrowserGatewayAccess,
@@ -21,6 +19,10 @@ import {
 } from "./browser-gateway-cron-controller.js";
 export { PLATFORMCLAW_WEB_GATEWAY_EVENTS } from "./browser-gateway-event-policy.js";
 import { BrowserGatewayLiveCapabilities } from "./browser-gateway-live-capabilities.js";
+import {
+  prepareBrowserMemoryRequest,
+  projectBrowserMemoryResult,
+} from "./browser-gateway-memory.js";
 import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-visibility.js";
 import {
   browserEventPayloadBelongsToAccess,
@@ -33,10 +35,7 @@ import {
   PLATFORMCLAW_WEB_ALLOWED_PARAMS,
   PLATFORMCLAW_WEB_SESSION_KEY_METHODS,
 } from "./browser-gateway-policy.js";
-import {
-  projectBrowserAgentSummary,
-  projectBrowserModelChoice,
-} from "./browser-gateway-projections.js";
+import { optionalString, projectBrowserAgentSummary } from "./browser-gateway-projections.js";
 import { projectBrowserSessionResult } from "./browser-gateway-session-projections.js";
 export {
   PLATFORMCLAW_WEB_GATEWAY_METHODS,
@@ -68,10 +67,6 @@ function asObject(value: unknown, label: string): JsonObject {
     throw new BrowserGatewayProxyError("invalid-params", `${label} must be an object`);
   }
   return { ...(value as JsonObject) };
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
@@ -445,6 +440,19 @@ export class BrowserGatewayProxy {
       }
       return { ...params, agentId: access.binding.agentId, emitCommandHooks: false };
     }
+    const memoryParams = prepareBrowserMemoryRequest({
+      method,
+      request: params,
+      agentId: access.binding.agentId,
+      assertOptionalAgentId: (value, label) =>
+        this.assertions.optionalAgentId(access.binding.agentId, value, label),
+      fail: (message) => {
+        throw new BrowserGatewayProxyError("method-not-allowed", message);
+      },
+    });
+    if (memoryParams !== undefined) {
+      return memoryParams;
+    }
     if (method.startsWith("sessions.companion.")) {
       this.assertions.ownedSessionKey(access.binding.agentId, params.sessionKey, "sessionKey");
       return params;
@@ -458,8 +466,7 @@ export class BrowserGatewayProxy {
     if (method === "sessions.subscribe") {
       return params;
     }
-    // Task mutations and direct reads are owner-checked separately. Listing still
-    // needs the shared agent-only policy below to pin the query to this browser.
+    // Task writes/reads are owner-checked; listing still needs the shared Agent pin below.
     if (isBrowserTaskMethod(method) && method !== "tasks.list") {
       return params;
     }
@@ -535,6 +542,18 @@ export class BrowserGatewayProxy {
         },
       });
     }
+    const memoryResult = projectBrowserMemoryResult({
+      method,
+      request: prepared,
+      result,
+      agentId: access.binding.agentId,
+      fail: (message) => {
+        throw new BrowserGatewayProxyError("upstream-result-denied", message);
+      },
+    });
+    if (memoryResult !== undefined) {
+      return memoryResult;
+    }
     if (method.startsWith("agents.files.")) {
       return projectBrowserAgentFiles({
         agentId: access.binding.agentId,
@@ -556,34 +575,13 @@ export class BrowserGatewayProxy {
         },
       });
     }
-    if (method === "models.list") {
-      const payload = asObject(result, "models.list result");
-      const models = Array.isArray(payload.models)
-        ? payload.models.map(projectBrowserModelChoice).filter((entry) => entry !== null)
-        : [];
-      return { models };
-    }
-    if (method === "chat.metadata" || method === "commands.list") {
-      const payload = asObject(result, `${method} result`);
-      const commands = projectBrowserCommands(payload.commands);
-      return method === "chat.metadata" && payload.models !== undefined
-        ? { models: payload.models, commands }
-        : { commands };
-    }
-    if (method === "agents.list") {
-      const payload = asObject(result, "agents.list result");
-      const agents = Array.isArray(payload.agents)
-        ? payload.agents
-            .map(projectBrowserAgentSummary)
-            .filter((entry) => entry?.id === access.binding.agentId)
-        : [];
-      if (agents.length !== 1) {
-        throw new BrowserGatewayProxyError(
-          "upstream-result-denied",
-          "owned agent missing from Gateway response",
-        );
-      }
-      return { ...payload, defaultId: access.binding.agentId, agents };
+    const catalogResult = projectBrowserCatalogResult({
+      method,
+      result,
+      agentId: access.binding.agentId,
+    });
+    if (catalogResult.handled) {
+      return catalogResult.result;
     }
     if (method === "chat.history" || method === "chat.startup") {
       const payload = asObject(result, `${method} result`);
@@ -620,7 +618,6 @@ export class BrowserGatewayProxy {
       };
     }
     if (method === "chat.message.get") {
-      // Upstream resolves message IDs inside the already-pinned session transcript.
       this.assertions.ownedResultSessionKey(access.binding.agentId, prepared.sessionKey);
       const payload = asObject(result, "chat.message.get result");
       if (payload.ok === true) {

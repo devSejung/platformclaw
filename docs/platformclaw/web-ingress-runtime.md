@@ -62,6 +62,15 @@ other host-absolute paths. `sessions.files.set`, `sessions.files.reveal`, and
 `sessions.diff` remain blocked. This read-only Session Files surface is
 separate from the Agent page's bounded Core Files editor.
 
+The Settings > Memory > Memories view can search the personal Agent's
+long-term memory with `memory.search` and open a result with
+`agents.workspace.get`. The proxy pins both calls to the browser binding,
+removes session-transcript search hits, and permits file reads only for
+`MEMORY.md` and Markdown files below `memory/`. Gateway workspace roots and
+search-provider metadata are not projected. Selecting an assigned VM does not
+change this ownership: long-term memory remains in the Gateway-hosted personal
+Agent workspace, while VM project files stay behind the sandbox file tools.
+
 Transcript attachments and other downloadable session artifacts use
 `artifacts.list` and `artifacts.download` with an owned `sessionKey`.
 Browser-supplied `runId` and `taskId` scopes are rejected, returned artifact
