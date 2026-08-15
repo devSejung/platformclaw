@@ -6,6 +6,7 @@ import type {
   PlatformClawSkillHubNamespaceBinding,
   PlatformClawSkillHubUnassignedSkill,
 } from "../../platformclaw/skill-hub.ts";
+import { skillHubScopeKindLabel, skillHubVisibilityLabel } from "./labels.ts";
 
 export type SkillHubAdminDraft = {
   namespace: string;
@@ -129,13 +130,13 @@ export function renderSkillHubAdmin(props: {
                         <div>
                           <strong>${binding.namespace}</strong>
                           <small
-                            >${binding.scopeKind}${binding.scopeId
+                            >${skillHubScopeKindLabel(binding.scopeKind)}${binding.scopeId
                               ? ` · ${
                                   props.scopes.find((scope) => scope.id === binding.scopeId)
                                     ?.name ?? binding.scopeId
                                 }`
                               : ""}
-                            · ${binding.visibilityCeiling}</small
+                            · ${skillHubVisibilityLabel(binding.visibilityCeiling)}</small
                           >
                         </div>
                         <button
@@ -163,7 +164,7 @@ export function renderSkillHubAdmin(props: {
                             >${t("skillHubPage.versionValue", {
                               version: skill.currentVersion,
                             })}
-                            · ${skill.visibility}</small
+                            · ${skillHubVisibilityLabel(skill.visibility)}</small
                           >
                         </div>
                       </article>`,

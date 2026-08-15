@@ -26,13 +26,18 @@
   gap: 4px;
 }
 
-.skill-hub-dialog {
+.skill-hub-dialog,
+.skill-hub-detail {
   display: grid;
   gap: 18px;
   width: min(680px, calc(100vw - 32px));
   max-height: min(760px, calc(100vh - 40px));
   padding: 22px;
   overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+  background: var(--popover);
+  box-shadow: var(--shadow-xl);
 }
 
 .skill-hub-dialog__header {
@@ -268,15 +273,6 @@
   text-align: center;
   border: 1px dashed var(--border);
   border-radius: 16px;
-}
-
-.skill-hub-detail {
-  display: grid;
-  gap: 18px;
-  width: min(680px, calc(100vw - 32px));
-  max-height: min(760px, calc(100vh - 40px));
-  padding: 22px;
-  overflow: auto;
 }
 
 .skill-hub-detail__header {

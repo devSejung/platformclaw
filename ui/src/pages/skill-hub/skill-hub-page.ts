@@ -46,6 +46,12 @@ import {
   renderSkillHubUpload,
   renderSkillHubVersionChange,
 } from "./dialogs.ts";
+import {
+  skillHubScannerStatusLabel,
+  skillHubSkillStatusLabel,
+  skillHubVersionStatusLabel,
+  skillHubVisibilityLabel,
+} from "./labels.ts";
 import { renderSkillHubManagement } from "./management.ts";
 
 type SkillHubRef = { namespace: string; slug: string };
@@ -415,11 +421,11 @@ class SkillHubPage extends OpenClawLightDomElement {
           ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
           : html`
               <div class="skill-hub-badges">
-                <span class="skill-hub-badge">${skill?.visibility ?? ""}</span>
-                <span class="skill-hub-badge">${skill?.status ?? ""}</span>
+                <span class="skill-hub-badge">${skillHubVisibilityLabel(skill?.visibility)}</span>
+                <span class="skill-hub-badge">${skillHubSkillStatusLabel(skill?.status)}</span>
                 ${this.detail?.scanner
                   ? html`<span class="skill-hub-badge is-${this.detail.scanner.status}">
-                      ${this.detail.scanner.badge}
+                      ${skillHubScannerStatusLabel(this.detail.scanner.status)}
                     </span>`
                   : nothing}
               </div>
@@ -437,7 +443,9 @@ class SkillHubPage extends OpenClawLightDomElement {
                     />
                     <span>
                       <strong>${versionLabel(version.version)}</strong>
-                      <small>${version.changelog ?? version.status}</small>
+                      <small
+                        >${version.changelog ?? skillHubVersionStatusLabel(version.status)}</small
+                      >
                     </span>
                     <span class="skill-hub-version__size"
                       >${version.totalSize ? `${Math.ceil(version.totalSize / 1024)} KB` : ""}</span
