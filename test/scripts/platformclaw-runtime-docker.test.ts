@@ -747,6 +747,8 @@ describe("PlatformClaw Docker runtime", () => {
     expect(server).toContain("def kbdint_auth_supported(self) -> bool:");
     expect(server).toContain("password_auth=False");
     expect(server).toContain("public_key_auth=False");
+    expect(server).toContain('append_event("login_shell_started"');
+    expect(server).toContain('argv = [shell, "-il"]');
     expect(server).not.toContain('responses[0], "password"');
     expect(fixtureDockerfile).toContain("--requirement /fixture/requirements.txt");
     expect(fixtureRequirements).toContain("asyncssh==2.24.0");
