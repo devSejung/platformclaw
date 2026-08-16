@@ -30,14 +30,14 @@ export type HostTerminalLaunchPlan = {
   cwdOverride?: string;
 };
 
-export type BackendTerminalLaunchPlan = {
+type BackendTerminalLaunchPlan = {
   kind: "backend";
   agentId: string;
   backendId: string;
   config: OpenClawConfig;
 };
 
-export type TerminalLaunchPlan = HostTerminalLaunchPlan | BackendTerminalLaunchPlan;
+type TerminalLaunchPlan = HostTerminalLaunchPlan | BackendTerminalLaunchPlan;
 
 export type TerminalSpawnPlan = Pick<HostTerminalLaunchPlan, "agentId" | "shell" | "args" | "cwd">;
 
