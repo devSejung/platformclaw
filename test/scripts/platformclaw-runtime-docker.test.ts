@@ -722,6 +722,7 @@ describe("PlatformClaw Docker runtime", () => {
     const fixtureRequirements = readRepoFile(
       "scripts/e2e/lib/platformclaw-fake-safeconnect/requirements.txt",
     );
+    const smokeScript = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
 
     expect(fake?.build).toEqual({
       context: "${PLATFORMCLAW_REPO_ROOT:?set PLATFORMCLAW_REPO_ROOT}",
@@ -749,6 +750,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(server).toContain("public_key_auth=False");
     expect(server).toContain('append_event("login_shell_started"');
     expect(server).toContain('argv = [shell, "-il"]');
+    expect(smokeScript).toContain(`printf '\\''%s\\n'\\''`);
     expect(server).not.toContain('responses[0], "password"');
     expect(fixtureDockerfile).toContain("--requirement /fixture/requirements.txt");
     expect(fixtureRequirements).toContain("asyncssh==2.24.0");

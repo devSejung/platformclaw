@@ -296,7 +296,8 @@ MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T \
       '\''cat "$HOME/.platformclaw/e2e-stream" && rm "$HOME/.platformclaw/e2e-stream"'\'')"
     [[ "$result" == platformclaw-safeconnect-stream ]]
     exec 3<<<"platformclaw-safeconnect-fixture-password"
-    login_result="$(printf '\''printf "LOGIN:%s:%s\\n" "$USER" "$PWD"; exit\\n"'\'' | \
+    login_result="$(printf '\''%s\n'\'' \
+      '\''printf "LOGIN:%s:%s\n" "$USER" "$PWD"'\'' exit | \
       sshpass -d 3 ssh -tt "${ssh_args[@]}" "$target" 2>/dev/null | tr -d '\''\r'\'')"
     grep -Fq "LOGIN:person_one:/users/person_one" <<<"$login_result"
   '
