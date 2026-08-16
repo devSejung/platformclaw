@@ -26,6 +26,7 @@ export function renderPanelTabStrip(params: {
   onNew: () => void;
   newLabel: string;
   newDisabled?: boolean;
+  showNew?: boolean;
 }) {
   const newButton = (slotted: boolean) => html`
     <button
@@ -89,7 +90,7 @@ export function renderPanelTabStrip(params: {
           </button>
         `,
       )}
-      ${newButton(true)}
+      ${params.showNew === false ? nothing : newButton(true)}
     </wa-tab-group>
   `;
 }

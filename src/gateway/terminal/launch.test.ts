@@ -12,7 +12,7 @@ const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const disabled: OpenClawConfig = { gateway: { terminal: { enabled: false } } };
 
 describe("createTerminalLaunchPolicy", () => {
-  it("is enabled by default and fails closed when disabled, sandboxed, or unknown-agent", () => {
+  it("is enabled by default, resolves sandbox backends, and rejects unknown agents", () => {
     expect(createTerminalLaunchPolicy({}).isEnabled()).toBe(true);
     expect(createTerminalLaunchPolicy(disabled).resolve()).toEqual({
       ok: false,
@@ -24,8 +24,8 @@ describe("createTerminalLaunchPolicy", () => {
       agents: { defaults: { sandbox: { mode: "all" } } },
     });
     expect(sandboxed.resolve()).toMatchObject({
-      ok: false,
-      block: { kind: "sandboxed", mode: "all" },
+      ok: true,
+      plan: { kind: "backend", backendId: "docker" },
     });
 
     const configured = createTerminalLaunchPolicy({
@@ -98,7 +98,7 @@ describe("createTerminalLaunchPolicy", () => {
 
     const resolved = policy.resolve();
     expect(resolved.ok).toBe(true);
-    if (resolved.ok) {
+    if (resolved.ok && resolved.plan.kind === "host") {
       expect(resolved.plan.shell).toBe("/bin/old-shell");
     }
 
@@ -147,7 +147,7 @@ describe("createTerminalLaunchPolicy", () => {
       },
       { restartPending: false },
     );
-    expect(policy.resolve().ok).toBe(false);
+    expect(policy.resolve()).toMatchObject({ ok: true, plan: { kind: "backend" } });
 
     policy.commitConfig();
     expect(policy.resolve().ok).toBe(true);
@@ -261,7 +261,7 @@ describe("createTerminalLaunchPolicy", () => {
     skippedPolicy.prepareConfig(baseConfig, { restartPending: false });
     skippedPolicy.acceptConfig({ retireRejectedRestart: false });
     skippedPolicy.commitConfig();
-    expect(skippedPolicy.resolve().ok).toBe(false);
+    expect(skippedPolicy.resolve()).toMatchObject({ ok: true, plan: { kind: "backend" } });
 
     const pendingPolicy = createTerminalLaunchPolicy(baseConfig);
     pendingPolicy.prepareConfig(baseConfig, { restartPending: true });
@@ -329,7 +329,7 @@ describe("createTerminalLaunchPolicy", () => {
     expect(enabledPolicy.isEnabled()).toBe(true);
     const resolved = enabledPolicy.resolve();
     expect(resolved.ok).toBe(true);
-    if (resolved.ok) {
+    if (resolved.ok && resolved.plan.kind === "host") {
       expect(resolved.plan.shell).toBe("/bin/current-shell");
     }
 
@@ -362,13 +362,17 @@ describe("buildTerminalEnv", () => {
 
 describe("resolveTerminalSpawnPlan", () => {
   it("quotes every command argument for a login shell", () => {
-    const plan = resolveTerminalSpawnPlan({
-      agentId: "main",
-      cwd: "/work",
-      shell: "/bin/zsh",
-      args: ["-l"],
-      initialCommand: ["codex", "resume", "a b;$HOME", "it's"],
-    });
+    const plan = resolveTerminalSpawnPlan(
+      {
+        kind: "host",
+        agentId: "main",
+        cwd: "/work",
+        shell: "/bin/zsh",
+        args: ["-l"],
+        initialCommand: ["codex", "resume", "a b;$HOME", "it's"],
+      },
+      { platform: "linux" },
+    );
     expect(plan).toMatchObject({
       shell: "/bin/zsh",
       args: ["-il", "-c", "'codex' 'resume' 'a b;$HOME' 'it'\"'\"'s'"],
@@ -378,6 +382,7 @@ describe("resolveTerminalSpawnPlan", () => {
   it("uses a valid cwd override and falls back to home for a missing override", () => {
     const cwd = tempDirs.make("terminal-resume-cwd-");
     const base = {
+      kind: "host" as const,
       agentId: "main",
       cwd: "/missing/base",
       shell: "/bin/sh",
@@ -397,6 +402,7 @@ describe("resolveTerminalSpawnPlan", () => {
     expect(
       resolveTerminalSpawnPlan(
         {
+          kind: "host",
           agentId: "main",
           cwd: "/work",
           shell: "cmd.exe",

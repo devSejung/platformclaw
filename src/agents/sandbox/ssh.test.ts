@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeTempDir } from "../../../test/helpers/temp-dir.js";
 import {
   buildExecRemoteCommand,
+  buildSshLoginShellArgv,
   buildRemoteWorkdirValidationCommand,
   buildValidatedExecRemoteCommand,
   createSshSandboxSessionFromSettings,
@@ -36,6 +37,26 @@ afterEach(async () => {
 });
 
 describe("sandbox ssh helpers", () => {
+  it("builds a forced-TTY SSH login without overriding the account shell", () => {
+    expect(
+      buildSshLoginShellArgv({
+        command: "/usr/bin/ssh",
+        configPath: "/tmp/platformclaw.conf",
+        host: "platformclaw-target",
+      } as SshSandboxSession),
+    ).toEqual([
+      "/usr/bin/ssh",
+      "-F",
+      "/tmp/platformclaw.conf",
+      "-tt",
+      "-o",
+      "RequestTTY=force",
+      "-o",
+      "SetEnv=TERM=xterm-256color",
+      "platformclaw-target",
+    ]);
+  });
+
   it("runs caller cleanup when disposing a factory-owned session", async () => {
     const onDispose = vi.fn(async () => undefined);
     const session = await createSshSandboxSessionFromSettings({
@@ -74,7 +95,7 @@ describe("sandbox ssh helpers", () => {
     expect(config).toContain("StrictHostKeyChecking yes");
     expect(config).toContain("UpdateHostKeys no");
 
-    const configDir = session.configPath.slice(0, session.configPath.lastIndexOf("/"));
+    const configDir = path.dirname(session.configPath);
     expect(await fs.readFile(`${configDir}/identity`, "utf8")).toBe("PRIVATE KEY\n");
     expect(await fs.readFile(`${configDir}/certificate.pub`, "utf8")).toBe("SSH CERT\n");
     expect(await fs.readFile(`${configDir}/known_hosts`, "utf8")).toBe(
@@ -94,7 +115,7 @@ describe("sandbox ssh helpers", () => {
     });
     sessions.push(session);
 
-    const configDir = session.configPath.slice(0, session.configPath.lastIndexOf("/"));
+    const configDir = path.dirname(session.configPath);
     expect(await fs.readFile(`${configDir}/identity`, "utf8")).toBe(
       "-----BEGIN OPENSSH PRIVATE KEY-----\n" +
         "bGluZTE=\n" +
@@ -115,7 +136,7 @@ describe("sandbox ssh helpers", () => {
     });
     sessions.push(session);
 
-    const configDir = session.configPath.slice(0, session.configPath.lastIndexOf("/"));
+    const configDir = path.dirname(session.configPath);
     expect(await fs.readFile(`${configDir}/identity`, "utf8")).toBe(
       "-----BEGIN OPENSSH PRIVATE KEY-----\n" +
         "line-1\n" +

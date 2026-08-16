@@ -38,6 +38,10 @@ export const TerminalOpenResultSchema = closedObject({
   // workspace; false for a host shell that can navigate the whole filesystem.
   confined: Type.Boolean(),
   title: Type.Optional(NonEmptyString),
+  // BFFs may reattach before replying so output emitted during terminal.open
+  // is recovered instead of disappearing before browser ownership is known.
+  buffer: Type.Optional(Type.String()),
+  seq: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 export type TerminalOpenResult = Static<typeof TerminalOpenResultSchema>;
 

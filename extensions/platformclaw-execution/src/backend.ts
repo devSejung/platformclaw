@@ -6,6 +6,8 @@ import type {
   SandboxBackendSkillInstallProvider,
   SandboxBackendSkillProvider,
   SandboxBackendSkillWorkshopProvider,
+  SandboxBackendTerminalProcess,
+  SandboxBackendTerminalProvider,
   SkillWorkshopTargetAccess,
   SkillArchiveInstallTargetAccess,
 } from "openclaw/plugin-sdk/sandbox";
@@ -75,6 +77,9 @@ export type PlatformClawExecutionDependencies = {
   createSkillInstallTarget: (params: {
     target: Readonly<PlatformClawExecutionTargetSnapshot>;
   }) => Promise<SkillArchiveInstallTargetAccess | undefined>;
+  createTerminalProcess: (
+    target: Readonly<AssignedVmTargetSnapshot>,
+  ) => Promise<SandboxBackendTerminalProcess>;
 };
 
 type ExecutionTimingOptions = {
@@ -235,6 +240,45 @@ export function createPlatformClawExecutionSkillWorkshopProvider(
   };
 }
 
+/** Opens only the account login shell of the currently assigned VM. */
+export function createPlatformClawExecutionTerminalProvider(
+  dependencies: PlatformClawExecutionDependencies,
+  mutations: PlatformClawTargetMutationCoordinator,
+): SandboxBackendTerminalProvider {
+  return async ({ agentId }) => {
+    const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+    if (target.kind !== "assigned_vm") {
+      throw new Error("Terminal is available only while My development VM is selected.");
+    }
+    return {
+      shell: `${target.linuxAccount} login shell`,
+      cwd: target.remoteHomeDir,
+      title: target.vmLabel,
+      createProcess: async () => {
+        const release = mutations.tryAcquire(agentId, "terminal-open");
+        if (!release) {
+          throw new Error("PlatformClaw work location mutation is already in progress.");
+        }
+        try {
+          const current = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+          if (
+            current.kind !== "assigned_vm" ||
+            current.targetId !== target.targetId ||
+            current.revision !== target.revision ||
+            current.allocationId !== target.allocationId ||
+            current.credentialRevision !== target.credentialRevision
+          ) {
+            throw new Error("PlatformClaw execution target changed; reload and retry.");
+          }
+          return await dependencies.createTerminalProcess(target);
+        } finally {
+          release();
+        }
+      },
+    };
+  };
+}
+
 export function createPlatformClawExecutionSkillProvider(
   dependencies: PlatformClawExecutionDependencies,
 ): SandboxBackendSkillProvider {
@@ -331,6 +375,7 @@ export function createUnavailableExecutionDependencies(): PlatformClawExecutionD
     listTargetSkills: unavailable,
     createSkillWorkshopTarget: unavailable,
     createSkillInstallTarget: unavailable,
+    createTerminalProcess: unavailable,
   };
 }
 

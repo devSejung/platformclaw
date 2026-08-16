@@ -19,18 +19,26 @@ import {
   validateTerminalTextParams,
   validateTerminalUploadResult,
 } from "../../../packages/gateway-protocol/src/index.js";
+import { getSandboxBackendTerminalProvider } from "../../agents/sandbox/backend.js";
+import type { SandboxBackendTerminalPlan } from "../../agents/sandbox/backend.types.js";
 import { NODE_TERMINAL_UPLOAD_COMMAND } from "../../infra/node-commands.js";
 import type { TerminalUploadFile } from "../../infra/terminal-file-upload.js";
 import type { SessionCatalogTerminalPlan } from "../../plugins/session-catalog.js";
 import { applyPluginNodeInvokePolicy } from "../node-invoke-plugin-policy.js";
+import type { TerminalBackend } from "../terminal/backend.js";
 import { renderTerminalBufferText } from "../terminal/buffer-text.js";
-import { buildTerminalEnv, type TerminalLaunchResolution } from "../terminal/launch.js";
+import {
+  buildTerminalEnv,
+  type TerminalLaunchResolution,
+  type TerminalSpawnPlan,
+} from "../terminal/launch.js";
 import { createNodeRelayBackend } from "../terminal/node-relay.js";
 import {
   createTerminalOpenDeadline,
   TerminalOpenDeadlineError,
   waitForTerminalOpenDeadline,
 } from "../terminal/open-deadline.js";
+import { createSandboxTerminalBackend } from "../terminal/sandbox-backend.js";
 import { resolveSessionCatalogProvider } from "./session-catalog.js";
 import {
   authorizeCatalogTerminalNode,
@@ -154,11 +162,15 @@ export const terminalHandlers: GatewayRequestHandlers = {
       respondLaunchBlocked(respond, launch.block);
       return;
     }
+    if (launch.plan.kind === "backend" && p.catalog) {
+      invalid(respond, "session catalog terminals are unavailable for sandbox backends");
+      return;
+    }
     const deadline = createTerminalOpenDeadline();
 
     let catalogPlan: SessionCatalogTerminalPlan | undefined;
     let title: string | undefined;
-    let createBackend: (() => ReturnType<typeof createNodeRelayBackend>) | undefined;
+    let createBackend: (() => Promise<TerminalBackend>) | undefined;
     let nodeRelay:
       | {
           plan: Extract<SessionCatalogTerminalPlan, { kind: "node" }>;
@@ -294,12 +306,76 @@ export const terminalHandlers: GatewayRequestHandlers = {
           params: relay.params,
         });
     }
-    const spawnPlan = resolveTerminalOpenSpawnPlan(refreshedLaunch.plan, catalogPlan);
     const terminalEnv = buildTerminalEnv(process.env);
     if (catalogPlan?.kind === "local" && catalogPlan.pathEnv) {
       // Preserve the PATH that found a login-shell CLI so env-based shebangs
       // can resolve their interpreter inside the spawned terminal process.
       terminalEnv.PATH = catalogPlan.pathEnv;
+    }
+    let spawnPlan: TerminalSpawnPlan;
+    let confined = false;
+    if (refreshedLaunch.plan.kind === "backend") {
+      const backendLaunch = refreshedLaunch.plan;
+      const provider = getSandboxBackendTerminalProvider(backendLaunch.backendId);
+      if (!provider) {
+        respondLaunchBlocked(respond, {
+          kind: "sandboxed",
+          agentId: backendLaunch.agentId,
+          mode: "all",
+        });
+        return;
+      }
+      let backendPlan: SandboxBackendTerminalPlan;
+      try {
+        backendPlan = await waitForTerminalOpenDeadline(
+          () => provider({ agentId: backendLaunch.agentId, config: backendLaunch.config }),
+          deadline,
+        );
+      } catch (error) {
+        if (error instanceof TerminalOpenDeadlineError) {
+          respondTerminalOpenTimeout(respond);
+          return;
+        }
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.UNAVAILABLE,
+            error instanceof Error ? error.message : "sandbox terminal is unavailable",
+          ),
+        );
+        return;
+      }
+      const latestLaunch = context.resolveTerminalLaunchPolicy(backendLaunch.agentId);
+      if (
+        !latestLaunch.ok ||
+        latestLaunch.plan.kind !== "backend" ||
+        latestLaunch.plan.backendId !== backendLaunch.backendId ||
+        !terminalEnabled(context)
+      ) {
+        respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "terminal policy changed"));
+        return;
+      }
+      spawnPlan = {
+        agentId: backendLaunch.agentId,
+        shell: backendPlan.shell,
+        args: [],
+        cwd: backendPlan.cwd,
+      };
+      title = backendPlan.title;
+      confined = true;
+      createBackend = async () =>
+        await createSandboxTerminalBackend({
+          plan: backendPlan,
+          cols: p.cols,
+          rows: p.rows,
+          env: terminalEnv,
+        });
+      stageUpload = async () => {
+        throw new Error("file upload is unavailable for this terminal");
+      };
+    } else {
+      spawnPlan = resolveTerminalOpenSpawnPlan(refreshedLaunch.plan, catalogPlan);
     }
     let openingTerminal: ReturnType<typeof manager.open> | undefined;
     let outcome: Awaited<ReturnType<typeof manager.open>>;
@@ -314,6 +390,7 @@ export const terminalHandlers: GatewayRequestHandlers = {
           cols: p.cols,
           rows: p.rows,
           env: terminalEnv,
+          confined,
           signal: deadline.controller.signal,
           ...(createBackend ? { createBackend } : {}),
           ...(stageUpload ? { stageUpload } : {}),
@@ -359,7 +436,7 @@ export const terminalHandlers: GatewayRequestHandlers = {
       agentId: outcome.agentId,
       shell: outcome.shell,
       cwd: outcome.cwd,
-      confined: false,
+      confined: outcome.confined,
       ...(title ? { title } : {}),
     });
   },
@@ -456,7 +533,7 @@ export const terminalHandlers: GatewayRequestHandlers = {
       agentId: attached.agentId,
       shell: attached.shell,
       cwd: attached.cwd,
-      confined: false,
+      confined: attached.confined,
       buffer: attached.buffer,
       ...(supportsOffsetSeq ? { seq: attached.seq } : {}),
     });
@@ -477,8 +554,7 @@ export const terminalHandlers: GatewayRequestHandlers = {
             agentId: session.agentId,
             shell: session.shell,
             cwd: session.cwd,
-            // Mirrors terminal.open: only unconfined host shells exist today.
-            confined: false,
+            confined: session.confined,
             attached: session.attached,
             owner: session.owner,
             createdAtMs: session.createdAtMs,

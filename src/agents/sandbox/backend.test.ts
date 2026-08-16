@@ -6,6 +6,7 @@ import {
   getSandboxBackendManager,
   getSandboxBackendSkillMaterializationMode,
   getSandboxBackendSkillProvider,
+  getSandboxBackendTerminalProvider,
   getSandboxBackendWorkdirResolver,
   registerSandboxBackend,
 } from "./backend.js";
@@ -89,5 +90,18 @@ describe("sandbox backend registry", () => {
     );
     restore();
     expect(getSandboxBackendSkillMaterializationMode("test-deferred-skills")).toBeNull();
+  });
+
+  it("registers and restores backend terminal providers", () => {
+    const factory = async () => {
+      throw new Error("not used");
+    };
+    const terminal = async () => {
+      throw new Error("not used");
+    };
+    const restore = registerSandboxBackend("test-terminal", { factory, terminal });
+    expect(getSandboxBackendTerminalProvider("test-terminal")).toBe(terminal);
+    restore();
+    expect(getSandboxBackendTerminalProvider("test-terminal")).toBeNull();
   });
 });

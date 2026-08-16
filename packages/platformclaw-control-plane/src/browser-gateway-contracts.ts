@@ -4,6 +4,7 @@ import type {
   ControlPlaneStore,
   PersonalAgentBinding,
   PlatformUser,
+  BrowserSession,
 } from "./contracts.js";
 
 export type BrowserGatewayEvent = {
@@ -23,6 +24,7 @@ export type BrowserGatewayRequestContext = {
 
 export type BrowserGatewayAccess = {
   user: PlatformUser;
+  session?: BrowserSession;
   binding: PersonalAgentBinding;
   mainSessionKey: string;
 };

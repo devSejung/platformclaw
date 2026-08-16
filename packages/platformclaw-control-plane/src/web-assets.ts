@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, realpathSync, statSync, type Dirent } from "
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
+import { CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE } from "../../../src/gateway/control-ui-contract.js";
 
 export const PLATFORMCLAW_WEB_LOGIN_PATH = "/platformclaw/login";
 export const PLATFORMCLAW_WEB_APP_PATH = "/platformclaw/app";
@@ -159,8 +160,13 @@ function documentSecurityPolicy(
   inlineScriptHashes: readonly string[] = [],
   allowSameOriginBase = false,
   websocketOrigin?: string,
+  allowWasm = false,
 ): string {
-  const scriptSources = ["'self'", ...inlineScriptHashes.map((hash) => `'sha256-${hash}'`)];
+  const scriptSources = [
+    "'self'",
+    ...(allowWasm ? ["'wasm-unsafe-eval'"] : []),
+    ...inlineScriptHashes.map((hash) => `'sha256-${hash}'`),
+  ];
   const connectSources = ["'self'", "data:", ...(websocketOrigin ? [websocketOrigin] : [])];
   return [
     ...DOCUMENT_SECURITY_POLICY_BASE,
@@ -228,8 +234,21 @@ function prepareApplicationDocument(
   ].join("\n    ");
   // Base must precede every upstream URL-bearing element or the browser may
   // start fetching relative assets against the deep application route.
-  const injectionIndex = headOpen.index + headOpen[0].length;
-  const document = `${normalizedSource.slice(0, injectionIndex)}\n    ${injection}${normalizedSource.slice(injectionIndex)}`;
+  const terminalAttributePattern = new RegExp(
+    `\\s${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}=(?:"[^"]*"|'[^']*')`,
+    "i",
+  );
+  const documentWithTerminal = terminalAttributePattern.test(normalizedSource)
+    ? normalizedSource.replace(
+        terminalAttributePattern,
+        ` ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="true"`,
+      )
+    : normalizedSource.replace(/<html\b/i, `<html ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="true"`);
+  const adjustedHeadOpen = /<head(?:\s[^>]*)?>/i.exec(documentWithTerminal);
+  const adjustedInjectionIndex =
+    (adjustedHeadOpen?.index ?? headOpen.index) +
+    (adjustedHeadOpen?.[0].length ?? headOpen[0].length);
+  const document = `${documentWithTerminal.slice(0, adjustedInjectionIndex)}\n    ${injection}${documentWithTerminal.slice(adjustedInjectionIndex)}`;
   const inlineScriptHashes = [...document.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
     .filter((match) => !/\bsrc\s*=/i.test(match[1] ?? ""))
     .map((match) =>
@@ -328,7 +347,7 @@ export function createPlatformClawWebAssetHandler(
       res.setHeader("Cache-Control", "no-store");
       res.setHeader(
         "Content-Security-Policy",
-        documentSecurityPolicy(applicationDocument.inlineScriptHashes, true, websocketOrigin),
+        documentSecurityPolicy(applicationDocument.inlineScriptHashes, true, websocketOrigin, true),
       );
       res.statusCode = 200;
       res.end(req.method === "HEAD" ? undefined : applicationDocument.content);

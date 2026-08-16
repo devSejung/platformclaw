@@ -168,8 +168,10 @@ describe("createPlatformClawWebAssetHandler", () => {
         "connect-src 'self' data: wss://platformclaw.example",
       );
       expect(contentSecurityPolicy).not.toContain("ws:");
+      expect(contentSecurityPolicy).toMatch(/script-src[^;]*'wasm-unsafe-eval'/);
       expect(contentSecurityPolicy).not.toMatch(/script-src[^;]*'unsafe-inline'/);
       expect(body).toContain('<base href="/platformclaw/" />');
+      expect(body).toContain('data-openclaw-terminal-enabled="true"');
       expect(body.indexOf('<base href="/platformclaw/" />')).toBeLessThan(
         body.indexOf("<title>Control</title>"),
       );

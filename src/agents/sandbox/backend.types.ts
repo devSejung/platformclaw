@@ -55,6 +55,30 @@ export type CreateSandboxBackendParams = {
 /** Lets a dynamic backend choose between Gateway skills and a target-owned catalog. */
 export type SandboxBackendSkillMaterializationMode = "backend-deferred";
 
+/** One local PTY process that transports a terminal into a backend-owned target. */
+export type SandboxBackendTerminalProcess = {
+  file: string;
+  args: string[];
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+  /** Releases target credentials and bounded transport capacity exactly once. */
+  dispose(): Promise<void>;
+};
+
+/** Immutable terminal target selected by a sandbox backend before PTY creation. */
+export type SandboxBackendTerminalPlan = {
+  shell: string;
+  cwd: string;
+  title?: string;
+  createProcess(): Promise<SandboxBackendTerminalProcess>;
+};
+
+/** Resolves one terminal target without accepting browser-selected host details. */
+export type SandboxBackendTerminalProvider = (params: {
+  agentId: string;
+  config: OpenClawConfig;
+}) => Promise<SandboxBackendTerminalPlan>;
+
 /** Factory that creates a backend handle for a sandbox session. */
 export type SandboxBackendFactory = (
   params: CreateSandboxBackendParams,
@@ -110,6 +134,7 @@ export type SandboxBackendRegistration =
       skillInstall?: SandboxBackendSkillInstallProvider;
       skillMaterialization?: SandboxBackendSkillMaterializationMode;
       skillWorkshop?: SandboxBackendSkillWorkshopProvider;
+      terminal?: SandboxBackendTerminalProvider;
     };
 
 /** Normalized backend registration stored in the sandbox backend registry. */
@@ -121,6 +146,7 @@ export type RegisteredSandboxBackend = {
   skillInstall?: SandboxBackendSkillInstallProvider;
   skillMaterialization?: SandboxBackendSkillMaterializationMode;
   skillWorkshop?: SandboxBackendSkillWorkshopProvider;
+  terminal?: SandboxBackendTerminalProvider;
 };
 
 export type { SandboxBackendHandle, SandboxBackendId } from "./backend-handle.types.js";

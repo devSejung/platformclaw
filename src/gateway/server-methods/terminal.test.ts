@@ -2,6 +2,7 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GATEWAY_CLIENT_CAPS } from "../../../packages/gateway-protocol/src/client-info.js";
 import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
+import { registerSandboxBackend } from "../../agents/sandbox/backend.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../../plugins/runtime.js";
@@ -54,13 +55,16 @@ function makeOpts(
   } = { get: () => undefined },
 ) {
   const sessions = {
-    open: vi.fn(async (_request: unknown) => ({
-      ok: true as const,
-      sessionId: "terminal-1",
-      agentId: "main",
-      shell: "/bin/zsh",
-      cwd: "/work",
-    })),
+    open: vi.fn(
+      async (request: { agentId: string; shell: string; cwd: string; confined?: boolean }) => ({
+        ok: true as const,
+        sessionId: "terminal-1",
+        agentId: request.agentId,
+        shell: request.shell,
+        cwd: request.cwd,
+        confined: request.confined ?? false,
+      }),
+    ),
     write: vi.fn(() => true),
     resize: vi.fn(() => true),
     close: vi.fn(() => true),
@@ -69,6 +73,7 @@ function makeOpts(
       agentId: "main",
       shell: "/bin/zsh",
       cwd: "/work",
+      confined: false,
       buffer: "replay",
       seq: 6,
     })),
@@ -124,6 +129,57 @@ afterEach(() => {
 });
 
 describe("terminal gateway policy", () => {
+  it("opens registered backend terminals as confined and disables host uploads", async () => {
+    const dispose = vi.fn(async () => undefined);
+    const terminal = vi.fn(async () => ({
+      shell: "person_one login shell",
+      cwd: "/home/person_one",
+      title: "Development VM",
+      createProcess: async () => ({ file: "ssh", args: [], cwd: "/gateway", dispose }),
+    }));
+    const restore = registerSandboxBackend("test-terminal", {
+      factory: async () => {
+        throw new Error("not used");
+      },
+      terminal,
+    });
+    try {
+      const { opts, respond, sessions, resolveTerminalLaunchPolicy } = makeOpts(
+        { cols: 100, rows: 30 },
+        { enabled: true },
+      );
+      resolveTerminalLaunchPolicy.mockReturnValue({
+        ok: true,
+        plan: {
+          kind: "backend",
+          agentId: "main",
+          backendId: "test-terminal",
+          config: {},
+        },
+      });
+
+      await expectDefined(terminalHandlers["terminal.open"], "terminal.open")(opts);
+
+      expect(terminal).toHaveBeenCalledWith({ agentId: "main", config: {} });
+      expect(sessions.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "main",
+          shell: "person_one login shell",
+          cwd: "/home/person_one",
+          confined: true,
+          createBackend: expect.any(Function),
+          stageUpload: expect.any(Function),
+        }),
+      );
+      expect(respond).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({ confined: true, title: "Development VM" }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
   it("lists agent-owned sessions with their owner marker", async () => {
     const { opts, sessions, respond } = makeOpts({}, { enabled: true });
     sessions.list.mockReturnValue([
@@ -132,6 +188,7 @@ describe("terminal gateway policy", () => {
         agentId: "main",
         shell: "/bin/zsh",
         cwd: "/work",
+        confined: false,
         attached: true,
         owner: "agent:agent:main:main",
         createdAtMs: 42,
@@ -228,8 +285,11 @@ describe("terminal gateway policy", () => {
     expect(openTerminal).toHaveBeenCalledWith({ hostId: "gateway:local", threadId: "thread" });
     expect(sessions.open).toHaveBeenCalledWith(
       expect.objectContaining({
-        shell: expect.any(String),
-        args: ["-il", "-c", "'codex' 'resume' 'thread'"],
+        shell: process.platform === "win32" ? "codex" : expect.any(String),
+        args:
+          process.platform === "win32"
+            ? ["resume", "thread"]
+            : ["-il", "-c", "'codex' 'resume' 'thread'"],
         env: expect.objectContaining({ PATH: "/login-shell/bin:/usr/bin" }),
       }),
     );
@@ -350,6 +410,7 @@ describe("terminal gateway policy", () => {
       agentId: string;
       shell: string;
       cwd: string;
+      confined: boolean;
     }>();
     const { opts, sessions, respond, isConnectionActive } = makeOpts(
       { cols: 80, rows: 24 },
@@ -366,6 +427,7 @@ describe("terminal gateway policy", () => {
       agentId: "main",
       shell: "/bin/zsh",
       cwd: "/work",
+      confined: false,
     });
     await opening;
 
@@ -386,6 +448,7 @@ describe("terminal gateway policy", () => {
         agentId: string;
         shell: string;
         cwd: string;
+        confined: boolean;
       }>();
       let openSignal: AbortSignal | undefined;
       const { opts, sessions, respond } = makeOpts({ cols: 80, rows: 24 }, { enabled: true });
@@ -411,6 +474,7 @@ describe("terminal gateway policy", () => {
         agentId: "main",
         shell: "/bin/zsh",
         cwd: "/work",
+        confined: false,
       });
       await waitForFast(() =>
         expect(sessions.close).toHaveBeenCalledWith("conn-1", "terminal-late"),
@@ -476,13 +540,22 @@ describe("terminal gateway policy", () => {
     await waitForFast(() => expect(openTerminal).toHaveBeenCalledOnce());
     resolveTerminalLaunchPolicy.mockReturnValue({
       ok: true,
-      plan: { agentId: "main", cwd: process.cwd(), shell: "/bin/refreshed", args: [] },
+      plan: {
+        kind: "host",
+        agentId: "main",
+        cwd: process.cwd(),
+        shell: "/bin/refreshed",
+        args: [],
+      },
     });
     plan.resolve({ kind: "local", argv: ["codex", "resume", "thread"] });
     await opening;
 
     expect(sessions.open).toHaveBeenCalledWith(
-      expect.objectContaining({ cwd: process.cwd(), shell: "/bin/refreshed" }),
+      expect.objectContaining({
+        cwd: process.cwd(),
+        shell: process.platform === "win32" ? "codex" : "/bin/refreshed",
+      }),
     );
   });
 

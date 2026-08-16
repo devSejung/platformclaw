@@ -151,6 +151,53 @@ describe("OpenClawTerminalPanel", () => {
     });
   });
 
+  it("reattaches the sole personal VM terminal and hides multi-session and upload controls", async () => {
+    createGhosttyTerminalMock.mockResolvedValue(createTerminalController());
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const session = {
+      sessionId: "vm-terminal-1",
+      agentId: "person_one",
+      shell: "person_one login shell",
+      cwd: "/home/person_one",
+      confined: true,
+    };
+    const client: TerminalGatewayClient = {
+      forceReconnect: () => {},
+      request: async <T>(method: string, params?: unknown) => {
+        requests.push({ method, params });
+        if (method === "terminal.list") {
+          return {
+            sessions: [{ ...session, attached: false, owner: "conn", createdAtMs: 1 }],
+          } as T;
+        }
+        if (method === "terminal.attach") {
+          return { ...session, buffer: "welcome", seq: 7 } as T;
+        }
+        return {} as T;
+      },
+      addEventListener: () => () => {},
+    };
+    const panel = document.createElement(TERMINAL_PANEL_ELEMENT_NAME) as OpenClawTerminalPanel;
+    panel.client = client;
+    panel.agentId = "person_one";
+    panel.available = true;
+    panel.singleSession = true;
+    panel.uploadsEnabled = false;
+    document.body.append(panel);
+
+    panel.toggle();
+    await waitForFast(() =>
+      expect(requests).toContainEqual({
+        method: "terminal.attach",
+        params: { sessionId: "vm-terminal-1" },
+      }),
+    );
+    expect(requests.some(({ method }) => method === "terminal.open")).toBe(false);
+    expect(panel.renderRoot.querySelector(".tp-upload")).toBeNull();
+    expect(panel.renderRoot.querySelector(".terminal-session-picker")).toBeNull();
+    expect(panel.renderRoot.querySelector(".tabstrip-new")).toBeNull();
+  });
+
   it("forces a full render after hiding and showing the panel", async () => {
     const controller = createTerminalController();
     let createOptions: CreateOptions | undefined;

@@ -180,6 +180,11 @@ export function createTerminalTool(opts: TerminalToolOptions = {}): AnyAgentTool
         if (!launch.ok) {
           throw new ToolInputError(launchBlockMessage(launch.block));
         }
+        // Backend-owned interactive shells currently belong to the browser
+        // terminal lifecycle; agent-owned terminal sessions remain host-only.
+        if (launch.plan.kind !== "host") {
+          throw new ToolInputError("terminal unavailable: agent sandboxed (all)");
+        }
         const spawnPlan = resolveTerminalSpawnPlan({
           ...launch.plan,
           ...(cwd ? { cwdOverride: cwd } : {}),

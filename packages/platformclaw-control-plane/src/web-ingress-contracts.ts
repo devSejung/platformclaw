@@ -3,7 +3,7 @@ import type { BrowserGatewayAccess, BrowserGatewayEvent } from "./browser-gatewa
 
 export type PlatformClawBrowserGatewayPolicy = {
   resolveAccess(token: string, touch?: boolean): Promise<BrowserGatewayAccess>;
-  registerBrowserConnection?(connectionId: string): void;
+  registerBrowserConnection?(connectionId: string, access?: BrowserGatewayAccess): void;
   request(
     token: string,
     method: string,
@@ -14,7 +14,12 @@ export type PlatformClawBrowserGatewayPolicy = {
     token: string,
     event: BrowserGatewayEvent,
     context?: { connectionId: string },
+    access?: BrowserGatewayAccess,
   ): Promise<BrowserGatewayEvent | null>;
+  filterConnectionEvent?(
+    event: BrowserGatewayEvent,
+    context?: { connectionId: string },
+  ): BrowserGatewayEvent | null | undefined;
   handleGatewayDisconnect?(): void;
   releaseBrowserConnection?(connectionId: string): Promise<void>;
 };

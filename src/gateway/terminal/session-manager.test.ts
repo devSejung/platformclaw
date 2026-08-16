@@ -19,6 +19,19 @@ function deferred<T>() {
 }
 
 describe("TerminalSessionManager", () => {
+  it("preserves backend confinement through open, list, and attach", async () => {
+    const manager = new TerminalSessionManager({ emit: vi.fn(), spawn: async () => makeFakePty() });
+    const opened = await manager.open(baseRequest({ confined: true }));
+    expect(opened).toMatchObject({ ok: true, confined: true });
+    if (!opened.ok) {
+      throw new Error("expected terminal open");
+    }
+    expect(manager.list()).toEqual([
+      expect.objectContaining({ sessionId: opened.sessionId, confined: true }),
+    ]);
+    expect(manager.attach("conn-2", opened.sessionId)).toMatchObject({ confined: true });
+  });
+
   it("kills a backend that finishes after its open request is cancelled", async () => {
     const spawned = deferred<FakeTerminalPty>();
     const controller = new AbortController();

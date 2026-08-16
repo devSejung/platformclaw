@@ -20,6 +20,7 @@ export type TerminalSession = {
   agentId: string;
   cwd: string;
   shell: string;
+  confined: boolean;
   backend: TerminalBackend;
   stageUpload: (file: TerminalUploadFile) => Promise<TerminalUploadResult>;
   closed: boolean;
@@ -56,6 +57,7 @@ export type TerminalOpenRequest = {
   cols: number;
   rows: number;
   env: Record<string, string>;
+  confined?: boolean;
   /** Request-scoped cancellation; a late backend is killed before registration. */
   signal?: AbortSignal;
   createBackend?: () => Promise<TerminalBackend>;
@@ -63,7 +65,7 @@ export type TerminalOpenRequest = {
 };
 
 export type TerminalOpenOutcome =
-  | { ok: true; sessionId: string; agentId: string; cwd: string; shell: string }
+  | { ok: true; sessionId: string; agentId: string; cwd: string; shell: string; confined: boolean }
   | { ok: false; code: "limit" | "spawn_failed" | "closed"; message: string };
 
 /** Abort state shared between a pending open and lifecycle/policy teardown. */

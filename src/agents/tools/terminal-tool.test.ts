@@ -58,6 +58,7 @@ function makeContext(manager: TerminalSessionManager) {
     resolveTerminalLaunchPolicy: () => ({
       ok: true as const,
       plan: {
+        kind: "host" as const,
         agentId: "main",
         cwd: "/tmp",
         shell: "/bin/sh",
