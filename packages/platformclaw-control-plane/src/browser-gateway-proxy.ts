@@ -35,8 +35,10 @@ import {
   PLATFORMCLAW_WEB_ALLOWED_PARAMS,
   PLATFORMCLAW_WEB_SESSION_KEY_METHODS,
 } from "./browser-gateway-policy.js";
-import { optionalString, projectBrowserAgentSummary } from "./browser-gateway-projections.js";
+import { projectBrowserAgentSummary } from "./browser-gateway-projections.js";
+import { createBrowserGatewaySession } from "./browser-gateway-session-create.js";
 import { projectBrowserSessionResult } from "./browser-gateway-session-projections.js";
+import { BrowserGatewayTerminalController } from "./browser-gateway-terminal.js";
 export {
   PLATFORMCLAW_WEB_GATEWAY_METHODS,
   type PlatformClawWebGatewayMethod,
@@ -74,6 +76,7 @@ export class BrowserGatewayProxy {
   private readonly assertions: BrowserGatewayAssertions;
   private readonly liveCapabilities: BrowserGatewayLiveCapabilities;
   private readonly observerVisibility: BrowserGatewayObserverVisibility;
+  private readonly terminals: BrowserGatewayTerminalController;
 
   constructor(private readonly options: BrowserGatewayProxyOptions) {
     this.assertions = new BrowserGatewayAssertions(
@@ -98,6 +101,7 @@ export class BrowserGatewayProxy {
         throw new BrowserGatewayProxyError(code, message);
       },
     );
+    this.terminals = new BrowserGatewayTerminalController(options);
   }
 
   async resolveAccess(token: string, touch = true): Promise<BrowserGatewayAccess> {
@@ -120,6 +124,9 @@ export class BrowserGatewayProxy {
     context?: BrowserGatewayRequestContext,
   ): Promise<T> {
     const access = await this.resolveAccess(token);
+    if (context?.connectionId) {
+      this.terminals.refreshConnection(context.connectionId, access);
+    }
     let executionTarget: "platform_server" | "assigned_vm" | undefined;
     let prepared: JsonObject;
     let initialCommandSuppressed = true;
@@ -177,7 +184,35 @@ export class BrowserGatewayProxy {
     }
     if (method === "sessions.create") {
       try {
-        return (await this.createBrowserSession(access, prepared, initialCommandSuppressed)) as T;
+        return (await createBrowserGatewaySession({
+          access,
+          prepared,
+          suppressCommandInterpretation: initialCommandSuppressed,
+          gateway: this.options.gateway,
+          asObject,
+          project: (request, result) =>
+            this.filterResult(access, "sessions.create", request, result),
+          prepareChatSend: (raw) => this.prepareRequest(access, "chat.send", raw),
+          createId: randomUUID,
+          fail: (code, message): never => {
+            throw new BrowserGatewayProxyError(code, message);
+          },
+        })) as T;
+      } catch (error) {
+        if (error instanceof BrowserGatewayProxyError) {
+          await this.auditDeniedRequest(access, method, error.code);
+        }
+        throw error;
+      }
+    }
+    if (this.terminals.handles(method)) {
+      try {
+        return (await this.terminals.request({
+          access,
+          method,
+          request: prepared,
+          context,
+        })) as T;
       } catch (error) {
         if (error instanceof BrowserGatewayProxyError) {
           await this.auditDeniedRequest(access, method, error.code);
@@ -217,72 +252,6 @@ export class BrowserGatewayProxy {
     }
   }
 
-  private async createBrowserSession(
-    access: BrowserGatewayAccess,
-    prepared: JsonObject,
-    suppressCommandInterpretation: boolean,
-  ): Promise<unknown> {
-    const message =
-      typeof prepared.message === "string" && prepared.message.trim()
-        ? prepared.message
-        : undefined;
-    const attachments = prepared.attachments;
-    if (attachments !== undefined && !Array.isArray(attachments)) {
-      throw new BrowserGatewayProxyError(
-        "invalid-params",
-        "sessions.create attachments must be an array",
-      );
-    }
-    const createParams = { ...prepared };
-    delete createParams.message;
-    delete createParams.attachments;
-    const hasInitialTurn = Boolean(message || attachments?.length);
-    if (hasInitialTurn && createParams.key === undefined && createParams.catalogId === undefined) {
-      // Mint the dashboard key here because the separately relayed turn would reset main otherwise.
-      createParams.key = `agent:${access.binding.agentId}:dashboard:${randomUUID()}`;
-    }
-    const rawCreated = await this.options.gateway.request("sessions.create", createParams);
-    const created = asObject(
-      this.filterResult(access, "sessions.create", createParams, rawCreated),
-      "sessions.create result",
-    );
-    if (!hasInitialTurn || created.ok === false) {
-      return created;
-    }
-    const key = optionalString(created.key);
-    if (!key) {
-      throw new BrowserGatewayProxyError(
-        "upstream-result-denied",
-        "Gateway returned an invalid browser-created session",
-      );
-    }
-    try {
-      const sendParams = this.prepareRequest(access, "chat.send", {
-        sessionKey: key,
-        message: message ?? "",
-        ...(attachments?.length ? { attachments } : {}),
-        idempotencyKey: randomUUID(),
-      });
-      sendParams.suppressCommandInterpretation = suppressCommandInterpretation;
-      const run = asObject(
-        await this.options.gateway.request("chat.send", sendParams),
-        "chat.send result",
-      );
-      return { ...created, runStarted: run.status === "started" };
-    } catch (error) {
-      return {
-        ...created,
-        runStarted: false,
-        runError: {
-          message:
-            error instanceof Error && error.message.trim()
-              ? error.message
-              : "The session was created, but its first message could not be sent.",
-        },
-      };
-    }
-  }
-
   private async resolveCommandSuppression(
     access: BrowserGatewayAccess,
     message: unknown,
@@ -305,13 +274,20 @@ export class BrowserGatewayProxy {
     token: string,
     event: BrowserGatewayEvent,
     context?: BrowserGatewayRequestContext,
+    authorizedAccess?: BrowserGatewayAccess,
   ): Promise<BrowserGatewayEvent | null> {
-    let access: BrowserGatewayAccess;
-    try {
-      // Server-pushed traffic must not keep an unattended browser session alive.
-      access = await this.resolveAccess(token, false);
-    } catch {
-      return null;
+    const terminalEvent = this.terminals.filterConnectionEvent(event, context);
+    if (terminalEvent !== undefined) {
+      return terminalEvent;
+    }
+    let access = authorizedAccess;
+    if (!access) {
+      try {
+        // Server-pushed traffic must not keep an unattended browser session alive.
+        access = await this.resolveAccess(token, false);
+      } catch {
+        return null;
+      }
     }
     return this.liveCapabilities.filterEvent({
       agentId: access.binding.agentId,
@@ -324,14 +300,25 @@ export class BrowserGatewayProxy {
     });
   }
 
-  registerBrowserConnection(connectionId: string): void {
+  filterConnectionEvent(
+    event: BrowserGatewayEvent,
+    context?: BrowserGatewayRequestContext,
+  ): BrowserGatewayEvent | null | undefined {
+    return this.terminals.filterConnectionEvent(event, context);
+  }
+
+  registerBrowserConnection(connectionId: string, access?: BrowserGatewayAccess): void {
     this.observerVisibility.registerConnection(connectionId);
     this.liveCapabilities.registerConnection(connectionId);
+    if (access) {
+      this.terminals.registerConnection(connectionId, access);
+    }
   }
 
   handleGatewayDisconnect(): void {
     this.observerVisibility.handleGatewayDisconnect();
     this.liveCapabilities.handleGatewayDisconnect();
+    this.terminals.handleGatewayDisconnect();
   }
 
   async releaseBrowserConnection(connectionId: string): Promise<void> {
@@ -339,6 +326,11 @@ export class BrowserGatewayProxy {
       this.observerVisibility.releaseConnection(connectionId),
       this.liveCapabilities.releaseConnection(connectionId),
     ]);
+    this.terminals.releaseConnection(connectionId);
+  }
+
+  async closeTerminalsForAgent(agentId: string, reason: string): Promise<void> {
+    await this.terminals.closeForAgent(agentId, reason);
   }
 
   private prepareRequest(
@@ -465,6 +457,9 @@ export class BrowserGatewayProxy {
     }
     if (method === "sessions.subscribe") {
       return params;
+    }
+    if (this.terminals.handles(method)) {
+      return method === "terminal.open" ? { ...params, agentId: access.binding.agentId } : params;
     }
     // Task writes/reads are owner-checked; listing still needs the shared Agent pin below.
     if (isBrowserTaskMethod(method) && method !== "tasks.list") {

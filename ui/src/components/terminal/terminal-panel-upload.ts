@@ -318,28 +318,31 @@ export function renderTerminalPanelActions(params: {
   dock: "bottom" | "right";
   upload: TerminalPanelUploadController;
   sessionPicker: unknown;
+  uploadsEnabled: boolean;
   onDock: (dock: "bottom" | "right") => void;
   onHide: () => void;
 }) {
   return html`<div class="tp-actions">
-    <input
-      class="tp-file-input"
-      type="file"
-      multiple
-      aria-hidden="true"
-      tabindex="-1"
-      @change=${params.upload.handleFileSelection}
-    />
-    <button
-      class="tp-icon tp-upload"
-      type="button"
-      title=${t("terminal.addFiles")}
-      aria-label=${t("terminal.addFiles")}
-      ?disabled=${params.upload.hasPendingBatch() || !params.upload.hasActiveTab()}
-      @click=${params.upload.chooseFiles}
-    >
-      ${UPLOAD_GLYPH}
-    </button>
+    ${params.uploadsEnabled
+      ? html`<input
+            class="tp-file-input"
+            type="file"
+            multiple
+            aria-hidden="true"
+            tabindex="-1"
+            @change=${params.upload.handleFileSelection}
+          />
+          <button
+            class="tp-icon tp-upload"
+            type="button"
+            title=${t("terminal.addFiles")}
+            aria-label=${t("terminal.addFiles")}
+            ?disabled=${params.upload.hasPendingBatch() || !params.upload.hasActiveTab()}
+            @click=${params.upload.chooseFiles}
+          >
+            ${UPLOAD_GLYPH}
+          </button>`
+      : nothing}
     ${params.fullscreen
       ? nothing
       : html`${params.sessionPicker}<button

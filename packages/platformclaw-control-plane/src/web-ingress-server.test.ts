@@ -319,7 +319,13 @@ describe("PlatformClawWebIngressServer", () => {
       expect.objectContaining({ connectionId: expect.stringMatching(/^platformclaw-/) }),
     );
     const requestConnectionId = request.mock.calls[0]?.[3]?.connectionId;
-    expect(registerBrowserConnection).toHaveBeenCalledWith(requestConnectionId);
+    expect(registerBrowserConnection).toHaveBeenCalledWith(
+      requestConnectionId,
+      expect.objectContaining({
+        binding: expect.objectContaining({ agentId: "person_one" }),
+        user: expect.objectContaining({ id: "user-1" }),
+      }),
+    );
 
     gateway.emit({
       type: "event",

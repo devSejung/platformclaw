@@ -98,15 +98,17 @@ function createHarness() {
   const adminRpc: GatewayAdminRpc = {
     call: async <T>(method: string, params: unknown) => (await adminRpcCall(method, params)) as T,
   };
+  const closeTerminalForAgent = vi.fn(async () => undefined);
   const service = new EmployeeExecutionService({
     authService: {} as never,
     store: store as never,
     credentialVault: vault as never,
     credentialBroker: broker as never,
     adminRpc,
+    closeTerminalForAgent,
     now: () => 1234,
   });
-  return { adminRpcCall, broker, service, store, vault };
+  return { adminRpcCall, broker, closeTerminalForAgent, service, store, vault };
 }
 
 describe("EmployeeExecutionService", () => {
@@ -135,6 +137,7 @@ describe("EmployeeExecutionService", () => {
       }),
     );
     expect(harness.broker.revoke).toHaveBeenCalledWith("transient-grant");
+    expect(harness.closeTerminalForAgent).toHaveBeenCalledWith("person_one", "credential_replaced");
   });
 
   it("does not replace the durable credential when the transient connection test fails", async () => {

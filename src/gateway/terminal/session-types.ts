@@ -3,6 +3,7 @@ export type TerminalSessionSummary = {
   agentId: string;
   shell: string;
   cwd: string;
+  confined: boolean;
   attached: boolean;
   owner: "conn" | `agent:${string}`;
   createdAtMs: number;

@@ -20,7 +20,8 @@ type TerminalLaunchBlock =
   | { kind: "sandboxed"; agentId: string; mode: "all" };
 
 /** Resolved plan for a host terminal session. */
-export type TerminalLaunchPlan = {
+export type HostTerminalLaunchPlan = {
+  kind: "host";
   agentId: string;
   cwd: string;
   shell: string;
@@ -29,7 +30,16 @@ export type TerminalLaunchPlan = {
   cwdOverride?: string;
 };
 
-export type TerminalSpawnPlan = Pick<TerminalLaunchPlan, "agentId" | "shell" | "args" | "cwd">;
+type BackendTerminalLaunchPlan = {
+  kind: "backend";
+  agentId: string;
+  backendId: string;
+  config: OpenClawConfig;
+};
+
+type TerminalLaunchPlan = HostTerminalLaunchPlan | BackendTerminalLaunchPlan;
+
+export type TerminalSpawnPlan = Pick<HostTerminalLaunchPlan, "agentId" | "shell" | "args" | "cwd">;
 
 /** Terminal launch resolution result: either a runnable plan or a block reason. */
 export type TerminalLaunchResolution =
@@ -73,9 +83,9 @@ function resolveTerminalShell(params: {
  *
  * The terminal always starts in the agent workspace. When the agent runs fully
  * sandboxed (`sandbox.mode: "all"`), a host shell would escape the isolation the
- * agent itself is under, so this returns a `sandboxed` block rather than silently
- * handing back an unconfined shell — fail-closed. `"non-main"` keeps the agent's
- * main session on the host, so a host terminal is allowed there.
+ * agent itself is under, so this returns a backend plan. The caller must still
+ * reject it unless that backend registered terminal support. `"non-main"` keeps
+ * the agent's main session on the host, so a host terminal is allowed there.
  */
 function resolveTerminalLaunch(params: {
   config: OpenClawConfig;
@@ -101,10 +111,12 @@ function resolveTerminalLaunch(params: {
   // Only "all" sandboxes every session. Under "non-main" the agent's main
   // session still runs on the host, so a host terminal there is consistent with
   // how the agent already runs (and an admin already has that host access via
-  // the main session). Block only the fully-sandboxed case; in-sandbox terminals
-  // are a tracked follow-up.
+  // the main session).
   if (sandbox.mode === "all") {
-    return { ok: false, block: { kind: "sandboxed", agentId, mode: "all" } };
+    return {
+      ok: true,
+      plan: { kind: "backend", agentId, backendId: sandbox.backend, config: params.config },
+    };
   }
   const workspaceDir = resolveAgentWorkspaceDir(params.config, agentId, env);
   const cwd = existingDirOrHome(workspaceDir, env);
@@ -113,7 +125,7 @@ function resolveTerminalLaunch(params: {
     platform: params.platform,
     env,
   });
-  return { ok: true, plan: { agentId, cwd, shell, args } };
+  return { ok: true, plan: { kind: "host", agentId, cwd, shell, args } };
 }
 
 /** Maintains fail-closed terminal admission across deferred config restarts. */
@@ -159,6 +171,8 @@ export function createTerminalLaunchPolicy(initialConfig: OpenClawConfig): Termi
       const candidate = resolveForConfig(config, agentId);
       if (!candidate.ok) {
         blockedAgentsUntilRestart.set(agentId, candidate.block);
+      } else if (candidate.plan.kind === "backend") {
+        blockedAgentsUntilRestart.set(agentId, { kind: "sandboxed", agentId, mode: "all" });
       }
     }
   };
@@ -175,6 +189,8 @@ export function createTerminalLaunchPolicy(initialConfig: OpenClawConfig): Termi
       const candidate = resolveForConfig(config, agentId);
       if (!candidate.ok) {
         blockedAgentsUntilCommit.set(agentId, candidate.block);
+      } else if (candidate.plan.kind === "backend") {
+        blockedAgentsUntilCommit.set(agentId, { kind: "sandboxed", agentId, mode: "all" });
       }
     }
   };
@@ -201,6 +217,12 @@ export function createTerminalLaunchPolicy(initialConfig: OpenClawConfig): Termi
         const prepared = resolveForConfig(candidateConfig, active.plan.agentId);
         if (!prepared.ok) {
           return prepared;
+        }
+        if (active.plan.kind === "host" && prepared.plan.kind === "backend") {
+          return {
+            ok: false,
+            block: { kind: "sandboxed", agentId: active.plan.agentId, mode: "all" },
+          };
         }
       }
       return active;
@@ -296,7 +318,7 @@ function shellQuote(value: string): string {
 
 /** Converts a policy-approved plan into the exact local PTY spawn. */
 export function resolveTerminalSpawnPlan(
-  plan: TerminalLaunchPlan,
+  plan: HostTerminalLaunchPlan,
   options: { env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform } = {},
 ): TerminalSpawnPlan {
   const env = options.env ?? process.env;

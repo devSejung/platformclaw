@@ -15,7 +15,8 @@ export function renderTerminalPanelToolbar(
   fullscreen: boolean,
   dock: TerminalDock,
   uploadController: TerminalPanelUploadController,
-  sessionPicker: TemplateResult,
+  sessionPicker: unknown,
+  uploadsEnabled: boolean,
   setDock: (dock: TerminalDock) => void,
   hidePanel: () => void,
 ): TemplateResult {
@@ -24,6 +25,7 @@ export function renderTerminalPanelToolbar(
     dock,
     upload: uploadController,
     sessionPicker,
+    uploadsEnabled,
     onDock: setDock,
     onHide: hidePanel,
   });
@@ -37,6 +39,7 @@ export function renderTerminalPanelHeader(
   selectTab: (id: string) => void,
   closeTab: (id: string) => void,
   openSession: () => void,
+  showNew: boolean,
 ): TemplateResult {
   return html`<header class="tp-header">
     ${renderTerminalPanelTabs({
@@ -46,6 +49,7 @@ export function renderTerminalPanelHeader(
       onSelect: selectTab,
       onClose: closeTab,
       onNew: openSession,
+      showNew,
     })}
     ${toolbar}
   </header>`;
@@ -56,6 +60,7 @@ export function renderTerminalPanelViewport(
   connecting: boolean,
   errorText: string | null,
   uploadController: TerminalPanelUploadController,
+  uploadsEnabled: boolean,
 ): TemplateResult {
   return html`
     ${errorText ? html`<div class="tp-error" role="alert">${errorText}</div>` : nothing}
@@ -65,10 +70,10 @@ export function renderTerminalPanelViewport(
       name=${activeId ?? "terminal"}
       active
       aria-labelledby=${activeId ? `terminal-tab-${activeId}` : nothing}
-      @dragenter=${uploadController.handleDragEnter}
-      @dragover=${uploadController.handleDragOver}
-      @dragleave=${uploadController.handleDragLeave}
-      @drop=${uploadController.handleDrop}
+      @dragenter=${uploadsEnabled ? uploadController.handleDragEnter : nothing}
+      @dragover=${uploadsEnabled ? uploadController.handleDragOver : nothing}
+      @dragleave=${uploadsEnabled ? uploadController.handleDragLeave : nothing}
+      @drop=${uploadsEnabled ? uploadController.handleDrop : nothing}
     >
       ${connecting
         ? html`<div class="tp-connecting" role="status">
@@ -76,7 +81,7 @@ export function renderTerminalPanelViewport(
             <span>${t("terminal.connecting")}</span>
           </div>`
         : nothing}
-      ${renderTerminalUploadLayer(uploadController)}
+      ${uploadsEnabled ? renderTerminalUploadLayer(uploadController) : nothing}
     </wa-tab-panel>
   `;
 }

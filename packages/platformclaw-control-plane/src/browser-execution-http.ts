@@ -47,6 +47,7 @@ type EmployeeExecutionServiceOptions = {
     "address" | "issueForUser" | "issueTransient" | "revoke"
   >;
   adminRpc: GatewayAdminRpc;
+  closeTerminalForAgent?: (agentId: string, reason: string) => Promise<void>;
   now?: () => number;
 };
 
@@ -212,6 +213,7 @@ export class EmployeeExecutionService {
         credentialEnvelope: credentialVault.sealForStorage(params.userId, params.password),
         committedAt: replacedAt,
       });
+      await this.options.closeTerminalForAgent?.(params.agentId, "allocation_replaced");
       return await this.getSettings(params.userId, params.agentId);
     });
   }
@@ -230,6 +232,7 @@ export class EmployeeExecutionService {
       agentId,
       releasedAt,
     });
+    await this.options.closeTerminalForAgent?.(agentId, "allocation_released");
     return await this.getSettings(userId, agentId);
   }
 
@@ -274,6 +277,7 @@ export class EmployeeExecutionService {
       password: params.password,
       replacedAt: checkedAt,
     });
+    await this.options.closeTerminalForAgent?.(params.agentId, "credential_replaced");
     await this.options.store.recordVmConnectionResult({
       actorUserId: params.userId,
       agentId: params.agentId,
@@ -317,6 +321,7 @@ export class EmployeeExecutionService {
           checkedAt: this.now(),
           result: { status: "connection_required", failureCode: failureKind },
         });
+        await this.options.closeTerminalForAgent?.(agentId, "credential_rejected");
       }
       throw error;
     } finally {

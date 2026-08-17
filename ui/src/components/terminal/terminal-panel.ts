@@ -68,6 +68,10 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
    * WebViews: fills the viewport, always open while available, no dock chrome.
    */
   @property({ type: Boolean }) fullscreen = false;
+  /** Restricts the personal-agent surface to its one BFF-owned VM terminal. */
+  @property({ type: Boolean }) singleSession = false;
+  /** Host-local upload staging is unavailable for remote personal VM terminals. */
+  @property({ type: Boolean }) uploadsEnabled = true;
 
   @state() terminalPanelErrorText: string | null = null;
   @state() private sessionPickerOpen = false;
@@ -336,29 +340,32 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
     const connecting =
       (this.terminalSessions.booting && this.terminalSessions.tabs.length === 0) ||
       activeTab?.status === "connecting";
-    const sessionPicker = renderTerminalSessionPicker({
-      open: this.sessionPickerOpen,
-      loading: this.sessionPickerTask.status === TaskStatus.PENDING,
-      sessions: this.pickerSessions,
-      currentSessionIds: new Set(
-        this.terminalSessions.tabs
-          .map((tab) => tab.gatewaySessionId)
-          .filter(
-            (sessionId): sessionId is string =>
-              typeof sessionId === "string" && sessionId.length > 0,
+    const sessionPicker = this.singleSession
+      ? nothing
+      : renderTerminalSessionPicker({
+          open: this.sessionPickerOpen,
+          loading: this.sessionPickerTask.status === TaskStatus.PENDING,
+          sessions: this.pickerSessions,
+          currentSessionIds: new Set(
+            this.terminalSessions.tabs
+              .map((tab) => tab.gatewaySessionId)
+              .filter(
+                (sessionId): sessionId is string =>
+                  typeof sessionId === "string" && sessionId.length > 0,
+              ),
           ),
-      ),
-      onToggle: () => this.toggleSessionPicker(),
-      onDismiss: (restoreFocus) => this.closeSessionPicker(restoreFocus),
-      onFocusOut: (event) => this.handleSessionPickerFocusOut(event),
-      onRefresh: () => void this.refreshSessionPicker(),
-      onAttach: (sessionId, owner) => void this.attachPickedSession(sessionId, owner),
-    });
+          onToggle: () => this.toggleSessionPicker(),
+          onDismiss: (restoreFocus) => this.closeSessionPicker(restoreFocus),
+          onFocusOut: (event) => this.handleSessionPickerFocusOut(event),
+          onRefresh: () => void this.refreshSessionPicker(),
+          onAttach: (sessionId, owner) => void this.attachPickedSession(sessionId, owner),
+        });
     const toolbar = renderTerminalPanelToolbar(
       this.fullscreen,
       this.dockLayout.dock,
       this.terminalPanelUploadController,
       sessionPicker,
+      this.uploadsEnabled,
       (dock) => this.setDock(dock),
       () => this.closeTerminalPanel(),
     );
@@ -373,12 +380,14 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
           (id) => this.terminalSessions.switchTo(id),
           (id) => this.terminalSessions.closeTab(id),
           () => void this.terminalSessions.openSession(),
+          !this.singleSession || this.terminalSessions.tabs.length === 0,
         )}
         ${renderTerminalPanelViewport(
           this.terminalSessions.activeId,
           connecting,
           this.terminalPanelErrorText,
           this.terminalPanelUploadController,
+          this.uploadsEnabled,
         )}
       </section>
     `;

@@ -108,30 +108,39 @@ async def handle_process(process: asyncssh.SSHServerProcess[bytes]) -> None:
     username = process.get_extra_info("username")
     allocation = ALLOCATIONS.get(username)
     command = process.command
-    if allocation is None or not isinstance(command, str) or not command:
+    if allocation is None or (command is not None and not isinstance(command, str)):
         append_event("command_rejected", username=username, reason="invalid_session")
         process.exit(126)
         return
 
     linux_account = allocation["linuxAccount"]
     account = pwd.getpwnam(linux_account)
-    encoded_command = command.encode("utf-8")
-    append_event(
-        "command_started",
-        username=username,
-        linuxAccount=linux_account,
-        commandBytes=len(encoded_command),
-        commandSha256=hashlib.sha256(encoded_command).hexdigest(),
-    )
+    shell = account.pw_shell or "/bin/bash"
+    if command:
+        encoded_command = command.encode("utf-8")
+        append_event(
+            "command_started",
+            username=username,
+            linuxAccount=linux_account,
+            commandBytes=len(encoded_command),
+            commandSha256=hashlib.sha256(encoded_command).hexdigest(),
+        )
+        argv = ["/bin/bash", "-c", command]
+    else:
+        # Real sshd starts the account login shell when no command is supplied.
+        # Keep the fixture interactive so browser-terminal proof exercises that path.
+        append_event("login_shell_started", username=username, linuxAccount=linux_account)
+        argv = [shell, "-il"]
     child = subprocess.Popen(
-        ["/bin/bash", "-c", command],
+        argv,
         cwd=account.pw_dir,
         env={
             "HOME": account.pw_dir,
             "LANG": "C.UTF-8",
             "LOGNAME": linux_account,
             "PATH": "/usr/local/bin:/usr/bin:/bin",
-            "SHELL": "/bin/bash",
+            "SHELL": shell,
+            "TERM": process.get_terminal_type() or "xterm-256color",
             "USER": linux_account,
         },
         stdin=subprocess.PIPE,

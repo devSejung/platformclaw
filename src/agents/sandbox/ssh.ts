@@ -575,6 +575,21 @@ export function buildSshSandboxArgv(params: {
   ];
 }
 
+/** Build an interactive SSH login with no remote command override. */
+export function buildSshLoginShellArgv(session: SshSandboxSession): string[] {
+  return [
+    session.command,
+    "-F",
+    session.configPath,
+    "-tt",
+    "-o",
+    "RequestTTY=force",
+    "-o",
+    "SetEnv=TERM=xterm-256color",
+    session.host,
+  ];
+}
+
 /** Create a temporary SSH session from already-rendered ssh config text. */
 export async function createSshSandboxSessionFromConfigText(params: {
   configText: string;

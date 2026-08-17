@@ -180,6 +180,8 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 - Previous PlatformClaw capability inventory
 - Previous core modification inventory
 - Remaining architecture migration plan
+- Assigned-VM browser terminal with one direct login-shell PTY per personal
+  Agent, user-owned reconnect, and Basic-terminal and PTY-multiplex follow-ups
 - Linux control-process supervision and container browser proof
 - Company Jammy image validation with the approved internal APT source
 

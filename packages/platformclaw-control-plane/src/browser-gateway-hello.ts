@@ -42,7 +42,7 @@ export function projectPlatformClawBrowserHello(params: {
             !PLATFORMCLAW_WEB_ADMIN_METHODS.has(method)),
       ),
       events: PLATFORMCLAW_WEB_GATEWAY_EVENTS.filter((event) => upstreamEvents.has(event)),
-      capabilities: [],
+      capabilities: ["platformclaw.personal-vm-terminal"],
     },
     snapshot: {
       presence: [

@@ -111,16 +111,23 @@ export type PlatformClawWebIngressRuntime = {
 export function createPlatformClawWebIngressRuntime(
   options: PlatformClawWebIngressRuntimeOptions,
 ): PlatformClawWebIngressRuntime {
+  let closeTerminalForAgent = async (_agentId: string, _reason: string): Promise<void> => {};
   const auth = createEmployeeBrowserAuthRuntime({
     databasePath: options.databasePath,
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
     provisioner: options.provisioner,
     initialAdminAccountIds: options.initialAdminAccountIds,
     onLogoutAgent: async (agentId) => {
-      await options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId });
+      await Promise.allSettled([
+        options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId }),
+        closeTerminalForAgent(agentId, "logout"),
+      ]);
     },
     onAgentCredentialsRevoked: async (agentId) => {
-      await options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId });
+      await Promise.allSettled([
+        options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId }),
+        closeTerminalForAgent(agentId, "user_disabled"),
+      ]);
     },
     ...options.employeeAuth,
   });
@@ -189,6 +196,7 @@ export function createPlatformClawWebIngressRuntime(
     authService: auth.service,
     store: auth.store,
     adminRpc: options.adminRpc,
+    closeTerminalForAgent: async (agentId, reason) => await closeTerminalForAgent(agentId, reason),
     ...(auth.credentialVault ? { credentialVault: auth.credentialVault } : {}),
     ...(credentialBroker ? { credentialBroker } : {}),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
@@ -197,6 +205,7 @@ export function createPlatformClawWebIngressRuntime(
     authService: auth.service,
     store: auth.store,
     adminRpc: options.adminRpc,
+    closeTerminalForAgent: async (agentId, reason) => await closeTerminalForAgent(agentId, reason),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
   const mcpAdministration = new McpAdministrationService({
@@ -241,6 +250,8 @@ export function createPlatformClawWebIngressRuntime(
     resolveAgentIdFromSessionKey: (sessionKey) => options.resolveAgentIdFromSessionKey(sessionKey),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
+  closeTerminalForAgent = async (agentId, reason) =>
+    await gatewayProxy.closeTerminalsForAgent(agentId, reason);
   const mediaRelay = options.mediaGateway
     ? new PlatformClawBrowserMediaRelay({
         gatewayOrigin: options.mediaGateway.origin,

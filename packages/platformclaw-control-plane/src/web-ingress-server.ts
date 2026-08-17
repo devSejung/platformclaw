@@ -23,8 +23,9 @@ import {
   handlePlatformClawEmployeeExecutionRequest,
   type EmployeeExecutionService,
 } from "./browser-execution-http.js";
+import { createBrowserGatewayEventForwarder } from "./browser-gateway-event-forwarder.js";
 import { projectPlatformClawBrowserHello } from "./browser-gateway-hello.js";
-import { BrowserGatewayProxyError } from "./browser-gateway-proxy.js";
+import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-ordering.js";
 import { readBrowserJsonBody, sendBrowserJson } from "./browser-http-shared.js";
 import {
@@ -468,20 +469,25 @@ export class PlatformClawWebIngressServer {
       rejectUpgrade(socket, 503, "Service Unavailable");
       return;
     }
+    let access: BrowserGatewayAccess;
     try {
-      await this.options.gatewayProxy.resolveAccess(token, false);
+      access = await this.options.gatewayProxy.resolveAccess(token, false);
     } catch {
       rejectUpgrade(socket, 401, "Unauthorized");
       return;
     }
     this.websocketServer.handleUpgrade(req, socket, head, (websocket) => {
-      this.attachBrowserConnection(websocket, token);
+      this.attachBrowserConnection(websocket, token, access);
     });
   }
 
-  private attachBrowserConnection(websocket: WebSocket, token: string): void {
+  private attachBrowserConnection(
+    websocket: WebSocket,
+    token: string,
+    access: BrowserGatewayAccess,
+  ): void {
     const connectionId = `platformclaw-${randomUUID()}`;
-    this.options.gatewayProxy.registerBrowserConnection?.(connectionId);
+    this.options.gatewayProxy.registerBrowserConnection?.(connectionId, access);
     let connected = false;
     let connectionClosed = false;
     let eventSeq = 0;
@@ -521,28 +527,22 @@ export class PlatformClawWebIngressServer {
       payload: { nonce: randomUUID(), ts: Date.now() },
     } satisfies EventFrame);
 
-    const forwardEvent = async (event: EventFrame): Promise<void> => {
-      if (!connected) {
-        return;
-      }
-      try {
-        await this.options.gatewayProxy.resolveAccess(token, false);
-      } catch {
-        closeUnauthorized();
-        return;
-      }
-      const filtered = await this.options.gatewayProxy.filterEvent(token, event, { connectionId });
-      if (!filtered) {
-        return;
-      }
-      eventSeq += 1;
-      send({
-        type: "event",
-        event: filtered.event,
-        ...(filtered.payload === undefined ? {} : { payload: filtered.payload }),
-        seq: eventSeq,
-      } satisfies EventFrame);
-    };
+    const forwardEvent = createBrowserGatewayEventForwarder({
+      connectionId,
+      token,
+      proxy: this.options.gatewayProxy,
+      isConnected: () => connected,
+      closeUnauthorized,
+      sendEvent: (event) => {
+        eventSeq += 1;
+        send({
+          type: "event",
+          event: event.event,
+          ...(event.payload === undefined ? {} : { payload: event.payload }),
+          seq: eventSeq,
+        } satisfies EventFrame);
+      },
+    });
 
     const handleConnect = async (frame: RequestFrame): Promise<void> => {
       if (frame.method !== "connect" || !validateConnectParams(frame.params)) {
@@ -578,14 +578,14 @@ export class PlatformClawWebIngressServer {
         return;
       }
       try {
-        const access = await this.options.gatewayProxy.resolveAccess(token);
+        const currentAccess = await this.options.gatewayProxy.resolveAccess(token);
         if (connectionClosed || websocket.readyState !== WebSocket.OPEN) {
           return;
         }
-        const canvasSurface = this.options.canvasRelay?.issueSurface(access);
+        const canvasSurface = this.options.canvasRelay?.issueSurface(currentAccess);
         const hello = projectPlatformClawBrowserHello({
           upstream,
-          access,
+          access: currentAccess,
           connectionId,
           clientInstanceId: params.client.instanceId,
           maxPayloadBytes: this.options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES,

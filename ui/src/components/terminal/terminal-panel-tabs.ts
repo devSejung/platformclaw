@@ -49,6 +49,7 @@ export function renderTerminalPanelTabs(params: {
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNew: () => void;
+  showNew?: boolean;
 }) {
   const tabs: PanelTabStripTab[] = params.tabs.map((tab) => {
     const label = terminalTabLabel(tab);
@@ -73,5 +74,6 @@ export function renderTerminalPanelTabs(params: {
     onNew: params.onNew,
     newLabel: t("terminal.newSession"),
     newDisabled: params.booting,
+    showNew: params.showNew,
   });
 }

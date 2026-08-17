@@ -4,7 +4,7 @@ import type { SessionCatalogTerminalPlan } from "../../plugins/session-catalog.j
 import { isNodeCommandAllowed, resolveNodeCommandAllowlist } from "../node-command-policy.js";
 import {
   resolveTerminalSpawnPlan,
-  type TerminalLaunchPlan,
+  type HostTerminalLaunchPlan,
   type TerminalSpawnPlan,
 } from "../terminal/launch.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
@@ -48,7 +48,7 @@ export function authorizeCatalogTerminalNode(
 }
 
 export function resolveTerminalOpenSpawnPlan(
-  launchPlan: TerminalLaunchPlan,
+  launchPlan: HostTerminalLaunchPlan,
   catalogPlan?: SessionCatalogTerminalPlan,
 ): TerminalSpawnPlan {
   if (!catalogPlan) {

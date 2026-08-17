@@ -8,6 +8,7 @@ import {
   createPlatformClawExecutionBackendFactory,
   createPlatformClawExecutionSkillInstallProvider,
   createPlatformClawExecutionSkillProvider,
+  createPlatformClawExecutionTerminalProvider,
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
   type PlatformClawExecutionDependencies,
   type PlatformClawExecutionTargetSnapshot,
@@ -67,6 +68,12 @@ function createDependencies(
     ),
     createSkillWorkshopTarget: vi.fn(async () => undefined),
     createSkillInstallTarget: vi.fn(async () => undefined),
+    createTerminalProcess: vi.fn(async () => ({
+      file: "ssh",
+      args: ["vm"],
+      cwd: "/gateway",
+      dispose: vi.fn(async () => undefined),
+    })),
   };
 }
 
@@ -563,5 +570,62 @@ describe("PlatformClaw execution backend", () => {
         target: expect.objectContaining({ kind: "assigned_vm" }),
       }),
     );
+  });
+
+  it("opens a login terminal only for one revision-pinned assigned VM", async () => {
+    const target = {
+      kind: "assigned_vm" as const,
+      agentId: "person_one",
+      revision: 9,
+      targetId: "vm-one",
+      allocationId: "allocation-one",
+      credentialRevision: 3,
+      vmLabel: "Development VM",
+      safeConnectLabel: "SafeConnect",
+      remoteHomeDir: "/home/person_one",
+      remoteWorkspaceDir: "/home/person_one/workspace",
+      endpointHost: "vm.example",
+      endpointPort: 22,
+      adDomain: "example",
+      adAccount: "person.one",
+      targetAddress: "192.0.2.1",
+      linuxAccount: "person_one",
+      hostKeyAlgorithm: "ssh-ed25519",
+      hostKeyPublicKey: "AAAA-test",
+      hostKeyFingerprint: "SHA256:test",
+    };
+    const dependencies = createDependencies(async () => target);
+    const provider = createPlatformClawExecutionTerminalProvider(
+      dependencies,
+      new PlatformClawTargetMutationCoordinator(),
+    );
+
+    const plan = await provider({ agentId: "person_one", config: {} as never });
+    expect(plan).toMatchObject({
+      shell: "person_one login shell",
+      cwd: "/home/person_one",
+      title: "Development VM",
+    });
+    await expect(plan.createProcess()).resolves.toMatchObject({ file: "ssh", args: ["vm"] });
+    expect(dependencies.resolveTarget).toHaveBeenCalledTimes(2);
+    expect(dependencies.createTerminalProcess).toHaveBeenCalledWith(target);
+  });
+
+  it("rejects a Basic workspace terminal", async () => {
+    const dependencies = createDependencies(async ({ agentId }) => ({
+      kind: "platform_server",
+      agentId,
+      revision: 1,
+      targetId: "platform-server",
+    }));
+    const provider = createPlatformClawExecutionTerminalProvider(
+      dependencies,
+      new PlatformClawTargetMutationCoordinator(),
+    );
+
+    await expect(provider({ agentId: "person_one", config: {} as never })).rejects.toThrow(
+      "only while My development VM is selected",
+    );
+    expect(dependencies.createTerminalProcess).not.toHaveBeenCalled();
   });
 });

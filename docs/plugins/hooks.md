@@ -213,7 +213,6 @@ For `sessions.create` calls with `parentSessionKey` and `emitCommandHooks: true`
 | Hook                             | Purpose                                                                                              |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `gateway_start` / `gateway_stop` | Start or stop plugin-owned services with the Gateway                                                 |
-| `deactivate`                     | Deprecated compatibility alias for `gateway_stop`; use `gateway_stop` in new plugins                 |
 | `cron_reconciled`                | Reconcile against the complete Gateway cron state after startup or reload                            |
 | `cron_changed`                   | Observe Gateway-owned cron lifecycle changes (added, updated, removed, started, finished, scheduled) |
 | **`before_install`**             | Inspect staged skill or plugin install material from a loaded plugin runtime                         |

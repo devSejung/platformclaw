@@ -16,6 +16,11 @@ const MUTATING_BROWSER_METHODS = new Set([
   "sessions.patch",
   "taskSuggestions.accept",
   "taskSuggestions.dismiss",
+  "terminal.attach",
+  "terminal.close",
+  "terminal.input",
+  "terminal.open",
+  "terminal.resize",
 ]);
 
 export function isMutatingBrowserGatewayMethod(method: string): boolean {

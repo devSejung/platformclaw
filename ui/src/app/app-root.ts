@@ -281,6 +281,8 @@ export class OpenClawApp extends OpenClawLightDomElement {
           .client=${gatewayConnected ? gatewaySnapshot.client : null}
           .available=${terminalAvailable}
           .themeMode=${resolveTerminalThemeMode()}
+          .singleSession=${this.context?.accessMode === "personal-agent"}
+          .uploadsEnabled=${this.context?.accessMode !== "personal-agent"}
           fullscreen
         ></openclaw-terminal-panel>
         ${!isOptionalElementDefined(TERMINAL_PANEL_ELEMENT) && terminalAvailable

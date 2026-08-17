@@ -658,8 +658,8 @@ timeline for current status.
     });
     ```
 
-    `deactivate` remains wired as a deprecated compatibility alias until it is
-    removed after 2026-08-16.
+    The `deactivate` compatibility alias was removed on 2026-08-16. Older
+    plugins must migrate before loading on current OpenClaw versions.
 
   </Accordion>
 

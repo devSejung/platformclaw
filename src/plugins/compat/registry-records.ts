@@ -30,19 +30,16 @@ export const PLUGIN_COMPAT_RECORDS = [
   },
   {
     code: "legacy-deactivate-hook-alias",
-    status: "deprecated",
+    status: "removed",
     owner: "sdk",
     introduced: "2026-05-16",
-    deprecated: "2026-05-16",
-    warningStarts: "2026-05-16",
-    removeAfter: "2026-08-16",
     replacement: "`gateway_stop` hook",
     docsPath: "/plugins/hooks#upcoming-deprecations",
     surfaces: ['api.on("deactivate", ...)', "plugin typed hook registration"],
-    diagnostics: ["plugin runtime compatibility warning"],
+    diagnostics: ["unknown typed hook diagnostic"],
     tests: ["src/plugins/loader.test.ts"],
     releaseNote:
-      '`api.on("deactivate", ...)` remains wired as a deprecated compatibility alias while plugins migrate to `gateway_stop`.',
+      '`api.on("deactivate", ...)` was removed after its compatibility window; plugins must register `gateway_stop`.',
   },
   {
     code: "legacy-subagent-spawning-hook",

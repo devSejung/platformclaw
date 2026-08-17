@@ -52,7 +52,6 @@ import type {
   PluginHookRegistration as TypedPluginHookRegistration,
 } from "./types.js";
 
-const LEGACY_DEACTIVATE_HOOK_ALIAS_COMPAT = getPluginCompatRecord("legacy-deactivate-hook-alias");
 const LEGACY_SUBAGENT_SPAWNING_HOOK_COMPAT = getPluginCompatRecord("legacy-subagent-spawning-hook");
 
 function normalizeEligibleTriggers(value: unknown) {
@@ -66,17 +65,8 @@ function normalizeEligibleTriggers(value: unknown) {
   return uniqueValues(triggers);
 }
 
-function formatLegacyDeactivateHookAliasDiagnostic(): string {
-  const removeAfter =
-    LEGACY_DEACTIVATE_HOOK_ALIAS_COMPAT.removeAfter ?? "a future breaking release";
-  return (
-    `typed hook "deactivate" is deprecated (${LEGACY_DEACTIVATE_HOOK_ALIAS_COMPAT.code}); ` +
-    `use "gateway_stop". This compatibility alias will be removed after ${removeAfter}.`
-  );
-}
-
 function formatDeprecatedTypedHookDiagnostic(hookName: PluginHookName): string | undefined {
-  if (!isDeprecatedPluginHookName(hookName) || hookName === "deactivate") {
+  if (!isDeprecatedPluginHookName(hookName)) {
     return undefined;
   }
   const deprecation = DEPRECATED_PLUGIN_HOOKS[hookName];
@@ -409,24 +399,15 @@ export function createToolHookRegistrars(state: PluginRegistryState) {
       });
       return;
     }
-    const effectiveHookName = hookName === "deactivate" ? "gateway_stop" : hookName;
-    if (hookName === "deactivate") {
+    const effectiveHookName = hookName;
+    const diagnostic = formatDeprecatedTypedHookDiagnostic(hookName);
+    if (diagnostic) {
       pushDiagnostic({
         level: "warn",
         pluginId: record.id,
         source: record.source,
-        message: formatLegacyDeactivateHookAliasDiagnostic(),
+        message: diagnostic,
       });
-    } else {
-      const diagnostic = formatDeprecatedTypedHookDiagnostic(hookName);
-      if (diagnostic) {
-        pushDiagnostic({
-          level: "warn",
-          pluginId: record.id,
-          source: record.source,
-          message: diagnostic,
-        });
-      }
     }
     const effectiveHandler = handler;
     if (policy?.allowPromptInjection === false && isPromptInjectionHookName(effectiveHookName)) {
