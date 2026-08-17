@@ -459,11 +459,11 @@ describe("PlatformClaw Docker runtime", () => {
       process.env.HOME?.trim() ||
       process.env.USERPROFILE?.trim() ||
       os.homedir();
-    source.plugins.entries["memory-wiki"].config!.vault!.path = path.resolve(
-      home,
-      ".openclaw",
-      "wiki",
-    );
+    const memoryWiki = source.plugins.entries["memory-wiki"];
+    if (!memoryWiki?.config?.vault) {
+      throw new Error("managed Memory Wiki config fixture is missing");
+    }
+    memoryWiki.config.vault.path = path.resolve(home, ".openclaw", "wiki");
 
     expect(() => validateManagedConfig(source, "platformclaw-sandbox:test")).not.toThrow();
   });
