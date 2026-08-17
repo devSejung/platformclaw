@@ -6,6 +6,8 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.quickActions.loading": "빠른 실행을 불러오는 중…",
   "platformClaw.quickActions.unavailable":
     "빠른 실행을 사용할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
+  "platformClaw.memory.unavailable": "메모리를 사용할 수 없음",
+  "platformClaw.memory.unassigned": "이 계정에 할당된 개인 Agent가 없습니다.",
   "platformClaw.voc.title": "VOC 등록",
   "platformClaw.voc.intro": "PlatformClaw VOC 등록 페이지입니다.",
   "platformClaw.voc.subject": "제목",

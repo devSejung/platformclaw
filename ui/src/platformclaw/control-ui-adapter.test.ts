@@ -69,6 +69,7 @@ describe("PlatformClawControlUiAdapter", () => {
         "tasks",
         "cron",
         "appearance",
+        "memory",
         "profile",
         "notifications",
         "about",
@@ -142,6 +143,73 @@ describe("PlatformClawControlUiAdapter", () => {
       );
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads standalone Memory for the assigned personal agent without global config", async () => {
+    installDescriptor();
+    const adapter = createPlatformClawControlUiAdapter()!;
+    const options = adapter.applicationOptions(
+      {
+        accountId: "person.one",
+        displayName: "Person One",
+        department: "Platform",
+        globalRole: "member",
+      },
+      vi.fn(),
+    );
+    const ensureList = vi.fn(async () => ({
+      agents: [
+        { id: "assigned-personal", name: "Assigned" },
+        { id: "foreign-agent", name: "Foreign" },
+      ],
+      defaultId: "assigned-personal",
+      mainKey: "assigned-personal",
+      scope: "agent" as const,
+    }));
+    const loader = options.routeOverrides?.memory?.loader;
+
+    await expect(
+      loader?.(
+        {
+          agents: { state: { agentsList: null }, ensureList },
+        } as never,
+        {} as never,
+      ),
+    ).resolves.toEqual({ agentId: "assigned-personal" });
+    expect(ensureList).toHaveBeenCalledOnce();
+  });
+
+  it("renders a visible unavailable state when no personal agent is assigned", async () => {
+    installDescriptor();
+    const adapter = createPlatformClawControlUiAdapter()!;
+    const options = adapter.applicationOptions(
+      {
+        accountId: "person.one",
+        displayName: "Person One",
+        department: "Platform",
+        globalRole: "member",
+      },
+      vi.fn(),
+    );
+    const loader = options.routeOverrides?.memory?.loader;
+
+    const routeData = await loader?.(
+      {
+        agents: {
+          state: { agentsList: { agents: [], defaultId: null } },
+          ensureList: vi.fn(),
+        },
+      } as never,
+      {} as never,
+    );
+    expect(routeData).toEqual({ agentId: null });
+
+    const component = await options.routeOverrides?.memory?.component?.();
+    const container = document.createElement("div");
+    render(component?.render(routeData), container);
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "No personal agent is assigned",
+    );
   });
 
   it("stops the app and redirects even when logout fails", async () => {

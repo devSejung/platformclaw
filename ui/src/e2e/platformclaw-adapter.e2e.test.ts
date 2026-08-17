@@ -378,6 +378,145 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     }
   });
 
+  it("opens standalone Memory for the assigned agent without config.get", async () => {
+    const { page } = await newPage();
+    await installPlatformClawDocument(page);
+    await page.route("**/platformclaw/api/auth/session", (route) =>
+      route.fulfill({ json: activeSession(), status: 200 }),
+    );
+    const gateway = await installMockGateway(page, {
+      basePath: "/platformclaw/app",
+      defaultAgentId: "person_one",
+      featureMethods: [
+        "agents.list",
+        "doctor.memory.status",
+        "doctor.memory.dreamDiary",
+        "wiki.overview",
+        "wiki.get",
+      ],
+      methodResponses: {
+        "agents.list": {
+          agents: [{ id: "person_one", name: "Person One Agent" }],
+          defaultId: "person_one",
+          mainKey: "person_one",
+          scope: "agent",
+        },
+        "doctor.memory.status": {
+          agentId: "person_one",
+          provider: "builtin",
+          embedding: { ok: true, checked: true },
+          dreaming: {
+            enabled: true,
+            verboseLogging: false,
+            storageMode: "inline",
+            separateReports: false,
+            shortTermCount: 1,
+            recallSignalCount: 1,
+            dailySignalCount: 1,
+            groundedSignalCount: 1,
+            totalSignalCount: 3,
+            phaseSignalCount: 1,
+            lightPhaseHitCount: 1,
+            remPhaseHitCount: 0,
+            promotedTotal: 4,
+            promotedToday: 1,
+            shortTermEntries: [],
+            signalEntries: [],
+            promotedEntries: [],
+            phases: {},
+          },
+        },
+        "doctor.memory.dreamDiary": {
+          agentId: "person_one",
+          found: true,
+          path: "DREAMS.md",
+          content: "# Dream Diary\n\nAssigned personal memory was consolidated.",
+        },
+        "wiki.overview": {
+          totalItems: 1,
+          totalPages: 1,
+          pageCounts: { entity: 0, concept: 0, source: 0, synthesis: 1, report: 0 },
+          totalClaims: 1,
+          totalQuestions: 0,
+          totalContradictions: 0,
+          clusters: [
+            {
+              key: "synthesis",
+              label: "Syntheses",
+              itemCount: 1,
+              claimCount: 1,
+              questionCount: 0,
+              contradictionCount: 0,
+              items: [
+                {
+                  pagePath: "syntheses/person-one.md",
+                  title: "Person One knowledge",
+                  kind: "synthesis",
+                  claimCount: 1,
+                  questionCount: 0,
+                  contradictionCount: 0,
+                  claims: ["Employee browser access stays agent scoped."],
+                  questions: [],
+                  contradictions: [],
+                  snippet: "Compiled knowledge for the assigned personal agent.",
+                },
+              ],
+            },
+          ],
+        },
+        "wiki.get": {
+          title: "Person One knowledge",
+          path: "syntheses/person-one.md",
+          content: "# Person One knowledge\n\nEmployee browser access stays agent scoped.",
+          totalLines: 3,
+          truncated: false,
+        },
+      },
+      sessionKey: "agent:person_one:main",
+    });
+
+    await page.goto(`${server.baseUrl}platformclaw/app/settings/agents/person_one/files`);
+    const settingsSidebar = page.locator(".settings-sidebar");
+    await expect.poll(() => settingsSidebar.isVisible()).toBe(true);
+    await settingsSidebar.getByRole("link", { name: "Memory", exact: true }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/memory");
+    await expect.poll(() => page.locator(".page-title").textContent()).toContain("Memory");
+    await page.getByRole("tab", { name: "Diary", exact: true }).click();
+    const diary = page.locator(".dreams-diary");
+    await expect
+      .poll(() => diary.textContent())
+      .toContain("Assigned personal memory was consolidated.");
+    await diary.getByRole("tab", { name: "Memory Wiki", exact: true }).click();
+    await expect.poll(() => diary.textContent()).toContain("Person One knowledge");
+    await diary.getByRole("button", { name: "Open wiki page" }).click();
+    await expect
+      .poll(() => page.locator(".dreams-diary__preview-pre").textContent())
+      .toContain("Employee browser access stays agent scoped.");
+
+    expect(await gateway.getRequests("config.get")).toHaveLength(0);
+    expect(await page.getByText("foreign-agent", { exact: false }).count()).toBe(0);
+    for (const method of ["doctor.memory.dreamDiary", "wiki.overview", "wiki.get"]) {
+      const requests = await gateway.getRequests(method);
+      expect(requests.length).toBeGreaterThan(0);
+      expect(requests.every((request) => request.params?.agentId === "person_one")).toBe(true);
+    }
+
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        animations: "disabled",
+        fullPage: true,
+        path: path.join(proofDir, "06-memory-wiki-from-settings.png"),
+      });
+    }
+
+    await page.goto(`${server.baseUrl}platformclaw/app/settings/memory/dreams`);
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe("/platformclaw/app/settings/memory/dreams");
+    await expect.poll(() => page.locator("openclaw-agent-memory-panel").isVisible()).toBe(true);
+    expect(await gateway.getRequests("config.get")).toHaveLength(0);
+  });
+
   it("shows the current work location and blocks a proposal for another target", async () => {
     const { page } = await newPage();
     await installPlatformClawDocument(page);
