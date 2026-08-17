@@ -454,6 +454,8 @@ export function renderApplicationShell(host: ShellViewHost) {
         .available=${terminalAvailable}
         .suppressed=${settingsTakeover}
         .themeMode=${resolveTerminalThemeMode()}
+        .singleSession=${context.accessMode === "personal-agent"}
+        .uploadsEnabled=${context.accessMode !== "personal-agent"}
       ></openclaw-terminal-panel>
       <openclaw-browser-panel
         .client=${gatewayConnected ? gatewaySnapshot.client : null}

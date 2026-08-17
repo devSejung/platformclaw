@@ -1453,7 +1453,7 @@ ${channelPluginSource({
     ]);
   });
 
-  it("normalizes legacy deactivate typed hooks onto gateway_stop", () => {
+  it("rejects the removed deactivate typed hook alias", () => {
     useNoBundledPlugins();
     const plugin = writePlugin({
       id: "legacy-deactivate-hook",
@@ -1480,14 +1480,12 @@ ${channelPluginSource({
     expect(registry.plugins.find((entry) => entry.id === "legacy-deactivate-hook")?.status).toBe(
       "loaded",
     );
-    expect(registry.typedHooks.map((entry) => entry.hookName)).toEqual(["gateway_stop"]);
-    expect(registry.typedHooks[0]?.timeoutMs).toBe(250);
+    expect(registry.typedHooks).toEqual([]);
     expect(
       registry.diagnostics.some(
         (diag) =>
           diag.pluginId === "legacy-deactivate-hook" &&
-          diag.message ===
-            'typed hook "deactivate" is deprecated (legacy-deactivate-hook-alias); use "gateway_stop". This compatibility alias will be removed after 2026-08-16.',
+          diag.message === 'unknown typed hook "deactivate" ignored',
       ),
     ).toBe(true);
   });

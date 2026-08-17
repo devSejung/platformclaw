@@ -19,6 +19,7 @@ export async function resolveBrowserGatewayAccess(params: {
   }
   return {
     user: auth.user,
+    session: auth.session,
     binding,
     mainSessionKey: params.buildAgentMainSessionKey({ agentId: binding.agentId }),
   };

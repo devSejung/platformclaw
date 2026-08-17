@@ -150,7 +150,7 @@ export class TerminalPanelSessionController
       return;
     }
     const persisted = loadPersistedTerminalSessionIds();
-    if (persisted.length === 0) {
+    if (persisted.length === 0 && !this.host.singleSession) {
       return;
     }
     this.updateControllerState("booting", true);
@@ -161,7 +161,12 @@ export class TerminalPanelSessionController
         return;
       }
       const known = new Map(listed.map((session) => [session.sessionId, session]));
-      for (const sessionId of persisted) {
+      // Personal-agent ingress owns exactly one session. Discover it from the
+      // server so reloads and new browser tabs reattach without shared storage.
+      const restoreIds = this.host.singleSession
+        ? listed.slice(0, 1).map((session) => session.sessionId)
+        : persisted;
+      for (const sessionId of restoreIds) {
         const session = known.get(sessionId);
         if (!session) {
           await this.restoreExitedSession(sessionId, operation);
@@ -415,6 +420,9 @@ export class TerminalPanelSessionController
   }
 
   private async openSessionNow(catalog?: TerminalPanelCatalogReference): Promise<void> {
+    if (this.host.singleSession && (this.tabs.length > 0 || this.booting)) {
+      return;
+    }
     const operation = this.captureTerminalOperation();
     if (!operation) {
       return;

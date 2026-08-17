@@ -3,6 +3,7 @@ import { request } from "node:http";
 import path from "node:path";
 import {
   createSshSandboxBackendWithSessionFactory,
+  buildSshLoginShellArgv,
   createSshSandboxSessionFromConfigText,
   disposeSshSandboxSession,
   requireSandboxBackendFactory,
@@ -604,6 +605,16 @@ export async function createExecutionDependenciesFromEnvironment(
             refreshCatalog: async () => await remoteSkills.list(target, true),
           })
         : undefined,
+    createTerminalProcess: async (target) => {
+      const session = await sshLeases.createSession(target);
+      const argv = buildSshLoginShellArgv(session);
+      return {
+        file: argv[0]!,
+        args: argv.slice(1),
+        cwd: process.cwd(),
+        dispose: async () => await disposeSshSandboxSession(session),
+      };
+    },
     testConnection: async ({ agentId, credentialBrokerAddress, credentialGrantToken }) => {
       // This endpoint consumes the probe-only connection snapshot. It discovers
       // canonical HOME before any executable backend snapshot can be created.

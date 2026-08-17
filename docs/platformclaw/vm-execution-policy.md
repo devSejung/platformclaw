@@ -131,6 +131,65 @@ not change the Basic workspace environment, PlatformClaw service processes, or
 an already prepared run. Direct PATH replacement and shell, loader, OpenClaw,
 and PlatformClaw control variables are not supported.
 
+## Browser VM terminal
+
+The first browser-terminal release is available only while the personal Agent
+has an assigned VM. It never opens a shell in the Basic workspace or Gateway
+container. The Browser Gateway keeps the upstream terminal UI but does not
+grant employee browsers `operator.admin`; it exposes only an employee-owned
+terminal method and event projection after binding the browser identity to its
+personal Agent and assigned-VM snapshot.
+
+Each personal Agent may own one live browser terminal. Opening it consumes one
+channel from that assigned target's existing four-channel SafeConnect master;
+the remaining channels stay available to Agent execution and queue under the
+existing lease policy when capacity is full. The terminal uses a direct SSH PTY
+and requires no broker, daemon, binary, or `tmux` installation on the VM.
+
+The SSH session opens the Linux account's configured login shell in its
+connection-verified home directory. The browser cannot choose a shell, working
+directory, VM, host, port, Linux account, or credential. `HOME` and `~` retain
+their normal assigned-account meaning; the user may change to
+`~/.platformclaw/workspace` when needed.
+
+A terminal has no maximum lifetime while a browser remains attached. A browser
+disconnect or page reload detaches it without moving or restarting the shell.
+The same authenticated user and personal Agent may automatically reattach for
+300 seconds with bounded output replay. If no browser reattaches before that
+deadline, PlatformClaw closes the remote PTY/login session and its local SSH
+process, then releases the SSH channel. Detached remote daemons are outside
+this terminal lifecycle. Explicit close does the same immediately. Gateway
+restart does not promise terminal survival.
+
+Changing the active work location does not close or reroute an open terminal.
+The terminal remains pinned to the exact assigned-VM target, allocation,
+target revision, and credential revision selected when it opened, and its tab
+continues to display that VM identity while the active location is Basic. New
+terminals remain unavailable in Basic. Allocation replacement, release,
+administrator revocation, user disablement, or credential-revision change
+closes the pinned terminal before retiring its authority. There is never a
+Basic-workspace fallback.
+
+Terminal authorization applies to every open, list, attach, input, resize,
+close, and event operation. Shared private Gateway connection identity is not
+terminal ownership. Audit records contain the user, Agent, allocation, target,
+open/close times, and terminal outcome, but never keystrokes, commands, output,
+environment values, or credentials. The first release does not expose terminal
+file upload or download.
+
+Deferred terminal work:
+
+- TODO(browser-terminal-basic): evaluate a Basic-workspace terminal only after
+  demonstrated demand. It must execute inside the user's Docker sandbox; a
+  Gateway-host shell remains forbidden.
+- TODO(browser-terminal-multiplex): evaluate a remote PTY broker only if the
+  one-terminal limit proves insufficient. Any design must define VM deployment,
+  versioning, authentication, framing, backpressure, reconnect, revocation, and
+  orphan cleanup before replacing direct SSH PTYs.
+- TODO(browser-terminal-transfer): evaluate VM-bound drag-and-drop upload and
+  authenticated download separately; no transfer may stage on or expose the
+  Gateway host.
+
 ## Failure behavior
 
 PlatformClaw never silently falls back from a VM to the basic workspace. A
@@ -479,9 +538,12 @@ After the upstream gate passes:
 7. Add VM remote-skill discovery and explicit refresh.
 8. Add employee-profile refresh and runtime-context projection.
 9. Add employee and administrator execution UI.
-10. Run a Docker fake-SafeConnect E2E covering isolation, failure, restart, and
+10. Add the one-session assigned-VM browser terminal with Browser Gateway
+    ownership projection, direct login-shell PTY, target pinning, 300-second
+    reconnect, revocation cleanup, and no Basic or host fallback.
+11. Run a Docker fake-SafeConnect E2E covering isolation, failure, restart, and
     Knox-group routing.
-11. Validate against a real approved enterprise VM without recording secrets or
+12. Validate against a real approved enterprise VM without recording secrets or
     internal host details.
 
 The fake-SafeConnect lane models only the externally confirmed SSH contract:

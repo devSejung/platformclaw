@@ -5,6 +5,7 @@ import {
   createPlatformClawExecutionSkillProvider,
   createPlatformClawExecutionSkillInstallProvider,
   createPlatformClawExecutionSkillWorkshopProvider,
+  createPlatformClawExecutionTerminalProvider,
   createUnavailableExecutionDependencies,
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
 } from "./src/backend.js";
@@ -45,6 +46,11 @@ export default definePluginEntry({
         )(params),
       skillWorkshop: async (params) =>
         await createPlatformClawExecutionSkillWorkshopProvider(await dependenciesPromise)(params),
+      terminal: async (params) =>
+        await createPlatformClawExecutionTerminalProvider(
+          await dependenciesPromise,
+          targetMutations,
+        )(params),
     });
     if (!executionRuntimePromise) {
       return;

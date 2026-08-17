@@ -60,6 +60,7 @@ export class VmAdministrationService {
       adminRpc: GatewayAdminRpc;
       now?: () => number;
       probeEndpoint?: typeof probeSafeConnectEndpoint;
+      closeTerminalForAgent?: (agentId: string, reason: string) => Promise<void>;
     },
   ) {}
 
@@ -78,6 +79,7 @@ export class VmAdministrationService {
 
   async mutate(actorUserId: string, action: string, body: Record<string, unknown>) {
     const now = (this.options.now ?? Date.now)();
+    const closeAgents = new Set<string>();
     switch (action) {
       case "probe-endpoint": {
         const port = body.port;
@@ -143,13 +145,24 @@ export class VmAdministrationService {
         });
         break;
       }
-      case "disable-endpoint":
+      case "disable-endpoint": {
+        const endpointId = stringField(body, "endpointId");
+        const snapshot = await this.options.store.getVmAdministrationSnapshot(actorUserId);
+        const hostIds = new Set(
+          snapshot.hosts.filter((host) => host.endpointId === endpointId).map((host) => host.id),
+        );
+        for (const allocation of snapshot.allocations) {
+          if (hostIds.has(allocation.vmHostId)) {
+            closeAgents.add(allocation.agentId);
+          }
+        }
         await this.options.store.disableSafeConnectEndpoint({
           actorUserId,
-          endpointId: stringField(body, "endpointId"),
+          endpointId,
           disabledAt: now,
         });
         break;
+      }
       case "enable-endpoint":
         await this.options.store.enableSafeConnectEndpoint({
           actorUserId,
@@ -177,13 +190,21 @@ export class VmAdministrationService {
         });
         break;
       }
-      case "disable-host":
+      case "disable-host": {
+        const vmHostId = stringField(body, "vmHostId");
+        const snapshot = await this.options.store.getVmAdministrationSnapshot(actorUserId);
+        for (const allocation of snapshot.allocations) {
+          if (allocation.vmHostId === vmHostId) {
+            closeAgents.add(allocation.agentId);
+          }
+        }
         await this.options.store.disableVmHost({
           actorUserId,
-          vmHostId: stringField(body, "vmHostId"),
+          vmHostId,
           disabledAt: now,
         });
         break;
+      }
       case "enable-host":
         await this.options.store.enableVmHost({
           actorUserId,
@@ -212,11 +233,17 @@ export class VmAdministrationService {
           allocationId,
           revokedAt: now,
         });
+        closeAgents.add(allocation.agentId);
         break;
       }
       default:
         throw new ControlPlaneStateError("unknown VM administration action");
     }
+    await Promise.all(
+      [...closeAgents].map(async (agentId) =>
+        this.options.closeTerminalForAgent?.(agentId, `admin_${action}`),
+      ),
+    );
     return await this.snapshot(actorUserId);
   }
 }

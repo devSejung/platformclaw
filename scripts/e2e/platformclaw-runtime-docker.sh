@@ -295,13 +295,19 @@ MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T \
     result="$(sshpass -d 3 ssh "${ssh_args[@]}" "$target" \
       '\''cat "$HOME/.platformclaw/e2e-stream" && rm "$HOME/.platformclaw/e2e-stream"'\'')"
     [[ "$result" == platformclaw-safeconnect-stream ]]
+    exec 3<<<"platformclaw-safeconnect-fixture-password"
+    login_result="$(printf '\''%s\n'\'' \
+      '\''printf "LOGIN:%s:%s\n" "$USER" "$PWD"'\'' exit | \
+      sshpass -d 3 ssh -tt "${ssh_args[@]}" "$target" 2>/dev/null | tr -d '\''\r'\'')"
+    grep -Fq "LOGIN:person_one:/users/person_one" <<<"$login_result"
   '
 
 MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T fake-safeconnect cat /state/boundary.jsonl >"$safeconnect_boundary_log"
 jq -se '
   (map(select(.event == "authentication_finished" and .accepted == false)) | length) >= 1 and
   (map(select(.event == "authentication_finished" and .accepted == true)) | length) >= 4 and
-  (map(select(.event == "command_finished" and .linuxAccount == "person_one" and .exitStatus == 0)) | length) >= 4
+  (map(select(.event == "command_finished" and .linuxAccount == "person_one" and .exitStatus == 0)) | length) >= 4 and
+  (map(select(.event == "login_shell_started" and .linuxAccount == "person_one")) | length) >= 1
 ' "$safeconnect_boundary_log" >/dev/null
 if grep -Fq "platformclaw-safeconnect-fixture-password" "$safeconnect_boundary_log"; then
   echo "SafeConnect password leaked into fixture boundary logs" >&2

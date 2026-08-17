@@ -14,6 +14,7 @@ import type {
   SandboxBackendSkillInstallProvider,
   SandboxBackendSkillMaterializationMode,
   SandboxBackendSkillWorkshopProvider,
+  SandboxBackendTerminalProvider,
   SandboxBackendWorkdirResolver,
 } from "./backend.types.js";
 
@@ -29,6 +30,9 @@ export type {
   SandboxBackendSkillInstallTarget,
   SandboxBackendSkillMaterializationMode,
   SandboxBackendSkillWorkshopProvider,
+  SandboxBackendTerminalPlan,
+  SandboxBackendTerminalProcess,
+  SandboxBackendTerminalProvider,
   SandboxBackendWorkdirValidation,
   SandboxBackendWorkdirResolver,
 } from "./backend.types.js";
@@ -124,6 +128,13 @@ export function getSandboxBackendSkillWorkshopProvider(
   id: string,
 ): SandboxBackendSkillWorkshopProvider | null {
   return getSandboxBackendFactories().get(normalizeSandboxBackendId(id))?.skillWorkshop ?? null;
+}
+
+/** Look up optional interactive terminal creation for a registered backend. */
+export function getSandboxBackendTerminalProvider(
+  id: string,
+): SandboxBackendTerminalProvider | null {
+  return getSandboxBackendFactories().get(normalizeSandboxBackendId(id))?.terminal ?? null;
 }
 
 /** Resolve a backend factory or throw the user-facing configuration error. */

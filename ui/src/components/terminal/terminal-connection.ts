@@ -24,6 +24,8 @@ type TerminalOpenResult = {
   cwd: string;
   confined: boolean;
   title?: string;
+  buffer?: string;
+  seq?: number;
 };
 
 type TerminalCatalogReference = {
@@ -208,7 +210,17 @@ export class TerminalConnection {
       }
       throw new TerminalOpenTimeoutError(error);
     }
-    this.adoptSession(result.sessionId, sink, { seqMode: "unknown", expectedSeq: 0 });
+    const offset =
+      typeof result.seq === "number" && Number.isSafeInteger(result.seq) ? result.seq : null;
+    this.adoptSession(
+      result.sessionId,
+      sink,
+      offset === null
+        ? { seqMode: "unknown", expectedSeq: 0 }
+        : { seqMode: "offset", expectedSeq: offset },
+      result.buffer,
+      offset ?? undefined,
+    );
     return result;
   }
 

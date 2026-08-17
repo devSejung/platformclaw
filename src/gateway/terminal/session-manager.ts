@@ -244,6 +244,7 @@ export class TerminalSessionManager {
       agentId: request.agentId,
       cwd: request.cwd,
       shell: request.shell,
+      confined: request.confined ?? false,
       backend,
       stageUpload: request.stageUpload ?? stageTerminalUpload,
       closed: false,
@@ -280,6 +281,7 @@ export class TerminalSessionManager {
       agentId: session.agentId,
       cwd: session.cwd,
       shell: session.shell,
+      confined: session.confined,
     };
   }
 
@@ -426,6 +428,7 @@ export class TerminalSessionManager {
       agentId: session.agentId,
       cwd: session.cwd,
       shell: session.shell,
+      confined: session.confined,
       buffer: session.buffer.snapshot(),
       seq: session.output.endOffset,
     };
@@ -443,6 +446,7 @@ export class TerminalSessionManager {
           agentId: session.agentId,
           shell: session.shell,
           cwd: session.cwd,
+          confined: session.confined,
           attached:
             session.owner?.kind === "conn" ||
             (session.owner?.kind === "agent" && session.viewers.size > 0),

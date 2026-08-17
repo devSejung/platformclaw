@@ -48,6 +48,7 @@ export interface TerminalPanelSessionControllerHost extends ReactiveControllerHo
   readonly available: boolean;
   readonly themeMode: "dark" | "light";
   readonly fullscreen: boolean;
+  readonly singleSession: boolean;
   readonly terminalPanelOpen: boolean;
   readonly catalogReadyTimeoutMs: number;
   terminalPanelErrorText: string | null;
