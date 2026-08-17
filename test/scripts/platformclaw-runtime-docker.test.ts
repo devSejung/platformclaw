@@ -801,6 +801,9 @@ describe("PlatformClaw Docker runtime", () => {
   it("proves the personal Memory Wiki inside the Linux runtime smoke", () => {
     const smoke = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
 
+    expect(smoke).toContain(
+      'export OPENCLAW_GATEWAY_TOKEN="$(tr -d "\\r\\n" </run/secrets/platformclaw_gateway_token)"',
+    );
     expect(smoke).toContain("openclaw wiki status --agent person_one");
     expect(smoke).toContain("Wiki vault mode: bridge");
     expect(smoke).toContain("Vault scope: agent (person_one)");
