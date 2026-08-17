@@ -32,7 +32,7 @@ export async function createSandboxTerminalBackend(params: {
     await process.dispose();
   };
   const disposeInBackground = () => {
-    void dispose().catch((error) => {
+    void dispose().catch((error: unknown) => {
       log.warn(`sandbox terminal cleanup failed: ${String(error)}`);
     });
   };
