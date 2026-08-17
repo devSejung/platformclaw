@@ -4150,6 +4150,10 @@ export const en: TranslationMap = {
         "This archives derived dream cache files and rebuilds them from clean inputs. Your dream diary stays untouched.",
       confirmDedupeDescription:
         "This rewrites DREAMS.md and removes only exact duplicate diary entries.",
+      confirmResetDiaryDescription:
+        "This removes backfilled entries from DREAMS.md. Other diary entries remain.",
+      confirmClearGroundedDescription:
+        "This clears replayed short-term entries. Their source daily logs remain unchanged.",
       archivePathCopied: "Archive path copied.",
       archivePathCopyFailed: "Could not copy archive path.",
       updateFailed: "Could not update dreaming settings.",

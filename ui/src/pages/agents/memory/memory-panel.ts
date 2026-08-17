@@ -15,7 +15,7 @@ import { renderSettingsDefaultState } from "../../../components/settings-ui.ts";
 import { t } from "../../../i18n/index.ts";
 import { currentConfigObject } from "../../../lib/config/index.ts";
 import { formatTimeMs } from "../../../lib/format.ts";
-import { isPluginEnabledInConfigSnapshot } from "../../../lib/plugin-activation.ts";
+import { isGatewayMethodAdvertised } from "../../../lib/gateway-methods.ts";
 import { OpenClawLightDomElement } from "../../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../../lit/subscriptions-controller.ts";
 import {
@@ -28,6 +28,7 @@ import {
   loadDreamingStatus,
   loadWikiImportInsights,
   loadWikiOverview,
+  isMemoryWikiAvailable,
   repairDreamingArtifacts,
   resetGroundedShortTerm,
   resetDreamDiary,
@@ -294,10 +295,17 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
       return;
     }
     const runtimeConfig = this.context.runtimeConfig;
-    if (refreshConfig) {
-      await runtimeConfig.refresh();
-    } else {
-      await runtimeConfig.ensureLoaded();
+    if (isGatewayMethodAdvertised(scope.state, "config.get") !== false) {
+      try {
+        if (refreshConfig) {
+          await runtimeConfig.refresh();
+        } else {
+          await runtimeConfig.ensureLoaded();
+        }
+      } catch {
+        // Restricted browser gateways intentionally omit config.get. Memory reads
+        // remain independently available through their advertised methods.
+      }
     }
     if (!this.isTaskScopeCurrent(scope) || this.context.runtimeConfig !== runtimeConfig) {
       return;
@@ -481,7 +489,13 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
       return;
     }
     const runtimeConfig = this.context.runtimeConfig;
-    await runtimeConfig.refresh();
+    if (isGatewayMethodAdvertised(scope.state, "config.get") !== false) {
+      try {
+        await runtimeConfig.refresh();
+      } catch {
+        // A config refresh failure must not block an independently authorized wiki read.
+      }
+    }
     if (!this.isTaskScopeCurrent(scope) || this.context.runtimeConfig !== runtimeConfig) {
       return;
     }
@@ -588,11 +602,7 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
         dreamDiaryActionArchivePath: dreaming.dreamDiaryActionArchivePath,
         dreamDiaryError: dreaming.dreamDiaryError,
         dreamDiaryContent: dreaming.dreamDiaryContent,
-        memoryWikiEnabled: isPluginEnabledInConfigSnapshot(
-          configState.configSnapshot,
-          "memory-wiki",
-          { enabledByDefault: false },
-        ),
+        memoryWikiEnabled: isMemoryWikiAvailable(dreaming),
         wikiImportInsightsLoading: dreaming.wikiImportInsightsLoading,
         wikiImportInsightsError: dreaming.wikiImportInsightsError,
         wikiImportInsights: dreaming.wikiImportInsights,
@@ -613,8 +623,20 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
             confirmLabel: t("dreaming.scene.dedupeDiary"),
             danger: true,
           }),
-        onResetDiary: () => void this.runDreamingTask(resetDreamDiary),
-        onResetGroundedShortTerm: () => void this.runDreamingTask(resetGroundedShortTerm),
+        onResetDiary: () =>
+          void this.confirmDreamingTask(resetDreamDiary, {
+            title: t("dreaming.scene.reset"),
+            message: t("dreaming.actions.confirmResetDiaryDescription"),
+            confirmLabel: t("dreaming.scene.reset"),
+            danger: true,
+          }),
+        onResetGroundedShortTerm: () =>
+          void this.confirmDreamingTask(resetGroundedShortTerm, {
+            title: t("dreaming.scene.clearGrounded"),
+            message: t("dreaming.actions.confirmClearGroundedDescription"),
+            confirmLabel: t("dreaming.scene.clearGrounded"),
+            danger: true,
+          }),
         onRepairDreamingArtifacts: () =>
           void this.confirmDreamingTask(repairDreamingArtifacts, {
             title: t("dreaming.scene.repairCache"),

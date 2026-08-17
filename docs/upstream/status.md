@@ -47,6 +47,11 @@
   `approval.history`. PlatformClaw always pins it to the browser binding and
   projects only terminal rows for that Agent; direct operator calls that omit
   the filter retain the upstream global history behavior.
+- Personal Memory Wiki uses the bundled upstream `memory-wiki` plugin in
+  `vault.scope=agent` bridge mode. PlatformClaw changes no Wiki compiler,
+  storage, tool, or Gateway protocol contract; downstream policy is limited to
+  managed deployment config plus agent-pinned, path-redacted browser reads.
+  Future part, group, and global corpora remain separate PlatformClaw work.
 - These workspace, artifact, and rewind changes are downstream Browser Gateway
   policy and response projection only. They do not modify the Gateway protocol,
   upstream handlers, filesystem resolution, transcript storage, or artifact

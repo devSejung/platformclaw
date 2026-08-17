@@ -338,8 +338,28 @@ describe("PlatformClaw Docker runtime", () => {
       },
       tools: { sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
       plugins: {
+        slots: { memory: "memory-core" },
         entries: {
           "admin-http-rpc": { enabled: true },
+          "memory-core": {
+            enabled: true,
+            config: { dreaming: { enabled: true, frequency: "0 3 * * *" } },
+          },
+          "memory-wiki": {
+            enabled: true,
+            config: {
+              vaultMode: "bridge",
+              vault: {
+                scope: "agent",
+                path: "~/.openclaw/wiki",
+                renderMode: "native",
+              },
+              obsidian: { enabled: false, useOfficialCli: false },
+              bridge: { enabled: true, readMemoryArtifacts: true },
+              search: { backend: "shared", corpus: "wiki" },
+              unsafeLocal: { allowPrivateMemoryCoreAccess: false, paths: [] },
+            },
+          },
           "platformclaw-execution": { enabled: true },
         },
       },
@@ -391,6 +411,138 @@ describe("PlatformClaw Docker runtime", () => {
 
     expect(result.changed).toBe(true);
     expect(result.config.plugins.entries.knox).toEqual({ enabled: true });
+    expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
+  });
+
+  it("migrates existing deployments to the agent-scoped native Memory Wiki", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      plugins: { entries: Record<string, unknown> };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    delete source.plugins.entries["memory-wiki"];
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+    expect(result.changed).toBe(true);
+    expect(result.config.plugins.entries["memory-wiki"]).toEqual({
+      enabled: true,
+      config: {
+        vaultMode: "bridge",
+        vault: { scope: "agent", path: "~/.openclaw/wiki", renderMode: "native" },
+        obsidian: { enabled: false, useOfficialCli: false },
+        bridge: { enabled: true, readMemoryArtifacts: true },
+        search: { backend: "shared", corpus: "wiki" },
+        unsafeLocal: { allowPrivateMemoryCoreAccess: false, paths: [] },
+      },
+    });
+    expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
+    expect(reconcileManagedConfig(result.config, "platformclaw-sandbox:test").changed).toBe(false);
+  });
+
+  it("keeps native memory and nightly Dreaming active for the Wiki bridge", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      plugins: {
+        slots?: { memory?: string };
+        entries: Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
+      };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    source.plugins.slots = { memory: "none" };
+    source.plugins.entries["memory-core"] = {
+      enabled: false,
+      config: {
+        dreaming: { enabled: false, frequency: "0 5 * * *", verboseLogging: true },
+      },
+    };
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+    expect(result.config.plugins.slots).toEqual({ memory: "memory-core" });
+    expect(result.config.plugins.entries["memory-core"]).toEqual({
+      enabled: true,
+      config: {
+        dreaming: {
+          enabled: true,
+          frequency: "0 3 * * *",
+          verboseLogging: true,
+        },
+      },
+    });
+    expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
+  });
+
+  it("repairs conflicting Memory Wiki policy without discarding safe tuning", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      plugins: {
+        entries: Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
+      };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    source.plugins.entries["memory-wiki"] = {
+      enabled: false,
+      config: {
+        vaultMode: "unsafe-local",
+        vault: { scope: "global", path: "/host/wiki", renderMode: "obsidian" },
+        obsidian: { enabled: true, useOfficialCli: true, vaultName: "legacy" },
+        bridge: { enabled: false, readMemoryArtifacts: false, indexDailyNotes: false },
+        search: { backend: "local", corpus: "all" },
+        unsafeLocal: { allowPrivateMemoryCoreAccess: true, paths: ["/host/private"] },
+        ingest: { maxConcurrentJobs: 2 },
+      },
+    };
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+    const wiki = result.config.plugins.entries["memory-wiki"];
+
+    expect(wiki).toMatchObject({
+      enabled: true,
+      config: {
+        vaultMode: "bridge",
+        vault: { scope: "agent", path: "~/.openclaw/wiki", renderMode: "native" },
+        obsidian: { enabled: false, useOfficialCli: false, vaultName: "legacy" },
+        bridge: { enabled: true, readMemoryArtifacts: true, indexDailyNotes: false },
+        search: { backend: "shared", corpus: "wiki" },
+        unsafeLocal: { allowPrivateMemoryCoreAccess: false, paths: [] },
+        ingest: { maxConcurrentJobs: 2 },
+      },
+    });
+    expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
+  });
+
+  it("keeps required plugins reachable through restrictive plugin policy", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      plugins: { enabled?: boolean; allow?: string[]; deny?: string[] };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    source.plugins.enabled = false;
+    source.plugins.allow = ["custom-plugin"];
+    source.plugins.deny = [" Memory-Wiki ", "blocked-plugin"];
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+    expect(result.config.plugins.enabled).toBe(true);
+    expect(result.config.plugins.allow).toEqual([
+      "custom-plugin",
+      "admin-http-rpc",
+      "knox",
+      "memory-core",
+      "memory-wiki",
+      "platformclaw-execution",
+      "platformclaw-user-mcp",
+    ]);
+    expect(result.config.plugins.deny).toEqual(["blocked-plugin"]);
     expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
   });
 
@@ -618,6 +770,15 @@ describe("PlatformClaw Docker runtime", () => {
     expect(workflow).toContain(
       "PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE: /tmp/platformclaw-empty-secret",
     );
+  });
+
+  it("proves the personal Memory Wiki inside the Linux runtime smoke", () => {
+    const smoke = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
+
+    expect(smoke).toContain("openclaw wiki status --agent person_one");
+    expect(smoke).toContain("Wiki vault mode: bridge");
+    expect(smoke).toContain("Vault scope: agent (person_one)");
+    expect(smoke).toContain("Render mode: native");
   });
 
   it("provides a persistent, manually resettable Windows VM preview", () => {

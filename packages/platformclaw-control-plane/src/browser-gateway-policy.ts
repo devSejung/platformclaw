@@ -24,6 +24,13 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "cron.runs",
   "cron.status",
   "cron.update",
+  "doctor.memory.backfillDreamDiary",
+  "doctor.memory.dedupeDreamDiary",
+  "doctor.memory.dreamDiary",
+  "doctor.memory.repairDreamingArtifacts",
+  "doctor.memory.resetDreamDiary",
+  "doctor.memory.resetGroundedShortTerm",
+  "doctor.memory.status",
   "models.list",
   "memory.search",
   "approval.history",
@@ -88,6 +95,11 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "tools.effective",
   "usage.cost",
   "users.self",
+  "wiki.get",
+  "wiki.importInsights",
+  "wiki.overview",
+  "wiki.search",
+  "wiki.status",
 ] as const;
 
 export type PlatformClawWebGatewayMethod = (typeof PLATFORMCLAW_WEB_GATEWAY_METHODS)[number];
@@ -195,6 +207,13 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ],
   ["cron.status", new Set()],
   ["cron.update", new Set(["expectedConfigRevision", "id", "jobId", "patch"])],
+  ["doctor.memory.backfillDreamDiary", new Set(["agentId"])],
+  ["doctor.memory.dedupeDreamDiary", new Set(["agentId"])],
+  ["doctor.memory.dreamDiary", new Set(["agentId"])],
+  ["doctor.memory.repairDreamingArtifacts", new Set(["agentId"])],
+  ["doctor.memory.resetDreamDiary", new Set(["agentId"])],
+  ["doctor.memory.resetGroundedShortTerm", new Set(["agentId"])],
+  ["doctor.memory.status", new Set(["agentId", "probe"])],
   ["models.list", new Set(["view"])],
   ["memory.search", new Set(["agentId", "query"])],
   ["approval.history", new Set(["agentId", "cursor", "kind", "limit"])],
@@ -391,6 +410,11 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     ]),
   ],
   ["users.self", new Set()],
+  ["wiki.get", new Set(["agentId", "lookup", "fromLine", "lineCount"])],
+  ["wiki.importInsights", new Set(["agentId"])],
+  ["wiki.overview", new Set(["agentId"])],
+  ["wiki.search", new Set(["agentId", "query", "maxResults", "mode"])],
+  ["wiki.status", new Set(["agentId"])],
 ]);
 
 export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([

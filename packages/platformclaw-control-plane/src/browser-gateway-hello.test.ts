@@ -174,7 +174,13 @@ describe("projectPlatformClawBrowserHello", () => {
 
   it("advertises personal memory reads only when the Gateway supports them", () => {
     const upstream = upstreamHello();
-    upstream.features.methods.push("memory.search", "agents.workspace.get");
+    upstream.features.methods.push(
+      "doctor.memory.status",
+      "memory.search",
+      "agents.workspace.get",
+      "wiki.get",
+      "wiki.overview",
+    );
     const projected = projectPlatformClawBrowserHello({
       upstream,
       access,
@@ -182,7 +188,13 @@ describe("projectPlatformClawBrowserHello", () => {
     });
 
     expect(projected.features.methods).toEqual(
-      expect.arrayContaining(["memory.search", "agents.workspace.get"]),
+      expect.arrayContaining([
+        "doctor.memory.status",
+        "memory.search",
+        "agents.workspace.get",
+        "wiki.get",
+        "wiki.overview",
+      ]),
     );
   });
 

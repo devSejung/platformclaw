@@ -1,0 +1,173 @@
+---
+summary: "PlatformClaw personal and shared Memory Wiki rollout contract"
+read_when:
+  - Enabling Memory Wiki for PlatformClaw employees
+  - Implementing shared knowledge scopes, promotion, or approval
+  - Reviewing Memory Wiki ownership and BFF policy
+title: "Memory Wiki rollout"
+---
+
+# Memory Wiki rollout
+
+PlatformClaw adopts the bundled OpenClaw `memory-wiki` plugin instead of
+building a second wiki engine. The rollout keeps durable personal memory,
+compiled wiki pages, and future shared knowledge as distinct product layers.
+
+## Layer model
+
+- `memory-core` owns personal recall, promotion, daily memory, and Dreaming.
+- `memory-wiki` compiles durable sources into navigable Markdown pages with
+  provenance, claims, backlinks, related pages, and reports.
+- PlatformClaw owns browser authorization and the future organization scopes,
+  approval workflow, and audit trail.
+- Assigned-VM selection changes project execution only. Personal memory and
+  wiki state remain attached to the Gateway-hosted personal Agent.
+
+Dreaming does not curate the wiki. It consolidates the personal Agent's memory
+on its configured schedule. Bridge mode lets the wiki import published memory
+artifacts; structured wiki mutations still occur through native `wiki_apply`
+or an explicit operator action. PR1 adds no background LLM curator.
+
+## Delivery plan
+
+| PR  | Capability                  | Storage and authority                                                         |
+| --- | --------------------------- | ----------------------------------------------------------------------------- |
+| 1   | Native personal Memory Wiki | One `vault.scope=agent` vault per personal Agent; native plugin and UI        |
+| 2   | Generic multi-corpus seam   | Upstream-compatible corpus registry/query contract; no organization policy    |
+| 3   | Organization read scopes    | Personal, part, group, and global corpora with PlatformClaw membership checks |
+| 4   | Promotion lifecycle         | Claim-level request, approval, retirement, audit, and derived semantic links  |
+
+Each PR is independently usable. Later PRs must reuse native Memory Wiki
+compiler and query contracts rather than fork page rendering or search.
+
+## PR1: personal Agent Wiki
+
+PlatformClaw deployment enables `memory-wiki` with this managed policy:
+
+```json5
+{
+  plugins: {
+    slots: { memory: "memory-core" },
+    entries: {
+      "memory-core": {
+        enabled: true,
+        config: {
+          dreaming: { enabled: true, frequency: "0 3 * * *" },
+        },
+      },
+      "memory-wiki": {
+        enabled: true,
+        config: {
+          vaultMode: "bridge",
+          vault: { scope: "agent", path: "~/.openclaw/wiki" },
+          bridge: { enabled: true, readMemoryArtifacts: true },
+          obsidian: { useOfficialCli: false },
+        },
+      },
+    },
+  },
+}
+```
+
+The deployment reconciler applies this policy to new and existing PlatformClaw
+config. Operators do not need a new environment variable or manual JSON edit.
+Redeploy/restart through the normal PlatformClaw deployment flow is sufficient.
+The reconciler preserves unrelated plugin options but owns the values above:
+global vaults, `unsafe-local`, disabled bridge imports, and official Obsidian
+CLI access are incompatible with the personal multi-user boundary.
+The managed memory slot is native `memory-core`; Dreaming is enabled at 03:00
+using the Gateway timezone. PlatformClaw therefore requires no separate Wiki or
+Dreaming toggle. Operators needing another memory engine must treat that as a
+future PlatformClaw policy change, not a per-user browser setting.
+
+PR1 exposes bounded personal RPCs to employee browsers:
+
+- Dreaming: `doctor.memory.status`, `doctor.memory.dreamDiary`
+- Wiki UI: `wiki.importInsights`, `wiki.overview`, `wiki.get`
+- Personal exploration: `wiki.status`, `wiki.search`
+- Personal Dreaming maintenance: `doctor.memory.backfillDreamDiary`,
+  `doctor.memory.dedupeDreamDiary`, `doctor.memory.resetDreamDiary`,
+  `doctor.memory.resetGroundedShortTerm`, and
+  `doctor.memory.repairDreamingArtifacts`
+
+The BFF replaces any browser-supplied `agentId` with the authenticated personal
+Agent, rejects foreign IDs and unknown parameters, caps query/result/content
+sizes, and removes host paths and backend-only metadata. Reset, dedupe, and
+repair actions are explicit personal operations; destructive resets require a
+browser confirmation. It does not expose wiki ingest, compile, apply,
+unsafe-local, Obsidian command, or global `config.*` RPCs. Agents write Wiki
+content through the plugin's native tools, which already run in the selected
+Agent context.
+
+Users access the feature through **Settings > Memory > Dreams**. The native tabs
+show **Dreams**, **Imported Insights**, and **Memory Wiki**. Wiki pages open in
+the existing preview. `memory.search` remains the personal long-term memory
+search; Wiki search/page reads are a separate native corpus until PR2.
+
+### PR1 acceptance
+
+- New and upgraded deployments advertise the bounded RPC set.
+- Employee A cannot request or receive Employee B's Agent data.
+- Browser responses contain no workspace or vault absolute path.
+- Native Dreams, Imported Insights, Wiki overview, and page preview render.
+- Basic-server and assigned-VM sessions resolve the same personal wiki.
+- Linux Docker smoke proves effective managed config and Gateway method
+  advertisement; focused tests prove request and response projection.
+
+## PR2: generic multi-corpus seam
+
+PR2 introduces a plugin-neutral corpus registration and combined-query seam.
+It carries stable corpus identity, owner scope, provenance, and bounded search
+results without embedding PlatformClaw roles into OpenClaw core. Native
+personal memory and personal Wiki become two corpora behind one query path.
+No part, group, or global authorization ships in PR2.
+
+## PR3: organization scopes
+
+PR3 adds four PlatformClaw vault classes:
+
+| Scope    | Read authority                                           | Write authority             |
+| -------- | -------------------------------------------------------- | --------------------------- |
+| Personal | Bound employee                                           | Native personal Agent tools |
+| Part     | Current part members                                     | Promotion workflow only     |
+| Group    | Current group members; group admin may audit child parts | Promotion workflow only     |
+| Global   | Every authenticated employee                             | Promotion workflow only     |
+
+Ordinary group members cannot read sibling part vaults. Default search spans
+every corpus authorized for the current employee and labels each result's
+scope. Membership is resolved by PlatformClaw at request time; browser input
+never grants scope.
+
+## PR4: promotion and lifecycle
+
+Promotion unit is a structured claim, not an entire generated page. A request
+contains source scope and claim identity, target scope, proposed text,
+evidence/provenance, reason, and expected source revision. An LLM may draft or
+recommend the request, but a user explicitly submits it.
+
+Approval authority:
+
+- personal to part: target part administrator;
+- part to group: target group administrator;
+- group to global: PlatformClaw administrator.
+
+Approval creates a target-scope claim linked to its immutable source claim.
+The compiler rebuilds pages, backlinks, related pages, and reports from claims;
+promotion does not copy an opaque page tree. Later source changes do not
+silently rewrite the approved target claim. A new revision or superseding
+promotion is required.
+
+Shared claims support retirement with reason and audit history. Retired claims
+leave active search/page views but keep a tombstone for provenance. Hard purge
+is restricted to PlatformClaw administrators and reserved for privacy or
+security removal. Semantic links are derived, rebuildable metadata: background
+LLM work may suggest relationships among approved claims, but it cannot create,
+promote, approve, or restore authoritative claims.
+
+## Non-goals
+
+- No separate browser-only wiki implementation.
+- No VM-local memory mirror or dual-write path.
+- No automatic organization-wide publication from Dreaming.
+- No browser access to arbitrary workspace files or host paths.
+- No global vault shared by all personal Agents under one filesystem boundary.
