@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { reconcileManagedConfig } from "../../docker/platformclaw-runtime/reconcile-managed-config.mjs";
@@ -440,6 +442,30 @@ describe("PlatformClaw Docker runtime", () => {
     });
     expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
     expect(reconcileManagedConfig(result.config, "platformclaw-sandbox:test").changed).toBe(false);
+  });
+
+  it("accepts the runtime-normalized managed Memory Wiki path", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      plugins: {
+        entries: Record<string, { config?: { vault?: { path?: string } } }>;
+      };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    const home =
+      process.env.OPENCLAW_HOME?.trim() ||
+      process.env.HOME?.trim() ||
+      process.env.USERPROFILE?.trim() ||
+      os.homedir();
+    source.plugins.entries["memory-wiki"].config!.vault!.path = path.resolve(
+      home,
+      ".openclaw",
+      "wiki",
+    );
+
+    expect(() => validateManagedConfig(source, "platformclaw-sandbox:test")).not.toThrow();
   });
 
   it("keeps native memory and nightly Dreaming active for the Wiki bridge", () => {

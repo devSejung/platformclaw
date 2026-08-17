@@ -20,6 +20,8 @@ type ChromiumInstallOptions = {
 };
 
 export const systemChromiumExecutableCandidates: readonly string[];
+export const chromiumProbeArgs: readonly string[];
+export const chromiumProbeTimeoutMs: number;
 export function canRunChromiumExecutable(
   executablePath: string,
   spawnSync?: SpawnSyncLike,

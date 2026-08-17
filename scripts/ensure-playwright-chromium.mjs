@@ -12,6 +12,14 @@ const repoRoot = resolveRepoRoot(import.meta.url);
 const playwrightInstallBaseArgs = ["--dir", "ui", "exec", "playwright", "install"];
 const executableOverrideEnvKey = "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH";
 const chromiumPackageNames = ["chromium-browser", "chromium"];
+export const chromiumProbeArgs = [
+  "--headless",
+  "--no-sandbox",
+  "--disable-gpu",
+  "--dump-dom",
+  "about:blank",
+];
+export const chromiumProbeTimeoutMs = 10_000;
 /**
  * System Chromium executable paths used before downloading Playwright browsers.
  */
@@ -27,8 +35,12 @@ export const systemChromiumExecutableCandidates = [
  * Checks whether a Chromium executable can start enough to print its version.
  */
 export function canRunChromiumExecutable(executablePath, spawnSync = spawnSyncImpl) {
-  const result = spawnSync(executablePath, ["--version"], {
+  // Windows Chromium treats `--version` like a normal GUI launch and may never
+  // exit. A bounded headless page load proves the executable can actually run.
+  const result = spawnSync(executablePath, chromiumProbeArgs, {
+    killSignal: "SIGKILL",
     stdio: "ignore",
+    timeout: chromiumProbeTimeoutMs,
   });
   return result.status === 0;
 }

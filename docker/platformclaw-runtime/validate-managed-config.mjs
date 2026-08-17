@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -28,6 +29,15 @@ function requirePolicy(condition) {
   if (!condition) {
     throw new Error(POLICY_ERROR);
   }
+}
+
+function resolveManagedWikiRuntimePath() {
+  const home =
+    process.env.OPENCLAW_HOME?.trim() ||
+    process.env.HOME?.trim() ||
+    process.env.USERPROFILE?.trim() ||
+    os.homedir();
+  return path.resolve(home, ".openclaw", "wiki");
 }
 
 function validateDockerPolicy(docker, sandboxImage) {
@@ -158,7 +168,12 @@ export function validateManagedConfig(config, sandboxImage) {
   const wiki = plugins?.["memory-wiki"]?.config;
   requirePolicy(wiki?.vaultMode === "bridge");
   requirePolicy(wiki?.vault?.scope === "agent");
-  requirePolicy(wiki?.vault?.path === "~/.openclaw/wiki");
+  // The seed/reconciler owns the portable `~` form, while loadConfig expands
+  // path-like fields before this runtime gate sees them.
+  requirePolicy(
+    wiki?.vault?.path === "~/.openclaw/wiki" ||
+      wiki?.vault?.path === resolveManagedWikiRuntimePath(),
+  );
   requirePolicy(wiki?.vault?.renderMode === "native");
   requirePolicy(wiki?.bridge?.enabled === true);
   requirePolicy(wiki?.bridge?.readMemoryArtifacts === true);

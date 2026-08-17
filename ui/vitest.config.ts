@@ -1,11 +1,11 @@
 // Control UI config module wires vitest behavior.
-import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { playwright } from "@vitest/browser-playwright";
 import { chromium } from "playwright";
 import { defineConfig, defineProject } from "vitest/config";
+import { canRunChromiumExecutable } from "../scripts/ensure-playwright-chromium.mjs";
 import {
   jsdomOptimizedDeps,
   resolveDefaultVitestPool,
@@ -108,11 +108,6 @@ const systemChromiumExecutableCandidates = [
   "/usr/bin/google-chrome",
   "/usr/bin/google-chrome-stable",
 ] as const;
-
-function canRunChromiumExecutable(executablePath: string): boolean {
-  const result = spawnSync(executablePath, ["--version"], { stdio: "ignore" });
-  return result.status === 0;
-}
 
 function resolveChromiumLaunchOptions(): { executablePath: string } | undefined {
   const override = process.env[chromiumExecutableOverrideEnvKey]?.trim();

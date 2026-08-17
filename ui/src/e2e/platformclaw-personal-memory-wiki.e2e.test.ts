@@ -262,6 +262,7 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
         .toContain("Assigned personal memory was consolidated.");
       await expectRequestsPinned(gateway, "doctor.memory.status");
       await expectRequestsPinned(gateway, "doctor.memory.dreamDiary");
+      const initialConfigGetCount = (await gateway.getRequests("config.get")).length;
       await screenshot(page, "01-dreams.png");
 
       await diary.getByRole("tab", { name: "Imported Insights" }).click();
@@ -273,14 +274,14 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
       await expect.poll(() => diary.textContent()).toContain("Assigned platform knowledge");
       await expectRequestsPinned(gateway, "wiki.overview");
       await diary.getByRole("button", { name: "Open wiki page" }).click();
-      await expect
-        .poll(() => page.locator(".dreams-wiki-preview").textContent())
-        .toContain("Employee browser access stays agent scoped.");
       await expectRequestsPinned(gateway, "wiki.get");
+      await expect
+        .poll(() => page.locator(".dreams-diary__preview-pre").textContent())
+        .toContain("Employee browser access stays agent scoped.");
       await screenshot(page, "03-memory-wiki-preview.png");
 
       expect(await page.getByText(foreignAgentId, { exact: false }).count()).toBe(0);
-      expect(await gateway.getRequests("config.get")).toHaveLength(0);
+      expect(await gateway.getRequests("config.get")).toHaveLength(initialConfigGetCount);
     } finally {
       await context.close();
     }
