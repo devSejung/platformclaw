@@ -32,12 +32,51 @@
     }
   },
   "plugins": {
+    "slots": {
+      "memory": "memory-core"
+    },
     "entries": {
       "admin-http-rpc": {
         "enabled": true
       },
       "knox": {
         "enabled": true
+      },
+      "memory-wiki": {
+        "enabled": true,
+        "config": {
+          "vaultMode": "bridge",
+          "vault": {
+            "scope": "agent",
+            "path": "~/.openclaw/wiki",
+            "renderMode": "native"
+          },
+          "obsidian": {
+            "enabled": false,
+            "useOfficialCli": false
+          },
+          "bridge": {
+            "enabled": true,
+            "readMemoryArtifacts": true
+          },
+          "search": {
+            "backend": "shared",
+            "corpus": "wiki"
+          },
+          "unsafeLocal": {
+            "allowPrivateMemoryCoreAccess": false,
+            "paths": []
+          }
+        }
+      },
+      "memory-core": {
+        "enabled": true,
+        "config": {
+          "dreaming": {
+            "enabled": true,
+            "frequency": "0 3 * * *"
+          }
+        }
       },
       "platformclaw-execution": {
         "enabled": true

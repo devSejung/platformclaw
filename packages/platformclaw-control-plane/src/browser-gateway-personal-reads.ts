@@ -6,6 +6,7 @@ import {
   prepareBrowserMemoryRequest,
   projectBrowserMemoryResult,
 } from "./browser-gateway-memory.js";
+import { prepareBrowserWikiRequest, projectBrowserWikiResult } from "./browser-gateway-wiki.js";
 
 type JsonObject = Record<string, unknown>;
 type ProjectionFailure = (message: string) => never;
@@ -17,7 +18,11 @@ export function prepareBrowserPersonalReadRequest(params: {
   assertOptionalAgentId(value: unknown, label: string): void;
   fail: ProjectionFailure;
 }): JsonObject | undefined {
-  return prepareBrowserApprovalHistoryRequest(params) ?? prepareBrowserMemoryRequest(params);
+  return (
+    prepareBrowserApprovalHistoryRequest(params) ??
+    prepareBrowserMemoryRequest(params) ??
+    prepareBrowserWikiRequest(params)
+  );
 }
 
 export function projectBrowserPersonalReadResult(params: {
@@ -26,6 +31,10 @@ export function projectBrowserPersonalReadResult(params: {
   result: unknown;
   agentId: string;
   fail: ProjectionFailure;
-}): JsonObject | undefined {
-  return projectBrowserApprovalHistoryResult(params) ?? projectBrowserMemoryResult(params);
+}): unknown {
+  return (
+    projectBrowserApprovalHistoryResult(params) ??
+    projectBrowserMemoryResult(params) ??
+    projectBrowserWikiResult(params)
+  );
 }

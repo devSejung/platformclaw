@@ -9,6 +9,7 @@ import { buildControlUiSessionPath } from "@openclaw/session-url-contract";
 import type { Locator, Page } from "playwright";
 import type { InlineConfig, Plugin, PreviewServer, ViteDevServer } from "vite";
 import { PROTOCOL_VERSION } from "../../../packages/gateway-protocol/src/version.js";
+import { canRunChromiumExecutable } from "../../../scripts/ensure-playwright-chromium.mjs";
 import { CONTROL_UI_BOOTSTRAP_CONFIG_PATH } from "../../../src/gateway/control-ui-contract.js";
 import type { ControlUiBuildInfo } from "../build-info.ts";
 
@@ -320,7 +321,7 @@ export function canRunPlaywrightChromium(chromiumExecutablePath: string): boolea
   if (!existsSync(chromiumExecutablePath)) {
     return false;
   }
-  return spawnSync(chromiumExecutablePath, ["--version"], { stdio: "ignore" }).status === 0;
+  return canRunChromiumExecutable(chromiumExecutablePath);
 }
 
 // Pause an installed virtual clock slightly ahead of its current time so

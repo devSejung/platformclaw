@@ -4,10 +4,44 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { sandboxPolicyDeniesBundleMcp } from "./validate-managed-config.mjs";
+import {
+  REQUIRED_MANAGED_PLUGIN_IDS,
+  sandboxPolicyDeniesBundleMcp,
+} from "./validate-managed-config.mjs";
 
 const MCP_DENY_MIGRATION_ERROR =
   "Existing sandbox tool deny policy blocks managed global MCP; remove bundle-mcp, matching wildcards, or group:plugins before upgrading PlatformClaw";
+
+const MANAGED_MEMORY_WIKI_CONFIG = {
+  vaultMode: "bridge",
+  vault: {
+    scope: "agent",
+    path: "~/.openclaw/wiki",
+    renderMode: "native",
+  },
+  obsidian: {
+    enabled: false,
+    useOfficialCli: false,
+  },
+  bridge: {
+    enabled: true,
+    readMemoryArtifacts: true,
+  },
+  search: {
+    backend: "shared",
+    corpus: "wiki",
+  },
+  unsafeLocal: {
+    allowPrivateMemoryCoreAccess: false,
+    paths: [],
+  },
+};
+
+function isRequiredPluginId(value) {
+  return (
+    typeof value === "string" && REQUIRED_MANAGED_PLUGIN_IDS.includes(value.trim().toLowerCase())
+  );
+}
 
 function reconcileSandboxImage(config, sandboxImage) {
   const docker = config?.agents?.defaults?.sandbox?.docker;
@@ -137,21 +171,73 @@ function reconcileGlobalMcpSandboxGate(config) {
 }
 
 function reconcileRequiredPlugins(config) {
-  const entries = config?.plugins?.entries;
-  if (entries?.knox?.enabled === true) {
+  const plugins = config?.plugins ?? {};
+  const entries = plugins.entries ?? {};
+  const memoryWikiEntry = entries["memory-wiki"] ?? {};
+  const memoryWikiConfig = memoryWikiEntry.config ?? {};
+  const memoryCoreEntry = entries["memory-core"] ?? {};
+  const memoryCoreConfig = memoryCoreEntry.config ?? {};
+  const memoryCoreDreaming = memoryCoreConfig.dreaming ?? {};
+  const nextEntries = {
+    ...entries,
+    ...Object.fromEntries(
+      REQUIRED_MANAGED_PLUGIN_IDS.map((pluginId) => [
+        pluginId,
+        { ...entries[pluginId], enabled: true },
+      ]),
+    ),
+    "memory-wiki": {
+      ...memoryWikiEntry,
+      enabled: true,
+      config: {
+        ...memoryWikiConfig,
+        ...MANAGED_MEMORY_WIKI_CONFIG,
+        vault: { ...memoryWikiConfig.vault, ...MANAGED_MEMORY_WIKI_CONFIG.vault },
+        obsidian: { ...memoryWikiConfig.obsidian, ...MANAGED_MEMORY_WIKI_CONFIG.obsidian },
+        bridge: { ...memoryWikiConfig.bridge, ...MANAGED_MEMORY_WIKI_CONFIG.bridge },
+        search: { ...memoryWikiConfig.search, ...MANAGED_MEMORY_WIKI_CONFIG.search },
+        unsafeLocal: {
+          ...memoryWikiConfig.unsafeLocal,
+          ...MANAGED_MEMORY_WIKI_CONFIG.unsafeLocal,
+        },
+      },
+    },
+    "memory-core": {
+      ...memoryCoreEntry,
+      enabled: true,
+      config: {
+        ...memoryCoreConfig,
+        dreaming: {
+          ...memoryCoreDreaming,
+          enabled: true,
+          frequency: "0 3 * * *",
+        },
+      },
+    },
+  };
+  const currentAllow = Array.isArray(plugins.allow) ? plugins.allow : undefined;
+  const nextAllow =
+    currentAllow && currentAllow.length > 0
+      ? [...new Set([...currentAllow, ...REQUIRED_MANAGED_PLUGIN_IDS])]
+      : currentAllow;
+  const currentDeny = Array.isArray(plugins.deny) ? plugins.deny : undefined;
+  const nextDeny = currentDeny?.filter((pluginId) => !isRequiredPluginId(pluginId));
+  const nextPlugins = {
+    ...plugins,
+    ...(plugins.enabled === false ? { enabled: true } : {}),
+    slots: { ...plugins.slots, memory: "memory-core" },
+    ...(nextAllow ? { allow: nextAllow } : {}),
+    ...(nextDeny ? { deny: nextDeny } : {}),
+    entries: nextEntries,
+  };
+  if (JSON.stringify(nextPlugins) === JSON.stringify(plugins)) {
     return { config, changed: false };
   }
   return {
     changed: true,
     config: {
       ...config,
-      plugins: {
-        ...config?.plugins,
-        entries: {
-          ...entries,
-          knox: { ...entries?.knox, enabled: true },
-        },
-      },
+      plugins: nextPlugins,
     },
   };
 }

@@ -2,6 +2,8 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  chromiumProbeArgs,
+  chromiumProbeTimeoutMs,
   ensurePlaywrightChromium,
   installLinuxSystemChromiumPackage,
   resolvePlaywrightInstallRunner,
@@ -9,6 +11,12 @@ import {
   shouldInstallPlaywrightSystemDependencies,
   shouldRequirePlaywrightChromiumFromArgv,
 } from "../../scripts/ensure-playwright-chromium.mjs";
+
+const chromiumProbeOptions = {
+  killSignal: "SIGKILL",
+  stdio: "ignore",
+  timeout: chromiumProbeTimeoutMs,
+};
 
 describe("ensurePlaywrightChromium", () => {
   it("does nothing when the browser binary exists and runs", () => {
@@ -21,9 +29,11 @@ describe("ensurePlaywrightChromium", () => {
         spawnSync,
       }),
     ).toBe(0);
-    expect(spawnSync).toHaveBeenCalledWith("/cache/chromium/chrome", ["--version"], {
-      stdio: "ignore",
-    });
+    expect(spawnSync).toHaveBeenCalledWith(
+      "/cache/chromium/chrome",
+      chromiumProbeArgs,
+      chromiumProbeOptions,
+    );
   });
 
   it("uses an explicit Chromium executable override", () => {
@@ -33,13 +43,15 @@ describe("ensurePlaywrightChromium", () => {
       ensurePlaywrightChromium({
         env: { PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: " /snap/bin/chromium " },
         executablePath: "/cache/chromium/chrome",
-        existsSync: (path: string) => path === "/snap/bin/chromium",
+        existsSync: (candidate: string) => candidate === "/snap/bin/chromium",
         spawnSync,
       }),
     ).toBe(0);
-    expect(spawnSync).toHaveBeenCalledWith("/snap/bin/chromium", ["--version"], {
-      stdio: "ignore",
-    });
+    expect(spawnSync).toHaveBeenCalledWith(
+      "/snap/bin/chromium",
+      chromiumProbeArgs,
+      chromiumProbeOptions,
+    );
   });
 
   it("fails when the explicit Chromium executable override is missing", () => {
@@ -68,14 +80,16 @@ describe("ensurePlaywrightChromium", () => {
     expect(
       ensurePlaywrightChromium({
         executablePath: "/cache/chromium/chrome",
-        existsSync: (path: string) => path === "/usr/bin/chromium-browser",
+        existsSync: (candidate: string) => candidate === "/usr/bin/chromium-browser",
         log: (line: string) => logs.push(line),
         spawnSync,
       }),
     ).toBe(0);
-    expect(spawnSync).toHaveBeenCalledWith("/usr/bin/chromium-browser", ["--version"], {
-      stdio: "ignore",
-    });
+    expect(spawnSync).toHaveBeenCalledWith(
+      "/usr/bin/chromium-browser",
+      chromiumProbeArgs,
+      chromiumProbeOptions,
+    );
     expect(logs.join("\n")).toContain("Using system Chromium at /usr/bin/chromium-browser");
   });
 
@@ -100,9 +114,10 @@ describe("ensurePlaywrightChromium", () => {
         cwd: "/repo",
         env: { PATH: "/bin" },
         executablePath: "/cache/chromium/chrome",
-        existsSync: (path: string) =>
-          path === "/usr/bin/chromium-browser" ||
-          (managedChromiumInstalled && path === "/cache/chromium/chrome"),
+        existsSync: (candidate: string) =>
+          candidate === "/usr/bin/chromium-browser" ||
+          (managedChromiumInstalled && candidate === "/cache/chromium/chrome"),
+        platform: "linux",
         requirePlaywrightChromium: true,
         spawnSync,
         stdio: "pipe",
@@ -114,13 +129,15 @@ describe("ensurePlaywrightChromium", () => {
       ["--dir", "ui", "exec", "playwright", "install", "chromium"],
       expect.objectContaining({ cwd: "/repo", stdio: "pipe" }),
     );
-    expect(spawnSync).not.toHaveBeenCalledWith("/usr/bin/chromium-browser", ["--version"], {
-      stdio: "ignore",
-    });
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "/usr/bin/chromium-browser",
+      chromiumProbeArgs,
+      chromiumProbeOptions,
+    );
   });
 
   it("installs a relative pinned browser cache in the caller's directory, not the UI package", () => {
-    const callerDirectory = "/repo";
+    const callerDirectory = path.resolve("repo-fixture");
     const browserCache = path.join(callerDirectory, ".artifacts", "playwright-browsers");
     const executablePath = path.join(browserCache, "chromium-1234", "chrome-linux64", "chrome");
     const installedCaches: string[] = [];
@@ -191,6 +208,7 @@ describe("ensurePlaywrightChromium", () => {
         env,
         executablePath: "/cache/chromium/chrome",
         existsSync: (candidate: string) => candidate === "/cache/chromium/chrome",
+        platform: "linux",
         spawnSync,
         stdio: "pipe",
       }),
@@ -213,15 +231,18 @@ describe("ensurePlaywrightChromium", () => {
         ensureFfmpeg: true,
         env: { PATH: "/bin" },
         executablePath: "/cache/chromium/chrome",
-        existsSync: (path: string) => path === "/usr/bin/chromium-browser",
+        existsSync: (candidate: string) => candidate === "/usr/bin/chromium-browser",
         log: (line: string) => logs.push(line),
+        platform: "linux",
         spawnSync,
         stdio: "pipe",
       }),
     ).toBe(0);
-    expect(spawnSync).toHaveBeenCalledWith("/usr/bin/chromium-browser", ["--version"], {
-      stdio: "ignore",
-    });
+    expect(spawnSync).toHaveBeenCalledWith(
+      "/usr/bin/chromium-browser",
+      chromiumProbeArgs,
+      chromiumProbeOptions,
+    );
     expect(spawnSync).toHaveBeenCalledWith(
       "pnpm",
       ["--dir", "ui", "exec", "playwright", "install", "ffmpeg"],
@@ -238,25 +259,29 @@ describe("ensurePlaywrightChromium", () => {
 
   it("skips a broken system Chromium binary and uses the first runnable candidate", () => {
     const logs: string[] = [];
-    const spawnSync = vi.fn((path: string) => ({
-      status: path === "/usr/bin/google-chrome" ? 0 : 127,
+    const spawnSync = vi.fn((candidate: string) => ({
+      status: candidate === "/usr/bin/google-chrome" ? 0 : 127,
     }));
 
     expect(
       ensurePlaywrightChromium({
         executablePath: "/cache/chromium/chrome",
-        existsSync: (path: string) =>
-          path === "/snap/bin/chromium" || path === "/usr/bin/google-chrome",
+        existsSync: (candidate: string) =>
+          candidate === "/snap/bin/chromium" || candidate === "/usr/bin/google-chrome",
         log: (line: string) => logs.push(line),
         spawnSync,
       }),
     ).toBe(0);
-    expect(spawnSync).toHaveBeenCalledWith("/snap/bin/chromium", ["--version"], {
-      stdio: "ignore",
-    });
-    expect(spawnSync).toHaveBeenCalledWith("/usr/bin/google-chrome", ["--version"], {
-      stdio: "ignore",
-    });
+    expect(spawnSync).toHaveBeenCalledWith(
+      "/snap/bin/chromium",
+      chromiumProbeArgs,
+      chromiumProbeOptions,
+    );
+    expect(spawnSync).toHaveBeenCalledWith(
+      "/usr/bin/google-chrome",
+      chromiumProbeArgs,
+      chromiumProbeOptions,
+    );
     expect(logs.join("\n")).toContain("Using system Chromium at /usr/bin/google-chrome");
   });
 
@@ -429,8 +454,8 @@ describe("ensurePlaywrightChromium", () => {
         cwd: "/repo",
         env: { CI: "1", PATH: "/bin" },
         executablePath: "/cache/chromium/chrome",
-        existsSync: (path: string) =>
-          installedSystemChromium && path === "/usr/bin/chromium-browser",
+        existsSync: (candidate: string) =>
+          installedSystemChromium && candidate === "/usr/bin/chromium-browser",
         getuid: () => 0,
         log: (line: string) => logs.push(line),
         platform: "linux",
@@ -495,9 +520,12 @@ describe("ensurePlaywrightChromium", () => {
         systemExecutablePath: "",
       }),
     ).toBe(0);
-    expect(spawnSync).toHaveBeenNthCalledWith(1, "/cache/chromium/chrome", ["--version"], {
-      stdio: "ignore",
-    });
+    expect(spawnSync).toHaveBeenNthCalledWith(
+      1,
+      "/cache/chromium/chrome",
+      chromiumProbeArgs,
+      chromiumProbeOptions,
+    );
     expect(spawnSync).toHaveBeenNthCalledWith(
       2,
       "pnpm",
@@ -510,9 +538,12 @@ describe("ensurePlaywrightChromium", () => {
         windowsVerbatimArguments: undefined,
       },
     );
-    expect(spawnSync).toHaveBeenNthCalledWith(3, "/cache/chromium/chrome", ["--version"], {
-      stdio: "ignore",
-    });
+    expect(spawnSync).toHaveBeenNthCalledWith(
+      3,
+      "/cache/chromium/chrome",
+      chromiumProbeArgs,
+      chromiumProbeOptions,
+    );
   });
 
   it("returns the installer status when Playwright install fails", () => {

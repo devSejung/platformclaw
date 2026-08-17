@@ -50,8 +50,8 @@ NODE
   trap - EXIT
 fi
 
-# The sandbox image tag is deployment-owned and changes on every image rollout.
-# Reconcile only that field; the validator below still rejects every other policy drift.
+# Reconcile deployment-owned runtime policy before validation. This keeps image
+# rollouts and required personal services consistent without operator edits.
 node /etc/platformclaw/reconcile-managed-config.mjs "$config_path" "$sandbox_image"
 node /etc/platformclaw/validate-managed-config.mjs "$sandbox_image"
 

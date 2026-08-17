@@ -193,6 +193,13 @@ function canCallMemoryWikiMethod(state: DreamingState, method: string): boolean 
   return isMemoryWikiEnabled(state);
 }
 
+export function isMemoryWikiAvailable(state: DreamingState): boolean {
+  return (
+    canCallMemoryWikiMethod(state, "wiki.importInsights") ||
+    canCallMemoryWikiMethod(state, "wiki.overview")
+  );
+}
+
 export function canCallDreamingMethod(
   state: DreamingState,
   method: string,

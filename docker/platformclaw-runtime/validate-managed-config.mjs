@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -7,10 +8,36 @@ import { fileURLToPath } from "node:url";
 const POLICY_ERROR =
   "Existing OpenClaw config does not match the managed PlatformClaw execution policy; update it before exposing traffic";
 
+export const REQUIRED_MANAGED_PLUGIN_IDS = [
+  "admin-http-rpc",
+  "knox",
+  "memory-core",
+  "memory-wiki",
+  "platformclaw-execution",
+  "platformclaw-user-mcp",
+];
+
+function normalizedPluginIds(value) {
+  return Array.isArray(value)
+    ? value.flatMap((pluginId) =>
+        typeof pluginId === "string" ? [pluginId.trim().toLowerCase()] : [],
+      )
+    : [];
+}
+
 function requirePolicy(condition) {
   if (!condition) {
     throw new Error(POLICY_ERROR);
   }
+}
+
+function resolveManagedWikiRuntimePath() {
+  const home =
+    process.env.OPENCLAW_HOME?.trim() ||
+    process.env.HOME?.trim() ||
+    process.env.USERPROFILE?.trim() ||
+    os.homedir();
+  return path.resolve(home, ".openclaw", "wiki");
 }
 
 function validateDockerPolicy(docker, sandboxImage) {
@@ -124,10 +151,42 @@ export function validateManagedConfig(config, sandboxImage) {
   }
 
   const plugins = config?.plugins?.entries;
-  requirePolicy(plugins?.["admin-http-rpc"]?.enabled === true);
-  requirePolicy(plugins?.knox?.enabled === true);
-  requirePolicy(plugins?.["platformclaw-execution"]?.enabled === true);
-  requirePolicy(plugins?.["platformclaw-user-mcp"]?.enabled === true);
+  requirePolicy(config?.plugins?.enabled !== false);
+  requirePolicy(config?.plugins?.slots?.memory === "memory-core");
+  for (const pluginId of REQUIRED_MANAGED_PLUGIN_IDS) {
+    requirePolicy(plugins?.[pluginId]?.enabled === true);
+  }
+  const pluginAllow = config?.plugins?.allow;
+  requirePolicy(
+    !Array.isArray(pluginAllow) ||
+      pluginAllow.length === 0 ||
+      REQUIRED_MANAGED_PLUGIN_IDS.every((pluginId) => pluginAllow.includes(pluginId)),
+  );
+  const pluginDeny = normalizedPluginIds(config?.plugins?.deny);
+  requirePolicy(REQUIRED_MANAGED_PLUGIN_IDS.every((pluginId) => !pluginDeny.includes(pluginId)));
+
+  const wiki = plugins?.["memory-wiki"]?.config;
+  requirePolicy(wiki?.vaultMode === "bridge");
+  requirePolicy(wiki?.vault?.scope === "agent");
+  // The seed/reconciler owns the portable `~` form, while loadConfig expands
+  // path-like fields before this runtime gate sees them.
+  requirePolicy(
+    wiki?.vault?.path === "~/.openclaw/wiki" ||
+      wiki?.vault?.path === resolveManagedWikiRuntimePath(),
+  );
+  requirePolicy(wiki?.vault?.renderMode === "native");
+  requirePolicy(wiki?.bridge?.enabled === true);
+  requirePolicy(wiki?.bridge?.readMemoryArtifacts === true);
+  requirePolicy(wiki?.search?.backend === "shared");
+  requirePolicy(wiki?.search?.corpus === "wiki");
+  requirePolicy(wiki?.obsidian?.enabled === false);
+  requirePolicy(wiki?.obsidian?.useOfficialCli === false);
+  requirePolicy(wiki?.unsafeLocal?.allowPrivateMemoryCoreAccess === false);
+  requirePolicy(Array.isArray(wiki?.unsafeLocal?.paths) && wiki.unsafeLocal.paths.length === 0);
+
+  const memoryCoreDreaming = plugins?.["memory-core"]?.config?.dreaming;
+  requirePolicy(memoryCoreDreaming?.enabled === true);
+  requirePolicy(memoryCoreDreaming?.frequency === "0 3 * * *");
 }
 
 async function main() {

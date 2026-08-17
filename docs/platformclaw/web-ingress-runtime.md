@@ -71,6 +71,18 @@ search-provider metadata are not projected. Selecting an assigned VM does not
 change this ownership: long-term memory remains in the Gateway-hosted personal
 Agent workspace, while VM project files stay behind the sandbox file tools.
 
+The Settings > Memory > Dreams view uses the bundled personal Memory Wiki. The
+deployment keeps `memory-wiki` in agent-scoped bridge mode and exposes bounded
+`doctor.memory.status`, `doctor.memory.dreamDiary`, `wiki.importInsights`,
+`wiki.overview`, `wiki.status`, `wiki.search`, and `wiki.get` reads, plus the
+native personal Dreaming backfill, dedupe, reset, and repair actions. The BFF
+pins every call to the browser binding, caps search and page reads, and removes
+workspace, vault, database, archive, warning, and source-host paths from
+results. Destructive reset actions require browser confirmation. Wiki
+mutation, local ingest, Obsidian command, and global config RPCs remain
+unadvertised; the personal Agent writes through native Wiki tools. Assigned-VM
+selection does not move this state because Agent memory remains Gateway-owned.
+
 The Approvals view can page through the personal Agent's 30-day terminal
 approval history with `approval.history`. The BFF pins the source-Agent filter
 before dispatch, rejects any returned row outside that binding, and removes

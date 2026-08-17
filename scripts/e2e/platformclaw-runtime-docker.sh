@@ -363,6 +363,16 @@ curl --fail --silent --show-error --cookie "$cookie_jar" \
   "$origin/platformclaw/app/chat" >"$app_document"
 grep -q 'platformclaw-web-descriptor' "$app_document"
 
+wiki_status="$work_dir/wiki-status.txt"
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T openclaw-gateway \
+  sh -ceu '
+    export OPENCLAW_GATEWAY_TOKEN="$(tr -d "\r\n" </run/secrets/platformclaw_gateway_token)"
+    exec openclaw wiki status --agent person_one
+  ' >"$wiki_status"
+grep -Fq 'Wiki vault mode: bridge' "$wiki_status"
+grep -Fq 'Vault scope: agent (person_one)' "$wiki_status"
+grep -Fq 'Render mode: native' "$wiki_status"
+
 if [[ -n "$("${compose[@]}" port openclaw-gateway 18789 2>/dev/null || true)" ]]; then
   echo "Gateway port 18789 must not be published" >&2
   exit 1
