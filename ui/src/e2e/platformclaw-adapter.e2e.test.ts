@@ -498,7 +498,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     for (const method of ["doctor.memory.dreamDiary", "wiki.overview", "wiki.get"]) {
       const requests = await gateway.getRequests(method);
       expect(requests.length).toBeGreaterThan(0);
-      expect(requests.every((request) => request.params?.agentId === "person_one")).toBe(true);
+      for (const request of requests) {
+        expect(request.params).toMatchObject({ agentId: "person_one" });
+      }
     }
 
     if (captureUiProofEnabled) {
