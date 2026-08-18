@@ -317,9 +317,8 @@ describe("PlatformClaw Docker runtime", () => {
       "platformclaw_skill_hub_cookie_secret",
       "platformclaw_skill_hub_bootstrap_password",
     ]) {
-      expect(compose.secrets?.[name]?.file).toContain(
-        ":?run platformclaw-compose with a service user",
-      );
+      expect(compose.secrets?.[name]?.file).toContain("${PLATFORMCLAW_DEPLOY_HOST_ROOT:");
+      expect(compose.secrets?.[name]?.file).toContain("/secrets/skillhub-");
       expect(compose.secrets?.[name]?.file).not.toBe("/dev/null");
     }
 
@@ -340,9 +339,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(wrapper).toContain('== "true"');
     expect(wrapper).toContain("PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID");
     expect(wrapper).toContain("initial_admin_file");
-    expect(wrapper).toContain(
-      'PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-postgres-password"',
-    );
+    expect(wrapper).not.toContain("PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=");
     expect(wrapper).not.toContain(":-true}");
 
     const environmentExample = readRepoFile("docker/platformclaw-runtime/deployment.env.example");
