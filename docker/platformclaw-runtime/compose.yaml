@@ -231,7 +231,11 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
     security_opt: [no-new-privileges:true]
-    entrypoint: ["sh", "-ceu", "chown -R app:app /data"]
+    environment:
+      PLATFORMCLAW_RUNTIME_UID: ${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}
+      PLATFORMCLAW_RUNTIME_GID: ${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}
+    entrypoint:
+      ["sh", "-ceu", 'chown -R "$$PLATFORMCLAW_RUNTIME_UID:$$PLATFORMCLAW_RUNTIME_GID" /data']
     restart: "no"
 
   skillhub-scanner:
@@ -262,6 +266,7 @@ services:
       skillhub-storage-init:
         condition: service_completed_successfully
     environment:
+      HOME: /tmp
       SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:postgresql://skillhub-postgres:5432/skillhub
       SPRING_DATASOURCE_USERNAME: skillhub
@@ -297,6 +302,10 @@ services:
     networks:
       platformclaw-skillhub:
         aliases: [skillhub.platformclaw.local]
+    # Compose file-backed secrets retain host ownership. Run the Java process as
+    # the deployment UID so owner-only host secrets stay readable without
+    # widening their host permissions.
+    user: "${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}:${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
@@ -304,9 +313,20 @@ services:
       - sh
       - -ceu
       - |
-        export SPRING_DATASOURCE_PASSWORD="$$(cat /run/secrets/platformclaw_skill_hub_postgres_password)"
-        export SKILLHUB_DOWNLOAD_ANON_COOKIE_SECRET="$$(cat /run/secrets/platformclaw_skill_hub_cookie_secret)"
-        export BOOTSTRAP_ADMIN_PASSWORD="$$(cat /run/secrets/platformclaw_skill_hub_bootstrap_password)"
+        read_secret() {
+          value="$$(cat "$$2")" || {
+            echo "Cannot read required SkillHub secret: $$1" >&2
+            exit 1
+          }
+          [ -n "$$value" ] || {
+            echo "Required SkillHub secret is empty: $$1" >&2
+            exit 1
+          }
+          printf '%s' "$$value"
+        }
+        export SPRING_DATASOURCE_PASSWORD="$$(read_secret postgres-password /run/secrets/platformclaw_skill_hub_postgres_password)"
+        export SKILLHUB_DOWNLOAD_ANON_COOKIE_SECRET="$$(read_secret cookie-secret /run/secrets/platformclaw_skill_hub_cookie_secret)"
+        export BOOTSTRAP_ADMIN_PASSWORD="$$(read_secret bootstrap-password /run/secrets/platformclaw_skill_hub_bootstrap_password)"
         exec java -XX:MaxRAMPercentage=75.0 -jar app.jar
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health"]
@@ -384,12 +404,12 @@ secrets:
   platformclaw_ssh_credential_master_key:
     file: ${PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE:?set PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE}
   platformclaw_skill_hub_token:
-    file: ${PLATFORMCLAW_SKILL_HUB_TOKEN_SECRET_FILE:-/dev/null}
+    file: ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?set PLATFORMCLAW_DEPLOY_HOST_ROOT}/secrets/skillhub-token
   platformclaw_skill_hub_postgres_password:
-    file: ${PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE:-/dev/null}
+    file: ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?set PLATFORMCLAW_DEPLOY_HOST_ROOT}/secrets/skillhub-postgres-password
   platformclaw_skill_hub_cookie_secret:
-    file: ${PLATFORMCLAW_SKILL_HUB_COOKIE_SECRET_FILE:-/dev/null}
+    file: ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?set PLATFORMCLAW_DEPLOY_HOST_ROOT}/secrets/skillhub-cookie-secret
   platformclaw_skill_hub_bootstrap_password:
-    file: ${PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_SECRET_FILE:-/dev/null}
+    file: ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?set PLATFORMCLAW_DEPLOY_HOST_ROOT}/secrets/skillhub-bootstrap-password
   platformclaw_employee_auth_adsso_secret:
     file: ${PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE:?set PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE}

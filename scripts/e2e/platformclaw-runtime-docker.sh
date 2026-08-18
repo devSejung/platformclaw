@@ -6,7 +6,7 @@ compose_file="$repo_root/docker/platformclaw-runtime/compose.yaml"
 smoke_compose_file="$repo_root/docker/platformclaw-runtime/compose.smoke.yaml"
 work_dir="$(mktemp -d)"
 project_name="platformclaw-smoke-$$"
-compose=(docker compose --project-name "$project_name" -f "$compose_file" -f "$smoke_compose_file")
+compose=(docker compose --project-name "$project_name" --profile skillhub -f "$compose_file" -f "$smoke_compose_file")
 
 dump_logs() {
   "${compose[@]}" ps || true
@@ -60,6 +60,7 @@ export PLATFORMCLAW_SMOKE_SANDBOX_IMAGE_TAR="$work_dir/platformclaw-sandbox.tar"
 mkdir -p \
   "$PLATFORMCLAW_DEPLOY_ROOT/data/gateway-home/.openclaw" \
   "$PLATFORMCLAW_DEPLOY_ROOT/data/control" \
+  "$PLATFORMCLAW_DEPLOY_ROOT/secrets" \
   "$PLATFORMCLAW_SANDBOX_DOCKER_RUNTIME_DIR" \
   "$PLATFORMCLAW_SMOKE_WORKSPACE_DIR"
 # Synthetic smoke state contains no secrets. World-write avoids assuming the
@@ -97,6 +98,20 @@ export PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE="$work_dir/knox-service-token
 export PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE="$work_dir/gateway-service-identity.pem"
 export PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE="$work_dir/initial-admin-ids"
 export PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE="$work_dir/ssh-credential-master-key"
+export PLATFORMCLAW_SKILL_HUB_ENABLED=true
+export PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=platformclaw-skillhub-server:6e133c006e49
+export PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE=platformclaw-skillhub-scanner:6e133c006e49
+export PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE=platformclaw-skillhub-postgres:44c4ee9810ef
+export PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE=platformclaw-skillhub-redis:e7723ff73d96
+export PLATFORMCLAW_SKILL_HUB_URL=http://skillhub.platformclaw.local:8080
+export PLATFORMCLAW_SKILL_HUB_TOKEN_FILE=/run/secrets/platformclaw_skill_hub_token
+export PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/platformclaw_skill_hub_bootstrap_password
+export PLATFORMCLAW_SKILL_HUB_NAMESPACES=global=all
+export PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES=524288000
+skillhub_token_file="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-token"
+skillhub_postgres_password_file="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-postgres-password"
+skillhub_cookie_secret_file="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-cookie-secret"
+skillhub_bootstrap_password_file="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-bootstrap-password"
 
 ephemeral_probe="$(openssl rand -hex 32)"
 printf '%s\n' "$ephemeral_probe" >"$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE"
@@ -107,6 +122,10 @@ openssl rand -hex 32 >"$PLATFORMCLAW_KNOX_SERVICE_TOKEN_SECRET_FILE"
 openssl genpkey -algorithm ED25519 -out "$PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE"
 openssl rand -base64 32 >"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE"
 openssl rand -hex 32 >"$PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE"
+touch "$skillhub_token_file"
+openssl rand -hex 32 >"$skillhub_postgres_password_file"
+openssl rand -hex 32 >"$skillhub_cookie_secret_file"
+openssl rand -base64 36 >"$skillhub_bootstrap_password_file"
 cp /etc/ssl/certs/ca-certificates.crt "$PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE"
 credential_key_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE")"
 execution_service_probe="$(tr -d '\r\n' <"$PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_SECRET_FILE")"
@@ -121,6 +140,32 @@ chmod 0444 "$PLATFORMCLAW_GATEWAY_TOKEN_SECRET_FILE" \
   "$PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE" \
   "$PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE" \
   "$PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE"
+
+# Production keeps SkillHub secrets owner-only. Reproduce that ownership here
+# so the smoke catches a server image that silently runs under a different UID.
+docker run --rm --network none --read-only --user 0:0 \
+  --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+  --security-opt no-new-privileges:true \
+  --volume "$PLATFORMCLAW_DEPLOY_ROOT/secrets:/work" --entrypoint sh "$PLATFORMCLAW_IMAGE" -ceu \
+  'chown 1000:1000 /work/skillhub-* && chmod 0400 /work/skillhub-* && chmod 0600 /work/skillhub-token'
+
+echo "==> Starting and bootstrapping embedded SkillHub"
+if ! "${compose[@]}" up --detach --wait --wait-timeout 180 skillhub-server; then
+  dump_logs
+  exit 1
+fi
+docker run --rm --network "${project_name}_platformclaw-skillhub" --read-only \
+  --user "$PLATFORMCLAW_RUNTIME_UID:$PLATFORMCLAW_RUNTIME_GID" \
+  --cap-drop ALL --security-opt no-new-privileges:true \
+  --env SKILLHUB_BASE_URL=http://skillhub.platformclaw.local:8080 \
+  --env "SKILLHUB_NAMESPACES=$PLATFORMCLAW_SKILL_HUB_NAMESPACES" \
+  --env SKILLHUB_CREATE_TOKEN=true \
+  --env SKILLHUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/bootstrap-password \
+  --env SKILLHUB_TOKEN_OUTPUT_FILE=/run/secrets/control-token \
+  --volume "$skillhub_bootstrap_password_file:/run/secrets/bootstrap-password:ro" \
+  --volume "$skillhub_token_file:/run/secrets/control-token" \
+  --volume "$repo_root/docker/platformclaw-runtime/bootstrap-skillhub.mjs:/opt/platformclaw/bootstrap-skillhub.mjs:ro" \
+  --entrypoint node "$PLATFORMCLAW_IMAGE" /opt/platformclaw/bootstrap-skillhub.mjs
 
 echo "==> Starting PlatformClaw runtime smoke"
 if ! "${compose[@]}" up --detach --wait --wait-timeout 180; then

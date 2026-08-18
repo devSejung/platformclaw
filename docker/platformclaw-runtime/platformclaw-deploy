@@ -341,6 +341,7 @@ durable_state_exists() {
 
 prepare_runtime_file_layout() {
   ensure_layout
+  reconcile_skillhub_environment
   validate_deployment_env
   provision_ca
   require_adsso_secret
@@ -389,6 +390,50 @@ read_env_value() {
   sed -n "s/^${key}=//p" "$source_file" | tail -n 1
 }
 
+skillhub_bundle_available() {
+  local key
+  local image
+  for key in PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE \
+    PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE; do
+    image="$(read_env_value "$key" "$script_dir/deployment.env.example")"
+    DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$image" >/dev/null 2>&1 || return 1
+  done
+}
+
+reconcile_skillhub_environment() {
+  local enabled
+  local key
+  local temporary
+  local value
+  if grep -Eq '^PLATFORMCLAW_SKILL_HUB_(TOKEN|POSTGRES_PASSWORD|COOKIE|BOOTSTRAP_PASSWORD)_SECRET_FILE=' "$env_file"; then
+    temporary="$(mktemp "$deploy_root/.deployment.env.XXXXXX")"
+    grep -Ev '^PLATFORMCLAW_SKILL_HUB_(TOKEN|POSTGRES_PASSWORD|COOKIE|BOOTSTRAP_PASSWORD)_SECRET_FILE=' \
+      "$env_file" >"$temporary"
+    chmod 0600 "$temporary"
+    mv -f "$temporary" "$env_file"
+  fi
+  enabled="$(read_env_value PLATFORMCLAW_SKILL_HUB_ENABLED)"
+  if [[ -z "$enabled" ]]; then
+    # Old installations have no SkillHub key. Enable only after the complete
+    # bundled image set is present; explicit false remains an operator opt-out.
+    skillhub_bundle_available || return 0
+    set_env_value PLATFORMCLAW_SKILL_HUB_ENABLED true
+    enabled=true
+    echo "Enabled the bundled SkillHub for this upgraded deployment."
+  fi
+  [[ "$enabled" == "true" ]] || return 0
+  for key in PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE \
+    PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE \
+    PLATFORMCLAW_SKILL_HUB_URL PLATFORMCLAW_SKILL_HUB_TOKEN_FILE \
+    PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE PLATFORMCLAW_SKILL_HUB_NAMESPACES \
+    PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES; do
+    [[ -n "$(read_env_value "$key")" ]] && continue
+    value="$(read_env_value "$key" "$script_dir/deployment.env.example")"
+    [[ -n "$value" ]] || { echo "Missing SkillHub deployment default: $key" >&2; exit 1; }
+    set_env_value "$key" "$value"
+  done
+}
+
 set_env_value() {
   local key="$1"
   local value="$2"
@@ -396,7 +441,11 @@ set_env_value() {
   temporary="$(mktemp "$deploy_root/.deployment.env.XXXXXX")"
   awk -v key="$key" -v value="$value" '
     BEGIN { found = 0 }
-    index($0, key "=") == 1 { print key "=" value; found = 1; next }
+    index($0, key "=") == 1 {
+      if (!found) print key "=" value
+      found = 1
+      next
+    }
     { print }
     END { if (!found) print key "=" value }
   ' "$env_file" >"$temporary"
@@ -455,10 +504,7 @@ validate_deployment_env() {
       PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE \
       PLATFORMCLAW_SKILL_HUB_URL PLATFORMCLAW_SKILL_HUB_TOKEN_FILE \
       PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE \
-      PLATFORMCLAW_SKILL_HUB_NAMESPACES PLATFORMCLAW_SKILL_HUB_TOKEN_SECRET_FILE \
-      PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE \
-      PLATFORMCLAW_SKILL_HUB_COOKIE_SECRET_FILE \
-      PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_SECRET_FILE; do
+      PLATFORMCLAW_SKILL_HUB_NAMESPACES PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES; do
       value="$(read_env_value "$key")"
       [[ -n "$value" && "$value" != *'<'* && "$value" != *'>'* ]] || invalid+=("$key")
     done

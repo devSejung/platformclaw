@@ -214,11 +214,15 @@ state if this migration requirement is missed.
 The transfer archive contains the main and sandbox images plus the exact
 SkillHub v0.2.16 server/scanner and pinned PostgreSQL/Redis object images. The
 Hub services have no host ports and share only an internal network with
-Control. Existing two-image archives remain usable by deployments whose
-`PLATFORMCLAW_SKILL_HUB_ENABLED` is absent or `false`. New deployments enable
-the bundled Hub and keep its database, Redis AOF, and package storage under
-`~/platformclaw/data/skillhub/`. Initial startup requires 4 GiB RAM and 20 GiB
-free space; later restarts retain a 5 GiB free-space floor.
+Control. An existing deployment with no SkillHub setting is enabled
+automatically after all four bundled images are loaded; an explicit
+`PLATFORMCLAW_SKILL_HUB_ENABLED=false` remains an operator opt-out. Older
+two-image archives therefore remain usable. Missing SkillHub defaults are
+merged into the preserved deployment environment, while secret source paths
+are always derived from the actual service-user deployment root rather than
+copied between hosts. The Hub keeps its database, Redis AOF, and package storage
+under `~/platformclaw/data/skillhub/`. Initial startup requires 4 GiB RAM and
+20 GiB free space; later restarts retain a 5 GiB free-space floor.
 
 The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
