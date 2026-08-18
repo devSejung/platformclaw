@@ -74,7 +74,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(docs).toContain("~/.config/platformclaw/build/pip.conf");
   });
 
-  it("exports immutable runtime and sandbox image tags in the transfer archive", () => {
+  it("prepares immutable SkillHub images for smoke and transfer archives", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
 
     expect(build).toContain('"ghcr.io/iflytek/skillhub-server@sha256:80a22a90');
@@ -82,6 +82,9 @@ describe("PlatformClaw Docker runtime", () => {
     expect(build).toContain('"postgres:16-alpine@sha256:44c4ee98');
     expect(build).toContain('"redis:7-alpine@sha256:e7723ff7');
     expect(build).toContain("...bundledImages.map((image) => image.target)");
+    expect(build.indexOf('run("docker", ["pull", image.source])')).toBeLessThan(
+      build.indexOf("if (options.exportImage)"),
+    );
     expect(build).not.toContain(
       'run("docker", ["save", "-o", artifactPath, runtimeVersionTag, sandboxVersionTag])',
     );
@@ -375,19 +378,19 @@ docker() { return 0; }
 reconcile_skillhub_environment
 grep -qx 'PLATFORMCLAW_SKILL_HUB_ENABLED=true' "$env_file"
 grep -qx 'PLATFORMCLAW_SKILL_HUB_URL=http://skillhub.platformclaw.local:8080' "$env_file"
-grep -q '^PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=' "$env_file" && exit 11
+if grep -q '^PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=' "$env_file"; then exit 11; fi
 printf '%s\n' \
   'PLATFORMCLAW_IMAGE=platformclaw:old' \
   'PLATFORMCLAW_SKILL_HUB_ENABLED=false' \
   'PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=/wrong/root/secret' >"$env_file"
 reconcile_skillhub_environment
 grep -qx 'PLATFORMCLAW_SKILL_HUB_ENABLED=false' "$env_file"
-grep -q '^PLATFORMCLAW_SKILL_HUB_URL=' "$env_file" && exit 12
-grep -q '^PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=' "$env_file" && exit 13
+if grep -q '^PLATFORMCLAW_SKILL_HUB_URL=' "$env_file"; then exit 12; fi
+if grep -q '^PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=' "$env_file"; then exit 13; fi
 printf '%s\n' 'PLATFORMCLAW_IMAGE=platformclaw:old' >"$env_file"
 docker() { return 1; }
 reconcile_skillhub_environment
-grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file" && exit 14
+if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
 `;
       const result = spawnSync("bash", ["-ceu", script, "--", deployScript, root], {
         encoding: "utf8",

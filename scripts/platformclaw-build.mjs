@@ -593,11 +593,15 @@ try {
     ].join(" && "),
   ]);
 
+  // The deterministic runtime smoke starts the embedded SkillHub even when an
+  // artifact is not exported, so every build must materialize the pinned local
+  // image tags before the smoke runs.
+  for (const image of bundledImages) {
+    run("docker", ["pull", image.source]);
+    run("docker", ["image", "tag", image.source, image.target]);
+  }
+
   if (options.exportImage) {
-    for (const image of bundledImages) {
-      run("docker", ["pull", image.source]);
-      run("docker", ["image", "tag", image.source, image.target]);
-    }
     mkdirSync(options.outputDir, { recursive: true });
     const artifactName = `platformclaw-${version}-${shortSha}.tar`;
     const artifactPath = resolve(options.outputDir, artifactName);
