@@ -348,6 +348,12 @@ describe("PlatformClaw Docker runtime", () => {
       "PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=",
     );
 
+    const smoke = readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh");
+    expect(smoke).toContain(
+      'skillhub_postgres_password_file="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-postgres-password"',
+    );
+    expect(smoke).not.toContain("export PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=");
+
     const releasePrepare = readRepoFile(
       ".agents/skills/release-platformclaw/scripts/prepare-release.mjs",
     );
