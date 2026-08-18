@@ -162,6 +162,46 @@ export class PlatformClawControlUiAdapter {
       accessMode: "personal-agent",
       enabledRouteIds,
       routeOverrides: {
+        memory: {
+          loader: async (context) => {
+            const agents = context.agents.state.agentsList ?? (await context.agents.ensureList());
+            const assignedAgentId =
+              agents?.agents.find((agent) => agent.id === agents.defaultId)?.id ??
+              agents?.agents[0]?.id ??
+              null;
+            return { agentId: assignedAgentId };
+          },
+          component: async () => {
+            await Promise.all([
+              import("../pages/agents/memory/memory-panel.ts"),
+              loadPlatformClawLocale(),
+            ]);
+            return {
+              header: true,
+              render: (data: unknown) => {
+                const agentId =
+                  isRecord(data) && typeof data.agentId === "string" ? data.agentId : null;
+                return html`
+                  <section class="content-header">
+                    <div><div class="page-title">${t("tabs.memory")}</div></div>
+                  </section>
+                  <main class="settings-page">
+                    ${agentId
+                      ? html`<openclaw-agent-memory-panel
+                          .agentId=${agentId}
+                        ></openclaw-agent-memory-panel>`
+                      : html`
+                          <div class="card" role="status">
+                            <div class="card-title">${t("platformClaw.memory.unavailable")}</div>
+                            <div class="muted">${t("platformClaw.memory.unassigned")}</div>
+                          </div>
+                        `}
+                  </main>
+                `;
+              },
+            };
+          },
+        },
         mcp: {
           loaderDeps: () => "platformclaw-mcp",
           loader: async () => undefined,

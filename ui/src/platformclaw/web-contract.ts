@@ -26,6 +26,7 @@ const PLATFORMCLAW_ENABLED_ROUTES = [
   "tasks",
   "cron",
   "appearance",
+  "memory",
   "profile",
   "notifications",
   "about",

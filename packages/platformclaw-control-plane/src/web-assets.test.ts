@@ -179,7 +179,7 @@ describe("createPlatformClawWebAssetHandler", () => {
       expect(body).toContain("&quot;enabledRoutes&quot;");
       expect(body).toContain("&quot;vocEnabled&quot;:true");
       expect(body).toContain(
-        "&quot;enabledRoutes&quot;:[&quot;chat&quot;,&quot;new-session&quot;,&quot;activity&quot;,&quot;sessions&quot;,&quot;usage&quot;,&quot;agents&quot;,&quot;tasks&quot;,&quot;cron&quot;,&quot;appearance&quot;,&quot;profile&quot;,&quot;notifications&quot;,&quot;about&quot;,&quot;skills&quot;,&quot;skill-workshop&quot;,&quot;skill-hub&quot;,&quot;plugins&quot;,&quot;mcp&quot;]",
+        "&quot;enabledRoutes&quot;:[&quot;chat&quot;,&quot;new-session&quot;,&quot;activity&quot;,&quot;sessions&quot;,&quot;usage&quot;,&quot;agents&quot;,&quot;tasks&quot;,&quot;cron&quot;,&quot;appearance&quot;,&quot;memory&quot;,&quot;profile&quot;,&quot;notifications&quot;,&quot;about&quot;,&quot;skills&quot;,&quot;skill-workshop&quot;,&quot;skill-hub&quot;,&quot;plugins&quot;,&quot;mcp&quot;]",
       );
       expect(body).not.toContain("agentId");
       expect(body).not.toContain("sessionKey");

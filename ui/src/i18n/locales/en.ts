@@ -109,6 +109,10 @@ export const en: TranslationMap = {
       loading: "Loading quick actions…",
       unavailable: "Quick actions are unavailable. Refresh the page and try again.",
     },
+    memory: {
+      unavailable: "Memory unavailable",
+      unassigned: "No personal agent is assigned to this account.",
+    },
     voc: {
       title: "Submit VOC",
       intro: "This is the PlatformClaw VOC registration page.",
