@@ -1,11 +1,15 @@
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { reconcileManagedConfig } from "../../docker/platformclaw-runtime/reconcile-managed-config.mjs";
 import { validateManagedConfig } from "../../docker/platformclaw-runtime/validate-managed-config.mjs";
 import { mainLanes } from "../../scripts/lib/docker-e2e-scenarios.mjs";
+import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 type ComposeService = {
   build?: { context?: string; dockerfile?: string };
@@ -32,14 +36,15 @@ type ComposeService = {
 
 type ComposeConfig = {
   services: Record<string, ComposeService>;
+  secrets?: Record<string, { file?: string }>;
 };
 
 type WorkflowConfig = {
   jobs: Record<string, { "runs-on"?: string }>;
 };
 
-function readRepoFile(path: string): string {
-  return readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+function readRepoFile(filePath: string): string {
+  return readFileSync(new URL(`../../${filePath}`, import.meta.url), "utf8");
 }
 
 describe("PlatformClaw Docker runtime", () => {
@@ -262,6 +267,7 @@ describe("PlatformClaw Docker runtime", () => {
     const scanner = compose.services["skillhub-scanner"];
     const postgres = compose.services["skillhub-postgres"];
     const redis = compose.services["skillhub-redis"];
+    const storageInit = compose.services["skillhub-storage-init"];
     const control = compose.services["platformclaw-control"];
 
     for (const service of [server, scanner, postgres, redis]) {
@@ -270,6 +276,20 @@ describe("PlatformClaw Docker runtime", () => {
       expect(service?.pull_policy).toBe("never");
     }
     expect(server?.environment?.SKILLHUB_SERVICE_VERSION).toBe("v0.2.16");
+    expect(server?.environment?.HOME).toBe("/tmp");
+    expect(server?.user).toBe(
+      "${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}:${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}",
+    );
+    expect(storageInit?.environment).toMatchObject({
+      PLATFORMCLAW_RUNTIME_UID:
+        "${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}",
+      PLATFORMCLAW_RUNTIME_GID:
+        "${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}",
+    });
+    expect(storageInit?.entrypoint?.join(" ")).toContain(
+      'chown -R "$$PLATFORMCLAW_RUNTIME_UID:$$PLATFORMCLAW_RUNTIME_GID" /data',
+    );
+    expect(server?.entrypoint?.join(" ")).toContain("Required SkillHub secret is empty: $$1");
     expect(server?.environment?.SKILLHUB_STORAGE_PROVIDER).toBe("local");
     expect(server?.environment?.SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE).toBe("500MB");
     expect(server?.environment?.SKILLHUB_PUBLISH_MAX_PACKAGE_SIZE).toBe("1073741824");
@@ -288,12 +308,26 @@ describe("PlatformClaw Docker runtime", () => {
     expect(control?.networks).toHaveProperty("platformclaw-skillhub");
     expect(server?.healthcheck?.test).toContain("http://127.0.0.1:8080/actuator/health");
     expect(scanner?.healthcheck?.test).toContain("http://127.0.0.1:8000/health");
+    for (const name of [
+      "platformclaw_skill_hub_token",
+      "platformclaw_skill_hub_postgres_password",
+      "platformclaw_skill_hub_cookie_secret",
+      "platformclaw_skill_hub_bootstrap_password",
+    ]) {
+      expect(compose.secrets?.[name]?.file).toContain(
+        ":?run platformclaw-compose with a service user",
+      );
+      expect(compose.secrets?.[name]?.file).not.toBe("/dev/null");
+    }
 
     const deploy = readRepoFile("docker/platformclaw-runtime/platformclaw-deploy");
     expect(deploy).toContain("preflight_skillhub_resources");
     expect(deploy).toContain("bootstrap-skillhub.mjs");
     expect(deploy).toContain("create_skillhub_state_backup");
     expect(deploy).toContain("restore_skillhub_state_backup");
+    expect(deploy).toContain("reconcile_skillhub_environment");
+    expect(deploy).toContain("Enabled the bundled SkillHub for this upgraded deployment.");
+    expect(deploy).toContain("skillhub_bundle_available || return");
     expect(deploy).toContain("SkillHub requires at least 4 GiB host RAM");
     expect(deploy).toContain("local required_disk_kib=20971520");
     expect(deploy).toContain("required_disk_kib=5242880");
@@ -303,7 +337,16 @@ describe("PlatformClaw Docker runtime", () => {
     expect(wrapper).toContain('== "true"');
     expect(wrapper).toContain("PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID");
     expect(wrapper).toContain("initial_admin_file");
+    expect(wrapper).toContain(
+      'PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-postgres-password"',
+    );
     expect(wrapper).not.toContain(":-true}");
+
+    const environmentExample = readRepoFile("docker/platformclaw-runtime/deployment.env.example");
+    expect(environmentExample).not.toContain("PLATFORMCLAW_SKILL_HUB_TOKEN_SECRET_FILE=");
+    expect(environmentExample).not.toContain(
+      "PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=",
+    );
 
     const releasePrepare = readRepoFile(
       ".agents/skills/release-platformclaw/scripts/prepare-release.mjs",
@@ -314,6 +357,44 @@ describe("PlatformClaw Docker runtime", () => {
       "6e133c006e492dc3f468d91b21960aff1d577150",
     );
   });
+
+  it.runIf(process.platform !== "win32")(
+    "migrates an old deployment only when the complete SkillHub bundle is present",
+    () => {
+      const root = tempDirs.make("platformclaw-skillhub-env-");
+      const envFile = path.join(root, "deployment.env");
+      const deployScript = path.resolve("docker/platformclaw-runtime/platformclaw-deploy");
+      writeFileSync(envFile, "PLATFORMCLAW_IMAGE=platformclaw:old\n", "utf8");
+      const script = String.raw`
+deploy_script="$1"
+deploy_root="$2"
+env_file="$deploy_root/deployment.env"
+script_dir="$(dirname "$deploy_script")"
+eval "$(awk '/^read_env_value\(\)/ { emit = 1 } /^set_image_pair\(\)/ { emit = 0 } emit' "$deploy_script")"
+docker() { return 0; }
+reconcile_skillhub_environment
+grep -qx 'PLATFORMCLAW_SKILL_HUB_ENABLED=true' "$env_file"
+grep -qx 'PLATFORMCLAW_SKILL_HUB_URL=http://skillhub.platformclaw.local:8080' "$env_file"
+grep -q '^PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=' "$env_file" && exit 11
+printf '%s\n' \
+  'PLATFORMCLAW_IMAGE=platformclaw:old' \
+  'PLATFORMCLAW_SKILL_HUB_ENABLED=false' \
+  'PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=/wrong/root/secret' >"$env_file"
+reconcile_skillhub_environment
+grep -qx 'PLATFORMCLAW_SKILL_HUB_ENABLED=false' "$env_file"
+grep -q '^PLATFORMCLAW_SKILL_HUB_URL=' "$env_file" && exit 12
+grep -q '^PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=' "$env_file" && exit 13
+printf '%s\n' 'PLATFORMCLAW_IMAGE=platformclaw:old' >"$env_file"
+docker() { return 1; }
+reconcile_skillhub_environment
+grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file" && exit 14
+`;
+      const result = spawnSync("bash", ["-ceu", script, "--", deployScript, root], {
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+    },
+  );
 
   it("seeds the required private admin RPC without storing a token", () => {
     const config = JSON.parse(
@@ -1094,6 +1175,13 @@ describe("PlatformClaw Docker runtime", () => {
       deploy.indexOf("require_gateway_restore_access()"),
     );
     expect(prepareRuntimeFiles).toContain("provision_missing_secrets");
+    const prepareRuntimeLayout = deploy.slice(
+      deploy.indexOf("prepare_runtime_file_layout()"),
+      deploy.indexOf("prepare_runtime_files()"),
+    );
+    expect(prepareRuntimeLayout.indexOf("reconcile_skillhub_environment")).toBeLessThan(
+      prepareRuntimeLayout.indexOf("validate_deployment_env"),
+    );
     const prepareImageUpdateRuntimeFiles = deploy.slice(
       deploy.indexOf("prepare_image_update_runtime_files()"),
       deploy.indexOf("require_gateway_restore_access()"),

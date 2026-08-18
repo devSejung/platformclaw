@@ -99,6 +99,13 @@ unset PLATFORMCLAW_IMAGE PLATFORMCLAW_SANDBOX_IMAGE \
   PLATFORMCLAW_SKILL_HUB_COOKIE_SECRET_FILE \
   PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_SECRET_FILE \
   PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE
+# SkillHub secrets are deployment-owned internal files. Derive their sources
+# from the same canonical root that provisions them; stale deployment.env paths
+# otherwise mount /dev/null or a different installation's secret.
+export PLATFORMCLAW_SKILL_HUB_TOKEN_SECRET_FILE="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-token"
+export PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-postgres-password"
+export PLATFORMCLAW_SKILL_HUB_COOKIE_SECRET_FILE="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-cookie-secret"
+export PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_SECRET_FILE="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-bootstrap-password"
 compose_args=(docker compose --project-name "$compose_project" --env-file "$PLATFORMCLAW_ENV_FILE")
 if [[ "$skillhub_enabled" == "true" ]]; then
   export PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID="$skillhub_primary_admin_id"
