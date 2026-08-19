@@ -32,7 +32,11 @@ import {
   into the prompt/session context. Pass channel-owned sender/chat metadata
   through `channelContext`, which plugin hooks see as `ctx.channelContext`.
   Augment `PluginHookChannelSenderContext` or `PluginHookChannelChatContext`
-  from this subpath for channel-specific fields.
+  from this subpath for channel-specific fields. Set
+  `access.owner.authorized: true` only when authenticated channel routing proves
+  the sender owns the routed agent, or when the channel explicitly defines an
+  isolated room as the agent's owner boundary. This flag enables owner-only
+  tools, so ordinary DM admission or allowlist membership is not owner proof.
 - `runChannelInboundEvent(...)`: runs ingest, classify, preflight, resolve,
   record, dispatch, and finalize for one inbound platform event.
 - `dispatchChannelInboundReply(...)`: records and dispatches an already

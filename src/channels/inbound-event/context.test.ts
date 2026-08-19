@@ -102,6 +102,21 @@ describe("resolveInboundSupplementalSenderAllowed", () => {
 });
 
 describe("buildChannelInboundEventContext", () => {
+  it("projects trusted owner access without allowing extra metadata to spoof it", () => {
+    const owner = buildChannelInboundEventContext(
+      createBaseContextParams({
+        access: { owner: { authorized: true } },
+        extra: { SenderIsOwner: false },
+      }),
+    );
+    const nonOwner = buildChannelInboundEventContext(
+      createBaseContextParams({ extra: { SenderIsOwner: true } }),
+    );
+
+    expect(owner.SenderIsOwner).toBe(true);
+    expect(nonOwner.SenderIsOwner).toBeUndefined();
+  });
+
   it("maps normalized inbound facts into a finalized message context", async () => {
     const ctx = buildChannelInboundEventContext({
       channel: "test",

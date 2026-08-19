@@ -524,14 +524,15 @@ export function resolveCommandAuthorization(params: {
     isInternalMessageChannel(ctx.Provider) &&
     Array.isArray(ctx.GatewayClientScopes) &&
     ctx.GatewayClientScopes.includes("operator.admin");
+  const senderIsOwnerByIngress = ctx.SenderIsOwner === true;
   const ownerAllowlistConfigured = ownerState.explicitOwners.length > 0;
-  const senderIsOwner = senderIsOwnerByIdentity || senderIsOwnerByScope;
+  const senderIsOwner = senderIsOwnerByIdentity || senderIsOwnerByScope || senderIsOwnerByIngress;
   const requireOwner = enforceOwner || ownerAllowlistConfigured;
   const isOwnerForCommands = !requireOwner
     ? true
     : ownerAllowlistConfigured
       ? senderIsOwner
-      : senderIsOwnerByScope || Boolean(matchedCommandOwner);
+      : senderIsOwner || Boolean(matchedCommandOwner);
   const nativeCommandAuthorized =
     commandAuthorized && isNativeCommandTurn(resolveCommandTurnContext(ctx)) && !requireOwner;
   const isAuthorizedSender = resolveCommandSenderAuthorization({

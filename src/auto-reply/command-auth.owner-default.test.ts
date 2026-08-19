@@ -11,6 +11,24 @@ import { installDiscordRegistryHooks } from "./test-helpers/command-auth-registr
 installDiscordRegistryHooks();
 
 describe("senderIsOwner only reflects explicit owner authorization", () => {
+  it("accepts trusted post-admission owner proof from an external channel", () => {
+    const auth = resolveCommandAuthorization({
+      cfg: {},
+      ctx: {
+        Provider: "knox",
+        Surface: "knox",
+        ChatType: "direct",
+        From: "dm:42",
+        SenderId: "user.name",
+        SenderIsOwner: true,
+      } as MsgContext,
+      commandAuthorized: true,
+    });
+
+    expect(auth.senderIsOwner).toBe(true);
+    expect(auth.isAuthorizedSender).toBe(true);
+  });
+
   it("does not treat direct-message senders as owners when no ownerAllowFrom is configured", () => {
     const cfg = {
       channels: { discord: {} },

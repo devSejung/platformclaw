@@ -129,6 +129,11 @@ export async function dispatchKnoxInbound(params: {
     },
     access: {
       commands: { authorized: routing.senderLinked },
+      // Control-plane routing binds DMs to linked personal agents and rooms to isolated room
+      // agents. The room itself is the owner boundary, so every admitted participant owns it.
+      owner: {
+        authorized: params.message.conversation.type === "room" || routing.senderLinked,
+      },
       mentions: {
         canDetectMention: params.message.conversation.type === "room",
         wasMentioned: true,

@@ -58,6 +58,10 @@ export type ChannelInboundSupplementalResolutionOptions = {
 };
 type BuildChannelInboundEventAccess = {
   commands?: Pick<ChannelIngressCommandAccess, "authorized">;
+  /** Trusted post-admission proof that this sender owns the routed agent. */
+  owner?: {
+    authorized: boolean;
+  };
   mentions?: {
     canDetectMention: boolean;
     wasMentioned: boolean;
@@ -551,6 +555,8 @@ export function buildChannelInboundEventContext(
     // that fact so interceptors cannot bypass sender, route, or pairing gates.
     InboundAccessAuthorized: true,
     ...params.extra,
+    // Keep this after `extra`: arbitrary channel metadata must not spoof owner authority.
+    SenderIsOwner: params.access?.owner?.authorized === true ? true : undefined,
   };
   const finalizeParams = {
     finalize: params.finalize,

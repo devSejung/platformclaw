@@ -54,15 +54,17 @@ const lifecycle = {
 };
 
 function installRuntime(run: ReturnType<typeof vi.fn>) {
+  const buildContext = vi.fn(() => ({}));
   setKnoxRuntime({
     config: { current: () => ({}) },
     channel: {
       inbound: {
-        buildContext: vi.fn(() => ({})),
+        buildContext,
         run,
       },
     },
   } as unknown as PluginRuntime);
+  return { buildContext };
 }
 
 beforeEach(() => {
@@ -77,6 +79,47 @@ beforeEach(() => {
 });
 
 describe("dispatchKnoxInbound", () => {
+  it("grants owner authority to linked DMs and every isolated-room participant", async () => {
+    const dmRuntime = installRuntime(vi.fn().mockResolvedValue(undefined));
+    await dispatchKnoxInbound({ account, message, lifecycle });
+
+    expect(dmRuntime.buildContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        access: expect.objectContaining({
+          commands: { authorized: true },
+          owner: { authorized: true },
+        }),
+      }),
+    );
+
+    const roomRuntime = installRuntime(vi.fn().mockResolvedValue(undefined));
+    const roomMessage: KnoxInboundMessage = {
+      ...message,
+      conversation: {
+        ...message.conversation,
+        type: "room",
+        providerType: "GROUP",
+      },
+    };
+    resolveRouting.mockResolvedValueOnce({
+      status: "resolved",
+      agentId: "room-agent",
+      sessionKey: "agent:room-agent:main",
+      senderLinked: false,
+      executionTarget: null,
+    });
+    await dispatchKnoxInbound({ account, message: roomMessage, lifecycle });
+
+    expect(roomRuntime.buildContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        access: expect.objectContaining({
+          commands: { authorized: false },
+          owner: { authorized: true },
+        }),
+      }),
+    );
+  });
+
   it("returns Gateway draining to durable ingress instead of sending a terminal error", async () => {
     const draining = new Error("Gateway is draining; new tasks are not accepted");
     draining.name = "GatewayDrainingError";
