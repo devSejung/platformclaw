@@ -10,6 +10,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import "./test-helpers/fast-bash-tools.js";
 import "./test-helpers/fast-coding-tools.js";
 import "./test-helpers/fast-openclaw-tools.js";
+import { resolveCommandAuthorization } from "../auto-reply/command-auth.js";
+import { buildChannelInboundEventContext } from "../channels/inbound-event/context.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveChannelGroupToolsPolicy } from "../config/group-policy.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
@@ -518,6 +520,54 @@ describe("Agent-specific tool filtering", () => {
     expect(nonOwnerTools).not.toContain("conversations_list");
     expect(nonOwnerTools).not.toContain("conversations_send");
     expect(nonOwnerTools).not.toContain("conversations_turn");
+  });
+
+  it.each([
+    {
+      chatType: "direct" as const,
+      commandsAuthorized: true,
+      conversationId: "42",
+      from: "dm:42",
+    },
+    {
+      chatType: "group" as const,
+      commandsAuthorized: false,
+      conversationId: "77",
+      from: "room:77",
+    },
+  ])("gives an authenticated Knox $chatType owner the same owner-only core tools", (knox) => {
+    const cfg: OpenClawConfig = {};
+    const ctx = buildChannelInboundEventContext({
+      channel: "knox",
+      accountId: "default",
+      from: knox.from,
+      sender: { id: "user.name" },
+      conversation: { kind: knox.chatType, id: knox.conversationId },
+      route: { agentId: "personal-user", routeSessionKey: "agent:personal-user:main" },
+      reply: { to: knox.from },
+      message: { rawBody: "schedule this" },
+      access: {
+        commands: { authorized: knox.commandsAuthorized },
+        owner: { authorized: true },
+      },
+    });
+    const auth = resolveCommandAuthorization({ ctx, cfg, commandAuthorized: true });
+    const toolNames = createOpenClawCodingTools({
+      config: cfg,
+      messageProvider: "knox",
+      senderIsOwner: auth.senderIsOwner,
+      workspaceDir: "/tmp/test-knox-owner-policy",
+      agentDir: "/tmp/agent-knox-owner-policy",
+    }).map((tool) => tool.name);
+
+    expect(auth.senderIsOwner).toBe(true);
+    expect(toolNames).toContain("automations");
+    expect(toolNames).toContain("gateway");
+    expect(toolNames).toContain("nodes");
+    expect(toolNames).toContain("openclaw");
+    expect(toolNames).toContain("conversations_list");
+    expect(toolNames).toContain("conversations_send");
+    expect(toolNames).toContain("conversations_turn");
   });
 
   it("should let agent per-sender policy override global sender wildcard", () => {

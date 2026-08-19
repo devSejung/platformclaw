@@ -305,6 +305,8 @@ export type MsgContext = Partial<CanonicalInboundText> & {
   OwnerAllowFrom?: Array<string | number>;
   SenderName?: string;
   SenderId?: string;
+  /** Trusted post-admission proof that the sender owns the routed agent. */
+  SenderIsOwner?: boolean;
   /** Trusted in-process creation provenance; never populated from channel payloads. */
   SessionCreation?: {
     via: import("../config/sessions/session-entry-provenance.js").SessionCreatedVia;
