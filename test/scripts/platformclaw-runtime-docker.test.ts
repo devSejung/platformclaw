@@ -333,6 +333,18 @@ describe("PlatformClaw Docker runtime", () => {
     expect(deploy).toContain("SkillHub requires at least 4 GiB host RAM");
     expect(deploy).toContain("local required_disk_kib=20971520");
     expect(deploy).toContain("required_disk_kib=5242880");
+    const bootstrapStart = deploy.indexOf("bootstrap_skillhub() {");
+    const bootstrapEnd = deploy.indexOf("\ndurable_state_exists()", bootstrapStart);
+    const bootstrap = deploy.slice(bootstrapStart, bootstrapEnd);
+    expect(bootstrap.indexOf(': >"$token_file"')).toBeLessThan(
+      bootstrap.indexOf('"${compose[@]}" up -d --wait skillhub-server'),
+    );
+    expect(bootstrap).not.toContain('rm -f "$token_file"');
+    expect(bootstrap).toContain("Keep an owner-only output target available");
+    const backupStart = deploy.indexOf("create_skillhub_state_backup() {");
+    const backupEnd = deploy.indexOf("\nrestore_skillhub_state_backup()", backupStart);
+    const backup = deploy.slice(backupStart, backupEnd);
+    expect(backup).toContain("--cap-add DAC_READ_SEARCH --cap-add DAC_OVERRIDE");
 
     const wrapper = readRepoFile("docker/platformclaw-runtime/platformclaw-compose");
     expect(wrapper).toContain("--profile skillhub");

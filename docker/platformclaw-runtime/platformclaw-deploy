@@ -292,7 +292,6 @@ bootstrap_skillhub() {
     [[ -r "$token_source" ]] || { echo "SkillHub token source is unreadable: $token_source" >&2; exit 1; }
     install -m 0400 "$token_source" "$token_file"
   fi
-  "${compose[@]}" up -d --wait skillhub-server
   if [[ ! -s "$token_file" ]]; then
     echo "Bootstrap the private SkillHub API token"
     create_token="true"
@@ -300,6 +299,9 @@ bootstrap_skillhub() {
     : >"$token_file"
     chmod 0600 "$token_file"
   fi
+  # Compose validates every file-backed secret before starting a selected service.
+  # Keep an owner-only output target available for first boot and failed retries.
+  "${compose[@]}" up -d --wait skillhub-server
   network_name="$(DOCKER_HOST=unix:///var/run/docker.sock docker network ls \
     --filter "label=com.docker.compose.project=$project_name" \
     --filter "label=com.docker.compose.network=platformclaw-skillhub" \
@@ -321,13 +323,21 @@ bootstrap_skillhub() {
     --volume "$token_file:/run/secrets/control-token" \
     --volume "$script_dir/bootstrap-skillhub.mjs:/opt/platformclaw/bootstrap-skillhub.mjs:ro" \
     --entrypoint node "$runtime_image" /opt/platformclaw/bootstrap-skillhub.mjs; then
-    [[ "$create_token" != "true" ]] || rm -f "$token_file"
-      echo "SkillHub token/namespace bootstrap failed; Hub remains internal and Control was not started." >&2
-      exit 1
+    if [[ "$create_token" == "true" ]]; then
+      : >"$token_file"
+      chmod 0600 "$token_file"
+    fi
+    echo "SkillHub token/namespace bootstrap failed; Hub remains internal and Control was not started." >&2
+    exit 1
   fi
   if [[ "$create_token" == "true" ]]; then
     IFS= read -r token <"$token_file" || true
-    [[ "$token" == sk_* ]] || { rm -f "$token_file"; echo "SkillHub returned no bootstrap token." >&2; exit 1; }
+    if [[ "$token" != sk_* ]]; then
+      : >"$token_file"
+      chmod 0600 "$token_file"
+      echo "SkillHub returned no bootstrap token." >&2
+      exit 1
+    fi
     chmod 0400 "$token_file"
   fi
   touch "$skillhub_state_marker"
@@ -714,7 +724,7 @@ create_skillhub_state_backup() {
   local runtime_image
   runtime_image="$(read_env_value PLATFORMCLAW_IMAGE)"
   DOCKER_HOST=unix:///var/run/docker.sock docker run --rm --network none --read-only \
-    --user 0:0 --cap-drop ALL --cap-add DAC_READ_SEARCH \
+    --user 0:0 --cap-drop ALL --cap-add DAC_READ_SEARCH --cap-add DAC_OVERRIDE \
     --security-opt no-new-privileges:true \
     --volume "$skillhub_state:/source:ro" \
     --volume "$skillhub_state_backup_root:/backup" \
