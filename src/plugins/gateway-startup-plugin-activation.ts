@@ -56,7 +56,6 @@ type StartupActivationPolicy =
 type StartupContractKey =
   | keyof ConfiguredGenerationProviderIds
   | keyof ConfiguredVoiceProviderIds
-  | "memoryEmbeddingProviders"
   | "embeddingProviders";
 
 export function addRequiredAgentHarnessPluginIds(
@@ -245,11 +244,6 @@ const GATEWAY_STARTUP_ACTIVATION_POLICIES: readonly {
   {
     policy: "implicit-external",
     matches: ({ manifest, configuredMemoryEmbeddingProviderIds }) =>
-      manifestOwnsConfiguredContract(
-        manifest,
-        "memoryEmbeddingProviders",
-        configuredMemoryEmbeddingProviderIds,
-      ) ||
       manifestOwnsConfiguredContract(
         manifest,
         "embeddingProviders",

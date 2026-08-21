@@ -10,6 +10,14 @@
 
 ### PlatformClaw downstream policy repairs
 
+- The 2026-08-21 Plugin SDK compatibility-window cleanup ports only the
+  upstream `998d442b39f` embedded-Pi alias retirement and `692520a4698`
+  memory-embedding registrar retirement from OpenClaw PR #124416. This is a
+  downstream-native implementation, not an ancestry sync: the generic
+  `runEmbeddedAgent` contract remains, bundled embedding providers now register
+  through `embeddingProviders`, and both removed public surfaces remain recorded
+  as compatibility tombstones. No PlatformClaw browser policy, SQLite schema,
+  Gateway protocol, or operator configuration changes.
 - Browser live-capability repair branch base: PlatformClaw `main`
   `2697c66474bd9f5f04db312eed400eb5aa38e04c`; comparison was frozen against
   upstream `main` `4e53edb8780f7392b68cc2073397dd8e0da39a1f`. The only generic upstream

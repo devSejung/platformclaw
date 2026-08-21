@@ -203,6 +203,18 @@ describe("plugin compatibility registry", () => {
     expect(record?.removeAfter).toBeUndefined();
   });
 
+  it("keeps the removed memory embedding registrar as a migration tombstone", () => {
+    const record = listPluginCompatRecords().find(
+      (candidate) => candidate.code === "deprecated-memory-embedding-provider-api",
+    );
+
+    expect(record).toMatchObject({
+      status: "removed",
+      replacement: "`api.registerEmbeddingProvider(...)` and `contracts.embeddingProviders`",
+    });
+    expect(record?.removeAfter).toBeUndefined();
+  });
+
   it("keeps deprecated explicit target parser calls inside compatibility shims", () => {
     expect(deprecatedTargetParserOffenders).toEqual([]);
   });

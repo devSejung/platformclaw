@@ -169,7 +169,9 @@ vi.mock("./embeddings.js", () => ({
   }),
 }));
 
-import { clearMemoryEmbeddingProviders as clearRegistry } from "openclaw/plugin-sdk/memory-core-host-engine-embeddings";
+import { closeOpenClawStateDatabaseForTest } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import { clearEmbeddingProviders as clearRegistry } from "openclaw/plugin-sdk/plugin-test-runtime";
+import { closeOpenClawAgentDatabasesForTest } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import {
   closeAllMemorySearchManagers,
   getMemorySearchManager,
@@ -210,6 +212,8 @@ describe("memory watcher config", () => {
     }
     await closeAllMemorySearchManagers();
     clearRegistry();
+    closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
     restoreWatcherStateDir();
     if (workspaceDir) {
       await fs.rm(workspaceDir, { recursive: true, force: true });
