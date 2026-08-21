@@ -43,7 +43,7 @@ function createLazyCanvasTool(params: {
     name: "canvas",
     resultContentSource: "network",
     description:
-      "Control node canvases (present/hide/navigate/eval/snapshot/A2UI). Use snapshot to capture the rendered UI.",
+      "Control a paired node's Canvas (present/hide/navigate/eval/snapshot/A2UI). A connected node is required; this does not render in the current browser chat, and file URLs refer to the paired node, not a server or execution VM. Use snapshot to capture the rendered UI.",
     parameters: CanvasToolSchema,
     execute: async (...args: Parameters<AnyAgentTool["execute"]>) =>
       await (await loadTool()).execute(...args),

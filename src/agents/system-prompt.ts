@@ -902,7 +902,8 @@ export function buildAgentSystemPrompt(params: {
     screen: "Drive operator web UI",
     terminal:
       "Own visible shell. Use for long/interactive jobs user should watch. exec for quiet work",
-    canvas: "Present/eval/snapshot Canvas",
+    show_widget: "Render self-contained HTML/SVG in the current chat or browser surface",
+    canvas: "Control a paired node's Canvas; node required; file URLs are node-local",
     nodes: "Paired node status/control/media",
     [AUTOMATIONS_TOOL_NAME]:
       "Schedule/wake. Reminder text must read as reminder when fired; mention reminder for delayed gaps; include useful recent context. This feature is called automations; never call it cron.",
@@ -945,6 +946,7 @@ export function buildAgentSystemPrompt(params: {
     "browser",
     "screen",
     "terminal",
+    "show_widget",
     "canvas",
     "nodes",
     AUTOMATIONS_TOOL_NAME,

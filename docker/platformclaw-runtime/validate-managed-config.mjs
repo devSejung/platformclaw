@@ -72,6 +72,11 @@ function validateToolPolicy(tools) {
   );
 }
 
+function validateManagedAgentToolPolicy(tools) {
+  const deny = normalizedPluginIds(tools?.deny);
+  requirePolicy(deny.includes("nodes"));
+}
+
 function globMatches(value, rawPattern) {
   const pattern = String(rawPattern).trim().toLowerCase();
   if (!pattern) {
@@ -123,6 +128,7 @@ export function validateManagedConfig(config, sandboxImage) {
   const defaults = config?.agents?.defaults?.sandbox;
   validateSandboxPolicy(defaults, sandboxImage, new Set(["platformclaw-execution"]));
   validateToolPolicy(config?.tools);
+  validateManagedAgentToolPolicy(config?.tools);
   const globalSandboxTools = config?.tools?.sandbox?.tools;
   validateGlobalMcpSandboxGate(globalSandboxTools);
 
@@ -164,6 +170,10 @@ export function validateManagedConfig(config, sandboxImage) {
   );
   const pluginDeny = normalizedPluginIds(config?.plugins?.deny);
   requirePolicy(REQUIRED_MANAGED_PLUGIN_IDS.every((pluginId) => !pluginDeny.includes(pluginId)));
+  // PlatformClaw VMs are execution backends, not paired nodes. Keep the
+  // Gateway-owned widget host active while removing the unowned node Canvas tool.
+  requirePolicy(plugins?.canvas?.enabled === false);
+  requirePolicy(plugins?.canvas?.config?.host?.enabled === true);
 
   const wiki = plugins?.["memory-wiki"]?.config;
   requirePolicy(wiki?.vaultMode === "bridge");

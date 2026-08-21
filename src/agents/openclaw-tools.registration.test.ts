@@ -624,6 +624,22 @@ describe("gateway client capability tool filtering", () => {
     ).toBe(false);
   });
 
+  it("keeps the core widget tool when only the paired-node Canvas plugin is disabled", () => {
+    expect(
+      hasTool(
+        createOpenClawTools({
+          clientCaps: ["inline-widgets"],
+          config: {
+            plugins: {
+              entries: { canvas: { enabled: false, config: { host: { enabled: true } } } },
+            },
+          },
+        }),
+        "show_widget",
+      ),
+    ).toBe(true);
+  });
+
   it("keeps the core widget tool out when OPENCLAW_SKIP_CANVAS_HOST is set", () => {
     withEnv({ OPENCLAW_SKIP_CANVAS_HOST: "1" }, () => {
       expect(hasTool(createOpenClawTools({ clientCaps: ["inline-widgets"] }), "show_widget")).toBe(

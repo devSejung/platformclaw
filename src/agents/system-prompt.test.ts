@@ -12,6 +12,20 @@ import { buildSubagentSystemPrompt } from "./subagent-system-prompt.js";
 import { buildAgentSystemPrompt } from "./system-prompt.js";
 
 describe("buildAgentSystemPrompt", () => {
+  it("distinguishes current-surface widgets from paired-node Canvas", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      toolNames: ["show_widget", "canvas"],
+    });
+
+    expect(prompt).toContain(
+      "- show_widget: Render self-contained HTML/SVG in the current chat or browser surface",
+    );
+    expect(prompt).toContain(
+      "- canvas: Control a paired node's Canvas; node required; file URLs are node-local",
+    );
+  });
+
   it("resolves helper session keys to scoped prompt surfaces", () => {
     expect(resolveAgentPromptSurfaceForSessionKey("agent:main:subagent:child")).toBe("subagent");
     expect(resolveAgentPromptSurfaceForSessionKey("agent:codex:acp:child")).toBe("acp_backend");

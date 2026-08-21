@@ -54,7 +54,17 @@ async function resolveNodeId(
   query?: string,
   allowDefault = false,
 ): Promise<string> {
-  return resolveNodeIdFromList(await listNodes(opts), query, allowDefault);
+  try {
+    return resolveNodeIdFromList(await listNodes(opts), query, allowDefault);
+  } catch (error) {
+    if (error instanceof Error && /node required/i.test(error.message)) {
+      throw new Error(
+        "paired node required for Canvas; connect a display node, or use a current-surface widget capability when available",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 async function writeBase64ToTempFile(params: { base64: string; ext: string }): Promise<string> {
@@ -110,7 +120,7 @@ export function createCanvasTool(options?: CanvasToolOptions): AnyAgentTool {
     name: "canvas",
     resultContentSource: "network",
     description:
-      "Control node canvases (present/hide/navigate/eval/snapshot/A2UI). Use snapshot to capture the rendered UI.",
+      "Control a paired node's Canvas (present/hide/navigate/eval/snapshot/A2UI). A connected node is required; this does not render in the current browser chat, and file URLs refer to the paired node, not a server or execution VM. Use snapshot to capture the rendered UI.",
     parameters: CanvasToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;

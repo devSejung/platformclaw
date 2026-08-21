@@ -437,10 +437,11 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
           },
         },
       },
-      tools: { sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
+      tools: { deny: ["nodes"], sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
       plugins: {
         slots: { memory: "memory-core" },
         entries: {
+          canvas: { enabled: false, config: { host: { enabled: true } } },
           "admin-http-rpc": { enabled: true },
           "memory-core": {
             enabled: true,
@@ -480,7 +481,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
         };
         entries?: Record<string, unknown>;
       };
-      tools: { sandbox: { tools: { alsoAllow: string[] } } };
+      tools: { deny?: string[]; sandbox: { tools: { alsoAllow: string[] } } };
     };
     source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:old";
     source.agents.defaults.model = { primary: "openai/gpt-5.4" };
@@ -495,7 +496,36 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(result.config.agents.defaults.model).toEqual({ primary: "openai/gpt-5.4" });
     expect(result.config.agents.entries).toEqual(source.agents.entries);
     expect(result.config.tools.sandbox.tools.alsoAllow).toEqual(["memory_search", "bundle-mcp"]);
+    expect(result.config.tools.deny).toEqual(["nodes"]);
     expect(source.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:old");
+  });
+
+  it("removes the paired-node Canvas surface while preserving the widget host", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      tools: { deny?: string[] };
+      plugins: {
+        entries: Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
+      };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    source.tools.deny = ["browser"];
+    source.plugins.entries.canvas = {
+      enabled: true,
+      config: { host: { enabled: false }, preserved: true },
+    };
+
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+    expect(result.config.tools.deny).toEqual(["browser", "nodes"]);
+    expect(result.config.plugins.entries.canvas).toEqual({
+      enabled: false,
+      config: { host: { enabled: true }, preserved: true },
+    });
+    expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
+    expect(reconcileManagedConfig(result.config, "platformclaw-sandbox:test").changed).toBe(false);
   });
 
   it("migrates an existing managed config to enable the Knox plugin", () => {
