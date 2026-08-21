@@ -128,6 +128,7 @@ function createRosterRefreshContext(params: {
   });
   const refreshConfig = vi.fn(async () => null);
   const context = {
+    accessMode: "operator",
     agents: {
       state: agentsState,
       refreshList,

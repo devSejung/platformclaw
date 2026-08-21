@@ -12,7 +12,12 @@ import {
   resetServerUiPrefsSync,
   resolveServerUiPrefState,
 } from "./server-prefs.ts";
-import { loadSettings, patchSettings, setSettingsChangeListener } from "./settings.ts";
+import {
+  loadSettings,
+  patchSettings,
+  setSettingsChangeListener,
+  UI_APPEARANCE_DEFAULTS,
+} from "./settings.ts";
 
 beforeEach(() => {
   vi.stubGlobal("localStorage", createStorageMock());
@@ -306,13 +311,16 @@ describe("applyServerUiPrefs", () => {
     expect(
       applyServerUiPrefs(configWithPrefs({ theme: "custom" }), { onApplied, onThemeChanged }),
     ).toBe(false);
-    expect(loadSettings().theme).toBe("platformclaw");
+    expect(loadSettings().theme).toBe(UI_APPEARANCE_DEFAULTS.theme);
     expect(onThemeChanged).toHaveBeenLastCalledWith("custom");
 
     expect(
-      applyServerUiPrefs(configWithPrefs({ theme: "claw" }), { onApplied, onThemeChanged }),
+      applyServerUiPrefs(configWithPrefs({ theme: UI_APPEARANCE_DEFAULTS.theme }), {
+        onApplied,
+        onThemeChanged,
+      }),
     ).toBe(false);
-    expect(onThemeChanged).toHaveBeenLastCalledWith("claw");
+    expect(onThemeChanged).toHaveBeenLastCalledWith(UI_APPEARANCE_DEFAULTS.theme);
     expect(onApplied).not.toHaveBeenCalled();
   });
 });

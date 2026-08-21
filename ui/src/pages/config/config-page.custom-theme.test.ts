@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApplicationContext, ApplicationThemeServerSelection } from "../../app/context.ts";
 import * as customTheme from "../../app/custom-theme.ts";
 import type { ImportedCustomTheme } from "../../app/custom-theme.ts";
-import { loadSettings, patchSettings, type UiSettings } from "../../app/settings.ts";
+import {
+  loadSettings,
+  patchSettings,
+  type UiSettings,
+  UI_APPEARANCE_DEFAULTS,
+} from "../../app/settings.ts";
 import type { ThemeName } from "../../app/theme.ts";
 import { createImportedCustomThemeFixture } from "../../test-helpers/custom-theme.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
@@ -109,7 +114,7 @@ describe("ConfigPage custom theme import ownership", () => {
     await pendingImport;
 
     expect(state.customThemeImport.busy).toBe(false);
-    expect(state.settings.theme).toBe("claw");
+    expect(state.settings.theme).toBe(UI_APPEARANCE_DEFAULTS.theme);
     expect(state.settings.customTheme).toBeUndefined();
     expect(state.customThemeImport.url).toBe("replacement");
     expect(state.customThemeImport.message).toBe(clearMessage);
@@ -233,7 +238,7 @@ describe("ConfigPage custom theme import ownership", () => {
     pending.resolve(customThemeFixture("First", "first"));
     await pendingImport;
 
-    expect(state.settings.theme).toBe("claw");
+    expect(state.settings.theme).toBe(UI_APPEARANCE_DEFAULTS.theme);
     expect(state.settings.customTheme?.themeId).toBe("first");
   });
 
@@ -253,7 +258,7 @@ describe("ConfigPage custom theme import ownership", () => {
     expect(state.customThemeImport.busy).toBe(false);
     expect(state.customThemeImport.url).toBe("first");
     expect(state.customThemeImport.message).toBeNull();
-    expect(state.settings.theme).toBe("claw");
+    expect(state.settings.theme).toBe(UI_APPEARANCE_DEFAULTS.theme);
     expect(state.settings.customTheme).toBeUndefined();
   });
 
@@ -272,7 +277,7 @@ describe("ConfigPage custom theme import ownership", () => {
     expect(state.customThemeImport.busy).toBe(false);
     expect(state.customThemeImport.url).toBe("first");
     expect(state.customThemeImport.message).toBeNull();
-    expect(state.settings.theme).toBe("claw");
+    expect(state.settings.theme).toBe(UI_APPEARANCE_DEFAULTS.theme);
     expect(state.settings.customTheme).toBeUndefined();
   });
 
@@ -402,7 +407,7 @@ describe("ConfigPage custom theme import ownership", () => {
     expect(state.customThemeImport.busy).toBe(false);
     expect(state.customThemeImport.url).toBe("first");
     expect(state.customThemeImport.message).toBeNull();
-    expect(state.settings.theme).toBe("claw");
+    expect(state.settings.theme).toBe(UI_APPEARANCE_DEFAULTS.theme);
     expect(state.settings.customTheme).toBeUndefined();
   });
 });

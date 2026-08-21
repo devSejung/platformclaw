@@ -43,6 +43,7 @@ function renderGatewaySurface(gateway: ApplicationGateway): string {
     synchronizeGateway: (gateway: ApplicationGateway) => void;
   };
   app.runtime = {
+    shellSession: null,
     context: {
       gateway,
       basePath: "",
