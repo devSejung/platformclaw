@@ -105,6 +105,10 @@ vi.mock("./harness/runtime-plugin.js", () => ({
 }));
 
 vi.mock("./workspace.js", () => ({
+  DEFAULT_BOOTSTRAP_FILENAME: "BOOTSTRAP.md",
+  DEFAULT_IDENTITY_FILENAME: "IDENTITY.md",
+  DEFAULT_SOUL_FILENAME: "SOUL.md",
+  DEFAULT_USER_FILENAME: "USER.md",
   ensureAgentWorkspace: vi.fn(async () => undefined),
 }));
 

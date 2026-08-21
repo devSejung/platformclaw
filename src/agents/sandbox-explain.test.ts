@@ -71,6 +71,7 @@ describe("sandbox explain helpers", () => {
     expect(policy.allow).toEqual([
       "memory_search",
       "memory_get",
+      "memory_write",
       "read",
       "write",
       "edit",
