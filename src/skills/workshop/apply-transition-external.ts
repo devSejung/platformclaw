@@ -5,7 +5,6 @@ import {
   dispatchCommittedSkillChangeBestEffort,
   hasCommittedSkillChangeHooks,
 } from "../lifecycle/skill-change-hook.js";
-import type { SkillProposalApplyTransitionDependencies } from "./apply-transition.js";
 import { stripProposalFrontmatterForSkill } from "./frontmatter.js";
 import { createSkillProposalEvent, dispatchSkillProposalChanged } from "./plugin-hooks.js";
 import { readSkillProposalTargetTreeSha256 } from "./proposal-bundle.js";
@@ -63,7 +62,10 @@ function storeOptions(env?: NodeJS.ProcessEnv): SkillWorkshopStoreOptions {
 export async function reconcileExternalSkillMutation(params: {
   input: SkillProposalActionInput;
   initial: SkillProposalReadResult;
-  dependencies: SkillProposalApplyTransitionDependencies;
+  readProposalSupportFiles: (
+    record: SkillProposalRecord,
+    options?: SkillWorkshopStoreOptions,
+  ) => Promise<PreparedSkillProposalSupportFile[]>;
 }): Promise<SkillProposalApplyResult | null> {
   const { record } = params.initial;
   if (!record.target.binding) {
@@ -75,7 +77,7 @@ export async function reconcileExternalSkillMutation(params: {
   if (!rollback || !resolveExternalRollback(record, rollback)) {
     return null;
   }
-  const supportFiles = await params.dependencies.readProposalSupportFiles(
+  const supportFiles = await params.readProposalSupportFiles(
     record,
     storeOptions(params.input.env),
   );
