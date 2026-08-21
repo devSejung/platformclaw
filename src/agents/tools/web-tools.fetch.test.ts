@@ -307,7 +307,7 @@ describe("web_fetch extraction fallbacks", () => {
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toBe("aborted");
       expect(updates).toHaveLength(0);
-      expect(resolveWebFetchDefinitionMock).not.toHaveBeenCalled();
+      expect(resolveWebFetchDefinitionMock).toHaveBeenCalledOnce();
       expect(providerExecute).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
