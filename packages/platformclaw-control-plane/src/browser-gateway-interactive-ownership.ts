@@ -17,14 +17,12 @@ type ApprovalBinding = OwnerBinding & {
   allowedDecisions: ReadonlySet<string>;
 };
 
-export type BrowserInteractiveFailure = (
+type BrowserInteractiveFailure = (
   code: "invalid-params" | "cross-agent-denied" | "upstream-result-denied",
   message: string,
 ) => never;
 
-export type BrowserInteractiveRequestResult =
-  | { handled: false }
-  | { handled: true; result: unknown };
+type BrowserInteractiveRequestResult = { handled: false } | { handled: true; result: unknown };
 
 const MAX_OWNERSHIP_BINDINGS = 4_096;
 

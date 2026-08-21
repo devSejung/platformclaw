@@ -1,4 +1,4 @@
-export type BrowserGatewayObserverRpc = {
+type BrowserGatewayObserverRpc = {
   request(method: string, params?: unknown): Promise<unknown>;
 };
 

@@ -170,6 +170,14 @@ describe("check-deadcode-exports", () => {
     expect(knipConfig.workspaces["."].entry).toContain("scripts/qa/render-maturity-docs.ts!");
   });
 
+  it("models PlatformClaw standalone UI and control-plane build roots", () => {
+    expect(knipConfig.workspaces.ui.entry).toContain("src/platformclaw/login.ts!");
+    expect(knipConfig.workspaces["packages/platformclaw-control-plane"]).toEqual({
+      entry: ["src/index.ts!", "src/admin-main.ts!", "src/server-main.ts!", "src/sshpass-main.ts!"],
+      project: ["src/**/*.ts!"],
+    });
+  });
+
   it("runs exhaustive dead-code hygiene against production and full-tree configs", () => {
     const packageJson = JSON.parse(
       fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"),

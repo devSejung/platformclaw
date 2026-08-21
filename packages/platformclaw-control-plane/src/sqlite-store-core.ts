@@ -67,7 +67,7 @@ export function optional(value: string | undefined): string | null {
   return value?.trim() || null;
 }
 
-export function normalizedGroups(groups: string[] | undefined): string[] {
+function normalizedGroups(groups: string[] | undefined): string[] {
   return [...new Set((groups ?? []).map((group) => group.trim()).filter(Boolean))].toSorted();
 }
 

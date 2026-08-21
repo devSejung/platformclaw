@@ -24,7 +24,7 @@ export type PlatformClawBrowserCanvasPolicy = {
   resolveAccess(this: void, token: string, touch?: boolean): Promise<BrowserCanvasAccess>;
 };
 
-export type PlatformClawBrowserCanvasRelayOptions = {
+type PlatformClawBrowserCanvasRelayOptions = {
   publicOrigin: string;
   gatewayOrigin: string;
   gatewayAuth: string;
