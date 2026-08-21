@@ -167,6 +167,32 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         status: 200,
       }),
     );
+    await page.route("**/platformclaw/api/skill-hub/config", (route) =>
+      route.fulfill({
+        json: {
+          namespaces: ["platform"],
+          maxPackageBytes: 10_000_000,
+          capabilities: {
+            scanner: true,
+            forcePublish: false,
+            ownerTransfer: false,
+            accessControl: false,
+            notifications: true,
+            zipUpload: true,
+          },
+          installTargets: [
+            { target: "platform_server", available: true, status: "ready" },
+            { target: "assigned_vm", available: false, status: "unavailable" },
+          ],
+          admin: false,
+          notifications: { unreadCount: 0 },
+        },
+        status: 200,
+      }),
+    );
+    await page.route("**/platformclaw/api/skill-hub/search?**", (route) =>
+      route.fulfill({ json: { items: [], total: 0 }, status: 200 }),
+    );
     await installMockGateway(page, {
       basePath: "/platformclaw/app",
       defaultAgentId: "person_one",
@@ -188,6 +214,129 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       await page.screenshot({
         fullPage: true,
         path: path.join(proofDir, "05-first-run-guide.png"),
+      });
+    }
+
+    const sidebarGuideSteps = [
+      ["Home: start a conversation with your Agent", "05a-01-home-guide.png"],
+      ["Usage: understand tokens and cost", "05a-02-usage-guide.png"],
+      ["Tasks: follow assigned work", "05a-03-tasks-guide.png"],
+      ["Threads: continue an earlier conversation", "05a-04-threads-guide.png"],
+      ["Activity: inspect what the Agent did", "05a-05-activity-guide.png"],
+      ["Automations: schedule recurring work", "05a-06-automations-guide.png"],
+      ["Plugins: extend Agent capabilities", "05a-07-plugins-guide.png"],
+    ] as const;
+    let previousHighlightTop = -1;
+    for (const [heading, screenshot] of sidebarGuideSteps) {
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect.poll(() => page.getByRole("heading", { name: heading }).isVisible()).toBe(true);
+      await expect.poll(() => page.locator(".tour-highlight").isVisible()).toBe(true);
+      await expect
+        .poll(() => page.locator(".tour-highlight").evaluate((element) => element.clientHeight))
+        .toBeGreaterThanOrEqual(40);
+      await expect
+        .poll(() =>
+          page
+            .locator(".tour-highlight")
+            .evaluate((element) => element.getBoundingClientRect().top),
+        )
+        .toBeGreaterThan(previousHighlightTop + 10);
+      previousHighlightTop = await page
+        .locator(".tour-highlight")
+        .evaluate((element) => element.getBoundingClientRect().top);
+      if (heading.startsWith("Usage:")) {
+        await expect
+          .poll(() =>
+            page
+              .getByText("input tokens, output tokens, and cost trends", { exact: false })
+              .isVisible(),
+          )
+          .toBe(true);
+      }
+      if (captureUiProofEnabled) {
+        await page.screenshot({
+          fullPage: true,
+          path: path.join(proofDir, screenshot),
+        });
+      }
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() => page.getByRole("heading", { name: "Choose where work runs" }).isVisible())
+      .toBe(true);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05a-08-work-location-guide.png"),
+      });
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() => page.getByRole("heading", { name: "Understand the Plugins hub" }).isVisible())
+      .toBe(true);
+    await expect.poll(() => page.url().endsWith("/skills")).toBe(true);
+    await expect.poll(() => page.locator(".plugins-hub-tabs-row").isVisible()).toBe(true);
+    await expect.poll(() => page.locator(".tour-shade").count()).toBe(4);
+    await expect.poll(() => page.getByText("LOOK HERE", { exact: true }).isVisible()).toBe(true);
+    await expect
+      .poll(() => page.getByText("Skill Hub is the company catalog", { exact: false }).isVisible())
+      .toBe(true);
+
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05b-plugin-guide.png"),
+      });
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() =>
+        page
+          .getByRole("heading", { name: "Skills: instructions your Agent can reuse" })
+          .isVisible(),
+      )
+      .toBe(true);
+    await expect.poll(() => page.locator("#plugins-tab-skills").isVisible()).toBe(true);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05c-skills-guide.png"),
+      });
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() =>
+        page.getByRole("heading", { name: "Workshop: review skill changes safely" }).isVisible(),
+      )
+      .toBe(true);
+    await expect.poll(() => page.url().endsWith("/skills/workshop")).toBe(true);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05d-workshop-guide.png"),
+      });
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() =>
+        page
+          .getByRole("heading", { name: "Skill Hub: install and share company skills" })
+          .isVisible(),
+      )
+      .toBe(true);
+    await expect.poll(() => page.url().endsWith("/skills/hub")).toBe(true);
+    await expect
+      .poll(() => page.getByText("No Skill Hub results", { exact: true }).isVisible())
+      .toBe(true);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05e-skill-hub-guide.png"),
       });
     }
 

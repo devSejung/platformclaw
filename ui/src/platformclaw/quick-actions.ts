@@ -2,7 +2,11 @@ import { css, html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import { icons } from "../components/icons.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
-import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
+import {
+  loadPlatformClawLocale,
+  platformClawGuideT as guideT,
+  platformClawT as t,
+} from "./i18n.ts";
 import "./execution-settings.ts";
 import "./voc-dialog.ts";
 
@@ -12,7 +16,9 @@ type TourLaunch = "automatic" | "manual";
 type TourStep = {
   title: string;
   body: string;
+  details?: string[];
   element?: () => Element | null;
+  activate?: () => void | Promise<void>;
 };
 
 function browserStorage(): Storage | null {
@@ -23,13 +29,14 @@ function browserStorage(): Storage | null {
   }
 }
 
-function findSidebarRoute(route: string): Element {
+function findSidebarRoute(...routes: string[]): Element | null {
   const sidebar = document.querySelector("openclaw-app-sidebar");
   const roots = [sidebar, sidebar?.shadowRoot].filter(Boolean) as ParentNode[];
   for (const root of roots) {
-    for (const anchor of root.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    for (const anchor of root.querySelectorAll<HTMLAnchorElement>("a.nav-item[href]")) {
       try {
-        if (new URL(anchor.href, globalThis.location.href).pathname.endsWith(`/${route}`)) {
+        const pathname = new URL(anchor.href, globalThis.location.href).pathname;
+        if (routes.some((route) => pathname.endsWith(`/${route}`))) {
           return anchor;
         }
       } catch {
@@ -37,13 +44,17 @@ function findSidebarRoute(route: string): Element {
       }
     }
   }
-  return undefined as unknown as Element;
+  return null;
 }
 
-function findSidebarHome(): Element {
+function findSidebarHome(): Element | null {
   const sidebar = document.querySelector("openclaw-app-sidebar");
   return (sidebar?.shadowRoot?.querySelector(".nav-item--home") ??
-    sidebar?.querySelector(".nav-item--home")) as Element;
+    sidebar?.querySelector(".nav-item--home")) as Element | null;
+}
+
+function findPluginHubElement(selector: string): Element | null {
+  return document.querySelector(selector);
 }
 
 export class PlatformClawQuickActionsElement extends OpenClawLitElement {
@@ -53,10 +64,12 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   @property({ type: Boolean }) vocEnabled = false;
   @state() private guideError = "";
   @state() private guideLoading = false;
+  @state() private guideMoving = false;
   @state() private vocOpen = false;
   @state() private tourIndex: number | null = null;
   @state() private tourHighlightStyle = "";
   @state() private tourPopoverStyle = "";
+  @state() private tourShadeStyles: string[] = [];
 
   private automaticLaunchAttempted = false;
 
@@ -134,24 +147,43 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         inset: 0;
         pointer-events: none;
       }
-      .tour-backdrop {
+      .tour-dismiss-layer {
         position: absolute;
         inset: 0;
-        background: rgb(5 7 10 / 76%);
         pointer-events: auto;
+      }
+      .tour-shade {
+        position: fixed;
+        background: rgb(5 7 10 / 48%);
+        pointer-events: none;
       }
       .tour-highlight {
         position: fixed;
-        border: 2px solid var(--accent);
-        border-radius: 10px;
-        box-shadow: 0 0 0 9999px rgb(5 7 10 / 76%);
+        box-sizing: border-box;
+        border: 3px solid var(--accent);
+        border-radius: 12px;
+        box-shadow: 0 0 0 3px var(--accent);
         pointer-events: none;
         transition: all 180ms ease;
+      }
+      .tour-target-label {
+        position: absolute;
+        right: 6px;
+        bottom: calc(100% + 7px);
+        border-radius: 999px;
+        padding: 5px 9px;
+        background: var(--accent);
+        color: var(--accent-foreground);
+        box-shadow: var(--shadow-md);
+        font: 700 11px/1.2 var(--font-sans, system-ui, sans-serif);
+        white-space: nowrap;
       }
       .tour-popover {
         position: fixed;
         box-sizing: border-box;
         width: min(360px, calc(100vw - 32px));
+        max-height: calc(100vh - 32px);
+        overflow-y: auto;
         border: 1px solid var(--border);
         border-radius: var(--radius-xl);
         padding: 18px;
@@ -180,6 +212,15 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         color: var(--muted-strong);
         font-size: 14px;
         line-height: 1.55;
+      }
+      .tour-popover ul {
+        display: grid;
+        gap: 7px;
+        margin: 12px 0 0;
+        padding-left: 19px;
+        color: var(--text);
+        font-size: 13px;
+        line-height: 1.5;
       }
       .tour-progress {
         padding-top: 14px;
@@ -261,42 +302,151 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   }
 
   private tourSteps(): TourStep[] {
+    const catalogTabsAvailable = Boolean(findSidebarRoute("settings/plugins"));
+    const pluginCatalogSteps: TourStep[] = catalogTabsAvailable
+      ? [
+          {
+            title: guideT("platformClaw.guide.installedPluginsTitle"),
+            body: guideT("platformClaw.guide.installedPluginsBody"),
+            details: guideT("platformClaw.guide.installedPluginsDetails").split("|"),
+            element: () => findPluginHubElement("#plugins-tab-installed"),
+            activate: () => this.activatePluginHubTab("installed"),
+          },
+          {
+            title: guideT("platformClaw.guide.discoverPluginsTitle"),
+            body: guideT("platformClaw.guide.discoverPluginsBody"),
+            details: guideT("platformClaw.guide.discoverPluginsDetails").split("|"),
+            element: () => findPluginHubElement("#plugins-tab-discover"),
+            activate: () => this.activatePluginHubTab("discover"),
+          },
+        ]
+      : [];
     return [
       {
-        title: t("platformClaw.guide.welcomeTitle"),
-        body: t("platformClaw.guide.welcomeBody"),
+        title: guideT("platformClaw.guide.welcomeTitle"),
+        body: guideT("platformClaw.guide.welcomeBody"),
       },
       {
-        title: t("platformClaw.guide.chatTitle"),
-        body: t("platformClaw.guide.chatBody"),
+        title: guideT("platformClaw.guide.chatTitle"),
+        body: guideT("platformClaw.guide.chatBody"),
+        details: guideT("platformClaw.guide.chatDetails").split("|"),
         element: findSidebarHome,
       },
       {
-        title: t("platformClaw.guide.sessionsTitle"),
-        body: t("platformClaw.guide.sessionsBody"),
-        element: () => findSidebarRoute("sessions"),
+        title: guideT("platformClaw.guide.usageTitle"),
+        body: guideT("platformClaw.guide.usageBody"),
+        details: guideT("platformClaw.guide.usageDetails").split("|"),
+        element: () => findSidebarRoute("usage"),
       },
       {
-        title: t("platformClaw.guide.tasksTitle"),
-        body: t("platformClaw.guide.tasksBody"),
+        title: guideT("platformClaw.guide.tasksTitle"),
+        body: guideT("platformClaw.guide.tasksBody"),
+        details: guideT("platformClaw.guide.tasksDetails").split("|"),
         element: () => findSidebarRoute("tasks"),
       },
       {
-        title: t("platformClaw.guide.workLocationTitle"),
-        body: t("platformClaw.guide.workLocationBody"),
+        title: guideT("platformClaw.guide.sessionsTitle"),
+        body: guideT("platformClaw.guide.sessionsBody"),
+        details: guideT("platformClaw.guide.sessionsDetails").split("|"),
+        element: () => findSidebarRoute("sessions"),
+      },
+      {
+        title: guideT("platformClaw.guide.activityTitle"),
+        body: guideT("platformClaw.guide.activityBody"),
+        details: guideT("platformClaw.guide.activityDetails").split("|"),
+        element: () => findSidebarRoute("activity"),
+      },
+      {
+        title: guideT("platformClaw.guide.automationsTitle"),
+        body: guideT("platformClaw.guide.automationsBody"),
+        details: guideT("platformClaw.guide.automationsDetails").split("|"),
+        element: () => findSidebarRoute("automations", "cron"),
+      },
+      {
+        title: guideT("platformClaw.guide.pluginsNavTitle"),
+        body: guideT("platformClaw.guide.pluginsNavBody"),
+        details: guideT("platformClaw.guide.pluginsNavDetails").split("|"),
+        element: () => findSidebarRoute("settings/plugins", "skills"),
+      },
+      {
+        title: guideT("platformClaw.guide.workLocationTitle"),
+        body: guideT("platformClaw.guide.workLocationBody"),
         element: () => this.tourElement("platformclaw-execution-settings", '[data-action="open"]'),
       },
       {
-        title: t("platformClaw.guide.skillsTitle"),
-        body: t("platformClaw.guide.skillsBody"),
-        element: () => findSidebarRoute("skills"),
+        title: guideT("platformClaw.guide.pluginsTitle"),
+        body: guideT("platformClaw.guide.pluginsBody"),
+        details: guideT("platformClaw.guide.pluginsDetails").split("|"),
+        element: () => findPluginHubElement(".plugins-hub-tabs-row"),
+        activate: () => this.openPluginsHub(),
+      },
+      ...pluginCatalogSteps,
+      {
+        title: guideT("platformClaw.guide.skillsTitle"),
+        body: guideT("platformClaw.guide.skillsBody"),
+        details: guideT("platformClaw.guide.skillsDetails").split("|"),
+        element: () => findPluginHubElement("#plugins-tab-skills"),
+        activate: () => this.activatePluginHubTab("skills"),
       },
       {
-        title: t("platformClaw.guide.reopenTitle"),
-        body: t("platformClaw.guide.reopenBody"),
+        title: guideT("platformClaw.guide.workshopTitle"),
+        body: guideT("platformClaw.guide.workshopBody"),
+        details: guideT("platformClaw.guide.workshopDetails").split("|"),
+        element: () => findPluginHubElement("#plugins-tab-workshop"),
+        activate: () => this.activatePluginHubTab("workshop"),
+      },
+      {
+        title: guideT("platformClaw.guide.skillHubTitle"),
+        body: guideT("platformClaw.guide.skillHubBody"),
+        details: guideT("platformClaw.guide.skillHubDetails").split("|"),
+        element: () => findPluginHubElement("#plugins-tab-skill-hub"),
+        activate: () => this.activatePluginHubTab("skill-hub"),
+      },
+      {
+        title: guideT("platformClaw.guide.reopenTitle"),
+        body: guideT("platformClaw.guide.reopenBody"),
         element: () => this.tourElement('[data-tour="guide"]'),
       },
     ];
+  }
+
+  private async waitForTourElement(selector: string): Promise<Element | null> {
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      const element = findPluginHubElement(selector);
+      const rect = element?.getBoundingClientRect();
+      if (rect && rect.width > 0 && rect.height > 0) {
+        return element;
+      }
+      await new Promise<void>((resolve) => {
+        globalThis.requestAnimationFrame(() => {
+          resolve();
+        });
+      });
+    }
+    return null;
+  }
+
+  private async openPluginsHub(): Promise<void> {
+    const link = findSidebarRoute("settings/plugins", "skills", "skills/workshop", "skills/hub");
+    if (!(link instanceof HTMLElement)) {
+      return;
+    }
+    link.click();
+    await this.waitForTourElement(".plugins-hub-tabs-row");
+    await this.waitForTourElement("#plugins-tab-skills, #plugins-tab-installed");
+  }
+
+  private async activatePluginHubTab(tab: string): Promise<void> {
+    let target = findPluginHubElement(`#plugins-tab-${tab}`);
+    if (!target) {
+      await this.openPluginsHub();
+      target = findPluginHubElement(`#plugins-tab-${tab}`);
+    }
+    if (!target) {
+      return;
+    }
+    target?.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, detail: 1 }));
+    await this.waitForTourElement(`#plugins-tab-${tab}`);
   }
 
   private async launchTour(launch: TourLaunch): Promise<void> {
@@ -321,7 +471,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       this.addTourListeners();
       this.updateTourPosition();
     } catch {
-      this.guideError = t("platformClaw.guide.unavailable");
+      this.guideError = guideT("platformClaw.guide.unavailable");
     } finally {
       this.guideLoading = false;
     }
@@ -331,25 +481,51 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     if (this.tourIndex === null) {
       return;
     }
-    const target = this.tourSteps()[this.tourIndex]?.element?.();
+    this.positionTourStep(this.tourSteps()[this.tourIndex]);
+  };
+
+  private positionTourStep(step: TourStep | undefined): void {
+    const target = step?.element?.();
     const rect = target?.getBoundingClientRect();
     if (!rect || rect.width === 0 || rect.height === 0) {
       this.tourHighlightStyle = "display:none";
+      this.tourShadeStyles = ["inset:0"];
       this.tourPopoverStyle = "left:50%;top:50%;transform:translate(-50%,-50%)";
       return;
     }
     const padding = 7;
     const left = Math.max(8, rect.left - padding);
     const top = Math.max(8, rect.top - padding);
-    this.tourHighlightStyle = `left:${left}px;top:${top}px;width:${rect.width + padding * 2}px;height:${rect.height + padding * 2}px`;
+    const right = Math.min(globalThis.innerWidth - 8, rect.right + padding);
+    const bottom = Math.min(globalThis.innerHeight - 8, rect.bottom + padding);
+    const width = right - left;
+    const height = bottom - top;
+    this.tourHighlightStyle = `left:${left}px;top:${top}px;width:${width}px;height:${height}px`;
+    this.tourShadeStyles = [
+      `left:0;top:0;width:100vw;height:${top}px`,
+      `left:0;top:${top}px;width:${left}px;height:${height}px`,
+      `left:${right}px;top:${top}px;right:0;height:${height}px`,
+      `left:0;top:${bottom}px;width:100vw;bottom:0`,
+    ];
     const popoverWidth = Math.min(360, globalThis.innerWidth - 32);
-    const beside = rect.right + 16 + popoverWidth <= globalThis.innerWidth;
-    const popoverLeft = beside
-      ? rect.right + 16
-      : Math.max(16, Math.min(rect.left, globalThis.innerWidth - popoverWidth - 16));
-    const popoverTop = Math.max(16, Math.min(rect.top, globalThis.innerHeight - 260));
+    const popoverHeight =
+      this.renderRoot.querySelector(".tour-popover")?.getBoundingClientRect().height ?? 260;
+    const fitsRight = rect.right + 16 + popoverWidth <= globalThis.innerWidth;
+    const fitsLeft = rect.left - 16 - popoverWidth >= 0;
+    let popoverLeft: number;
+    let popoverTop: number;
+    if (fitsRight || fitsLeft) {
+      popoverLeft = fitsRight ? rect.right + 16 : rect.left - popoverWidth - 16;
+      popoverTop = Math.max(16, Math.min(rect.top, globalThis.innerHeight - popoverHeight - 16));
+    } else {
+      popoverLeft = Math.max(16, Math.min(rect.left, globalThis.innerWidth - popoverWidth - 16));
+      popoverTop =
+        rect.bottom + 16 + popoverHeight <= globalThis.innerHeight
+          ? rect.bottom + 16
+          : Math.max(16, rect.top - popoverHeight - 16);
+    }
     this.tourPopoverStyle = `left:${popoverLeft}px;top:${popoverTop}px`;
-  };
+  }
 
   private readonly onTourKeydown = (event: KeyboardEvent): void => {
     if (event.key === "Escape") {
@@ -374,8 +550,8 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     this.removeTourListeners();
   }
 
-  private moveTour(direction: -1 | 1): void {
-    if (this.tourIndex === null) {
+  private async moveTour(direction: -1 | 1): Promise<void> {
+    if (this.tourIndex === null || this.guideMoving) {
       return;
     }
     const next = this.tourIndex + direction;
@@ -384,8 +560,18 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       this.closeTour();
       return;
     }
-    this.tourIndex = Math.max(0, next);
-    void this.updateComplete.then(this.updateTourPosition);
+    const nextIndex = Math.max(0, next);
+    this.guideMoving = true;
+    try {
+      const nextStep = this.tourSteps()[nextIndex];
+      await nextStep?.activate?.();
+      this.positionTourStep(nextStep);
+      this.tourIndex = nextIndex;
+      await this.updateComplete;
+      this.positionTourStep(nextStep);
+    } finally {
+      this.guideMoving = false;
+    }
   }
 
   private renderTour() {
@@ -399,8 +585,11 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     }
     const finalStep = this.tourIndex === steps.length - 1;
     return html`<div class="tour-layer">
-      <div class="tour-backdrop" @click=${() => this.closeTour()}></div>
-      <div class="tour-highlight" style=${this.tourHighlightStyle}></div>
+      <div class="tour-dismiss-layer" @click=${() => this.closeTour()}></div>
+      ${this.tourShadeStyles.map((style) => html`<div class="tour-shade" style=${style}></div>`)}
+      <div class="tour-highlight" style=${this.tourHighlightStyle}>
+        <span class="tour-target-label">${guideT("platformClaw.guide.clickTarget")}</span>
+      </div>
       <section
         class="tour-popover"
         style=${this.tourPopoverStyle}
@@ -418,8 +607,13 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         </button>
         <h2 id="platformclaw-tour-title">${step.title}</h2>
         <p>${step.body}</p>
+        ${step.details?.length
+          ? html`<ul>
+              ${step.details.map((detail) => html`<li>${detail}</li>`)}
+            </ul>`
+          : null}
         <div class="tour-progress">
-          ${t("platformClaw.guide.progress", {
+          ${guideT("platformClaw.guide.progress", {
             current: String(this.tourIndex + 1),
             total: String(steps.length),
           })}
@@ -433,15 +627,24 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
               this.closeTour();
             }}
           >
-            ${t("platformClaw.guide.neverShowAgain")}
+            ${guideT("platformClaw.guide.neverShowAgain")}
           </button>
           ${this.tourIndex > 0
-            ? html`<button type="button" @click=${() => this.moveTour(-1)}>
-                ${t("platformClaw.guide.previous")}
+            ? html`<button
+                type="button"
+                ?disabled=${this.guideMoving}
+                @click=${() => void this.moveTour(-1)}
+              >
+                ${guideT("platformClaw.guide.previous")}
               </button>`
             : null}
-          <button class="tour-next" type="button" @click=${() => this.moveTour(1)}>
-            ${t(finalStep ? "platformClaw.guide.done" : "platformClaw.guide.next")}
+          <button
+            class="tour-next"
+            type="button"
+            ?disabled=${this.guideMoving}
+            @click=${() => void this.moveTour(1)}
+          >
+            ${guideT(finalStep ? "platformClaw.guide.done" : "platformClaw.guide.next")}
           </button>
         </div>
       </section>
