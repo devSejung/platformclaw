@@ -54,18 +54,30 @@ describe("plugin-boundary-report", () => {
 
     expect(summaryResult.exitCode).toBe(0);
     expect(summaryResult.stderr).toBe("");
-    expect(summary.compat?.removalPendingCount).toBe(3);
+    expect(summary.compat?.removalPendingCount).toBe(12);
     expect(summary.compat?.removalPendingDueCount).toEqual(expect.any(Number));
     expect(summary.compat?.removalPending?.map((record) => record.code)).toEqual([
+      "plugin-sdk-channel-logging-subpath",
+      "plugin-sdk-channel-secret-runtime-subpath",
+      "plugin-sdk-channel-streaming-subpath",
+      "plugin-sdk-group-access-subpath",
+      "plugin-sdk-inbound-reply-dispatch-subpath",
+      "plugin-sdk-matrix-subpath",
+      "plugin-sdk-agent-config-primitives-subpath",
       "plugin-sdk-media-understanding-public-demotion",
       "plugin-sdk-memory-host-core-public-demotion",
+      "plugin-sdk-text-runtime-subpath",
+      "plugin-sdk-zod-subpath",
       "plugin-sdk-plugin-config-runtime-public-demotion",
     ]);
     for (const record of summary.compat?.removalPending ?? []) {
       expect(record.removeAfter).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
-      expect(record.blocker).toEqual(expect.stringMatching(/retain|replacement/iu));
+      expect(record.blocker).toEqual(expect.stringMatching(/retain|replacement|blocked/iu));
       expect(record.readerCount).toEqual(expect.any(Number));
-      expect(record.readerSample).toEqual(expect.arrayContaining([expect.any(String)]));
+      expect(record.readerSample).toEqual(expect.any(Array));
+      if (record.readerCount > 0) {
+        expect(record.readerSample).toEqual(expect.arrayContaining([expect.any(String)]));
+      }
       expect((record.readerSample as unknown[]).length).toBeLessThanOrEqual(5);
       expect(record.dueForReview).toEqual(expect.any(Boolean));
     }
@@ -82,7 +94,7 @@ describe("plugin-boundary-report", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("removalPending=3");
+    expect(result.stdout).toContain("removalPending=12");
     expect(result.stdout).not.toContain("agent-harness-sdk-alias");
     expect(result.stdout).toMatch(/blocker=.*retain the public/iu);
     expect(result.stdout).toMatch(/readerRefs=\d+ readers=/u);
