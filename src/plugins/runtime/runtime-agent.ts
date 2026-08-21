@@ -613,16 +613,11 @@ export function createRuntimeAgent(): PluginRuntime["agent"] {
     resolveAgentTimeoutMs,
     resolveCliBackendDispatchEligibility: resolveEmbeddedCliBackendDispatchEligibility,
     ensureAgentWorkspace,
-  } satisfies Omit<PluginRuntime["agent"], "runEmbeddedAgent" | "runEmbeddedPiAgent" | "session"> &
-    Partial<Pick<PluginRuntime["agent"], "runEmbeddedAgent" | "runEmbeddedPiAgent" | "session">>;
+  } satisfies Omit<PluginRuntime["agent"], "runEmbeddedAgent" | "session"> &
+    Partial<Pick<PluginRuntime["agent"], "runEmbeddedAgent" | "session">>;
 
   defineCachedValue(agentRuntime, "runEmbeddedAgent", () =>
     createLazyRuntimeMethod(loadEmbeddedAgentRuntime, (runtime) => runtime.runEmbeddedAgent),
-  );
-  defineCachedValue(
-    agentRuntime,
-    "runEmbeddedPiAgent",
-    () => (agentRuntime as PluginRuntime["agent"]).runEmbeddedAgent,
   );
   defineCachedValue(agentRuntime, "session", () => ({
     resolveStorePath,

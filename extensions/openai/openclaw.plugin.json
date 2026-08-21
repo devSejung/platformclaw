@@ -261,7 +261,7 @@
     "speechProviders": ["openai"],
     "realtimeTranscriptionProviders": ["openai"],
     "realtimeVoiceProviders": ["openai"],
-    "memoryEmbeddingProviders": ["openai"],
+    "embeddingProviders": ["openai"],
     "mediaUnderstandingProviders": ["openai"],
     "imageGenerationProviders": ["openai"],
     "videoGenerationProviders": ["openai"],

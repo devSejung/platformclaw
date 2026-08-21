@@ -133,10 +133,8 @@ Providers with renewable leases can also implement `renew(leaseId)`.
 Embedding providers registered with `api.registerEmbeddingProvider(...)` must
 also be listed in `contracts.embeddingProviders` in the plugin manifest. This
 is the generic embedding surface for reusable vector generation. Memory search
-can consume this generic provider surface. The older
-`api.registerMemoryEmbeddingProvider(...)` and
-`contracts.memoryEmbeddingProviders` seam is deprecated compatibility while
-existing memory-specific providers migrate.
+consumes this generic provider surface. The older memory-specific registrar and
+manifest contract were removed after their August 2026 migration window.
 
 Memory-specific providers that still expose a runtime `batchEmbed(...)` stay on
 the existing per-file batching contract unless their runtime explicitly sets
@@ -630,11 +628,7 @@ For an end-to-end authoring guide, see
 | `api.registerContextEngine(id, factory)`   | Context engine (one active at a time). Declare accepted host-added lifecycle fields with `info.acceptedHostParams`; undeclared engines receive the legacy field set through 2026-08-12, then receive all current host fields. |
 | `api.registerMemoryCapability(capability)` | Unified memory capability                                                                                                                                                                                                     |
 
-### Deprecated memory embedding adapters
-
-| Method                                         | What it registers                              |
-| ---------------------------------------------- | ---------------------------------------------- |
-| `api.registerMemoryEmbeddingProvider(adapter)` | Memory embedding adapter for the active plugin |
+### Memory embedding adapters
 
 - `registerMemoryCapability` is the exclusive memory-plugin API.
 - `registerMemoryCapability` may also expose `publicArtifacts.listArtifacts(...)`
@@ -653,12 +647,8 @@ For an end-to-end authoring guide, see
 - `MemoryFlushPlan.model` can pin the flush turn to an exact `provider/model`
   reference, such as `ollama/qwen3:8b`, without inheriting the active fallback
   chain.
-- `registerMemoryEmbeddingProvider` is deprecated. New embedding providers
-  should use `api.registerEmbeddingProvider(...)` and
-  `contracts.embeddingProviders`.
-- Existing memory-specific providers continue to work during the migration
-  window, but plugin inspection reports this as compatibility debt for
-  non-bundled plugins.
+- Embedding providers use `api.registerEmbeddingProvider(...)` and
+  `contracts.embeddingProviders`; there is no separate memory-only registry.
 
 ### Events and lifecycle
 
