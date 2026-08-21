@@ -12688,15 +12688,23 @@ public struct CommandsListResult: Codable, Sendable {
 
 public struct SkillsStatusParams: Codable, Sendable {
     public let agentid: String?
+    public let refresh: Bool?
+    public let backendtarget: String?
 
     public init(
-        agentid: String? = nil)
+        agentid: String? = nil,
+        refresh: Bool? = nil,
+        backendtarget: String? = nil)
     {
         self.agentid = agentid
+        self.refresh = refresh
+        self.backendtarget = backendtarget
     }
 
     private enum CodingKeys: String, CodingKey {
         case agentid = "agentId"
+        case refresh
+        case backendtarget = "backendTarget"
     }
 }
 
@@ -14167,6 +14175,13 @@ public struct CronListParams: Codable, Sendable {
     public let sortby: AnyCodable?
     public let sortdir: AnyCodable?
     public let agentid: String?
+    public let schedulekinds: [AnyCodable]?
+    public let payloadkinds: [AnyCodable]?
+    public let sessiontargets: [AnyCodable]?
+    public let sessionagentid: String?
+    public let owneragentid: String?
+    public let ownersessionagentid: String?
+    public let requireowneraccountid: Bool?
     public let compact: Bool?
     public let includedeliverypreviews: Bool?
 
@@ -14181,6 +14196,13 @@ public struct CronListParams: Codable, Sendable {
         sortby: AnyCodable? = nil,
         sortdir: AnyCodable? = nil,
         agentid: String? = nil,
+        schedulekinds: [AnyCodable]? = nil,
+        payloadkinds: [AnyCodable]? = nil,
+        sessiontargets: [AnyCodable]? = nil,
+        sessionagentid: String? = nil,
+        owneragentid: String? = nil,
+        ownersessionagentid: String? = nil,
+        requireowneraccountid: Bool? = nil,
         compact: Bool? = nil,
         includedeliverypreviews: Bool? = nil)
     {
@@ -14194,6 +14216,13 @@ public struct CronListParams: Codable, Sendable {
         self.sortby = sortby
         self.sortdir = sortdir
         self.agentid = agentid
+        self.schedulekinds = schedulekinds
+        self.payloadkinds = payloadkinds
+        self.sessiontargets = sessiontargets
+        self.sessionagentid = sessionagentid
+        self.owneragentid = owneragentid
+        self.ownersessionagentid = ownersessionagentid
+        self.requireowneraccountid = requireowneraccountid
         self.compact = compact
         self.includedeliverypreviews = includedeliverypreviews
     }
@@ -14209,6 +14238,13 @@ public struct CronListParams: Codable, Sendable {
         case sortby = "sortBy"
         case sortdir = "sortDir"
         case agentid = "agentId"
+        case schedulekinds = "scheduleKinds"
+        case payloadkinds = "payloadKinds"
+        case sessiontargets = "sessionTargets"
+        case sessionagentid = "sessionAgentId"
+        case owneragentid = "ownerAgentId"
+        case ownersessionagentid = "ownerSessionAgentId"
+        case requireowneraccountid = "requireOwnerAccountId"
         case compact
         case includedeliverypreviews = "includeDeliveryPreviews"
     }
@@ -14845,6 +14881,8 @@ public struct TerminalOpenResult: Codable, Sendable {
     public let cwd: String
     public let confined: Bool
     public let title: String?
+    public let buffer: String?
+    public let seq: Int?
 
     public init(
         sessionid: String,
@@ -14852,7 +14890,9 @@ public struct TerminalOpenResult: Codable, Sendable {
         shell: String,
         cwd: String,
         confined: Bool,
-        title: String? = nil)
+        title: String? = nil,
+        buffer: String? = nil,
+        seq: Int? = nil)
     {
         self.sessionid = sessionid
         self.agentid = agentid
@@ -14860,6 +14900,8 @@ public struct TerminalOpenResult: Codable, Sendable {
         self.cwd = cwd
         self.confined = confined
         self.title = title
+        self.buffer = buffer
+        self.seq = seq
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -14869,6 +14911,8 @@ public struct TerminalOpenResult: Codable, Sendable {
         case cwd
         case confined
         case title
+        case buffer
+        case seq
     }
 }
 
@@ -15564,21 +15608,25 @@ public struct ApprovalHistoryParams: Codable, Sendable {
     public let cursor: String?
     public let limit: Int?
     public let kind: ApprovalKind?
+    public let agentid: String?
 
     public init(
         cursor: String? = nil,
         limit: Int? = nil,
-        kind: ApprovalKind? = nil)
+        kind: ApprovalKind? = nil,
+        agentid: String? = nil)
     {
         self.cursor = cursor
         self.limit = limit
         self.kind = kind
+        self.agentid = agentid
     }
 
     private enum CodingKeys: String, CodingKey {
         case cursor
         case limit
         case kind
+        case agentid = "agentId"
     }
 }
 
