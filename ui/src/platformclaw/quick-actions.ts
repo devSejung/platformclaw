@@ -417,7 +417,11 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       if (rect && rect.width > 0 && rect.height > 0) {
         return element;
       }
-      await new Promise<void>((resolve) => globalThis.requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) =>
+        globalThis.requestAnimationFrame(() => {
+          resolve();
+        }),
+      );
     }
     return null;
   }
