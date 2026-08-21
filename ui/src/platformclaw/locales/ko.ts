@@ -26,25 +26,80 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.voc.close": "닫기",
   "platformClaw.voc.done": "완료",
   "platformClaw.guide.neverShowAgain": "다시 보지 않기",
-  "platformClaw.guide.progress": "{{current}} / {{total}}",
+  "platformClaw.guide.progress": "{current} / {total}",
   "platformClaw.guide.next": "다음",
   "platformClaw.guide.previous": "이전",
   "platformClaw.guide.done": "완료",
   "platformClaw.guide.unavailable": "가이드를 열지 못했습니다. 새로고침한 뒤 다시 시도하세요.",
   "platformClaw.guide.welcomeTitle": "PlatformClaw에 오신 것을 환영합니다",
   "platformClaw.guide.welcomeBody": "자주 사용하는 기능을 빠르게 살펴보세요.",
-  "platformClaw.guide.chatTitle": "Agent와 대화하기",
-  "platformClaw.guide.chatBody":
-    "여기에서 작업을 시작하세요. 대화마다 별도의 세션 맥락이 유지됩니다.",
-  "platformClaw.guide.sessionsTitle": "세션 관리",
-  "platformClaw.guide.sessionsBody": "이전 대화를 열고 정리하거나 다시 이어서 작업할 수 있습니다.",
-  "platformClaw.guide.tasksTitle": "작업 확인",
-  "platformClaw.guide.tasksBody": "대화 맥락을 유지하면서 작업과 예약 자동화를 확인할 수 있습니다.",
+  "platformClaw.guide.chatTitle": "Home: Agent와 대화 시작하기",
+  "platformClaw.guide.chatBody": "새 요청을 입력하고 Agent와 대화를 시작하는 기본 화면입니다.",
+  "platformClaw.guide.chatDetails":
+    "한 대화 안에서는 앞에서 나눈 내용과 작업 맥락이 이어집니다.|서로 관계없는 일은 새 대화로 나누면 결과와 기록을 찾기 쉽습니다.",
+  "platformClaw.guide.usageTitle": "Usage: 사용량과 비용 확인하기",
+  "platformClaw.guide.usageBody": "Agent가 사용한 토큰과 예상 비용을 기간별로 확인하는 화면입니다.",
+  "platformClaw.guide.usageDetails":
+    "조회 기간을 바꿔 전체 입력·출력 토큰과 비용 추이를 확인합니다.|Agent, 모델, 대화별로 나누어 어떤 작업에서 사용량이 늘었는지 찾습니다.|상세 내역과 캐시 사용량을 함께 보면 반복 작업을 최적화하는 데 도움이 됩니다.",
+  "platformClaw.guide.tasksTitle": "Tasks: 맡긴 작업의 진행 상태 보기",
+  "platformClaw.guide.tasksBody":
+    "Agent에게 맡긴 작업이 진행 중인지, 완료됐는지 한곳에서 확인합니다.",
+  "platformClaw.guide.tasksDetails":
+    "진행 중인 작업과 완료된 결과를 구분해서 확인합니다.|작업을 열면 목표와 현재 상태를 확인하고 필요한 후속 요청을 이어갈 수 있습니다.",
+  "platformClaw.guide.sessionsTitle": "Threads: 이전 대화 이어가기",
+  "platformClaw.guide.sessionsBody":
+    "이전에 진행한 대화를 찾고 다시 열어 작업을 이어가는 화면입니다.",
+  "platformClaw.guide.sessionsDetails":
+    "대화별 제목과 최근 활동을 보고 필요한 기록을 찾습니다.|완료된 대화는 보관하고, 다시 필요해지면 기존 맥락 그대로 이어갈 수 있습니다.",
+  "platformClaw.guide.activityTitle": "Activity: Agent가 수행한 동작 확인하기",
+  "platformClaw.guide.activityBody":
+    "Agent가 실행한 도구와 처리 결과를 실시간에 가깝게 확인하는 화면입니다.",
+  "platformClaw.guide.activityDetails":
+    "실행 중·완료·오류 상태와 사용된 도구를 필터링할 수 있습니다.|항목을 펼치면 실행 ID, 연결된 대화, 출력 미리보기를 확인해 문제를 추적할 수 있습니다.",
+  "platformClaw.guide.automationsTitle": "Automations: 반복 작업 예약하기",
+  "platformClaw.guide.automationsBody":
+    "정해진 시간이나 주기에 맞춰 Agent 작업이 자동 실행되도록 관리합니다.",
+  "platformClaw.guide.automationsDetails":
+    "예약 시간, 담당 Agent, 실행할 내용을 설정합니다.|다음 실행 시각과 최근 성공·실패 상태를 확인하고 필요하면 지금 실행할 수 있습니다.|실행 기록에서 결과와 전달 상태를 확인합니다.",
+  "platformClaw.guide.pluginsNavTitle": "Plugins: Agent 기능 확장하기",
+  "platformClaw.guide.pluginsNavBody":
+    "서비스 연결, 작업 지침, 사내 스킬을 관리하는 플러그인 허브로 들어가는 메뉴입니다.",
+  "platformClaw.guide.pluginsNavDetails":
+    "플러그인은 Agent를 외부 서비스와 도구에 연결합니다.|Skills는 Agent가 반복해서 따를 작업 방법을 제공합니다.|다음을 누르면 실제 플러그인 화면으로 이동해 각 탭을 하나씩 설명합니다.",
   "platformClaw.guide.workLocationTitle": "작업 위치 선택",
   "platformClaw.guide.workLocationBody":
     "기본 작업 공간과 할당된 개발 VM 사이를 전환할 수 있습니다.",
-  "platformClaw.guide.skillsTitle": "Agent 기능 확장",
-  "platformClaw.guide.skillsBody": "스킬을 설치하고 승인된 MCP 서비스를 연결할 수 있습니다.",
+  "platformClaw.guide.clickTarget": "여기를 보세요",
+  "platformClaw.guide.pluginsTitle": "플러그인 허브 화면 이해하기",
+  "platformClaw.guide.pluginsBody":
+    "이 화면에는 Agent가 할 수 있는 일을 확장하는 방법들이 탭별로 모여 있습니다.",
+  "platformClaw.guide.pluginsDetails":
+    "설치됨은 현재 연결된 플러그인과 서비스 연결을 관리합니다.|찾기는 새 플러그인과 간편 연결 항목을 찾는 곳입니다.|Skills는 Agent가 반복해서 따르는 작업 지침을 관리합니다.|Workshop은 스킬 변경안을 실제 적용 전에 검토합니다.|Skill Hub는 사내 스킬을 공유하고 설치하는 회사 카탈로그입니다.|권한에 따라 사용할 수 있는 탭만 화면에 표시됩니다.",
+  "platformClaw.guide.installedPluginsTitle": "설치됨: 현재 플러그인 관리하기",
+  "platformClaw.guide.installedPluginsBody":
+    "플러그인은 Agent를 서비스·도구·채널·모델 제공자와 연결하는 확장 기능입니다.",
+  "platformClaw.guide.installedPluginsDetails":
+    "검색하거나 사용 중·사용 안 함·문제 있음 상태로 필터링합니다.|상세 정보를 열면 용도, 출처, 버전, 필요한 설정을 확인할 수 있습니다.|여기에서 사용 여부를 바꾸며, 재시작 안내가 나오면 Gateway를 재시작해야 반영됩니다.",
+  "platformClaw.guide.discoverPluginsTitle": "찾기: 새로운 기능 추가하기",
+  "platformClaw.guide.discoverPluginsBody":
+    "추천·공식 플러그인, MCP 간편 연결, ClawHub 검색 결과를 둘러보는 곳입니다.",
+  "platformClaw.guide.discoverPluginsDetails":
+    "추천과 공식 플러그인은 선별된 선택지입니다.|서비스 연결에서는 자주 쓰는 MCP 서비스를 더 적은 설정으로 추가합니다.|ClawHub는 커뮤니티 플러그인까지 검색하므로 설치 전에 출처, 권한, 신뢰 여부를 확인하세요.",
+  "platformClaw.guide.skillsTitle": "Skills: Agent가 반복해서 쓰는 작업 지침",
+  "platformClaw.guide.skillsBody":
+    "스킬은 서비스 연결이 아니라 작업 방법을 적은 플레이북입니다. 반복 작업을 Agent가 일관되게 수행하도록 가르칩니다.",
+  "platformClaw.guide.skillsDetails":
+    "준비됨은 바로 사용 가능, 설정 필요는 빠진 요구 사항이 있음, 사용 안 함은 비활성 상태입니다.|스킬을 열면 Agent가 따를 지침과 필요한 도구를 읽을 수 있습니다.|직접 만든 스킬이 공유할 수준이 되면 Hub에 게시하여 Skill Hub에 버전을 올립니다.",
+  "platformClaw.guide.workshopTitle": "Workshop: 스킬 변경안을 안전하게 검토하기",
+  "platformClaw.guide.workshopBody":
+    "작성 중인 스킬 변경안은 승인하기 전까지 실제 사용 중인 스킬과 분리됩니다.",
+  "platformClaw.guide.workshopDetails":
+    "채팅에서 Agent에게 스킬 생성이나 개선을 요청하면 제안이 나타납니다.|평가는 검사를 실행하고, 개정 요청은 수정할 내용을 다시 Agent에게 보냅니다.|작업 위치를 확인한 뒤 적용을 누르면 검토된 버전이 실제 스킬이 됩니다.",
+  "platformClaw.guide.skillHubTitle": "Skill Hub: 사내 스킬 설치하고 공유하기",
+  "platformClaw.guide.skillHubBody":
+    "하려는 작업을 이미 해결한 스킬이 있는지 회사 카탈로그에서 먼저 찾아보세요.",
+  "platformClaw.guide.skillHubDetails":
+    "작업 이름으로 검색하고 결과를 열어 설명과 버전을 확인합니다.|사용할 버전을 선택한 뒤 설치를 누릅니다.|설치 위치로 기본 작업 공간 또는 내 VM 작업 공간을 정확히 선택합니다.",
   "platformClaw.guide.reopenTitle": "언제든 가이드 다시 보기",
   "platformClaw.guide.reopenBody": "기능을 다시 확인하려면 가이드 버튼을 누르세요.",
   "platformClaw.workshop.currentTarget": "현재 작업 위치: {target}",
