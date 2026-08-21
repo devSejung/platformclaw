@@ -220,6 +220,7 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +3: canonical ready, blocked, and stopped channel lifecycle patch factories.
       // +1: bounded external-content sanitizer for plugin-owned untrusted projections.
       // +1: auth-profile preservation decision for native model pickers.
+      // -3: expired Pi SDK aliases and the memory embedding registrar removed.
       4828,
       env,
     ),
@@ -268,6 +269,7 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +3: canonical ready, blocked, and stopped channel lifecycle patch factories.
       // +1: bounded external-content sanitizer for plugin-owned untrusted projections.
       // +1: auth-profile preservation decision for native model pickers.
+      // -1: expired memory embedding registrar removed.
       2907,
       env,
     ),
