@@ -22,7 +22,7 @@
       },
       "label": "Knox Teams",
       "selectionLabel": "Samsung Knox Teams",
-      "docsPath": "/platformclaw/knox-proxy-spec",
+      "docsPath": "/channels/knox",
       "docsLabel": "knox",
       "blurb": "Connect Samsung Knox Teams through the CDEP relay.",
       "order": 75
