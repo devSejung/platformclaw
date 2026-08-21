@@ -614,6 +614,7 @@ function normalizeScenario(
           "chat.metadata",
           "chat.startup",
           ...responseMethods,
+          ...(scenario.deferredMethods ?? []),
           ...(responseMethods.includes("sessions.files.list") ? ["sessions.files.get"] : []),
         ]),
       ),

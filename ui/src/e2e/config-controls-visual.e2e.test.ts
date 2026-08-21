@@ -63,6 +63,7 @@ describeControlUiE2e("Control UI Settings controls mocked Gateway E2E", () => {
     const page = await context.newPage();
     const config = { browser: { enabled: true } };
     await installMockGateway(page, {
+      featureMethods: ["config.get", "config.set"],
       methodResponses: {
         "config.get": {
           config,

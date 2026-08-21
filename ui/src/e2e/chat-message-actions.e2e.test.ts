@@ -138,6 +138,7 @@ describeControlUiE2e("Control UI chat message actions", () => {
     const truncatedPreview = "Truncated assistant preview\n...(truncated)...";
     const fullAssistantContent = "Complete assistant content loaded inline.";
     const gateway = await installMockGateway(page, {
+      featureMethods: ["chat.message.get", "chat.metadata", "chat.startup", "sessions.create"],
       historyMessages: [
         {
           role: "assistant",
@@ -368,7 +369,9 @@ describeControlUiE2e("Control UI chat message actions", () => {
       await expandableGroup.hover();
       await expandableGroup.getByRole("button", { name: "Copy as markdown" }).click();
       await expect
-        .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+        .poll(async () =>
+          (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/gu, "\n"),
+        )
         .toBe(truncatedPreview);
       await expandableGroup.getByRole("button", { name: "Reply to message" }).click();
       const expandableReplyPreview = page.locator(".chat-reply-preview");
@@ -423,7 +426,9 @@ describeControlUiE2e("Control UI chat message actions", () => {
       await expandableGroup.hover();
       await expandableGroup.getByRole("button", { name: "Copy as markdown" }).click();
       await expect
-        .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+        .poll(async () =>
+          (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/gu, "\n"),
+        )
         .toBe(truncatedPreview);
       await expandableGroup.getByRole("button", { name: "Reply to message" }).click();
       await expect
