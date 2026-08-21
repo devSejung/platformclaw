@@ -24,7 +24,7 @@ import {
   type ChatSendAck,
   type TerminalFailureChatSendAck,
 } from "./chat-send-ack.ts";
-import { isDefinitiveChatSendRejection } from "./chat-send-request.ts";
+import { isDefinitiveChatSendRejection } from "./chat-send-rejection.ts";
 import { readChatSessionProjectionScope, reduceChatSessionProjection } from "./history-merge.ts";
 import { hasAbortableSessionRun } from "./run-lifecycle.ts";
 import { scheduleChatScroll } from "./scroll.ts";

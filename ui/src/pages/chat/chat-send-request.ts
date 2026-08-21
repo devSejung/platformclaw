@@ -1,5 +1,4 @@
 import type { QueueMode } from "../../../../src/auto-reply/reply/queue/types.js";
-import { GatewayRequestError } from "../../api/gateway.ts";
 import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
 import {
@@ -59,37 +58,6 @@ export function resolveDisplayedLeafEntryId(
   }
   const leafEntryId = state.chatDisplayedLeafEntryId?.trim();
   return leafEntryId || undefined;
-}
-
-const ACTIVE_LEAF_CHANGED_ERROR_REASON = "active-leaf-changed";
-
-export function isActiveLeafChangedError(err: unknown): err is GatewayRequestError {
-  if (!(err instanceof GatewayRequestError)) {
-    return false;
-  }
-  const details = err.details;
-  return (
-    typeof details === "object" &&
-    details !== null &&
-    !Array.isArray(details) &&
-    (details as { reason?: unknown }).reason === ACTIVE_LEAF_CHANGED_ERROR_REASON
-  );
-}
-
-export function isDefinitiveChatSendRejection(err: unknown): err is GatewayRequestError {
-  if (isActiveLeafChangedError(err)) {
-    return true;
-  }
-  if (!(err instanceof GatewayRequestError)) {
-    return false;
-  }
-  const details = err.details;
-  return (
-    typeof details === "object" &&
-    details !== null &&
-    !Array.isArray(details) &&
-    (details as { requestDisposition?: unknown }).requestDisposition === "rejected-before-dispatch"
-  );
 }
 
 function resolveChatSendRouting(
