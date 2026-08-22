@@ -91,7 +91,15 @@ describeControlUiE2e("chat transcript panel reflow", () => {
     const page = await context.newPage();
     try {
       await installMockGateway(page, {
-        featureMethods: ["chat.metadata", "chat.startup", "sessions.diff"],
+        featureMethods: [
+          "artifacts.list",
+          "chat.metadata",
+          "chat.startup",
+          "sessions.diff",
+          "sessions.files.get",
+          "sessions.files.list",
+          "tasks.list",
+        ],
         historyMessages,
         methodResponses: {
           "artifacts.list": { artifacts: [] },

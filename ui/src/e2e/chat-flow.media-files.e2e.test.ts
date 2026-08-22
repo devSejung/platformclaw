@@ -905,11 +905,11 @@ suite.define(() => {
 
     try {
       await page.goto(`${suite.server.baseUrl}chat`);
-      // Collapsed rails render nothing; the title-bar toggle carries the
-      // changed-file badge.
+      // Collapsed rails render nothing, but the title-bar toggle preloads the
+      // file summary it needs for the changed-file badge.
       const opener = page.locator(".chat-workspace-toggle");
       await opener.waitFor({ timeout: 10_000 });
-      expect(await gateway.getRequests("sessions.files.list")).toHaveLength(0);
+      expect(await gateway.getRequests("sessions.files.list")).toHaveLength(1);
       expect(await page.locator(".chat-workspace-rail").count()).toBe(0);
 
       await opener.click();

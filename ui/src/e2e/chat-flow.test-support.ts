@@ -7,7 +7,7 @@ import { SESSION_DRAG_MIME } from "../lib/sessions/drag.ts";
 import {
   controlUiSessionPath,
   controlUiSessionUrl,
-  installMockGateway,
+  installFullGatewayMock as installMockGateway,
   pauseVirtualClock,
   type MockGatewayRequest,
 } from "../test-helpers/control-ui-e2e.ts";

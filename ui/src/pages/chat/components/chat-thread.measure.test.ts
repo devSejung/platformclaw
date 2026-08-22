@@ -680,7 +680,7 @@ describe("chat transcript row measurement", () => {
 
     const previousResource = observeChatMediaResource(
       "assistant-attachment",
-      `::old-token::${source}`,
+      `::old-token::${state.sessionKey}::${source}`,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(previousResource.subscribers.size).toBe(1);
@@ -709,7 +709,7 @@ describe("chat transcript row measurement", () => {
 
     const restoredResource = observeChatMediaResource(
       "assistant-attachment",
-      `::old-token::${source}`,
+      `::old-token::${state.sessionKey}::${source}`,
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("Authorization")).toBe(

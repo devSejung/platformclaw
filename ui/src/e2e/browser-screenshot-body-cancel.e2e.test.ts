@@ -4,7 +4,7 @@ import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   canRunPlaywrightChromium,
-  installMockGateway,
+  installFullGatewayMock as installMockGateway,
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   type ControlUiE2eServer,
@@ -96,7 +96,6 @@ describeControlUiE2e("Control UI browser screenshot failed-body E2E", () => {
       });
     });
     const gateway = await installMockGateway(page, {
-      featureMethods: ["chat.metadata", "chat.startup", "browser.request"],
       methodResponses: {
         "browser.request": {
           cases: [

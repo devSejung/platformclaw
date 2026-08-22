@@ -38,11 +38,12 @@ function createGatewayHarness() {
 
 function renderGatewaySurface(gateway: ApplicationGateway): string {
   const app = document.createElement("openclaw-app") as unknown as {
-    runtime: { context: ApplicationContext };
+    runtime: { context: ApplicationContext; shellSession: null };
     render: () => { strings: readonly string[] };
     synchronizeGateway: (gateway: ApplicationGateway) => void;
   };
   app.runtime = {
+    shellSession: null,
     context: {
       gateway,
       basePath: "",

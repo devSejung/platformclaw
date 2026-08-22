@@ -1,7 +1,8 @@
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import type { Kysely } from "kysely";
+import { openNodeSqliteDatabase } from "../../../src/infra/node-sqlite.js";
 import {
   BROWSER_SESSION_POLICY,
   ControlPlaneAuthorizationError,
@@ -67,7 +68,7 @@ export function optional(value: string | undefined): string | null {
   return value?.trim() || null;
 }
 
-export function normalizedGroups(groups: string[] | undefined): string[] {
+function normalizedGroups(groups: string[] | undefined): string[] {
   return [...new Set((groups ?? []).map((group) => group.trim()).filter(Boolean))].toSorted();
 }
 
@@ -175,7 +176,7 @@ export abstract class SqliteControlPlaneStoreCore {
         chmodSync(options.databasePath, 0o600);
       }
     }
-    this.db = new DatabaseSync(options.databasePath);
+    this.db = openNodeSqliteDatabase(options.databasePath);
     initializeControlPlaneSchema(this.db);
     if (process.platform !== "win32") {
       for (const path of [

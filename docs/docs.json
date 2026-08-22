@@ -1174,6 +1174,7 @@
                   "channels/buzz",
                   "channels/clickclack",
                   "channels/irc",
+                  "channels/knox",
                   "channels/mattermost",
                   "channels/nextcloud-talk",
                   "channels/nostr",

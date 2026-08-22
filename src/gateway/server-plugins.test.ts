@@ -43,6 +43,7 @@ type HandleGatewayRequestOptions = GatewayRequestOptions & {
 const handleGatewayRequest = vi.hoisted(() =>
   vi.fn(async (_opts: HandleGatewayRequestOptions) => {}),
 );
+const createRequestGatewayMethodRegistry = vi.hoisted(() => vi.fn());
 
 vi.mock("../plugins/loader.js", () => ({
   loadAndActivateRootPluginRegistry: loadOpenClawPlugins,
@@ -76,6 +77,7 @@ vi.mock("../channels/plugins/binding-registry.js", async () => {
 });
 
 vi.mock("./server-methods.js", () => ({
+  createRequestGatewayMethodRegistry,
   handleGatewayRequest,
 }));
 

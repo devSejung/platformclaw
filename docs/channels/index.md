@@ -27,6 +27,7 @@ install. Channels marked "official plugin" install with one command
 - [Google Chat](/channels/googlechat) - Google Chat app support status, capabilities, and configuration (official plugin).
 - [iMessage](/channels/imessage) - Native iMessage support via imsg (JSON-RPC over stdio), with private API actions for replies, tapbacks, effects, polls, attachments, and group management. Preferred for new OpenClaw iMessage setups when host requirements fit (official plugin).
 - [IRC](/channels/irc) - IRC plugin setup, access controls, and troubleshooting (official plugin).
+- [Knox Teams](/channels/knox) - Connect PlatformClaw agents to Samsung Knox Teams through the CDEP relay (bundled plugin).
 - [LINE](/channels/line) - LINE Messaging API plugin setup, config, and usage (official plugin).
 - [Matrix](/channels/matrix) - Matrix support status, setup, and configuration examples (official plugin).
 - [Mattermost](/channels/mattermost) - Mattermost bot setup and OpenClaw config (official plugin).

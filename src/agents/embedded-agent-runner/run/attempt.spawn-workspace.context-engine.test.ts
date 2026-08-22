@@ -1759,6 +1759,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
     hoisted.isWorkspaceBootstrapPendingMock.mockResolvedValueOnce(true);
     hoisted.createOpenClawCodingToolsMock.mockImplementationOnce(() => [
       { name: "read", execute: async () => "" },
+      { name: "bootstrap_complete", execute: async () => "" },
     ]);
     hoisted.resolveBootstrapContextForRunMock.mockResolvedValueOnce({
       bootstrapFiles: [
@@ -1815,6 +1816,10 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
 
   it("includes hook-adjusted bootstrap files preloaded before routing", async () => {
     const workspaceDir = "/tmp/openclaw-hook-workspace";
+    hoisted.createOpenClawCodingToolsMock.mockImplementationOnce(() => [
+      { name: "read", execute: async () => "" },
+      { name: "bootstrap_complete", execute: async () => "" },
+    ]);
     hoisted.resolveBootstrapFilesForRunMock.mockResolvedValueOnce([
       {
         name: "BOOTSTRAP.md",
@@ -1829,6 +1834,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
       sessionKey,
       tempPaths,
       attemptOverrides: {
+        disableTools: false,
         prompt: "visible ask",
         transcriptPrompt: "visible ask",
         trigger: "user",

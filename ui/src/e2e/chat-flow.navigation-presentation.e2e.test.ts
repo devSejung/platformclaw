@@ -208,6 +208,13 @@ suite.define(() => {
     });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
+      featureMethods: [
+        "chat.metadata",
+        "chat.startup",
+        "sessions.files.get",
+        "sessions.files.list",
+        "sessions.list",
+      ],
       historyMessages: [
         {
           content: [{ type: "text", text: "Split toolbar proof." }],

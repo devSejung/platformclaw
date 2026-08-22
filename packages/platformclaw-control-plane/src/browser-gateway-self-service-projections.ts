@@ -84,7 +84,7 @@ export function projectBrowserAgentFiles(params: {
     : { agentId: params.agentId, workspace: "personal workspace", file };
 }
 
-export function projectBrowserSkillsStatus(params: {
+function projectBrowserSkillsStatus(params: {
   agentId: string;
   executionTarget: "platform_server" | "assigned_vm";
   result: unknown;
@@ -183,7 +183,7 @@ function projectSkillProposalManifestEntry(value: unknown, fail: ProjectionFailu
   return projected;
 }
 
-export function projectBrowserSkillProposalResult(params: {
+function projectBrowserSkillProposalResult(params: {
   agentId: string;
   method: string;
   result: unknown;

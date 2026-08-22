@@ -37,6 +37,7 @@ describe("SidebarMenusController session routes", () => {
       onNavigate,
       requestUpdate: vi.fn(),
       sessionDataContext: context,
+      sidebarRouteTargets: {},
       terminalAvailable: false,
     } as unknown as SidebarMenusControllerHost;
     const controller = new SidebarMenusController(host);

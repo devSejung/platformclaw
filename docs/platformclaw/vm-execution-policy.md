@@ -435,7 +435,7 @@ first release has no per-agent allowlist because VM global and built-in skills
 are administrator-approved.
 
 VM discovery precedence is remote workspace `skills`, remote workspace
-.agents/skills`, the administrator-managed global directory, then the
+`.agents/skills`, the administrator-managed global directory, then the
 release-owned built-in directory. The first matching skill name wins. Discovery
 uses the existing SafeConnect session and requires the approved Ubuntu VM base
 tools (`bash`, `find`, `stat`, and `base64`); it does not copy skill trees on

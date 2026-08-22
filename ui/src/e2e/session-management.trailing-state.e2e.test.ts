@@ -21,6 +21,7 @@ suite.define(() => {
     });
     const page = await context.newPage();
     await installMockGateway(page, {
+      featureMethods: ["chat.metadata", "chat.startup", "sessions.patch"],
       methodResponses: {
         "sessions.list": sessionsListResponse([
           sessionRow("agent:main:main", "Main", Date.now()),

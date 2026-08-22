@@ -1,5 +1,5 @@
 import { render } from "lit";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPlatformClawControlUiAdapter } from "./control-ui-adapter.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "./web-contract.ts";
 
@@ -19,6 +19,11 @@ describe("PlatformClawControlUiAdapter", () => {
     document.head.innerHTML = "";
     document.body.innerHTML = "";
     localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
+  });
+
+  afterEach(() => {
+    document.head.replaceChildren();
+    document.body.replaceChildren();
   });
 
   it("stays inactive for the unmodified upstream Control UI document", () => {

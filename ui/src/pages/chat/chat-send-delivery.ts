@@ -40,11 +40,8 @@ import {
   setChatError,
   updateQueuedSendItem,
 } from "./chat-send-queue-state.ts";
-import {
-  isActiveLeafChangedError,
-  requestChatSend,
-  requestSkillWorkshopRevisionChatSend,
-} from "./chat-send-request.ts";
+import { isActiveLeafChangedError } from "./chat-send-rejection.ts";
+import { requestChatSend, requestSkillWorkshopRevisionChatSend } from "./chat-send-request.ts";
 import {
   chatSendAckServerTimingEventFields,
   recordChatSendTiming,

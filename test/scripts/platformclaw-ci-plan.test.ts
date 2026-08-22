@@ -207,7 +207,7 @@ describe("PlatformClaw shared check workflow", () => {
     );
 
     expect(commands.get("Validate changed PlatformClaw surfaces")).toBe(
-      'node scripts/platformclaw-check.mjs --changed --base "$BASE_SHA" --head "$HEAD_SHA"',
+      'node scripts/platformclaw-check.mjs --changed --overlay-only --base "$BASE_SHA" --head "$HEAD_SHA"',
     );
   });
 

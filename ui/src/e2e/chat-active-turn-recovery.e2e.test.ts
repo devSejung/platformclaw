@@ -226,7 +226,9 @@ async function openActiveTurn() {
     viewport: { height: 900, width: 1280 },
   });
   const page = await context.newPage();
-  const gateway = await installMockGateway(page);
+  const gateway = await installMockGateway(page, {
+    featureMethods: ["chat.abort", "chat.metadata", "chat.startup"],
+  });
   await page.goto(`${suite.server.baseUrl}chat`);
   await page.locator(".agent-chat__composer-combobox textarea").waitFor({ timeout: 10_000 });
   return { context, page, gateway };

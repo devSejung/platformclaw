@@ -13,7 +13,7 @@ type SkillStatus = ReturnType<typeof buildWorkspaceSkillStatus>["skills"][number
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("buildWorkspaceSkillStatus", () => {
-  it("projects the declared version for target-aware install comparisons", () => {
+  it("projects declared versions and content revisions for target-aware comparisons", () => {
     const report = buildWorkspaceSkillStatus("/tmp/ws", {
       entries: [
         {
@@ -23,6 +23,7 @@ describe("buildWorkspaceSkillStatus", () => {
             filePath: "/tmp/versioned-skill/SKILL.md",
             baseDir: "/tmp/versioned-skill",
             source: "openclaw-workspace",
+            promptVersion: "sha256:fixture-revision",
           }),
           frontmatter: { name: "versioned-skill", description: "test", version: "2.3.4" },
         },
@@ -31,6 +32,9 @@ describe("buildWorkspaceSkillStatus", () => {
 
     expect(report.skills.find((skill) => skill.skillKey === "versioned-skill")?.version).toBe(
       "2.3.4",
+    );
+    expect(report.skills.find((skill) => skill.skillKey === "versioned-skill")?.revision).toBe(
+      "sha256:fixture-revision",
     );
   });
   it("reports blank env requirements as missing", () => {

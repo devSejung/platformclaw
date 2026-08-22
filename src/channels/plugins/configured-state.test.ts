@@ -17,6 +17,7 @@ describe("bundled channel configured-state metadata", () => {
       "feishu",
       "googlechat",
       "irc",
+      "knox",
       "line",
       "matrix",
       "mattermost",

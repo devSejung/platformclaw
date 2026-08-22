@@ -1,6 +1,6 @@
 type JsonObject = Record<string, unknown>;
 
-export function optionalString(value: unknown): string | undefined {
+function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 

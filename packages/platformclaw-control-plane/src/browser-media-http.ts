@@ -41,7 +41,7 @@ export type PlatformClawBrowserMediaPolicy = {
   request<T = unknown>(this: void, token: string, method: string, params?: unknown): Promise<T>;
 };
 
-export type PlatformClawBrowserMediaRelayOptions = {
+type PlatformClawBrowserMediaRelayOptions = {
   gatewayOrigin: string;
   gatewayAuth: string;
   gatewayProxy: PlatformClawBrowserMediaPolicy;

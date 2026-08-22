@@ -89,7 +89,11 @@ describe("OpenClaw shell dock suppression", () => {
       preload: vi.fn(),
     } as unknown as ApplicationContext;
     const shell = document.createElement("openclaw-app-shell") as unknown as ShellRenderState;
-    shell.runtime = { context, router: {} } as unknown as ApplicationRuntime;
+    shell.runtime = {
+      context,
+      router: {},
+      settingsNavigationMode: "takeover",
+    } as unknown as ApplicationRuntime;
     const container = document.createElement("div");
 
     shell.routeState = { routeId: "appearance" };

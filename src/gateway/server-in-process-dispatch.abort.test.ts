@@ -8,8 +8,12 @@ import type { GatewayRequestContext, GatewayRequestOptions } from "./server-meth
 import type { GatewayWsClient } from "./server/ws-types.js";
 
 const handleGatewayRequest = vi.hoisted(() => vi.fn());
+const createRequestGatewayMethodRegistry = vi.hoisted(() => vi.fn());
 
-vi.mock("./server-methods.js", () => ({ handleGatewayRequest }));
+vi.mock("./server-methods.js", () => ({
+  createRequestGatewayMethodRegistry,
+  handleGatewayRequest,
+}));
 
 const activeRegistries = new Set<NodeRegistry>();
 
@@ -18,6 +22,7 @@ afterEach(() => {
     registry.unregister("paired-node-connection");
   }
   activeRegistries.clear();
+  createRequestGatewayMethodRegistry.mockReset();
   handleGatewayRequest.mockReset();
 });
 

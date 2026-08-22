@@ -716,15 +716,10 @@ class PluginsPage extends OpenClawLightDomElement {
     }
   }
 
-  /** Plugin changes can affect both catalog state and route visibility (for example Workboard). */
+  /** Plugin changes can affect catalog state and route visibility (for example Workboard). */
   private async refreshCatalogAfterMutation(client: GatewayBrowserClient): Promise<void> {
     this.error = null;
-    await Promise.all([
-      this.catalogTask.run([client]),
-      this.context?.accessMode === "personal-agent"
-        ? Promise.resolve()
-        : this.configTask.run([client, this.context.runtimeConfig]),
-    ]);
+    await this.catalogTask.run([client]);
   }
 
   private pageError(): string | null {

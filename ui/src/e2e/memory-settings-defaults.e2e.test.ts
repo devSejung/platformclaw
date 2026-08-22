@@ -120,6 +120,7 @@ describeControlUiE2e("Control UI Memory defaults mocked Gateway E2E", () => {
       },
     };
     const gateway = await installMockGateway(page, {
+      featureMethods: ["config.get", "config.set", "plugins.list"],
       methodResponses: {
         "config.get": {
           config,
