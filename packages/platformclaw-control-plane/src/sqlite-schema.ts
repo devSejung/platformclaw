@@ -372,6 +372,104 @@ CREATE TABLE IF NOT EXISTS vm_host_execution_environments (
 `;
 
 const ORGANIZATION_MEMORY_SCHEMA = `
+CREATE TABLE IF NOT EXISTS organization_memory_promotion_requests (
+  id TEXT PRIMARY KEY,
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('personal', 'part', 'group')),
+  source_scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
+  source_claim_id TEXT NOT NULL,
+  source_revision INTEGER NOT NULL CHECK (source_revision >= 1),
+  target_kind TEXT NOT NULL CHECK (target_kind IN ('part', 'group', 'global')),
+  target_scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
+  proposed_text TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  requested_by_user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE RESTRICT,
+  created_at INTEGER NOT NULL,
+  CHECK (
+    (source_kind = 'personal' AND source_scope_id IS NULL AND target_kind = 'part' AND target_scope_id IS NOT NULL) OR
+    (source_kind = 'part' AND source_scope_id IS NOT NULL AND target_kind = 'group' AND target_scope_id IS NOT NULL) OR
+    (source_kind = 'group' AND source_scope_id IS NOT NULL AND target_kind = 'global' AND target_scope_id IS NULL)
+  )
+) STRICT;
+CREATE INDEX IF NOT EXISTS organization_memory_promotion_requester
+  ON organization_memory_promotion_requests(requested_by_user_id, created_at DESC);
+CREATE TRIGGER IF NOT EXISTS organization_memory_promotion_request_immutable_update
+BEFORE UPDATE OF id, source_kind, source_scope_id, source_claim_id, source_revision,
+  target_kind, target_scope_id, requested_by_user_id, created_at
+ON organization_memory_promotion_requests
+BEGIN
+  SELECT RAISE(ABORT, 'organization memory promotion request lineage is immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS organization_memory_promotion_request_immutable_delete
+BEFORE DELETE ON organization_memory_promotion_requests
+BEGIN
+  SELECT RAISE(ABORT, 'organization memory promotion requests are immutable');
+END;
+
+CREATE TABLE IF NOT EXISTS organization_memory_claims (
+  id TEXT PRIMARY KEY,
+  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'group', 'part')),
+  scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
+  title TEXT NOT NULL,
+  claim_text TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('personal', 'part', 'group')),
+  source_scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
+  source_claim_id TEXT NOT NULL,
+  source_revision INTEGER NOT NULL CHECK (source_revision >= 1),
+  promotion_request_id TEXT NOT NULL UNIQUE REFERENCES organization_memory_promotion_requests(id) ON DELETE RESTRICT,
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  status TEXT NOT NULL CHECK (status IN ('active', 'retired', 'purged')),
+  created_by_user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE RESTRICT,
+  approved_by_user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE RESTRICT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  retired_by_user_id TEXT REFERENCES platform_users(id) ON DELETE RESTRICT,
+  retired_at INTEGER,
+  retirement_reason TEXT,
+  CHECK (
+    (scope_kind = 'global' AND scope_id IS NULL) OR
+    (scope_kind IN ('group', 'part') AND scope_id IS NOT NULL)
+  )
+) STRICT;
+CREATE INDEX IF NOT EXISTS organization_memory_claim_scope
+  ON organization_memory_claims(status, scope_kind, scope_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS organization_memory_claim_source
+  ON organization_memory_claims(source_kind, source_scope_id, source_claim_id, source_revision);
+CREATE TRIGGER IF NOT EXISTS organization_memory_claim_lineage_immutable
+BEFORE UPDATE OF scope_kind, scope_id, source_kind, source_scope_id, source_claim_id,
+  source_revision, promotion_request_id, created_by_user_id, approved_by_user_id, created_at
+ON organization_memory_claims
+BEGIN
+  SELECT RAISE(ABORT, 'organization memory claim lineage is immutable');
+END;
+
+CREATE TABLE IF NOT EXISTS organization_memory_promotion_decisions (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL UNIQUE REFERENCES organization_memory_promotion_requests(id) ON DELETE RESTRICT,
+  decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected')),
+  decided_by_user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE RESTRICT,
+  reason TEXT NOT NULL,
+  target_claim_id TEXT REFERENCES organization_memory_claims(id) ON DELETE RESTRICT,
+  decided_at INTEGER NOT NULL,
+  CHECK (
+    (decision = 'approved' AND target_claim_id IS NOT NULL) OR
+    (decision = 'rejected' AND target_claim_id IS NULL)
+  )
+) STRICT;
+CREATE INDEX IF NOT EXISTS organization_memory_promotion_decided
+  ON organization_memory_promotion_decisions(decided_at DESC);
+CREATE TRIGGER IF NOT EXISTS organization_memory_promotion_decision_immutable_update
+BEFORE UPDATE ON organization_memory_promotion_decisions
+BEGIN
+  SELECT RAISE(ABORT, 'organization memory promotion decisions are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS organization_memory_promotion_decision_immutable_delete
+BEFORE DELETE ON organization_memory_promotion_decisions
+BEGIN
+  SELECT RAISE(ABORT, 'organization memory promotion decisions are immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS organization_memory_pages (
   id TEXT PRIMARY KEY,
   scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'group', 'part')),

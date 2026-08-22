@@ -532,6 +532,10 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
               .client=${dreaming.client}
               .connected=${dreaming.connected}
               .methodAdvertised=${isGatewayMethodAdvertised(dreaming, "memory.search") !== false}
+              .lifecycleMethodAdvertised=${isGatewayMethodAdvertised(
+                dreaming,
+                "platformclaw.memory.lifecycle",
+              ) !== false}
               .agentId=${selectedAgentId || null}
             ></openclaw-memory-memories>
           </section>`

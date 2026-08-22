@@ -23,6 +23,9 @@ export type ManagedScopeKind = "group" | "part";
 export type ManagedScopeStatus = "active" | "archived";
 export type ManagedScopeRole = "member" | "leader";
 export type OrganizationMemoryScopeKind = "global" | ManagedScopeKind;
+export type OrganizationMemoryPromotionSourceKind = "personal" | ManagedScopeKind;
+export type OrganizationMemoryClaimStatus = "active" | "retired" | "purged";
+export type OrganizationMemoryPromotionStatus = "pending" | "approved" | "rejected";
 
 export type OrganizationMemorySearchHit = {
   id: string;
@@ -41,6 +44,70 @@ export type OrganizationMemoryDocument = OrganizationMemorySearchHit & {
   fromLine: number;
   lineCount: number;
 };
+
+export type OrganizationMemoryClaim = {
+  id: string;
+  scopeKind: OrganizationMemoryScopeKind;
+  scopeName: string;
+  scopeId?: string;
+  title: string;
+  text: string;
+  revision: number;
+  status: OrganizationMemoryClaimStatus;
+  createdAt: number;
+  updatedAt: number;
+  sourceClaimId?: string;
+};
+
+export type OrganizationMemoryLifecycleScope = {
+  kind: OrganizationMemoryScopeKind;
+  name: string;
+  id?: string;
+  parentGroupId?: string;
+  canAdminister: boolean;
+};
+
+export type OrganizationMemoryPromotionRequest = {
+  id: string;
+  sourceKind: OrganizationMemoryPromotionSourceKind;
+  sourceClaimId: string;
+  sourceRevision: number;
+  targetKind: OrganizationMemoryScopeKind;
+  targetScopeName: string;
+  proposedText: string;
+  evidence: string[];
+  reason: string;
+  status: OrganizationMemoryPromotionStatus;
+  createdAt: number;
+  decidedAt?: number;
+  decisionReason?: string;
+  targetClaimId?: string;
+  canReview: boolean;
+};
+
+export type OrganizationMemoryLifecycleSnapshot = {
+  scopes: OrganizationMemoryLifecycleScope[];
+  claims: OrganizationMemoryClaim[];
+  submitted: OrganizationMemoryPromotionRequest[];
+  reviewable: OrganizationMemoryPromotionRequest[];
+  canApproveGlobal: boolean;
+  next?: {
+    claims?: number;
+    submitted?: number;
+    reviewable?: number;
+  };
+};
+
+/** Trusted resolution of a personal Wiki page before shared-memory promotion. */
+export type PersonalOrganizationMemorySource = {
+  claimId: string;
+  revision: number;
+};
+
+export type PersonalOrganizationMemorySourceResolver = (params: {
+  agentId: string;
+  lookup: string;
+}) => Promise<PersonalOrganizationMemorySource | null>;
 
 export type PlatformUser = {
   id: string;
@@ -260,6 +327,45 @@ export interface OrganizationMemoryReader {
   }): Promise<OrganizationMemoryDocument | null>;
 }
 
+/** Authenticated claim-level promotion owner. Browser callers are always Agent-pinned. */
+export interface OrganizationMemoryLifecycle {
+  getOrganizationMemoryLifecycle(
+    agentId: string,
+    page?: { claims?: number; submitted?: number; reviewable?: number },
+  ): Promise<OrganizationMemoryLifecycleSnapshot>;
+  submitOrganizationMemoryPromotion(params: {
+    agentId: string;
+    sourceKind: OrganizationMemoryPromotionSourceKind;
+    sourceClaimId: string;
+    expectedSourceRevision?: number;
+    targetKind: OrganizationMemoryScopeKind;
+    targetScopeId?: string;
+    proposedText: string;
+    evidence: string[];
+    reason: string;
+    submittedAt: number;
+  }): Promise<OrganizationMemoryPromotionRequest>;
+  decideOrganizationMemoryPromotion(params: {
+    agentId: string;
+    requestId: string;
+    decision: "approve" | "reject";
+    reason: string;
+    decidedAt: number;
+  }): Promise<OrganizationMemoryPromotionRequest>;
+  retireOrganizationMemoryClaim(params: {
+    agentId: string;
+    claimId: string;
+    reason: string;
+    retiredAt: number;
+  }): Promise<OrganizationMemoryClaim>;
+  purgeOrganizationMemoryClaim(params: {
+    agentId: string;
+    claimId: string;
+    reason: string;
+    purgedAt: number;
+  }): Promise<OrganizationMemoryClaim>;
+}
+
 export interface ControlPlaneManagementStore {
   setManagedUserStatus(params: {
     actorUserId: string;
@@ -329,7 +435,12 @@ export class ControlPlaneConflictError extends Error {
 
 export class ControlPlaneNotFoundError extends Error {
   constructor(
-    readonly resource: "user" | "agent-binding" | "managed-scope",
+    readonly resource:
+      | "user"
+      | "agent-binding"
+      | "managed-scope"
+      | "memory-promotion"
+      | "organization-memory-claim",
     id: string,
   ) {
     super(`${resource} not found: ${id}`);

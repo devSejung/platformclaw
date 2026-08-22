@@ -17,6 +17,7 @@ import {
   type EnterpriseIdentity,
   type EnterprisePrincipal,
   type MainSessionKeyBuilder,
+  type PersonalOrganizationMemorySourceResolver,
   type ManagedScope,
   type ManagedScopeMembership,
   type PlatformUser,
@@ -44,6 +45,7 @@ export type SqliteControlPlaneStoreOptions = {
   idFactory?: ControlPlaneIdFactory;
   sessionPolicy?: BrowserSessionPolicy;
   onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
+  resolvePersonalOrganizationMemorySource?: PersonalOrganizationMemorySourceResolver;
 };
 
 export const ALLOWED_AGENT_TRANSITIONS: Record<
@@ -165,6 +167,7 @@ export abstract class SqliteControlPlaneStoreCore {
   protected readonly sessionPolicy: BrowserSessionPolicy;
   protected readonly initialAdminAccountIds: ReadonlySet<string>;
   protected readonly onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
+  protected readonly resolvePersonalOrganizationMemorySource?: PersonalOrganizationMemorySourceResolver;
   private vmHostExecutionEnvironmentSchemaReady = false;
 
   constructor(options: SqliteControlPlaneStoreOptions) {
@@ -194,6 +197,7 @@ export abstract class SqliteControlPlaneStoreCore {
     this.idFactory = options.idFactory ?? defaultControlPlaneIdFactory;
     this.sessionPolicy = options.sessionPolicy ?? BROWSER_SESSION_POLICY;
     this.onAgentCredentialsRevoked = options.onAgentCredentialsRevoked;
+    this.resolvePersonalOrganizationMemorySource = options.resolvePersonalOrganizationMemorySource;
     this.initialAdminAccountIds = new Set(
       (options.initialAdminAccountIds ?? [])
         .map((value) => value.trim().toLowerCase())

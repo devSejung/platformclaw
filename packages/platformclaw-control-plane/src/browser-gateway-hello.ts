@@ -2,6 +2,7 @@ import type { HelloOk } from "@openclaw/gateway-protocol";
 import {
   PLATFORMCLAW_WEB_ADMIN_METHODS,
   PLATFORMCLAW_WEB_GATEWAY_METHODS,
+  PLATFORMCLAW_WEB_LOCAL_METHODS,
 } from "./browser-gateway-policy.js";
 import {
   PLATFORMCLAW_WEB_GATEWAY_EVENTS,
@@ -37,7 +38,7 @@ export function projectPlatformClawBrowserHello(params: {
       methods: PLATFORMCLAW_WEB_GATEWAY_METHODS.filter(
         (method) =>
           (method !== "plugin.surface.refresh" || Boolean(params.canvasSurfaceUrl)) &&
-          (method === "commands.list" || upstreamMethods.has(method)) &&
+          (PLATFORMCLAW_WEB_LOCAL_METHODS.has(method) || upstreamMethods.has(method)) &&
           (params.access.user.globalRole === "admin" ||
             !PLATFORMCLAW_WEB_ADMIN_METHODS.has(method)),
       ),

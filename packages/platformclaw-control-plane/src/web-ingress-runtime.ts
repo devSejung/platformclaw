@@ -29,6 +29,7 @@ import {
   type PlatformClawGatewayRuntimeClientOptions,
 } from "./gateway-runtime-client.js";
 import { KnoxRoutingService, type KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
+import { resolvePersonalOrganizationMemorySource } from "./organization-memory-personal-source.js";
 import {
   AgentRestartReconciler,
   type PersonalAgentRestartRecoveryProbe,
@@ -112,11 +113,14 @@ export function createPlatformClawWebIngressRuntime(
   options: PlatformClawWebIngressRuntimeOptions,
 ): PlatformClawWebIngressRuntime {
   let closeTerminalForAgent = async (_agentId: string, _reason: string): Promise<void> => {};
+  const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
   const auth = createEmployeeBrowserAuthRuntime({
     databasePath: options.databasePath,
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
     provisioner: options.provisioner,
     initialAdminAccountIds: options.initialAdminAccountIds,
+    resolvePersonalOrganizationMemorySource: async ({ agentId, lookup }) =>
+      await resolvePersonalOrganizationMemorySource({ gateway, agentId, lookup }),
     onLogoutAgent: async (agentId) => {
       await Promise.allSettled([
         options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId }),
@@ -175,7 +179,6 @@ export function createPlatformClawWebIngressRuntime(
           deriveExecutionHandoffAddress(options.credentialBrokerAddress),
         )
       : undefined;
-  const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
   const employeeSsoService = options.employeeSso
     ? new EmployeeSsoService({
         authService: auth.service,
@@ -251,6 +254,7 @@ export function createPlatformClawWebIngressRuntime(
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
     resolveAgentIdFromSessionKey: (sessionKey) => options.resolveAgentIdFromSessionKey(sessionKey),
     searchOrganizationMemory: (params) => auth.store.searchOrganizationMemory(params),
+    organizationMemoryLifecycle: auth.store,
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
   closeTerminalForAgent = async (agentId, reason) =>

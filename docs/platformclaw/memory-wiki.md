@@ -178,6 +178,14 @@ contains source scope and claim identity, target scope, proposed text,
 evidence/provenance, reason, and expected source revision. An LLM may draft or
 recommend the request, but a user explicitly submits it.
 
+For a personal source, the selector is a native personal Wiki page ID, title,
+or relative path. The Control Plane resolves it through the private Gateway
+with the requester's pinned personal Agent, records a canonical content
+revision, and resolves it again before approval. Browser-supplied revisions,
+raw `MEMORY.md` files, absolute paths, missing pages, incomplete pages, and
+changed pages fail closed. Shared-source revisions come from the authoritative
+organization claim row.
+
 Approval authority:
 
 - personal to part: target part administrator;
@@ -196,6 +204,61 @@ is restricted to PlatformClaw administrators and reserved for privacy or
 security removal. Semantic links are derived, rebuildable metadata: background
 LLM work may suggest relationships among approved claims, but it cannot create,
 promote, approve, or restore authoritative claims.
+
+Archiving a Part or Group atomically retires its active claims and recompiles
+their source links, and records immutable rejections for pending requests that
+target the archived scope or a cascaded child Part. This prevents archived scopes from leaving searchable or
+unpurgeable knowledge behind. PlatformClaw administrators can still list the
+retired archived-scope tombstones and hard-purge them. Ordinary retirement
+preserves the request payload; only hard purge redacts that payload while
+retaining immutable request lineage, decision, and audit facts.
+
+PR4 stores authoritative state in three additive, lazily ensured tables under
+the existing schema version 2: immutable promotion requests, one immutable
+decision per request, and revisioned organization claims. It adds no file
+sidecars and no new environment variable. Approved claims compile into PR3's
+`organization_memory_pages` read model; retirement removes the compiled page
+from active recall, and hard purge clears claim text and evidence while keeping
+the decision and audit tombstones.
+
+The only valid edges are `personal -> part`, `part -> its parent group`, and
+`group -> global`. Submission and approval both resolve current membership at
+the Control Plane owner boundary. A target Part or Group leader approves its
+scope; a parent Group leader retains the existing authority to administer
+child Parts. Global approval and hard purge require an active PlatformClaw
+administrator. Archived scopes, disabled employees, stale source revisions,
+sibling groups, duplicate pending requests, and second decisions fail closed.
+
+Employees manage the lifecycle under **Settings > Memory > Memories**. The UI
+shows authorized targets, the employee's submitted requests, requests they may
+review, and readable active/retired claims. The BFF exposes only these
+Agent-pinned methods:
+
+- `platformclaw.memory.lifecycle`
+- `platformclaw.memory.promotion.submit`
+- `platformclaw.memory.promotion.decide`
+- `platformclaw.memory.claim.retire`
+- `platformclaw.memory.claim.purge`
+
+Lifecycle lists are authorization-filtered before bounded database pagination.
+The UI follows bounded page offsets with **Load more**, so company-wide traffic
+cannot hide an employee's request or a reviewer's pending decision behind an
+unrelated global limit.
+
+Browser callers cannot supply an Agent or employee identity. Stable claim,
+request, and managed-scope identifiers are accepted only as selectors and are
+re-authorized on every operation. User IDs, approver identities, raw audit
+rows, compiler provenance, database locations, and host paths are never
+returned. Models continue to read approved output through the PR3 corpus and
+`memory_search`; PR4 intentionally adds no model-facing write tool. An LLM may
+draft text in chat, but a person must submit the request and an authorized
+person must make the immutable decision.
+
+Operators upgrade through the normal PlatformClaw deployment and restart the
+Gateway/web ingress. Existing shared search stays available while the lazy
+tables are created on first lifecycle use. There is no schema-version bump,
+backfill command, dual-write period, or per-VM configuration. Basic-server and
+assigned-VM chats use the same Gateway-owned organization memory.
 
 ## Non-goals
 

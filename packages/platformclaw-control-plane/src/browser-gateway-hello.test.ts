@@ -97,6 +97,10 @@ describe("projectPlatformClawBrowserHello", () => {
         "artifacts.list",
         "chat.send",
         "commands.list",
+        "platformclaw.memory.claim.retire",
+        "platformclaw.memory.lifecycle",
+        "platformclaw.memory.promotion.decide",
+        "platformclaw.memory.promotion.submit",
         "sessions.companion.ask",
         "sessions.companion.reset",
         "sessions.companion.state",
@@ -154,6 +158,7 @@ describe("projectPlatformClawBrowserHello", () => {
     });
 
     expect(projected.features.methods).toContain("plugins.list");
+    expect(projected.features.methods).toContain("platformclaw.memory.claim.purge");
     expect(projected.features.methods).toContain("sessions.rewind");
     expect(projected.auth.scopes).toEqual([
       "operator.read",
@@ -206,6 +211,23 @@ describe("projectPlatformClawBrowserHello", () => {
         "agents.workspace.get",
         "wiki.get",
         "wiki.overview",
+      ]),
+    );
+  });
+
+  it("advertises Control Plane memory lifecycle without an upstream RPC", () => {
+    const projected = projectPlatformClawBrowserHello({
+      upstream: upstreamHello(),
+      access,
+      connectionId: "browser-memory-lifecycle",
+    });
+
+    expect(projected.features.methods).toEqual(
+      expect.arrayContaining([
+        "platformclaw.memory.lifecycle",
+        "platformclaw.memory.promotion.submit",
+        "platformclaw.memory.promotion.decide",
+        "platformclaw.memory.claim.retire",
       ]),
     );
   });

@@ -19,6 +19,7 @@ import {
 } from "./browser-gateway-cron-controller.js";
 export { PLATFORMCLAW_WEB_GATEWAY_EVENTS } from "./browser-gateway-event-policy.js";
 import { BrowserGatewayLiveCapabilities } from "./browser-gateway-live-capabilities.js";
+import { requestBrowserGatewayLocal } from "./browser-gateway-local.js";
 import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-visibility.js";
 import {
   browserEventPayloadBelongsToAccess,
@@ -51,7 +52,6 @@ import {
 import {
   isConfiguredBrowserModel,
   projectBrowserAgentFiles,
-  projectBrowserSelfUser,
   projectBrowserSkillResult,
 } from "./browser-gateway-self-service-projections.js";
 import {
@@ -221,12 +221,17 @@ export class BrowserGatewayProxy {
         throw error;
       }
     }
-    if (method === "users.self") {
-      return projectBrowserSelfUser(access.user) as T;
+    let localResult;
+    try {
+      localResult = await requestBrowserGatewayLocal(this.options, access, method, prepared);
+    } catch (error) {
+      if (error instanceof BrowserGatewayProxyError) {
+        await this.auditDeniedRequest(access, method, error.code);
+      }
+      throw error;
     }
-    if (method === "sessions.subscribe") {
-      // The process-wide private Gateway client owns this connection-scoped subscription.
-      return { subscribed: true } as T;
+    if (localResult.handled) {
+      return localResult.result as T;
     }
     const specialResult = await this.liveCapabilities.requestSpecial({
       agentId: access.binding.agentId,

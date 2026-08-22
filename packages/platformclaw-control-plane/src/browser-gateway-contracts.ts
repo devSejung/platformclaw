@@ -2,6 +2,7 @@ import type { BrowserAuthService } from "./browser-auth-service.js";
 import type {
   ControlPlaneAuditWriter,
   ControlPlaneStore,
+  OrganizationMemoryLifecycle,
   OrganizationMemorySearchHit,
   PersonalAgentBinding,
   PlatformUser,
@@ -61,5 +62,6 @@ export type BrowserGatewayProxyOptions = {
     query: string;
     maxResults?: number;
   }): Promise<OrganizationMemorySearchHit[]>;
+  organizationMemoryLifecycle?: OrganizationMemoryLifecycle;
   now?: () => number;
 };

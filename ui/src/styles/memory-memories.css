@@ -84,6 +84,42 @@
   color: inherit;
 }
 
+.memory-promotions {
+  display: grid;
+  gap: 16px;
+  margin-top: 36px;
+}
+
+.memory-promotions h2,
+.memory-promotions h3,
+.memory-promotions p {
+  margin: 0;
+}
+
+.memory-promotions > .settings-group:first-of-type {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.memory-promotions .settings-input,
+.memory-promotions .settings-select,
+.memory-promotions .settings-textarea {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.memory-promotions .settings-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.memory-promotions .settings-row__control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (max-width: 560px) {
   .memory-memories__search {
     align-items: stretch;
