@@ -1818,7 +1818,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
     const workspaceDir = "/tmp/openclaw-hook-workspace";
     hoisted.createOpenClawCodingToolsMock.mockImplementationOnce(() => [
       { name: "read", execute: async () => "" },
-      { name: "write", execute: async () => "" },
+      { name: "bootstrap_complete", execute: async () => "" },
     ]);
     hoisted.resolveBootstrapFilesForRunMock.mockResolvedValueOnce([
       {
