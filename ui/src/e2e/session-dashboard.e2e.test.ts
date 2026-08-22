@@ -201,7 +201,7 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
     if (!sandboxAddress || typeof sandboxAddress === "string") {
       throw new Error("sandbox host did not bind a TCP address");
     }
-    const context = await browser.newContext();
+    const context = await browser.newContext({ locale: "en-US" });
     try {
       const page = await context.newPage();
       const escapeRequests: string[] = [];
@@ -276,7 +276,10 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
   });
 
   it("pins Canvas HTML, follows board commands, and persists dock resizing", async () => {
-    const context = await browser.newContext({ viewport: { height: 900, width: 1280 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 900, width: 1280 },
+    });
     const page = await context.newPage();
     const resizableBoardSnapshot = {
       ...boardSnapshot,
@@ -384,7 +387,10 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
   });
 
   it("pins an inline MCP App using only its session-bound view identity", async () => {
-    const context = await browser.newContext({ viewport: { height: 900, width: 1280 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 900, width: 1280 },
+    });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       sessionKey,
@@ -458,6 +464,7 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
       await mkdir(pluginWidgetsProofDir, { recursive: true });
     }
     const context = await browser.newContext({
+      locale: "en-US",
       viewport: { height: 900, width: 1280 },
       ...(recordProof
         ? { recordVideo: { dir: pluginWidgetsProofDir, size: { height: 900, width: 1280 } } }
@@ -574,7 +581,10 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
   });
 
   it("keeps a read-only Workboard dashboard card visible without allowing status changes", async () => {
-    const context = await browser.newContext({ viewport: { height: 900, width: 1280 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 900, width: 1280 },
+    });
     const page = await context.newPage();
     const widgetKinds = [
       { pluginId: "workboard", kind: "workboard:card", label: "Workboard card" },
@@ -655,6 +665,7 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
       await mkdir(cardboardProofDir, { recursive: true });
     }
     const context = await browser.newContext({
+      locale: "en-US",
       viewport: { height: 900, width: 1280 },
       ...(recordProof
         ? { recordVideo: { dir: cardboardProofDir, size: { height: 900, width: 1280 } } }
@@ -791,7 +802,10 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
     ];
 
     for (const testCase of cases) {
-      const context = await browser.newContext({ viewport: { height: 900, width: 1280 } });
+      const context = await browser.newContext({
+        locale: "en-US",
+        viewport: { height: 900, width: 1280 },
+      });
       const page = await context.newPage();
       const gateway = await installMockGateway(page, {
         sessionKey,
