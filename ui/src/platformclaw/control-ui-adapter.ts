@@ -189,6 +189,7 @@ export class PlatformClawControlUiAdapter {
                     ${agentId
                       ? html`<openclaw-agent-memory-panel
                           .agentId=${agentId}
+                          .showMemorySearch=${true}
                         ></openclaw-agent-memory-panel>`
                       : html`
                           <div class="card" role="status">

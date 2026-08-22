@@ -9,11 +9,18 @@ import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import "../../styles/memory-memories.css";
 
-type SearchResult = MemorySearchResponse["results"][number];
+type SearchResult = Omit<MemorySearchResponse["results"][number], "source"> & {
+  source: string;
+  provenanceLabel?: string;
+};
+type BrowserMemorySearchResponse = Omit<MemorySearchResponse, "results"> & {
+  results: SearchResult[];
+  organizationMemoryUnavailable?: boolean;
+};
 type SearchState =
   | { kind: "idle" }
   | { kind: "loading"; query: string }
-  | ({ kind: "ready"; query: string } & MemorySearchResponse)
+  | ({ kind: "ready"; query: string } & BrowserMemorySearchResponse)
   | { kind: "error"; query: string; message: string };
 type DetailState =
   | { kind: "loading" }
@@ -99,7 +106,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     this.details = new Map();
     this.detailRequests.clear();
     try {
-      const result = await client.request<MemorySearchResponse>("memory.search", {
+      const result = await client.request<BrowserMemorySearchResponse>("memory.search", {
         query: normalizedQuery,
         agentId,
       });
@@ -194,6 +201,11 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
         <span>${t("memoryPage.memories.results", { count: String(ready.results.length) })}</span>
         <span class="memory-memories__mode">${mode}</span>
       </div>
+      ${ready.organizationMemoryUnavailable
+        ? html`<p class="memory-memories__state" role="status">
+            ${t("memoryPage.memories.organizationUnavailable")}
+          </p>`
+        : nothing}
       ${ready.results.length === 0
         ? html`<p class="memory-memories__state">
             ${t("memoryPage.memories.empty", {
@@ -219,11 +231,15 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
                 </span>
                 <span class="settings-row__control memory-memories__meta">
                   <span class="memory-memories__source"
-                    >${t(
-                      result.source === "sessions"
-                        ? "memoryPage.memories.sourceSessions"
-                        : "memoryPage.memories.sourceMemory",
-                    )}</span
+                    >${result.source === "organization"
+                      ? t("memoryPage.memories.sourceOrganization", {
+                          scope: result.provenanceLabel ?? "",
+                        })
+                      : t(
+                          result.source === "sessions"
+                            ? "memoryPage.memories.sourceSessions"
+                            : "memoryPage.memories.sourceMemory",
+                        )}</span
                   >
                   <span
                     >${t("memoryPage.memories.score", {

@@ -463,6 +463,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
             },
           },
           "platformclaw-execution": { enabled: true },
+          "platformclaw-org-memory": { enabled: true },
         },
       },
     });
@@ -695,6 +696,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
       "memory-core",
       "memory-wiki",
       "platformclaw-execution",
+      "platformclaw-org-memory",
       "platformclaw-user-mcp",
     ]);
     expect(result.config.plugins.deny).toEqual(["blocked-plugin"]);

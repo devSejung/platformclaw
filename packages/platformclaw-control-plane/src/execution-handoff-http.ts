@@ -5,6 +5,7 @@ import { createConnection } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
 import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
 import lockfile from "proper-lockfile";
+import type { OrganizationMemoryDocument, OrganizationMemorySearchHit } from "./contracts.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
 
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
@@ -14,6 +15,10 @@ export const PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH =
 export const PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH =
   "/platformclaw/internal/execution/change-target";
 export const PLATFORMCLAW_MCP_CONNECTION_PATH = "/platformclaw/internal/mcp/connection";
+export const PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH =
+  "/platformclaw/internal/memory/organization/search";
+export const PLATFORMCLAW_ORGANIZATION_MEMORY_GET_PATH =
+  "/platformclaw/internal/memory/organization/get";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
@@ -30,6 +35,17 @@ type ExecutionHandoffHandler = Pick<
     revision: number;
     expiresAt?: number;
   } | null>;
+  searchOrganizationMemory?: (params: {
+    agentId: string;
+    query: string;
+    maxResults?: number;
+  }) => Promise<OrganizationMemorySearchHit[]>;
+  getOrganizationMemory?: (params: {
+    agentId: string;
+    path: string;
+    fromLine?: number;
+    lineCount?: number;
+  }) => Promise<OrganizationMemoryDocument | null>;
 };
 
 export function deriveExecutionHandoffAddress(credentialBrokerAddress: string): string {
@@ -286,13 +302,82 @@ export class PlatformClawExecutionHandoffServer {
         pathname !== PLATFORMCLAW_EXECUTION_GRANT_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH &&
-        pathname !== PLATFORMCLAW_MCP_CONNECTION_PATH
+        pathname !== PLATFORMCLAW_MCP_CONNECTION_PATH &&
+        pathname !== PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH &&
+        pathname !== PLATFORMCLAW_ORGANIZATION_MEMORY_GET_PATH
       ) {
         sendJson(res, 404, { error: "not found" });
         return;
       }
       const body = objectBody(await readJson(req));
       const agentId = requestAgentId(body);
+      if (pathname === PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH) {
+        const query = typeof body.query === "string" ? body.query.trim() : "";
+        const maxResults = body.maxResults;
+        if (
+          !query ||
+          query.length > 1_000 ||
+          (maxResults !== undefined &&
+            (typeof maxResults !== "number" ||
+              !Number.isSafeInteger(maxResults) ||
+              maxResults < 1 ||
+              maxResults > 50))
+        ) {
+          sendJson(res, 400, { error: "invalid organization memory search" });
+          return;
+        }
+        if (!this.service.searchOrganizationMemory) {
+          sendJson(res, 503, { error: "organization memory unavailable" });
+          return;
+        }
+        sendJson(
+          res,
+          200,
+          await this.service.searchOrganizationMemory({
+            agentId,
+            query,
+            ...(typeof maxResults === "number" ? { maxResults } : {}),
+          }),
+        );
+        return;
+      }
+      if (pathname === PLATFORMCLAW_ORGANIZATION_MEMORY_GET_PATH) {
+        const path = typeof body.path === "string" ? body.path : "";
+        const fromLine = body.fromLine;
+        const lineCount = body.lineCount;
+        if (!/^organization\/(global|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(path)) {
+          sendJson(res, 400, { error: "invalid organization memory path" });
+          return;
+        }
+        if (
+          (fromLine !== undefined &&
+            (typeof fromLine !== "number" || !Number.isSafeInteger(fromLine) || fromLine < 1)) ||
+          (lineCount !== undefined &&
+            (typeof lineCount !== "number" ||
+              !Number.isSafeInteger(lineCount) ||
+              lineCount < 1 ||
+              lineCount > 200))
+        ) {
+          sendJson(res, 400, { error: "invalid organization memory range" });
+          return;
+        }
+        if (!this.service.getOrganizationMemory) {
+          sendJson(res, 503, { error: "organization memory unavailable" });
+          return;
+        }
+        const result = await this.service.getOrganizationMemory({
+          agentId,
+          path,
+          ...(typeof fromLine === "number" ? { fromLine } : {}),
+          ...(typeof lineCount === "number" ? { lineCount } : {}),
+        });
+        if (!result) {
+          sendJson(res, 404, { error: "organization memory not found" });
+          return;
+        }
+        sendJson(res, 200, result);
+        return;
+      }
       if (pathname === PLATFORMCLAW_MCP_CONNECTION_PATH) {
         const serverName = typeof body.serverName === "string" ? body.serverName.trim() : "";
         if (

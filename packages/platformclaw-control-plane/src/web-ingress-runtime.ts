@@ -169,6 +169,8 @@ export function createPlatformClawWebIngressRuntime(
                     mcpService.resolveForAgent(agentId, serverName, serverUrl),
                 }
               : {}),
+            searchOrganizationMemory: (params) => auth.store.searchOrganizationMemory(params),
+            getOrganizationMemory: (params) => auth.store.getOrganizationMemory(params),
           },
           deriveExecutionHandoffAddress(options.credentialBrokerAddress),
         )
@@ -248,6 +250,7 @@ export function createPlatformClawWebIngressRuntime(
     gateway,
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
     resolveAgentIdFromSessionKey: (sessionKey) => options.resolveAgentIdFromSessionKey(sessionKey),
+    searchOrganizationMemory: (params) => auth.store.searchOrganizationMemory(params),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
   closeTerminalForAgent = async (agentId, reason) =>

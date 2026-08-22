@@ -5,6 +5,7 @@ import type {
   ControlAuditEvent,
   ControlPlaneAuditWriter,
   EnterprisePrincipal,
+  OrganizationMemorySearchHit,
 } from "./contracts.js";
 import { InMemoryControlPlaneStore } from "./memory-store.js";
 
@@ -32,7 +33,16 @@ export function safeCronJob(agentId: string, extra: Record<string, unknown> = {}
   };
 }
 
-export async function setupBrowserGatewayProxyTest(options: { admin?: boolean } = {}) {
+export async function setupBrowserGatewayProxyTest(
+  options: {
+    admin?: boolean;
+    searchOrganizationMemory?: (params: {
+      agentId: string;
+      query: string;
+      maxResults?: number;
+    }) => Promise<OrganizationMemorySearchHit[]>;
+  } = {},
+) {
   let sequence = 0;
   const store = new InMemoryControlPlaneStore({
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
@@ -98,6 +108,9 @@ export async function setupBrowserGatewayProxyTest(options: { admin?: boolean } 
     gateway: { request },
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
     resolveAgentIdFromSessionKey: sessionAgentId,
+    ...(options.searchOrganizationMemory
+      ? { searchOrganizationMemory: options.searchOrganizationMemory }
+      : {}),
     now: () => NOW,
   });
   return { auditEvents, binding, created, proxy, request, store, token, user };

@@ -1,0 +1,11 @@
+{
+  "id": "platformclaw-org-memory",
+  "name": "PlatformClaw Organization Memory",
+  "description": "Authorized Group, Part, and Global memory corpus for personal agents.",
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

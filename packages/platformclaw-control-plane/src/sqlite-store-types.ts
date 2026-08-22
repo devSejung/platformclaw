@@ -2,6 +2,7 @@ import type {
   AgentProvisioningState,
   ManagedScopeKind,
   ManagedScopeRole,
+  OrganizationMemoryScopeKind,
   PlatformUserGlobalRole,
   PlatformUserStatus,
 } from "./contracts.js";
@@ -68,6 +69,18 @@ export type ManagedScopeMembershipRow = {
   scope_id: string;
   user_id: string;
   role: ManagedScopeRole;
+  created_at: number;
+  updated_at: number;
+};
+export type OrganizationMemoryPageRow = {
+  id: string;
+  scope_kind: OrganizationMemoryScopeKind;
+  scope_id: string | null;
+  title: string;
+  content: string;
+  provenance_json: string;
+  revision: number;
+  status: "active" | "retired";
   created_at: number;
   updated_at: number;
 };
@@ -241,6 +254,7 @@ export type ControlPlaneDatabase = {
   browser_sessions: BrowserSessionRow;
   managed_scopes: ManagedScopeRow;
   managed_scope_memberships: ManagedScopeMembershipRow;
+  organization_memory_pages: OrganizationMemoryPageRow;
   control_audit_events: AuditEventRow;
   safeconnect_endpoints: SafeConnectEndpointRow;
   vm_hosts: VmHostRow;

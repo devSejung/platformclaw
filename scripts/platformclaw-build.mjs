@@ -362,6 +362,7 @@ const extensions = [
     "admin-http-rpc",
     "knox",
     "platformclaw-execution",
+    "platformclaw-org-memory",
     "platformclaw-web-relay",
     "platformclaw-user-mcp",
     ...options.extensions.split(/[\s,]+/u),

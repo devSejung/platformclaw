@@ -371,6 +371,27 @@ CREATE TABLE IF NOT EXISTS vm_host_execution_environments (
 ) STRICT;
 `;
 
+const ORGANIZATION_MEMORY_SCHEMA = `
+CREATE TABLE IF NOT EXISTS organization_memory_pages (
+  id TEXT PRIMARY KEY,
+  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'group', 'part')),
+  scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  provenance_json TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  status TEXT NOT NULL CHECK (status IN ('active', 'retired')),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CHECK (
+    (scope_kind = 'global' AND scope_id IS NULL) OR
+    (scope_kind IN ('group', 'part') AND scope_id IS NOT NULL)
+  )
+) STRICT;
+CREATE INDEX IF NOT EXISTS organization_memory_scope
+  ON organization_memory_pages(status, scope_kind, scope_id, updated_at DESC);
+`;
+
 const SKILL_HUB_STATE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS skill_hub_skill_ownership (
   namespace TEXT NOT NULL,
@@ -456,6 +477,11 @@ CREATE TABLE IF NOT EXISTS skill_hub_namespace_bindings (
 /** Additive VM feature table; safe for older schema-v2 readers to ignore. */
 export function ensureVmHostExecutionEnvironmentSchema(db: DatabaseSync): void {
   db.exec(VM_HOST_EXECUTION_ENVIRONMENT_SCHEMA);
+}
+
+/** Additive shared-memory table; safe for older schema-v2 readers to ignore. */
+export function ensureOrganizationMemorySchema(db: DatabaseSync): void {
+  db.exec(ORGANIZATION_MEMORY_SCHEMA);
 }
 
 /** Additive feature table; safe for older schema-v2 readers to ignore. */

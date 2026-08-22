@@ -2712,6 +2712,8 @@ export const en: TranslationMap = {
       score: "score {score}",
       sourceMemory: "memory",
       sourceSessions: "sessions",
+      sourceOrganization: "organization · {scope}",
+      organizationUnavailable: "Organization memory is temporarily unavailable.",
       fileLoading: "Loading the full memory file…",
       fileError: "Could not load this memory file: {message}",
       fileUnsupported: "This memory file cannot be shown as text.",

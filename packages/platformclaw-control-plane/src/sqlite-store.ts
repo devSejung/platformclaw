@@ -23,11 +23,11 @@ import {
   rowToMembership,
   rowToScope,
 } from "./sqlite-store-core.js";
-import { SqliteControlPlaneSkillHubStore } from "./sqlite-store-skill-hub.js";
+import { SqliteControlPlaneOrganizationMemoryStore } from "./sqlite-store-organization-memory.js";
 import type { ManagedScopeRow } from "./sqlite-store-types.js";
 
 export class SqliteControlPlaneStore
-  extends SqliteControlPlaneSkillHubStore
+  extends SqliteControlPlaneOrganizationMemoryStore
   implements
     ControlPlaneStore,
     ControlPlaneManagementStore,

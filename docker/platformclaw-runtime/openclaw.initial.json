@@ -90,6 +90,9 @@
       "platformclaw-execution": {
         "enabled": true
       },
+      "platformclaw-org-memory": {
+        "enabled": true
+      },
       "platformclaw-user-mcp": {
         "enabled": true
       }
