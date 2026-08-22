@@ -123,7 +123,7 @@ async function readThemeImportRaceState(page: Page) {
   const message = importer.locator(".settings-theme-import__message");
   const settings = await readPersistedSettings(page);
   return {
-    renderedThemeMode: await page.locator("html").getAttribute("data-theme"),
+    renderedTheme: await page.locator("html").getAttribute("data-theme"),
     titleColor: await page
       .locator(".page-title")
       .evaluate((element) => getComputedStyle(element).color),
@@ -602,7 +602,7 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
         hasPersistedCustomTheme: true,
       });
       expect(afterClear).toMatchObject({
-        renderedThemeMode: UI_APPEARANCE_DEFAULTS.theme,
+        renderedTheme: UI_APPEARANCE_DEFAULTS.theme,
         defaultThemeSelected: true,
         customThemeMetadataCount: 0,
         importUrl: "replacement",

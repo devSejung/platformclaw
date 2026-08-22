@@ -418,6 +418,12 @@ function controlUiE2ePreviewConfigPlugin(): Plugin {
   return {
     name: "control-ui-e2e-preview-config",
     configurePreviewServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        if (req.url?.startsWith("/platformclaw/assets/")) {
+          req.url = req.url.slice("/platformclaw".length);
+        }
+        next();
+      });
       server.middlewares.use(CONTROL_UI_BOOTSTRAP_CONFIG_PATH, (_req, res) => {
         res.setHeader("Content-Type", "application/json");
         res.end(
@@ -526,11 +532,19 @@ async function startBuiltControlUiE2eServer(outDir: string): Promise<ControlUiE2
 }
 
 export async function startBundledControlUiE2eServer(outDir: string): Promise<ControlUiE2eServer> {
-  const [{ build }, { default: controlUiViteConfig }] = await Promise.all([
-    import("vite"),
-    import("../../vite.config.ts"),
-  ]);
+  const [{ build }, { default: controlUiViteConfig }, { default: platformclawLoginViteConfig }] =
+    await Promise.all([
+      import("vite"),
+      import("../../vite.config.ts"),
+      import("../../vite.platformclaw-login.config.ts"),
+    ]);
   await build(createBundledControlUiE2eConfig(controlUiViteConfig, outDir));
+  await build({
+    ...platformclawLoginViteConfig({ outDir }),
+    configFile: false,
+    logLevel: "error",
+    root: path.join(resolveRepoRoot(), "ui"),
+  });
   return startBuiltControlUiE2eServer(outDir);
 }
 

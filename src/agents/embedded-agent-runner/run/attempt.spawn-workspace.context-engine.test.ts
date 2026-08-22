@@ -1759,7 +1759,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
     hoisted.isWorkspaceBootstrapPendingMock.mockResolvedValueOnce(true);
     hoisted.createOpenClawCodingToolsMock.mockImplementationOnce(() => [
       { name: "read", execute: async () => "" },
-      { name: "write", execute: async () => "" },
+      { name: "bootstrap_complete", execute: async () => "" },
     ]);
     hoisted.resolveBootstrapContextForRunMock.mockResolvedValueOnce({
       bootstrapFiles: [

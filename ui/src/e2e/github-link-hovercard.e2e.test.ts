@@ -3,6 +3,8 @@ import { chromium, type Browser, type BrowserContext, type Locator } from "playw
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   canRunPlaywrightChromium,
+  controlUiBundledGatewayUrl,
+  controlUiBundledSettingsStorageKey,
   installFullGatewayMock as installMockGateway,
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
@@ -62,6 +64,15 @@ describeControlUiE2e("GitHub link hover cards", () => {
     );
 
     const page = await context.newPage();
+    await context.addInitScript(
+      ({ gatewayUrl, key }) => {
+        localStorage.setItem(key, JSON.stringify({ gatewayUrl, themeMode: "system" }));
+      },
+      {
+        gatewayUrl: controlUiBundledGatewayUrl(server.baseUrl),
+        key: controlUiBundledSettingsStorageKey(server.baseUrl),
+      },
+    );
     await page.clock.install();
     const gateway = await installMockGateway(page, {
       methodResponses: {
