@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createPlatformClawExecutionBackendFactory,
   type PlatformClawExecutionTargetSnapshot,
-} from "../../../extensions/platformclaw-execution/src/backend.js";
+} from "../../../extensions/platformclaw-execution/api.js";
 import { PlatformClawBrowserCanvasRelay } from "../../../packages/platformclaw-control-plane/src/browser-canvas-http.js";
 import { filterToolsByPolicy } from "../../../src/agents/agent-tools.policy.js";
 import { createOpenClawTools } from "../../../src/agents/openclaw-tools.js";
@@ -185,6 +185,12 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
       if (!showWidget?.execute) {
         throw new Error("expected show_widget tool");
       }
+      await expect(
+        showWidget.execute(`reject-file-url-${target}`, {
+          title: `${label} local file`,
+          url: "file:///users/assigned.personal/.platformclaw/workspace/widget.html",
+        }),
+      ).rejects.toThrow("widget_code required");
       const toolResult = await showWidget.execute(`show-widget-${target}`, {
         title: `${label} widget`,
         widget_code: `<main data-proof-target="${target}"><h1>${label}</h1><p>Gateway-owned widget</p></main>`,
