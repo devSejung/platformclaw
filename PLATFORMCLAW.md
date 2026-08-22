@@ -63,6 +63,7 @@ These areas are candidates for future evaluation and migration. They are not an 
 - Treat Windows only as the development host; judge final behavior in Linux Docker.
 - Do not introduce Windows-only runtime dependencies.
 - Run `node scripts/platformclaw-check.mjs --changed --quick` during PlatformClaw development. Before push or PR, run it without `--quick`; GitHub uses the same surface command groups. Keep upstream-wide checks for shared or core paths.
+- GitHub runs the complete upstream Node suite in compact bins for PlatformClaw pull requests and `main`; changed-target single-job planning remains upstream-only. The separate PlatformClaw workflow validates overlay-owned surfaces and delegates shared `check:changed` coverage to upstream CI instead of executing it twice. Canonical-only macOS, iOS build, Android, Windows, Blacksmith, and sticky-disk privileges remain unavailable to the downstream repository; hosted native-i18n checks may still run when selected.
 - Do not freeze unconfirmed interface names or directory structures in documentation.
 
 ## Git Workflow

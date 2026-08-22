@@ -89,6 +89,7 @@ jobs:
         run: >-
           node scripts/platformclaw-check.mjs
           --changed
+          --overlay-only
           --base "$BASE_SHA"
           --head "$HEAD_SHA"
 

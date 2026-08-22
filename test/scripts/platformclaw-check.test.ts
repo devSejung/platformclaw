@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createPlatformClawCheckCommands,
   findPatchWhitespaceErrors,
+  shouldRunUpstreamChangedChecks,
   surfacesForPlan,
 } from "../../scripts/platformclaw-check.mjs";
 import { classifyPlatformClawChanges } from "../../scripts/platformclaw-ci-plan.mjs";
@@ -57,6 +58,14 @@ describe("PlatformClaw shared checks", () => {
     expect(() => createPlatformClawCheckCommands(["unknown"])).toThrow(
       "unknown PlatformClaw check surface",
     );
+  });
+
+  it("delegates shared checks only in quick or CI overlay-only mode", () => {
+    const plan = classifyPlatformClawChanges(["src/gateway/server.ts"]);
+
+    expect(shouldRunUpstreamChangedChecks(plan)).toBe(true);
+    expect(shouldRunUpstreamChangedChecks(plan, { quick: true })).toBe(false);
+    expect(shouldRunUpstreamChangedChecks(plan, { overlayOnly: true })).toBe(false);
   });
 
   it("finds whitespace errors in untracked text files", () => {
