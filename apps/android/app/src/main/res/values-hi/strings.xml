@@ -757,6 +757,7 @@
     <string name="native_71dba3ccde0a371b" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s://%2$s"</string>
     <string name="native_71dca4478e9cab11" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s... (ठीक)"</string>
     <string name="native_71eb964324a01777" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"प्रदाता और कॉन्फ़िगर किए गए मॉडल"</string>
+    <string name="native_71f801b00e45d84a" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Edit Agent File"</string>
     <string name="native_72021eb70e91b4d5" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कनेक्ट हो रहा है…"</string>
     <string name="native_721ca8245ae89272" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"वेक वर्ड सहेजने के लिए Gateway से कनेक्ट करें"</string>
     <string name="native_7234213a42c2635b" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"प्रोफ़ाइल खोलें"</string>
@@ -1072,6 +1073,7 @@
     <string name="native_a4212f1e2fb0f506" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"प्रोफ़ाइल सेव करें"</string>
     <string name="native_a424e33d90931d1e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"लॉक किया गया"</string>
     <string name="native_a450ea5e177b4787" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ऑटोमेशन संपादित करें"</string>
+    <string name="native_a480777ffc612357" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Complete Bootstrap"</string>
     <string name="native_a484bc216860979e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"उसी नेटवर्क, या सुरक्षित रिमोट Gateway URL का उपयोग करें।"</string>
     <string name="native_a4ae750b610e875e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"एंकर"</string>
     <string name="native_a4fe65264ef7dbb3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"भाषा"</string>
@@ -1127,6 +1129,7 @@
     <string name="native_acfc5be785a9bb3d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"डिस्कनेक्ट करें"</string>
     <string name="native_ad1c341c65f84ede" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway कंप्यूटर पर approve कमांड चलाएँ, फिर दोबारा जाँचें।"</string>
     <string name="native_ad1fb9ec0cb3c7a4" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"स्वचालन"</string>
+    <string name="native_ad502b49d0f661b0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Write Agent File"</string>
     <string name="native_adb7eb8a03ad699c" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$sमि"</string>
     <string name="native_ade9248e0132b411" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"भरोसा करें"</string>
     <string name="native_ae27fa789a03c1db" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"वह QR कोड OpenClaw सेटअप QR नहीं है। openclaw qr से नया कोड जनरेट करें, फिर दोबारा कोशिश करें।"</string>
@@ -1304,6 +1307,7 @@
     <string name="native_cae7d57bc067a514" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"रोकें"</string>
     <string name="native_cae98462b30650eb" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"अभी तक कोई मेल खाता थ्रेड नहीं है।"</string>
     <string name="native_cba62d81f910c7f0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway पेयरिंग सफल रही।\nऑपरेटर UI से इस फ़ोन की नोड क्षमताओं को स्वीकृत करें।"</string>
+    <string name="native_cbcfe572efce6949" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Read Agent File"</string>
     <string name="native_cc4b66e7e22230c3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"यह skill इंस्टॉल है, लेकिन फ़िलहाल चलने के योग्य नहीं है। कॉन्फ़िगरेशन में बदलाव के लिए desktop या CLI का उपयोग करें।"</string>
     <string name="native_cc5f45fb30a26e07" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"पहचानकर्ता व्यस्त है"</string>
     <string name="native_cc721e25d73938a6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"होम Gateway"</string>

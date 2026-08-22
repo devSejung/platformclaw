@@ -757,6 +757,7 @@
     <string name="native_71dba3ccde0a371b" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s://%2$s"</string>
     <string name="native_71dca4478e9cab11" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s... (OK)"</string>
     <string name="native_71eb964324a01777" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Провайдери та налаштовані моделі"</string>
+    <string name="native_71f801b00e45d84a" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Edit Agent File"</string>
     <string name="native_72021eb70e91b4d5" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Підключення…"</string>
     <string name="native_721ca8245ae89272" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Підключіться до Gateway, щоб зберегти слова активації"</string>
     <string name="native_7234213a42c2635b" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Відкрити профіль"</string>
@@ -1072,6 +1073,7 @@
     <string name="native_a4212f1e2fb0f506" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Зберегти профіль"</string>
     <string name="native_a424e33d90931d1e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Заблоковано"</string>
     <string name="native_a450ea5e177b4787" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Редагувати автоматизацію"</string>
+    <string name="native_a480777ffc612357" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Complete Bootstrap"</string>
     <string name="native_a484bc216860979e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Використовуйте ту саму мережу або захищену віддалену URL-адресу Gateway."</string>
     <string name="native_a4ae750b610e875e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Прив’язка"</string>
     <string name="native_a4fe65264ef7dbb3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Мова"</string>
@@ -1127,6 +1129,7 @@
     <string name="native_acfc5be785a9bb3d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Відключити"</string>
     <string name="native_ad1c341c65f84ede" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Виконайте команду approve на комп’ютері Gateway, а потім перевірте ще раз."</string>
     <string name="native_ad1fb9ec0cb3c7a4" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Автоматизації"</string>
+    <string name="native_ad502b49d0f661b0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Write Agent File"</string>
     <string name="native_adb7eb8a03ad699c" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s хв"</string>
     <string name="native_ade9248e0132b411" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Довіряти"</string>
     <string name="native_ae27fa789a03c1db" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Цей QR-код не є QR-кодом налаштування OpenClaw. Згенеруйте новий код за допомогою openclaw qr, а потім повторіть спробу."</string>
@@ -1304,6 +1307,7 @@
     <string name="native_cae7d57bc067a514" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Зупинити"</string>
     <string name="native_cae98462b30650eb" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Поки немає відповідних гілок."</string>
     <string name="native_cba62d81f910c7f0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Спарювання з Gateway виконано.\nПідтвердьте можливості вузла цього телефона в інтерфейсі оператора."</string>
+    <string name="native_cbcfe572efce6949" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Read Agent File"</string>
     <string name="native_cc4b66e7e22230c3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Цю навичку встановлено, але наразі її не можна запустити. Для зміни конфігурації скористайтеся комп’ютером або CLI."</string>
     <string name="native_cc5f45fb30a26e07" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Розпізнавач зайнятий"</string>
     <string name="native_cc721e25d73938a6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Домашній Gateway"</string>

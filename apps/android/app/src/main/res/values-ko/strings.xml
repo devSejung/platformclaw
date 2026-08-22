@@ -757,6 +757,7 @@
     <string name="native_71dba3ccde0a371b" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s://%2$s"</string>
     <string name="native_71dca4478e9cab11" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s... (정상)"</string>
     <string name="native_71eb964324a01777" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"제공자 및 구성된 모델"</string>
+    <string name="native_71f801b00e45d84a" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Edit Agent File"</string>
     <string name="native_72021eb70e91b4d5" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"연결 중…"</string>
     <string name="native_721ca8245ae89272" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"호출어를 저장하려면 Gateway에 연결하세요"</string>
     <string name="native_7234213a42c2635b" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"프로필 열기"</string>
@@ -1072,6 +1073,7 @@
     <string name="native_a4212f1e2fb0f506" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"프로필 저장"</string>
     <string name="native_a424e33d90931d1e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"잠김"</string>
     <string name="native_a450ea5e177b4787" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"자동화 편집"</string>
+    <string name="native_a480777ffc612357" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Complete Bootstrap"</string>
     <string name="native_a484bc216860979e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"동일한 네트워크 또는 안전한 원격 Gateway URL을 사용하세요."</string>
     <string name="native_a4ae750b610e875e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"기준점"</string>
     <string name="native_a4fe65264ef7dbb3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"언어"</string>
@@ -1127,6 +1129,7 @@
     <string name="native_acfc5be785a9bb3d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"연결 해제"</string>
     <string name="native_ad1c341c65f84ede" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway 컴퓨터에서 approve 명령을 실행한 다음 다시 확인하세요."</string>
     <string name="native_ad1fb9ec0cb3c7a4" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"자동화"</string>
+    <string name="native_ad502b49d0f661b0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Write Agent File"</string>
     <string name="native_adb7eb8a03ad699c" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s분"</string>
     <string name="native_ade9248e0132b411" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"신뢰"</string>
     <string name="native_ae27fa789a03c1db" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"해당 QR 코드는 OpenClaw 설정 QR이 아닙니다. openclaw qr로 새 코드를 생성한 후 다시 시도하세요."</string>
@@ -1304,6 +1307,7 @@
     <string name="native_cae7d57bc067a514" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"중지"</string>
     <string name="native_cae98462b30650eb" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"아직 일치하는 스레드가 없습니다."</string>
     <string name="native_cba62d81f910c7f0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway 페어링이 완료되었습니다.\n운영자 UI에서 이 휴대폰의 노드 기능을 승인하세요."</string>
+    <string name="native_cbcfe572efce6949" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Read Agent File"</string>
     <string name="native_cc4b66e7e22230c3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"이 Skills는 설치되어 있지만 현재 실행할 수 없습니다. 구성 변경은 데스크톱 또는 CLI를 사용하세요."</string>
     <string name="native_cc5f45fb30a26e07" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"음성 인식기가 사용 중입니다"</string>
     <string name="native_cc721e25d73938a6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"홈 Gateway"</string>

@@ -757,6 +757,7 @@
     <string name="native_71dba3ccde0a371b" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s://%2$s"</string>
     <string name="native_71dca4478e9cab11" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s... (ตกลง)"</string>
     <string name="native_71eb964324a01777" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ผู้ให้บริการและโมเดลที่กำหนดค่าไว้"</string>
+    <string name="native_71f801b00e45d84a" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Edit Agent File"</string>
     <string name="native_72021eb70e91b4d5" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"กำลังเชื่อมต่อ…"</string>
     <string name="native_721ca8245ae89272" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"เชื่อมต่อกับ Gateway เพื่อบันทึกคำปลุก"</string>
     <string name="native_7234213a42c2635b" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"เปิดโปรไฟล์"</string>
@@ -1072,6 +1073,7 @@
     <string name="native_a4212f1e2fb0f506" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"บันทึกโปรไฟล์"</string>
     <string name="native_a424e33d90931d1e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ล็อกแล้ว"</string>
     <string name="native_a450ea5e177b4787" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"แก้ไขระบบอัตโนมัติ"</string>
+    <string name="native_a480777ffc612357" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Complete Bootstrap"</string>
     <string name="native_a484bc216860979e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ใช้เครือข่ายเดียวกัน หรือ URL ของ Gateway ระยะไกลที่ปลอดภัย"</string>
     <string name="native_a4ae750b610e875e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"จุดยึด"</string>
     <string name="native_a4fe65264ef7dbb3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ภาษา"</string>
@@ -1127,6 +1129,7 @@
     <string name="native_acfc5be785a9bb3d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ตัดการเชื่อมต่อ"</string>
     <string name="native_ad1c341c65f84ede" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"รันคำสั่ง approve บนคอมพิวเตอร์ Gateway แล้วตรวจสอบอีกครั้ง"</string>
     <string name="native_ad1fb9ec0cb3c7a4" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"การทำงานอัตโนมัติ"</string>
+    <string name="native_ad502b49d0f661b0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Write Agent File"</string>
     <string name="native_adb7eb8a03ad699c" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s นาที"</string>
     <string name="native_ade9248e0132b411" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"เชื่อถือ"</string>
     <string name="native_ae27fa789a03c1db" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"คิวอาร์โค้ดนั้นไม่ใช่คิวอาร์สำหรับตั้งค่า OpenClaw โปรดสร้างรหัสใหม่ด้วย openclaw qr แล้วลองอีกครั้ง"</string>
@@ -1304,6 +1307,7 @@
     <string name="native_cae7d57bc067a514" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"หยุด"</string>
     <string name="native_cae98462b30650eb" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ยังไม่มีเธรดที่ตรงกัน"</string>
     <string name="native_cba62d81f910c7f0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"จับคู่ Gateway สำเร็จแล้ว\nอนุมัติความสามารถของโหนดสำหรับโทรศัพท์เครื่องนี้จาก UI ของผู้ดูแลระบบ"</string>
+    <string name="native_cbcfe572efce6949" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Read Agent File"</string>
     <string name="native_cc4b66e7e22230c3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Skills นี้ได้รับการติดตั้งแล้ว แต่ยังไม่พร้อมใช้งานในขณะนี้ โปรดใช้เดสก์ท็อปหรือ CLI เพื่อเปลี่ยนแปลงการกำหนดค่า"</string>
     <string name="native_cc5f45fb30a26e07" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ตัวรู้จำไม่ว่าง"</string>
     <string name="native_cc721e25d73938a6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway หลัก"</string>

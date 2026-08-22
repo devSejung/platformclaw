@@ -757,6 +757,7 @@
     <string name="native_71dba3ccde0a371b" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s://%2$s"</string>
     <string name="native_71dca4478e9cab11" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s... (تأیید)"</string>
     <string name="native_71eb964324a01777" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ارائه‌دهندگان و مدل‌های پیکربندی‌شده"</string>
+    <string name="native_71f801b00e45d84a" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Edit Agent File"</string>
     <string name="native_72021eb70e91b4d5" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"در حال اتصال…"</string>
     <string name="native_721ca8245ae89272" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"برای ذخیره واژه‌های بیدارباش به یک Gateway متصل شوید"</string>
     <string name="native_7234213a42c2635b" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"باز کردن پروفایل"</string>
@@ -1072,6 +1073,7 @@
     <string name="native_a4212f1e2fb0f506" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ذخیره پروفایل"</string>
     <string name="native_a424e33d90931d1e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"قفل‌شده"</string>
     <string name="native_a450ea5e177b4787" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ویرایش خودکارسازی"</string>
+    <string name="native_a480777ffc612357" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Complete Bootstrap"</string>
     <string name="native_a484bc216860979e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"از همان شبکه یا یک URL امن Gateway راه دور استفاده کنید."</string>
     <string name="native_a4ae750b610e875e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"لنگر"</string>
     <string name="native_a4fe65264ef7dbb3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"زبان"</string>
@@ -1127,6 +1129,7 @@
     <string name="native_acfc5be785a9bb3d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"قطع اتصال"</string>
     <string name="native_ad1c341c65f84ede" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"فرمان approve را روی رایانه Gateway اجرا کنید، سپس دوباره بررسی کنید."</string>
     <string name="native_ad1fb9ec0cb3c7a4" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"خودکارسازی‌ها"</string>
+    <string name="native_ad502b49d0f661b0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Write Agent File"</string>
     <string name="native_adb7eb8a03ad699c" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s دقیقه"</string>
     <string name="native_ade9248e0132b411" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"اعتماد"</string>
     <string name="native_ae27fa789a03c1db" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"این کد QR، کد QR راه‌اندازی OpenClaw نیست. با openclaw qr یک کد جدید ایجاد کنید، سپس دوباره امتحان کنید."</string>
@@ -1304,6 +1307,7 @@
     <string name="native_cae7d57bc067a514" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"توقف"</string>
     <string name="native_cae98462b30650eb" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"هنوز گفتگوی منطبقی وجود ندارد."</string>
     <string name="native_cba62d81f910c7f0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"جفت‌سازی Gateway موفق بود.\nقابلیت‌های گره این تلفن را از طریق رابط کاربری اپراتور تأیید کنید."</string>
+    <string name="native_cbcfe572efce6949" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Read Agent File"</string>
     <string name="native_cc4b66e7e22230c3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"این Skills نصب شده است، اما در حال حاضر شرایط اجرا را ندارد. برای تغییرات پیکربندی از دسکتاپ یا CLI استفاده کنید."</string>
     <string name="native_cc5f45fb30a26e07" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"تشخیص‌دهنده مشغول است"</string>
     <string name="native_cc721e25d73938a6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway خانگی"</string>
