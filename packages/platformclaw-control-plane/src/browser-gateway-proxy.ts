@@ -244,7 +244,7 @@ export class BrowserGatewayProxy {
       method,
       request: prepared,
       agentId: access.binding.agentId,
-      searchOrganizationMemory: this.options.searchOrganizationMemory,
+      searchOrganizationMemory: this.options.searchOrganizationMemory?.bind(this.options),
     });
     try {
       return this.filterResult(access, method, prepared, result, executionTarget) as T;
