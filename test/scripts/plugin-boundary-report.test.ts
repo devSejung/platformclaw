@@ -73,7 +73,10 @@ describe("plugin-boundary-report", () => {
     for (const record of summary.compat?.removalPending ?? []) {
       expect(record.removeAfter).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
       expect(record.blocker).toEqual(expect.stringMatching(/retain|replacement|blocked/iu));
-      expect(record.readerCount).toEqual(expect.any(Number));
+      expect(typeof record.readerCount).toBe("number");
+      if (typeof record.readerCount !== "number") {
+        throw new TypeError("Expected compatibility readerCount to be a number");
+      }
       expect(record.readerSample).toEqual(expect.any(Array));
       if (record.readerCount > 0) {
         expect(record.readerSample).toEqual(expect.arrayContaining([expect.any(String)]));
