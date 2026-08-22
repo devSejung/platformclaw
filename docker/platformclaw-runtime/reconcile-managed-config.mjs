@@ -11,6 +11,7 @@ import {
 
 const MCP_DENY_MIGRATION_ERROR =
   "Existing sandbox tool deny policy blocks managed global MCP; remove bundle-mcp, matching wildcards, or group:plugins before upgrading PlatformClaw";
+const MANAGED_DISABLED_AGENT_TOOLS = ["group:nodes"];
 
 const MANAGED_MEMORY_WIKI_CONFIG = {
   vaultMode: "bridge",
@@ -170,6 +171,28 @@ function reconcileGlobalMcpSandboxGate(config) {
   };
 }
 
+function reconcileManagedAgentToolPolicy(config) {
+  const tools = config?.tools && typeof config.tools === "object" ? config.tools : {};
+  const currentDeny = Array.isArray(tools.deny) ? tools.deny : [];
+  const normalizedDeny = new Set(
+    currentDeny.flatMap((entry) => (typeof entry === "string" ? [entry.trim().toLowerCase()] : [])),
+  );
+  const missing = MANAGED_DISABLED_AGENT_TOOLS.filter((toolName) => !normalizedDeny.has(toolName));
+  if (missing.length === 0 && Array.isArray(tools.deny)) {
+    return { config, changed: false };
+  }
+  return {
+    changed: true,
+    config: {
+      ...config,
+      tools: {
+        ...tools,
+        deny: [...currentDeny, ...missing],
+      },
+    },
+  };
+}
+
 function reconcileRequiredPlugins(config) {
   const plugins = config?.plugins ?? {};
   const entries = plugins.entries ?? {};
@@ -178,6 +201,9 @@ function reconcileRequiredPlugins(config) {
   const memoryCoreEntry = entries["memory-core"] ?? {};
   const memoryCoreConfig = memoryCoreEntry.config ?? {};
   const memoryCoreDreaming = memoryCoreConfig.dreaming ?? {};
+  const canvasEntry = entries.canvas ?? {};
+  const canvasConfig = canvasEntry.config ?? {};
+  const canvasHost = canvasConfig.host ?? {};
   const nextEntries = {
     ...entries,
     ...Object.fromEntries(
@@ -186,6 +212,14 @@ function reconcileRequiredPlugins(config) {
         { ...entries[pluginId], enabled: true },
       ]),
     ),
+    canvas: {
+      ...canvasEntry,
+      enabled: false,
+      config: {
+        ...canvasConfig,
+        host: { ...canvasHost, enabled: true },
+      },
+    },
     "memory-wiki": {
       ...memoryWikiEntry,
       enabled: true,
@@ -245,10 +279,11 @@ function reconcileRequiredPlugins(config) {
 export function reconcileManagedConfig(config, sandboxImage) {
   const imageResult = reconcileSandboxImage(config, sandboxImage);
   const mcpResult = reconcileGlobalMcpSandboxGate(imageResult.config);
-  const pluginResult = reconcileRequiredPlugins(mcpResult.config);
+  const toolResult = reconcileManagedAgentToolPolicy(mcpResult.config);
+  const pluginResult = reconcileRequiredPlugins(toolResult.config);
   return {
     config: pluginResult.config,
-    changed: imageResult.changed || mcpResult.changed || pluginResult.changed,
+    changed: imageResult.changed || mcpResult.changed || toolResult.changed || pluginResult.changed,
   };
 }
 

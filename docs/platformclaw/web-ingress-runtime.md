@@ -112,11 +112,17 @@ every HTML or asset read. A valid browser cookie, matching employee capability,
 and matching document owner are all required. `plugin.surface.refresh` rotates
 only the employee's BFF capability.
 
-Canvas remains available when the employee selects an assigned VM. The agent
-loop and `show_widget` document owner stay on the Gateway; only project shell
-and file tools move through the assigned-VM sandbox backend. A widget may show
-results computed on that VM, but it does not implicitly expose VM files or turn
-VM paths into browser URLs.
+Inline `show_widget` rendering remains available when the employee selects an
+assigned VM. The agent loop and widget document owner stay on the Gateway; only
+project shell and file tools move through the assigned-VM sandbox backend. A
+widget may show results computed on that VM, but HTML must be passed as
+`widget_code`: neither `file://` nor a VM path becomes a browser URL.
+
+PlatformClaw disables the separate paired-node Canvas plugin and the
+`group:nodes` agent tool family (`nodes`, `computer`, and `mobile_ui`). Assigned
+VMs are execution backends, not paired display nodes, and
+the shared Gateway has no employee-owned node authorization boundary. The core
+Canvas document host remains enabled for `show_widget` and its BFF relay.
 
 The browser WebSocket payload ceiling matches the upstream Gateway at 25 MiB.
 Because composer attachments are base64 inside a JSON request, the practical

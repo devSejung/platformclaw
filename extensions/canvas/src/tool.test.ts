@@ -90,6 +90,22 @@ describe("Canvas tool", () => {
     },
   );
 
+  it("explains that Canvas requires a paired display node", async () => {
+    mocks.resolveNodeIdFromList.mockImplementation(() => {
+      throw new Error("node required");
+    });
+
+    await expect(
+      createCanvasTool().execute("tool-call", {
+        action: "present",
+        url: "file:///users/employee/workspace/dashboard.html",
+      }),
+    ).rejects.toThrow(
+      "paired node required for Canvas; connect a display node, or use a current-surface widget capability when available",
+    );
+    expect(mocks.callGatewayTool).not.toHaveBeenCalled();
+  });
+
   it.each(canvasToolInvocationActions)(
     "forwards an explicit $command node deadline with Gateway transport grace",
     async ({ args, command }) => {

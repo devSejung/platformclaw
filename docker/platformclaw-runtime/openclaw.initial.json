@@ -25,6 +25,7 @@
     }
   },
   "tools": {
+    "deny": ["group:nodes"],
     "sandbox": {
       "tools": {
         "alsoAllow": ["bundle-mcp"]
@@ -36,6 +37,14 @@
       "memory": "memory-core"
     },
     "entries": {
+      "canvas": {
+        "enabled": false,
+        "config": {
+          "host": {
+            "enabled": true
+          }
+        }
+      },
       "admin-http-rpc": {
         "enabled": true
       },
