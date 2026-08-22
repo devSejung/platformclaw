@@ -437,7 +437,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
           },
         },
       },
-      tools: { deny: ["nodes"], sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
+      tools: { deny: ["group:nodes"], sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
       plugins: {
         slots: { memory: "memory-core" },
         entries: {
@@ -496,7 +496,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(result.config.agents.defaults.model).toEqual({ primary: "openai/gpt-5.4" });
     expect(result.config.agents.entries).toEqual(source.agents.entries);
     expect(result.config.tools.sandbox.tools.alsoAllow).toEqual(["memory_search", "bundle-mcp"]);
-    expect(result.config.tools.deny).toEqual(["nodes"]);
+    expect(result.config.tools.deny).toEqual(["group:nodes"]);
     expect(source.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:old");
   });
 
@@ -519,7 +519,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
 
     const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
 
-    expect(result.config.tools.deny).toEqual(["browser", "nodes"]);
+    expect(result.config.tools.deny).toEqual(["browser", "group:nodes"]);
     expect(result.config.plugins.entries.canvas).toEqual({
       enabled: false,
       config: { host: { enabled: true }, preserved: true },

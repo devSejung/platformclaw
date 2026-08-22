@@ -118,8 +118,9 @@ project shell and file tools move through the assigned-VM sandbox backend. A
 widget may show results computed on that VM, but HTML must be passed as
 `widget_code`: neither `file://` nor a VM path becomes a browser URL.
 
-PlatformClaw disables the separate paired-node Canvas plugin and the `nodes`
-agent tool. Assigned VMs are execution backends, not paired display nodes, and
+PlatformClaw disables the separate paired-node Canvas plugin and the
+`group:nodes` agent tool family (`nodes`, `computer`, and `mobile_ui`). Assigned
+VMs are execution backends, not paired display nodes, and
 the shared Gateway has no employee-owned node authorization boundary. The core
 Canvas document host remains enabled for `show_widget` and its BFF relay.
 

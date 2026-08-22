@@ -11,7 +11,7 @@ import {
 
 const MCP_DENY_MIGRATION_ERROR =
   "Existing sandbox tool deny policy blocks managed global MCP; remove bundle-mcp, matching wildcards, or group:plugins before upgrading PlatformClaw";
-const MANAGED_DISABLED_AGENT_TOOLS = ["nodes"];
+const MANAGED_DISABLED_AGENT_TOOLS = ["group:nodes"];
 
 const MANAGED_MEMORY_WIKI_CONFIG = {
   vaultMode: "bridge",

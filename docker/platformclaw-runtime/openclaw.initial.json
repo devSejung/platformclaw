@@ -25,7 +25,7 @@
     }
   },
   "tools": {
-    "deny": ["nodes"],
+    "deny": ["group:nodes"],
     "sandbox": {
       "tools": {
         "alsoAllow": ["bundle-mcp"]

@@ -74,7 +74,7 @@ function validateToolPolicy(tools) {
 
 function validateManagedAgentToolPolicy(tools) {
   const deny = normalizedPluginIds(tools?.deny);
-  requirePolicy(deny.includes("nodes"));
+  requirePolicy(deny.includes("group:nodes"));
 }
 
 function globMatches(value, rawPattern) {
@@ -171,7 +171,7 @@ export function validateManagedConfig(config, sandboxImage) {
   const pluginDeny = normalizedPluginIds(config?.plugins?.deny);
   requirePolicy(REQUIRED_MANAGED_PLUGIN_IDS.every((pluginId) => !pluginDeny.includes(pluginId)));
   // PlatformClaw VMs are execution backends, not paired nodes. Keep the
-  // Gateway-owned widget host active while removing the unowned node Canvas tool.
+  // Gateway-owned widget host active while removing the unowned node-control group.
   requirePolicy(plugins?.canvas?.enabled === false);
   requirePolicy(plugins?.canvas?.config?.host?.enabled === true);
 

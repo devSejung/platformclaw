@@ -228,6 +228,8 @@ export type ControlUiMockGatewayScenario = {
   }>;
   /** Operator scopes returned by the mocked connect handshake. */
   operatorScopes?: string[];
+  /** Capability-scoped hosted surfaces returned by the mocked connect handshake. */
+  pluginSurfaceUrls?: Record<string, string>;
   sessionKey?: string;
   /** Initial gateway-owned custom group catalog (sessions.groups.*), in order. */
   sessionGroups?: string[];
@@ -658,6 +660,7 @@ function normalizeScenario(
       "operator.approvals",
       "operator.pairing",
     ],
+    pluginSurfaceUrls: scenario.pluginSurfaceUrls ?? {},
     repeatingSessionEvents: scenario.repeatingSessionEvents ?? { events: [] },
     sessionInfo: scenario.sessionInfo ?? null,
     sessionArchiveFiltering: scenario.sessionArchiveFiltering ?? false,
@@ -1394,6 +1397,7 @@ function installControlUiMockGateway(
             allowedSessionVisibilities: scenario.allowedSessionVisibilities,
             hasMultipleSessionSharingIdentities: scenario.hasMultipleSessionSharingIdentities,
           },
+          pluginSurfaceUrls: scenario.pluginSurfaceUrls,
           snapshot: {
             ...presenceSnapshot(params),
             sessionDefaults: {

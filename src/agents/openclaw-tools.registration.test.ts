@@ -5,6 +5,7 @@ import { setEmbeddedMode } from "../infra/embedded-mode.js";
 import { withEnv } from "../test-utils/env.js";
 import { isToolWrappedWithBeforeToolCallHook } from "./agent-tools.before-tool-call.js";
 import { createOpenClawCodingTools } from "./agent-tools.js";
+import { filterToolsByPolicy } from "./agent-tools.policy.js";
 import { resolveCoreToolFactoryFamily } from "./core-tool-factory-descriptors.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
 import {
@@ -12,6 +13,7 @@ import {
   shouldIncludeAskUserToolForOpenClawTools,
   shouldIncludeUpdatePlanToolForOpenClawTools,
 } from "./openclaw-tools.registration.js";
+import { expandToolGroups } from "./tool-policy-shared.js";
 import { textResult, type AnyAgentTool } from "./tools/common.js";
 import { createPdfTool } from "./tools/pdf-tool.js";
 import { createUpdatePlanTool } from "./tools/update-plan-tool.js";
@@ -625,19 +627,22 @@ describe("gateway client capability tool filtering", () => {
   });
 
   it("keeps the core widget tool when only the paired-node Canvas plugin is disabled", () => {
-    expect(
-      hasTool(
-        createOpenClawTools({
-          clientCaps: ["inline-widgets"],
-          config: {
-            plugins: {
-              entries: { canvas: { enabled: false, config: { host: { enabled: true } } } },
-            },
-          },
-        }),
-        "show_widget",
-      ),
-    ).toBe(true);
+    const configuredTools = createOpenClawTools({
+      clientCaps: ["inline-widgets"],
+      config: {
+        plugins: {
+          entries: { canvas: { enabled: false, config: { host: { enabled: true } } } },
+        },
+      },
+    });
+    const effectiveTools = filterToolsByPolicy(configuredTools, {
+      deny: expandToolGroups(["group:nodes"]),
+    });
+
+    expect(hasTool(effectiveTools, "show_widget")).toBe(true);
+    for (const unavailable of ["canvas", "nodes", "computer", "mobile_ui"]) {
+      expect(hasTool(effectiveTools, unavailable), unavailable).toBe(false);
+    }
   });
 
   it("keeps the core widget tool out when OPENCLAW_SKIP_CANVAS_HOST is set", () => {
