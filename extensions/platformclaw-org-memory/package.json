@@ -1,0 +1,14 @@
+{
+  "name": "@platformclaw/org-memory",
+  "version": "2026.7.2",
+  "private": true,
+  "description": "Private PlatformClaw organizational memory corpus adapter.",
+  "type": "module",
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "compat": { "pluginApi": ">=2026.7.2" }
+  }
+}

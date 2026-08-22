@@ -1,5 +1,5 @@
 import { consume } from "@lit/context";
-import { html, type PropertyValues } from "lit";
+import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import {
   applicationContext,
@@ -18,6 +18,7 @@ import { formatTimeMs } from "../../../lib/format.ts";
 import { isGatewayMethodAdvertised } from "../../../lib/gateway-methods.ts";
 import { OpenClawLightDomElement } from "../../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../../lit/subscriptions-controller.ts";
+import "../../config/memory-memories.ts";
 import {
   backfillDreamDiary,
   canCallDreamingMethod,
@@ -114,6 +115,7 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   private context!: ApplicationContext;
 
   @property({ attribute: false }) agentId = "";
+  @property({ type: Boolean }) showMemorySearch = false;
 
   @state() private dreaming = createDreamingState();
   @state() private toggleConfirmOpen = false;
@@ -523,6 +525,17 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
     const selectedAgentId = dreaming.selectedAgentId ?? this.agentId;
 
     return html`
+      ${this.showMemorySearch
+        ? html`<section class="settings-page">
+            <h2>${t("memoryPage.tabs.memories")}</h2>
+            <openclaw-memory-memories
+              .client=${dreaming.client}
+              .connected=${dreaming.connected}
+              .methodAdvertised=${isGatewayMethodAdvertised(dreaming, "memory.search") !== false}
+              .agentId=${selectedAgentId || null}
+            ></openclaw-memory-memories>
+          </section>`
+        : nothing}
       <section class="content-header content-header--page agent-memory-panel__header">
         <div class="page-meta">
           <div class="dreaming-header-controls">

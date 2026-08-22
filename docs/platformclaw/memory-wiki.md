@@ -37,8 +37,11 @@ or an explicit operator action. PR1 adds no background LLM curator.
 | 3   | Organization read scopes    | Personal, part, group, and global corpora with PlatformClaw membership checks |
 | 4   | Promotion lifecycle         | Claim-level request, approval, retirement, audit, and derived semantic links  |
 
-Each PR is independently usable. Later PRs must reuse native Memory Wiki
-compiler and query contracts rather than fork page rendering or search.
+Each PR leaves a deployable system. PR3 intentionally ships an empty shared
+read model until PR4 adds the only authorized promotion writer; it is useful as
+an authorization, query, and UI foundation but does not fabricate seed data.
+Later PRs must reuse native Memory Wiki compiler and query contracts rather
+than fork page rendering or search.
 
 ## PR1: personal Agent Wiki
 
@@ -124,19 +127,49 @@ No part, group, or global authorization ships in PR2.
 
 ## PR3: organization scopes
 
-PR3 adds four PlatformClaw vault classes:
+PR3 adds four logical corpus classes. Shared corpora are SQLite read models,
+not host filesystem vaults:
 
-| Scope    | Read authority                                           | Write authority             |
-| -------- | -------------------------------------------------------- | --------------------------- |
-| Personal | Bound employee                                           | Native personal Agent tools |
-| Part     | Current part members                                     | Promotion workflow only     |
-| Group    | Current group members; group admin may audit child parts | Promotion workflow only     |
-| Global   | Every authenticated employee                             | Promotion workflow only     |
+| Scope    | Read authority                                            | Write authority             |
+| -------- | --------------------------------------------------------- | --------------------------- |
+| Personal | Bound employee                                            | Native personal Agent tools |
+| Part     | Current part members                                      | Promotion workflow only     |
+| Group    | Current group members; group leader may audit child parts | Promotion workflow only     |
+| Global   | Every authenticated employee                              | Promotion workflow only     |
 
 Ordinary group members cannot read sibling part vaults. Default search spans
 every corpus authorized for the current employee and labels each result's
 scope. Membership is resolved by PlatformClaw at request time; browser input
 never grants scope.
+
+The additive `organization_memory_pages` table remains under schema version 2
+and is created idempotently on first use. It stores only compiler output and
+bounded provenance JSON. It exposes no production write API in PR3. PR4 owns
+claim submission, approval, retirement, and compilation into this table.
+
+Authorization is evaluated for every search and page read:
+
+- an active personal Agent must map to an active employee;
+- Global pages are readable by every active employee;
+- Group and Part pages require direct active membership;
+- a Group leader may audit active child Parts;
+- Part membership does not imply parent-Group access;
+- archived scopes, retired pages, Knox/unknown Agents, and sibling Parts fail
+  closed.
+
+The private `platformclaw-org-memory` plugin adapts the Control Plane read model
+to the generic memory corpus registry. It runs with the Gateway on the Basic
+server, so Basic and assigned-VM execution targets see the same authorized
+results. Models use `memory_search` with `corpus=all` or `corpus=wiki`.
+Employee browsers use **Settings > Memory > Memories**; the BFF pins the Agent,
+combines personal and organization results, and returns only virtual
+`organization/<scope>/<page-id>` paths plus a display scope. Host paths,
+internal provenance, scope IDs, and approval identities never reach the UI.
+
+Deployment owns the plugin enablement. Operators need no new environment
+variable: the plugin reuses the existing owner-only Control Plane handoff token
+and socket. Redeploy/restart the PlatformClaw Gateway and web ingress after
+upgrade. Before PR4, an empty organization result set is expected.
 
 ## PR4: promotion and lifecycle
 

@@ -1,4 +1,5 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import type { OrganizationMemorySearchHit } from "./contracts.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -6,9 +7,12 @@ type ProjectionFailure = (message: string) => never;
 
 const MAX_QUERY_CHARS = 1_000;
 const MAX_RESULTS = 50;
+const MAX_COMBINED_RESULTS = 100;
 const MAX_PROVIDER_CHARS = 256;
 const MAX_SNIPPET_CHARS = 16 * 1024;
 const MAX_MEMORY_FILE_CHARS = 256 * 1024;
+const ORGANIZATION_MEMORY_PATH =
+  /^organization\/(global|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
 
 function requireObject(value: unknown, label: string, fail: ProjectionFailure): JsonObject {
   return isRecord(value) ? value : fail(`Gateway returned invalid ${label}`);
@@ -61,6 +65,92 @@ function projectMemorySearchHit(value: unknown, fail: ProjectionFailure): JsonOb
   return { path, startLine, endLine, score, snippet: hit.snippet, source: "memory" };
 }
 
+function projectOrganizationMemorySearchHit(value: unknown, fail: ProjectionFailure): JsonObject {
+  const hit = requireObject(value, "organization memory search hit", fail);
+  const score = finiteNumber(hit.score);
+  if (
+    typeof hit.path !== "string" ||
+    !ORGANIZATION_MEMORY_PATH.test(hit.path) ||
+    score === null ||
+    typeof hit.snippet !== "string" ||
+    hit.snippet.length > MAX_SNIPPET_CHARS ||
+    typeof hit.title !== "string" ||
+    hit.title.length > 512 ||
+    (hit.kind !== "global" && hit.kind !== "group" && hit.kind !== "part") ||
+    typeof hit.provenanceLabel !== "string" ||
+    !hit.provenanceLabel ||
+    hit.provenanceLabel.length > 256
+  ) {
+    return fail("Gateway returned an invalid organization memory search hit");
+  }
+  return {
+    corpus: "platformclaw-organization",
+    source: "organization",
+    path: hit.path,
+    title: hit.title,
+    kind: hit.kind,
+    score,
+    snippet: hit.snippet,
+    startLine: 1,
+    endLine: 1,
+    provenanceLabel: hit.provenanceLabel,
+    ...(typeof hit.updatedAt === "string" ? { updatedAt: hit.updatedAt } : {}),
+  };
+}
+
+function appendOrganizationMemoryResults(
+  result: unknown,
+  organizationResults: readonly OrganizationMemorySearchHit[],
+): unknown {
+  if (!isRecord(result) || !Array.isArray(result.results)) {
+    return result;
+  }
+  return {
+    ...result,
+    results: [
+      ...result.results,
+      ...organizationResults.map((hit) => ({
+        corpus: "platformclaw-organization",
+        source: "organization",
+        path: hit.path,
+        title: hit.title,
+        kind: hit.scopeKind,
+        score: hit.score,
+        snippet: hit.snippet,
+        startLine: 1,
+        endLine: 1,
+        provenanceLabel: hit.scopeName,
+        updatedAt: new Date(hit.updatedAt).toISOString(),
+      })),
+    ],
+  };
+}
+
+export async function appendOrganizationMemorySearch(
+  method: string,
+  result: unknown,
+  agentId: string,
+  query: string,
+  search?: (params: {
+    agentId: string;
+    query: string;
+    maxResults?: number;
+  }) => Promise<OrganizationMemorySearchHit[]>,
+): Promise<unknown> {
+  if (method !== "memory.search" || !search) {
+    return result;
+  }
+  try {
+    return appendOrganizationMemoryResults(
+      result,
+      await search({ agentId, query, maxResults: 20 }),
+    );
+  } catch {
+    // Organization memory is supplemental: its outage must not hide personal memory.
+    return isRecord(result) ? { ...result, organizationMemoryUnavailable: true } : result;
+  }
+}
+
 export function prepareBrowserMemoryRequest(params: {
   method: string;
   request: JsonObject;
@@ -105,7 +195,7 @@ export function projectBrowserMemoryResult(params: {
       payload.provider.length > MAX_PROVIDER_CHARS ||
       (payload.searchMode !== "hybrid" && payload.searchMode !== "fts-only") ||
       !Array.isArray(payload.results) ||
-      payload.results.length > MAX_RESULTS
+      payload.results.length > MAX_COMBINED_RESULTS
     ) {
       return params.fail("Gateway returned an invalid personal memory search result");
     }
@@ -114,12 +204,28 @@ export function projectBrowserMemoryResult(params: {
       (value) =>
         isRecord(value) && value.source === "memory" && canonicalMemoryFilePath(value.path),
     );
+    const organizationHits = payload.results.filter(
+      (value) =>
+        isRecord(value) &&
+        value.source === "organization" &&
+        typeof value.path === "string" &&
+        ORGANIZATION_MEMORY_PATH.test(value.path),
+    );
+    const results = [
+      ...memoryHits.map((hit) => projectMemorySearchHit(hit, params.fail)),
+      ...organizationHits.map((hit) => projectOrganizationMemorySearchHit(hit, params.fail)),
+    ]
+      .toSorted((left, right) => (finiteNumber(right.score) ?? 0) - (finiteNumber(left.score) ?? 0))
+      .slice(0, MAX_RESULTS);
     return {
       agentId: params.agentId,
       provider: payload.provider,
       searchMode: payload.searchMode,
-      results: memoryHits.map((hit) => projectMemorySearchHit(hit, params.fail)),
+      results,
       ...(payload.stale === true ? { stale: true } : {}),
+      ...(payload.organizationMemoryUnavailable === true
+        ? { organizationMemoryUnavailable: true }
+        : {}),
     };
   }
   const requestedPath = canonicalMemoryFilePath(params.request.path);

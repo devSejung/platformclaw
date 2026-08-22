@@ -124,6 +124,43 @@ describe("MemoryMemoriesElement", () => {
     }
   });
 
+  it("labels organization results by authorized scope without workspace expansion", async () => {
+    const request = vi.fn<Request>(() =>
+      Promise.resolve({
+        agentId: "main",
+        provider: "local",
+        searchMode: "fts-only",
+        organizationMemoryUnavailable: true,
+        results: [
+          {
+            ...result,
+            source: "organization",
+            corpus: "platformclaw-organization",
+            path: "organization/part/release-policy",
+            title: "Release policy",
+            kind: "part",
+            provenanceLabel: "Runtime",
+            snippet: "Two approvals are required.",
+            startLine: 1,
+            endLine: 1,
+          },
+        ],
+      }),
+    );
+    const element = createElement(request);
+    try {
+      await typeQuery(element, "release");
+      submit(element);
+      await waitForFast(() => expect(element.textContent).toContain("Two approvals are required."));
+      expect(element.textContent?.replace(/\s+/g, " ")).toContain("organization · Runtime");
+      expect(element.textContent).toContain("Organization memory is temporarily unavailable.");
+      expect(element.querySelector("article > button")).toBeNull();
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      element.remove();
+    }
+  });
+
   it("renders empty and retryable error states", async () => {
     const request = vi
       .fn<Request>()

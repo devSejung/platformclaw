@@ -39,6 +39,7 @@ import { projectBrowserAgentSummary } from "./browser-gateway-projections.js";
 import { createBrowserGatewaySession } from "./browser-gateway-session-create.js";
 import { projectBrowserSessionResult } from "./browser-gateway-session-projections.js";
 import { BrowserGatewayTerminalController } from "./browser-gateway-terminal.js";
+import { requestBrowserGatewayUpstream } from "./browser-gateway-upstream.js";
 export {
   PLATFORMCLAW_WEB_GATEWAY_METHODS,
   type PlatformClawWebGatewayMethod,
@@ -238,10 +239,13 @@ export class BrowserGatewayProxy {
     if (specialResult.handled) {
       return specialResult.result as T;
     }
-    // Keep commands.list on filtered metadata so browser visibility and execution cannot drift.
-    const upstreamMethod = method === "commands.list" ? "chat.metadata" : method;
-    const upstreamParams = method === "commands.list" ? { agentId: prepared.agentId } : prepared;
-    const result = await this.options.gateway.request(upstreamMethod, upstreamParams);
+    const result = await requestBrowserGatewayUpstream({
+      gateway: this.options.gateway,
+      method,
+      request: prepared,
+      agentId: access.binding.agentId,
+      searchOrganizationMemory: this.options.searchOrganizationMemory?.bind(this.options),
+    });
     try {
       return this.filterResult(access, method, prepared, result, executionTarget) as T;
     } catch (error) {

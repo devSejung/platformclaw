@@ -2,6 +2,7 @@ import type { BrowserAuthService } from "./browser-auth-service.js";
 import type {
   ControlPlaneAuditWriter,
   ControlPlaneStore,
+  OrganizationMemorySearchHit,
   PersonalAgentBinding,
   PlatformUser,
   BrowserSession,
@@ -55,5 +56,10 @@ export type BrowserGatewayProxyOptions = {
   gateway: BrowserGatewayRpc;
   buildAgentMainSessionKey(params: { agentId: string }): string;
   resolveAgentIdFromSessionKey(sessionKey: string): string | null;
+  searchOrganizationMemory?(params: {
+    agentId: string;
+    query: string;
+    maxResults?: number;
+  }): Promise<OrganizationMemorySearchHit[]>;
   now?: () => number;
 };

@@ -706,6 +706,11 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/platformclaw-execution/**"
+
+"extensions: platformclaw-org-memory":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/platformclaw-org-memory/**"
 "extensions: platformclaw-user-mcp":
   - changed-files:
       - any-glob-to-any-file:

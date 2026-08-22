@@ -22,6 +22,25 @@ export type PlatformUserGlobalRole = "member" | "admin";
 export type ManagedScopeKind = "group" | "part";
 export type ManagedScopeStatus = "active" | "archived";
 export type ManagedScopeRole = "member" | "leader";
+export type OrganizationMemoryScopeKind = "global" | ManagedScopeKind;
+
+export type OrganizationMemorySearchHit = {
+  id: string;
+  path: string;
+  scopeKind: OrganizationMemoryScopeKind;
+  scopeId?: string;
+  scopeName: string;
+  title: string;
+  snippet: string;
+  score: number;
+  updatedAt: number;
+};
+
+export type OrganizationMemoryDocument = OrganizationMemorySearchHit & {
+  content: string;
+  fromLine: number;
+  lineCount: number;
+};
 
 export type PlatformUser = {
   id: string;
@@ -224,6 +243,21 @@ export interface ControlPlaneAuditWriter {
 
 export interface ControlPlaneAuditReader {
   listAuditEvents(limit?: number): Promise<ControlAuditEvent[]>;
+}
+
+/** Read-only shared-memory boundary. PR4 is the sole owner of approved writes. */
+export interface OrganizationMemoryReader {
+  searchOrganizationMemory(params: {
+    agentId: string;
+    query: string;
+    maxResults?: number;
+  }): Promise<OrganizationMemorySearchHit[]>;
+  getOrganizationMemory(params: {
+    agentId: string;
+    path: string;
+    fromLine?: number;
+    lineCount?: number;
+  }): Promise<OrganizationMemoryDocument | null>;
 }
 
 export interface ControlPlaneManagementStore {

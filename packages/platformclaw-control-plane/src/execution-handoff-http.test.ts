@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -44,6 +44,31 @@ async function startServer() {
       revision: 2,
       expiresAt: 60_000,
     })),
+    searchOrganizationMemory: vi.fn(async () => [
+      {
+        id: "page-1",
+        path: "organization/global/page-1",
+        scopeKind: "global" as const,
+        scopeName: "Global",
+        title: "Security policy",
+        snippet: "Use approved devices.",
+        score: 0.9,
+        updatedAt: 1_000,
+      },
+    ]),
+    getOrganizationMemory: vi.fn(async () => ({
+      id: "page-1",
+      path: "organization/global/page-1",
+      scopeKind: "global" as const,
+      scopeName: "Global",
+      title: "Security policy",
+      snippet: "Use approved devices.",
+      score: 0.9,
+      updatedAt: 1_000,
+      content: "Use approved devices.",
+      fromLine: 1,
+      lineCount: 1,
+    })),
   } satisfies Pick<
     ExecutionHandoffService,
     "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
@@ -57,6 +82,17 @@ async function startServer() {
       revision: number;
       expiresAt?: number;
     }>;
+    searchOrganizationMemory(params: {
+      agentId: string;
+      query: string;
+      maxResults?: number;
+    }): Promise<unknown[]>;
+    getOrganizationMemory(params: {
+      agentId: string;
+      path: string;
+      fromLine?: number;
+      lineCount?: number;
+    }): Promise<unknown>;
   };
   const root = await mkdtemp(join(tmpdir(), "platformclaw-handoff-"));
   roots.push(root);
@@ -72,6 +108,35 @@ async function startServer() {
   servers.push(server);
   await server.listen();
   return { service, socketPath };
+}
+
+async function post(socketPath: string, pathname: string, body: unknown): Promise<unknown> {
+  const payload = Buffer.from(JSON.stringify(body));
+  return await new Promise((resolve, reject) => {
+    const req = request(
+      {
+        socketPath,
+        path: pathname,
+        method: "POST",
+        headers: {
+          authorization: "Bearer service-token-that-is-at-least-32-bytes",
+          "content-type": "application/json",
+          "content-length": payload.length,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () =>
+          (res.statusCode ?? 500) < 300
+            ? resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")))
+            : reject(new Error(`request failed (${res.statusCode ?? 500})`)),
+        );
+      },
+    );
+    req.once("error", reject);
+    req.end(payload);
+  });
 }
 
 describe("PlatformClawExecutionHandoffServer", () => {
@@ -125,6 +190,42 @@ describe("PlatformClawExecutionHandoffServer", () => {
       "github",
       "https://mcp.example.test/github",
     );
+  });
+
+  it("serves bounded organization memory using the agent-scoped owner", async () => {
+    const { socketPath, service } = await startServer();
+    await expect(
+      post(socketPath, "/platformclaw/internal/memory/organization/search", {
+        agentId: "person_one",
+        query: "security",
+        maxResults: 5,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ path: "organization/global/page-1" })]);
+    await expect(
+      post(socketPath, "/platformclaw/internal/memory/organization/get", {
+        agentId: "person_one",
+        path: "organization/global/page-1",
+        fromLine: 1,
+        lineCount: 20,
+      }),
+    ).resolves.toMatchObject({ content: "Use approved devices.", lineCount: 1 });
+    expect(service.searchOrganizationMemory).toHaveBeenCalledWith({
+      agentId: "person_one",
+      query: "security",
+      maxResults: 5,
+    });
+    expect(service.getOrganizationMemory).toHaveBeenCalledWith({
+      agentId: "person_one",
+      path: "organization/global/page-1",
+      fromLine: 1,
+      lineCount: 20,
+    });
+    await expect(
+      post(socketPath, "/platformclaw/internal/memory/organization/get", {
+        agentId: "person_one",
+        path: "file:///srv/private",
+      }),
+    ).rejects.toThrow("(400)");
   });
 
   it.runIf(process.platform !== "win32")(
