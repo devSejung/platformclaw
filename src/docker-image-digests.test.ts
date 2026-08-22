@@ -64,7 +64,16 @@ function resolveFromImageRef(fromLine: string, argDefaults: Map<string, string>)
   if (!argName) {
     return imageRef;
   }
-  return argDefaults.get(argName) ?? imageRef;
+  const visited = new Set<string>();
+  let currentName: string | undefined = argName;
+  let resolved = imageRef;
+  while (currentName && !visited.has(currentName)) {
+    visited.add(currentName);
+    resolved = argDefaults.get(currentName) ?? resolved;
+    currentName =
+      resolved.match(/^\$\{([A-Z0-9_]+)\}$/)?.[1] ?? resolved.match(/^\$([A-Z0-9_]+)$/)?.[1];
+  }
+  return resolved;
 }
 
 function resolveAllArgBackedFromReferences(

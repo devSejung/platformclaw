@@ -76,7 +76,7 @@ describe("Dockerfile", () => {
     }
   });
 
-  it("uses full bookworm for build stages and slim bookworm for runtime", async () => {
+  it("uses the configurable build image and slim bookworm for runtime", async () => {
     const dockerfile = await readFile(dockerfilePath, "utf8");
     expect(dockerfile).toContain(
       'ARG OPENCLAW_NODE_BOOKWORM_IMAGE="docker.io/library/node:24-bookworm@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059"',
@@ -87,8 +87,9 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain(
       'ARG OPENCLAW_BUN_IMAGE="docker.io/oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4"',
     );
-    expect(dockerfile).toContain("FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS workspace-deps");
-    expect(dockerfile).toContain("FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS build");
+    expect(dockerfile).toContain('ARG OPENCLAW_BUILD_IMAGE="${OPENCLAW_NODE_BOOKWORM_IMAGE}"');
+    expect(dockerfile).toContain("FROM ${OPENCLAW_BUILD_IMAGE} AS workspace-deps");
+    expect(dockerfile).toContain("FROM ${OPENCLAW_BUILD_IMAGE} AS build");
     expect(dockerfile).toContain("FROM ${OPENCLAW_NODE_BOOKWORM_SLIM_IMAGE} AS base-runtime");
     expect(dockerfile).toContain("FROM base-runtime");
     expect(dockerfile).toContain("current multi-arch manifest list entries");
@@ -213,9 +214,7 @@ describe("Dockerfile", () => {
 
   it("uses portable copies for workspace dependency inputs", async () => {
     const dockerfile = await readFile(dockerfilePath, "utf8");
-    const workspaceDepsStart = dockerfile.indexOf(
-      "FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS workspace-deps",
-    );
+    const workspaceDepsStart = dockerfile.indexOf("FROM ${OPENCLAW_BUILD_IMAGE} AS workspace-deps");
     const workspaceDepsEnd = dockerfile.indexOf("FROM ${OPENCLAW_BUN_IMAGE} AS bun-binary");
 
     expect(workspaceDepsStart).toBeGreaterThan(-1);
