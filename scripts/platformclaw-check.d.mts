@@ -20,6 +20,11 @@ export function createPlatformClawCheckCommands(
 
 export function surfacesForPlan(plan: PlatformClawChangePlan): PlatformClawCheckSurface[];
 
+export function shouldRunUpstreamChangedChecks(
+  plan: PlatformClawChangePlan,
+  options?: { overlayOnly?: boolean; quick?: boolean },
+): boolean;
+
 export function findPatchWhitespaceErrors(
   text: string,
 ): Array<{ line: number; reason: "conflict marker" | "trailing whitespace" }>;
