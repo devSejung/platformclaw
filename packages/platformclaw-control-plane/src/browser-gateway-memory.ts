@@ -98,7 +98,7 @@ function projectOrganizationMemorySearchHit(value: unknown, fail: ProjectionFail
   };
 }
 
-export function appendOrganizationMemoryResults(
+function appendOrganizationMemoryResults(
   result: unknown,
   organizationResults: readonly OrganizationMemorySearchHit[],
 ): unknown {

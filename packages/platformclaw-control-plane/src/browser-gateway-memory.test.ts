@@ -82,7 +82,7 @@ describe("BrowserGatewayProxy personal memory", () => {
         {
           id: "policy",
           path: "organization/global/policy",
-          scopeKind: "global",
+          scopeKind: "global" as const,
           scopeName: "Global",
           title: "Policy",
           snippet: "Company policy",
