@@ -142,13 +142,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         getRuntimeConfig: () => config,
       });
       const gatewayOrigin = await listen(gateway);
-      let relay: PlatformClawBrowserCanvasRelay | undefined;
       const bff = createServer((req, res) => {
-        if (!relay) {
-          res.statusCode = 503;
-          res.end();
-          return;
-        }
         void relay.handle(req, res).then((handled) => {
           if (!handled) {
             res.statusCode = 404;
@@ -157,7 +151,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         });
       });
       const bffOrigin = await listen(bff);
-      relay = new PlatformClawBrowserCanvasRelay({
+      const relay = new PlatformClawBrowserCanvasRelay({
         publicOrigin: bffOrigin,
         gatewayOrigin,
         gatewayAuth: gatewayToken,
