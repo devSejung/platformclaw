@@ -87,10 +87,14 @@ describe("organization memory promotion lifecycle", () => {
     });
     let releaseSubmit!: () => void;
     let markSubmitStarted!: () => void;
-    const submitStarted = new Promise<void>((resolve) => (markSubmitStarted = resolve));
+    const submitStarted = new Promise<void>((resolve) => {
+      markSubmitStarted = resolve;
+    });
     blocked = {
       started: markSubmitStarted,
-      wait: new Promise<void>((resolve) => (releaseSubmit = resolve)),
+      wait: new Promise<void>((resolve) => {
+        releaseSubmit = resolve;
+      }),
     };
     const racedSubmit = store.submitOrganizationMemoryPromotion({
       agentId: member.binding.agentId,
@@ -133,10 +137,14 @@ describe("organization memory promotion lifecycle", () => {
     });
     let releaseReview!: () => void;
     let markReviewStarted!: () => void;
-    const reviewStarted = new Promise<void>((resolve) => (markReviewStarted = resolve));
+    const reviewStarted = new Promise<void>((resolve) => {
+      markReviewStarted = resolve;
+    });
     blocked = {
       started: markReviewStarted,
-      wait: new Promise<void>((resolve) => (releaseReview = resolve)),
+      wait: new Promise<void>((resolve) => {
+        releaseReview = resolve;
+      }),
     };
     const racedDecision = store.decideOrganizationMemoryPromotion({
       agentId: admin.binding.agentId,

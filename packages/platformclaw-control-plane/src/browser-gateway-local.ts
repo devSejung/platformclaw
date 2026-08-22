@@ -1,7 +1,9 @@
 import type {
   BrowserGatewayAccess,
   BrowserGatewayProxyOptions,
+  BrowserGatewayProxyErrorCode,
 } from "./browser-gateway-contracts.js";
+import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
 import { requestBrowserOrganizationMemoryLifecycle } from "./browser-gateway-memory-lifecycle.js";
 import { projectBrowserSelfUser } from "./browser-gateway-self-service-projections.js";
 
@@ -13,6 +15,7 @@ export async function requestBrowserGatewayLocal(
   access: BrowserGatewayAccess,
   method: string,
   request: JsonObject,
+  auditDenied: (reason: BrowserGatewayProxyErrorCode) => Promise<void>,
 ): Promise<{ handled: false } | { handled: true; result: unknown }> {
   if (method === "users.self") {
     return { handled: true, result: projectBrowserSelfUser(access.user) };
@@ -20,11 +23,18 @@ export async function requestBrowserGatewayLocal(
   if (method === "sessions.subscribe") {
     return { handled: true, result: { subscribed: true } };
   }
-  return await requestBrowserOrganizationMemoryLifecycle({
-    lifecycle: options.organizationMemoryLifecycle,
-    agentId: access.binding.agentId,
-    method,
-    request,
-    now: (options.now ?? Date.now)(),
-  });
+  try {
+    return await requestBrowserOrganizationMemoryLifecycle({
+      lifecycle: options.organizationMemoryLifecycle,
+      agentId: access.binding.agentId,
+      method,
+      request,
+      now: (options.now ?? Date.now)(),
+    });
+  } catch (error) {
+    if (error instanceof BrowserGatewayProxyError) {
+      await auditDenied(error.code);
+    }
+    throw error;
+  }
 }

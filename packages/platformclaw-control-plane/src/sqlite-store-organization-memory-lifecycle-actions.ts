@@ -27,7 +27,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
     params: Parameters<OrganizationMemoryLifecycle["submitOrganizationMemoryPromotion"]>[0],
   ): Promise<OrganizationMemoryPromotionRequest> {
     this.ensureOrganizationMemorySchema();
-    const actor = this.requireOrganizationMemoryActor(params.agentId);
+    this.requireOrganizationMemoryActor(params.agentId);
     const scopes = this.authorizedScopes(params.agentId);
     const requestedSourceClaimId =
       params.sourceKind === "personal"

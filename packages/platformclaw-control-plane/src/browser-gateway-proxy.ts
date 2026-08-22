@@ -4,6 +4,7 @@ import { resolveBrowserGatewayAccess } from "./browser-gateway-access.js";
 import { BrowserGatewayAssertions } from "./browser-gateway-assertions.js";
 import { projectBrowserCatalogResult } from "./browser-gateway-catalog-projections.js";
 import {
+  asBrowserGatewayObject as asObject,
   BrowserGatewayProxyError,
   type BrowserGatewayAccess,
   type BrowserGatewayEvent,
@@ -61,16 +62,6 @@ import {
   projectBrowserTaskResult,
 } from "./browser-gateway-task-policy.js";
 type JsonObject = Record<string, unknown>;
-
-function asObject(value: unknown, label: string): JsonObject {
-  if (value === undefined) {
-    return {};
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new BrowserGatewayProxyError("invalid-params", `${label} must be an object`);
-  }
-  return { ...(value as JsonObject) };
-}
 
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
 export class BrowserGatewayProxy {
@@ -221,15 +212,13 @@ export class BrowserGatewayProxy {
         throw error;
       }
     }
-    let localResult;
-    try {
-      localResult = await requestBrowserGatewayLocal(this.options, access, method, prepared);
-    } catch (error) {
-      if (error instanceof BrowserGatewayProxyError) {
-        await this.auditDeniedRequest(access, method, error.code);
-      }
-      throw error;
-    }
+    const localResult = await requestBrowserGatewayLocal(
+      this.options,
+      access,
+      method,
+      prepared,
+      async (reason) => await this.auditDeniedRequest(access, method, reason),
+    );
     if (localResult.handled) {
       return localResult.result as T;
     }
