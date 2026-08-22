@@ -326,7 +326,7 @@ function buildSkillStatus(
     baseDir: entry.skill.baseDir,
     skillKey,
     ...(entry.frontmatter.version ? { version: entry.frontmatter.version } : {}),
-    revision: entry.skill.promptVersion,
+    ...(entry.skill.promptVersion !== undefined ? { revision: entry.skill.promptVersion } : {}),
     primaryEnv: entry.metadata?.primaryEnv,
     emoji,
     homepage,
