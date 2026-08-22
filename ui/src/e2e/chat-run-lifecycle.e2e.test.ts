@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CHAT_RUN_STATUS_TOAST_DURATION_MS } from "../pages/chat/run-lifecycle.ts";
 import {
   canRunPlaywrightChromium,
-  installMockGateway,
+  installFullGatewayMock as installMockGateway,
   pauseVirtualClock,
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,

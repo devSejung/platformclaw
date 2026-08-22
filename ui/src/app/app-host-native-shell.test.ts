@@ -58,6 +58,13 @@ function nativeSessionContext(
   } as unknown as ApplicationContext;
 }
 
+function nativeNavigationContext(navigate: ReturnType<typeof vi.fn>): ApplicationContext {
+  return {
+    navigate,
+    runtimeConfig: { state: { configSnapshot: null } },
+  } as unknown as ApplicationContext;
+}
+
 afterEach(() => {
   resetAppHostTestGlobals();
 });
@@ -230,9 +237,7 @@ describe("OpenClaw native shell", () => {
     const navigate = vi.fn();
     const shell = document.createElement("openclaw-app-shell") as unknown as ShellNavigationState;
     shell.runtime = {
-      context: {
-        navigate,
-      } as unknown as ApplicationContext,
+      context: nativeNavigationContext(navigate),
     };
     const event = new CustomEvent("openclaw:native-navigate", {
       cancelable: true,
@@ -249,9 +254,7 @@ describe("OpenClaw native shell", () => {
     const navigate = vi.fn();
     const shell = document.createElement("openclaw-app-shell") as unknown as ShellNavigationState;
     shell.runtime = {
-      context: {
-        navigate,
-      } as unknown as ApplicationContext,
+      context: nativeNavigationContext(navigate),
     };
     const event = new CustomEvent("openclaw:native-navigate", {
       cancelable: true,
@@ -270,9 +273,7 @@ describe("OpenClaw native shell", () => {
       const navigate = vi.fn();
       const shell = document.createElement("openclaw-app-shell") as unknown as ShellNavigationState;
       shell.runtime = {
-        context: {
-          navigate,
-        } as unknown as ApplicationContext,
+        context: nativeNavigationContext(navigate),
       };
       const event = new CustomEvent("openclaw:native-navigate", {
         cancelable: true,

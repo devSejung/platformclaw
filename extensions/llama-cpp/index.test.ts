@@ -9,7 +9,6 @@ import {
 } from "openclaw/plugin-sdk/plugin-test-contracts";
 import {
   clearEmbeddingProviders,
-  clearMemoryEmbeddingProviders,
   createEmptyPluginRegistry,
   getActivePluginRegistry,
   getRegisteredEmbeddingProvider,
@@ -111,7 +110,6 @@ function resolveIndexIdentity(modelPath: string, modelCacheDir?: string) {
 
 afterEach(() => {
   clearEmbeddingProviders();
-  clearMemoryEmbeddingProviders();
   setActivePluginRegistry(previousPluginRegistry ?? createEmptyPluginRegistry());
   memoryHostEmbeddingMocks.createLocalEmbeddingProvider.mockReset();
 });

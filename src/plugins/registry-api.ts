@@ -104,7 +104,6 @@ export function createPluginApiFactory(
     registerMemoryPromptSupplement,
     registerMemoryPromptPreparation,
     registerMemoryCorpusSupplement,
-    registerMemoryEmbeddingProvider,
     registerCli,
     registerChannel,
   } = registrars;
@@ -367,8 +366,6 @@ export function createPluginApiFactory(
                 registerMemoryPromptPreparation(record, prepare),
               registerMemoryCorpusSupplement: (supplement) =>
                 registerMemoryCorpusSupplement(record, supplement),
-              registerMemoryEmbeddingProvider: (adapter) =>
-                registerMemoryEmbeddingProvider(record, adapter),
               on: (hookName, handler, opts) =>
                 registerTypedHook(record, hookName, handler, opts, params.hookPolicy),
             }

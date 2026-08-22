@@ -63,7 +63,9 @@ describeControlUiE2e("Control UI approval flow", () => {
     const context = await browser.newContext({ viewport: { height: 800, width: 1200 } });
     const currentPage = await context.newPage();
     page = currentPage;
-    const gateway = await installMockGateway(currentPage);
+    const gateway = await installMockGateway(currentPage, {
+      gatewayFeatureProfile: "full-gateway",
+    });
 
     await currentPage.goto(`${server?.baseUrl ?? ""}chat`);
     await gateway.waitForRequest("sessions.list");
@@ -107,7 +109,9 @@ describeControlUiE2e("Control UI approval flow", () => {
     const context = await browser.newContext({ viewport: { height: 800, width: 1200 } });
     const currentPage = await context.newPage();
     page = currentPage;
-    const gateway = await installMockGateway(currentPage);
+    const gateway = await installMockGateway(currentPage, {
+      gatewayFeatureProfile: "full-gateway",
+    });
 
     await currentPage.goto(`${server?.baseUrl ?? ""}chat`);
     await gateway.waitForRequest("sessions.list");

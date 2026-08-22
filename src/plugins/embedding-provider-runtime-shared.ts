@@ -6,7 +6,7 @@ import {
   resolvePluginCapabilityProviders,
 } from "./capability-provider-runtime.js";
 
-type EmbeddingProviderCapabilityKey = "embeddingProviders" | "memoryEmbeddingProviders";
+type EmbeddingProviderCapabilityKey = "embeddingProviders";
 type RegisteredAdapterEntry<TAdapter> = {
   adapter: TAdapter;
 };

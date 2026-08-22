@@ -1,13 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig, type Plugin } from "vite";
+import type { Plugin, UserConfig } from "vite";
 import { createControlUiPrecompressedAssetVariants } from "./vite.config.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.resolve(here, "../dist/control-ui");
 
-function platformclawPrecompressedAssetsPlugin(): Plugin {
+function platformclawPrecompressedAssetsPlugin(buildOutDir: string): Plugin {
   return {
     name: "platformclaw-precompressed-assets",
     apply: "build",
@@ -15,25 +15,28 @@ function platformclawPrecompressedAssetsPlugin(): Plugin {
       // This second Vite build appends the login bundle after the main UI build.
       // Finalize its sidecars here so the shared package/performance gates see it.
       for (const output of Object.values(bundle)) {
-        const source = fs.readFileSync(path.join(outDir, output.fileName));
+        const source = fs.readFileSync(path.join(buildOutDir, output.fileName));
         for (const variant of createControlUiPrecompressedAssetVariants(output.fileName, source)) {
-          fs.writeFileSync(path.join(outDir, variant.fileName), variant.source);
+          fs.writeFileSync(path.join(buildOutDir, variant.fileName), variant.source);
         }
       }
     },
   };
 }
 
-export default defineConfig({
-  base: "./",
-  publicDir: false,
-  plugins: [platformclawPrecompressedAssetsPlugin()],
-  build: {
-    outDir,
-    emptyOutDir: false,
-    sourcemap: true,
-    rolldownOptions: {
-      input: path.resolve(here, "platformclaw-login.html"),
+export default function platformclawLoginViteConfig(options: { outDir?: string } = {}): UserConfig {
+  const buildOutDir = options.outDir ?? outDir;
+  return {
+    base: "./",
+    publicDir: false,
+    plugins: [platformclawPrecompressedAssetsPlugin(buildOutDir)],
+    build: {
+      outDir: buildOutDir,
+      emptyOutDir: false,
+      sourcemap: true,
+      rolldownOptions: {
+        input: path.resolve(here, "platformclaw-login.html"),
+      },
     },
-  },
-});
+  };
+}

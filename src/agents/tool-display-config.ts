@@ -5,6 +5,8 @@
  * icons, and detail keys without embedding presentation data in tool handlers.
  */
 import type { ToolDisplaySpec as ToolDisplaySpecBase } from "./tool-display-common.js";
+import { BUILTIN_TOOL_DISPLAY_CONFIG } from "./tool-display-config-builtin.js";
+import { WORKSPACE_TOOL_DISPLAY_CONFIG } from "./tool-display-config-workspace.js";
 
 type ToolDisplaySpec = ToolDisplaySpecBase & {
   emoji?: string;
@@ -44,51 +46,8 @@ export const TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
     ],
   },
   tools: {
-    bash: {
-      emoji: "🛠️",
-      title: "Bash",
-      detailKeys: ["command"],
-    },
-    computer: {
-      emoji: "🖱️",
-      title: "Computer",
-      detailKeys: ["action", "coordinate", "text", "node", "nodeId", "screenIndex"],
-    },
-    mobile_ui: {
-      emoji: "📱",
-      title: "Mobile UI",
-      detailKeys: ["action", "mobileAction", "snapshotId", "node", "nodeId"],
-    },
-    screen: {
-      emoji: "🖥️",
-      title: "Screen",
-      detailKeys: ["action", "sessionKey", "dock"],
-    },
-    terminal: {
-      emoji: "⌨️",
-      title: "Terminal",
-      detailKeys: ["action", "sessionId", "command", "cwd"],
-    },
-    process: {
-      emoji: "🧰",
-      title: "Process",
-      detailKeys: ["sessionId"],
-    },
-    read: {
-      emoji: "📖",
-      title: "Read",
-      detailKeys: ["path"],
-    },
-    write: {
-      emoji: "✍️",
-      title: "Write",
-      detailKeys: ["path"],
-    },
-    edit: {
-      emoji: "📝",
-      title: "Edit",
-      detailKeys: ["path"],
-    },
+    ...BUILTIN_TOOL_DISPLAY_CONFIG,
+    ...WORKSPACE_TOOL_DISPLAY_CONFIG,
     attach: {
       emoji: "📎",
       title: "Attach",

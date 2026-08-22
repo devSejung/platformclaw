@@ -114,7 +114,6 @@ function buildPluginRecordFromInstalledIndex(
     webFetchProviderIds: [...(manifest?.contracts?.webFetchProviders ?? [])],
     webSearchProviderIds: [...(manifest?.contracts?.webSearchProviders ?? [])],
     migrationProviderIds: [...(manifest?.contracts?.migrationProviders ?? [])],
-    memoryEmbeddingProviderIds: [...(manifest?.contracts?.memoryEmbeddingProviders ?? [])],
     agentHarnessIds: [],
     cliCommands: [],
     services: [],

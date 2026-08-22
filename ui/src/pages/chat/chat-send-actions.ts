@@ -22,11 +22,8 @@ import {
   reconnectSafeQueuedSendState,
   setChatError,
 } from "./chat-send-queue-state.ts";
-import {
-  isActiveLeafChangedError,
-  requestChatSend,
-  resolveDisplayedLeafEntryId,
-} from "./chat-send-request.ts";
+import { isActiveLeafChangedError } from "./chat-send-rejection.ts";
+import { requestChatSend, resolveDisplayedLeafEntryId } from "./chat-send-request.ts";
 import { listStoredChatOutboxes, storedChatOutboxScopeKey } from "./composer-persistence.ts";
 import { formatConnectError } from "./connect-error.ts";
 import {

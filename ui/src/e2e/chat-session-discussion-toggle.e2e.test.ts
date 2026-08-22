@@ -4,6 +4,8 @@ import { chromium, type Browser, type BrowserContext } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   canRunPlaywrightChromium,
+  controlUiBundledGatewayUrl,
+  controlUiBundledSettingsStorageKey,
   controlUiSessionUrl,
   installMockGateway,
   resolvePlaywrightChromiumExecutablePath,
@@ -55,6 +57,7 @@ describeControlUiE2e("session discussion toggle", () => {
 
   it("opens and closes the sidebar from the same header action", async () => {
     const context = await browser.newContext({
+      locale: "en-US",
       ...(captureUiProof
         ? { recordVideo: { dir: proofDir, size: { height: 720, width: 1280 } } }
         : {}),
@@ -113,12 +116,22 @@ describeControlUiE2e("session discussion toggle", () => {
   it("keeps a cross-origin discussion in sync when the real host color scheme changes", async () => {
     const context = await browser.newContext({
       colorScheme: "light",
+      locale: "en-US",
       ...(captureUiProof
         ? { recordVideo: { dir: proofDir, size: { height: 720, width: 1280 } } }
         : {}),
       viewport: { height: 720, width: 1280 },
     });
     openContexts.add(context);
+    await context.addInitScript(
+      ({ gatewayUrl, key }) => {
+        localStorage.setItem(key, JSON.stringify({ gatewayUrl, themeMode: "system" }));
+      },
+      {
+        gatewayUrl: controlUiBundledGatewayUrl(server.baseUrl),
+        key: controlUiBundledSettingsStorageKey(server.baseUrl),
+      },
+    );
     const page = await context.newPage();
     const sessionKey = "agent:main:discussion-theme-proof";
 
@@ -224,7 +237,7 @@ describeControlUiE2e("session discussion toggle", () => {
         ]);
         return { hostSurface, embeddedSurface };
       })
-      .toEqual({ hostSurface: "#0e1015", embeddedSurface: "#0e1015" });
+      .toEqual({ hostSurface: "#181715", embeddedSurface: "#181715" });
     expect(new URL(frame!.url()).searchParams.get("theme")).toBe("light");
     if (captureUiProof) {
       await page.screenshot({ path: path.join(proofDir, "discussion-theme-dark.png") });

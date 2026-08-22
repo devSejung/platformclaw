@@ -16,6 +16,40 @@ async function mount(options: { admin?: boolean; vocEnabled?: boolean } = {}) {
   return element;
 }
 
+async function advanceTour(element: PlatformClawQuickActionsElement) {
+  const button = element.shadowRoot?.querySelector<HTMLButtonElement>(".tour-next");
+  await vi.waitFor(() => expect(button?.disabled).toBe(false));
+  const progress = element.shadowRoot?.querySelector(".tour-progress")?.textContent;
+  button?.click();
+  await vi.waitFor(() =>
+    expect(element.shadowRoot?.querySelector(".tour-progress")?.textContent).not.toBe(progress),
+  );
+  await vi.waitFor(() => {
+    const next = element.shadowRoot?.querySelector<HTMLButtonElement>(".tour-next");
+    expect(next?.disabled ?? false).toBe(false);
+  });
+}
+
+function installMemberPluginsHub(link: HTMLAnchorElement) {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (document.querySelector(".plugins-hub-tabs-row")) {
+      return;
+    }
+    const row = document.createElement("div");
+    row.className = "plugins-hub-tabs-row";
+    row.getBoundingClientRect = () => DOMRect.fromRect({ x: 190, y: 90, width: 430, height: 46 });
+    for (const [index, tab] of ["skills", "workshop", "skill-hub"].entries()) {
+      const element = document.createElement("button");
+      element.id = `plugins-tab-${tab}`;
+      element.getBoundingClientRect = () =>
+        DOMRect.fromRect({ x: 200 + index * 130, y: 96, width: 120, height: 34 });
+      row.append(element);
+    }
+    document.body.append(row);
+  });
+}
+
 describe("platformclaw-quick-actions", () => {
   beforeEach(async () => {
     document.body.innerHTML = "";
@@ -69,6 +103,7 @@ describe("platformclaw-quick-actions", () => {
       ),
     );
     expect(member.shadowRoot?.querySelector(".tour-next")?.textContent?.trim()).toBe("다음");
+    expect(member.shadowRoot?.querySelector(".tour-progress")?.textContent?.trim()).toBe("1 / 14");
   });
 
   it("starts automatically until the user completes or suppresses the versioned tour", async () => {
@@ -99,12 +134,51 @@ describe("platformclaw-quick-actions", () => {
       expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
     );
 
-    for (let index = 0; index < 7; index += 1) {
-      element.shadowRoot?.querySelector<HTMLButtonElement>(".tour-next")?.click();
-      await element.updateComplete;
+    for (let index = 0; index < 14; index += 1) {
+      await advanceTour(element);
     }
 
     expect(localStorage.getItem(PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY)).toBe("true");
     expect(element.shadowRoot?.querySelector(".tour-popover")).toBeNull();
+  });
+
+  it("keeps the target clear and explains the plugin workflow step by step", async () => {
+    const sidebar = document.createElement("openclaw-app-sidebar");
+    const pluginsLink = document.createElement("a");
+    pluginsLink.className = "nav-item";
+    pluginsLink.href = "/skills";
+    pluginsLink.getBoundingClientRect = () =>
+      DOMRect.fromRect({ x: 20, y: 120, width: 140, height: 36 });
+    installMemberPluginsHub(pluginsLink);
+    sidebar.append(pluginsLink);
+    document.body.append(sidebar);
+    const element = await mount();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
+    );
+
+    for (let index = 0; index < 9; index += 1) {
+      await advanceTour(element);
+    }
+
+    expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
+      "Understand the Plugins hub",
+    );
+    expect(element.shadowRoot?.querySelectorAll(".tour-popover li")).toHaveLength(5);
+    expect(element.shadowRoot?.querySelector(".tour-target-label")?.textContent).toBe("LOOK HERE");
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelectorAll(".tour-shade")).toHaveLength(4),
+    );
+
+    await advanceTour(element);
+    expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
+      "Skills: instructions your Agent can reuse",
+    );
+    expect(element.shadowRoot?.querySelector(".tour-popover")?.textContent).toContain(
+      "Needs Setup shows missing requirements",
+    );
+    expect(element.shadowRoot?.querySelector(".tour-highlight")?.getAttribute("style")).toContain(
+      "left:193px",
+    );
   });
 });

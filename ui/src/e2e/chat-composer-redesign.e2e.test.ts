@@ -36,11 +36,23 @@ describeControlUiE2e("Control UI chat composer redesign", () => {
   });
 
   it("keeps model and settings in the bottom bar and switches the primary action with input state", async () => {
-    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { width: 1920, height: 1080 },
+    });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       assistantName: "Rosita",
       deferredMethods: ["chat.send"],
+      featureMethods: [
+        "chat.abort",
+        "chat.metadata",
+        "chat.send",
+        "chat.startup",
+        "models.authStatus",
+        "sessions.list",
+        "sessions.patch",
+      ],
       models: [
         { id: "gpt-5.5", name: "GPT-5.5", provider: "openai" },
         {

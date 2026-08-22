@@ -16,7 +16,7 @@ import type { SkillHubStateStore } from "./skill-hub-state.js";
 
 export const SKILL_KEY_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u;
 export const NAMESPACE_PATTERN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/u;
-export const VERSION_PATTERN =
+const VERSION_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 export const MAX_SKILL_FILES = 256;
 export const MAX_SKILL_MD_BYTES = 256 * 1024;
@@ -43,7 +43,7 @@ export class SkillHubServiceError extends Error {
   }
 }
 
-export function isValidSemVer(value: string): boolean {
+function isValidSemVer(value: string): boolean {
   if (!VERSION_PATTERN.test(value)) {
     return false;
   }
@@ -197,7 +197,7 @@ export function parseSkillMarkdown(
   };
 }
 
-export function zipEntryPath(entry: JSZipObject): string {
+function zipEntryPath(entry: JSZipObject): string {
   const original = entry.unsafeOriginalName ?? entry.name;
   const normalized = entry.dir && original.endsWith("/") ? original.slice(0, -1) : original;
   if (
@@ -214,12 +214,12 @@ export function zipEntryPath(entry: JSZipObject): string {
   return original;
 }
 
-export function isZipSymlink(entry: JSZipObject): boolean {
+function isZipSymlink(entry: JSZipObject): boolean {
   const permissions = entry.unixPermissions;
   return typeof permissions === "number" && (permissions & 0o170000) === 0o120000;
 }
 
-export async function readZipEntryBounded(
+async function readZipEntryBounded(
   entry: JSZipObject,
   extracted: { bytes: number },
   limits: { expandedBytes: number; entryBytes: number },

@@ -129,7 +129,7 @@ class PlatformClawVocDialogElement extends OpenClawLitElement {
       padding: 14px;
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      background: var(--bg-subtle);
+      background: var(--bg-muted);
     }
     .error {
       color: var(--danger);

@@ -11,6 +11,11 @@ import type {
   PluginStateLeaseOptions,
   PluginStateLeaseRunner,
 } from "openclaw/plugin-sdk/plugin-state-runtime";
+import { closeOpenClawStateDatabaseForTest } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import {
+  clearEmbeddingProviders,
+  registerEmbeddingProvider,
+} from "openclaw/plugin-sdk/plugin-test-runtime";
 import { withMockedWindowsPlatform } from "openclaw/plugin-sdk/test-node-mocks";
 import type { Mock } from "vitest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -45,7 +50,6 @@ const { withLeaseMock } = vi.hoisted(() => {
     withLeaseMock: vi.fn(implementation) as Mock<PluginStateLeaseRunner> & PluginStateLeaseRunner,
   };
 });
-const MEMORY_EMBEDDING_PROVIDERS_KEY = Symbol.for("openclaw.memoryEmbeddingProviders");
 const MCPORTER_STATE_KEY = Symbol.for("openclaw.mcporterState");
 const QMD_EMBED_QUEUE_KEY = Symbol.for("openclaw.qmdEmbedQueueTail");
 const QMD_UPDATE_QUEUE_KEY = Symbol.for("openclaw.qmdUpdateQueueState");
@@ -322,19 +326,12 @@ describe("QmdMemoryManager", () => {
   let embedStartupJitterSpy: { mockRestore: () => void } | null = null;
 
   function seedMemoryEmbeddingProviders(): void {
-    (globalThis as Record<PropertyKey, unknown>)[MEMORY_EMBEDDING_PROVIDERS_KEY] = new Map([
-      [
-        "openai",
-        {
-          adapter: {
-            id: "openai",
-            defaultModel: "text-embedding-3-small",
-            transport: "remote",
-            create: async () => ({ provider: null }),
-          },
-        },
-      ],
-    ]);
+    registerEmbeddingProvider({
+      id: "openai",
+      defaultModel: "text-embedding-3-small",
+      transport: "remote",
+      create: async () => ({ provider: null }),
+    });
   }
 
   function trackManager<T extends QmdMemoryManager | null>(manager: T): T {
@@ -1141,7 +1138,7 @@ describe("QmdMemoryManager", () => {
     delete (globalThis as Record<PropertyKey, unknown>)[MCPORTER_STATE_KEY];
     delete (globalThis as Record<PropertyKey, unknown>)[QMD_EMBED_QUEUE_KEY];
     delete (globalThis as Record<PropertyKey, unknown>)[QMD_UPDATE_QUEUE_KEY];
-    delete (globalThis as Record<PropertyKey, unknown>)[MEMORY_EMBEDDING_PROVIDERS_KEY];
+    clearEmbeddingProviders();
     spawnMock.mockClear();
     spawnMock.mockImplementation(() => createMockChild());
     watchMock.mockClear();
@@ -1224,9 +1221,10 @@ describe("QmdMemoryManager", () => {
     }
     delete (globalThis as Record<PropertyKey, unknown>)[MCPORTER_STATE_KEY];
     delete (globalThis as Record<PropertyKey, unknown>)[QMD_EMBED_QUEUE_KEY];
-    delete (globalThis as Record<PropertyKey, unknown>)[MEMORY_EMBEDDING_PROVIDERS_KEY];
+    clearEmbeddingProviders();
     resetMemoryCoreDreamingStateForTests();
     closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
   });
 
   it("debounces back-to-back sync calls", async () => {

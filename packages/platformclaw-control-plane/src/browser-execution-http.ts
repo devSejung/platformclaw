@@ -12,12 +12,12 @@ import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-
 import type { SshCredentialBroker } from "./ssh-credential-broker.js";
 import type { SshCredentialVault } from "./ssh-credential-vault.js";
 
-export const PLATFORMCLAW_EXECUTION_SETTINGS_PATH = "/platformclaw/api/execution";
-export const PLATFORMCLAW_EXECUTION_CREDENTIAL_PATH = "/platformclaw/api/execution/credential";
-export const PLATFORMCLAW_EXECUTION_TEST_PATH = "/platformclaw/api/execution/test";
+const PLATFORMCLAW_EXECUTION_SETTINGS_PATH = "/platformclaw/api/execution";
+const PLATFORMCLAW_EXECUTION_CREDENTIAL_PATH = "/platformclaw/api/execution/credential";
+const PLATFORMCLAW_EXECUTION_TEST_PATH = "/platformclaw/api/execution/test";
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/api/execution/target";
-export const PLATFORMCLAW_EXECUTION_SELECTION_PATH = "/platformclaw/api/execution/selection";
-export const PLATFORMCLAW_EXECUTION_RELEASE_PATH = "/platformclaw/api/execution/release";
+const PLATFORMCLAW_EXECUTION_SELECTION_PATH = "/platformclaw/api/execution/selection";
+const PLATFORMCLAW_EXECUTION_RELEASE_PATH = "/platformclaw/api/execution/release";
 
 const EXECUTION_BODY_LIMIT_BYTES = 8 * 1024;
 const CONNECTION_ATTEMPT_WINDOW_MS = 5 * 60_000;

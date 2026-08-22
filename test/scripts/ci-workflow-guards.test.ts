@@ -121,7 +121,7 @@ function runCiManifestFixture(options: {
   bundledPlanner: boolean;
   changedPlannerImportFails?: boolean;
   changedPaths?: string[] | null;
-  eventName?: "pull_request" | "workflow_dispatch";
+  eventName?: "pull_request" | "push" | "workflow_dispatch";
   historicalCompatibility?: boolean;
   iosCapabilities?: boolean;
   iosBuildCapability?: boolean;
@@ -136,6 +136,7 @@ function runCiManifestFixture(options: {
   nodeFastPluginContracts?: boolean;
   nodeFastCiRouting?: boolean;
   runNode?: boolean;
+  repository?: string;
 }) {
   const root = mkdtempSync(path.join(tmpdir(), "openclaw-ci-manifest-"));
   try {
@@ -152,12 +153,12 @@ function runCiManifestFixture(options: {
             runner: "ubuntu-24.04",
             shardName: "legacy-node-plan",
           }];
-          export const createNodeTestShardBundles = () => [{
-            checkName: "bundled-node-plan",
+          export const createNodeTestShardBundles = ({ compact } = {}) => [{
+            checkName: compact ? "compact-node-plan" : "bundled-node-plan",
             configs: ["test/vitest/bundled.config.ts"],
             requiresDist: false,
             runner: "ubuntu-24.04",
-            shardName: "bundled-node-plan",
+            shardName: compact ? "compact-node-plan" : "bundled-node-plan",
           }];
         `
         : `
@@ -276,7 +277,7 @@ function runCiManifestFixture(options: {
             : "false",
         OPENCLAW_CI_RELEASE_CANDIDATE_TARGET:
           options.releaseCandidateCompatibility === true ? "true" : "false",
-        OPENCLAW_CI_REPOSITORY: "openclaw/openclaw",
+        OPENCLAW_CI_REPOSITORY: options.repository ?? "openclaw/openclaw",
         OPENCLAW_CI_RUN_ANDROID: "true",
         OPENCLAW_CI_RUN_CONTROL_UI_I18N: "true",
         OPENCLAW_CI_RUN_IOS_BUILD: "true",
@@ -4592,6 +4593,73 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     ]);
     expect(changedPullRequest.outputs.run_checks_node_core_dist).toBe("true");
 
+    const platformClawPullRequest = runCiManifestFixture({
+      bundledPlanner: true,
+      changedPaths: ["src/focused.ts"],
+      eventName: "pull_request",
+      repository: "devSejung/platformclaw",
+    });
+    expect(platformClawPullRequest.status, platformClawPullRequest.output).toBe(0);
+    expect(
+      JSON.parse(
+        expectDefined(
+          platformClawPullRequest.outputs.checks_node_core_nondist_matrix,
+          "PlatformClaw PR node matrix output",
+        ),
+      ).include,
+    ).toEqual([
+      expect.objectContaining({
+        check_name: "compact-node-plan",
+        shard_name: "compact-node-plan",
+      }),
+    ]);
+    expect(platformClawPullRequest.outputs.run_android).toBe("false");
+    expect(platformClawPullRequest.outputs.run_ios_build).toBe("false");
+    expect(platformClawPullRequest.outputs.run_macos).toBe("false");
+    expect(platformClawPullRequest.outputs.run_windows).toBe("false");
+
+    const platformClawMain = runCiManifestFixture({
+      bundledPlanner: true,
+      changedPaths: ["src/focused.ts"],
+      eventName: "push",
+      repository: "devSejung/platformclaw",
+    });
+    expect(platformClawMain.status, platformClawMain.output).toBe(0);
+    expect(
+      JSON.parse(
+        expectDefined(
+          platformClawMain.outputs.checks_node_core_nondist_matrix,
+          "PlatformClaw main node matrix output",
+        ),
+      ).include,
+    ).toEqual([
+      expect.objectContaining({
+        check_name: "compact-node-plan",
+        shard_name: "compact-node-plan",
+      }),
+    ]);
+
+    const unrelatedRepository = runCiManifestFixture({
+      bundledPlanner: true,
+      changedPaths: ["src/focused.ts"],
+      eventName: "pull_request",
+      repository: "example/openclaw-fork",
+    });
+    expect(unrelatedRepository.status, unrelatedRepository.output).toBe(0);
+    expect(
+      JSON.parse(
+        expectDefined(
+          unrelatedRepository.outputs.checks_node_core_nondist_matrix,
+          "unrelated repository node matrix output",
+        ),
+      ).include,
+    ).toEqual([
+      expect.objectContaining({
+        check_name: "bundled-node-plan",
+        shard_name: "bundled-node-plan",
+      }),
+    ]);
+
     const plannerImportFailure = runCiManifestFixture({
       bundledPlanner: true,
       changedPaths: ["src/focused.ts"],
@@ -4608,8 +4676,8 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       ).include,
     ).toEqual([
       expect.objectContaining({
-        check_name: "bundled-node-plan",
-        shard_name: "bundled-node-plan",
+        check_name: "compact-node-plan",
+        shard_name: "compact-node-plan",
       }),
     ]);
 

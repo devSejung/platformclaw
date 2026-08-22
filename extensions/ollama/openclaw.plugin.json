@@ -185,7 +185,7 @@
     }
   },
   "contracts": {
-    "memoryEmbeddingProviders": [
+    "embeddingProviders": [
       "ollama"
     ],
     "tools": [

@@ -51,9 +51,9 @@ Each entry lists the package, distribution route, and description.
 
 ## Core npm package
 
-54 plugins
+58 plugins
 
-- **[admin-http-rpc](/plugins/reference/admin-http-rpc)** (`@openclaw/admin-http-rpc`) - included in OpenClaw. OpenClaw admin HTTP RPC endpoint.
+- **[admin-http-rpc](/plugins/reference/admin-http-rpc)** (`@openclaw/admin-http-rpc`) - included in OpenClaw. Expose selected admin RPC and PlatformClaw profile context.
 
 - **[alibaba](/plugins/reference/alibaba)** (`@openclaw/alibaba-provider`) - included in OpenClaw. Adds video generation provider support.
 
@@ -92,6 +92,8 @@ Each entry lists the package, distribution route, and description.
 - **[google](/plugins/reference/google)** (`@openclaw/google-plugin`) - included in OpenClaw. Adds Google, Google Gemini CLI, Google Vertex model provider support to OpenClaw.
 
 - **[huggingface](/plugins/reference/huggingface)** (`@openclaw/huggingface-provider`) - included in OpenClaw. Adds Hugging Face model provider support to OpenClaw.
+
+- **[knox](/plugins/reference/knox)** (`@platformclaw/knox`) - included in OpenClaw. Samsung Knox Teams relay channel for PlatformClaw.
 
 - **[linux-canvas](/plugins/reference/linux-canvas)** (`@openclaw/linux-canvas`) - included in OpenClaw. Canvas rendering bridge for the OpenClaw Linux desktop app.
 
@@ -132,6 +134,12 @@ Each entry lists the package, distribution route, and description.
 - **[openai](/plugins/reference/openai)** (`@openclaw/openai-provider`) - included in OpenClaw. Adds OpenAI model provider support to OpenClaw.
 
 - **[openrouter](/plugins/reference/openrouter)** (`@openclaw/openrouter-provider`) - included in OpenClaw. Adds OpenRouter model provider support to OpenClaw.
+
+- **[platformclaw-execution](/plugins/reference/platformclaw-execution)** (`@platformclaw/execution`) - included in OpenClaw. Private execution-target router for PlatformClaw personal agents.
+
+- **[platformclaw-user-mcp](/plugins/reference/platformclaw-user-mcp)** (`@platformclaw/user-mcp`) - included in OpenClaw. Per-user credentials for administrator-approved MCP servers.
+
+- **[platformclaw-web-relay](/plugins/reference/platformclaw-web-relay)** (`@platformclaw/web-relay`) - included in OpenClaw. Routes web_fetch and web_search through operator-configured relay endpoints.
 
 - **[policy](/plugins/reference/policy)** (`@openclaw/policy`) - included in OpenClaw. Adds policy-backed doctor checks for workspace conformance.
 
@@ -303,7 +311,7 @@ Each entry lists the package, distribution route, and description.
 
 - **[slack](/plugins/reference/slack)** (`@openclaw/slack`) - npm; ClawHub. OpenClaw Slack channel plugin for channels, DMs, commands, and app events.
 
-- **[sms](/plugins/reference/sms)** (`@openclaw/sms`) - npm; ClawHub: `clawhub:@openclaw/sms`. Twilio SMS channel plugin for OpenClaw text messages.
+- **[sms](/plugins/reference/sms)** (`@openclaw/sms`) - npm; ClawHub: `clawhub:@openclaw/sms`. Twilio SMS/MMS channel plugin for OpenClaw messages.
 
 - **[stepfun](/plugins/reference/stepfun)** (`@openclaw/stepfun-provider`) - npm; ClawHub: `clawhub:@openclaw/stepfun-provider`. Adds StepFun, StepFun Plan model provider support to OpenClaw.
 
@@ -331,7 +339,7 @@ Each entry lists the package, distribution route, and description.
 
 - **[volcengine](/plugins/reference/volcengine)** (`@openclaw/volcengine-provider`) - npm; ClawHub: `clawhub:@openclaw/volcengine-provider`. Adds Volcengine, Volcengine Plan model provider support to OpenClaw.
 
-- **[voyage](/plugins/reference/voyage)** (`@openclaw/voyage-provider`) - npm; ClawHub: `clawhub:@openclaw/voyage-provider`. Adds memory embedding provider support.
+- **[voyage](/plugins/reference/voyage)** (`@openclaw/voyage-provider`) - npm; ClawHub: `clawhub:@openclaw/voyage-provider`. Adds embedding provider support, including memory search.
 
 - **[vydra](/plugins/reference/vydra)** (`@openclaw/vydra-provider`) - npm; ClawHub: `clawhub:@openclaw/vydra-provider`. Adds Vydra model provider support to OpenClaw.
 

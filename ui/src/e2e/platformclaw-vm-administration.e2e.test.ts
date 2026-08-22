@@ -32,7 +32,7 @@ describeE2e("PlatformClaw VM administration", () => {
     if (!chromiumAvailable) {
       throw new Error(`Chromium unavailable at ${executablePath}`);
     }
-    server = await startControlUiE2eServer();
+    server = await startControlUiE2eServer(undefined, { source: true });
     browser = await chromium.launch({ executablePath });
   });
   afterAll(async () => {
@@ -41,7 +41,7 @@ describeE2e("PlatformClaw VM administration", () => {
   });
 
   it("shows disabled SafeConnect and VM recovery controls", async () => {
-    const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });
+    const page = await browser.newPage({ locale: "en-US", viewport: { width: 1360, height: 900 } });
     await page.route("**/platformclaw/api/admin/vm", async (route) => {
       await route.fulfill({
         contentType: "application/json",
@@ -80,7 +80,8 @@ describeE2e("PlatformClaw VM administration", () => {
         }),
       });
     });
-    await page.goto(server.baseUrl);
+    await page.goto(new URL("sw.js", server.baseUrl).href);
+    await page.setContent("<!doctype html><html><body></body></html>");
     await page.addScriptTag({
       type: "module",
       url: `${server.baseUrl}src/platformclaw/vm-administration.ts`,
@@ -90,7 +91,9 @@ describeE2e("PlatformClaw VM administration", () => {
       document.body.replaceChildren(document.createElement("platformclaw-vm-administration"));
     });
     const component = page.locator("platformclaw-vm-administration");
-    await component.getByRole("button", { name: "VM administration" }).click();
+    const initialRefresh = page.waitForResponse("**/platformclaw/api/admin/vm");
+    await component.locator("[data-open]").evaluate((button: HTMLElement) => button.click());
+    await initialRefresh;
     await expect
       .poll(async () =>
         component.locator("strong").filter({ hasText: "Corporate access" }).isVisible(),

@@ -3,7 +3,9 @@ import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   canRunPlaywrightChromium,
-  installMockGateway,
+  controlUiBundledGatewayUrl,
+  controlUiBundledSettingsStorageKey,
+  installFullGatewayMock as installMockGateway,
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   type ControlUiE2eServer,
@@ -190,7 +192,10 @@ async function openMenu(page: Page) {
 
 describeControlUiE2e("Control UI composer capability menu", () => {
   beforeAll(async () => {
-    browser = await chromium.launch({ executablePath: chromiumExecutablePath });
+    browser = await chromium.launch({
+      executablePath: chromiumExecutablePath,
+      args: ["--lang=en-US"],
+    });
     try {
       server = await startControlUiE2eServer();
     } catch (error) {
@@ -206,6 +211,18 @@ describeControlUiE2e("Control UI composer capability menu", () => {
 
   it("renders the root stack, proxies attachments, patches sparse overrides, and clears the pill", async () => {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await context.addInitScript(
+      ({ gatewayUrl, key }) => {
+        localStorage.setItem(
+          key,
+          JSON.stringify({ gatewayUrl, theme: "claw", themeMode: "system" }),
+        );
+      },
+      {
+        gatewayUrl: controlUiBundledGatewayUrl(server.baseUrl),
+        key: controlUiBundledSettingsStorageKey(server.baseUrl),
+      },
+    );
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       methodResponses: {

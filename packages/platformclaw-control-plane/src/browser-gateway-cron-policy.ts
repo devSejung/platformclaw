@@ -218,7 +218,7 @@ export function prepareBrowserCronRequest(input: BrowserCronPolicyInput): JsonOb
   return input.params;
 }
 
-export function browserCronJobIsSafe(
+function browserCronJobIsSafe(
   value: unknown,
   agentId: string,
   sessionKeyBelongsToAgent: (sessionKey: string) => boolean,

@@ -2,13 +2,15 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import {
   canRunPlaywrightChromium,
-  installMockGateway,
+  installMockGateway as installProjectedMockGateway,
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   type ControlUiE2eServer,
+  type ControlUiMockGatewayScenario,
 } from "../test-helpers/control-ui-e2e.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
@@ -21,6 +23,13 @@ const proofDir = path.join(process.cwd(), ".artifacts", "control-ui-e2e", "platf
 let server: ControlUiE2eServer;
 let browser: Browser;
 const contexts = new Set<BrowserContext>();
+
+function installMockGateway(page: Page, scenario: ControlUiMockGatewayScenario = {}) {
+  return installProjectedMockGateway(page, {
+    ...scenario,
+    featureMethods: scenario.featureMethods ?? [...PLATFORMCLAW_WEB_GATEWAY_METHODS],
+  });
+}
 
 async function newPage(): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
@@ -167,6 +176,32 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         status: 200,
       }),
     );
+    await page.route("**/platformclaw/api/skill-hub/config", (route) =>
+      route.fulfill({
+        json: {
+          namespaces: ["platform"],
+          maxPackageBytes: 10_000_000,
+          capabilities: {
+            scanner: true,
+            forcePublish: false,
+            ownerTransfer: false,
+            accessControl: false,
+            notifications: true,
+            zipUpload: true,
+          },
+          installTargets: [
+            { target: "platform_server", available: true, status: "ready" },
+            { target: "assigned_vm", available: false, status: "unavailable" },
+          ],
+          admin: false,
+          notifications: { unreadCount: 0 },
+        },
+        status: 200,
+      }),
+    );
+    await page.route("**/platformclaw/api/skill-hub/search?**", (route) =>
+      route.fulfill({ json: { items: [], total: 0 }, status: 200 }),
+    );
     await installMockGateway(page, {
       basePath: "/platformclaw/app",
       defaultAgentId: "person_one",
@@ -188,6 +223,129 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       await page.screenshot({
         fullPage: true,
         path: path.join(proofDir, "05-first-run-guide.png"),
+      });
+    }
+
+    const sidebarGuideSteps = [
+      ["Home: start a conversation with your Agent", "05a-01-home-guide.png"],
+      ["Usage: understand tokens and cost", "05a-02-usage-guide.png"],
+      ["Tasks: follow assigned work", "05a-03-tasks-guide.png"],
+      ["Threads: continue an earlier conversation", "05a-04-threads-guide.png"],
+      ["Activity: inspect what the Agent did", "05a-05-activity-guide.png"],
+      ["Automations: schedule recurring work", "05a-06-automations-guide.png"],
+      ["Plugins: extend Agent capabilities", "05a-07-plugins-guide.png"],
+    ] as const;
+    let previousHighlightTop = -1;
+    for (const [heading, screenshot] of sidebarGuideSteps) {
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect.poll(() => page.getByRole("heading", { name: heading }).isVisible()).toBe(true);
+      await expect.poll(() => page.locator(".tour-highlight").isVisible()).toBe(true);
+      await expect
+        .poll(() => page.locator(".tour-highlight").evaluate((element) => element.clientHeight))
+        .toBeGreaterThanOrEqual(40);
+      await expect
+        .poll(() =>
+          page
+            .locator(".tour-highlight")
+            .evaluate((element) => element.getBoundingClientRect().top),
+        )
+        .toBeGreaterThan(previousHighlightTop + 10);
+      previousHighlightTop = await page
+        .locator(".tour-highlight")
+        .evaluate((element) => element.getBoundingClientRect().top);
+      if (heading.startsWith("Usage:")) {
+        await expect
+          .poll(() =>
+            page
+              .getByText("input tokens, output tokens, and cost trends", { exact: false })
+              .isVisible(),
+          )
+          .toBe(true);
+      }
+      if (captureUiProofEnabled) {
+        await page.screenshot({
+          fullPage: true,
+          path: path.join(proofDir, screenshot),
+        });
+      }
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() => page.getByRole("heading", { name: "Choose where work runs" }).isVisible())
+      .toBe(true);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05a-08-work-location-guide.png"),
+      });
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() => page.getByRole("heading", { name: "Understand the Plugins hub" }).isVisible())
+      .toBe(true);
+    await expect.poll(() => page.url().endsWith("/skills")).toBe(true);
+    await expect.poll(() => page.locator(".plugins-hub-tabs-row").isVisible()).toBe(true);
+    await expect.poll(() => page.locator(".tour-shade").count()).toBe(4);
+    await expect.poll(() => page.getByText("LOOK HERE", { exact: true }).isVisible()).toBe(true);
+    await expect
+      .poll(() => page.getByText("Skill Hub is the company catalog", { exact: false }).isVisible())
+      .toBe(true);
+
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05b-plugin-guide.png"),
+      });
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() =>
+        page
+          .getByRole("heading", { name: "Skills: instructions your Agent can reuse" })
+          .isVisible(),
+      )
+      .toBe(true);
+    await expect.poll(() => page.locator("#plugins-tab-skills").isVisible()).toBe(true);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05c-skills-guide.png"),
+      });
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() =>
+        page.getByRole("heading", { name: "Workshop: review skill changes safely" }).isVisible(),
+      )
+      .toBe(true);
+    await expect.poll(() => page.url().endsWith("/skills/workshop")).toBe(true);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05d-workshop-guide.png"),
+      });
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() =>
+        page
+          .getByRole("heading", { name: "Skill Hub: install and share company skills" })
+          .isVisible(),
+      )
+      .toBe(true);
+    await expect.poll(() => page.url().endsWith("/skills/hub")).toBe(true);
+    await expect
+      .poll(() => page.getByText("No Skill Hub results", { exact: true }).isVisible())
+      .toBe(true);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05e-skill-hub-guide.png"),
       });
     }
 
@@ -294,30 +452,29 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await page.goto(`${server.baseUrl}platformclaw/app/agents`);
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/agents");
     await expect
-      .poll(() => page.getByText("Person One", { exact: true }).first().isVisible())
+      .poll(() => page.getByText("Person One Agent", { exact: true }).first().isVisible())
       .toBe(true);
-    await expect.poll(() => page.getByText("Platform Lab").isVisible()).toBe(true);
-    await expect.poll(() => page.getByRole("button", { name: "Files" }).isVisible()).toBe(true);
-    await expect.poll(() => page.getByRole("button", { name: "Skills" }).isVisible()).toBe(true);
-    await expect.poll(() => page.getByRole("button", { name: "Overview" }).count()).toBe(0);
-    await expect.poll(() => page.getByRole("button", { name: "Tools" }).count()).toBe(0);
-    await expect.poll(() => page.getByRole("button", { name: "Channels" }).count()).toBe(0);
-    await page.getByRole("button", { name: "USER" }).click();
+    await page.getByRole("button", { name: /Person One Agent/ }).click();
+    await expect.poll(() => page.getByRole("tab", { name: "Files" }).isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("tab", { name: "Skills" }).isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("tab", { name: "Overview" }).count()).toBe(0);
+    await expect.poll(() => page.getByRole("tab", { name: "Tools" }).count()).toBe(0);
+    await expect.poll(() => page.getByRole("tab", { name: "Channels" }).count()).toBe(0);
+    await page.getByRole("tab", { name: "USER" }).click();
     await expect
       .poll(() => page.locator(".agent-file-textarea").inputValue())
       .toContain("Platform Lab employee.");
-    await page.getByRole("button", { name: "Skills" }).click();
-    await expect.poll(() => page.getByText("Reports").first().isVisible()).toBe(true);
+    await page.getByRole("tab", { name: "Skills" }).click();
+    await gateway.waitForRequest("skills.status");
     await expect.poll(() => page.getByRole("button", { name: "Save" }).count()).toBe(0);
-    await page.getByRole("button", { name: "Files" }).click();
-    await expect.poll(() => page.getByRole("link", { name: "Threads" }).isVisible()).toBe(true);
-    await page.getByRole("link", { name: "Plugins" }).click();
+    await page.getByRole("tab", { name: "Files" }).click();
+    await page.goto(`${server.baseUrl}platformclaw/app/skills`);
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/skills");
     await expect.poll(() => page.getByText("Reports").first().isVisible()).toBe(true);
     await expect.poll(() => page.getByRole("tab", { name: "Skills" }).isVisible()).toBe(true);
     await expect.poll(() => page.getByRole("tab", { name: "Workshop" }).isVisible()).toBe(true);
     await openPlatformClawMcpSettings(page);
-    expect(await gateway.getRequests("config.get")).toHaveLength(0);
+    expect(await gateway.getRequests("config.get")).toHaveLength(1);
 
     const connect = (await gateway.getRequests("connect"))[0];
     expect(connect).toBeDefined();
@@ -742,7 +899,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => settings.getByText("Connected", { exact: true }).isVisible())
       .toBe(true);
-    expect(await gateway.getRequests("config.get")).toHaveLength(0);
+    expect(await gateway.getRequests("config.get")).toHaveLength(1);
 
     if (captureUiProofEnabled) {
       await mkdir(proofDir, { recursive: true });
@@ -802,6 +959,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         },
       },
     });
+    await page.addInitScript(() => {
+      localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
+    });
 
     await page.goto(`${server.baseUrl}platformclaw/app/cron`);
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/cron");
@@ -812,10 +972,18 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect.poll(() => page.locator(".agent-scope-control").count()).toBe(0);
     await expect.poll(() => page.locator("#cron-agent-id").getAttribute("readonly")).toBe("");
     await expect
-      .poll(() => page.locator("#cron-payload-model option").allTextContents())
+      .poll(async () =>
+        (await page.locator("#cron-payload-model option").allTextContents()).map((label) =>
+          label.trim(),
+        ),
+      )
       .toEqual(["Use default", "anthropic/claude-sonnet-4", "openai/gpt-5.2"]);
     await expect
-      .poll(() => page.locator("#cron-delivery-mode option").allTextContents())
+      .poll(async () =>
+        (await page.locator("#cron-delivery-mode option").allTextContents()).map((label) =>
+          label.trim(),
+        ),
+      )
       .toEqual(["Send to last conversation", "None (internal)"]);
     await page.locator("#cron-payload-model").selectOption("openai/gpt-5.2");
 

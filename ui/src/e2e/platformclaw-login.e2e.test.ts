@@ -110,7 +110,7 @@ describeE2e("PlatformClaw login", () => {
         expect(layout.cardRight).toBeLessThanOrEqual(1440);
         expect(layout.overflow).toBe(0);
         expect(await page.locator('link[rel="icon"]').getAttribute("href")).toMatch(
-          /platformclaw-pixel\.svg/,
+          /platformclaw-pixel(?:-[^.]+)?\.svg/,
         );
         const adssoLogin = page.getByRole("link", { name: "ADSSO 로그인" });
         expect(await adssoLogin.isVisible()).toBe(true);

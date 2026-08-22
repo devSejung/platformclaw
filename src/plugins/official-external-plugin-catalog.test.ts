@@ -295,7 +295,6 @@ describe("official external plugin catalog", () => {
     const contracts = getOfficialExternalPluginCatalogManifest(entry)?.contracts;
 
     expect(contracts?.embeddingProviders).toEqual(["deepinfra"]);
-    expect(contracts?.memoryEmbeddingProviders).toBeUndefined();
   });
 
   it("does not allow malformed feed wrappers to count as feed documents", () => {
@@ -2043,7 +2042,7 @@ describe("official external plugin catalog", () => {
     ]);
   });
 
-  it("lists Voyage as an official external memory embedding provider", () => {
+  it("lists Voyage as an official external embedding provider", () => {
     const voyage = expectCatalogEntry("voyage");
     const manifest = getOfficialExternalPluginCatalogManifest(voyage);
 
@@ -2054,7 +2053,7 @@ describe("official external plugin catalog", () => {
       defaultChoice: "npm",
       minHostVersion: ">=2026.7.2",
     });
-    expect(manifest?.contracts?.memoryEmbeddingProviders).toEqual(["voyage"]);
+    expect(manifest?.contracts?.embeddingProviders).toEqual(["voyage"]);
     expect(manifest?.providers).toEqual([
       expect.objectContaining({
         id: "voyage",
@@ -2208,7 +2207,7 @@ describe("official external plugin catalog", () => {
       }),
     ]);
     expect(manifest?.contracts).toMatchObject({
-      memoryEmbeddingProviders: ["mistral"],
+      embeddingProviders: ["mistral"],
       mediaUnderstandingProviders: ["mistral"],
       realtimeTranscriptionProviders: ["mistral"],
     });
@@ -2324,7 +2323,7 @@ describe("official external plugin catalog", () => {
     ).toEqual(["groq", "moonshot", "zai"]);
     expect(
       resolveOfficialExternalProviderContractPluginIds({
-        contract: "memoryEmbeddingProviders",
+        contract: "embeddingProviders",
         providerIds: new Set(["voyage"]),
       }),
     ).toEqual(["voyage"]);

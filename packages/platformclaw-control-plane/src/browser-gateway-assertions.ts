@@ -1,6 +1,6 @@
 type JsonObject = Record<string, unknown>;
 
-export type BrowserGatewayAssertionErrorCode =
+type BrowserGatewayAssertionErrorCode =
   | "method-not-allowed"
   | "invalid-params"
   | "cross-agent-denied"

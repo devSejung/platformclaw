@@ -11,6 +11,7 @@ import type { InlineConfig, Plugin, PreviewServer, ViteDevServer } from "vite";
 import { PROTOCOL_VERSION } from "../../../packages/gateway-protocol/src/version.js";
 import { canRunChromiumExecutable } from "../../../scripts/ensure-playwright-chromium.mjs";
 import { CONTROL_UI_BOOTSTRAP_CONFIG_PATH } from "../../../src/gateway/control-ui-contract.js";
+import { listGatewayMethods } from "../../../src/gateway/server-methods-list.js";
 import type { ControlUiBuildInfo } from "../build-info.ts";
 
 export function controlUiSessionPath(sessionKey: string, basePath = ""): string {
@@ -174,6 +175,8 @@ export type ControlUiMockGatewayScenario = {
   allowedSessionVisibilities?: Array<"shared" | "read-only" | "suggest" | "draft">;
   hasMultipleSessionSharingIdentities?: boolean;
   featureCapabilities?: string[];
+  /** Advertise the real Gateway method catalog instead of a restricted fixture projection. */
+  gatewayFeatureProfile?: "full-gateway" | "inferred";
   defaultAgentId?: string;
   deferredMethods?: string[];
   /** Non-release gateway checkout branch surfaced in the sidebar footer. */
@@ -415,6 +418,12 @@ function controlUiE2ePreviewConfigPlugin(): Plugin {
   return {
     name: "control-ui-e2e-preview-config",
     configurePreviewServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        if (req.url?.startsWith("/platformclaw/assets/")) {
+          req.url = req.url.slice("/platformclaw".length);
+        }
+        next();
+      });
       server.middlewares.use(CONTROL_UI_BOOTSTRAP_CONFIG_PATH, (_req, res) => {
         res.setHeader("Content-Type", "application/json");
         res.end(
@@ -523,11 +532,19 @@ async function startBuiltControlUiE2eServer(outDir: string): Promise<ControlUiE2
 }
 
 export async function startBundledControlUiE2eServer(outDir: string): Promise<ControlUiE2eServer> {
-  const [{ build }, { default: controlUiViteConfig }] = await Promise.all([
-    import("vite"),
-    import("../../vite.config.ts"),
-  ]);
+  const [{ build }, { default: controlUiViteConfig }, { default: platformclawLoginViteConfig }] =
+    await Promise.all([
+      import("vite"),
+      import("../../vite.config.ts"),
+      import("../../vite.platformclaw-login.config.ts"),
+    ]);
   await build(createBundledControlUiE2eConfig(controlUiViteConfig, outDir));
+  await build({
+    ...platformclawLoginViteConfig({ outDir }),
+    configFile: false,
+    logLevel: "error",
+    root: path.join(resolveRepoRoot(), "ui"),
+  });
   return startBuiltControlUiE2eServer(outDir);
 }
 
@@ -600,6 +617,7 @@ function normalizeScenario(
     ],
     hasMultipleSessionSharingIdentities: scenario.hasMultipleSessionSharingIdentities ?? false,
     featureCapabilities: scenario.featureCapabilities ?? [],
+    gatewayFeatureProfile: scenario.gatewayFeatureProfile ?? "inferred",
     defaultAgentId,
     deferredMethods: scenario.deferredMethods ?? [],
     devGitBranch: scenario.devGitBranch?.trim() || "",
@@ -609,14 +627,24 @@ function normalizeScenario(
     // never advertises a method that its browser projection does not expose.
     featureMethods:
       scenario.featureMethods ??
-      Array.from(
-        new Set([
-          "chat.metadata",
-          "chat.startup",
-          ...responseMethods,
-          ...(responseMethods.includes("sessions.files.list") ? ["sessions.files.get"] : []),
-        ]),
-      ),
+      (scenario.gatewayFeatureProfile === "full-gateway"
+        ? Array.from(
+            new Set([
+              ...listGatewayMethods(),
+              ...responseMethods,
+              ...(scenario.deferredMethods ?? []),
+              ...(responseMethods.includes("sessions.files.list") ? ["sessions.files.get"] : []),
+            ]),
+          )
+        : Array.from(
+            new Set([
+              "chat.metadata",
+              "chat.startup",
+              ...responseMethods,
+              ...(scenario.deferredMethods ?? []),
+              ...(responseMethods.includes("sessions.files.list") ? ["sessions.files.get"] : []),
+            ]),
+          )),
     omitFeatureMethods: scenario.omitFeatureMethods ?? false,
     historyMessages: scenario.historyMessages ?? [],
     methodResponses: scenario.methodResponses ?? {},
@@ -1860,6 +1888,14 @@ export async function installMockGateway(
   );
   await page.addInitScript({ content: createControlUiMockGatewayInitScript(normalizedScenario) });
   return createMockGatewayControls(page, normalizedScenario.sessionKey);
+}
+
+/** Installs a mock of the unrestricted Gateway surface used by upstream Control UI scenarios. */
+export function installFullGatewayMock(
+  page: Page,
+  scenario: ControlUiMockGatewayScenario = {},
+): Promise<MockGatewayControls> {
+  return installMockGateway(page, { ...scenario, gatewayFeatureProfile: "full-gateway" });
 }
 
 function createMockGatewayControls(page: Page, defaultSessionKey: string): MockGatewayControls {

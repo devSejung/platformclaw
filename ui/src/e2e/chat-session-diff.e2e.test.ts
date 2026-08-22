@@ -85,7 +85,13 @@ describeControlUiE2e("session diff panel", () => {
     const context = await newBrowserContext();
     const page = await context.newPage();
     await installMockGateway(page, {
-      featureMethods: ["chat.metadata", "chat.startup", "sessions.diff"],
+      featureMethods: [
+        "chat.metadata",
+        "chat.startup",
+        "sessions.diff",
+        "sessions.files.get",
+        "sessions.files.list",
+      ],
       methodResponses: {
         "sessions.diff": {
           sessionKey: "main",
@@ -167,7 +173,13 @@ describeControlUiE2e("session diff panel", () => {
     const context = await newBrowserContext();
     const page = await context.newPage();
     await installMockGateway(page, {
-      featureMethods: ["chat.metadata", "chat.startup", "sessions.diff"],
+      featureMethods: [
+        "chat.metadata",
+        "chat.startup",
+        "sessions.diff",
+        "sessions.files.get",
+        "sessions.files.list",
+      ],
       methodResponses: {
         "sessions.files.list": {
           sessionKey: "main",
@@ -206,7 +218,13 @@ describeControlUiE2e("session diff panel", () => {
     const context = await newBrowserContext();
     const page = await context.newPage();
     await installMockGateway(page, {
-      featureMethods: ["chat.metadata", "chat.startup", "sessions.diff"],
+      featureMethods: [
+        "chat.metadata",
+        "chat.startup",
+        "sessions.diff",
+        "sessions.files.get",
+        "sessions.files.list",
+      ],
       methodResponses: {
         "sessions.diff": {
           sessionKey: "main",

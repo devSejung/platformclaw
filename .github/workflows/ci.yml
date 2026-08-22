@@ -476,6 +476,10 @@ jobs:
           const packageScripts = JSON.parse(readFileSync("package.json", "utf8")).scripts ?? {};
           const hasPackageScript = (name) => typeof packageScripts[name] === "string";
           const isCanonicalRepository = process.env.OPENCLAW_CI_REPOSITORY === "openclaw/openclaw";
+          // PlatformClaw reuses the coverage-preserving compact Node bins without
+          // inheriting canonical-only runners, caches, or native/mobile lanes.
+          const supportsCompactNodePlan =
+            isCanonicalRepository || process.env.OPENCLAW_CI_REPOSITORY === "devSejung/platformclaw";
           const changedPaths = (() => {
             try {
               const value = JSON.parse(process.env.OPENCLAW_CI_CHANGED_PATHS_JSON ?? "null");
@@ -566,12 +570,12 @@ jobs:
           }
 
           const compactPullRequest = isCanonicalRepository && eventName === "pull_request";
-          // Canonical pushes also use compact bins: 80+ single-group jobs
+          // Trusted integration runs also use compact bins: 80+ single-group jobs
           // drain the runner pool for minutes, and per-shard check names on
           // main have no branch-protection consumers. Dispatch (release
           // validation) keeps the full named matrix.
           const compactPlan =
-            isCanonicalRepository && (eventName === "pull_request" || eventName === "push");
+            supportsCompactNodePlan && (eventName === "pull_request" || eventName === "push");
           let changedNodeTestShards = null;
           if (
             compactPullRequest &&

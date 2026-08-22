@@ -3,7 +3,9 @@ import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   canRunPlaywrightChromium,
-  installMockGateway,
+  controlUiBundledGatewayUrl,
+  controlUiBundledSettingsStorageKey,
+  installFullGatewayMock as installMockGateway,
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   type ControlUiE2eServer,
@@ -46,7 +48,7 @@ describeControlUiE2e("Control UI browser Talk", () => {
   });
 
   it("starts a provider WebSocket session and stops browser audio resources", async () => {
-    const context = await browser.newContext({ permissions: ["microphone"] });
+    const context = await browser.newContext({ locale: "en-US", permissions: ["microphone"] });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       methodResponses: {
@@ -227,7 +229,16 @@ describeControlUiE2e("Control UI browser Talk", () => {
   });
 
   it("keeps stop-voice and stop-run controls visually distinct while both are active", async () => {
-    const context = await browser.newContext({ permissions: ["microphone"] });
+    const context = await browser.newContext({ locale: "en-US", permissions: ["microphone"] });
+    await context.addInitScript(
+      ({ gatewayUrl, key }) => {
+        localStorage.setItem(key, JSON.stringify({ gatewayUrl, themeMode: "system" }));
+      },
+      {
+        gatewayUrl: controlUiBundledGatewayUrl(server.baseUrl),
+        key: controlUiBundledSettingsStorageKey(server.baseUrl),
+      },
+    );
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       deferredMethods: ["chat.send"],
@@ -346,7 +357,10 @@ describeControlUiE2e("Control UI browser Talk", () => {
   });
 
   it("starts OpenAI Talk, enables a fake camera, and submits describe_view", async () => {
-    const context = await browser.newContext({ permissions: ["camera", "microphone"] });
+    const context = await browser.newContext({
+      locale: "en-US",
+      permissions: ["camera", "microphone"],
+    });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       methodResponses: {
@@ -583,7 +597,10 @@ describeControlUiE2e("Control UI browser Talk", () => {
   });
 
   it("starts Gemini Live Talk, enables a fake camera, and handles describe_view", async () => {
-    const context = await browser.newContext({ permissions: ["camera", "microphone"] });
+    const context = await browser.newContext({
+      locale: "en-US",
+      permissions: ["camera", "microphone"],
+    });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       methodResponses: {
@@ -729,7 +746,7 @@ describeControlUiE2e("Control UI browser Talk", () => {
   });
 
   it("shows actionable guidance when Video Talk camera permission is blocked", async () => {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ locale: "en-US" });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       methodResponses: {
@@ -787,7 +804,7 @@ describeControlUiE2e("Control UI browser Talk", () => {
   });
 
   it("renders streamed relay assistant transcript deltas as readable text", async () => {
-    const context = await browser.newContext({ permissions: ["microphone"] });
+    const context = await browser.newContext({ locale: "en-US", permissions: ["microphone"] });
     const page = await context.newPage();
     const relaySessionId = "relay-e2e-transcript";
     const gateway = await installMockGateway(page, {
@@ -992,7 +1009,7 @@ describeControlUiE2e("Control UI browser Talk", () => {
   });
 
   it("keeps blocked microphone guidance readable in a narrow viewport", async () => {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ locale: "en-US" });
     const page = await context.newPage();
     await installMockGateway(page);
     await installBlockedMicrophoneFixture(page);

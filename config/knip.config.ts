@@ -405,6 +405,12 @@ const config = {
     "extensions/platformclaw-execution/src/runtime.ts": ["exports"],
     "ui/src/platformclaw/execution-settings.ts": ["exports"],
     "ui/src/platformclaw/web-contract.ts": ["exports"],
+    // The private control-plane package exposes narrow focused-test seams. The
+    // full-tree companion scan roots those tests and audits their consumers.
+    "packages/platformclaw-control-plane/src/browser-canvas-http.ts": ["types"],
+    "packages/platformclaw-control-plane/src/browser-execution-http.ts": ["exports"],
+    "packages/platformclaw-control-plane/src/browser-media-http.ts": ["types"],
+    "packages/platformclaw-control-plane/src/skill-hub-service-support.ts": ["types"],
   },
   workspaces: {
     ".": {
@@ -465,6 +471,8 @@ const config = {
         "index.html!",
         // Vite builds and serves the standalone PlatformClaw login shell separately.
         "platformclaw-login.html!",
+        // The login shell imports this absolute module URL at runtime.
+        "src/platformclaw/login.ts!",
         "src/main.ts!",
         "src/lib/browser-redact.ts!",
         "vite.config.ts!",
@@ -632,6 +640,11 @@ const config = {
     },
     "packages/memory-host-sdk": {
       entry: ["src/*.ts!", "src/host/embeddings-worker-child.ts!"],
+      project: ["src/**/*.ts!"],
+    },
+    "packages/platformclaw-control-plane": {
+      // Mirror the tsdown executable roots so package-owned dependencies are traced.
+      entry: ["src/index.ts!", "src/admin-main.ts!", "src/server-main.ts!", "src/sshpass-main.ts!"],
       project: ["src/**/*.ts!"],
     },
     "packages/*": {

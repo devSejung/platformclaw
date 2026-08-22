@@ -166,6 +166,10 @@ export function surfacesForPlan(plan) {
   return surfaces;
 }
 
+export function shouldRunUpstreamChangedChecks(plan, options = {}) {
+  return plan.needs_changed_surface_checks && !options.quick && !options.overlayOnly;
+}
+
 export function findPatchWhitespaceErrors(text) {
   const errors = [];
   for (const [index, rawLine] of text.split("\n").entries()) {
@@ -209,6 +213,7 @@ function parseArgs(argv) {
     base: "origin/main",
     changed: false,
     head: undefined,
+    overlayOnly: false,
     quick: false,
     surfaces: [],
   };
@@ -222,6 +227,8 @@ function parseArgs(argv) {
       options[arg.slice(2)] = argv[++index];
     } else if (arg === "--quick") {
       options.quick = true;
+    } else if (arg === "--overlay-only") {
+      options.overlayOnly = true;
     } else {
       throw new Error(`unknown argument: ${arg}`);
     }
@@ -291,10 +298,11 @@ function main() {
     run(entry, options);
   }
   if (plan?.needs_changed_surface_checks) {
-    if (options.quick) {
-      process.stdout.write(
-        "\n[platformclaw:check] quick mode skips upstream changed-surface checks\n",
-      );
+    if (!shouldRunUpstreamChangedChecks(plan, options)) {
+      const reason = options.overlayOnly
+        ? "overlay-only mode delegates upstream changed-surface checks to OpenClaw CI"
+        : "quick mode skips upstream changed-surface checks";
+      process.stdout.write(`\n[platformclaw:check] ${reason}\n`);
     } else {
       run(
         command("run upstream changed-surface checks", "corepack", [

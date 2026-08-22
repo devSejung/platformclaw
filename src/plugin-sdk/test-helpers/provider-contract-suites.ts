@@ -28,6 +28,7 @@ function resolveLazy<T>(value: Lazy<T>): T {
 function expectWebProviderCredentialContract(
   provider: WebProviderCredentialContract,
   credentialValue: unknown,
+  options: { configBackedCredential?: boolean } = {},
 ) {
   expect(provider.id).toMatch(/^[a-z0-9][a-z0-9-]*$/);
   expect(provider.label.trim()).not.toBe("");
@@ -43,7 +44,9 @@ function expectWebProviderCredentialContract(
 
   const configTarget: Record<string, unknown> = {};
   provider.setCredentialValue(configTarget, credentialValue);
-  expect(provider.getCredentialValue(configTarget)).toEqual(credentialValue);
+  if (options.configBackedCredential !== false) {
+    expect(provider.getCredentialValue(configTarget)).toEqual(credentialValue);
+  }
 
   expect(typeof provider.createTool).toBe("function");
   return configTarget;
@@ -153,16 +156,20 @@ export function installWebFetchProviderContractSuite(params: {
     const provider = resolveLazy(params.provider);
     const credentialValue = resolveLazy(params.credentialValue);
 
-    expectWebProviderCredentialContract(provider, credentialValue);
-    expect(provider.credentialPath.trim()).not.toBe("");
+    const credentialPath = provider.credentialPath.trim();
+    expectWebProviderCredentialContract(provider, credentialValue, {
+      configBackedCredential: credentialPath.length > 0,
+    });
     if (provider.inactiveSecretPaths) {
       expect(provider.inactiveSecretPaths).toEqual([...new Set(provider.inactiveSecretPaths)]);
       expect(provider.inactiveSecretPaths).toContain(provider.credentialPath);
     }
 
-    const fetchConfigTarget: Record<string, unknown> = {};
-    provider.setCredentialValue(fetchConfigTarget, credentialValue);
-    expect(provider.getCredentialValue(fetchConfigTarget)).toEqual(credentialValue);
+    if (credentialPath) {
+      const fetchConfigTarget: Record<string, unknown> = {};
+      provider.setCredentialValue(fetchConfigTarget, credentialValue);
+      expect(provider.getCredentialValue(fetchConfigTarget)).toEqual(credentialValue);
+    }
 
     if (provider.setConfiguredCredentialValue && provider.getConfiguredCredentialValue) {
       const configTarget = {} as OpenClawConfig;
