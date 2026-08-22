@@ -53,27 +53,6 @@ import type {
   SkillProposalSupportFile,
 } from "./types.js";
 
-type SkillProposalApplyOutcome =
-  | "apply_failed"
-  | "apply_succeeded"
-  | "scan_failed"
-  | "target_changed";
-
-const SKILL_PROPOSAL_APPLY_TRANSITIONS: Readonly<
-  Record<SkillProposalStatus, Partial<Record<SkillProposalApplyOutcome, SkillProposalStatus>>>
-> = {
-  pending: {
-    apply_failed: "pending",
-    apply_succeeded: "applied",
-    scan_failed: "quarantined",
-    target_changed: "stale",
-  },
-  applied: {},
-  rejected: {},
-  quarantined: {},
-  stale: {},
-};
-
 type PreparedSkillProposalSupportFile = SkillProposalSupportFile & { content: string };
 
 export type SkillProposalApplyTransitionDependencies = {
@@ -96,6 +75,27 @@ export type SkillProposalApplyTransitionDependencies = {
       reconcile?: boolean;
     },
   ) => Promise<SkillProposalReadResult>;
+};
+
+type SkillProposalApplyOutcome =
+  | "apply_failed"
+  | "apply_succeeded"
+  | "scan_failed"
+  | "target_changed";
+
+const SKILL_PROPOSAL_APPLY_TRANSITIONS: Readonly<
+  Record<SkillProposalStatus, Partial<Record<SkillProposalApplyOutcome, SkillProposalStatus>>>
+> = {
+  pending: {
+    apply_failed: "pending",
+    apply_succeeded: "applied",
+    scan_failed: "quarantined",
+    target_changed: "stale",
+  },
+  applied: {},
+  rejected: {},
+  quarantined: {},
+  stale: {},
 };
 
 type SkillProposalTransitionInput = Pick<
@@ -145,7 +145,7 @@ export async function applySkillProposalTransition(
   const recoveredExternal = await reconcileExternalSkillMutation({
     input,
     initial,
-    dependencies,
+    readProposalSupportFiles: dependencies.readProposalSupportFiles,
   });
   if (recoveredExternal) {
     return recoveredExternal;

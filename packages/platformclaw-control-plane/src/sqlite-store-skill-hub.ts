@@ -13,6 +13,7 @@ import { ensureSkillHubStateSchema } from "./sqlite-schema.js";
 import { SqliteControlPlaneMcpStore } from "./sqlite-store-mcp.js";
 import type {
   SkillHubAccessRow,
+  SkillHubNamespaceBindingRow,
   SkillHubNotificationRow,
   SkillHubOwnershipRow,
 } from "./sqlite-store-types.js";
@@ -58,9 +59,7 @@ function notification(row: SkillHubNotificationRow): SkillHubNotification {
   };
 }
 
-function namespaceBinding(
-  row: import("./sqlite-store-types.js").SkillHubNamespaceBindingRow,
-): SkillHubNamespaceBinding {
+function namespaceBinding(row: SkillHubNamespaceBindingRow): SkillHubNamespaceBinding {
   return {
     namespace: row.namespace,
     scopeKind: row.scope_kind,

@@ -39,6 +39,7 @@ async function newProofPage(): Promise<{ context: BrowserContext; page: Page }> 
 }
 
 async function installComponent(page: Page): Promise<void> {
+  await page.setContent("<!doctype html><html><body></body></html>");
   await page.addScriptTag({
     type: "module",
     url: `${server.baseUrl}src/platformclaw/mcp-settings.ts`,
@@ -72,7 +73,7 @@ describeControlUiE2e("PlatformClaw personal MCP browser settings", () => {
     if (!chromiumAvailable) {
       throw new Error(`Playwright Chromium is not available at ${chromiumExecutablePath}`);
     }
-    server = await startControlUiE2eServer();
+    server = await startControlUiE2eServer(undefined, { source: true });
     browser = await chromium.launch({ executablePath: chromiumExecutablePath });
   });
 
@@ -105,7 +106,7 @@ describeControlUiE2e("PlatformClaw personal MCP browser settings", () => {
       await route.fulfill({ json: { serverName: "docs", revision: 2 } });
     });
 
-    await page.goto(server.baseUrl);
+    await page.goto(new URL("sw.js", server.baseUrl).href);
     await installComponent(page);
     const component = page.locator("platformclaw-mcp-settings");
     await expect
@@ -166,7 +167,7 @@ describeControlUiE2e("PlatformClaw personal MCP browser settings", () => {
       route.fulfill({ contentType: "text/html", body: "<h1>Authorization server</h1>" }),
     );
 
-    await page.goto(`${server.baseUrl}?mcpOAuth=success`);
+    await page.goto(new URL("sw.js?mcpOAuth=success", server.baseUrl).href);
     await installComponent(page);
     const component = page.locator("platformclaw-mcp-settings");
     await expect

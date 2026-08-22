@@ -67,14 +67,14 @@ function browserCommandTokens(message: string): string[] {
   ).filter((name): name is string => Boolean(name));
 }
 
-export function hasBlockedBrowserDirective(message: unknown): boolean {
+function hasBlockedBrowserDirective(message: unknown): boolean {
   return (
     typeof message === "string" &&
     browserCommandTokens(message.trim()).some((name) => BLOCKED_BROWSER_COMMANDS.has(name))
   );
 }
 
-export function resolveBrowserCommandPolicy(
+function resolveBrowserCommandPolicy(
   message: unknown,
   advertisedCommands: unknown,
 ): "allow" | "block" | "suppress" {

@@ -37,7 +37,7 @@ describeControlUiE2e("PlatformClaw employee execution settings", () => {
     if (!chromiumAvailable) {
       throw new Error(`Playwright Chromium is not available at ${chromiumExecutablePath}`);
     }
-    server = await startControlUiE2eServer();
+    server = await startControlUiE2eServer(undefined, { source: true });
     browser = await chromium.launch({ executablePath: chromiumExecutablePath });
   });
 
@@ -47,7 +47,7 @@ describeControlUiE2e("PlatformClaw employee execution settings", () => {
   });
 
   it("shows the active work location and requires confirmation before switching", async () => {
-    const page = await browser.newPage({ viewport: { width: 574, height: 789 } });
+    const page = await browser.newPage({ locale: "en-US", viewport: { width: 574, height: 789 } });
     await page.route("**/platformclaw/api/execution", async (route) => {
       await route.fulfill({
         contentType: "application/json",
@@ -69,15 +69,18 @@ describeControlUiE2e("PlatformClaw employee execution settings", () => {
         }),
       });
     });
-    await page.goto(server.baseUrl);
+    await page.goto(new URL("sw.js", server.baseUrl).href);
+    await page.setContent("<!doctype html><html><body></body></html>");
     await page.addScriptTag({
       type: "module",
       url: `${server.baseUrl}src/platformclaw/execution-settings.ts`,
     });
+    const initialRefresh = page.waitForResponse("**/platformclaw/api/execution");
     await page.evaluate(async () => {
       await customElements.whenDefined("platformclaw-execution-settings");
       document.body.replaceChildren(document.createElement("platformclaw-execution-settings"));
     });
+    await initialRefresh;
 
     const component = page.locator("platformclaw-execution-settings");
     const badge = component.getByRole("button", { name: "Open work location settings" });

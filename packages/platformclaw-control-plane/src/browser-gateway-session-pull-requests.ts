@@ -1,4 +1,4 @@
-export type BrowserGatewaySessionPullRequestRpc = {
+type BrowserGatewaySessionPullRequestRpc = {
   request(method: string, params?: unknown): Promise<unknown>;
 };
 

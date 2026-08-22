@@ -9,7 +9,7 @@ import {
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
   type PlatformClawExecutionDependencies,
   type PlatformClawExecutionTargetSnapshot,
-} from "../extensions/platformclaw-execution/src/backend.js";
+} from "../extensions/platformclaw-execution/api.js";
 import { resolveSandboxConfigForAgent } from "../src/agents/sandbox/config.js";
 import { buildCronAgentDefaultsConfig } from "../src/cron/isolated-agent/run-config.js";
 import { CronService } from "../src/cron/service.js";

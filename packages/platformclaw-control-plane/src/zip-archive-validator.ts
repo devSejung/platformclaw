@@ -11,7 +11,7 @@ const UTF8 = new TextDecoder("utf-8", { fatal: true });
 
 export class ZipArchiveValidationError extends Error {}
 
-export type ZipArchiveLimits = {
+type ZipArchiveLimits = {
   archiveBytes: number;
   expandedBytes: number;
   entryBytes: number;

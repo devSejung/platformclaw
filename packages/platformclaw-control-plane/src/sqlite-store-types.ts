@@ -30,7 +30,7 @@ export type EnterpriseIdentityRow = {
   last_authenticated_at: number;
 };
 
-export type DirectoryGroupRow = { user_id: string; group_name: string };
+type DirectoryGroupRow = { user_id: string; group_name: string };
 export type AgentBindingRow = {
   id: string;
   kind: "personal" | "knox-room";
@@ -71,7 +71,7 @@ export type ManagedScopeMembershipRow = {
   created_at: number;
   updated_at: number;
 };
-export type AuditEventRow = {
+type AuditEventRow = {
   id: string;
   actor_user_id: string | null;
   event_type: string;
@@ -109,7 +109,7 @@ export type VmHostRow = {
   updated_at: number;
 };
 
-export type VmHostExecutionEnvironmentRow = {
+type VmHostExecutionEnvironmentRow = {
   vm_host_id: string;
   config_json: string;
   updated_by_user_id: string;
@@ -133,7 +133,7 @@ export type VmAllocationRow = {
   revoked_at: number | null;
 };
 
-export type PersonalExecutionProfileRow = {
+type PersonalExecutionProfileRow = {
   agent_binding_id: string;
   active_target: "platform_server" | "assigned_vm";
   active_allocation_id: string | null;
@@ -170,7 +170,7 @@ export type EncryptedUserMcpCredentialRow = {
   updated_at: number;
 };
 
-export type McpOAuthStateRow = {
+type McpOAuthStateRow = {
   state_hash: string;
   user_id: string;
   server_name: string;
@@ -211,7 +211,7 @@ export type SkillHubNotificationRow = {
   read_at: number | null;
 };
 
-export type SkillHubGovernanceJobRow = {
+type SkillHubGovernanceJobRow = {
   namespace: string;
   slug: string;
   version: string;

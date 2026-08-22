@@ -4,7 +4,7 @@ import type { Locator, Page } from "playwright";
 import {
   controlUiSessionPath,
   controlUiSessionUrl,
-  installMockGateway,
+  installFullGatewayMock as installMockGateway,
   type MockGatewayControls,
   type MockGatewayRequest,
 } from "../test-helpers/control-ui-e2e.ts";

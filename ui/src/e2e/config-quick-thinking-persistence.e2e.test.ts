@@ -149,6 +149,7 @@ describeControlUiE2e("Control UI Models settings behavior persistence mocked Gat
       const page = await context.newPage();
       const initialConfig = configResponse("low", "hash-1", initial);
       const gateway = await installMockGateway(page, {
+        featureMethods: ["config.get", "config.set"],
         methodResponses: { "config.get": initialConfig },
       });
 

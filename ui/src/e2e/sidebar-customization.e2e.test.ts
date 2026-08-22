@@ -7,7 +7,7 @@ import {
   canRunPlaywrightChromium,
   controlUiSessionPath,
   controlUiSessionUrl,
-  installMockGateway,
+  installFullGatewayMock as installMockGateway,
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   waitForControlUiRoute,
@@ -415,6 +415,9 @@ describeControlUiE2e("Control UI sidebar customization mocked Gateway E2E", () =
       await captureSettingsSidebarProof(settingsSidebar, "01f-settings-search-navigated.png");
       await holdUiProof(page);
       await page.keyboard.press("Escape");
+      await expect.poll(() => settingsSearch.inputValue()).toBe("");
+      await settingsSidebar.getByRole("button", { name: "Back to app" }).click();
+      await page.goto(controlUiSessionUrl(server.baseUrl, "main"));
       await expect.poll(() => new URL(page.url()).pathname).toBe(controlUiSessionPath("main"));
       await expect.poll(() => sidebar.isVisible()).toBe(true);
       await openSettingsFromIdentity();

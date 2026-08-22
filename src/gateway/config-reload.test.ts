@@ -1816,8 +1816,8 @@ describe("startGatewayConfigReloader", () => {
 
     expect(events).toEqual(["applied", "revision-applied", "accepted"]);
     expect(terminalPolicy.resolve()).toMatchObject({
-      ok: false,
-      block: { kind: "sandboxed", mode: "all" },
+      ok: true,
+      plan: { kind: "backend", backendId: "docker" },
     });
 
     await harness.reloader.stop();
@@ -1871,8 +1871,8 @@ describe("startGatewayConfigReloader", () => {
 
       expect(harness.onConfigApplied).toHaveBeenCalledOnce();
       expect(terminalPolicy.resolve()).toMatchObject({
-        ok: false,
-        block: { kind: "sandboxed", mode: "all" },
+        ok: true,
+        plan: { kind: "backend", backendId: "docker" },
       });
 
       await harness.reloader.stop();
@@ -1944,8 +1944,8 @@ describe("startGatewayConfigReloader", () => {
 
     expect(events).toEqual(["prepared", "applied", "prepared", "accepted"]);
     expect(terminalPolicy.resolve()).toMatchObject({
-      ok: false,
-      block: { kind: "sandboxed", mode: "all" },
+      ok: true,
+      plan: { kind: "backend", backendId: "docker" },
     });
 
     await harness.reloader.stop();

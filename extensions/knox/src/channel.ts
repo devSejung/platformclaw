@@ -119,7 +119,7 @@ export const knoxPlugin: ChannelPlugin<ResolvedKnoxAccount> = createChatChannelP
       label: "Knox Teams",
       selectionLabel: "Samsung Knox Teams",
       detailLabel: "Samsung Knox Teams (CDEP relay)",
-      docsPath: "/platformclaw/knox-proxy-spec",
+      docsPath: "/channels/knox",
       blurb: "Connect Samsung Knox Teams through the CDEP relay.",
       order: 75,
     },

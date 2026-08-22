@@ -99,6 +99,7 @@ describeControlUiE2e("Skill Workshop self-learning config recovery mocked Gatewa
       }
     });
     const gateway = await installMockGateway(page, {
+      featureMethods: ["config.get", "config.patch", "skills.proposals.list"],
       methodResponses: {
         "config.get": configSnapshot(false, "hash-stale"),
         "skills.proposals.list": emptyProposalManifest(),

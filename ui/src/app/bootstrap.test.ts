@@ -636,7 +636,10 @@ describe("normalizeInitialApplicationLocation", () => {
     const previousSettings = loadSettings();
     const previousUrl = window.location.href;
     window.history.replaceState({}, "", "/chat");
-    const runtime = bootstrapApplication({ enabledRouteIds: ["chat"] });
+    const runtime = bootstrapApplication({
+      enabledRouteIds: ["chat"],
+      routeOverrides: { chat: { loader: async () => undefined } },
+    });
 
     try {
       await runtime.start();
