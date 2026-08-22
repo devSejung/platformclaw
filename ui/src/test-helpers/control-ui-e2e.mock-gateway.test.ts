@@ -24,6 +24,31 @@ function waitForMockCycle(): Promise<void> {
 }
 
 describe("mock gateway stateful config", () => {
+  it("can advertise the canonical full Gateway feature catalog explicitly", async () => {
+    const script = createControlUiMockGatewayInitScript({
+      gatewayFeatureProfile: "full-gateway",
+    });
+    window.sessionStorage.clear();
+    // oxlint-disable-next-line typescript/no-implied-eval -- Exercises the serialized Gateway initialization exactly as the browser does.
+    new Function(script)();
+
+    const socket = new WebSocket("ws://mock-gateway");
+    const frames: ResponseFrame[] = [];
+    socket.addEventListener("message", (event) => {
+      frames.push(JSON.parse(String((event as MessageEvent).data)) as ResponseFrame);
+    });
+    await flushMockTimers();
+
+    socket.send(JSON.stringify({ type: "req", id: "connect-full", method: "connect", params: {} }));
+    await flushMockTimers();
+    expect(frames.find((frame) => frame.id === "connect-full")?.payload).toMatchObject({
+      features: {
+        methods: expect.arrayContaining(["chat.abort", "config.patch", "sessions.patch"]),
+      },
+    });
+    socket.close();
+  });
+
   it("advertises deferred methods as available Gateway features", async () => {
     const script = createControlUiMockGatewayInitScript({
       deferredMethods: ["sessions.patch"],

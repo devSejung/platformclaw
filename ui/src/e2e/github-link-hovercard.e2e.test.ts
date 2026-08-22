@@ -3,7 +3,7 @@ import { chromium, type Browser, type BrowserContext, type Locator } from "playw
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   canRunPlaywrightChromium,
-  installMockGateway,
+  installFullGatewayMock as installMockGateway,
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   type ControlUiE2eServer,

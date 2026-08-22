@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   parsePlatformClawWebDescriptor,
   PLATFORMCLAW_DEFAULT_APP_PATH,
@@ -6,6 +6,10 @@ import {
   readPlatformClawWebDescriptor,
   resolvePlatformClawReturnTo,
 } from "./web-contract.ts";
+
+afterEach(() => {
+  document.head.replaceChildren();
+});
 
 function locationFor(returnTo?: string): Pick<Location, "href" | "origin"> {
   const url = new URL("https://platformclaw.example/platformclaw/login");

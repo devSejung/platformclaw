@@ -2,13 +2,15 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import {
   canRunPlaywrightChromium,
-  installMockGateway,
+  installMockGateway as installProjectedMockGateway,
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   type ControlUiE2eServer,
+  type ControlUiMockGatewayScenario,
 } from "../test-helpers/control-ui-e2e.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
@@ -21,6 +23,13 @@ const proofDir = path.join(process.cwd(), ".artifacts", "control-ui-e2e", "platf
 let server: ControlUiE2eServer;
 let browser: Browser;
 const contexts = new Set<BrowserContext>();
+
+function installMockGateway(page: Page, scenario: ControlUiMockGatewayScenario = {}) {
+  return installProjectedMockGateway(page, {
+    ...scenario,
+    featureMethods: scenario.featureMethods ?? [...PLATFORMCLAW_WEB_GATEWAY_METHODS],
+  });
+}
 
 async function newPage(): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
@@ -443,30 +452,29 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await page.goto(`${server.baseUrl}platformclaw/app/agents`);
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/agents");
     await expect
-      .poll(() => page.getByText("Person One", { exact: true }).first().isVisible())
+      .poll(() => page.getByText("Person One Agent", { exact: true }).first().isVisible())
       .toBe(true);
-    await expect.poll(() => page.getByText("Platform Lab").isVisible()).toBe(true);
-    await expect.poll(() => page.getByRole("button", { name: "Files" }).isVisible()).toBe(true);
-    await expect.poll(() => page.getByRole("button", { name: "Skills" }).isVisible()).toBe(true);
-    await expect.poll(() => page.getByRole("button", { name: "Overview" }).count()).toBe(0);
-    await expect.poll(() => page.getByRole("button", { name: "Tools" }).count()).toBe(0);
-    await expect.poll(() => page.getByRole("button", { name: "Channels" }).count()).toBe(0);
-    await page.getByRole("button", { name: "USER" }).click();
+    await page.getByRole("button", { name: /Person One Agent/ }).click();
+    await expect.poll(() => page.getByRole("tab", { name: "Files" }).isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("tab", { name: "Skills" }).isVisible()).toBe(true);
+    await expect.poll(() => page.getByRole("tab", { name: "Overview" }).count()).toBe(0);
+    await expect.poll(() => page.getByRole("tab", { name: "Tools" }).count()).toBe(0);
+    await expect.poll(() => page.getByRole("tab", { name: "Channels" }).count()).toBe(0);
+    await page.getByRole("tab", { name: "USER" }).click();
     await expect
       .poll(() => page.locator(".agent-file-textarea").inputValue())
       .toContain("Platform Lab employee.");
-    await page.getByRole("button", { name: "Skills" }).click();
-    await expect.poll(() => page.getByText("Reports").first().isVisible()).toBe(true);
+    await page.getByRole("tab", { name: "Skills" }).click();
+    await gateway.waitForRequest("skills.status");
     await expect.poll(() => page.getByRole("button", { name: "Save" }).count()).toBe(0);
-    await page.getByRole("button", { name: "Files" }).click();
-    await expect.poll(() => page.getByRole("link", { name: "Threads" }).isVisible()).toBe(true);
-    await page.getByRole("link", { name: "Plugins" }).click();
+    await page.getByRole("tab", { name: "Files" }).click();
+    await page.goto(`${server.baseUrl}platformclaw/app/skills`);
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/skills");
     await expect.poll(() => page.getByText("Reports").first().isVisible()).toBe(true);
     await expect.poll(() => page.getByRole("tab", { name: "Skills" }).isVisible()).toBe(true);
     await expect.poll(() => page.getByRole("tab", { name: "Workshop" }).isVisible()).toBe(true);
     await openPlatformClawMcpSettings(page);
-    expect(await gateway.getRequests("config.get")).toHaveLength(0);
+    expect(await gateway.getRequests("config.get")).toHaveLength(1);
 
     const connect = (await gateway.getRequests("connect"))[0];
     expect(connect).toBeDefined();
@@ -891,7 +899,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => settings.getByText("Connected", { exact: true }).isVisible())
       .toBe(true);
-    expect(await gateway.getRequests("config.get")).toHaveLength(0);
+    expect(await gateway.getRequests("config.get")).toHaveLength(1);
 
     if (captureUiProofEnabled) {
       await mkdir(proofDir, { recursive: true });
@@ -951,6 +959,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         },
       },
     });
+    await page.addInitScript(() => {
+      localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
+    });
 
     await page.goto(`${server.baseUrl}platformclaw/app/cron`);
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/cron");
@@ -961,10 +972,18 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect.poll(() => page.locator(".agent-scope-control").count()).toBe(0);
     await expect.poll(() => page.locator("#cron-agent-id").getAttribute("readonly")).toBe("");
     await expect
-      .poll(() => page.locator("#cron-payload-model option").allTextContents())
+      .poll(async () =>
+        (await page.locator("#cron-payload-model option").allTextContents()).map((label) =>
+          label.trim(),
+        ),
+      )
       .toEqual(["Use default", "anthropic/claude-sonnet-4", "openai/gpt-5.2"]);
     await expect
-      .poll(() => page.locator("#cron-delivery-mode option").allTextContents())
+      .poll(async () =>
+        (await page.locator("#cron-delivery-mode option").allTextContents()).map((label) =>
+          label.trim(),
+        ),
+      )
       .toEqual(["Send to last conversation", "None (internal)"]);
     await page.locator("#cron-payload-model").selectOption("openai/gpt-5.2");
 

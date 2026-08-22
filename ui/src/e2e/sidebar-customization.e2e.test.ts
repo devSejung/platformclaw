@@ -7,7 +7,7 @@ import {
   canRunPlaywrightChromium,
   controlUiSessionPath,
   controlUiSessionUrl,
-  installMockGateway,
+  installFullGatewayMock as installMockGateway,
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   waitForControlUiRoute,

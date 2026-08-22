@@ -4,6 +4,7 @@ import path from "node:path";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { importCustomThemeFromUrl } from "../app/custom-theme.ts";
+import { UI_APPEARANCE_DEFAULTS } from "../app/settings.ts";
 import {
   canRunPlaywrightChromium,
   controlUiBundledGatewayUrl,
@@ -126,9 +127,9 @@ async function readThemeImportRaceState(page: Page) {
     titleColor: await page
       .locator(".page-title")
       .evaluate((element) => getComputedStyle(element).color),
-    clawSelected:
+    defaultThemeSelected:
       (await page
-        .locator("#settings-appearance-theme .settings-theme-card--claw")
+        .locator(`#settings-appearance-theme .settings-theme-card--${UI_APPEARANCE_DEFAULTS.theme}`)
         .getAttribute("aria-pressed")) === "true",
     customThemeMetadataCount: await importer.locator(".settings-theme-import__meta").count(),
     importUrl: await importer.locator("input").inputValue(),
@@ -233,8 +234,8 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
         .toBe("true");
       await expect.poll(() => sendShortcutSelect.inputValue()).toBe("modifier-enter");
       await expect.poll(() => languageRow.textContent()).toContain("Default: System");
-      await expect.poll(() => themeSection.textContent()).toContain("Default: Claw");
-      await expect.poll(() => colorModeRow.textContent()).toContain("Default: System");
+      await expect.poll(() => themeSection.textContent()).toContain("Default: PlatformClaw");
+      await expect.poll(() => colorModeRow.textContent()).toContain("Default: Light");
       await expect.poll(() => textSizeSection.textContent()).toContain("Default: 100%");
       await expect.poll(() => sendShortcutRow.textContent()).toContain("Default: Enter");
       await expect.poll(() => page.locator("html").getAttribute("data-theme-mode")).toBe("dark");
@@ -307,9 +308,13 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
 
       await expect.poll(() => selectValue(languageSelect)).toBe("system");
       await expect
-        .poll(() => themeSection.locator(".settings-theme-card--claw").getAttribute("aria-pressed"))
+        .poll(() =>
+          themeSection
+            .locator(`.settings-theme-card--${UI_APPEARANCE_DEFAULTS.theme}`)
+            .getAttribute("aria-pressed"),
+        )
         .toBe("true");
-      await expect.poll(() => selectValue(colorModeGroup)).toBe("system");
+      await expect.poll(() => selectValue(colorModeGroup)).toBe(UI_APPEARANCE_DEFAULTS.themeMode);
       await expect
         .poll(() =>
           textSizeSection
@@ -332,12 +337,14 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
       await expect.poll(() => selectValue(reloadedLanguageRow.locator("wa-select"))).toBe("system");
       await expect
         .poll(() =>
-          reloadedThemeSection.locator(".settings-theme-card--claw").getAttribute("aria-pressed"),
+          reloadedThemeSection
+            .locator(`.settings-theme-card--${UI_APPEARANCE_DEFAULTS.theme}`)
+            .getAttribute("aria-pressed"),
         )
         .toBe("true");
       await expect
         .poll(() => selectValue(reloadedColorModeRow.locator("wa-radio-group")))
-        .toBe("system");
+        .toBe(UI_APPEARANCE_DEFAULTS.themeMode);
       await expect
         .poll(() =>
           reloadedTextSizeSection
@@ -349,10 +356,10 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
         .poll(() => reloadedSendShortcutRow.locator("[data-settings-send-shortcut]").inputValue())
         .toBe("enter");
       await expect.poll(() => reloadedLanguageRow.textContent()).toContain("Using default: System");
-      await expect.poll(() => reloadedThemeSection.textContent()).toContain("Using default: Claw");
       await expect
-        .poll(() => reloadedColorModeRow.textContent())
-        .toContain("Using default: System");
+        .poll(() => reloadedThemeSection.textContent())
+        .toContain("Using default: PlatformClaw");
+      await expect.poll(() => reloadedColorModeRow.textContent()).toContain("Using default: Light");
       await expect
         .poll(() => reloadedTextSizeSection.textContent())
         .toContain("Using default: 100%");
@@ -363,7 +370,9 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
         .poll(() => page.getByRole("button", { name: "Reset to default" }).count())
         .toBe(0);
       await expect.poll(() => readPersistedSettings(page)).not.toHaveProperty("textScale");
-      await expect.poll(() => page.locator("html").getAttribute("data-theme-mode")).toBe("dark");
+      await expect
+        .poll(() => page.locator("html").getAttribute("data-theme-mode"))
+        .toBe(UI_APPEARANCE_DEFAULTS.themeMode);
 
       await page.evaluate(() => window.scrollTo(0, 0));
       await captureViewport(page, "03-inherited-defaults.png");
@@ -535,6 +544,7 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
       await replacementGate;
       await route.fulfill({ json: replacementPayload });
     });
+    let replacementResponse: Promise<unknown> | undefined;
 
     try {
       const response = await page.goto(`${server.baseUrl}settings/appearance`);
@@ -553,13 +563,17 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
       await captureViewport(page, "04-custom-theme-before-replace.png");
 
       await importField.fill("replacement");
+      replacementResponse = page.waitForResponse("https://tweakcn.com/r/themes/replacement");
       await importer.locator("button.primary").click();
-      const replacementResponse = page.waitForResponse("https://tweakcn.com/r/themes/replacement");
       await expect.poll(() => importer.locator("button.primary").isDisabled()).toBe(true);
       await importer.locator("button.danger").click();
 
       await expect
-        .poll(() => themeSection.locator(".settings-theme-card--claw").getAttribute("aria-pressed"))
+        .poll(() =>
+          themeSection
+            .locator(`.settings-theme-card--${UI_APPEARANCE_DEFAULTS.theme}`)
+            .getAttribute("aria-pressed"),
+        )
         .toBe("true");
       await expect.poll(() => importer.locator(".settings-theme-import__meta").count()).toBe(0);
       const afterClear = await readThemeImportRaceState(page);
@@ -575,25 +589,25 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
             theme: settings.theme,
           };
         })
-        .toEqual({ customTheme: undefined, theme: "claw" });
+        .toEqual({ customTheme: undefined, theme: UI_APPEARANCE_DEFAULTS.theme });
       await expect.poll(() => importer.locator(".settings-theme-import__meta").count()).toBe(0);
       await expect
         .poll(() => importer.locator(".settings-theme-import__message").textContent())
         .toContain("removed");
       const afterDelayedResponse = await readThemeImportRaceState(page);
       expect(beforeReplace).toMatchObject({
-        clawSelected: false,
+        defaultThemeSelected: false,
         customThemeMetadataCount: 1,
         persistedTheme: "custom",
         hasPersistedCustomTheme: true,
       });
       expect(afterClear).toMatchObject({
-        renderedThemeMode: "dark",
-        clawSelected: true,
+        renderedThemeMode: UI_APPEARANCE_DEFAULTS.theme,
+        defaultThemeSelected: true,
         customThemeMetadataCount: 0,
         importUrl: "replacement",
         importButtonDisabled: false,
-        persistedTheme: "claw",
+        persistedTheme: UI_APPEARANCE_DEFAULTS.theme,
         hasPersistedCustomTheme: false,
       });
       expect(beforeReplace.titleColor).not.toBe(afterClear.titleColor);
@@ -614,6 +628,7 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
     } finally {
       releaseReplacement();
       await context.close();
+      await replacementResponse?.catch(() => undefined);
     }
   });
 
@@ -640,6 +655,7 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
       await importGate;
       await route.fulfill({ json: replacementPayload });
     });
+    let replacementResponse: Promise<unknown> | undefined;
 
     try {
       const response = await page.goto(`${server.baseUrl}settings/appearance`);
@@ -651,8 +667,8 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
       await themeSection.locator(".settings-theme-card--custom").click();
       const importer = page.locator(".settings-theme-import");
       await importer.locator("input").fill("replacement");
+      replacementResponse = page.waitForResponse("https://tweakcn.com/r/themes/replacement");
       await importer.locator("button.primary").click();
-      const replacementResponse = page.waitForResponse("https://tweakcn.com/r/themes/replacement");
       await expect.poll(() => importer.locator("button.primary").isDisabled()).toBe(true);
 
       const configGetCount = (await gateway.getRequests("config.get")).length;
@@ -688,6 +704,7 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
     } finally {
       releaseImport();
       await context.close();
+      await replacementResponse?.catch(() => undefined);
     }
   });
 });
