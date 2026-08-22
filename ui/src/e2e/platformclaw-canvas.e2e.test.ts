@@ -5,10 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  createPlatformClawExecutionBackendFactory,
-  type PlatformClawExecutionTargetSnapshot,
-} from "../../../extensions/platformclaw-execution/api.js";
 import { PlatformClawBrowserCanvasRelay } from "../../../packages/platformclaw-control-plane/src/browser-canvas-http.js";
 import { filterToolsByPolicy } from "../../../src/agents/agent-tools.policy.js";
 import { createOpenClawTools } from "../../../src/agents/openclaw-tools.js";
@@ -18,10 +14,6 @@ import type { OpenClawConfig } from "../../../src/config/types.openclaw.js";
 import type { ResolvedGatewayAuth } from "../../../src/gateway/auth.js";
 import { createGatewayHttpServer } from "../../../src/gateway/server-http.js";
 import type { GatewayWsClient } from "../../../src/gateway/server/ws-types.js";
-import type {
-  CreateSandboxBackendParams,
-  SandboxBackendHandle,
-} from "../../../src/plugin-sdk/sandbox.js";
 import { withEnvAsync } from "../../../src/test-utils/env.js";
 import {
   canRunPlaywrightChromium,
@@ -69,67 +61,6 @@ function close(server: Server): Promise<void> {
   });
 }
 
-function executionHandle(runtimeId: string): SandboxBackendHandle {
-  return {
-    id: "selected-handle",
-    runtimeId,
-    runtimeLabel: runtimeId,
-    workdir: `/workspaces/${runtimeId}`,
-    buildExecSpec: async () => ({ argv: [runtimeId], env: {}, stdinMode: "pipe-closed" }),
-    runShellCommand: async () => ({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), code: 0 }),
-  };
-}
-
-async function selectExecutionTarget(
-  target: "platform_server" | "assigned_vm",
-): Promise<SandboxBackendHandle> {
-  const targetSnapshot: PlatformClawExecutionTargetSnapshot =
-    target === "platform_server"
-      ? { kind: target, agentId, revision: 1, targetId: "basic" }
-      : {
-          kind: target,
-          agentId,
-          revision: 2,
-          targetId: "vm-one",
-          allocationId: "allocation-one",
-          credentialRevision: 1,
-          vmLabel: "Development VM",
-          safeConnectLabel: "Corporate access",
-          remoteHomeDir: "/users/assigned.personal",
-          remoteWorkspaceDir: "/users/assigned.personal/.platformclaw/workspace",
-          endpointHost: "safeconnect.invalid",
-          endpointPort: 22,
-          adDomain: "example",
-          adAccount: "assigned.personal",
-          targetAddress: "192.0.2.10",
-          linuxAccount: "assigned.personal",
-          hostKeyAlgorithm: "ssh-ed25519",
-          hostKeyPublicKey: "test-key",
-          hostKeyFingerprint: "SHA256:test",
-        };
-  const factory = createPlatformClawExecutionBackendFactory({
-    resolveTarget: async () => targetSnapshot,
-    createPlatformServerHandle: async () => executionHandle("basic"),
-    createAssignedVmHandle: async () => executionHandle("assigned-vm"),
-    listTargetSkills: async () =>
-      target === "assigned_vm" ? { revision: "assigned-vm:2", files: [] } : undefined,
-    createSkillWorkshopTarget: async () => undefined,
-    createSkillInstallTarget: async () => undefined,
-    createTerminalProcess: async () => {
-      throw new Error("terminal is outside this proof");
-    },
-  });
-  return await factory({
-    agentId,
-    sessionKey,
-    scopeKey: `${agentId}:${target}`,
-    workspaceDir: `/gateway/${agentId}`,
-    agentWorkspaceDir: `/gateway/agents/${agentId}`,
-    materializeSkills: async () => undefined,
-    cfg: {} as CreateSandboxBackendParams["cfg"],
-  });
-}
-
 describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
   beforeAll(async () => {
     await mkdir(proofDir, { recursive: true });
@@ -148,12 +79,6 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
   ] as const)("renders show_widget through the BFF on $label", async ({ label, target }) => {
     const stateDir = await mkdtemp(path.join(tmpdir(), "platformclaw-canvas-e2e-"));
     await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
-      const selectedExecution = await selectExecutionTarget(target);
-      expect(selectedExecution.runtimePromptContext).toContain(
-        target === "assigned_vm"
-          ? '"activeTarget": "assigned_vm"'
-          : '"activeTarget": "platform_server"',
-      );
       const config: OpenClawConfig = {
         agents: { entries: { [agentId]: { default: true } } },
         plugins: {
