@@ -4676,8 +4676,8 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       ).include,
     ).toEqual([
       expect.objectContaining({
-        check_name: "bundled-node-plan",
-        shard_name: "bundled-node-plan",
+        check_name: "compact-node-plan",
+        shard_name: "compact-node-plan",
       }),
     ]);
 
