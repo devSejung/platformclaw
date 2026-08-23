@@ -7,7 +7,10 @@ import { resolvePreferredOpenClawTmpDir } from "../../infra/tmp-openclaw-dir.js"
 import type { SkillUsagePath } from "../../skills/types.js";
 import type { SandboxBackendHandle } from "./backend-handle.types.js";
 import { registerSandboxBackend } from "./backend.js";
-import type { CreateSandboxBackendParams } from "./backend.types.js";
+import type {
+  CreateSandboxBackendParams,
+  SandboxBackendMaterializedSkills,
+} from "./backend.types.js";
 import { resolveSandboxContext } from "./context.js";
 
 const mocks = vi.hoisted(() => ({
@@ -209,7 +212,11 @@ describe("sandbox backend skill materialization", () => {
             workspaceDir: path.join(dir, "workspace"),
           });
 
-          expect(materialized?.catalog.files).toEqual([
+          const materializedSkills = materialized as SandboxBackendMaterializedSkills | null;
+          if (!materializedSkills) {
+            throw new Error("expected canonical skills to be materialized");
+          }
+          expect(materializedSkills.catalog.files).toEqual([
             expect.objectContaining({
               filePath: "/opt/platformclaw/skills/confluence-read/SKILL.md",
               source: "openclaw-managed",
@@ -218,10 +225,10 @@ describe("sandbox backend skill materialization", () => {
           expect(context?.skillUsagePaths?.[0]?.readPath).toBe(
             "/opt/platformclaw/skills/confluence-read/SKILL.md",
           );
-          expect(materialized?.mounts).toEqual([
+          expect(materializedSkills.mounts).toEqual([
             expect.objectContaining({ containerPath: "/opt/platformclaw/skills" }),
           ]);
-          const hostRoot = materialized!.mounts[0]!.hostPath;
+          const hostRoot = materializedSkills.mounts[0]!.hostPath;
           await expect(
             fs.readFile(path.join(hostRoot, "confluence-read", ".env.atlassian"), "utf8"),
           ).resolves.toBe("TOKEN=test\n");
