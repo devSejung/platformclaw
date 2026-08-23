@@ -30,7 +30,6 @@ const ADMIN_HTTP_RPC_ALLOWED_METHOD_GROUPS = {
   agents: ["agents.list", "agents.create", "agents.update", "agents.delete"],
   platformclaw: [
     "platformclaw.agent.configStatus",
-    "platformclaw.agent.runtimeStatus",
     "platformclaw.profile.seed",
     "platformclaw.profile.status",
     "platformclaw-execution.testConnection",

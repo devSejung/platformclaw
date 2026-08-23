@@ -87,10 +87,6 @@ function agentConfigResponse(agents: Array<{ id: string; workspace: string }>): 
   };
 }
 
-function runtimeReadyResponse(workspace: string): unknown {
-  return { ok: true, ready: true, agentId: "account_name", workspace };
-}
-
 describe("GatewayPersonalAgentProvisioner", () => {
   it("rejects a blank workspace root at startup", () => {
     const { rpc, call } = createRpc((method) => {
@@ -107,20 +103,12 @@ describe("GatewayPersonalAgentProvisioner", () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
     const profileSeed = createProfileSeedResponder(workspace);
-    let applyRead = 0;
     const { rpc, call } = createRpc((method, params) => {
       if (method === "platformclaw.agent.configStatus") {
         return agentConfigResponse([{ id: "account_name", workspace }]);
       }
       if (method === "agents.create") {
         return { ok: true, agentId: "account_name", workspace };
-      }
-      if (method === "platformclaw.agent.runtimeStatus") {
-        applyRead += 1;
-        if (applyRead === 1) {
-          throw new GatewayAdminRpcError("agent runtime is not ready", "UNAVAILABLE");
-        }
-        return runtimeReadyResponse(workspace);
       }
       const fileResponse = profileSeed.handle(method, params);
       if (fileResponse) {
@@ -136,15 +124,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
       agentId: "account_name",
       workspace,
     });
-    expect(call).toHaveBeenNthCalledWith(2, "platformclaw.agent.runtimeStatus", {
-      agentId: "account_name",
-      workspace,
-    });
-    expect(call).toHaveBeenNthCalledWith(3, "platformclaw.agent.runtimeStatus", {
-      agentId: "account_name",
-      workspace,
-    });
-    expect(call).toHaveBeenNthCalledWith(4, "platformclaw.profile.seed", {
+    expect(call).toHaveBeenNthCalledWith(2, "platformclaw.profile.seed", {
       agentId: "account_name",
       workspace,
       content: expect.stringContaining('"employeeId": "employee-1"'),
@@ -155,12 +135,11 @@ describe("GatewayPersonalAgentProvisioner", () => {
     });
   });
 
-  it("creates and waits for a new agent to enter the live runtime configuration", async () => {
+  it("creates and confirms a new agent in the live runtime configuration", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
     const profileSeed = createProfileSeedResponder(workspace);
     let configRead = 0;
-    let applyRead = 0;
     const { rpc, call } = createRpc((method, params) => {
       if (method === "platformclaw.agent.configStatus") {
         configRead += 1;
@@ -170,13 +149,6 @@ describe("GatewayPersonalAgentProvisioner", () => {
       }
       if (method === "agents.create") {
         return { ok: true, agentId: "account_name", workspace };
-      }
-      if (method === "platformclaw.agent.runtimeStatus") {
-        applyRead += 1;
-        if (applyRead === 1) {
-          throw new GatewayAdminRpcError("agent runtime is not ready", "UNAVAILABLE");
-        }
-        return runtimeReadyResponse(workspace);
       }
       const fileResponse = profileSeed.handle(method, params);
       if (fileResponse) {
@@ -200,15 +172,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
       agentId: "account_name",
       workspace,
     });
-    expect(call).toHaveBeenNthCalledWith(4, "platformclaw.agent.runtimeStatus", {
-      agentId: "account_name",
-      workspace,
-    });
-    expect(call).toHaveBeenNthCalledWith(5, "platformclaw.agent.runtimeStatus", {
-      agentId: "account_name",
-      workspace,
-    });
-    expect(call).toHaveBeenNthCalledWith(6, "platformclaw.profile.seed", expect.any(Object));
+    expect(call).toHaveBeenNthCalledWith(4, "platformclaw.profile.seed", expect.any(Object));
   });
 
   it("waits for the agent registry during cold Gateway startup", async () => {
@@ -231,9 +195,6 @@ describe("GatewayPersonalAgentProvisioner", () => {
         if (method === "agents.create") {
           return { ok: true, agentId: "account_name", workspace };
         }
-        if (method === "platformclaw.agent.runtimeStatus") {
-          return runtimeReadyResponse(workspace);
-        }
         const fileResponse = profileSeed.handle(method, params);
         if (fileResponse) {
           return fileResponse;
@@ -252,61 +213,6 @@ describe("GatewayPersonalAgentProvisioner", () => {
     }
   });
 
-  it("allows a cold runtime publication to outlast the previous short retry window", async () => {
-    vi.useFakeTimers();
-    try {
-      const workspaceRoot = path.resolve("test-workspaces");
-      const workspace = path.join(workspaceRoot, "account_name");
-      const profileSeed = createProfileSeedResponder(workspace);
-      let runtimeReads = 0;
-      const { rpc } = createRpc((method, params) => {
-        if (method === "platformclaw.agent.configStatus") {
-          return agentConfigResponse([{ id: "account_name", workspace }]);
-        }
-        if (method === "platformclaw.agent.runtimeStatus") {
-          runtimeReads += 1;
-          if (runtimeReads < 9) {
-            throw new GatewayAdminRpcError("agent runtime is not ready", "UNAVAILABLE");
-          }
-          return runtimeReadyResponse(workspace);
-        }
-        const fileResponse = profileSeed.handle(method, params);
-        if (fileResponse) {
-          return fileResponse;
-        }
-        throw new Error(`unexpected method: ${method}`);
-      });
-      const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
-
-      const provisioning = provisioner.provisionOrRefresh(request());
-      await vi.runAllTimersAsync();
-
-      await expect(provisioning).resolves.toBeUndefined();
-      expect(runtimeReads).toBe(9);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("rejects truthy but malformed runtime readiness flags", async () => {
-    const workspaceRoot = path.resolve("test-workspaces");
-    const workspace = path.join(workspaceRoot, "account_name");
-    const { rpc } = createRpc((method) => {
-      if (method === "platformclaw.agent.configStatus") {
-        return agentConfigResponse([{ id: "account_name", workspace }]);
-      }
-      if (method === "platformclaw.agent.runtimeStatus") {
-        return { ok: 1, ready: "false", agentId: "account_name", workspace };
-      }
-      throw new Error(`unexpected method: ${method}`);
-    });
-    const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
-
-    await expect(provisioner.provisionOrRefresh(request())).rejects.toThrow(
-      "Gateway agent runtime status returned an invalid payload",
-    );
-  });
-
   it("revalidates and refreshes an active binding instead of trusting stale database state", async () => {
     const workspaceRoot = path.resolve("test-workspaces");
     const workspace = path.join(workspaceRoot, "account_name");
@@ -314,9 +220,6 @@ describe("GatewayPersonalAgentProvisioner", () => {
     const { rpc, call } = createRpc((method, params) => {
       if (method === "platformclaw.agent.configStatus") {
         return agentConfigResponse([{ id: "account_name", workspace }]);
-      }
-      if (method === "platformclaw.agent.runtimeStatus") {
-        return runtimeReadyResponse(workspace);
       }
       const fileResponse = profileSeed.handle(method, params);
       if (fileResponse) {
@@ -333,7 +236,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
       request({ binding: { ...request().binding, state: "active" }, createdBinding: false }),
     );
 
-    expect(call).toHaveBeenCalledTimes(3);
+    expect(call).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed instead of adopting an agent with another workspace", async () => {
@@ -366,9 +269,6 @@ describe("GatewayPersonalAgentProvisioner", () => {
       if (method === "agents.create") {
         throw new GatewayAdminRpcError("agent already exists", "INVALID_REQUEST", 400);
       }
-      if (method === "platformclaw.agent.runtimeStatus") {
-        return runtimeReadyResponse(workspace);
-      }
       const fileResponse = profileSeed.handle(method, params);
       if (fileResponse) {
         return fileResponse;
@@ -399,9 +299,6 @@ describe("GatewayPersonalAgentProvisioner", () => {
       if (method === "agents.create") {
         throw new GatewayAdminRpcError("Gateway Admin RPC unavailable", "UNAVAILABLE");
       }
-      if (method === "platformclaw.agent.runtimeStatus") {
-        return runtimeReadyResponse(workspace);
-      }
       const fileResponse = profileSeed.handle(method, params);
       if (fileResponse) {
         return fileResponse;
@@ -420,9 +317,6 @@ describe("GatewayPersonalAgentProvisioner", () => {
     const call = vi.fn(async (method: string, _params: unknown) => {
       if (method === "platformclaw.agent.configStatus") {
         return agentConfigResponse([{ id: "account_name", workspace }]);
-      }
-      if (method === "platformclaw.agent.runtimeStatus") {
-        return runtimeReadyResponse(workspace);
       }
       if (method === "platformclaw.profile.seed") {
         return {
@@ -457,9 +351,6 @@ describe("GatewayPersonalAgentProvisioner", () => {
       if (method === "platformclaw.agent.configStatus") {
         return agentConfigResponse([{ id: "account_name", workspace }]);
       }
-      if (method === "platformclaw.agent.runtimeStatus") {
-        return runtimeReadyResponse(workspace);
-      }
       if (method === "platformclaw.profile.status") {
         return { ok: true, agentId: "account_name", workspace, status };
       }
@@ -471,7 +362,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
     await expect(
       provisioner.reconcileAfterRestart({ user: current.user, binding: current.binding }),
     ).resolves.toEqual(expected);
-    expect(call).toHaveBeenNthCalledWith(3, "platformclaw.profile.status", {
+    expect(call).toHaveBeenNthCalledWith(2, "platformclaw.profile.status", {
       agentId: "account_name",
       workspace,
       employeeId: "employee-1",

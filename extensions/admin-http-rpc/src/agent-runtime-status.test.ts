@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { handleAgentConfigStatus, handleAgentRuntimeStatus } from "./agent-runtime-status.js";
+import { handleAgentConfigStatus } from "./agent-runtime-status.js";
 
 describe("PlatformClaw agent runtime status", () => {
   const agentId = "account_name";
@@ -61,92 +61,6 @@ describe("PlatformClaw agent runtime status", () => {
         matches: false,
       },
       undefined,
-    );
-  });
-
-  function callStatus(
-    options: {
-      workspace?: string;
-      readError?: Error;
-      prepared?: boolean;
-    } = {},
-  ) {
-    const configuredWorkspace = options.workspace ?? workspace;
-    const respond = vi.fn();
-    const readError = options.readError;
-    const readPreparedGatewayModelCatalog = readError
-      ? vi.fn(async () => {
-          throw readError;
-        })
-      : vi.fn(async () => (options.prepared === false ? undefined : []));
-    return {
-      respond,
-      readPreparedGatewayModelCatalog,
-      promise: handleAgentRuntimeStatus({
-        params: { agentId, workspace },
-        respond,
-        context: {
-          getRuntimeConfig: () => ({
-            agents: { list: [{ id: agentId, workspace: configuredWorkspace }] },
-          }),
-          readPreparedGatewayModelCatalog,
-        } as never,
-      } as never),
-    };
-  }
-
-  it("reports ready only after the exact prepared runtime owner is published", async () => {
-    const result = callStatus();
-    await result.promise;
-
-    expect(result.readPreparedGatewayModelCatalog).toHaveBeenCalledWith({
-      agentId,
-      workspaceDir: workspace,
-    });
-    expect(result.respond).toHaveBeenCalledWith(
-      true,
-      { ok: true, ready: true, agentId, workspace },
-      undefined,
-    );
-  });
-
-  it("reports unavailable while the prepared runtime owner is still replacing", async () => {
-    const result = callStatus({ readError: new Error("owner replacement pending") });
-    await result.promise;
-
-    expect(result.respond).toHaveBeenCalledWith(
-      false,
-      undefined,
-      expect.objectContaining({
-        code: "UNAVAILABLE",
-        message: `agent runtime is not ready: ${agentId}`,
-      }),
-    );
-  });
-
-  it("reports unavailable when no prepared owner is published", async () => {
-    const result = callStatus({ prepared: false });
-    await result.promise;
-
-    expect(result.respond).toHaveBeenCalledWith(
-      false,
-      undefined,
-      expect.objectContaining({
-        code: "UNAVAILABLE",
-        message: `agent runtime is not ready: ${agentId}`,
-      }),
-    );
-  });
-
-  it("rejects a workspace that is not assigned to the agent", async () => {
-    const result = callStatus({ workspace: path.resolve("agent-workspaces/other") });
-    await result.promise;
-
-    expect(result.readPreparedGatewayModelCatalog).not.toHaveBeenCalled();
-    expect(result.respond).toHaveBeenCalledWith(
-      false,
-      undefined,
-      expect.objectContaining({ code: "INVALID_REQUEST" }),
     );
   });
 });
