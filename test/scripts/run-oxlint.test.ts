@@ -291,8 +291,27 @@ describe("run-oxlint", () => {
     expect(resolveSplitCoreConcurrency({ CI: "true" })).toBe(4);
   });
 
-  it("keeps split-core shard runs serial on constrained hosts", () => {
-    expect(resolveSplitCoreConcurrency({ CI: "true" }, CONSTRAINED_HOST)).toBe(1);
+  it("bounds split-core shard concurrency on constrained CI hosts", () => {
+    expect(resolveSplitCoreConcurrency({ CI: "true" }, CONSTRAINED_HOST)).toBe(2);
+    expect(resolveSplitCoreConcurrency({ GITHUB_ACTIONS: "true" }, CONSTRAINED_HOST)).toBe(2);
+  });
+
+  it("keeps constrained local, Windows, and explicitly serial shard runs serial", () => {
+    expect(resolveSplitCoreConcurrency({}, CONSTRAINED_HOST)).toBe(1);
+    expect(
+      resolveOxlintShardConcurrency({
+        env: { CI: "true" },
+        platform: "win32",
+        hostResources: CONSTRAINED_HOST,
+        splitCore: true,
+      }),
+    ).toBe(1);
+    expect(
+      resolveSplitCoreConcurrency(
+        { CI: "true", OPENCLAW_OXLINT_SHARDS_SERIAL: "1" },
+        CONSTRAINED_HOST,
+      ),
+    ).toBe(1);
   });
 
   it("does not let local throttled mode serialize remote changed gates", () => {

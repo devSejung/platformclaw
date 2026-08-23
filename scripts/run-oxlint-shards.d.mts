@@ -1,4 +1,13 @@
-import type { Dirent } from "node:fs";
+type OxlintDirectoryEntry = {
+  name: string;
+  isDirectory(): boolean;
+  isFile(): boolean;
+};
+
+type ReadOxlintDirectory = (
+  target: string,
+  options: { withFileTypes: true },
+) => OxlintDirectoryEntry[];
 
 /**
  * Builds the platform-specific oxlint shard list.
@@ -14,7 +23,7 @@ export function createOxlintShards({
   cwd?: string | undefined;
   env?: NodeJS.ProcessEnv | undefined;
   platform?: NodeJS.Platform | undefined;
-  readDir?: ((target: string, options: { withFileTypes: true }) => Dirent[]) | undefined;
+  readDir?: ReadOxlintDirectory | undefined;
   splitCore?: boolean | undefined;
   hostResources?: { logicalCpuCount: number; totalMemoryBytes: number } | undefined;
 }): {
@@ -31,7 +40,7 @@ export function createExtensionShards({
 }?: {
   cwd?: string | undefined;
   env?: NodeJS.ProcessEnv | undefined;
-  readDir?: ((target: string, options: { withFileTypes: true }) => Dirent[]) | undefined;
+  readDir?: ReadOxlintDirectory | undefined;
 }): {
   name: string;
   args: string[];
