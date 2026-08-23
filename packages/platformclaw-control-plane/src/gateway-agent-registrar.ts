@@ -122,18 +122,14 @@ export class GatewayAgentRegistrar {
       agentId,
       workspace,
     });
-    if (
-      result.ok !== true ||
-      result.agentId !== agentId ||
-      typeof result.configured !== "boolean"
-    ) {
+    if (!result.ok || result.agentId !== agentId || typeof result.configured !== "boolean") {
       throw new Error("Gateway agent config status returned an invalid payload");
     }
     if (!result.configured) {
       return undefined;
     }
     if (
-      result.matches !== true ||
+      !result.matches ||
       typeof result.workspace !== "string" ||
       path.resolve(result.workspace) !== workspace
     ) {

@@ -7,7 +7,6 @@ import {
   type StoredExecCredential,
 } from "./exec-credential-contracts.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
-import type { SqliteControlPlaneStoreOptions } from "./sqlite-store-core.js";
 import { SqliteControlPlaneCredentialStore } from "./sqlite-store-credentials.js";
 import type { EncryptedUserExecCredentialRow } from "./sqlite-store-types.js";
 
@@ -30,10 +29,6 @@ function stored(row: EncryptedUserExecCredentialRow): StoredExecCredential {
 }
 
 export abstract class SqliteControlPlaneExecCredentialStore extends SqliteControlPlaneCredentialStore {
-  constructor(options: SqliteControlPlaneStoreOptions) {
-    super(options);
-  }
-
   async listExecCredentialDefinitions(userId?: string): Promise<ExecCredentialDefinition[]> {
     if (!userId) {
       return executeSync(
@@ -61,12 +56,19 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
         ])
         .orderBy("exec_credential_definitions.env_name"),
     ).rows;
-    return rows.map((row) => ({
-      envName: row.env_name,
-      configured: row.revision !== null,
-      ...(row.revision !== null ? { revision: row.revision } : {}),
-      ...(row.updated_at !== null ? { updatedAt: row.updated_at } : {}),
-    }));
+    return rows.map((row) => {
+      const definition: ExecCredentialDefinition = {
+        envName: row.env_name,
+        configured: row.revision !== null,
+      };
+      if (row.revision !== null) {
+        definition.revision = row.revision;
+      }
+      if (row.updated_at !== null) {
+        definition.updatedAt = row.updated_at;
+      }
+      return definition;
+    });
   }
 
   async addExecCredentialDefinition(
@@ -84,7 +86,9 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
           .select("env_name")
           .where("env_name", "=", envName),
       );
-      if (existing) return;
+      if (existing) {
+        return;
+      }
       const count = executeSync(
         this.db,
         this.query.selectFrom("exec_credential_definitions").select("env_name"),
@@ -126,7 +130,7 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
         this.query.deleteFrom("exec_credential_definitions").where("env_name", "=", envName),
       );
       const deleted = Number(result.numAffectedRows ?? 0) > 0;
-      if (deleted)
+      if (deleted) {
         this.insertAudit(
           actor.id,
           "exec-credential.definition.removed",
@@ -134,6 +138,7 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
           envName,
           deletedAt,
         );
+      }
       return deleted;
     });
   }
@@ -147,8 +152,9 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
     const envName = normalizeExecEnvName(params.envName);
     return runImmediateTransaction(this.db, () => {
       const user = this.requireUserRow(params.actorUserId);
-      if (user.status !== "active")
+      if (user.status !== "active") {
         throw new ControlPlaneAuthorizationError("active credential owner required");
+      }
       const definition = takeFirstSync(
         this.db,
         this.query
@@ -156,7 +162,9 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
           .select("env_name")
           .where("env_name", "=", envName),
       );
-      if (!definition) throw new ControlPlaneStateError("environment variable is not allowed");
+      if (!definition) {
+        throw new ControlPlaneStateError("environment variable is not allowed");
+      }
       const existing = takeFirstSync(
         this.db,
         this.query
@@ -175,8 +183,9 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
         ).rows.reduce((sum, row) => sum + row.ciphertext.byteLength, 0) -
         (existing?.ciphertext.byteLength ?? 0) +
         params.envelope.ciphertext.byteLength;
-      if (aggregate > EXEC_CREDENTIAL_LIMITS.aggregateBytes)
+      if (aggregate > EXEC_CREDENTIAL_LIMITS.aggregateBytes) {
         throw new ControlPlaneStateError("exec credential aggregate limit reached");
+      }
       const revision = (existing?.revision ?? 0) + 1;
       executeSync(
         this.db,
@@ -230,7 +239,7 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
           .where("env_name", "=", envName),
       );
       const deleted = Number(result.numAffectedRows ?? 0) > 0;
-      if (deleted)
+      if (deleted) {
         this.insertAudit(
           user.id,
           "exec-credential.deleted",
@@ -238,6 +247,7 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
           envName,
           deletedAt,
         );
+      }
       return deleted;
     });
   }

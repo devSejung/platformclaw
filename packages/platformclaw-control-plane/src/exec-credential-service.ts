@@ -25,8 +25,9 @@ export class ExecCredentialService {
 
   async adminSnapshot(actorUserId: string) {
     const actor = await this.options.store.getUserById(actorUserId);
-    if (actor?.globalRole !== "admin")
+    if (actor?.globalRole !== "admin") {
       throw new ControlPlaneAuthorizationError("administrator required");
+    }
     return { definitions: await this.options.store.listExecCredentialDefinitions() };
   }
 

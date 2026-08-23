@@ -27,7 +27,9 @@ export async function handlePlatformClawExecCredentialRequest(
 ): Promise<boolean> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const admin = url.pathname === PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_PATH;
-  if (!admin && url.pathname !== PLATFORMCLAW_EXEC_CREDENTIALS_PATH) return false;
+  if (!admin && url.pathname !== PLATFORMCLAW_EXEC_CREDENTIALS_PATH) {
+    return false;
+  }
   const token = readPlatformClawSessionCookie(req);
   const auth = token ? await options.service.authenticate(token) : null;
   if (!auth) {
@@ -61,8 +63,9 @@ export async function handlePlatformClawExecCredentialRequest(
       return true;
     }
     const body = asRecord(read.value);
-    if (!body || typeof body.action !== "string" || typeof body.envName !== "string")
+    if (!body || typeof body.action !== "string" || typeof body.envName !== "string") {
       throw new ControlPlaneStateError("invalid request body");
+    }
     const result = admin
       ? body.action === "add"
         ? await options.service.addDefinition(auth.user.id, body.envName)
@@ -74,7 +77,9 @@ export async function handlePlatformClawExecCredentialRequest(
         : body.action === "remove"
           ? await options.service.remove(auth.user.id, body.envName)
           : null;
-    if (!result) throw new ControlPlaneStateError("invalid credential action");
+    if (!result) {
+      throw new ControlPlaneStateError("invalid credential action");
+    }
     sendJson(res, 200, result);
   } catch (error) {
     sendJson(res, error instanceof ControlPlaneAuthorizationError ? 403 : 400, {
