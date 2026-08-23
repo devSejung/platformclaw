@@ -7,7 +7,12 @@ import { i18n } from "../../../i18n/index.ts";
 import type { TranslationMap } from "../../../i18n/lib/types.ts";
 import { en } from "../../../i18n/locales/en.ts";
 import { fullDreamingViewAccess } from "./view.test-helpers.ts";
-import { createDreamingViewState, renderDreaming, type DreamingViewState } from "./view.ts";
+import {
+  createDreamingViewState,
+  renderDreaming,
+  renderWikiKnowledge,
+  type DreamingViewState,
+} from "./view.ts";
 
 type DreamingProps = Parameters<typeof renderDreaming>[0];
 
@@ -289,7 +294,9 @@ function buildProps(overrides?: Partial<DreamingProps>): DreamingProps {
 
 function renderInto(props: DreamingProps): HTMLDivElement {
   const container = document.createElement("div");
-  render(renderDreaming(props), container);
+  const wikiSurface =
+    props.viewState.activeSubTab === "diary" && props.viewState.activeDiarySubTab !== "dreams";
+  render(wikiSurface ? renderWikiKnowledge(props) : renderDreaming(props), container);
   return container;
 }
 
@@ -370,7 +377,11 @@ describe("dreaming view", () => {
     );
 
     const tabs = [...container.querySelectorAll(".dreams-hub-tabs .hub-tab")];
-    expect(tabs.map((node) => node.textContent?.trim())).toEqual(["Scene", "Diary", "Advanced"]);
+    expect(tabs.map((node) => node.textContent?.trim())).toEqual([
+      "Overview",
+      "Dream Diary",
+      "Activity",
+    ]);
     expect(container.querySelector("#dreams-tab-scene")?.hasAttribute("active")).toBe(true);
     container
       .querySelector("#dreams-tab-diary")
@@ -416,19 +427,18 @@ describe("dreaming view", () => {
     setDreamDiarySubTab("insights");
     const onViewStateChange = vi.fn();
     const container = renderInto(buildProps({ onViewStateChange }));
-    const subtabs = [...container.querySelectorAll(".dream-diary-hub-tabs .hub-tab")].map(
+    const subtabs = [...container.querySelectorAll(".memory-wiki-hub-tabs .hub-tab")].map(
       (tab) => ({
         label: tab.textContent?.trim(),
         active: tab.hasAttribute("active"),
       }),
     );
     expect(subtabs).toEqual([
-      { label: "Dreams", active: false },
-      { label: "Imported Insights", active: true },
       { label: "Memory Wiki", active: false },
+      { label: "Imported Insights", active: true },
     ]);
     container
-      .querySelector("#dream-diary-tab-wiki")
+      .querySelector("#memory-wiki-tab-wiki")
       ?.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
     expect(viewState.activeDiarySubTab).toBe("wiki");
     expect(onViewStateChange).toHaveBeenCalledOnce();
@@ -512,7 +522,7 @@ describe("dreaming view", () => {
       totalLines: 6001,
       truncated: true,
     });
-    const rerender = () => render(renderDreaming(props), container);
+    const rerender = () => render(renderWikiKnowledge(props), container);
     const props: DreamingProps = buildProps({
       onOpenWikiPage,
       onViewStateChange: rerender,
@@ -582,7 +592,7 @@ describe("dreaming view", () => {
     setDreamSubTab("diary");
     setDreamDiarySubTab("wiki");
     const container = document.createElement("div");
-    const rerender = () => render(renderDreaming(props), container);
+    const rerender = () => render(renderWikiKnowledge(props), container);
     const props: DreamingProps = buildProps({ onViewStateChange: rerender });
     rerender();
 
@@ -605,7 +615,7 @@ describe("dreaming view", () => {
       truncated: false,
     });
     const container = document.createElement("div");
-    const rerender = () => render(renderDreaming(props), container);
+    const rerender = () => render(renderWikiKnowledge(props), container);
     const props: DreamingProps = buildProps({
       onOpenWikiPage,
       onViewStateChange: rerender,
@@ -872,7 +882,8 @@ describe("dreaming view", () => {
     const buttons = [...navigation.querySelectorAll<HTMLButtonElement>(".dreams-diary__day-chip")];
 
     expect(buttons.map((button) => compactText(button))).toEqual(labels);
-    expect(container.querySelector("#dream-diary-panel .dreams-diary__daychips")).toBeNull();
+    const panelId = tab === "dreams" ? "#dream-diary-panel" : "#memory-wiki-panel";
+    expect(container.querySelector(`${panelId} .dreams-diary__daychips`)).toBeNull();
 
     buttons[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(viewState.diaryPage).toBe(1);

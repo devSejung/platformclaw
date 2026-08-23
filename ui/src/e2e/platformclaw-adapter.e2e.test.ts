@@ -548,6 +548,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         "agents.list",
         "doctor.memory.status",
         "doctor.memory.dreamDiary",
+        "memory.search",
+        "platformclaw.memory.lifecycle",
+        "wiki.search",
         "wiki.overview",
         "wiki.get",
       ],
@@ -628,6 +631,13 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
           totalLines: 3,
           truncated: false,
         },
+        "platformclaw.memory.lifecycle": {
+          scopes: [],
+          claims: [],
+          submitted: [],
+          reviewable: [],
+          canApproveGlobal: false,
+        },
       },
       sessionKey: "agent:person_one:main",
     });
@@ -638,14 +648,18 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await settingsSidebar.getByRole("link", { name: "Memory", exact: true }).click();
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/memory");
     await expect.poll(() => page.locator(".page-title").textContent()).toContain("Memory");
-    await page.getByRole("tab", { name: "Diary", exact: true }).click();
+    const memoryTabs = page.locator(".platformclaw-memory-page__tabs");
+    await expect.poll(() => memoryTabs.getByRole("tab").count()).toBe(5);
+    await memoryTabs.getByRole("tab", { name: "Dreaming", exact: true }).click();
+    await page.getByRole("tab", { name: "Dream Diary", exact: true }).click();
     const diary = page.locator(".dreams-diary");
     await expect
       .poll(() => diary.textContent())
       .toContain("Assigned personal memory was consolidated.");
-    await diary.getByRole("tab", { name: "Memory Wiki", exact: true }).click();
-    await expect.poll(() => diary.textContent()).toContain("Person One knowledge");
-    await diary.getByRole("button", { name: "Open wiki page" }).click();
+    await memoryTabs.getByRole("tab", { name: "Personal Wiki", exact: true }).click();
+    const wiki = page.locator(".memory-wiki-page");
+    await expect.poll(() => wiki.textContent()).toContain("Person One knowledge");
+    await wiki.getByRole("button", { name: "Open wiki page" }).click();
     await expect
       .poll(() => page.locator(".dreams-diary__preview-pre").textContent())
       .toContain("Employee browser access stays agent scoped.");
@@ -673,6 +687,21 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       .poll(() => new URL(page.url()).pathname)
       .toBe("/platformclaw/app/settings/memory/dreams");
     await expect.poll(() => page.locator("openclaw-agent-memory-panel").isVisible()).toBe(true);
+    await expect
+      .poll(() =>
+        page
+          .locator("platformclaw-memory-page")
+          .evaluate((element) => (element as HTMLElement & { initialTab: string }).initialTab),
+      )
+      .toBe("dreaming");
+    await expect
+      .poll(() =>
+        page
+          .locator(".platformclaw-memory-page__tabs")
+          .getByRole("tab", { name: "Dreaming", exact: true })
+          .getAttribute("aria-selected"),
+      )
+      .toBe("true");
     expect(await gateway.getRequests("config.get")).toHaveLength(0);
   });
 

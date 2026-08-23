@@ -11,7 +11,7 @@ import {
 } from "../../../components/lobster-pet.ts";
 import "../../../components/modal-dialog.ts";
 import { toSanitizedMarkdownHtml } from "../../../components/markdown.ts";
-import { t } from "../../../i18n/index.ts";
+import { platformClawT as t } from "../../../platformclaw/i18n.ts";
 import "../../../styles/dreams.css";
 import type { DreamingEntry, WikiImportInsights, WikiOverview } from "./dreaming.ts";
 
@@ -1353,29 +1353,15 @@ function renderDreamDiaryEntries(props: DreamingProps): DiaryPanel {
 
 function renderDiarySection(props: DreamingProps) {
   const state = props.viewState;
-  const activeDiarySubTab = state.activeDiarySubTab;
-  const wikiTabSelected = activeDiarySubTab === "insights" || activeDiarySubTab === "wiki";
-  const memoryWikiUnavailable = wikiTabSelected && !props.memoryWikiEnabled;
-  const diaryError =
-    activeDiarySubTab === "dreams"
-      ? props.dreamDiaryError
-      : activeDiarySubTab === "insights"
-        ? props.wikiImportInsightsError
-        : props.wikiOverviewError;
-  if (diaryError && !memoryWikiUnavailable) {
+  if (props.dreamDiaryError) {
     return html`
       <section class="dreams-diary">
-        <div class="dreams-diary__error">${diaryError}</div>
+        <div class="dreams-diary__error">${props.dreamDiaryError}</div>
       </section>
     `;
   }
 
-  const diaryPanel =
-    activeDiarySubTab === "dreams"
-      ? renderDreamDiaryEntries(props)
-      : activeDiarySubTab === "insights"
-        ? renderDiaryImportsSection(props)
-        : renderWikiOverviewSection(props);
+  const diaryPanel = renderDreamDiaryEntries(props);
   const diaryNavigation = "navigation" in diaryPanel ? diaryPanel.navigation : nothing;
   const diaryContent = "content" in diaryPanel ? diaryPanel.content : diaryPanel;
 
@@ -1384,16 +1370,52 @@ function renderDiarySection(props: DreamingProps) {
       <div class="dreams-diary__chrome">
         <div class="dreams-diary__header">
           <span class="dreams-diary__title">${t("dreaming.diary.title")}</span>
+          <button
+            class="btn btn--subtle btn--sm"
+            ?disabled=${props.modeSaving || props.dreamDiaryLoading}
+            @click=${() => {
+              state.diaryPage = 0;
+              props.onRefreshDiary();
+            }}
+          >
+            ${props.dreamDiaryLoading ? t("dreaming.diary.reloading") : t("dreaming.diary.reload")}
+          </button>
+        </div>
+        ${renderDiarySubtabExplainer("dreams")} ${diaryNavigation}
+      </div>
+
+      <div id="dream-diary-panel" role="tabpanel">${diaryContent}</div>
+    </section>
+  `;
+}
+
+/** Personal Wiki stays beside Memory and Dreaming, not nested inside Dream Diary. */
+export function renderWikiKnowledge(props: DreamingProps) {
+  const state = props.viewState;
+  const activeWikiTab = state.activeDiarySubTab === "insights" ? "insights" : "wiki";
+  const error =
+    activeWikiTab === "insights" ? props.wikiImportInsightsError : props.wikiOverviewError;
+  const panel =
+    activeWikiTab === "insights"
+      ? renderDiaryImportsSection(props)
+      : renderWikiOverviewSection(props);
+  const navigation = "navigation" in panel ? panel.navigation : nothing;
+  const content = "content" in panel ? panel.content : panel;
+
+  return html`
+    <section class="dreams-diary memory-wiki-page">
+      <div class="dreams-diary__chrome">
+        <div class="dreams-diary__header">
+          <span class="dreams-diary__title">${t("dreaming.wiki.wikiTab")}</span>
           ${renderHubTabs({
-            id: "dream-diary",
-            active: activeDiarySubTab,
+            id: "memory-wiki",
+            active: activeWikiTab,
             tabs: [
-              { value: "dreams", label: t("dreaming.wiki.dreamsTab") },
-              { value: "insights", label: t("dreaming.wiki.insightsTab") },
               { value: "wiki", label: t("dreaming.wiki.wikiTab") },
+              { value: "insights", label: t("dreaming.wiki.insightsTab") },
             ],
-            ariaLabel: t("dreaming.diary.title"),
-            panelId: "dream-diary-panel",
+            ariaLabel: t("dreaming.wiki.wikiTab"),
+            panelId: "memory-wiki-panel",
             variant: "sub",
             onSelect: (tab) => {
               resetWikiPreview(state);
@@ -1404,52 +1426,34 @@ function renderDiarySection(props: DreamingProps) {
           })}
           <button
             class="btn btn--subtle btn--sm"
-            ?disabled=${memoryWikiUnavailable
-              ? !props.access.canOpenConfig
-              : props.modeSaving ||
-                (activeDiarySubTab === "dreams"
-                  ? props.dreamDiaryLoading
-                  : activeDiarySubTab === "insights"
-                    ? props.wikiImportInsightsLoading
-                    : props.wikiOverviewLoading)}
+            ?disabled=${!props.memoryWikiEnabled ||
+            props.modeSaving ||
+            (activeWikiTab === "insights"
+              ? props.wikiImportInsightsLoading
+              : props.wikiOverviewLoading)}
             @click=${() => {
               state.diaryPage = 0;
-              if (memoryWikiUnavailable) {
-                props.onOpenConfig();
-              } else if (activeDiarySubTab === "dreams") {
-                props.onRefreshDiary();
-              } else if (activeDiarySubTab === "insights") {
+              if (activeWikiTab === "insights") {
                 props.onRefreshImports();
               } else {
                 props.onRefreshWikiOverview();
               }
             }}
           >
-            ${memoryWikiUnavailable
-              ? t("dreaming.wiki.howToEnable")
-              : activeDiarySubTab === "dreams"
-                ? props.dreamDiaryLoading
-                  ? t("dreaming.diary.reloading")
-                  : t("dreaming.diary.reload")
-                : activeDiarySubTab === "insights"
-                  ? props.wikiImportInsightsLoading
-                    ? "Reloading…"
-                    : "Reload"
-                  : props.wikiOverviewLoading
-                    ? "Reloading…"
-                    : "Reload"}
+            ${activeWikiTab === "insights"
+              ? props.wikiImportInsightsLoading
+                ? t("dreaming.diary.reloading")
+                : t("dreaming.diary.reload")
+              : props.wikiOverviewLoading
+                ? t("dreaming.diary.reloading")
+                : t("dreaming.diary.reload")}
           </button>
         </div>
-        ${renderDiarySubtabExplainer(activeDiarySubTab)}
-        ${memoryWikiUnavailable ? nothing : diaryNavigation}
+        ${renderDiarySubtabExplainer(activeWikiTab)}
+        ${props.memoryWikiEnabled ? navigation : nothing}
       </div>
-
-      <div
-        id="dream-diary-panel"
-        role="tabpanel"
-        aria-labelledby=${`dream-diary-tab-${activeDiarySubTab}`}
-      >
-        ${memoryWikiUnavailable
+      <div id="memory-wiki-panel" role="tabpanel">
+        ${!props.memoryWikiEnabled
           ? html`
               <div class="dreams-diary__empty">
                 <div class="dreams-diary__empty-text">${t("dreaming.wiki.unavailable")}</div>
@@ -1474,7 +1478,9 @@ function renderDiarySection(props: DreamingProps) {
                 </div>
               </div>
             `
-          : diaryContent}
+          : error
+            ? html`<div class="dreams-diary__error">${error}</div>`
+            : content}
       </div>
       ${renderWikiPreviewOverlay(props)}
     </section>

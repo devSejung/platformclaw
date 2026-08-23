@@ -32,6 +32,7 @@ import {
 } from "../agents/memory/dreaming.ts";
 import "./memory-dreaming-page.ts";
 import "./memory-memories.ts";
+import "./memory-promotions.ts";
 import {
   dreamingConfigPath,
   resetMemoryBackend,
@@ -123,6 +124,7 @@ class MemorySettingsPage extends OpenClawLightDomElement {
   private supportProbe: { pluginId: string } | null = null;
   private readonly addonNoticeOperations = new Map<string, object>();
   private normalizedLocation = "";
+  private normalizedInvalidAgentLocation = "";
 
   private readonly subscriptions = new SubscriptionsController(this)
     .watch(
@@ -143,6 +145,7 @@ class MemorySettingsPage extends OpenClawLightDomElement {
         if (!agents.state.agentsList && !agents.state.agentsLoading) {
           void agents.ensureList().catch(() => undefined);
         }
+        this.syncSelectedAgentFromRoute();
         void this.loadOverviewStatus();
       },
     );
@@ -166,6 +169,7 @@ class MemorySettingsPage extends OpenClawLightDomElement {
 
   protected override updated(changed: PropertyValues<this>) {
     if (changed.has("routeData")) {
+      this.syncSelectedAgentFromRoute();
       const previous = this.activeTab(
         (changed.get("routeData") as ConfigRouteData | null | undefined) ?? null,
       );
@@ -310,6 +314,50 @@ class MemorySettingsPage extends OpenClawLightDomElement {
     return agentsList?.defaultId ?? selectable[0]?.id ?? null;
   }
 
+  private syncSelectedAgentFromRoute() {
+    const routeData = this.routeData;
+    if (!routeData) {
+      return;
+    }
+    const params = new URLSearchParams(routeData.search);
+    const requestedAgentId = params.get("agent");
+    if (!requestedAgentId) {
+      this.normalizedInvalidAgentLocation = "";
+      return;
+    }
+    const agentsList = this.context.agents.state.agentsList;
+    if (!agentsList) {
+      if (requestedAgentId !== this.selectedAgentId) {
+        this.selectedAgentId = requestedAgentId;
+      }
+      return;
+    }
+    const selectable = listSelectableAgents(agentsList.agents);
+    if (selectable.some((agent) => agent.id === requestedAgentId)) {
+      this.normalizedInvalidAgentLocation = "";
+      if (requestedAgentId !== this.selectedAgentId) {
+        this.selectedAgentId = requestedAgentId;
+        this.overviewRequest = null;
+        this.probingEmbeddings = false;
+      }
+      return;
+    }
+    const fallback = agentsList.defaultId ?? selectable[0]?.id ?? null;
+    this.selectedAgentId = fallback;
+    const source = `${routeData.pathname}${routeData.search}${routeData.hash}`;
+    if (this.normalizedInvalidAgentLocation === source) {
+      return;
+    }
+    this.normalizedInvalidAgentLocation = source;
+    params.delete("agent");
+    const search = params.toString();
+    this.context.replace("memory", {
+      pathname: pathForMemoryTab(this.activeTab(), this.context.basePath),
+      search: search ? `?${search}` : "",
+      hash: routeData.hash,
+    });
+  }
+
   private agentOptions(): AgentSelectOption[] {
     return listSelectableAgents(this.context.agents.state.agentsList?.agents ?? []).map(
       (agent) => ({
@@ -327,6 +375,10 @@ class MemorySettingsPage extends OpenClawLightDomElement {
     this.selectedAgentId = agentId;
     this.overviewRequest = null;
     this.probingEmbeddings = false;
+    this.context.navigate("memory", {
+      pathname: pathForMemoryTab(this.activeTab(), this.context.basePath),
+      search: agentId ? `?agent=${encodeURIComponent(agentId)}` : "",
+    });
     void this.loadOverviewStatus();
   }
 
@@ -634,8 +686,12 @@ class MemorySettingsPage extends OpenClawLightDomElement {
   }
 
   private navigateTab(tab: MemoryTab) {
+    const agentSearch = this.selectedAgentId
+      ? `?agent=${encodeURIComponent(this.selectedAgentId)}`
+      : this.routeData?.search;
     this.context.navigate("memory", {
       pathname: pathForMemoryTab(tab, this.context.basePath),
+      ...(agentSearch ? { search: agentSearch } : {}),
     });
   }
 
@@ -705,13 +761,30 @@ class MemorySettingsPage extends OpenClawLightDomElement {
             this.context.gateway.snapshot,
             "memory.search",
           ) === true}
-          .lifecycleMethodAdvertised=${isGatewayMethodAdvertised(
-            this.context.gateway.snapshot,
-            "platformclaw.memory.lifecycle",
-          ) === true}
           .agentId=${agentId}
         ></openclaw-memory-memories>
       `,
+      wiki: html`<openclaw-agent-memory-panel
+        .agentId=${agentId ?? ""}
+        surface="wiki"
+      ></openclaw-agent-memory-panel>`,
+      organization: html`<openclaw-memory-promotions
+        .client=${this.context.gateway.snapshot.client}
+        .connected=${this.context.gateway.snapshot.phase === "connected"}
+        .methodAdvertised=${isGatewayMethodAdvertised(
+          this.context.gateway.snapshot,
+          "platformclaw.memory.lifecycle",
+        ) === true}
+        .wikiSearchAdvertised=${isGatewayMethodAdvertised(
+          this.context.gateway.snapshot,
+          "wiki.search",
+        ) === true}
+        .wikiGetAdvertised=${isGatewayMethodAdvertised(
+          this.context.gateway.snapshot,
+          "wiki.get",
+        ) === true}
+        .agentId=${agentId}
+      ></openclaw-memory-promotions>`,
       dreams: html` <openclaw-memory-dreaming .agentId=${agentId}></openclaw-memory-dreaming> `,
       editor:
         activeTab === "settings"

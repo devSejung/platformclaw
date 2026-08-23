@@ -26,7 +26,9 @@ vi.mock("../../lib/plugins/index.ts", async (importOriginal) => {
 });
 
 /** Which tab body is actually mounted, rather than what the tab strip claims. */
-function visibleTab(element: HTMLElement): "overview" | "memories" | "dreams" | "settings" | null {
+function visibleTab(
+  element: HTMLElement,
+): "overview" | "memories" | "wiki" | "organization" | "dreams" | "settings" | null {
   const panel = element.querySelector('[role="tabpanel"]');
   if (!panel) {
     return null;
@@ -36,6 +38,12 @@ function visibleTab(element: HTMLElement): "overview" | "memories" | "dreams" | 
   }
   if (panel.querySelector("openclaw-memory-memories")) {
     return "memories";
+  }
+  if (panel.querySelector('openclaw-agent-memory-panel[surface="wiki"]')) {
+    return "wiki";
+  }
+  if (panel.querySelector("openclaw-memory-promotions")) {
+    return "organization";
   }
   return panel.querySelector(".memory-overview") ? "overview" : "settings";
 }
@@ -633,6 +641,14 @@ describe("MemorySettingsPage tab routing", () => {
       await element.updateComplete;
       expect(visibleTab(element)).toBe("memories");
 
+      element.routeData = memoryTabRoute("wiki");
+      await element.updateComplete;
+      expect(visibleTab(element)).toBe("wiki");
+
+      element.routeData = memoryTabRoute("organization");
+      await element.updateComplete;
+      expect(visibleTab(element)).toBe("organization");
+
       element.routeData = memoryTabRoute("dreams");
       await element.updateComplete;
       expect(visibleTab(element)).toBe("dreams");
@@ -665,6 +681,55 @@ describe("MemorySettingsPage tab routing", () => {
     }
   });
 
+  it("preserves a validated selected agent while navigating the Memory hub", async () => {
+    const navigate = vi.fn();
+    const { element, request } = createPage({
+      configObject: {},
+      catalog: [],
+      navigate,
+      agents: [{ id: "main" }, { id: "research" }],
+    });
+    element.routeData = memoryRoute("/settings/memory?agent=research");
+    document.body.append(element);
+    try {
+      await waitForFast(() =>
+        expect(request).toHaveBeenCalledWith("doctor.memory.status", {
+          agentId: "research",
+        }),
+      );
+      selectTab(element, "memories");
+      expect(navigate).toHaveBeenCalledWith("memory", {
+        pathname: "/settings/memory/memories",
+        search: "?agent=research",
+      });
+    } finally {
+      element.remove();
+    }
+  });
+
+  it("removes an unknown agent query after the canonical agent list loads", async () => {
+    const replace = vi.fn();
+    const { element } = createPage({
+      configObject: {},
+      catalog: [],
+      replace,
+      agents: [{ id: "main" }],
+    });
+    element.routeData = memoryRoute("/settings/memory?agent=missing");
+    document.body.append(element);
+    try {
+      await waitForFast(() =>
+        expect(replace).toHaveBeenCalledWith("memory", {
+          pathname: "/settings/memory",
+          search: "",
+          hash: "",
+        }),
+      );
+    } finally {
+      element.remove();
+    }
+  });
+
   it("handles Space directly so the browser cannot synthesize a second navigation", async () => {
     const navigate = vi.fn();
     const { element } = createPage({ configObject: {}, catalog: [], navigate });
@@ -692,6 +757,8 @@ describe("MemorySettingsPage tab routing", () => {
   it.each([
     ["/settings/memory", null],
     ["/settings/memory/memories", null],
+    ["/settings/memory/wiki", null],
+    ["/settings/memory/organization", null],
     ["/settings/memory/dreams", null],
     ["/settings/memory/settings", null],
     ["/settings/memory?tab=memories", "/settings/memory/memories"],

@@ -102,10 +102,20 @@ unsafe-local, Obsidian command, or global `config.*` RPCs. Agents write Wiki
 content through the plugin's native tools, which already run in the selected
 Agent context.
 
-Users access the feature through **Settings > Memory > Dreams**. The native tabs
-show **Dreams**, **Imported Insights**, and **Memory Wiki**. Wiki pages open in
-the existing preview. `memory.search` remains the personal long-term memory
-search; Wiki search/page reads are a separate native corpus until PR2.
+Users access the feature through **Settings > Memory**. PlatformClaw groups the
+native surfaces into one hub without merging their data models:
+
+- **Memory** searches the personal Agent's durable recall, including
+  `MEMORY.md` and daily memory files.
+- **Personal Wiki** opens compiled Wiki pages and imported insights.
+- **Dreaming** contains Overview, Dream Diary, and Activity views for scheduled
+  memory consolidation.
+- **Organization** contains promotion, review, and shared-knowledge lifecycle.
+
+The hub keeps only one surface open at a time, so Dreaming and organization
+administration do not create one unbounded Settings page. `memory.search`
+remains personal long-term-memory search; Wiki search/page reads remain a
+separate native corpus until PR2.
 
 ### PR1 acceptance
 
@@ -229,7 +239,7 @@ child Parts. Global approval and hard purge require an active PlatformClaw
 administrator. Archived scopes, disabled employees, stale source revisions,
 sibling groups, duplicate pending requests, and second decisions fail closed.
 
-Employees manage the lifecycle under **Settings > Memory > Memories**. The UI
+Employees manage the lifecycle under **Settings > Memory > Organization**. The UI
 shows authorized targets, the employee's submitted requests, requests they may
 review, and readable active/retired claims. The BFF exposes only these
 Agent-pinned methods:
@@ -239,6 +249,66 @@ Agent-pinned methods:
 - `platformclaw.memory.promotion.decide`
 - `platformclaw.memory.claim.retire`
 - `platformclaw.memory.claim.purge`
+
+The request form searches the requester's existing personal Wiki through the
+already Agent-pinned `wiki.search` and `wiki.get` boundary. Selecting a complete
+page shows a preview and pre-fills the proposed claim, provenance, and reason;
+the user reviews or edits those fields and explicitly submits. Advancing an
+approved Part or Group claim likewise pre-fills its text and revision instead
+of asking the user to retype it. Source content stays in its original language;
+PlatformClaw does not translate knowledge automatically.
+
+### Planned organization membership architecture
+
+This section is an approved design contract, not runtime functionality shipped
+by the Memory UI. Organization membership and delegated authority must be one
+shared Control Plane capability used by Memory and future organization tools;
+Memory must not create a parallel role store.
+
+- The hierarchy is `Global > Group > Part`. An employee may belong to multiple
+  Parts, and each Part or Group may have multiple leaders.
+- PlatformClaw administrators manage all organization memberships and roles. A
+  Group leader manages that Group and its child Parts, including assigning Part
+  leaders. A Part leader manages only that Part and its members.
+- A common capability resolver derives delegated roles such as Memory reviewer
+  and Skill curator from canonical membership. Agents inherit the memberships
+  and capabilities of their bound human user; an Agent never owns independent
+  organization membership.
+- Administrator self-approval is allowed only as an explicit audited decision.
+  Membership changes, delegation, revocation, scope archival, reviews, and
+  destructive actions remain attributable in the Control Plane audit trail.
+- SkillHub reuses membership, capability resolution, and audit. SkillHub still
+  owns skill versions, hashes, provenance, and security gates; those do not
+  belong in the organization-membership owner.
+- Rollout order is: common capability resolver, organization management UI,
+  Memory integration, then SkillHub integration. Until those phases land, the
+  existing PR4 promotion authorization remains the only runtime contract.
+
+Organization CRUD (create, rename, archive, and hierarchy changes) belongs in
+the organization management surface. Settings > Memory owns knowledge search,
+promotion, review, retirement, and audit presentation only.
+
+The first membership implementation must expose one reusable authorization
+contract rather than Memory-specific roles:
+
+| Actor                      | Managed scope             | Default delegated capabilities                         |
+| -------------------------- | ------------------------- | ------------------------------------------------------ |
+| PlatformClaw administrator | Every Group and Part      | Membership, leaders, Memory review, SkillHub curation  |
+| Group leader               | Own Group and child Parts | Group membership, Part leaders, scoped review/curation |
+| Part leader                | Own Part                  | Part membership and scoped review/curation             |
+| Member                     | Assigned Groups and Parts | Read/use capabilities granted by policy                |
+
+An employee may belong to multiple Groups or Parts. Multiple leaders are
+allowed. The resolver evaluates active membership and delegation at request
+time, returns explicit capabilities, and records the acting user, target scope,
+decision, and reason for mutations. PlatformClaw administrators may publish
+directly to Global or self-approve only through an explicit audited action.
+
+Memory and SkillHub reuse this identity, hierarchy, membership, delegation,
+revocation, archival, and audit layer. They do not reuse domain state:
+organization Memory still owns claims, revisions, promotion edges, and
+retirement; SkillHub still owns package versions, hashes, provenance, scans,
+and publication gates.
 
 Lifecycle lists are authorization-filtered before bounded database pagination.
 The UI follows bounded page offsets with **Load more**, so company-wide traffic

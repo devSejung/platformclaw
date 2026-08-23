@@ -1,6 +1,6 @@
 import { html, nothing } from "lit";
 import { until } from "lit/directives/until.js";
-import type { RouteId } from "../app-route-paths.ts";
+import { INTERNAL_MEMORY_PATH_PARAM, memoryTabFromPath, type RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
@@ -189,41 +189,59 @@ export class PlatformClawControlUiAdapter {
             })),
         },
         memory: {
-          loader: async (context) => {
+          loader: async (context, { location: routeLocation }) => {
             const agents = context.agents.state.agentsList ?? (await context.agents.ensureList());
             const assignedAgentId =
               agents?.agents.find((agent) => agent.id === agents.defaultId)?.id ??
               agents?.agents[0]?.id ??
               null;
-            return { agentId: assignedAgentId };
+            // Dynamic hub routes travel through the exact-match Memory route. Recover the
+            // original path so deep links do not silently fall back to Overview.
+            const routedPath =
+              new URLSearchParams(routeLocation.search).get(INTERNAL_MEMORY_PATH_PARAM) ??
+              routeLocation.pathname;
+            const routeTab =
+              memoryTabFromPath(routedPath, context.basePath) ?? memoryTabFromPath(routedPath);
+            const initialTab =
+              routeTab === "memories"
+                ? "memory"
+                : routeTab === "wiki" || routeTab === "organization"
+                  ? routeTab
+                  : routeTab === "dreams"
+                    ? "dreaming"
+                    : "overview";
+            return { agentId: assignedAgentId, initialTab };
           },
           component: async () => {
-            await Promise.all([
-              import("../pages/agents/memory/memory-panel.ts"),
-              loadPlatformClawLocale(),
-            ]);
+            await Promise.all([import("./memory-page.ts"), loadPlatformClawLocale()]);
             return {
               header: true,
               render: (data: unknown) => {
                 const agentId =
                   isRecord(data) && typeof data.agentId === "string" ? data.agentId : null;
+                const initialTab =
+                  isRecord(data) &&
+                  (data.initialTab === "memory" ||
+                    data.initialTab === "wiki" ||
+                    data.initialTab === "organization" ||
+                    data.initialTab === "dreaming")
+                    ? data.initialTab
+                    : "overview";
                 return html`
                   <section class="content-header">
                     <div><div class="page-title">${t("tabs.memory")}</div></div>
                   </section>
-                  <main class="settings-page">
-                    ${agentId
-                      ? html`<openclaw-agent-memory-panel
-                          .agentId=${agentId}
-                          .showMemorySearch=${true}
-                        ></openclaw-agent-memory-panel>`
-                      : html`
-                          <div class="card" role="status">
-                            <div class="card-title">${t("platformClaw.memory.unavailable")}</div>
-                            <div class="muted">${t("platformClaw.memory.unassigned")}</div>
-                          </div>
-                        `}
-                  </main>
+                  ${agentId
+                    ? html`<platformclaw-memory-page
+                        .agentId=${agentId}
+                        .initialTab=${initialTab}
+                      ></platformclaw-memory-page>`
+                    : html`<main class="settings-page">
+                        <div class="card" role="status">
+                          <div class="card-title">${t("platformClaw.memory.unavailable")}</div>
+                          <div class="muted">${t("platformClaw.memory.unassigned")}</div>
+                        </div>
+                      </main>`}
                 `;
               },
             };

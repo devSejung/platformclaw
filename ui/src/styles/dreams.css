@@ -10,8 +10,13 @@
   overflow: hidden;
 }
 
-.agent-memory-panel__header {
+.agent-memory-panel__toolbar {
+  display: flex;
   justify-content: flex-end;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 var(--space-4) var(--space-3);
 }
 
 .dreams__topbar {
@@ -33,7 +38,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: calc(100vh - 64px);
+  min-height: clamp(360px, calc(100dvh - 260px), 620px);
   overflow: hidden;
   user-select: none;
 }

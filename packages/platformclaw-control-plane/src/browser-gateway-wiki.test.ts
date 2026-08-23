@@ -146,7 +146,7 @@ describe("BrowserGatewayProxy personal memory wiki", () => {
       lineCount: 5_000,
     });
     expect(request.mock.calls).toEqual([
-      ["wiki.search", { agentId: binding.agentId, query: "검토", maxResults: 10 }],
+      ["wiki.search", { agentId: binding.agentId, query: "검토", corpus: "wiki", maxResults: 10 }],
       [
         "wiki.get",
         {

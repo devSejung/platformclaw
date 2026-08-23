@@ -112,6 +112,23 @@ export const en: TranslationMap = {
     memory: {
       unavailable: "Memory unavailable",
       unassigned: "No personal agent is assigned to this account.",
+      tabs: {
+        label: "Memory and knowledge sections",
+        overview: "Overview",
+        organization: "Organization",
+      },
+      overview: {
+        title: "Memory and knowledge",
+        description:
+          "Memory recalls personal context, Personal Wiki keeps reusable documents, and Dreaming organizes durable knowledge.",
+        memoryDescription: "Search MEMORY.md, daily memory, and other indexed personal context.",
+        wikiDescription:
+          "Browse structured pages that can be reviewed and shared with your organization.",
+        dreamingDescription: "Review consolidation status, Dream Diary, and memory activity.",
+        openMemory: "Open Memory",
+        openWiki: "Open Personal Wiki",
+        openDreaming: "Open Dreaming",
+      },
     },
     voc: {
       title: "Submit VOC",
@@ -1160,6 +1177,10 @@ export const en: TranslationMap = {
       channels: "Channels",
       cronJobs: "Automations",
       memory: "Memory",
+    },
+    memoryPanel: {
+      memoryFileDescription:
+        "This agent's durable long-term memory file. Open it in Agent Files to inspect or edit it.",
     },
     context: {
       title: "Agent Context",
@@ -2649,8 +2670,10 @@ export const en: TranslationMap = {
     tablistLabel: "Memory sections",
     tabs: {
       overview: "Overview",
-      memories: "Memories",
-      dreams: "Dreams",
+      memories: "Memory",
+      wiki: "Personal Wiki",
+      organization: "Organization",
+      dreams: "Dreaming",
       settings: "Settings",
     },
     overview: {
@@ -2737,18 +2760,36 @@ export const en: TranslationMap = {
       fileUnsupported: "This memory file cannot be shown as text.",
     },
     promotions: {
-      title: "Organization memory promotion",
+      title: "Share Wiki knowledge",
       description:
-        "Submit a reviewed claim to the next scope. An LLM may draft it, but only a person can submit or approve it.",
-      gatewayUpdateRequired: "Update the PlatformClaw gateway to manage organization memory.",
+        "Promote reviewed Wiki knowledge to the next organization scope. An Agent may draft it, but only a person can submit or approve it.",
+      gatewayUpdateRequired: "Update the PlatformClaw Gateway to manage organization knowledge.",
+      loading: "Loading organization knowledge…",
+      wikiUnavailable:
+        "Personal Wiki search is unavailable. Enable or update the memory-wiki plugin and refresh.",
       source: "Source scope",
+      target: "Target scope",
+      scope: "Organization scope",
       personal: "Personal",
       part: "Part",
       group: "Group",
       personalClaimPlaceholder: "Personal Wiki page ID, title, or path",
+      personalSourceTitle: "Choose a personal Wiki source",
+      personalSourceHelp:
+        "Search your personal Wiki, preview a complete page, then edit the proposed shared claim before submitting.",
+      searchPersonalWiki: "Search personal Wiki pages",
+      search: "Search",
+      sourceLoading: "Loading personal Wiki sources…",
+      sourceEmpty: "No personal Wiki pages matched this search.",
+      sourceIncomplete: "This Wiki page is incomplete and cannot be promoted.",
+      sourcePreview: "Source preview",
+      personalWikiEvidence: "Personal Wiki source",
+      approvedClaimEvidence: "Approved organization claim",
+      defaultReason: "Share this reviewed knowledge with the organization.",
       chooseClaim: "Choose an approved claim",
       chooseTarget: "Choose the target scope",
-      textPlaceholder: "Proposed organization memory text",
+      textPlaceholder: "Knowledge to share",
+      proposedText: "Shared knowledge",
       evidencePlaceholder: "Evidence or provenance, one item per line",
       reasonPlaceholder: "Why should this be promoted?",
       submit: "Request promotion",
@@ -2766,6 +2807,16 @@ export const en: TranslationMap = {
       decisionLabel: "Decision reason",
       retireReason: "Reason for retiring this claim",
       purgeReason: "Privacy or security reason for permanently purging this retired claim",
+      revision: "revision {revision}",
+      statusPending: "Pending",
+      statusApproved: "Approved",
+      statusRejected: "Rejected",
+      statusActive: "Active",
+      statusRetired: "Retired",
+      statusPurged: "Purged",
+      noReviews: "No promotion requests need your review.",
+      noRequests: "You have not submitted any promotion requests.",
+      noClaims: "No organization claims are available in your authorized scopes.",
     },
     engine: {
       title: "Engine",
@@ -4067,9 +4118,9 @@ export const en: TranslationMap = {
   },
   dreaming: {
     tabs: {
-      scene: "Scene",
-      diary: "Diary",
-      advanced: "Advanced",
+      scene: "Overview",
+      diary: "Dream Diary",
+      advanced: "Activity",
     },
     header: {
       refresh: "Refresh",

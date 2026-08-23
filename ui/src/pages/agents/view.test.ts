@@ -269,16 +269,37 @@ describe("renderAgents", () => {
 
   it("renders Memory after Automations and scopes the panel to the selected agent", () => {
     const container = document.createElement("div");
-    render(renderAgents(createProps({ activePanel: "memory" })), container);
+    const onOpenMemorySettings = vi.fn();
+    const onSelectPanel = vi.fn();
+    const onSelectFile = vi.fn();
+    render(
+      renderAgents(
+        createProps({
+          activePanel: "memory",
+          onOpenMemorySettings,
+          onSelectPanel,
+          onSelectFile,
+        }),
+      ),
+      container,
+    );
 
     const tabs = [...container.querySelectorAll(".agents-hub-tabs .hub-tab")].map((tab) =>
       directText(tab),
     );
     expect(tabs.slice(-2)).toEqual([t("agents.tabs.cronJobs"), t("agents.tabs.memory")]);
-    const panel = container.querySelector<HTMLElement & { agentId: string }>(
+    const panel = container.querySelector<HTMLElement & { agentId: string; summaryOnly: boolean }>(
       "openclaw-agent-memory-panel",
     );
     expect(panel?.agentId).toBe("beta");
+    expect(panel?.summaryOnly).toBe(true);
+
+    const rows = [...container.querySelectorAll<HTMLButtonElement>(".settings-row--nav")];
+    rows.find((row) => row.textContent?.includes(t("tabs.memory")))?.click();
+    expect(onOpenMemorySettings).toHaveBeenCalledWith("beta");
+    rows.find((row) => row.textContent?.includes("MEMORY.md"))?.click();
+    expect(onSelectPanel).toHaveBeenCalledWith("files");
+    expect(onSelectFile).toHaveBeenCalledWith("MEMORY.md");
   });
 
   it("renders the custom agent select with the provided agents and selected label", async () => {

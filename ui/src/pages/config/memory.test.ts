@@ -60,6 +60,8 @@ function createProps(overrides: Partial<MemoryViewProps> = {}): MemoryViewProps 
     memoryImportHref: "/memory-import",
     overview: html`<div class="test-overview"></div>`,
     memories: html`<div class="test-memories"></div>`,
+    wiki: html`<div class="test-wiki"></div>`,
+    organization: html`<div class="test-organization"></div>`,
     dreams: html`<div class="test-dreams"></div>`,
     editor: html`<div class="test-editor"></div>`,
     dreamingSettings: html`<div class="test-dreaming-settings"></div>`,
@@ -80,7 +82,7 @@ function renderInto(props: MemoryViewProps): HTMLElement {
 }
 
 describe("renderMemory", () => {
-  it.each(["overview", "memories", "dreams"] as const)(
+  it.each(["overview", "memories", "wiki", "organization", "dreams"] as const)(
     "renders the shared header and agent scope on %s",
     (activeTab) => {
       const onAgentChange = vi.fn();

@@ -9,6 +9,8 @@ type MemoryPromotionsTestElement = HTMLElement & {
   client: GatewayBrowserClient | null;
   connected: boolean;
   methodAdvertised: boolean;
+  wikiSearchAdvertised: boolean;
+  wikiGetAdvertised: boolean;
   agentId: string | null;
   updateComplete: Promise<unknown>;
 };
@@ -20,6 +22,8 @@ function createElement(request: (method: string, params: unknown) => Promise<unk
   element.client = { request } as unknown as GatewayBrowserClient;
   element.connected = true;
   element.methodAdvertised = true;
+  element.wikiSearchAdvertised = true;
+  element.wikiGetAdvertised = true;
   element.agentId = "personal-agent";
   document.body.append(element);
   return element;
@@ -28,7 +32,12 @@ function createElement(request: (method: string, params: unknown) => Promise<unk
 const snapshot = {
   scopes: [
     { kind: "global", name: "Global", canAdminister: true },
-    { kind: "group", id: "group-1", name: "Platform", canAdminister: true },
+    {
+      kind: "group",
+      id: "group-1",
+      name: "Platform",
+      canAdminister: true,
+    },
     {
       kind: "part",
       id: "part-1",
@@ -79,10 +88,11 @@ describe("MemoryPromotionsElement", () => {
     const element = createElement(request);
     await waitForFast(() => expect(element.textContent).toContain("Drain jobs before restart"));
     expect(request).toHaveBeenCalledWith("platformclaw.memory.lifecycle", {});
-    expect(element.textContent).toContain("Organization memory promotion");
+    expect(element.textContent).toContain("Share Wiki knowledge");
     expect(element.textContent).toContain("Approve");
     expect(element.textContent).toContain("Runtime");
-    expect(element.textContent).toContain("runbooks/recovery.md@1");
+    expect(element.textContent).toContain("runbooks/recovery.md");
+    expect(element.textContent).toContain("revision 1");
     expect(element.textContent).toContain("incident-42");
     expect(element.textContent).toContain("Needs newer evidence");
     element.remove();
@@ -94,17 +104,25 @@ describe("MemoryPromotionsElement", () => {
     );
     const element = createElement(request);
     await waitForFast(() => expect(element.querySelectorAll("select").length).toBeGreaterThan(1));
-    const inputs = element.querySelectorAll<HTMLInputElement>("input");
-    inputs[0]!.value = "runbooks/recovery.md";
-    inputs[0]!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    element.querySelector("openclaw-memory-promotion-source-picker")!.dispatchEvent(
+      new CustomEvent("source-selected", {
+        bubbles: true,
+        detail: {
+          lookup: "runbooks/recovery.md",
+          title: "Recovery",
+          content: "Drain jobs before restart",
+          path: "runbooks/recovery.md",
+        },
+      }),
+    );
     const target = element.querySelectorAll<HTMLSelectElement>("select")[1]!;
     target.value = "part-1";
     target.dispatchEvent(new Event("change", { bubbles: true }));
-    const textareas = element.querySelectorAll<HTMLTextAreaElement>("textarea");
-    textareas[0]!.value = "Drain jobs before restart";
-    textareas[0]!.dispatchEvent(new InputEvent("input", { bubbles: true }));
-    inputs[1]!.value = "Reusable runbook";
-    inputs[1]!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const reason = element.querySelector<HTMLInputElement>(
+      ".memory-promotions .memory-promotions__field input",
+    )!;
+    reason.value = "Reusable runbook";
+    reason.dispatchEvent(new InputEvent("input", { bubbles: true }));
     await element.updateComplete;
     element.querySelector<HTMLButtonElement>("button.primary")!.click();
     await waitForFast(() =>
