@@ -90,11 +90,11 @@ function shellEscape(value: string): string {
   return `'${value.replaceAll("'", `'\"'\"'`)}'`;
 }
 
-function encodeCredentialFrame(credentials: Record<string, string>): Buffer {
+function encodeCredentialFrame(credentials: Record<string, string>): string {
   const lines = Object.entries(credentials).map(
     ([name, value]) => `${name} ${Buffer.from(value, "utf8").toString("base64")}`,
   );
-  return Buffer.from(`${lines.join("\n")}\n.\n`, "utf8");
+  return `${lines.join("\n")}\n.\n`;
 }
 
 function remoteCredentialWrapper(remoteCommand: string): string {

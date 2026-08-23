@@ -74,6 +74,7 @@ describe("PlatformClawControlUiAdapter", () => {
         "tasks",
         "cron",
         "appearance",
+        "credentials",
         "memory",
         "profile",
         "notifications",
@@ -283,6 +284,7 @@ describe("PlatformClawControlUiAdapter", () => {
     );
     expect(adminOptions.enabledRouteIds).toContain("plugins");
     expect(adminOptions.enabledRouteIds).toContain("mcp");
+    expect(adminOptions.enabledRouteIds).toContain("credentials");
     expect(adminOptions.navigation?.sidebarEntries).toContain("route:plugins");
     expect(adminOptions.navigation?.settingsNavigationMode).toBe("takeover");
     render(adminOptions.shellSession?.renderFooterAccessory?.(), document.body);
@@ -310,8 +312,12 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(administration.fetchImpl).toBe(fetchImpl);
     administration.onUnauthenticated();
     expect(navigate).toHaveBeenCalledWith("/platformclaw/login");
+    const adminCredentialsModule = await adminOptions.routeOverrides?.credentials?.component?.();
+    render(adminCredentialsModule?.render(undefined), document.body);
+    expect(document.querySelector("platformclaw-exec-credentials")).not.toBeNull();
     const adminMcpModule = await adminOptions.routeOverrides?.mcp?.component?.();
     render(adminMcpModule?.render(undefined), document.body);
+    expect(document.querySelector("platformclaw-exec-credentials")).toBeNull();
     expect(document.querySelector("platformclaw-mcp-administration")).not.toBeNull();
     expect(document.querySelector("platformclaw-mcp-settings")).not.toBeNull();
 
@@ -326,6 +332,7 @@ describe("PlatformClawControlUiAdapter", () => {
     );
     expect(memberOptions.enabledRouteIds).not.toContain("plugins");
     expect(memberOptions.enabledRouteIds).toContain("mcp");
+    expect(memberOptions.enabledRouteIds).toContain("credentials");
     expect(memberOptions.navigation?.sidebarEntries).toContain("route:plugins");
     expect(memberOptions.navigation?.sidebarEntries).not.toContain("route:skills");
     expect(memberOptions.navigation?.sidebarRouteTargets).toEqual({ plugins: "skills" });

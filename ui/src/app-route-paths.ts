@@ -34,6 +34,7 @@ const APP_ROUTE_DEFINITIONS = {
   profile: { path: "/settings/profile", aliases: ["/profile"] },
   communications: { path: "/settings/communications", aliases: ["/communications"] },
   appearance: { path: "/settings/appearance", aliases: ["/appearance"] },
+  credentials: { path: "/settings/credentials", aliases: ["/credentials"] },
   lobsterdex: { path: "/settings/lobsterdex", aliases: ["/lobsterdex"] },
   notifications: { path: "/settings/notifications" },
   security: { path: "/settings/security" },
@@ -71,7 +72,10 @@ const APP_ROUTE_DEFINITIONS = {
 } as const;
 
 export type RouteId = keyof typeof APP_ROUTE_DEFINITIONS;
-export const APP_ROUTE_IDS = Object.keys(APP_ROUTE_DEFINITIONS) as RouteId[];
+const ALL_APP_ROUTE_IDS = Object.keys(APP_ROUTE_DEFINITIONS) as RouteId[];
+// Credentials is an opt-in embedder route. Products that own a credential
+// surface enable it with a route override; the stock Control UI stays unchanged.
+export const APP_ROUTE_IDS = ALL_APP_ROUTE_IDS.filter((routeId) => routeId !== "credentials");
 
 export function isRouteId(routeId: string): routeId is RouteId {
   return routeId in APP_ROUTE_DEFINITIONS;
@@ -257,7 +261,7 @@ export function routeIdFromPath(pathname: string, basePath = ""): RouteId | null
   if (sessionNamespace) {
     return sessionNamespace;
   }
-  for (const routeId of APP_ROUTE_IDS) {
+  for (const routeId of ALL_APP_ROUTE_IDS) {
     const definition = APP_ROUTE_DEFINITIONS[routeId];
     const paths: readonly string[] =
       "aliases" in definition ? [definition.path, ...definition.aliases] : [definition.path];
@@ -269,7 +273,7 @@ export function routeIdFromPath(pathname: string, basePath = ""): RouteId | null
 }
 
 function collectRoutePaths(): string[] {
-  return APP_ROUTE_IDS.flatMap((routeId) => {
+  return ALL_APP_ROUTE_IDS.flatMap((routeId) => {
     const definition = APP_ROUTE_DEFINITIONS[routeId];
     const paths: string[] = [definition.path];
     if ("aliases" in definition) {

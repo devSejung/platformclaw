@@ -165,7 +165,7 @@ describe("PlatformClaw execution backend", () => {
     expect(spec.argv).toContain("-T");
     expect(spec.argv).not.toContain("-tt");
     expect(spec.argv.join(" ")).not.toContain("private-value");
-    expect(spec.stdinPrefix?.toString("utf8")).toBe("API_TOKEN cHJpdmF0ZS12YWx1ZQ==\n.\n");
+    expect(spec.stdinPrefix).toBe("API_TOKEN cHJpdmF0ZS12YWx1ZQ==\n.\n");
   });
 
   it("isolates users and selects targets without parsing scope keys", async () => {

@@ -791,7 +791,7 @@ export async function runExecProcess(opts: {
         argv: string[];
         env: NodeJS.ProcessEnv;
         stdinMode: "pipe-open" | "pipe-closed";
-        stdinPrefix?: Buffer;
+        stdinPrefix?: string;
       }
     | {
         mode: "pty";
@@ -799,7 +799,7 @@ export async function runExecProcess(opts: {
         childFallbackArgv: string[];
         env: NodeJS.ProcessEnv;
         stdinMode: "pipe-open";
-        stdinPrefix?: Buffer;
+        stdinPrefix?: string;
       } = await (async () => {
     if (opts.sandbox) {
       const backendExecSpec = await opts.sandbox.buildExecSpec?.({

@@ -818,7 +818,7 @@ describe("runExecProcess exit outcomes", () => {
 
 describe("runExecProcess POSIX command wrapper", () => {
   it("writes a backend setup frame before exposing the exec stream", async () => {
-    const prefix = Buffer.from("trusted-prefix\n");
+    const prefix = "trusted-prefix\n";
     let managed: ManagedRun | undefined;
     supervisorMock.spawn.mockImplementationOnce(async (input: SpawnInput) => {
       managed = runtimeManagedRun(input);

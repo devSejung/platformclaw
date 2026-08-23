@@ -41,4 +41,16 @@ describe("application router registration", () => {
     expect(restricted.getRoute("mcp")?.component).toBe(component);
     expect(restricted.getRoute("advanced")).toBeNull();
   });
+
+  it("registers an opt-in embedder settings route only when its component is supplied", () => {
+    expect(createApplicationRouter().getRoute("credentials")).toBeNull();
+
+    const component = async () => ({ render: () => "embedded credentials" });
+    const embedded = createApplicationRouter(["credentials"], {
+      credentials: { loader: async () => undefined, component },
+    });
+
+    expect(embedded.getRoute("credentials")?.path).toBe("/settings/credentials");
+    expect(embedded.getRoute("credentials")?.component).toBe(component);
+  });
 });
