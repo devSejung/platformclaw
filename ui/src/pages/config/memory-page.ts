@@ -705,6 +705,10 @@ class MemorySettingsPage extends OpenClawLightDomElement {
             this.context.gateway.snapshot,
             "memory.search",
           ) === true}
+          .lifecycleMethodAdvertised=${isGatewayMethodAdvertised(
+            this.context.gateway.snapshot,
+            "platformclaw.memory.lifecycle",
+          ) === true}
           .agentId=${agentId}
         ></openclaw-memory-memories>
       `,

@@ -4,6 +4,7 @@ import { resolveBrowserGatewayAccess } from "./browser-gateway-access.js";
 import { BrowserGatewayAssertions } from "./browser-gateway-assertions.js";
 import { projectBrowserCatalogResult } from "./browser-gateway-catalog-projections.js";
 import {
+  asBrowserGatewayObject as asObject,
   BrowserGatewayProxyError,
   type BrowserGatewayAccess,
   type BrowserGatewayEvent,
@@ -19,6 +20,7 @@ import {
 } from "./browser-gateway-cron-controller.js";
 export { PLATFORMCLAW_WEB_GATEWAY_EVENTS } from "./browser-gateway-event-policy.js";
 import { BrowserGatewayLiveCapabilities } from "./browser-gateway-live-capabilities.js";
+import { requestBrowserGatewayLocal } from "./browser-gateway-local.js";
 import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-visibility.js";
 import {
   browserEventPayloadBelongsToAccess,
@@ -51,7 +53,6 @@ import {
 import {
   isConfiguredBrowserModel,
   projectBrowserAgentFiles,
-  projectBrowserSelfUser,
   projectBrowserSkillResult,
 } from "./browser-gateway-self-service-projections.js";
 import {
@@ -61,16 +62,6 @@ import {
   projectBrowserTaskResult,
 } from "./browser-gateway-task-policy.js";
 type JsonObject = Record<string, unknown>;
-
-function asObject(value: unknown, label: string): JsonObject {
-  if (value === undefined) {
-    return {};
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new BrowserGatewayProxyError("invalid-params", `${label} must be an object`);
-  }
-  return { ...(value as JsonObject) };
-}
 
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
 export class BrowserGatewayProxy {
@@ -221,12 +212,15 @@ export class BrowserGatewayProxy {
         throw error;
       }
     }
-    if (method === "users.self") {
-      return projectBrowserSelfUser(access.user) as T;
-    }
-    if (method === "sessions.subscribe") {
-      // The process-wide private Gateway client owns this connection-scoped subscription.
-      return { subscribed: true } as T;
+    const localResult = await requestBrowserGatewayLocal(
+      this.options,
+      access,
+      method,
+      prepared,
+      async (reason) => await this.auditDeniedRequest(access, method, reason),
+    );
+    if (localResult.handled) {
+      return localResult.result as T;
     }
     const specialResult = await this.liveCapabilities.requestSpecial({
       agentId: access.binding.agentId,

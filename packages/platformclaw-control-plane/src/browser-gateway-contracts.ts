@@ -2,6 +2,7 @@ import type { BrowserAuthService } from "./browser-auth-service.js";
 import type {
   ControlPlaneAuditWriter,
   ControlPlaneStore,
+  OrganizationMemoryLifecycle,
   OrganizationMemorySearchHit,
   PersonalAgentBinding,
   PlatformUser,
@@ -49,6 +50,16 @@ export class BrowserGatewayProxyError extends Error {
   }
 }
 
+export function asBrowserGatewayObject(value: unknown, label: string): Record<string, unknown> {
+  if (value === undefined) {
+    return {};
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new BrowserGatewayProxyError("invalid-params", `${label} must be an object`);
+  }
+  return { ...(value as Record<string, unknown>) };
+}
+
 export type BrowserGatewayProxyOptions = {
   authService: BrowserAuthService;
   store: ControlPlaneStore;
@@ -61,5 +72,6 @@ export type BrowserGatewayProxyOptions = {
     query: string;
     maxResults?: number;
   }): Promise<OrganizationMemorySearchHit[]>;
+  organizationMemoryLifecycle?: OrganizationMemoryLifecycle;
   now?: () => number;
 };

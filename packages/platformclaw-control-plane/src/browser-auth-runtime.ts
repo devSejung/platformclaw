@@ -1,5 +1,8 @@
 import { BrowserAuthService, type PersonalAgentProvisioner } from "./browser-auth-service.js";
-import type { MainSessionKeyBuilder } from "./contracts.js";
+import type {
+  MainSessionKeyBuilder,
+  PersonalOrganizationMemorySourceResolver,
+} from "./contracts.js";
 import {
   HttpEmployeeAuthenticator,
   loadEmployeeAuthClientConfig,
@@ -25,6 +28,7 @@ export type EmployeeBrowserAuthRuntimeOptions = {
   mcpCredentialCipher?: McpCredentialCipher;
   onLogoutAgent?: (agentId: string) => Promise<void>;
   onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
+  resolvePersonalOrganizationMemorySource?: PersonalOrganizationMemorySourceResolver;
 };
 
 export type EmployeeBrowserAuthRuntime = {
@@ -50,6 +54,9 @@ export function createEmployeeBrowserAuthRuntime(
     initialAdminAccountIds: options.initialAdminAccountIds,
     ...(options.onAgentCredentialsRevoked
       ? { onAgentCredentialsRevoked: options.onAgentCredentialsRevoked }
+      : {}),
+    ...(options.resolvePersonalOrganizationMemorySource
+      ? { resolvePersonalOrganizationMemorySource: options.resolvePersonalOrganizationMemorySource }
       : {}),
   });
   const service = new BrowserAuthService({

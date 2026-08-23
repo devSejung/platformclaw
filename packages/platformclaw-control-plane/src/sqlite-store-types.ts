@@ -2,6 +2,8 @@ import type {
   AgentProvisioningState,
   ManagedScopeKind,
   ManagedScopeRole,
+  OrganizationMemoryClaimStatus,
+  OrganizationMemoryPromotionSourceKind,
   OrganizationMemoryScopeKind,
   PlatformUserGlobalRole,
   PlatformUserStatus,
@@ -83,6 +85,51 @@ export type OrganizationMemoryPageRow = {
   status: "active" | "retired";
   created_at: number;
   updated_at: number;
+};
+export type OrganizationMemoryPromotionRequestRow = {
+  id: string;
+  source_kind: OrganizationMemoryPromotionSourceKind;
+  source_scope_id: string | null;
+  source_claim_id: string;
+  source_revision: number;
+  target_kind: OrganizationMemoryScopeKind;
+  target_scope_id: string | null;
+  proposed_text: string;
+  evidence_json: string;
+  reason: string;
+  requested_by_user_id: string;
+  created_at: number;
+};
+export type OrganizationMemoryClaimRow = {
+  id: string;
+  scope_kind: OrganizationMemoryScopeKind;
+  scope_id: string | null;
+  title: string;
+  claim_text: string;
+  evidence_json: string;
+  source_kind: OrganizationMemoryPromotionSourceKind;
+  source_scope_id: string | null;
+  source_claim_id: string;
+  source_revision: number;
+  promotion_request_id: string;
+  revision: number;
+  status: OrganizationMemoryClaimStatus;
+  created_by_user_id: string;
+  approved_by_user_id: string;
+  created_at: number;
+  updated_at: number;
+  retired_by_user_id: string | null;
+  retired_at: number | null;
+  retirement_reason: string | null;
+};
+export type OrganizationMemoryPromotionDecisionRow = {
+  id: string;
+  request_id: string;
+  decision: "approved" | "rejected";
+  decided_by_user_id: string;
+  reason: string;
+  target_claim_id: string | null;
+  decided_at: number;
 };
 type AuditEventRow = {
   id: string;
@@ -255,6 +302,9 @@ export type ControlPlaneDatabase = {
   managed_scopes: ManagedScopeRow;
   managed_scope_memberships: ManagedScopeMembershipRow;
   organization_memory_pages: OrganizationMemoryPageRow;
+  organization_memory_claims: OrganizationMemoryClaimRow;
+  organization_memory_promotion_requests: OrganizationMemoryPromotionRequestRow;
+  organization_memory_promotion_decisions: OrganizationMemoryPromotionDecisionRow;
   control_audit_events: AuditEventRow;
   safeconnect_endpoints: SafeConnectEndpointRow;
   vm_hosts: VmHostRow;

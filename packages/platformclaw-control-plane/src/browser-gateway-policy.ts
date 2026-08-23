@@ -42,6 +42,11 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "plugins.setEnabled",
   "plugins.uninstall",
   "plugin.surface.refresh",
+  "platformclaw.memory.claim.purge",
+  "platformclaw.memory.claim.retire",
+  "platformclaw.memory.lifecycle",
+  "platformclaw.memory.promotion.decide",
+  "platformclaw.memory.promotion.submit",
   "question.get",
   "question.list",
   "question.resolve",
@@ -111,6 +116,14 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
 export type PlatformClawWebGatewayMethod = (typeof PLATFORMCLAW_WEB_GATEWAY_METHODS)[number];
 
 export const PLATFORMCLAW_WEB_ALLOWED_METHODS = new Set<string>(PLATFORMCLAW_WEB_GATEWAY_METHODS);
+export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
+  "commands.list",
+  "platformclaw.memory.claim.purge",
+  "platformclaw.memory.claim.retire",
+  "platformclaw.memory.lifecycle",
+  "platformclaw.memory.promotion.decide",
+  "platformclaw.memory.promotion.submit",
+]);
 export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<string>>([
   ["agent.identity.get", new Set(["agentId", "sessionKey"])],
   ["agents.files.get", new Set(["agentId", "name"])],
@@ -234,6 +247,23 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["plugins.setEnabled", new Set(["pluginId", "enabled"])],
   ["plugins.uninstall", new Set(["pluginId"])],
   ["plugin.surface.refresh", new Set(["surface", "observedUrl"])],
+  ["platformclaw.memory.claim.purge", new Set(["claimId", "reason"])],
+  ["platformclaw.memory.claim.retire", new Set(["claimId", "reason"])],
+  ["platformclaw.memory.lifecycle", new Set(["claims", "submitted", "reviewable"])],
+  ["platformclaw.memory.promotion.decide", new Set(["requestId", "decision", "reason"])],
+  [
+    "platformclaw.memory.promotion.submit",
+    new Set([
+      "sourceKind",
+      "sourceClaimId",
+      "expectedSourceRevision",
+      "targetKind",
+      "targetScopeId",
+      "proposedText",
+      "evidence",
+      "reason",
+    ]),
+  ],
   ["question.get", new Set(["id"])],
   ["question.list", new Set()],
   ["question.resolve", new Set(["id", "answers", "cancel"])],
@@ -439,6 +469,11 @@ export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
   "chat.metadata",
   "commands.list",
   "memory.search",
+  "platformclaw.memory.claim.purge",
+  "platformclaw.memory.claim.retire",
+  "platformclaw.memory.lifecycle",
+  "platformclaw.memory.promotion.decide",
+  "platformclaw.memory.promotion.submit",
   "sessions.usage",
   "skills.install",
   "skills.proposals.apply",
@@ -458,6 +493,7 @@ export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
 ]);
 
 export const PLATFORMCLAW_WEB_ADMIN_METHODS = new Set<string>([
+  "platformclaw.memory.claim.purge",
   "plugins.install",
   "plugins.list",
   "plugins.search",

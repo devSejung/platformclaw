@@ -18,7 +18,12 @@ const MAX_DOCUMENT_LINES = 200;
 const ORGANIZATION_MEMORY_PATH =
   /^organization\/(global|group|part)\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/u;
 
-type AuthorizedScope = { kind: OrganizationMemoryScopeKind; id?: string; name: string };
+export type AuthorizedOrganizationMemoryScope = {
+  kind: OrganizationMemoryScopeKind;
+  id?: string;
+  name: string;
+  parentGroupId?: string;
+};
 
 function normalizeQuery(query: string): string {
   const normalized = query.trim();
@@ -60,7 +65,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
 {
   private organizationMemorySchemaReady = false;
 
-  private ensureOrganizationMemorySchema(): void {
+  protected ensureOrganizationMemorySchema(): void {
     if (this.organizationMemorySchemaReady) {
       return;
     }
@@ -68,19 +73,35 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
     this.organizationMemorySchemaReady = true;
   }
 
-  private authorizedScopes(agentId: string): AuthorizedScope[] {
+  protected requireOrganizationMemoryActor(agentId: string): {
+    userId: string;
+    globalRole: "member" | "admin";
+  } {
     const binding = takeFirstSync(
       this.db,
       this.query
         .selectFrom("agent_bindings")
         .innerJoin("platform_users", "platform_users.id", "agent_bindings.user_id")
-        .select(["agent_bindings.user_id", "platform_users.status"])
+        .select(["agent_bindings.user_id", "platform_users.status", "platform_users.global_role"])
         .where("agent_bindings.agent_id", "=", agentId)
         .where("agent_bindings.kind", "=", "personal")
         .where("agent_bindings.state", "=", "active"),
     );
     if (!binding?.user_id || binding.status !== "active") {
       throw new ControlPlaneAuthorizationError("active personal agent required");
+    }
+    return { userId: binding.user_id, globalRole: binding.global_role };
+  }
+
+  protected authorizedScopes(agentId: string): AuthorizedOrganizationMemoryScope[] {
+    const actor = this.requireOrganizationMemoryActor(agentId);
+    return this.authorizedScopesForUser(actor.userId);
+  }
+
+  protected authorizedScopesForUser(userId: string): AuthorizedOrganizationMemoryScope[] {
+    const user = this.requireUserRow(userId);
+    if (user.status !== "active") {
+      throw new ControlPlaneAuthorizationError("active employee required");
     }
     const memberships = executeSync(
       this.db,
@@ -94,16 +115,17 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
           "managed_scopes.parent_group_id",
           "managed_scope_memberships.role",
         ])
-        .where("managed_scope_memberships.user_id", "=", binding.user_id)
+        .where("managed_scope_memberships.user_id", "=", userId)
         .where("managed_scopes.status", "=", "active"),
     ).rows;
-    const scopes = new Map<string, AuthorizedScope>();
+    const scopes = new Map<string, AuthorizedOrganizationMemoryScope>();
     scopes.set("global", { kind: "global", name: "Global" });
     for (const membership of memberships) {
       scopes.set(`${membership.kind}:${membership.id}`, {
         kind: membership.kind,
         id: membership.id,
         name: membership.name,
+        ...(membership.parent_group_id ? { parentGroupId: membership.parent_group_id } : {}),
       });
       if (membership.kind === "group" && membership.role === "leader") {
         const children = executeSync(
@@ -116,7 +138,12 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
             .where("status", "=", "active"),
         ).rows;
         for (const child of children) {
-          scopes.set(`part:${child.id}`, { kind: "part", id: child.id, name: child.name });
+          scopes.set(`part:${child.id}`, {
+            kind: "part",
+            id: child.id,
+            name: child.name,
+            parentGroupId: membership.id,
+          });
         }
       }
     }
@@ -125,7 +152,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
 
   private toHit(
     row: OrganizationMemoryPageRow,
-    scope: AuthorizedScope,
+    scope: AuthorizedOrganizationMemoryScope,
     query: string,
   ): OrganizationMemorySearchHit {
     return {

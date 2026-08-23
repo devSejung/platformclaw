@@ -85,7 +85,12 @@ suite("PlatformClaw organization memory Settings E2E", () => {
       const gateway = await installMockGateway(page, {
         basePath: "/platformclaw/app",
         defaultAgentId: "assigned-personal",
-        featureMethods: ["agents.list", "doctor.memory.status", "memory.search"],
+        featureMethods: [
+          "agents.list",
+          "doctor.memory.status",
+          "memory.search",
+          "platformclaw.memory.lifecycle",
+        ],
         methodResponses: {
           "agents.list": {
             agents: [{ id: "assigned-personal", name: "Assigned Personal Agent" }],
@@ -117,6 +122,37 @@ suite("PlatformClaw organization memory Settings E2E", () => {
               },
             ],
           },
+          "platformclaw.memory.lifecycle": {
+            scopes: [
+              { kind: "global", name: "Global", canAdminister: false },
+              {
+                kind: "part",
+                id: "part-runtime",
+                parentGroupId: "group-platform",
+                name: "Runtime",
+                canAdminister: false,
+              },
+            ],
+            claims: [],
+            submitted: [],
+            reviewable: [
+              {
+                id: "request-1",
+                sourceKind: "personal",
+                sourceClaimId: "runbooks/release.md",
+                sourceRevision: 1,
+                targetKind: "part",
+                targetScopeName: "Runtime",
+                proposedText: scenario.snippet,
+                evidence: ["incident-1"],
+                reason: "Reusable policy",
+                status: "pending",
+                createdAt: 1,
+                canReview: true,
+              },
+            ],
+            canApproveGlobal: false,
+          },
         },
       });
 
@@ -135,11 +171,20 @@ suite("PlatformClaw organization memory Settings E2E", () => {
       await expect
         .poll(() => page.locator(".memory-memories__source").textContent())
         .toContain("Platform");
+      await expect
+        .poll(() => page.locator("openclaw-memory-promotions").textContent())
+        .toContain(scenario.snippet);
+      await expect
+        .poll(() => page.locator("openclaw-memory-promotions h2").textContent())
+        .toContain("Organization memory promotion");
       expect(await page.locator("article > button").count()).toBe(0);
       expect(await gateway.getRequests("memory.search")).toEqual([
         expect.objectContaining({
           params: expect.objectContaining({ agentId: "assigned-personal", query: scenario.query }),
         }),
+      ]);
+      expect(await gateway.getRequests("platformclaw.memory.lifecycle")).toEqual([
+        expect.objectContaining({ params: {} }),
       ]);
       if (capture) {
         await page.screenshot({

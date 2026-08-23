@@ -283,7 +283,17 @@ describe("PlatformClawWebIngressServer", () => {
       ok: true,
       payload: {
         type: "hello-ok",
-        features: { methods: ["agents.list", "chat.send", "commands.list"] },
+        features: {
+          methods: [
+            "agents.list",
+            "chat.send",
+            "commands.list",
+            "platformclaw.memory.claim.retire",
+            "platformclaw.memory.lifecycle",
+            "platformclaw.memory.promotion.decide",
+            "platformclaw.memory.promotion.submit",
+          ],
+        },
         snapshot: {
           presence: [
             {

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   ControlPlaneAuthorizationError,
   ControlPlaneNotFoundError,
@@ -23,11 +24,11 @@ import {
   rowToMembership,
   rowToScope,
 } from "./sqlite-store-core.js";
-import { SqliteControlPlaneOrganizationMemoryStore } from "./sqlite-store-organization-memory.js";
+import { SqliteControlPlaneOrganizationMemoryLifecycleStore } from "./sqlite-store-organization-memory-lifecycle-actions.js";
 import type { ManagedScopeRow } from "./sqlite-store-types.js";
 
 export class SqliteControlPlaneStore
-  extends SqliteControlPlaneOrganizationMemoryStore
+  extends SqliteControlPlaneOrganizationMemoryLifecycleStore
   implements
     ControlPlaneStore,
     ControlPlaneManagementStore,
@@ -242,10 +243,95 @@ export class SqliteControlPlaneStore
     scopeId: string;
     archivedAt: number;
   }): Promise<ManagedScope> {
+    this.ensureOrganizationMemorySchema();
     return runImmediateTransaction(this.db, () => {
       this.requireAdmin(params.actorUserId);
       const scope = this.requireScopeRow(params.scopeId);
       if (scope.status !== "archived") {
+        const archivedScopeIds =
+          scope.kind === "group"
+            ? [
+                scope.id,
+                ...executeSync(
+                  this.db,
+                  this.query
+                    .selectFrom("managed_scopes")
+                    .select("id")
+                    .where("parent_group_id", "=", scope.id),
+                ).rows.map((row) => row.id),
+              ]
+            : [scope.id];
+        const retiredClaims = executeSync(
+          this.db,
+          this.query
+            .selectFrom("organization_memory_claims")
+            .selectAll()
+            .where("scope_id", "in", archivedScopeIds)
+            .where("status", "=", "active"),
+        ).rows;
+        const abandonedRequests = executeSync(
+          this.db,
+          this.query
+            .selectFrom("organization_memory_promotion_requests")
+            .leftJoin(
+              "organization_memory_promotion_decisions",
+              "organization_memory_promotion_decisions.request_id",
+              "organization_memory_promotion_requests.id",
+            )
+            .select("organization_memory_promotion_requests.id")
+            .where("target_scope_id", "in", archivedScopeIds)
+            .where("organization_memory_promotion_decisions.request_id", "is", null),
+        ).rows;
+        for (const request of abandonedRequests) {
+          executeSync(
+            this.db,
+            this.query.insertInto("organization_memory_promotion_decisions").values({
+              id: `memory-decision-${randomUUID()}`,
+              request_id: request.id,
+              decision: "rejected",
+              decided_by_user_id: params.actorUserId,
+              reason: "Owning target scope archived",
+              target_claim_id: null,
+              decided_at: params.archivedAt,
+            }),
+          );
+          this.insertAudit(
+            params.actorUserId,
+            "organization-memory.promotion.rejected",
+            "memory-promotion",
+            request.id,
+            params.archivedAt,
+            { reason: "Owning target scope archived" },
+          );
+        }
+        for (const claim of retiredClaims) {
+          executeSync(
+            this.db,
+            this.query
+              .updateTable("organization_memory_claims")
+              .set({
+                status: "retired",
+                revision: claim.revision + 1,
+                updated_at: params.archivedAt,
+                retired_by_user_id: params.actorUserId,
+                retired_at: params.archivedAt,
+                retirement_reason: "Owning scope archived",
+              })
+              .where("id", "=", claim.id),
+          );
+          this.compileClaimPage(claim.id);
+          if (claim.source_kind !== "personal") {
+            this.compileClaimPage(claim.source_claim_id);
+          }
+          this.insertAudit(
+            params.actorUserId,
+            "organization-memory.claim.retired",
+            "memory-claim",
+            claim.id,
+            params.archivedAt,
+            { reason: "Owning scope archived" },
+          );
+        }
         executeSync(
           this.db,
           this.query
