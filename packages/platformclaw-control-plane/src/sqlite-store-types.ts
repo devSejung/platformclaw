@@ -230,7 +230,7 @@ export type EncryptedUserMcpCredentialRow = {
   updated_at: number;
 };
 
-export type ExecCredentialDefinitionRow = {
+type ExecCredentialDefinitionRow = {
   env_name: string;
   created_by_user_id: string;
   created_at: number;

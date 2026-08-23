@@ -6,14 +6,23 @@ import {
 } from "./web-contract.ts";
 
 type Definition = { envName: string; configured?: boolean };
+type CredentialMutation = { action: string; envName: string; value?: string };
 
 function escapeHtml(value: string): string {
-  return value.replace(
-    /[&<>'"]/gu,
-    (character) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ??
-      character,
-  );
+  return value.replace(/[&<>'"]/gu, (character) => {
+    switch (character) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case "'":
+        return "&#39;";
+      default:
+        return "&quot;";
+    }
+  });
 }
 
 class PlatformClawExecCredentialsElement extends HTMLElement {
@@ -39,9 +48,13 @@ class PlatformClawExecCredentialsElement extends HTMLElement {
 
   private async initialize(load: boolean): Promise<void> {
     await loadPlatformClawLocale();
-    if (!this.isConnected) return;
+    if (!this.isConnected) {
+      return;
+    }
     this.render();
-    if (load) await this.refresh();
+    if (load) {
+      await this.refresh();
+    }
   }
 
   private async request(path: string, init?: RequestInit): Promise<{ definitions: Definition[] }> {
@@ -58,7 +71,9 @@ class PlatformClawExecCredentialsElement extends HTMLElement {
       throw new Error(t("platformClaw.execCredentials.sessionExpired"));
     }
     const body = (await response.json()) as { definitions?: Definition[]; error?: string };
-    if (!response.ok) throw new Error(body.error ?? t("platformClaw.execCredentials.failed"));
+    if (!response.ok) {
+      throw new Error(body.error ?? t("platformClaw.execCredentials.failed"));
+    }
     return { definitions: body.definitions ?? [] };
   }
 
@@ -84,9 +99,11 @@ class PlatformClawExecCredentialsElement extends HTMLElement {
     }
   }
 
-  private async mutate(path: string, body: Record<string, string>): Promise<void> {
-    if (this.busy) return;
-    this.busy = body.envName || body.action;
+  private async mutate(path: string, body: CredentialMutation): Promise<void> {
+    if (this.busy) {
+      return;
+    }
+    this.busy = body.envName;
     this.message = "";
     this.render();
     try {
@@ -115,23 +132,26 @@ class PlatformClawExecCredentialsElement extends HTMLElement {
     for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-action]")) {
       button.addEventListener("click", () => {
         const envName = button.dataset.env ?? "";
-        if (button.dataset.action === "remove-definition")
+        if (button.dataset.action === "remove-definition") {
           void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH, {
             action: "remove",
             envName,
           });
-        if (button.dataset.action === "remove")
+        }
+        if (button.dataset.action === "remove") {
           void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, { action: "remove", envName });
+        }
         if (button.dataset.action === "save") {
           const input = [...this.root.querySelectorAll<HTMLInputElement>("[data-value]")].find(
             (candidate) => candidate.dataset.value === envName,
           );
-          if (input?.value)
+          if (input?.value) {
             void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, {
               action: "replace",
               envName,
               value: input.value,
             });
+          }
         }
       });
     }
@@ -152,5 +172,6 @@ class PlatformClawExecCredentialsElement extends HTMLElement {
   }
 }
 
-if (!customElements.get("platformclaw-exec-credentials"))
+if (!customElements.get("platformclaw-exec-credentials")) {
   customElements.define("platformclaw-exec-credentials", PlatformClawExecCredentialsElement);
+}

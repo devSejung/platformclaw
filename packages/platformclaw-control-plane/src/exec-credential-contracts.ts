@@ -4,7 +4,7 @@ export const EXEC_CREDENTIAL_LIMITS = {
   aggregateBytes: 128 * 1024,
 } as const;
 
-export const EXEC_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
+const EXEC_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
 
 const RESERVED_EXEC_ENV_NAMES = new Set([
   "BASHOPTS",

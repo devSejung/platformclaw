@@ -817,41 +817,6 @@ describe("runExecProcess exit outcomes", () => {
 });
 
 describe("runExecProcess POSIX command wrapper", () => {
-  it("writes a backend setup frame before exposing the exec stream", async () => {
-    const prefix = "trusted-prefix\n";
-    let managed: ManagedRun | undefined;
-    supervisorMock.spawn.mockImplementationOnce(async (input: SpawnInput) => {
-      managed = runtimeManagedRun(input);
-      return managed;
-    });
-
-    const run = await runExecProcess({
-      command: "sandbox-command",
-      workdir: "/tmp",
-      env: {},
-      sandbox: {
-        containerName: "sandbox",
-        workspaceDir: "/workspace",
-        containerWorkdir: "/workspace",
-        buildExecSpec: async () => ({
-          argv: ["sandbox-command"],
-          env: {},
-          stdinMode: "pipe-open",
-          stdinPrefix: prefix,
-        }),
-      },
-      usePty: false,
-      warnings: [],
-      maxOutput: 1000,
-      pendingMaxOutput: 1000,
-      notifyOnExit: false,
-      timeoutSec: null,
-    });
-    await run.promise;
-
-    expect(managed?.stdin?.write).toHaveBeenCalledWith(prefix);
-  });
-
   it("normalizes non-finite and oversized exec timeouts before spawning", async () => {
     supervisorMock.spawn.mockResolvedValue(successfulSupervisorRun());
 

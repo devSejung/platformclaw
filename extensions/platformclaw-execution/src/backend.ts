@@ -87,7 +87,7 @@ export type PlatformClawExecutionDependencies = {
 const EXEC_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
 
 function shellEscape(value: string): string {
-  return `'${value.replaceAll("'", `'\"'\"'`)}'`;
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function encodeCredentialFrame(credentials: Record<string, string>): string {
@@ -112,7 +112,9 @@ function remoteCredentialWrapper(remoteCommand: string): string {
 
 function validateCredentials(value: Record<string, string>): Record<string, string> {
   const entries = Object.entries(value);
-  if (entries.length > 32) throw new Error("exec credential response exceeded the variable limit");
+  if (entries.length > 32) {
+    throw new Error("exec credential response exceeded the variable limit");
+  }
   let bytes = 0;
   for (const [name, secret] of entries) {
     bytes += Buffer.byteLength(secret, "utf8");
@@ -127,7 +129,9 @@ function validateCredentials(value: Record<string, string>): Record<string, stri
       throw new Error("exec credential response is invalid");
     }
   }
-  if (bytes > 128 * 1024) throw new Error("exec credential response exceeded the aggregate limit");
+  if (bytes > 128 * 1024) {
+    throw new Error("exec credential response exceeded the aggregate limit");
+  }
   return value;
 }
 
@@ -143,7 +147,9 @@ function withPersonalExecCredentials(
     ...handle,
     buildExecSpec: async (execParams) => {
       const credentials = validateCredentials(await params.resolve(params.agentId));
-      if (Object.keys(credentials).length === 0) return await handle.buildExecSpec(execParams);
+      if (Object.keys(credentials).length === 0) {
+        return await handle.buildExecSpec(execParams);
+      }
       if (params.targetKind === "platform_server") {
         const spec = await handle.buildExecSpec({
           ...execParams,
@@ -151,23 +157,31 @@ function withPersonalExecCredentials(
         });
         const argv = spec.argv.slice();
         for (let index = 0; index < argv.length - 1; index += 1) {
-          if (argv[index] !== "-e") continue;
+          if (argv[index] !== "-e") {
+            continue;
+          }
           const assignment = argv[index + 1]!;
           const separator = assignment.indexOf("=");
           const name = separator === -1 ? assignment : assignment.slice(0, separator);
-          if (Object.hasOwn(credentials, name)) argv[index + 1] = name;
+          if (Object.hasOwn(credentials, name)) {
+            argv[index + 1] = name;
+          }
         }
         return { ...spec, argv, env: { ...spec.env, ...credentials } };
       }
       const spec = await handle.buildExecSpec(execParams);
       const argv = spec.argv.slice();
       const remoteCommand = argv.at(-1);
-      if (!remoteCommand) throw new Error("assigned VM exec command is missing");
+      if (!remoteCommand) {
+        throw new Error("assigned VM exec command is missing");
+      }
       argv[argv.length - 1] = remoteCredentialWrapper(remoteCommand);
       // Credential setup uses stdin before the command. Disable the remote TTY
       // so terminal echo cannot disclose the authenticated setup frame.
       const ttyIndex = argv.indexOf("-tt");
-      if (ttyIndex >= 0) argv.splice(ttyIndex, 5, "-T", "-o", "RequestTTY=no");
+      if (ttyIndex >= 0) {
+        argv.splice(ttyIndex, 5, "-T", "-o", "RequestTTY=no");
+      }
       return {
         ...spec,
         argv,

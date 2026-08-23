@@ -1,9 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it, vi } from "vitest";
-import {
-  handlePlatformClawExecCredentialRequest,
-  PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_PATH,
-} from "./browser-exec-credentials-http.js";
+import { handlePlatformClawExecCredentialRequest } from "./browser-exec-credentials-http.js";
 import type { ExecCredentialService } from "./exec-credential-service.js";
 
 function responseHarness(): { response: ServerResponse; body(): unknown } {
@@ -35,7 +32,7 @@ describe("exec credential HTTP", () => {
 
     await handlePlatformClawExecCredentialRequest(
       {
-        url: PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_PATH,
+        url: "/platformclaw/api/admin/exec-credentials",
         method: "POST",
         headers: { cookie: "platformclaw_session=test-token" },
       } as IncomingMessage,

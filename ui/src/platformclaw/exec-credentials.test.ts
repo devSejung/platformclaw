@@ -35,7 +35,9 @@ describe("PlatformClaw exec credentials", () => {
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("API_TOKEN"));
 
     const input = element.shadowRoot?.querySelector<HTMLInputElement>("[data-value='API_TOKEN']");
-    if (input) input.value = "personal-secret";
+    if (input) {
+      input.value = "personal-secret";
+    }
     element.shadowRoot?.querySelector<HTMLButtonElement>("[data-action='save']")?.click();
 
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3));

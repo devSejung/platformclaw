@@ -4,8 +4,8 @@ import { readPlatformClawSessionCookie, type JsonBodyReader } from "./browser-au
 import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
 import type { ExecCredentialService } from "./exec-credential-service.js";
 
-export const PLATFORMCLAW_EXEC_CREDENTIALS_PATH = "/platformclaw/api/exec-credentials";
-export const PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_PATH = "/platformclaw/api/admin/exec-credentials";
+const PLATFORMCLAW_EXEC_CREDENTIALS_PATH = "/platformclaw/api/exec-credentials";
+const PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_PATH = "/platformclaw/api/admin/exec-credentials";
 
 const BODY_LIMIT_BYTES = 64 * 1024;
 
