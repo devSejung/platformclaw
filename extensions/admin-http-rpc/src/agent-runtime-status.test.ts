@@ -67,21 +67,21 @@ describe("PlatformClaw agent runtime status", () => {
   function callStatus(
     options: {
       workspace?: string;
-      loadError?: Error;
-      snapshot?: { agentId: string; workspaceDir: string };
+      readError?: Error;
+      prepared?: boolean;
     } = {},
   ) {
     const configuredWorkspace = options.workspace ?? workspace;
     const respond = vi.fn();
-    const loadError = options.loadError;
-    const loadGatewayModelCatalogSnapshot = loadError
+    const readError = options.readError;
+    const readPreparedGatewayModelCatalog = readError
       ? vi.fn(async () => {
-          throw loadError;
+          throw readError;
         })
-      : vi.fn(async () => options.snapshot ?? { agentId, workspaceDir: configuredWorkspace });
+      : vi.fn(async () => (options.prepared === false ? undefined : []));
     return {
       respond,
-      loadGatewayModelCatalogSnapshot,
+      readPreparedGatewayModelCatalog,
       promise: handleAgentRuntimeStatus({
         params: { agentId, workspace },
         respond,
@@ -89,7 +89,7 @@ describe("PlatformClaw agent runtime status", () => {
           getRuntimeConfig: () => ({
             agents: { list: [{ id: agentId, workspace: configuredWorkspace }] },
           }),
-          loadGatewayModelCatalogSnapshot,
+          readPreparedGatewayModelCatalog,
         } as never,
       } as never),
     };
@@ -99,10 +99,9 @@ describe("PlatformClaw agent runtime status", () => {
     const result = callStatus();
     await result.promise;
 
-    expect(result.loadGatewayModelCatalogSnapshot).toHaveBeenCalledWith({
+    expect(result.readPreparedGatewayModelCatalog).toHaveBeenCalledWith({
       agentId,
       workspaceDir: workspace,
-      readOnly: false,
     });
     expect(result.respond).toHaveBeenCalledWith(
       true,
@@ -112,7 +111,7 @@ describe("PlatformClaw agent runtime status", () => {
   });
 
   it("reports unavailable while the prepared runtime owner is still replacing", async () => {
-    const result = callStatus({ loadError: new Error("owner replacement pending") });
+    const result = callStatus({ readError: new Error("owner replacement pending") });
     await result.promise;
 
     expect(result.respond).toHaveBeenCalledWith(
@@ -125,10 +124,8 @@ describe("PlatformClaw agent runtime status", () => {
     );
   });
 
-  it("reports unavailable when the loaded snapshot still belongs to the previous owner", async () => {
-    const result = callStatus({
-      snapshot: { agentId: "previous_owner", workspaceDir: workspace },
-    });
+  it("reports unavailable when no prepared owner is published", async () => {
+    const result = callStatus({ prepared: false });
     await result.promise;
 
     expect(result.respond).toHaveBeenCalledWith(
@@ -145,7 +142,7 @@ describe("PlatformClaw agent runtime status", () => {
     const result = callStatus({ workspace: path.resolve("agent-workspaces/other") });
     await result.promise;
 
-    expect(result.loadGatewayModelCatalogSnapshot).not.toHaveBeenCalled();
+    expect(result.readPreparedGatewayModelCatalog).not.toHaveBeenCalled();
     expect(result.respond).toHaveBeenCalledWith(
       false,
       undefined,

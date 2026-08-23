@@ -97,18 +97,13 @@ export async function handleAgentRuntimeStatus({
   const { agentId, workspace } = requested;
 
   try {
-    // A writable catalog load crosses the same configured-owner admission path as the first turn.
-    const snapshot = await context.loadGatewayModelCatalogSnapshot({
+    // Read the lifecycle-owned generation only. Starting provider discovery here can block every
+    // login behind unrelated provider hooks; first-turn admission owns any required materialization.
+    const catalog = await context.readPreparedGatewayModelCatalog?.({
       agentId,
       workspaceDir: workspace,
-      readOnly: false,
     });
-    if (
-      snapshot.agentId !== agentId ||
-      !snapshot.workspaceDir ||
-      path.resolve(snapshot.workspaceDir) !== workspace ||
-      !configuredWorkspace(context, agentId, workspace)
-    ) {
+    if (!catalog || !configuredWorkspace(context, agentId, workspace)) {
       // Configuration can become visible before its prepared owner is published.
       // Keep this state retryable so provisioning does not expose a half-ready agent.
       runtimeUnavailable(respond, agentId);
