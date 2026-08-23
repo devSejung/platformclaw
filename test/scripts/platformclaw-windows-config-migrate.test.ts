@@ -122,7 +122,7 @@ describe("PlatformClaw Windows preview config migration", () => {
     expect(script).toContain("$env:PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE = $knoxServiceTokenFile");
     expect(script).toContain("Stop-ProcessTree -ProcessId $startedProcesses[$index].Id");
     expect(script).toContain(
-      'Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway" -TimeoutSeconds 240',
+      'Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway" -TimeoutSeconds 360',
     );
   });
 });

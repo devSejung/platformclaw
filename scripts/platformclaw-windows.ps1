@@ -494,7 +494,7 @@ function Start-PlatformClaw {
         # A first start after an upstream sync can verify and migrate every existing agent DB
         # before opening the HTTP listener. Keep the bound finite, but do not misreport that
         # expected upgrade work as a dead Gateway.
-        Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway" -TimeoutSeconds 240
+        Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway" -TimeoutSeconds 360
 
         $control = Start-VisibleShell "PlatformClaw - Control/UI" $sourceRoot "corepack pnpm platformclaw:control"
         $startedProcesses += $control
