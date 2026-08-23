@@ -1,3 +1,5 @@
+import type { Dirent } from "node:fs";
+
 /**
  * Builds the platform-specific oxlint shard list.
  */
@@ -7,27 +9,29 @@ export function createOxlintShards({
   platform,
   readDir,
   splitCore,
+  hostResources,
 }?: {
   cwd?: string | undefined;
   env?: NodeJS.ProcessEnv | undefined;
   platform?: NodeJS.Platform | undefined;
-  readDir?: ((target: string) => string[]) | undefined;
+  readDir?: ((target: string, options: { withFileTypes: true }) => Dirent[]) | undefined;
   splitCore?: boolean | undefined;
+  hostResources?: { logicalCpuCount: number; totalMemoryBytes: number } | undefined;
 }): {
   name: string;
   args: string[];
 }[];
 /**
- * Chunks extension lint targets to avoid Windows command-line and memory limits.
+ * Chunks extension lint targets to cap command-line length and type-graph memory.
  */
-export function createWindowsExtensionShards({
+export function createExtensionShards({
   cwd,
   env,
   readDir,
 }?: {
   cwd?: string | undefined;
   env?: NodeJS.ProcessEnv | undefined;
-  readDir?: ((target: string) => string[]) | undefined;
+  readDir?: ((target: string, options: { withFileTypes: true }) => Dirent[]) | undefined;
 }): {
   name: string;
   args: string[];
