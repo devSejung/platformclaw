@@ -1,6 +1,7 @@
 import { consume } from "@lit/context";
 import { html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
+import { INTERNAL_MEMORY_PATH_PARAM, memoryTabFromPath } from "../app-route-paths.ts";
 import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { renderHubTabs } from "../components/hub-tabs.ts";
 import { renderSettingsRow, renderSettingsSection } from "../components/settings-ui.ts";
@@ -14,6 +15,24 @@ import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 type PersonalMemoryTab = "overview" | "memory" | "wiki" | "organization" | "dreaming";
 
 const PANEL_ID = "platformclaw-memory-panel";
+
+export function platformClawMemoryTabFromLocation(
+  location: Pick<Location, "pathname" | "search">,
+  basePath = "",
+): PersonalMemoryTab {
+  // Dynamic hub routes travel through the exact-match Memory route. Recover the
+  // original path so deep links do not silently fall back to Overview.
+  const routedPath =
+    new URLSearchParams(location.search).get(INTERNAL_MEMORY_PATH_PARAM) ?? location.pathname;
+  const routeTab = memoryTabFromPath(routedPath, basePath) ?? memoryTabFromPath(routedPath);
+  return routeTab === "memories"
+    ? "memory"
+    : routeTab === "wiki" || routeTab === "organization"
+      ? routeTab
+      : routeTab === "dreams"
+        ? "dreaming"
+        : "overview";
+}
 
 class PlatformClawMemoryPage extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })

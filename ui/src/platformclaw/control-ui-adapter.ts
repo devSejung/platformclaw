@@ -1,6 +1,6 @@
 import { html, nothing } from "lit";
 import { until } from "lit/directives/until.js";
-import { INTERNAL_MEMORY_PATH_PARAM, memoryTabFromPath, type RouteId } from "../app-route-paths.ts";
+import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
@@ -190,26 +190,13 @@ export class PlatformClawControlUiAdapter {
         },
         memory: {
           loader: async (context, { location: routeLocation }) => {
+            const { platformClawMemoryTabFromLocation } = await import("./memory-page.ts");
             const agents = context.agents.state.agentsList ?? (await context.agents.ensureList());
             const assignedAgentId =
               agents?.agents.find((agent) => agent.id === agents.defaultId)?.id ??
               agents?.agents[0]?.id ??
               null;
-            // Dynamic hub routes travel through the exact-match Memory route. Recover the
-            // original path so deep links do not silently fall back to Overview.
-            const routedPath =
-              new URLSearchParams(routeLocation.search).get(INTERNAL_MEMORY_PATH_PARAM) ??
-              routeLocation.pathname;
-            const routeTab =
-              memoryTabFromPath(routedPath, context.basePath) ?? memoryTabFromPath(routedPath);
-            const initialTab =
-              routeTab === "memories"
-                ? "memory"
-                : routeTab === "wiki" || routeTab === "organization"
-                  ? routeTab
-                  : routeTab === "dreams"
-                    ? "dreaming"
-                    : "overview";
+            const initialTab = platformClawMemoryTabFromLocation(routeLocation, context.basePath);
             return { agentId: assignedAgentId, initialTab };
           },
           component: async () => {

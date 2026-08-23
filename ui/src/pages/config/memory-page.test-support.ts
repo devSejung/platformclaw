@@ -20,7 +20,9 @@ export function memoryRoute(url: string): ConfigRouteData {
   return configRouteData({ pathname: parsed.pathname, search: parsed.search, hash: parsed.hash });
 }
 
-export function memoryTabRoute(tab: "overview" | "memories" | "dreams" | "settings") {
+export function memoryTabRoute(
+  tab: "overview" | "memories" | "wiki" | "organization" | "dreams" | "settings",
+) {
   return memoryRoute(`/settings/memory${tab === "overview" ? "" : `/${tab}`}`);
 }
 
