@@ -116,6 +116,7 @@ describe("PlatformClaw Windows preview config migration", () => {
       script.indexOf('$auth = Start-VisibleShell "PlatformClaw - employee auth mock"'),
     );
     expect(script).toContain('Write-Step "Startup failed; closing processes opened by this run"');
+    expect(script).toContain('"platformclaw-user-mcp": { "enabled": true }');
     expect(script).toContain("Stop-ProcessTree -ProcessId $startedProcesses[$index].Id");
     expect(script).toContain(
       'Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway" -TimeoutSeconds 240',

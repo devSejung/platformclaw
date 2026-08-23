@@ -328,7 +328,8 @@ function Initialize-Runtime {
   },
   "plugins": {
     "entries": {
-      "admin-http-rpc": { "enabled": true }
+      "admin-http-rpc": { "enabled": true },
+      "platformclaw-user-mcp": { "enabled": true }
     }
   }
 }
