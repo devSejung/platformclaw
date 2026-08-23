@@ -25,7 +25,15 @@ function createParams(
     scopeKey,
     workspaceDir: `/workspace/${agentId ?? "unknown"}`,
     agentWorkspaceDir: `/agents/${agentId ?? "unknown"}`,
-    materializeSkills: vi.fn(async () => undefined),
+    materializeSkills: vi.fn(async () => ({
+      catalog: { revision: "gateway:test", files: [] },
+      mounts: [
+        {
+          hostPath: `/gateway/${agentId ?? "unknown"}/managed-skills`,
+          containerPath: "/opt/platformclaw/skills",
+        },
+      ],
+    })),
     cfg: {} as CreateSandboxBackendParams["cfg"],
   };
 }
@@ -129,7 +137,14 @@ describe("PlatformClaw execution backend", () => {
       [{ agentId: "person_two" }],
     ]);
     expect(dependencies.createPlatformServerHandle).toHaveBeenCalledWith(
-      expect.objectContaining({ createParams: firstParams }),
+      expect.objectContaining({
+        createParams: expect.objectContaining({
+          readOnlySkillMounts: [
+            expect.objectContaining({ containerPath: "/opt/platformclaw/skills" }),
+          ],
+          requireCurrentConfig: true,
+        }),
+      }),
     );
     expect(dependencies.createAssignedVmHandle).toHaveBeenCalledWith(
       expect.objectContaining({ createParams: secondParams }),
@@ -138,11 +153,24 @@ describe("PlatformClaw execution backend", () => {
       expect.objectContaining({ refresh: false }),
     );
     expect(firstParams.materializeSkills).toHaveBeenCalledOnce();
+    expect(firstParams.materializeSkills).toHaveBeenCalledWith({
+      sourceMounts: [
+        expect.objectContaining({
+          source: "openclaw-managed",
+          containerPath: "/opt/platformclaw/skills",
+        }),
+        expect.objectContaining({
+          source: "openclaw-bundled",
+          containerPath: "/opt/platformclaw/bundle",
+        }),
+      ],
+    });
     expect(secondParams.materializeSkills).not.toHaveBeenCalled();
     expect(first).toMatchObject({
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
       runtimeId: "server-person_one-3",
       runtimePromptContext: expect.stringContaining('"workLocation": "Basic workspace"'),
+      skillCatalog: { revision: "gateway:test", files: [] },
     });
     expect(first.runtimePromptContext).toContain('"activeWorkspace": "/server-person_one-3"');
     expect(first.capabilities?.separateAgentWorkspace).toBeUndefined();

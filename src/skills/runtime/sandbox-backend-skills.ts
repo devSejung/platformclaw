@@ -41,6 +41,7 @@ export function resolveSandboxBackendSkillEligibility(
 export function prepareSandboxBackendSkillEntries(
   catalog: SandboxBackendSkillCatalog,
 ): SkillEntry[] {
+  const gatewayOwned = catalog.owner === "gateway";
   const entries: SkillEntry[] = [];
   const usedNames = new Set<string>();
   for (const file of catalog.files) {
@@ -73,10 +74,12 @@ export function prepareSandboxBackendSkillEntries(
           disableModelInvocation: invocation.disableModelInvocation,
         },
         frontmatter,
-        metadata: suppressGatewayInstallActions(resolveOpenClawMetadata(frontmatter)),
+        metadata: gatewayOwned
+          ? resolveOpenClawMetadata(frontmatter)
+          : suppressGatewayInstallActions(resolveOpenClawMetadata(frontmatter)),
         invocation,
         // Backend-owned skills execute on that backend; gateway-local direct dispatch is unsafe.
-        disableCommandDispatch: true,
+        disableCommandDispatch: !gatewayOwned,
         exposure: {
           includeInRuntimeRegistry: true,
           includeInAvailableSkillsPrompt: !invocation.disableModelInvocation,

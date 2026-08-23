@@ -149,7 +149,10 @@ describe("PlatformClaw scheduled agent execution", () => {
             scopeKey: `agent:${job.agentId}:cron:${job.id}`,
             workspaceDir: `/workspace/${job.agentId}`,
             agentWorkspaceDir: `/agents/${job.agentId}`,
-            materializeSkills: async () => undefined,
+            materializeSkills: async () => ({
+              catalog: { revision: "test:cron", files: [], owner: "gateway" },
+              mounts: [],
+            }),
             cfg,
           });
           const spec = await backend.buildExecSpec({

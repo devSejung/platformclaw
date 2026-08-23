@@ -135,6 +135,7 @@ describe("buildWorkspaceSkillsPrompt", () => {
         skillFile: path.join(workspaceSkillDir, "SKILL.md"),
         skillName: "demo-skill",
         skillSource: "workspace",
+        skillSourceId: "openclaw-workspace",
       },
     ]);
 

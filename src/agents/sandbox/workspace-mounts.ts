@@ -6,20 +6,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import { isPathInside } from "../../infra/path-guards.js";
+import type { SandboxBackendReadOnlySkillMount } from "./backend.types.js";
 import { splitSandboxBindSpec } from "./bind-spec.js";
 import { SANDBOX_AGENT_WORKSPACE_MOUNT } from "./constants.js";
 import { resolveSandboxHostPathViaExistingAncestor } from "./host-paths.js";
 import { normalizeContainerPath } from "./path-utils.js";
 import type { SandboxWorkspaceAccess } from "./types.js";
 
-export const SANDBOX_MOUNT_FORMAT_VERSION = 3;
+export const SANDBOX_MOUNT_FORMAT_VERSION = 4;
 const MATERIALIZED_SANDBOX_SKILLS_WORKSPACE_PARTS = [".openclaw", "sandbox-skills"] as const;
 
 /** Read-only skill directory mounted from the agent workspace into the sandbox workspace. */
-export type ReadOnlyWorkspaceSkillMount = {
-  hostPath: string;
-  containerPath: string;
-};
+export type ReadOnlyWorkspaceSkillMount = SandboxBackendReadOnlySkillMount;
 
 function formatManagedWorkspaceBind(params: {
   hostPath: string;

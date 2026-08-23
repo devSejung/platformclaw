@@ -18,6 +18,25 @@ export type SandboxBackendRuntimeInfo = {
   configLabelMatch: boolean;
 };
 
+/** One backend-requested canonical container root for materialized skill sources. */
+export type SandboxBackendSkillSourceMount = {
+  source: string;
+  containerPath: string;
+  locationNote?: string;
+};
+
+/** Read-only host directory mounted at a backend-owned container path. */
+export type SandboxBackendReadOnlySkillMount = {
+  hostPath: string;
+  containerPath: string;
+};
+
+/** Gateway skill snapshot prepared for a deferred sandbox backend. */
+export type SandboxBackendMaterializedSkills = {
+  catalog: SandboxBackendSkillCatalog;
+  mounts: readonly SandboxBackendReadOnlySkillMount[];
+};
+
 /** Optional lifecycle manager for an existing registered sandbox runtime. */
 export type SandboxBackendManager = {
   describeRuntime(params: {
@@ -47,7 +66,11 @@ export type CreateSandboxBackendParams = {
    * Materializes Gateway-owned skills before a deferred backend creates runtime mounts.
    * Present only when the backend registers `skillMaterialization: "backend-deferred"`.
    */
-  materializeSkills?: () => Promise<void>;
+  materializeSkills?: (params?: {
+    sourceMounts?: readonly SandboxBackendSkillSourceMount[];
+  }) => Promise<SandboxBackendMaterializedSkills>;
+  /** Extra canonical skill mounts returned by deferred materialization. */
+  readOnlySkillMounts?: readonly SandboxBackendReadOnlySkillMount[];
   cfg: SandboxConfig;
   requireCurrentConfig?: boolean;
 };

@@ -4,6 +4,7 @@
  * Prepares workspace layout, backend handle, filesystem bridge, browser bridge, and registry state for one run.
  */
 import fs from "node:fs/promises";
+import path from "node:path";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
@@ -22,6 +23,10 @@ import {
   getSandboxBackendWorkdirResolver,
   requireSandboxBackendFactory,
 } from "./backend.js";
+import type {
+  SandboxBackendMaterializedSkills,
+  SandboxBackendSkillSourceMount,
+} from "./backend.types.js";
 import { ensureSandboxBrowser } from "./browser.js";
 import { resolveSandboxConfigForAgent } from "./config.js";
 import { resolveSandboxDockerUser } from "./docker-user.js";
@@ -47,7 +52,14 @@ async function syncSandboxSkillsToWorkspace(params: {
   agentId: string;
   rawSessionKey: string;
   execOverrides?: ExecPolicyOverrides;
-}): Promise<{ eligibility?: SkillEligibilityContext; skillUsagePaths?: SkillUsagePath[] }> {
+  sourceMounts?: readonly SandboxBackendSkillSourceMount[];
+  workdir: string;
+  workspaceAccess: "none" | "ro" | "rw";
+}): Promise<{
+  eligibility?: SkillEligibilityContext;
+  materialized?: SandboxBackendMaterializedSkills;
+  skillUsagePaths?: SkillUsagePath[];
+}> {
   try {
     const [
       { syncSkillsToWorkspace },
@@ -70,14 +82,103 @@ async function syncSandboxSkillsToWorkspace(params: {
         advertiseExecNode: nodeSkills.canExec,
       }),
     };
-    const skillUsagePaths = await syncSkillsToWorkspace({
+    let skillUsagePaths = await syncSkillsToWorkspace({
       sourceWorkspaceDir: params.sourceWorkspaceDir,
       targetWorkspaceDir: params.targetWorkspaceDir,
       config: params.config,
       agentId: params.agentId,
       eligibility,
     });
-    return { eligibility, skillUsagePaths };
+    const sourceMounts = params.sourceMounts ?? [];
+    const defaultContainerRoot =
+      params.workspaceAccess === "rw"
+        ? `${params.workdir.replace(/\/+$/u, "")}/.openclaw/sandbox-skills/skills`
+        : `${params.workdir.replace(/\/+$/u, "")}/skills`;
+    const targetSkillsDir = path.join(params.targetWorkspaceDir, "skills");
+    const sourceMountRoot = path.join(params.targetWorkspaceDir, ".source-mounts");
+    await fs.mkdir(sourceMountRoot, { recursive: true });
+
+    const mounts: SandboxBackendMaterializedSkills["mounts"][number][] = [];
+    const catalogFiles: SandboxBackendMaterializedSkills["catalog"]["files"][number][] = [];
+    const relocatedPaths = new Map<string, { hostPath: string; runtimePath: string }>();
+    for (const [index, sourceMount] of sourceMounts.entries()) {
+      const containerRoot = sourceMount.containerPath.replace(/\\/gu, "/").replace(/\/+$/u, "");
+      if (!containerRoot.startsWith("/") || containerRoot === "/") {
+        throw new Error(`Invalid canonical skill mount path: ${sourceMount.containerPath}`);
+      }
+      const hostRoot = path.join(sourceMountRoot, String(index));
+      await fs.mkdir(hostRoot, { recursive: true });
+      for (const entry of await fs.readdir(hostRoot)) {
+        await fs.rm(path.join(hostRoot, entry), { recursive: true, force: true });
+      }
+      // Keep each source root inode stable: a running container's bind mount must
+      // observe refreshed contents instead of retaining a deleted directory snapshot.
+      mounts.push({ hostPath: hostRoot, containerPath: containerRoot });
+      const matching = skillUsagePaths.filter(
+        (usagePath) => usagePath.skillSourceId === sourceMount.source,
+      );
+      if (matching.length === 0) {
+        continue;
+      }
+      for (const usagePath of matching) {
+        const relativeFile = path.relative(targetSkillsDir, usagePath.readPath);
+        const [skillDirName] = relativeFile.split(path.sep);
+        if (!skillDirName || skillDirName === ".." || path.isAbsolute(relativeFile)) {
+          throw new Error(`Materialized skill escaped its workspace: ${usagePath.readPath}`);
+        }
+        const sourceSkillDir = path.join(targetSkillsDir, skillDirName);
+        const targetSkillDir = path.join(hostRoot, skillDirName);
+        await fs.rename(sourceSkillDir, targetSkillDir);
+        const fileWithinSkill = path.relative(sourceSkillDir, usagePath.readPath);
+        relocatedPaths.set(usagePath.readPath, {
+          hostPath: path.join(targetSkillDir, fileWithinSkill),
+          runtimePath: [containerRoot, skillDirName, ...fileWithinSkill.split(path.sep)]
+            .filter(Boolean)
+            .join("/"),
+        });
+      }
+    }
+
+    const preparedSkills = await Promise.all(
+      skillUsagePaths.map(async (usagePath) => {
+        const relocated = relocatedPaths.get(usagePath.readPath);
+        const hostPath = relocated?.hostPath ?? usagePath.readPath;
+        const runtimePath =
+          relocated?.runtimePath ??
+          [
+            defaultContainerRoot,
+            ...path.relative(targetSkillsDir, usagePath.readPath).split(path.sep),
+          ]
+            .filter(Boolean)
+            .join("/");
+        const sourceMount = sourceMounts.find(
+          (candidate) => candidate.source === usagePath.skillSourceId,
+        );
+        return {
+          catalogFile: {
+            content: await fs.readFile(hostPath, "utf8"),
+            filePath: runtimePath,
+            ...(sourceMount?.locationNote ? { locationNote: sourceMount.locationNote } : {}),
+            source: usagePath.skillSourceId ?? usagePath.skillSource,
+          },
+          usagePath: relocated ? { ...usagePath, readPath: runtimePath } : usagePath,
+        };
+      }),
+    );
+    skillUsagePaths = preparedSkills.map((entry) => entry.usagePath);
+    catalogFiles.push(...preparedSkills.map((entry) => entry.catalogFile));
+    return {
+      eligibility,
+      materialized: {
+        catalog: {
+          revision: `gateway:${params.rawSessionKey}`,
+          files: catalogFiles,
+          owner: "gateway",
+        },
+        mounts,
+      },
+      skillUsagePaths,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : JSON.stringify(error);
     defaultRuntime.error?.(`Sandbox skill sync failed: ${message}`);
@@ -136,6 +237,9 @@ async function materializeSandboxSkills(params: {
   agentId: string;
   rawSessionKey: string;
   execOverrides?: ExecPolicyOverrides;
+  sourceMounts?: readonly SandboxBackendSkillSourceMount[];
+  workdir: string;
+  workspaceAccess: "none" | "ro" | "rw";
 }) {
   return await syncSandboxSkillsToWorkspace({
     sourceWorkspaceDir: params.layout.agentWorkspaceDir,
@@ -144,6 +248,9 @@ async function materializeSandboxSkills(params: {
     agentId: params.agentId,
     rawSessionKey: params.rawSessionKey,
     execOverrides: params.execOverrides,
+    sourceMounts: params.sourceMounts,
+    workdir: params.workdir,
+    workspaceAccess: params.workspaceAccess,
   });
 }
 
@@ -237,7 +344,9 @@ async function resolveProvisionedSandboxContext(
   let materializationPromise: Promise<typeof syncedSkills> | undefined;
   let skillsMaterialized = false;
   let gatewaySkillsMs = 0;
-  const materializeSkills = async (): Promise<void> => {
+  const materializeSkills = async (request?: {
+    sourceMounts?: readonly SandboxBackendSkillSourceMount[];
+  }): Promise<SandboxBackendMaterializedSkills> => {
     if (!materializationPromise) {
       const skillsStartedAt = performance.now();
       materializationPromise = materializeSandboxSkills({
@@ -246,12 +355,19 @@ async function resolveProvisionedSandboxContext(
         agentId: runtime.agentId,
         rawSessionKey,
         execOverrides: params.execOverrides,
+        sourceMounts: request?.sourceMounts,
+        workdir: resolvedCfg.docker.workdir,
+        workspaceAccess: resolvedCfg.workspaceAccess,
       }).finally(() => {
         gatewaySkillsMs = elapsedMs(skillsStartedAt);
       });
     }
     syncedSkills = await materializationPromise;
     skillsMaterialized = true;
+    if (!syncedSkills.materialized) {
+      throw new Error("Gateway skill materialization did not produce a readable catalog.");
+    }
+    return syncedSkills.materialized;
   };
 
   phaseStartedAt = performance.now();
@@ -428,6 +544,8 @@ export async function ensureSandboxWorkspaceForSession(params: {
     config: params.config,
     agentId: runtime.agentId,
     rawSessionKey,
+    workdir: cfg.docker.workdir,
+    workspaceAccess: cfg.workspaceAccess,
   });
 
   const containerWorkdir = resolveSandboxWorkspaceInfoWorkdir({

@@ -419,9 +419,14 @@ the UI and operator documentation.
 
 ## Skills
 
-Server Docker sandboxes retain upstream discovery and materialization. Gateway
-mounts the prepared snapshot read-only at
-`/workspace/.openclaw/sandbox-skills/skills`.
+Server Docker sandboxes retain upstream discovery and materialization. The
+Gateway keeps its private prepared snapshot outside the execution namespace,
+then mounts only the effective precedence winners read-only. Managed global
+skills are visible at `/opt/platformclaw/skills/<skill>/SKILL.md` and bundled
+skills at `/opt/platformclaw/bundle/<skill>/SKILL.md` on both Basic and VM
+targets. Workspace-owned skills retain their workspace paths. This stable
+execution contract prevents preserved conversation history from carrying a
+target-specific global-skill path across work-location changes.
 
 VM administrators install approved global skills under
 `/opt/platformclaw/skills/<skill>/SKILL.md`. PlatformClaw VM images install

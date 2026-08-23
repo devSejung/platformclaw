@@ -55,7 +55,7 @@ import {
 import { resolvePluginSkillDirs } from "./plugin-skills.js";
 import { serializeByKey } from "./serialize.js";
 import { formatSkillsForPrompt, type Skill } from "./skill-contract.js";
-import { resolveSkillTelemetrySource } from "./source.js";
+import { resolveSkillSource, resolveSkillTelemetrySource } from "./source.js";
 import { resolveAllowedSkillSymlinkTargetRealPaths, tryRealpath } from "./symlink-targets.js";
 
 const fsp = fs.promises;
@@ -1942,6 +1942,7 @@ export async function syncSkillsToWorkspace(params: {
           skillFile: canonicalizePath(entry.skill.filePath),
           skillName: entry.skill.name,
           skillSource: resolveSkillTelemetrySource(entry.skill),
+          skillSourceId: resolveSkillSource(entry.skill),
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : JSON.stringify(error);

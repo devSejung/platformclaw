@@ -61,4 +61,22 @@ describe("sandbox backend skills", () => {
     expect(entries[0]?.metadata?.requires?.bins).toEqual(["demo"]);
     expect(entries[0]?.metadata?.install).toBeUndefined();
   });
+
+  it("preserves dispatch and install metadata for a Gateway-owned remapped snapshot", () => {
+    const entries = prepareSandboxBackendSkillEntries({
+      revision: "gateway:1",
+      owner: "gateway",
+      files: [
+        {
+          source: "openclaw-managed",
+          filePath: "/opt/platformclaw/skills/demo/SKILL.md",
+          content:
+            '---\nname: demo\ndescription: Managed demo\nmetadata: {"openclaw":{"install":[{"id":"demo","kind":"node","package":"demo"}]}}\n---\n',
+        },
+      ],
+    });
+
+    expect(entries[0]?.disableCommandDispatch).toBe(false);
+    expect(entries[0]?.metadata?.install?.[0]?.package).toBe("demo");
+  });
 });
