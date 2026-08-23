@@ -112,23 +112,6 @@ export const en: TranslationMap = {
     memory: {
       unavailable: "Memory unavailable",
       unassigned: "No personal agent is assigned to this account.",
-      tabs: {
-        label: "Memory and knowledge sections",
-        overview: "Overview",
-        organization: "Organization",
-      },
-      overview: {
-        title: "Memory and knowledge",
-        description:
-          "Memory recalls personal context, Personal Wiki keeps reusable documents, and Dreaming organizes durable knowledge.",
-        memoryDescription: "Search MEMORY.md, daily memory, and other indexed personal context.",
-        wikiDescription:
-          "Browse structured pages that can be reviewed and shared with your organization.",
-        dreamingDescription: "Review consolidation status, Dream Diary, and memory activity.",
-        openMemory: "Open Memory",
-        openWiki: "Open Personal Wiki",
-        openDreaming: "Open Dreaming",
-      },
     },
     voc: {
       title: "Submit VOC",

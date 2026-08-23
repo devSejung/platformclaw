@@ -166,7 +166,10 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
             ${t("memoryPage.promotions.wikiUnavailable")}
           </p>`
         : nothing}
-      <form class="memory-source-picker__search" @submit=${this.search}>
+      <form
+        class="memory-source-picker__search"
+        @submit=${(event: Event) => void this.search(event)}
+      >
         <label class="sr-only" for="memory-source-query"
           >${t("memoryPage.promotions.searchPersonalWiki")}</label
         >

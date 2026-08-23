@@ -1,4 +1,19 @@
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.memory.tabs.label": "Memory and knowledge sections",
+  "platformClaw.memory.tabs.overview": "Overview",
+  "platformClaw.memory.tabs.organization": "Organization",
+  "platformClaw.memory.overview.title": "Memory and knowledge",
+  "platformClaw.memory.overview.description":
+    "Memory recalls personal context, Personal Wiki keeps reusable documents, and Dreaming organizes durable knowledge.",
+  "platformClaw.memory.overview.memoryDescription":
+    "Search MEMORY.md, daily memory, and other indexed personal context.",
+  "platformClaw.memory.overview.wikiDescription":
+    "Browse structured pages that can be reviewed and shared with your organization.",
+  "platformClaw.memory.overview.dreamingDescription":
+    "Review consolidation status, Dream Diary, and memory activity.",
+  "platformClaw.memory.overview.openMemory": "Open Memory",
+  "platformClaw.memory.overview.openWiki": "Open Personal Wiki",
+  "platformClaw.memory.overview.openDreaming": "Open Dreaming",
   "platformClaw.guide.neverShowAgain": "Don't show again",
   "platformClaw.guide.progress": "{current} of {total}",
   "platformClaw.guide.next": "Next",

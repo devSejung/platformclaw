@@ -227,21 +227,16 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
 
   private statusLabel(
     status: "pending" | "approved" | "rejected" | "active" | "retired" | "purged",
-  ) {
-    switch (status) {
-      case "pending":
-        return t("memoryPage.promotions.statusPending");
-      case "approved":
-        return t("memoryPage.promotions.statusApproved");
-      case "rejected":
-        return t("memoryPage.promotions.statusRejected");
-      case "active":
-        return t("memoryPage.promotions.statusActive");
-      case "retired":
-        return t("memoryPage.promotions.statusRetired");
-      case "purged":
-        return t("memoryPage.promotions.statusPurged");
-    }
+  ): string {
+    const key = {
+      pending: "memoryPage.promotions.statusPending",
+      approved: "memoryPage.promotions.statusApproved",
+      rejected: "memoryPage.promotions.statusRejected",
+      active: "memoryPage.promotions.statusActive",
+      retired: "memoryPage.promotions.statusRetired",
+      purged: "memoryPage.promotions.statusPurged",
+    }[status];
+    return t(key);
   }
 
   private sourceLabel(kind: OrganizationMemoryPromotionSourceKind) {

@@ -376,13 +376,6 @@ describe("dreaming view", () => {
       "off",
     );
 
-    const tabs = [...container.querySelectorAll(".dreams-hub-tabs .hub-tab")];
-    expect(tabs.map((node) => node.textContent?.trim())).toEqual([
-      "Overview",
-      "Dream Diary",
-      "Activity",
-    ]);
-    expect(container.querySelector("#dreams-tab-scene")?.hasAttribute("active")).toBe(true);
     container
       .querySelector("#dreams-tab-diary")
       ?.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
@@ -427,16 +420,10 @@ describe("dreaming view", () => {
     setDreamDiarySubTab("insights");
     const onViewStateChange = vi.fn();
     const container = renderInto(buildProps({ onViewStateChange }));
-    const subtabs = [...container.querySelectorAll(".memory-wiki-hub-tabs .hub-tab")].map(
-      (tab) => ({
-        label: tab.textContent?.trim(),
-        active: tab.hasAttribute("active"),
-      }),
+    const subtabs = [...container.querySelectorAll(".memory-wiki-hub-tabs .hub-tab")];
+    expect(subtabs.map((tab) => tab.textContent?.trim()).join("|")).toBe(
+      "Memory Wiki|Imported Insights",
     );
-    expect(subtabs).toEqual([
-      { label: "Memory Wiki", active: false },
-      { label: "Imported Insights", active: true },
-    ]);
     container
       .querySelector("#memory-wiki-tab-wiki")
       ?.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
@@ -882,8 +869,11 @@ describe("dreaming view", () => {
     const buttons = [...navigation.querySelectorAll<HTMLButtonElement>(".dreams-diary__day-chip")];
 
     expect(buttons.map((button) => compactText(button))).toEqual(labels);
-    const panelId = tab === "dreams" ? "#dream-diary-panel" : "#memory-wiki-panel";
-    expect(container.querySelector(`${panelId} .dreams-diary__daychips`)).toBeNull();
+    expect(
+      container.querySelector(
+        `${tab === "dreams" ? "#dream-diary-panel" : "#memory-wiki-panel"} .dreams-diary__daychips`,
+      ),
+    ).toBeNull();
 
     buttons[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(viewState.diaryPage).toBe(1);

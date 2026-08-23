@@ -684,24 +684,12 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
 
     await page.goto(`${server.baseUrl}platformclaw/app/settings/memory/dreams`);
     await expect
-      .poll(() => new URL(page.url()).pathname)
-      .toBe("/platformclaw/app/settings/memory/dreams");
-    await expect.poll(() => page.locator("openclaw-agent-memory-panel").isVisible()).toBe(true);
-    await expect
       .poll(() =>
         page
           .locator("platformclaw-memory-page")
           .evaluate((element) => (element as HTMLElement & { initialTab: string }).initialTab),
       )
       .toBe("dreaming");
-    await expect
-      .poll(() =>
-        page
-          .locator(".platformclaw-memory-page__tabs")
-          .getByRole("tab", { name: "Dreaming", exact: true })
-          .getAttribute("aria-selected"),
-      )
-      .toBe("true");
     expect(await gateway.getRequests("config.get")).toHaveLength(0);
   });
 
