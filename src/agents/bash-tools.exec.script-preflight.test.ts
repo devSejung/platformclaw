@@ -169,6 +169,9 @@ describeNonWin("exec script preflight", () => {
     ["extra chain", "cd literal-dir && node script.js && echo done"],
     ["script arguments", "cd literal-dir && node script.js --unsafe"],
     ["env wrapper", "cd literal-dir && env node script.js"],
+    ["previous-directory operand", "cd - && node script.js"],
+    ["option-like operand", "cd -P && node script.js"],
+    ["option terminator without directory", "cd -- && node script.js"],
     ["non-cd chain", "true && node script.js"],
   ])("keeps %s cd-chain preflight fail-closed", async (_name, command) => {
     await expect(runExecPreflight({ command, workdir: process.cwd() })).rejects.toThrow(

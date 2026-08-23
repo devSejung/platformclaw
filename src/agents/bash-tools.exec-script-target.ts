@@ -303,7 +303,7 @@ export function extractScriptTargetFromCommand(command: string): InterpreterScri
   }
   const cwd = splitArgs(match[1] ?? "")?.[0];
   const script = splitArgs(match[3] ?? "")?.[0];
-  if (!cwd || !script) {
+  if (!cwd || cwd.startsWith("-") || !script) {
     return null;
   }
   return match[2] === "node"
