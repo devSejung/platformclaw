@@ -19,6 +19,7 @@ import {
   type BrowserLoginRateLimiter,
 } from "./browser-auth-http.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
+import { handlePlatformClawExecCredentialRequest } from "./browser-exec-credentials-http.js";
 import {
   handlePlatformClawEmployeeExecutionRequest,
   type EmployeeExecutionService,
@@ -43,6 +44,7 @@ import {
 } from "./browser-vm-admin-http.js";
 import { handlePlatformClawVocRequest, type JiraVocService } from "./browser-voc-http.js";
 import type { EmployeeSsoService } from "./employee-sso.js";
+import type { ExecCredentialService } from "./exec-credential-service.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import { handlePlatformClawKnoxIngressProxy } from "./knox-ingress-proxy.js";
 import { handlePlatformClawKnoxRoutingRequest } from "./knox-routing-http.js";
@@ -84,6 +86,7 @@ export type PlatformClawWebIngressOptions = {
   vmAdministrationService?: VmAdministrationService;
   mcpAdministrationService?: McpAdministrationService;
   mcpService?: EmployeeMcpService;
+  execCredentialService?: ExecCredentialService;
   vocService?: JiraVocService;
   skillHubService?: SkillHubService;
   knoxRouting?: { service: KnoxRoutingService; serviceToken: string };
@@ -324,6 +327,16 @@ export class PlatformClawWebIngressServer {
         this.options.executionService &&
         (await handlePlatformClawEmployeeExecutionRequest(req, res, {
           service: this.options.executionService,
+          readJsonBody: readBrowserJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
+        this.options.execCredentialService &&
+        (await handlePlatformClawExecCredentialRequest(req, res, {
+          service: this.options.execCredentialService,
           readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))

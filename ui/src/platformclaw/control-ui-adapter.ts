@@ -5,6 +5,7 @@ import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../ap
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import "./mcp-administration.ts";
 import "./mcp-settings.ts";
+import "./exec-credentials.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import {
   PLATFORMCLAW_APP_PATH,
@@ -217,9 +218,16 @@ export class PlatformClawControlUiAdapter {
                 }
               </style>
               <section class="content-header">
-                <div><div class="page-title">MCP</div></div>
+                <div>
+                  <div class="page-title">${t("platformClaw.execCredentials.pageTitle")}</div>
+                </div>
               </section>
               <main class="platformclaw-mcp-page">
+                <platformclaw-exec-credentials
+                  .admin=${identity.globalRole === "admin"}
+                  .fetchImpl=${this.fetchImpl}
+                  .onUnauthenticated=${onUnauthenticated}
+                ></platformclaw-exec-credentials>
                 ${identity.globalRole === "admin"
                   ? html`<platformclaw-mcp-administration
                       .fetchImpl=${this.fetchImpl}

@@ -8,6 +8,7 @@ import {
   loadEmployeeAuthClientConfig,
   type EmployeeAuthClientConfig,
 } from "./employee-auth-client.js";
+import { ExecCredentialCipher } from "./exec-credential-crypto.js";
 import { McpCredentialCipher } from "./mcp-credential-crypto.js";
 import { McpCredentialVault } from "./mcp-credential-vault.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
@@ -26,6 +27,7 @@ export type EmployeeBrowserAuthRuntimeOptions = {
   tokenFactory?: () => string;
   sshCredentialCipher?: SshCredentialCipher;
   mcpCredentialCipher?: McpCredentialCipher;
+  execCredentialCipher?: ExecCredentialCipher;
   onLogoutAgent?: (agentId: string) => Promise<void>;
   onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
   resolvePersonalOrganizationMemorySource?: PersonalOrganizationMemorySourceResolver;
@@ -36,6 +38,7 @@ export type EmployeeBrowserAuthRuntime = {
   service: BrowserAuthService;
   credentialVault?: SshCredentialVault;
   mcpCredentialVault?: McpCredentialVault;
+  execCredentialCipher?: ExecCredentialCipher;
   close(): void;
 };
 
@@ -79,6 +82,7 @@ export function createEmployeeBrowserAuthRuntime(
     service,
     ...(credentialVault ? { credentialVault } : {}),
     ...(mcpCredentialVault ? { mcpCredentialVault } : {}),
+    ...(options.execCredentialCipher ? { execCredentialCipher: options.execCredentialCipher } : {}),
     close() {
       if (closed) {
         return;

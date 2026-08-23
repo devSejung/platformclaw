@@ -791,6 +791,7 @@ export async function runExecProcess(opts: {
         argv: string[];
         env: NodeJS.ProcessEnv;
         stdinMode: "pipe-open" | "pipe-closed";
+        stdinPrefix?: Buffer;
       }
     | {
         mode: "pty";
@@ -798,6 +799,7 @@ export async function runExecProcess(opts: {
         childFallbackArgv: string[];
         env: NodeJS.ProcessEnv;
         stdinMode: "pipe-open";
+        stdinPrefix?: Buffer;
       } = await (async () => {
     if (opts.sandbox) {
       const backendExecSpec = await opts.sandbox.buildExecSpec?.({
@@ -823,6 +825,7 @@ export async function runExecProcess(opts: {
         stdinMode:
           backendExecSpec?.stdinMode ??
           (opts.usePty ? ("pipe-open" as const) : ("pipe-closed" as const)),
+        ...(backendExecSpec?.stdinPrefix ? { stdinPrefix: backendExecSpec.stdinPrefix } : {}),
       };
     }
     const { shell, args: shellArgs } = getShellConfig();
@@ -903,6 +906,9 @@ export async function runExecProcess(opts: {
             argv: spawnSpec.argv,
             stdinMode: spawnSpec.stdinMode,
           });
+    if (spawnSpec.stdinPrefix) {
+      managedRun.stdin?.write(spawnSpec.stdinPrefix);
+    }
   } catch (err) {
     if (spawnSpec.mode === "pty") {
       const warning = `Warning: PTY spawn failed (${String(err)}); retrying without PTY for \`${opts.command}\`.`;

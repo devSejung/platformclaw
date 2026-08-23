@@ -82,10 +82,92 @@ function createDependencies(
       cwd: "/gateway",
       dispose: vi.fn(async () => undefined),
     })),
+    resolveExecCredentials: vi.fn(async () => ({})),
   };
 }
 
 describe("PlatformClaw execution backend", () => {
+  it("passes Basic credentials through Docker client env without argv values", async () => {
+    const dependencies = createDependencies(async ({ agentId }) => ({
+      kind: "platform_server",
+      agentId,
+      revision: 1,
+      targetId: "basic",
+    }));
+    dependencies.resolveExecCredentials = vi.fn(async () => ({ API_TOKEN: "private-value" }));
+    dependencies.createPlatformServerHandle = vi.fn(async () => ({
+      ...createHandle("basic"),
+      buildExecSpec: async ({ env }) => ({
+        argv: ["docker", "exec", "-e", `API_TOKEN=${env.API_TOKEN}`, "basic", "sh"],
+        env: {},
+        stdinMode: "pipe-closed",
+      }),
+    }));
+    const handle = await createPlatformClawExecutionBackendFactory(dependencies)(
+      createParams("person_one"),
+    );
+
+    const spec = await handle.buildExecSpec({ command: "env", env: {}, usePty: false });
+
+    expect(spec.argv).toEqual(["docker", "exec", "-e", "API_TOKEN", "basic", "sh"]);
+    expect(spec.env.API_TOKEN).toBe("private-value");
+    expect(spec.argv.join(" ")).not.toContain("private-value");
+  });
+
+  it("frames VM credentials on stdin and disables remote TTY echo", async () => {
+    const dependencies = createDependencies(async ({ agentId }) => ({
+      kind: "assigned_vm",
+      agentId,
+      revision: 1,
+      targetId: "vm",
+      allocationId: "allocation",
+      credentialRevision: 1,
+      vmLabel: "VM",
+      safeConnectLabel: "safe",
+      remoteHomeDir: "/home/user",
+      remoteWorkspaceDir: "/home/user/work",
+      endpointHost: "vm.example",
+      endpointPort: 22,
+      adDomain: "example",
+      adAccount: "person",
+      targetAddress: "vm.example",
+      linuxAccount: "user",
+      hostKeyAlgorithm: "ssh-ed25519",
+      hostKeyPublicKey: "key",
+      hostKeyFingerprint: "fingerprint",
+    }));
+    dependencies.resolveExecCredentials = vi.fn(async () => ({ API_TOKEN: "private-value" }));
+    dependencies.createAssignedVmHandle = vi.fn(async () => ({
+      ...createHandle("vm"),
+      buildExecSpec: async () => ({
+        argv: [
+          "ssh",
+          "-F",
+          "config",
+          "-tt",
+          "-o",
+          "RequestTTY=force",
+          "-o",
+          "SetEnv=TERM=xterm-256color",
+          "host",
+          "env LANG=C sh",
+        ],
+        env: {},
+        stdinMode: "pipe-open",
+      }),
+    }));
+    const handle = await createPlatformClawExecutionBackendFactory(dependencies)(
+      createParams("person_one"),
+    );
+
+    const spec = await handle.buildExecSpec({ command: "env", env: {}, usePty: true });
+
+    expect(spec.argv).toContain("-T");
+    expect(spec.argv).not.toContain("-tt");
+    expect(spec.argv.join(" ")).not.toContain("private-value");
+    expect(spec.stdinPrefix?.toString("utf8")).toBe("API_TOKEN cHJpdmF0ZS12YWx1ZQ==\n.\n");
+  });
+
   it("isolates users and selects targets without parsing scope keys", async () => {
     const resolveTarget = vi.fn(async ({ agentId }: { agentId: string }) =>
       agentId === "person_one"

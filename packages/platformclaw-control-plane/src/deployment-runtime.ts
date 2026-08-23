@@ -65,6 +65,7 @@ export function createPlatformClawDeploymentRuntime(
       env: options.env ?? process.env,
       sshCredentialCipher: config.sshCredentialCipher,
       mcpCredentialCipher: config.mcpCredentialCipher,
+      execCredentialCipher: config.execCredentialCipher,
     },
     gatewayClient: {
       pairing: { adminRpc: rpc, identity: gatewayServiceIdentity },

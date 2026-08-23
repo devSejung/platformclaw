@@ -230,6 +230,25 @@ export type EncryptedUserMcpCredentialRow = {
   updated_at: number;
 };
 
+export type ExecCredentialDefinitionRow = {
+  env_name: string;
+  created_by_user_id: string;
+  created_at: number;
+};
+
+export type EncryptedUserExecCredentialRow = {
+  user_id: string;
+  env_name: string;
+  ciphertext: Uint8Array;
+  nonce: Uint8Array;
+  auth_tag: Uint8Array;
+  key_id: string;
+  format_version: number;
+  revision: number;
+  created_at: number;
+  updated_at: number;
+};
+
 type McpOAuthStateRow = {
   state_hash: string;
   user_id: string;
@@ -313,6 +332,8 @@ export type ControlPlaneDatabase = {
   personal_execution_profiles: PersonalExecutionProfileRow;
   encrypted_user_ssh_credentials: EncryptedUserSshCredentialRow;
   encrypted_user_mcp_credentials: EncryptedUserMcpCredentialRow;
+  exec_credential_definitions: ExecCredentialDefinitionRow;
+  encrypted_user_exec_credentials: EncryptedUserExecCredentialRow;
   mcp_oauth_states: McpOAuthStateRow;
   skill_hub_skill_ownership: SkillHubOwnershipRow;
   skill_hub_skill_access: SkillHubAccessRow;
