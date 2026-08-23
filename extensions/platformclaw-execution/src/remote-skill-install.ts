@@ -64,6 +64,30 @@ else
 fi
 `;
 
+const VM_REMOTE_SKILL_REMOVE_SCRIPT = String.raw`
+set -eu
+target=$1
+skills=$2
+expected_revision=$3
+command -v flock >/dev/null 2>&1 || { printf 'flock is required\n' >&2; exit 69; }
+[ -d "$skills" ] && [ ! -L "$skills" ] || { printf 'invalid skills root\n' >&2; exit 65; }
+exec 9<"$skills"
+flock -x 9
+[ -d "$target" ] && [ ! -L "$target" ] || { printf 'skill is missing or invalid\n' >&2; exit 73; }
+[ -f "$target/SKILL.md" ] && [ ! -L "$target/SKILL.md" ] || { printf 'skill is missing SKILL.md\n' >&2; exit 73; }
+actual_revision="sha256:$(sha256sum -- "$target/SKILL.md" | cut -c1-16)"
+[ "$actual_revision" = "$expected_revision" ] || { printf 'skill changed; reload and retry\n' >&2; exit 73; }
+stage="$skills/.platformclaw-skill-remove-$$"
+[ ! -e "$stage" ] || { printf 'skill removal collision\n' >&2; exit 73; }
+mv -- "$target" "$stage"
+rollback() { [ ! -e "$target" ] && [ -d "$stage" ] && [ ! -L "$stage" ] && mv -- "$stage" "$target"; }
+trap rollback EXIT HUP INT TERM
+staged_revision="sha256:$(sha256sum -- "$stage/SKILL.md" | cut -c1-16)"
+[ "$staged_revision" = "$expected_revision" ] || { printf 'skill changed; reload and retry\n' >&2; exit 73; }
+rm -rf -- "$stage"
+trap - EXIT HUP INT TERM
+`;
+
 type RemoteSkillInstallIo = {
   createSession(target: AssignedVmTargetSnapshot): Promise<SshSandboxSession>;
   disposeSession: typeof disposeSshSandboxSession;
@@ -140,6 +164,36 @@ export class VmRemoteSkillInstallerService {
               signal: AbortSignal.timeout(10_000),
             })
             .catch(() => undefined);
+          await this.io.disposeSession(session);
+        }
+      },
+      remove: async ({ slug, timeoutMs, expectedSkillRevision }) => {
+        const targetDir = path.posix.join(skillsDir, slug);
+        const session = await this.io.createSession(target);
+        try {
+          const result = await this.io.runCommand({
+            session,
+            remoteCommand: buildRemoteCommand([
+              "/bin/bash",
+              "-c",
+              VM_REMOTE_SKILL_REMOVE_SCRIPT,
+              "platformclaw-skill-remove",
+              targetDir,
+              skillsDir,
+              expectedSkillRevision,
+            ]),
+            allowFailure: true,
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (result.code === 73) {
+            throw new Error("VM skill is missing or changed; reload and retry");
+          }
+          if (result.code !== 0) {
+            throw new Error(`VM skill removal failed (${result.code})`);
+          }
+          await params.refreshCatalog();
+          return { targetDir };
+        } finally {
           await this.io.disposeSession(session);
         }
       },

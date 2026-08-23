@@ -363,6 +363,7 @@ const extensions = [
     "knox",
     "platformclaw-execution",
     "platformclaw-org-memory",
+    "platformclaw-skillhub",
     "platformclaw-web-relay",
     "platformclaw-user-mcp",
     ...options.extensions.split(/[\s,]+/u),

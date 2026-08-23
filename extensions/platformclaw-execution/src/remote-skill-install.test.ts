@@ -108,6 +108,28 @@ describe("VM remote skill installer", () => {
     expect(refreshCatalog).toHaveBeenCalledOnce();
   });
 
+  it("revision-pins remote removal and refreshes the catalog", async () => {
+    const { access, io, refreshCatalog } = fixture();
+    const remove = access.remove;
+    if (!remove) {
+      throw new Error("remote skill removal test invariant");
+    }
+
+    await expect(
+      remove({
+        slug: "demo-skill",
+        timeoutMs: 30_000,
+        expectedSkillRevision: "sha256:0123456789abcdef",
+      }),
+    ).resolves.toEqual({ targetDir: "/srv/person-one/workspace/skills/demo-skill" });
+    const command = io.runCommand.mock.calls[0]?.[0]?.remoteCommand as string;
+    expect(command).toContain("platformclaw-skill-remove");
+    expect(command).toContain("sha256:0123456789abcdef");
+    expect(command).toContain("rollback");
+    expect(refreshCatalog).toHaveBeenCalledOnce();
+    expect(io.disposeSession).toHaveBeenCalledOnce();
+  });
+
   it("cleans staging and disposes the SSH session after an upload failure", async () => {
     const { access, io, refreshCatalog } = fixture();
     io.uploadDirectory.mockRejectedValueOnce(new Error("upload failed"));

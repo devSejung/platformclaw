@@ -316,6 +316,7 @@ export const validateToolsEffectiveParams = compile(S.ToolsEffectiveParamsSchema
 export const validateToolsInvokeParams = compile(S.ToolsInvokeParamsSchema);
 export const validateSkillsBinsParams = compile(S.SkillsBinsParamsSchema);
 export const validateSkillsInstallParams = compile(S.SkillsInstallParamsSchema);
+export const validateSkillsUninstallParams = compile(S.SkillsUninstallParamsSchema);
 export const validateSkillsUploadBeginParams = compile(S.SkillsUploadBeginParamsSchema);
 export const validateSkillsUploadChunkParams = compile(S.SkillsUploadChunkParamsSchema);
 export const validateSkillsUploadCommitParams = compile(S.SkillsUploadCommitParamsSchema);

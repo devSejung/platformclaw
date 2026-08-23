@@ -1,0 +1,11 @@
+{
+  "id": "platformclaw-skillhub",
+  "name": "PlatformClaw SkillHub",
+  "description": "Company SkillHub commands for PlatformClaw.",
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

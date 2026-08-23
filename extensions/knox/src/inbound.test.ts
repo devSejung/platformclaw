@@ -64,7 +64,7 @@ function installRuntime(run: ReturnType<typeof vi.fn>) {
       },
     },
   } as unknown as PluginRuntime);
-  return { buildContext };
+  return { buildContext, run };
 }
 
 beforeEach(() => {
@@ -79,6 +79,32 @@ beforeEach(() => {
 });
 
 describe("dispatchKnoxInbound", () => {
+  it("routes a final-line mentioned slash command without changing Agent-visible text", async () => {
+    const commandMessage: KnoxInboundMessage = {
+      ...message,
+      message: { type: "text", text: "Knox envelope\n@PlatformClaw /compact\n" },
+    };
+    const runtime = installRuntime(vi.fn().mockResolvedValue(undefined));
+
+    await dispatchKnoxInbound({ account, message: commandMessage, lifecycle });
+
+    expect(runtime.buildContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: {
+          rawBody: commandMessage.message.text,
+          commandBody: "/compact",
+          bodyForAgent: commandMessage.message.text,
+        },
+      }),
+    );
+    const runCall = runtime.run.mock.calls[0]?.[0];
+    expect(runCall?.adapter.ingest(commandMessage)).toMatchObject({
+      rawText: commandMessage.message.text,
+      textForAgent: commandMessage.message.text,
+      textForCommands: "/compact",
+    });
+  });
+
   it("grants owner authority to linked DMs and every isolated-room participant", async () => {
     const dmRuntime = installRuntime(vi.fn().mockResolvedValue(undefined));
     await dispatchKnoxInbound({ account, message, lifecycle });

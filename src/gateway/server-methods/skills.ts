@@ -9,6 +9,7 @@ import {
   validateSkillsCuratorStatusParams,
   validateSkillsDetailParams,
   validateSkillsInstallParams,
+  validateSkillsUninstallParams,
   validateSkillsProposalActionParams,
   validateSkillsProposalCreateParams,
   validateSkillsProposalEvaluateParams,
@@ -40,7 +41,10 @@ import { getOrCreatePromise } from "../../shared/lazy-promise.js";
 import { updateSkillConfigEntry } from "../../skills/config/mutations.js";
 import { collectSkillBins } from "../../skills/discovery/bins.js";
 import { buildWorkspaceSkillStatus } from "../../skills/discovery/status.js";
-import type { SkillArchiveInstallTargetAccess } from "../../skills/lifecycle/archive-install.js";
+import {
+  removeWorkspaceSkill,
+  type SkillArchiveInstallTargetAccess,
+} from "../../skills/lifecycle/archive-install.js";
 import {
   installSkillFromClawHub,
   readLocalSkillCardContentSync,
@@ -851,6 +855,86 @@ export const skillsHandlers: GatewayRequestHandlers = {
       result.ok,
       result,
       result.ok ? undefined : errorShape(ErrorCodes.UNAVAILABLE, result.message),
+    );
+  },
+  "skills.uninstall": async ({ params, respond, context }) => {
+    if (!assertValidParams(params, validateSkillsUninstallParams, "skills.uninstall", respond)) {
+      return;
+    }
+    const resolved = resolveSkillsAgentWorkspace(params, context);
+    if (!resolved.ok) {
+      respond(false, undefined, resolved.error);
+      return;
+    }
+    const p = params as {
+      slug: string;
+      destination: "workspace" | "sandbox-backend";
+      expectedTargetRevision?: number;
+      backendTarget?: string;
+      expectedSkillRevision: string;
+      timeoutMs?: number;
+    };
+    let targetAccess: SkillArchiveInstallTargetAccess | undefined;
+    let installTarget: SandboxBackendSkillInstallTarget | undefined;
+    if (p.destination === "sandbox-backend") {
+      const sandboxConfig = resolveSandboxConfigForAgent(resolved.cfg, resolved.agentId);
+      const provider = getSandboxBackendSkillInstallProvider(sandboxConfig.backend);
+      if (!provider) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.UNAVAILABLE, "The active sandbox backend cannot remove skills."),
+        );
+        return;
+      }
+      installTarget = await provider({
+        agentId: resolved.agentId,
+        config: resolved.cfg,
+        workspaceDir: resolved.workspaceDir,
+        expectedTargetRevision: p.expectedTargetRevision,
+        backendTarget: p.backendTarget,
+      });
+      targetAccess = installTarget.kind === "backend" ? installTarget.access : undefined;
+      if (targetAccess && !targetAccess.remove) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.UNAVAILABLE, "The active sandbox backend cannot remove skills."),
+        );
+        return;
+      }
+    }
+    const removeTarget = targetAccess?.remove;
+    const remove = async () =>
+      removeTarget
+        ? {
+            ok: true as const,
+            ...(await removeTarget({
+              slug: p.slug,
+              expectedSkillRevision: p.expectedSkillRevision,
+              timeoutMs: p.timeoutMs ?? 120_000,
+            })),
+          }
+        : await removeWorkspaceSkill({
+            workspaceDir: resolved.workspaceDir,
+            slug: p.slug,
+            expectedSkillRevision: p.expectedSkillRevision,
+            logger: context.logGateway,
+          });
+    const result = installTarget ? await installTarget.runExclusive(remove) : await remove();
+    if (result.ok) {
+      context.broadcast("skills.changed", {
+        reason: targetAccess ? "remote-node" : "watch",
+      });
+    }
+    const errorCode =
+      !result.ok && result.failureKind === "invalid-request"
+        ? ErrorCodes.INVALID_REQUEST
+        : ErrorCodes.UNAVAILABLE;
+    respond(
+      result.ok,
+      result.ok ? { ...result, slug: p.slug } : result,
+      result.ok ? undefined : errorShape(errorCode, result.error),
     );
   },
   "skills.update": async ({ params, respond, context }) => {

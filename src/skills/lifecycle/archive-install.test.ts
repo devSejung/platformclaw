@@ -10,9 +10,11 @@ import {
 } from "../../plugins/hook-runner-global.js";
 import { createMockPluginRegistry } from "../../plugins/hooks.test-fixtures.js";
 import { createTrackedTempDirs } from "../../test-utils/tracked-temp-dirs.js";
+import { computeSkillPromptVersion } from "../loading/skill-version.js";
 import {
   CLAWHUB_SKILL_ARCHIVE_ROOT_MARKERS,
   installExtractedSkillRoot,
+  removeWorkspaceSkill,
 } from "./archive-install.js";
 
 const tempDirs = createTrackedTempDirs();
@@ -422,5 +424,32 @@ describe("skill archive install", () => {
 
     expect(result.ok).toBe(false);
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("removes only the expected skill revision", async () => {
+    const root = await tempDirs.make("openclaw-skill-remove-");
+    const workspaceDir = path.join(root, "workspace");
+    const targetDir = path.join(workspaceDir, "skills", "remove-me");
+    const content = versionedSkillFileContent("Remove Me", "1.0.0");
+    await fs.mkdir(targetDir, { recursive: true });
+    await fs.writeFile(path.join(targetDir, "SKILL.md"), content);
+
+    await expect(
+      removeWorkspaceSkill({
+        workspaceDir,
+        slug: "remove-me",
+        expectedSkillRevision: "sha256:0000000000000000",
+      }),
+    ).resolves.toMatchObject({ ok: false, error: "skill changed; reload and retry" });
+    await expect(fs.stat(targetDir)).resolves.toBeDefined();
+
+    await expect(
+      removeWorkspaceSkill({
+        workspaceDir,
+        slug: "remove-me",
+        expectedSkillRevision: computeSkillPromptVersion(content),
+      }),
+    ).resolves.toMatchObject({ ok: true, targetDir });
+    await expect(fs.stat(targetDir)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

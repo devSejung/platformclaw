@@ -45,8 +45,8 @@ import { handlePlatformClawVocRequest, type JiraVocService } from "./browser-voc
 import type { EmployeeSsoService } from "./employee-sso.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import { handlePlatformClawKnoxIngressProxy } from "./knox-ingress-proxy.js";
-import { handlePlatformClawKnoxRoutingRequest } from "./knox-routing-http.js";
 import type { KnoxRoutingService } from "./knox-routing-service.js";
+import { handlePlatformClawKnoxInternalRequest } from "./knox-skill-hub-http.js";
 import type { SkillHubService } from "./skill-hub-service.js";
 import type { PlatformClawWebAssetHandler } from "./web-assets.js";
 import { isPlatformClawApplicationPath, PLATFORMCLAW_WEB_LOGIN_PATH } from "./web-assets.js";
@@ -378,8 +378,9 @@ export class PlatformClawWebIngressServer {
       }
       if (
         this.options.knoxRouting &&
-        (await handlePlatformClawKnoxRoutingRequest(req, res, {
+        (await handlePlatformClawKnoxInternalRequest(req, res, {
           ...this.options.knoxRouting,
+          skillHubService: this.options.skillHubService,
           readJsonBody: readBrowserJsonBody,
         }))
       ) {

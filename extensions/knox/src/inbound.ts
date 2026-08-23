@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { resolveKnoxCommandText } from "./command-text.js";
 import { KnoxIngressPermanentError, type KnoxIngressLifecycle } from "./ingress.js";
 import {
   buildKnoxTarget,
@@ -91,6 +92,7 @@ export async function dispatchKnoxInbound(params: {
     params.message.conversation.type,
     params.message.conversation.conversationId,
   );
+  const commandText = resolveKnoxCommandText(params.message.message.text);
   const route = {
     agentId: routing.agentId,
     dmScope: "main" as const,
@@ -124,7 +126,7 @@ export async function dispatchKnoxInbound(params: {
     reply: { to: target, originatingTo: target },
     message: {
       rawBody: params.message.message.text,
-      commandBody: params.message.message.text,
+      commandBody: commandText,
       bodyForAgent: params.message.message.text,
     },
     access: {
@@ -189,7 +191,7 @@ export async function dispatchKnoxInbound(params: {
           timestamp: Date.parse(message.occurredAt),
           rawText: message.message.text,
           textForAgent: message.message.text,
-          textForCommands: message.message.text,
+          textForCommands: commandText,
           raw: message,
         }),
         resolveTurn: async () => ({

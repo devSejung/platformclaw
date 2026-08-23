@@ -380,6 +380,17 @@ export const SkillsInstallParamsSchema = Type.Union([
   }),
 ]);
 
+/** Removes a revision-pinned uploaded skill from the selected execution target. */
+export const SkillsUninstallParamsSchema = closedObject({
+  agentId: Type.Optional(NonEmptyString),
+  slug: NonEmptyString,
+  destination: Type.Union([Type.Literal("workspace"), Type.Literal("sandbox-backend")]),
+  expectedTargetRevision: Type.Optional(Type.Integer({ minimum: 0 })),
+  backendTarget: Type.Optional(NonEmptyString),
+  expectedSkillRevision: Type.String({ pattern: "^sha256:[a-f0-9]{16}$" }),
+  timeoutMs: Type.Optional(Type.Integer({ minimum: 1000 })),
+});
+
 /** Updates installed skill settings or refreshes ClawHub-installed skills. */
 export const SkillsUpdateParamsSchema = Type.Union([
   closedObject({
@@ -1179,5 +1190,6 @@ export type SkillsUploadBeginParams = Static<typeof SkillsUploadBeginParamsSchem
 export type SkillsUploadChunkParams = Static<typeof SkillsUploadChunkParamsSchema>;
 export type SkillsUploadCommitParams = Static<typeof SkillsUploadCommitParamsSchema>;
 export type SkillsInstallParams = Static<typeof SkillsInstallParamsSchema>;
+export type SkillsUninstallParams = Static<typeof SkillsUninstallParamsSchema>;
 export type SkillsUpdateParams = Static<typeof SkillsUpdateParamsSchema>;
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

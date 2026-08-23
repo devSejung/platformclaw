@@ -711,6 +711,10 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/platformclaw-org-memory/**"
+"extensions: platformclaw-skillhub":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/platformclaw-skillhub/**"
 "extensions: platformclaw-user-mcp":
   - changed-files:
       - any-glob-to-any-file:

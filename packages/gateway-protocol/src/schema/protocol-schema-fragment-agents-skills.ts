@@ -89,5 +89,6 @@ export const AgentSkillProtocolSchemas = {
   SkillsUploadChunkParams: agentsModelsSkills.SkillsUploadChunkParamsSchema,
   SkillsUploadCommitParams: agentsModelsSkills.SkillsUploadCommitParamsSchema,
   SkillsInstallParams: agentsModelsSkills.SkillsInstallParamsSchema,
+  SkillsUninstallParams: agentsModelsSkills.SkillsUninstallParamsSchema,
   SkillsUpdateParams: agentsModelsSkills.SkillsUpdateParamsSchema,
 } as const;
