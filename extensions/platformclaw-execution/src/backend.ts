@@ -2,6 +2,7 @@ import type {
   CreateSandboxBackendParams,
   SandboxBackendFactory,
   SandboxBackendHandle,
+  SandboxBackendMaterializedSkills,
   SandboxBackendSkillCatalog,
   SandboxBackendSkillInstallProvider,
   SandboxBackendSkillProvider,
@@ -184,6 +185,7 @@ export function createPlatformClawExecutionBackendFactory(
     const skillCatalog = await dependencies.listTargetSkills({ refresh: false, target });
     const skillCatalogMs = timingMs(now, phaseStartedAt);
     let gatewaySkillsMs = 0;
+    let materializedSkills: SandboxBackendMaterializedSkills | undefined;
     if (!skillCatalog) {
       if (!createParams.materializeSkills) {
         throw new Error("PlatformClaw Basic workspace requires Gateway skill materialization.");
@@ -191,14 +193,43 @@ export function createPlatformClawExecutionBackendFactory(
       // Docker resolves read-only skill mounts while creating its handle, so
       // materialization must finish before delegating to the core backend.
       phaseStartedAt = now();
-      await createParams.materializeSkills();
+      materializedSkills = await createParams.materializeSkills({
+        sourceMounts: [
+          {
+            source: "openclaw-managed",
+            containerPath: "/opt/platformclaw/skills",
+            locationNote: "PlatformClaw managed global skill (read-only on Basic workspace)",
+          },
+          {
+            source: "openclaw-bundled",
+            containerPath: "/opt/platformclaw/bundle",
+            locationNote: "PlatformClaw bundled skill (read-only on Basic workspace)",
+          },
+        ],
+      });
       gatewaySkillsMs = timingMs(now, phaseStartedAt);
     }
+    const effectiveCreateParams = materializedSkills?.mounts.length
+      ? {
+          ...createParams,
+          readOnlySkillMounts: materializedSkills.mounts,
+          // Never advertise canonical paths against a hot pre-upgrade container
+          // that still has the previous mount layout.
+          requireCurrentConfig: createParams.requireCurrentConfig ?? true,
+        }
+      : createParams;
+    const effectiveSkillCatalog = skillCatalog ?? materializedSkills?.catalog;
     phaseStartedAt = now();
     const handle =
       target.kind === "platform_server"
-        ? await dependencies.createPlatformServerHandle({ createParams, target })
-        : await dependencies.createAssignedVmHandle({ createParams, target });
+        ? await dependencies.createPlatformServerHandle({
+            createParams: effectiveCreateParams,
+            target,
+          })
+        : await dependencies.createAssignedVmHandle({
+            createParams: effectiveCreateParams,
+            target,
+          });
     const backendHandleMs = timingMs(now, phaseStartedAt);
     phaseStartedAt = now();
     const skillWorkshopTarget =
@@ -225,7 +256,7 @@ export function createPlatformClawExecutionBackendFactory(
         ...(target.kind === "assigned_vm" ? { separateAgentWorkspace: true } : {}),
       },
       runtimePromptContext: buildRuntimePromptContext(target, handle.workdir),
-      ...(skillCatalog ? { skillCatalog } : {}),
+      ...(effectiveSkillCatalog ? { skillCatalog: effectiveSkillCatalog } : {}),
       ...(skillWorkshopTarget ? { skillWorkshopTarget } : {}),
     };
   };

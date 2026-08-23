@@ -58,6 +58,8 @@ export type SkillUsagePath = {
   skillFile: string;
   skillName: string;
   skillSource: SkillTelemetrySource;
+  /** Exact discovery source used when a sandbox backend assigns canonical mounts. */
+  skillSourceId?: string;
 };
 
 export type SkillCommandSpec = {

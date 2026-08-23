@@ -52,6 +52,8 @@ export type SandboxBackendSkillFile = {
 export type SandboxBackendSkillCatalog = {
   revision: string;
   files: readonly SandboxBackendSkillFile[];
+  /** Gateway snapshots retain local skill dispatch/install semantics after path remapping. */
+  owner?: "gateway";
   eligibility?: {
     bins: readonly string[];
     platforms: readonly string[];

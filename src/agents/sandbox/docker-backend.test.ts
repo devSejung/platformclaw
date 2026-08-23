@@ -91,6 +91,26 @@ describe("docker sandbox backend manager", () => {
     );
   });
 
+  it("forwards backend-canonical read-only skill mounts to container provisioning", async () => {
+    dockerMocks.ensureSandboxContainer.mockResolvedValueOnce("sandbox-container");
+    const readOnlySkillMounts = [
+      { hostPath: "/gateway/managed-skills", containerPath: "/opt/platformclaw/skills" },
+    ];
+
+    await createDockerSandboxBackend({
+      sessionKey: "agent:poly:main",
+      scopeKey: "agent:poly:main",
+      workspaceDir: "/tmp/customer/workspace",
+      agentWorkspaceDir: "/tmp/customer/workspace",
+      readOnlySkillMounts,
+      cfg: resolveSandboxConfigForAgent(createConfig(), "poly"),
+    });
+
+    expect(dockerMocks.ensureSandboxContainer).toHaveBeenCalledWith(
+      expect.objectContaining({ readOnlySkillMounts }),
+    );
+  });
+
   it("binds Podman provisioning and later execs to the resolved target", async () => {
     dockerMocks.ensureSandboxContainer.mockResolvedValueOnce("sandbox-podman");
     const podmanTarget = {

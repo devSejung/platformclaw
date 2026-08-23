@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
@@ -5,6 +6,7 @@ import { withTempWorkspace } from "../../infra/private-temp-workspace.js";
 import { resolvePreferredOpenClawTmpDir } from "../../infra/tmp-openclaw-dir.js";
 import type { SandboxBackendHandle } from "./backend-handle.types.js";
 import { registerSandboxBackend } from "./backend.js";
+import type { CreateSandboxBackendParams } from "./backend.types.js";
 import { resolveSandboxContext } from "./context.js";
 
 const mocks = vi.hoisted(() => ({
@@ -145,6 +147,81 @@ describe("sandbox backend skill materialization", () => {
           expect(mocks.syncSkillsToWorkspace.mock.invocationCallOrder[0]).toBeLessThan(
             createLocalHandle.mock.invocationCallOrder[0]!,
           );
+        } finally {
+          restore();
+        }
+      },
+    );
+  });
+
+  it("keeps a deferred backend's global skill paths canonical and read-only mountable", async () => {
+    await withTempWorkspace(
+      { rootDir: resolvePreferredOpenClawTmpDir(), prefix: "openclaw-canonical-skills-" },
+      async ({ dir }) => {
+        mocks.syncSkillsToWorkspace.mockImplementationOnce(async ({ targetWorkspaceDir }) => {
+          const readPath = path.join(targetWorkspaceDir, "skills", "confluence-read", "SKILL.md");
+          await fs.mkdir(path.dirname(readPath), { recursive: true });
+          await fs.writeFile(
+            readPath,
+            "---\nname: confluence-read\ndescription: Read Confluence\n---\nUse .env.atlassian\n",
+          );
+          await fs.writeFile(path.join(path.dirname(readPath), ".env.atlassian"), "TOKEN=test\n");
+          return [
+            {
+              readPath,
+              skillFile: path.join(dir, "managed", "confluence-read", "SKILL.md"),
+              skillName: "confluence-read",
+              skillSource: "workspace" as const,
+              skillSourceId: "openclaw-managed",
+            },
+          ];
+        });
+        const backendId = `test-canonical-${Date.now()}`;
+        let materialized: Awaited<
+          ReturnType<NonNullable<CreateSandboxBackendParams["materializeSkills"]>>
+        > | null = null;
+        const restore = registerSandboxBackend(backendId, {
+          factory: async ({ materializeSkills }) => {
+            materialized =
+              (await materializeSkills?.({
+                sourceMounts: [
+                  { source: "openclaw-managed", containerPath: "/opt/platformclaw/skills" },
+                ],
+              })) ?? null;
+            return {
+              ...createHandle({ catalog: false, runtimeId: "canonical-skills" }),
+              ...(materialized ? { skillCatalog: materialized.catalog } : {}),
+            };
+          },
+          skillMaterialization: "backend-deferred",
+        });
+        try {
+          const context = await resolveSandboxContext({
+            config: createConfig({
+              backend: backendId,
+              workspaceRoot: path.join(dir, "sandboxes"),
+            }),
+            agentId: "main",
+            sessionKey: "agent:main:main",
+            workspaceDir: path.join(dir, "workspace"),
+          });
+
+          expect(materialized?.catalog.files).toEqual([
+            expect.objectContaining({
+              filePath: "/opt/platformclaw/skills/confluence-read/SKILL.md",
+              source: "openclaw-managed",
+            }),
+          ]);
+          expect(context?.skillUsagePaths?.[0]?.readPath).toBe(
+            "/opt/platformclaw/skills/confluence-read/SKILL.md",
+          );
+          expect(materialized?.mounts).toEqual([
+            expect.objectContaining({ containerPath: "/opt/platformclaw/skills" }),
+          ]);
+          const hostRoot = materialized!.mounts[0]!.hostPath;
+          await expect(
+            fs.readFile(path.join(hostRoot, "confluence-read", ".env.atlassian"), "utf8"),
+          ).resolves.toBe("TOKEN=test\n");
         } finally {
           restore();
         }
