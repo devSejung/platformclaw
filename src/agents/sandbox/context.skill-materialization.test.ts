@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import { withTempWorkspace } from "../../infra/private-temp-workspace.js";
 import { resolvePreferredOpenClawTmpDir } from "../../infra/tmp-openclaw-dir.js";
+import type { SkillUsagePath } from "../../skills/types.js";
 import type { SandboxBackendHandle } from "./backend-handle.types.js";
 import { registerSandboxBackend } from "./backend.js";
 import type { CreateSandboxBackendParams } from "./backend.types.js";
@@ -12,7 +13,9 @@ import { resolveSandboxContext } from "./context.js";
 const mocks = vi.hoisted(() => ({
   logInfo: vi.fn(),
   readRegisteredSandboxRuntimeIds: vi.fn(async () => [] as string[]),
-  syncSkillsToWorkspace: vi.fn(async () => []),
+  syncSkillsToWorkspace: vi.fn<
+    (params: { targetWorkspaceDir: string }) => Promise<SkillUsagePath[]>
+  >(async () => []),
   updateRegistry: vi.fn(async () => undefined),
 }));
 

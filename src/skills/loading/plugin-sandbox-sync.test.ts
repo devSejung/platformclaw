@@ -95,6 +95,7 @@ describe("syncSkillsToWorkspace for plugin skills", () => {
         skillFile: path.join(realPluginSkillDir, "SKILL.md"),
         skillName: "wiki-maintainer",
         skillSource: "workspace",
+        skillSourceId: "openclaw-extra",
       },
     ]);
   });

@@ -12,7 +12,7 @@ import { isSandboxProvisioningError } from "./sandbox/provisioning-error.js";
 const updateRegistryMock = vi.hoisted(() => vi.fn());
 const readRegisteredSandboxRuntimeIdsMock = vi.hoisted(() => vi.fn(async () => [] as string[]));
 const syncSkillsToWorkspaceMock = vi.hoisted(() =>
-  vi.fn<() => Promise<SkillUsagePath[]>>(async () => []),
+  vi.fn<(params: { targetWorkspaceDir: string }) => Promise<SkillUsagePath[]>>(async () => []),
 );
 const ensureSandboxBrowserMock = vi.hoisted(() => vi.fn(async () => null));
 const resolveNodeExecEligibilityMock = vi.hoisted(() => vi.fn(() => ({ canExec: false })));
@@ -790,6 +790,11 @@ describe("resolveSandboxContext", () => {
         skillSource: "workspace" as const,
       },
     ];
+    await fs.mkdir(path.dirname(skillUsagePaths[0].readPath), { recursive: true });
+    await fs.writeFile(
+      skillUsagePaths[0].readPath,
+      "---\nname: demo\ndescription: Demo skill\n---\n",
+    );
     syncSkillsToWorkspaceMock.mockResolvedValueOnce(skillUsagePaths);
 
     const cfg: OpenClawConfig = {
