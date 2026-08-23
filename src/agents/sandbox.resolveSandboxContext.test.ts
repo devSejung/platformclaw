@@ -782,19 +782,15 @@ describe("resolveSandboxContext", () => {
     syncSkillsToWorkspaceMock.mockClear();
     const bundledDir = await createSandboxFixtureDir("bundled");
     const workspaceDir = await createSandboxFixtureDir("workspace");
-    const skillUsagePaths = [
-      {
-        readPath: path.join(bundledDir, "sandboxes", "skills", "demo", "SKILL.md"),
-        skillFile: path.join(workspaceDir, "skills", "demo", "SKILL.md"),
-        skillName: "demo",
-        skillSource: "workspace" as const,
-      },
-    ];
-    await fs.mkdir(path.dirname(skillUsagePaths[0].readPath), { recursive: true });
-    await fs.writeFile(
-      skillUsagePaths[0].readPath,
-      "---\nname: demo\ndescription: Demo skill\n---\n",
-    );
+    const skillUsagePath: SkillUsagePath = {
+      readPath: path.join(bundledDir, "sandboxes", "skills", "demo", "SKILL.md"),
+      skillFile: path.join(workspaceDir, "skills", "demo", "SKILL.md"),
+      skillName: "demo",
+      skillSource: "workspace",
+    };
+    const skillUsagePaths = [skillUsagePath];
+    await fs.mkdir(path.dirname(skillUsagePath.readPath), { recursive: true });
+    await fs.writeFile(skillUsagePath.readPath, "---\nname: demo\ndescription: Demo skill\n---\n");
     syncSkillsToWorkspaceMock.mockResolvedValueOnce(skillUsagePaths);
 
     const cfg: OpenClawConfig = {
