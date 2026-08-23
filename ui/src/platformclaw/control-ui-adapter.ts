@@ -3,9 +3,6 @@ import { until } from "lit/directives/until.js";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
-import "./mcp-administration.ts";
-import "./mcp-settings.ts";
-import "./exec-credentials.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import {
   PLATFORMCLAW_APP_PATH,
@@ -207,40 +204,45 @@ export class PlatformClawControlUiAdapter {
         mcp: {
           loaderDeps: () => "platformclaw-mcp",
           loader: async () => undefined,
-          component: async () => ({
-            header: true,
-            render: () => html`
-              <style>
-                .platformclaw-mcp-page {
-                  width: min(920px, 100%);
-                  margin: 0 auto;
-                  padding: 0 20px 48px;
-                }
-              </style>
-              <section class="content-header">
-                <div>
-                  <div class="page-title">${t("platformClaw.execCredentials.pageTitle")}</div>
-                </div>
-              </section>
-              <main class="platformclaw-mcp-page">
-                <platformclaw-exec-credentials
-                  .admin=${identity.globalRole === "admin"}
-                  .fetchImpl=${this.fetchImpl}
-                  .onUnauthenticated=${onUnauthenticated}
-                ></platformclaw-exec-credentials>
-                ${identity.globalRole === "admin"
-                  ? html`<platformclaw-mcp-administration
-                      .fetchImpl=${this.fetchImpl}
-                      .onUnauthenticated=${onUnauthenticated}
-                    ></platformclaw-mcp-administration>`
-                  : nothing}
-                <platformclaw-mcp-settings
-                  .fetchImpl=${this.fetchImpl}
-                  .onUnauthenticated=${onUnauthenticated}
-                ></platformclaw-mcp-settings>
-              </main>
-            `,
-          }),
+          component: () =>
+            Promise.all([
+              import("./exec-credentials.ts"),
+              import("./mcp-administration.ts"),
+              import("./mcp-settings.ts"),
+            ]).then(() => ({
+              header: true,
+              render: () => html`
+                <style>
+                  .platformclaw-mcp-page {
+                    width: min(920px, 100%);
+                    margin: 0 auto;
+                    padding: 0 20px 48px;
+                  }
+                </style>
+                <section class="content-header">
+                  <div>
+                    <div class="page-title">${t("platformClaw.execCredentials.pageTitle")}</div>
+                  </div>
+                </section>
+                <main class="platformclaw-mcp-page">
+                  <platformclaw-exec-credentials
+                    .admin=${identity.globalRole === "admin"}
+                    .fetchImpl=${this.fetchImpl}
+                    .onUnauthenticated=${onUnauthenticated}
+                  ></platformclaw-exec-credentials>
+                  ${identity.globalRole === "admin"
+                    ? html`<platformclaw-mcp-administration
+                        .fetchImpl=${this.fetchImpl}
+                        .onUnauthenticated=${onUnauthenticated}
+                      ></platformclaw-mcp-administration>`
+                    : nothing}
+                  <platformclaw-mcp-settings
+                    .fetchImpl=${this.fetchImpl}
+                    .onUnauthenticated=${onUnauthenticated}
+                  ></platformclaw-mcp-settings>
+                </main>
+              `,
+            })),
         },
       },
       gateway: {
