@@ -58,10 +58,12 @@ export function createOxlintShards({
   platform = process.platform,
   readDir = fs.readdirSync,
   splitCore = false,
+  hostResources,
 } = {}) {
   const coreShards = splitCore ? createCoreOxlintShards({ cwd, readDir }) : [CORE_SHARD];
-  const extensionShards =
-    platform === "win32" ? createWindowsExtensionShards({ cwd, env, readDir }) : [EXTENSIONS_SHARD];
+  const extensionShards = shouldRunOxlintShardsSerial({ env, platform, hostResources })
+    ? createExtensionShards({ cwd, env, readDir })
+    : [EXTENSIONS_SHARD];
 
   return [...coreShards, ...extensionShards, SCRIPTS_SHARD];
 }
@@ -87,9 +89,9 @@ function createCoreShard(target) {
 }
 
 /**
- * Chunks extension lint targets to avoid Windows command-line and memory limits.
+ * Chunks extension lint targets to cap command-line length and type-graph memory.
  */
-export function createWindowsExtensionShards({
+export function createExtensionShards({
   cwd = process.cwd(),
   env = process.env,
   readDir = fs.readdirSync,
