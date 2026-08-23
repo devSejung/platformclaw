@@ -3,7 +3,15 @@ import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
 import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
 type AgentSummary = { id: string; workspace?: string };
-type AgentsListResult = { agents?: AgentSummary[] };
+type AgentConfigStatusResult =
+  | { ok: true; configured: false; agentId: string }
+  | {
+      ok: true;
+      configured: true;
+      agentId: string;
+      workspace: string;
+      matches: boolean;
+    };
 type AgentCreateResult = { ok: true; agentId: string; workspace: string };
 
 const CONFIG_APPLY_RETRY_DELAYS_MS = [
@@ -126,12 +134,29 @@ export class GatewayAgentRegistrar {
   }
 
   private async getConfiguredAgent(agentId: string): Promise<AgentSummary | undefined> {
-    const result = await this.rpc.call<AgentsListResult>("agents.list", {});
-    const agents = result.agents ?? [];
-    if (!Array.isArray(agents)) {
-      throw new Error("Gateway agents.list returned an invalid agents list");
+    const workspace = this.workspaceForAgent(agentId);
+    const result = await this.rpc.call<AgentConfigStatusResult>("platformclaw.agent.configStatus", {
+      agentId,
+      workspace,
+    });
+    if (
+      result.ok !== true ||
+      result.agentId !== agentId ||
+      typeof result.configured !== "boolean"
+    ) {
+      throw new Error("Gateway agent config status returned an invalid payload");
     }
-    return agents.find((agent) => agent.id === agentId);
+    if (!result.configured) {
+      return undefined;
+    }
+    if (
+      result.matches !== true ||
+      typeof result.workspace !== "string" ||
+      path.resolve(result.workspace) !== workspace
+    ) {
+      throw new Error(`Gateway agent workspace mismatch: ${agentId}`);
+    }
+    return { id: agentId, workspace: result.workspace };
   }
 
   private async getConfiguredAgentWhenAvailable(

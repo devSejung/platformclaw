@@ -7,6 +7,7 @@ import {
 } from "openclaw/plugin-sdk/gateway-runtime";
 
 export const PLATFORMCLAW_AGENT_RUNTIME_STATUS_METHOD = "platformclaw.agent.runtimeStatus";
+export const PLATFORMCLAW_AGENT_CONFIG_STATUS_METHOD = "platformclaw.agent.configStatus";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -40,24 +41,60 @@ function configuredWorkspace(
   return workspace === expectedWorkspace ? workspace : undefined;
 }
 
-export async function handleAgentRuntimeStatus({
-  params,
-  respond,
-  context,
-}: GatewayRequestHandlerOptions): Promise<void> {
+function readAgentWorkspaceParams(
+  params: unknown,
+): { agentId: string; workspace: string } | undefined {
   if (!isRecord(params)) {
-    invalidRequest(respond, "agent runtime status params must be an object");
-    return;
+    return undefined;
   }
   const agentId = typeof params.agentId === "string" ? params.agentId.trim() : "";
   const workspace =
     typeof params.workspace === "string" && path.isAbsolute(params.workspace)
       ? path.resolve(params.workspace)
       : undefined;
-  if (!agentId || !workspace || !configuredWorkspace(context, agentId, workspace)) {
-    invalidRequest(respond, `agent or workspace mismatch: ${agentId || "unknown"}`);
+  return agentId && workspace ? { agentId, workspace } : undefined;
+}
+
+export function handleAgentConfigStatus({
+  params,
+  respond,
+  context,
+}: GatewayRequestHandlerOptions): void {
+  const requested = readAgentWorkspaceParams(params);
+  if (!requested) {
+    invalidRequest(respond, "agent config status params must include an agent and workspace");
     return;
   }
+  const config = context.getRuntimeConfig();
+  if (!listAgentIds(config).includes(requested.agentId)) {
+    respond(true, { ok: true, configured: false, agentId: requested.agentId }, undefined);
+    return;
+  }
+  const workspace = path.resolve(resolveAgentWorkspaceDir(config, requested.agentId));
+  respond(
+    true,
+    {
+      ok: true,
+      configured: true,
+      agentId: requested.agentId,
+      workspace,
+      matches: workspace === requested.workspace,
+    },
+    undefined,
+  );
+}
+
+export async function handleAgentRuntimeStatus({
+  params,
+  respond,
+  context,
+}: GatewayRequestHandlerOptions): Promise<void> {
+  const requested = readAgentWorkspaceParams(params);
+  if (!requested || !configuredWorkspace(context, requested.agentId, requested.workspace)) {
+    invalidRequest(respond, `agent or workspace mismatch: ${requested?.agentId || "unknown"}`);
+    return;
+  }
+  const { agentId, workspace } = requested;
 
   try {
     // A writable catalog load crosses the same configured-owner admission path as the first turn.
