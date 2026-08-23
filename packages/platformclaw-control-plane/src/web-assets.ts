@@ -28,6 +28,7 @@ export const PLATFORMCLAW_WEB_DESCRIPTOR = {
     "tasks",
     "cron",
     "appearance",
+    "credentials",
     "memory",
     "profile",
     "notifications",
