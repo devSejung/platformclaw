@@ -5,6 +5,10 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import { splitShellArgs } from "../utils/shell-argv.js";
 
+type InterpreterScriptTarget =
+  | { kind: "python"; relOrAbsPaths: string[]; cwd?: string }
+  | { kind: "node"; relOrAbsPaths: string[]; cwd?: string };
+
 const PREFLIGHT_ENV_OPTIONS_WITH_VALUES = new Set([
   "-C",
   "-S",
@@ -181,7 +185,7 @@ function findNodeScriptArgs(tokens: string[]): string[] {
 
 function extractInterpreterScriptTargetFromArgv(
   argv: string[] | null,
-): { kind: "python"; relOrAbsPaths: string[] } | { kind: "node"; relOrAbsPaths: string[] } | null {
+): InterpreterScriptTarget | null {
   if (!argv || argv.length === 0) {
     return null;
   }
@@ -222,9 +226,7 @@ export function extractInterpreterScriptPathsFromSegment(rawSegment: string): st
   return target?.relOrAbsPaths ?? [];
 }
 
-export function extractScriptTargetFromCommand(
-  command: string,
-): { kind: "python"; relOrAbsPaths: string[] } | { kind: "node"; relOrAbsPaths: string[] } | null {
+export function extractScriptTargetFromCommand(command: string): InterpreterScriptTarget | null {
   const raw = command.trim();
   const splitShellArgsPreservingBackslashes = (value: string): string[] | null => {
     const tokens: string[] = [];
@@ -264,7 +266,7 @@ export function extractScriptTargetFromCommand(
         inDouble = true;
         continue;
       }
-      if (/\s/.test(ch)) {
+      if (/\s/u.test(ch)) {
         pushToken();
         continue;
       }
@@ -279,19 +281,32 @@ export function extractScriptTargetFromCommand(
   };
   const shouldUseWindowsPathTokenizer =
     process.platform === "win32" &&
-    /(?:^|[\s"'`])(?:[A-Za-z]:\\|\\\\|[^\s"'`|&;()<>]+\\[^\s"'`|&;()<>]+)/.test(raw);
-  const candidateArgv = shouldUseWindowsPathTokenizer
-    ? [splitShellArgsPreservingBackslashes(raw)]
-    : [splitShellArgs(raw)];
-
-  for (const argv of candidateArgv) {
-    const attempts = [argv, argv ? stripPreflightEnvPrefix(argv) : null];
-    for (const attempt of attempts) {
-      const target = extractInterpreterScriptTargetFromArgv(attempt);
-      if (target) {
-        return target;
-      }
+    /(?:^|[\s"'`])(?:[A-Za-z]:\\|\\\\|[^\s"'`|&;()<>]+\\[^\s"'`|&;()<>]+)/u.test(raw);
+  const splitArgs = shouldUseWindowsPathTokenizer
+    ? splitShellArgsPreservingBackslashes
+    : splitShellArgs;
+  const argv = splitArgs(raw);
+  for (const attempt of [argv, argv ? stripPreflightEnvPrefix(argv) : null]) {
+    const target = extractInterpreterScriptTargetFromArgv(attempt);
+    if (target) {
+      return target;
     }
   }
-  return null;
+
+  const literal = "(?:'[^'\\r\\n]*'|\"[^\"$`\\\\\\r\\n]*\"|[^\\s|&;<>()$`*?\\[\\]{}~#!]+)";
+  const match = new RegExp(
+    `^cd\\s+(${literal})\\s+&&\\s+(python|python3|node)\\s+(${literal})$`,
+    "u",
+  ).exec(raw);
+  if (!match) {
+    return null;
+  }
+  const cwd = splitArgs(match[1] ?? "")?.[0];
+  const script = splitArgs(match[3] ?? "")?.[0];
+  if (!cwd || !script) {
+    return null;
+  }
+  return match[2] === "node"
+    ? { kind: "node", relOrAbsPaths: [script], cwd }
+    : { kind: "python", relOrAbsPaths: [script], cwd };
 }

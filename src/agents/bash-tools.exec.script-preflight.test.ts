@@ -120,6 +120,62 @@ describe("exec interactive OpenClaw channel login guard", () => {
 });
 
 describeNonWin("exec script preflight", () => {
+  it("runs a literal cd followed by a literal node script", async () => {
+    await withTempDir("openclaw-exec-preflight-cd-", async (tmp) => {
+      const scriptDir = path.join(tmp, "literal dir");
+      await fs.mkdir(scriptDir, { recursive: true });
+      await fs.writeFile(
+        path.join(scriptDir, "script.js"),
+        'process.stdout.write("literal-cd-ok")',
+        "utf-8",
+      );
+
+      const result = await runExecPreflight({
+        command: 'cd "literal dir" && node script.js',
+        workdir: tmp,
+      });
+      expect(result.content.find((entry) => entry.type === "text")?.text).toContain(
+        "literal-cd-ok",
+      );
+    });
+  });
+
+  it.each([
+    ["python", "bad.py", "payload = $DM_JSON"],
+    ["python3", "bad.py", "payload = $DM_JSON"],
+    ["node", "bad.js", "const payload = $DM_JSON;"],
+  ])("preflights %s scripts after a literal cd", async (interpreter, fileName, contents) => {
+    await withTempDir("openclaw-exec-preflight-cd-", async (tmp) => {
+      const scriptDir = path.join(tmp, "literal-dir");
+      await fs.mkdir(scriptDir, { recursive: true });
+      await fs.writeFile(path.join(scriptDir, fileName), contents, "utf-8");
+
+      await expect(
+        runExecPreflight({
+          command: `cd literal-dir && ${interpreter} ${fileName}`,
+          workdir: tmp,
+        }),
+      ).rejects.toThrow(/exec preflight: detected likely shell variable injection \(\$DM_JSON\)/);
+    });
+  });
+
+  it.each([
+    ["variable cd", 'cd "$SCRIPT_DIR" && node script.js'],
+    ["substituted cd", 'cd "$(pwd)" && node script.js'],
+    ["variable script", 'cd literal-dir && node "$SCRIPT"'],
+    ["substituted script", 'cd literal-dir && node "$(printf script.js)"'],
+    ["redirect", "cd literal-dir && node script.js > output.txt"],
+    ["pipeline", "cd literal-dir && node script.js | cat"],
+    ["extra chain", "cd literal-dir && node script.js && echo done"],
+    ["script arguments", "cd literal-dir && node script.js --unsafe"],
+    ["env wrapper", "cd literal-dir && env node script.js"],
+    ["non-cd chain", "true && node script.js"],
+  ])("keeps %s cd-chain preflight fail-closed", async (_name, command) => {
+    await expect(runExecPreflight({ command, workdir: process.cwd() })).rejects.toThrow(
+      /exec preflight: complex interpreter invocation detected/,
+    );
+  });
+
   it("blocks shell env var injection tokens in python scripts before execution", async () => {
     await withTempDir("openclaw-exec-preflight-", async (tmp) => {
       const pyPath = path.join(tmp, "bad.py");

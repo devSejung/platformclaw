@@ -132,15 +132,17 @@ export async function validateScriptFileForShellBleed(params: {
     return;
   }
 
+  const targetWorkdir = target.cwd ? path.resolve(params.workdir, target.cwd) : params.workdir;
+
   const fsSafe = await loadFsSafeModule();
   const { FsSafeError, root: fsRoot } = fsSafe;
-  const workspaceRoot = await fsRoot(params.workdir);
+  const workspaceRoot = await fsRoot(targetWorkdir);
   for (const relOrAbsPath of target.relOrAbsPaths) {
     const absPath = path.isAbsolute(relOrAbsPath)
       ? path.resolve(relOrAbsPath)
-      : path.resolve(params.workdir, relOrAbsPath);
+      : path.resolve(targetWorkdir, relOrAbsPath);
     const relativePath = resolvePreflightRelativePath({
-      rootDir: params.workdir,
+      rootDir: targetWorkdir,
       absPath,
     });
     if (!relativePath) {
