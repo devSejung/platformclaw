@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { extractScriptTargetFromCommand } from "./bash-tools.exec-script-target.js";
+import {
+  extractScriptTargetFromCommand,
+  hasLiteralCdInterpreterChain,
+} from "./bash-tools.exec-script-target.js";
 
 describe("extractScriptTargetFromCommand", () => {
   it.each([
@@ -33,5 +36,12 @@ describe("extractScriptTargetFromCommand", () => {
 
   it("leaves unrelated shell chains to the ambiguity guard", () => {
     expect(extractScriptTargetFromCommand("true && node script.js")).toBeNull();
+  });
+
+  it.each([
+    ["variable", 'cd literal-dir && node "$SCRIPT"'],
+    ["substitution", 'cd literal-dir && node "$(printf script.js)"'],
+  ])("identifies a literal cd chain with a %s script target", (_name, command) => {
+    expect(hasLiteralCdInterpreterChain(command)).toBe(true);
   });
 });

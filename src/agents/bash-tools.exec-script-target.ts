@@ -226,6 +226,17 @@ export function extractInterpreterScriptPathsFromSegment(rawSegment: string): st
   return target?.relOrAbsPaths ?? [];
 }
 
+export function hasLiteralCdInterpreterChain(command: string): boolean {
+  const argv = splitShellArgs(command.trim());
+  const chainIndex = argv?.indexOf("&&") ?? -1;
+  const executable = normalizeOptionalLowercaseString(argv?.[chainIndex + 1]);
+  return (
+    argv?.[0] === "cd" &&
+    chainIndex === 2 &&
+    (executable === "python" || executable === "python3" || executable === "node")
+  );
+}
+
 export function extractScriptTargetFromCommand(command: string): InterpreterScriptTarget | null {
   const raw = command.trim();
   const splitShellArgsPreservingBackslashes = (value: string): string[] | null => {

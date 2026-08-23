@@ -5,7 +5,10 @@ import path from "node:path";
 import type { ExecAsk, ExecHost, ExecSecurity } from "../infra/exec-approvals.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import { shouldFailClosedInterpreterPreflight } from "./bash-tools.exec-script-ambiguity.js";
-import { extractScriptTargetFromCommand } from "./bash-tools.exec-script-target.js";
+import {
+  extractScriptTargetFromCommand,
+  hasLiteralCdInterpreterChain,
+} from "./bash-tools.exec-script-target.js";
 
 const SKIPPABLE_SCRIPT_PREFLIGHT_FS_ERROR_CODES = new Set([
   "EACCES",
@@ -107,6 +110,12 @@ export async function validateScriptFileForShellBleed(params: {
 }): Promise<void> {
   const target = extractScriptTargetFromCommand(params.command);
   if (!target) {
+    if (hasLiteralCdInterpreterChain(params.command)) {
+      throw new Error(
+        "exec preflight: complex interpreter invocation detected; refusing to run without script preflight validation. " +
+          "Use a direct script command or literal `cd <dir> && python|python3|node <script>` command.",
+      );
+    }
     const {
       hasInterpreterInvocation,
       hasComplexSyntax,
