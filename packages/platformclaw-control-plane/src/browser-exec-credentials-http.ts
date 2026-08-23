@@ -7,6 +7,8 @@ import type { ExecCredentialService } from "./exec-credential-service.js";
 export const PLATFORMCLAW_EXEC_CREDENTIALS_PATH = "/platformclaw/api/exec-credentials";
 export const PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_PATH = "/platformclaw/api/admin/exec-credentials";
 
+const BODY_LIMIT_BYTES = 64 * 1024;
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -53,7 +55,12 @@ export async function handlePlatformClawExecCredentialRequest(
     return true;
   }
   try {
-    const body = asRecord(await options.readJsonBody(req));
+    const read = await options.readJsonBody(req, BODY_LIMIT_BYTES);
+    if (!read.ok) {
+      sendJson(res, 400, { error: read.error });
+      return true;
+    }
+    const body = asRecord(read.value);
     if (!body || typeof body.action !== "string" || typeof body.envName !== "string")
       throw new ControlPlaneStateError("invalid request body");
     const result = admin
