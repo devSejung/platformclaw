@@ -6,7 +6,7 @@ import type { KnoxRoutingService } from "./knox-routing-service.js";
 import type { SkillHubService } from "./skill-hub-service.js";
 import { SkillHubServiceError } from "./skill-hub-service.js";
 
-export const PLATFORMCLAW_KNOX_SKILL_HUB_PATH = "/platformclaw/internal/knox/skillhub";
+const PLATFORMCLAW_KNOX_SKILL_HUB_PATH = "/platformclaw/internal/knox/skillhub";
 const MAX_BODY_BYTES = 16 * 1024;
 
 function authorized(req: IncomingMessage, expectedToken: string): boolean {
@@ -26,7 +26,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-export async function handlePlatformClawKnoxSkillHubRequest(
+async function handlePlatformClawKnoxSkillHubRequest(
   req: IncomingMessage,
   res: ServerResponse,
   options: { service: SkillHubService; serviceToken: string; readJsonBody: JsonBodyReader },

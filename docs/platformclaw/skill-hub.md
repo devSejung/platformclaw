@@ -150,15 +150,15 @@ Authenticated employees can manage the active execution target from Knox Teams.
 Responses are Markdown. English is the default; only `help ko` selects Korean
 help text.
 
-| Command | Result |
-| --- | --- |
-| `/skillhub help` | English command help |
-| `/skillhub help ko` | Korean command help |
-| `/skillhub list [page]` | Skills the employee may download |
-| `/skillhub installed` | Skill Hub skills installed on the active target |
-| `/skillhub install <slug\|namespace/slug>` | Install the latest accessible version |
-| `/skillhub update <slug\|namespace/slug>` | Replace the installed version with the latest accessible version |
-| `/skillhub delete <slug\|namespace/slug> --confirm` | Remove the revision-pinned skill from the active target |
+| Command                                             | Result                                                           |
+| --------------------------------------------------- | ---------------------------------------------------------------- |
+| `/skillhub help`                                    | English command help                                             |
+| `/skillhub help ko`                                 | Korean command help                                              |
+| `/skillhub list [page]`                             | Skills the employee may download                                 |
+| `/skillhub installed`                               | Skill Hub skills installed on the active target                  |
+| `/skillhub install <slug\|namespace/slug>`          | Install the latest accessible version                            |
+| `/skillhub update <slug\|namespace/slug>`           | Replace the installed version with the latest accessible version |
+| `/skillhub delete <slug\|namespace/slug> --confirm` | Remove the revision-pinned skill from the active target          |
 
 A bare slug works when it identifies exactly one accessible namespace. If the
 same slug is visible in multiple namespaces, the response lists candidates and

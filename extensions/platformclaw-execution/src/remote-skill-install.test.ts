@@ -110,13 +110,12 @@ describe("VM remote skill installer", () => {
 
   it("revision-pins remote removal and refreshes the catalog", async () => {
     const { access, io, refreshCatalog } = fixture();
-    const remove = access.remove;
-    if (!remove) {
+    if (!access.remove) {
       throw new Error("remote skill removal test invariant");
     }
 
     await expect(
-      remove({
+      access.remove({
         slug: "demo-skill",
         timeoutMs: 30_000,
         expectedSkillRevision: "sha256:0123456789abcdef",

@@ -904,12 +904,11 @@ export const skillsHandlers: GatewayRequestHandlers = {
         return;
       }
     }
-    const removeTarget = targetAccess?.remove;
     const remove = async () =>
-      removeTarget
+      targetAccess?.remove
         ? {
             ok: true as const,
-            ...(await removeTarget({
+            ...(await targetAccess.remove({
               slug: p.slug,
               expectedSkillRevision: p.expectedSkillRevision,
               timeoutMs: p.timeoutMs ?? 120_000,
