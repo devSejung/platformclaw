@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { i18n } from "../../i18n/index.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
@@ -70,6 +70,11 @@ const snapshot = {
 };
 
 beforeEach(async () => {
+  await i18n.setLocale("en");
+});
+
+afterEach(async () => {
+  document.body.innerHTML = "";
   await i18n.setLocale("en");
 });
 
