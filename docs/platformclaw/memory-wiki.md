@@ -280,8 +280,8 @@ The canonical approved target is documented in
 [PlatformClaw organization architecture](/platformclaw/organization-architecture).
 It is the current Memory authorization owner. Settings > Organization now owns
 the PR6A tree, membership, leader, primary-scope, and structure-management
-surface; join onboarding, request review, and organization audit presentation
-remain PR6B/PR6C work.
+surface. PR6B adds join onboarding and delegated request review; organization
+audit presentation remains PR6C work.
 
 - The hierarchy becomes `Global > Team > Group > Part`, with direct membership
   allowed at any managed level, multiple memberships, multiple leaders, an

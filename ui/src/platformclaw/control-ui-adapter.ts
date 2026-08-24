@@ -33,7 +33,7 @@ type PlatformClawControlUiAdapterOptions = {
   location?: Pick<Location, "href" | "origin" | "protocol">;
   fetchImpl?: typeof fetch;
   navigate?: (url: string) => void;
-  sessionStorage?: Pick<Storage, "removeItem"> | null;
+  sessionStorage?: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -72,7 +72,7 @@ function websocketUrl(location: Pick<Location, "origin" | "protocol">, path: str
   return url.href;
 }
 
-function browserSessionStorage(): Pick<Storage, "removeItem"> | null {
+function browserSessionStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem"> | null {
   try {
     return globalThis.sessionStorage;
   } catch {
@@ -88,7 +88,7 @@ export class PlatformClawControlUiAdapter {
     private readonly location: Pick<Location, "href" | "origin" | "protocol">,
     private readonly fetchImpl: typeof fetch,
     private readonly navigate: (url: string) => void,
-    private readonly sessionStorage: Pick<Storage, "removeItem"> | null,
+    private readonly sessionStorage: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null,
   ) {}
 
   async loadSession(refresh = false): Promise<PlatformClawSessionIdentity | null> {
@@ -133,6 +133,19 @@ export class PlatformClawControlUiAdapter {
         () =>
           html`<p class="muted" role="status">${t("platformClaw.quickActions.unavailable")}</p>`,
       );
+    const joinPrompt = Promise.all([
+      import("./organization-join-prompt.ts"),
+      loadPlatformClawLocale(),
+    ])
+      .then(
+        () => html`<platformclaw-organization-join-prompt
+          .fetchImpl=${this.fetchImpl}
+          .onUnauthenticated=${onUnauthenticated}
+          .storage=${this.sessionStorage}
+          .href=${`${PLATFORMCLAW_APP_PATH}/settings/organization?tab=requests`}
+        ></platformclaw-organization-join-prompt>`,
+      )
+      .catch(() => nothing);
     if (identity.globalRole === "admin") {
       void import("./vm-administration.ts").catch(() => {
         // A stale deployment chunk must not break the upstream Control UI session.
@@ -146,6 +159,7 @@ export class PlatformClawControlUiAdapter {
           quickActions,
           html`<p class="muted" role="status">${t("platformClaw.quickActions.loading")}</p>`,
         ),
+      renderMainBanner: () => until(joinPrompt, nothing),
       onLogout,
     };
     const enabledRouteIds = this.descriptor.enabledRoutes.filter(
@@ -390,6 +404,7 @@ export class PlatformClawControlUiAdapter {
       `openclaw.control.chatComposer.v2:${encodedGateway}`,
       `openclaw.control.chatComposer.v1:${encodedGateway.slice(0, 240)}`,
       `openclaw.control.token.v1:${normalizeGatewayTokenScope(gatewayUrl)}`,
+      "platformclaw.organizationJoinPrompt.dismissed",
     ];
     try {
       for (const key of keys) {

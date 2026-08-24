@@ -396,7 +396,16 @@ describe("PlatformClaw organization browser API", () => {
       status: 200,
       body: {
         actor: { id: member.id, displayName: "Member Name", isAdministrator: false },
-        recentJoinRequests: [{ id: requestId, status: "approved" }],
+        recentJoinRequestDetails: [
+          {
+            request: { id: requestId, status: "approved" },
+            lineage: [{ id: team.id, name: "Engineering" }],
+          },
+        ],
+        isUnaffiliated: false,
+        hasPendingJoinRequest: false,
+        canReviewJoinRequests: false,
+        joinPromptEligible: false,
       },
     });
     expect(JSON.stringify(context.body)).not.toContain("employee-member");
@@ -407,7 +416,15 @@ describe("PlatformClaw organization browser API", () => {
     });
     expect(history).toMatchObject({
       status: 200,
-      body: { items: [{ id: requestId, decisionReason: "Team need confirmed" }] },
+      body: {
+        items: [
+          {
+            request: { id: requestId, decisionReason: "Team need confirmed" },
+            scope: { id: team.id, name: "Engineering" },
+            lineage: [{ id: team.id, name: "Engineering" }],
+          },
+        ],
+      },
     });
     const secondTeam = await fixture.organization.createScope({
       actorUserId: admin.id,
@@ -431,7 +448,7 @@ describe("PlatformClaw organization browser API", () => {
         path: `${PLATFORMCLAW_ORGANIZATION_PATH}/requests/own?limit=1&offset=1`,
         token: "member-token",
       }),
-    ).toMatchObject({ status: 200, body: { items: [{ id: requestId }] } });
+    ).toMatchObject({ status: 200, body: { items: [{ request: { id: requestId } }] } });
     fixture.store.close();
   });
 
@@ -485,6 +502,54 @@ describe("PlatformClaw organization browser API", () => {
     fixture.store.close();
   });
 
+  it("keeps archived request outcomes readable with safe historical lineage", async () => {
+    const fixture = createFixture();
+    const admin = (await fixture.store.upsertPrincipal(principal("admin"), 1)).user;
+    const member = (await fixture.store.upsertPrincipal(principal("member"), 2)).user;
+    fixture.users.set("member-token", member);
+    const team = await fixture.organization.createScope({
+      actorUserId: admin.id,
+      kind: "team",
+      name: "Historical Team",
+      createdAt: 3,
+    });
+    await fixture.organization.requestMembership({
+      userId: member.id,
+      scopeId: team.id,
+      reason: "Historical request",
+      submittedAt: 4,
+    });
+    await fixture.organization.archiveScope({
+      actorUserId: admin.id,
+      scopeId: team.id,
+      expectedRevision: team.updatedAt,
+      reason: "Retire team",
+      archivedAt: 5,
+    });
+
+    expect(
+      await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/requests/own`,
+        token: "member-token",
+      }),
+    ).toMatchObject({
+      status: 200,
+      body: {
+        items: [
+          {
+            request: {
+              status: "rejected",
+              decisionReason: "Owning scope archived",
+            },
+            scope: { id: team.id, status: "archived" },
+            lineage: [{ id: team.id, status: "archived" }],
+          },
+        ],
+      },
+    });
+    fixture.store.close();
+  });
+
   it("projects review, roster, and user search without private directory fields", async () => {
     const fixture = createFixture();
     const admin = (await fixture.store.upsertPrincipal(principal("admin"), 1)).user;
@@ -493,6 +558,7 @@ describe("PlatformClaw organization browser API", () => {
       .user;
     const outsider = (await fixture.store.upsertPrincipal(principal("outsider"), 4)).user;
     fixture.users.set("leader-token", leader);
+    fixture.users.set("applicant-token", applicant);
     fixture.users.set("outsider-token", outsider);
     const team = await fixture.organization.createScope({
       actorUserId: admin.id,
@@ -515,6 +581,39 @@ describe("PlatformClaw organization browser API", () => {
       submittedAt: 7,
     });
 
+    expect(
+      await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/context`,
+        token: "outsider-token",
+      }),
+    ).toMatchObject({
+      status: 200,
+      body: {
+        isUnaffiliated: true,
+        hasPendingJoinRequest: false,
+        canReviewJoinRequests: false,
+        joinPromptEligible: true,
+      },
+    });
+    expect(
+      await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/context`,
+        token: "applicant-token",
+      }),
+    ).toMatchObject({
+      status: 200,
+      body: { isUnaffiliated: true, hasPendingJoinRequest: true, joinPromptEligible: false },
+    });
+    expect(
+      await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/context`,
+        token: "leader-token",
+      }),
+    ).toMatchObject({
+      status: 200,
+      body: { isUnaffiliated: false, canReviewJoinRequests: true, joinPromptEligible: false },
+    });
+
     const review = await call(fixture.service, {
       path: `${PLATFORMCLAW_ORGANIZATION_PATH}/requests/reviewable`,
       token: "leader-token",
@@ -526,6 +625,7 @@ describe("PlatformClaw organization browser API", () => {
           {
             applicant: { id: applicant.id, accountId: "applicant", displayName: "Applicant" },
             scope: { id: team.id, name: "Engineering" },
+            lineage: [{ id: team.id, name: "Engineering" }],
           },
         ],
       },
