@@ -204,6 +204,21 @@ describe("MemoryPromotionsElement", () => {
                 canRetire: true,
                 canPurge: false,
               },
+              {
+                id: "managed-only-team-claim",
+                scopeKind: "team",
+                scopeId: "managed-team-1",
+                scopeName: "Managed only",
+                title: "Managed descendant",
+                text: "Visible for retirement only",
+                revision: 1,
+                status: "active",
+                createdAt: 1,
+                updatedAt: 1,
+                promotionTargets: [],
+                canRetire: true,
+                canPurge: false,
+              },
             ],
           }
         : { status: "approved" },
@@ -215,6 +230,9 @@ describe("MemoryPromotionsElement", () => {
     sourceKind.dispatchEvent(new Event("change", { bubbles: true }));
     await element.updateComplete;
     const sourceClaim = element.querySelectorAll<HTMLSelectElement>("select")[1]!;
+    expect([...sourceClaim.options].map((option) => option.value)).not.toContain(
+      "managed-only-team-claim",
+    );
     sourceClaim.value = "team-claim";
     sourceClaim.dispatchEvent(new Event("change", { bubbles: true }));
     await element.updateComplete;

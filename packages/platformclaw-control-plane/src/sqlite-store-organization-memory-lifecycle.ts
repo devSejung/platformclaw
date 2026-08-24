@@ -224,7 +224,9 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
     if (
       targetScope &&
       sourceScope &&
-      this.scopeLineageRows(sourceScope).some((scope) => scope.id === targetScope.id)
+      this.scopeLineageRows(sourceScope)
+        .slice(1)
+        .some((scope) => scope.id === targetScope.id)
     ) {
       return;
     }

@@ -8,6 +8,8 @@ import { PLATFORMCLAW_CONTROL_SCHEMA_VERSION } from "./sqlite-schema.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
 
 const directories: string[] = [];
+const stores: SqliteControlPlaneStore[] = [];
+const databases: DatabaseSync[] = [];
 
 function ids(): ControlPlaneIdFactory {
   let value = 0;
@@ -35,6 +37,12 @@ async function activeUser(store: SqliteControlPlaneStore, accountId: string, at:
 }
 
 afterEach(() => {
+  for (const database of databases.splice(0)) {
+    database.close();
+  }
+  for (const store of stores.splice(0)) {
+    store.close();
+  }
   for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -44,8 +52,9 @@ describe("organization memory promotion lifecycle", () => {
   it("projects canonical targets and lets ancestor leaders review without self-approval", async () => {
     const directory = mkdtempSync(join(tmpdir(), "platformclaw-memory-team-"));
     directories.push(directory);
+    const databasePath = join(directory, "control.sqlite");
     const store = new SqliteControlPlaneStore({
-      databasePath: join(directory, "control.sqlite"),
+      databasePath,
       buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
       initialAdminAccountIds: ["admin"],
       idFactory: ids(),
@@ -54,6 +63,7 @@ describe("organization memory promotion lifecycle", () => {
         revision: 1,
       }),
     });
+    stores.push(store);
     const admin = await activeUser(store, "admin", 10);
     const teamLeader = await activeUser(store, "team-leader", 20);
     const member = await activeUser(store, "member", 30);
@@ -214,7 +224,21 @@ describe("organization memory promotion lifecycle", () => {
       publishedAt: 62,
     });
     expect(direct).toMatchObject({ status: "approved", targetKind: "global" });
-    store.close();
+    const directAuditDb = new DatabaseSync(databasePath);
+    databases.push(directAuditDb);
+    const directAudit = directAuditDb
+      .prepare(
+        "SELECT event_type, target_id, details_json FROM control_audit_events WHERE event_type = 'organization-memory.promotion.direct-published'",
+      )
+      .get() as { event_type: string; target_id: string; details_json: string };
+    expect(directAudit).toMatchObject({
+      event_type: "organization-memory.promotion.direct-published",
+      target_id: direct.id,
+    });
+    expect(JSON.parse(directAudit.details_json)).toMatchObject({
+      sourceKind: "personal",
+      targetKind: "global",
+    });
   });
 
   it("rechecks submitter and reviewer authority after personal Wiki resolution", async () => {
@@ -232,7 +256,9 @@ describe("organization memory promotion lifecycle", () => {
         return { claimId: lookup, revision: 1 };
       },
     });
+    stores.push(store);
     const admin = await activeUser(store, "admin", 10);
+    const reviewer = await activeUser(store, "reviewer", 15);
     const member = await activeUser(store, "member", 20);
     const team = await store.createManagedScope({
       actorUserId: admin.user.id,
@@ -257,7 +283,7 @@ describe("organization memory promotion lifecycle", () => {
     await store.setManagedScopeMembership({
       actorUserId: admin.user.id,
       scopeId: group.id,
-      userId: admin.user.id,
+      userId: reviewer.user.id,
       role: "leader",
       reason: "test assignment",
       changedAt: 32,
@@ -334,7 +360,7 @@ describe("organization memory promotion lifecycle", () => {
       }),
     };
     const racedDecision = store.decideOrganizationMemoryPromotion({
-      agentId: admin.binding.agentId,
+      agentId: reviewer.binding.agentId,
       requestId: request.id,
       decision: "approve",
       reason: "race proof",
@@ -344,13 +370,12 @@ describe("organization memory promotion lifecycle", () => {
     await store.removeManagedScopeMembership({
       actorUserId: admin.user.id,
       scopeId: group.id,
-      userId: admin.user.id,
+      userId: reviewer.user.id,
       reason: "revoke during review",
       changedAt: 45,
     });
     releaseReview();
-    await expect(racedDecision).rejects.toThrow("promotion approval authority required");
-    store.close();
+    await expect(racedDecision).rejects.toThrow("memory-promotion not found");
   });
 
   it("enforces ordered promotion, immutable approval, retirement, purge, and authorization", async () => {
@@ -368,6 +393,7 @@ describe("organization memory promotion lifecycle", () => {
         revision: personalRevision,
       }),
     });
+    stores.push(store);
     const admin = await activeUser(store, "admin", 10);
     const member = await activeUser(store, "member", 20);
     const outsider = await activeUser(store, "outsider", 30);
@@ -537,6 +563,37 @@ describe("organization memory promotion lifecycle", () => {
       reason: "Verified",
       decidedAt: 61,
     });
+    const invalidDirectBase = {
+      agentId: admin.binding.agentId,
+      sourceKind: "group" as const,
+      sourceClaimId: approvedGroup.targetClaimId!,
+      expectedSourceRevision: 1,
+      proposedText: "Invalid direct publication",
+      evidence: [],
+      reason: "strict ancestor proof",
+      publishedAt: 62,
+    };
+    await expect(
+      store.publishOrganizationMemoryDirect({
+        ...invalidDirectBase,
+        targetKind: "group",
+        targetScopeId: group.id,
+      }),
+    ).rejects.toThrow("ancestor scope or global");
+    await expect(
+      store.publishOrganizationMemoryDirect({
+        ...invalidDirectBase,
+        targetKind: "part",
+        targetScopeId: part.id,
+      }),
+    ).rejects.toThrow("ancestor scope or global");
+    await expect(
+      store.publishOrganizationMemoryDirect({
+        ...invalidDirectBase,
+        targetKind: "group",
+        targetScopeId: siblingGroup.id,
+      }),
+    ).rejects.toThrow("ancestor scope or global");
     const teamRequest = await store.submitOrganizationMemoryPromotion({
       agentId: member.binding.agentId,
       sourceKind: "group",
@@ -593,7 +650,7 @@ describe("organization memory promotion lifecycle", () => {
         agentId: outsider.binding.agentId,
         query: "Company recovery",
       }),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
 
     await expect(
       store.retireOrganizationMemoryClaim({
@@ -611,18 +668,18 @@ describe("organization memory promotion lifecycle", () => {
     });
     expect(retired.status).toBe("retired");
     const auditBeforePurge = new DatabaseSync(databasePath);
+    databases.push(auditBeforePurge);
     expect(
       auditBeforePurge
         .prepare("SELECT proposed_text FROM organization_memory_promotion_requests WHERE id = ?")
         .get(globalRequest.id),
     ).toEqual({ proposed_text: "# Company recovery\nDrain jobs before service restart." });
-    auditBeforePurge.close();
-    expect(
-      await store.searchOrganizationMemory({
-        agentId: outsider.binding.agentId,
-        query: "Company recovery",
-      }),
-    ).toHaveLength(0);
+    const remainingCompanyRecovery = await store.searchOrganizationMemory({
+      agentId: outsider.binding.agentId,
+      query: "Company recovery",
+    });
+    expect(remainingCompanyRecovery.map((hit) => hit.id)).toEqual([approvedTeam.targetClaimId]);
+    expect(remainingCompanyRecovery.map((hit) => hit.id)).not.toContain(globalClaim);
     await expect(
       store.purgeOrganizationMemoryClaim({
         agentId: member.binding.agentId,
@@ -718,7 +775,7 @@ describe("organization memory promotion lifecycle", () => {
         reason: "stale review",
         decidedAt: 94,
       }),
-    ).rejects.toThrow("immutable decision");
+    ).rejects.toThrow("memory-promotion not found");
     const archivedRequesterView = await store.getOrganizationMemoryLifecycle(
       member.binding.agentId,
     );
@@ -726,7 +783,7 @@ describe("organization memory promotion lifecycle", () => {
       expect.objectContaining({
         id: archivedRequest.id,
         status: "rejected",
-        decisionReason: "Owning target scope archived",
+        decisionReason: "Source or target scope archived",
       }),
     );
 
@@ -781,8 +838,10 @@ describe("organization memory promotion lifecycle", () => {
       ]),
     );
     expect(lifecycle.claims.some((claim) => claim.id === globalClaim)).toBe(false);
-    expect(lifecycle.submitted.map((request) => request.status)).toContain("approved");
+    expect(lifecycle.submitted).toEqual([]);
+    expect(archivedRequesterView.submitted.map((request) => request.status)).toContain("approved");
     const db = new DatabaseSync(databasePath);
+    databases.push(db);
     expect(db.prepare("PRAGMA user_version").get()).toEqual({
       user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
     });
@@ -815,12 +874,13 @@ describe("organization memory promotion lifecycle", () => {
       cloneRequest.run(`bulk-${index}`, 1_000 + index, personal.id);
     }
     const firstPage = await store.getOrganizationMemoryLifecycle(member.binding.agentId);
-    expect(firstPage.submitted).toHaveLength(200);
-    expect(firstPage.next?.submitted).toBe(200);
+    expect(firstPage.submitted).toHaveLength(25);
+    expect(firstPage.next?.submitted).toBe(25);
     const secondPage = await store.getOrganizationMemoryLifecycle(member.binding.agentId, {
       submitted: firstPage.next?.submitted,
     });
-    expect(secondPage.submitted).toHaveLength(9);
+    expect(secondPage.submitted).toHaveLength(25);
+    expect(secondPage.next?.submitted).toBe(50);
     const partProvenance = JSON.parse(
       (
         db
@@ -839,7 +899,17 @@ describe("organization memory promotion lifecycle", () => {
           "SELECT COUNT(*) AS count FROM control_audit_events WHERE event_type LIKE 'organization-memory.%'",
         )
         .get(),
-    ).toEqual({ count: 16 });
+    ).toEqual({ count: 18 });
+    expect(
+      db
+        .prepare(
+          "SELECT event_type FROM control_audit_events WHERE target_id = ? ORDER BY event_type",
+        )
+        .all(teamRequest.id),
+    ).toEqual([
+      { event_type: "organization-memory.promotion.approved" },
+      { event_type: "organization-memory.promotion.requested" },
+    ]);
     expect(() =>
       db
         .prepare(
@@ -847,7 +917,5 @@ describe("organization memory promotion lifecycle", () => {
         )
         .run(personal.id),
     ).toThrow("immutable");
-    db.close();
-    store.close();
   });
 });

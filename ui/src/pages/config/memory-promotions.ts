@@ -102,7 +102,10 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
 
   private sourceClaims() {
     return (this.snapshot?.claims ?? []).filter(
-      (claim) => claim.status === "active" && claim.scopeKind === this.sourceKind,
+      (claim) =>
+        claim.status === "active" &&
+        claim.scopeKind === this.sourceKind &&
+        claim.promotionTargets.length > 0,
     );
   }
 

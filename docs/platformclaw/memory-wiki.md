@@ -180,13 +180,13 @@ internal provenance, scope IDs, and approval identities never reach the UI.
 Deployment owns the plugin enablement. Operators need no new environment
 variable: the plugin reuses the existing owner-only Control Plane handoff token
 and socket. Redeploy/restart the PlatformClaw Gateway and web ingress after
-upgrade. Before PR4, an empty organization result set is expected.
+upgrade. Before PR3, an empty organization result set is expected.
 
 These are the current schema v3 rules. Team is a managed organization corpus,
 and every read reuses the canonical organization authorization snapshot. See
 [PlatformClaw organization architecture](/platformclaw/organization-architecture).
 
-## PR4: promotion and lifecycle
+## PR5: promotion and lifecycle
 
 Promotion unit is a structured claim, not an entire generated page. A request
 contains source scope and claim identity, target scope, proposed text,
@@ -203,11 +203,12 @@ organization claim row.
 
 Approval authority:
 
-- personal to a directly joined Part, Group, or Team: target-scope leader or
-  ancestor leader;
+- personal to a directly joined Part, Group, or Team: target-scope leader,
+  ancestor leader, or PlatformClaw administrator;
 - personal to Global: PlatformClaw administrator, only for an unaffiliated user;
-- Part to its parent Group, Group to its parent Team, and Team to Global:
-  target-scope leader or PlatformClaw administrator.
+- Part to its parent Group and Group to its parent Team: target-scope leader,
+  ancestor leader, or PlatformClaw administrator;
+- Team to Global: PlatformClaw administrator.
 
 Approval creates a target-scope claim linked to its immutable source claim.
 The compiler rebuilds pages, backlinks, related pages, and reports from claims;
