@@ -95,7 +95,10 @@ describe("createQaSmokeCiPart", () => {
       false,
     );
     expect(
-      selectedScenarios.some((scenario) => (scenario.execution.path ?? "").includes("docker")),
+      selectedScenarios.some(
+        (scenario) =>
+          scenario.execution.kind !== "flow" && scenario.execution.path.includes("docker"),
+      ),
     ).toBe(false);
     const smokeSelection = resolveQaProfileScenarios({
       profile: "smoke-ci",
