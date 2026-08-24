@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { computeSkillPromptVersion } from "../../skills/loading/skill-version.js";
 import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
@@ -612,5 +613,29 @@ describe("skill upload gateway handlers", () => {
       fs.readFile(path.join(workspaceDir, "skills", "rollback-demo", "SKILL.md"), "utf8"),
     ).resolves.toContain("first version");
     expect(skillUploadExists(stateDir, forced.uploadId)).toBe(true);
+  });
+
+  it("revision-pins uploaded workspace skill removal", async () => {
+    const { handlers, workspaceDir } = await makeHarness();
+    const targetDir = path.join(workspaceDir, "skills", "remove-demo");
+    const content = "---\nname: remove-demo\ndescription: Demo\nversion: 1.0.0\n---\n";
+    await fs.mkdir(targetDir, { recursive: true });
+    await fs.writeFile(path.join(targetDir, "SKILL.md"), content);
+
+    const stale = await call(handlers, "skills.uninstall", {
+      slug: "remove-demo",
+      destination: "workspace",
+      expectedSkillRevision: "sha256:0000000000000000",
+    });
+    expect(stale.ok).toBe(false);
+    await expect(fs.stat(targetDir)).resolves.toBeDefined();
+
+    const removed = await call(handlers, "skills.uninstall", {
+      slug: "remove-demo",
+      destination: "workspace",
+      expectedSkillRevision: computeSkillPromptVersion(content),
+    });
+    expect(removed).toMatchObject({ ok: true, payload: { ok: true, slug: "remove-demo" } });
+    await expectPathMissing(targetDir);
   });
 });

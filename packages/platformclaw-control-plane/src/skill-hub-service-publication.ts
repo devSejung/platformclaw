@@ -42,6 +42,20 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     return { user: auth.user, agentId: binding.agentId, workspaceDir };
   }
 
+  async authenticateAccount(accountId: string): Promise<AuthenticatedWorkspace | null> {
+    const route = await this.options.store.resolveAuthenticatedKnoxDmRoute({
+      accountId: accountId.trim(),
+    });
+    if (route.status !== "resolved") {
+      return null;
+    }
+    const workspaceDir = path.resolve(this.workspaceRoot, route.binding.agentId);
+    if (!isInside(this.workspaceRoot, workspaceDir) || workspaceDir === this.workspaceRoot) {
+      throw new SkillHubServiceError("personal Agent workspace is invalid", 500);
+    }
+    return { user: route.user, agentId: route.binding.agentId, workspaceDir };
+  }
+
   async config(actor: AuthenticatedWorkspace) {
     await this.reconcileOwners();
     const profile = await this.options.store.getPersonalExecutionProfile(actor.agentId);
@@ -107,6 +121,117 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     );
     const items = result.items.filter((_, index) => visibility[index]);
     return { items, total: items.length };
+  }
+
+  async commandCatalog(user: PlatformUser, page: number, pageSize = 20) {
+    if (!Number.isSafeInteger(page) || page < 1 || page > 25) {
+      throw new SkillHubServiceError("page must be between 1 and 25", 400);
+    }
+    const fetchLimit = page * pageSize;
+    const result = await this.adapterCall(() => this.options.adapter.search("", fetchLimit));
+    const visible = (
+      await Promise.all(
+        result.items.map(async (item) => ({
+          item,
+          allowed:
+            this.namespaces.has(item.namespace.toLowerCase()) &&
+            (await this.canAccessSkill(
+              user,
+              item.namespace.toLowerCase(),
+              item.slug,
+              item.visibility,
+              item.latestVersion,
+            )),
+        })),
+      )
+    )
+      .filter((entry) => entry.allowed)
+      .map((entry) => entry.item);
+    return {
+      items: visible.slice((page - 1) * pageSize, page * pageSize),
+      page,
+      pageSize,
+      hasNext: result.total > fetchLimit || visible.length > page * pageSize,
+      registryTotal: result.total,
+    };
+  }
+
+  async resolveCommandSkill(user: PlatformUser, raw: string) {
+    const value = raw.trim().toLowerCase();
+    if (!value) {
+      throw new SkillHubServiceError("skill slug is required", 400);
+    }
+    const separator = value.indexOf("/");
+    if (separator >= 0) {
+      const namespace = this.authorizeNamespace(value.slice(0, separator));
+      const slug = safeName(value.slice(separator + 1), "skill slug", SKILL_KEY_PATTERN);
+      const detail = await this.detail(user, namespace, slug);
+      const version = detail.versions.find((candidate) => candidate.downloadAvailable)?.version;
+      if (!version) {
+        throw new SkillHubServiceError("skill has no downloadable version", 409);
+      }
+      return { namespace, slug, version };
+    }
+    const slug = safeName(value, "skill slug", SKILL_KEY_PATTERN);
+    const result = await this.search(user, slug, 50);
+    const matches = result.items.filter((item) => item.slug.toLowerCase() === slug);
+    if (matches.length === 0) {
+      throw new SkillHubServiceError(`skill not found: ${slug}`, 404);
+    }
+    if (matches.length > 1) {
+      throw new SkillHubServiceError("skill slug is ambiguous", 409, {
+        candidates: matches.map((item) => `${item.namespace}/${item.slug}`),
+      });
+    }
+    const match = matches[0]!;
+    return { namespace: match.namespace, slug: match.slug, version: match.latestVersion };
+  }
+
+  async commandInstalled(actor: AuthenticatedWorkspace) {
+    const execution = await this.resolveExecutionTarget(actor.agentId);
+    const status = await this.gatewayCall<{
+      skills?: Array<{ skillKey?: string; source?: string; version?: string; revision?: string }>;
+    }>("skills.status", {
+      agentId: actor.agentId,
+      refresh: true,
+      backendTarget: execution.activeTarget,
+    });
+    const source =
+      execution.activeTarget === "assigned_vm" ? "platformclaw-vm-workspace" : "openclaw-workspace";
+    return {
+      target: execution.activeTarget,
+      items: (status.skills ?? []).filter((item) => item.source === source),
+    };
+  }
+
+  async uninstall(actor: AuthenticatedWorkspace, slugRaw: string) {
+    const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
+    const execution = await this.resolveExecutionTarget(actor.agentId);
+    const installed = await this.commandInstalled(actor);
+    const item = installed.items.find((candidate) => candidate.skillKey === slug);
+    if (!item) {
+      throw new SkillHubServiceError(`skill is not installed on the active target: ${slug}`, 404);
+    }
+    if (!/^sha256:[a-f0-9]{16}$/u.test(item.revision ?? "")) {
+      throw new SkillHubServiceError("installed skill revision is unavailable", 409);
+    }
+    const result = await this.gatewayCall<Record<string, unknown>>("skills.uninstall", {
+      agentId: actor.agentId,
+      slug,
+      destination: "sandbox-backend",
+      backendTarget: execution.activeTarget,
+      expectedTargetRevision: execution.targetRevision,
+      expectedSkillRevision: item.revision,
+    });
+    if (result.ok !== true || result.slug !== slug) {
+      throw new SkillHubServiceError("Gateway returned an invalid uninstall result", 503);
+    }
+    await this.audit(actor.user.id, "skill-hub.uninstall", slug, {
+      agentId: actor.agentId,
+      destination: execution.activeTarget,
+      version: item.version ?? null,
+    });
+    return { ok: true, slug, version: item.version, target: execution.activeTarget };
   }
 
   async detail(user: PlatformUser, namespaceRaw: string, slugRaw: string) {

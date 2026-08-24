@@ -144,6 +144,29 @@ the current and requested versions and requires a second confirmation. The Basic
 and VM installers use sibling staging and backup directories to replace
 atomically and restore the old tree if validation or commit fails.
 
+## Knox commands
+
+Authenticated employees can manage the active execution target from Knox Teams.
+Responses are Markdown. English is the default; only `help ko` selects Korean
+help text.
+
+| Command                                             | Result                                                           |
+| --------------------------------------------------- | ---------------------------------------------------------------- |
+| `/skillhub help`                                    | English command help                                             |
+| `/skillhub help ko`                                 | Korean command help                                              |
+| `/skillhub list [page]`                             | Skills the employee may download                                 |
+| `/skillhub installed`                               | Skill Hub skills installed on the active target                  |
+| `/skillhub install <slug\|namespace/slug>`          | Install the latest accessible version                            |
+| `/skillhub update <slug\|namespace/slug>`           | Replace the installed version with the latest accessible version |
+| `/skillhub delete <slug\|namespace/slug> --confirm` | Remove the revision-pinned skill from the active target          |
+
+A bare slug works when it identifies exactly one accessible namespace. If the
+same slug is visible in multiple namespaces, the response lists candidates and
+requires `namespace/slug`. Install, update, and delete resolve the authoritative
+Basic or assigned-VM target at execution time; they never fall back to the other
+workspace. Delete requires `--confirm` and refuses to remove a skill whose
+revision changed after status was read.
+
 ## Validation and security limits
 
 The compressed ZIP ceiling is **500 MiB**. Browser ingress streams to an

@@ -68,6 +68,21 @@ async function fixture(groups: string[] = ["engineering"], governance?: SkillHub
       createdAt: 1,
       updatedAt: 1,
     })),
+    resolveAuthenticatedKnoxDmRoute: vi.fn(async () => ({
+      status: "resolved" as const,
+      user: { ...user, groups },
+      binding: {
+        id: "binding-1",
+        kind: "personal" as const,
+        userId: user.id,
+        agentId: "agent-1",
+        state: "active" as const,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      sessionKey: "agent:agent-1:main",
+      executionTarget: "platform_server" as const,
+    })),
     getVmAllocationForAgent,
     getSkillHubOwnership: vi.fn(async () => ownership),
     recordSkillHubPublication: vi.fn(async (params) => {
@@ -192,6 +207,85 @@ function overwriteCentralUncompressedSize(
 }
 
 describe("SkillHubService", () => {
+  it("serves English help by default and Korean help only when requested", async () => {
+    const { service } = await fixture();
+
+    await expect(service.command("person.one", "help")).resolves.toMatchObject({
+      text: expect.stringContaining("## SkillHub commands"),
+    });
+    await expect(service.command("person.one", "help ko")).resolves.toMatchObject({
+      text: expect.stringContaining("## SkillHub 명령어"),
+    });
+    await expect(service.command("person.one", "help en")).resolves.toMatchObject({
+      text: expect.not.stringContaining("명령어"),
+    });
+  });
+
+  it("lists every accessible catalog item through paged Knox output", async () => {
+    const { service, adapterMocks } = await fixture();
+    adapterMocks.search.mockResolvedValue({
+      items: [
+        {
+          namespace: "engineering",
+          slug: "demo-skill",
+          summary: "Demo",
+          visibility: "PUBLIC",
+          latestVersion: "1.2.3",
+        },
+      ],
+      total: 1,
+    });
+
+    await expect(service.command("person.one", "list")).resolves.toMatchObject({
+      text: expect.stringContaining("`demo-skill` | `engineering` | `1.2.3`"),
+    });
+  });
+
+  it("requires confirmation and revision-pins SkillHub deletion", async () => {
+    const { service, adapterMocks, adminRpcCall } = await fixture();
+    adapterMocks.search.mockResolvedValue({
+      items: [
+        {
+          namespace: "engineering",
+          slug: "demo-skill",
+          summary: "Demo",
+          visibility: "PUBLIC",
+          latestVersion: "1.2.3",
+        },
+      ],
+      total: 1,
+    });
+    adminRpcCall.mockImplementation(async (method: string) =>
+      method === "skills.status"
+        ? {
+            skills: [
+              {
+                skillKey: "demo-skill",
+                source: "openclaw-workspace",
+                version: "1.2.3",
+                revision: "sha256:0123456789abcdef",
+              },
+            ],
+          }
+        : { ok: true, slug: "demo-skill" },
+    );
+
+    await expect(service.command("person.one", "delete demo-skill")).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    await expect(
+      service.command("person.one", "delete demo-skill --confirm"),
+    ).resolves.toMatchObject({ text: expect.stringContaining("## Deleted") });
+    expect(adminRpcCall).toHaveBeenCalledWith(
+      "skills.uninstall",
+      expect.objectContaining({
+        slug: "demo-skill",
+        expectedSkillRevision: "sha256:0123456789abcdef",
+        backendTarget: "platform_server",
+      }),
+    );
+  });
+
   it("packages the real workspace skill and overrides only the published version", async () => {
     const { service, actor, adapterMocks, skillDir, recordAuditEvent } = await fixture();
 

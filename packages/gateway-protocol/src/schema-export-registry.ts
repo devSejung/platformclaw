@@ -436,6 +436,7 @@ export {
   ToolsEffectiveParamsSchema,
   ToolsInvokeParamsSchema,
   SkillsInstallParamsSchema,
+  SkillsUninstallParamsSchema,
   SkillsCuratorActionParamsSchema,
   SkillsCuratorActionResultSchema,
   SkillsCuratorStatusParamsSchema,

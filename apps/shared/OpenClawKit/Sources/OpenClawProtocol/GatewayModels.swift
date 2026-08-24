@@ -14022,6 +14022,44 @@ public struct SkillsUploadCommitParams: Codable, Sendable {
     }
 }
 
+public struct SkillsUninstallParams: Codable, Sendable {
+    public let agentid: String?
+    public let slug: String
+    public let destination: AnyCodable
+    public let expectedtargetrevision: Int?
+    public let backendtarget: String?
+    public let expectedskillrevision: String
+    public let timeoutms: Int?
+
+    public init(
+        agentid: String? = nil,
+        slug: String,
+        destination: AnyCodable,
+        expectedtargetrevision: Int? = nil,
+        backendtarget: String? = nil,
+        expectedskillrevision: String,
+        timeoutms: Int? = nil)
+    {
+        self.agentid = agentid
+        self.slug = slug
+        self.destination = destination
+        self.expectedtargetrevision = expectedtargetrevision
+        self.backendtarget = backendtarget
+        self.expectedskillrevision = expectedskillrevision
+        self.timeoutms = timeoutms
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agentid = "agentId"
+        case slug
+        case destination
+        case expectedtargetrevision = "expectedTargetRevision"
+        case backendtarget = "backendTarget"
+        case expectedskillrevision = "expectedSkillRevision"
+        case timeoutms = "timeoutMs"
+    }
+}
+
 public struct CronJob: Codable, Sendable {
     public let id: String
     public let declarationkey: String?

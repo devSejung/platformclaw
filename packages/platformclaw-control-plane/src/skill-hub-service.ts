@@ -2,6 +2,9 @@ import type { PlatformUser } from "./contracts.js";
 import { SkillHubGovernanceError } from "./skill-hub-governance-client.js";
 import { SkillHubPublicationService } from "./skill-hub-service-publication.js";
 import {
+  compareSemVer,
+  safeName,
+  SKILL_KEY_PATTERN,
   SkillHubServiceError,
   validVersion,
   validVisibility,
@@ -17,6 +20,115 @@ export {
 export type { AuthenticatedWorkspace, SkillInstallTarget } from "./skill-hub-service-support.js";
 
 export class SkillHubService extends SkillHubPublicationService {
+  async command(accountId: string, rawArgs: string | undefined): Promise<{ text: string }> {
+    const actor = await this.authenticateAccount(accountId);
+    if (!actor) {
+      throw new SkillHubServiceError("linked active employee account required", 401);
+    }
+    const [action = "help", ...tail] = (rawArgs ?? "").trim().split(/\s+/u).filter(Boolean);
+    if (action === "help") {
+      return { text: tail[0]?.toLowerCase() === "ko" ? skillHubHelpKo() : skillHubHelpEn() };
+    }
+    if (action === "list") {
+      const page = tail[0] === undefined ? 1 : Number(tail[0]);
+      const result = await this.commandCatalog(actor.user, page);
+      const lines = [
+        `## Downloadable skills — page ${result.page}`,
+        "",
+        "| Skill | Namespace | Latest |",
+        "|---|---|---|",
+        ...result.items.map(
+          (item) => `| \`${item.slug}\` | \`${item.namespace}\` | \`${item.latestVersion}\` |`,
+        ),
+      ];
+      if (result.items.length === 0) {
+        lines.splice(2, lines.length - 2, "No downloadable skills on this page.");
+      }
+      if (result.hasNext) {
+        lines.push("", `Next: \`/skillhub list ${result.page + 1}\``);
+      }
+      return { text: lines.join("\n") };
+    }
+    if (action === "installed") {
+      const result = await this.commandInstalled(actor);
+      const target = result.target === "assigned_vm" ? "My VM workspace" : "Basic workspace";
+      if (result.items.length === 0) {
+        return { text: `## Installed skills\n\nTarget: **${target}**\n\nNo skills installed.` };
+      }
+      return {
+        text: [
+          "## Installed skills",
+          "",
+          `Target: **${target}**`,
+          "",
+          "| Skill | Version |",
+          "|---|---|",
+          ...result.items.map(
+            (item) => `| \`${item.skillKey ?? "unknown"}\` | \`${item.version ?? "unknown"}\` |`,
+          ),
+        ].join("\n"),
+      };
+    }
+    if (action === "install" || action === "update") {
+      if (tail.length !== 1) {
+        throw new SkillHubServiceError(`usage: /skillhub ${action} <slug|namespace/slug>`, 400);
+      }
+      const skill = await this.resolveCommandSkill(actor.user, tail[0]!);
+      const execution = await this.resolveExecutionTarget(actor.agentId);
+      let currentVersion: string | undefined;
+      if (action === "update") {
+        const installed = await this.commandInstalled(actor);
+        currentVersion = installed.items.find((item) => item.skillKey === skill.slug)?.version;
+        if (!currentVersion) {
+          throw new SkillHubServiceError(
+            `skill is not installed on the active target: ${skill.slug}`,
+            409,
+          );
+        }
+        if (compareSemVer(skill.version, currentVersion) < 0) {
+          throw new SkillHubServiceError(
+            `latest registry version ${skill.version} is older than installed version ${currentVersion}`,
+            409,
+          );
+        }
+      }
+      const result = await this.install(actor, {
+        ...skill,
+        destination: execution.activeTarget,
+        ...(currentVersion ? { acknowledgedVersionChange: true, currentVersion } : {}),
+      });
+      const verb = result.noOp
+        ? "Already installed"
+        : action === "update"
+          ? "Updated"
+          : "Installed";
+      return {
+        text: `## ${verb}\n\n- Skill: \`${skill.namespace}/${skill.slug}\`\n- Version: \`${skill.version}\`\n- Target: \`${execution.activeTarget}\``,
+      };
+    }
+    if (action === "delete") {
+      const refs = tail.filter((value) => value !== "--confirm");
+      if (!tail.includes("--confirm") || refs.length !== 1 || refs.length === tail.length) {
+        throw new SkillHubServiceError(
+          "usage: /skillhub delete <slug|namespace/slug> --confirm",
+          400,
+        );
+      }
+      const reference = refs[0]!.trim().toLowerCase();
+      const segments = reference.split("/");
+      if (segments.length > 2) {
+        throw new SkillHubServiceError("invalid skill reference", 400);
+      }
+      const slug = safeName(segments.at(-1) ?? "", "skill slug", SKILL_KEY_PATTERN);
+      const namespace = segments.length === 2 ? this.authorizeNamespace(segments[0]!) : undefined;
+      const result = await this.uninstall(actor, slug);
+      return {
+        text: `## Deleted\n\n- Skill: \`${namespace ? `${namespace}/` : ""}${slug}\`\n- Version: \`${result.version ?? "unknown"}\`\n- Target: \`${result.target}\``,
+      };
+    }
+    throw new SkillHubServiceError(`unknown SkillHub command: ${action}`, 400);
+  }
+
   async notifications(user: PlatformUser, limit = 50) {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
       throw new SkillHubServiceError("notification limit must be between 1 and 100", 400);
@@ -387,4 +499,30 @@ export class SkillHubService extends SkillHubPublicationService {
     }
     return { processed };
   }
+}
+
+function skillHubHelpEn(): string {
+  return [
+    "## SkillHub commands",
+    "",
+    "- `/skillhub help [ko|en]`",
+    "- `/skillhub list [page]`",
+    "- `/skillhub installed`",
+    "- `/skillhub install <slug|namespace/slug>`",
+    "- `/skillhub update <slug|namespace/slug>`",
+    "- `/skillhub delete <slug|namespace/slug> --confirm`",
+  ].join("\n");
+}
+
+function skillHubHelpKo(): string {
+  return [
+    "## SkillHub 명령어",
+    "",
+    "- `/skillhub help [ko|en]`: 도움말",
+    "- `/skillhub list [페이지]`: 다운로드 가능한 스킬",
+    "- `/skillhub installed`: 현재 설치된 스킬",
+    "- `/skillhub install <slug|namespace/slug>`: 설치",
+    "- `/skillhub update <slug|namespace/slug>`: 업데이트",
+    "- `/skillhub delete <slug|namespace/slug> --confirm`: 현재 실행 대상에서 제거",
+  ].join("\n");
 }

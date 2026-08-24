@@ -1,5 +1,5 @@
 // Archive install helpers extract and validate skill archives during installation.
-import { readFile } from "node:fs/promises";
+import { lstat, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ArchiveLogger } from "../../infra/archive.js";
@@ -57,6 +57,11 @@ export type SkillArchiveInstallTargetAccess = {
     timeoutMs: number;
     expectedSkillRevision?: string;
   }): Promise<{ targetDir: string }>;
+  remove?(params: {
+    slug: string;
+    timeoutMs: number;
+    expectedSkillRevision: string;
+  }): Promise<{ targetDir: string }>;
 };
 
 /** Result shape for installing a skill archive into a workspace skills dir. */
@@ -94,6 +99,68 @@ export function resolveWorkspaceSkillInstallDir(workspaceDir: string, slug: stri
     throw new Error(target.error);
   }
   return target.path;
+}
+
+/** Removes one revision-pinned workspace skill without following links or deleting a changed tree. */
+export async function removeWorkspaceSkill(params: {
+  workspaceDir: string;
+  slug: string;
+  expectedSkillRevision: string;
+  logger?: ArchiveLogger;
+}): Promise<SkillArchiveInstallResult> {
+  let targetDir: string;
+  try {
+    targetDir = resolveWorkspaceSkillInstallDir(params.workspaceDir, params.slug);
+    const stat = await lstat(targetDir);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      return installFailure("skill is missing or invalid", "invalid-request");
+    }
+    const currentRevision = computeSkillPromptVersion(
+      await readFile(path.join(targetDir, "SKILL.md"), "utf8"),
+    );
+    if (currentRevision !== params.expectedSkillRevision) {
+      return installFailure("skill changed; reload and retry", "invalid-request");
+    }
+    const shouldDispatchChange = hasCommittedSkillChangeHooks();
+    const before = shouldDispatchChange
+      ? await snapshotCommittedSkillArtifactBestEffort({
+          skillDir: targetDir,
+          skillKey: params.slug,
+          source: "upload",
+          logger: params.logger,
+        })
+      : undefined;
+    const stagedDir = path.join(
+      path.dirname(targetDir),
+      `.platformclaw-skill-remove-${params.slug}-${process.pid}-${Date.now()}`,
+    );
+    await rename(targetDir, stagedDir);
+    try {
+      const stagedRevision = computeSkillPromptVersion(
+        await readFile(path.join(stagedDir, "SKILL.md"), "utf8"),
+      );
+      if (stagedRevision !== params.expectedSkillRevision) {
+        await rename(stagedDir, targetDir);
+        return installFailure("skill changed; reload and retry", "invalid-request");
+      }
+      await rm(stagedDir, { recursive: true, force: false });
+    } catch (error) {
+      await rename(stagedDir, targetDir).catch(() => undefined);
+      throw error;
+    }
+    if (shouldDispatchChange) {
+      await dispatchCommittedSkillChangeBestEffort({
+        action: "removed",
+        source: "upload",
+        workspaceDir: params.workspaceDir,
+        before,
+        logger: params.logger,
+      });
+    }
+    return { ok: true, targetDir };
+  } catch (error) {
+    return installFailure(formatErrorMessage(error), "unavailable");
+  }
 }
 
 function installFailure(

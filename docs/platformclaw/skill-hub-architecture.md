@@ -24,7 +24,8 @@ This architecture is implemented by the PlatformClaw deployment profile.
 | Control plane    | Employee actor, scope ACL, ownership, packaging, scan governance, audit, inbox   |
 | Registry runtime | Pinned SkillHub server and scanner on the PlatformClaw server's internal network |
 | Gateway          | Canonical uploaded-archive validation and atomic Basic install/update            |
-| Execution plugin | Assigned-VM transfer and atomic install/update with rollback                     |
+| Execution plugin | Assigned-VM transfer and atomic install/update/remove with rollback              |
+| SkillHub plugin  | Authorized Knox `/skillhub` command registration and bounded control-plane call  |
 | Release          | One PlatformClaw image archive and checksum flow for all runtime images          |
 
 ```text
@@ -59,6 +60,11 @@ owner of local archive extraction and Basic workspace installation. The
 The adapter must stay replaceable. Browser routes and UI models must not depend on
 raw SkillHub response objects, internal URLs, tokens, storage paths, or database
 identifiers.
+
+The Knox channel remains transport-only. It extracts a structurally valid final
+command line and passes it to the shared command registry. The
+`platformclaw-skillhub` plugin owns the `/skillhub` product command and calls the
+control-plane-owned employee, ACL, catalog, and mutation boundary.
 
 ## Embedded deployment boundary
 

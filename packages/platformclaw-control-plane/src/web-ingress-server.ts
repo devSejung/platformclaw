@@ -30,7 +30,7 @@ import { handlePlatformClawSkillHubRequest } from "./browser-skill-hub-http.js";
 import { handlePlatformClawVmAdministrationRequest } from "./browser-vm-admin-http.js";
 import { handlePlatformClawVocRequest } from "./browser-voc-http.js";
 import { handlePlatformClawKnoxIngressProxy } from "./knox-ingress-proxy.js";
-import { handlePlatformClawKnoxRoutingRequest } from "./knox-routing-http.js";
+import { handlePlatformClawKnoxInternalRequest } from "./knox-skill-hub-http.js";
 import { isPlatformClawApplicationPath, PLATFORMCLAW_WEB_LOGIN_PATH } from "./web-assets.js";
 import type {
   PlatformClawWebIngressListenOptions,
@@ -342,8 +342,9 @@ export class PlatformClawWebIngressServer {
       }
       if (
         this.options.knoxRouting &&
-        (await handlePlatformClawKnoxRoutingRequest(req, res, {
+        (await handlePlatformClawKnoxInternalRequest(req, res, {
           ...this.options.knoxRouting,
+          skillHubService: this.options.skillHubService,
           readJsonBody: readBrowserJsonBody,
         }))
       ) {

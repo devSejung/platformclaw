@@ -76,6 +76,7 @@ const CURRENT_TRAIN_METHODS = [
   "memory.search",
   "skills.proposals.evaluate",
   "skills.proposals.events.list",
+  "skills.uninstall",
   "hooks.status",
   "tasks.retry",
   "tasks.dismiss",

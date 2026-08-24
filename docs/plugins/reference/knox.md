@@ -20,4 +20,4 @@ channels: `knox`
 
 ## Related docs
 
-- [/platformclaw/knox-proxy-spec](/platformclaw/knox-proxy-spec)
+- [knox](/channels/knox)

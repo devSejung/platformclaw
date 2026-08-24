@@ -486,6 +486,22 @@ The observed `/공지` path retrieves the latest stored notice for the requestin
 user; it is not a PlatformClaw agent command. Notice storage, eligible-recipient
 lookup, and opt-out persistence remain CDEP concerns.
 
+## PlatformClaw commands
+
+CDEP forwards PlatformClaw commands as ordinary authenticated text. The plugin
+examines only the final non-empty line after normalized ingress. It accepts a
+standalone command such as `/compact` and a transport-added mention prefix such
+as `@PlatformClaw /compact`; the mention token is structural and need not match
+a hard-coded display name. Prose that merely contains `/...` elsewhere remains
+normal agent input.
+
+The extracted line enters the existing OpenClaw command registry, so core,
+plugin, and skill commands keep their normal authorization and availability
+rules. Knox does not maintain a duplicate command list. `/stop` uses a dedicated
+control lane so it can interrupt an active room or DM run instead of waiting
+behind that run. See [Slash commands](/tools/slash-commands) and
+[Skill Hub integration](/platformclaw/skill-hub#knox-commands).
+
 ## Deployment configuration and secrets
 
 Production currently injects these settings through deployment-controlled

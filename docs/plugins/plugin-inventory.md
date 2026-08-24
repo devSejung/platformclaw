@@ -51,7 +51,7 @@ Each entry lists the package, distribution route, and description.
 
 ## Core npm package
 
-58 plugins
+60 plugins
 
 - **[admin-http-rpc](/plugins/reference/admin-http-rpc)** (`@openclaw/admin-http-rpc`) - included in OpenClaw. Expose selected admin RPC and PlatformClaw profile context.
 
@@ -136,6 +136,10 @@ Each entry lists the package, distribution route, and description.
 - **[openrouter](/plugins/reference/openrouter)** (`@openclaw/openrouter-provider`) - included in OpenClaw. Adds OpenRouter model provider support to OpenClaw.
 
 - **[platformclaw-execution](/plugins/reference/platformclaw-execution)** (`@platformclaw/execution`) - included in OpenClaw. Private execution-target router for PlatformClaw personal agents.
+
+- **[platformclaw-org-memory](/plugins/reference/platformclaw-org-memory)** (`@platformclaw/org-memory`) - included in OpenClaw. Authorized Group, Part, and Global memory corpus for personal agents.
+
+- **[platformclaw-skillhub](/plugins/reference/platformclaw-skillhub)** (`@platformclaw/skillhub`) - included in OpenClaw. Company SkillHub commands for PlatformClaw.
 
 - **[platformclaw-user-mcp](/plugins/reference/platformclaw-user-mcp)** (`@platformclaw/user-mcp`) - included in OpenClaw. Per-user credentials for administrator-approved MCP servers.
 

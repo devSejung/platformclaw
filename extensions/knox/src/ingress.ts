@@ -5,6 +5,7 @@ import {
   type ChannelIngressMonitorLifecycle,
 } from "openclaw/plugin-sdk/channel-outbound";
 import { runDetachedWebhookWork } from "openclaw/plugin-sdk/webhook-request-guards";
+import { resolveKnoxCommandText } from "./command-text.js";
 import { KnoxOutboundError } from "./outbound.js";
 import { getKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage } from "./types.js";
@@ -25,10 +26,18 @@ export function createKnoxIngress(options: {
   log?: (message: string) => void;
   abortSignal?: AbortSignal;
 }) {
-  const inspect = (message: KnoxInboundMessage) => ({
-    eventId: message.messageId,
-    laneKey: message.conversation.conversationId,
-  });
+  const inspect = (message: KnoxInboundMessage) => {
+    const command = resolveKnoxCommandText(message.message.text).trim().split(/\s+/u)[0];
+    const control = command?.toLowerCase() === "/stop";
+    return {
+      eventId: message.messageId,
+      // Stop must enter while ordinary work owns the conversation lane; otherwise
+      // the command cannot interrupt the run it was sent to stop.
+      laneKey: control
+        ? `${message.conversation.conversationId}:control`
+        : message.conversation.conversationId,
+    };
+  };
   const monitor = createChannelIngressMonitor<KnoxInboundMessage, string, StoredKnoxIngress>({
     queue:
       options.queue ??
@@ -61,7 +70,10 @@ export function createKnoxIngress(options: {
       createClaimError: () =>
         new KnoxIngressPermanentError("invalid-event", "Knox ingress payload is invalid"),
     },
-    deliver: options.dispatch,
+    // A delivery may outlive the pump that claimed it when another lane (notably
+    // /stop) repumps. Give every delivery its own Gateway root lease.
+    deliver: async (message, lifecycle) =>
+      await runDetachedWebhookWork(async () => await options.dispatch(message, lifecycle)),
     pollIntervalMs: 500,
     retention: "standard",
     drain: {
@@ -77,10 +89,9 @@ export function createKnoxIngress(options: {
     },
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
     // The durable drain outlives the relay HTTP acknowledgement. Reserve an
-    // independent Gateway root and keep its pump alive through delivery so
-    // later agent work does not inherit a released request lease.
+    // independent Gateway root for queue work; delivery owns a separate root above.
     runPumpTask: runDetachedWebhookWork,
-    waitForDeliveryIdleBeforeRepump: true,
+    waitForDeliveryIdleBeforeRepump: false,
     admissionMode: "while-running",
     createStoppedError: () => new Error("Knox ingress is stopped"),
     onError: (error) => options.log?.(`knox ingress failed: ${String(error)}`),

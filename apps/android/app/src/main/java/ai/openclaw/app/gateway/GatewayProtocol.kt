@@ -305,6 +305,7 @@ enum class GatewayMethod(
   SkillsUploadChunk("skills.upload.chunk"),
   SkillsUploadCommit("skills.upload.commit"),
   SkillsInstall("skills.install"),
+  SkillsUninstall("skills.uninstall"),
   SkillsUpdate("skills.update"),
   SkillsCuratorStatus("skills.curator.status"),
   SkillsCuratorPin("skills.curator.pin"),
