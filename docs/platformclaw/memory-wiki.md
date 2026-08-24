@@ -18,7 +18,7 @@ compiled wiki pages, and future shared knowledge as distinct product layers.
 - `memory-core` owns personal recall, promotion, daily memory, and Dreaming.
 - `memory-wiki` compiles durable sources into navigable Markdown pages with
   provenance, claims, backlinks, related pages, and reports.
-- PlatformClaw owns browser authorization and the future organization scopes,
+- PlatformClaw owns browser authorization and the shared organization scopes,
   approval workflow, and audit trail.
 - Assigned-VM selection changes project execution only. Personal memory and
   wiki state remain attached to the Gateway-hosted personal Agent.
@@ -30,15 +30,16 @@ or an explicit operator action. PR1 adds no background LLM curator.
 
 ## Delivery plan
 
-| PR  | Capability                  | Storage and authority                                                         |
-| --- | --------------------------- | ----------------------------------------------------------------------------- |
-| 1   | Native personal Memory Wiki | One `vault.scope=agent` vault per personal Agent; native plugin and UI        |
-| 2   | Generic multi-corpus seam   | Upstream-compatible corpus registry/query contract; no organization policy    |
-| 3   | Organization read scopes    | Personal, part, group, and global corpora with PlatformClaw membership checks |
-| 4   | Promotion lifecycle         | Claim-level request, approval, retirement, audit, and derived semantic links  |
+| PR  | Capability                  | Storage and authority                                                            |
+| --- | --------------------------- | -------------------------------------------------------------------------------- |
+| 1   | Native personal Memory Wiki | One `vault.scope=agent` vault per personal Agent; native plugin and UI           |
+| 2   | Generic multi-corpus seam   | Upstream-compatible corpus registry/query contract; no organization policy       |
+| 3   | Organization read scopes    | Personal, Part, Group, Team, and Global corpora with canonical membership checks |
+| 4   | Organization UI foundation  | Bounded server projections and a shared Memory administration surface            |
+| 5   | Promotion lifecycle         | Claim-level request, approval, retirement, audit, and derived semantic links     |
 
 Each PR leaves a deployable system. PR3 intentionally ships an empty shared
-read model until PR4 adds the only authorized promotion writer; it is useful as
+read model until PR5 adds the only authorized promotion writer; it is useful as
 an authorization, query, and UI foundation but does not fabricate seed data.
 Later PRs must reuse native Memory Wiki compiler and query contracts rather
 than fork page rendering or search.
@@ -137,15 +138,16 @@ No part, group, or global authorization ships in PR2.
 
 ## PR3: organization scopes
 
-PR3 adds four logical corpus classes. Shared corpora are SQLite read models,
+PR3 adds five logical corpus classes. Shared corpora are SQLite read models,
 not host filesystem vaults:
 
-| Scope    | Read authority                                            | Write authority             |
-| -------- | --------------------------------------------------------- | --------------------------- |
-| Personal | Bound employee                                            | Native personal Agent tools |
-| Part     | Current part members                                      | Promotion workflow only     |
-| Group    | Current group members; group leader may audit child parts | Promotion workflow only     |
-| Global   | Every authenticated employee                              | Promotion workflow only     |
+| Scope    | Read authority                                | Write authority                                 |
+| -------- | --------------------------------------------- | ----------------------------------------------- |
+| Personal | Bound employee                                | Native personal Agent tools                     |
+| Part     | Direct Part members                           | Promotion; authorized leaders/admin curate      |
+| Group    | Direct Group and descendant Part members      | Promotion; target/ancestor leaders/admin review |
+| Team     | Direct Team and descendant Group/Part members | Promotion; target/ancestor leaders/admin review |
+| Global   | Every active authenticated employee           | Promotion; PlatformClaw administrator approval  |
 
 Ordinary group members cannot read sibling part vaults. Default search spans
 every corpus authorized for the current employee and labels each result's
@@ -154,7 +156,7 @@ never grants scope.
 
 The additive `organization_memory_pages` table remains under schema version 2
 and is created idempotently on first use. It stores only compiler output and
-bounded provenance JSON. It exposes no production write API in PR3. PR4 owns
+bounded provenance JSON. It exposes no production write API in PR3. PR5 owns
 claim submission, approval, retirement, and compilation into this table.
 
 Authorization is evaluated for every search and page read:
