@@ -69,12 +69,12 @@ export type ManagedScopeRow = {
   created_at: number;
   updated_at: number;
 };
-export type ManagedScopePrimaryMembershipRow = {
+type ManagedScopePrimaryMembershipRow = {
   user_id: string;
   scope_id: string;
   updated_at: number;
 };
-export type OrganizationJoinRequestRow = {
+type OrganizationJoinRequestRow = {
   id: string;
   user_id: string;
   scope_id: string;
@@ -83,7 +83,7 @@ export type OrganizationJoinRequestRow = {
   created_at: number;
   decided_at: number | null;
 };
-export type OrganizationJoinRequestDecisionRow = {
+type OrganizationJoinRequestDecisionRow = {
   request_id: string;
   decision: "approved" | "rejected" | "cancelled";
   actor_user_id: string;

@@ -12,10 +12,10 @@ import {
 import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
 import { executeSync, runImmediateTransaction } from "./kysely-sync.js";
 import { normalizeAccountId } from "./sqlite-store-core.js";
-import { SqliteControlPlaneOrganizationStore } from "./sqlite-store-organization.js";
+import { SqliteControlPlaneOrganizationJoinStore } from "./sqlite-store-organization-join.js";
 
 export class SqliteControlPlaneStore
-  extends SqliteControlPlaneOrganizationStore
+  extends SqliteControlPlaneOrganizationJoinStore
   implements
     ControlPlaneStore,
     ControlPlaneManagementStore,

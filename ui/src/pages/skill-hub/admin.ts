@@ -71,7 +71,7 @@ export function renderSkillHubAdmin(props: {
                       props.onDraft({ ...props.draft, scopeKind, scopeId: "" });
                     }}
                   >
-                    <option value="global">Global</option>
+                    <option value="global">${t("skillHubPage.scopeGlobal")}</option>
                     <option value="team">${t("skillHubPage.scopeTeam")}</option>
                     <option value="group">${t("skillHubPage.scopeGroup")}</option>
                     <option value="part">${t("skillHubPage.scopePart")}</option>
@@ -118,7 +118,7 @@ export function renderSkillHubAdmin(props: {
                   ?disabled=${props.busy ||
                   !props.draft.namespace.trim() ||
                   props.draft.scopeKind === "global" ||
-                  (props.draft.scopeKind !== "global" && !props.draft.scopeId)}
+                  !props.draft.scopeId}
                   @click=${props.onSave}
                 >
                   ${t("skillHubPage.saveBinding")}

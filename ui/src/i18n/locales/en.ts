@@ -3130,6 +3130,7 @@ export const en: TranslationMap = {
     adminHelp: "Manage namespace access and skills waiting for an owner.",
     namespaceBindings: "Namespace access",
     scope: "Organization scope",
+    scopeGlobal: "Global",
     scopeTeam: "Company team",
     scopeGroup: "Group",
     scopePart: "Part",

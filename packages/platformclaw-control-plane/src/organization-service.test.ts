@@ -189,8 +189,8 @@ describe("PlatformClaw organization services", () => {
     const admin = (await store.upsertPrincipal(principal("admin"), 1)).user;
     const leader = (await store.upsertPrincipal(principal("leader"), 2)).user;
     const applicant = (await store.upsertPrincipal(principal("applicant"), 3)).user;
-    const ids = ["join-1", "join-2"];
-    const service = new OrganizationService(store, () => ids.shift() ?? "join-collision");
+    const requestIds = ["join-1", "join-2"];
+    const service = new OrganizationService(store, () => requestIds.shift() ?? "join-collision");
     const team = await service.createScope({
       actorUserId: admin.id,
       kind: "team",
@@ -309,8 +309,8 @@ describe("PlatformClaw organization services", () => {
     const leader = (await store.upsertPrincipal(principal("leader"), 2)).user;
     const first = (await store.upsertPrincipal(principal("first"), 3)).user;
     const second = (await store.upsertPrincipal(principal("second"), 4)).user;
-    const ids = ["join-part", "join-sibling"];
-    const service = new OrganizationService(store, () => ids.shift()!);
+    const requestIds = ["join-part", "join-sibling"];
+    const service = new OrganizationService(store, () => requestIds.shift()!);
     const team = await service.createScope({
       actorUserId: admin.id,
       kind: "team",
