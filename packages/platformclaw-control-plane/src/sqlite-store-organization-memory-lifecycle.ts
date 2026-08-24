@@ -533,12 +533,17 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
       );
       const managedScopes = allScopeRows
         .filter((scope) => managedScopeIds.has(scope.id))
-        .map((scope) => ({
-          kind: scope.kind,
-          id: scope.id,
-          name: scope.name,
-          ...(scope.parent_scope_id ? { parentScopeId: scope.parent_scope_id } : {}),
-        }));
+        .map((scope) => {
+          const result: AuthorizedOrganizationMemoryScope = {
+            kind: scope.kind,
+            id: scope.id,
+            name: scope.name,
+          };
+          if (scope.parent_scope_id) {
+            result.parentScopeId = scope.parent_scope_id;
+          }
+          return result;
+        });
       const scopes = [
         ...new Map(
           [...readScopes, ...managedScopes].map((scope) => [

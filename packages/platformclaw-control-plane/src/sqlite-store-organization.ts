@@ -14,21 +14,19 @@ import { normalizeScopeName, required, rowToMembership, rowToScope } from "./sql
 import { SqliteControlPlaneOrganizationAccessStore } from "./sqlite-store-organization-access.js";
 import type { ManagedScopeRow } from "./sqlite-store-types.js";
 
-export function boundedOrganizationReason(value: string, field: string): string {
-  const reason = required(value, field);
-  if (reason.length > 500) {
-    throw new ControlPlaneStateError(`${field} must not exceed 500 characters`);
+function boundedOrganizationText(value: string, field: string, max: number): string {
+  const text = required(value, field);
+  if (text.length > max) {
+    throw new ControlPlaneStateError(`${field} must not exceed ${max} characters`);
   }
-  return reason;
+  return text;
 }
 
-function boundedScopeName(value: string): string {
-  const name = required(value, "scope.name");
-  if (name.length > 120) {
-    throw new ControlPlaneStateError("scope.name must not exceed 120 characters");
-  }
-  return name;
+export function boundedOrganizationReason(value: string, field: string): string {
+  return boundedOrganizationText(value, field, 500);
 }
+
+const boundedScopeName = (value: string) => boundedOrganizationText(value, "scope.name", 120);
 
 type OrganizationAuditAuthorizationFacts =
   | OrganizationAuthorization["facts"]

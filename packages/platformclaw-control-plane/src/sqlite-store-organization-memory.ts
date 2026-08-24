@@ -105,12 +105,17 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
     }
     return [
       { kind: "global", name: "Global" },
-      ...this.resolveEffectiveOrganizationAccessSnapshot(userId).map(({ scope }) => ({
-        kind: scope.kind,
-        id: scope.id,
-        name: scope.name,
-        ...(scope.parentScopeId ? { parentScopeId: scope.parentScopeId } : {}),
-      })),
+      ...this.resolveEffectiveOrganizationAccessSnapshot(userId).map(({ scope }) => {
+        const result: AuthorizedOrganizationMemoryScope = {
+          kind: scope.kind,
+          id: scope.id,
+          name: scope.name,
+        };
+        if (scope.parentScopeId) {
+          result.parentScopeId = scope.parentScopeId;
+        }
+        return result;
+      }),
     ];
   }
 
