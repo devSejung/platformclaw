@@ -19,7 +19,7 @@ export type EnterprisePrincipal = {
 
 export type PlatformUserStatus = "active" | "disabled";
 export type PlatformUserGlobalRole = "member" | "admin";
-export type ManagedScopeKind = "group" | "part";
+export type ManagedScopeKind = "team" | "group" | "part";
 export type ManagedScopeStatus = "active" | "archived";
 export type ManagedScopeRole = "member" | "leader";
 export type OrganizationMemoryScopeKind = "global" | ManagedScopeKind;
@@ -63,7 +63,7 @@ export type OrganizationMemoryLifecycleScope = {
   kind: OrganizationMemoryScopeKind;
   name: string;
   id?: string;
-  parentGroupId?: string;
+  parentScopeId?: string;
   canAdminister: boolean;
 };
 
@@ -138,11 +138,28 @@ export type ManagedScope = {
   id: string;
   kind: ManagedScopeKind;
   name: string;
-  parentGroupId?: string;
+  parentScopeId?: string;
   status: ManagedScopeStatus;
   createdByUserId: string;
   createdAt: number;
   updatedAt: number;
+};
+
+export type EffectiveManagedScopeAccess = {
+  scope: ManagedScope;
+  source: "administrator" | "direct" | "ancestor";
+  directRole?: ManagedScopeRole;
+};
+
+export type OrganizationAuthorization = {
+  canRead: boolean;
+  canManageMembers: boolean;
+  canManageStructure: boolean;
+  canManageLeaders: boolean;
+  facts: {
+    source: "none" | "administrator" | "membership" | "leadership";
+    scopeIds: string[];
+  };
 };
 
 export type ManagedScopeMembership = {
@@ -151,6 +168,17 @@ export type ManagedScopeMembership = {
   role: ManagedScopeRole;
   createdAt: number;
   updatedAt: number;
+};
+
+export type OrganizationJoinRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
+export type OrganizationJoinRequest = {
+  id: string;
+  userId: string;
+  scopeId: string;
+  reason: string;
+  status: OrganizationJoinRequestStatus;
+  createdAt: number;
+  decidedAt?: number;
 };
 
 export type ControlAuditEvent = {
@@ -383,12 +411,13 @@ export interface ControlPlaneManagementStore {
     actorUserId: string;
     kind: ManagedScopeKind;
     name: string;
-    parentGroupId?: string;
+    parentScopeId?: string;
     createdAt: number;
   }): Promise<ManagedScope>;
   archiveManagedScope(params: {
     actorUserId: string;
     scopeId: string;
+    reason: string;
     archivedAt: number;
   }): Promise<ManagedScope>;
   setManagedScopeMembership(params: {
@@ -396,6 +425,7 @@ export interface ControlPlaneManagementStore {
     scopeId: string;
     userId: string;
     role: ManagedScopeRole;
+    reason: string;
     changedAt: number;
   }): Promise<ManagedScopeMembership>;
   removeManagedScopeMembership(params: {
@@ -406,6 +436,49 @@ export interface ControlPlaneManagementStore {
   }): Promise<boolean>;
   listManagedScopes(): Promise<ManagedScope[]>;
   listManagedScopeMemberships(scopeId: string): Promise<ManagedScopeMembership[]>;
+  getManagedScope(scopeId: string): Promise<ManagedScope | null>;
+  getManagedScopeLineage(scopeId: string): Promise<ManagedScope[]>;
+  resolveManagedScopeAuthorization(
+    actorUserId: string,
+    scopeId: string,
+  ): Promise<OrganizationAuthorization>;
+  listEffectiveManagedScopeAccess(userId: string): Promise<EffectiveManagedScopeAccess[]>;
+  listUserManagedScopeMemberships(userId: string): Promise<ManagedScopeMembership[]>;
+  getUserPrimaryScope(userId: string): Promise<ManagedScope | null>;
+  setUserPrimaryScope(params: {
+    actorUserId: string;
+    userId: string;
+    scopeId?: string;
+    changedAt: number;
+  }): Promise<ManagedScope | null>;
+  submitOrganizationJoinRequest(params: {
+    requestId: string;
+    userId: string;
+    scopeId: string;
+    reason: string;
+    submittedAt: number;
+  }): Promise<OrganizationJoinRequest>;
+  decideOrganizationJoinRequest(params: {
+    actorUserId: string;
+    requestId: string;
+    decision: "approved" | "rejected";
+    reason: string;
+    decidedAt: number;
+  }): Promise<OrganizationJoinRequest>;
+  cancelOrganizationJoinRequest(params: {
+    actorUserId: string;
+    requestId: string;
+    reason: string;
+    cancelledAt: number;
+  }): Promise<OrganizationJoinRequest>;
+  listOwnOrganizationJoinRequests(params: {
+    userId: string;
+    limit?: number;
+  }): Promise<OrganizationJoinRequest[]>;
+  listReviewableOrganizationJoinRequests(params: {
+    actorUserId: string;
+    limit?: number;
+  }): Promise<OrganizationJoinRequest[]>;
   listAuditEvents(limit?: number): Promise<ControlAuditEvent[]>;
 }
 
@@ -421,6 +494,7 @@ export type ControlPlaneConflictCode =
   | "vm_allocation_conflict"
   | "execution_target_conflict"
   | "managed_scope_name_conflict"
+  | "organization_join_request_conflict"
   | "session_token_conflict";
 
 export class ControlPlaneConflictError extends Error {
@@ -439,6 +513,7 @@ export class ControlPlaneNotFoundError extends Error {
       | "user"
       | "agent-binding"
       | "managed-scope"
+      | "organization-join-request"
       | "memory-promotion"
       | "organization-memory-claim",
     id: string,

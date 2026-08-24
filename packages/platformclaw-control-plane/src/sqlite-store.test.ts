@@ -289,16 +289,23 @@ describe("SqliteControlPlaneStore", () => {
     const admin = await store.upsertPrincipal(principal("admin.user"), 1_000);
     const leader = await store.upsertPrincipal(principal("leader.user"), 1_001);
     const member = await store.upsertPrincipal(principal("member.user"), 1_002);
+    const team = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "team",
+      name: "Engineering",
+      createdAt: 1_999,
+    });
     const group = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "group",
       name: "AI Platform",
+      parentScopeId: team.id,
       createdAt: 2_000,
     });
     const part = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "part",
-      parentGroupId: group.id,
+      parentScopeId: group.id,
       name: "Agent Runtime",
       createdAt: 2_001,
     });
@@ -307,6 +314,7 @@ describe("SqliteControlPlaneStore", () => {
       scopeId: group.id,
       userId: leader.user.id,
       role: "leader",
+      reason: "test assignment",
       changedAt: 3_000,
     });
     await store.setManagedScopeMembership({
@@ -314,6 +322,7 @@ describe("SqliteControlPlaneStore", () => {
       scopeId: part.id,
       userId: member.user.id,
       role: "member",
+      reason: "test assignment",
       changedAt: 3_001,
     });
 
@@ -326,12 +335,15 @@ describe("SqliteControlPlaneStore", () => {
         scopeId: part.id,
         userId: member.user.id,
         role: "leader",
+        reason: "test assignment",
         changedAt: 3_002,
       }),
     ).rejects.toBeInstanceOf(ControlPlaneAuthorizationError);
     expect((await store.listAuditEvents()).map((event) => event.eventType)).toEqual([
+      "scope.membership.set.denied",
       "scope.membership.set",
       "scope.membership.set",
+      "scope.created",
       "scope.created",
       "scope.created",
     ]);
@@ -343,10 +355,17 @@ describe("SqliteControlPlaneStore", () => {
     const admin = await store.upsertPrincipal(principal("admin.user"), 1_000);
     const firstLeader = await store.upsertPrincipal(principal("first.leader"), 1_001);
     const secondLeader = await store.upsertPrincipal(principal("second.leader"), 1_002);
+    const team = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "team",
+      name: "Company",
+      createdAt: 1_999,
+    });
     const group = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "group",
       name: "Security",
+      parentScopeId: team.id,
       createdAt: 2_000,
     });
     for (const userId of [firstLeader.user.id, secondLeader.user.id]) {
@@ -355,6 +374,7 @@ describe("SqliteControlPlaneStore", () => {
         scopeId: group.id,
         userId,
         role: "leader",
+        reason: "test assignment",
         changedAt: 3_000,
       });
     }
@@ -365,6 +385,7 @@ describe("SqliteControlPlaneStore", () => {
         scopeId: group.id,
         userId: secondLeader.user.id,
         role: "member",
+        reason: "test assignment",
         changedAt: 4_000,
       }),
     ).rejects.toThrow("only administrators can change leader roles");
@@ -383,10 +404,17 @@ describe("SqliteControlPlaneStore", () => {
     const store = createStore();
     const admin = await store.upsertPrincipal(principal("admin.user"), 1_000);
     const member = await store.upsertPrincipal(principal("member.user"), 1_001);
+    const team = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "team",
+      name: "Company",
+      createdAt: 1_999,
+    });
     const group = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "group",
       name: "Archived Group",
+      parentScopeId: team.id,
       createdAt: 2_000,
     });
     await store.setManagedScopeMembership({
@@ -394,11 +422,13 @@ describe("SqliteControlPlaneStore", () => {
       scopeId: group.id,
       userId: member.user.id,
       role: "member",
+      reason: "test assignment",
       changedAt: 3_000,
     });
     await store.archiveManagedScope({
       actorUserId: admin.user.id,
       scopeId: group.id,
+      reason: "retire archived group",
       archivedAt: 4_000,
     });
 

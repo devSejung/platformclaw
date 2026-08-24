@@ -79,24 +79,31 @@ describe("organization memory read model", () => {
     const admin = await activeUser(store, "admin", 10);
     const member = await activeUser(store, "member", 20);
     const outsider = await activeUser(store, "outsider", 30);
+    const team = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "team",
+      name: "Company",
+      createdAt: 39,
+    });
     const group = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "group",
       name: "Platform",
+      parentScopeId: team.id,
       createdAt: 40,
     });
     const partA = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "part",
       name: "Runtime",
-      parentGroupId: group.id,
+      parentScopeId: group.id,
       createdAt: 41,
     });
     const partB = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "part",
       name: "Product",
-      parentGroupId: group.id,
+      parentScopeId: group.id,
       createdAt: 42,
     });
     await store.setManagedScopeMembership({
@@ -104,6 +111,7 @@ describe("organization memory read model", () => {
       scopeId: partA.id,
       userId: member.user.id,
       role: "member",
+      reason: "test assignment",
       changedAt: 50,
     });
     await store.setManagedScopeMembership({
@@ -111,6 +119,7 @@ describe("organization memory read model", () => {
       scopeId: group.id,
       userId: admin.user.id,
       role: "leader",
+      reason: "test assignment",
       changedAt: 51,
     });
 
@@ -177,6 +186,7 @@ describe("organization memory read model", () => {
     await store.archiveManagedScope({
       actorUserId: admin.user.id,
       scopeId: partA.id,
+      reason: "retire part",
       archivedAt: 60,
     });
     expect(

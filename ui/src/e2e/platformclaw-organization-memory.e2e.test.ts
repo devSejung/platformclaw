@@ -155,7 +155,7 @@ suite("PlatformClaw organization memory Settings E2E", () => {
               {
                 kind: "part",
                 id: "part-runtime",
-                parentGroupId: "group-platform",
+                parentScopeId: "group-platform",
                 name: "Runtime",
                 canAdminister: false,
               },

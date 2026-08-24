@@ -25,6 +25,11 @@ import {
 import { defaultControlPlaneIdFactory } from "./ids.js";
 import { createSyncKysely, executeSync, takeFirstSync } from "./kysely-sync.js";
 import {
+  isDelegatedOrganizationLeader,
+  resolveEffectiveOrganizationAccess,
+  resolveOrganizationAuthorization,
+} from "./organization-policy.js";
+import {
   ensureVmHostExecutionEnvironmentSchema,
   initializeControlPlaneSchema,
 } from "./sqlite-schema.js";
@@ -141,7 +146,7 @@ export function rowToScope(row: ManagedScopeRow): ManagedScope {
     id: row.id,
     kind: row.kind,
     name: row.name,
-    ...(row.parent_group_id ? { parentGroupId: row.parent_group_id } : {}),
+    ...(row.parent_scope_id ? { parentScopeId: row.parent_scope_id } : {}),
     status: row.status,
     createdByUserId: row.created_by_user_id,
     createdAt: row.created_at,
@@ -180,7 +185,7 @@ export abstract class SqliteControlPlaneStoreCore {
       }
     }
     this.db = openNodeSqliteDatabase(options.databasePath);
-    initializeControlPlaneSchema(this.db);
+    initializeControlPlaneSchema(this.db, options.databasePath);
     if (process.platform !== "win32") {
       for (const path of [
         options.databasePath,
@@ -424,9 +429,9 @@ export abstract class SqliteControlPlaneStoreCore {
       .where("kind", "=", scope.kind)
       .where("normalized_name", "=", scope.normalized_name);
     query =
-      scope.kind === "group"
-        ? query.where("parent_group_id", "is", null)
-        : query.where("parent_group_id", "=", scope.parent_group_id);
+      scope.kind === "team"
+        ? query.where("parent_scope_id", "is", null)
+        : query.where("parent_scope_id", "=", scope.parent_scope_id);
     if (takeFirstSync(this.db, query)) {
       throw new ControlPlaneConflictError(
         "managed_scope_name_conflict",
@@ -450,13 +455,85 @@ export abstract class SqliteControlPlaneStoreCore {
   }
 
   protected isLeaderForScope(userId: string, scope: ManagedScopeRow): boolean {
-    if (this.selectMembership(scope.id, userId)?.role === "leader") {
-      return true;
-    }
-    return Boolean(
-      scope.parent_group_id &&
-      this.selectMembership(scope.parent_group_id, userId)?.role === "leader",
+    const scopes = executeSync(
+      this.db,
+      this.query.selectFrom("managed_scopes").selectAll(),
+    ).rows.map(rowToScope);
+    const memberships = executeSync(
+      this.db,
+      this.query.selectFrom("managed_scope_memberships").selectAll().where("user_id", "=", userId),
+    ).rows.map(rowToMembership);
+    // Legacy consumers still require an actual leader assignment, even for admins.
+    // Their admin behavior moves to capabilities in each consumer rollout PR.
+    return isDelegatedOrganizationLeader({
+      targetScope: rowToScope(scope),
+      scopes,
+      memberships,
+    });
+  }
+
+  protected resolveOrganizationAuthorizationSnapshot(actorUserId: string, scopeId: string) {
+    const actor = this.selectUserById(actorUserId);
+    const targetScope = takeFirstSync(
+      this.db,
+      this.query.selectFrom("managed_scopes").selectAll().where("id", "=", scopeId),
     );
+    const scopes = executeSync(
+      this.db,
+      this.query.selectFrom("managed_scopes").selectAll(),
+    ).rows.map(rowToScope);
+    const memberships = actor
+      ? executeSync(
+          this.db,
+          this.query
+            .selectFrom("managed_scope_memberships")
+            .selectAll()
+            .where("user_id", "=", actor.id),
+        ).rows.map(rowToMembership)
+      : [];
+    return resolveOrganizationAuthorization({
+      actor: actor ? this.rowToUser(actor) : null,
+      targetScope: targetScope ? rowToScope(targetScope) : null,
+      scopes,
+      memberships,
+    });
+  }
+
+  protected resolveEffectiveOrganizationAccessSnapshot(userId: string) {
+    const user = this.selectUserById(userId);
+    const scopes = executeSync(
+      this.db,
+      this.query.selectFrom("managed_scopes").selectAll(),
+    ).rows.map(rowToScope);
+    const memberships = user
+      ? executeSync(
+          this.db,
+          this.query
+            .selectFrom("managed_scope_memberships")
+            .selectAll()
+            .where("user_id", "=", user.id),
+        ).rows.map(rowToMembership)
+      : [];
+    return resolveEffectiveOrganizationAccess({
+      user: user ? this.rowToUser(user) : null,
+      scopes,
+      memberships,
+    });
+  }
+
+  protected scopeLineageRows(scope: ManagedScopeRow): ManagedScopeRow[] {
+    const lineage: ManagedScopeRow[] = [];
+    const seen = new Set<string>();
+    let current: ManagedScopeRow | undefined = scope;
+    while (current) {
+      if (seen.has(current.id)) {
+        throw new ControlPlaneStateError(`managed scope lineage cycle: ${current.id}`);
+      }
+      seen.add(current.id);
+      lineage.push(current);
+      current = current.parent_scope_id ? this.requireScopeRow(current.parent_scope_id) : undefined;
+    }
+    return lineage;
   }
 
   protected insertAudit(

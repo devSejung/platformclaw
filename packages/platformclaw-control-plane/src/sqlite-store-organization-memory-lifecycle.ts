@@ -7,6 +7,7 @@ import {
   type OrganizationMemoryPromotionRequest,
   type OrganizationMemoryPromotionSourceKind,
   type OrganizationMemoryScopeKind,
+  type ManagedScopeKind,
 } from "./contracts.js";
 import { executeSync, takeFirstSync } from "./kysely-sync.js";
 import {
@@ -87,7 +88,7 @@ function requestStatus(row: RequestWithDecision): "pending" | "approved" | "reje
 }
 
 export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore extends SqliteControlPlaneOrganizationMemoryStore {
-  protected activeScope(kind: "group" | "part", scopeId: string | undefined): ManagedScopeRow {
+  protected activeScope(kind: ManagedScopeKind, scopeId: string | undefined): ManagedScopeRow {
     if (!scopeId) {
       throw new ControlPlaneStateError(`${kind} scope id is required`);
     }
@@ -180,7 +181,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
     if (
       sourceKind === "part" &&
       targetKind === "group" &&
-      sourceScope?.parent_group_id === targetScope?.id
+      sourceScope?.parent_scope_id === targetScope?.id
     ) {
       return;
     }
@@ -446,8 +447,8 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
         if (scope.id) {
           projected.id = scope.id;
         }
-        if (scope.parentGroupId) {
-          projected.parentGroupId = scope.parentGroupId;
+        if (scope.parentScopeId) {
+          projected.parentScopeId = scope.parentScopeId;
         }
         return projected;
       }),

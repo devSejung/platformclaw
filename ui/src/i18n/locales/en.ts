@@ -3137,6 +3137,9 @@ export const en: TranslationMap = {
     chooseScope: "Choose an active scope",
     visibilityCeiling: "Maximum visibility",
     saveBinding: "Save binding",
+    globalRestricted: "Restricted",
+    globalRestrictedHelp:
+      "Global bindings remain administrator-only until organization-wide activation ships in the Skill Hub rollout.",
     bindingSaved: "Namespace binding saved.",
     bindingRemoved: "Namespace binding removed.",
     removeBinding: "Remove",

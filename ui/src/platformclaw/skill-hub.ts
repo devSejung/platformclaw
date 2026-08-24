@@ -84,7 +84,8 @@ export type PlatformClawSkillHubNotification = {
 
 export type PlatformClawSkillHubNamespaceBinding = {
   namespace: string;
-  scopeKind: "team" | "group" | "part";
+  scopeKind: "global" | "team" | "group" | "part";
+  accessState: "active" | "restricted";
   scopeId?: string;
   visibilityCeiling: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
   createdByUserId: string;
@@ -94,9 +95,9 @@ export type PlatformClawSkillHubNamespaceBinding = {
 
 export type PlatformClawManagedScope = {
   id: string;
-  kind: "group" | "part";
+  kind: "team" | "group" | "part";
   name: string;
-  parentGroupId?: string;
+  parentScopeId?: string;
 };
 
 export type PlatformClawSkillHubUnassignedSkill = {
@@ -273,7 +274,7 @@ export function loadPlatformClawSkillHubNamespaceBindings(): Promise<{
 
 export function setPlatformClawSkillHubNamespaceBinding(params: {
   namespace: string;
-  scopeKind: "team" | "group" | "part";
+  scopeKind: "global" | "team" | "group" | "part";
   scopeId?: string;
   visibilityCeiling: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
 }): Promise<PlatformClawSkillHubNamespaceBinding> {

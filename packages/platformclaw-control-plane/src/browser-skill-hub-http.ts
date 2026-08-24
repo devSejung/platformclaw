@@ -351,7 +351,12 @@ export async function handlePlatformClawSkillHubRequest(
       }
       if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/admin/namespaces`) {
         const scopeKind = stringField(body, "scopeKind");
-        if (scopeKind !== "team" && scopeKind !== "group" && scopeKind !== "part") {
+        if (
+          scopeKind !== "global" &&
+          scopeKind !== "team" &&
+          scopeKind !== "group" &&
+          scopeKind !== "part"
+        ) {
           throw new SkillHubServiceError("invalid namespace scope kind", 400);
         }
         sendBrowserJson(

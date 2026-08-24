@@ -126,4 +126,45 @@ describe("Skill Hub browser HTTP", () => {
       },
     });
   });
+
+  it.each([
+    ["global", undefined],
+    ["team", "team-one"],
+  ] as const)("passes the canonical %s namespace scope shape", async (scopeKind, scopeId) => {
+    const setNamespaceBinding = vi.fn(async () => ({ ok: true }));
+    const service = {
+      authenticate: vi.fn(async () => actor),
+      setNamespaceBinding,
+    } as unknown as SkillHubService;
+    const harness = responseHarness();
+    await handlePlatformClawSkillHubRequest(
+      {
+        url: `${PLATFORMCLAW_SKILL_HUB_PATH}/admin/namespaces`,
+        method: "POST",
+        headers: { cookie: "platformclaw_session=session-token" },
+      } as IncomingMessage,
+      harness.response,
+      {
+        service,
+        readJsonBody: vi.fn(async () => ({
+          ok: true as const,
+          value: {
+            namespace: "engineering",
+            scopeKind,
+            ...(scopeId ? { scopeId } : {}),
+            visibilityCeiling: "NAMESPACE_ONLY",
+          },
+        })),
+        isMutationOriginAllowed: () => true,
+      },
+    );
+
+    expect(harness.response.statusCode).toBe(200);
+    expect(setNamespaceBinding).toHaveBeenCalledWith(actor.user, {
+      namespace: "engineering",
+      scopeKind,
+      ...(scopeId ? { scopeId } : {}),
+      visibilityCeiling: "NAMESPACE_ONLY",
+    });
+  });
 });

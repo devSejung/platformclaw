@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { chmodSync, unlinkSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 
-export const PLATFORMCLAW_CONTROL_SCHEMA_VERSION = 2;
+export const PLATFORMCLAW_CONTROL_SCHEMA_VERSION = 3;
 
 const SCHEMA_V1 = `
 CREATE TABLE platform_users (
@@ -70,23 +72,51 @@ CREATE INDEX browser_sessions_user ON browser_sessions(user_id);
 
 CREATE TABLE managed_scopes (
   id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('group', 'part')),
+  kind TEXT NOT NULL CHECK (kind IN ('team', 'group', 'part')),
   name TEXT NOT NULL,
   normalized_name TEXT NOT NULL,
-  parent_group_id TEXT REFERENCES managed_scopes(id),
+  parent_scope_id TEXT REFERENCES managed_scopes(id),
+  system_kind TEXT CHECK (system_kind IN ('unassigned-team')),
+  system_provenance TEXT CHECK (system_provenance IN ('migration-v2-v3')),
   status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
   created_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   CHECK (
-    (kind = 'group' AND parent_group_id IS NULL) OR
-    (kind = 'part' AND parent_group_id IS NOT NULL)
+    (kind = 'team' AND parent_scope_id IS NULL) OR
+    (kind IN ('group', 'part') AND parent_scope_id IS NOT NULL)
+  ),
+  CHECK (
+    (system_kind IS NULL AND system_provenance IS NULL) OR
+    (kind = 'team' AND system_kind = 'unassigned-team' AND system_provenance = 'migration-v2-v3')
   )
 ) STRICT;
-CREATE UNIQUE INDEX managed_scopes_group_name
-  ON managed_scopes(normalized_name) WHERE kind = 'group';
-CREATE UNIQUE INDEX managed_scopes_part_name
-  ON managed_scopes(parent_group_id, normalized_name) WHERE kind = 'part';
+CREATE UNIQUE INDEX managed_scopes_team_name
+  ON managed_scopes(normalized_name) WHERE kind = 'team';
+CREATE UNIQUE INDEX managed_scopes_child_name
+  ON managed_scopes(parent_scope_id, kind, normalized_name) WHERE kind IN ('group', 'part');
+CREATE UNIQUE INDEX managed_scopes_system_kind
+  ON managed_scopes(system_kind) WHERE system_kind IS NOT NULL;
+CREATE TRIGGER managed_scopes_parent_kind_insert
+BEFORE INSERT ON managed_scopes WHEN
+  (NEW.kind = 'team' AND NEW.parent_scope_id IS NOT NULL) OR
+  (NEW.kind = 'group' AND NOT EXISTS (
+    SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'team'
+  )) OR
+  (NEW.kind = 'part' AND NOT EXISTS (
+    SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'group'
+  ))
+BEGIN SELECT RAISE(ABORT, 'managed scope parent kind is invalid'); END;
+CREATE TRIGGER managed_scopes_parent_kind_update
+BEFORE UPDATE OF kind, parent_scope_id ON managed_scopes WHEN
+  (NEW.kind = 'team' AND NEW.parent_scope_id IS NOT NULL) OR
+  (NEW.kind = 'group' AND NOT EXISTS (
+    SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'team'
+  )) OR
+  (NEW.kind = 'part' AND NOT EXISTS (
+    SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'group'
+  ))
+BEGIN SELECT RAISE(ABORT, 'managed scope parent kind is invalid'); END;
 
 CREATE TABLE managed_scope_memberships (
   scope_id TEXT NOT NULL REFERENCES managed_scopes(id) ON DELETE CASCADE,
@@ -97,6 +127,60 @@ CREATE TABLE managed_scope_memberships (
   PRIMARY KEY (scope_id, user_id)
 ) STRICT;
 CREATE INDEX managed_scope_memberships_user ON managed_scope_memberships(user_id);
+
+CREATE TABLE managed_scope_primary_memberships (
+  user_id TEXT PRIMARY KEY REFERENCES platform_users(id) ON DELETE CASCADE,
+  scope_id TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (scope_id, user_id)
+    REFERENCES managed_scope_memberships(scope_id, user_id) ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE organization_join_requests (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE RESTRICT,
+  scope_id TEXT NOT NULL REFERENCES managed_scopes(id) ON DELETE RESTRICT,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER,
+  CHECK (
+    (status = 'pending' AND decided_at IS NULL) OR
+    (status != 'pending' AND decided_at IS NOT NULL)
+  )
+) STRICT;
+CREATE UNIQUE INDEX organization_join_requests_pending
+  ON organization_join_requests(user_id, scope_id) WHERE status = 'pending';
+CREATE TABLE organization_join_request_decisions (
+  request_id TEXT PRIMARY KEY REFERENCES organization_join_requests(id) ON DELETE RESTRICT,
+  decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected', 'cancelled')),
+  actor_user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE RESTRICT,
+  reason TEXT NOT NULL,
+  decided_at INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER organization_join_request_decision_immutable_update
+BEFORE UPDATE ON organization_join_request_decisions
+BEGIN SELECT RAISE(ABORT, 'organization join request decisions are immutable'); END;
+CREATE TRIGGER organization_join_request_decision_immutable_delete
+BEFORE DELETE ON organization_join_request_decisions
+BEGIN SELECT RAISE(ABORT, 'organization join request decisions are immutable'); END;
+CREATE TRIGGER organization_join_request_lineage_immutable
+BEFORE UPDATE OF id, user_id, scope_id, reason, created_at ON organization_join_requests
+BEGIN SELECT RAISE(ABORT, 'organization join request lineage is immutable'); END;
+CREATE TRIGGER organization_join_request_decision_matches
+BEFORE INSERT ON organization_join_request_decisions
+WHEN NOT EXISTS (
+  SELECT 1 FROM organization_join_requests
+  WHERE id = NEW.request_id AND status = 'pending'
+) OR NEW.decided_at IS NULL
+BEGIN SELECT RAISE(ABORT, 'organization join request decision is invalid'); END;
+CREATE TRIGGER organization_join_request_terminal_matches
+BEFORE UPDATE OF status, decided_at ON organization_join_requests
+WHEN OLD.status != 'pending' OR NEW.status = 'pending' OR NOT EXISTS (
+  SELECT 1 FROM organization_join_request_decisions
+  WHERE request_id = OLD.id AND decision = NEW.status AND decided_at = NEW.decided_at
+)
+BEGIN SELECT RAISE(ABORT, 'organization join request terminal state is invalid'); END;
 
 CREATE TABLE control_audit_events (
   id TEXT PRIMARY KEY,
@@ -397,11 +481,11 @@ CREATE TABLE IF NOT EXISTS vm_host_execution_environments (
 const ORGANIZATION_MEMORY_SCHEMA = `
 CREATE TABLE IF NOT EXISTS organization_memory_promotion_requests (
   id TEXT PRIMARY KEY,
-  source_kind TEXT NOT NULL CHECK (source_kind IN ('personal', 'part', 'group')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('personal', 'part', 'group', 'team')),
   source_scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
   source_claim_id TEXT NOT NULL,
   source_revision INTEGER NOT NULL CHECK (source_revision >= 1),
-  target_kind TEXT NOT NULL CHECK (target_kind IN ('part', 'group', 'global')),
+  target_kind TEXT NOT NULL CHECK (target_kind IN ('part', 'group', 'team', 'global')),
   target_scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
   proposed_text TEXT NOT NULL,
   evidence_json TEXT NOT NULL,
@@ -409,9 +493,18 @@ CREATE TABLE IF NOT EXISTS organization_memory_promotion_requests (
   requested_by_user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE RESTRICT,
   created_at INTEGER NOT NULL,
   CHECK (
-    (source_kind = 'personal' AND source_scope_id IS NULL AND target_kind = 'part' AND target_scope_id IS NOT NULL) OR
-    (source_kind = 'part' AND source_scope_id IS NOT NULL AND target_kind = 'group' AND target_scope_id IS NOT NULL) OR
-    (source_kind = 'group' AND source_scope_id IS NOT NULL AND target_kind = 'global' AND target_scope_id IS NULL)
+    (source_kind = 'personal' AND source_scope_id IS NULL) OR
+    (source_kind IN ('part', 'group', 'team') AND source_scope_id IS NOT NULL)
+  ),
+  CHECK (
+    (target_kind = 'global' AND target_scope_id IS NULL) OR
+    (target_kind IN ('part', 'group', 'team') AND target_scope_id IS NOT NULL)
+  ),
+  CHECK (
+    (source_kind = 'personal') OR
+    (source_kind = 'part' AND target_kind IN ('group', 'team', 'global')) OR
+    (source_kind = 'group' AND target_kind IN ('team', 'global')) OR
+    (source_kind = 'team' AND target_kind = 'global')
   )
 ) STRICT;
 CREATE INDEX IF NOT EXISTS organization_memory_promotion_requester
@@ -431,12 +524,12 @@ END;
 
 CREATE TABLE IF NOT EXISTS organization_memory_claims (
   id TEXT PRIMARY KEY,
-  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'group', 'part')),
+  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'team', 'group', 'part')),
   scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
   title TEXT NOT NULL,
   claim_text TEXT NOT NULL,
   evidence_json TEXT NOT NULL,
-  source_kind TEXT NOT NULL CHECK (source_kind IN ('personal', 'part', 'group')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('personal', 'part', 'group', 'team')),
   source_scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
   source_claim_id TEXT NOT NULL,
   source_revision INTEGER NOT NULL CHECK (source_revision >= 1),
@@ -452,7 +545,7 @@ CREATE TABLE IF NOT EXISTS organization_memory_claims (
   retirement_reason TEXT,
   CHECK (
     (scope_kind = 'global' AND scope_id IS NULL) OR
-    (scope_kind IN ('group', 'part') AND scope_id IS NOT NULL)
+    (scope_kind IN ('team', 'group', 'part') AND scope_id IS NOT NULL)
   )
 ) STRICT;
 CREATE INDEX IF NOT EXISTS organization_memory_claim_scope
@@ -495,7 +588,7 @@ END;
 
 CREATE TABLE IF NOT EXISTS organization_memory_pages (
   id TEXT PRIMARY KEY,
-  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'group', 'part')),
+  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'team', 'group', 'part')),
   scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
   title TEXT NOT NULL,
   content TEXT NOT NULL,
@@ -506,7 +599,7 @@ CREATE TABLE IF NOT EXISTS organization_memory_pages (
   updated_at INTEGER NOT NULL,
   CHECK (
     (scope_kind = 'global' AND scope_id IS NULL) OR
-    (scope_kind IN ('group', 'part') AND scope_id IS NOT NULL)
+    (scope_kind IN ('team', 'group', 'part') AND scope_id IS NOT NULL)
   )
 ) STRICT;
 CREATE INDEX IF NOT EXISTS organization_memory_scope
@@ -580,17 +673,18 @@ CREATE INDEX IF NOT EXISTS skill_hub_governance_jobs_due
 
 CREATE TABLE IF NOT EXISTS skill_hub_namespace_bindings (
   namespace TEXT PRIMARY KEY,
-  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('team', 'group', 'part')),
+  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'team', 'group', 'part')),
   scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
   visibility_ceiling TEXT NOT NULL CHECK (
     visibility_ceiling IN ('PUBLIC', 'NAMESPACE_ONLY', 'PRIVATE')
   ),
+  access_state TEXT NOT NULL CHECK (access_state IN ('active', 'restricted')),
   created_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   CHECK (
-    (scope_kind = 'team' AND scope_id IS NULL) OR
-    (scope_kind IN ('group', 'part') AND scope_id IS NOT NULL)
+    (scope_kind = 'global' AND scope_id IS NULL) OR
+    (scope_kind IN ('team', 'group', 'part') AND scope_id IS NOT NULL)
   )
 ) STRICT;
 `;
@@ -620,33 +714,401 @@ export function ensureSkillHubStateSchema(db: DatabaseSync): void {
   db.exec(SKILL_HUB_STATE_SCHEMA);
 }
 
-export function initializeControlPlaneSchema(db: DatabaseSync): void {
+function hasTable(db: DatabaseSync, name: string): boolean {
+  return Boolean(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name),
+  );
+}
+
+function assertDatabaseIntegrity(db: DatabaseSync, schema = "main"): void {
+  const row = db.prepare(`PRAGMA ${schema}.integrity_check`).get() as { integrity_check?: string };
+  if (row.integrity_check !== "ok") {
+    throw new Error(
+      `PlatformClaw control database integrity check failed: ${String(row.integrity_check)}`,
+    );
+  }
+}
+
+function createMigrationBackup(
+  db: DatabaseSync,
+  databasePath: string | undefined,
+  expectedVersion: number,
+): boolean {
+  if (!databasePath || databasePath === ":memory:" || databasePath.startsWith("file:")) {
+    return true;
+  }
+  const checkpoint = db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy: number };
+  if (checkpoint.busy !== 0) {
+    throw new Error("PlatformClaw control database WAL checkpoint remained busy");
+  }
+  assertDatabaseIntegrity(db);
+  const backupPath = `${databasePath}.pre-v3-${Date.now()}-${randomUUID()}.sqlite`;
+  db.exec(`VACUUM INTO '${backupPath.replaceAll("'", "''")}'`);
+  if (process.platform !== "win32") {
+    chmodSync(backupPath, 0o600);
+  }
+  db.prepare("ATTACH DATABASE ? AS migration_backup").run(backupPath);
+  let alreadyMigrated = false;
+  try {
+    assertDatabaseIntegrity(db, "migration_backup");
+    const version = db.prepare("PRAGMA migration_backup.user_version").get() as {
+      user_version: number;
+    };
+    if (version.user_version !== expectedVersion) {
+      const liveVersion = (
+        db.prepare("PRAGMA main.user_version").get() as {
+          user_version: number;
+        }
+      ).user_version;
+      if (
+        version.user_version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION &&
+        liveVersion === PLATFORMCLAW_CONTROL_SCHEMA_VERSION
+      ) {
+        alreadyMigrated = true;
+      } else {
+        throw new Error(
+          `PlatformClaw control backup has unexpected schema version ${version.user_version}`,
+        );
+      }
+    }
+  } finally {
+    db.exec("DETACH DATABASE migration_backup");
+  }
+  if (alreadyMigrated) {
+    // Another opener already committed v3. Redundant snapshot cleanup must not
+    // turn a valid upgraded database into a startup failure on Windows AV races.
+    try {
+      unlinkSync(backupPath);
+    } catch {
+      // Best-effort cleanup; the verified database is already canonical v3.
+    }
+    return false;
+  }
+  return true;
+}
+
+const MANAGED_ORGANIZATION_V3 = `
+CREATE TABLE managed_scopes_v3 (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('team', 'group', 'part')),
+  name TEXT NOT NULL,
+  normalized_name TEXT NOT NULL,
+  parent_scope_id TEXT REFERENCES managed_scopes_v3(id),
+  system_kind TEXT CHECK (system_kind IN ('unassigned-team')),
+  system_provenance TEXT CHECK (system_provenance IN ('migration-v2-v3')),
+  status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
+  created_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CHECK (
+    (kind = 'team' AND parent_scope_id IS NULL) OR
+    (kind IN ('group', 'part') AND parent_scope_id IS NOT NULL)
+  ),
+  CHECK (
+    (system_kind IS NULL AND system_provenance IS NULL) OR
+    (kind = 'team' AND system_kind = 'unassigned-team' AND system_provenance = 'migration-v2-v3')
+  )
+) STRICT;
+CREATE TABLE managed_scope_primary_memberships (
+  user_id TEXT PRIMARY KEY REFERENCES platform_users(id) ON DELETE CASCADE,
+  scope_id TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (scope_id, user_id)
+    REFERENCES managed_scope_memberships(scope_id, user_id) ON DELETE CASCADE
+) STRICT;
+CREATE TABLE organization_join_requests (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE RESTRICT,
+  scope_id TEXT NOT NULL REFERENCES managed_scopes(id) ON DELETE RESTRICT,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER,
+  CHECK (
+    (status = 'pending' AND decided_at IS NULL) OR
+    (status != 'pending' AND decided_at IS NOT NULL)
+  )
+) STRICT;
+CREATE UNIQUE INDEX organization_join_requests_pending
+  ON organization_join_requests(user_id, scope_id) WHERE status = 'pending';
+CREATE TABLE organization_join_request_decisions (
+  request_id TEXT PRIMARY KEY REFERENCES organization_join_requests(id) ON DELETE RESTRICT,
+  decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected', 'cancelled')),
+  actor_user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE RESTRICT,
+  reason TEXT NOT NULL,
+  decided_at INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER organization_join_request_decision_immutable_update
+BEFORE UPDATE ON organization_join_request_decisions
+BEGIN SELECT RAISE(ABORT, 'organization join request decisions are immutable'); END;
+CREATE TRIGGER organization_join_request_decision_immutable_delete
+BEFORE DELETE ON organization_join_request_decisions
+BEGIN SELECT RAISE(ABORT, 'organization join request decisions are immutable'); END;
+CREATE TRIGGER organization_join_request_lineage_immutable
+BEFORE UPDATE OF id, user_id, scope_id, reason, created_at ON organization_join_requests
+BEGIN SELECT RAISE(ABORT, 'organization join request lineage is immutable'); END;
+CREATE TRIGGER organization_join_request_decision_matches
+BEFORE INSERT ON organization_join_request_decisions
+WHEN NOT EXISTS (
+  SELECT 1 FROM organization_join_requests
+  WHERE id = NEW.request_id AND status = 'pending'
+) OR NEW.decided_at IS NULL
+BEGIN SELECT RAISE(ABORT, 'organization join request decision is invalid'); END;
+CREATE TRIGGER organization_join_request_terminal_matches
+BEFORE UPDATE OF status, decided_at ON organization_join_requests
+WHEN OLD.status != 'pending' OR NEW.status = 'pending' OR NOT EXISTS (
+  SELECT 1 FROM organization_join_request_decisions
+  WHERE request_id = OLD.id AND decision = NEW.status AND decided_at = NEW.decided_at
+)
+BEGIN SELECT RAISE(ABORT, 'organization join request terminal state is invalid'); END;
+`;
+
+function migrateSkillHubBindingsToV3(db: DatabaseSync): void {
+  if (!hasTable(db, "skill_hub_namespace_bindings")) {
+    return;
+  }
+  db.exec(`
+    CREATE TABLE skill_hub_namespace_bindings_v3 (
+      namespace TEXT PRIMARY KEY,
+      scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'team', 'group', 'part')),
+      scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
+      visibility_ceiling TEXT NOT NULL CHECK (
+        visibility_ceiling IN ('PUBLIC', 'NAMESPACE_ONLY', 'PRIVATE')
+      ),
+      access_state TEXT NOT NULL CHECK (access_state IN ('active', 'restricted')),
+      created_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (
+        (scope_kind = 'global' AND scope_id IS NULL) OR
+        (scope_kind IN ('team', 'group', 'part') AND scope_id IS NOT NULL)
+      )
+    ) STRICT;
+    INSERT INTO skill_hub_namespace_bindings_v3
+    SELECT namespace,
+      CASE WHEN scope_kind = 'team' AND scope_id IS NULL THEN 'global' ELSE scope_kind END,
+      scope_id, visibility_ceiling,
+      CASE WHEN scope_kind = 'team' AND scope_id IS NULL THEN 'restricted' ELSE 'active' END,
+      created_by_user_id, created_at, updated_at
+    FROM skill_hub_namespace_bindings;
+    DROP TABLE skill_hub_namespace_bindings;
+    ALTER TABLE skill_hub_namespace_bindings_v3 RENAME TO skill_hub_namespace_bindings;
+  `);
+}
+
+function migrateOrganizationMemoryToV3(db: DatabaseSync): void {
+  if (!hasTable(db, "organization_memory_promotion_requests")) {
+    return;
+  }
+  const v3Schema = ORGANIZATION_MEMORY_SCHEMA.replaceAll(
+    "organization_memory_",
+    "organization_memory_v3_",
+  );
+  db.exec(v3Schema);
+  db.exec(`
+    INSERT INTO organization_memory_v3_promotion_requests
+      SELECT * FROM organization_memory_promotion_requests;
+    INSERT INTO organization_memory_v3_claims SELECT * FROM organization_memory_claims;
+    INSERT INTO organization_memory_v3_promotion_decisions
+      SELECT * FROM organization_memory_promotion_decisions;
+    INSERT INTO organization_memory_v3_pages SELECT * FROM organization_memory_pages;
+    DROP TABLE organization_memory_promotion_decisions;
+    DROP TABLE organization_memory_claims;
+    DROP TABLE organization_memory_promotion_requests;
+    DROP TABLE organization_memory_pages;
+    ALTER TABLE organization_memory_v3_promotion_requests
+      RENAME TO organization_memory_promotion_requests;
+    ALTER TABLE organization_memory_v3_claims RENAME TO organization_memory_claims;
+    ALTER TABLE organization_memory_v3_promotion_decisions
+      RENAME TO organization_memory_promotion_decisions;
+    ALTER TABLE organization_memory_v3_pages RENAME TO organization_memory_pages;
+    DROP INDEX IF EXISTS organization_memory_v3_promotion_requester;
+    DROP INDEX IF EXISTS organization_memory_v3_claim_scope;
+    DROP INDEX IF EXISTS organization_memory_v3_claim_source;
+    DROP INDEX IF EXISTS organization_memory_v3_promotion_decided;
+    DROP INDEX IF EXISTS organization_memory_v3_scope;
+    DROP TRIGGER IF EXISTS organization_memory_v3_promotion_request_immutable_update;
+    DROP TRIGGER IF EXISTS organization_memory_v3_promotion_request_immutable_delete;
+    DROP TRIGGER IF EXISTS organization_memory_v3_claim_lineage_immutable;
+    DROP TRIGGER IF EXISTS organization_memory_v3_promotion_decision_immutable_update;
+    DROP TRIGGER IF EXISTS organization_memory_v3_promotion_decision_immutable_delete;
+  `);
+  db.exec(ORGANIZATION_MEMORY_SCHEMA);
+}
+
+function migrateV2ToV3(db: DatabaseSync): void {
+  const invalidParents = db
+    .prepare(
+      `SELECT child.id FROM managed_scopes child
+       LEFT JOIN managed_scopes parent ON parent.id = child.parent_group_id
+       WHERE (child.kind = 'group' AND child.parent_group_id IS NOT NULL)
+          OR (child.kind = 'part' AND (parent.id IS NULL OR parent.kind != 'group'))
+       LIMIT 1`,
+    )
+    .get();
+  if (invalidParents) {
+    throw new Error("schema v3 migration found an invalid legacy managed-scope hierarchy");
+  }
+  const groupCount = (
+    db.prepare("SELECT COUNT(*) AS count FROM managed_scopes WHERE kind = 'group'").get() as {
+      count: number;
+    }
+  ).count;
+  const admin = db
+    .prepare(
+      `SELECT id, created_at FROM platform_users
+       WHERE status = 'active' AND global_role = 'admin'
+       ORDER BY created_at, id LIMIT 1`,
+    )
+    .get() as { id: string; created_at: number } | undefined;
+  if (groupCount > 0 && !admin) {
+    throw new Error("schema v3 migration requires an active administrator for migrated groups");
+  }
+  db.exec(MANAGED_ORGANIZATION_V3);
+  if (groupCount > 0 && admin) {
+    db.prepare(
+      `INSERT INTO managed_scopes_v3
+       (id, kind, name, normalized_name, parent_scope_id, system_kind, system_provenance, status,
+        created_by_user_id, created_at, updated_at)
+       VALUES ('system-team-unassigned-v3', 'team', 'Unassigned Team', 'unassigned team',
+        NULL, 'unassigned-team', 'migration-v2-v3', 'active', ?, ?, ?)`,
+    ).run(admin.id, admin.created_at, admin.created_at);
+  }
+  db.prepare(
+    `INSERT INTO managed_scopes_v3
+     (id, kind, name, normalized_name, parent_scope_id, system_kind, system_provenance, status,
+      created_by_user_id, created_at, updated_at)
+     SELECT id, kind, name, normalized_name,
+       CASE WHEN kind = 'group' THEN 'system-team-unassigned-v3' ELSE parent_group_id END,
+       NULL, NULL, status, created_by_user_id, created_at, updated_at
+     FROM managed_scopes WHERE kind = 'group'`,
+  ).run();
+  db.prepare(
+    `INSERT INTO managed_scopes_v3
+     (id, kind, name, normalized_name, parent_scope_id, system_kind, system_provenance, status,
+      created_by_user_id, created_at, updated_at)
+     SELECT id, kind, name, normalized_name, parent_group_id, NULL, NULL, status,
+       created_by_user_id, created_at, updated_at
+     FROM managed_scopes WHERE kind = 'part'`,
+  ).run();
+  migrateSkillHubBindingsToV3(db);
+  migrateOrganizationMemoryToV3(db);
+  db.exec(`
+    DROP TABLE managed_scopes;
+    ALTER TABLE managed_scopes_v3 RENAME TO managed_scopes;
+    CREATE UNIQUE INDEX managed_scopes_team_name
+      ON managed_scopes(normalized_name) WHERE kind = 'team';
+    CREATE UNIQUE INDEX managed_scopes_child_name
+      ON managed_scopes(parent_scope_id, kind, normalized_name) WHERE kind IN ('group', 'part');
+    CREATE UNIQUE INDEX managed_scopes_system_kind
+      ON managed_scopes(system_kind) WHERE system_kind IS NOT NULL;
+    CREATE TRIGGER managed_scopes_parent_kind_insert
+    BEFORE INSERT ON managed_scopes WHEN
+      (NEW.kind = 'team' AND NEW.parent_scope_id IS NOT NULL) OR
+      (NEW.kind = 'group' AND NOT EXISTS (
+        SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'team'
+      )) OR
+      (NEW.kind = 'part' AND NOT EXISTS (
+        SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'group'
+      ))
+    BEGIN SELECT RAISE(ABORT, 'managed scope parent kind is invalid'); END;
+    CREATE TRIGGER managed_scopes_parent_kind_update
+    BEFORE UPDATE OF kind, parent_scope_id ON managed_scopes WHEN
+      (NEW.kind = 'team' AND NEW.parent_scope_id IS NOT NULL) OR
+      (NEW.kind = 'group' AND NOT EXISTS (
+        SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'team'
+      )) OR
+      (NEW.kind = 'part' AND NOT EXISTS (
+        SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'group'
+      ))
+    BEGIN SELECT RAISE(ABORT, 'managed scope parent kind is invalid'); END;
+  `);
+}
+
+export function initializeControlPlaneSchema(db: DatabaseSync, databasePath?: string): void {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA journal_mode = WAL");
+  let version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+  if (version < 0 || version > PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
+    throw new Error(`unsupported PlatformClaw control schema version: ${version}`);
+  }
+  if (version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
+    return;
+  }
+  if (version === 0) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      // A second opener may have initialized the file while this connection
+      // waited for the write lock. Never replay fresh DDL over that commit.
+      version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+      if (version === 0) {
+        db.exec(SCHEMA_V1);
+        db.exec(SCHEMA_V2);
+        assertDatabaseIntegrity(db);
+        db.exec(`PRAGMA user_version = ${PLATFORMCLAW_CONTROL_SCHEMA_VERSION}`);
+        version = PLATFORMCLAW_CONTROL_SCHEMA_VERSION;
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    if (version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
+      return;
+    }
+  }
+  if (version === 1) {
+    // Normalize the shipped v1 database first. The recoverable pre-v3 artifact
+    // must pair with the immediately previous v2 runtime, not an older v1 shape.
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+      if (version === 1) {
+        db.exec(SCHEMA_V2);
+        db.exec("PRAGMA user_version = 2");
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+  if (version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
+    return;
+  }
+  if (version !== 2) {
+    throw new Error(`unsupported PlatformClaw control schema version: ${version}`);
+  }
+  const backupCreated = createMigrationBackup(db, databasePath, 2);
+  version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+  if (!backupCreated && version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
+    return;
+  }
+  db.exec("PRAGMA foreign_keys = OFF");
   db.exec("BEGIN IMMEDIATE");
   try {
-    // Another process may have initialized the database while this opener waited for the lock.
-    const currentVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (currentVersion.user_version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
+    version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+    if (version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
       db.exec("COMMIT");
       return;
     }
-    if (currentVersion.user_version < 0 || currentVersion.user_version > 2) {
-      throw new Error(
-        `unsupported PlatformClaw control schema version: ${currentVersion.user_version}`,
-      );
+    if (version !== 2) {
+      throw new Error(`unsupported PlatformClaw control schema version: ${version}`);
     }
-    if (currentVersion.user_version === 0) {
-      db.exec(SCHEMA_V1);
+    migrateV2ToV3(db);
+    const foreignKeyFailures = db.prepare("PRAGMA foreign_key_check").all();
+    if (foreignKeyFailures.length > 0) {
+      throw new Error("schema v3 migration produced invalid foreign keys");
     }
-    if (currentVersion.user_version <= 1) {
-      db.exec(SCHEMA_V2);
-    }
+    assertDatabaseIntegrity(db);
     db.exec(`PRAGMA user_version = ${PLATFORMCLAW_CONTROL_SCHEMA_VERSION}`);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }

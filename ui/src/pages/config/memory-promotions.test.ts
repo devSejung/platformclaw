@@ -41,7 +41,7 @@ const snapshot = {
     {
       kind: "part",
       id: "part-1",
-      parentGroupId: "group-1",
+      parentScopeId: "group-1",
       name: "Runtime",
       canAdminister: true,
     },

@@ -94,7 +94,7 @@ function projectSnapshot(value: OrganizationMemoryLifecycleSnapshot) {
       kind: scope.kind,
       name: scope.name,
       ...(scope.id === undefined ? {} : { id: scope.id }),
-      ...(scope.parentGroupId === undefined ? {} : { parentGroupId: scope.parentGroupId }),
+      ...(scope.parentScopeId === undefined ? {} : { parentScopeId: scope.parentScopeId }),
       canAdminister: scope.canAdminister,
     })),
     claims: value.claims.map(projectClaim),

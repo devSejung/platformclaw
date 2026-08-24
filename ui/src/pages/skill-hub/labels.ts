@@ -13,8 +13,10 @@ export function skillHubVisibilityLabel(value: string | undefined): string {
   }
 }
 
-export function skillHubScopeKindLabel(value: "team" | "group" | "part"): string {
+export function skillHubScopeKindLabel(value: "global" | "team" | "group" | "part"): string {
   switch (value) {
+    case "global":
+      return "Global";
     case "team":
       return t("skillHubPage.scopeTeam");
     case "group":

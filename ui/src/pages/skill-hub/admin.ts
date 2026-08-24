@@ -10,7 +10,7 @@ import { skillHubScopeKindLabel, skillHubVisibilityLabel } from "./labels.ts";
 
 export type SkillHubAdminDraft = {
   namespace: string;
-  scopeKind: "team" | "group" | "part";
+  scopeKind: "global" | "team" | "group" | "part";
   scopeId: string;
   visibilityCeiling: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
 };
@@ -71,13 +71,14 @@ export function renderSkillHubAdmin(props: {
                       props.onDraft({ ...props.draft, scopeKind, scopeId: "" });
                     }}
                   >
+                    <option value="global">Global</option>
                     <option value="team">${t("skillHubPage.scopeTeam")}</option>
                     <option value="group">${t("skillHubPage.scopeGroup")}</option>
                     <option value="part">${t("skillHubPage.scopePart")}</option>
                   </select>
                 </label>
-                ${props.draft.scopeKind === "team"
-                  ? nothing
+                ${props.draft.scopeKind === "global"
+                  ? html`<p class="skill-hub-state">${t("skillHubPage.globalRestrictedHelp")}</p>`
                   : html`<label class="field">
                       <span>${t("skillHubPage.scopeUnit")}</span>
                       <select
@@ -116,7 +117,8 @@ export function renderSkillHubAdmin(props: {
                   class="btn primary"
                   ?disabled=${props.busy ||
                   !props.draft.namespace.trim() ||
-                  (props.draft.scopeKind !== "team" && !props.draft.scopeId)}
+                  props.draft.scopeKind === "global" ||
+                  (props.draft.scopeKind !== "global" && !props.draft.scopeId)}
                   @click=${props.onSave}
                 >
                   ${t("skillHubPage.saveBinding")}
@@ -129,6 +131,9 @@ export function renderSkillHubAdmin(props: {
                       (binding) => html`<article>
                         <div>
                           <strong>${binding.namespace}</strong>
+                          ${binding.accessState === "restricted"
+                            ? html`<span class="chip">${t("skillHubPage.globalRestricted")}</span>`
+                            : nothing}
                           <small
                             >${skillHubScopeKindLabel(binding.scopeKind)}${binding.scopeId
                               ? ` · ${
