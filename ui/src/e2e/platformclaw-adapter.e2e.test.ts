@@ -633,6 +633,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         },
         "platformclaw.memory.lifecycle": {
           scopes: [],
+          personalTargets: [],
           claims: [],
           submitted: [],
           reviewable: [],

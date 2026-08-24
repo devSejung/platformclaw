@@ -46,6 +46,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "platformclaw.memory.claim.retire",
   "platformclaw.memory.lifecycle",
   "platformclaw.memory.promotion.decide",
+  "platformclaw.memory.promotion.publishDirect",
   "platformclaw.memory.promotion.submit",
   "question.get",
   "question.list",
@@ -122,6 +123,7 @@ export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
   "platformclaw.memory.claim.retire",
   "platformclaw.memory.lifecycle",
   "platformclaw.memory.promotion.decide",
+  "platformclaw.memory.promotion.publishDirect",
   "platformclaw.memory.promotion.submit",
 ]);
 export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<string>>([
@@ -251,6 +253,19 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["platformclaw.memory.claim.retire", new Set(["claimId", "reason"])],
   ["platformclaw.memory.lifecycle", new Set(["claims", "submitted", "reviewable"])],
   ["platformclaw.memory.promotion.decide", new Set(["requestId", "decision", "reason"])],
+  [
+    "platformclaw.memory.promotion.publishDirect",
+    new Set([
+      "sourceKind",
+      "sourceClaimId",
+      "expectedSourceRevision",
+      "targetKind",
+      "targetScopeId",
+      "proposedText",
+      "evidence",
+      "reason",
+    ]),
+  ],
   [
     "platformclaw.memory.promotion.submit",
     new Set([
@@ -473,6 +488,7 @@ export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
   "platformclaw.memory.claim.retire",
   "platformclaw.memory.lifecycle",
   "platformclaw.memory.promotion.decide",
+  "platformclaw.memory.promotion.publishDirect",
   "platformclaw.memory.promotion.submit",
   "sessions.usage",
   "skills.install",
@@ -494,6 +510,7 @@ export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
 
 export const PLATFORMCLAW_WEB_ADMIN_METHODS = new Set<string>([
   "platformclaw.memory.claim.purge",
+  "platformclaw.memory.promotion.publishDirect",
   "plugins.install",
   "plugins.list",
   "plugins.search",

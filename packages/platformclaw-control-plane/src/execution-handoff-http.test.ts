@@ -47,9 +47,9 @@ async function startServer() {
     searchOrganizationMemory: vi.fn(async () => [
       {
         id: "page-1",
-        path: "organization/global/page-1",
-        scopeKind: "global" as const,
-        scopeName: "Global",
+        path: "organization/team/page-1",
+        scopeKind: "team" as const,
+        scopeName: "Company",
         title: "Security policy",
         snippet: "Use approved devices.",
         score: 0.9,
@@ -58,9 +58,9 @@ async function startServer() {
     ]),
     getOrganizationMemory: vi.fn(async () => ({
       id: "page-1",
-      path: "organization/global/page-1",
-      scopeKind: "global" as const,
-      scopeName: "Global",
+      path: "organization/team/page-1",
+      scopeKind: "team" as const,
+      scopeName: "Company",
       title: "Security policy",
       snippet: "Use approved devices.",
       score: 0.9,
@@ -200,11 +200,11 @@ describe("PlatformClawExecutionHandoffServer", () => {
         query: "security",
         maxResults: 5,
       }),
-    ).resolves.toEqual([expect.objectContaining({ path: "organization/global/page-1" })]);
+    ).resolves.toEqual([expect.objectContaining({ path: "organization/team/page-1" })]);
     await expect(
       post(socketPath, "/platformclaw/internal/memory/organization/get", {
         agentId: "person_one",
-        path: "organization/global/page-1",
+        path: "organization/team/page-1",
         fromLine: 1,
         lineCount: 20,
       }),
@@ -216,7 +216,7 @@ describe("PlatformClawExecutionHandoffServer", () => {
     });
     expect(service.getOrganizationMemory).toHaveBeenCalledWith({
       agentId: "person_one",
-      path: "organization/global/page-1",
+      path: "organization/team/page-1",
       fromLine: 1,
       lineCount: 20,
     });

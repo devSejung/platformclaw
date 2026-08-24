@@ -57,6 +57,16 @@ export type OrganizationMemoryClaim = {
   createdAt: number;
   updatedAt: number;
   sourceClaimId?: string;
+  promotionTargets?: OrganizationMemoryPromotionTarget[];
+  canRetire?: boolean;
+  canPurge?: boolean;
+};
+
+export type OrganizationMemoryPromotionTarget = {
+  kind: OrganizationMemoryScopeKind;
+  scopeId?: string;
+  scopeName: string;
+  mode: "request" | "direct";
 };
 
 export type OrganizationMemoryLifecycleScope = {
@@ -70,7 +80,7 @@ export type OrganizationMemoryLifecycleScope = {
 export type OrganizationMemoryPromotionRequest = {
   id: string;
   sourceKind: OrganizationMemoryPromotionSourceKind;
-  sourceClaimId: string;
+  sourceClaimId?: string;
   sourceRevision: number;
   targetKind: OrganizationMemoryScopeKind;
   targetScopeName: string;
@@ -87,6 +97,7 @@ export type OrganizationMemoryPromotionRequest = {
 
 export type OrganizationMemoryLifecycleSnapshot = {
   scopes: OrganizationMemoryLifecycleScope[];
+  personalTargets: OrganizationMemoryPromotionTarget[];
   claims: OrganizationMemoryClaim[];
   submitted: OrganizationMemoryPromotionRequest[];
   reviewable: OrganizationMemoryPromotionRequest[];
@@ -416,6 +427,18 @@ export interface OrganizationMemoryLifecycle {
     evidence: string[];
     reason: string;
     submittedAt: number;
+  }): Promise<OrganizationMemoryPromotionRequest>;
+  publishOrganizationMemoryDirect(params: {
+    agentId: string;
+    sourceKind: OrganizationMemoryPromotionSourceKind;
+    sourceClaimId: string;
+    expectedSourceRevision?: number;
+    targetKind: OrganizationMemoryScopeKind;
+    targetScopeId?: string;
+    proposedText: string;
+    evidence: string[];
+    reason: string;
+    publishedAt: number;
   }): Promise<OrganizationMemoryPromotionRequest>;
   decideOrganizationMemoryPromotion(params: {
     agentId: string;

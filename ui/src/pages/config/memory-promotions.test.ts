@@ -1,7 +1,8 @@
 /* @vitest-environment jsdom */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import { i18n } from "../../i18n/index.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import "./memory-promotions.ts";
 
@@ -46,6 +47,7 @@ const snapshot = {
       canAdminister: true,
     },
   ],
+  personalTargets: [{ kind: "part", scopeId: "part-1", scopeName: "Runtime", mode: "request" }],
   claims: [],
   submitted: [],
   reviewable: [
@@ -66,6 +68,15 @@ const snapshot = {
   ],
   canApproveGlobal: true,
 };
+
+beforeEach(async () => {
+  await i18n.setLocale("en");
+});
+
+afterEach(async () => {
+  document.body.innerHTML = "";
+  await i18n.setLocale("en");
+});
 
 describe("MemoryPromotionsElement", () => {
   it("loads the Agent-pinned lifecycle and renders review actions", async () => {
@@ -173,6 +184,80 @@ describe("MemoryPromotionsElement", () => {
       reviewable: 1,
     });
     expect(element.textContent?.match(/Policy/gu)).toHaveLength(1);
+    element.remove();
+  });
+
+  it("uses server-projected Team targets and renders Korean without translating claim text", async () => {
+    await i18n.setLocale("ko");
+    const request = vi.fn(async (method: string) =>
+      method === "platformclaw.memory.lifecycle"
+        ? {
+            ...snapshot,
+            claims: [
+              {
+                id: "team-claim",
+                scopeKind: "team",
+                scopeId: "team-1",
+                scopeName: "Company",
+                title: "Release policy",
+                text: "Keep this English body",
+                revision: 1,
+                status: "active",
+                createdAt: 1,
+                updatedAt: 1,
+                promotionTargets: [{ kind: "global", scopeName: "Global", mode: "direct" }],
+                canRetire: true,
+                canPurge: false,
+              },
+              {
+                id: "managed-only-team-claim",
+                scopeKind: "team",
+                scopeId: "managed-team-1",
+                scopeName: "Managed only",
+                title: "Managed descendant",
+                text: "Visible for retirement only",
+                revision: 1,
+                status: "active",
+                createdAt: 1,
+                updatedAt: 1,
+                promotionTargets: [],
+                canRetire: true,
+                canPurge: false,
+              },
+            ],
+          }
+        : { status: "approved" },
+    );
+    const element = createElement(request);
+    await waitForFast(() => expect(element.textContent).toContain("Wiki 지식 공유"));
+    const sourceKind = element.querySelectorAll<HTMLSelectElement>("select")[0]!;
+    sourceKind.value = "team";
+    sourceKind.dispatchEvent(new Event("change", { bubbles: true }));
+    await element.updateComplete;
+    const sourceClaim = element.querySelectorAll<HTMLSelectElement>("select")[1]!;
+    expect([...sourceClaim.options].map((option) => option.value)).not.toContain(
+      "managed-only-team-claim",
+    );
+    sourceClaim.value = "team-claim";
+    sourceClaim.dispatchEvent(new Event("change", { bubbles: true }));
+    await element.updateComplete;
+    const target = element.querySelectorAll<HTMLSelectElement>("select")[2]!;
+    target.value = "global";
+    target.dispatchEvent(new Event("change", { bubbles: true }));
+    await element.updateComplete;
+    expect(element.textContent).toContain("관리자 권한으로 바로 등록");
+    expect(element.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+      "Keep this English body",
+    );
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("관리자 권한으로 바로 등록"))!
+      .click();
+    await waitForFast(() =>
+      expect(request).toHaveBeenCalledWith(
+        "platformclaw.memory.promotion.publishDirect",
+        expect.objectContaining({ sourceKind: "team", targetKind: "global" }),
+      ),
+    );
     element.remove();
   });
 });

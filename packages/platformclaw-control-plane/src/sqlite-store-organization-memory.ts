@@ -6,7 +6,7 @@ import {
   type OrganizationMemoryScopeKind,
   type OrganizationMemorySearchHit,
 } from "./contracts.js";
-import { executeSync, takeFirstSync } from "./kysely-sync.js";
+import { executeSync, runReadTransaction, takeFirstSync } from "./kysely-sync.js";
 import { ensureOrganizationMemorySchema } from "./sqlite-schema.js";
 import { SqliteControlPlaneSkillHubStore } from "./sqlite-store-skill-hub.js";
 import type { OrganizationMemoryPageRow } from "./sqlite-store-types.js";
@@ -16,7 +16,7 @@ const MAX_RESULTS = 50;
 const MAX_DOCUMENT_CHARS = 64 * 1024;
 const MAX_DOCUMENT_LINES = 200;
 const ORGANIZATION_MEMORY_PATH =
-  /^organization\/(global|group|part)\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/u;
+  /^organization\/(global|team|group|part)\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/u;
 
 export type AuthorizedOrganizationMemoryScope = {
   kind: OrganizationMemoryScopeKind;
@@ -103,51 +103,20 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
     if (user.status !== "active") {
       throw new ControlPlaneAuthorizationError("active employee required");
     }
-    const memberships = executeSync(
-      this.db,
-      this.query
-        .selectFrom("managed_scope_memberships")
-        .innerJoin("managed_scopes", "managed_scopes.id", "managed_scope_memberships.scope_id")
-        .select([
-          "managed_scopes.id",
-          "managed_scopes.kind",
-          "managed_scopes.name",
-          "managed_scopes.parent_scope_id",
-          "managed_scope_memberships.role",
-        ])
-        .where("managed_scope_memberships.user_id", "=", userId)
-        .where("managed_scopes.status", "=", "active"),
-    ).rows;
-    const scopes = new Map<string, AuthorizedOrganizationMemoryScope>();
-    scopes.set("global", { kind: "global", name: "Global" });
-    for (const membership of memberships) {
-      scopes.set(`${membership.kind}:${membership.id}`, {
-        kind: membership.kind,
-        id: membership.id,
-        name: membership.name,
-        ...(membership.parent_scope_id ? { parentScopeId: membership.parent_scope_id } : {}),
-      });
-      if (membership.kind === "group" && membership.role === "leader") {
-        const children = executeSync(
-          this.db,
-          this.query
-            .selectFrom("managed_scopes")
-            .select(["id", "kind", "name"])
-            .where("parent_scope_id", "=", membership.id)
-            .where("kind", "=", "part")
-            .where("status", "=", "active"),
-        ).rows;
-        for (const child of children) {
-          scopes.set(`part:${child.id}`, {
-            kind: "part",
-            id: child.id,
-            name: child.name,
-            parentScopeId: membership.id,
-          });
+    return [
+      { kind: "global", name: "Global" },
+      ...this.resolveEffectiveOrganizationAccessSnapshot(userId).map(({ scope }) => {
+        const result: AuthorizedOrganizationMemoryScope = {
+          kind: scope.kind,
+          id: scope.id,
+          name: scope.name,
+        };
+        if (scope.parentScopeId) {
+          result.parentScopeId = scope.parentScopeId;
         }
-      }
-    }
-    return [...scopes.values()];
+        return result;
+      }),
+    ];
   }
 
   private toHit(
@@ -174,50 +143,52 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
     maxResults?: number;
   }): Promise<OrganizationMemorySearchHit[]> {
     this.ensureOrganizationMemorySchema();
-    const query = normalizeQuery(params.query);
-    const scopes = this.authorizedScopes(params.agentId);
-    const scopeByKey = new Map(scopes.map((scope) => [`${scope.kind}:${scope.id ?? ""}`, scope]));
-    const pattern = likePattern(query);
-    const rows = executeSync(
-      this.db,
-      this.query
-        .selectFrom("organization_memory_pages")
-        .selectAll()
-        .where("status", "=", "active")
-        .where((eb) =>
-          eb.or(
-            scopes.map((scope) =>
-              scope.kind === "global"
-                ? eb.and([eb("scope_kind", "=", "global"), eb("scope_id", "is", null)])
-                : eb.and([eb("scope_kind", "=", scope.kind), eb("scope_id", "=", scope.id!)]),
+    return runReadTransaction(this.db, () => {
+      const query = normalizeQuery(params.query);
+      const scopes = this.authorizedScopes(params.agentId);
+      const scopeByKey = new Map(scopes.map((scope) => [`${scope.kind}:${scope.id ?? ""}`, scope]));
+      const pattern = likePattern(query);
+      const rows = executeSync(
+        this.db,
+        this.query
+          .selectFrom("organization_memory_pages")
+          .selectAll()
+          .where("status", "=", "active")
+          .where((eb) =>
+            eb.or(
+              scopes.map((scope) =>
+                scope.kind === "global"
+                  ? eb.and([eb("scope_kind", "=", "global"), eb("scope_id", "is", null)])
+                  : eb.and([eb("scope_kind", "=", scope.kind), eb("scope_id", "=", scope.id!)]),
+              ),
             ),
-          ),
+          )
+          .where((eb) =>
+            eb.or([
+              sql<boolean>`${eb.ref("title")} LIKE ${pattern} ESCAPE '\\'`,
+              sql<boolean>`${eb.ref("content")} LIKE ${pattern} ESCAPE '\\'`,
+            ]),
+          )
+          .orderBy(
+            sql<number>`CASE WHEN lower(title) = lower(${query}) THEN 0 WHEN title LIKE ${pattern} ESCAPE '\\' THEN 1 ELSE 2 END`,
+          )
+          .orderBy("updated_at", "desc")
+          .orderBy("id")
+          .limit(MAX_RESULTS),
+      ).rows;
+      const limit = Math.max(1, Math.min(MAX_RESULTS, Math.trunc(params.maxResults ?? 10)));
+      return rows
+        .map((row) =>
+          this.toHit(row, scopeByKey.get(`${row.scope_kind}:${row.scope_id ?? ""}`)!, query),
         )
-        .where((eb) =>
-          eb.or([
-            sql<boolean>`${eb.ref("title")} LIKE ${pattern} ESCAPE '\\'`,
-            sql<boolean>`${eb.ref("content")} LIKE ${pattern} ESCAPE '\\'`,
-          ]),
+        .toSorted(
+          (left, right) =>
+            right.score - left.score ||
+            right.updatedAt - left.updatedAt ||
+            left.path.localeCompare(right.path),
         )
-        .orderBy(
-          sql<number>`CASE WHEN lower(title) = lower(${query}) THEN 0 WHEN title LIKE ${pattern} ESCAPE '\\' THEN 1 ELSE 2 END`,
-        )
-        .orderBy("updated_at", "desc")
-        .orderBy("id")
-        .limit(MAX_RESULTS),
-    ).rows;
-    const limit = Math.max(1, Math.min(MAX_RESULTS, Math.trunc(params.maxResults ?? 10)));
-    return rows
-      .map((row) =>
-        this.toHit(row, scopeByKey.get(`${row.scope_kind}:${row.scope_id ?? ""}`)!, query),
-      )
-      .toSorted(
-        (left, right) =>
-          right.score - left.score ||
-          right.updatedAt - left.updatedAt ||
-          left.path.localeCompare(right.path),
-      )
-      .slice(0, limit);
+        .slice(0, limit);
+    });
   }
 
   async getOrganizationMemory(params: {
@@ -227,41 +198,43 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
     lineCount?: number;
   }): Promise<OrganizationMemoryDocument | null> {
     this.ensureOrganizationMemorySchema();
-    const match = ORGANIZATION_MEMORY_PATH.exec(params.path);
-    if (!match) {
-      return null;
-    }
-    const scopes = this.authorizedScopes(params.agentId);
-    const row = takeFirstSync(
-      this.db,
-      this.query
-        .selectFrom("organization_memory_pages")
-        .selectAll()
-        .where("id", "=", match[2]!)
-        .where("scope_kind", "=", match[1] as OrganizationMemoryScopeKind)
-        .where("status", "=", "active"),
-    );
-    if (!row) {
-      return null;
-    }
-    const scope = scopes.find(
-      (candidate) => candidate.kind === row.scope_kind && (candidate.id ?? null) === row.scope_id,
-    );
-    if (!scope) {
-      return null;
-    }
-    const lines = row.content.split(/\r?\n/u);
-    const fromLine = Math.max(1, Math.trunc(params.fromLine ?? 1));
-    const requestedLines = Math.max(
-      1,
-      Math.min(MAX_DOCUMENT_LINES, Math.trunc(params.lineCount ?? 50)),
-    );
-    const selected = lines.slice(fromLine - 1, fromLine - 1 + requestedLines);
-    return {
-      ...this.toHit(row, scope, row.title),
-      content: selected.join("\n").slice(0, MAX_DOCUMENT_CHARS),
-      fromLine,
-      lineCount: selected.length,
-    };
+    return runReadTransaction(this.db, () => {
+      const match = ORGANIZATION_MEMORY_PATH.exec(params.path);
+      if (!match) {
+        return null;
+      }
+      const scopes = this.authorizedScopes(params.agentId);
+      const row = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("organization_memory_pages")
+          .selectAll()
+          .where("id", "=", match[2]!)
+          .where("scope_kind", "=", match[1] as OrganizationMemoryScopeKind)
+          .where("status", "=", "active"),
+      );
+      if (!row) {
+        return null;
+      }
+      const scope = scopes.find(
+        (candidate) => candidate.kind === row.scope_kind && (candidate.id ?? null) === row.scope_id,
+      );
+      if (!scope) {
+        return null;
+      }
+      const lines = row.content.split(/\r?\n/u);
+      const fromLine = Math.max(1, Math.trunc(params.fromLine ?? 1));
+      const requestedLines = Math.max(
+        1,
+        Math.min(MAX_DOCUMENT_LINES, Math.trunc(params.lineCount ?? 50)),
+      );
+      const selected = lines.slice(fromLine - 1, fromLine - 1 + requestedLines);
+      return {
+        ...this.toHit(row, scope, row.title),
+        content: selected.join("\n").slice(0, MAX_DOCUMENT_CHARS),
+        fromLine,
+        lineCount: selected.length,
+      };
+    });
   }
 }

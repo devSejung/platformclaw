@@ -47,12 +47,11 @@ export function isDelegatedOrganizationLeader(params: {
   return lineage.some((scope) => leaderScopeIds.has(scope.id));
 }
 
-export function resolveOrganizationAuthorization(params: {
+export function prepareOrganizationAuthorizationContext(params: {
   actor: PlatformUser | null;
-  targetScope: ManagedScope | null;
   scopes: readonly ManagedScope[];
   memberships: readonly ManagedScopeMembership[];
-}): OrganizationAuthorization {
+}): { authorize: (targetScope: ManagedScope | null) => OrganizationAuthorization } {
   const unavailable: OrganizationAuthorization = {
     canRead: false,
     canManageMembers: false,
@@ -60,55 +59,70 @@ export function resolveOrganizationAuthorization(params: {
     canManageLeaders: false,
     facts: { source: "none", scopeIds: [] },
   };
-  const { actor, targetScope } = params;
-  if (!actor || actor.status !== "active" || !targetScope) {
-    return unavailable;
-  }
   const scopeById = new Map(params.scopes.map((scope) => [scope.id, scope]));
-  const targetLineage = lineageFor(targetScope, scopeById);
-  if (targetLineage.length === 0 || targetLineage.some((scope) => scope.status !== "active")) {
-    return unavailable;
-  }
-  if (actor.globalRole === "admin") {
-    return {
-      canRead: true,
-      canManageMembers: true,
-      canManageStructure: true,
-      canManageLeaders: true,
-      facts: { source: "administrator", scopeIds: [targetScope.id] },
-    };
-  }
   const membershipByScope = new Map(params.memberships.map((entry) => [entry.scopeId, entry]));
-  const leaderScopeIds = targetLineage
-    .filter((scope) => membershipByScope.get(scope.id)?.role === "leader")
-    .map((scope) => scope.id);
-  const readScopeIds = params.memberships
-    .filter((membership) => {
-      const membershipScope = scopeById.get(membership.scopeId);
-      if (!membershipScope) {
-        return false;
-      }
-      const lineage = lineageFor(membershipScope, scopeById);
-      return (
-        lineage.length > 0 &&
-        lineage.every((scope) => scope.status === "active") &&
-        lineage.some((scope) => scope.id === targetScope.id)
-      );
-    })
-    .map((membership) => membership.scopeId)
-    .toSorted();
-  const canManageMembers = leaderScopeIds.length > 0;
-  const canRead = readScopeIds.length > 0;
+  const readableTargets = new Map<string, string[]>();
+  for (const membership of params.memberships) {
+    const membershipScope = scopeById.get(membership.scopeId);
+    if (!membershipScope) {
+      continue;
+    }
+    const lineage = lineageFor(membershipScope, scopeById);
+    if (lineage.length === 0 || lineage.some((scope) => scope.status !== "active")) {
+      continue;
+    }
+    for (const scope of lineage) {
+      const sources = readableTargets.get(scope.id) ?? [];
+      sources.push(membership.scopeId);
+      readableTargets.set(scope.id, sources);
+    }
+  }
   return {
-    canRead,
-    canManageMembers,
-    canManageStructure: false,
-    canManageLeaders: false,
-    facts: {
-      source: canManageMembers ? "leadership" : canRead ? "membership" : "none",
-      scopeIds: canManageMembers ? leaderScopeIds : readScopeIds,
+    authorize(targetScope) {
+      const { actor } = params;
+      if (!actor || actor.status !== "active" || !targetScope) {
+        return unavailable;
+      }
+      const targetLineage = lineageFor(targetScope, scopeById);
+      if (targetLineage.length === 0 || targetLineage.some((scope) => scope.status !== "active")) {
+        return unavailable;
+      }
+      if (actor.globalRole === "admin") {
+        return {
+          canRead: true,
+          canManageMembers: true,
+          canManageStructure: true,
+          canManageLeaders: true,
+          facts: { source: "administrator", scopeIds: [targetScope.id] },
+        };
+      }
+      const leaderScopeIds = targetLineage
+        .filter((scope) => membershipByScope.get(scope.id)?.role === "leader")
+        .map((scope) => scope.id);
+      const readScopeIds = (readableTargets.get(targetScope.id) ?? []).toSorted();
+      const canManageMembers = leaderScopeIds.length > 0;
+      const canRead = readScopeIds.length > 0;
+      return {
+        canRead,
+        canManageMembers,
+        canManageStructure: false,
+        canManageLeaders: false,
+        facts: {
+          source: canManageMembers ? "leadership" : canRead ? "membership" : "none",
+          scopeIds: canManageMembers ? leaderScopeIds : readScopeIds,
+        },
+      };
     },
   };
+}
+
+export function resolveOrganizationAuthorization(params: {
+  actor: PlatformUser | null;
+  targetScope: ManagedScope | null;
+  scopes: readonly ManagedScope[];
+  memberships: readonly ManagedScopeMembership[];
+}): OrganizationAuthorization {
+  return prepareOrganizationAuthorizationContext(params).authorize(params.targetScope);
 }
 
 export function resolveEffectiveOrganizationAccess(params: {

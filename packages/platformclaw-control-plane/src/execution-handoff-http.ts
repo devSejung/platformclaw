@@ -357,7 +357,9 @@ export class PlatformClawExecutionHandoffServer {
         const path = typeof body.path === "string" ? body.path : "";
         const fromLine = body.fromLine;
         const lineCount = body.lineCount;
-        if (!/^organization\/(global|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(path)) {
+        if (
+          !/^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(path)
+        ) {
           sendJson(res, 400, { error: "invalid organization memory path" });
           return;
         }

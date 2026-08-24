@@ -12,7 +12,7 @@ const MAX_PROVIDER_CHARS = 256;
 const MAX_SNIPPET_CHARS = 16 * 1024;
 const MAX_MEMORY_FILE_CHARS = 256 * 1024;
 const ORGANIZATION_MEMORY_PATH =
-  /^organization\/(global|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
+  /^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
 
 function requireObject(value: unknown, label: string, fail: ProjectionFailure): JsonObject {
   return isRecord(value) ? value : fail(`Gateway returned invalid ${label}`);
@@ -76,7 +76,7 @@ function projectOrganizationMemorySearchHit(value: unknown, fail: ProjectionFail
     hit.snippet.length > MAX_SNIPPET_CHARS ||
     typeof hit.title !== "string" ||
     hit.title.length > 512 ||
-    (hit.kind !== "global" && hit.kind !== "group" && hit.kind !== "part") ||
+    (hit.kind !== "global" && hit.kind !== "team" && hit.kind !== "group" && hit.kind !== "part") ||
     typeof hit.provenanceLabel !== "string" ||
     !hit.provenanceLabel ||
     hit.provenanceLabel.length > 256

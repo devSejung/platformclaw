@@ -9,6 +9,7 @@ function lifecycle(): OrganizationMemoryLifecycle {
       OrganizationMemoryLifecycle["getOrganizationMemoryLifecycle"]
     >(async () => ({
       scopes: [{ kind: "global", name: "Global", canAdminister: false }],
+      personalTargets: [],
       claims: [],
       submitted: [],
       reviewable: [],
@@ -28,6 +29,23 @@ function lifecycle(): OrganizationMemoryLifecycle {
       reason: params.reason,
       status: "pending",
       createdAt: params.submittedAt,
+      canReview: false,
+    })),
+    publishOrganizationMemoryDirect: vi.fn<
+      OrganizationMemoryLifecycle["publishOrganizationMemoryDirect"]
+    >(async (params) => ({
+      id: "request-direct",
+      sourceKind: params.sourceKind,
+      sourceRevision: params.expectedSourceRevision ?? 1,
+      targetKind: params.targetKind,
+      targetScopeName: "Global",
+      proposedText: params.proposedText,
+      evidence: params.evidence,
+      reason: params.reason,
+      status: "approved",
+      createdAt: params.publishedAt,
+      decidedAt: params.publishedAt,
+      decisionReason: params.reason,
       canReview: false,
     })),
     decideOrganizationMemoryPromotion: vi.fn<
@@ -143,6 +161,28 @@ describe("browser organization memory lifecycle", () => {
     );
   });
 
+  it("accepts Team promotion fields and pins administrator direct publication", async () => {
+    const owner = lifecycle();
+    const { binding, proxy, token } = await setupBrowserGatewayProxyTest({
+      admin: true,
+      organizationMemoryLifecycle: owner,
+    });
+    await expect(
+      proxy.request(token, "platformclaw.memory.promotion.publishDirect", {
+        sourceKind: "team",
+        sourceClaimId: "team-claim",
+        expectedSourceRevision: 2,
+        targetKind: "global",
+        proposedText: "Reviewed policy",
+        evidence: ["team review"],
+        reason: "administrator publication",
+      }),
+    ).resolves.toMatchObject({ status: "approved", sourceKind: "team" });
+    expect(mockOf(owner, "publishOrganizationMemoryDirect")).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: binding.agentId, publishedAt: NOW }),
+    );
+  });
+
   it("rejects browser-controlled agent identity and malformed lifecycle params", async () => {
     const owner = lifecycle();
     const { proxy, token } = await setupBrowserGatewayProxyTest({
@@ -177,9 +217,25 @@ describe("browser organization memory lifecycle", () => {
           serverPath: "/srv/private",
         },
       ],
+      personalTargets: [],
       claims: [],
       submitted: [],
-      reviewable: [],
+      reviewable: [
+        {
+          id: "request-personal",
+          sourceKind: "personal",
+          sourceClaimId: "private/wiki/path.md",
+          sourceRevision: 1,
+          targetKind: "part",
+          targetScopeName: "Runtime",
+          proposedText: "Safe shared text",
+          evidence: [],
+          reason: "review",
+          status: "pending",
+          createdAt: NOW,
+          canReview: true,
+        },
+      ],
       canApproveGlobal: false,
       requestedByUserId: "secret-user",
       next: { submitted: 200, secretCursor: "private" },
@@ -191,6 +247,7 @@ describe("browser organization memory lifecycle", () => {
     expect(JSON.stringify(result)).not.toContain("serverPath");
     expect(JSON.stringify(result)).not.toContain("requestedByUserId");
     expect(JSON.stringify(result)).not.toContain("secretCursor");
+    expect(JSON.stringify(result)).not.toContain("private/wiki/path.md");
   });
 
   it("maps expected lifecycle failures to actionable sanitized browser errors", async () => {

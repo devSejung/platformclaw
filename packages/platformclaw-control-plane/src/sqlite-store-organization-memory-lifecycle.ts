@@ -5,11 +5,14 @@ import {
   type OrganizationMemoryLifecycleSnapshot,
   type OrganizationMemoryLifecycleScope,
   type OrganizationMemoryPromotionRequest,
+  type OrganizationMemoryPromotionTarget,
   type OrganizationMemoryPromotionSourceKind,
   type OrganizationMemoryScopeKind,
   type ManagedScopeKind,
 } from "./contracts.js";
-import { executeSync, takeFirstSync } from "./kysely-sync.js";
+import { executeSync, runReadTransaction, takeFirstSync } from "./kysely-sync.js";
+import { prepareOrganizationAuthorizationContext } from "./organization-policy.js";
+import { rowToMembership, rowToScope } from "./sqlite-store-core.js";
 import {
   SqliteControlPlaneOrganizationMemoryStore,
   type AuthorizedOrganizationMemoryScope,
@@ -93,7 +96,10 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
       throw new ControlPlaneStateError(`${kind} scope id is required`);
     }
     const scope = this.requireScopeRow(scopeId);
-    if (scope.kind !== kind || scope.status !== "active") {
+    if (
+      scope.kind !== kind ||
+      this.scopeLineageRows(scope).some((entry) => entry.status !== "active")
+    ) {
       throw new ControlPlaneStateError(`active ${kind} scope required`);
     }
     return scope;
@@ -175,7 +181,10 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
     targetKind: OrganizationMemoryScopeKind,
     targetScope: ManagedScopeRow | null,
   ): void {
-    if (sourceKind === "personal" && targetKind === "part" && targetScope?.kind === "part") {
+    if (
+      sourceKind === "personal" &&
+      ((targetKind === "global" && targetScope === null) || targetScope?.kind === targetKind)
+    ) {
       return;
     }
     if (
@@ -185,21 +194,78 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
     ) {
       return;
     }
-    if (sourceKind === "group" && targetKind === "global" && targetScope === null) {
+    if (
+      sourceKind === "group" &&
+      targetKind === "team" &&
+      sourceScope?.parent_scope_id === targetScope?.id
+    ) {
       return;
     }
-    throw new ControlPlaneStateError("promotion must advance personal to part to group to global");
+    if (sourceKind === "team" && targetKind === "global" && targetScope === null) {
+      return;
+    }
+    throw new ControlPlaneStateError(
+      "promotion must advance personal to a direct scope, then part to group to team to global",
+    );
   }
 
-  protected canReview(userId: string, globalRole: "member" | "admin", row: RequestWithDecision) {
-    if (row.decision) {
-      return false;
+  protected assertDirectPromotionTarget(
+    sourceKind: OrganizationMemoryPromotionSourceKind,
+    sourceScope: ManagedScopeRow | null,
+    targetKind: OrganizationMemoryScopeKind,
+    targetScope: ManagedScopeRow | null,
+  ): void {
+    if (sourceKind === "personal") {
+      return;
     }
+    if (targetKind === "global" && targetScope === null) {
+      return;
+    }
+    if (
+      targetScope &&
+      sourceScope &&
+      this.scopeLineageRows(sourceScope)
+        .slice(1)
+        .some((scope) => scope.id === targetScope.id)
+    ) {
+      return;
+    }
+    throw new ControlPlaneStateError(
+      "direct publication target must be an ancestor scope or global",
+    );
+  }
+
+  protected hasDirectMembership(userId: string, scopeId: string): boolean {
+    return Boolean(
+      takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("managed_scope_memberships")
+          .select("scope_id")
+          .where("user_id", "=", userId)
+          .where("scope_id", "=", scopeId),
+      ),
+    );
+  }
+
+  protected canReviewTarget(
+    userId: string,
+    globalRole: "member" | "admin",
+    row: RequestWithDecision,
+  ) {
     if (row.target_kind === "global") {
       return globalRole === "admin";
     }
-    const scope = this.requireScopeRow(row.target_scope_id!);
-    return scope.status === "active" && this.isLeaderForScope(userId, scope);
+    return this.resolveOrganizationAuthorizationSnapshot(userId, row.target_scope_id!)
+      .canManageMembers;
+  }
+
+  protected canReview(userId: string, globalRole: "member" | "admin", row: RequestWithDecision) {
+    return (
+      !row.decision &&
+      row.requested_by_user_id !== userId &&
+      this.canReviewTarget(userId, globalRole, row)
+    );
   }
 
   protected requestQuery() {
@@ -250,7 +316,9 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
     return {
       id: row.id,
       sourceKind: row.source_kind,
-      sourceClaimId: row.source_claim_id,
+      ...(row.source_kind !== "personal" || row.requested_by_user_id === actor.userId
+        ? { sourceClaimId: row.source_claim_id }
+        : {}),
       sourceRevision: row.source_revision,
       targetKind: row.target_kind,
       targetScopeName,
@@ -266,7 +334,73 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
     };
   }
 
-  protected toClaim(row: OrganizationMemoryClaimRow, scopeName: string): OrganizationMemoryClaim {
+  protected promotionTarget(
+    kind: OrganizationMemoryScopeKind,
+    scope: ManagedScopeRow | null,
+    mode: "request" | "direct",
+  ): OrganizationMemoryPromotionTarget {
+    return {
+      kind,
+      scopeName: scope?.name ?? "Global",
+      ...(scope ? { scopeId: scope.id } : {}),
+      mode,
+    };
+  }
+
+  protected promotionTargetsForClaim(
+    actor: { userId: string; globalRole: "member" | "admin" },
+    row: OrganizationMemoryClaimRow,
+    readable = true,
+  ): OrganizationMemoryPromotionTarget[] {
+    if (row.status !== "active" || !readable) {
+      return [];
+    }
+    const sourceScope =
+      row.scope_kind === "global"
+        ? null
+        : this.activeScope(row.scope_kind, row.scope_id ?? undefined);
+    if (actor.globalRole === "admin") {
+      if (!sourceScope) {
+        return [];
+      }
+      const ancestors = this.scopeLineageRows(sourceScope).slice(1);
+      return [
+        ...ancestors.map((scope) => this.promotionTarget(scope.kind, scope, "direct")),
+        this.promotionTarget("global", null, "direct"),
+      ];
+    }
+    if (row.scope_kind === "part") {
+      const parent = this.activeScope("group", sourceScope?.parent_scope_id ?? undefined);
+      return [this.promotionTarget("group", parent, "request")];
+    }
+    if (row.scope_kind === "group") {
+      const parent = this.activeScope("team", sourceScope?.parent_scope_id ?? undefined);
+      return [this.promotionTarget("team", parent, "request")];
+    }
+    return row.scope_kind === "team" ? [this.promotionTarget("global", null, "request")] : [];
+  }
+
+  protected canAdministerClaim(
+    actor: { userId: string; globalRole: "member" | "admin" },
+    row: OrganizationMemoryClaimRow,
+    managedScopeIds?: ReadonlySet<string>,
+  ): boolean {
+    return row.scope_kind === "global"
+      ? actor.globalRole === "admin"
+      : managedScopeIds
+        ? managedScopeIds.has(row.scope_id!)
+        : this.resolveOrganizationAuthorizationSnapshot(actor.userId, row.scope_id!)
+            .canManageMembers;
+  }
+
+  protected toClaim(
+    row: OrganizationMemoryClaimRow,
+    scopeName: string,
+    actor?: { userId: string; globalRole: "member" | "admin" },
+    managedScopeIds?: ReadonlySet<string>,
+    readable = true,
+  ): OrganizationMemoryClaim {
+    const canAdminister = actor ? this.canAdministerClaim(actor, row, managedScopeIds) : false;
     return {
       id: row.id,
       scopeKind: row.scope_kind,
@@ -279,6 +413,13 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       ...(row.source_kind === "personal" ? {} : { sourceClaimId: row.source_claim_id }),
+      ...(actor
+        ? {
+            promotionTargets: this.promotionTargetsForClaim(actor, row, readable),
+            canRetire: row.status === "active" && canAdminister,
+            canPurge: row.status === "retired" && actor.globalRole === "admin",
+          }
+        : {}),
     };
   }
 
@@ -356,121 +497,200 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
     page: { claims?: number; submitted?: number; reviewable?: number } = {},
   ): Promise<OrganizationMemoryLifecycleSnapshot> {
     this.ensureOrganizationMemorySchema();
-    const actor = this.requireOrganizationMemoryActor(agentId);
-    const scopes = this.authorizedScopes(agentId);
-    const claimLimit = 100;
-    const requestLimit = 200;
-    const archivedScopeIds =
-      actor.globalRole === "admin"
-        ? executeSync(
-            this.db,
-            this.query.selectFrom("managed_scopes").select("id").where("status", "=", "archived"),
-          ).rows.map((row) => row.id)
-        : [];
-    const claimRows = executeSync(
-      this.db,
-      this.query
-        .selectFrom("organization_memory_claims")
-        .selectAll()
-        .where("status", "!=", "purged")
-        .where((eb) =>
-          eb.or([
-            ...scopes.map((scope) =>
-              scope.kind === "global"
-                ? eb.and([eb("scope_kind", "=", "global"), eb("scope_id", "is", null)])
-                : eb.and([eb("scope_kind", "=", scope.kind), eb("scope_id", "=", scope.id!)]),
-            ),
-            ...(archivedScopeIds.length > 0
-              ? [eb.and([eb("status", "=", "retired"), eb("scope_id", "in", archivedScopeIds)])]
-              : []),
-          ]),
-        )
-        .orderBy("updated_at", "desc")
-        .offset(page.claims ?? 0)
-        .limit(claimLimit + 1),
-    ).rows;
-    const submittedRows = executeSync(
-      this.db,
-      this.requestQuery()
-        .where("requested_by_user_id", "=", actor.userId)
-        .offset(page.submitted ?? 0)
-        .limit(requestLimit + 1),
-    ).rows;
-    const administeredTargets = scopes.filter((scope) =>
-      scope.kind === "global"
-        ? actor.globalRole === "admin"
-        : this.isLeaderForScope(actor.userId, this.requireScopeRow(scope.id!)),
-    );
-    const reviewableRows =
-      administeredTargets.length === 0
-        ? []
-        : executeSync(
-            this.db,
-            this.requestQuery()
-              .where("organization_memory_promotion_decisions.request_id", "is", null)
-              .where((eb) =>
-                eb.or(
-                  administeredTargets.map((scope) =>
-                    scope.kind === "global"
-                      ? eb.and([
-                          eb("target_kind", "=", "global"),
-                          eb("target_scope_id", "is", null),
-                        ])
-                      : eb.and([
-                          eb("target_kind", "=", scope.kind),
-                          eb("target_scope_id", "=", scope.id!),
-                        ]),
-                  ),
-                ),
-              )
-              .offset(page.reviewable ?? 0)
-              .limit(requestLimit + 1),
-          ).rows;
-    const claims = claimRows
-      .slice(0, claimLimit)
-      .map((row) =>
-        this.toClaim(
-          row,
-          row.scope_kind === "global" ? "Global" : this.requireScopeRow(row.scope_id!).name,
-        ),
+    return runReadTransaction(this.db, () => {
+      const boundedPage = {
+        claims: Math.min(10_000, Math.max(0, page.claims ?? 0)),
+        submitted: Math.min(10_000, Math.max(0, page.submitted ?? 0)),
+        reviewable: Math.min(10_000, Math.max(0, page.reviewable ?? 0)),
+      };
+      const actor = this.requireOrganizationMemoryActor(agentId);
+      const readScopes = this.authorizedScopes(agentId);
+      const allScopeRows = executeSync(
+        this.db,
+        this.query.selectFrom("managed_scopes").selectAll(),
+      ).rows;
+      const actorMemberships = executeSync(
+        this.db,
+        this.query
+          .selectFrom("managed_scope_memberships")
+          .selectAll()
+          .where("user_id", "=", actor.userId),
+      ).rows;
+      const organizationActor = this.rowToUser(this.requireUserRow(actor.userId));
+      const scopesForPolicy = allScopeRows.map(rowToScope);
+      const membershipsForPolicy = actorMemberships.map(rowToMembership);
+      const organizationAuthorization = prepareOrganizationAuthorizationContext({
+        actor: organizationActor,
+        scopes: scopesForPolicy,
+        memberships: membershipsForPolicy,
+      });
+      const managedScopeIds = new Set(
+        allScopeRows
+          .filter(
+            (scope) => organizationAuthorization.authorize(rowToScope(scope)).canManageMembers,
+          )
+          .map((scope) => scope.id),
       );
-    return {
-      scopes: scopes.map((scope) => {
-        const projected: OrganizationMemoryLifecycleScope = {
-          kind: scope.kind,
-          name: scope.name,
-          canAdminister:
-            scope.kind === "global"
-              ? actor.globalRole === "admin"
-              : this.isLeaderForScope(actor.userId, this.requireScopeRow(scope.id!)),
-        };
-        if (scope.id) {
-          projected.id = scope.id;
-        }
-        if (scope.parentScopeId) {
-          projected.parentScopeId = scope.parentScopeId;
-        }
-        return projected;
-      }),
-      claims,
-      submitted: submittedRows.slice(0, requestLimit).map((row) => this.toRequest(row, actor)),
-      reviewable: reviewableRows.slice(0, requestLimit).map((row) => this.toRequest(row, actor)),
-      canApproveGlobal: actor.globalRole === "admin",
-      ...(claimRows.length > claimLimit ||
-      submittedRows.length > requestLimit ||
-      reviewableRows.length > requestLimit
-        ? {
-            next: {
-              ...(claimRows.length > claimLimit ? { claims: (page.claims ?? 0) + claimLimit } : {}),
-              ...(submittedRows.length > requestLimit
-                ? { submitted: (page.submitted ?? 0) + requestLimit }
-                : {}),
-              ...(reviewableRows.length > requestLimit
-                ? { reviewable: (page.reviewable ?? 0) + requestLimit }
-                : {}),
-            },
+      const managedScopes = allScopeRows
+        .filter((scope) => managedScopeIds.has(scope.id))
+        .map((scope) => {
+          const result: AuthorizedOrganizationMemoryScope = {
+            kind: scope.kind,
+            id: scope.id,
+            name: scope.name,
+          };
+          if (scope.parent_scope_id) {
+            result.parentScopeId = scope.parent_scope_id;
           }
-        : {}),
-    };
+          return result;
+        });
+      const scopes = [
+        ...new Map(
+          [...readScopes, ...managedScopes].map((scope) => [
+            `${scope.kind}:${scope.id ?? ""}`,
+            scope,
+          ]),
+        ).values(),
+      ];
+      const readScopeKeys = new Set(readScopes.map((scope) => `${scope.kind}:${scope.id ?? ""}`));
+      const claimLimit = 25;
+      const requestLimit = 25;
+      const archivedScopeIds =
+        actor.globalRole === "admin"
+          ? executeSync(
+              this.db,
+              this.query.selectFrom("managed_scopes").select("id").where("status", "=", "archived"),
+            ).rows.map((row) => row.id)
+          : [];
+      const claimRows = executeSync(
+        this.db,
+        this.query
+          .selectFrom("organization_memory_claims")
+          .selectAll()
+          .where("status", "!=", "purged")
+          .where((eb) =>
+            eb.or([
+              ...scopes.map((scope) =>
+                scope.kind === "global"
+                  ? eb.and([eb("scope_kind", "=", "global"), eb("scope_id", "is", null)])
+                  : eb.and([eb("scope_kind", "=", scope.kind), eb("scope_id", "=", scope.id!)]),
+              ),
+              ...(archivedScopeIds.length > 0
+                ? [eb.and([eb("status", "=", "retired"), eb("scope_id", "in", archivedScopeIds)])]
+                : []),
+            ]),
+          )
+          .orderBy("updated_at", "desc")
+          .offset(boundedPage.claims)
+          .limit(claimLimit + 1),
+      ).rows;
+      const submittedRows = executeSync(
+        this.db,
+        this.requestQuery()
+          .where("requested_by_user_id", "=", actor.userId)
+          .offset(boundedPage.submitted)
+          .limit(requestLimit + 1),
+      ).rows;
+      const administeredTargets = scopes.filter((scope) =>
+        scope.kind === "global" ? actor.globalRole === "admin" : managedScopeIds.has(scope.id!),
+      );
+      const reviewableRows =
+        administeredTargets.length === 0
+          ? []
+          : executeSync(
+              this.db,
+              this.requestQuery()
+                .where("organization_memory_promotion_decisions.request_id", "is", null)
+                .where("requested_by_user_id", "!=", actor.userId)
+                .where((eb) =>
+                  eb.or(
+                    administeredTargets.map((scope) =>
+                      scope.kind === "global"
+                        ? eb.and([
+                            eb("target_kind", "=", "global"),
+                            eb("target_scope_id", "is", null),
+                          ])
+                        : eb.and([
+                            eb("target_kind", "=", scope.kind),
+                            eb("target_scope_id", "=", scope.id!),
+                          ]),
+                    ),
+                  ),
+                )
+                .offset(boundedPage.reviewable)
+                .limit(requestLimit + 1),
+            ).rows;
+      const claims = claimRows
+        .slice(0, claimLimit)
+        .map((row) =>
+          this.toClaim(
+            row,
+            row.scope_kind === "global" ? "Global" : this.requireScopeRow(row.scope_id!).name,
+            actor,
+            managedScopeIds,
+            readScopeKeys.has(`${row.scope_kind}:${row.scope_id ?? ""}`),
+          ),
+        );
+      const directMembershipIds = new Set(actorMemberships.map((row) => row.scope_id));
+      const personalTargets: OrganizationMemoryPromotionTarget[] =
+        actor.globalRole === "admin"
+          ? [
+              ...scopes
+                .filter((scope) => scope.kind !== "global")
+                .map((scope) =>
+                  this.promotionTarget(scope.kind, this.requireScopeRow(scope.id!), "direct"),
+                ),
+              this.promotionTarget("global", null, "direct"),
+            ]
+          : scopes
+              .filter((scope) => scope.id && directMembershipIds.has(scope.id))
+              .map((scope) =>
+                this.promotionTarget(scope.kind, this.requireScopeRow(scope.id!), "request"),
+              );
+      if (actor.globalRole !== "admin" && personalTargets.length === 0) {
+        personalTargets.push(this.promotionTarget("global", null, "request"));
+      }
+      return {
+        scopes: scopes.map((scope) => {
+          const projected: OrganizationMemoryLifecycleScope = {
+            kind: scope.kind,
+            name: scope.name,
+            canAdminister:
+              scope.kind === "global"
+                ? actor.globalRole === "admin"
+                : managedScopeIds.has(scope.id!),
+          };
+          if (scope.id) {
+            projected.id = scope.id;
+          }
+          if (scope.parentScopeId) {
+            projected.parentScopeId = scope.parentScopeId;
+          }
+          return projected;
+        }),
+        personalTargets,
+        claims,
+        submitted: submittedRows.slice(0, requestLimit).map((row) => this.toRequest(row, actor)),
+        reviewable: reviewableRows.slice(0, requestLimit).map((row) => this.toRequest(row, actor)),
+        canApproveGlobal: actor.globalRole === "admin",
+        ...(claimRows.length > claimLimit ||
+        submittedRows.length > requestLimit ||
+        reviewableRows.length > requestLimit
+          ? {
+              next: {
+                ...(claimRows.length > claimLimit
+                  ? { claims: boundedPage.claims + claimLimit }
+                  : {}),
+                ...(submittedRows.length > requestLimit
+                  ? { submitted: boundedPage.submitted + requestLimit }
+                  : {}),
+                ...(reviewableRows.length > requestLimit
+                  ? { reviewable: boundedPage.reviewable + requestLimit }
+                  : {}),
+              },
+            }
+          : {}),
+      };
+    });
   }
 }
