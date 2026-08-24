@@ -130,6 +130,7 @@ describe("PlatformClaw organization services", () => {
       actorUserId: admin.id,
       scopeId: part.id,
       userId: partMember.id,
+      reason: "move to sibling",
       changedAt: 30,
     });
     await expect(
@@ -249,6 +250,7 @@ describe("PlatformClaw organization services", () => {
       actorUserId: admin.id,
       scopeId: team.id,
       userId: applicant.id,
+      reason: "remove applicant",
       changedAt: 25,
     });
     await expect(store.getUserPrimaryScope(applicant.id)).resolves.toBeNull();
@@ -365,6 +367,7 @@ describe("PlatformClaw organization services", () => {
       actorUserId: admin.id,
       scopeId: group.id,
       userId: leader.id,
+      reason: "remove reviewer",
       changedAt: 22,
     });
     await expect(service.listReviewableRequests(leader.id)).resolves.toEqual([]);

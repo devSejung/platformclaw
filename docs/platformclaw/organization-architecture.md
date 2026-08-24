@@ -20,12 +20,12 @@ Global
             └── User
 ```
 
-This page is the canonical target contract. It records approved behavior for
-the organization rollout; it does not claim that the current runtime already
-implements Team scopes, join requests, upward access inheritance, or the shared
-authorization service. The existing schema v2 runtime still stores Group and
-Part scopes, and each consuming service keeps its current authorization until
-the rollout described below reaches it.
+This page is the canonical contract. Schema v3, Team scopes, join requests,
+upward access inheritance, and the shared organization and authorization
+services are implemented. The authenticated browser API described below is
+also implemented. Skill Hub and Memory remain on their existing consumer
+authorization until their rollout PRs connect them to this shared owner, and
+the complete Settings organization UI remains planned.
 
 ## Scope model
 
@@ -297,14 +297,14 @@ bounded reason where required. Audit and notification payloads exclude personal
 memory content, package content, credentials, tokens, internal URLs, and host
 paths.
 
-## Planned schema v3 migration
+## Implemented schema v3 migration
 
-The organization model requires an approved SQLite schema version change from
-v2 to v3. This is not an additive lazy-table change: schema v2 constrains
+The organization model uses the approved SQLite schema version change from v2
+to v3. This is not an additive lazy-table change: schema v2 constrains
 `managed_scopes.kind` to Group or Part and stores `parent_group_id`, so an older
 runtime cannot correctly interpret Team rows or a generic parent link.
 
-PR2 will perform one atomic migration:
+PR2 performs one atomic migration:
 
 1. The PR2 migration owner checkpoints the WAL, creates a one-time
    SQLite-consistent pre-migration backup, and verifies both source and backup
@@ -364,6 +364,45 @@ and database backup together.
 | 4   | Skill Hub conversion from legacy Team-as-Global to Global/Team/Group/Part              |
 | 5   | Memory search, promotion, review, and lifecycle conversion with Team scopes            |
 | 6   | Settings organization management, first-login join UI, inbox, and Korean/English UX    |
+
+PR1 through PR3 are implemented. PR4 through PR6 remain planned.
+
+## Authenticated browser API
+
+The same-origin BFF exposes `/platformclaw/api/organization` for the later
+Settings UI. Every request resolves the actor from the active browser session;
+browser-supplied actor IDs, roles, memberships, lineage, and authorization
+facts are rejected or ignored as authority. Mutations require a same-origin
+request and `application/json`, use bounded bodies and strings, and reauthorize
+inside the SQLite operation that owns the state change.
+
+The current routes are:
+
+- `GET /context` for one consistent, bounded snapshot of the current actor's
+  direct and effective scopes, primary scope, and recent join outcomes;
+- `GET /scopes` for bounded active-scope search and the actor's request
+  eligibility, without rosters or leader identities;
+- `GET /requests/own` and `GET /requests/reviewable` for paged personal history
+  and the currently authorized review inbox;
+- `POST /requests`, `POST /requests/:id/cancel`, and
+  `POST /requests/:id/decision` for the join lifecycle;
+- `PUT /primary` for the actor's own primary direct membership;
+- capability-gated scope roster and active-user search under
+  `/management/scopes/:scopeId`, plus membership assignment and removal;
+- administrator scope creation, rename, and archive; and
+- administrator-only, paged organization audit history.
+
+Ordinary scope search returns only opaque scope identity, kind, display name,
+parent identity, and request eligibility. Review and management projections
+use opaque user selectors plus account ID, display name, status, and role only.
+They exclude employee ID, email, department, directory groups, login history,
+credentials, personal Memory, paths, and generic audit details. Request IDs
+outside the actor's review subtree behave like absent resources, so the API
+does not reveal foreign request state.
+
+Scope move and restore remain deferred. Moving an active subtree changes
+effective Memory and Skill Hub lineage, reviewer authority, and ownership
+reach; those operations will ship only with cross-consumer lifecycle proof.
 
 PR6 localizes product prose, statuses, errors, and accessible labels in Korean
 and English while keeping stable technical terms such as Team, Group, Part,

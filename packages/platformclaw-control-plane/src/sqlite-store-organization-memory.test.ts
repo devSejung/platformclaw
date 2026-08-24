@@ -174,6 +174,7 @@ describe("organization memory read model", () => {
       actorUserId: admin.user.id,
       scopeId: partA.id,
       userId: member.user.id,
+      reason: "remove test membership",
       changedAt: 55,
     });
     expect(

@@ -394,6 +394,7 @@ describe("SqliteControlPlaneStore", () => {
         actorUserId: firstLeader.user.id,
         scopeId: group.id,
         userId: secondLeader.user.id,
+        reason: "unauthorized leader removal",
         changedAt: 4_001,
       }),
     ).rejects.toThrow("only administrators can remove leaders");
@@ -437,6 +438,7 @@ describe("SqliteControlPlaneStore", () => {
         actorUserId: admin.user.id,
         scopeId: group.id,
         userId: member.user.id,
+        reason: "archived scope removal",
         changedAt: 5_000,
       }),
     ).rejects.toThrow("cannot change memberships for an archived scope");

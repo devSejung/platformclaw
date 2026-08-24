@@ -422,7 +422,7 @@ export abstract class SqliteControlPlaneStoreCore {
     return row;
   }
 
-  protected assertScopeNameAvailable(scope: ManagedScopeRow): void {
+  protected assertScopeNameAvailable(scope: ManagedScopeRow, excludeScopeId?: string): void {
     let query = this.query
       .selectFrom("managed_scopes")
       .select("id")
@@ -432,6 +432,9 @@ export abstract class SqliteControlPlaneStoreCore {
       scope.kind === "team"
         ? query.where("parent_scope_id", "is", null)
         : query.where("parent_scope_id", "=", scope.parent_scope_id);
+    if (excludeScopeId) {
+      query = query.where("id", "!=", excludeScopeId);
+    }
     if (takeFirstSync(this.db, query)) {
       throw new ControlPlaneConflictError(
         "managed_scope_name_conflict",

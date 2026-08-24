@@ -4,6 +4,8 @@ import {
   ControlPlaneNotFoundError,
   ControlPlaneStateError,
   type OrganizationJoinRequest,
+  type OrganizationContextSnapshot,
+  type ReviewableOrganizationJoinRequest,
 } from "./contracts.js";
 import { executeSync, runReadTransaction, takeFirstSync } from "./kysely-sync.js";
 import { resolveOrganizationAuthorization } from "./organization-policy.js";
@@ -22,6 +24,7 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
     status: "pending" | "approved" | "rejected" | "cancelled";
     created_at: number;
     decided_at: number | null;
+    decision_reason?: string | null;
   }): OrganizationJoinRequest {
     return {
       id: row.id,
@@ -31,6 +34,7 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
       status: row.status,
       createdAt: row.created_at,
       ...(row.decided_at === null ? {} : { decidedAt: row.decided_at }),
+      ...(row.decision_reason ? { decisionReason: row.decision_reason } : {}),
     };
   }
 
@@ -145,22 +149,23 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
         if (!request) {
           throw new ControlPlaneNotFoundError("organization-join-request", params.requestId);
         }
-        if (request.status !== "pending") {
-          throw new ControlPlaneStateError(
-            "organization join request already has a terminal decision",
-          );
-        }
-        if (actor.id === request.user_id) {
-          throw new ControlPlaneAuthorizationError("users cannot review their own join request");
-        }
         const scope = this.requireScopeRow(request.scope_id);
         const actorIsAdmin = actor.status === "active" && actor.global_role === "admin";
         if (
           !actorIsAdmin &&
           (actor.status !== "active" || !this.isLeaderForScope(actor.id, scope))
         ) {
-          throw new ControlPlaneAuthorizationError(
-            "not allowed to review this organization join request",
+          // Request identifiers are opaque, but inaccessible rows still behave as absent so
+          // callers cannot probe another subtree's request state or applicant.
+          throw new ControlPlaneNotFoundError("organization-join-request", params.requestId);
+        }
+        if (actor.id === request.user_id) {
+          throw new ControlPlaneAuthorizationError("users cannot review their own join request");
+        }
+        if (request.status !== "pending") {
+          throw new ControlPlaneConflictError(
+            "organization_join_request_terminal_conflict",
+            "organization join request already has a terminal decision",
           );
         }
         if (
@@ -221,6 +226,7 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
           ...request,
           status: params.decision,
           decided_at: params.decidedAt,
+          decision_reason: reason,
         });
       },
     );
@@ -241,6 +247,10 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
         createdAt: params.cancelledAt,
       },
       () => {
+        const actor = this.requireUserRow(params.actorUserId);
+        if (actor.status !== "active") {
+          throw new ControlPlaneAuthorizationError("active user required");
+        }
         const request = takeFirstSync(
           this.db,
           this.query
@@ -251,9 +261,13 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
         if (!request) {
           throw new ControlPlaneNotFoundError("organization-join-request", params.requestId);
         }
-        if (request.user_id !== params.actorUserId || request.status !== "pending") {
-          throw new ControlPlaneAuthorizationError(
-            "only the requester can cancel a pending join request",
+        if (request.user_id !== params.actorUserId) {
+          throw new ControlPlaneNotFoundError("organization-join-request", params.requestId);
+        }
+        if (request.status !== "pending") {
+          throw new ControlPlaneConflictError(
+            "organization_join_request_terminal_conflict",
+            "organization join request is no longer pending",
           );
         }
         const reason = boundedReason(params.reason, "reason");
@@ -290,6 +304,7 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
           ...request,
           status: "cancelled",
           decided_at: params.cancelledAt,
+          decision_reason: reason,
         });
       },
     );
@@ -298,29 +313,112 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
   async listOwnOrganizationJoinRequests(params: {
     userId: string;
     limit?: number;
+    offset?: number;
   }): Promise<OrganizationJoinRequest[]> {
     const boundedLimit = Number.isFinite(params.limit)
       ? Math.max(1, Math.min(Math.trunc(params.limit!), 200))
       : 100;
+    const boundedOffset = Number.isFinite(params.offset)
+      ? Math.max(0, Math.min(Math.trunc(params.offset!), 10_000))
+      : 0;
     return executeSync(
       this.db,
       this.query
         .selectFrom("organization_join_requests")
-        .selectAll()
+        .leftJoin(
+          "organization_join_request_decisions",
+          "organization_join_request_decisions.request_id",
+          "organization_join_requests.id",
+        )
+        .selectAll("organization_join_requests")
+        .select("organization_join_request_decisions.reason as decision_reason")
         .where("user_id", "=", params.userId)
         .orderBy("created_at", "desc")
         .orderBy("id")
-        .limit(boundedLimit),
+        .limit(boundedLimit)
+        .offset(boundedOffset),
     ).rows.map((row) => this.rowToJoinRequest(row));
+  }
+
+  async getOrganizationContextSnapshot(params: {
+    userId: string;
+    requestLimit?: number;
+  }): Promise<OrganizationContextSnapshot> {
+    const requestLimit = Number.isFinite(params.requestLimit)
+      ? Math.max(1, Math.min(Math.trunc(params.requestLimit!), 50))
+      : 20;
+    return runReadTransaction(this.db, () => {
+      this.requireUserRow(params.userId);
+      const directMemberships = executeSync(
+        this.db,
+        this.query
+          .selectFrom("managed_scope_memberships")
+          .selectAll()
+          .where("user_id", "=", params.userId)
+          .orderBy("scope_id")
+          .limit(201),
+      ).rows.map(rowToMembership);
+      const primary = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("managed_scope_primary_memberships")
+          .innerJoin(
+            "managed_scopes",
+            "managed_scopes.id",
+            "managed_scope_primary_memberships.scope_id",
+          )
+          .selectAll("managed_scopes")
+          .where("managed_scope_primary_memberships.user_id", "=", params.userId),
+      );
+      const requests = executeSync(
+        this.db,
+        this.query
+          .selectFrom("organization_join_requests")
+          .leftJoin(
+            "organization_join_request_decisions",
+            "organization_join_request_decisions.request_id",
+            "organization_join_requests.id",
+          )
+          .selectAll("organization_join_requests")
+          .select("organization_join_request_decisions.reason as decision_reason")
+          .where("organization_join_requests.user_id", "=", params.userId)
+          .orderBy("organization_join_requests.created_at", "desc")
+          .orderBy("organization_join_requests.id")
+          .limit(requestLimit),
+      ).rows.map((row) => this.rowToJoinRequest(row));
+      const effectiveAccess = this.resolveEffectiveOrganizationAccessSnapshot(params.userId);
+      return {
+        effectiveAccess: effectiveAccess.slice(0, 200),
+        effectiveAccessHasMore: effectiveAccess.length > 200,
+        directMemberships: directMemberships.slice(0, 200),
+        directMembershipsHasMore: directMemberships.length > 200,
+        primaryScope: primary ? rowToScope(primary) : null,
+        joinRequests: requests,
+      };
+    });
   }
 
   async listReviewableOrganizationJoinRequests(params: {
     actorUserId: string;
     limit?: number;
+    offset?: number;
   }): Promise<OrganizationJoinRequest[]> {
+    return (await this.listReviewableOrganizationJoinRequestDetails(params)).map(
+      (entry) => entry.request,
+    );
+  }
+
+  async listReviewableOrganizationJoinRequestDetails(params: {
+    actorUserId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ReviewableOrganizationJoinRequest[]> {
     const boundedLimit = Number.isFinite(params.limit)
       ? Math.max(1, Math.min(Math.trunc(params.limit!), 200))
       : 100;
+    const boundedOffset = Number.isFinite(params.offset)
+      ? Math.max(0, Math.min(Math.trunc(params.offset!), 10_000))
+      : 0;
     return runReadTransaction(this.db, () => {
       const actor = this.requireUserRow(params.actorUserId);
       if (actor.status !== "active") {
@@ -352,18 +450,41 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
       if (reviewableScopeIds.length === 0) {
         return [];
       }
+      const scopesById = new Map(scopes.map((scope) => [scope.id, scope]));
       return executeSync(
         this.db,
         this.query
           .selectFrom("organization_join_requests")
-          .selectAll()
-          .where("status", "=", "pending")
-          .where("scope_id", "in", reviewableScopeIds)
-          .where("user_id", "!=", actor.id)
-          .orderBy("created_at", "desc")
-          .orderBy("id")
-          .limit(boundedLimit),
-      ).rows.map((row) => this.rowToJoinRequest(row));
+          .innerJoin("platform_users", "platform_users.id", "organization_join_requests.user_id")
+          .selectAll("organization_join_requests")
+          .select([
+            "platform_users.account_id as applicant_account_id",
+            "platform_users.display_name as applicant_display_name",
+            "platform_users.status as applicant_status",
+          ])
+          .where("organization_join_requests.status", "=", "pending")
+          .where("organization_join_requests.scope_id", "in", reviewableScopeIds)
+          .where("organization_join_requests.user_id", "!=", actor.id)
+          .orderBy("organization_join_requests.created_at", "desc")
+          .orderBy("organization_join_requests.id")
+          .limit(boundedLimit)
+          .offset(boundedOffset),
+      ).rows.map((row) => {
+        const scope = scopesById.get(row.scope_id);
+        if (!scope) {
+          throw new ControlPlaneNotFoundError("managed-scope", row.scope_id);
+        }
+        return {
+          request: this.rowToJoinRequest(row),
+          applicant: {
+            id: row.user_id,
+            accountId: row.applicant_account_id,
+            status: row.applicant_status,
+            ...(row.applicant_display_name ? { displayName: row.applicant_display_name } : {}),
+          },
+          scope,
+        };
+      });
     });
   }
 }

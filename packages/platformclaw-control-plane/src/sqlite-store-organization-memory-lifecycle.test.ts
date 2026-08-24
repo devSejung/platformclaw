@@ -121,6 +121,7 @@ describe("organization memory promotion lifecycle", () => {
       actorUserId: admin.user.id,
       scopeId: part.id,
       userId: member.user.id,
+      reason: "revoke during submit",
       changedAt: 41,
     });
     releaseSubmit();
@@ -168,6 +169,7 @@ describe("organization memory promotion lifecycle", () => {
       actorUserId: admin.user.id,
       scopeId: group.id,
       userId: admin.user.id,
+      reason: "revoke during review",
       changedAt: 45,
     });
     releaseReview();
@@ -263,6 +265,7 @@ describe("organization memory promotion lifecycle", () => {
       actorUserId: admin.user.id,
       scopeId: part.id,
       userId: member.user.id,
+      reason: "revoke before decision",
       changedAt: 51,
     });
     await expect(
