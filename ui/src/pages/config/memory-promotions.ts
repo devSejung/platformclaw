@@ -107,16 +107,12 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   }
 
   private targetScopes() {
-    const scopes = this.snapshot?.scopes ?? [];
     if (this.sourceKind === "personal") {
-      return scopes.filter((scope) => scope.kind === "part");
+      return this.snapshot?.personalTargets ?? [];
     }
-    if (this.sourceKind === "part") {
-      const source = this.sourceClaims().find((claim) => claim.id === this.sourceClaimId);
-      const part = scopes.find((scope) => scope.id === source?.scopeId);
-      return scopes.filter((scope) => scope.kind === "group" && scope.id === part?.parentScopeId);
-    }
-    return scopes.filter((scope) => scope.kind === "global");
+    return (
+      this.sourceClaims().find((claim) => claim.id === this.sourceClaimId)?.promotionTargets ?? []
+    );
   }
 
   private resetForSourceKind(kind: OrganizationMemoryPromotionSourceKind) {
@@ -132,7 +128,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   private async submit() {
     const client = this.client;
     const target = this.targetScopes().find(
-      (scope) => (scope.id ?? "global") === this.targetScopeId,
+      (scope) => (scope.scopeId ?? "global") === this.targetScopeId,
     );
     if (!client || !target) {
       return;
@@ -149,15 +145,20 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
           .filter(Boolean),
         reason: this.reason,
       };
-      await client.request("platformclaw.memory.promotion.submit", {
-        ...content,
-        sourceKind: this.sourceKind,
-        ...(this.sourceKind === "personal"
-          ? {}
-          : { expectedSourceRevision: Number(this.sourceRevision) }),
-        targetKind: target.kind,
-        ...(target.id ? { targetScopeId: target.id } : {}),
-      });
+      await client.request(
+        target.mode === "direct"
+          ? "platformclaw.memory.promotion.publishDirect"
+          : "platformclaw.memory.promotion.submit",
+        {
+          ...content,
+          sourceKind: this.sourceKind,
+          ...(this.sourceKind === "personal"
+            ? {}
+            : { expectedSourceRevision: Number(this.sourceRevision) }),
+          targetKind: target.kind,
+          ...(target.scopeId ? { targetScopeId: target.scopeId } : {}),
+        },
+      );
       this.proposedText = "";
       this.evidence = "";
       this.reason = "";
@@ -218,13 +219,6 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     }
   }
 
-  private canAdministerClaim(scopeKind: "global" | "team" | "group" | "part", scopeId?: string) {
-    return (this.snapshot?.scopes ?? []).some(
-      (scope) =>
-        scope.kind === scopeKind && (scope.id ?? null) === (scopeId ?? null) && scope.canAdminister,
-    );
-  }
-
   private statusLabel(
     status: "pending" | "approved" | "rejected" | "active" | "retired" | "purged",
   ): string {
@@ -244,7 +238,9 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       ? t("memoryPage.promotions.personal")
       : kind === "part"
         ? t("memoryPage.promotions.part")
-        : t("memoryPage.promotions.group");
+        : kind === "group"
+          ? t("memoryPage.promotions.group")
+          : t("memoryPage.promotions.team");
   }
 
   private renderRequest(request: OrganizationMemoryPromotionRequest, review = false) {
@@ -252,8 +248,10 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       <span class="settings-row__text">
         <span class="settings-row__title">${request.proposedText}</span>
         <span class="settings-row__desc"
-          >${this.sourceLabel(request.sourceKind)} · ${request.sourceClaimId} ·
-          ${t("memoryPage.promotions.revision", { revision: String(request.sourceRevision) })} →
+          >${this.sourceLabel(request.sourceKind)}${request.sourceClaimId
+            ? ` · ${request.sourceClaimId}`
+            : ""}
+          · ${t("memoryPage.promotions.revision", { revision: String(request.sourceRevision) })} →
           ${request.targetScopeName} · ${this.statusLabel(request.status)}</span
         >
         <span class="settings-row__desc"
@@ -270,7 +268,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
             >`
           : nothing}
       </span>
-      ${review
+      ${review && request.canReview
         ? html`<span class="settings-row__control">
             <button
               class="btn btn--sm primary"
@@ -325,6 +323,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
               <option value="personal">${t("memoryPage.promotions.personal")}</option>
               <option value="part">${t("memoryPage.promotions.part")}</option>
               <option value="group">${t("memoryPage.promotions.group")}</option>
+              <option value="team">${t("memoryPage.promotions.team")}</option>
             </select>
           </label>
           ${this.sourceKind === "personal"
@@ -368,7 +367,8 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
             >
               <option value="">${t("memoryPage.promotions.chooseTarget")}</option>
               ${targets.map(
-                (scope) => html`<option value=${scope.id ?? "global"}>${scope.name}</option>`,
+                (scope) =>
+                  html`<option value=${scope.scopeId ?? "global"}>${scope.scopeName}</option>`,
               )}
             </select>
           </label>
@@ -411,7 +411,10 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
             !this.reason.trim()}
             @click=${() => void this.submit()}
           >
-            ${t("memoryPage.promotions.submit")}
+            ${targets.find((target) => (target.scopeId ?? "global") === this.targetScopeId)
+              ?.mode === "direct"
+              ? t("memoryPage.promotions.publishDirect")
+              : t("memoryPage.promotions.submit")}
           </button>
         </div>
       </section>
@@ -452,15 +455,14 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
                     >
                   </span>
                   <span class="settings-row__control">
-                    ${claim.status === "active" &&
-                    this.canAdministerClaim(claim.scopeKind, claim.scopeId)
+                    ${claim.status === "active" && claim.canRetire
                       ? html`<button
                           class="btn btn--sm"
                           @click=${() => void this.retire(claim.id, false)}
                         >
                           ${t("memoryPage.promotions.retire")}
                         </button>`
-                      : claim.status === "retired" && this.snapshot?.canApproveGlobal
+                      : claim.status === "retired" && claim.canPurge
                         ? html`<button
                             class="btn btn--sm danger"
                             @click=${() => void this.retire(claim.id, true)}

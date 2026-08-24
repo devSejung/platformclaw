@@ -52,11 +52,14 @@ function nonNegativeIntegerParam(request: JsonObject, name: string): number | un
   return value;
 }
 
-function projectRequest(value: OrganizationMemoryPromotionRequest) {
+function projectRequest(value: OrganizationMemoryPromotionRequest, includePersonalSource = true) {
   return {
     id: value.id,
     sourceKind: value.sourceKind,
-    sourceClaimId: value.sourceClaimId,
+    ...(value.sourceClaimId === undefined ||
+    (value.sourceKind === "personal" && !includePersonalSource)
+      ? {}
+      : { sourceClaimId: value.sourceClaimId }),
     sourceRevision: value.sourceRevision,
     targetKind: value.targetKind,
     targetScopeName: value.targetScopeName,
@@ -85,6 +88,18 @@ function projectClaim(value: OrganizationMemoryClaim) {
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     ...(value.sourceClaimId === undefined ? {} : { sourceClaimId: value.sourceClaimId }),
+    ...(value.promotionTargets === undefined
+      ? {}
+      : {
+          promotionTargets: value.promotionTargets.map((target) => ({
+            kind: target.kind,
+            scopeName: target.scopeName,
+            ...(target.scopeId === undefined ? {} : { scopeId: target.scopeId }),
+            mode: target.mode,
+          })),
+        }),
+    ...(value.canRetire === undefined ? {} : { canRetire: value.canRetire }),
+    ...(value.canPurge === undefined ? {} : { canPurge: value.canPurge }),
   };
 }
 
@@ -97,9 +112,15 @@ function projectSnapshot(value: OrganizationMemoryLifecycleSnapshot) {
       ...(scope.parentScopeId === undefined ? {} : { parentScopeId: scope.parentScopeId }),
       canAdminister: scope.canAdminister,
     })),
+    personalTargets: value.personalTargets.map((target) => ({
+      kind: target.kind,
+      scopeName: target.scopeName,
+      ...(target.scopeId === undefined ? {} : { scopeId: target.scopeId }),
+      mode: target.mode,
+    })),
     claims: value.claims.map(projectClaim),
-    submitted: value.submitted.map(projectRequest),
-    reviewable: value.reviewable.map(projectRequest),
+    submitted: value.submitted.map((request) => projectRequest(request, true)),
+    reviewable: value.reviewable.map((request) => projectRequest(request, false)),
     canApproveGlobal: value.canApproveGlobal,
     ...(value.next
       ? {
@@ -141,7 +162,7 @@ function stringArrayParam(request: JsonObject, name: string): string[] {
 
 function sourceKind(request: JsonObject): OrganizationMemoryPromotionSourceKind {
   const value = textParam(request, "sourceKind");
-  if (value !== "personal" && value !== "part" && value !== "group") {
+  if (value !== "personal" && value !== "part" && value !== "group" && value !== "team") {
     throw new BrowserGatewayProxyError("invalid-params", "sourceKind is invalid");
   }
   return value;
@@ -149,7 +170,7 @@ function sourceKind(request: JsonObject): OrganizationMemoryPromotionSourceKind 
 
 function targetKind(request: JsonObject): OrganizationMemoryScopeKind {
   const value = textParam(request, "targetKind");
-  if (value !== "part" && value !== "group" && value !== "global") {
+  if (value !== "part" && value !== "group" && value !== "team" && value !== "global") {
     throw new BrowserGatewayProxyError("invalid-params", "targetKind is invalid");
   }
   return value;
@@ -217,6 +238,35 @@ export async function requestBrowserOrganizationMemoryLifecycle(params: {
               evidence: stringArrayParam(params.request, "evidence"),
               reason: textParam(params.request, "reason"),
               submittedAt: params.now,
+            }),
+          ),
+        ),
+      };
+    case "platformclaw.memory.promotion.publishDirect":
+      return {
+        handled: true,
+        result: projectRequest(
+          await lifecycleCall(() =>
+            owner.publishOrganizationMemoryDirect({
+              agentId: params.agentId,
+              sourceKind: sourceKind(params.request),
+              sourceClaimId: textParam(params.request, "sourceClaimId"),
+              ...(optionalIntegerParam(params.request, "expectedSourceRevision") === undefined
+                ? {}
+                : {
+                    expectedSourceRevision: optionalIntegerParam(
+                      params.request,
+                      "expectedSourceRevision",
+                    ),
+                  }),
+              targetKind: targetKind(params.request),
+              ...(optionalTextParam(params.request, "targetScopeId")
+                ? { targetScopeId: optionalTextParam(params.request, "targetScopeId") }
+                : {}),
+              proposedText: textParam(params.request, "proposedText"),
+              evidence: stringArrayParam(params.request, "evidence"),
+              reason: textParam(params.request, "reason"),
+              publishedAt: params.now,
             }),
           ),
         ),

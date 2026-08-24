@@ -59,7 +59,9 @@
   `vault.scope=agent` bridge mode. PlatformClaw changes no Wiki compiler,
   storage, tool, or Gateway protocol contract; downstream policy is limited to
   managed deployment config plus agent-pinned, path-redacted browser reads.
-  Future part, group, and global corpora remain separate PlatformClaw work.
+  Organization Team, Group, Part, and Global corpora remain separate
+  PlatformClaw-owned state and reuse canonical organization authorization;
+  they do not change the upstream personal Wiki compiler or Dreaming.
 - These workspace, artifact, and rewind changes are downstream Browser Gateway
   policy and response projection only. They do not modify the Gateway protocol,
   upstream handlers, filesystem resolution, transcript storage, or artifact

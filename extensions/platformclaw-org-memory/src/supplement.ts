@@ -1,7 +1,7 @@
 import { asRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { OrganizationMemoryClient } from "./client.js";
 
-const PATH = /^organization\/(global|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
+const PATH = /^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
 
 function agentId(value?: string): string {
   if (!value?.trim()) {

@@ -59,6 +59,7 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.promotions.personal": "개인",
   "memoryPage.promotions.part": "Part",
   "memoryPage.promotions.group": "Group",
+  "memoryPage.promotions.team": "Team",
   "memoryPage.promotions.personalClaimPlaceholder": "Personal Wiki 페이지 ID, 제목 또는 경로",
   "memoryPage.promotions.personalSourceTitle": "Personal Wiki에서 원본 선택",
   "memoryPage.promotions.personalSourceHelp":
@@ -80,6 +81,7 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.promotions.evidencePlaceholder": "근거 또는 출처를 한 줄에 하나씩 입력",
   "memoryPage.promotions.reasonPlaceholder": "이 지식을 승격하는 이유",
   "memoryPage.promotions.submit": "승격 요청",
+  "memoryPage.promotions.publishDirect": "관리자 권한으로 바로 등록",
   "memoryPage.promotions.needsReview": "검토 필요",
   "memoryPage.promotions.myRequests": "내 요청",
   "memoryPage.promotions.claims": "조직 지식",

@@ -160,6 +160,7 @@ suite("PlatformClaw organization memory Settings E2E", () => {
                 canAdminister: false,
               },
             ],
+            personalTargets: [],
             claims: [],
             submitted: [],
             reviewable: [

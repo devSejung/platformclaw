@@ -5,7 +5,7 @@ describe("PlatformClaw organization memory supplement", () => {
   it("maps bounded virtual results and forwards the pinned agent", async () => {
     const search = vi.fn(async () => [
       {
-        path: "organization/group/page-1",
+        path: "organization/team/page-1",
         title: "Release policy",
         scopeName: "Platform",
         snippet: "Two approvals",
@@ -14,7 +14,7 @@ describe("PlatformClaw organization memory supplement", () => {
       },
     ]);
     const get = vi.fn(async () => ({
-      path: "organization/group/page-1",
+      path: "organization/team/page-1",
       title: "Release policy",
       scopeName: "Platform",
       content: "Two approvals",
@@ -29,7 +29,7 @@ describe("PlatformClaw organization memory supplement", () => {
       expect.objectContaining({
         corpus: "platformclaw-organization",
         source: "organization",
-        path: "organization/group/page-1",
+        path: "organization/team/page-1",
         provenanceLabel: "Platform",
       }),
     ]);
@@ -39,7 +39,7 @@ describe("PlatformClaw organization memory supplement", () => {
       maxResults: 5,
     });
     await expect(
-      supplement.get({ lookup: "organization/group/page-1", agentId: "person_one" }),
+      supplement.get({ lookup: "organization/team/page-1", agentId: "person_one" }),
     ).resolves.toMatchObject({ content: "Two approvals", fromLine: 1, lineCount: 1 });
   });
 

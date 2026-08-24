@@ -6,8 +6,8 @@ describe("BrowserGatewayProxy personal memory", () => {
     const searchOrganizationMemory = vi.fn(async () => [
       {
         id: "claim-1",
-        path: "organization/group/claim-1",
-        scopeKind: "group" as const,
+        path: "organization/team/claim-1",
+        scopeKind: "team" as const,
         scopeId: "scope-1",
         scopeName: "Platform",
         title: "Release policy",
@@ -38,7 +38,7 @@ describe("BrowserGatewayProxy personal memory", () => {
     expect(response.results).toEqual([
       expect.objectContaining({
         source: "organization",
-        path: "organization/group/claim-1",
+        path: "organization/team/claim-1",
         provenanceLabel: "Platform",
       }),
     ]);

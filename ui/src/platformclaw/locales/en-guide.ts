@@ -17,6 +17,8 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.promotions.loading": "Loading organization knowledge…",
   "memoryPage.promotions.target": "Target scope",
   "memoryPage.promotions.scope": "Organization scope",
+  "memoryPage.promotions.team": "Team",
+  "memoryPage.promotions.publishDirect": "Publish directly as administrator",
   "memoryPage.promotions.personalSourceTitle": "Choose a personal Wiki source",
   "memoryPage.promotions.personalSourceHelp":
     "Search your personal Wiki, preview a complete page, then edit the proposed shared claim before submitting.",

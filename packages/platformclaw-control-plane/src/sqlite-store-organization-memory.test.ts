@@ -38,7 +38,7 @@ function insertPage(
   db: DatabaseSync,
   params: {
     id: string;
-    scopeKind: "global" | "group" | "part";
+    scopeKind: "global" | "team" | "group" | "part";
     scopeId?: string;
     title: string;
     content?: string;
@@ -66,7 +66,7 @@ afterEach(() => {
 });
 
 describe("organization memory read model", () => {
-  it("enforces Global, direct scope, leader-child, archived, sibling, and agent boundaries", async () => {
+  it("reads Global plus canonical direct and ancestor scopes without leaking siblings", async () => {
     const directory = mkdtempSync(join(tmpdir(), "platformclaw-org-memory-"));
     directories.push(directory);
     const databasePath = join(directory, "control.sqlite");
@@ -126,6 +126,7 @@ describe("organization memory read model", () => {
     await store.searchOrganizationMemory({ agentId: member.binding.agentId, query: "policy" });
     const db = new DatabaseSync(databasePath);
     insertPage(db, { id: "global", scopeKind: "global", title: "Global policy" });
+    insertPage(db, { id: "team", scopeKind: "team", scopeId: team.id, title: "Team policy" });
     insertPage(db, { id: "group", scopeKind: "group", scopeId: group.id, title: "Group policy" });
     insertPage(db, { id: "part-a", scopeKind: "part", scopeId: partA.id, title: "Runtime policy" });
     insertPage(db, { id: "part-b", scopeKind: "part", scopeId: partB.id, title: "Product policy" });
@@ -141,12 +142,12 @@ describe("organization memory read model", () => {
       (
         await store.searchOrganizationMemory({ agentId: member.binding.agentId, query: "policy" })
       ).map((hit) => hit.id),
-    ).toEqual(["global", "part-a"]);
+    ).toEqual(["global", "group", "part-a", "team"]);
     expect(
       (await store.searchOrganizationMemory({ agentId: admin.binding.agentId, query: "policy" }))
         .map((hit) => hit.id)
         .toSorted(),
-    ).toEqual(["global", "group", "part-a", "part-b"]);
+    ).toEqual(["global", "group", "part-a", "part-b", "team"]);
     expect(
       (
         await store.searchOrganizationMemory({ agentId: outsider.binding.agentId, query: "policy" })

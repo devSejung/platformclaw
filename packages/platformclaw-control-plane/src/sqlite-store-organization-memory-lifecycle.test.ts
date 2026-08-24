@@ -41,6 +41,182 @@ afterEach(() => {
 });
 
 describe("organization memory promotion lifecycle", () => {
+  it("projects canonical targets and lets ancestor leaders review without self-approval", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "platformclaw-memory-team-"));
+    directories.push(directory);
+    const store = new SqliteControlPlaneStore({
+      databasePath: join(directory, "control.sqlite"),
+      buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
+      initialAdminAccountIds: ["admin"],
+      idFactory: ids(),
+      resolvePersonalOrganizationMemorySource: async ({ lookup }) => ({
+        claimId: lookup,
+        revision: 1,
+      }),
+    });
+    const admin = await activeUser(store, "admin", 10);
+    const teamLeader = await activeUser(store, "team-leader", 20);
+    const member = await activeUser(store, "member", 30);
+    const unaffiliated = await activeUser(store, "unaffiliated", 40);
+    const groupMember = await activeUser(store, "group-member", 45);
+    const team = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "team",
+      name: "Company",
+      createdAt: 50,
+    });
+    const group = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "group",
+      name: "Platform",
+      parentScopeId: team.id,
+      createdAt: 51,
+    });
+    const part = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "part",
+      name: "Runtime",
+      parentScopeId: group.id,
+      createdAt: 52,
+    });
+    await store.setManagedScopeMembership({
+      actorUserId: admin.user.id,
+      scopeId: team.id,
+      userId: teamLeader.user.id,
+      role: "leader",
+      reason: "test leader",
+      changedAt: 53,
+    });
+    await store.setManagedScopeMembership({
+      actorUserId: admin.user.id,
+      scopeId: part.id,
+      userId: member.user.id,
+      role: "member",
+      reason: "test member",
+      changedAt: 54,
+    });
+    await store.setManagedScopeMembership({
+      actorUserId: admin.user.id,
+      scopeId: group.id,
+      userId: groupMember.user.id,
+      role: "member",
+      reason: "test group member",
+      changedAt: 55,
+    });
+    const memberLifecycle = await store.getOrganizationMemoryLifecycle(member.binding.agentId);
+    expect(memberLifecycle.personalTargets).toEqual([
+      expect.objectContaining({ kind: "part", scopeId: part.id, mode: "request" }),
+    ]);
+    expect(
+      (await store.getOrganizationMemoryLifecycle(unaffiliated.binding.agentId)).personalTargets,
+    ).toEqual([{ kind: "global", scopeName: "Global", mode: "request" }]);
+    const groupPersonal = await store.submitOrganizationMemoryPromotion({
+      agentId: groupMember.binding.agentId,
+      sourceKind: "personal",
+      sourceClaimId: "wiki/group.md",
+      targetKind: "group",
+      targetScopeId: group.id,
+      proposedText: "Group-only knowledge",
+      evidence: [],
+      reason: "group policy",
+      submittedAt: 56,
+    });
+    await store.removeManagedScopeMembership({
+      actorUserId: admin.user.id,
+      scopeId: group.id,
+      userId: groupMember.user.id,
+      reason: "move to child",
+      changedAt: 57,
+    });
+    await store.setManagedScopeMembership({
+      actorUserId: admin.user.id,
+      scopeId: part.id,
+      userId: groupMember.user.id,
+      role: "member",
+      reason: "retain inherited read only",
+      changedAt: 58,
+    });
+    await expect(
+      store.decideOrganizationMemoryPromotion({
+        agentId: admin.binding.agentId,
+        requestId: groupPersonal.id,
+        decision: "approve",
+        reason: "must recheck direct membership",
+        decidedAt: 59,
+      }),
+    ).rejects.toThrow("direct target membership");
+    await store.decideOrganizationMemoryPromotion({
+      agentId: admin.binding.agentId,
+      requestId: groupPersonal.id,
+      decision: "reject",
+      reason: "membership changed",
+      decidedAt: 60,
+    });
+    const globalPersonal = await store.submitOrganizationMemoryPromotion({
+      agentId: unaffiliated.binding.agentId,
+      sourceKind: "personal",
+      sourceClaimId: "wiki/global.md",
+      targetKind: "global",
+      proposedText: "Unaffiliated knowledge",
+      evidence: [],
+      reason: "global candidate",
+      submittedAt: 60,
+    });
+    await store.setManagedScopeMembership({
+      actorUserId: admin.user.id,
+      scopeId: team.id,
+      userId: unaffiliated.user.id,
+      role: "member",
+      reason: "joined after request",
+      changedAt: 61,
+    });
+    await expect(
+      store.decideOrganizationMemoryPromotion({
+        agentId: admin.binding.agentId,
+        requestId: globalPersonal.id,
+        decision: "approve",
+        reason: "must recheck affiliation",
+        decidedAt: 62,
+      }),
+    ).rejects.toThrow("joined a managed scope");
+    const request = await store.submitOrganizationMemoryPromotion({
+      agentId: member.binding.agentId,
+      sourceKind: "personal",
+      sourceClaimId: "wiki/team-review.md",
+      targetKind: "part",
+      targetScopeId: part.id,
+      proposedText: "Ancestor leader review",
+      evidence: [],
+      reason: "team policy",
+      submittedAt: 60,
+    });
+    const leaderLifecycle = await store.getOrganizationMemoryLifecycle(teamLeader.binding.agentId);
+    expect(leaderLifecycle.reviewable).toEqual([
+      expect.objectContaining({ id: request.id, canReview: true }),
+    ]);
+    expect(leaderLifecycle.reviewable[0]).not.toHaveProperty("sourceClaimId");
+    expect(leaderLifecycle.claims).toEqual([]);
+    await store.decideOrganizationMemoryPromotion({
+      agentId: teamLeader.binding.agentId,
+      requestId: request.id,
+      decision: "approve",
+      reason: "verified",
+      decidedAt: 61,
+    });
+    const direct = await store.publishOrganizationMemoryDirect({
+      agentId: admin.binding.agentId,
+      sourceKind: "personal",
+      sourceClaimId: "wiki/admin-policy.md",
+      targetKind: "global",
+      proposedText: "Administrator policy",
+      evidence: ["reviewed"],
+      reason: "explicit administrator publication",
+      publishedAt: 62,
+    });
+    expect(direct).toMatchObject({ status: "approved", targetKind: "global" });
+    store.close();
+  });
+
   it("rechecks submitter and reviewer authority after personal Wiki resolution", async () => {
     const directory = mkdtempSync(join(tmpdir(), "platformclaw-memory-promotion-race-"));
     directories.push(directory);
@@ -125,7 +301,7 @@ describe("organization memory promotion lifecycle", () => {
       changedAt: 41,
     });
     releaseSubmit();
-    await expect(racedSubmit).rejects.toThrow("target scope is not available");
+    await expect(racedSubmit).rejects.toThrow("direct target membership");
     await store.setManagedScopeMembership({
       actorUserId: admin.user.id,
       scopeId: part.id,
@@ -260,7 +436,7 @@ describe("organization memory promotion lifecycle", () => {
         reason: "unauthorized",
         decidedAt: 51,
       }),
-    ).rejects.toThrow("promotion approval authority required");
+    ).rejects.toThrow("memory-promotion");
     await store.removeManagedScopeMembership({
       actorUserId: admin.user.id,
       scopeId: part.id,
@@ -276,7 +452,7 @@ describe("organization memory promotion lifecycle", () => {
         reason: "membership changed",
         decidedAt: 51,
       }),
-    ).rejects.toThrow("requester is no longer a member");
+    ).rejects.toThrow("direct target membership");
     await store.setManagedScopeMembership({
       actorUserId: admin.user.id,
       scopeId: part.id,
@@ -343,7 +519,7 @@ describe("organization memory promotion lifecycle", () => {
     ).toHaveLength(0);
 
     const groupRequest = await store.submitOrganizationMemoryPromotion({
-      agentId: admin.binding.agentId,
+      agentId: member.binding.agentId,
       sourceKind: "part",
       sourceClaimId: partClaim,
       expectedSourceRevision: 1,
@@ -361,16 +537,35 @@ describe("organization memory promotion lifecycle", () => {
       reason: "Verified",
       decidedAt: 61,
     });
-    const globalRequest = await store.submitOrganizationMemoryPromotion({
-      agentId: admin.binding.agentId,
+    const teamRequest = await store.submitOrganizationMemoryPromotion({
+      agentId: member.binding.agentId,
       sourceKind: "group",
       sourceClaimId: approvedGroup.targetClaimId!,
+      expectedSourceRevision: 1,
+      targetKind: "team",
+      targetScopeId: team.id,
+      proposedText: "# Company recovery\nDrain jobs before service restart.",
+      evidence: ["Approved Platform claim"],
+      reason: "Applies to the parent team",
+      submittedAt: 70,
+    });
+    const approvedTeam = await store.decideOrganizationMemoryPromotion({
+      agentId: admin.binding.agentId,
+      requestId: teamRequest.id,
+      decision: "approve",
+      reason: "Verified",
+      decidedAt: 71,
+    });
+    const globalRequest = await store.submitOrganizationMemoryPromotion({
+      agentId: member.binding.agentId,
+      sourceKind: "team",
+      sourceClaimId: approvedTeam.targetClaimId!,
       expectedSourceRevision: 1,
       targetKind: "global",
       proposedText: "# Company recovery\nDrain jobs before service restart.",
       evidence: ["Approved Platform claim"],
       reason: "Company-wide standard",
-      submittedAt: 70,
+      submittedAt: 72,
     });
     await store.setUserGlobalRole({
       actorUserId: admin.user.id,
@@ -381,8 +576,8 @@ describe("organization memory promotion lifecycle", () => {
     const adminWithoutMembership = await store.getOrganizationMemoryLifecycle(
       outsider.binding.agentId,
     );
-    expect(adminWithoutMembership.claims.map((claim) => claim.id)).not.toContain(partClaim);
-    expect(adminWithoutMembership.claims.map((claim) => claim.id)).not.toContain(
+    expect(adminWithoutMembership.claims.map((claim) => claim.id)).toContain(partClaim);
+    expect(adminWithoutMembership.claims.map((claim) => claim.id)).toContain(
       approvedGroup.targetClaimId,
     );
     const approvedGlobal = await store.decideOrganizationMemoryPromotion({
@@ -390,7 +585,7 @@ describe("organization memory promotion lifecycle", () => {
       requestId: globalRequest.id,
       decision: "approve",
       reason: "PlatformClaw administrator approval",
-      decidedAt: 71,
+      decidedAt: 73,
     });
     const globalClaim = approvedGlobal.targetClaimId!;
     expect(
@@ -407,7 +602,7 @@ describe("organization memory promotion lifecycle", () => {
         reason: "not mine",
         retiredAt: 80,
       }),
-    ).rejects.toThrow("retirement authority required");
+    ).rejects.toThrow("organization-memory-claim");
     const retired = await store.retireOrganizationMemoryClaim({
       agentId: admin.binding.agentId,
       claimId: globalClaim,

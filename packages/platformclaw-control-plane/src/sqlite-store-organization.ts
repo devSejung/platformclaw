@@ -305,7 +305,12 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
                 "organization_memory_promotion_requests.id",
               )
               .select("organization_memory_promotion_requests.id")
-              .where("target_scope_id", "in", archivedScopeIds)
+              .where((eb) =>
+                eb.or([
+                  eb("source_scope_id", "in", archivedScopeIds),
+                  eb("target_scope_id", "in", archivedScopeIds),
+                ]),
+              )
               .where("organization_memory_promotion_decisions.request_id", "is", null),
           ).rows;
           for (const request of abandonedRequests) {
@@ -316,7 +321,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
                 request_id: request.id,
                 decision: "rejected",
                 decided_by_user_id: params.actorUserId,
-                reason: "Owning target scope archived",
+                reason: "Source or target scope archived",
                 target_claim_id: null,
                 decided_at: params.archivedAt,
               }),
@@ -327,7 +332,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
               "memory-promotion",
               request.id,
               params.archivedAt,
-              { reason: "Owning target scope archived" },
+              { reason: "Source or target scope archived" },
             );
           }
           for (const claim of retiredClaims) {

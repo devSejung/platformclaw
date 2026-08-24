@@ -161,11 +161,12 @@ Authorization is evaluated for every search and page read:
 
 - an active personal Agent must map to an active employee;
 - Global pages are readable by every active employee;
-- Group and Part pages require direct active membership;
-- a Group leader may audit active child Parts;
-- Part membership does not imply parent-Group access;
-- archived scopes, retired pages, Knox/unknown Agents, and sibling Parts fail
-  closed.
+- direct Team, Group, or Part membership grants read access to that active
+  scope and its active ancestors;
+- leadership grants review and curation for the led scope and descendants, but
+  does not grant descendant `memory_search` access;
+- archived lineages, retired pages, Knox/unknown Agents, descendants, and
+  sibling scopes fail closed for ordinary reads.
 
 The private `platformclaw-org-memory` plugin adapts the Control Plane read model
 to the generic memory corpus registry. It runs with the Gateway on the Basic
@@ -181,10 +182,8 @@ variable: the plugin reuses the existing owner-only Control Plane handoff token
 and socket. Redeploy/restart the PlatformClaw Gateway and web ingress after
 upgrade. Before PR4, an empty organization result set is expected.
 
-These are the currently implemented schema v2 rules. The approved organization
-rollout will replace them during its Memory integration phase: Team becomes a
-fifth organization corpus class, and direct lower-scope membership grants
-effective read access to active ancestors. See
+These are the current schema v3 rules. Team is a managed organization corpus,
+and every read reuses the canonical organization authorization snapshot. See
 [PlatformClaw organization architecture](/platformclaw/organization-architecture).
 
 ## PR4: promotion and lifecycle
@@ -204,9 +203,11 @@ organization claim row.
 
 Approval authority:
 
-- personal to part: target part administrator;
-- part to group: target group administrator;
-- group to global: PlatformClaw administrator.
+- personal to a directly joined Part, Group, or Team: target-scope leader or
+  ancestor leader;
+- personal to Global: PlatformClaw administrator, only for an unaffiliated user;
+- Part to its parent Group, Group to its parent Team, and Team to Global:
+  target-scope leader or PlatformClaw administrator.
 
 Approval creates a target-scope claim linked to its immutable source claim.
 The compiler rebuilds pages, backlinks, related pages, and reports from claims;
@@ -221,29 +222,34 @@ security removal. Semantic links are derived, rebuildable metadata: background
 LLM work may suggest relationships among approved claims, but it cannot create,
 promote, approve, or restore authoritative claims.
 
-Archiving a Part or Group atomically retires its active claims and recompiles
-their source links, and records immutable rejections for pending requests that
-target the archived scope or a cascaded child Part. This prevents archived scopes from leaving searchable or
+Archiving a Team, Group, or Part atomically retires its active claims and
+recompiles their source links, and records immutable rejections for pending
+requests whose source or target is in the archived subtree. This prevents archived scopes from leaving searchable or
 unpurgeable knowledge behind. PlatformClaw administrators can still list the
 retired archived-scope tombstones and hard-purge them. Ordinary retirement
 preserves the request payload; only hard purge redacts that payload while
 retaining immutable request lineage, decision, and audit facts.
 
-PR4 stores authoritative state in three additive, lazily ensured tables under
-the existing schema version 2: immutable promotion requests, one immutable
+The lifecycle stores authoritative state in three tables under schema version
+3: immutable promotion requests, one immutable
 decision per request, and revisioned organization claims. It adds no file
 sidecars and no new environment variable. Approved claims compile into PR3's
 `organization_memory_pages` read model; retirement removes the compiled page
 from active recall, and hard purge clears claim text and evidence while keeping
 the decision and audit tombstones.
 
-The currently implemented edges are `personal -> part`,
-`part -> its parent group`, and `group -> global`. Submission and approval both resolve current membership at
-the Control Plane owner boundary. A target Part or Group leader approves its
-scope; a parent Group leader retains the existing authority to administer
-child Parts. Global approval and hard purge require an active PlatformClaw
-administrator. Archived scopes, disabled employees, stale source revisions,
-sibling groups, duplicate pending requests, and second decisions fail closed.
+The current ordinary edges are `personal -> a direct Part/Group/Team`,
+`part -> its parent group`, `group -> its parent team`, and `team -> global`.
+An unaffiliated employee may request `personal -> global`. Submission and
+approval both resolve current direct membership and canonical capabilities at
+the Control Plane transaction boundary. The target leader or an ancestor leader
+reviews a managed-scope request; submitters cannot review their own ordinary
+requests. Global approval and hard purge require an active PlatformClaw
+administrator. Administrators use a separate atomic, reasoned direct-publication
+action for their own Personal Wiki source or a manageable organization claim;
+they cannot read another employee's Personal Wiki. Archived lineages, disabled
+employees, stale source revisions, siblings, duplicate pending requests, and
+second decisions fail closed.
 
 Employees manage the lifecycle under **Settings > Memory > Organization**. The UI
 shows authorized targets, the employee's submitted requests, requests they may
@@ -252,6 +258,7 @@ Agent-pinned methods:
 
 - `platformclaw.memory.lifecycle`
 - `platformclaw.memory.promotion.submit`
+- `platformclaw.memory.promotion.publishDirect` (administrator only)
 - `platformclaw.memory.promotion.decide`
 - `platformclaw.memory.claim.retire`
 - `platformclaw.memory.claim.purge`
@@ -260,15 +267,16 @@ The request form searches the requester's existing personal Wiki through the
 already Agent-pinned `wiki.search` and `wiki.get` boundary. Selecting a complete
 page shows a preview and pre-fills the proposed claim, provenance, and reason;
 the user reviews or edits those fields and explicitly submits. Advancing an
-approved Part or Group claim likewise pre-fills its text and revision instead
-of asking the user to retype it. Source content stays in its original language;
+approved Part, Group, or Team claim likewise pre-fills its text and revision
+instead of asking the user to retype it. Source content stays in its original language;
 PlatformClaw does not translate knowledge automatically.
 
-### Planned organization membership architecture
+### Shared organization architecture
 
 The canonical approved target is documented in
 [PlatformClaw organization architecture](/platformclaw/organization-architecture).
-It is not runtime functionality shipped by the existing Memory UI.
+It is the current Memory authorization owner; the organization management UI
+remains PR6 work.
 
 - The hierarchy becomes `Global > Team > Group > Part`, with direct membership
   allowed at any managed level, multiple memberships, multiple leaders, an
@@ -283,8 +291,6 @@ It is not runtime functionality shipped by the existing Memory UI.
 - Memory reuses shared hierarchy, membership, authorization, lifecycle, and
   audit facts while retaining claims, revisions, promotion edges, compilation,
   and provenance.
-- Until the Memory conversion PR lands, the schema v2 read and promotion rules
-  above remain the runtime contract.
 
 Organization CRUD (create, rename, archive, and hierarchy changes) belongs in
 the organization management surface. Settings > Memory owns knowledge search,
