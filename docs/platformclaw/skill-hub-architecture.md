@@ -46,7 +46,7 @@ scanner, Gateway credential, and VM SSH boundary remain private.
 `platformclaw-control` owns employee-facing policy:
 
 - resolve the authenticated actor and personal Agent;
-- evaluate Team, Group, Part, and per-user ACL policy;
+- evaluate the current legacy company-wide, Group, Part, and per-user ACL policy;
 - select allowed namespaces and project safe response fields;
 - package a real workspace skill;
 - record publication, install, ownership, force, and ACL audit facts; and
@@ -60,6 +60,13 @@ owner of local archive extraction and Basic workspace installation. The
 The adapter must stay replaceable. Browser routes and UI models must not depend on
 raw SkillHub response objects, internal URLs, tokens, storage paths, or database
 identifiers.
+
+The approved organization rollout moves namespace authorization behind the
+shared `OrganizationService` and `AuthorizationService`. Skill Hub will consume
+Global, real Team, Group, Part, direct/effective membership, and delegated
+capability facts without reading organization tables or rebuilding lineage.
+Skill Hub continues to own package and registry policy. See
+[PlatformClaw organization architecture](/platformclaw/organization-architecture).
 
 The Knox channel remains transport-only. It extracts a structurally valid final
 command line and passes it to the shared command registry. The
@@ -127,6 +134,17 @@ the unassigned queue use additive tables in the existing shared PlatformClaw
 SQLite database. The change is backward-tolerable and does not bump the schema
 version. Registry metadata and package blobs remain in PostgreSQL and the
 registry storage volume; PlatformClaw does not duplicate them.
+
+That statement describes the current Skill Hub tables under control schema v2.
+The planned organization migration is intentionally different: schema v3
+rebuilds the managed hierarchy and namespace-binding constraint. Existing
+`team` bindings with no scope ID migrate to `global` with no scope ID; a real
+Team binding uses `team` plus a managed Team ID. The migration preserves skill
+ownership, ACL, scan, notification, and registry data and introduces no
+fallback reader or dual write. Because the current scope-access function denies
+non-administrator access to `team` with no scope ID, the migrated Global binding
+starts restricted until an administrator explicitly reviews and activates its
+read/install policy. Global publication and curation remain administrator-only.
 
 Package blobs are named product artifacts. Audit and lifecycle state belong in
 the appropriate database owner, not JSON sidecars. Secrets remain in server-only

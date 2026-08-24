@@ -196,16 +196,17 @@ credentials.
 
 ## Catalog lifecycle
 
-The managed integration adds:
+The current managed integration adds:
 
-- skills are owned through the company Team, Group, and Part hierarchy, with
-  explicit per-user ACLs;
+- skills use a legacy company-wide `team` namespace binding plus current Group
+  and Part bindings, with explicit per-user ACLs;
 - normal versions publish automatically after the scanner passes;
 - every version shows its current scan state and risk badge;
 - owners and PlatformClaw administrators may force publication for any severity
   only with a reason and audit record;
-- owners can transfer ownership immediately, while an inactive owner's skills
-  move to the unit Primary Admin or the unassigned owner queue;
+- owners can transfer ownership immediately, while the current inactive-owner
+  fallback uses the deployment-configured Skill Hub primary administrator or
+  the unassigned owner queue;
 - lifecycle events produce notifications without making delivery success the
   source of truth; and
 - LLM scanning and VirusTotal remain off.
@@ -214,6 +215,14 @@ The Skill Hub page exposes current risk badges, the persistent notification
 inbox, ZIP publication, owner transfer, explicit employee grants, forced
 publication, and administrator namespace/unassigned-owner views. Server-side
 policy remains authoritative even if a browser calls the BFF directly.
+
+The approved organization rollout converts the legacy company-wide binding to
+Global and adds real Team bindings backed by managed Team IDs. It also removes
+automatic inactive-owner transfer to the legacy primary administrator in favor
+of the explicit unassigned-owner queue. See
+[PlatformClaw organization architecture](/platformclaw/organization-architecture)
+for the planned Global/Team/Group/Part authorization contract. These changes
+are not active until the Skill Hub conversion PR lands.
 
 ## API boundary
 

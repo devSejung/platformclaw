@@ -30,6 +30,7 @@ and Knox direct or group conversations:
 - [Credential broker](/platformclaw/credential-broker)
 - [Web ingress runtime](/platformclaw/web-ingress-runtime)
 - [Web login bootstrap plan](/platformclaw/web-login-bootstrap-plan)
+- [Organization architecture](/platformclaw/organization-architecture)
 - [Skill Hub integration](/platformclaw/skill-hub)
 - [Skill Hub product policy](/platformclaw/skill-hub-policy)
 - [Skill Hub architecture](/platformclaw/skill-hub-architecture)
