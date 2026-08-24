@@ -28,6 +28,16 @@ export async function loadPlatformClawLocale(): Promise<void> {
   await koreanBundlePromise;
 }
 
+export async function loadAllPlatformClawLocales(): Promise<void> {
+  koreanBundlePromise ??= import("./locales/ko.ts").then((bundle) => {
+    koreanBundle = bundle;
+  });
+  englishGuideBundlePromise ??= import("./locales/en-guide.ts").then((bundle) => {
+    englishGuideBundle = bundle;
+  });
+  await Promise.all([koreanBundlePromise, englishGuideBundlePromise]);
+}
+
 export function platformClawT(key: string, params?: Record<string, string>): string {
   const value =
     i18n.getLocale() === "ko"

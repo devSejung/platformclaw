@@ -227,12 +227,20 @@ export type OrganizationContextSnapshot = {
   effectiveAccessHasMore: boolean;
   directMemberships: ManagedScopeMembership[];
   directMembershipsHasMore: boolean;
+  directScopeLineages: Array<{ scopeId: string; lineage: ManagedScope[] }>;
   primaryScope: ManagedScope | null;
+  primaryScopeLineage: ManagedScope[];
   joinRequests: OrganizationJoinRequest[];
 };
 
 export type OrganizationScopeSearchResult = {
   scope: ManagedScope;
+  /** Active scope lineage ordered from Team root to the returned scope. */
+  lineage: ManagedScope[];
+  capabilities: Pick<
+    OrganizationAuthorization,
+    "canManageMembers" | "canManageStructure" | "canManageLeaders"
+  >;
   requestEligible: boolean;
 };
 
@@ -484,6 +492,7 @@ export interface ControlPlaneManagementStore {
   renameManagedScope(params: {
     actorUserId: string;
     scopeId: string;
+    expectedRevision?: number;
     name: string;
     reason: string;
     changedAt: number;
@@ -491,6 +500,7 @@ export interface ControlPlaneManagementStore {
   archiveManagedScope(params: {
     actorUserId: string;
     scopeId: string;
+    expectedRevision?: number;
     reason: string;
     archivedAt: number;
   }): Promise<ManagedScope>;
@@ -499,6 +509,7 @@ export interface ControlPlaneManagementStore {
     scopeId: string;
     userId: string;
     role: ManagedScopeRole;
+    expectedRole?: ManagedScopeRole | null;
     reason: string;
     changedAt: number;
   }): Promise<ManagedScopeMembership>;
@@ -506,6 +517,7 @@ export interface ControlPlaneManagementStore {
     actorUserId: string;
     scopeId: string;
     userId: string;
+    expectedRole?: ManagedScopeRole | null;
     reason: string;
     changedAt: number;
   }): Promise<boolean>;
@@ -602,6 +614,8 @@ export type ControlPlaneConflictCode =
   | "vm_allocation_conflict"
   | "execution_target_conflict"
   | "managed_scope_name_conflict"
+  | "organization_scope_changed"
+  | "organization_membership_changed"
   | "organization_join_request_conflict"
   | "skill_hub_owner_changed"
   | "skill_hub_namespace_binding_changed"

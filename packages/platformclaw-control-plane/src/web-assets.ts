@@ -30,6 +30,7 @@ export const PLATFORMCLAW_WEB_DESCRIPTOR = {
     "appearance",
     "credentials",
     "memory",
+    "organization",
     "profile",
     "notifications",
     "about",

@@ -7,6 +7,18 @@ import { normalizeLowercaseStringOrEmpty } from "./lib/string-coerce.ts";
 
 export type NavigationRouteId = RouteId;
 
+type NavigationCopyText = string | (() => string);
+
+export type NavigationRouteCopy = {
+  title: NavigationCopyText;
+  subtitle: NavigationCopyText;
+  settingsLabel?: NavigationCopyText;
+};
+
+function resolveNavigationCopy(value: NavigationCopyText): string {
+  return typeof value === "function" ? value() : value;
+}
+
 type NavigationItem = {
   [TRouteId in NavigationRouteId]: IconName;
 };
@@ -192,7 +204,7 @@ export const SETTINGS_NAVIGATION_GROUPS = [
   },
   {
     labelKey: "nav.settingsGroupAgents",
-    routes: ["agents", "labs", "model-providers", "mcp", "memory", "automation"],
+    routes: ["agents", "labs", "model-providers", "mcp", "memory", "organization", "automation"],
   },
   {
     labelKey: "nav.settingsGroupSecurity",
@@ -256,6 +268,7 @@ const NAVIGATION_ICONS: NavigationItem = {
   automation: "terminal",
   mcp: "wrench",
   memory: "book",
+  organization: "users",
   talk: "mic",
   infrastructure: "globe",
   labs: "flaskConical",
@@ -373,6 +386,8 @@ const NAVIGATION_COPY: Record<NavigationRouteId, { titleKey: string; subtitleKey
   automation: { titleKey: "tabs.automation", subtitleKey: "subtitles.automation" },
   mcp: { titleKey: "tabs.mcp", subtitleKey: "subtitles.mcp" },
   memory: { titleKey: "tabs.memory", subtitleKey: "subtitles.memory" },
+  // Organization is opt-in. Embedders enabling it provide product-local copy.
+  organization: { titleKey: "nav.settings", subtitleKey: "subtitles.config" },
   talk: { titleKey: "tabs.talk", subtitleKey: "subtitles.talk" },
   infrastructure: { titleKey: "tabs.infrastructure", subtitleKey: "subtitles.infrastructure" },
   labs: { titleKey: "tabs.labs", subtitleKey: "subtitles.labs" },
@@ -396,8 +411,8 @@ const NAVIGATION_COPY: Record<NavigationRouteId, { titleKey: string; subtitleKey
   "new-session": { titleKey: "newSession.title", subtitleKey: "newSession.hint" },
 };
 
-export function titleForRoute(routeId: NavigationRouteId): string {
-  return t(NAVIGATION_COPY[routeId].titleKey);
+export function titleForRoute(routeId: NavigationRouteId, override?: NavigationRouteCopy): string {
+  return override ? resolveNavigationCopy(override.title) : t(NAVIGATION_COPY[routeId].titleKey);
 }
 
 /** Window/tab title, markers leftmost because tabs truncate from the right.
@@ -426,13 +441,24 @@ export function formatDocumentTitle(options: {
   return base;
 }
 
-export function settingsNavigationLabelForRoute(routeId: NavigationRouteId): string {
+export function settingsNavigationLabelForRoute(
+  routeId: NavigationRouteId,
+  override?: NavigationRouteCopy,
+): string {
+  if (override?.settingsLabel) {
+    return resolveNavigationCopy(override.settingsLabel);
+  }
   if (routeId === "custodian") {
     return t("nav.askOpenClaw");
   }
-  return titleForRoute(routeId);
+  return titleForRoute(routeId, override);
 }
 
-export function subtitleForRoute(routeId: NavigationRouteId): string {
-  return t(NAVIGATION_COPY[routeId].subtitleKey);
+export function subtitleForRoute(
+  routeId: NavigationRouteId,
+  override?: NavigationRouteCopy,
+): string {
+  return override
+    ? resolveNavigationCopy(override.subtitle)
+    : t(NAVIGATION_COPY[routeId].subtitleKey);
 }

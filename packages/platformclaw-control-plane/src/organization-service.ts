@@ -50,6 +50,7 @@ export class OrganizationService {
     scopeId: string;
     userId: string;
     role: ManagedScopeRole;
+    expectedRole?: ManagedScopeRole | null;
     reason: string;
     changedAt: number;
   }) {

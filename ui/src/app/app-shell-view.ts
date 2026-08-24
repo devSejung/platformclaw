@@ -274,6 +274,7 @@ export function renderApplicationShell(host: ShellViewHost) {
           onReload: () => void context.runtimeConfig.discardDraft(),
           onApply: () => void context.runtimeConfig.apply(),
         },
+        navigationCopy: runtime.navigationCopy,
       })
     : host.navigationSidebar;
   // Optional tags stay mounted before definition. Lit replays their properties on upgrade,

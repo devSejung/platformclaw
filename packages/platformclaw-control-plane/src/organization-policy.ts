@@ -1,10 +1,24 @@
-import type {
-  EffectiveManagedScopeAccess,
-  ManagedScope,
-  ManagedScopeMembership,
-  OrganizationAuthorization,
-  PlatformUser,
+import {
+  ControlPlaneConflictError,
+  type EffectiveManagedScopeAccess,
+  type ManagedScope,
+  type ManagedScopeMembership,
+  type ManagedScopeRole,
+  type OrganizationAuthorization,
+  type PlatformUser,
 } from "./contracts.js";
+
+export function assertExpectedOrganizationMembershipRole(
+  currentRole: ManagedScopeRole | null,
+  expectedRole: ManagedScopeRole | null | undefined,
+): void {
+  if (expectedRole !== undefined && currentRole !== expectedRole) {
+    throw new ControlPlaneConflictError(
+      "organization_membership_changed",
+      "organization membership changed",
+    );
+  }
+}
 
 function lineageFor(scope: ManagedScope, scopeById: ReadonlyMap<string, ManagedScope>) {
   const lineage: ManagedScope[] = [];
@@ -51,7 +65,10 @@ export function prepareOrganizationAuthorizationContext(params: {
   actor: PlatformUser | null;
   scopes: readonly ManagedScope[];
   memberships: readonly ManagedScopeMembership[];
-}): { authorize: (targetScope: ManagedScope | null) => OrganizationAuthorization } {
+}): {
+  authorize: (targetScope: ManagedScope | null) => OrganizationAuthorization;
+  lineage: (targetScope: ManagedScope | null) => ManagedScope[];
+} {
   const unavailable: OrganizationAuthorization = {
     canRead: false,
     canManageMembers: false,
@@ -78,6 +95,15 @@ export function prepareOrganizationAuthorizationContext(params: {
     }
   }
   return {
+    lineage(targetScope) {
+      if (!targetScope) {
+        return [];
+      }
+      const lineage = lineageFor(targetScope, scopeById);
+      return lineage.length > 0 && lineage.every((scope) => scope.status === "active")
+        ? lineage
+        : [];
+    },
     authorize(targetScope) {
       const { actor } = params;
       if (!actor || actor.status !== "active" || !targetScope) {

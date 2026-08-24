@@ -49,6 +49,7 @@ const APP_ROUTE_DEFINITIONS = {
   automation: { path: "/settings/automation", aliases: ["/automation"] },
   mcp: { path: "/settings/mcp", aliases: ["/mcp"] },
   memory: { path: "/settings/memory" },
+  organization: { path: "/settings/organization" },
   talk: { path: "/settings/talk" },
   infrastructure: { path: "/settings/infrastructure", aliases: ["/infrastructure"] },
   labs: { path: "/settings/labs" },
@@ -81,7 +82,9 @@ export type RouteId = keyof typeof APP_ROUTE_DEFINITIONS;
 const ALL_APP_ROUTE_IDS = Object.keys(APP_ROUTE_DEFINITIONS) as RouteId[];
 // Credentials is an opt-in embedder route. Products that own a credential
 // surface enable it with a route override; the stock Control UI stays unchanged.
-export const APP_ROUTE_IDS = ALL_APP_ROUTE_IDS.filter((routeId) => routeId !== "credentials");
+export const APP_ROUTE_IDS = ALL_APP_ROUTE_IDS.filter(
+  (routeId) => routeId !== "credentials" && routeId !== "organization",
+);
 
 export function isRouteId(routeId: string): routeId is RouteId {
   return routeId in APP_ROUTE_DEFINITIONS;
