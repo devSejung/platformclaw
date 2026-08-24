@@ -65,7 +65,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
     scopeId?: string;
     self?: boolean;
     authorization?: OrganizationAuditAuthorizationFacts;
-    reason: string;
+    reason?: string;
     details?: Record<string, unknown>;
   }): void {
     this.insertAudit(

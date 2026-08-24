@@ -5,6 +5,7 @@ import {
   type ManagedScope,
   type ManagedScopeMember,
   type ManagedScopeMembership,
+  type OrganizationAuditRecord,
 } from "./contracts.js";
 import { executeSync, runReadTransaction, takeFirstSync } from "./kysely-sync.js";
 import { normalizeScopeName, rowToMembership, rowToScope } from "./sqlite-store-core.js";
@@ -202,7 +203,7 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
     actorUserId: string;
     limit?: number;
     offset?: number;
-  }) {
+  }): Promise<OrganizationAuditRecord[]> {
     const limit = Number.isFinite(params.limit)
       ? Math.max(1, Math.min(Math.trunc(params.limit!), 200))
       : 100;
@@ -235,7 +236,9 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
         const details = row.details_json
           ? (JSON.parse(row.details_json) as Record<string, unknown>)
           : undefined;
-        const outcome = details?.outcome;
+        const rawOutcome = details?.outcome;
+        const outcome: OrganizationAuditRecord["outcome"] =
+          rawOutcome === "succeeded" || rawOutcome === "denied" ? rawOutcome : undefined;
         const reason = details?.reason;
         const result = {
           id: row.id,
@@ -243,7 +246,7 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
           targetType: row.target_type,
           targetId: row.target_id,
           createdAt: row.created_at,
-          outcome: outcome === "succeeded" || outcome === "denied" ? outcome : undefined,
+          outcome,
           reason: typeof reason === "string" ? reason : undefined,
           actor: row.actor_id
             ? { id: row.actor_id, displayName: row.actor_display_name ?? undefined }
