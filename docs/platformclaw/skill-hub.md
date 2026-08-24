@@ -80,15 +80,13 @@ PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES=524288000
 
 The URL, token file, and namespace list must be set together. The managed
 deployment generates these values; set them manually only for an external
-registry. `PLATFORMCLAW_SKILL_HUB_NAMESPACES` is the bootstrap allowlist. Each entry is
-`namespace=employee-group`; `*` allows any active employee, and a bare
-`namespace` requires an employee group with the same name. Administrators may
-publish to every configured namespace. Members see only namespaces permitted by
-their existing PlatformClaw identity groups in the publish dialog. Public skills
-remain searchable by every active employee. Namespace-only and private skills
-are returned, opened, and installed only for administrators or members of that
-namespace's configured employee group. SkillHub applies its token and namespace
-permissions again at publication time.
+registry. `PLATFORMCLAW_SKILL_HUB_NAMESPACES` is only the registry bootstrap
+allowlist. The optional right-hand value in legacy `namespace=value` syntax is
+retained for registry bootstrap compatibility and is never employee
+authorization. Bind each namespace to Global, Team, Group, or Part in Skill Hub
+administration before publishing. Public skills remain searchable by every
+active employee; all other access comes from organization scope, visibility,
+ownership, or an explicit read/install grant.
 
 Never put the token in `openclaw.json`, a browser runtime descriptor, a client
 environment variable, or a reverse-proxy header visible to the browser. The
@@ -198,15 +196,13 @@ credentials.
 
 The current managed integration adds:
 
-- skills use a legacy company-wide `team` namespace binding plus current Group
-  and Part bindings, with explicit per-user ACLs;
+- namespaces bind to Global, Team, Group, or Part, with explicit per-user ACLs;
 - normal versions publish automatically after the scanner passes;
 - every version shows its current scan state and risk badge;
 - owners and PlatformClaw administrators may force publication for any severity
   only with a reason and audit record;
-- owners can transfer ownership immediately, while the current inactive-owner
-  fallback uses the deployment-configured Skill Hub primary administrator or
-  the unassigned owner queue;
+- owners can transfer ownership to an eligible active employee; inactive or
+  scope-ineligible owners enter the unassigned owner queue;
 - lifecycle events produce notifications without making delivery success the
   source of truth; and
 - LLM scanning and VirusTotal remain off.
@@ -216,13 +212,11 @@ inbox, ZIP publication, owner transfer, explicit employee grants, forced
 publication, and administrator namespace/unassigned-owner views. Server-side
 policy remains authoritative even if a browser calls the BFF directly.
 
-The approved organization rollout converts the legacy company-wide binding to
-Global and adds real Team bindings backed by managed Team IDs. It also removes
-automatic inactive-owner transfer to the legacy primary administrator in favor
-of the explicit unassigned-owner queue. See
+Skill Hub consumes the shared organization authorization boundary for
+Global/Team/Group/Part. Global starts restricted and requires an explicit,
+reasoned administrator activation. See
 [PlatformClaw organization architecture](/platformclaw/organization-architecture)
-for the planned Global/Team/Group/Part authorization contract. These changes
-are not active until the Skill Hub conversion PR lands.
+for the canonical capability contract.
 
 ## API boundary
 

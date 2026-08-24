@@ -10,6 +10,10 @@ import {
   type SkillHubVisibility,
 } from "./skill-hub-adapter.js";
 import {
+  resolveSkillHubNamespaceCapabilities,
+  type SkillHubNamespaceCapabilities,
+} from "./skill-hub-organization-policy.js";
+import {
   isInside,
   MAX_SKILL_FILES,
   MAX_SKILL_MD_BYTES,
@@ -22,11 +26,15 @@ import {
   type SkillInstallTarget,
 } from "./skill-hub-service-support.js";
 import type { SkillHubGovernanceJob } from "./skill-hub-state.js";
+import type { SkillHubNamespaceBinding } from "./skill-hub-state.js";
+
+type ResolvedSkillHubNamespaceCapabilities = SkillHubNamespaceCapabilities & {
+  binding: SkillHubNamespaceBinding | null;
+};
 
 export abstract class SkillHubServiceBase {
   protected readonly workspaceRoot: string;
   protected readonly namespaces: ReadonlySet<string>;
-  protected readonly namespaceAccessGroups: ReadonlyMap<string, string>;
   protected governanceProcessing = false;
   protected governanceTimer?: NodeJS.Timeout;
   protected governanceClosed = false;
@@ -37,12 +45,6 @@ export abstract class SkillHubServiceBase {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
     this.namespaces = new Set(
       options.allowedNamespaces.map((value) => safeName(value, "namespace", NAMESPACE_PATTERN)),
-    );
-    this.namespaceAccessGroups = new Map(
-      [...this.namespaces].map((namespace) => {
-        const configuredGroup = options.namespaceAccessGroups?.[namespace]?.trim().toLowerCase();
-        return [namespace, configuredGroup || namespace] as const;
-      }),
     );
     if (this.namespaces.size === 0) {
       throw new Error("Skill Hub requires at least one allowed namespace");
@@ -114,19 +116,29 @@ export abstract class SkillHubServiceBase {
   }
 
   protected async canPublish(user: PlatformUser, namespace: string): Promise<boolean> {
-    if (user.globalRole === "admin") {
-      return true;
-    }
+    return (await this.resolveNamespaceCapabilities(user, namespace)).canPublish;
+  }
+
+  protected async resolveNamespaceCapabilities(
+    user: PlatformUser,
+    namespace: string,
+  ): Promise<ResolvedSkillHubNamespaceCapabilities> {
     const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
-    if (binding) {
-      return await this.options.store.hasSkillHubNamespaceAccess(user.id, binding);
-    }
-    const requiredGroup = this.namespaceAccessGroups.get(namespace);
-    const allowed =
-      requiredGroup === "*" ||
-      (requiredGroup !== undefined &&
-        user.groups.some((group) => group.trim().toLowerCase() === requiredGroup));
-    return allowed;
+    const organizationAuthorization =
+      binding?.scopeKind !== "global" && binding?.scopeId
+        ? await this.options.organization.authorization.authorizeManagedScope(
+            user.id,
+            binding.scopeId,
+          )
+        : undefined;
+    return {
+      binding,
+      ...resolveSkillHubNamespaceCapabilities({
+        user,
+        binding,
+        ...(organizationAuthorization ? { organizationAuthorization } : {}),
+      }),
+    };
   }
 
   protected async canAccessSkill(
@@ -136,14 +148,30 @@ export abstract class SkillHubServiceBase {
     visibility: SkillHubVisibility,
     version?: string,
   ): Promise<boolean> {
-    if (visibility === "PUBLIC" || user.globalRole === "admin") {
+    const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
+    const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
+    const visibilityRank: Record<SkillHubVisibility, number> = {
+      PRIVATE: 0,
+      NAMESPACE_ONLY: 1,
+      PUBLIC: 2,
+    };
+    const effectiveVisibility = [
+      visibility,
+      ...(ownership ? [ownership.visibility] : []),
+      ...(binding ? [binding.visibilityCeiling] : []),
+    ].reduce((mostRestrictive, candidate) =>
+      visibilityRank[candidate] < visibilityRank[mostRestrictive] ? candidate : mostRestrictive,
+    );
+    if (effectiveVisibility === "PUBLIC" || user.globalRole === "admin") {
       return true;
     }
-    const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
     if (ownership?.ownerUserId === user.id) {
       return true;
     }
-    if (visibility === "NAMESPACE_ONLY" && (await this.canPublish(user, namespace))) {
+    if (
+      effectiveVisibility === "NAMESPACE_ONLY" &&
+      (await this.resolveNamespaceCapabilities(user, namespace)).canReadInstall
+    ) {
       return true;
     }
     return await this.options.store.hasSkillHubAccess({
@@ -163,7 +191,7 @@ export abstract class SkillHubServiceBase {
     version?: string,
   ): Promise<void> {
     if (!(await this.canAccessSkill(user, namespace, slug, visibility, version))) {
-      throw new SkillHubServiceError("this Skill Hub skill is not available to this user", 403);
+      throw new SkillHubServiceError("Skill Hub skill not found", 404);
     }
   }
 
@@ -171,12 +199,20 @@ export abstract class SkillHubServiceBase {
     user: PlatformUser,
     namespace: string,
     slug: string,
-  ): Promise<void> {
+  ) {
     await this.reconcileOwners();
     const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
     if (ownership && user.globalRole !== "admin" && ownership.ownerUserId !== user.id) {
       throw new SkillHubServiceError("Skill Hub skill owner or administrator required", 403);
     }
+    if (
+      ownership &&
+      user.globalRole !== "admin" &&
+      !(await this.resolveNamespaceCapabilities(user, namespace)).canOwn
+    ) {
+      throw new SkillHubServiceError("Skill Hub namespace membership required", 403);
+    }
+    return ownership;
   }
 
   protected async authorizeVisibilityCeiling(
@@ -200,22 +236,6 @@ export abstract class SkillHubServiceBase {
     }
   }
 
-  protected async auditLegacyNamespaceAuthorization(
-    user: PlatformUser,
-    namespace: string,
-  ): Promise<void> {
-    if (
-      user.globalRole === "admin" ||
-      (await this.options.store.getSkillHubNamespaceBinding(namespace))
-    ) {
-      return;
-    }
-    await this.audit(user.id, "skill-hub.namespace.legacy-authorized", namespace, {
-      directoryGroup: this.namespaceAccessGroups.get(namespace),
-      migrationRequired: true,
-    });
-  }
-
   protected async requireManagedSkill(actor: PlatformUser, namespaceRaw: string, slugRaw: string) {
     const namespace = this.authorizeNamespace(namespaceRaw);
     const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
@@ -227,18 +247,21 @@ export abstract class SkillHubServiceBase {
     if (actor.globalRole !== "admin" && ownership.ownerUserId !== actor.id) {
       throw new SkillHubServiceError("Skill Hub skill owner or administrator required", 403);
     }
+    if (
+      actor.globalRole !== "admin" &&
+      !(await this.resolveNamespaceCapabilities(actor, namespace)).canOwn
+    ) {
+      throw new SkillHubServiceError("Skill Hub namespace membership required", 403);
+    }
     return { namespace, slug, ownership };
   }
 
   protected async reconcileOwners(): Promise<void> {
-    await this.options.store.reconcileInactiveSkillHubOwners(
-      this.now(),
-      this.options.primaryAdminUserId?.trim() || undefined,
-    );
+    await this.options.store.reconcileInactiveSkillHubOwners(this.now());
   }
 
   protected async enqueueGovernance(
-    ownerUserId: string,
+    ownerUserId: string | null,
     namespace: string,
     slug: string,
     version: string,

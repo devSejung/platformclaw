@@ -8,6 +8,7 @@ import {
   MAX_SKILL_FILES,
   MAX_SKILL_MD_BYTES,
   parseSkillMarkdown,
+  projectSkillHubAccessGrant,
   safeName,
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
   SKILL_HUB_UPLOAD_ENTRY_BYTES,
@@ -253,14 +254,38 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     const canManage =
       user.globalRole === "admin" ||
       (owner?.ownerUserId !== null && owner?.ownerUserId === user.id);
+    const ownerUser =
+      canManage && owner?.ownerUserId
+        ? await this.options.store.getUserById(owner.ownerUserId)
+        : undefined;
     return {
       skill,
       versions,
-      owner: owner ? { userId: owner.ownerUserId, unassigned: owner.ownerUserId === null } : null,
+      owner: owner
+        ? {
+            assigned: owner.ownerUserId !== null,
+            isMine: owner.ownerUserId === user.id,
+            unassigned: owner.ownerUserId === null,
+            ...(canManage ? { revision: owner.updatedAt } : {}),
+            ...(ownerUser
+              ? {
+                  user: {
+                    id: ownerUser.id,
+                    accountId: ownerUser.accountId,
+                    ...(ownerUser.displayName ? { displayName: ownerUser.displayName } : {}),
+                  },
+                }
+              : {}),
+          }
+        : null,
       scanner: this.projectScanner(currentVersion?.version, audits),
       canManage,
       ...(canManage
-        ? { access: await this.options.store.listSkillHubAccess(namespace, slug, this.now()) }
+        ? {
+            access: (await this.options.store.listSkillHubAccess(namespace, slug, this.now())).map(
+              projectSkillHubAccessGrant,
+            ),
+          }
         : {}),
     };
   }
@@ -283,6 +308,13 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     await this.authorizeVisibilityCeiling(namespace, visibility);
     await this.authorizeExistingSkillMutation(actor.user, namespace, skill);
     const archive = await this.packageWorkspaceSkill(actor.workspaceDir, skill, version);
+    await this.authorizePublishNamespace(actor.user, namespace);
+    const finalCapabilities = await this.resolveNamespaceCapabilities(actor.user, namespace);
+    const currentOwnership = await this.authorizeExistingSkillMutation(
+      actor.user,
+      namespace,
+      skill,
+    );
     const result = await this.adapterCall(() =>
       this.options.adapter.publish({
         namespace,
@@ -299,21 +331,26 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     ) {
       throw new SkillHubServiceError("Skill Hub returned a mismatched publish result", 502);
     }
-    await this.options.store.recordSkillHubPublication({
+    const recorded = await this.options.store.recordSkillHubPublication({
       namespace,
       slug: skill,
       ownerUserId: actor.user.id,
+      expectedOwnerUserId: currentOwnership?.ownerUserId ?? null,
+      expectedOwnerUpdatedAt: currentOwnership?.updatedAt ?? null,
+      expectedBindingUpdatedAt: finalCapabilities.binding!.updatedAt,
       visibility,
       version,
       changedAt: this.now(),
     });
-    await this.enqueueGovernance(actor.user.id, namespace, skill, version, visibility);
+    await this.reconcileOwners();
+    await this.enqueueGovernance(recorded.ownerUserId, namespace, skill, version, visibility);
     await this.audit(actor.user.id, "skill-hub.publish", `${namespace}/${skill}@${version}`, {
       visibility,
       archiveBytes: archive.byteLength,
     });
-    await this.auditLegacyNamespaceAuthorization(actor.user, namespace);
-    return result;
+    return recorded.reconciliationRequired
+      ? { ...result, ownershipReviewRequired: true as const }
+      : result;
   }
 
   async publishArchive(
@@ -346,6 +383,9 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     if (metadata.version !== version) {
       throw new SkillHubServiceError("SKILL.md version does not match the requested version", 400);
     }
+    await this.authorizePublishNamespace(actor.user, namespace);
+    const finalCapabilities = await this.resolveNamespaceCapabilities(actor.user, namespace);
+    const currentOwnership = await this.authorizeExistingSkillMutation(actor.user, namespace, slug);
     const result = await this.adapterCall(() =>
       this.options.adapter.publish({
         namespace,
@@ -362,21 +402,26 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     ) {
       throw new SkillHubServiceError("Skill Hub returned a mismatched publish result", 502);
     }
-    await this.options.store.recordSkillHubPublication({
+    const recorded = await this.options.store.recordSkillHubPublication({
       namespace,
       slug,
       ownerUserId: actor.user.id,
+      expectedOwnerUserId: currentOwnership?.ownerUserId ?? null,
+      expectedOwnerUpdatedAt: currentOwnership?.updatedAt ?? null,
+      expectedBindingUpdatedAt: finalCapabilities.binding!.updatedAt,
       visibility,
       version,
       changedAt: this.now(),
     });
-    await this.enqueueGovernance(actor.user.id, namespace, slug, version, visibility);
-    await this.auditLegacyNamespaceAuthorization(actor.user, namespace);
+    await this.reconcileOwners();
+    await this.enqueueGovernance(recorded.ownerUserId, namespace, slug, version, visibility);
     await this.audit(actor.user.id, "skill-hub.publish-upload", `${namespace}/${slug}@${version}`, {
       visibility,
       archiveBytes: archive.size,
     });
-    return result;
+    return recorded.reconciliationRequired
+      ? { ...result, ownershipReviewRequired: true as const }
+      : result;
   }
 
   async install(
@@ -483,6 +528,11 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       });
     }
     await this.gatewayCall("skills.upload.commit", { uploadId: begin.uploadId, sha256 });
+    const currentDetail = await this.adapterCall(() =>
+      this.options.adapter.getSkill(namespace, slug),
+    );
+    this.validateSkillIdentity(currentDetail.namespace, currentDetail.slug, namespace, slug);
+    await this.authorizeSkillAccess(actor.user, namespace, slug, currentDetail.visibility, version);
     const result = await this.gatewayCall<Record<string, unknown>>("skills.install", {
       agentId: actor.agentId,
       source: "upload",

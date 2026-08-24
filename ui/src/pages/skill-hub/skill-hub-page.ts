@@ -4,42 +4,33 @@ import { state } from "lit/decorators.js";
 import { applicationContext, type ApplicationContext } from "../../app/context.ts";
 import "../../components/modal-dialog.ts";
 import { t } from "../../i18n/index.ts";
-import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import {
   installPlatformClawHubSkill,
   forcePublishPlatformClawHubSkill,
   grantPlatformClawSkillHubAccess,
   loadPlatformClawSkillHubConfig,
   loadPlatformClawSkillHubDetail,
-  loadPlatformClawSkillHubNamespaceBindings,
   loadPlatformClawSkillHubNotifications,
-  loadPlatformClawSkillHubUnassignedSkills,
   markPlatformClawSkillHubNotificationsRead,
   publishPlatformClawSkillArchive,
   removePlatformClawSkillHubAccess,
-  removePlatformClawSkillHubNamespaceBinding,
+  searchPlatformClawSkillHubManagementUsers,
   searchPlatformClawSkillHub,
-  setPlatformClawSkillHubNamespaceBinding,
   transferPlatformClawSkillHubOwner,
   type PlatformClawSkillHubConfig,
   type PlatformClawSkillHubDetail,
   type PlatformClawSkillHubMessage,
-  type PlatformClawSkillHubNamespaceBinding,
+  type PlatformClawSkillHubManagementUser,
   type PlatformClawSkillHubNotification,
   type PlatformClawSkillHubSearchItem,
-  type PlatformClawSkillHubUnassignedSkill,
-  type PlatformClawManagedScope,
   PlatformClawSkillHubRequestError,
 } from "../../platformclaw/skill-hub.ts";
 import "../../styles/plugins.css";
 import "../../styles/skill-hub.css";
 import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
-import {
-  PLUGINS_HUB_PANEL_ID,
-  routeForPluginsHubTab,
-  type PluginsHubTab,
-} from "../plugins/plugins-hub.ts";
-import { renderSkillHubAdmin, type SkillHubAdminDraft } from "./admin.ts";
+import { PLUGINS_HUB_PANEL_ID } from "../plugins/plugins-hub.ts";
+import { SkillHubAdminController } from "./admin-controller.ts";
+import { renderSkillHubAdmin } from "./admin.ts";
 import {
   renderSkillHubNotifications,
   renderSkillHubUpload,
@@ -52,40 +43,22 @@ import {
   skillHubVisibilityLabel,
 } from "./labels.ts";
 import { renderSkillHubManagement } from "./management.ts";
+import * as pageSupport from "./page-support.ts";
 
-type SkillHubRef = { namespace: string; slug: string };
-type InstallTarget = "platform_server" | "assigned_vm";
-type PendingVersionChange = {
-  target: InstallTarget;
-  currentVersion: string;
-  requestedVersion: string;
-  direction: "upgrade" | "downgrade";
-};
-
-function readInitialQuery(): string {
-  return new URL(window.location.href).searchParams.get("q")?.trim() ?? "";
-}
-
-function versionLabel(version: string): string {
-  return version.startsWith("v") ? version : `v${version}`;
-}
-
-class SkillHubPage extends OpenClawLightDomElement {
+class SkillHubPage extends SkillHubAdminController {
   @consume({ context: applicationContext, subscribe: true })
   private context!: ApplicationContext;
 
   @state() private config: PlatformClawSkillHubConfig | null = null;
-  @state() private query = readInitialQuery();
+  @state() private query = pageSupport.readSkillHubInitialQuery(window.location.href);
   @state() private results: PlatformClawSkillHubSearchItem[] | null = null;
   @state() private total = 0;
   @state() private loading = true;
-  @state() private error: string | null = null;
-  @state() private detailRef: SkillHubRef | null = null;
+  @state() private detailRef: pageSupport.SkillHubRef | null = null;
   @state() private detail: PlatformClawSkillHubDetail | null = null;
   @state() private detailLoading = false;
   @state() private selectedVersion = "";
-  @state() private installing: InstallTarget | null = null;
-  @state() private message: PlatformClawSkillHubMessage | null = null;
+  @state() private installing: pageSupport.InstallTarget | null = null;
   @state() private notificationsOpen = false;
   @state() private notificationsLoading = false;
   @state() private notifications: PlatformClawSkillHubNotification[] = [];
@@ -99,21 +72,13 @@ class SkillHubPage extends OpenClawLightDomElement {
   @state() private managementBusy = false;
   @state() private ownerUserId = "";
   @state() private accessUserId = "";
+  @state() private ownerQuery = "";
+  @state() private accessQuery = "";
+  @state() private ownerCandidates: PlatformClawSkillHubManagementUser[] = [];
+  @state() private accessCandidates: PlatformClawSkillHubManagementUser[] = [];
   @state() private forceReason = "";
   @state() private forceAcknowledged = false;
-  @state() private adminOpen = false;
-  @state() private adminLoading = false;
-  @state() private adminBusy = false;
-  @state() private namespaceBindings: PlatformClawSkillHubNamespaceBinding[] = [];
-  @state() private managedScopes: PlatformClawManagedScope[] = [];
-  @state() private unassignedSkills: PlatformClawSkillHubUnassignedSkill[] = [];
-  @state() private adminDraft: SkillHubAdminDraft = {
-    namespace: "",
-    scopeKind: "global",
-    scopeId: "",
-    visibilityCeiling: "NAMESPACE_ONLY",
-  };
-  @state() private pendingVersionChange: PendingVersionChange | null = null;
+  @state() private pendingVersionChange: pageSupport.PendingVersionChange | null = null;
 
   override connectedCallback() {
     super.connectedCallback();
@@ -166,64 +131,41 @@ class SkillHubPage extends OpenClawLightDomElement {
     }
   }
 
-  private async openAdmin() {
-    this.adminOpen = true;
-    this.adminLoading = true;
-    try {
-      const [namespaceResult, unassignedResult] = await Promise.all([
-        loadPlatformClawSkillHubNamespaceBindings(),
-        loadPlatformClawSkillHubUnassignedSkills(),
-      ]);
-      this.namespaceBindings = namespaceResult.bindings;
-      this.managedScopes = namespaceResult.scopes;
-      this.unassignedSkills = unassignedResult.items;
-    } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
-    } finally {
-      this.adminLoading = false;
-    }
-  }
-
-  private async saveNamespaceBinding() {
-    if (this.adminBusy) {
+  private async searchManagementUsers(query: string, purpose: "owner" | "access") {
+    if (!this.detailRef || query.trim().length < 2) {
+      if (purpose === "owner") {
+        this.ownerCandidates = [];
+      } else {
+        this.accessCandidates = [];
+      }
       return;
     }
-    this.adminBusy = true;
+    const normalized = query.trim();
+    const ref = { ...this.detailRef };
     try {
-      await setPlatformClawSkillHubNamespaceBinding({
-        namespace: this.adminDraft.namespace,
-        scopeKind: this.adminDraft.scopeKind,
-        ...(this.adminDraft.scopeKind === "global" ? {} : { scopeId: this.adminDraft.scopeId }),
-        visibilityCeiling: this.adminDraft.visibilityCeiling,
-      });
-      await this.openAdmin();
-      this.message = { kind: "success", text: t("skillHubPage.bindingSaved") };
+      const result = await searchPlatformClawSkillHubManagementUsers(
+        ref.namespace,
+        ref.slug,
+        normalized,
+        purpose,
+      );
+      if (
+        (purpose === "owner" ? this.ownerQuery : this.accessQuery).trim() !== normalized ||
+        this.detailRef?.namespace !== ref.namespace ||
+        this.detailRef?.slug !== ref.slug
+      ) {
+        return;
+      }
+      if (purpose === "owner") {
+        this.ownerCandidates = result.items;
+      } else {
+        this.accessCandidates = result.items;
+      }
     } catch (error) {
       this.message = {
         kind: "error",
         text: error instanceof Error ? error.message : String(error),
       };
-    } finally {
-      this.adminBusy = false;
-    }
-  }
-
-  private async removeNamespaceBinding(namespace: string) {
-    if (this.adminBusy) {
-      return;
-    }
-    this.adminBusy = true;
-    try {
-      await removePlatformClawSkillHubNamespaceBinding(namespace);
-      await this.openAdmin();
-      this.message = { kind: "success", text: t("skillHubPage.bindingRemoved") };
-    } catch (error) {
-      this.message = {
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      this.adminBusy = false;
     }
   }
 
@@ -240,14 +182,19 @@ class SkillHubPage extends OpenClawLightDomElement {
         version: this.uploadVersion,
         visibility: this.uploadVisibility,
       });
-      this.message = {
-        kind: "success",
-        text: t("skillHubPage.publishedZip", {
-          skill: `${result.namespace}/${result.slug}@${result.version}`,
-        }),
+      const publishMessage: PlatformClawSkillHubMessage = {
+        kind: result.ownershipReviewRequired ? "warning" : "success",
+        text: result.ownershipReviewRequired
+          ? t("skillHubPage.publishedNeedsOwnershipReview", {
+              skill: `${result.namespace}/${result.slug}@${result.version}`,
+            })
+          : t("skillHubPage.publishedZip", {
+              skill: `${result.namespace}/${result.slug}@${result.version}`,
+            }),
       };
       this.uploadOpen = false;
       await this.search();
+      this.message = publishMessage;
     } catch (error) {
       this.message = {
         kind: "error",
@@ -280,7 +227,8 @@ class SkillHubPage extends OpenClawLightDomElement {
     }
   }
 
-  private async openDetail(ref: SkillHubRef) {
+  private async openDetail(ref: pageSupport.SkillHubRef) {
+    this.resetManagementSelection();
     this.detailRef = { namespace: ref.namespace, slug: ref.slug };
     this.detail = null;
     this.detailLoading = true;
@@ -296,7 +244,24 @@ class SkillHubPage extends OpenClawLightDomElement {
     }
   }
 
-  private async install(target: InstallTarget, versionChange?: PendingVersionChange) {
+  private resetManagementSelection() {
+    this.ownerUserId = "";
+    this.accessUserId = "";
+    this.ownerQuery = "";
+    this.accessQuery = "";
+    this.ownerCandidates = [];
+    this.accessCandidates = [];
+  }
+
+  private closeDetail() {
+    this.detailRef = null;
+    this.resetManagementSelection();
+  }
+
+  private async install(
+    target: pageSupport.InstallTarget,
+    versionChange?: pageSupport.PendingVersionChange,
+  ) {
     if (!this.detailRef || !this.selectedVersion || this.installing) {
       return;
     }
@@ -353,16 +318,20 @@ class SkillHubPage extends OpenClawLightDomElement {
     }
   }
 
-  private async runManagement(operation: () => Promise<unknown>, success: string) {
+  private async runManagement(
+    operation: () => Promise<unknown>,
+    success: string | ((result: unknown) => PlatformClawSkillHubMessage),
+  ) {
     if (!this.detailRef || this.managementBusy) {
       return;
     }
     this.managementBusy = true;
     try {
-      await operation();
+      const result = await operation();
       const ref = this.detailRef;
       await this.openDetail(ref);
-      this.message = { kind: "success", text: success };
+      this.message =
+        typeof success === "function" ? success(result) : { kind: "success", text: success };
     } catch (error) {
       this.message = {
         kind: "error",
@@ -373,20 +342,13 @@ class SkillHubPage extends OpenClawLightDomElement {
     }
   }
 
-  private selectHubTab(tab: PluginsHubTab) {
-    const route = routeForPluginsHubTab(tab);
-    if (route) {
-      this.context.navigate(route);
-    }
-  }
-
   private renderCard(item: PlatformClawSkillHubSearchItem) {
     return html`<button class="skill-hub-card" type="button" @click=${() => this.openDetail(item)}>
       <span class="skill-hub-card__namespace">${item.namespace}</span>
       <strong class="skill-hub-card__name">${item.slug}</strong>
       <span class="skill-hub-card__summary">${item.summary}</span>
       <span class="skill-hub-card__meta">
-        <span>${versionLabel(item.latestVersion)}</span>
+        <span>${pageSupport.skillHubVersionLabel(item.latestVersion)}</span>
         <span>${t("skillHubPage.viewDetails")}</span>
       </span>
     </button>`;
@@ -403,7 +365,7 @@ class SkillHubPage extends OpenClawLightDomElement {
     const vm = this.config?.installTargets?.find((target) => target.target === "assigned_vm");
     return html`<openclaw-modal-dialog
       label=${skill?.displayName ?? this.detailRef.slug}
-      @modal-cancel=${() => (this.detailRef = null)}
+      @modal-cancel=${() => this.closeDetail()}
     >
       <article class="skill-hub-detail">
         <header class="skill-hub-detail__header">
@@ -412,7 +374,7 @@ class SkillHubPage extends OpenClawLightDomElement {
             <h2>${skill?.displayName ?? this.detailRef.slug}</h2>
             ${skill?.summary ? html`<p>${skill.summary}</p>` : nothing}
           </div>
-          <button class="btn btn--sm" @click=${() => (this.detailRef = null)}>
+          <button class="btn btn--sm" @click=${() => this.closeDetail()}>
             ${t("skillsPage.close")}
           </button>
         </header>
@@ -441,7 +403,7 @@ class SkillHubPage extends OpenClawLightDomElement {
                       @change=${() => (this.selectedVersion = version.version)}
                     />
                     <span>
-                      <strong>${versionLabel(version.version)}</strong>
+                      <strong>${pageSupport.skillHubVersionLabel(version.version)}</strong>
                       <small
                         >${version.changelog ?? skillHubVersionStatusLabel(version.status)}</small
                       >
@@ -480,12 +442,25 @@ class SkillHubPage extends OpenClawLightDomElement {
               </div>
               ${renderSkillHubManagement({
                 detail: this.detail,
-                ownerUserId: this.ownerUserId,
-                accessUserId: this.accessUserId,
+                ownerQuery: this.ownerQuery,
+                accessQuery: this.accessQuery,
+                ownerCandidates: this.ownerCandidates,
+                accessCandidates: this.accessCandidates,
+                selectedOwnerUserId: this.ownerUserId,
+                selectedAccessUserId: this.accessUserId,
                 forceReason: this.forceReason,
                 forceAcknowledged: this.forceAcknowledged,
                 busy: this.managementBusy,
-                onOwnerUserId: (value) => (this.ownerUserId = value),
+                onOwnerQuery: (value) => {
+                  this.ownerQuery = value;
+                  this.ownerUserId = "";
+                  void this.searchManagementUsers(value, "owner");
+                },
+                onSelectOwner: (user) => {
+                  this.ownerUserId = user.id;
+                  this.ownerQuery = user.displayName ?? user.accountId;
+                  this.ownerCandidates = [];
+                },
                 onTransferOwner: () => {
                   void this.runManagement(
                     () =>
@@ -493,11 +468,21 @@ class SkillHubPage extends OpenClawLightDomElement {
                         this.detailRef!.namespace,
                         this.detailRef!.slug,
                         this.ownerUserId,
+                        this.detail!.owner!.revision!,
                       ),
                     t("skillHubPage.ownerTransferred"),
                   );
                 },
-                onAccessUserId: (value) => (this.accessUserId = value),
+                onAccessQuery: (value) => {
+                  this.accessQuery = value;
+                  this.accessUserId = "";
+                  void this.searchManagementUsers(value, "access");
+                },
+                onSelectAccess: (user) => {
+                  this.accessUserId = user.id;
+                  this.accessQuery = user.displayName ?? user.accountId;
+                  this.accessCandidates = [];
+                },
                 onGrantAccess: () => {
                   void this.runManagement(
                     () =>
@@ -534,12 +519,24 @@ class SkillHubPage extends OpenClawLightDomElement {
                           reason: this.forceReason,
                         },
                       ),
-                    t("skillHubPage.forcePublished"),
+                    (result) =>
+                      (result as { ownershipReviewRequired?: true }).ownershipReviewRequired
+                        ? {
+                            kind: "warning",
+                            text: t("skillHubPage.forcePublishedNeedsOwnershipReview"),
+                          }
+                        : { kind: "success", text: t("skillHubPage.forcePublished") },
                   );
                 },
               })}
               ${this.message
-                ? html`<div class="callout ${this.message.kind === "error" ? "danger" : "success"}">
+                ? html`<div
+                    class="callout ${this.message.kind === "error"
+                      ? "danger"
+                      : this.message.kind === "warning"
+                        ? "warning"
+                        : "success"}"
+                  >
                     ${this.message.text}
                   </div>`
                 : nothing}
@@ -624,7 +621,13 @@ class SkillHubPage extends OpenClawLightDomElement {
             </section>
             ${this.error ? html`<div class="callout danger">${this.error}</div>` : nothing}
             ${this.message
-              ? html`<div class="callout ${this.message.kind === "error" ? "danger" : "success"}">
+              ? html`<div
+                  class="callout ${this.message.kind === "error"
+                    ? "danger"
+                    : this.message.kind === "warning"
+                      ? "warning"
+                      : "success"}"
+                >
                   ${this.message.text}
                 </div>`
               : nothing}
@@ -676,10 +679,16 @@ class SkillHubPage extends OpenClawLightDomElement {
           scopes: this.managedScopes,
           unassigned: this.unassignedSkills,
           draft: this.adminDraft,
-          onClose: () => (this.adminOpen = false),
+          pendingAction: this.pendingAdminAction,
+          onClose: () => {
+            this.adminOpen = false;
+            this.pendingAdminAction = null;
+          },
           onDraft: (draft) => (this.adminDraft = draft),
           onSave: () => void this.saveNamespaceBinding(),
-          onRemove: (namespace) => void this.removeNamespaceBinding(namespace),
+          onRequestAction: (action) => (this.pendingAdminAction = action),
+          onPendingAction: (action) => (this.pendingAdminAction = action),
+          onConfirmAction: () => void this.confirmAdminAction(),
         })}
         ${renderSkillHubVersionChange({
           open: this.pendingVersionChange !== null,
@@ -694,7 +703,7 @@ class SkillHubPage extends OpenClawLightDomElement {
             }
           },
         })}`,
-      onSelect: (tab) => this.selectHubTab(tab),
+      onSelect: (tab) => pageSupport.selectSkillHubTab(tab, this.context.navigate),
     });
   }
 }

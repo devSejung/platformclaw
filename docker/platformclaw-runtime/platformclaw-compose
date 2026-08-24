@@ -67,13 +67,6 @@ fi
 
 compose_project="${PLATFORMCLAW_COMPOSE_PROJECT:-platformclaw}"
 skillhub_enabled="$(sed -n 's/^PLATFORMCLAW_SKILL_HUB_ENABLED=//p' "$PLATFORMCLAW_ENV_FILE" | tail -n 1)"
-skillhub_primary_admin_id=""
-if [[ "$skillhub_enabled" == "true" ]]; then
-  initial_admin_file="$(sed -n 's/^PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE=//p' "$PLATFORMCLAW_ENV_FILE" | tail -n 1)"
-  if [[ -r "$initial_admin_file" ]]; then
-    skillhub_primary_admin_id="$(tr ',' '\n' <"$initial_admin_file" | awk '{$1=$1}; NF { print; exit }')"
-  fi
-fi
 # Stable deployment values come only from deployment.env. Ambient shell values
 # must not silently override an image update, rollback, origin, or secret path.
 unset PLATFORMCLAW_IMAGE PLATFORMCLAW_SANDBOX_IMAGE \
@@ -90,14 +83,12 @@ unset PLATFORMCLAW_IMAGE PLATFORMCLAW_SANDBOX_IMAGE \
   PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE \
   PLATFORMCLAW_SKILL_HUB_ENABLED PLATFORMCLAW_SKILL_HUB_URL PLATFORMCLAW_SKILL_HUB_TOKEN_FILE \
   PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE \
-  PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID \
   PLATFORMCLAW_SKILL_HUB_NAMESPACES PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES \
   PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE \
   PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE \
   PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE
 compose_args=(docker compose --project-name "$compose_project" --env-file "$PLATFORMCLAW_ENV_FILE")
 if [[ "$skillhub_enabled" == "true" ]]; then
-  export PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID="$skillhub_primary_admin_id"
   compose_args+=(--profile skillhub)
 fi
 exec "${compose_args[@]}" -f "$script_dir/compose.yaml" "$@"

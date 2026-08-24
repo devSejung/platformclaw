@@ -48,4 +48,21 @@ describe("renderSkills Skill Hub publishing", () => {
     expect(normalizeText(container)).not.toContain("Search Skill Hub");
     expect(normalizeText(container)).not.toContain("Publish to Hub");
   });
+
+  it("keeps a registry-success ownership warning visible after the publish dialog closes", () => {
+    const container = document.createElement("div");
+    render(
+      renderSkills(
+        createProps({
+          skillHubMessage: {
+            kind: "warning",
+            text: "Published engineering/demo@1.0.0, but ownership review is required.",
+          },
+        }),
+      ),
+      container,
+    );
+    expect(normalizeText(container)).toContain("ownership review is required");
+    expect(container.querySelector(".callout.warning")).not.toBeNull();
+  });
 });

@@ -1,17 +1,26 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
-import type { PlatformClawSkillHubDetail } from "../../platformclaw/skill-hub.ts";
+import type {
+  PlatformClawSkillHubDetail,
+  PlatformClawSkillHubManagementUser,
+} from "../../platformclaw/skill-hub.ts";
 
 export function renderSkillHubManagement(props: {
   detail: PlatformClawSkillHubDetail | null;
-  ownerUserId: string;
-  accessUserId: string;
+  ownerQuery: string;
+  accessQuery: string;
+  ownerCandidates: PlatformClawSkillHubManagementUser[];
+  accessCandidates: PlatformClawSkillHubManagementUser[];
+  selectedOwnerUserId: string;
+  selectedAccessUserId: string;
   forceReason: string;
   forceAcknowledged: boolean;
   busy: boolean;
-  onOwnerUserId: (value: string) => void;
+  onOwnerQuery: (value: string) => void;
+  onSelectOwner: (user: PlatformClawSkillHubManagementUser) => void;
   onTransferOwner: () => void;
-  onAccessUserId: (value: string) => void;
+  onAccessQuery: (value: string) => void;
+  onSelectAccess: (user: PlatformClawSkillHubManagementUser) => void;
   onGrantAccess: () => void;
   onRemoveAccess: (userId: string) => void;
   onForceReason: (value: string) => void;
@@ -26,17 +35,37 @@ export function renderSkillHubManagement(props: {
     <div class="skill-hub-management__group">
       <div>
         <strong>${t("skillHubPage.owner")}</strong>
-        <p>${props.detail.owner?.userId ?? t("skillHubPage.ownerUnassigned")}</p>
+        <p>
+          ${props.detail.owner?.user?.displayName ??
+          props.detail.owner?.user?.accountId ??
+          (props.detail.owner?.isMine
+            ? t("skillHubPage.ownerYou")
+            : props.detail.owner?.assigned
+              ? t("skillHubPage.ownerAssigned")
+              : t("skillHubPage.ownerUnassigned"))}
+        </p>
       </div>
       <div class="skill-hub-management__action">
         <input
-          .value=${props.ownerUserId}
-          placeholder=${t("skillHubPage.employeeId")}
-          @input=${(event: Event) => props.onOwnerUserId((event.target as HTMLInputElement).value)}
+          .value=${props.ownerQuery}
+          placeholder=${t("skillHubPage.searchUsers")}
+          @input=${(event: Event) => props.onOwnerQuery((event.target as HTMLInputElement).value)}
         />
+        ${props.ownerCandidates.length > 0
+          ? html`<div class="skill-hub-user-results">
+              ${props.ownerCandidates.map(
+                (user) => html`<button
+                  class="btn btn--sm"
+                  @click=${() => props.onSelectOwner(user)}
+                >
+                  ${user.displayName ?? user.accountId} · ${user.accountId}
+                </button>`,
+              )}
+            </div>`
+          : nothing}
         <button
           class="btn btn--sm"
-          ?disabled=${props.busy || !props.ownerUserId.trim()}
+          ?disabled=${props.busy || !props.selectedOwnerUserId}
           @click=${props.onTransferOwner}
         >
           ${t("skillHubPage.transferOwner")}
@@ -50,13 +79,25 @@ export function renderSkillHubManagement(props: {
       </div>
       <div class="skill-hub-management__action">
         <input
-          .value=${props.accessUserId}
-          placeholder=${t("skillHubPage.employeeId")}
-          @input=${(event: Event) => props.onAccessUserId((event.target as HTMLInputElement).value)}
+          .value=${props.accessQuery}
+          placeholder=${t("skillHubPage.searchUsers")}
+          @input=${(event: Event) => props.onAccessQuery((event.target as HTMLInputElement).value)}
         />
+        ${props.accessCandidates.length > 0
+          ? html`<div class="skill-hub-user-results">
+              ${props.accessCandidates.map(
+                (user) => html`<button
+                  class="btn btn--sm"
+                  @click=${() => props.onSelectAccess(user)}
+                >
+                  ${user.displayName ?? user.accountId} · ${user.accountId}
+                </button>`,
+              )}
+            </div>`
+          : nothing}
         <button
           class="btn btn--sm"
-          ?disabled=${props.busy || !props.accessUserId.trim()}
+          ?disabled=${props.busy || !props.selectedAccessUserId}
           @click=${props.onGrantAccess}
         >
           ${t("skillHubPage.grantAccess")}

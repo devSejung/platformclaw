@@ -23,44 +23,33 @@ registry runtime.
 | --------------------------------------------------------------------------- | ------- |
 | Search, version detail, direct workspace publish, and exact-version install | Current |
 | Basic and assigned-VM installs as separate destinations                     | Current |
-| Legacy company-wide `team` binding plus managed Group and Part bindings     | Current |
-| Shared Global, Team, Group, and Part namespace authorization                | Planned |
+| Shared Global, Team, Group, and Part namespace authorization                | Current |
 | Per-user skill access grants                                                | Current |
 | Scanner-gated automatic publication and current risk badges                 | Current |
 | Owner and administrator force publication with reason and audit             | Current |
-| Immediate ownership transfer and inactive-owner reassignment                | Current |
+| Eligible ownership transfer and inactive/ineligible-owner review queue      | Current |
 | Persistent in-app lifecycle notifications                                   | Current |
 | 500 MiB compressed package ceiling with independent expanded-content limits | Current |
 
 ## Organization and ownership
 
-Every skill has one owning organizational unit and one accountable owner. The
-current registry binding uses `team` with no scope ID as a legacy label for the
-company-wide root; it does not represent a managed Team. Current Group and Part
-bindings use schema v2 managed scopes.
-
-The approved organization rollout replaces that convention with distinct
-**Global**, **Team**, **Group**, and **Part** bindings. A real Team has an
+Every skill has one owning organizational unit and one accountable owner.
+Registry namespaces bind to distinct **Global**, **Team**, **Group**, and
+**Part** scopes. A real Team has an
 immutable managed-scope ID, a Group belongs to one Team, and a Part belongs to
 one Group. See
 [PlatformClaw organization architecture](/platformclaw/organization-architecture).
-Until the Skill Hub conversion PR lands, the legacy binding remains the runtime
-contract.
 
 The owner can transfer ownership immediately to another eligible active employee.
 Transfer does not wait for a registry review, but it must be recorded in the audit
 log and notify the old and new owners.
 
-The current runtime may transfer an inactive owner's skills to the one
-deployment-configured active Skill Hub primary administrator. This is legacy
-Skill-Hub-specific behavior, not a Team/Group/Part leader role or organization
-authority. The organization conversion removes that automatic fallback:
-inactive-owner skills enter an **unassigned owner queue** for explicit
+Inactive or newly scope-ineligible owners enter an **unassigned owner queue** for explicit
 administrator resolution. The skill remains visible according to its ACL, but
 ownership-required mutations are blocked until reassignment. The system must
 not silently choose one of multiple scope leaders or another arbitrary employee.
-PR4 must retire the primary-administrator configuration with a visible operator
-diagnostic rather than silently changing its meaning.
+The retired primary-administrator environment setting causes a visible startup
+validation error and must be removed from old deployments.
 
 ## Access control
 
@@ -84,20 +73,19 @@ names. Global has no scope ID. Effective access follows the shared upward-only
 membership policy; ancestor leader administration is resolved by the shared
 authorization service rather than duplicated in Skill Hub.
 
-Scope access is capability-specific. In the target model:
+Scope access is capability-specific:
 
 - Global catalog read/install is available to active employees only when the
   selected skill visibility permits it;
 - Global publish and curation are PlatformClaw-administrator-only;
-- Team, Group, and Part read/install/publish/curate are evaluated separately
-  from membership, leadership, ownership, visibility, and explicit user ACL;
+- Team, Group, and Part read/install uses effective upward access. Publishing
+  requires an exact direct membership, leadership of the target or an ancestor,
+  or administrator authority. Curation remains owner/administrator controlled;
   and
 - no read or install capability implies publish, force, transfer, or curation.
 
-The current `team` binding with no scope ID denies non-administrator namespace
-access. Its migration to Global must remain restricted until an administrator
-explicitly enables organization-wide access after reviewing visibility. The
-migration cannot silently turn an existing denial into access.
+Global bindings start restricted. An administrator must provide a reason and
+the current binding revision to activate organization-wide access.
 
 ## Scan and publication policy
 

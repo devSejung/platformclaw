@@ -8,6 +8,7 @@ export type SkillHubOwnership = {
   visibility: SkillHubVisibility;
   currentVersion: string;
   updatedAt: number;
+  reconciliationRequired?: boolean;
 };
 
 export type SkillHubAccessGrant = {
@@ -56,12 +57,21 @@ export type SkillHubNamespaceBinding = {
   updatedAt: number;
 };
 
+export type SkillHubManagementUser = {
+  id: string;
+  accountId: string;
+  displayName?: string;
+};
+
 export interface SkillHubStateStore {
   getSkillHubOwnership(namespace: string, slug: string): Promise<SkillHubOwnership | null>;
   recordSkillHubPublication(params: {
     namespace: string;
     slug: string;
     ownerUserId: string;
+    expectedOwnerUserId: string | null;
+    expectedOwnerUpdatedAt: number | null;
+    expectedBindingUpdatedAt: number;
     visibility: SkillHubVisibility;
     version: string;
     changedAt: number;
@@ -70,13 +80,13 @@ export interface SkillHubStateStore {
     namespace: string;
     slug: string;
     expectedOwnerUserId: string | null;
+    expectedOwnerUpdatedAt: number;
     ownerUserId: string;
+    registryVisibility: SkillHubVisibility;
+    actorUserId: string;
     changedAt: number;
   }): Promise<SkillHubOwnership>;
-  reconcileInactiveSkillHubOwners(
-    changedAt: number,
-    primaryAdminUserId?: string,
-  ): Promise<{
+  reconcileInactiveSkillHubOwners(changedAt: number): Promise<{
     reassigned: number;
     unassigned: number;
   }>;
@@ -100,7 +110,21 @@ export interface SkillHubStateStore {
     grantedVersion?: string;
     changedAt: number;
   }): Promise<SkillHubAccessGrant>;
-  removeSkillHubAccess(namespace: string, slug: string, userId: string): Promise<boolean>;
+  removeSkillHubAccess(params: {
+    namespace: string;
+    slug: string;
+    userId: string;
+    actorUserId: string;
+    changedAt: number;
+  }): Promise<boolean>;
+  searchSkillHubManagementUsers(params: {
+    namespace: string;
+    slug: string;
+    actorUserId: string;
+    query: string;
+    purpose: "owner" | "access";
+    limit: number;
+  }): Promise<SkillHubManagementUser[]>;
   createSkillHubNotification(params: {
     userId: string;
     kind: string;
@@ -120,7 +144,7 @@ export interface SkillHubStateStore {
     namespace: string;
     slug: string;
     version: string;
-    ownerUserId: string;
+    ownerUserId: string | null;
     createdAt: number;
   }): Promise<void>;
   listDueSkillHubGovernanceJobs(now: number, limit: number): Promise<SkillHubGovernanceJob[]>;
@@ -140,10 +164,26 @@ export interface SkillHubStateStore {
     namespace: string;
     scopeKind: SkillHubNamespaceBinding["scopeKind"];
     scopeId?: string;
+    accessState: SkillHubNamespaceBinding["accessState"];
     visibilityCeiling: SkillHubVisibility;
+    expectedUpdatedAt: number | null;
+    reason: string;
     actorUserId: string;
     changedAt: number;
   }): Promise<SkillHubNamespaceBinding>;
-  removeSkillHubNamespaceBinding(namespace: string): Promise<boolean>;
-  hasSkillHubNamespaceAccess(userId: string, binding: SkillHubNamespaceBinding): Promise<boolean>;
+  setSkillHubNamespaceAccessState(params: {
+    namespace: string;
+    accessState: SkillHubNamespaceBinding["accessState"];
+    expectedUpdatedAt: number;
+    reason: string;
+    actorUserId: string;
+    changedAt: number;
+  }): Promise<SkillHubNamespaceBinding>;
+  removeSkillHubNamespaceBinding(params: {
+    namespace: string;
+    expectedUpdatedAt: number;
+    reason: string;
+    actorUserId: string;
+    changedAt: number;
+  }): Promise<boolean>;
 }

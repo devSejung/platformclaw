@@ -250,7 +250,6 @@ describe("SkillHubPage", () => {
             {
               namespace: "engineering",
               slug: "release-notes",
-              previousOwnerId: "employee-old-owner",
               visibility: "NAMESPACE_ONLY",
               currentVersion: "2.1.0",
               changedAt: 1_700_000_000_000,
@@ -271,5 +270,112 @@ describe("SkillHubPage", () => {
     await waitForFast(() => expect(page.textContent).toContain("engineering/release-notes"));
     expect(page.textContent).toContain("Namespace access");
     expect(page.textContent).toContain("Unassigned owners");
+  });
+
+  it("drops stale management search state when switching skills", async () => {
+    let resolveCandidates!: (response: Response) => void;
+    const pendingCandidates = new Promise<Response>((resolve) => {
+      resolveCandidates = resolve;
+    });
+    const detail = (slug: string) => ({
+      skill: {
+        namespace: "engineering",
+        slug,
+        displayName: slug === "skill-a" ? "Skill A" : "Skill B",
+        summary: "Managed skill",
+        visibility: "NAMESPACE_ONLY",
+        status: "PUBLISHED",
+      },
+      versions: [{ version: "1.0.0", status: "PUBLISHED", downloadAvailable: true }],
+      owner: { assigned: true, isMine: true, unassigned: false, revision: 10 },
+      canManage: true,
+      access: [],
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith("/config")) {
+        return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 });
+      }
+      if (url.includes("/management-users")) {
+        return await pendingCandidates;
+      }
+      if (url.endsWith("/skills/engineering/skill-a")) {
+        return jsonResponse(detail("skill-a"));
+      }
+      if (url.endsWith("/skills/engineering/skill-b")) {
+        return jsonResponse(detail("skill-b"));
+      }
+      return jsonResponse({
+        total: 2,
+        items: [
+          { namespace: "engineering", slug: "skill-a", latestVersion: "1.0.0", summary: "A" },
+          { namespace: "engineering", slug: "skill-b", latestVersion: "1.0.0", summary: "B" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+    await waitForFast(() => expect(page.textContent).toContain("skill-a"));
+    page.querySelectorAll<HTMLButtonElement>(".skill-hub-card")[0]?.click();
+    await waitForFast(() => expect(page.textContent).toContain("Skill A"));
+    const search = [...page.querySelectorAll<HTMLInputElement>("input")].find(
+      (input) => input.placeholder === "Search by name or account ID",
+    )!;
+    search.value = "eligible";
+    search.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    [...page.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Close")
+      ?.click();
+    page.querySelectorAll<HTMLButtonElement>(".skill-hub-card")[1]?.click();
+    await waitForFast(() => expect(page.textContent).toContain("Skill B"));
+    resolveCandidates(
+      jsonResponse({
+        items: [{ id: "candidate-a", accountId: "candidate.a", displayName: "Candidate A" }],
+      }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(page.textContent).not.toContain("Candidate A");
+    const transfer = [...page.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Transfer owner"),
+    );
+    expect(transfer?.disabled).toBe(true);
+  });
+
+  it("warns when a ZIP reaches the registry but needs ownership review", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 }))
+      .mockResolvedValueOnce(jsonResponse({ total: 0, items: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          namespace: "engineering",
+          slug: "demo",
+          version: "1.0.0",
+          ownershipReviewRequired: true,
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ total: 0, items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+    await waitForFast(() => expect(page.textContent).toContain("No Skill Hub results"));
+    const internal = page as unknown as {
+      uploadFile: File;
+      uploadSlug: string;
+      uploadNamespace: string;
+      uploadVersion: string;
+      uploadVisibility: string;
+      publishZip(): Promise<void>;
+    };
+    internal.uploadFile = new File(["zip"], "demo.zip", { type: "application/zip" });
+    internal.uploadSlug = "demo";
+    internal.uploadNamespace = "engineering";
+    internal.uploadVersion = "1.0.0";
+    internal.uploadVisibility = "PUBLIC";
+    await internal.publishZip();
+    await waitForFast(() => expect(page.textContent).toContain("private until an administrator"));
+    expect(page.querySelector(".callout.warning")).not.toBeNull();
   });
 });

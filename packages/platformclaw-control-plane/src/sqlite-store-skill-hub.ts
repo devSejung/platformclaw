@@ -1,20 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { ControlPlaneStateError } from "./contracts.js";
-import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
+import { sql } from "kysely";
+import { ControlPlaneConflictError, ControlPlaneStateError } from "./contracts.js";
+import {
+  executeSync,
+  runImmediateTransaction,
+  runReadTransaction,
+  takeFirstSync,
+} from "./kysely-sync.js";
 import type {
   SkillHubAccessGrant,
-  SkillHubNotification,
   SkillHubOwnership,
   SkillHubStateStore,
-  SkillHubGovernanceJob,
-  SkillHubNamespaceBinding,
 } from "./skill-hub-state.js";
-import { ensureSkillHubStateSchema } from "./sqlite-schema.js";
-import { SqliteControlPlaneMcpStore } from "./sqlite-store-mcp.js";
+import { SqliteControlPlaneSkillHubOperationsStore } from "./sqlite-store-skill-hub-operations.js";
 import type {
   SkillHubAccessRow,
   SkillHubNamespaceBindingRow,
-  SkillHubNotificationRow,
   SkillHubOwnershipRow,
 } from "./sqlite-store-types.js";
 
@@ -47,45 +48,10 @@ function access(row: SkillHubAccessRow): SkillHubAccessGrant {
   };
 }
 
-function notification(row: SkillHubNotificationRow): SkillHubNotification {
-  return {
-    id: row.id,
-    kind: row.kind,
-    ...(row.namespace === null ? {} : { namespace: row.namespace }),
-    ...(row.slug === null ? {} : { slug: row.slug }),
-    message: row.message,
-    createdAt: row.created_at,
-    ...(row.read_at === null ? {} : { readAt: row.read_at }),
-  };
-}
-
-function namespaceBinding(row: SkillHubNamespaceBindingRow): SkillHubNamespaceBinding {
-  return {
-    namespace: row.namespace,
-    scopeKind: row.scope_kind,
-    ...(row.scope_id === null ? {} : { scopeId: row.scope_id }),
-    accessState: row.access_state,
-    visibilityCeiling: row.visibility_ceiling,
-    createdByUserId: row.created_by_user_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
 export abstract class SqliteControlPlaneSkillHubStore
-  extends SqliteControlPlaneMcpStore
+  extends SqliteControlPlaneSkillHubOperationsStore
   implements SkillHubStateStore
 {
-  private skillHubStateSchemaReady = false;
-
-  protected ensureSkillHubStateSchema(): void {
-    if (this.skillHubStateSchemaReady) {
-      return;
-    }
-    ensureSkillHubStateSchema(this.db);
-    this.skillHubStateSchemaReady = true;
-  }
-
   async getSkillHubOwnership(namespace: string, slug: string): Promise<SkillHubOwnership | null> {
     this.ensureSkillHubStateSchema();
     const row = takeFirstSync(
@@ -105,9 +71,36 @@ export abstract class SqliteControlPlaneSkillHubStore
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
       const owner = this.requireUserRow(params.ownerUserId);
-      if (owner.status !== "active") {
-        throw new ControlPlaneStateError("Skill Hub owner must be active");
-      }
+      const binding = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("skill_hub_namespace_bindings")
+          .selectAll()
+          .where("namespace", "=", params.namespace),
+      );
+      const current = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("skill_hub_skill_ownership")
+          .selectAll()
+          .where("namespace", "=", params.namespace)
+          .where("slug", "=", params.slug),
+      );
+      const ownerRevisionMatches =
+        (current?.owner_user_id ?? null) === params.expectedOwnerUserId &&
+        (current?.updated_at ?? null) === params.expectedOwnerUpdatedAt;
+      const bindingRevisionMatches = binding?.updated_at === params.expectedBindingUpdatedAt;
+      const ownerStillEligible = Boolean(
+        binding && this.isSkillHubNamespaceOwnerEligible(owner.id, binding),
+      );
+      const reconciliationRequired =
+        !ownerRevisionMatches || !bindingRevisionMatches || !ownerStillEligible;
+      const recordedOwnerId = reconciliationRequired ? null : owner.id;
+      const recordedVisibility = reconciliationRequired ? "PRIVATE" : params.visibility;
+      const recordedAt = current
+        ? Math.max(params.changedAt, current.updated_at + 1)
+        : params.changedAt;
+      const priorOwnerId = current?.owner_user_id ?? owner.id;
       executeSync(
         this.db,
         this.query
@@ -115,21 +108,24 @@ export abstract class SqliteControlPlaneSkillHubStore
           .values({
             namespace: params.namespace,
             slug: params.slug,
-            owner_user_id: owner.id,
-            previous_owner_user_id: null,
-            visibility: params.visibility,
+            owner_user_id: recordedOwnerId,
+            previous_owner_user_id: recordedOwnerId ? null : priorOwnerId,
+            visibility: recordedVisibility,
             current_version: params.version,
-            updated_at: params.changedAt,
+            updated_at: recordedAt,
           })
           .onConflict((conflict) =>
             conflict.columns(["namespace", "slug"]).doUpdateSet({
-              visibility: params.visibility,
+              visibility: recordedVisibility,
               current_version: params.version,
-              updated_at: params.changedAt,
+              ...(reconciliationRequired
+                ? { owner_user_id: null, previous_owner_user_id: priorOwnerId }
+                : {}),
+              updated_at: recordedAt,
             }),
           ),
       );
-      return ownership(
+      const result = ownership(
         takeFirstSync(
           this.db,
           this.query
@@ -139,6 +135,43 @@ export abstract class SqliteControlPlaneSkillHubStore
             .where("slug", "=", params.slug),
         )!,
       );
+      if (reconciliationRequired) {
+        this.insertAudit(
+          owner.id,
+          "skill-hub.publish.reconciliation-required",
+          "skill-hub-skill",
+          `${params.namespace}/${params.slug}`,
+          params.changedAt,
+          {
+            reason:
+              "ownership, namespace binding, or organization eligibility changed while registry publish was in flight",
+          },
+        );
+        const admins = executeSync(
+          this.db,
+          this.query
+            .selectFrom("platform_users")
+            .select("id")
+            .where("status", "=", "active")
+            .where("global_role", "=", "admin"),
+        ).rows;
+        for (const admin of admins) {
+          executeSync(
+            this.db,
+            this.query.insertInto("skill_hub_notifications").values({
+              id: randomUUID(),
+              user_id: admin.id,
+              kind: "owner-unassigned",
+              namespace: params.namespace,
+              slug: params.slug,
+              message: `${params.namespace}/${params.slug} needs ownership review after a concurrent publication change.`,
+              created_at: params.changedAt,
+              read_at: null,
+            }),
+          );
+        }
+      }
+      return reconciliationRequired ? { ...result, reconciliationRequired: true } : result;
     });
   }
 
@@ -147,21 +180,41 @@ export abstract class SqliteControlPlaneSkillHubStore
   ): Promise<SkillHubOwnership> {
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
+      const current = this.requireSkillHubManager(
+        params.actorUserId,
+        params.namespace,
+        params.slug,
+      );
       const target = this.requireUserRow(params.ownerUserId);
       if (target.status !== "active") {
         throw new ControlPlaneStateError("Skill Hub owner must be active");
       }
-      const current = takeFirstSync(
+      const binding = takeFirstSync(
         this.db,
         this.query
-          .selectFrom("skill_hub_skill_ownership")
+          .selectFrom("skill_hub_namespace_bindings")
           .selectAll()
-          .where("namespace", "=", params.namespace)
-          .where("slug", "=", params.slug),
+          .where("namespace", "=", params.namespace),
       );
-      if (!current || current.owner_user_id !== params.expectedOwnerUserId) {
-        throw new ControlPlaneStateError("Skill Hub owner changed; reload and retry");
+      if (!binding || !this.isSkillHubNamespaceOwnerEligible(target.id, binding)) {
+        throw new ControlPlaneStateError("new owner is not eligible for this namespace");
       }
+      if (
+        !current ||
+        current.owner_user_id !== params.expectedOwnerUserId ||
+        current.updated_at !== params.expectedOwnerUpdatedAt
+      ) {
+        throw new ControlPlaneConflictError(
+          "skill_hub_owner_changed",
+          "Skill Hub owner changed; reload and retry",
+        );
+      }
+      const updatedAt = Math.max(params.changedAt, current.updated_at + 1);
+      const visibilityRank = { PRIVATE: 0, NAMESPACE_ONLY: 1, PUBLIC: 2 } as const;
+      const restoredVisibility =
+        visibilityRank[params.registryVisibility] > visibilityRank[binding.visibility_ceiling]
+          ? binding.visibility_ceiling
+          : params.registryVisibility;
       executeSync(
         this.db,
         this.query
@@ -169,42 +222,56 @@ export abstract class SqliteControlPlaneSkillHubStore
           .set({
             owner_user_id: target.id,
             previous_owner_user_id: current.owner_user_id,
-            updated_at: params.changedAt,
+            visibility: restoredVisibility,
+            updated_at: updatedAt,
           })
           .where("namespace", "=", params.namespace)
           .where("slug", "=", params.slug)
           .where("owner_user_id", "is", current.owner_user_id),
       );
+      this.insertAudit(
+        params.actorUserId,
+        "skill-hub.owner.transferred",
+        "skill-hub-skill",
+        `${params.namespace}/${params.slug}`,
+        updatedAt,
+        { fromUserId: current.owner_user_id, toUserId: target.id },
+      );
+      const notificationUsers = [current.owner_user_id, target.id].filter(
+        (userId, index, values): userId is string =>
+          Boolean(userId) && values.indexOf(userId) === index,
+      );
+      for (const userId of notificationUsers) {
+        executeSync(
+          this.db,
+          this.query.insertInto("skill_hub_notifications").values({
+            id: randomUUID(),
+            user_id: userId,
+            kind: "owner-transferred",
+            namespace: params.namespace,
+            slug: params.slug,
+            message:
+              userId === target.id
+                ? `You now own ${params.namespace}/${params.slug}.`
+                : `You no longer own ${params.namespace}/${params.slug}.`,
+            created_at: updatedAt,
+            read_at: null,
+          }),
+        );
+      }
       return ownership({
         ...current,
         owner_user_id: target.id,
         previous_owner_user_id: current.owner_user_id,
-        updated_at: params.changedAt,
+        visibility: restoredVisibility,
+        updated_at: updatedAt,
       });
     });
   }
 
-  async reconcileInactiveSkillHubOwners(changedAt: number, primaryAdminUserId?: string) {
+  async reconcileInactiveSkillHubOwners(changedAt: number) {
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
-      const primaryAdmin = primaryAdminUserId
-        ? takeFirstSync(
-            this.db,
-            this.query
-              .selectFrom("platform_users")
-              .select("id")
-              // Deployment derives this from the initial-admin account ID, while
-              // persisted settings may hold the stable internal user ID.
-              .where((expression) =>
-                expression.or([
-                  expression("id", "=", primaryAdminUserId),
-                  expression("account_id", "=", primaryAdminUserId),
-                ]),
-              )
-              .where("status", "=", "active")
-              .where("global_role", "=", "admin"),
-          )
-        : undefined;
       const activeAdmins = executeSync(
         this.db,
         this.query
@@ -213,47 +280,55 @@ export abstract class SqliteControlPlaneSkillHubStore
           .where("status", "=", "active")
           .where("global_role", "=", "admin"),
       ).rows;
-      const stale = executeSync(
+      const assigned = executeSync(
         this.db,
         this.query
           .selectFrom("skill_hub_skill_ownership")
-          .innerJoin(
-            "platform_users",
-            "platform_users.id",
-            "skill_hub_skill_ownership.owner_user_id",
-          )
           .select([
             "skill_hub_skill_ownership.namespace as namespace",
             "skill_hub_skill_ownership.slug as slug",
             "skill_hub_skill_ownership.owner_user_id as owner_user_id",
           ])
-          .where("platform_users.status", "=", "disabled"),
+          .where("skill_hub_skill_ownership.owner_user_id", "is not", null),
       ).rows;
+      const stale = assigned.filter((skill) => {
+        const binding = takeFirstSync(
+          this.db,
+          this.query
+            .selectFrom("skill_hub_namespace_bindings")
+            .selectAll()
+            .where("namespace", "=", skill.namespace),
+        );
+        return (
+          !skill.owner_user_id ||
+          !binding ||
+          !this.isSkillHubNamespaceOwnerEligible(skill.owner_user_id, binding)
+        );
+      });
       for (const skill of stale) {
         executeSync(
           this.db,
           this.query
             .updateTable("skill_hub_skill_ownership")
             .set({
-              owner_user_id: primaryAdmin?.id ?? null,
+              owner_user_id: null,
               previous_owner_user_id: skill.owner_user_id,
+              visibility: "PRIVATE",
               updated_at: changedAt,
             })
             .where("namespace", "=", skill.namespace)
             .where("slug", "=", skill.slug),
         );
-        for (const admin of primaryAdmin ? [primaryAdmin] : activeAdmins) {
+        for (const admin of activeAdmins) {
           executeSync(
             this.db,
             this.query.insertInto("skill_hub_notifications").values({
               id: randomUUID(),
               user_id: admin.id,
-              kind: primaryAdmin ? "owner-reassigned" : "owner-unassigned",
+              kind: "owner-unassigned",
               namespace: skill.namespace,
               slug: skill.slug,
-              message: primaryAdmin
-                ? `Ownership of ${skill.namespace}/${skill.slug} was reassigned because the previous owner is inactive.`
-                : `${skill.namespace}/${skill.slug} needs an owner because the previous owner is inactive.`,
+              message: `${skill.namespace}/${skill.slug} needs an owner because the previous owner is inactive or no longer eligible for its organization scope.`,
               created_at: changedAt,
               read_at: null,
             }),
@@ -261,8 +336,8 @@ export abstract class SqliteControlPlaneSkillHubStore
         }
       }
       return {
-        reassigned: primaryAdmin ? stale.length : 0,
-        unassigned: primaryAdmin ? 0 : stale.length,
+        reassigned: 0,
+        unassigned: stale.length,
       };
     });
   }
@@ -336,6 +411,7 @@ export abstract class SqliteControlPlaneSkillHubStore
   async setSkillHubAccess(params: Parameters<SkillHubStateStore["setSkillHubAccess"]>[0]) {
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
+      this.requireSkillHubManager(params.grantedByUserId, params.namespace, params.slug);
       const target = this.requireUserRow(params.userId);
       if (target.status !== "active") {
         throw new ControlPlaneStateError("Skill Hub access recipient must be active");
@@ -374,6 +450,31 @@ export abstract class SqliteControlPlaneSkillHubStore
             }),
           ),
       );
+      this.insertAudit(
+        params.grantedByUserId,
+        "skill-hub.access.granted",
+        "skill-hub-skill",
+        `${params.namespace}/${params.slug}`,
+        params.changedAt,
+        {
+          userId: target.id,
+          expiresAt: params.expiresAt ?? null,
+          inheritVersions: params.inheritVersions,
+        },
+      );
+      executeSync(
+        this.db,
+        this.query.insertInto("skill_hub_notifications").values({
+          id: randomUUID(),
+          user_id: target.id,
+          kind: "access-granted",
+          namespace: params.namespace,
+          slug: params.slug,
+          message: `You can now access ${params.namespace}/${params.slug}.`,
+          created_at: params.changedAt,
+          read_at: null,
+        }),
+      );
       return access(
         takeFirstSync(
           this.db,
@@ -388,304 +489,121 @@ export abstract class SqliteControlPlaneSkillHubStore
     });
   }
 
-  async removeSkillHubAccess(namespace: string, slug: string, userId: string): Promise<boolean> {
-    this.ensureSkillHubStateSchema();
-    return (
-      Number(
-        executeSync(
-          this.db,
-          this.query
-            .deleteFrom("skill_hub_skill_access")
-            .where("namespace", "=", namespace)
-            .where("slug", "=", slug)
-            .where("user_id", "=", userId),
-        ).numAffectedRows,
-      ) > 0
-    );
-  }
-
-  async createSkillHubNotification(
-    params: Parameters<SkillHubStateStore["createSkillHubNotification"]>[0],
-  ) {
-    this.ensureSkillHubStateSchema();
-    const row: SkillHubNotificationRow = {
-      id: randomUUID(),
-      user_id: params.userId,
-      kind: params.kind,
-      namespace: params.namespace ?? null,
-      slug: params.slug ?? null,
-      message: params.message,
-      created_at: params.createdAt,
-      read_at: null,
-    };
-    executeSync(this.db, this.query.insertInto("skill_hub_notifications").values(row));
-    return notification(row);
-  }
-
-  async listSkillHubNotifications(userId: string, limit: number) {
-    this.ensureSkillHubStateSchema();
-    return executeSync(
-      this.db,
-      this.query
-        .selectFrom("skill_hub_notifications")
-        .selectAll()
-        .where("user_id", "=", userId)
-        .orderBy("created_at", "desc")
-        .orderBy("id", "desc")
-        .limit(limit),
-    ).rows.map(notification);
-  }
-
-  async countUnreadSkillHubNotifications(userId: string): Promise<number> {
-    this.ensureSkillHubStateSchema();
-    const row = takeFirstSync(
-      this.db,
-      this.query
-        .selectFrom("skill_hub_notifications")
-        .select((expression) => expression.fn.countAll<number>().as("count"))
-        .where("user_id", "=", userId)
-        .where("read_at", "is", null),
-    );
-    return row?.count ?? 0;
-  }
-
-  async markSkillHubNotificationsRead(
-    params: Parameters<SkillHubStateStore["markSkillHubNotificationsRead"]>[0],
-  ): Promise<number> {
-    this.ensureSkillHubStateSchema();
-    let query = this.query
-      .updateTable("skill_hub_notifications")
-      .set({ read_at: params.readAt })
-      .where("user_id", "=", params.userId)
-      .where("read_at", "is", null);
-    if (params.ids) {
-      if (params.ids.length === 0) {
-        return 0;
-      }
-      query = query.where("id", "in", [...params.ids]);
-    }
-    return Number(executeSync(this.db, query).numAffectedRows);
-  }
-
-  async enqueueSkillHubGovernanceJob(
-    params: Parameters<SkillHubStateStore["enqueueSkillHubGovernanceJob"]>[0],
-  ): Promise<void> {
-    this.ensureSkillHubStateSchema();
-    executeSync(
-      this.db,
-      this.query
-        .insertInto("skill_hub_governance_jobs")
-        .values({
-          namespace: params.namespace,
-          slug: params.slug,
-          version: params.version,
-          owner_user_id: params.ownerUserId,
-          state: "pending",
-          attempts: 0,
-          next_attempt_at: params.createdAt,
-          last_error: null,
-          updated_at: params.createdAt,
-        })
-        .onConflict((conflict) => conflict.columns(["namespace", "slug", "version"]).doNothing()),
-    );
-  }
-
-  async listDueSkillHubGovernanceJobs(
-    now: number,
-    limit: number,
-  ): Promise<SkillHubGovernanceJob[]> {
-    this.ensureSkillHubStateSchema();
-    return executeSync(
-      this.db,
-      this.query
-        .selectFrom("skill_hub_governance_jobs")
-        .selectAll()
-        .where("state", "=", "pending")
-        .where("next_attempt_at", "<=", now)
-        .orderBy("next_attempt_at")
-        .limit(limit),
-    ).rows.map((row) =>
-      Object.assign(
-        {
-          namespace: row.namespace,
-          slug: row.slug,
-          version: row.version,
-          ownerUserId: row.owner_user_id,
-          state: row.state,
-          attempts: row.attempts,
-          nextAttemptAt: row.next_attempt_at,
-          updatedAt: row.updated_at,
-        },
-        row.last_error === null ? {} : { lastError: row.last_error },
-      ),
-    );
-  }
-
-  async updateSkillHubGovernanceJob(
-    params: Parameters<SkillHubStateStore["updateSkillHubGovernanceJob"]>[0],
-  ): Promise<void> {
-    this.ensureSkillHubStateSchema();
-    executeSync(
-      this.db,
-      this.query
-        .updateTable("skill_hub_governance_jobs")
-        .set({
-          state: params.state,
-          attempts: params.attempts,
-          next_attempt_at: params.nextAttemptAt,
-          last_error: params.lastError ?? null,
-          updated_at: params.updatedAt,
-        })
-        .where("namespace", "=", params.namespace)
-        .where("slug", "=", params.slug)
-        .where("version", "=", params.version),
-    );
-  }
-
-  async getSkillHubNamespaceBinding(namespace: string): Promise<SkillHubNamespaceBinding | null> {
-    this.ensureSkillHubStateSchema();
-    const row = takeFirstSync(
-      this.db,
-      this.query
-        .selectFrom("skill_hub_namespace_bindings")
-        .selectAll()
-        .where("namespace", "=", namespace),
-    );
-    return row ? namespaceBinding(row) : null;
-  }
-
-  async listSkillHubNamespaceBindings(): Promise<SkillHubNamespaceBinding[]> {
-    this.ensureSkillHubStateSchema();
-    return executeSync(
-      this.db,
-      this.query.selectFrom("skill_hub_namespace_bindings").selectAll().orderBy("namespace"),
-    ).rows.map(namespaceBinding);
-  }
-
-  async setSkillHubNamespaceBinding(
-    params: Parameters<SkillHubStateStore["setSkillHubNamespaceBinding"]>[0],
-  ): Promise<SkillHubNamespaceBinding> {
+  async removeSkillHubAccess(
+    params: Parameters<SkillHubStateStore["removeSkillHubAccess"]>[0],
+  ): Promise<boolean> {
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
-      this.requireAdmin(params.actorUserId);
-      if (params.scopeKind === "global" ? params.scopeId !== undefined : !params.scopeId) {
-        throw new ControlPlaneStateError("Skill Hub namespace scope binding is invalid");
-      }
-      if (params.scopeId) {
-        const scope = takeFirstSync(
-          this.db,
-          this.query.selectFrom("managed_scopes").selectAll().where("id", "=", params.scopeId),
+      this.requireSkillHubManager(params.actorUserId, params.namespace, params.slug);
+      const removed =
+        Number(
+          executeSync(
+            this.db,
+            this.query
+              .deleteFrom("skill_hub_skill_access")
+              .where("namespace", "=", params.namespace)
+              .where("slug", "=", params.slug)
+              .where("user_id", "=", params.userId),
+          ).numAffectedRows,
+        ) > 0;
+      if (removed) {
+        this.insertAudit(
+          params.actorUserId,
+          "skill-hub.access.revoked",
+          "skill-hub-skill",
+          `${params.namespace}/${params.slug}`,
+          params.changedAt,
+          { userId: params.userId },
         );
-        if (!scope || scope.status !== "active" || scope.kind !== params.scopeKind) {
-          throw new ControlPlaneStateError("Skill Hub namespace scope is unavailable");
-        }
       }
-      const existing = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("skill_hub_namespace_bindings")
-          .selectAll()
-          .where("namespace", "=", params.namespace),
-      );
-      executeSync(
-        this.db,
-        this.query
-          .insertInto("skill_hub_namespace_bindings")
-          .values({
-            namespace: params.namespace,
-            scope_kind: params.scopeKind,
-            scope_id: params.scopeId ?? null,
-            visibility_ceiling: params.visibilityCeiling,
-            access_state: params.scopeKind === "global" ? "restricted" : "active",
-            created_by_user_id: existing?.created_by_user_id ?? params.actorUserId,
-            created_at: existing?.created_at ?? params.changedAt,
-            updated_at: params.changedAt,
-          })
-          .onConflict((conflict) =>
-            conflict.column("namespace").doUpdateSet({
-              scope_kind: params.scopeKind,
-              scope_id: params.scopeId ?? null,
-              visibility_ceiling: params.visibilityCeiling,
-              access_state: params.scopeKind === "global" ? "restricted" : "active",
-              updated_at: params.changedAt,
-            }),
-          ),
-      );
-      return namespaceBinding(
-        takeFirstSync(
+      return removed;
+    });
+  }
+
+  async searchSkillHubManagementUsers(
+    params: Parameters<SkillHubStateStore["searchSkillHubManagementUsers"]>[0],
+  ) {
+    this.ensureSkillHubStateSchema();
+    return runReadTransaction(this.db, () => {
+      this.requireSkillHubManager(params.actorUserId, params.namespace, params.slug);
+      const needle = params.query.trim();
+      if (needle.length < 2 || needle.length > 128) {
+        throw new ControlPlaneStateError("user search query must contain 2-128 characters");
+      }
+      const limit = Math.max(1, Math.min(Math.trunc(params.limit), 20));
+      const pattern = `%${needle.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+      let candidates = this.query
+        .selectFrom("platform_users")
+        .select(["id", "account_id", "display_name", "global_role"])
+        .where("status", "=", "active")
+        .where(
+          sql<boolean>`(account_id LIKE ${pattern} ESCAPE '\\' OR display_name LIKE ${pattern} ESCAPE '\\')`,
+        );
+      let ownerBinding: SkillHubNamespaceBindingRow | undefined;
+      if (params.purpose === "owner") {
+        const binding = takeFirstSync(
           this.db,
           this.query
             .selectFrom("skill_hub_namespace_bindings")
             .selectAll()
             .where("namespace", "=", params.namespace),
-        )!,
-      );
-    });
-  }
-
-  async removeSkillHubNamespaceBinding(namespace: string): Promise<boolean> {
-    this.ensureSkillHubStateSchema();
-    return (
-      Number(
-        executeSync(
-          this.db,
-          this.query.deleteFrom("skill_hub_namespace_bindings").where("namespace", "=", namespace),
-        ).numAffectedRows,
-      ) > 0
-    );
-  }
-
-  async hasSkillHubNamespaceAccess(
-    userId: string,
-    binding: SkillHubNamespaceBinding,
-  ): Promise<boolean> {
-    this.ensureSkillHubStateSchema();
-    if (
-      binding.accessState === "restricted" ||
-      binding.scopeKind === "global" ||
-      !binding.scopeId
-    ) {
-      return false;
-    }
-    const user = this.selectUserById(userId);
-    const scope = takeFirstSync(
-      this.db,
-      this.query.selectFrom("managed_scopes").selectAll().where("id", "=", binding.scopeId),
-    );
-    if (
-      !user ||
-      user.status !== "active" ||
-      !scope ||
-      scope.kind !== binding.scopeKind ||
-      this.scopeLineageRows(scope).some((entry) => entry.status !== "active")
-    ) {
-      return false;
-    }
-    const direct = takeFirstSync(
-      this.db,
-      this.query
-        .selectFrom("managed_scope_memberships")
-        .select("user_id")
-        .where("scope_id", "=", binding.scopeId)
-        .where("user_id", "=", userId),
-    );
-    if (direct || binding.scopeKind === "group") {
-      return Boolean(direct);
-    }
-    const parentLeader = takeFirstSync(
-      this.db,
-      this.query
-        .selectFrom("managed_scopes")
-        .innerJoin(
-          "managed_scope_memberships",
-          "managed_scope_memberships.scope_id",
-          "managed_scopes.parent_scope_id",
+        );
+        if (!binding || binding.access_state !== "active") {
+          return [];
+        }
+        ownerBinding = binding;
+        if (binding.scope_kind === "global") {
+          candidates = candidates.where("global_role", "=", "admin");
+        } else {
+          const scope = this.requireScopeRow(binding.scope_id!);
+          const lineage = this.scopeLineageRows(scope);
+          const eligible = executeSync(
+            this.db,
+            this.query
+              .selectFrom("managed_scope_memberships")
+              .select("user_id")
+              .distinct()
+              .where((expression) =>
+                expression.or([
+                  expression("scope_id", "=", scope.id),
+                  expression.and([
+                    expression(
+                      "scope_id",
+                      "in",
+                      lineage.filter((entry) => entry.id !== scope.id).map((entry) => entry.id),
+                    ),
+                    expression("role", "=", "leader"),
+                  ]),
+                ]),
+              ),
+          ).rows.map((row) => row.user_id);
+          candidates = candidates.where((expression) =>
+            expression.or([
+              expression("global_role", "=", "admin"),
+              expression("id", "in", eligible.length > 0 ? eligible : ["__none__"]),
+            ]),
+          );
+        }
+      }
+      const rows = executeSync(
+        this.db,
+        candidates.orderBy("account_id").orderBy("id").limit(limit),
+      ).rows;
+      // The SQL predicate keeps this bounded; canonical policy is still the final projection gate.
+      return rows
+        .filter(
+          (user) => !ownerBinding || this.isSkillHubNamespaceOwnerEligible(user.id, ownerBinding),
         )
-        .select("managed_scope_memberships.user_id")
-        .where("managed_scopes.id", "=", binding.scopeId)
-        .where("managed_scope_memberships.user_id", "=", userId)
-        .where("managed_scope_memberships.role", "=", "leader"),
-    );
-    return Boolean(parentLeader);
+        .map((user) => {
+          const result: { id: string; accountId: string; displayName?: string } = {
+            id: user.id,
+            accountId: user.account_id,
+          };
+          if (user.display_name) {
+            result.displayName = user.display_name;
+          }
+          return result;
+        });
+    });
   }
 }

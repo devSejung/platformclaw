@@ -1,174 +1,16 @@
 import { link, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { describe, expect, it, vi } from "vitest";
 import type { BrowserAuthService } from "./browser-auth-service.js";
-import type { ControlPlaneStore, PlatformUser } from "./contracts.js";
-import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import type { SkillHubAdapter } from "./skill-hub-adapter.js";
-import type { SkillHubGovernanceClient } from "./skill-hub-governance-client.js";
 import type { SkillHubStore } from "./skill-hub-service-support.js";
 import { SkillHubService, SkillHubServiceError } from "./skill-hub-service.js";
-import type { SkillHubOwnership } from "./skill-hub-state.js";
-
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
-
-const user: PlatformUser = {
-  id: "user-1",
-  accountId: "person.one",
-  employeeId: "1001",
-  status: "active",
-  globalRole: "member",
-  groups: ["engineering"],
-  createdAt: 1,
-  updatedAt: 1,
-};
-
-async function fixture(groups: string[] = ["engineering"], governance?: SkillHubGovernanceClient) {
-  const workspaceRoot = tempDirs.make("platformclaw-skill-hub-");
-  const skillDir = path.join(workspaceRoot, "agent-1", "skills", "demo-skill");
-  await mkdir(skillDir, { recursive: true });
-  await writeFile(
-    path.join(skillDir, "SKILL.md"),
-    "---\nname: demo-skill\ndescription: Demo skill\nversion: 0.0.1\n---\nInstructions\n",
-  );
-  await writeFile(path.join(skillDir, "helper.txt"), "hello");
-
-  const authenticateToken = vi.fn(async () => ({
-    status: "active" as const,
-    session: {
-      id: "session-1",
-      userId: user.id,
-      tokenHash: "hash",
-      createdAt: 1,
-      lastSeenAt: 1,
-      idleExpiresAt: 2,
-      absoluteExpiresAt: 2,
-    },
-    user: { ...user, groups },
-  }));
-  const recordAuditEvent = vi.fn(async (params) => ({ id: "audit-1", ...params }));
-  const getPersonalExecutionProfile = vi.fn<ControlPlaneStore["getPersonalExecutionProfile"]>(
-    async () => null,
-  );
-  const getVmAllocationForAgent = vi.fn<
-    ControlPlaneExecutionManagementStore["getVmAllocationForAgent"]
-  >(async () => null);
-  let ownership: SkillHubOwnership | null = null;
-  const store = {
-    getPersonalExecutionProfile,
-    getPersonalAgentBinding: vi.fn(async () => ({
-      id: "binding-1",
-      kind: "personal" as const,
-      userId: user.id,
-      agentId: "agent-1",
-      state: "active" as const,
-      createdAt: 1,
-      updatedAt: 1,
-    })),
-    resolveAuthenticatedKnoxDmRoute: vi.fn(async () => ({
-      status: "resolved" as const,
-      user: { ...user, groups },
-      binding: {
-        id: "binding-1",
-        kind: "personal" as const,
-        userId: user.id,
-        agentId: "agent-1",
-        state: "active" as const,
-        createdAt: 1,
-        updatedAt: 1,
-      },
-      sessionKey: "agent:agent-1:main",
-      executionTarget: "platform_server" as const,
-    })),
-    getVmAllocationForAgent,
-    getSkillHubOwnership: vi.fn(async () => ownership),
-    recordSkillHubPublication: vi.fn(async (params) => {
-      ownership = {
-        namespace: params.namespace,
-        slug: params.slug,
-        ownerUserId: ownership?.ownerUserId ?? params.ownerUserId,
-        visibility: params.visibility,
-        currentVersion: params.version,
-        updatedAt: params.changedAt,
-      };
-      return ownership;
-    }),
-    reconcileInactiveSkillHubOwners: vi.fn(async () => ({ reassigned: 0, unassigned: 0 })),
-    hasSkillHubAccess: vi.fn(async () => false),
-    listSkillHubAccess: vi.fn(async () => []),
-    countUnreadSkillHubNotifications: vi.fn(async () => 0),
-    countUnassignedSkillHubSkills: vi.fn(async () => 0),
-    listUnassignedSkillHubSkills: vi.fn(async () => []),
-    getSkillHubNamespaceBinding: vi.fn(async () => null),
-    listSkillHubNamespaceBindings: vi.fn(async () => []),
-    hasSkillHubNamespaceAccess: vi.fn(async () => false),
-    listManagedScopes: vi.fn(async () => []),
-    enqueueSkillHubGovernanceJob: vi.fn(async () => undefined),
-    listDueSkillHubGovernanceJobs: vi.fn(async () => []),
-    updateSkillHubGovernanceJob: vi.fn(async () => undefined),
-    createSkillHubNotification: vi.fn(async (params) => ({
-      id: "notification-1",
-      kind: params.kind,
-      message: params.message,
-      createdAt: params.createdAt,
-    })),
-    recordAuditEvent,
-  } as unknown as SkillHubStore;
-  const adapterMocks = {
-    search: vi.fn<SkillHubAdapter["search"]>(async () => ({ items: [], total: 0 })),
-    getSkill: vi.fn(async () => ({
-      id: 10,
-      namespace: "engineering",
-      slug: "demo-skill",
-      displayName: "Demo Skill",
-      summary: "Demo",
-      visibility: "PUBLIC",
-      status: "PUBLISHED",
-    })),
-    listVersions: vi.fn<SkillHubAdapter["listVersions"]>(async () => []),
-    listSecurityAudits: vi.fn<SkillHubAdapter["listSecurityAudits"]>(async () => []),
-    publish: vi.fn(async (params) => ({
-      namespace: params.namespace,
-      slug: "demo-skill",
-      version: "1.2.3",
-      visibility: params.visibility,
-    })),
-    download: vi.fn(),
-  };
-  const adapter = adapterMocks as SkillHubAdapter;
-  const adminRpcCall = vi.fn();
-  const adminRpc = { call: adminRpcCall } as unknown as GatewayAdminRpc;
-  const service = new SkillHubService({
-    authService: { authenticateToken } as unknown as BrowserAuthService,
-    store,
-    adapter,
-    adminRpc,
-    workspaceRoot,
-    allowedNamespaces: ["engineering"],
-    maxPackageBytes: 1024 * 1024,
-    now: () => 100,
-    ...(governance ? { governance } : {}),
-  });
-  const actor = await service.authenticate("session-token");
-  if (!actor) {
-    throw new Error("fixture authentication failed");
-  }
-  return {
-    workspaceRoot,
-    store,
-    skillDir,
-    service,
-    actor,
-    adapterMocks,
-    adminRpcCall,
-    recordAuditEvent,
-    getPersonalExecutionProfile,
-    getVmAllocationForAgent,
-  };
-}
+import {
+  createSkillHubServiceFixture as fixture,
+  skillHubTestUser as user,
+} from "./skill-hub-service.test-fixtures.js";
 
 async function skillArchive(
   params: {
@@ -219,6 +61,196 @@ describe("SkillHubService", () => {
     await expect(service.command("person.one", "help en")).resolves.toMatchObject({
       text: expect.not.stringContaining("명령어"),
     });
+  });
+
+  it("allows effective scope reads but requires direct membership or leadership to publish", async () => {
+    const { service, actor, adapterMocks, authorizeManagedScope } = await fixture();
+    adapterMocks.getSkill.mockResolvedValue({
+      id: 10,
+      namespace: "engineering",
+      slug: "demo-skill",
+      displayName: "Demo Skill",
+      summary: "Demo",
+      visibility: "NAMESPACE_ONLY",
+      status: "PUBLISHED",
+    });
+    authorizeManagedScope.mockResolvedValue({
+      canRead: true,
+      canManageMembers: false,
+      canManageStructure: false,
+      canManageLeaders: false,
+      facts: { source: "membership", scopeIds: ["descendant-part"] },
+    });
+
+    await expect(service.detail(actor.user, "engineering", "demo-skill")).resolves.toMatchObject({
+      skill: { slug: "demo-skill" },
+    });
+    await expect(
+      service.publish(actor, {
+        skill: "demo-skill",
+        namespace: "engineering",
+        version: "1.2.3",
+        visibility: "NAMESPACE_ONLY",
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    authorizeManagedScope.mockResolvedValue({
+      canRead: true,
+      canManageMembers: true,
+      canManageStructure: false,
+      canManageLeaders: false,
+      facts: { source: "leadership", scopeIds: ["ancestor-team"] },
+    });
+    await expect(
+      service.publish(actor, {
+        skill: "demo-skill",
+        namespace: "engineering",
+        version: "1.2.3",
+        visibility: "NAMESPACE_ONLY",
+      }),
+    ).resolves.toMatchObject({ namespace: "engineering", slug: "demo-skill" });
+  });
+
+  it("withholds ownership revision from readers who cannot manage the skill", async () => {
+    const { service, actor, adapterMocks, store } = await fixture();
+    adapterMocks.getSkill.mockResolvedValue({
+      id: 10,
+      namespace: "engineering",
+      slug: "demo-skill",
+      displayName: "Demo Skill",
+      summary: "Demo",
+      visibility: "NAMESPACE_ONLY",
+      status: "PUBLISHED",
+    });
+    await store.recordSkillHubPublication({
+      namespace: "engineering",
+      slug: "demo-skill",
+      ownerUserId: actor.user.id,
+      expectedOwnerUserId: null,
+      expectedOwnerUpdatedAt: null,
+      expectedBindingUpdatedAt: 1,
+      visibility: "NAMESPACE_ONLY",
+      version: "1.0.0",
+      changedAt: 10,
+    });
+    const detail = await service.detail(
+      { ...actor.user, id: "reader-user", accountId: "reader.user" },
+      "engineering",
+      "demo-skill",
+    );
+    expect(detail.owner).toEqual({ assigned: true, isMine: false, unassigned: false });
+    expect(JSON.stringify(detail.owner)).not.toMatch(/revision|userId|accountId/iu);
+  });
+
+  it("surfaces post-registry ownership reconciliation and queues governance without an owner", async () => {
+    const { service, actor, store } = await fixture(["engineering"], {
+      approvePendingReview: vi.fn(async () => ({ reviewId: 1, status: "APPROVED" })),
+    });
+    vi.spyOn(store, "recordSkillHubPublication").mockResolvedValue({
+      namespace: "engineering",
+      slug: "demo-skill",
+      ownerUserId: null,
+      previousOwnerUserId: actor.user.id,
+      visibility: "PRIVATE",
+      currentVersion: "1.2.3",
+      updatedAt: 100,
+      reconciliationRequired: true,
+    });
+    const enqueue = vi.spyOn(store, "enqueueSkillHubGovernanceJob");
+    await expect(
+      service.publish(actor, {
+        skill: "demo-skill",
+        namespace: "engineering",
+        version: "1.2.3",
+        visibility: "PUBLIC",
+      }),
+    ).resolves.toMatchObject({ ownershipReviewRequired: true });
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: null }));
+  });
+
+  it("keeps Global restricted until activation and reserves Global publish for admins", async () => {
+    const { service, actor, adapterMocks, getSkillHubNamespaceBinding, authorizeManagedScope } =
+      await fixture();
+    adapterMocks.getSkill.mockResolvedValue({
+      id: 10,
+      namespace: "engineering",
+      slug: "demo-skill",
+      displayName: "Demo Skill",
+      summary: "Demo",
+      visibility: "NAMESPACE_ONLY",
+      status: "PUBLISHED",
+    });
+    const binding = {
+      namespace: "engineering",
+      scopeKind: "global" as const,
+      accessState: "restricted" as const,
+      visibilityCeiling: "PUBLIC" as const,
+      createdByUserId: "admin-1",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    getSkillHubNamespaceBinding.mockResolvedValue(binding);
+    await expect(service.detail(actor.user, "engineering", "demo-skill")).rejects.toMatchObject({
+      statusCode: 404,
+    });
+
+    getSkillHubNamespaceBinding.mockResolvedValue({ ...binding, accessState: "active" });
+    await expect(service.detail(actor.user, "engineering", "demo-skill")).resolves.toMatchObject({
+      skill: { slug: "demo-skill" },
+    });
+    await expect(
+      service.publish(actor, {
+        skill: "demo-skill",
+        namespace: "engineering",
+        version: "1.2.3",
+        visibility: "NAMESPACE_ONLY",
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(authorizeManagedScope).not.toHaveBeenCalled();
+  });
+
+  it("projects management mutations without internal audit and ownership fields", async () => {
+    const { service, actor } = await fixture();
+    await service.publish(actor, {
+      skill: "demo-skill",
+      namespace: "engineering",
+      version: "1.2.3",
+      visibility: "PRIVATE",
+    });
+
+    const grant = await service.setAccess(actor.user, "engineering", "demo-skill", {
+      userId: "recipient-1",
+      inheritVersions: true,
+    });
+    expect(grant).toEqual({
+      userId: "recipient-1",
+      expiresAt: null,
+      inheritVersions: true,
+      grantedVersion: null,
+      canReshare: false,
+    });
+    expect(JSON.stringify(grant)).not.toMatch(/grantedByUserId|createdAt|updatedAt/u);
+
+    const transfer = await service.transferOwner(
+      actor.user,
+      "engineering",
+      "demo-skill",
+      "owner-2",
+      1,
+    );
+    expect(transfer).toEqual({ ownerUserId: "owner-2" });
+    expect(JSON.stringify(transfer)).not.toMatch(/previousOwnerUserId|currentVersion|updatedAt/u);
+
+    const admin = { ...actor.user, globalRole: "admin" as const };
+    const binding = await service.setNamespaceBinding(admin, {
+      namespace: "engineering",
+      scopeKind: "team",
+      scopeId: "scope-1",
+      visibilityCeiling: "NAMESPACE_ONLY",
+      expectedUpdatedAt: null,
+      reason: "organization rollout",
+    });
+    expect(JSON.stringify(binding)).not.toContain("createdByUserId");
   });
 
   it("lists every accessible catalog item through paged Knox output", async () => {
@@ -309,8 +341,15 @@ describe("SkillHubService", () => {
     );
   });
 
-  it("rejects a configured namespace when the member lacks its publish group", async () => {
-    const { service, actor, adapterMocks } = await fixture([]);
+  it("rejects a configured namespace when the member lacks organization publish access", async () => {
+    const { service, actor, adapterMocks, authorizeManagedScope } = await fixture([]);
+    authorizeManagedScope.mockResolvedValue({
+      canRead: false,
+      canManageMembers: false,
+      canManageStructure: false,
+      canManageLeaders: false,
+      facts: { source: "none", scopeIds: [] },
+    });
     await expect(
       service.publish(actor, {
         skill: "demo-skill",
@@ -388,7 +427,8 @@ describe("SkillHubService", () => {
   });
 
   it("streams to the package limit even when ZIP metadata understates extracted size", async () => {
-    const { workspaceRoot, actor, adapterMocks, adminRpcCall, store } = await fixture();
+    const { workspaceRoot, actor, adapterMocks, adminRpcCall, store, organization } =
+      await fixture();
     const service = new SkillHubService({
       authService: { authenticateToken: vi.fn() } as unknown as BrowserAuthService,
       store: {
@@ -399,6 +439,7 @@ describe("SkillHubService", () => {
       adminRpc: { call: adminRpcCall } as unknown as GatewayAdminRpc,
       workspaceRoot,
       allowedNamespaces: ["engineering"],
+      organization,
       maxPackageBytes: 1024,
     });
     adapterMocks.download.mockResolvedValue(
@@ -713,8 +754,16 @@ describe("SkillHubService", () => {
     expect(recordAuditEvent).not.toHaveBeenCalled();
   });
 
-  it("filters and blocks restricted skills for users outside the namespace group", async () => {
-    const { service, actor, adapterMocks, adminRpcCall } = await fixture([]);
+  it("filters and conceals restricted skills outside the bound organization scope", async () => {
+    const { service, actor, adapterMocks, adminRpcCall, authorizeManagedScope, store } =
+      await fixture([]);
+    authorizeManagedScope.mockResolvedValue({
+      canRead: false,
+      canManageMembers: false,
+      canManageStructure: false,
+      canManageLeaders: false,
+      facts: { source: "none", scopeIds: [] },
+    });
     adapterMocks.search.mockResolvedValue({
       items: [
         {
@@ -733,13 +782,24 @@ describe("SkillHubService", () => {
       slug: "demo-skill",
       displayName: "Demo Skill",
       summary: "Demo",
-      visibility: "NAMESPACE_ONLY",
+      visibility: "PRIVATE",
       status: "PUBLISHED",
+    });
+    await store.recordSkillHubPublication({
+      namespace: "engineering",
+      slug: "demo-skill",
+      ownerUserId: "other-owner",
+      expectedOwnerUserId: null,
+      expectedOwnerUpdatedAt: null,
+      expectedBindingUpdatedAt: 1,
+      visibility: "PUBLIC",
+      version: "1.0.0",
+      changedAt: 1,
     });
 
     await expect(service.search(actor.user, "demo")).resolves.toEqual({ items: [], total: 0 });
     await expect(service.detail(actor.user, "engineering", "demo-skill")).rejects.toMatchObject({
-      statusCode: 403,
+      statusCode: 404,
     });
     await expect(
       service.install(actor, {
@@ -748,7 +808,57 @@ describe("SkillHubService", () => {
         version: "1.0.0",
         destination: "platform_server",
       }),
-    ).rejects.toMatchObject({ statusCode: 403 });
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(adapterMocks.download).not.toHaveBeenCalled();
+    expect(adminRpcCall).not.toHaveBeenCalled();
+  });
+
+  it("enforces a lowered namespace visibility ceiling on existing registry content", async () => {
+    const { service, actor, adapterMocks, adminRpcCall, getSkillHubNamespaceBinding } =
+      await fixture();
+    getSkillHubNamespaceBinding.mockResolvedValue({
+      namespace: "engineering",
+      scopeKind: "team",
+      scopeId: "scope-1",
+      accessState: "active",
+      visibilityCeiling: "PRIVATE",
+      createdByUserId: "admin-1",
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    adapterMocks.search.mockResolvedValue({
+      items: [
+        {
+          namespace: "engineering",
+          slug: "demo-skill",
+          latestVersion: "1.0.0",
+          summary: "Demo",
+          visibility: "PUBLIC",
+        },
+      ],
+      total: 1,
+    });
+    adapterMocks.getSkill.mockResolvedValue({
+      id: 10,
+      namespace: "engineering",
+      slug: "demo-skill",
+      displayName: "Demo Skill",
+      summary: "Demo",
+      visibility: "PUBLIC",
+      status: "PUBLISHED",
+    });
+    await expect(service.search(actor.user, "demo")).resolves.toEqual({ items: [], total: 0 });
+    await expect(service.detail(actor.user, "engineering", "demo-skill")).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    await expect(
+      service.install(actor, {
+        namespace: "engineering",
+        slug: "demo-skill",
+        version: "1.0.0",
+        destination: "platform_server",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
     expect(adapterMocks.download).not.toHaveBeenCalled();
     expect(adminRpcCall).not.toHaveBeenCalled();
   });
@@ -770,6 +880,14 @@ describe("SkillHubService", () => {
         updatedAt: 1,
       },
     ]);
+    vi.spyOn(store, "getSkillHubOwnership").mockResolvedValue({
+      namespace: "engineering",
+      slug: "demo-skill",
+      ownerUserId: user.id,
+      visibility: "PUBLIC",
+      currentVersion: "1.0.0",
+      updatedAt: 1,
+    });
     adapterMocks.listVersions.mockResolvedValue([
       {
         id: 20,
@@ -795,6 +913,57 @@ describe("SkillHubService", () => {
     );
   });
 
+  it("never auto-approves a reconciliation job without a current owner", async () => {
+    const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
+    const { service, store } = await fixture(["engineering"], { approvePendingReview });
+    vi.spyOn(store, "listDueSkillHubGovernanceJobs").mockResolvedValue([
+      {
+        namespace: "engineering",
+        slug: "demo-skill",
+        version: "1.0.0",
+        ownerUserId: null,
+        state: "pending",
+        attempts: 0,
+        nextAttemptAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    const update = vi.spyOn(store, "updateSkillHubGovernanceJob");
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 1 });
+    expect(approvePendingReview).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ state: "blocked", lastError: "owner-review-required" }),
+    );
+  });
+
+  it("reports ownership review when force approval commits during an ownership change", async () => {
+    const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
+    const { service, actor, store } = await fixture(["engineering"], { approvePendingReview });
+    const current = {
+      namespace: "engineering",
+      slug: "demo-skill",
+      ownerUserId: actor.user.id,
+      visibility: "PRIVATE" as const,
+      currentVersion: "1.0.0",
+      updatedAt: 1,
+    };
+    vi.spyOn(store, "getSkillHubOwnership")
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce(null);
+    await expect(
+      service.acknowledgeForcePublish(actor.user, "engineering", "demo-skill", {
+        version: "1.0.0",
+        acknowledged: true,
+        reason: "reviewed scanner exception",
+      }),
+    ).resolves.toMatchObject({
+      upstreamOverridePerformed: true,
+      ownershipReviewRequired: true,
+    });
+    expect(approvePendingReview).toHaveBeenCalledTimes(1);
+  });
+
   it("projects the administrator unassigned-owner queue without internal owner fields", async () => {
     const { service, actor, store } = await fixture();
     vi.spyOn(store, "listUnassignedSkillHubSkills").mockResolvedValue([
@@ -817,7 +986,6 @@ describe("SkillHubService", () => {
             slug: "demo-skill",
             currentVersion: "1.2.3",
             visibility: "NAMESPACE_ONLY",
-            previousOwnerId: "former-owner",
             changedAt: 99,
           },
         ],
