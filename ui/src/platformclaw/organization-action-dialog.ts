@@ -29,6 +29,11 @@ export type OrganizationPendingAction =
     }
   | { kind: "archive"; scopeId: string; scopeRevision: number; target: string };
 
+function formText(data: FormData, name: string): string {
+  const value = data.get(name);
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function renderOrganizationActionDialog(options: {
   action: OrganizationPendingAction | null;
   busy: boolean;
@@ -57,8 +62,8 @@ export function renderOrganizationActionDialog(options: {
       @submit=${(event: SubmitEvent) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget as HTMLFormElement);
-        const reason = String(data.get("reason") ?? "").trim();
-        const name = String(data.get("name") ?? "").trim();
+        const reason = formText(data, "reason");
+        const name = formText(data, "name");
         if (reason) {
           options.onSubmit({ reason, ...(name ? { name } : {}) });
         }
@@ -100,7 +105,12 @@ export function renderOrganizationActionDialog(options: {
         >
           ${t("platformClaw.organization.action.confirm")}
         </button>
-        <button class="btn" type="button" ?disabled=${options.busy} @click=${options.onCancel}>
+        <button
+          class="btn"
+          type="button"
+          ?disabled=${options.busy}
+          @click=${() => options.onCancel()}
+        >
           ${t("platformClaw.organization.action.cancel")}
         </button>
       </div>

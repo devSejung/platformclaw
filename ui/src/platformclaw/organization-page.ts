@@ -141,7 +141,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
           };
         }
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         this.error = this.messageFor(error);
       })
       .finally(() => {
@@ -196,7 +196,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
           this.error = "";
         }
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (epoch === this.scopeSearchEpoch) {
           this.error = this.messageFor(error);
         }
@@ -229,7 +229,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
         await this.refreshManagement();
         this.error = "";
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (epoch === this.managementSearchEpoch) {
           this.error = this.messageFor(error);
         }
@@ -316,6 +316,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
             reason: input.reason,
           });
       }
+      return undefined;
     }, "platformClaw.organization.saved");
     if (succeeded) {
       if (action.kind === "rename") {
@@ -341,7 +342,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
         onSearch: (query) => void this.searchManagementScopes(query),
         onSelect: (scopeId) => {
           this.selectedScopeId = scopeId;
-          void this.refreshManagement().catch((error) => {
+          void this.refreshManagement().catch((error: unknown) => {
             this.error = this.messageFor(error);
           });
         },
@@ -380,7 +381,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
             expectedRole,
           };
         },
-        onLoadMore: (offset) => void this.loadMoreMembers(offset),
+        onLoadMore: (offset) => this.loadMoreMembers(offset),
       })}${renderOrganizationAddMember({
         selected: this.selectedScope(),
         users: this.userResults,
@@ -407,7 +408,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
                 this.error = "";
               }
             })
-            .catch((error) => {
+            .catch((error: unknown) => {
               if (
                 managementEpoch === this.managementEpoch &&
                 searchEpoch === this.userSearchEpoch &&

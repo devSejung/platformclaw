@@ -61,7 +61,7 @@ function fixtureFetch(options?: {
     ? { canManageMembers: true, canManageStructure: false, canManageLeaders: false }
     : none;
   return vi.fn<typeof fetch>(async (input) => {
-    const url = String(input);
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.endsWith("/memberships") && options?.membershipConflict) {
       return json(
         { error: "organization membership changed", code: "organization_membership_changed" },
@@ -234,8 +234,9 @@ describe("PlatformClaw Organization settings", () => {
     expect(modalError?.textContent).toContain("The roster changed");
     expect(document.activeElement).toBe(modalError);
     expect(
-      fetchImpl.mock.calls.some(([, init]) =>
-        String(init?.body).includes('"expectedRole":"leader"'),
+      fetchImpl.mock.calls.some(
+        ([, init]) =>
+          typeof init?.body === "string" && init.body.includes('"expectedRole":"leader"'),
       ),
     ).toBe(true);
     expect(

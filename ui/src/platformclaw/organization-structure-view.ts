@@ -7,6 +7,11 @@ function lineageLabel(scope: OrganizationScopeResult): string {
   return scope.lineage.map((entry) => entry.name).join(" / ");
 }
 
+function formText(data: FormData, name: string): string {
+  const value = data.get(name);
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function renderOrganizationStructure(options: {
   scopes: readonly OrganizationScopeResult[];
   selected?: OrganizationScopeResult;
@@ -32,8 +37,8 @@ export function renderOrganizationStructure(options: {
       event.preventDefault();
       const form = event.currentTarget as HTMLFormElement;
       const data = new FormData(form);
-      const name = String(data.get("name") ?? "").trim();
-      const parentScopeId = String(data.get("parentScopeId") ?? "").trim();
+      const name = formText(data, "name");
+      const parentScopeId = formText(data, "parentScopeId");
       options.onCreate({ kind, name, ...(kind === "team" ? {} : { parentScopeId }) });
     }}
   >
@@ -74,13 +79,17 @@ export function renderOrganizationStructure(options: {
           title: t("platformClaw.organization.structure.selected"),
           description: lineageLabel(options.selected),
           control: html`<div class="settings-row__controls">
-            <button class="btn btn--sm" ?disabled=${options.busy} @click=${options.onRename}>
+            <button
+              class="btn btn--sm"
+              ?disabled=${options.busy}
+              @click=${() => options.onRename()}
+            >
               ${t("platformClaw.organization.structure.rename")}
             </button>
             <button
               class="btn btn--sm danger"
               ?disabled=${options.busy}
-              @click=${options.onArchive}
+              @click=${() => options.onArchive()}
             >
               ${t("platformClaw.organization.structure.archive")}
             </button>
