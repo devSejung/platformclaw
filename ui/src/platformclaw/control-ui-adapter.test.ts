@@ -76,6 +76,7 @@ describe("PlatformClawControlUiAdapter", () => {
         "appearance",
         "credentials",
         "memory",
+        "organization",
         "profile",
         "notifications",
         "about",
@@ -104,6 +105,11 @@ describe("PlatformClawControlUiAdapter", () => {
         secondaryLabel: "Platform",
       },
     });
+    expect(options.routeOverrides?.organization).toBeDefined();
+    const organizationTitle = options.navigation?.routeCopy?.organization?.title;
+    expect(typeof organizationTitle === "function" ? organizationTitle() : organizationTitle).toBe(
+      "Organization",
+    );
     expect(fetchImpl).toHaveBeenCalledWith(
       "/platformclaw/api/auth/session",
       expect.objectContaining({ credentials: "same-origin", method: "GET" }),

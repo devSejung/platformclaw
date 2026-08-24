@@ -23,9 +23,10 @@ Global
 This page is the canonical contract. Schema v3, Team scopes, join requests,
 upward access inheritance, and the shared organization and authorization
 services are implemented. The authenticated browser API described below is
-also implemented. Skill Hub and Memory remain on their existing consumer
-authorization until their rollout PRs connect them to this shared owner, and
-the complete Settings organization UI remains planned.
+also implemented. Skill Hub and Memory now consume this shared authorization
+owner. Settings > Organization provides the membership and structure
+management foundation; join onboarding, request inbox, and audit presentation
+remain later PR6 work.
 
 ## Scope model
 
@@ -126,10 +127,10 @@ Organization membership is optional. An active employee with no Team, Group,
 or Part membership can still sign in and use personal Agent, chat, personal
 Memory, and other features that do not require an organization scope.
 
-After login, a user with no effective active managed-scope membership receives
-a dismissible join prompt. This includes users whose only direct memberships
-belong to archived lineages. The same flow remains available under
-**Settings > Organization**. Skipping or dismissing it does not block the
+PR6B will add a dismissible post-login join prompt for users with no effective
+active managed-scope membership, including users whose only direct memberships
+belong to archived lineages. It will also add the same join flow under
+**Settings > Organization**. Skipping or dismissing it will not block the
 application.
 
 A user may:
@@ -141,8 +142,9 @@ A user may:
 - view pending, approved, rejected, and cancelled outcomes; and
 - cancel their own pending request.
 
-Tree search returns only bounded scope identity, kind, display name, parentage,
-and request eligibility. Ordinary applicants never receive membership rosters,
+Tree search returns bounded scope identity, kind, display name, root-to-leaf
+lineage, request eligibility, and self-relative management capabilities.
+Ordinary applicants never receive membership rosters,
 leader identities, or other users' requests. Leaders receive management data
 only for their delegated subtree; administrators may inspect the whole managed
 tree.
@@ -363,9 +365,11 @@ and database backup together.
 | 3   | Authenticated organization BFF/API, join-request endpoints, and response projection    |
 | 4   | Skill Hub conversion from legacy Team-as-Global to Global/Team/Group/Part              |
 | 5   | Memory search, promotion, review, and lifecycle conversion with Team scopes            |
-| 6   | Settings organization management, first-login join UI, inbox, and Korean/English UX    |
+| 6A  | Settings organization tree, membership, leader, and structure management with EN/KO UX |
+| 6B  | First-login join request and review inbox UX                                           |
+| 6C  | Organization audit explorer and remaining operational UX                               |
 
-PR1 through PR5 are implemented. PR6 remains planned.
+PR1 through PR5 and PR6A are implemented. PR6B and PR6C remain planned.
 
 ## Authenticated browser API
 
@@ -380,8 +384,9 @@ The current routes are:
 
 - `GET /context` for one consistent, bounded snapshot of the current actor's
   direct and effective scopes, primary scope, and recent join outcomes;
-- `GET /scopes` for bounded active-scope search and the actor's request
-  eligibility, without rosters or leader identities;
+- `GET /scopes` for bounded active-scope search, root-to-leaf lineage, exact
+  self-relative management capabilities, and request eligibility, without
+  rosters, leader identities, or internal authorization facts;
 - `GET /requests/own` and `GET /requests/reviewable` for paged personal history
   and the currently authorized review inbox;
 - `POST /requests`, `POST /requests/:id/cancel`, and
@@ -392,8 +397,17 @@ The current routes are:
 - administrator scope creation, rename, and archive; and
 - administrator-only, paged organization audit history.
 
-Ordinary scope search returns only opaque scope identity, kind, display name,
-parent identity, and request eligibility. Review and management projections
+Browser membership writes carry the roster/search snapshot's `expectedRole`
+(`null` for a new member). The transactional owner rejects stale add, role, or
+remove attempts with `409` before changing a newer membership.
+Browser scope rename and archive writes likewise carry the scope's projected
+opaque `revision`; the owner rejects a stale structural write with
+`organization_scope_changed` before changing the scope.
+
+Ordinary scope search returns opaque scope identity, kind, display name,
+root-to-leaf lineage, request eligibility, and only the actor's exact
+`canManageMembers`, `canManageStructure`, and `canManageLeaders` booleans.
+Review and management projections
 use opaque user selectors plus account ID, display name, status, and role only.
 They exclude employee ID, email, department, directory groups, login history,
 credentials, personal Memory, paths, and generic audit details. Request IDs
@@ -404,9 +418,9 @@ Scope move and restore remain deferred. Moving an active subtree changes
 effective Memory and Skill Hub lineage, reviewer authority, and ownership
 reach; those operations will ship only with cross-consumer lifecycle proof.
 
-PR6 localizes product prose, statuses, errors, and accessible labels in Korean
-and English while keeping stable technical terms such as Team, Group, Part,
-Memory, and Skill Hub where a forced translation would reduce clarity.
+PR6A localizes its product prose, statuses, errors, and accessible labels in
+Korean and English while keeping stable technical terms such as Team, Group,
+Part, Memory, and Skill Hub where a forced translation would reduce clarity.
 
 Each PR must leave current shipped paths deployable. No consumer switches to
 the shared resolver before its own tests cover direct membership, ancestor

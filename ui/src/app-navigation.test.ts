@@ -219,6 +219,7 @@ describe("navigationIconForRoute", () => {
       automation: "terminal",
       mcp: "wrench",
       memory: "book",
+      organization: "users",
       talk: "mic",
       infrastructure: "globe",
       labs: "flaskConical",
@@ -299,6 +300,15 @@ describe("formatDocumentTitle", () => {
 });
 
 describe("titleForRoute", () => {
+  it("resolves embedder-owned copy for opt-in routes at render time", () => {
+    let title = "Organization";
+    const copy = { title: () => title, subtitle: () => `${title} settings` };
+    expect(titleForRoute("organization", copy)).toBe("Organization");
+    title = "조직";
+    expect(titleForRoute("organization", copy)).toBe("조직");
+    expect(subtitleForRoute("organization", copy)).toBe("조직 settings");
+  });
+
   it("keeps every navigation title and subtitle backed by an English translation", () => {
     // t() returns the raw dotted key (e.g. "tabs.advanced") when a catalog
     // entry is missing; resolved copy is Title/Sentence case and never matches.
@@ -341,6 +351,7 @@ describe("titleForRoute", () => {
       automation: "Automation",
       mcp: "MCP",
       memory: "Memory",
+      organization: "Settings",
       talk: "Talk",
       infrastructure: "Infrastructure",
       labs: "Labs",
@@ -392,6 +403,7 @@ describe("subtitleForRoute", () => {
       automation: "Commands, hooks, automations, and plugins.",
       mcp: "MCP servers, auth, tools, and diagnostics.",
       memory: "Memory engine, backend, search, and dreaming.",
+      organization: "Legacy settings route; opens Appearance.",
       talk: "Realtime voice: provider, model, and speaker voice.",
       infrastructure: "Gateway, browser, node host, discovery, and ACP settings.",
       labs: "Experimental agent and tool capabilities.",
@@ -819,6 +831,7 @@ describe("SIDEBAR_NAV_ROUTES", () => {
       "model-providers",
       "mcp",
       "memory",
+      "organization",
       "automation",
       "security",
       "approvals",

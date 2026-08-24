@@ -136,16 +136,14 @@ SQLite database. The change is backward-tolerable and does not bump the schema
 version. Registry metadata and package blobs remain in PostgreSQL and the
 registry storage volume; PlatformClaw does not duplicate them.
 
-That statement describes the current Skill Hub tables under control schema v2.
-The planned organization migration is intentionally different: schema v3
-rebuilds the managed hierarchy and namespace-binding constraint. Existing
-`team` bindings with no scope ID migrate to `global` with no scope ID; a real
-Team binding uses `team` plus a managed Team ID. The migration preserves skill
-ownership, ACL, scan, notification, and registry data and introduces no
-fallback reader or dual write. Because the current scope-access function denies
-non-administrator access to `team` with no scope ID, the migrated Global binding
-starts restricted until an administrator explicitly reviews and activates its
-read/install policy. Global publication and curation remain administrator-only.
+The current control schema v3 organization migration rebuilt the managed
+hierarchy and namespace-binding constraint. Existing `team` bindings with no
+scope ID migrated to `global` with no scope ID; a real Team binding uses `team`
+plus a managed Team ID. The migration preserved skill ownership, ACL, scan,
+notification, and registry data and introduced no fallback reader or dual
+write. Migrated Global bindings start restricted until an administrator
+explicitly reviews and activates read/install policy. Global publication and
+curation remain administrator-only.
 
 Package blobs are named product artifacts. Audit and lifecycle state belong in
 the appropriate database owner, not JSON sidecars. Secrets remain in server-only

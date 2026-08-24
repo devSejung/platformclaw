@@ -9,11 +9,9 @@ import {
 } from "./contracts.js";
 import { executeSync, runReadTransaction, takeFirstSync } from "./kysely-sync.js";
 import { resolveOrganizationAuthorization } from "./organization-policy.js";
+import { boundedOrganizationReason as boundedReason } from "./organization-validation.js";
 import { required, rowToMembership, rowToScope } from "./sqlite-store-core.js";
-import {
-  boundedOrganizationReason as boundedReason,
-  SqliteControlPlaneOrganizationStore,
-} from "./sqlite-store-organization.js";
+import { SqliteControlPlaneOrganizationStore } from "./sqlite-store-organization.js";
 
 export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteControlPlaneOrganizationStore {
   private rowToJoinRequest(row: {
@@ -392,7 +390,16 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
         effectiveAccessHasMore: effectiveAccess.length > 200,
         directMemberships: directMemberships.slice(0, 200),
         directMembershipsHasMore: directMemberships.length > 200,
+        directScopeLineages: directMemberships.slice(0, 200).map((membership) => ({
+          scopeId: membership.scopeId,
+          lineage: this.scopeLineageRows(this.requireScopeRow(membership.scopeId))
+            .map(rowToScope)
+            .toReversed(),
+        })),
         primaryScope: primary ? rowToScope(primary) : null,
+        primaryScopeLineage: primary
+          ? this.scopeLineageRows(primary).map(rowToScope).toReversed()
+          : [],
         joinRequests: requests,
       };
     });

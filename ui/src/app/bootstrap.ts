@@ -1,6 +1,6 @@
 import type { RouteLocation } from "@openclaw/uirouter";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
-import type { SidebarRouteTargets } from "../app-navigation.ts";
+import type { NavigationRouteCopy, SidebarRouteTargets } from "../app-navigation.ts";
 import { sessionRouteNamespaceFromPath } from "../app-route-paths.ts";
 import {
   APP_ROUTE_IDS,
@@ -220,6 +220,7 @@ export type ApplicationRuntime = {
   readonly enabledRouteIds: readonly RouteId[];
   readonly sidebarRouteTargets: SidebarRouteTargets;
   readonly settingsNavigationMode: ApplicationSettingsNavigationMode;
+  readonly navigationCopy?: Readonly<Partial<Record<RouteId, NavigationRouteCopy>>>;
   readonly shellSession: ApplicationShellSession | null;
   readonly confirmPendingGatewayConnection: () => void;
   readonly cancelPendingGatewayConnection: () => void;
@@ -254,6 +255,8 @@ export type ApplicationBootstrapOptions = {
     readonly sidebarRouteTargets?: SidebarRouteTargets;
     /** Embedded products may opt into the full Settings navigation shell. */
     readonly settingsNavigationMode?: ApplicationSettingsNavigationMode;
+    /** Product-local labels for opt-in routes without coupling core i18n to the embedder. */
+    readonly routeCopy?: Readonly<Partial<Record<RouteId, NavigationRouteCopy>>>;
   };
 };
 
@@ -577,6 +580,7 @@ export function bootstrapApplication(
     settingsNavigationMode:
       options.navigation?.settingsNavigationMode ??
       ((options.accessMode ?? "operator") === "operator" ? "takeover" : "inline"),
+    navigationCopy: options.navigation?.routeCopy ?? {},
     shellSession: options.shellSession ?? null,
     get pendingGatewayConnection() {
       return pendingGatewayConnection;

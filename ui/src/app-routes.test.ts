@@ -44,6 +44,7 @@ describe("application router registration", () => {
 
   it("registers an opt-in embedder settings route only when its component is supplied", () => {
     expect(createApplicationRouter().getRoute("credentials")).toBeNull();
+    expect(createApplicationRouter().getRoute("organization")).toBeNull();
 
     const component = async () => ({ render: () => "embedded credentials" });
     const embedded = createApplicationRouter(["credentials"], {
@@ -52,5 +53,10 @@ describe("application router registration", () => {
 
     expect(embedded.getRoute("credentials")?.path).toBe("/settings/credentials");
     expect(embedded.getRoute("credentials")?.component).toBe(component);
+
+    const organization = createApplicationRouter(["organization"], {
+      organization: { loader: async () => undefined, component },
+    });
+    expect(organization.getRoute("organization")?.path).toBe("/settings/organization");
   });
 });

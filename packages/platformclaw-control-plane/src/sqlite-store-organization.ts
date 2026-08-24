@@ -1,121 +1,24 @@
 import { randomUUID } from "node:crypto";
 import {
   ControlPlaneAuthorizationError,
-  ControlPlaneConflictError,
   ControlPlaneStateError,
   type ManagedScope,
   type ManagedScopeKind,
   type ManagedScopeMembership,
   type ManagedScopeRole,
-  type OrganizationAuthorization,
 } from "./contracts.js";
-import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
+import { executeSync, takeFirstSync } from "./kysely-sync.js";
+import { assertExpectedOrganizationMembershipRole } from "./organization-policy.js";
+import {
+  assertOrganizationScopeRevision,
+  boundedOrganizationReason,
+  boundedOrganizationScopeName,
+} from "./organization-validation.js";
 import { normalizeScopeName, required, rowToMembership, rowToScope } from "./sqlite-store-core.js";
-import { SqliteControlPlaneOrganizationAccessStore } from "./sqlite-store-organization-access.js";
+import { SqliteControlPlaneOrganizationMutationStore } from "./sqlite-store-organization-mutation.js";
 import type { ManagedScopeRow } from "./sqlite-store-types.js";
 
-function boundedOrganizationText(value: string, field: string, max: number): string {
-  const text = required(value, field);
-  if (text.length > max) {
-    throw new ControlPlaneStateError(`${field} must not exceed ${max} characters`);
-  }
-  return text;
-}
-
-export function boundedOrganizationReason(value: string, field: string): string {
-  return boundedOrganizationText(value, field, 500);
-}
-
-const boundedScopeName = (value: string) => boundedOrganizationText(value, "scope.name", 120);
-
-type OrganizationAuditAuthorizationFacts =
-  | OrganizationAuthorization["facts"]
-  | { source: "self"; scopeIds: string[] };
-
-export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlPlaneOrganizationAccessStore {
-  private organizationAuthorizationFacts(
-    actorUserId: string,
-    scopeId?: string,
-    self = false,
-  ): OrganizationAuditAuthorizationFacts {
-    const actor = this.selectUserById(actorUserId);
-    if (!actor || actor.status !== "active") {
-      return { source: "none", scopeIds: [] };
-    }
-    if (self) {
-      return { source: "self", scopeIds: scopeId ? [scopeId] : [] };
-    }
-    if (!scopeId) {
-      return actor.global_role === "admin"
-        ? { source: "administrator", scopeIds: [] }
-        : { source: "none", scopeIds: [] };
-    }
-    return this.resolveOrganizationAuthorizationSnapshot(actorUserId, scopeId).facts;
-  }
-
-  protected insertOrganizationAudit(params: {
-    actorUserId: string;
-    action: string;
-    targetType: string;
-    targetId: string;
-    createdAt: number;
-    outcome: "succeeded" | "denied";
-    scopeId?: string;
-    self?: boolean;
-    authorization?: OrganizationAuditAuthorizationFacts;
-    reason?: string;
-    details?: Record<string, unknown>;
-  }): void {
-    this.insertAudit(
-      this.selectUserById(params.actorUserId) ? params.actorUserId : null,
-      params.action,
-      params.targetType,
-      params.targetId,
-      params.createdAt,
-      {
-        action: params.action,
-        target: { type: params.targetType, id: params.targetId },
-        outcome: params.outcome,
-        authorization:
-          params.authorization ??
-          this.organizationAuthorizationFacts(params.actorUserId, params.scopeId, params.self),
-        ...(params.reason ? { reason: params.reason } : {}),
-        ...params.details,
-      },
-    );
-  }
-
-  protected runOrganizationMutation<T>(
-    audit: {
-      actorUserId: string;
-      action: string;
-      targetType: string;
-      targetId: string;
-      createdAt: number;
-      scopeId?: string;
-    },
-    operation: () => T,
-  ): T {
-    try {
-      return runImmediateTransaction(this.db, operation);
-    } catch (error) {
-      if (
-        error instanceof ControlPlaneAuthorizationError ||
-        error instanceof ControlPlaneStateError ||
-        error instanceof ControlPlaneConflictError
-      ) {
-        runImmediateTransaction(this.db, () =>
-          this.insertOrganizationAudit({
-            ...audit,
-            outcome: "denied",
-            details: { denialReason: error.message },
-          }),
-        );
-      }
-      throw error;
-    }
-  }
-
+export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlPlaneOrganizationMutationStore {
   async createManagedScope(params: {
     actorUserId: string;
     kind: ManagedScopeKind;
@@ -133,7 +36,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
       },
       () => {
         this.requireAdmin(params.actorUserId);
-        const name = boundedScopeName(params.name);
+        const name = boundedOrganizationScopeName(params.name);
         let parentScopeId: string | null = null;
         if (params.kind !== "team") {
           parentScopeId = required(params.parentScopeId ?? "", "parentScopeId");
@@ -187,6 +90,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
   async renameManagedScope(params: {
     actorUserId: string;
     scopeId: string;
+    expectedRevision?: number;
     name: string;
     reason: string;
     changedAt: number;
@@ -203,18 +107,20 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
       () => {
         this.requireAdmin(params.actorUserId);
         const scope = this.requireScopeRow(params.scopeId);
+        assertOrganizationScopeRevision(scope.updated_at, params.expectedRevision);
         if (scope.status !== "active") {
           throw new ControlPlaneStateError("archived scopes cannot be renamed");
         }
-        const name = boundedScopeName(params.name);
+        const name = boundedOrganizationScopeName(params.name);
         const reason = boundedOrganizationReason(params.reason, "reason");
+        const nextRevision = Math.max(params.changedAt, scope.updated_at + 1);
         const updated = { ...scope, name, normalized_name: normalizeScopeName(name) };
         this.assertScopeNameAvailable(updated, scope.id);
         executeSync(
           this.db,
           this.query
             .updateTable("managed_scopes")
-            .set({ name, normalized_name: updated.normalized_name, updated_at: params.changedAt })
+            .set({ name, normalized_name: updated.normalized_name, updated_at: nextRevision })
             .where("id", "=", scope.id),
         );
         this.insertOrganizationAudit({
@@ -236,6 +142,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
   async archiveManagedScope(params: {
     actorUserId: string;
     scopeId: string;
+    expectedRevision?: number;
     reason: string;
     archivedAt: number;
   }): Promise<ManagedScope> {
@@ -253,6 +160,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
       () => {
         this.requireAdmin(params.actorUserId);
         const scope = this.requireScopeRow(params.scopeId);
+        assertOrganizationScopeRevision(scope.updated_at, params.expectedRevision);
         const auditReason = boundedOrganizationReason(params.reason, "reason");
         const archiveAuthorization = this.resolveOrganizationAuthorizationSnapshot(
           params.actorUserId,
@@ -272,6 +180,12 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
               archivedScopeIds.push(candidate.id);
             }
           }
+          const nextRevision = Math.max(
+            params.archivedAt,
+            ...allScopes
+              .filter((candidate) => archivedScopeIds.includes(candidate.id))
+              .map((candidate) => candidate.updated_at + 1),
+          );
           const boundNamespace = takeFirstSync(
             this.db,
             this.query
@@ -365,7 +279,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
             this.db,
             this.query
               .updateTable("managed_scopes")
-              .set({ status: "archived", updated_at: params.archivedAt })
+              .set({ status: "archived", updated_at: nextRevision })
               .where("id", "in", archivedScopeIds),
           );
           const pendingJoins = executeSync(
@@ -436,6 +350,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
     scopeId: string;
     userId: string;
     role: ManagedScopeRole;
+    expectedRole?: ManagedScopeRole | null;
     reason: string;
     changedAt: number;
   }): Promise<ManagedScopeMembership> {
@@ -472,6 +387,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
           throw new ControlPlaneAuthorizationError("leaders can only assign member role");
         }
         const existing = this.selectMembership(scope.id, params.userId);
+        assertExpectedOrganizationMembershipRole(existing?.role ?? null, params.expectedRole);
         if (!actorIsAdmin && existing?.role === "leader") {
           throw new ControlPlaneAuthorizationError("only administrators can change leader roles");
         }
@@ -559,6 +475,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
     actorUserId: string;
     scopeId: string;
     userId: string;
+    expectedRole?: ManagedScopeRole | null;
     reason: string;
     changedAt: number;
   }): Promise<boolean> {
@@ -591,6 +508,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
         }
         const reason = boundedOrganizationReason(params.reason, "reason");
         const existing = this.selectMembership(scope.id, params.userId);
+        assertExpectedOrganizationMembershipRole(existing?.role ?? null, params.expectedRole);
         if (!actorIsAdmin && existing?.role === "leader") {
           throw new ControlPlaneAuthorizationError("only administrators can remove leaders");
         }

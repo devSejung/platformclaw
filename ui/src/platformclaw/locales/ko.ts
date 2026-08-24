@@ -1,4 +1,107 @@
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.organization.title": "조직",
+  "platformClaw.organization.navLabel": "조직",
+  "platformClaw.organization.subtitle": "내 조직 소속을 확인하고 위임받은 범위를 관리합니다.",
+  "platformClaw.organization.loading": "조직을 불러오는 중…",
+  "platformClaw.organization.saved": "조직을 업데이트했습니다.",
+  "platformClaw.organization.savedReloadFailed":
+    "조직은 업데이트됐지만 최신 상태를 다시 불러오지 못했습니다. 다음 변경 전에 페이지를 새로고침하세요.",
+  "platformClaw.organization.search": "검색",
+  "platformClaw.organization.tabs.label": "조직 화면",
+  "platformClaw.organization.tabs.overview": "개요",
+  "platformClaw.organization.tabs.management": "관리",
+  "platformClaw.organization.kind.team": "Team",
+  "platformClaw.organization.kind.group": "Group",
+  "platformClaw.organization.kind.part": "Part",
+  "platformClaw.organization.role.member": "멤버",
+  "platformClaw.organization.role.leader": "리더",
+  "platformClaw.organization.my.title": "내 조직",
+  "platformClaw.organization.my.description":
+    "직접 소속, 상위 범위 접근 권한, 기본 범위를 확인합니다.",
+  "platformClaw.organization.my.unaffiliated": "소속 조직 없음",
+  "platformClaw.organization.my.unaffiliatedDescription":
+    "조직에 가입하지 않아도 PlatformClaw를 계속 사용할 수 있습니다.",
+  "platformClaw.organization.my.primary": "기본 범위",
+  "platformClaw.organization.my.primaryDescription": "기본 조직 컨텍스트로 사용합니다.",
+  "platformClaw.organization.my.primaryCurrent": "현재 기본 범위",
+  "platformClaw.organization.my.noPrimary": "기본 범위 없음",
+  "platformClaw.organization.my.effective": "유효 접근 범위",
+  "platformClaw.organization.my.noEffective": "접근 가능한 조직 범위가 없습니다.",
+  "platformClaw.organization.my.truncated":
+    "현재 화면에 표시할 수 있는 수보다 소속 또는 유효 범위가 더 많습니다.",
+  "platformClaw.organization.access.direct": "직접 소속",
+  "platformClaw.organization.access.ancestor": "상위 범위",
+  "platformClaw.organization.access.administrator": "관리자",
+  "platformClaw.organization.tree.title": "조직 트리",
+  "platformClaw.organization.tree.description":
+    "활성 Team, Group, Part 범위를 전체 경로와 함께 표시합니다.",
+  "platformClaw.organization.tree.empty": "활성 범위 없음",
+  "platformClaw.organization.tree.emptyDescription": "관리자가 아직 조직 구조를 만들지 않았습니다.",
+  "platformClaw.organization.tree.truncated":
+    "표시되지 않은 범위가 더 있습니다. 검색으로 범위를 좁혀 주세요.",
+  "platformClaw.organization.tree.search": "활성 범위 검색",
+  "platformClaw.organization.management.title": "조직 관리",
+  "platformClaw.organization.management.description": "위임받은 조직 범위만 관리할 수 있습니다.",
+  "platformClaw.organization.management.none": "관리할 범위 없음",
+  "platformClaw.organization.management.noneDescription":
+    "현재 결과에 관리 가능한 범위가 없습니다. 범위 이름으로 검색하세요.",
+  "platformClaw.organization.management.scope": "관리 범위",
+  "platformClaw.organization.management.scopeDescription":
+    "전체 경로로 이름이 같은 범위를 구분합니다.",
+  "platformClaw.organization.management.search": "관리 가능한 범위 검색",
+  "platformClaw.organization.management.searchHasMore":
+    "관리 가능한 범위가 더 있습니다. 검색어를 좁혀 주세요.",
+  "platformClaw.organization.members.empty": "멤버 없음",
+  "platformClaw.organization.members.emptyDescription": "이 범위에 직접 소속된 멤버가 없습니다.",
+  "platformClaw.organization.members.role": "소속 역할",
+  "platformClaw.organization.members.remove": "제거",
+  "platformClaw.organization.members.add": "멤버 추가",
+  "platformClaw.organization.members.addDescription":
+    "계정 또는 표시 이름으로 활성 사용자를 검색합니다.",
+  "platformClaw.organization.members.search": "2자 이상 입력",
+  "platformClaw.organization.members.addAction": "추가",
+  "platformClaw.organization.members.more": "멤버 더 보기",
+  "platformClaw.organization.members.searchHasMore":
+    "검색 결과가 더 있습니다. 계정을 정확히 찾도록 검색어를 구체화하세요.",
+  "platformClaw.organization.structure.create": "조직 범위 만들기",
+  "platformClaw.organization.structure.createDescription":
+    "관리자는 Team, Group, Part 범위를 만들 수 있습니다.",
+  "platformClaw.organization.structure.name": "범위 이름",
+  "platformClaw.organization.structure.parent": "상위 범위",
+  "platformClaw.organization.structure.chooseParent": "상위 범위 선택",
+  "platformClaw.organization.structure.create.team": "Team 만들기",
+  "platformClaw.organization.structure.create.group": "Group 만들기",
+  "platformClaw.organization.structure.create.part": "Part 만들기",
+  "platformClaw.organization.structure.createAction": "만들기",
+  "platformClaw.organization.structure.selected": "선택한 범위",
+  "platformClaw.organization.structure.rename": "이름 변경",
+  "platformClaw.organization.structure.archive": "보관",
+  "platformClaw.organization.action.add": "멤버 추가 확인",
+  "platformClaw.organization.action.remove": "멤버 제거 확인",
+  "platformClaw.organization.action.role": "역할 변경 확인",
+  "platformClaw.organization.action.rename": "범위 이름 변경 확인",
+  "platformClaw.organization.action.archive": "범위 보관 확인",
+  "platformClaw.organization.action.archiveWarning":
+    "보관하면 모든 하위 범위가 비활성화되고, 대기 중인 가입·승격 요청은 거절되며, 활성 Memory claim은 retired 상태가 되고, 관련 기본 범위가 해제됩니다. Skill Hub 연결은 먼저 이전하거나 retired 처리해야 합니다.",
+  "platformClaw.organization.action.reason": "변경 사유",
+  "platformClaw.organization.action.confirm": "확인",
+  "platformClaw.organization.action.cancel": "취소",
+  "platformClaw.organization.errors.unavailable":
+    "조직 서비스를 사용할 수 없습니다. 새로고침 후 다시 시도하세요.",
+  "platformClaw.organization.errors.forbidden": "이 조직 작업에 대한 권한이 더 이상 없습니다.",
+  "platformClaw.organization.errors.notFound": "조직 항목이 없거나 볼 수 없습니다.",
+  "platformClaw.organization.errors.conflict":
+    "조직 정보가 변경되었습니다. 새로고침 후 다시 시도하세요.",
+  "platformClaw.organization.errors.membershipChanged":
+    "Roster가 변경되었습니다. 현재 역할을 확인한 뒤 다시 시도하세요.",
+  "platformClaw.organization.errors.nameConflict":
+    "선택한 상위 범위에 같은 이름이 있습니다. 다른 이름을 입력하세요.",
+  "platformClaw.organization.errors.invalid": "조직 입력 항목을 확인하고 다시 시도하세요.",
+  "platformClaw.organization.errors.archiveBlocked":
+    "보관이 차단되었습니다. 관련 Skill Hub namespace 연결을 이전하거나 retired 처리한 뒤 다시 시도하세요.",
+  "platformClaw.organization.errors.searchLength": "사용자를 검색하려면 2자 이상 입력하세요.",
+  "platformClaw.organization.errors.noMembershipRemoved":
+    "제거된 소속이 없습니다. 최신 roster를 불러왔으니 현재 상태를 확인하세요.",
   "platformClaw.execCredentials.pageTitle": "Credentials",
   "platformClaw.execCredentials.title": "개인 실행 Credential",
   "platformClaw.execCredentials.intro":

@@ -490,7 +490,7 @@ class OpenClawShell
       return;
     }
     const outboxScopeHost = this.storedOutboxScopeHost(context);
-    let primaryContext = titleForRoute(routeId);
+    let primaryContext = titleForRoute(routeId, this.runtime?.navigationCopy?.[routeId]);
     if (isSessionRouteId(routeId) && this.activeSessionKey) {
       primaryContext = this.chatTitleContext(context, outboxScopeHost) || primaryContext;
     } else if (routeId === "custodian") {

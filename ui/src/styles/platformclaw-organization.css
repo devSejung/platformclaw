@@ -1,0 +1,27 @@
+.platformclaw-organization-create-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.platformclaw-organization-create-form {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.platformclaw-organization-create-form .field,
+.platformclaw-organization-create-form input,
+.platformclaw-organization-create-form select {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .platformclaw-organization-create-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

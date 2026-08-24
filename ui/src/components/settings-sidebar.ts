@@ -13,6 +13,7 @@ import {
   subtitleForRoute,
   titleForRoute,
   type SettingsSearchBlock,
+  type NavigationRouteCopy,
 } from "../app-navigation.ts";
 import { pathForRoute, type RouteId } from "../app-route-paths.ts";
 import type { ApplicationNavigationOptions } from "../app/context.ts";
@@ -49,6 +50,7 @@ type SettingsSidebarProps = {
   preloadTimers: Map<EventTarget, ReturnType<typeof globalThis.setTimeout>>;
   isRouteEnabled?: (routeId: RouteId) => boolean;
   saveIndicator: SettingsSaveIndicatorProps;
+  navigationCopy?: Readonly<Partial<Record<RouteId, NavigationRouteCopy>>>;
 };
 
 type SettingsNavigationGroupView = {
@@ -61,20 +63,27 @@ type SettingsNavigationItemView = {
   blocks: readonly SettingsSearchBlock[];
 };
 
-function isRedundantRouteBlock(routeId: RouteId, block: SettingsSearchBlock): boolean {
+function isRedundantRouteBlock(
+  routeId: RouteId,
+  block: SettingsSearchBlock,
+  navigationCopy?: Readonly<Partial<Record<RouteId, NavigationRouteCopy>>>,
+): boolean {
   if (block.pathname) {
     return false;
   }
   const blockLabel = normalizeLowercaseStringOrEmpty(block.label);
-  return [settingsNavigationLabelForRoute(routeId), titleForRoute(routeId)].some(
-    (label) => normalizeLowercaseStringOrEmpty(label) === blockLabel,
-  );
+  const override = navigationCopy?.[routeId];
+  return [
+    settingsNavigationLabelForRoute(routeId, override),
+    titleForRoute(routeId, override),
+  ].some((label) => normalizeLowercaseStringOrEmpty(label) === blockLabel);
 }
 
 function filterSettingsNavigationGroups(
   searchQuery: string,
   blockMatches: readonly SettingsSearchBlock[],
   isRouteEnabled: (routeId: RouteId) => boolean,
+  navigationCopy?: Readonly<Partial<Record<RouteId, NavigationRouteCopy>>>,
 ): readonly SettingsNavigationGroupView[] {
   const query = normalizeLowercaseStringOrEmpty(searchQuery);
   if (!query) {
@@ -95,9 +104,9 @@ function filterSettingsNavigationGroups(
   ].filter((routeId) => isRouteEnabled(routeId));
   const directRoutes = searchableRoutes.filter((routeId) =>
     [
-      settingsNavigationLabelForRoute(routeId),
-      titleForRoute(routeId),
-      subtitleForRoute(routeId),
+      settingsNavigationLabelForRoute(routeId, navigationCopy?.[routeId]),
+      titleForRoute(routeId, navigationCopy?.[routeId]),
+      subtitleForRoute(routeId, navigationCopy?.[routeId]),
     ].some((value) => settingsSearchTextMatches(value, query)),
   );
   const includedRoutes = new Set<RouteId>(directRoutes);
@@ -141,7 +150,7 @@ function filterSettingsNavigationGroups(
             items: pageRoutes.map((routeId) => ({
               routeId,
               blocks: (blocksByRoute.get(routeId) ?? []).filter(
-                (block) => !isRedundantRouteBlock(routeId, block),
+                (block) => !isRedundantRouteBlock(routeId, block, navigationCopy),
               ),
             })),
           },
@@ -191,7 +200,7 @@ function renderItem(props: SettingsSidebarProps, routeId: RouteId, label?: strin
         >${icons[navigationIconForRoute(routeId)]}</span
       >
       <span class="settings-sidebar__item-label"
-        >${label ?? settingsNavigationLabelForRoute(routeId)}</span
+        >${label ?? settingsNavigationLabelForRoute(routeId, props.navigationCopy?.[routeId])}</span
       >
     </a>
   `;
@@ -249,6 +258,7 @@ export function renderSettingsSidebar(props: SettingsSidebarProps) {
     props.searchQuery,
     props.searchBlockMatches ?? [],
     props.isRouteEnabled ?? (() => true),
+    props.navigationCopy,
   );
   return html`
     <aside class="settings-sidebar">

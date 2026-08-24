@@ -8,6 +8,7 @@ import {
   type OrganizationAuditRecord,
 } from "./contracts.js";
 import { executeSync, runReadTransaction, takeFirstSync } from "./kysely-sync.js";
+import { prepareOrganizationAuthorizationContext } from "./organization-policy.js";
 import { normalizeScopeName, rowToMembership, rowToScope } from "./sqlite-store-core.js";
 import { SqliteControlPlaneOrganizationMemoryLifecycleStore } from "./sqlite-store-organization-memory-lifecycle-actions.js";
 
@@ -35,6 +36,24 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
         .leftJoin("managed_scopes as parent", "parent.id", "scope.parent_scope_id")
         .leftJoin("managed_scopes as grandparent", "grandparent.id", "parent.parent_scope_id")
         .selectAll("scope")
+        .select([
+          "parent.id as parent_id",
+          "parent.kind as parent_kind",
+          "parent.name as parent_name",
+          "parent.parent_scope_id as parent_parent_scope_id",
+          "parent.status as parent_status",
+          "parent.created_by_user_id as parent_created_by_user_id",
+          "parent.created_at as parent_created_at",
+          "parent.updated_at as parent_updated_at",
+          "grandparent.id as grandparent_id",
+          "grandparent.kind as grandparent_kind",
+          "grandparent.name as grandparent_name",
+          "grandparent.parent_scope_id as grandparent_parent_scope_id",
+          "grandparent.status as grandparent_status",
+          "grandparent.created_by_user_id as grandparent_created_by_user_id",
+          "grandparent.created_at as grandparent_created_at",
+          "grandparent.updated_at as grandparent_updated_at",
+        ])
         .where("scope.status", "=", "active")
         .where((expression) =>
           expression.or([
@@ -68,15 +87,71 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
         this.db,
         query.orderBy("scope.normalized_name").orderBy("scope.id").limit(limit),
       ).rows;
-      const directScopeIds = new Set(
-        executeSync(
-          this.db,
-          this.query
-            .selectFrom("managed_scope_memberships")
-            .select("scope_id")
-            .where("user_id", "=", user.id),
-        ).rows.map((row) => row.scope_id),
-      );
+      if (scopes.length === 0) {
+        return [];
+      }
+      const lineageScopes = new Map<string, ManagedScope>();
+      for (const row of scopes) {
+        const selected = rowToScope(row);
+        lineageScopes.set(selected.id, selected);
+        if (
+          row.parent_id &&
+          row.parent_kind &&
+          row.parent_name &&
+          row.parent_status &&
+          row.parent_created_by_user_id &&
+          row.parent_created_at !== null &&
+          row.parent_updated_at !== null
+        ) {
+          lineageScopes.set(row.parent_id, {
+            id: row.parent_id,
+            kind: row.parent_kind,
+            name: row.parent_name,
+            ...(row.parent_parent_scope_id ? { parentScopeId: row.parent_parent_scope_id } : {}),
+            status: row.parent_status,
+            createdByUserId: row.parent_created_by_user_id,
+            createdAt: row.parent_created_at,
+            updatedAt: row.parent_updated_at,
+          });
+        }
+        if (
+          row.grandparent_id &&
+          row.grandparent_kind &&
+          row.grandparent_name &&
+          row.grandparent_status &&
+          row.grandparent_created_by_user_id &&
+          row.grandparent_created_at !== null &&
+          row.grandparent_updated_at !== null
+        ) {
+          lineageScopes.set(row.grandparent_id, {
+            id: row.grandparent_id,
+            kind: row.grandparent_kind,
+            name: row.grandparent_name,
+            ...(row.grandparent_parent_scope_id
+              ? { parentScopeId: row.grandparent_parent_scope_id }
+              : {}),
+            status: row.grandparent_status,
+            createdByUserId: row.grandparent_created_by_user_id,
+            createdAt: row.grandparent_created_at,
+            updatedAt: row.grandparent_updated_at,
+          });
+        }
+      }
+      const lineageScopeIds = [...lineageScopes.keys()];
+      const actorMemberships = executeSync(
+        this.db,
+        this.query
+          .selectFrom("managed_scope_memberships")
+          .selectAll()
+          .where("user_id", "=", user.id)
+          .where("scope_id", "in", lineageScopeIds),
+      ).rows.map(rowToMembership);
+      const directScopeIds = new Set(actorMemberships.map((membership) => membership.scopeId));
+      const authorization = prepareOrganizationAuthorizationContext({
+        actor: this.rowToUser(user),
+        scopes: [...lineageScopes.values()],
+        memberships: actorMemberships,
+      });
       const pendingScopeIds = new Set(
         executeSync(
           this.db,
@@ -84,12 +159,25 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
             .selectFrom("organization_join_requests")
             .select("scope_id")
             .where("user_id", "=", user.id)
-            .where("status", "=", "pending"),
+            .where("status", "=", "pending")
+            .where(
+              "scope_id",
+              "in",
+              scopes.map((scope) => scope.id),
+            ),
         ).rows.map((row) => row.scope_id),
       );
       return scopes.map((scope) => {
+        const managedScope = rowToScope(scope);
+        const scopeAuthorization = authorization.authorize(managedScope);
         return {
-          scope: rowToScope(scope),
+          scope: managedScope,
+          lineage: authorization.lineage(managedScope).toReversed(),
+          capabilities: {
+            canManageMembers: scopeAuthorization.canManageMembers,
+            canManageStructure: scopeAuthorization.canManageStructure,
+            canManageLeaders: scopeAuthorization.canManageLeaders,
+          },
           requestEligible: !directScopeIds.has(scope.id) && !pendingScopeIds.has(scope.id),
         };
       });
@@ -179,7 +267,18 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
       }
       let query = this.query
         .selectFrom("platform_users")
-        .select(["id", "account_id", "display_name", "status"])
+        .leftJoin("managed_scope_memberships as existing_membership", (join) =>
+          join
+            .onRef("existing_membership.user_id", "=", "platform_users.id")
+            .on("existing_membership.scope_id", "=", params.scopeId),
+        )
+        .select([
+          "platform_users.id",
+          "platform_users.account_id",
+          "platform_users.display_name",
+          "platform_users.status",
+          "existing_membership.role as current_role",
+        ])
         .where("status", "=", "active");
       const pattern = `%${needle.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
       query = query.where(
@@ -192,6 +291,7 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
             accountId: user.account_id,
             status: user.status,
             displayName: user.display_name ?? undefined,
+            currentRole: user.current_role ?? undefined,
           };
           return result;
         },

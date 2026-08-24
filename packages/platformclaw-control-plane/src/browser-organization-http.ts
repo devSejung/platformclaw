@@ -48,6 +48,14 @@ function requiredString(body: Record<string, unknown>, name: string, maxChars: n
   return trimmed;
 }
 
+function requiredRevision(body: Record<string, unknown>, name: string): number {
+  const value = body[name];
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new ControlPlaneStateError(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
 function optionalNullableId(body: Record<string, unknown>, name: string): string | undefined {
   const value = body[name];
   if (value === null || value === undefined) {
@@ -69,6 +77,17 @@ function enumField<T extends string>(
     throw new ControlPlaneStateError(`${name} is invalid`);
   }
   return value as T;
+}
+
+function nullableEnumField<T extends string>(
+  body: Record<string, unknown>,
+  name: string,
+  allowed: readonly T[],
+): T | null {
+  if (!(name in body)) {
+    throw new ControlPlaneStateError(`${name} is required`);
+  }
+  return body[name] === null ? null : enumField(body, name, allowed);
 }
 
 function boundedLimit(url: URL, defaultValue: number): number {
@@ -136,6 +155,10 @@ function projectScope(scope: ManagedScope) {
   };
 }
 
+function projectMutableScope(scope: ManagedScope) {
+  return { ...projectScope(scope), revision: scope.updatedAt };
+}
+
 function projectJoinRequest(request: {
   id: string;
   scopeId: string;
@@ -183,6 +206,10 @@ export class BrowserOrganizationService {
         role: membership.role,
       })),
       directMembershipsHasMore: snapshot.directMembershipsHasMore,
+      directScopeLineages: snapshot.directScopeLineages.map((entry) => ({
+        scopeId: entry.scopeId,
+        lineage: entry.lineage.map(projectScope),
+      })),
       effectiveScopes: snapshot.effectiveAccess.map((access) => ({
         scope: projectScope(access.scope),
         source: access.source,
@@ -190,6 +217,7 @@ export class BrowserOrganizationService {
       })),
       effectiveScopesHasMore: snapshot.effectiveAccessHasMore,
       primaryScope: snapshot.primaryScope ? projectScope(snapshot.primaryScope) : null,
+      primaryScopeLineage: snapshot.primaryScopeLineage.map(projectScope),
       recentJoinRequests: snapshot.joinRequests.map(projectJoinRequest),
     };
   }
@@ -201,9 +229,13 @@ export class BrowserOrganizationService {
       limit + 1,
     );
     return {
-      items: results.slice(0, limit).map(({ scope, requestEligible }) => {
-        const projected = projectScope(scope);
-        return Object.assign(projected, { requestEligible });
+      items: results.slice(0, limit).map(({ scope, lineage, capabilities, requestEligible }) => {
+        const projected = projectMutableScope(scope);
+        return Object.assign(projected, {
+          lineage: lineage.map(projectScope),
+          capabilities,
+          requestEligible,
+        });
       }),
       hasMore: results.length > limit,
     };
@@ -234,7 +266,7 @@ export class BrowserOrganizationService {
       throw new ControlPlaneNotFoundError("managed-scope", scopeId);
     }
     return {
-      scope: projectScope(scope),
+      scope: projectMutableScope(scope),
       members: members.slice(0, limit).map(({ membership, user }) => ({
         user,
         role: membership.role,
@@ -303,22 +335,27 @@ export class BrowserOrganizationService {
           }),
         );
       case "membership-set":
-        exactKeys(body, ["scopeId", "userId", "role", "reason"]);
+        exactKeys(body, ["scopeId", "userId", "role", "expectedRole", "reason"]);
         return await this.options.organization.assignMember({
           actorUserId,
           scopeId: requiredString(body, "scopeId", MAX_ID_CHARS),
           userId: requiredString(body, "userId", MAX_ID_CHARS),
           role: enumField<ManagedScopeRole>(body, "role", ["member", "leader"]),
+          expectedRole: nullableEnumField<ManagedScopeRole>(body, "expectedRole", [
+            "member",
+            "leader",
+          ]),
           reason: requiredString(body, "reason", MAX_REASON_CHARS),
           changedAt: now,
         });
       case "membership-remove":
-        exactKeys(body, ["scopeId", "userId", "reason"]);
+        exactKeys(body, ["scopeId", "userId", "expectedRole", "reason"]);
         return {
           removed: await this.options.organization.removeMember({
             actorUserId,
             scopeId: requiredString(body, "scopeId", MAX_ID_CHARS),
             userId: requiredString(body, "userId", MAX_ID_CHARS),
+            expectedRole: enumField<ManagedScopeRole>(body, "expectedRole", ["member", "leader"]),
             reason: requiredString(body, "reason", MAX_REASON_CHARS),
             changedAt: now,
           }),
@@ -329,7 +366,7 @@ export class BrowserOrganizationService {
         if (kind === "team" && body.parentScopeId !== undefined) {
           throw new ControlPlaneStateError("teams cannot have a parentScopeId");
         }
-        return projectScope(
+        return projectMutableScope(
           await this.options.organization.createScope({
             actorUserId,
             kind,
@@ -375,22 +412,24 @@ export class BrowserOrganizationService {
     const action = enumField(body, "action", ["rename", "archive"]);
     const now = (this.options.now ?? Date.now)();
     if (action === "rename") {
-      exactKeys(body, ["action", "name", "reason"]);
-      return projectScope(
+      exactKeys(body, ["action", "expectedRevision", "name", "reason"]);
+      return projectMutableScope(
         await this.options.organization.renameScope({
           actorUserId,
           scopeId,
+          expectedRevision: requiredRevision(body, "expectedRevision"),
           name: requiredString(body, "name", MAX_NAME_CHARS),
           reason: requiredString(body, "reason", MAX_REASON_CHARS),
           changedAt: now,
         }),
       );
     }
-    exactKeys(body, ["action", "reason"]);
-    return projectScope(
+    exactKeys(body, ["action", "expectedRevision", "reason"]);
+    return projectMutableScope(
       await this.options.organization.archiveScope({
         actorUserId,
         scopeId,
+        expectedRevision: requiredRevision(body, "expectedRevision"),
         reason: requiredString(body, "reason", MAX_REASON_CHARS),
         archivedAt: now,
       }),

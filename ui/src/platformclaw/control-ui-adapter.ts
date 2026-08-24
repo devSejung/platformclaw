@@ -3,7 +3,7 @@ import { until } from "lit/directives/until.js";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
-import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
+import { loadAllPlatformClawLocales, loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -104,6 +104,9 @@ export class PlatformClawControlUiAdapter {
     if (result.status === "unavailable") {
       throw new Error("PlatformClaw session service is unavailable");
     }
+    await loadAllPlatformClawLocales().catch(() => {
+      // Product copy must not turn an otherwise valid employee session into an auth failure.
+    });
     return result.payload.user;
   }
 
@@ -234,6 +237,25 @@ export class PlatformClawControlUiAdapter {
             };
           },
         },
+        organization: {
+          loader: async () => undefined,
+          component: () =>
+            Promise.all([import("./organization-page.ts"), loadPlatformClawLocale()]).then(() => ({
+              header: true,
+              render: () => html`
+                <section class="content-header">
+                  <div>
+                    <div class="page-title">${t("platformClaw.organization.title")}</div>
+                    <div class="page-subtitle">${t("platformClaw.organization.subtitle")}</div>
+                  </div>
+                </section>
+                <platformclaw-organization-page
+                  .fetchImpl=${this.fetchImpl}
+                  .onUnauthenticated=${onUnauthenticated}
+                ></platformclaw-organization-page>
+              `,
+            })),
+        },
         mcp: {
           loaderDeps: () => "platformclaw-mcp",
           loader: async () => undefined,
@@ -284,6 +306,13 @@ export class PlatformClawControlUiAdapter {
         sidebarEntries,
         sidebarRouteTargets: identity.globalRole === "admin" ? undefined : { plugins: "skills" },
         settingsNavigationMode: "takeover",
+        routeCopy: {
+          organization: {
+            title: () => t("platformClaw.organization.title"),
+            subtitle: () => t("platformClaw.organization.subtitle"),
+            settingsLabel: () => t("platformClaw.organization.navLabel"),
+          },
+        },
       },
       shellSession,
     };

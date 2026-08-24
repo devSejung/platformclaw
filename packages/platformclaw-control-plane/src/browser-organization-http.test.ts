@@ -223,6 +223,133 @@ describe("PlatformClaw organization browser API", () => {
     fixture.store.close();
   });
 
+  it("projects root-to-leaf lineage and exact management capabilities without policy facts", async () => {
+    const fixture = createFixture();
+    const admin = (await fixture.store.upsertPrincipal(principal("admin"), 1)).user;
+    const leader = (await fixture.store.upsertPrincipal(principal("leader"), 2)).user;
+    const member = (await fixture.store.upsertPrincipal(principal("member"), 3)).user;
+    fixture.users.set("leader-token", leader);
+    fixture.users.set("member-token", member);
+    fixture.users.set("admin-token", admin);
+    const team = await fixture.organization.createScope({
+      actorUserId: admin.id,
+      kind: "team",
+      name: "Platform",
+      createdAt: 4,
+    });
+    const group = await fixture.organization.createScope({
+      actorUserId: admin.id,
+      kind: "group",
+      parentScopeId: team.id,
+      name: "Runtime",
+      createdAt: 5,
+    });
+    const part = await fixture.organization.createScope({
+      actorUserId: admin.id,
+      kind: "part",
+      parentScopeId: group.id,
+      name: "SDK",
+      createdAt: 6,
+    });
+    await fixture.organization.assignMember({
+      actorUserId: admin.id,
+      scopeId: group.id,
+      userId: leader.id,
+      role: "leader",
+      reason: "group lead",
+      changedAt: 7,
+    });
+    await fixture.organization.assignMember({
+      actorUserId: admin.id,
+      scopeId: part.id,
+      userId: member.id,
+      role: "member",
+      reason: "part member",
+      changedAt: 8,
+    });
+    await fixture.organization.setPrimaryScope({
+      actorUserId: member.id,
+      userId: member.id,
+      scopeId: part.id,
+      changedAt: 9,
+    });
+
+    const result = await call(fixture.service, {
+      path: `${PLATFORMCLAW_ORGANIZATION_PATH}/scopes?q=SDK&limit=10`,
+      token: "leader-token",
+    });
+    expect(result).toMatchObject({
+      status: 200,
+      body: {
+        items: [
+          {
+            id: part.id,
+            lineage: [{ id: team.id }, { id: group.id }, { id: part.id }],
+            capabilities: {
+              canManageMembers: true,
+              canManageStructure: false,
+              canManageLeaders: false,
+            },
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(result.body)).not.toMatch(/facts|createdByUserId|employeeId|email/u);
+
+    const administrator = await call(fixture.service, {
+      path: `${PLATFORMCLAW_ORGANIZATION_PATH}/scopes?q=SDK&limit=10`,
+      token: "admin-token",
+    });
+    expect(administrator).toMatchObject({
+      status: 200,
+      body: {
+        items: [
+          {
+            capabilities: {
+              canManageMembers: true,
+              canManageStructure: true,
+              canManageLeaders: true,
+            },
+          },
+        ],
+      },
+    });
+
+    const ordinary = await call(fixture.service, {
+      path: `${PLATFORMCLAW_ORGANIZATION_PATH}/scopes?q=SDK&limit=10`,
+      token: "member-token",
+    });
+    expect(ordinary).toMatchObject({
+      status: 200,
+      body: {
+        items: [
+          {
+            capabilities: {
+              canManageMembers: false,
+              canManageStructure: false,
+              canManageLeaders: false,
+            },
+          },
+        ],
+      },
+    });
+    expect(
+      await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/context`,
+        token: "member-token",
+      }),
+    ).toMatchObject({
+      status: 200,
+      body: {
+        directScopeLineages: [
+          { scopeId: part.id, lineage: [{ id: team.id }, { id: group.id }, { id: part.id }] },
+        ],
+        primaryScopeLineage: [{ id: team.id }, { id: group.id }, { id: part.id }],
+      },
+    });
+    fixture.store.close();
+  });
+
   it("shows safe context and paged own outcomes with immutable decision reasons", async () => {
     const fixture = createFixture();
     const admin = (await fixture.store.upsertPrincipal(principal("admin"), 1)).user;
@@ -426,6 +553,23 @@ describe("PlatformClaw organization browser API", () => {
       reason: "add member",
       changedAt: 8,
     });
+    expect(
+      await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/management/scopes/${team.id}/users?q=out&limit=10`,
+        token: "leader-token",
+      }),
+    ).toMatchObject({
+      status: 200,
+      body: {
+        items: [
+          {
+            id: outsider.id,
+            accountId: "outsider",
+            currentRole: "member",
+          },
+        ],
+      },
+    });
     const roster = await call(fixture.service, {
       path: `${PLATFORMCLAW_ORGANIZATION_PATH}/management/scopes/${team.id}?limit=1&offset=0`,
       token: "leader-token",
@@ -479,7 +623,13 @@ describe("PlatformClaw organization browser API", () => {
         method: "POST",
         path: `${PLATFORMCLAW_ORGANIZATION_PATH}/memberships`,
         token: "leader-token",
-        body: { scopeId: team.id, userId: member.id, role: "member", reason: "add member" },
+        body: {
+          scopeId: team.id,
+          userId: member.id,
+          role: "member",
+          expectedRole: null,
+          reason: "add member",
+        },
       }),
     ).toMatchObject({ status: 200 });
     expect(
@@ -487,7 +637,13 @@ describe("PlatformClaw organization browser API", () => {
         method: "POST",
         path: `${PLATFORMCLAW_ORGANIZATION_PATH}/memberships`,
         token: "leader-token",
-        body: { scopeId: team.id, userId: member.id, role: "leader", reason: "appoint" },
+        body: {
+          scopeId: team.id,
+          userId: member.id,
+          role: "leader",
+          expectedRole: "member",
+          reason: "appoint",
+        },
       }),
     ).toMatchObject({ status: 403 });
     expect(
@@ -495,9 +651,65 @@ describe("PlatformClaw organization browser API", () => {
         method: "POST",
         path: `${PLATFORMCLAW_ORGANIZATION_PATH}/memberships`,
         token: "admin-token",
-        body: { scopeId: team.id, userId: member.id, role: "leader", reason: "appoint" },
+        body: {
+          scopeId: team.id,
+          userId: member.id,
+          role: "leader",
+          expectedRole: "member",
+          reason: "appoint",
+        },
       }),
     ).toMatchObject({ status: 200 });
+    expect(
+      await call(fixture.service, {
+        method: "POST",
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/memberships`,
+        token: "admin-token",
+        body: {
+          scopeId: team.id,
+          userId: member.id,
+          role: "member",
+          expectedRole: null,
+          reason: "stale add",
+        },
+      }),
+    ).toMatchObject({
+      status: 409,
+      body: { code: "organization_membership_changed" },
+    });
+    expect(
+      await call(fixture.service, {
+        method: "POST",
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/memberships/remove`,
+        token: "admin-token",
+        body: {
+          scopeId: team.id,
+          userId: member.id,
+          expectedRole: "member",
+          reason: "stale remove",
+        },
+      }),
+    ).toMatchObject({ status: 409, body: { code: "organization_membership_changed" } });
+    expect(
+      await call(fixture.service, {
+        method: "POST",
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/memberships`,
+        token: "admin-token",
+        body: {
+          scopeId: team.id,
+          userId: member.id,
+          role: "member",
+          expectedRole: "member",
+          reason: "stale role update",
+        },
+      }),
+    ).toMatchObject({ status: 409, body: { code: "organization_membership_changed" } });
+    expect(
+      await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/management/scopes/${team.id}/users?q=mem`,
+        token: "admin-token",
+      }),
+    ).toMatchObject({ body: { items: [{ id: member.id, currentRole: "leader" }] } });
     fixture.store.close();
   });
 
@@ -519,7 +731,15 @@ describe("PlatformClaw organization browser API", () => {
       token: "admin-token",
       body: { kind: "team", name: "Engineering" },
     });
-    const scopeId = (created.body as { id: string }).id;
+    const createdScope = created.body as { id: string; revision: number };
+    const scopeId = createdScope.id;
+    const childScope = await fixture.organization.createScope({
+      actorUserId: admin.id,
+      kind: "group",
+      name: "Runtime",
+      parentScopeId: scopeId,
+      createdAt: 5_000,
+    });
     await fixture.organization.assignMember({
       actorUserId: admin.id,
       scopeId,
@@ -536,25 +756,42 @@ describe("PlatformClaw organization browser API", () => {
     });
     expect(primary).toMatchObject({ status: 200, body: { id: scopeId } });
     expect(JSON.stringify(primary.body)).not.toContain("createdByUserId");
-    const rename = () =>
+    const rename = (expectedRevision: number) =>
       call(fixture.service, {
         method: "PATCH",
         path: `${PLATFORMCLAW_ORGANIZATION_PATH}/scopes/${scopeId}`,
         token: "admin-token",
-        body: { action: "rename", name: "Engineering", reason: "confirm name" },
+        body: {
+          action: "rename",
+          expectedRevision,
+          name: "Engineering",
+          reason: "confirm name",
+        },
       });
-    expect(await rename()).toMatchObject({ status: 200, body: { name: "Engineering" } });
-    expect(await rename()).toMatchObject({ status: 200, body: { name: "Engineering" } });
-    expect(JSON.stringify((await rename()).body)).not.toContain("createdByUserId");
+    const renamed = await rename(createdScope.revision);
+    expect(renamed).toMatchObject({ status: 200, body: { name: "Engineering" } });
+    expect(await rename(createdScope.revision)).toMatchObject({
+      status: 409,
+      body: { code: "organization_scope_changed" },
+    });
+    expect(JSON.stringify(renamed.body)).not.toContain("createdByUserId");
+    const renamedRevision = (renamed.body as { revision: number }).revision;
     expect(
       await call(fixture.service, {
         method: "PATCH",
         path: `${PLATFORMCLAW_ORGANIZATION_PATH}/scopes/${scopeId}`,
         token: "admin-token",
-        body: { action: "archive", reason: "retire team" },
+        body: {
+          action: "archive",
+          expectedRevision: renamedRevision,
+          reason: "retire team",
+        },
       }),
     ).toMatchObject({ status: 200, body: { status: "archived" } });
-    expect(await rename()).toMatchObject({ status: 400 });
+    expect((await fixture.store.getManagedScope(childScope.id))?.updatedAt).toBeGreaterThan(
+      childScope.updatedAt,
+    );
+    expect(await rename(renamedRevision)).toMatchObject({ status: 409 });
     const audit = await call(fixture.service, {
       path: `${PLATFORMCLAW_ORGANIZATION_PATH}/audit?limit=10`,
       token: "admin-token",
