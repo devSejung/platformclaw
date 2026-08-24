@@ -172,7 +172,7 @@ export class SkillHubService extends SkillHubPublicationService {
         .map((scope) =>
           Object.assign(
             { id: scope.id, kind: scope.kind, name: scope.name },
-            scope.parentGroupId ? { parentGroupId: scope.parentGroupId } : {},
+            scope.parentScopeId ? { parentScopeId: scope.parentScopeId } : {},
           ),
         ),
     };
@@ -182,7 +182,7 @@ export class SkillHubService extends SkillHubPublicationService {
     user: PlatformUser,
     params: {
       namespace: string;
-      scopeKind: "team" | "group" | "part";
+      scopeKind: "global" | "team" | "group" | "part";
       scopeId?: string;
       visibilityCeiling: string;
     },

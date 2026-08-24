@@ -22,7 +22,7 @@ export type AuthorizedOrganizationMemoryScope = {
   kind: OrganizationMemoryScopeKind;
   id?: string;
   name: string;
-  parentGroupId?: string;
+  parentScopeId?: string;
 };
 
 function normalizeQuery(query: string): string {
@@ -112,7 +112,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
           "managed_scopes.id",
           "managed_scopes.kind",
           "managed_scopes.name",
-          "managed_scopes.parent_group_id",
+          "managed_scopes.parent_scope_id",
           "managed_scope_memberships.role",
         ])
         .where("managed_scope_memberships.user_id", "=", userId)
@@ -125,7 +125,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
         kind: membership.kind,
         id: membership.id,
         name: membership.name,
-        ...(membership.parent_group_id ? { parentGroupId: membership.parent_group_id } : {}),
+        ...(membership.parent_scope_id ? { parentScopeId: membership.parent_scope_id } : {}),
       });
       if (membership.kind === "group" && membership.role === "leader") {
         const children = executeSync(
@@ -133,7 +133,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
           this.query
             .selectFrom("managed_scopes")
             .select(["id", "kind", "name"])
-            .where("parent_group_id", "=", membership.id)
+            .where("parent_scope_id", "=", membership.id)
             .where("kind", "=", "part")
             .where("status", "=", "active"),
         ).rows;
@@ -142,7 +142,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
             kind: "part",
             id: child.id,
             name: child.name,
-            parentGroupId: membership.id,
+            parentScopeId: membership.id,
           });
         }
       }

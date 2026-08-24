@@ -40,6 +40,7 @@ export * from "./skill-hub-governance-client.js";
 export * from "./skill-hub-state.js";
 export * from "./ids.js";
 export * from "./memory-store.js";
+export * from "./organization-service.js";
 export * from "./personal-agent-provisioner.js";
 export * from "./knox-room-agent-provisioner.js";
 export * from "./knox-ingress-proxy.js";

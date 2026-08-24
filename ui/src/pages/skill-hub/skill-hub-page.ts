@@ -109,7 +109,7 @@ class SkillHubPage extends OpenClawLightDomElement {
   @state() private unassignedSkills: PlatformClawSkillHubUnassignedSkill[] = [];
   @state() private adminDraft: SkillHubAdminDraft = {
     namespace: "",
-    scopeKind: "team",
+    scopeKind: "global",
     scopeId: "",
     visibilityCeiling: "NAMESPACE_ONLY",
   };
@@ -193,7 +193,7 @@ class SkillHubPage extends OpenClawLightDomElement {
       await setPlatformClawSkillHubNamespaceBinding({
         namespace: this.adminDraft.namespace,
         scopeKind: this.adminDraft.scopeKind,
-        ...(this.adminDraft.scopeKind === "team" ? {} : { scopeId: this.adminDraft.scopeId }),
+        ...(this.adminDraft.scopeKind === "global" ? {} : { scopeId: this.adminDraft.scopeId }),
         visibilityCeiling: this.adminDraft.visibilityCeiling,
       });
       await this.openAdmin();

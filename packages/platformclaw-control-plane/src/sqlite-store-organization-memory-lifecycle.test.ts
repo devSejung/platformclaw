@@ -58,17 +58,24 @@ describe("organization memory promotion lifecycle", () => {
     });
     const admin = await activeUser(store, "admin", 10);
     const member = await activeUser(store, "member", 20);
+    const team = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "team",
+      name: "Company",
+      createdAt: 29,
+    });
     const group = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "group",
       name: "Platform",
+      parentScopeId: team.id,
       createdAt: 30,
     });
     const part = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "part",
       name: "Runtime",
-      parentGroupId: group.id,
+      parentScopeId: group.id,
       createdAt: 31,
     });
     await store.setManagedScopeMembership({
@@ -76,6 +83,7 @@ describe("organization memory promotion lifecycle", () => {
       scopeId: group.id,
       userId: admin.user.id,
       role: "leader",
+      reason: "test assignment",
       changedAt: 32,
     });
     await store.setManagedScopeMembership({
@@ -83,6 +91,7 @@ describe("organization memory promotion lifecycle", () => {
       scopeId: part.id,
       userId: member.user.id,
       role: "member",
+      reason: "test assignment",
       changedAt: 33,
     });
     let releaseSubmit!: () => void;
@@ -121,6 +130,7 @@ describe("organization memory promotion lifecycle", () => {
       scopeId: part.id,
       userId: member.user.id,
       role: "member",
+      reason: "test assignment",
       changedAt: 42,
     });
     blocked = null;
@@ -183,23 +193,31 @@ describe("organization memory promotion lifecycle", () => {
     const admin = await activeUser(store, "admin", 10);
     const member = await activeUser(store, "member", 20);
     const outsider = await activeUser(store, "outsider", 30);
+    const team = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "team",
+      name: "Company",
+      createdAt: 39,
+    });
     const group = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "group",
       name: "Platform",
+      parentScopeId: team.id,
       createdAt: 40,
     });
     const part = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "part",
       name: "Runtime",
-      parentGroupId: group.id,
+      parentScopeId: group.id,
       createdAt: 41,
     });
     const siblingGroup = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "group",
       name: "Product",
+      parentScopeId: team.id,
       createdAt: 41,
     });
     await store.setManagedScopeMembership({
@@ -207,6 +225,7 @@ describe("organization memory promotion lifecycle", () => {
       scopeId: group.id,
       userId: admin.user.id,
       role: "leader",
+      reason: "test assignment",
       changedAt: 42,
     });
     await store.setManagedScopeMembership({
@@ -214,6 +233,7 @@ describe("organization memory promotion lifecycle", () => {
       scopeId: part.id,
       userId: member.user.id,
       role: "member",
+      reason: "test assignment",
       changedAt: 43,
     });
 
@@ -259,6 +279,7 @@ describe("organization memory promotion lifecycle", () => {
       scopeId: part.id,
       userId: member.user.id,
       role: "member",
+      reason: "test assignment",
       changedAt: 51,
     });
     personalRevision = 2;
@@ -424,7 +445,7 @@ describe("organization memory promotion lifecycle", () => {
       actorUserId: admin.user.id,
       kind: "part",
       name: "Archived",
-      parentGroupId: siblingGroup.id,
+      parentScopeId: siblingGroup.id,
       createdAt: 90,
     });
     await store.setManagedScopeMembership({
@@ -432,6 +453,7 @@ describe("organization memory promotion lifecycle", () => {
       scopeId: archivedPart.id,
       userId: member.user.id,
       role: "member",
+      reason: "test assignment",
       changedAt: 91,
     });
     await store.setManagedScopeMembership({
@@ -439,6 +461,7 @@ describe("organization memory promotion lifecycle", () => {
       scopeId: archivedPart.id,
       userId: admin.user.id,
       role: "leader",
+      reason: "test assignment",
       changedAt: 91,
     });
     const archivedPublishedRequest = await store.submitOrganizationMemoryPromotion({
@@ -474,6 +497,7 @@ describe("organization memory promotion lifecycle", () => {
     await store.archiveManagedScope({
       actorUserId: admin.user.id,
       scopeId: archivedPart.id,
+      reason: "retire archived part",
       archivedAt: 93,
     });
     const archivedLifecycle = await store.getOrganizationMemoryLifecycle(admin.binding.agentId);
@@ -512,13 +536,14 @@ describe("organization memory promotion lifecycle", () => {
       actorUserId: admin.user.id,
       kind: "group",
       name: "Cascade",
+      parentScopeId: team.id,
       createdAt: 95,
     });
     const cascadePart = await store.createManagedScope({
       actorUserId: admin.user.id,
       kind: "part",
       name: "Child",
-      parentGroupId: cascadeGroup.id,
+      parentScopeId: cascadeGroup.id,
       createdAt: 96,
     });
     await store.setManagedScopeMembership({
@@ -526,6 +551,7 @@ describe("organization memory promotion lifecycle", () => {
       scopeId: cascadePart.id,
       userId: member.user.id,
       role: "member",
+      reason: "test assignment",
       changedAt: 97,
     });
     const cascadeRequest = await store.submitOrganizationMemoryPromotion({
@@ -542,6 +568,7 @@ describe("organization memory promotion lifecycle", () => {
     await store.archiveManagedScope({
       actorUserId: admin.user.id,
       scopeId: cascadeGroup.id,
+      reason: "retire cascade group",
       archivedAt: 99,
     });
     expect(

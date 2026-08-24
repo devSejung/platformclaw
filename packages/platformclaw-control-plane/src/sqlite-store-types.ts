@@ -61,11 +61,34 @@ export type ManagedScopeRow = {
   kind: ManagedScopeKind;
   name: string;
   normalized_name: string;
-  parent_group_id: string | null;
+  parent_scope_id: string | null;
+  system_kind: "unassigned-team" | null;
+  system_provenance: "migration-v2-v3" | null;
   status: "active" | "archived";
   created_by_user_id: string;
   created_at: number;
   updated_at: number;
+};
+type ManagedScopePrimaryMembershipRow = {
+  user_id: string;
+  scope_id: string;
+  updated_at: number;
+};
+type OrganizationJoinRequestRow = {
+  id: string;
+  user_id: string;
+  scope_id: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  created_at: number;
+  decided_at: number | null;
+};
+type OrganizationJoinRequestDecisionRow = {
+  request_id: string;
+  decision: "approved" | "rejected" | "cancelled";
+  actor_user_id: string;
+  reason: string;
+  decided_at: number;
 };
 export type ManagedScopeMembershipRow = {
   scope_id: string;
@@ -304,9 +327,10 @@ type SkillHubGovernanceJobRow = {
 
 export type SkillHubNamespaceBindingRow = {
   namespace: string;
-  scope_kind: "team" | "group" | "part";
+  scope_kind: "global" | "team" | "group" | "part";
   scope_id: string | null;
   visibility_ceiling: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
+  access_state: "active" | "restricted";
   created_by_user_id: string;
   created_at: number;
   updated_at: number;
@@ -320,6 +344,9 @@ export type ControlPlaneDatabase = {
   browser_sessions: BrowserSessionRow;
   managed_scopes: ManagedScopeRow;
   managed_scope_memberships: ManagedScopeMembershipRow;
+  managed_scope_primary_memberships: ManagedScopePrimaryMembershipRow;
+  organization_join_requests: OrganizationJoinRequestRow;
+  organization_join_request_decisions: OrganizationJoinRequestDecisionRow;
   organization_memory_pages: OrganizationMemoryPageRow;
   organization_memory_claims: OrganizationMemoryClaimRow;
   organization_memory_promotion_requests: OrganizationMemoryPromotionRequestRow;

@@ -114,7 +114,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     if (this.sourceKind === "part") {
       const source = this.sourceClaims().find((claim) => claim.id === this.sourceClaimId);
       const part = scopes.find((scope) => scope.id === source?.scopeId);
-      return scopes.filter((scope) => scope.kind === "group" && scope.id === part?.parentGroupId);
+      return scopes.filter((scope) => scope.kind === "group" && scope.id === part?.parentScopeId);
     }
     return scopes.filter((scope) => scope.kind === "global");
   }
@@ -218,7 +218,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     }
   }
 
-  private canAdministerClaim(scopeKind: "global" | "group" | "part", scopeId?: string) {
+  private canAdministerClaim(scopeKind: "global" | "team" | "group" | "part", scopeId?: string) {
     return (this.snapshot?.scopes ?? []).some(
       (scope) =>
         scope.kind === scopeKind && (scope.id ?? null) === (scopeId ?? null) && scope.canAdminister,

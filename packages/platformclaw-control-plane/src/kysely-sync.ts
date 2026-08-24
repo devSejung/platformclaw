@@ -47,3 +47,18 @@ export function runImmediateTransaction<T>(db: DatabaseSync, operation: () => T)
     throw error;
   }
 }
+
+export function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
+  db.exec("BEGIN");
+  try {
+    const result = operation();
+    if (result && typeof result === "object" && "then" in result) {
+      throw new Error("SQLite read transactions must be synchronous");
+    }
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}

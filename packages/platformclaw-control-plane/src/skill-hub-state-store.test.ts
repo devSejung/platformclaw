@@ -43,29 +43,61 @@ afterEach(() => {
 });
 
 describe("SQLite Skill Hub state", () => {
+  it("uses Global without a scope ID and requires IDs for managed scope bindings", async () => {
+    const db = store();
+    const admin = (await db.upsertPrincipal(principal("admin.user"), 1)).user;
+    await expect(
+      db.setSkillHubNamespaceBinding({
+        namespace: "company",
+        scopeKind: "global",
+        visibilityCeiling: "NAMESPACE_ONLY",
+        actorUserId: admin.id,
+        changedAt: 2,
+      }),
+    ).resolves.toMatchObject({ scopeKind: "global", accessState: "restricted" });
+    await expect(
+      db.setSkillHubNamespaceBinding({
+        namespace: "engineering",
+        scopeKind: "team",
+        visibilityCeiling: "NAMESPACE_ONLY",
+        actorUserId: admin.id,
+        changedAt: 3,
+      }),
+    ).rejects.toThrow("namespace scope binding is invalid");
+    db.close();
+  });
+
   it("binds Part access to direct members and parent Group leaders", async () => {
     const db = store();
     const admin = (await db.upsertPrincipal(principal("admin.user"), 1)).user;
     const member = (await db.upsertPrincipal(principal("member.user"), 2)).user;
     const leader = (await db.upsertPrincipal(principal("leader.user"), 3)).user;
+    const team = await db.createManagedScope({
+      actorUserId: admin.id,
+      kind: "team",
+      name: "Company",
+      createdAt: 4,
+    });
     const group = await db.createManagedScope({
       actorUserId: admin.id,
       kind: "group",
       name: "Engineering",
-      createdAt: 4,
+      parentScopeId: team.id,
+      createdAt: 5,
     });
     const part = await db.createManagedScope({
       actorUserId: admin.id,
       kind: "part",
       name: "Runtime",
-      parentGroupId: group.id,
-      createdAt: 5,
+      parentScopeId: group.id,
+      createdAt: 6,
     });
     await db.setManagedScopeMembership({
       actorUserId: admin.id,
       scopeId: part.id,
       userId: member.id,
       role: "member",
+      reason: "test assignment",
       changedAt: 6,
     });
     await db.setManagedScopeMembership({
@@ -73,6 +105,7 @@ describe("SQLite Skill Hub state", () => {
       scopeId: group.id,
       userId: leader.id,
       role: "leader",
+      reason: "test assignment",
       changedAt: 7,
     });
     const binding = await db.setSkillHubNamespaceBinding({
@@ -87,6 +120,24 @@ describe("SQLite Skill Hub state", () => {
     await expect(db.hasSkillHubNamespaceAccess(member.id, binding)).resolves.toBe(true);
     await expect(db.hasSkillHubNamespaceAccess(leader.id, binding)).resolves.toBe(true);
     await expect(db.hasSkillHubNamespaceAccess(admin.id, binding)).resolves.toBe(false);
+    await expect(
+      db.archiveManagedScope({
+        actorUserId: admin.id,
+        scopeId: group.id,
+        reason: "retire platform group",
+        archivedAt: 9,
+      }),
+    ).rejects.toThrow("must be transferred or retired");
+    await expect(db.hasSkillHubNamespaceAccess(member.id, binding)).resolves.toBe(true);
+    await db.removeSkillHubNamespaceBinding(binding.namespace);
+    await db.archiveManagedScope({
+      actorUserId: admin.id,
+      scopeId: group.id,
+      reason: "binding retired",
+      archivedAt: 10,
+    });
+    await expect(db.hasSkillHubNamespaceAccess(member.id, binding)).resolves.toBe(false);
+    await expect(db.hasSkillHubNamespaceAccess(leader.id, binding)).resolves.toBe(false);
     db.close();
   });
 

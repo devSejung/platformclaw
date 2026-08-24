@@ -47,8 +47,9 @@ export type SkillHubGovernanceJob = {
 
 export type SkillHubNamespaceBinding = {
   namespace: string;
-  scopeKind: "team" | "group" | "part";
+  scopeKind: "global" | "team" | "group" | "part";
   scopeId?: string;
+  accessState: "active" | "restricted";
   visibilityCeiling: SkillHubVisibility;
   createdByUserId: string;
   createdAt: number;

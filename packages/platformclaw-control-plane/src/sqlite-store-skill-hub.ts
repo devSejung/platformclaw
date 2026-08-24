@@ -64,6 +64,7 @@ function namespaceBinding(row: SkillHubNamespaceBindingRow): SkillHubNamespaceBi
     namespace: row.namespace,
     scopeKind: row.scope_kind,
     ...(row.scope_id === null ? {} : { scopeId: row.scope_id }),
+    accessState: row.access_state,
     visibilityCeiling: row.visibility_ceiling,
     createdByUserId: row.created_by_user_id,
     createdAt: row.created_at,
@@ -77,7 +78,7 @@ export abstract class SqliteControlPlaneSkillHubStore
 {
   private skillHubStateSchemaReady = false;
 
-  private ensureSkillHubStateSchema(): void {
+  protected ensureSkillHubStateSchema(): void {
     if (this.skillHubStateSchemaReady) {
       return;
     }
@@ -567,7 +568,7 @@ export abstract class SqliteControlPlaneSkillHubStore
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
       this.requireAdmin(params.actorUserId);
-      if (params.scopeKind === "team" ? params.scopeId !== undefined : !params.scopeId) {
+      if (params.scopeKind === "global" ? params.scopeId !== undefined : !params.scopeId) {
         throw new ControlPlaneStateError("Skill Hub namespace scope binding is invalid");
       }
       if (params.scopeId) {
@@ -595,6 +596,7 @@ export abstract class SqliteControlPlaneSkillHubStore
             scope_kind: params.scopeKind,
             scope_id: params.scopeId ?? null,
             visibility_ceiling: params.visibilityCeiling,
+            access_state: params.scopeKind === "global" ? "restricted" : "active",
             created_by_user_id: existing?.created_by_user_id ?? params.actorUserId,
             created_at: existing?.created_at ?? params.changedAt,
             updated_at: params.changedAt,
@@ -604,6 +606,7 @@ export abstract class SqliteControlPlaneSkillHubStore
               scope_kind: params.scopeKind,
               scope_id: params.scopeId ?? null,
               visibility_ceiling: params.visibilityCeiling,
+              access_state: params.scopeKind === "global" ? "restricted" : "active",
               updated_at: params.changedAt,
             }),
           ),
@@ -637,7 +640,25 @@ export abstract class SqliteControlPlaneSkillHubStore
     binding: SkillHubNamespaceBinding,
   ): Promise<boolean> {
     this.ensureSkillHubStateSchema();
-    if (binding.scopeKind === "team" || !binding.scopeId) {
+    if (
+      binding.accessState === "restricted" ||
+      binding.scopeKind === "global" ||
+      !binding.scopeId
+    ) {
+      return false;
+    }
+    const user = this.selectUserById(userId);
+    const scope = takeFirstSync(
+      this.db,
+      this.query.selectFrom("managed_scopes").selectAll().where("id", "=", binding.scopeId),
+    );
+    if (
+      !user ||
+      user.status !== "active" ||
+      !scope ||
+      scope.kind !== binding.scopeKind ||
+      this.scopeLineageRows(scope).some((entry) => entry.status !== "active")
+    ) {
       return false;
     }
     const direct = takeFirstSync(
@@ -658,7 +679,7 @@ export abstract class SqliteControlPlaneSkillHubStore
         .innerJoin(
           "managed_scope_memberships",
           "managed_scope_memberships.scope_id",
-          "managed_scopes.parent_group_id",
+          "managed_scopes.parent_scope_id",
         )
         .select("managed_scope_memberships.user_id")
         .where("managed_scopes.id", "=", binding.scopeId)

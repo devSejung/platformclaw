@@ -3130,6 +3130,7 @@ export const en: TranslationMap = {
     adminHelp: "Manage namespace access and skills waiting for an owner.",
     namespaceBindings: "Namespace access",
     scope: "Organization scope",
+    scopeGlobal: "Global",
     scopeTeam: "Company team",
     scopeGroup: "Group",
     scopePart: "Part",
@@ -3137,6 +3138,9 @@ export const en: TranslationMap = {
     chooseScope: "Choose an active scope",
     visibilityCeiling: "Maximum visibility",
     saveBinding: "Save binding",
+    globalRestricted: "Restricted",
+    globalRestrictedHelp:
+      "Global bindings remain administrator-only until organization-wide activation ships in the Skill Hub rollout.",
     bindingSaved: "Namespace binding saved.",
     bindingRemoved: "Namespace binding removed.",
     removeBinding: "Remove",
