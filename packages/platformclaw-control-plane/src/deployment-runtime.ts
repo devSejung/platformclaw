@@ -117,15 +117,8 @@ export function createPlatformClawDeploymentRuntime(
               username: "platformclaw-bootstrap",
               password: config.skillHub.bootstrapPassword,
             }),
-            primaryAdminUserId: config.skillHub.primaryAdminUserId,
             workspaceRoot: config.workspaceRoot,
-            allowedNamespaces: config.skillHub.namespacePolicies.map((policy) => policy.namespace),
-            namespaceAccessGroups: Object.fromEntries(
-              config.skillHub.namespacePolicies.map((policy) => [
-                policy.namespace,
-                policy.accessGroup,
-              ]),
-            ),
+            allowedNamespaces: config.skillHub.namespaces,
             maxPackageBytes: config.skillHub.maxPackageBytes,
           },
         }

@@ -580,6 +580,9 @@ export type ControlPlaneConflictCode =
   | "execution_target_conflict"
   | "managed_scope_name_conflict"
   | "organization_join_request_conflict"
+  | "skill_hub_owner_changed"
+  | "skill_hub_namespace_binding_changed"
+  | "skill_hub_namespace_populated"
   | "organization_join_request_terminal_conflict"
   | "session_token_conflict";
 

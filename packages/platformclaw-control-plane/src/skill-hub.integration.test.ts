@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
+import type { OrganizationService } from "./organization-service.js";
 import { IflytekSkillHubAdapter } from "./skill-hub-adapter.js";
 import type { SkillHubStore } from "./skill-hub-service-support.js";
 import { SkillHubService } from "./skill-hub-service.js";
@@ -164,7 +165,17 @@ describe("PlatformClaw Skill Hub integration", () => {
       })),
       reconcileInactiveSkillHubOwners: vi.fn(async () => ({ reassigned: 0, unassigned: 0 })),
       hasSkillHubAccess: vi.fn(async () => false),
-      getSkillHubNamespaceBinding: vi.fn(async () => null),
+      searchSkillHubManagementUsers: vi.fn(async () => []),
+      getSkillHubNamespaceBinding: vi.fn(async () => ({
+        namespace: "engineering",
+        scopeKind: "team" as const,
+        scopeId: "team-engineering",
+        accessState: "active" as const,
+        visibilityCeiling: "PUBLIC" as const,
+        createdByUserId: "admin-one",
+        createdAt: 1,
+        updatedAt: 1,
+      })),
       enqueueSkillHubGovernanceJob: vi.fn(async () => undefined),
     } as unknown as SkillHubStore;
     const service = new SkillHubService({
@@ -178,6 +189,18 @@ describe("PlatformClaw Skill Hub integration", () => {
       adminRpc,
       workspaceRoot,
       allowedNamespaces: ["engineering"],
+      organization: {
+        authorization: {
+          authorizeManagedScope: vi.fn(async () => ({
+            canRead: true,
+            canManageMembers: false,
+            canManageStructure: false,
+            canManageLeaders: false,
+            facts: { source: "membership" as const, scopeIds: ["team-engineering"] },
+          })),
+        },
+        listScopes: vi.fn(async () => []),
+      } as unknown as OrganizationService,
       maxPackageBytes: 1024 * 1024,
     });
     const actor = await service.authenticate("browser-session");
@@ -217,6 +240,11 @@ describe("PlatformClaw Skill Hub integration", () => {
       expect.objectContaining({
         method: "GET",
         url: "/api/cli/v1/skills/engineering/demo-skill/versions/2.0.0/download",
+        authorization: "Bearer registry-server-token",
+      }),
+      expect.objectContaining({
+        method: "GET",
+        url: "/api/v1/skills/engineering/demo-skill",
         authorization: "Bearer registry-server-token",
       }),
     ]);

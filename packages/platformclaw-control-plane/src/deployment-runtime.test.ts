@@ -116,10 +116,9 @@ describe("createPlatformClawDeploymentRuntime", () => {
         skillHub: {
           url: "https://skillhub.example.test",
           token: "server-only-token",
-          namespacePolicies: [{ namespace: "engineering", accessGroup: "eng-skill-publishers" }],
+          namespaces: ["engineering"],
           maxPackageBytes: 1024,
           bootstrapPassword: "server-only-bootstrap-password",
-          primaryAdminUserId: "person.one",
         },
       },
       { createRuntime },
@@ -128,11 +127,9 @@ describe("createPlatformClawDeploymentRuntime", () => {
     expect(createRuntime.mock.calls[0]?.[0].skillHub).toMatchObject({
       workspaceRoot: config.workspaceRoot,
       allowedNamespaces: ["engineering"],
-      namespaceAccessGroups: { engineering: "eng-skill-publishers" },
       maxPackageBytes: 1024,
       adapter: expect.any(Object),
       governance: expect.any(Object),
-      primaryAdminUserId: "person.one",
     });
     expect(createRuntime.mock.calls[0]?.[0].skillHub).not.toHaveProperty("token");
     expect(createRuntime.mock.calls[0]?.[0].skillHub).not.toHaveProperty("bootstrapPassword");

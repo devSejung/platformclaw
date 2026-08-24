@@ -90,10 +90,8 @@ export type PlatformClawWebIngressRuntimeOptions = {
     adapter: SkillHubAdapter;
     workspaceRoot: string;
     allowedNamespaces: readonly string[];
-    namespaceAccessGroups: Readonly<Record<string, string>>;
     maxPackageBytes: number;
     governance: SkillHubGovernanceClient;
-    primaryAdminUserId: string;
   };
   ingress?: Pick<
     PlatformClawWebIngressOptions,
@@ -236,9 +234,10 @@ export function createPlatformClawWebIngressRuntime(
     adminRpc: options.adminRpc,
     ...(mcpService ? { onCatalogChanged: () => mcpService.invalidateCatalog() } : {}),
   });
+  const organizationService = new OrganizationService(auth.store);
   const organization = new BrowserOrganizationService({
     authService: auth.service,
-    organization: new OrganizationService(auth.store),
+    organization: organizationService,
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
   const vocService = options.jiraVoc
@@ -256,10 +255,9 @@ export function createPlatformClawWebIngressRuntime(
         adminRpc: options.adminRpc,
         workspaceRoot: options.skillHub.workspaceRoot,
         allowedNamespaces: options.skillHub.allowedNamespaces,
-        namespaceAccessGroups: options.skillHub.namespaceAccessGroups,
+        organization: organizationService,
         maxPackageBytes: options.skillHub.maxPackageBytes,
         governance: options.skillHub.governance,
-        primaryAdminUserId: options.skillHub.primaryAdminUserId,
         ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
       })
     : undefined;

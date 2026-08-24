@@ -5,6 +5,12 @@ import path from "node:path";
 import { readPlatformClawSessionCookie, type JsonBodyReader } from "./browser-auth-http.js";
 import { sendBrowserJson } from "./browser-http-shared.js";
 import {
+  ControlPlaneAuthorizationError,
+  ControlPlaneConflictError,
+  ControlPlaneNotFoundError,
+  ControlPlaneStateError,
+} from "./contracts.js";
+import {
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
   SkillHubService,
   SkillHubServiceError,
@@ -76,6 +82,26 @@ function optionalInteger(body: Record<string, unknown>, name: string): number | 
   return value as number;
 }
 
+function sendSkillHubError(res: ServerResponse, error: unknown): void {
+  const status =
+    error instanceof SkillHubServiceError
+      ? error.statusCode
+      : error instanceof ControlPlaneConflictError
+        ? 409
+        : error instanceof ControlPlaneAuthorizationError
+          ? 403
+          : error instanceof ControlPlaneNotFoundError
+            ? 404
+            : error instanceof ControlPlaneStateError
+              ? 400
+              : 503;
+  sendBrowserJson(res, status, {
+    error: error instanceof Error ? error.message : "request failed",
+    ...(error instanceof SkillHubServiceError && error.details ? { details: error.details } : {}),
+    ...(error instanceof ControlPlaneConflictError ? { details: { code: error.code } } : {}),
+  });
+}
+
 async function readZipBody(
   req: IncomingMessage,
 ): Promise<{ path: string; size: number; cleanup(): Promise<void> }> {
@@ -134,11 +160,7 @@ export async function handlePlatformClawSkillHubRequest(
   try {
     actor = token ? await options.service.authenticate(token) : null;
   } catch (error) {
-    const status = error instanceof SkillHubServiceError ? error.statusCode : 503;
-    sendBrowserJson(res, status, {
-      error: error instanceof Error ? error.message : "request failed",
-      ...(error instanceof SkillHubServiceError && error.details ? { details: error.details } : {}),
-    });
+    sendSkillHubError(res, error);
     return true;
   }
   if (!actor) {
@@ -184,6 +206,30 @@ export async function handlePlatformClawSkillHubRequest(
             actor.user,
             decodeSegment(accessMatch[1]!),
             decodeSegment(accessMatch[2]!),
+          ),
+        );
+        return true;
+      }
+      const managementUsersMatch = new RegExp(
+        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)/management-users$`,
+        "u",
+      ).exec(url.pathname);
+      if (managementUsersMatch) {
+        const purpose = url.searchParams.get("purpose");
+        if (purpose !== "owner" && purpose !== "access") {
+          throw new SkillHubServiceError("invalid management user search purpose", 400);
+        }
+        const rawLimit = url.searchParams.get("limit");
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.searchManagementUsers(
+            actor.user,
+            decodeSegment(managementUsersMatch[1]!),
+            decodeSegment(managementUsersMatch[2]!),
+            url.searchParams.get("q") ?? "",
+            purpose,
+            rawLimit === null ? 20 : Number(rawLimit),
           ),
         );
         return true;
@@ -300,6 +346,7 @@ export async function handlePlatformClawSkillHubRequest(
             decodeSegment(ownerMatch[1]!),
             decodeSegment(ownerMatch[2]!),
             stringField(body, "ownerUserId"),
+            optionalInteger(body, "expectedOwnerUpdatedAt") ?? 0,
           ),
         );
         return true;
@@ -367,7 +414,36 @@ export async function handlePlatformClawSkillHubRequest(
             scopeKind,
             ...(typeof body.scopeId === "string" ? { scopeId: body.scopeId } : {}),
             visibilityCeiling: stringField(body, "visibilityCeiling"),
+            expectedUpdatedAt:
+              body.expectedUpdatedAt === null
+                ? null
+                : (optionalInteger(body, "expectedUpdatedAt") ?? null),
+            reason: stringField(body, "reason"),
           }),
+        );
+        return true;
+      }
+      const namespaceAccessStateMatch = new RegExp(
+        `^${PLATFORMCLAW_SKILL_HUB_PATH}/admin/namespaces/([^/]+)/access-state$`,
+        "u",
+      ).exec(url.pathname);
+      if (namespaceAccessStateMatch) {
+        const accessState = stringField(body, "accessState");
+        if (accessState !== "active" && accessState !== "restricted") {
+          throw new SkillHubServiceError("invalid namespace access state", 400);
+        }
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.setNamespaceAccessState(
+            actor.user,
+            decodeSegment(namespaceAccessStateMatch[1]!),
+            {
+              accessState,
+              expectedUpdatedAt: optionalInteger(body, "expectedUpdatedAt") ?? 0,
+              reason: stringField(body, "reason"),
+            },
+          ),
         );
         return true;
       }
@@ -399,12 +475,22 @@ export async function handlePlatformClawSkillHubRequest(
         "u",
       ).exec(url.pathname);
       if (namespaceMatch) {
+        const read = await options.readJsonBody(req, BODY_LIMIT_BYTES);
+        if (!read.ok) {
+          sendBrowserJson(res, 400, { error: read.error });
+          return true;
+        }
+        const body = objectBody(read.value);
         sendBrowserJson(
           res,
           200,
           await options.service.removeNamespaceBinding(
             actor.user,
             decodeSegment(namespaceMatch[1]!),
+            {
+              expectedUpdatedAt: optionalInteger(body, "expectedUpdatedAt") ?? 0,
+              reason: stringField(body, "reason"),
+            },
           ),
         );
         return true;
@@ -414,11 +500,7 @@ export async function handlePlatformClawSkillHubRequest(
     res.setHeader("Allow", "GET, POST, DELETE");
     res.end("Method Not Allowed");
   } catch (error) {
-    const status = error instanceof SkillHubServiceError ? error.statusCode : 503;
-    sendBrowserJson(res, status, {
-      error: error instanceof Error ? error.message : "request failed",
-      ...(error instanceof SkillHubServiceError && error.details ? { details: error.details } : {}),
-    });
+    sendSkillHubError(res, error);
   }
   return true;
 }

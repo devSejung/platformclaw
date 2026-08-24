@@ -3,12 +3,28 @@ import { SkillHubGovernanceError } from "./skill-hub-governance-client.js";
 import { SkillHubPublicationService } from "./skill-hub-service-publication.js";
 import {
   compareSemVer,
+  projectSkillHubAccessGrant,
   safeName,
   SKILL_KEY_PATTERN,
   SkillHubServiceError,
   validVersion,
   validVisibility,
 } from "./skill-hub-service-support.js";
+import type { SkillHubNamespaceBinding } from "./skill-hub-state.js";
+
+function projectNamespaceBinding(binding: SkillHubNamespaceBinding) {
+  return Object.assign(
+    {
+      namespace: binding.namespace,
+      scopeKind: binding.scopeKind,
+      accessState: binding.accessState,
+      visibilityCeiling: binding.visibilityCeiling,
+      createdAt: binding.createdAt,
+      updatedAt: binding.updatedAt,
+    },
+    binding.scopeId ? { scopeId: binding.scopeId } : {},
+  );
+}
 
 export {
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
@@ -146,18 +162,13 @@ export class SkillHubService extends SkillHubPublicationService {
     await this.reconcileOwners();
     const items = await this.options.store.listUnassignedSkillHubSkills();
     return {
-      items: items.map((skill) =>
-        Object.assign(
-          {
-            namespace: skill.namespace,
-            slug: skill.slug,
-            currentVersion: skill.currentVersion,
-            visibility: skill.visibility,
-            changedAt: skill.updatedAt,
-          },
-          skill.previousOwnerUserId ? { previousOwnerId: skill.previousOwnerUserId } : {},
-        ),
-      ),
+      items: items.map((skill) => ({
+        namespace: skill.namespace,
+        slug: skill.slug,
+        currentVersion: skill.currentVersion,
+        visibility: skill.visibility,
+        changedAt: skill.updatedAt,
+      })),
     };
   }
 
@@ -166,8 +177,10 @@ export class SkillHubService extends SkillHubPublicationService {
       throw new SkillHubServiceError("PlatformClaw administrator required", 403);
     }
     return {
-      bindings: await this.options.store.listSkillHubNamespaceBindings(),
-      scopes: (await this.options.store.listManagedScopes())
+      bindings: (await this.options.store.listSkillHubNamespaceBindings()).map(
+        projectNamespaceBinding,
+      ),
+      scopes: (await this.options.organization.listScopes())
         .filter((scope) => scope.status === "active")
         .map((scope) =>
           Object.assign(
@@ -185,6 +198,8 @@ export class SkillHubService extends SkillHubPublicationService {
       scopeKind: "global" | "team" | "group" | "part";
       scopeId?: string;
       visibilityCeiling: string;
+      expectedUpdatedAt: number | null;
+      reason: string;
     },
   ) {
     if (user.globalRole !== "admin") {
@@ -195,23 +210,50 @@ export class SkillHubService extends SkillHubPublicationService {
       namespace,
       scopeKind: params.scopeKind,
       ...(params.scopeId ? { scopeId: params.scopeId.trim() } : {}),
+      accessState: params.scopeKind === "global" ? "restricted" : "active",
       visibilityCeiling: validVisibility(params.visibilityCeiling),
+      expectedUpdatedAt: params.expectedUpdatedAt,
+      reason: params.reason,
       actorUserId: user.id,
       changedAt: this.now(),
     });
-    await this.audit(user.id, "skill-hub.namespace.bound", namespace, binding);
-    return binding;
+    return projectNamespaceBinding(binding);
   }
 
-  async removeNamespaceBinding(user: PlatformUser, namespaceRaw: string) {
+  async setNamespaceAccessState(
+    user: PlatformUser,
+    namespaceRaw: string,
+    params: { accessState: "active" | "restricted"; expectedUpdatedAt: number; reason: string },
+  ) {
     if (user.globalRole !== "admin") {
       throw new SkillHubServiceError("PlatformClaw administrator required", 403);
     }
     const namespace = this.authorizeNamespace(namespaceRaw);
-    const removed = await this.options.store.removeSkillHubNamespaceBinding(namespace);
-    if (removed) {
-      await this.audit(user.id, "skill-hub.namespace.unbound", namespace, {});
+    return projectNamespaceBinding(
+      await this.options.store.setSkillHubNamespaceAccessState({
+        namespace,
+        ...params,
+        actorUserId: user.id,
+        changedAt: this.now(),
+      }),
+    );
+  }
+
+  async removeNamespaceBinding(
+    user: PlatformUser,
+    namespaceRaw: string,
+    params: { expectedUpdatedAt: number; reason: string },
+  ) {
+    if (user.globalRole !== "admin") {
+      throw new SkillHubServiceError("PlatformClaw administrator required", 403);
     }
+    const namespace = this.authorizeNamespace(namespaceRaw);
+    const removed = await this.options.store.removeSkillHubNamespaceBinding({
+      namespace,
+      ...params,
+      actorUserId: user.id,
+      changedAt: this.now(),
+    });
     return { ok: true, removed };
   }
 
@@ -232,6 +274,7 @@ export class SkillHubService extends SkillHubPublicationService {
     namespaceRaw: string,
     slugRaw: string,
     ownerUserId: string,
+    expectedOwnerUpdatedAt: number,
   ) {
     const {
       namespace,
@@ -242,32 +285,55 @@ export class SkillHubService extends SkillHubPublicationService {
     if (!nextOwner || nextOwner.status !== "active") {
       throw new SkillHubServiceError("new owner must be an active PlatformClaw user", 400);
     }
+    if (!(await this.resolveNamespaceCapabilities(nextOwner, namespace)).canOwn) {
+      throw new SkillHubServiceError("new owner is not eligible for this namespace", 400);
+    }
+    const registrySkill = await this.adapterCall(() => this.options.adapter.getSkill(namespace, slug));
+    this.validateSkillIdentity(registrySkill.namespace, registrySkill.slug, namespace, slug);
     const changedAt = this.now();
     const ownership = await this.options.store.transferSkillHubOwner({
       namespace,
       slug,
       expectedOwnerUserId: current.ownerUserId,
+      expectedOwnerUpdatedAt,
       ownerUserId: nextOwner.id,
+      registryVisibility: registrySkill.visibility,
+      actorUserId: actor.id,
       changedAt,
     });
-    await this.options.store.createSkillHubNotification({
-      userId: nextOwner.id,
-      kind: "owner-transferred",
-      namespace,
-      slug,
-      message: `You now own ${namespace}/${slug}.`,
-      createdAt: changedAt,
-    });
-    await this.audit(actor.id, "skill-hub.owner.transferred", `${namespace}/${slug}`, {
-      fromUserId: current.ownerUserId,
-      toUserId: nextOwner.id,
-    });
-    return ownership;
+    return { ownerUserId: ownership.ownerUserId };
   }
 
   async listAccess(actor: PlatformUser, namespaceRaw: string, slugRaw: string) {
     const { namespace, slug } = await this.requireManagedSkill(actor, namespaceRaw, slugRaw);
-    return { items: await this.options.store.listSkillHubAccess(namespace, slug, this.now()) };
+    return {
+      items: (await this.options.store.listSkillHubAccess(namespace, slug, this.now())).map(
+        projectSkillHubAccessGrant,
+      ),
+    };
+  }
+
+  async searchManagementUsers(
+    actor: PlatformUser,
+    namespaceRaw: string,
+    slugRaw: string,
+    query: string,
+    purpose: "owner" | "access",
+    limit = 20,
+  ) {
+    const namespace = this.authorizeNamespace(namespaceRaw);
+    const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
+    const boundedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 20)) : 20;
+    return {
+      items: await this.options.store.searchSkillHubManagementUsers({
+        namespace,
+        slug,
+        actorUserId: actor.id,
+        query,
+        purpose,
+        limit: boundedLimit,
+      }),
+    };
   }
 
   async setAccess(
@@ -306,31 +372,18 @@ export class SkillHubService extends SkillHubPublicationService {
       ...(version ? { grantedVersion: version } : {}),
       changedAt: now,
     });
-    await this.options.store.createSkillHubNotification({
-      userId: grant.userId,
-      kind: "access-granted",
-      namespace,
-      slug,
-      message: `You can now access ${namespace}/${slug}.`,
-      createdAt: now,
-    });
-    await this.audit(actor.id, "skill-hub.access.granted", `${namespace}/${slug}`, {
-      userId: grant.userId,
-      expiresAt: grant.expiresAt ?? null,
-      inheritVersions: grant.inheritVersions,
-      canReshare: false,
-    });
-    return grant;
+    return projectSkillHubAccessGrant(grant);
   }
 
   async removeAccess(actor: PlatformUser, namespaceRaw: string, slugRaw: string, userId: string) {
     const { namespace, slug } = await this.requireManagedSkill(actor, namespaceRaw, slugRaw);
-    const removed = await this.options.store.removeSkillHubAccess(namespace, slug, userId.trim());
-    if (removed) {
-      await this.audit(actor.id, "skill-hub.access.revoked", `${namespace}/${slug}`, {
-        userId: userId.trim(),
-      });
-    }
+    const removed = await this.options.store.removeSkillHubAccess({
+      namespace,
+      slug,
+      userId: userId.trim(),
+      actorUserId: actor.id,
+      changedAt: this.now(),
+    });
     return { ok: true, removed };
   }
 
@@ -340,7 +393,11 @@ export class SkillHubService extends SkillHubPublicationService {
     slugRaw: string,
     params: { version: string; acknowledged: boolean; reason: string },
   ) {
-    const { namespace, slug } = await this.requireManagedSkill(actor, namespaceRaw, slugRaw);
+    const { namespace, slug, ownership: expectedOwnership } = await this.requireManagedSkill(
+      actor,
+      namespaceRaw,
+      slugRaw,
+    );
     const version = validVersion(params.version);
     const reason = params.reason.trim();
     if (!params.acknowledged || reason.length < 10 || reason.length > 1_000) {
@@ -352,6 +409,7 @@ export class SkillHubService extends SkillHubPublicationService {
     if (!this.options.governance) {
       throw new SkillHubServiceError("Skill Hub force publish is not configured", 503);
     }
+    await this.requireManagedSkill(actor, namespace, slug);
     let approval: { reviewId: number; status: string };
     try {
       approval = await this.options.governance.approvePendingReview({
@@ -366,14 +424,20 @@ export class SkillHubService extends SkillHubPublicationService {
       }
       throw new SkillHubServiceError("Skill Hub force publish failed", 502);
     }
+    await this.reconcileOwners();
+    const currentOwnership = await this.options.store.getSkillHubOwnership(namespace, slug);
+    const ownershipReviewRequired =
+      !currentOwnership?.ownerUserId ||
+      currentOwnership.ownerUserId !== expectedOwnership.ownerUserId ||
+      currentOwnership.updatedAt !== expectedOwnership.updatedAt;
     await this.options.store.updateSkillHubGovernanceJob({
       namespace,
       slug,
       version,
-      state: "approved",
+      state: ownershipReviewRequired ? "blocked" : "approved",
       attempts: 0,
       nextAttemptAt: this.now(),
-      lastError: "force-approved",
+      lastError: ownershipReviewRequired ? "owner-review-required" : "force-approved",
       updatedAt: this.now(),
     });
     await this.audit(
@@ -386,6 +450,7 @@ export class SkillHubService extends SkillHubPublicationService {
         upstreamOverridePerformed: true,
         reviewId: approval.reviewId,
         reviewStatus: approval.status,
+        ownershipReviewRequired,
       },
     );
     return {
@@ -394,6 +459,7 @@ export class SkillHubService extends SkillHubPublicationService {
       upstreamOverridePerformed: true,
       reviewId: approval.reviewId,
       reviewStatus: approval.status,
+      ...(ownershipReviewRequired ? { ownershipReviewRequired: true as const } : {}),
     };
   }
 
@@ -410,6 +476,15 @@ export class SkillHubService extends SkillHubPublicationService {
         processed += 1;
         const attempts = job.attempts + 1;
         try {
+          await this.reconcileOwners();
+          const currentOwnership = await this.options.store.getSkillHubOwnership(
+            job.namespace,
+            job.slug,
+          );
+          if (!job.ownerUserId || currentOwnership?.ownerUserId !== job.ownerUserId) {
+            await this.finishGovernanceJob(job, "blocked", attempts, "owner-review-required");
+            continue;
+          }
           const skill = await this.adapterCall(() =>
             this.options.adapter.getSkill(job.namespace, job.slug),
           );

@@ -13,7 +13,30 @@ export type SkillHubAdminDraft = {
   scopeKind: "global" | "team" | "group" | "part";
   scopeId: string;
   visibilityCeiling: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
+  reason: string;
 };
+
+export type SkillHubAdminAction = {
+  binding: PlatformClawSkillHubNamespaceBinding;
+  action: "activate" | "restrict" | "remove";
+  reason: string;
+};
+
+export function skillHubScopeLineageLabel(
+  scopeId: string,
+  scopes: readonly PlatformClawManagedScope[],
+): string {
+  const byId = new Map(scopes.map((scope) => [scope.id, scope]));
+  const names: string[] = [];
+  const visited = new Set<string>();
+  let current = byId.get(scopeId);
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    names.push(current.name);
+    current = current.parentScopeId ? byId.get(current.parentScopeId) : undefined;
+  }
+  return names.reverse().join(" / ") || scopeId;
+}
 
 export function renderSkillHubAdmin(props: {
   open: boolean;
@@ -23,10 +46,13 @@ export function renderSkillHubAdmin(props: {
   scopes: PlatformClawManagedScope[];
   unassigned: PlatformClawSkillHubUnassignedSkill[];
   draft: SkillHubAdminDraft;
+  pendingAction: SkillHubAdminAction | null;
   onClose: () => void;
   onDraft: (draft: SkillHubAdminDraft) => void;
   onSave: () => void;
-  onRemove: (namespace: string) => void;
+  onRequestAction: (action: SkillHubAdminAction) => void;
+  onPendingAction: (action: SkillHubAdminAction | null) => void;
+  onConfirmAction: () => void;
 }) {
   if (!props.open) {
     return nothing;
@@ -91,7 +117,9 @@ export function renderSkillHubAdmin(props: {
                       >
                         <option value="">${t("skillHubPage.chooseScope")}</option>
                         ${eligibleScopes.map(
-                          (scope) => html`<option value=${scope.id}>${scope.name}</option>`,
+                          (scope) => html`<option value=${scope.id}>
+                            ${skillHubScopeLineageLabel(scope.id, props.scopes)}
+                          </option>`,
                         )}
                       </select>
                     </label>`}
@@ -113,12 +141,23 @@ export function renderSkillHubAdmin(props: {
                     <option value="PRIVATE">${t("skillsPage.skillHub.private")}</option>
                   </select>
                 </label>
+                <label class="field">
+                  <span>${t("skillHubPage.changeReason")}</span>
+                  <input
+                    .value=${props.draft.reason}
+                    @input=${(event: Event) =>
+                      props.onDraft({
+                        ...props.draft,
+                        reason: (event.target as HTMLInputElement).value,
+                      })}
+                  />
+                </label>
                 <button
                   class="btn primary"
                   ?disabled=${props.busy ||
                   !props.draft.namespace.trim() ||
-                  props.draft.scopeKind === "global" ||
-                  !props.draft.scopeId}
+                  !props.draft.reason.trim() ||
+                  (props.draft.scopeKind !== "global" && !props.draft.scopeId)}
                   @click=${props.onSave}
                 >
                   ${t("skillHubPage.saveBinding")}
@@ -138,22 +177,77 @@ export function renderSkillHubAdmin(props: {
                             >${skillHubScopeKindLabel(binding.scopeKind)}${binding.scopeId
                               ? ` · ${
                                   props.scopes.find((scope) => scope.id === binding.scopeId)
-                                    ?.name ?? binding.scopeId
+                                    ? skillHubScopeLineageLabel(binding.scopeId, props.scopes)
+                                    : binding.scopeId
                                 }`
                               : ""}
                             · ${skillHubVisibilityLabel(binding.visibilityCeiling)}</small
                           >
                         </div>
+                        ${binding.scopeKind === "global"
+                          ? html`<button
+                              class="btn btn--sm"
+                              ?disabled=${props.busy}
+                              @click=${() =>
+                                props.onRequestAction({
+                                  binding,
+                                  action:
+                                    binding.accessState === "active" ? "restrict" : "activate",
+                                  reason: "",
+                                })}
+                            >
+                              ${binding.accessState === "active"
+                                ? t("skillHubPage.restrictGlobal")
+                                : t("skillHubPage.activateGlobal")}
+                            </button>`
+                          : nothing}
                         <button
                           class="btn btn--sm danger"
                           ?disabled=${props.busy}
-                          @click=${() => props.onRemove(binding.namespace)}
+                          @click=${() =>
+                            props.onRequestAction({ binding, action: "remove", reason: "" })}
                         >
                           ${t("skillHubPage.removeBinding")}
                         </button>
                       </article>`,
                     )}
               </div>
+              ${props.pendingAction
+                ? html`<section class="skill-hub-admin__confirmation">
+                    <strong>${t("skillHubPage.confirmNamespaceAction")}</strong>
+                    <p>
+                      ${props.pendingAction.binding.namespace} ·
+                      ${props.pendingAction.action === "activate"
+                        ? t("skillHubPage.activateGlobal")
+                        : props.pendingAction.action === "restrict"
+                          ? t("skillHubPage.restrictGlobal")
+                          : t("skillHubPage.removeBinding")}
+                    </p>
+                    <label class="field">
+                      <span>${t("skillHubPage.changeReason")}</span>
+                      <input
+                        .value=${props.pendingAction.reason}
+                        @input=${(event: Event) =>
+                          props.onPendingAction({
+                            ...props.pendingAction!,
+                            reason: (event.target as HTMLInputElement).value,
+                          })}
+                      />
+                    </label>
+                    <div>
+                      <button class="btn btn--sm" @click=${() => props.onPendingAction(null)}>
+                        ${t("common.cancel")}
+                      </button>
+                      <button
+                        class="btn btn--sm danger"
+                        ?disabled=${props.busy || !props.pendingAction.reason.trim()}
+                        @click=${props.onConfirmAction}
+                      >
+                        ${t("skillHubPage.confirmAction")}
+                      </button>
+                    </div>
+                  </section>`
+                : nothing}
             </section>
             <section class="skill-hub-admin__section">
               <h3>${t("skillHubPage.unassignedOwners")}</h3>

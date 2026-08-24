@@ -153,14 +153,18 @@ describe("loadPlatformClawDeploymentConfig", () => {
     expect(loadPlatformClawDeploymentConfig(env).skillHub).toEqual({
       url: "https://skillhub.example.test/registry",
       token: "skill-hub-service-token",
-      namespacePolicies: [
-        { namespace: "engineering", accessGroup: "eng-skill-publishers" },
-        { namespace: "shared", accessGroup: "*" },
-      ],
+      namespaces: ["engineering", "shared"],
       maxPackageBytes: 2 * 1024 * 1024,
       bootstrapPassword: "skill-hub-bootstrap-password",
-      primaryAdminUserId: "person.one",
     });
+  });
+
+  it("rejects the retired Skill Hub primary-admin fallback", () => {
+    const env = fixtureEnv();
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubPrimaryAdminId] = "person.one";
+    expect(() => loadPlatformClawDeploymentConfig(env)).toThrow(
+      "inactive Skill Hub owners now enter the administrator review queue",
+    );
   });
 
   it("rejects a partial Skill Hub configuration", () => {

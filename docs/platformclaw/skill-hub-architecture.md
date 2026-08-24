@@ -46,7 +46,8 @@ scanner, Gateway credential, and VM SSH boundary remain private.
 `platformclaw-control` owns employee-facing policy:
 
 - resolve the authenticated actor and personal Agent;
-- evaluate the current legacy company-wide, Group, Part, and per-user ACL policy;
+- consume shared organization authorization and evaluate Skill Hub visibility,
+  ownership, and per-user ACL policy;
 - select allowed namespaces and project safe response fields;
 - package a real workspace skill;
 - record publication, install, ownership, force, and ACL audit facts; and
@@ -61,8 +62,8 @@ The adapter must stay replaceable. Browser routes and UI models must not depend 
 raw SkillHub response objects, internal URLs, tokens, storage paths, or database
 identifiers.
 
-The approved organization rollout moves namespace authorization behind the
-shared `OrganizationService` and `AuthorizationService`. Skill Hub will consume
+Namespace authorization is behind the shared `OrganizationService` and
+`AuthorizationService`. Skill Hub consumes
 Global, real Team, Group, Part, direct/effective membership, and delegated
 capability facts without reading organization tables or rebuilding lineage.
 Skill Hub continues to own package and registry policy. See

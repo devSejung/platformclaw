@@ -324,6 +324,17 @@ export function renderSkills(props: SkillsProps) {
     ${props.skillHubPublishSkill && !personalVm
       ? renderPlatformClawSkillHubPublish(props)
       : nothing}
+    ${props.skillHubMessage
+      ? html`<div
+          class="callout ${props.skillHubMessage.kind === "error"
+            ? "danger"
+            : props.skillHubMessage.kind === "warning"
+              ? "warning"
+              : "success"}"
+        >
+          ${props.skillHubMessage.text}
+        </div>`
+      : nothing}
   `;
 }
 

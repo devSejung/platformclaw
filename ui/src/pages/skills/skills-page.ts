@@ -480,10 +480,14 @@ class SkillsPage extends OpenClawLightDomElement {
         visibility: this.skillHubPublishVisibility,
       });
       this.skillHubMessage = {
-        kind: "success",
-        text: t("skillsPage.skillHub.published", {
-          skill: `${result.namespace}/${result.slug}@${result.version}`,
-        }),
+        kind: result.ownershipReviewRequired ? "warning" : "success",
+        text: result.ownershipReviewRequired
+          ? t("skillsPage.skillHub.publishedNeedsOwnershipReview", {
+              skill: `${result.namespace}/${result.slug}@${result.version}`,
+            })
+          : t("skillsPage.skillHub.published", {
+              skill: `${result.namespace}/${result.slug}@${result.version}`,
+            }),
       };
       this.skillHubPublishSkill = null;
     } catch (error) {

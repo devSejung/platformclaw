@@ -349,8 +349,8 @@ describe("PlatformClaw Docker runtime", () => {
     const wrapper = readRepoFile("docker/platformclaw-runtime/platformclaw-compose");
     expect(wrapper).toContain("--profile skillhub");
     expect(wrapper).toContain('== "true"');
-    expect(wrapper).toContain("PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID");
-    expect(wrapper).toContain("initial_admin_file");
+    expect(wrapper).not.toContain("PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID");
+    expect(wrapper).not.toContain("initial_admin_file");
     expect(wrapper).not.toContain("PLATFORMCLAW_SKILL_HUB_POSTGRES_PASSWORD_SECRET_FILE=");
     expect(wrapper).not.toContain(":-true}");
 

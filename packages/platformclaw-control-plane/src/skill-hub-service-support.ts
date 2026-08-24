@@ -2,17 +2,13 @@ import path from "node:path";
 import JSZip, { type JSZipObject } from "jszip";
 import { isMap, parseDocument } from "yaml";
 import type { BrowserAuthService } from "./browser-auth-service.js";
-import type {
-  ControlPlaneAuditWriter,
-  ControlPlaneManagementStore,
-  ControlPlaneStore,
-  PlatformUser,
-} from "./contracts.js";
+import type { ControlPlaneAuditWriter, ControlPlaneStore, PlatformUser } from "./contracts.js";
 import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
+import type { OrganizationService } from "./organization-service.js";
 import type { SkillHubAdapter, SkillHubVisibility } from "./skill-hub-adapter.js";
 import type { SkillHubGovernanceClient } from "./skill-hub-governance-client.js";
-import type { SkillHubStateStore } from "./skill-hub-state.js";
+import type { SkillHubAccessGrant, SkillHubStateStore } from "./skill-hub-state.js";
 
 export const SKILL_KEY_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u;
 export const NAMESPACE_PATTERN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/u;
@@ -29,7 +25,6 @@ export const SKILL_HUB_UPLOAD_FILES = 100;
 export type SkillHubStore = ControlPlaneStore &
   ControlPlaneAuditWriter &
   SkillHubStateStore &
-  Pick<ControlPlaneManagementStore, "listManagedScopes"> &
   Pick<ControlPlaneExecutionManagementStore, "getVmAllocationForAgent">;
 
 export class SkillHubServiceError extends Error {
@@ -41,6 +36,16 @@ export class SkillHubServiceError extends Error {
     super(message);
     this.name = "SkillHubServiceError";
   }
+}
+
+export function projectSkillHubAccessGrant(grant: SkillHubAccessGrant) {
+  return {
+    userId: grant.userId,
+    expiresAt: grant.expiresAt ?? null,
+    inheritVersions: grant.inheritVersions,
+    grantedVersion: grant.grantedVersion ?? null,
+    canReshare: false as const,
+  };
 }
 
 function isValidSemVer(value: string): boolean {
@@ -123,9 +128,8 @@ export type SkillHubServiceOptions = {
   adminRpc: GatewayAdminRpc;
   workspaceRoot: string;
   allowedNamespaces: readonly string[];
-  namespaceAccessGroups?: Readonly<Record<string, string>>;
+  organization: OrganizationService;
   maxPackageBytes: number;
-  primaryAdminUserId?: string;
   now?: () => number;
 };
 

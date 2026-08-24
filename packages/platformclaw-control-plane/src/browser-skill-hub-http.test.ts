@@ -4,6 +4,7 @@ import {
   handlePlatformClawSkillHubRequest,
   PLATFORMCLAW_SKILL_HUB_PATH,
 } from "./browser-skill-hub-http.js";
+import { ControlPlaneConflictError } from "./contracts.js";
 import type { SkillHubService } from "./skill-hub-service.js";
 import { SkillHubServiceError } from "./skill-hub-service.js";
 
@@ -28,6 +29,78 @@ const actor = {
 };
 
 describe("Skill Hub browser HTTP", () => {
+  it("returns a bounded safe management-user projection", async () => {
+    const searchManagementUsers = vi.fn(async () => ({
+      items: [{ id: "opaque-user", accountId: "person.one", displayName: "Person One" }],
+    }));
+    const service = {
+      authenticate: vi.fn(async () => actor),
+      searchManagementUsers,
+    } as unknown as SkillHubService;
+    const harness = responseHarness();
+    await handlePlatformClawSkillHubRequest(
+      {
+        url: `${PLATFORMCLAW_SKILL_HUB_PATH}/skills/engineering/demo/management-users?q=pe%25_&purpose=owner&limit=200`,
+        method: "GET",
+        headers: { cookie: "platformclaw_session=session-token" },
+      } as IncomingMessage,
+      harness.response,
+      { service, readJsonBody: vi.fn(), isMutationOriginAllowed: () => true },
+    );
+    expect(searchManagementUsers).toHaveBeenCalledWith(
+      actor.user,
+      "engineering",
+      "demo",
+      "pe%_",
+      "owner",
+      200,
+    );
+    expect(harness.json()).toEqual({
+      items: [{ id: "opaque-user", accountId: "person.one", displayName: "Person One" }],
+    });
+    expect(JSON.stringify(harness.json())).not.toMatch(/employeeId|email|groups|globalRole/iu);
+  });
+
+  it("maps authoritative binding conflicts to a safe 409", async () => {
+    const service = {
+      authenticate: vi.fn(async () => actor),
+      setNamespaceBinding: vi.fn(async () => {
+        throw new ControlPlaneConflictError(
+          "skill_hub_namespace_binding_changed",
+          "binding changed; reload and retry",
+        );
+      }),
+    } as unknown as SkillHubService;
+    const harness = responseHarness();
+    await handlePlatformClawSkillHubRequest(
+      {
+        url: `${PLATFORMCLAW_SKILL_HUB_PATH}/admin/namespaces`,
+        method: "POST",
+        headers: { cookie: "platformclaw_session=session-token" },
+      } as IncomingMessage,
+      harness.response,
+      {
+        service,
+        readJsonBody: vi.fn(async () => ({
+          ok: true as const,
+          value: {
+            namespace: "engineering",
+            scopeKind: "global",
+            visibilityCeiling: "NAMESPACE_ONLY",
+            expectedUpdatedAt: 1,
+            reason: "reviewed change",
+          },
+        })),
+        isMutationOriginAllowed: () => true,
+      },
+    );
+    expect(harness.response.statusCode).toBe(409);
+    expect(harness.json()).toEqual({
+      error: "binding changed; reload and retry",
+      details: { code: "skill_hub_namespace_binding_changed" },
+    });
+  });
+
   it("requires the existing PlatformClaw session", async () => {
     const service = { authenticate: vi.fn(async () => null) } as unknown as SkillHubService;
     const harness = responseHarness();
@@ -153,6 +226,8 @@ describe("Skill Hub browser HTTP", () => {
             scopeKind,
             ...(scopeId ? { scopeId } : {}),
             visibilityCeiling: "NAMESPACE_ONLY",
+            expectedUpdatedAt: null,
+            reason: "organization rollout",
           },
         })),
         isMutationOriginAllowed: () => true,
@@ -165,6 +240,45 @@ describe("Skill Hub browser HTTP", () => {
       scopeKind,
       ...(scopeId ? { scopeId } : {}),
       visibilityCeiling: "NAMESPACE_ONLY",
+      expectedUpdatedAt: null,
+      reason: "organization rollout",
+    });
+  });
+
+  it("pins Global activation to the session actor and an expected binding revision", async () => {
+    const setNamespaceAccessState = vi.fn(async () => ({ accessState: "active" }));
+    const service = {
+      authenticate: vi.fn(async () => actor),
+      setNamespaceAccessState,
+    } as unknown as SkillHubService;
+    const harness = responseHarness();
+    await handlePlatformClawSkillHubRequest(
+      {
+        url: `${PLATFORMCLAW_SKILL_HUB_PATH}/admin/namespaces/company/access-state`,
+        method: "POST",
+        headers: { cookie: "platformclaw_session=session-token" },
+      } as IncomingMessage,
+      harness.response,
+      {
+        service,
+        readJsonBody: vi.fn(async () => ({
+          ok: true as const,
+          value: {
+            accessState: "active",
+            expectedUpdatedAt: 42,
+            reason: "approved organization-wide visibility",
+            actorUserId: "forged-user",
+          },
+        })),
+        isMutationOriginAllowed: () => true,
+      },
+    );
+
+    expect(harness.response.statusCode).toBe(200);
+    expect(setNamespaceAccessState).toHaveBeenCalledWith(actor.user, "company", {
+      accessState: "active",
+      expectedUpdatedAt: 42,
+      reason: "approved organization-wide visibility",
     });
   });
 });

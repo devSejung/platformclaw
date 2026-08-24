@@ -365,7 +365,7 @@ and database backup together.
 | 5   | Memory search, promotion, review, and lifecycle conversion with Team scopes            |
 | 6   | Settings organization management, first-login join UI, inbox, and Korean/English UX    |
 
-PR1 through PR3 are implemented. PR4 through PR6 remain planned.
+PR1 through PR4 are implemented. PR5 and PR6 remain planned.
 
 ## Authenticated browser API
 
