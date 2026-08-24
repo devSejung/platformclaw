@@ -414,7 +414,7 @@ describe("PlatformClaw organization browser API", () => {
     expect(JSON.stringify(users.body)).not.toContain("@example.test");
     expect(
       await call(fixture.service, {
-        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/management/scopes/${team.id}/users?q=%25`,
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/management/scopes/${team.id}/users?q=%25_`,
         token: "leader-token",
       }),
     ).toMatchObject({ status: 200, body: { items: [] } });

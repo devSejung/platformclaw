@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ControlPlaneIdFactory, EnterprisePrincipal } from "./contracts.js";
-import { ControlPlaneAuthorizationError, ControlPlaneConflictError } from "./contracts.js";
+import {
+  ControlPlaneAuthorizationError,
+  ControlPlaneConflictError,
+  ControlPlaneNotFoundError,
+} from "./contracts.js";
 import { OrganizationService } from "./organization-service.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
 
@@ -229,7 +233,7 @@ describe("PlatformClaw organization services", () => {
         reason: "self",
         decidedAt: 22,
       }),
-    ).rejects.toBeInstanceOf(ControlPlaneAuthorizationError);
+    ).rejects.toBeInstanceOf(ControlPlaneNotFoundError);
     await service.decideMembershipRequest({
       actorUserId: leader.id,
       requestId: request.id,
