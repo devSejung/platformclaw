@@ -88,6 +88,15 @@ describe("createQaSmokeCiPart", () => {
     const scenarioById = new Map(
       scenarioPack.scenarios.map((scenario) => [scenario.id, scenario] as const),
     );
+    const selectedScenarios = scenarioIds.map((scenarioId) =>
+      expectDefined(scenarioById.get(scenarioId), `selected smoke scenario ${scenarioId}`),
+    );
+    expect(selectedScenarios.some((scenario) => scenario.execution.kind === "playwright")).toBe(
+      false,
+    );
+    expect(
+      selectedScenarios.some((scenario) => (scenario.execution.path ?? "").includes("docker")),
+    ).toBe(false);
     const smokeSelection = resolveQaProfileScenarios({
       profile: "smoke-ci",
       providerMode: "mock-openai",
