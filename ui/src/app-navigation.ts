@@ -182,7 +182,10 @@ export function settingsSearchTextMatches(value: string, query: string): boolean
 // Management surfaces (sessions, worktrees, activity, memory import) are
 // workspace destinations, not settings; model setup is a subpage of Models.
 export const SETTINGS_NAVIGATION_GROUPS = [
-  { labelKey: null, routes: ["custodian", "profile", "appearance", "notifications"] },
+  {
+    labelKey: null,
+    routes: ["custodian", "profile", "credentials", "appearance", "notifications"],
+  },
   {
     labelKey: "nav.settingsGroupConnections",
     routes: ["connection", "channels", "communications", "talk", "nodes"],
@@ -244,6 +247,7 @@ const NAVIGATION_ICONS: NavigationItem = {
   dashboard: "layoutDashboard",
   dashboards: "layoutDashboard",
   custodian: "lobster",
+  credentials: "key",
   config: "settings",
   profile: "circleUser",
   communications: "send",
@@ -354,6 +358,10 @@ const NAVIGATION_COPY: Record<NavigationRouteId, { titleKey: string; subtitleKey
   dashboard: { titleKey: "tabs.chat", subtitleKey: "subtitles.chat" },
   dashboards: { titleKey: "tabs.dashboards", subtitleKey: "subtitles.dashboards" },
   custodian: { titleKey: "tabs.custodian", subtitleKey: "subtitles.custodian" },
+  credentials: {
+    titleKey: "platformClaw.execCredentials.pageTitle",
+    subtitleKey: "platformClaw.execCredentials.intro",
+  },
   config: { titleKey: "nav.settings", subtitleKey: "subtitles.config" },
   profile: { titleKey: "tabs.profile", subtitleKey: "subtitles.profile" },
   communications: {

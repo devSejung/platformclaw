@@ -81,7 +81,116 @@ export type PlatformClawExecutionDependencies = {
   createTerminalProcess: (
     target: Readonly<AssignedVmTargetSnapshot>,
   ) => Promise<SandboxBackendTerminalProcess>;
+  resolveExecCredentials: (agentId: string) => Promise<Record<string, string>>;
 };
+
+const EXEC_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
+
+function shellEscape(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function encodeCredentialFrame(credentials: Record<string, string>): string {
+  const lines = Object.entries(credentials).map(
+    ([name, value]) => `${name} ${Buffer.from(value, "utf8").toString("base64")}`,
+  );
+  return `${lines.join("\n")}\n.\n`;
+}
+
+function remoteCredentialWrapper(remoteCommand: string): string {
+  const script = [
+    "set -e",
+    "while IFS=' ' read -r pc_name pc_value; do",
+    '  [ "$pc_name" = . ] && break',
+    '  pc_decoded=$(printf %s "$pc_value" | base64 -d)',
+    '  export "$pc_name=$pc_decoded"',
+    "done",
+    `exec /bin/sh -c ${shellEscape(remoteCommand)}`,
+  ].join("\n");
+  return `/bin/sh -c ${shellEscape(script)}`;
+}
+
+function validateCredentials(value: Record<string, string>): Record<string, string> {
+  const entries = Object.entries(value);
+  if (entries.length > 32) {
+    throw new Error("exec credential response exceeded the variable limit");
+  }
+  let bytes = 0;
+  for (const [name, secret] of entries) {
+    bytes += Buffer.byteLength(secret, "utf8");
+    if (
+      !EXEC_ENV_NAME_PATTERN.test(name) ||
+      !secret ||
+      secret.includes("\0") ||
+      secret.includes("\r") ||
+      secret.includes("\n") ||
+      Buffer.byteLength(secret, "utf8") > 32 * 1024
+    ) {
+      throw new Error("exec credential response is invalid");
+    }
+  }
+  if (bytes > 128 * 1024) {
+    throw new Error("exec credential response exceeded the aggregate limit");
+  }
+  return value;
+}
+
+function withPersonalExecCredentials(
+  handle: SandboxBackendHandle,
+  params: {
+    agentId: string;
+    targetKind: PlatformClawExecutionTargetSnapshot["kind"];
+    resolve: PlatformClawExecutionDependencies["resolveExecCredentials"];
+  },
+): SandboxBackendHandle {
+  return {
+    ...handle,
+    buildExecSpec: async (execParams) => {
+      const credentials = validateCredentials(await params.resolve(params.agentId));
+      if (Object.keys(credentials).length === 0) {
+        return await handle.buildExecSpec(execParams);
+      }
+      if (params.targetKind === "platform_server") {
+        const spec = await handle.buildExecSpec({
+          ...execParams,
+          env: { ...execParams.env, ...credentials },
+        });
+        const argv = spec.argv.slice();
+        for (let index = 0; index < argv.length - 1; index += 1) {
+          if (argv[index] !== "-e") {
+            continue;
+          }
+          const assignment = argv[index + 1]!;
+          const separator = assignment.indexOf("=");
+          const name = separator === -1 ? assignment : assignment.slice(0, separator);
+          if (Object.hasOwn(credentials, name)) {
+            argv[index + 1] = name;
+          }
+        }
+        return { ...spec, argv, env: { ...spec.env, ...credentials } };
+      }
+      const spec = await handle.buildExecSpec(execParams);
+      const argv = spec.argv.slice();
+      const remoteCommand = argv.at(-1);
+      if (!remoteCommand) {
+        throw new Error("assigned VM exec command is missing");
+      }
+      argv[argv.length - 1] = remoteCredentialWrapper(remoteCommand);
+      // Credential setup uses stdin before the command. Disable the remote TTY
+      // so terminal echo cannot disclose the authenticated setup frame.
+      const ttyIndex = argv.indexOf("-tt");
+      if (ttyIndex >= 0) {
+        argv.splice(ttyIndex, 5, "-T", "-o", "RequestTTY=no");
+      }
+      return {
+        ...spec,
+        argv,
+        stdinMode: "pipe-open",
+        stdinPrefix: encodeCredentialFrame(credentials),
+      };
+    },
+  };
+}
 
 type ExecutionTimingOptions = {
   logTiming?: (message: string) => void;
@@ -248,7 +357,11 @@ export function createPlatformClawExecutionBackendFactory(
     );
 
     return {
-      ...handle,
+      ...withPersonalExecCredentials(handle, {
+        agentId,
+        targetKind: target.kind,
+        resolve: dependencies.resolveExecCredentials,
+      }),
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
       ...(assignedVmEnvironment ? { env: assignedVmEnvironment } : {}),
       capabilities: {
@@ -407,6 +520,7 @@ export function createUnavailableExecutionDependencies(): PlatformClawExecutionD
     createSkillWorkshopTarget: unavailable,
     createSkillInstallTarget: unavailable,
     createTerminalProcess: unavailable,
+    resolveExecCredentials: unavailable,
   };
 }
 

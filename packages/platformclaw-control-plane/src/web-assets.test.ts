@@ -4,11 +4,13 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parsePlatformClawWebDescriptor } from "../../../ui/src/platformclaw/web-contract.js";
 import {
   createPlatformClawWebAssetHandler,
   PLATFORMCLAW_WEB_APP_PATH,
   PLATFORMCLAW_WEB_ASSET_PREFIX,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
+  PLATFORMCLAW_WEB_DESCRIPTOR,
   PLATFORMCLAW_WEB_LOGIN_PATH,
 } from "./web-assets.js";
 
@@ -102,6 +104,12 @@ async function serveApplicationFixture(
 }
 
 describe("createPlatformClawWebAssetHandler", () => {
+  it("keeps the server descriptor compatible with the Control UI parser", () => {
+    expect(parsePlatformClawWebDescriptor(PLATFORMCLAW_WEB_DESCRIPTOR)).toEqual(
+      PLATFORMCLAW_WEB_DESCRIPTOR,
+    );
+  });
+
   it("serves the login contract path with document security headers", async () => {
     const fixture = await serveFixture(fixtureRoot());
     try {
@@ -179,7 +187,7 @@ describe("createPlatformClawWebAssetHandler", () => {
       expect(body).toContain("&quot;enabledRoutes&quot;");
       expect(body).toContain("&quot;vocEnabled&quot;:true");
       expect(body).toContain(
-        "&quot;enabledRoutes&quot;:[&quot;chat&quot;,&quot;new-session&quot;,&quot;activity&quot;,&quot;sessions&quot;,&quot;usage&quot;,&quot;agents&quot;,&quot;tasks&quot;,&quot;cron&quot;,&quot;appearance&quot;,&quot;memory&quot;,&quot;profile&quot;,&quot;notifications&quot;,&quot;about&quot;,&quot;skills&quot;,&quot;skill-workshop&quot;,&quot;skill-hub&quot;,&quot;plugins&quot;,&quot;mcp&quot;]",
+        "&quot;enabledRoutes&quot;:[&quot;chat&quot;,&quot;new-session&quot;,&quot;activity&quot;,&quot;sessions&quot;,&quot;usage&quot;,&quot;agents&quot;,&quot;tasks&quot;,&quot;cron&quot;,&quot;appearance&quot;,&quot;credentials&quot;,&quot;memory&quot;,&quot;profile&quot;,&quot;notifications&quot;,&quot;about&quot;,&quot;skills&quot;,&quot;skill-workshop&quot;,&quot;skill-hub&quot;,&quot;plugins&quot;,&quot;mcp&quot;]",
       );
       expect(body).not.toContain("agentId");
       expect(body).not.toContain("sessionKey");

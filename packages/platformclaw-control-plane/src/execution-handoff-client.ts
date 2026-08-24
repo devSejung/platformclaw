@@ -5,6 +5,7 @@ import {
   PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH,
   PLATFORMCLAW_EXECUTION_GRANT_PATH,
   PLATFORMCLAW_EXECUTION_TARGET_PATH,
+  PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH,
   PLATFORMCLAW_MCP_CONNECTION_PATH,
 } from "./execution-handoff-http.js";
 import type {
@@ -12,7 +13,7 @@ import type {
   ExecutionTargetSnapshot,
 } from "./execution-handoff-service.js";
 
-const MAX_RESPONSE_BYTES = 8 * 1024;
+const MAX_RESPONSE_BYTES = 512 * 1024;
 
 function validateSocketPath(socketPath: string): string {
   const normalized = socketPath.trim();
@@ -87,6 +88,13 @@ export class ExecutionHandoffClient {
       serverName,
       serverUrl,
     })) as { headers: Record<string, string>; revision: number; expiresAt?: number };
+  }
+
+  async resolveExecCredentials(agentId: string): Promise<Record<string, string>> {
+    return (await this.post(PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH, { agentId })) as Record<
+      string,
+      string
+    >;
   }
 
   private async post(pathname: string, body: unknown): Promise<unknown> {

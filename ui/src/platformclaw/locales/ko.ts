@@ -1,4 +1,21 @@
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.execCredentials.pageTitle": "Credentials",
+  "platformClaw.execCredentials.title": "개인 실행 Credential",
+  "platformClaw.execCredentials.intro":
+    "저장한 값은 내 개인 Agent의 모든 Basic·VM exec에 환경변수로 전달됩니다. 값은 다시 표시되지 않습니다.",
+  "platformClaw.execCredentials.adminTitle": "허용 환경변수",
+  "platformClaw.execCredentials.adminIntro":
+    "관리자는 사용자가 등록할 수 있는 환경변수 이름만 관리합니다.",
+  "platformClaw.execCredentials.configured": "등록됨",
+  "platformClaw.execCredentials.notConfigured": "미등록",
+  "platformClaw.execCredentials.valuePlaceholder": "새 값 입력",
+  "platformClaw.execCredentials.save": "저장",
+  "platformClaw.execCredentials.remove": "삭제",
+  "platformClaw.execCredentials.add": "추가",
+  "platformClaw.execCredentials.empty": "관리자가 허용한 환경변수가 없습니다.",
+  "platformClaw.execCredentials.saved": "저장했습니다.",
+  "platformClaw.execCredentials.failed": "Credential 요청에 실패했습니다.",
+  "platformClaw.execCredentials.sessionExpired": "세션이 만료되었습니다. 다시 로그인하세요.",
   "platformClaw.quickActions.label": "PlatformClaw 빠른 실행",
   "platformClaw.quickActions.voc": "VOC",
   "platformClaw.quickActions.guide": "가이드",

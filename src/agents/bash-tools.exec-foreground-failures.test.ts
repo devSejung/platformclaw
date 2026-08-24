@@ -55,15 +55,16 @@ function requireFailedDetails(
 }
 
 function mockSuccessfulSpawn(stdout = "ok\n") {
+  const stdin = {
+    write: vi.fn(),
+    end: vi.fn(),
+    destroy: vi.fn(),
+  };
   supervisorMock.spawn.mockImplementationOnce(async (input: SpawnInput) => ({
     runId: input.runId ?? "call-success",
     pid: 1234,
     startedAtMs: Date.now(),
-    stdin: {
-      write: vi.fn(),
-      end: vi.fn(),
-      destroy: vi.fn(),
-    },
+    stdin,
     wait: vi.fn(async () => ({
       reason: "exit" as const,
       exitCode: 0,
@@ -76,6 +77,7 @@ function mockSuccessfulSpawn(stdout = "ok\n") {
     })),
     cancel: vi.fn(),
   }));
+  return stdin;
 }
 
 function createBackendSandboxTool(params: {
@@ -84,11 +86,13 @@ function createBackendSandboxTool(params: {
   finalizeExec?: BashSandboxConfig["finalizeExec"];
   discardPreparedWorkdir?: BashSandboxConfig["discardPreparedWorkdir"];
   finalizeToken?: unknown;
+  stdinPrefix?: string;
 }) {
   const buildExecSpec = vi.fn<NonNullable<BashSandboxConfig["buildExecSpec"]>>(async (input) => ({
     argv: ["remote-shell", input.command],
     env: {},
     stdinMode: "pipe-open" as const,
+    ...(params.stdinPrefix === undefined ? {} : { stdinPrefix: params.stdinPrefix }),
     ...(params.finalizeToken === undefined ? {} : { finalizeToken: params.finalizeToken }),
   }));
   const validateWorkdir = vi.fn<NonNullable<BashSandboxConfig["validateWorkdir"]>>(
@@ -406,6 +410,20 @@ describe("exec foreground failures", () => {
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
     }
+  });
+
+  it("writes a backend setup frame before exposing the exec stream", async () => {
+    const workspaceDir = tempDirs.make("openclaw-sandbox-workdir-");
+    const prefix = "trusted-prefix\n";
+    const { tool } = createBackendSandboxTool({ workspaceDir, stdinPrefix: prefix });
+    const stdin = mockSuccessfulSpawn();
+
+    const result = await tool.execute("call-backend-setup-frame", {
+      command: "echo ok",
+    });
+
+    expect(result.details.status).toBe("completed");
+    expect(stdin.write).toHaveBeenCalledWith(prefix);
   });
 
   it("finalizes backend sandbox exec tokens when process spawn fails", async () => {

@@ -253,6 +253,7 @@ export function renderApplicationShell(host: ShellViewHost) {
         onRetryConnect: () => context.gateway.connect(),
         onNavigate: (routeId, options) => host.navigate(routeId, options),
         onPreload: (routeId) => context.preload(routeId),
+        isRouteEnabled: (routeId) => host.enabledRouteIds().includes(routeId),
         onSearchQueryChange: (nextQuery) => {
           void host.handleSettingsSearchQueryChange(nextQuery);
         },

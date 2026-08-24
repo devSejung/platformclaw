@@ -32,6 +32,7 @@ $runtimeEnvironmentNames = @(
     "PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE",
     "PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS",
     "PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE",
+    "PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE",
     "PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL",
     "PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL",
     "PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE"
@@ -300,6 +301,7 @@ function Initialize-Runtime {
 
     $tokenFile = Join-Path $runtimeRoot "gateway-token"
     $executionServiceTokenFile = Join-Path $runtimeRoot "execution-service-token"
+    $knoxServiceTokenFile = Join-Path $runtimeRoot "knox-service-token"
     $adminFile = Join-Path $runtimeRoot "initial-admin-ids"
     $credentialKeyFile = Join-Path $runtimeRoot "ssh-credential-master-key"
     $gatewayServiceIdentityFile = Join-Path $runtimeRoot "gateway-service-identity.pem"
@@ -309,6 +311,9 @@ function Initialize-Runtime {
     }
     if (-not (Test-Path $executionServiceTokenFile)) {
         Write-Utf8NoBom $executionServiceTokenFile (New-RandomToken)
+    }
+    if (-not (Test-Path $knoxServiceTokenFile)) {
+        Write-Utf8NoBom $knoxServiceTokenFile (New-RandomToken)
     }
     Write-Utf8NoBom $adminFile "admin.user"
     if (-not (Test-Path $credentialKeyFile)) {
@@ -328,7 +333,8 @@ function Initialize-Runtime {
   },
   "plugins": {
     "entries": {
-      "admin-http-rpc": { "enabled": true }
+      "admin-http-rpc": { "enabled": true },
+      "platformclaw-user-mcp": { "enabled": true }
     }
   }
 }
@@ -355,6 +361,7 @@ function Initialize-Runtime {
     $env:PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE = $credentialKeyFile
     $env:PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = "\\.\pipe\platformclaw-credential-broker-$Port"
     $env:PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = $executionServiceTokenFile
+    $env:PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE = $knoxServiceTokenFile
     $env:PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL = "http://127.0.0.1:$EmployeeAuthPort/login"
     $adssoSecretFile = Join-Path $controlRoot "employee-auth-adsso-secret"
     if (-not (Test-Path $adssoSecretFile)) {
@@ -487,7 +494,7 @@ function Start-PlatformClaw {
         # A first start after an upstream sync can verify and migrate every existing agent DB
         # before opening the HTTP listener. Keep the bound finite, but do not misreport that
         # expected upgrade work as a dead Gateway.
-        Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway" -TimeoutSeconds 240
+        Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway" -TimeoutSeconds 360
 
         $control = Start-VisibleShell "PlatformClaw - Control/UI" $sourceRoot "corepack pnpm platformclaw:control"
         $startedProcesses += $control

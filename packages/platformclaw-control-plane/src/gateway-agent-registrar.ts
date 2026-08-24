@@ -3,7 +3,15 @@ import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
 import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
 type AgentSummary = { id: string; workspace?: string };
-type AgentsListResult = { agents?: AgentSummary[] };
+type AgentConfigStatusResult =
+  | { ok: true; configured: false; agentId: string }
+  | {
+      ok: true;
+      configured: true;
+      agentId: string;
+      workspace: string;
+      matches: boolean;
+    };
 type AgentCreateResult = { ok: true; agentId: string; workspace: string };
 
 const CONFIG_APPLY_RETRY_DELAYS_MS = [
@@ -14,20 +22,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-}
-
-function isReadyAgentRuntimeStatus(value: unknown, agentId: string, workspace: string): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const status = value as Record<string, unknown>;
-  return (
-    status.ok === true &&
-    status.ready === true &&
-    status.agentId === agentId &&
-    typeof status.workspace === "string" &&
-    path.resolve(status.workspace) === workspace
-  );
 }
 
 /** Registers control-plane-owned agents through the Gateway's serialized config API. */
@@ -65,7 +59,6 @@ export class GatewayAgentRegistrar {
     const current = await this.getConfiguredAgentWhenAvailable(agentId);
     if (current) {
       this.verifyWorkspace(agentId, current.workspace, workspace);
-      await this.waitForAgentRuntime(agentId, workspace);
       return workspace;
     }
     try {
@@ -98,7 +91,6 @@ export class GatewayAgentRegistrar {
       }
       if (existing) {
         this.verifyWorkspace(agentId, existing.workspace, workspace);
-        await this.waitForAgentRuntime(agentId, workspace);
         return workspace;
       }
       if (error.code === "INVALID_REQUEST") {
@@ -113,7 +105,6 @@ export class GatewayAgentRegistrar {
         const configured = await this.getConfiguredAgent(agentId);
         if (configured) {
           this.verifyWorkspace(agentId, configured.workspace, workspace);
-          await this.waitForAgentRuntime(agentId, workspace);
           return workspace;
         }
       } catch (error) {
@@ -126,12 +117,25 @@ export class GatewayAgentRegistrar {
   }
 
   private async getConfiguredAgent(agentId: string): Promise<AgentSummary | undefined> {
-    const result = await this.rpc.call<AgentsListResult>("agents.list", {});
-    const agents = result.agents ?? [];
-    if (!Array.isArray(agents)) {
-      throw new Error("Gateway agents.list returned an invalid agents list");
+    const workspace = this.workspaceForAgent(agentId);
+    const result = await this.rpc.call<AgentConfigStatusResult>("platformclaw.agent.configStatus", {
+      agentId,
+      workspace,
+    });
+    if (!result.ok || result.agentId !== agentId || typeof result.configured !== "boolean") {
+      throw new Error("Gateway agent config status returned an invalid payload");
     }
-    return agents.find((agent) => agent.id === agentId);
+    if (!result.configured) {
+      return undefined;
+    }
+    if (
+      !result.matches ||
+      typeof result.workspace !== "string" ||
+      path.resolve(result.workspace) !== workspace
+    ) {
+      throw new Error(`Gateway agent workspace mismatch: ${agentId}`);
+    }
+    return { id: agentId, workspace: result.workspace };
   }
 
   private async getConfiguredAgentWhenAvailable(
@@ -156,28 +160,5 @@ export class GatewayAgentRegistrar {
     if (!actual || path.resolve(actual) !== expected) {
       throw new Error(`Gateway agent workspace mismatch: ${agentId}`);
     }
-  }
-
-  private async waitForAgentRuntime(agentId: string, workspace: string): Promise<void> {
-    for (const retryDelayMs of CONFIG_APPLY_RETRY_DELAYS_MS) {
-      if (retryDelayMs > 0) {
-        await delay(retryDelayMs);
-      }
-      try {
-        const status = await this.rpc.call<unknown>("platformclaw.agent.runtimeStatus", {
-          agentId,
-          workspace,
-        });
-        if (!isReadyAgentRuntimeStatus(status, agentId, workspace)) {
-          throw new Error("Gateway agent runtime status returned an invalid payload");
-        }
-        return;
-      } catch (error) {
-        if (!(error instanceof GatewayAdminRpcError) || error.code !== "UNAVAILABLE") {
-          throw error;
-        }
-      }
-    }
-    throw new Error("Gateway agent runtime configuration did not become active");
   }
 }

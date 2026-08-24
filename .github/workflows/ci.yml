@@ -2181,7 +2181,10 @@ jobs:
     needs: [preflight]
     if: ${{ !cancelled() && always() && needs.preflight.outputs.run_check == 'true' }}
     runs-on: ${{ github.event_name == 'workflow_dispatch' && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw') && (matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04') }}
-    timeout-minutes: 20
+    # Lint falls back from a 32-vCPU Blacksmith runner to 4-vCPU hosted Linux
+    # for downstream repos, forks, and manual runs. Its memory-bounded shards
+    # can finish cleanly after the shared 20-minute budget on that runner.
+    timeout-minutes: ${{ matrix.task == 'lint' && (github.event_name == 'workflow_dispatch' || github.repository != 'openclaw/openclaw' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 30 || 20 }}
     strategy:
       fail-fast: false
       max-parallel: 12

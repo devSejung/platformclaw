@@ -12,6 +12,7 @@ import {
   pathForAgentPanel,
   pathForRoute,
   pluginsHubTabFromPath,
+  routePageSpec,
   routeIdFromPath,
   sessionRouteNamespaceFromPath,
   workboardBoardIdFromPath,
@@ -113,10 +114,24 @@ export function createApplicationRouter(
   routeOverrides: Readonly<Partial<Record<RouteId, ApplicationRouteOverride>>> = {},
 ): ApplicationRouter {
   const enabled = new Set(normalizeEnabledRouteIds(enabledRouteIds));
+  const builtInRouteIds = new Set<RouteId>(appRoutes.map((route) => route.id));
+  const embeddedRoutes = [...enabled].flatMap((routeId) => {
+    if (builtInRouteIds.has(routeId)) {
+      return [];
+    }
+    const override = routeOverrides[routeId];
+    if (!override?.component) {
+      return [];
+    }
+    return [{ ...routePageSpec(routeId), ...override, component: override.component } as AppRoute];
+  });
   const router = createRouter<RouteId, ApplicationContext<RouteId>, AppRouteModule>({
-    routes: appRoutes
-      .filter((route) => enabled.has(route.id))
-      .map((route) => Object.assign({}, route, routeOverrides[route.id])) as readonly AppRoute[],
+    routes: [
+      ...appRoutes
+        .filter((route) => enabled.has(route.id))
+        .map((route) => Object.assign({}, route, routeOverrides[route.id])),
+      ...embeddedRoutes,
+    ] as readonly AppRoute[],
   });
   // The shared router intentionally matches exact paths only. Workboard ids,
   // hub tabs, and session refs are runtime data, so the app owns those paths.

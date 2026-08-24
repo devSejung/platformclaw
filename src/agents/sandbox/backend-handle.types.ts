@@ -16,6 +16,8 @@ export type SandboxBackendExecSpec = {
   argv: string[];
   env: NodeJS.ProcessEnv;
   stdinMode: "pipe-open" | "pipe-closed";
+  /** Trusted text written before model/user stdin; used by transports with an authenticated setup frame. */
+  stdinPrefix?: string;
   finalizeToken?: unknown;
 };
 

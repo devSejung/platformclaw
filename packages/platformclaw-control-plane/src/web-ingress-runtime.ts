@@ -18,6 +18,7 @@ import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import { JiraVocService, type JiraVocConfig } from "./browser-voc-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
 import { EmployeeSsoService, type EmployeeSsoConfig } from "./employee-sso.js";
+import { ExecCredentialService } from "./exec-credential-service.js";
 import {
   deriveExecutionHandoffAddress,
   PlatformClawExecutionHandoffServer,
@@ -62,6 +63,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
     | "tokenFactory"
     | "sshCredentialCipher"
     | "mcpCredentialCipher"
+    | "execCredentialCipher"
   >;
   gatewayClient: PlatformClawGatewayRuntimeClientOptions;
   mediaGateway?: {
@@ -153,6 +155,14 @@ export function createPlatformClawWebIngressRuntime(
         ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
       })
     : undefined;
+  const execCredentialService = auth.execCredentialCipher
+    ? new ExecCredentialService({
+        authService: auth.service,
+        store: auth.store,
+        cipher: auth.execCredentialCipher,
+        ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+      })
+    : undefined;
   if (options.executionServiceToken && !credentialBroker) {
     throw new Error("execution handoff requires a credential broker");
   }
@@ -171,6 +181,12 @@ export function createPlatformClawWebIngressRuntime(
               ? {
                   resolveMcpConnection: (agentId: string, serverName: string, serverUrl: string) =>
                     mcpService.resolveForAgent(agentId, serverName, serverUrl),
+                }
+              : {}),
+            ...(execCredentialService
+              ? {
+                  resolveExecCredentials: (agentId: string) =>
+                    execCredentialService.resolveForAgent(agentId),
                 }
               : {}),
             searchOrganizationMemory: (params) => auth.store.searchOrganizationMemory(params),
@@ -292,6 +308,7 @@ export function createPlatformClawWebIngressRuntime(
     executionService: employeeExecution,
     vmAdministrationService: vmAdministration,
     mcpAdministrationService: mcpAdministration,
+    ...(execCredentialService ? { execCredentialService } : {}),
     ...(vocService ? { vocService } : {}),
     ...(skillHub ? { skillHubService: skillHub } : {}),
     ...(knoxRouting ? { knoxRouting } : {}),

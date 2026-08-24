@@ -172,6 +172,10 @@ export class SqliteControlPlaneStore
           this.db,
           this.query.deleteFrom("encrypted_user_mcp_credentials").where("user_id", "=", target.id),
         );
+        executeSync(
+          this.db,
+          this.query.deleteFrom("encrypted_user_exec_credentials").where("user_id", "=", target.id),
+        );
       }
       this.insertAudit(
         params.actorUserId,

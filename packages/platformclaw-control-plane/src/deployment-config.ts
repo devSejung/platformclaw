@@ -2,6 +2,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { JiraVocConfig } from "./browser-voc-http.js";
 import { normalizeEmployeeSsoLoginUrl, type EmployeeSsoConfig } from "./employee-sso.js";
+import { ExecCredentialCipher } from "./exec-credential-crypto.js";
 import { parseJiraVocConfig } from "./jira-voc-config.js";
 import { McpCredentialCipher } from "./mcp-credential-crypto.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
@@ -53,6 +54,7 @@ export type PlatformClawDeploymentConfig = {
   gatewayServiceIdentityFile: string;
   sshCredentialCipher: SshCredentialCipher;
   mcpCredentialCipher: McpCredentialCipher;
+  execCredentialCipher: ExecCredentialCipher;
   credentialBrokerAddress: string;
   executionServiceToken: string;
   knoxServiceToken: string;
@@ -316,6 +318,7 @@ export function loadPlatformClawDeploymentConfig(
     ),
     sshCredentialCipher: SshCredentialCipher.fromBase64(credentialMasterKey),
     mcpCredentialCipher: McpCredentialCipher.fromBase64(credentialMasterKey),
+    execCredentialCipher: ExecCredentialCipher.fromBase64(credentialMasterKey),
     credentialBrokerAddress: requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.credentialBrokerAddress),
     executionServiceToken: readServiceToken(
       requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.executionServiceTokenFile),
