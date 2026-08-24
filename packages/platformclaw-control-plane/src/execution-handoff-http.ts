@@ -15,6 +15,8 @@ export const PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH =
 export const PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH =
   "/platformclaw/internal/execution/change-target";
 export const PLATFORMCLAW_MCP_CONNECTION_PATH = "/platformclaw/internal/mcp/connection";
+export const PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH =
+  "/platformclaw/internal/execution/credentials";
 export const PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH =
   "/platformclaw/internal/memory/organization/search";
 export const PLATFORMCLAW_ORGANIZATION_MEMORY_GET_PATH =
@@ -35,6 +37,7 @@ type ExecutionHandoffHandler = Pick<
     revision: number;
     expiresAt?: number;
   } | null>;
+  resolveExecCredentials?: (agentId: string) => Promise<Record<string, string>>;
   searchOrganizationMemory?: (params: {
     agentId: string;
     query: string;
@@ -302,6 +305,7 @@ export class PlatformClawExecutionHandoffServer {
         pathname !== PLATFORMCLAW_EXECUTION_GRANT_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH &&
+        pathname !== PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH &&
         pathname !== PLATFORMCLAW_MCP_CONNECTION_PATH &&
         pathname !== PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH &&
         pathname !== PLATFORMCLAW_ORGANIZATION_MEMORY_GET_PATH
@@ -311,6 +315,14 @@ export class PlatformClawExecutionHandoffServer {
       }
       const body = objectBody(await readJson(req));
       const agentId = requestAgentId(body);
+      if (pathname === PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH) {
+        if (!this.service.resolveExecCredentials) {
+          sendJson(res, 503, { error: "exec credentials unavailable" });
+          return;
+        }
+        sendJson(res, 200, await this.service.resolveExecCredentials(agentId));
+        return;
+      }
       if (pathname === PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH) {
         const query = typeof body.query === "string" ? body.query.trim() : "";
         const maxResults = body.maxResults;

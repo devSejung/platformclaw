@@ -116,9 +116,13 @@ describe("PlatformClaw Windows preview config migration", () => {
       script.indexOf('$auth = Start-VisibleShell "PlatformClaw - employee auth mock"'),
     );
     expect(script).toContain('Write-Step "Startup failed; closing processes opened by this run"');
+    expect(script).toContain('"platformclaw-user-mcp": { "enabled": true }');
+    expect(script).toContain('"PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE"');
+    expect(script).toContain('$knoxServiceTokenFile = Join-Path $runtimeRoot "knox-service-token"');
+    expect(script).toContain("$env:PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE = $knoxServiceTokenFile");
     expect(script).toContain("Stop-ProcessTree -ProcessId $startedProcesses[$index].Id");
     expect(script).toContain(
-      'Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway" -TimeoutSeconds 240',
+      'Wait-HttpEndpoint "http://127.0.0.1:$GatewayPort/healthz" "Gateway" -TimeoutSeconds 360',
     );
   });
 });

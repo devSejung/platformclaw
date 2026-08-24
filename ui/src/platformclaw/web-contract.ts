@@ -11,6 +11,9 @@ const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
 export const PLATFORMCLAW_EXECUTION_API_PATH = "/platformclaw/api/execution";
 export const PLATFORMCLAW_MCP_API_PATH = "/platformclaw/api/mcp";
 export const PLATFORMCLAW_MCP_ADMIN_API_PATH = "/platformclaw/api/admin/mcp";
+export const PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH = "/platformclaw/api/exec-credentials";
+export const PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH =
+  "/platformclaw/api/admin/exec-credentials";
 export const PLATFORMCLAW_VM_ADMIN_API_PATH = "/platformclaw/api/admin/vm";
 export const PLATFORMCLAW_VOC_API_PATH = "/platformclaw/api/voc";
 export const PLATFORMCLAW_SKILL_HUB_API_PATH = "/platformclaw/api/skill-hub";
@@ -26,6 +29,7 @@ const PLATFORMCLAW_ENABLED_ROUTES = [
   "tasks",
   "cron",
   "appearance",
+  "credentials",
   "memory",
   "profile",
   "notifications",

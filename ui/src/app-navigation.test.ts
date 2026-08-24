@@ -212,6 +212,7 @@ describe("navigationIconForRoute", () => {
       "skill-workshop": "wrench",
       nodes: "monitorSmartphone",
       profile: "circleUser",
+      credentials: "key",
       communications: "send",
       appearance: "palette",
       lobsterdex: "bug",
@@ -333,6 +334,7 @@ describe("titleForRoute", () => {
       "skill-workshop": "Skill Workshop",
       nodes: "Devices",
       profile: "Profile",
+      credentials: "Credentials",
       communications: "Communications",
       appearance: "Appearance",
       lobsterdex: "Lobsterdex",
@@ -382,6 +384,8 @@ describe("subtitleForRoute", () => {
       "skill-workshop": "Review, refine, and apply proposals before they become live skills.",
       nodes: "Paired devices, pairing approvals, and exec bindings.",
       profile: "Your display name, avatar, and identity on this gateway.",
+      credentials:
+        "Saved values are injected as environment variables into every Basic and VM exec for your personal Agent. Values are never shown again.",
       communications: "Messages and text-to-speech settings.",
       appearance: "Theme, UI, and setup wizard settings.",
       lobsterdex: "Every lobster palette that has visited this browser.",
@@ -802,6 +806,7 @@ describe("SIDEBAR_NAV_ROUTES", () => {
     expect(settingsRoutes).toEqual([
       "custodian",
       "profile",
+      "credentials",
       "appearance",
       "notifications",
       "connection",
@@ -830,7 +835,13 @@ describe("SIDEBAR_NAV_ROUTES", () => {
     expect(new Set(settingsRoutes).size).toBe(settingsRoutes.length);
     const [firstGroup] = SETTINGS_NAVIGATION_GROUPS;
     expect(firstGroup?.labelKey).toBeNull();
-    expect(firstGroup?.routes).toEqual(["custodian", "profile", "appearance", "notifications"]);
+    expect(firstGroup?.routes).toEqual([
+      "custodian",
+      "profile",
+      "credentials",
+      "appearance",
+      "notifications",
+    ]);
     for (const group of SETTINGS_NAVIGATION_GROUPS.slice(1)) {
       expect(group.labelKey).toBeTruthy();
     }

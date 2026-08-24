@@ -590,9 +590,9 @@ jobs:
           }
           // Heavy packaging lanes run only when the diff touches surfaces they
           // exist to prove: test-only diffs cannot change dist bytes, and QA
-          // smoke only sees changes on its scenario surface or inside the
-          // packaged CLI's import graph. QA gating is diff-based, so it also
-          // applies when test targeting fell back to the full compact suite.
+          // smoke PR gating is limited to the harness, scenarios, exercised
+          // channels, and lane orchestration. Canonical integration runs remain
+          // full even when changed-test targeting uses a compact plan.
           const changedScopeHasBuildImpact =
             changedNodeTestShards === null ||
             typeof changedNodeTestPlan.hasBuildArtifactAffectingChange !== "function" ||
@@ -1774,7 +1774,6 @@ jobs:
           - name: profile 2/4
             lane: profile-2
             slug: profile-2-of-4
-            docker_cache: true
           - name: profile 3/4
             lane: profile-3
             slug: profile-3-of-4
@@ -1793,29 +1792,12 @@ jobs:
           sticky-disk: ${{ github.event_name != 'workflow_dispatch' && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw') && 'true' || 'false' }}
           use-actions-cache: ${{ github.event_name != 'workflow_dispatch' && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw') && 'false' || 'true' }}
 
-      - name: Set up Blacksmith Docker layer cache
-        if: ${{ matrix.docker_cache == true && github.event_name != 'workflow_dispatch' && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw') }}
-        uses: useblacksmith/setup-docker-builder@6ff44f8e5255f9d8aa31ef22f7e57a2d926b7da0 # v1
-        with:
-          max-cache-size-mb: 800000
-
       - name: Build QA smoke runtime
         env:
           NODE_OPTIONS: --max-old-space-size=8192
         run: |
-          # Pack the public runtime before overlaying private QA artifacts so they cannot leak.
-          unset OPENCLAW_BUILD_PRIVATE_QA
-          node scripts/build-all.mjs qaRuntime
-          pnpm ui:build
-          package_args=(
-            --skip-build
-            --output-dir .artifacts/qa-e2e/smoke-ci-package
-            --output-name openclaw-current.tgz
-          )
-          if grep -Fq -- '--allow-unreleased-changelog' scripts/package-openclaw-for-docker.mjs; then
-            package_args=(--allow-unreleased-changelog "${package_args[@]}")
-          fi
-          node scripts/package-openclaw-for-docker.mjs "${package_args[@]}"
+          # The selected smoke coverage has no Docker or Control UI scenario.
+          # Build only the private runtime; never package a private QA overlay.
           OPENCLAW_BUILD_PRIVATE_QA=1 node scripts/build-all.mjs qaRuntime
 
       - name: Run smoke profile part
@@ -1833,7 +1815,6 @@ jobs:
           export OPENCLAW_QA_REDACT_PUBLIC_METADATA=1
           export OPENCLAW_QA_TRANSPORT_READY_TIMEOUT_MS=180000
           export NODE_OPTIONS=--max-old-space-size=16384
-          export OPENCLAW_CURRENT_PACKAGE_TGZ="$PWD/.artifacts/qa-e2e/smoke-ci-package/openclaw-current.tgz"
           PROFILE_RUNS_TSV="$(
             node --import tsx --input-type=module <<'EOF'
           const smokePlan = await import("./extensions/qa-lab/src/ci-smoke-plan.ts");
@@ -1858,7 +1839,6 @@ jobs:
             // execution kinds. Reuse the current bounded smoke contract and
             // isolate each scenario so one invocation cannot pin a profile part.
             const compatibilityScenarioIds = new Set([
-              "control-ui-chat-flow-playwright",
               "system-agent-ring-zero-setup",
               "gateway-smoke",
               "group-visible-reply-tool",
@@ -1903,6 +1883,23 @@ jobs:
             );
           } else {
             throw new Error("QA smoke plan does not expose a supported CI planner.");
+          }
+          // No public package or Control UI is built above. Fail closed if the
+          // selected profile later grows a scenario that requires either one.
+          const catalog = await import("./extensions/qa-lab/src/scenario-catalog.ts");
+          const scenarioById = new Map(
+            catalog.readQaScenarioPack().scenarios.map((scenario) => [scenario.id, scenario]),
+          );
+          for (const run of runs) {
+            for (const scenarioId of run.scenario_ids) {
+              const scenario = scenarioById.get(scenarioId);
+              const executionPath = scenario?.execution?.path ?? "";
+              if (scenario?.execution?.kind === "playwright" || executionPath.includes("docker")) {
+                throw new Error(
+                  `smoke scenario ${scenarioId} needs a public package or Control UI build; restore that owner before selecting it`,
+                );
+              }
+            }
           }
           for (const run of runs) {
             const scenarioIds = Buffer.from(JSON.stringify(run.scenario_ids)).toString("base64");
@@ -2181,7 +2178,10 @@ jobs:
     needs: [preflight]
     if: ${{ !cancelled() && always() && needs.preflight.outputs.run_check == 'true' }}
     runs-on: ${{ github.event_name == 'workflow_dispatch' && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw') && (matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04') }}
-    timeout-minutes: 20
+    # Lint falls back from a 32-vCPU Blacksmith runner to 4-vCPU hosted Linux
+    # for downstream repos, forks, and manual runs. Its memory-bounded shards
+    # can finish cleanly after the shared 20-minute budget on that runner.
+    timeout-minutes: ${{ matrix.task == 'lint' && (github.event_name == 'workflow_dispatch' || github.repository != 'openclaw/openclaw' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 30 || 20 }}
     strategy:
       fail-fast: false
       max-parallel: 12

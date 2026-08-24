@@ -34,7 +34,7 @@ dispatch.
 | `build-artifacts`                  | Build `dist/`, Control UI, built-CLI smoke checks, startup memory, and embedded built-artifact checks                                                                                                                 | Node-relevant changes                          |
 | `control-ui-i18n`                  | Verify generated Control UI locale bundles, metadata, and translation memory; advisory on automatic runs, blocking on manual release CI                                                                               | Control UI i18n-relevant changes and manual CI |
 | `checks-fast-core`                 | Fast Linux correctness lanes: suppression-baseline max-lines ratchet, bundled + protocol, Bun launcher, and the CI-routing fast task                                                                                  | Node-relevant changes                          |
-| `qa-smoke-ci-profile`              | Self-contained balanced parts of the automatic QA Smoke coverage set; full taxonomy coverage remains available through explicit QA profiles                                                                           | Node-relevant changes                          |
+| `qa-smoke-ci-profile`              | Balanced automatic QA Smoke parts; each builds one private QA runtime and fails closed if its selected scenarios require a public package or Control UI build                                                         | QA-owned PR changes and full integration runs  |
 | `checks-fast-contracts-plugins-*`  | Two weighted plugin contract shards                                                                                                                                                                                   | Node-relevant changes                          |
 | `checks-fast-contracts-channels-*` | Two weighted channel contract shards                                                                                                                                                                                  | Node-relevant changes                          |
 | `checks-node-*`                    | Changed-target Node tests on pull requests; full core shards on `main`, manual, release, and broad-fallback runs                                                                                                      | Node-relevant changes                          |
@@ -71,6 +71,17 @@ A later pending or failed rerun does not erase an earlier successful result for
 that unchanged head during the freshness window.
 
 The default-branch ruleset requires the GitHub Actions-owned `openclaw/ci-gate` check. Repository maintainers and admins have an audited break-glass bypass intended only for signed direct fast-forward landings; the organization ruleset still blocks deletion and non-fast-forward updates. Normal pull-request merges should continue to use the gate rather than bypass failed CI. The separate strict App-owned test-merge check still binds the head to current `main`.
+
+QA Smoke pull-request selection is intentionally narrower than integration
+selection. Only QA-owned surfaces (the qa-lab harness, scenario data, Matrix or
+Telegram smoke channels, packaging scripts, and the QA gate itself) start the
+four profile jobs on a PR. Broad runtime, package, dependency, and Control UI
+changes still receive the full QA profile set on canonical `main` pushes and
+manual release validation. Each selected profile performs one private
+`qaRuntime` build; it does not repeat the public build, Control UI performance
+budget, or package step. The run fails closed if the selected profile later
+adds a Playwright/Control UI or Docker scenario that needs those omitted
+artifacts.
 
 GitHub may mark superseded pull-request jobs as `cancelled` when a newer head lands. Treat that as CI noise unless the newest run for the same PR is also failing. Canonical `main` runs are not canceled after admission; when merge traffic arrives, GitHub replaces only the older pending run with the newest tip. Matrix jobs use `fail-fast: false`, and `build-artifacts` reports embedded channel, core-support-boundary, and gateway-watch failures directly instead of queuing tiny verifier jobs. The automatic CI concurrency key is versioned (`CI-v7-*`) so a GitHub-side zombie in an old queue group cannot indefinitely block newer main runs. Manual full-suite runs use `CI-manual-v1-*` and do not cancel in-progress runs. The plugin-list startup-memory guard keeps a 350 MiB ceiling on self-hosted Blacksmith Linux and allows 425 MiB on GitHub-hosted Linux, whose RSS baseline is higher for the same built CLI.
 

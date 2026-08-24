@@ -16,50 +16,33 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 import {
   handlePlatformClawBrowserAuthRequest,
   readPlatformClawSessionCookie,
-  type BrowserLoginRateLimiter,
 } from "./browser-auth-http.js";
-import type { BrowserAuthService } from "./browser-auth-service.js";
-import {
-  handlePlatformClawEmployeeExecutionRequest,
-  type EmployeeExecutionService,
-} from "./browser-execution-http.js";
+import { handlePlatformClawExecCredentialRequest } from "./browser-exec-credentials-http.js";
+import { handlePlatformClawEmployeeExecutionRequest } from "./browser-execution-http.js";
 import { createBrowserGatewayEventForwarder } from "./browser-gateway-event-forwarder.js";
 import { projectPlatformClawBrowserHello } from "./browser-gateway-hello.js";
 import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-ordering.js";
 import { readBrowserJsonBody, sendBrowserJson } from "./browser-http-shared.js";
-import {
-  handlePlatformClawMcpAdministrationRequest,
-  type McpAdministrationService,
-} from "./browser-mcp-admin-http.js";
-import {
-  handlePlatformClawEmployeeMcpRequest,
-  type EmployeeMcpService,
-} from "./browser-mcp-http.js";
+import { handlePlatformClawMcpAdministrationRequest } from "./browser-mcp-admin-http.js";
+import { handlePlatformClawEmployeeMcpRequest } from "./browser-mcp-http.js";
 import { handlePlatformClawSkillHubRequest } from "./browser-skill-hub-http.js";
-import {
-  handlePlatformClawVmAdministrationRequest,
-  type VmAdministrationService,
-} from "./browser-vm-admin-http.js";
-import { handlePlatformClawVocRequest, type JiraVocService } from "./browser-voc-http.js";
-import type { EmployeeSsoService } from "./employee-sso.js";
-import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
+import { handlePlatformClawVmAdministrationRequest } from "./browser-vm-admin-http.js";
+import { handlePlatformClawVocRequest } from "./browser-voc-http.js";
 import { handlePlatformClawKnoxIngressProxy } from "./knox-ingress-proxy.js";
-import type { KnoxRoutingService } from "./knox-routing-service.js";
 import { handlePlatformClawKnoxInternalRequest } from "./knox-skill-hub-http.js";
-import type { SkillHubService } from "./skill-hub-service.js";
-import type { PlatformClawWebAssetHandler } from "./web-assets.js";
 import { isPlatformClawApplicationPath, PLATFORMCLAW_WEB_LOGIN_PATH } from "./web-assets.js";
 import type {
-  PlatformClawBrowserCanvasRelay,
-  PlatformClawBrowserGatewayPolicy,
-  PlatformClawBrowserMediaRelay,
+  PlatformClawWebIngressListenOptions,
+  PlatformClawWebIngressOptions,
 } from "./web-ingress-contracts.js";
 
 export type {
   PlatformClawBrowserCanvasRelay,
   PlatformClawBrowserGatewayPolicy,
   PlatformClawBrowserMediaRelay,
+  PlatformClawWebIngressListenOptions,
+  PlatformClawWebIngressOptions,
 } from "./web-ingress-contracts.js";
 
 export const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
@@ -73,35 +56,6 @@ const MAX_CONCURRENT_BROWSER_REQUESTS = 8;
 // The upstream Control UI opens a burst of independent RPCs after connect. Keep enough
 // headroom for that supported client while bounding work retained by an untrusted browser.
 const MAX_PENDING_BROWSER_REQUESTS = 64;
-export type PlatformClawWebIngressOptions = {
-  publicOrigin: string;
-  authService: BrowserAuthService;
-  employeeSsoService?: EmployeeSsoService;
-  loginRateLimiter: BrowserLoginRateLimiter;
-  gatewayProxy: PlatformClawBrowserGatewayPolicy;
-  gateway: PlatformClawGatewayBackend;
-  executionService?: EmployeeExecutionService;
-  vmAdministrationService?: VmAdministrationService;
-  mcpAdministrationService?: McpAdministrationService;
-  mcpService?: EmployeeMcpService;
-  vocService?: JiraVocService;
-  skillHubService?: SkillHubService;
-  knoxRouting?: { service: KnoxRoutingService; serviceToken: string };
-  knoxIngressProxy?: { targetUrl: string };
-  mediaRelay?: PlatformClawBrowserMediaRelay;
-  canvasRelay?: PlatformClawBrowserCanvasRelay;
-  webAssets?: PlatformClawWebAssetHandler;
-  gatewayPath?: string;
-  healthPath?: string;
-  maxPayloadBytes?: number;
-  resolveClientIp?: (req: IncomingMessage) => string | undefined;
-};
-
-export type PlatformClawWebIngressListenOptions = {
-  host: string;
-  port: number;
-};
-
 function normalizePublicOrigin(value: string): string {
   const parsed = new URL(value);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -324,6 +278,16 @@ export class PlatformClawWebIngressServer {
         this.options.executionService &&
         (await handlePlatformClawEmployeeExecutionRequest(req, res, {
           service: this.options.executionService,
+          readJsonBody: readBrowserJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
+        this.options.execCredentialService &&
+        (await handlePlatformClawExecCredentialRequest(req, res, {
+          service: this.options.execCredentialService,
           readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))

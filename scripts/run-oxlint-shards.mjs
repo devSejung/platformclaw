@@ -18,6 +18,7 @@ const DEFAULT_SHARD_KILL_GRACE_MS = 5_000;
 const POST_FORCE_KILL_WAIT_MS = 1_000;
 const PROCESS_GROUP_EXIT_POLL_MS = 25;
 const DEFAULT_SPLIT_CORE_SHARD_CONCURRENCY = 4;
+const CONSTRAINED_CI_SPLIT_CORE_SHARD_CONCURRENCY = 2;
 const FAST_LOCAL_CHECK_MIN_CPUS = 12;
 const FAST_LOCAL_CHECK_MIN_MEMORY_BYTES = 48 * 1024 ** 3;
 // CI runners are dedicated: Blacksmith's 16 vCPU class carries 32GB, which the
@@ -58,10 +59,12 @@ export function createOxlintShards({
   platform = process.platform,
   readDir = fs.readdirSync,
   splitCore = false,
+  hostResources,
 } = {}) {
   const coreShards = splitCore ? createCoreOxlintShards({ cwd, readDir }) : [CORE_SHARD];
-  const extensionShards =
-    platform === "win32" ? createWindowsExtensionShards({ cwd, env, readDir }) : [EXTENSIONS_SHARD];
+  const extensionShards = shouldRunOxlintShardsSerial({ env, platform, hostResources })
+    ? createExtensionShards({ cwd, env, readDir })
+    : [EXTENSIONS_SHARD];
 
   return [...coreShards, ...extensionShards, SCRIPTS_SHARD];
 }
@@ -87,9 +90,9 @@ function createCoreShard(target) {
 }
 
 /**
- * Chunks extension lint targets to avoid Windows command-line and memory limits.
+ * Chunks extension lint targets to cap command-line length and type-graph memory.
  */
-export function createWindowsExtensionShards({
+export function createExtensionShards({
   cwd = process.cwd(),
   env = process.env,
   readDir = fs.readdirSync,
@@ -371,7 +374,26 @@ export function resolveOxlintShardConcurrency({
   hostResources,
   splitCore = false,
 } = {}) {
-  if (shouldRunOxlintShardsSerial({ env, platform, hostResources })) {
+  const runSerial = shouldRunOxlintShardsSerial({ env, platform, hostResources });
+  if (runSerial) {
+    const explicitlySerial = env.OPENCLAW_OXLINT_SHARDS_SERIAL?.trim() === "1";
+    const constrainedCiSplit =
+      splitCore &&
+      platform !== "win32" &&
+      !explicitlySerial &&
+      (env.CI === "true" || env.GITHUB_ACTIONS === "true");
+    if (constrainedCiSplit) {
+      const resources = resolveHostResources(hostResources);
+      // Tiny core/extension chunks stay memory-bounded at two workers; one worker
+      // serializes the full repository long enough to hit the CI job deadline.
+      return Math.max(
+        1,
+        Math.min(
+          CONSTRAINED_CI_SPLIT_CORE_SHARD_CONCURRENCY,
+          Math.floor(resources.logicalCpuCount / 2),
+        ),
+      );
+    }
     return 1;
   }
 

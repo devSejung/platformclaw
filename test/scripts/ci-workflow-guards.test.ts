@@ -3297,6 +3297,9 @@ NODE
     expect(workflow.jobs["checks-node-core-test-nondist-shard"]["runs-on"]).toContain(
       "blacksmith-4vcpu-ubuntu-2404",
     );
+    expect(workflow.jobs["check-shard"]["timeout-minutes"]).toBe(
+      "${{ matrix.task == 'lint' && (github.event_name == 'workflow_dispatch' || github.repository != 'openclaw/openclaw' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 30 || 20 }}",
+    );
     expect(workflow.jobs["check-shard"].strategy.matrix.include).toContainEqual({
       check_name: "check-dependencies",
       task: "dependencies",
@@ -6242,9 +6245,6 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     const smokeBuildStep = smokeProfileJob.steps.find(
       (step: WorkflowStep) => step.name === "Build QA smoke runtime",
     );
-    const smokeDockerCacheStep = smokeProfileJob.steps.find(
-      (step: WorkflowStep) => step.name === "Set up Blacksmith Docker layer cache",
-    );
     const smokeRunStep = smokeProfileJob.steps.find(
       (step: WorkflowStep) => step.name === "Run smoke profile part",
     );
@@ -6266,27 +6266,13 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(runStep.run).toContain("ci-routing)");
     expect(fastCoreJob["runs-on"]).toContain("matrix.runner");
     expect(smokeProfileJob.name).toBe("QA Smoke CI (${{ matrix.name }})");
-    const publicRuntimeBuild = smokeBuildStep.run.indexOf("node scripts/build-all.mjs qaRuntime");
-    const uiBuild = smokeBuildStep.run.indexOf("pnpm ui:build");
-    const packageBuild = smokeBuildStep.run.indexOf("node scripts/package-openclaw-for-docker.mjs");
-    const privateRuntimeBuild = smokeBuildStep.run.lastIndexOf(
-      "node scripts/build-all.mjs qaRuntime",
-    );
-    expect(smokeBuildStep.run).toContain("node scripts/build-all.mjs qaRuntime");
-    expect(smokeBuildStep.run).toContain("pnpm ui:build");
-    expect(smokeBuildStep.env).not.toHaveProperty("OPENCLAW_BUILD_PRIVATE_QA");
-    expect(smokeBuildStep.run).toContain("unset OPENCLAW_BUILD_PRIVATE_QA");
-    expect(smokeBuildStep.run).toContain("--skip-build");
     expect(smokeBuildStep.run).toContain(
       "OPENCLAW_BUILD_PRIVATE_QA=1 node scripts/build-all.mjs qaRuntime",
     );
-    expect(smokeBuildStep.run.match(/node scripts\/build-all\.mjs qaRuntime/g)).toHaveLength(2);
-    expect(smokeBuildStep.run).toContain("--allow-unreleased-changelog");
-    expect(smokeBuildStep.run).toContain("grep -Fq");
-    expect(smokeBuildStep.run).toContain('"${package_args[@]}"');
-    expect(publicRuntimeBuild).toBeLessThan(uiBuild);
-    expect(uiBuild).toBeLessThan(packageBuild);
-    expect(packageBuild).toBeLessThan(privateRuntimeBuild);
+    expect(smokeBuildStep.run.match(/node scripts\/build-all\.mjs qaRuntime/g)).toHaveLength(1);
+    expect(smokeBuildStep.run).not.toContain("pnpm ui:build");
+    expect(smokeBuildStep.run).not.toContain("package-openclaw-for-docker");
+    expect(smokeBuildStep.env).not.toHaveProperty("OPENCLAW_BUILD_PRIVATE_QA");
     expect(workflow.jobs["qa-smoke-ci-artifacts"]).toBeUndefined();
     expect(workflow.jobs["qa-smoke-ci"]).toBeUndefined();
     expect(smokeProfileJob.needs).toEqual(["preflight"]);
@@ -6294,40 +6280,25 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(
       smokeProfileJob.strategy.matrix.include.map((entry: { slug: string }) => entry.slug),
     ).toEqual(["profile-1-of-4", "profile-2-of-4", "profile-3-of-4", "profile-4-of-4"]);
-    expect(
-      smokeProfileJob.strategy.matrix.include.filter(
-        (entry: { docker_cache?: boolean }) => entry.docker_cache,
-      ),
-    ).toEqual([
-      expect.objectContaining({
-        lane: "profile-2",
-        slug: "profile-2-of-4",
-        docker_cache: true,
-      }),
-    ]);
+    expect(smokeProfileJob.strategy.matrix.include).not.toContainEqual(
+      expect.objectContaining({ docker_cache: true }),
+    );
     expect(smokeProfileJob["runs-on"]).toContain("blacksmith-16vcpu-ubuntu-2404");
-    expect(smokeDockerCacheStep.uses).toBe(
-      "useblacksmith/setup-docker-builder@6ff44f8e5255f9d8aa31ef22f7e57a2d926b7da0",
-    );
-    expect(smokeDockerCacheStep.if).toContain("matrix.docker_cache == true");
-    expect(smokeDockerCacheStep.if).toContain("github.event_name != 'workflow_dispatch'");
-    expect(smokeDockerCacheStep.if).toContain("github.repository == 'openclaw/openclaw'");
-    expect(smokeDockerCacheStep.if).toContain(
-      "github.event.pull_request.head.repo.full_name == 'openclaw/openclaw'",
-    );
-    expect(smokeDockerCacheStep.with["max-cache-size-mb"]).toBe(800000);
     expect(smokeRunStep.run).toContain("createQaSmokeCiPart");
     expect(smokeRunStep.run).toContain("createQaSmokeCiMatrix");
     expect(smokeRunStep.run).toContain("readQaScenarioPack");
     expect(smokeRunStep.run).toContain("isolate each scenario");
     expect(smokeRunStep.run).toContain("scenario_ids: [scenarioId]");
     expect(smokeRunStep.run).not.toContain("scenarioIdsByKind");
+    expect(smokeRunStep.run).toContain('scenario?.execution?.kind === "playwright"');
+    expect(smokeRunStep.run).toContain('executionPath.includes("docker")');
+    expect(smokeRunStep.run).toContain("restore that owner before selecting it");
     const compatibilityScenarioBlock = smokeRunStep.run.match(
       /const compatibilityScenarioIds = new Set\(\[([\s\S]*?)\]\);/u,
     )?.[1];
-    expect(compatibilityScenarioBlock?.match(/^\s+"[^"]+",$/gmu)).toHaveLength(11);
+    expect(compatibilityScenarioBlock?.match(/^\s+"[^"]+",$/gmu)).toHaveLength(10);
     expect(compatibilityScenarioBlock).not.toContain('"dreaming-shadow-trial-report"');
-    expect(compatibilityScenarioBlock).toContain('"control-ui-chat-flow-playwright"');
+    expect(compatibilityScenarioBlock).not.toContain('"control-ui-chat-flow-playwright"');
     expect(compatibilityScenarioBlock).toContain('"gateway-smoke"');
     expect(compatibilityScenarioBlock).toContain('"matrix-restart-resume"');
     expect(smokeRunStep.run).toContain(
@@ -6360,7 +6331,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(smokeRunStep.run).not.toContain("--allow-failures");
     expect(smokeRunStep.run).toContain("qa_exit_code=0");
     expect(smokeRunStep.run).toContain('exit "$qa_exit_code"');
-    expect(smokeRunStep.run).toContain("OPENCLAW_CURRENT_PACKAGE_TGZ");
+    expect(smokeRunStep.run).not.toContain("OPENCLAW_CURRENT_PACKAGE_TGZ");
     expect(smokeRunStep.run).toContain("--max-old-space-size=16384");
     expect(smokeRunStep.run).not.toContain("scripts/build-all.mjs qaRuntime");
     expect(smokeRunStep.run).not.toContain("OPENAI_API_KEY");

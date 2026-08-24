@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { PlatformClawDeploymentConfig } from "./deployment-config.js";
 import { createPlatformClawDeploymentRuntime } from "./deployment-runtime.js";
+import { ExecCredentialCipher } from "./exec-credential-crypto.js";
 import { McpCredentialCipher } from "./mcp-credential-crypto.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 import type {
@@ -47,6 +48,7 @@ const config: PlatformClawDeploymentConfig = {
   gatewayServiceIdentityFile,
   sshCredentialCipher: SshCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
   mcpCredentialCipher: McpCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
+  execCredentialCipher: ExecCredentialCipher.fromBase64(Buffer.alloc(32, 7).toString("base64")),
   credentialBrokerAddress: "/run/platformclaw-credential-broker/credential.sock",
   executionServiceToken: "e".repeat(32),
   knoxServiceToken: "k".repeat(32),

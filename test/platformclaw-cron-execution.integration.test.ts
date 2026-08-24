@@ -101,6 +101,7 @@ describe("PlatformClaw scheduled agent execution", () => {
         createTerminalProcess: vi.fn(async () => {
           throw new Error("not used");
         }),
+        resolveExecCredentials: vi.fn(async () => ({})),
       };
       const restore = registerSandboxBackend(
         PLATFORMCLAW_EXECUTION_BACKEND_ID,
@@ -137,18 +138,18 @@ describe("PlatformClaw scheduled agent execution", () => {
         log: logger,
         enqueueSystemEvent: vi.fn(),
         requestHeartbeat: vi.fn(),
-        runIsolatedAgentJob: async ({ job }) => {
-          const cfg = cronSandboxConfig(job.agentId ?? target.agentId);
+        runIsolatedAgentJob: async ({ job: persistedJob }) => {
+          const cfg = cronSandboxConfig(persistedJob.agentId ?? target.agentId);
           const factory = getSandboxBackendFactory(cfg.backend);
           if (!factory) {
             throw new Error("PlatformClaw execution backend was not registered");
           }
           const backend = await factory({
-            agentId: job.agentId,
-            sessionKey: `agent:${job.agentId}:cron:${job.id}`,
-            scopeKey: `agent:${job.agentId}:cron:${job.id}`,
-            workspaceDir: `/workspace/${job.agentId}`,
-            agentWorkspaceDir: `/agents/${job.agentId}`,
+            agentId: persistedJob.agentId,
+            sessionKey: `agent:${persistedJob.agentId}:cron:${persistedJob.id}`,
+            scopeKey: `agent:${persistedJob.agentId}:cron:${persistedJob.id}`,
+            workspaceDir: `/workspace/${persistedJob.agentId}`,
+            agentWorkspaceDir: `/agents/${persistedJob.agentId}`,
             materializeSkills: async () => ({
               catalog: { revision: "test:cron", files: [], owner: "gateway" },
               mounts: [],

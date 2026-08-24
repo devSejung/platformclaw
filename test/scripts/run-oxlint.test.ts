@@ -9,7 +9,7 @@ import {
   createOxlintShards,
   filterOxlintShards,
   parseShardRunnerArgs,
-  createWindowsExtensionShards,
+  createExtensionShards,
   resolveShardKillGraceMs,
   resolveShardHeartbeatMs,
   resolveShardTimeoutMs,
@@ -291,8 +291,27 @@ describe("run-oxlint", () => {
     expect(resolveSplitCoreConcurrency({ CI: "true" })).toBe(4);
   });
 
-  it("keeps split-core shard runs serial on constrained hosts", () => {
-    expect(resolveSplitCoreConcurrency({ CI: "true" }, CONSTRAINED_HOST)).toBe(1);
+  it("bounds split-core shard concurrency on constrained CI hosts", () => {
+    expect(resolveSplitCoreConcurrency({ CI: "true" }, CONSTRAINED_HOST)).toBe(2);
+    expect(resolveSplitCoreConcurrency({ GITHUB_ACTIONS: "true" }, CONSTRAINED_HOST)).toBe(2);
+  });
+
+  it("keeps constrained local, Windows, and explicitly serial shard runs serial", () => {
+    expect(resolveSplitCoreConcurrency({}, CONSTRAINED_HOST)).toBe(1);
+    expect(
+      resolveOxlintShardConcurrency({
+        env: { CI: "true" },
+        platform: "win32",
+        hostResources: CONSTRAINED_HOST,
+        splitCore: true,
+      }),
+    ).toBe(1);
+    expect(
+      resolveSplitCoreConcurrency(
+        { CI: "true", OPENCLAW_OXLINT_SHARDS_SERIAL: "1" },
+        CONSTRAINED_HOST,
+      ),
+    ).toBe(1);
   });
 
   it("does not let local throttled mode serialize remote changed gates", () => {
@@ -462,12 +481,36 @@ describe("run-oxlint", () => {
     ]);
   });
 
+  it("chunks extension oxlint shards on constrained Linux hosts", () => {
+    const shards = createOxlintShards({
+      cwd: "/repo",
+      env: { CI: "true" },
+      hostResources: CONSTRAINED_HOST,
+      platform: "linux",
+      readDir: (target: string) =>
+        target.replaceAll("\\", "/").endsWith("/extensions")
+          ? Array.from({ length: 9 }, (_, index) => ({
+              name: `extension-${index}`,
+              isDirectory: () => true,
+              isFile: () => false,
+            }))
+          : [],
+    });
+
+    expect(shards.map((shard) => shard.name)).toEqual([
+      "core",
+      "extensions:01",
+      "extensions:02",
+      "scripts",
+    ]);
+  });
+
   it("splits core oxlint shards when requested", () => {
     const shards = createOxlintShards({
       cwd: "/repo",
       splitCore: true,
       readDir: (target: string) => {
-        if (target.endsWith("/src")) {
+        if (target.replaceAll("\\", "/").endsWith("/src")) {
           return [
             { name: "zeta.ts", isDirectory: () => false, isFile: () => true },
             { name: "omega.ts", isDirectory: () => false, isFile: () => true },
@@ -513,7 +556,7 @@ describe("run-oxlint", () => {
   });
 
   it("falls back to the full extension shard when Windows extension dirs are unavailable", () => {
-    const shards = createWindowsExtensionShards({
+    const shards = createExtensionShards({
       cwd: "/repo",
       readDir: () => {
         throw new Error("missing extensions");

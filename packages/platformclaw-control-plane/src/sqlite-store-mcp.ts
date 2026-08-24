@@ -6,9 +6,9 @@ import type {
   StoredUserMcpCredential,
   UserMcpCredentialMetadata,
 } from "./mcp-credential-contracts.js";
-import { ensureMcpCredentialSchema } from "./sqlite-schema.js";
+import { ensureExecCredentialSchema, ensureMcpCredentialSchema } from "./sqlite-schema.js";
 import type { SqliteControlPlaneStoreOptions } from "./sqlite-store-core.js";
-import { SqliteControlPlaneCredentialStore } from "./sqlite-store-credentials.js";
+import { SqliteControlPlaneExecCredentialStore } from "./sqlite-store-exec-credentials.js";
 import type { EncryptedUserMcpCredentialRow } from "./sqlite-store-types.js";
 
 function normalizeServerName(value: string): string {
@@ -72,13 +72,14 @@ function rowToMetadata(row: EncryptedUserMcpCredentialRow): UserMcpCredentialMet
 }
 
 export abstract class SqliteControlPlaneMcpStore
-  extends SqliteControlPlaneCredentialStore
+  extends SqliteControlPlaneExecCredentialStore
   implements ControlPlaneMcpCredentialStore
 {
   constructor(options: SqliteControlPlaneStoreOptions) {
     super(options);
     // Additive feature surface: existing schema-v2 databases keep their version.
     ensureMcpCredentialSchema(this.db);
+    ensureExecCredentialSchema(this.db);
   }
 
   async replaceEncryptedUserMcpCredential(

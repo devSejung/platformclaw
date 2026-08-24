@@ -83,7 +83,6 @@ type AppSidebarElement = HTMLElement & {
 
 // Stable references so the sidebar's enabledRouteIds property does not churn
 // on every shell render.
-const ROUTE_IDS_WITHOUT_WORKBOARD = APP_ROUTE_IDS.filter((routeId) => routeId !== "workboard");
 
 i18n.setLocaleLoadRecovery({
   isUnrecoverableError: isStaleChunkImportError,
@@ -568,13 +567,10 @@ class OpenClawShell
   }
 
   enabledRouteIds(): readonly RouteId[] {
-    const configured = isWorkboardEnabledInConfigSnapshot(
-      this.context?.runtimeConfig.state.configSnapshot,
-    )
-      ? APP_ROUTE_IDS
-      : ROUTE_IDS_WITHOUT_WORKBOARD;
     const runtimeEnabled = this.runtime?.enabledRouteIds ?? APP_ROUTE_IDS;
-    return configured.filter((routeId) => runtimeEnabled.includes(routeId));
+    return isWorkboardEnabledInConfigSnapshot(this.context?.runtimeConfig.state.configSnapshot)
+      ? runtimeEnabled
+      : runtimeEnabled.filter((routeId) => routeId !== "workboard");
   }
 
   /** Sidebar draft-row hint while the new-session page is open, keyed off its ?agent param. */

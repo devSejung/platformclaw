@@ -29,7 +29,8 @@ const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
 const EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
 const EXECUTION_CONNECTION_TARGET_PATH = "/platformclaw/internal/execution/connection-target";
 const EXECUTION_CHANGE_TARGET_PATH = "/platformclaw/internal/execution/change-target";
-const MAX_HANDOFF_RESPONSE_BYTES = 8 * 1024;
+const EXECUTION_CREDENTIALS_PATH = "/platformclaw/internal/execution/credentials";
+const MAX_HANDOFF_RESPONSE_BYTES = 512 * 1024;
 const VM_CONNECTION_TEST_TIMEOUT_MS = 15_000;
 const VM_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
 const VM_ENV_BLOCKED_NAMES = new Set([
@@ -565,6 +566,23 @@ export async function createExecutionDependenciesFromEnvironment(
     uploadDirectory: uploadDirectoryToSshTarget,
   });
   return {
+    resolveExecCredentials: async (agentId) => {
+      const value = await callExecutionHandoff({
+        socketPath: executionHandoffAddress(brokerAddress),
+        serviceToken,
+        path: EXECUTION_CREDENTIALS_PATH,
+        body: { agentId },
+      });
+      if (
+        !value ||
+        typeof value !== "object" ||
+        Array.isArray(value) ||
+        !Object.values(value).every((entry) => typeof entry === "string")
+      ) {
+        throw new Error("execution handoff returned invalid exec credentials");
+      }
+      return value as Record<string, string>;
+    },
     resolveTarget: async ({ agentId, target: requestedTarget }) => {
       const target = parseTarget(
         await callExecutionHandoff({

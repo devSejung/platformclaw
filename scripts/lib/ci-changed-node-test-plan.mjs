@@ -58,41 +58,20 @@ export function hasBuildArtifactAffectingChange(changedPaths) {
   );
 }
 
-// Surfaces the CI smoke scenarios exercise outside the core runtime import
-// graph: the qa-lab harness and scenario data, the packaged-CLI build inputs,
-// the control UI (playwright scenario), the two channels the smoke profile
-// drives (matrix, telegram), and workspace packages whose package-specifier
-// imports the relative import graph cannot see. The QA lane's own
-// orchestration (this planner, the CI workflow, composite actions) is also
-// QA-impacting: changes to the gate must not be able to skip the gated lane.
+// QA-owned surfaces that keep the smoke lane on pull requests: the qa-lab
+// harness and scenario data, the two channels the smoke profile drives
+// (matrix, telegram), packaging scripts, and the QA lane's own orchestration.
+// Changes to the gate must not be able to skip the gated lane.
 const QA_SMOKE_SURFACE_RE =
-  /^(?:extensions\/(?:matrix|qa-lab|telegram)|packages|qa|ui)\/|^scripts\/(?:build-all\.mjs|package-openclaw-for-docker\.mjs)$|^scripts\/lib\/ci-changed-node-test-plan\.mjs$|^\.github\/(?:workflows\/ci\.yml$|actions\/)|^(?:openclaw\.mjs|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsdown\.config\.ts)$/u;
-// The smoke profile runs the packaged CLI end to end, so its runtime blast
-// radius is exactly the CLI entry's import graph (dynamic imports included).
-const QA_SMOKE_RUNTIME_ENTRY = "src/index.ts";
+  /^(?:extensions\/(?:matrix|qa-lab|telegram)|qa)\/|^scripts\/(?:build-all\.mjs|package-openclaw-for-docker\.mjs)$|^scripts\/lib\/ci-changed-node-test-plan\.mjs$|^\.github\/(?:workflows\/ci\.yml$|actions\/)/u;
 
 /**
- * True when a changed path can influence the QA smoke scenarios: it touches
- * the smoke surface directly, or the packaged CLI's import graph reaches it.
- * Diffs outside both are invisible to the smoke profile, so the manifest may
- * skip that lane regardless of whether test targeting fired.
+ * True when a pull request diff touches a QA-owned smoke surface. Broad
+ * runtime changes deliberately ride the canonical main-push smoke instead of
+ * selecting four expensive profile jobs on every pull request.
  */
-export function hasQaSmokeAffectingChange(changedPaths, options = {}) {
-  const cwd = options.cwd ?? process.cwd();
-  if (changedPaths.some((changedPath) => QA_SMOKE_SURFACE_RE.test(changedPath))) {
-    return true;
-  }
-  const sourcePaths = changedPaths.filter(
-    (changedPath) => changedPath.startsWith("src/") && !isTestFileTarget(changedPath),
-  );
-  if (sourcePaths.length === 0) {
-    return false;
-  }
-  // Deleted sources cannot be graphed; fail safe to running the smoke lane.
-  if (sourcePaths.some((changedPath) => !existsSync(path.join(cwd, changedPath)))) {
-    return true;
-  }
-  return hasImportGraphImpactOnTargets(sourcePaths, [QA_SMOKE_RUNTIME_ENTRY], cwd);
+export function hasQaSmokeAffectingChange(changedPaths) {
+  return changedPaths.some((changedPath) => QA_SMOKE_SURFACE_RE.test(changedPath));
 }
 
 // Surfaces the prompt-snapshot check exercises outside its generator's
