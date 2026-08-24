@@ -429,6 +429,9 @@ export function prepareBrowserWikiRequest(params: {
       return params.fail(`wiki search query must contain 1-${MAX_QUERY_CHARS} characters`);
     }
     prepared.query = query;
+    // Browser Wiki pickers must never inherit an operator-wide memory/all corpus.
+    // Pinning the upstream request keeps Personal Wiki selection document-only.
+    prepared.corpus = "wiki";
     const maxResults = positiveInteger(
       params.request.maxResults,
       "maxResults",

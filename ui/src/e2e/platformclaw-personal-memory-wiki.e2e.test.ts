@@ -255,7 +255,18 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
         pathname: `/settings/agents/${assignedAgentId}/memory`,
       });
 
-      await page.getByRole("tab", { name: "Diary" }).click();
+      await page.getByRole("button", { name: /^Memory\b/ }).click();
+      await expect.poll(() => new URL(page.url()).pathname).toBe("/settings/memory");
+      await expect.poll(() => new URL(page.url()).searchParams.get("agent")).toBe(assignedAgentId);
+      const memoryTabs = page.locator(".hub-page-header__tabs");
+      await memoryTabs.getByRole("tab", { name: "Dreaming", exact: true }).click();
+      await expect.poll(() => new URL(page.url()).pathname).toBe("/settings/memory/dreams");
+      await page.reload();
+      await waitForControlUiRoute(page, {
+        routeId: "memory",
+        pathname: "/settings/memory/dreams",
+      });
+      await page.locator('.dreams__topbar wa-tab[panel="diary"]').click();
       const diary = page.locator(".dreams-diary");
       await expect
         .poll(() => diary.textContent())
@@ -265,15 +276,21 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
       const initialConfigGetCount = (await gateway.getRequests("config.get")).length;
       await screenshot(page, "01-dreams.png");
 
-      await diary.getByRole("tab", { name: "Imported Insights" }).click();
-      await expect.poll(() => diary.textContent()).toContain("Assigned platform notes");
+      await page.goto(`${server.baseUrl}settings/memory/wiki?agent=${assignedAgentId}`);
+      await waitForControlUiRoute(page, {
+        routeId: "memory",
+        pathname: "/settings/memory/wiki",
+      });
+      const wiki = page.locator(".memory-wiki-page");
+      await wiki.getByRole("tab", { name: "Imported Insights" }).click();
+      await expect.poll(() => wiki.textContent()).toContain("Assigned platform notes");
       await expectRequestsPinned(gateway, "wiki.importInsights");
       await screenshot(page, "02-imported-insights.png");
 
-      await diary.getByRole("tab", { name: "Memory Wiki" }).click();
-      await expect.poll(() => diary.textContent()).toContain("Assigned platform knowledge");
+      await wiki.getByRole("tab", { name: "Memory Wiki" }).click();
+      await expect.poll(() => wiki.textContent()).toContain("Assigned platform knowledge");
       await expectRequestsPinned(gateway, "wiki.overview");
-      await diary.getByRole("button", { name: "Open wiki page" }).click();
+      await wiki.getByRole("button", { name: "Open wiki page" }).click();
       await expectRequestsPinned(gateway, "wiki.get");
       await expect
         .poll(() => page.locator(".dreams-diary__preview-pre").textContent())

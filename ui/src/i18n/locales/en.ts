@@ -1161,6 +1161,10 @@ export const en: TranslationMap = {
       cronJobs: "Automations",
       memory: "Memory",
     },
+    memoryPanel: {
+      memoryFileDescription:
+        "This agent's durable long-term memory file. Open it in Agent Files to inspect or edit it.",
+    },
     context: {
       title: "Agent Context",
       workspace: "Workspace",
@@ -2649,8 +2653,10 @@ export const en: TranslationMap = {
     tablistLabel: "Memory sections",
     tabs: {
       overview: "Overview",
-      memories: "Memories",
-      dreams: "Dreams",
+      memories: "Memory",
+      wiki: "Personal Wiki",
+      organization: "Organization",
+      dreams: "Dreaming",
       settings: "Settings",
     },
     overview: {
@@ -2737,10 +2743,12 @@ export const en: TranslationMap = {
       fileUnsupported: "This memory file cannot be shown as text.",
     },
     promotions: {
-      title: "Organization memory promotion",
+      title: "Share Wiki knowledge",
       description:
-        "Submit a reviewed claim to the next scope. An LLM may draft it, but only a person can submit or approve it.",
-      gatewayUpdateRequired: "Update the PlatformClaw gateway to manage organization memory.",
+        "Promote reviewed Wiki knowledge to the next organization scope. An Agent may draft it, but only a person can submit or approve it.",
+      gatewayUpdateRequired: "Update the PlatformClaw Gateway to manage organization knowledge.",
+      wikiUnavailable:
+        "Personal Wiki search is unavailable. Enable or update the memory-wiki plugin and refresh.",
       source: "Source scope",
       personal: "Personal",
       part: "Part",
@@ -2748,7 +2756,7 @@ export const en: TranslationMap = {
       personalClaimPlaceholder: "Personal Wiki page ID, title, or path",
       chooseClaim: "Choose an approved claim",
       chooseTarget: "Choose the target scope",
-      textPlaceholder: "Proposed organization memory text",
+      textPlaceholder: "Knowledge to share",
       evidencePlaceholder: "Evidence or provenance, one item per line",
       reasonPlaceholder: "Why should this be promoted?",
       submit: "Request promotion",
@@ -4067,9 +4075,9 @@ export const en: TranslationMap = {
   },
   dreaming: {
     tabs: {
-      scene: "Scene",
-      diary: "Diary",
-      advanced: "Advanced",
+      scene: "Overview",
+      diary: "Dream Diary",
+      advanced: "Activity",
     },
     header: {
       refresh: "Refresh",

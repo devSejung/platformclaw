@@ -4,17 +4,14 @@
 import { consume } from "@lit/context";
 import { formatErrorMessage } from "@openclaw/normalization-core";
 import { asNullableRecord as asConfigRecord } from "@openclaw/normalization-core/record-coerce";
-import { html, type PropertyValues, type TemplateResult } from "lit";
+import { html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import type { SystemInfoResult } from "../../../../packages/gateway-protocol/src/schema/system-info.ts";
 import type { DoctorMemoryStatusPayload } from "../../../../src/gateway/server-methods/doctor.ts";
 import { pathForMemoryTab } from "../../app-route-paths.ts";
 import { applicationContext, type ApplicationContext } from "../../app/context.ts";
 import { readGatewayOperatorAccess } from "../../app/operator-access.ts";
-import type { AgentSelectOption } from "../../components/agent-select.ts";
-import { renderDocsLink } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
-import { listSelectableAgents, normalizeAgentLabel } from "../../lib/agents/display.ts";
 import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { currentConfigObject } from "../../lib/config/index.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
@@ -32,14 +29,23 @@ import {
 } from "../agents/memory/dreaming.ts";
 import "./memory-dreaming-page.ts";
 import "./memory-memories.ts";
+import "./memory-promotions.ts";
+import {
+  buildMemoryAgentOptions,
+  memoryTabRouteLocation,
+  resolveMemoryAgentId,
+  resolveMemoryRouteAgent,
+} from "./memory-agent-route.ts";
 import {
   dreamingConfigPath,
   resetMemoryBackend,
   resetMemoryEngine,
   resolveDreamingTimezoneDefault,
 } from "./memory-defaults.ts";
-import { renderDreamingSettings, renderDreamingUnsupported } from "./memory-dreaming.ts";
+import { renderMemoryDreamingControls } from "./memory-dreaming-controls.ts";
+import { renderDreamingSettings } from "./memory-dreaming.ts";
 import { renderMemoryOverview, type MemoryOverviewStatus } from "./memory-overview.ts";
+import { renderMemoryPageElement, type MemoryPageProps } from "./memory-page-view.ts";
 import {
   canonicalMemoryRouteLocation,
   memoryTabForRoute,
@@ -50,6 +56,7 @@ import {
   type MemoryEngineSelection,
   type MemoryTab,
 } from "./memory-schema.ts";
+import { buildMemoryTabContent } from "./memory-tab-content.ts";
 import {
   buildMemoryAddonRows,
   buildMemoryEngineOptions,
@@ -65,7 +72,6 @@ import type { ConfigRouteData } from "./route-data.ts";
 /** Explicit-off sentinel; resolveSlotSelection maps it to an `off` selection. */
 const MEMORY_SLOT_OFF = "none";
 const MEMORY_SLOT_PATH = ["plugins", "slots", "memory"];
-const DREAMING_DOCS_URL = "https://docs.openclaw.ai/concepts/dreaming";
 
 type GatewayClient = NonNullable<ApplicationContext["gateway"]["snapshot"]["client"]>;
 
@@ -78,15 +84,6 @@ type CatalogConnection = {
 type MemoryAddonNotice = {
   message: string;
   processInstanceId: string | null;
-};
-
-type MemoryPageProps = {
-  configObject: Record<string, unknown>;
-  mutationDisabled: boolean;
-  pluginsHref: string;
-  memoryImportHref: string;
-  routeData: ConfigRouteData | null;
-  buildEditor: (keys: readonly string[]) => TemplateResult;
 };
 
 class MemorySettingsPage extends OpenClawLightDomElement {
@@ -123,6 +120,7 @@ class MemorySettingsPage extends OpenClawLightDomElement {
   private supportProbe: { pluginId: string } | null = null;
   private readonly addonNoticeOperations = new Map<string, object>();
   private normalizedLocation = "";
+  private normalizedInvalidAgentLocation = "";
 
   private readonly subscriptions = new SubscriptionsController(this)
     .watch(
@@ -143,6 +141,7 @@ class MemorySettingsPage extends OpenClawLightDomElement {
         if (!agents.state.agentsList && !agents.state.agentsLoading) {
           void agents.ensureList().catch(() => undefined);
         }
+        this.syncSelectedAgentFromRoute();
         void this.loadOverviewStatus();
       },
     );
@@ -166,6 +165,7 @@ class MemorySettingsPage extends OpenClawLightDomElement {
 
   protected override updated(changed: PropertyValues<this>) {
     if (changed.has("routeData")) {
+      this.syncSelectedAgentFromRoute();
       const previous = this.activeTab(
         (changed.get("routeData") as ConfigRouteData | null | undefined) ?? null,
       );
@@ -301,23 +301,33 @@ class MemorySettingsPage extends OpenClawLightDomElement {
     this.catalog = catalog;
   }
 
-  private resolveAgentId(): string | null {
-    const agentsList = this.context.agents.state.agentsList;
-    const selectable = listSelectableAgents(agentsList?.agents ?? []);
-    if (this.selectedAgentId && selectable.some((agent) => agent.id === this.selectedAgentId)) {
-      return this.selectedAgentId;
-    }
-    return agentsList?.defaultId ?? selectable[0]?.id ?? null;
-  }
-
-  private agentOptions(): AgentSelectOption[] {
-    return listSelectableAgents(this.context.agents.state.agentsList?.agents ?? []).map(
-      (agent) => ({
-        value: agent.id,
-        label: normalizeAgentLabel(agent),
-        agent,
-      }),
+  private syncSelectedAgentFromRoute() {
+    const resolution = resolveMemoryRouteAgent(
+      this.routeData,
+      this.context.agents.state.agentsList,
     );
+    if (!resolution) {
+      this.normalizedInvalidAgentLocation = "";
+      return;
+    }
+    if (resolution.agentId !== this.selectedAgentId) {
+      this.selectedAgentId = resolution.agentId;
+      this.overviewRequest = null;
+      this.probingEmbeddings = false;
+    }
+    if (!resolution.invalidSource) {
+      this.normalizedInvalidAgentLocation = "";
+      return;
+    }
+    if (this.normalizedInvalidAgentLocation === resolution.invalidSource) {
+      return;
+    }
+    this.normalizedInvalidAgentLocation = resolution.invalidSource;
+    this.context.replace("memory", {
+      pathname: pathForMemoryTab(this.activeTab(), this.context.basePath),
+      search: resolution.normalizedSearch ?? "",
+      hash: this.routeData?.hash ?? "",
+    });
   }
 
   private selectAgent(agentId: string | null) {
@@ -327,6 +337,10 @@ class MemorySettingsPage extends OpenClawLightDomElement {
     this.selectedAgentId = agentId;
     this.overviewRequest = null;
     this.probingEmbeddings = false;
+    this.context.navigate("memory", {
+      pathname: pathForMemoryTab(this.activeTab(), this.context.basePath),
+      search: agentId ? `?agent=${encodeURIComponent(agentId)}` : "",
+    });
     void this.loadOverviewStatus();
   }
 
@@ -342,7 +356,10 @@ class MemorySettingsPage extends OpenClawLightDomElement {
     }
     const connection = this.connection;
     const client = connection?.connected ? connection.client : null;
-    const agentId = this.resolveAgentId();
+    const agentId = resolveMemoryAgentId(
+      this.context.agents.state.agentsList,
+      this.selectedAgentId,
+    );
     if (!connection || !client) {
       this.overviewStatus = {
         kind: "error",
@@ -617,26 +634,16 @@ class MemorySettingsPage extends OpenClawLightDomElement {
 
   private renderDreamingControls() {
     const pluginId = this.dreamingPluginId();
-    return html`
-      <p class="settings-page__intro">
-        ${t("memoryPage.dreaming.intro", { plugin: pluginId })}
-        ${renderDocsLink(DREAMING_DOCS_URL, t("common.learnMore"))}
-      </p>
-      ${this.support === "unsupported"
-        ? renderDreamingUnsupported(pluginId)
-        : renderDreamingSettings({
-            dreaming: this.dreamingConfig(),
-            timezoneDefault: resolveDreamingTimezoneDefault(this.configObjectFromController()),
-            disabled: this.mutationDisabled,
-            onPatch: (path, value) => this.patchDreaming(path, value),
-          })}
-    `;
-  }
-
-  private navigateTab(tab: MemoryTab) {
-    this.context.navigate("memory", {
-      pathname: pathForMemoryTab(tab, this.context.basePath),
-    });
+    return renderMemoryDreamingControls(
+      pluginId,
+      this.support === "unsupported",
+      renderDreamingSettings({
+        dreaming: this.dreamingConfig(),
+        timezoneDefault: resolveDreamingTimezoneDefault(this.configObjectFromController()),
+        disabled: this.mutationDisabled,
+        onPatch: (path, value) => this.patchDreaming(path, value),
+      }),
+    );
   }
 
   override render() {
@@ -645,11 +652,21 @@ class MemorySettingsPage extends OpenClawLightDomElement {
     const engineMutationDisabled =
       this.mutationDisabled || (this.catalog.kind === "ready" && !this.catalog.mutationAllowed);
     const backendSelection = resolveMemoryBackendSelection(this.configObject);
-    const activeTab = this.activeTab();
-    const agentId = this.resolveAgentId();
+    const agentsList = this.context.agents.state.agentsList;
+    const agentId = resolveMemoryAgentId(agentsList, this.selectedAgentId);
+    const navigateTab = (tab: MemoryTab) =>
+      this.context.navigate(
+        "memory",
+        memoryTabRouteLocation(
+          tab,
+          this.selectedAgentId,
+          this.routeData?.search,
+          this.context.basePath,
+        ),
+      );
     return renderMemory({
-      activeTab,
-      onTabChange: (tab) => this.navigateTab(tab),
+      activeTab: this.activeTab(),
+      onTabChange: navigateTab,
       engineOptions: buildMemoryEngineOptions(this.catalog, engineSelection),
       engineSelection,
       engineState: this.engineState(engineSelection),
@@ -684,7 +701,7 @@ class MemorySettingsPage extends OpenClawLightDomElement {
       pluginsHref: this.pluginsHref,
       memoryImportHref: this.memoryImportHref,
       agentId,
-      agents: this.agentOptions(),
+      agents: buildMemoryAgentOptions(agentsList),
       onAgentChange: (next) => this.selectAgent(next),
       overview: renderMemoryOverview({
         agentId,
@@ -695,29 +712,14 @@ class MemorySettingsPage extends OpenClawLightDomElement {
         onRefresh: () => void this.loadOverviewStatus({ force: true }),
         onProbeEmbeddings: () =>
           void this.loadOverviewStatus({ force: true, probeEmbeddings: true }),
-        onNavigate: (tab) => this.navigateTab(tab),
+        onNavigate: navigateTab,
       }),
-      memories: html`
-        <openclaw-memory-memories
-          .client=${this.context.gateway.snapshot.client}
-          .connected=${this.context.gateway.snapshot.phase === "connected"}
-          .methodAdvertised=${isGatewayMethodAdvertised(
-            this.context.gateway.snapshot,
-            "memory.search",
-          ) === true}
-          .lifecycleMethodAdvertised=${isGatewayMethodAdvertised(
-            this.context.gateway.snapshot,
-            "platformclaw.memory.lifecycle",
-          ) === true}
-          .agentId=${agentId}
-        ></openclaw-memory-memories>
-      `,
-      dreams: html` <openclaw-memory-dreaming .agentId=${agentId}></openclaw-memory-dreaming> `,
+      ...buildMemoryTabContent(this.context.gateway.snapshot, agentId),
       editor:
-        activeTab === "settings"
+        this.activeTab() === "settings"
           ? this.buildEditor(memorySchemaKeysForTab("settings", backendSelection?.backend ?? null))
           : html``,
-      dreamingSettings: activeTab === "settings" ? this.renderDreamingControls() : html``,
+      dreamingSettings: this.activeTab() === "settings" ? this.renderDreamingControls() : html``,
     });
   }
 }
@@ -727,14 +729,5 @@ if (!customElements.get("openclaw-memory-settings")) {
 }
 
 export function renderMemoryPage(props: MemoryPageProps) {
-  return html`
-    <openclaw-memory-settings
-      .configObject=${props.configObject}
-      .mutationDisabled=${props.mutationDisabled}
-      .pluginsHref=${props.pluginsHref}
-      .memoryImportHref=${props.memoryImportHref}
-      .routeData=${props.routeData}
-      .buildEditor=${props.buildEditor}
-    ></openclaw-memory-settings>
-  `;
+  return renderMemoryPageElement(props);
 }

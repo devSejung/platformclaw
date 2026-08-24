@@ -150,7 +150,7 @@ type AgentsProps = {
   onModelCatalogRetry: () => void;
   onChannelsRefresh: () => void;
   onOpenMemoryImport?: () => void;
-  onOpenMemorySettings?: () => void;
+  onOpenMemorySettings?: (agentId: string) => void;
   onOpenAgentDefaults: () => void;
   onCronRefresh: () => void;
   onCronLoadMore: () => void;
@@ -439,16 +439,25 @@ export function renderAgents(props: AgentsProps) {
                         ${renderSettingsNavRow({
                           title: t("tabs.memory"),
                           description: t("subtitles.memory"),
-                          onClick: () => props.onOpenMemorySettings?.(),
+                          onClick: () => props.onOpenMemorySettings?.(selectedAgent.id),
                         })}
                         ${renderSettingsNavRow({
                           title: t("tabs.memoryImport"),
                           description: t("subtitles.memoryImport"),
                           onClick: () => props.onOpenMemoryImport?.(),
                         })}
+                        ${renderSettingsNavRow({
+                          title: "MEMORY.md",
+                          description: t("agents.memoryPanel.memoryFileDescription"),
+                          onClick: () => {
+                            props.onSelectPanel("files");
+                            props.onSelectFile("MEMORY.md");
+                          },
+                        })}
                       </div>
                       <openclaw-agent-memory-panel
                         .agentId=${selectedAgent.id}
+                        .summaryOnly=${true}
                       ></openclaw-agent-memory-panel>
                     `
                   : nothing}

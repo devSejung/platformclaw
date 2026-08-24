@@ -275,10 +275,11 @@ describe("renderAgents", () => {
       directText(tab),
     );
     expect(tabs.slice(-2)).toEqual([t("agents.tabs.cronJobs"), t("agents.tabs.memory")]);
-    const panel = container.querySelector<HTMLElement & { agentId: string }>(
+    const panel = container.querySelector<HTMLElement & { agentId: string; summaryOnly: boolean }>(
       "openclaw-agent-memory-panel",
     );
     expect(panel?.agentId).toBe("beta");
+    expect(panel?.summaryOnly).toBe(true);
   });
 
   it("renders the custom agent select with the provided agents and selected label", async () => {

@@ -179,9 +179,30 @@ describe("PlatformClawControlUiAdapter", () => {
         {
           agents: { state: { agentsList: null }, ensureList },
         } as never,
-        {} as never,
+        { location: { pathname: "/settings/memory" } } as never,
       ),
-    ).resolves.toEqual({ agentId: "assigned-personal" });
+    ).resolves.toEqual({ agentId: "assigned-personal", initialTab: "overview" });
+    await expect(
+      loader?.(
+        {
+          basePath: "/platformclaw/app",
+          agents: {
+            state: {
+              agentsList: {
+                agents: [{ id: "assigned-personal", name: "Assigned" }],
+                defaultId: "assigned-personal",
+              },
+            },
+          },
+        } as never,
+        {
+          location: {
+            pathname: "/platformclaw/app/settings/memory",
+            search: "?__openclawMemoryPath=%2Fplatformclaw%2Fapp%2Fsettings%2Fmemory%2Fdreams",
+          },
+        } as never,
+      ),
+    ).resolves.toEqual({ agentId: "assigned-personal", initialTab: "dreaming" });
     expect(ensureList).toHaveBeenCalledOnce();
   });
 
@@ -206,9 +227,9 @@ describe("PlatformClawControlUiAdapter", () => {
           ensureList: vi.fn(),
         },
       } as never,
-      {} as never,
+      { location: { pathname: "/settings/memory" } } as never,
     );
-    expect(routeData).toEqual({ agentId: null });
+    expect(routeData).toEqual({ agentId: null, initialTab: "overview" });
 
     const component = await options.routeOverrides?.memory?.component?.();
     const container = document.createElement("div");

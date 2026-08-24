@@ -85,9 +85,7 @@
 }
 
 .memory-promotions {
-  display: grid;
-  gap: 16px;
-  margin-top: 36px;
+  margin-inline: auto;
 }
 
 .memory-promotions h2,
@@ -96,10 +94,85 @@
   margin: 0;
 }
 
-.memory-promotions > .settings-group:first-of-type {
+.memory-promotions__field,
+.memory-source-picker {
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  min-width: 0;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.memory-promotions__field > span,
+.memory-source-picker h4,
+.memory-source-picker h5 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--control-ui-text-sm);
+  font-weight: 600;
+}
+
+.memory-source-picker__search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.memory-source-picker__search .settings-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.memory-source-picker__results {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.memory-source-picker__result {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  text-align: start;
+}
+
+.memory-source-picker__result + .memory-source-picker__result {
+  border-top: 1px solid var(--border);
+}
+
+.memory-source-picker__result[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--bg-accent);
+}
+
+.memory-source-picker__result span,
+.memory-source-picker__result small {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.memory-source-picker__preview pre {
+  max-height: 260px;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border-left: 2px solid var(--accent);
+  white-space: pre-wrap;
+}
+
+.memory-promotions__empty {
+  padding: var(--space-3) var(--space-4);
+  color: var(--muted);
+}
+
+.memory-source-picker__state {
+  margin: 0;
+  color: var(--muted);
 }
 
 .memory-promotions .settings-input,
@@ -114,14 +187,32 @@
   resize: vertical;
 }
 
+.memory-promotions > .settings-section:first-child > .settings-group > .btn {
+  margin: var(--space-3) var(--space-4);
+}
+
 .memory-promotions .settings-row__control {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 @media (max-width: 560px) {
   .memory-memories__search {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memory-source-picker__search {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memory-source-picker__search .btn {
+    width: 100%;
+  }
+
+  .memory-promotions .settings-row {
     align-items: stretch;
     flex-direction: column;
   }

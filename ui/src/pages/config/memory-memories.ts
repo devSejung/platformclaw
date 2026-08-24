@@ -8,7 +8,6 @@ import { t } from "../../i18n/index.ts";
 import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import "../../styles/memory-memories.css";
-import "./memory-promotions.js";
 
 type SearchResult = Omit<MemorySearchResponse["results"][number], "source"> & {
   source: string;
@@ -62,7 +61,6 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
   @property({ type: Boolean }) connected = false;
   @property({ type: Boolean }) methodAdvertised = true;
-  @property({ type: Boolean }) lifecycleMethodAdvertised = false;
   @property() agentId: string | null = null;
 
   @state() private query = "";
@@ -330,12 +328,6 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
               </button>
             </form>
             ${this.renderSearchState()}`}
-      <openclaw-memory-promotions
-        .client=${this.client}
-        .connected=${this.connected}
-        .methodAdvertised=${this.lifecycleMethodAdvertised}
-        .agentId=${this.agentId}
-      ></openclaw-memory-promotions>
     </div>`;
   }
 }

@@ -189,41 +189,46 @@ export class PlatformClawControlUiAdapter {
             })),
         },
         memory: {
-          loader: async (context) => {
+          loader: async (context, { location: routeLocation }) => {
+            const { platformClawMemoryTabFromLocation } = await import("./memory-page.ts");
             const agents = context.agents.state.agentsList ?? (await context.agents.ensureList());
             const assignedAgentId =
               agents?.agents.find((agent) => agent.id === agents.defaultId)?.id ??
               agents?.agents[0]?.id ??
               null;
-            return { agentId: assignedAgentId };
+            const initialTab = platformClawMemoryTabFromLocation(routeLocation, context.basePath);
+            return { agentId: assignedAgentId, initialTab };
           },
           component: async () => {
-            await Promise.all([
-              import("../pages/agents/memory/memory-panel.ts"),
-              loadPlatformClawLocale(),
-            ]);
+            await Promise.all([import("./memory-page.ts"), loadPlatformClawLocale()]);
             return {
               header: true,
               render: (data: unknown) => {
                 const agentId =
                   isRecord(data) && typeof data.agentId === "string" ? data.agentId : null;
+                const initialTab =
+                  isRecord(data) &&
+                  (data.initialTab === "memory" ||
+                    data.initialTab === "wiki" ||
+                    data.initialTab === "organization" ||
+                    data.initialTab === "dreaming")
+                    ? data.initialTab
+                    : "overview";
                 return html`
                   <section class="content-header">
                     <div><div class="page-title">${t("tabs.memory")}</div></div>
                   </section>
-                  <main class="settings-page">
-                    ${agentId
-                      ? html`<openclaw-agent-memory-panel
-                          .agentId=${agentId}
-                          .showMemorySearch=${true}
-                        ></openclaw-agent-memory-panel>`
-                      : html`
-                          <div class="card" role="status">
-                            <div class="card-title">${t("platformClaw.memory.unavailable")}</div>
-                            <div class="muted">${t("platformClaw.memory.unassigned")}</div>
-                          </div>
-                        `}
-                  </main>
+                  ${agentId
+                    ? html`<platformclaw-memory-page
+                        .agentId=${agentId}
+                        .initialTab=${initialTab}
+                      ></platformclaw-memory-page>`
+                    : html`<main class="settings-page">
+                        <div class="card" role="status">
+                          <div class="card-title">${t("platformClaw.memory.unavailable")}</div>
+                          <div class="muted">${t("platformClaw.memory.unassigned")}</div>
+                        </div>
+                      </main>`}
                 `;
               },
             };

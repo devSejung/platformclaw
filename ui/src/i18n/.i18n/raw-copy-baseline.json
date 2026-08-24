@@ -417,6 +417,13 @@
     {
       "count": 1,
       "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/pages/agents/view.ts",
+      "text": "MEMORY.md"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
       "name": "label",
       "path": "ui/src/pages/channels/hub-meta.ts",
       "text": "@BotFather"

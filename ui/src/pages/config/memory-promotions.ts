@@ -7,14 +7,18 @@ import type {
   OrganizationMemoryPromotionSourceKind,
 } from "../../../../packages/platformclaw-control-plane/src/contracts.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
-import { t } from "../../i18n/index.ts";
 import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
+import { loadPlatformClawLocale, platformClawT as t } from "../../platformclaw/i18n.ts";
+import type { PersonalWikiSourceSelected } from "./memory-promotion-source-picker.ts";
+import "./memory-promotion-source-picker.ts";
 
 class MemoryPromotionsElement extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
   @property({ type: Boolean }) connected = false;
   @property({ type: Boolean }) methodAdvertised = false;
+  @property({ type: Boolean }) wikiSearchAdvertised = false;
+  @property({ type: Boolean }) wikiGetAdvertised = false;
   @property() agentId: string | null = null;
 
   @state() private snapshot: OrganizationMemoryLifecycleSnapshot | null = null;
@@ -27,6 +31,12 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   @state() private proposedText = "";
   @state() private evidence = "";
   @state() private reason = "";
+  private loadRequest: object | null = null;
+
+  override connectedCallback() {
+    super.connectedCallback();
+    void loadPlatformClawLocale().then(() => this.requestUpdate());
+  }
 
   protected override updated(changed: PropertyValues<this>) {
     if (
@@ -43,9 +53,13 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     const client = this.connected && this.methodAdvertised ? this.client : null;
     const agentId = this.agentId;
     if (!client || !agentId) {
+      this.loadRequest = null;
       this.snapshot = null;
+      this.loading = false;
       return;
     }
+    const request = {};
+    this.loadRequest = request;
     this.loading = true;
     this.error = null;
     try {
@@ -61,6 +75,9 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
         "platformclaw.memory.lifecycle",
         requestPage,
       );
+      if (this.loadRequest !== request) {
+        return;
+      }
       this.snapshot =
         page && this.snapshot
           ? {
@@ -71,9 +88,15 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
             }
           : loaded;
     } catch (error) {
+      if (this.loadRequest !== request) {
+        return;
+      }
       this.error = formatErrorMessage(error, { redact: redactToolDetail });
     } finally {
-      this.loading = false;
+      if (this.loadRequest === request) {
+        this.loadRequest = null;
+        this.loading = false;
+      }
     }
   }
 
@@ -101,6 +124,9 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     this.sourceClaimId = "";
     this.sourceRevision = "1";
     this.targetScopeId = "";
+    this.proposedText = "";
+    this.evidence = "";
+    this.reason = "";
   }
 
   private async submit() {
@@ -114,20 +140,23 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     this.loading = true;
     this.error = null;
     try {
-      await client.request("platformclaw.memory.promotion.submit", {
-        sourceKind: this.sourceKind,
+      const content = {
         sourceClaimId: this.sourceClaimId,
-        ...(this.sourceKind === "personal"
-          ? {}
-          : { expectedSourceRevision: Number(this.sourceRevision) }),
-        targetKind: target.kind,
-        ...(target.id ? { targetScopeId: target.id } : {}),
         proposedText: this.proposedText,
         evidence: this.evidence
           .split("\n")
           .map((entry) => entry.trim())
           .filter(Boolean),
         reason: this.reason,
+      };
+      await client.request("platformclaw.memory.promotion.submit", {
+        ...content,
+        sourceKind: this.sourceKind,
+        ...(this.sourceKind === "personal"
+          ? {}
+          : { expectedSourceRevision: Number(this.sourceRevision) }),
+        targetKind: target.kind,
+        ...(target.id ? { targetScopeId: target.id } : {}),
       });
       this.proposedText = "";
       this.evidence = "";
@@ -137,6 +166,14 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       this.error = formatErrorMessage(error, { redact: redactToolDetail });
       this.loading = false;
     }
+  }
+
+  private selectPersonalSource(event: CustomEvent<PersonalWikiSourceSelected>) {
+    this.sourceClaimId = event.detail.lookup;
+    this.proposedText = event.detail.content;
+    this.evidence = event.detail.path;
+    this.reason = t("memoryPage.promotions.defaultReason");
+    this.targetScopeId = "";
   }
 
   private async decide(
@@ -188,13 +225,36 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     );
   }
 
+  private statusLabel(
+    status: "pending" | "approved" | "rejected" | "active" | "retired" | "purged",
+  ): string {
+    const key = {
+      pending: "memoryPage.promotions.statusPending",
+      approved: "memoryPage.promotions.statusApproved",
+      rejected: "memoryPage.promotions.statusRejected",
+      active: "memoryPage.promotions.statusActive",
+      retired: "memoryPage.promotions.statusRetired",
+      purged: "memoryPage.promotions.statusPurged",
+    }[status];
+    return t(key);
+  }
+
+  private sourceLabel(kind: OrganizationMemoryPromotionSourceKind) {
+    return kind === "personal"
+      ? t("memoryPage.promotions.personal")
+      : kind === "part"
+        ? t("memoryPage.promotions.part")
+        : t("memoryPage.promotions.group");
+  }
+
   private renderRequest(request: OrganizationMemoryPromotionRequest, review = false) {
     return html`<div class="settings-row">
       <span class="settings-row__text">
         <span class="settings-row__title">${request.proposedText}</span>
         <span class="settings-row__desc"
-          >${request.sourceKind}:${request.sourceClaimId}@${request.sourceRevision} →
-          ${request.targetScopeName} · ${request.status}</span
+          >${this.sourceLabel(request.sourceKind)} · ${request.sourceClaimId} ·
+          ${t("memoryPage.promotions.revision", { revision: String(request.sourceRevision) })} →
+          ${request.targetScopeName} · ${this.statusLabel(request.status)}</span
         >
         <span class="settings-row__desc"
           >${t("memoryPage.promotions.reasonLabel")}: ${request.reason}</span
@@ -232,147 +292,198 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
         ${t("memoryPage.promotions.gatewayUpdateRequired")}
       </p>`;
     }
+    if (this.loading && !this.snapshot) {
+      return html`<div class="settings-page memory-promotions">
+        <p class="memory-promotions__empty" role="status">${t("memoryPage.promotions.loading")}</p>
+      </div>`;
+    }
     const sourceClaims = this.sourceClaims();
     const targets = this.targetScopes();
-    return html`<section class="memory-promotions">
-      <h2>${t("memoryPage.promotions.title")}</h2>
-      <p class="muted">${t("memoryPage.promotions.description")}</p>
-      ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
-      <div class="settings-group">
-        <label class="settings-row">
-          <span class="settings-row__text"
-            ><span class="settings-row__title">${t("memoryPage.promotions.source")}</span></span
-          >
-          <select
-            class="settings-select"
-            .value=${this.sourceKind}
-            @change=${(event: Event) =>
-              this.resetForSourceKind(
-                (event.currentTarget as HTMLSelectElement)
-                  .value as OrganizationMemoryPromotionSourceKind,
-              )}
-          >
-            <option value="personal">${t("memoryPage.promotions.personal")}</option>
-            <option value="part">${t("memoryPage.promotions.part")}</option>
-            <option value="group">${t("memoryPage.promotions.group")}</option>
-          </select>
-        </label>
-        ${this.sourceKind === "personal"
-          ? html`<input
-              class="settings-input"
-              placeholder=${t("memoryPage.promotions.personalClaimPlaceholder")}
-              .value=${this.sourceClaimId}
-              @input=${(event: InputEvent) =>
-                (this.sourceClaimId = (event.currentTarget as HTMLInputElement).value)}
-            />`
-          : html`<select
-              class="settings-select"
-              .value=${this.sourceClaimId}
-              @change=${(event: Event) => {
-                const claim = sourceClaims.find(
-                  (item) => item.id === (event.currentTarget as HTMLSelectElement).value,
-                );
-                this.sourceClaimId = claim?.id ?? "";
-                this.sourceRevision = String(claim?.revision ?? 1);
-                this.targetScopeId = "";
-              }}
+    return html`<div class="settings-page memory-promotions">
+      <section class="settings-section">
+        <header class="settings-section__header">
+          <div>
+            <h2 class="settings-section__heading">${t("memoryPage.promotions.title")}</h2>
+            <p class="settings-section__description">${t("memoryPage.promotions.description")}</p>
+          </div>
+        </header>
+        ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
+        <div class="settings-group">
+          <label class="settings-row">
+            <span class="settings-row__text"
+              ><span class="settings-row__title">${t("memoryPage.promotions.source")}</span></span
             >
-              <option value="">${t("memoryPage.promotions.chooseClaim")}</option>
-              ${sourceClaims.map(
-                (claim) =>
-                  html`<option value=${claim.id}>${claim.scopeName} · ${claim.title}</option>`,
+            <select
+              class="settings-select"
+              .value=${this.sourceKind}
+              @change=${(event: Event) =>
+                this.resetForSourceKind(
+                  (event.currentTarget as HTMLSelectElement)
+                    .value as OrganizationMemoryPromotionSourceKind,
+                )}
+            >
+              <option value="personal">${t("memoryPage.promotions.personal")}</option>
+              <option value="part">${t("memoryPage.promotions.part")}</option>
+              <option value="group">${t("memoryPage.promotions.group")}</option>
+            </select>
+          </label>
+          ${this.sourceKind === "personal"
+            ? html`<openclaw-memory-promotion-source-picker
+                .client=${this.client}
+                .connected=${this.connected}
+                .searchAdvertised=${this.wikiSearchAdvertised}
+                .getAdvertised=${this.wikiGetAdvertised}
+                .agentId=${this.agentId}
+                @source-selected=${(event: CustomEvent<PersonalWikiSourceSelected>) =>
+                  this.selectPersonalSource(event)}
+              ></openclaw-memory-promotion-source-picker>`
+            : html`<select
+                class="settings-select"
+                .value=${this.sourceClaimId}
+                @change=${(event: Event) => {
+                  const claim = sourceClaims.find(
+                    (item) => item.id === (event.currentTarget as HTMLSelectElement).value,
+                  );
+                  this.sourceClaimId = claim?.id ?? "";
+                  this.sourceRevision = String(claim?.revision ?? 1);
+                  this.proposedText = claim?.text ?? "";
+                  this.evidence = claim ? `${claim.id}@${claim.revision}` : "";
+                  this.reason = claim ? t("memoryPage.promotions.defaultReason") : "";
+                  this.targetScopeId = "";
+                }}
+              >
+                <option value="">${t("memoryPage.promotions.chooseClaim")}</option>
+                ${sourceClaims.map(
+                  (claim) =>
+                    html`<option value=${claim.id}>${claim.scopeName} · ${claim.title}</option>`,
+                )}
+              </select>`}
+          <label class="memory-promotions__field">
+            <span>${t("memoryPage.promotions.target")}</span>
+            <select
+              class="settings-select"
+              .value=${this.targetScopeId}
+              @change=${(event: Event) =>
+                (this.targetScopeId = (event.currentTarget as HTMLSelectElement).value)}
+            >
+              <option value="">${t("memoryPage.promotions.chooseTarget")}</option>
+              ${targets.map(
+                (scope) => html`<option value=${scope.id ?? "global"}>${scope.name}</option>`,
               )}
-            </select>`}
-        <select
-          class="settings-select"
-          .value=${this.targetScopeId}
-          @change=${(event: Event) =>
-            (this.targetScopeId = (event.currentTarget as HTMLSelectElement).value)}
-        >
-          <option value="">${t("memoryPage.promotions.chooseTarget")}</option>
-          ${targets.map(
-            (scope) => html`<option value=${scope.id ?? "global"}>${scope.name}</option>`,
-          )}
-        </select>
-        <textarea
-          class="settings-textarea"
-          placeholder=${t("memoryPage.promotions.textPlaceholder")}
-          .value=${this.proposedText}
-          @input=${(event: InputEvent) =>
-            (this.proposedText = (event.currentTarget as HTMLTextAreaElement).value)}
-        ></textarea>
-        <textarea
-          class="settings-textarea"
-          placeholder=${t("memoryPage.promotions.evidencePlaceholder")}
-          .value=${this.evidence}
-          @input=${(event: InputEvent) =>
-            (this.evidence = (event.currentTarget as HTMLTextAreaElement).value)}
-        ></textarea>
-        <input
-          class="settings-input"
-          placeholder=${t("memoryPage.promotions.reasonPlaceholder")}
-          .value=${this.reason}
-          @input=${(event: InputEvent) =>
-            (this.reason = (event.currentTarget as HTMLInputElement).value)}
-        />
-        <button
-          class="btn btn--sm primary"
-          ?disabled=${this.loading ||
-          !this.sourceClaimId ||
-          !this.targetScopeId ||
-          !this.proposedText.trim() ||
-          !this.reason.trim()}
-          @click=${() => void this.submit()}
-        >
-          ${t("memoryPage.promotions.submit")}
-        </button>
-      </div>
-      <h3>${t("memoryPage.promotions.needsReview")}</h3>
-      <div class="settings-group">
-        ${(this.snapshot?.reviewable ?? []).map((request) => this.renderRequest(request, true))}
-      </div>
-      <h3>${t("memoryPage.promotions.myRequests")}</h3>
-      <div class="settings-group">
-        ${(this.snapshot?.submitted ?? []).map((request) => this.renderRequest(request))}
-      </div>
-      <h3>${t("memoryPage.promotions.claims")}</h3>
-      <div class="settings-group">
-        ${(this.snapshot?.claims ?? []).map(
-          (claim) => html`<div class="settings-row">
-            <span class="settings-row__text">
-              <span class="settings-row__title">${claim.title}</span>
-              <span class="settings-row__desc">${claim.scopeName} · ${claim.status}</span>
-            </span>
-            <span class="settings-row__control">
-              ${claim.status === "active" && this.canAdministerClaim(claim.scopeKind, claim.scopeId)
-                ? html`<button
-                    class="btn btn--sm"
-                    @click=${() => void this.retire(claim.id, false)}
-                  >
-                    ${t("memoryPage.promotions.retire")}
-                  </button>`
-                : claim.status === "retired" && this.snapshot?.canApproveGlobal
-                  ? html`<button
-                      class="btn btn--sm danger"
-                      @click=${() => void this.retire(claim.id, true)}
-                    >
-                      ${t("memoryPage.promotions.purge")}
-                    </button>`
-                  : nothing}
-            </span>
-          </div>`,
-        )}
-      </div>
-      ${this.snapshot?.next
-        ? html`<button
-            class="btn btn--sm"
-            ?disabled=${this.loading}
-            @click=${() => void this.load(this.snapshot?.next)}
+            </select>
+          </label>
+          <label class="memory-promotions__field">
+            <span>${t("memoryPage.promotions.proposedText")}</span>
+            <textarea
+              class="settings-textarea"
+              placeholder=${t("memoryPage.promotions.textPlaceholder")}
+              .value=${this.proposedText}
+              @input=${(event: InputEvent) =>
+                (this.proposedText = (event.currentTarget as HTMLTextAreaElement).value)}
+            ></textarea>
+          </label>
+          <label class="memory-promotions__field">
+            <span>${t("memoryPage.promotions.evidenceLabel")}</span>
+            <textarea
+              class="settings-textarea"
+              placeholder=${t("memoryPage.promotions.evidencePlaceholder")}
+              .value=${this.evidence}
+              @input=${(event: InputEvent) =>
+                (this.evidence = (event.currentTarget as HTMLTextAreaElement).value)}
+            ></textarea>
+          </label>
+          <label class="memory-promotions__field">
+            <span>${t("memoryPage.promotions.reasonLabel")}</span>
+            <input
+              class="settings-input"
+              placeholder=${t("memoryPage.promotions.reasonPlaceholder")}
+              .value=${this.reason}
+              @input=${(event: InputEvent) =>
+                (this.reason = (event.currentTarget as HTMLInputElement).value)}
+            />
+          </label>
+          <button
+            class="btn btn--sm primary"
+            ?disabled=${this.loading ||
+            !this.sourceClaimId ||
+            !this.targetScopeId ||
+            !this.proposedText.trim() ||
+            !this.reason.trim()}
+            @click=${() => void this.submit()}
           >
-            ${t("memoryPage.promotions.loadMore")}
-          </button>`
-        : nothing}
-    </section>`;
+            ${t("memoryPage.promotions.submit")}
+          </button>
+        </div>
+      </section>
+      <section class="settings-section">
+        <header class="settings-section__header">
+          <h3 class="settings-section__heading">${t("memoryPage.promotions.needsReview")}</h3>
+        </header>
+        <div class="settings-group">
+          ${(this.snapshot?.reviewable ?? []).length > 0
+            ? this.snapshot!.reviewable.map((request) => this.renderRequest(request, true))
+            : html`<p class="memory-promotions__empty">${t("memoryPage.promotions.noReviews")}</p>`}
+        </div>
+      </section>
+      <section class="settings-section">
+        <header class="settings-section__header">
+          <h3 class="settings-section__heading">${t("memoryPage.promotions.myRequests")}</h3>
+        </header>
+        <div class="settings-group">
+          ${(this.snapshot?.submitted ?? []).length > 0
+            ? this.snapshot!.submitted.map((request) => this.renderRequest(request))
+            : html`<p class="memory-promotions__empty">
+                ${t("memoryPage.promotions.noRequests")}
+              </p>`}
+        </div>
+      </section>
+      <section class="settings-section">
+        <header class="settings-section__header">
+          <h3 class="settings-section__heading">${t("memoryPage.promotions.claims")}</h3>
+        </header>
+        <div class="settings-group">
+          ${(this.snapshot?.claims ?? []).length > 0
+            ? this.snapshot!.claims.map(
+                (claim) => html`<div class="settings-row">
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">${claim.title}</span>
+                    <span class="settings-row__desc"
+                      >${claim.scopeName} · ${this.statusLabel(claim.status)}</span
+                    >
+                  </span>
+                  <span class="settings-row__control">
+                    ${claim.status === "active" &&
+                    this.canAdministerClaim(claim.scopeKind, claim.scopeId)
+                      ? html`<button
+                          class="btn btn--sm"
+                          @click=${() => void this.retire(claim.id, false)}
+                        >
+                          ${t("memoryPage.promotions.retire")}
+                        </button>`
+                      : claim.status === "retired" && this.snapshot?.canApproveGlobal
+                        ? html`<button
+                            class="btn btn--sm danger"
+                            @click=${() => void this.retire(claim.id, true)}
+                          >
+                            ${t("memoryPage.promotions.purge")}
+                          </button>`
+                        : nothing}
+                  </span>
+                </div>`,
+              )
+            : html`<p class="memory-promotions__empty">${t("memoryPage.promotions.noClaims")}</p>`}
+        </div>
+        ${this.snapshot?.next
+          ? html`<button
+              class="btn btn--sm"
+              ?disabled=${this.loading}
+              @click=${() => void this.load(this.snapshot?.next)}
+            >
+              ${t("memoryPage.promotions.loadMore")}
+            </button>`
+          : nothing}
+      </section>
+    </div>`;
   }
 }
 

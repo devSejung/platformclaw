@@ -29,7 +29,10 @@ export async function loadPlatformClawLocale(): Promise<void> {
 }
 
 export function platformClawT(key: string, params?: Record<string, string>): string {
-  const value = i18n.getLocale() === "ko" ? koreanBundle?.translations[key] : undefined;
+  const value =
+    i18n.getLocale() === "ko"
+      ? koreanBundle?.translations[key]
+      : englishGuideBundle?.translations[key];
   if (!value) {
     return t(key, params);
   }

@@ -9,7 +9,13 @@ export const INTERNAL_MEMORY_PATH_PARAM = "__openclawMemoryPath";
 export const INTERNAL_PLUGINS_PATH_PARAM = "__openclawPluginsPath";
 export const INTERNAL_WORKBOARD_PATH_PARAM = "__openclawWorkboardPath";
 
-export type MemoryRouteTab = "overview" | "memories" | "dreams" | "settings";
+export type MemoryRouteTab =
+  | "overview"
+  | "memories"
+  | "wiki"
+  | "organization"
+  | "dreams"
+  | "settings";
 export type PluginsHubRouteTab = "installed" | "discover";
 
 type AgentRoutePath = {
@@ -174,7 +180,13 @@ export function memoryTabFromPath(pathname: string, basePath = ""): MemoryRouteT
     return null;
   }
   const segment = normalizedPath.slice(prefix.length);
-  return segment === "memories" || segment === "dreams" || segment === "settings" ? segment : null;
+  return segment === "memories" ||
+    segment === "wiki" ||
+    segment === "organization" ||
+    segment === "dreams" ||
+    segment === "settings"
+    ? segment
+    : null;
 }
 
 export function pathForPluginsHubTab(tab: PluginsHubRouteTab, basePath = ""): string {

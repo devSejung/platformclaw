@@ -1070,7 +1070,8 @@ class AgentsPage
           onIdentitySave: () => this.saveIdentityDraft(),
           onChannelsRefresh: () => void this.context.channels.refresh(false),
           onOpenMemoryImport: () => this.context.navigate("memory-import"),
-          onOpenMemorySettings: () => this.context.navigate("memory"),
+          onOpenMemorySettings: (agentId) =>
+            this.context.navigate("memory", { search: `?agent=${encodeURIComponent(agentId)}` }),
           onOpenAgentDefaults: () => this.context.navigate("ai-agents"),
           onCronRefresh: () => void this.refreshCron(),
           onCronLoadMore: () =>

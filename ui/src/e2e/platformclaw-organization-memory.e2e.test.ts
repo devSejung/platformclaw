@@ -72,13 +72,38 @@ suite("PlatformClaw organization memory Settings E2E", () => {
 
   it("renders pinned organization scope results in English and Korean", async () => {
     for (const scenario of [
-      { locale: "en-US", query: "release", snippet: "Two approvals are required." },
-      { locale: "ko-KR", query: "보안", snippet: "모든 직원에게 적용되는 보안 정책입니다." },
+      {
+        locale: "en-US",
+        query: "release",
+        snippet: "Two approvals are required.",
+        organizationTab: "Organization",
+        promotionTitle: "Share Wiki knowledge",
+        proofName: "en-US-desktop",
+        viewport: { height: 900, width: 1440 },
+      },
+      {
+        locale: "ko-KR",
+        query: "보안",
+        snippet: "모든 직원에게 적용되는 보안 정책입니다.",
+        organizationTab: "조직 지식",
+        promotionTitle: "Wiki 지식 공유",
+        proofName: "ko-KR-desktop",
+        viewport: { height: 900, width: 1440 },
+      },
+      {
+        locale: "ko-KR",
+        query: "보안",
+        snippet: "모든 직원에게 적용되는 보안 정책입니다.",
+        organizationTab: "조직 지식",
+        promotionTitle: "Wiki 지식 공유",
+        proofName: "ko-KR-mobile",
+        viewport: { height: 844, width: 390 },
+      },
     ]) {
       const context = await browser.newContext({
         locale: scenario.locale,
         serviceWorkers: "block",
-        viewport: { height: 900, width: 1440 },
+        viewport: scenario.viewport,
       });
       const page = await context.newPage();
       await installPlatformClawDocument(page);
@@ -90,6 +115,8 @@ suite("PlatformClaw organization memory Settings E2E", () => {
           "doctor.memory.status",
           "memory.search",
           "platformclaw.memory.lifecycle",
+          "wiki.get",
+          "wiki.search",
         ],
         methodResponses: {
           "agents.list": {
@@ -160,7 +187,8 @@ suite("PlatformClaw organization memory Settings E2E", () => {
       await expect
         .poll(() => new URL(page.url()).pathname)
         .toBe("/platformclaw/app/settings/memory");
-      await expect.poll(() => page.locator("openclaw-agent-memory-panel").isVisible()).toBe(true);
+      await expect.poll(() => page.locator("platformclaw-memory-page").isVisible()).toBe(true);
+      await page.getByRole("tab", { name: "Memory", exact: true }).click();
       await page.locator("#memory-search-input").fill(scenario.query);
       await page
         .locator(".memory-memories__search")
@@ -171,12 +199,13 @@ suite("PlatformClaw organization memory Settings E2E", () => {
       await expect
         .poll(() => page.locator(".memory-memories__source").textContent())
         .toContain("Platform");
+      await page.getByRole("tab", { name: scenario.organizationTab, exact: true }).click();
       await expect
         .poll(() => page.locator("openclaw-memory-promotions").textContent())
         .toContain(scenario.snippet);
       await expect
         .poll(() => page.locator("openclaw-memory-promotions h2").textContent())
-        .toContain("Organization memory promotion");
+        .toContain(scenario.promotionTitle);
       expect(await page.locator("article > button").count()).toBe(0);
       expect(await gateway.getRequests("memory.search")).toEqual([
         expect.objectContaining({
@@ -190,7 +219,7 @@ suite("PlatformClaw organization memory Settings E2E", () => {
         await page.screenshot({
           animations: "disabled",
           fullPage: true,
-          path: path.join(proofDir, `organization-memory-${scenario.locale}.png`),
+          path: path.join(proofDir, `organization-memory-${scenario.proofName}.png`),
         });
       }
       await context.close();

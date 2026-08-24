@@ -397,6 +397,8 @@ describe("Memory tab route paths", () => {
   it.each([
     ["overview", "/settings/memory"],
     ["memories", "/settings/memory/memories"],
+    ["wiki", "/settings/memory/wiki"],
+    ["organization", "/settings/memory/organization"],
     ["dreams", "/settings/memory/dreams"],
     ["settings", "/settings/memory/settings"],
   ] as const)("round-trips %s through its canonical path", (tab, pathname) => {
@@ -405,7 +407,7 @@ describe("Memory tab route paths", () => {
     expect(routeIdFromPath(pathname)).toBe("memory");
   });
 
-  it.each(["overview", "memories", "dreams", "settings"] as const)(
+  it.each(["overview", "memories", "wiki", "organization", "dreams", "settings"] as const)(
     "round-trips %s under a configured base path",
     (tab: MemoryRouteTab) => {
       const pathname = pathForMemoryTab(tab, "/ui");

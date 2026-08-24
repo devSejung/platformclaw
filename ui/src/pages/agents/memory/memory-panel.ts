@@ -11,14 +11,13 @@ import {
   showConfirmDialog,
   type ConfirmDialogOptions,
 } from "../../../components/confirm-dialog.ts";
-import { renderSettingsDefaultState } from "../../../components/settings-ui.ts";
+import { renderSettingsDefaultState, renderSettingsRow } from "../../../components/settings-ui.ts";
 import { t } from "../../../i18n/index.ts";
 import { currentConfigObject } from "../../../lib/config/index.ts";
 import { formatTimeMs } from "../../../lib/format.ts";
 import { isGatewayMethodAdvertised } from "../../../lib/gateway-methods.ts";
 import { OpenClawLightDomElement } from "../../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../../lit/subscriptions-controller.ts";
-import "../../config/memory-memories.ts";
 import {
   backfillDreamDiary,
   canCallDreamingMethod,
@@ -41,6 +40,7 @@ import { renderDreamingToggleConfirmation } from "./toggle-confirmation.ts";
 import {
   createDreamingViewState,
   renderDreaming,
+  renderWikiKnowledge,
   resetWikiPreview,
   type DreamingViewState,
 } from "./view.ts";
@@ -115,7 +115,8 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   private context!: ApplicationContext;
 
   @property({ attribute: false }) agentId = "";
-  @property({ type: Boolean }) showMemorySearch = false;
+  @property({ type: Boolean }) summaryOnly = false;
+  @property() surface: "dreaming" | "wiki" = "dreaming";
 
   @state() private dreaming = createDreamingState();
   @state() private toggleConfirmOpen = false;
@@ -524,52 +525,80 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
     const refreshLoading = dreaming.dreamingStatusLoading || dreaming.dreamDiaryLoading;
     const selectedAgentId = dreaming.selectedAgentId ?? this.agentId;
 
+    if (this.summaryOnly) {
+      const statusTitle = configuredDreaming.engineOff
+        ? t("memoryPage.overview.hero.hibernating")
+        : dreaming.dreamingStatusError
+          ? t("memoryPage.overview.hero.needsAttention")
+          : dreaming.dreamingStatusLoading
+            ? t("memoryPage.overview.hero.waking")
+            : t("memoryPage.overview.hero.awake");
+      const statusDescription = configuredDreaming.engineOff
+        ? t("memoryPage.overview.hero.offDescription")
+        : (dreaming.dreamingStatusError ??
+          (dreaming.dreamingStatusLoading
+            ? t("memoryPage.overview.hero.loadingDescription")
+            : t(dreamingOn ? "dreaming.status.active" : "dreaming.status.idle")));
+      return html`<section class="settings-group agent-memory-panel__summary">
+        ${renderSettingsRow({
+          title: statusTitle,
+          description: statusDescription,
+          control: html`<button
+            class="btn btn--sm"
+            ?disabled=${refreshLoading}
+            @click=${() => void this.loadAll(true)}
+          >
+            ${refreshLoading
+              ? t("dreaming.header.refreshing")
+              : t("memoryPage.overview.hero.refresh")}
+          </button>`,
+        })}
+        ${renderSettingsRow({
+          title: t("memoryPage.overview.activity.shortTermCount"),
+          control: html`<span class="settings-row__value"
+            >${dreamingStatus?.shortTermCount ?? 0}</span
+          >`,
+        })}
+        ${renderSettingsRow({
+          title: t("memoryPage.overview.activity.promotedToday"),
+          control: html`<span class="settings-row__value"
+            >${dreamingStatus?.promotedToday ?? 0}</span
+          >`,
+        })}
+      </section>`;
+    }
+
     return html`
-      ${this.showMemorySearch
-        ? html`<section class="settings-page">
-            <h2>${t("memoryPage.tabs.memories")}</h2>
-            <openclaw-memory-memories
-              .client=${dreaming.client}
-              .connected=${dreaming.connected}
-              .methodAdvertised=${isGatewayMethodAdvertised(dreaming, "memory.search") !== false}
-              .lifecycleMethodAdvertised=${isGatewayMethodAdvertised(
-                dreaming,
-                "platformclaw.memory.lifecycle",
-              ) !== false}
-              .agentId=${selectedAgentId || null}
-            ></openclaw-memory-memories>
-          </section>`
-        : nothing}
-      <section class="content-header content-header--page agent-memory-panel__header">
-        <div class="page-meta">
-          <div class="dreaming-header-controls">
-            <button
-              class="btn btn--subtle btn--sm"
-              ?disabled=${loading || dreaming.dreamDiaryLoading}
-              @click=${() => void this.loadAll(true)}
-            >
-              ${refreshLoading ? t("dreaming.header.refreshing") : t("dreaming.header.refresh")}
-            </button>
-            <span class="muted">
-              ${configuredDreaming.engineOff
-                ? t("dreaming.header.engineOff")
-                : defaultState.description}
-            </span>
-            ${defaultState.action}
-            <button
-              class="dreams__phase-toggle ${dreamingOn ? "dreams__phase-toggle--on" : ""}"
-              ?disabled=${!canUpdateConfig || loading || configuredDreaming.engineOff}
-              @click=${() => this.setEnabled(!dreamingOn, dreamingOn)}
-            >
-              <span class="dreams__phase-toggle-dot"></span>
-              <span class="dreams__phase-toggle-label">
-                ${dreamingOn ? t("dreaming.header.on") : t("dreaming.header.off")}
+      ${this.surface === "dreaming"
+        ? html`<div class="agent-memory-panel__toolbar">
+            <div class="dreaming-header-controls">
+              <button
+                class="btn btn--subtle btn--sm"
+                ?disabled=${loading || dreaming.dreamDiaryLoading}
+                @click=${() => void this.loadAll(true)}
+              >
+                ${refreshLoading ? t("dreaming.header.refreshing") : t("dreaming.header.refresh")}
+              </button>
+              <span class="muted">
+                ${configuredDreaming.engineOff
+                  ? t("dreaming.header.engineOff")
+                  : defaultState.description}
               </span>
-            </button>
-          </div>
-        </div>
-      </section>
-      ${renderDreaming({
+              ${defaultState.action}
+              <button
+                class="dreams__phase-toggle ${dreamingOn ? "dreams__phase-toggle--on" : ""}"
+                ?disabled=${!canUpdateConfig || loading || configuredDreaming.engineOff}
+                @click=${() => this.setEnabled(!dreamingOn, dreamingOn)}
+              >
+                <span class="dreams__phase-toggle-dot"></span>
+                <span class="dreams__phase-toggle-label">
+                  ${dreamingOn ? t("dreaming.header.on") : t("dreaming.header.off")}
+                </span>
+              </button>
+            </div>
+          </div>`
+        : nothing}
+      ${(this.surface === "wiki" ? renderWikiKnowledge : renderDreaming)({
         access: {
           canOpenConfig: canCallDreamingMethod(dreaming, "config.openFile", "operator.admin", {
             requireAdvertisement: false,

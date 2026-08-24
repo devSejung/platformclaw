@@ -182,6 +182,10 @@ type MemoryViewProps = {
   overview: TemplateResult;
   /** Search and read the selected agent's indexed memory. */
   memories: TemplateResult;
+  /** Agent-scoped Personal Wiki and imported knowledge. */
+  wiki: TemplateResult;
+  /** Human-reviewed Part, Group, and Global knowledge lifecycle. */
+  organization: TemplateResult;
   /** Agent-scoped dream diary and scene. */
   dreams: TemplateResult;
   /** One embedded editor for every `memory.*` schema field. */
@@ -484,6 +488,8 @@ export function renderMemory(props: MemoryViewProps) {
             tabs: [
               { value: "overview", label: t("memoryPage.tabs.overview") },
               { value: "memories", label: t("memoryPage.tabs.memories") },
+              { value: "wiki", label: t("memoryPage.tabs.wiki") },
+              { value: "organization", label: t("memoryPage.tabs.organization") },
               { value: "dreams", label: t("memoryPage.tabs.dreams") },
               { value: "settings", label: t("memoryPage.tabs.settings") },
             ],
@@ -515,9 +521,13 @@ export function renderMemory(props: MemoryViewProps) {
           ? props.overview
           : props.activeTab === "memories"
             ? props.memories
-            : props.activeTab === "dreams"
-              ? props.dreams
-              : renderSettingsTab(props)}
+            : props.activeTab === "wiki"
+              ? props.wiki
+              : props.activeTab === "organization"
+                ? props.organization
+                : props.activeTab === "dreams"
+                  ? props.dreams
+                  : renderSettingsTab(props)}
       </div>
     </section>
   `;
