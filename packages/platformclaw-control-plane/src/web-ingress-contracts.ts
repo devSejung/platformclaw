@@ -5,6 +5,7 @@ import type { EmployeeExecutionService } from "./browser-execution-http.js";
 import type { BrowserGatewayAccess, BrowserGatewayEvent } from "./browser-gateway-proxy.js";
 import type { McpAdministrationService } from "./browser-mcp-admin-http.js";
 import type { EmployeeMcpService } from "./browser-mcp-http.js";
+import type { BrowserOrganizationService } from "./browser-organization-http.js";
 import type { VmAdministrationService } from "./browser-vm-admin-http.js";
 import type { JiraVocService } from "./browser-voc-http.js";
 import type { EmployeeSsoService } from "./employee-sso.js";
@@ -61,6 +62,7 @@ export type PlatformClawWebIngressOptions = {
   vmAdministrationService?: VmAdministrationService;
   mcpAdministrationService?: McpAdministrationService;
   mcpService?: EmployeeMcpService;
+  organizationService?: BrowserOrganizationService;
   execCredentialService?: ExecCredentialService;
   vocService?: JiraVocService;
   skillHubService?: SkillHubService;

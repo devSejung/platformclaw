@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, type RawData } from "ws";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
+import type { BrowserOrganizationService } from "./browser-organization-http.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import {
   PlatformClawWebIngressServer,
@@ -228,6 +229,35 @@ describe("PlatformClawWebIngressServer", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("media-bytes");
     expect(handleApplication).not.toHaveBeenCalled();
+  });
+
+  it("dispatches the authenticated organization BFF before application fallback", async () => {
+    const gateway = new FakeGateway();
+    const { policy } = createPolicy();
+    const context = vi.fn(async () => ({ actor: { id: "user-1" } }));
+    server = new PlatformClawWebIngressServer({
+      publicOrigin: PUBLIC_ORIGIN,
+      authService: {} as BrowserAuthService,
+      loginRateLimiter: {
+        check: () => ({ allowed: true, retryAfterMs: 0 }),
+        recordFailure: vi.fn(),
+      },
+      gatewayProxy: policy,
+      gateway,
+      organizationService: {
+        authenticate: vi.fn(async () => ({ status: "active", user: access.user })),
+        context,
+      } as unknown as BrowserOrganizationService,
+    });
+    await server.listen({ host: "127.0.0.1", port: 0 });
+    const port = (server.address() as AddressInfo).port;
+
+    const response = await fetch(`http://127.0.0.1:${port}/platformclaw/api/organization/context`, {
+      headers: { Cookie: `platformclaw_session=${TEST_SESSION}` },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ actor: { id: "user-1" } });
+    expect(context).toHaveBeenCalledWith(access.user);
   });
 
   it("speaks the Gateway wire protocol while enforcing browser session ownership", async () => {

@@ -22,6 +22,14 @@ export function boundedOrganizationReason(value: string, field: string): string 
   return reason;
 }
 
+function boundedScopeName(value: string): string {
+  const name = required(value, "scope.name");
+  if (name.length > 120) {
+    throw new ControlPlaneStateError("scope.name must not exceed 120 characters");
+  }
+  return name;
+}
+
 type OrganizationAuditAuthorizationFacts =
   | OrganizationAuthorization["facts"]
   | { source: "self"; scopeIds: string[] };
@@ -127,7 +135,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
       },
       () => {
         this.requireAdmin(params.actorUserId);
-        const name = required(params.name, "scope.name");
+        const name = boundedScopeName(params.name);
         let parentScopeId: string | null = null;
         if (params.kind !== "team") {
           parentScopeId = required(params.parentScopeId ?? "", "parentScopeId");
@@ -174,6 +182,55 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
           },
         });
         return rowToScope(row);
+      },
+    );
+  }
+
+  async renameManagedScope(params: {
+    actorUserId: string;
+    scopeId: string;
+    name: string;
+    reason: string;
+    changedAt: number;
+  }): Promise<ManagedScope> {
+    return this.runOrganizationMutation(
+      {
+        actorUserId: params.actorUserId,
+        action: "scope.rename.denied",
+        targetType: "managed-scope",
+        targetId: params.scopeId,
+        createdAt: params.changedAt,
+        scopeId: params.scopeId,
+      },
+      () => {
+        this.requireAdmin(params.actorUserId);
+        const scope = this.requireScopeRow(params.scopeId);
+        if (scope.status !== "active") {
+          throw new ControlPlaneStateError("archived scopes cannot be renamed");
+        }
+        const name = boundedScopeName(params.name);
+        const reason = boundedOrganizationReason(params.reason, "reason");
+        const updated = { ...scope, name, normalized_name: normalizeScopeName(name) };
+        this.assertScopeNameAvailable(updated, scope.id);
+        executeSync(
+          this.db,
+          this.query
+            .updateTable("managed_scopes")
+            .set({ name, normalized_name: updated.normalized_name, updated_at: params.changedAt })
+            .where("id", "=", scope.id),
+        );
+        this.insertOrganizationAudit({
+          actorUserId: params.actorUserId,
+          action: "scope.renamed",
+          targetType: "managed-scope",
+          targetId: scope.id,
+          createdAt: params.changedAt,
+          outcome: "succeeded",
+          scopeId: scope.id,
+          reason,
+          details: { beforeName: scope.name, resultName: name },
+        });
+        return rowToScope(this.requireScopeRow(scope.id));
       },
     );
   }
@@ -499,6 +556,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
     actorUserId: string;
     scopeId: string;
     userId: string;
+    reason: string;
     changedAt: number;
   }): Promise<boolean> {
     return this.runOrganizationMutation(
@@ -528,6 +586,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
         if (!actorIsAdmin && actor.id === params.userId) {
           throw new ControlPlaneAuthorizationError("leaders cannot remove themselves");
         }
+        const reason = boundedOrganizationReason(params.reason, "reason");
         const existing = this.selectMembership(scope.id, params.userId);
         if (!actorIsAdmin && existing?.role === "leader") {
           throw new ControlPlaneAuthorizationError("only administrators can remove leaders");
@@ -549,6 +608,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
             createdAt: params.changedAt,
             outcome: "succeeded",
             scopeId: scope.id,
+            reason,
             details: { userId: params.userId, priorRole: existing?.role ?? null },
           });
         }

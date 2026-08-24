@@ -170,6 +170,29 @@ export type ManagedScopeMembership = {
   updatedAt: number;
 };
 
+export type OrganizationUserSummary = {
+  id: string;
+  accountId: string;
+  status: PlatformUserStatus;
+  displayName?: string;
+};
+
+export type ManagedScopeMember = {
+  membership: ManagedScopeMembership;
+  user: OrganizationUserSummary;
+};
+
+export type OrganizationAuditRecord = {
+  id: string;
+  eventType: string;
+  targetType: string;
+  targetId: string;
+  createdAt: number;
+  outcome?: "succeeded" | "denied";
+  reason?: string;
+  actor?: { id: string; displayName?: string };
+};
+
 export type OrganizationJoinRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
 export type OrganizationJoinRequest = {
   id: string;
@@ -179,6 +202,27 @@ export type OrganizationJoinRequest = {
   status: OrganizationJoinRequestStatus;
   createdAt: number;
   decidedAt?: number;
+  decisionReason?: string;
+};
+
+export type ReviewableOrganizationJoinRequest = {
+  request: OrganizationJoinRequest;
+  applicant: OrganizationUserSummary;
+  scope: ManagedScope;
+};
+
+export type OrganizationContextSnapshot = {
+  effectiveAccess: EffectiveManagedScopeAccess[];
+  effectiveAccessHasMore: boolean;
+  directMemberships: ManagedScopeMembership[];
+  directMembershipsHasMore: boolean;
+  primaryScope: ManagedScope | null;
+  joinRequests: OrganizationJoinRequest[];
+};
+
+export type OrganizationScopeSearchResult = {
+  scope: ManagedScope;
+  requestEligible: boolean;
 };
 
 export type ControlAuditEvent = {
@@ -414,6 +458,13 @@ export interface ControlPlaneManagementStore {
     parentScopeId?: string;
     createdAt: number;
   }): Promise<ManagedScope>;
+  renameManagedScope(params: {
+    actorUserId: string;
+    scopeId: string;
+    name: string;
+    reason: string;
+    changedAt: number;
+  }): Promise<ManagedScope>;
   archiveManagedScope(params: {
     actorUserId: string;
     scopeId: string;
@@ -432,10 +483,28 @@ export interface ControlPlaneManagementStore {
     actorUserId: string;
     scopeId: string;
     userId: string;
+    reason: string;
     changedAt: number;
   }): Promise<boolean>;
   listManagedScopes(): Promise<ManagedScope[]>;
+  searchOrganizationScopesForUser(params: {
+    userId: string;
+    query: string;
+    limit: number;
+  }): Promise<OrganizationScopeSearchResult[]>;
   listManagedScopeMemberships(scopeId: string): Promise<ManagedScopeMembership[]>;
+  listAuthorizedManagedScopeMembers(params: {
+    actorUserId: string;
+    scopeId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ManagedScopeMember[]>;
+  searchAuthorizedOrganizationUsers(params: {
+    actorUserId: string;
+    scopeId: string;
+    query: string;
+    limit: number;
+  }): Promise<OrganizationUserSummary[]>;
   getManagedScope(scopeId: string): Promise<ManagedScope | null>;
   getManagedScopeLineage(scopeId: string): Promise<ManagedScope[]>;
   resolveManagedScopeAuthorization(
@@ -474,12 +543,28 @@ export interface ControlPlaneManagementStore {
   listOwnOrganizationJoinRequests(params: {
     userId: string;
     limit?: number;
+    offset?: number;
   }): Promise<OrganizationJoinRequest[]>;
+  getOrganizationContextSnapshot(params: {
+    userId: string;
+    requestLimit?: number;
+  }): Promise<OrganizationContextSnapshot>;
   listReviewableOrganizationJoinRequests(params: {
     actorUserId: string;
     limit?: number;
+    offset?: number;
   }): Promise<OrganizationJoinRequest[]>;
+  listReviewableOrganizationJoinRequestDetails(params: {
+    actorUserId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ReviewableOrganizationJoinRequest[]>;
   listAuditEvents(limit?: number): Promise<ControlAuditEvent[]>;
+  listAuthorizedOrganizationAuditEvents(params: {
+    actorUserId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<OrganizationAuditRecord[]>;
 }
 
 export type ControlPlaneConflictCode =
@@ -495,6 +580,7 @@ export type ControlPlaneConflictCode =
   | "execution_target_conflict"
   | "managed_scope_name_conflict"
   | "organization_join_request_conflict"
+  | "organization_join_request_terminal_conflict"
   | "session_token_conflict";
 
 export class ControlPlaneConflictError extends Error {

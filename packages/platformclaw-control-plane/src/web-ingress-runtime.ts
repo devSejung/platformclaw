@@ -14,6 +14,7 @@ import {
 import { McpAdministrationService } from "./browser-mcp-admin-http.js";
 import { EmployeeMcpService } from "./browser-mcp-http.js";
 import { PlatformClawBrowserMediaRelay } from "./browser-media-http.js";
+import { BrowserOrganizationService } from "./browser-organization-http.js";
 import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import { JiraVocService, type JiraVocConfig } from "./browser-voc-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
@@ -31,6 +32,7 @@ import {
 } from "./gateway-runtime-client.js";
 import { KnoxRoutingService, type KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
 import { resolvePersonalOrganizationMemorySource } from "./organization-memory-personal-source.js";
+import { OrganizationService } from "./organization-service.js";
 import {
   AgentRestartReconciler,
   type PersonalAgentRestartRecoveryProbe,
@@ -234,6 +236,11 @@ export function createPlatformClawWebIngressRuntime(
     adminRpc: options.adminRpc,
     ...(mcpService ? { onCatalogChanged: () => mcpService.invalidateCatalog() } : {}),
   });
+  const organization = new BrowserOrganizationService({
+    authService: auth.service,
+    organization: new OrganizationService(auth.store),
+    ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+  });
   const vocService = options.jiraVoc
     ? new JiraVocService({
         authService: auth.service,
@@ -308,6 +315,7 @@ export function createPlatformClawWebIngressRuntime(
     executionService: employeeExecution,
     vmAdministrationService: vmAdministration,
     mcpAdministrationService: mcpAdministration,
+    organizationService: organization,
     ...(execCredentialService ? { execCredentialService } : {}),
     ...(vocService ? { vocService } : {}),
     ...(skillHub ? { skillHubService: skillHub } : {}),

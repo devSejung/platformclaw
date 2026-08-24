@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ControlPlaneIdFactory, EnterprisePrincipal } from "./contracts.js";
-import { ControlPlaneAuthorizationError, ControlPlaneConflictError } from "./contracts.js";
+import {
+  ControlPlaneAuthorizationError,
+  ControlPlaneConflictError,
+  ControlPlaneNotFoundError,
+} from "./contracts.js";
 import { OrganizationService } from "./organization-service.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
 
@@ -130,6 +134,7 @@ describe("PlatformClaw organization services", () => {
       actorUserId: admin.id,
       scopeId: part.id,
       userId: partMember.id,
+      reason: "move to sibling",
       changedAt: 30,
     });
     await expect(
@@ -228,7 +233,7 @@ describe("PlatformClaw organization services", () => {
         reason: "self",
         decidedAt: 22,
       }),
-    ).rejects.toBeInstanceOf(ControlPlaneAuthorizationError);
+    ).rejects.toBeInstanceOf(ControlPlaneNotFoundError);
     await service.decideMembershipRequest({
       actorUserId: leader.id,
       requestId: request.id,
@@ -249,6 +254,7 @@ describe("PlatformClaw organization services", () => {
       actorUserId: admin.id,
       scopeId: team.id,
       userId: applicant.id,
+      reason: "remove applicant",
       changedAt: 25,
     });
     await expect(store.getUserPrimaryScope(applicant.id)).resolves.toBeNull();
@@ -365,6 +371,7 @@ describe("PlatformClaw organization services", () => {
       actorUserId: admin.id,
       scopeId: group.id,
       userId: leader.id,
+      reason: "remove reviewer",
       changedAt: 22,
     });
     await expect(service.listReviewableRequests(leader.id)).resolves.toEqual([]);

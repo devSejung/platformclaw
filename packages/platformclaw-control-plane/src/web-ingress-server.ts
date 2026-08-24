@@ -26,6 +26,7 @@ import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-orderi
 import { readBrowserJsonBody, sendBrowserJson } from "./browser-http-shared.js";
 import { handlePlatformClawMcpAdministrationRequest } from "./browser-mcp-admin-http.js";
 import { handlePlatformClawEmployeeMcpRequest } from "./browser-mcp-http.js";
+import { handlePlatformClawOrganizationRequest } from "./browser-organization-http.js";
 import { handlePlatformClawSkillHubRequest } from "./browser-skill-hub-http.js";
 import { handlePlatformClawVmAdministrationRequest } from "./browser-vm-admin-http.js";
 import { handlePlatformClawVocRequest } from "./browser-voc-http.js";
@@ -298,6 +299,16 @@ export class PlatformClawWebIngressServer {
         this.options.mcpService &&
         (await handlePlatformClawEmployeeMcpRequest(req, res, {
           service: this.options.mcpService,
+          readJsonBody: readBrowserJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
+        this.options.organizationService &&
+        (await handlePlatformClawOrganizationRequest(req, res, {
+          service: this.options.organizationService,
           readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))
