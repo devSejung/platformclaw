@@ -95,15 +95,16 @@ describe("PlatformClaw execution backend", () => {
       targetId: "basic",
     }));
     dependencies.resolveExecCredentials = vi.fn(async () => ({ API_TOKEN: "private-value" }));
-    dependencies.createPlatformServerHandle = vi.fn(async () =>
-      ({
-        ...createHandle("basic"),
-        buildExecSpec: async ({ env }) => ({
-          argv: ["docker", "exec", "-e", `API_TOKEN=${env.API_TOKEN}`, "basic", "sh"],
-          env: {},
-          stdinMode: "pipe-closed",
-        }),
-      }) satisfies SandboxBackendHandle,
+    dependencies.createPlatformServerHandle = vi.fn(
+      async () =>
+        ({
+          ...createHandle("basic"),
+          buildExecSpec: async ({ env }) => ({
+            argv: ["docker", "exec", "-e", `API_TOKEN=${env.API_TOKEN}`, "basic", "sh"],
+            env: {},
+            stdinMode: "pipe-closed",
+          }),
+        }) satisfies SandboxBackendHandle,
     );
     const handle = await createPlatformClawExecutionBackendFactory(dependencies)(
       createParams("person_one"),
@@ -139,26 +140,27 @@ describe("PlatformClaw execution backend", () => {
       hostKeyFingerprint: "fingerprint",
     }));
     dependencies.resolveExecCredentials = vi.fn(async () => ({ API_TOKEN: "private-value" }));
-    dependencies.createAssignedVmHandle = vi.fn(async () =>
-      ({
-        ...createHandle("vm"),
-        buildExecSpec: async () => ({
-          argv: [
-            "ssh",
-            "-F",
-            "config",
-            "-tt",
-            "-o",
-            "RequestTTY=force",
-            "-o",
-            "SetEnv=TERM=xterm-256color",
-            "host",
-            "env LANG=C sh",
-          ],
-          env: {},
-          stdinMode: "pipe-open",
-        }),
-      }) satisfies SandboxBackendHandle,
+    dependencies.createAssignedVmHandle = vi.fn(
+      async () =>
+        ({
+          ...createHandle("vm"),
+          buildExecSpec: async () => ({
+            argv: [
+              "ssh",
+              "-F",
+              "config",
+              "-tt",
+              "-o",
+              "RequestTTY=force",
+              "-o",
+              "SetEnv=TERM=xterm-256color",
+              "host",
+              "env LANG=C sh",
+            ],
+            env: {},
+            stdinMode: "pipe-open",
+          }),
+        }) satisfies SandboxBackendHandle,
     );
     const handle = await createPlatformClawExecutionBackendFactory(dependencies)(
       createParams("person_one"),
