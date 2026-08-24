@@ -105,7 +105,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       (claim) =>
         claim.status === "active" &&
         claim.scopeKind === this.sourceKind &&
-        claim.promotionTargets.length > 0,
+        (claim.promotionTargets?.length ?? 0) > 0,
     );
   }
 
