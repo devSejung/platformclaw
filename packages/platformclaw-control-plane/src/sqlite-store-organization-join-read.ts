@@ -173,6 +173,10 @@ export abstract class SqliteControlPlaneOrganizationJoinReadStore extends Sqlite
         canReviewJoinRequests:
           actor.globalRole === "admin" ||
           activeDirectAccess.some((access) => access.directRole === "leader"),
+        canManageOrganization:
+          actor.globalRole === "admin" ||
+          activeDirectAccess.some((access) => access.directRole === "leader"),
+        canViewOrganizationAudit: actor.globalRole === "admin",
       };
     });
   }

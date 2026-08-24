@@ -3,6 +3,11 @@ import { readPlatformClawSessionCookie, type JsonBodyReader } from "./browser-au
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import { sendBrowserJson } from "./browser-http-shared.js";
 import {
+  decodeOrganizationAuditCursor,
+  encodeOrganizationAuditCursor,
+  projectOrganizationAuditRecord,
+} from "./browser-organization-audit-http.js";
+import {
   ControlPlaneAuthorizationError,
   ControlPlaneConflictError,
   ControlPlaneNotFoundError,
@@ -145,7 +150,9 @@ function decodeId(value: string): string {
   return decoded;
 }
 
-function projectScope(scope: ManagedScope) {
+function projectScope(
+  scope: Pick<ManagedScope, "id" | "kind" | "name" | "parentScopeId" | "status">,
+) {
   return {
     id: scope.id,
     kind: scope.kind,
@@ -226,6 +233,8 @@ export class BrowserOrganizationService {
       isUnaffiliated: snapshot.isUnaffiliated,
       hasPendingJoinRequest: snapshot.hasPendingJoinRequest,
       canReviewJoinRequests: snapshot.canReviewJoinRequests,
+      canManageOrganization: snapshot.canManageOrganization,
+      canViewOrganizationAudit: snapshot.canViewOrganizationAudit,
       joinPromptEligible:
         actor.globalRole !== "admin" && snapshot.isUnaffiliated && !snapshot.hasPendingJoinRequest,
     };
@@ -316,15 +325,23 @@ export class BrowserOrganizationService {
     return { items: users.slice(0, limit), hasMore: users.length > limit };
   }
 
-  async audit(actorUserId: string, limit: number, offset: number) {
-    const events = await this.options.organization.listOrganizationAudit(
+  async audit(
+    actorUserId: string,
+    limit: number,
+    cursor?: { occurredAt: number; id: string },
+    category?: "scope" | "membership" | "primary" | "join" | "other",
+    outcome?: "succeeded" | "denied",
+  ) {
+    const page = await this.options.organization.listOrganizationAudit(
       actorUserId,
-      limit + 1,
-      offset,
+      limit,
+      cursor,
+      category,
+      outcome,
     );
     return {
-      items: events.slice(0, limit),
-      nextOffset: events.length > limit ? offset + limit : undefined,
+      items: page.items.map(projectOrganizationAuditRecord),
+      nextCursor: page.nextCursor ? encodeOrganizationAuditCursor(page.nextCursor) : undefined,
     };
   }
 
@@ -529,12 +546,32 @@ export async function handlePlatformClawOrganizationRequest(
         return true;
       }
       if (url.pathname === `${PLATFORMCLAW_ORGANIZATION_PATH}/audit`) {
-        exactQuery(url, ["limit", "offset"]);
-        const limit = Math.min(boundedLimit(url, 100), 100);
+        exactQuery(url, ["limit", "cursor", "category", "outcome"]);
+        const limit = Math.min(boundedLimit(url, 50), 100);
+        const categoryValue = url.searchParams.get("category");
+        const outcomeValue = url.searchParams.get("outcome");
+        const category = categoryValue
+          ? enumField({ category: categoryValue }, "category", [
+              "scope",
+              "membership",
+              "primary",
+              "join",
+              "other",
+            ] as const)
+          : undefined;
+        const outcome = outcomeValue
+          ? enumField({ outcome: outcomeValue }, "outcome", ["succeeded", "denied"] as const)
+          : undefined;
         sendBrowserJson(
           res,
           200,
-          await options.service.audit(auth.user.id, limit, boundedOffset(url)),
+          await options.service.audit(
+            auth.user.id,
+            limit,
+            decodeOrganizationAuditCursor(url.searchParams.get("cursor")),
+            category,
+            outcome,
+          ),
         );
         return true;
       }

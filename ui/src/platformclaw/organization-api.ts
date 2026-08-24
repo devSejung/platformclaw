@@ -42,6 +42,8 @@ export type OrganizationContext = {
   isUnaffiliated: boolean;
   hasPendingJoinRequest: boolean;
   canReviewJoinRequests: boolean;
+  canManageOrganization: boolean;
+  canViewOrganizationAudit: boolean;
   joinPromptEligible: boolean;
 };
 
@@ -88,6 +90,41 @@ export type OrganizationReviewRequestDetail = OrganizationJoinRequestDetail & {
 };
 
 type OrganizationRequestPage<T> = { items: T[]; nextOffset?: number };
+
+export type OrganizationAuditRecord = {
+  key: string;
+  action: string;
+  category: "scope" | "membership" | "primary" | "join" | "other";
+  occurredAt: number;
+  outcome?: "succeeded" | "denied";
+  reason?: string;
+  actor?: { accountId: string; displayName?: string; status: "active" | "disabled" };
+  target:
+    | {
+        type: "scope";
+        scope: Pick<OrganizationScope, "kind" | "name" | "status">;
+        lineage: Array<Pick<OrganizationScope, "kind" | "name" | "status">>;
+      }
+    | {
+        type: "user";
+        user: { accountId: string; displayName?: string; status: "active" | "disabled" };
+      }
+    | { type: "unavailable" };
+  subject?: { accountId: string; displayName?: string; status: "active" | "disabled" };
+  change?: {
+    beforeName?: string;
+    resultName?: string;
+    priorRole?: OrganizationMemberRole;
+    resultRole?: OrganizationMemberRole;
+    priorScope?: Pick<OrganizationScope, "kind" | "name" | "status">;
+    resultScope?: Pick<OrganizationScope, "kind" | "name" | "status">;
+  };
+};
+
+export type OrganizationAuditFilters = {
+  category?: OrganizationAuditRecord["category"];
+  outcome?: NonNullable<OrganizationAuditRecord["outcome"]>;
+};
 
 export class PlatformClawOrganizationApiError extends Error {
   constructor(
@@ -161,6 +198,23 @@ export class PlatformClawOrganizationApi {
     offset = 0,
   ): Promise<OrganizationRequestPage<OrganizationReviewRequestDetail>> {
     return this.request(`/requests/reviewable?limit=25&offset=${offset}`);
+  }
+
+  audit(
+    cursor?: string,
+    filters: OrganizationAuditFilters = {},
+  ): Promise<{ items: OrganizationAuditRecord[]; nextCursor?: string }> {
+    const search = new URLSearchParams({ limit: "25" });
+    if (cursor) {
+      search.set("cursor", cursor);
+    }
+    if (filters.category) {
+      search.set("category", filters.category);
+    }
+    if (filters.outcome) {
+      search.set("outcome", filters.outcome);
+    }
+    return this.request(`/audit?${search}`);
   }
 
   requestMembership(scopeId: string, reason: string): Promise<OrganizationJoinRequest> {

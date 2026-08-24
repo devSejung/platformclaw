@@ -136,6 +136,8 @@ describeE2e("PlatformClaw Organization settings", () => {
           isUnaffiliated: false,
           hasPendingJoinRequest: false,
           canReviewJoinRequests: true,
+          canManageOrganization: true,
+          canViewOrganizationAudit: true,
           joinPromptEligible: false,
         },
         status: 200,
@@ -214,6 +216,42 @@ describeE2e("PlatformClaw Organization settings", () => {
     await page.route("**/platformclaw/api/organization/requests/own?**", (route) =>
       route.fulfill({ json: { items: [] }, status: 200 }),
     );
+    await page.route("**/platformclaw/api/organization/audit?**", (route) => {
+      const search = new URL(route.request().url()).searchParams;
+      const filtered = search.get("category") === "membership";
+      const more = search.get("cursor") === "audit-page-two";
+      return route.fulfill({
+        json: {
+          items: [
+            {
+              key: more ? "audit-two" : "audit-one",
+              action: filtered ? "scope.membership.set" : "scope.renamed",
+              category: filtered ? "membership" : "scope",
+              occurredAt: 1_000,
+              outcome: more ? "denied" : "succeeded",
+              reason: "Approved organization update",
+              actor: { accountId: "person.one", displayName: "Person One", status: "active" },
+              subject: filtered
+                ? { accountId: "member.one", displayName: "Member One", status: "active" }
+                : undefined,
+              target: {
+                type: "scope",
+                scope: { kind: "group", name: "Runtime", status: "active" },
+                lineage: [
+                  { kind: "team", name: "Platform", status: "active" },
+                  { kind: "group", name: "Runtime", status: "active" },
+                ],
+              },
+              change: filtered
+                ? { priorRole: "member", resultRole: "leader" }
+                : { beforeName: "Core", resultName: "Runtime" },
+            },
+          ],
+          nextCursor: filtered || more ? undefined : "audit-page-two",
+        },
+        status: 200,
+      });
+    });
     await page.route("**/platformclaw/api/organization/requests/reviewable?**", (route) =>
       route.fulfill({
         json: {
@@ -299,6 +337,21 @@ describeE2e("PlatformClaw Organization settings", () => {
     await expect
       .poll(() => page.getByText("No request currently needs your review.").isVisible())
       .toBe(true);
+    await page.getByRole("tab", { name: "Audit" }).click();
+    await expect.poll(() => page.getByText("Scope renamed").isVisible()).toBe(true);
+    await page.locator(".organization-audit-list summary").first().click();
+    await expect.poll(() => page.getByText("Core → Runtime").isVisible()).toBe(true);
+    await page.getByRole("button", { name: "Load more events" }).click();
+    await expect.poll(() => page.locator(".organization-audit-list > li").count()).toBe(2);
+    await expect
+      .poll(() =>
+        page.locator(".organization-audit-list summary").nth(1).getByText("Denied").isVisible(),
+      )
+      .toBe(true);
+    await page.getByLabel("Category").selectOption("membership");
+    await expect.poll(() => page.getByText("Membership updated").isVisible()).toBe(true);
+    await page.locator(".organization-audit-list summary").click();
+    await expect.poll(() => page.getByText("Member One").isVisible()).toBe(true);
     expect(await page.locator("body").evaluate((body) => body.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -365,6 +418,8 @@ describeE2e("PlatformClaw Organization settings", () => {
           isUnaffiliated: true,
           hasPendingJoinRequest: requestStatus === "pending",
           canReviewJoinRequests: false,
+          canManageOrganization: false,
+          canViewOrganizationAudit: false,
           joinPromptEligible: requestStatus === "none",
         },
         status: 200,
@@ -459,6 +514,7 @@ describeE2e("PlatformClaw Organization settings", () => {
     await page.getByRole("link", { name: "조직 찾기" }).click();
     await expect.poll(() => new URL(page.url()).searchParams.get("tab")).toBe("requests");
     await expect.poll(() => page.getByText("조직 가입").isVisible()).toBe(true);
+    expect(await page.getByRole("tab", { name: "감사" }).count()).toBe(0);
     await page.locator(".organization-request-list .primary").click();
     await page.locator(".organization-action-form textarea").fill("Platform 업무 참여");
     await page.locator('.organization-action-form button[type="submit"]').click();
