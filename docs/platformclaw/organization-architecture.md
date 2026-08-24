@@ -24,9 +24,9 @@ This page is the canonical contract. Schema v3, Team scopes, join requests,
 upward access inheritance, and the shared organization and authorization
 services are implemented. The authenticated browser API described below is
 also implemented. Skill Hub and Memory now consume this shared authorization
-owner. Settings > Organization provides the membership and structure
-management foundation; join onboarding, request inbox, and audit presentation
-remain later PR6 work.
+owner. Settings > Organization provides membership and structure management,
+join requests, and delegated review. The organization audit explorer remains
+later PR6 work.
 
 ## Scope model
 
@@ -127,11 +127,12 @@ Organization membership is optional. An active employee with no Team, Group,
 or Part membership can still sign in and use personal Agent, chat, personal
 Memory, and other features that do not require an organization scope.
 
-PR6B will add a dismissible post-login join prompt for users with no effective
-active managed-scope membership, including users whose only direct memberships
-belong to archived lineages. It will also add the same join flow under
-**Settings > Organization**. Skipping or dismissing it will not block the
-application.
+A dismissible post-login join prompt is shown to non-administrators with no
+effective active managed-scope membership and no pending request, including
+users whose only direct memberships belong to archived lineages. The same flow
+is available under **Settings > Organization**. Skipping or dismissing it does
+not block the application, and the dismissal is scoped to the current browser
+session and actor.
 
 A user may:
 
@@ -369,7 +370,7 @@ and database backup together.
 | 6B  | First-login join request and review inbox UX                                           |
 | 6C  | Organization audit explorer and remaining operational UX                               |
 
-PR1 through PR5 and PR6A are implemented. PR6B and PR6C remain planned.
+PR1 through PR6B are implemented. PR6C remains planned.
 
 ## Authenticated browser API
 
@@ -383,7 +384,8 @@ inside the SQLite operation that owns the state change.
 The current routes are:
 
 - `GET /context` for one consistent, bounded snapshot of the current actor's
-  direct and effective scopes, primary scope, and recent join outcomes;
+  direct and effective scopes, primary scope, recent join outcomes, and
+  authoritative unaffiliated, pending-request, prompt, and review capabilities;
 - `GET /scopes` for bounded active-scope search, root-to-leaf lineage, exact
   self-relative management capabilities, and request eligibility, without
   rosters, leader identities, or internal authorization facts;
@@ -418,7 +420,7 @@ Scope move and restore remain deferred. Moving an active subtree changes
 effective Memory and Skill Hub lineage, reviewer authority, and ownership
 reach; those operations will ship only with cross-consumer lifecycle proof.
 
-PR6A localizes its product prose, statuses, errors, and accessible labels in
+PR6A and PR6B localize their product prose, statuses, errors, and accessible labels in
 Korean and English while keeping stable technical terms such as Team, Group,
 Part, Memory, and Skill Hub where a forced translation would reduce clarity.
 
@@ -433,7 +435,7 @@ administrator behavior.
 - No automatic directory-to-membership synchronization.
 - No automatic organization publication by an LLM or Dreaming.
 - No mapping from Knox rooms or directory groups to managed scopes.
-- No claim that Team or join-request behavior is currently available.
+- No implementation was included in the original architecture-only PR1.
 
 ## See also
 

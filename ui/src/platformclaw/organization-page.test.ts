@@ -32,6 +32,7 @@ function scope(
     lineage,
     capabilities,
     requestEligible: false,
+    requestState: "member",
   };
 }
 

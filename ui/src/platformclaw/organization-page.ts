@@ -18,6 +18,7 @@ import {
   type OrganizationUserSearch,
 } from "./organization-api.ts";
 import { organizationErrorMessage } from "./organization-errors.ts";
+import "./organization-join-panel.ts";
 import {
   renderOrganizationAddMember,
   renderOrganizationRoster,
@@ -47,7 +48,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
   @state() private busy = false;
   @state() private error = "";
   @state() private notice = "";
-  @state() private activeTab: "overview" | "management" = "overview";
+  @state() private activeTab: "overview" | "requests" | "management" = "overview";
   @state() private pendingAction: OrganizationPendingAction | null = null;
   private managementEpoch = 0;
   private scopeSearchEpoch = 0;
@@ -63,6 +64,9 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    if (new URL(globalThis.location.href).searchParams.get("tab") === "requests") {
+      this.activeTab = "requests";
+    }
     void loadPlatformClawLocale().then(() => this.refresh());
   }
 
@@ -461,6 +465,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
         active: this.activeTab,
         tabs: [
           { value: "overview", label: t("platformClaw.organization.tabs.overview") },
+          { value: "requests", label: t("platformClaw.organization.tabs.requests") },
           { value: "management", label: t("platformClaw.organization.tabs.management") },
         ],
         ariaLabel: t("platformClaw.organization.tabs.label"),
@@ -483,7 +488,12 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
                 ),
               onSearch: (query) => this.searchScopes(query),
             })
-          : this.renderManagement()}
+          : this.activeTab === "requests"
+            ? html`<platformclaw-organization-join-panel
+                .fetchImpl=${this.fetchImpl}
+                .onUnauthenticated=${this.onUnauthenticated}
+              ></platformclaw-organization-join-panel>`
+            : this.renderManagement()}
       </section>
       ${renderOrganizationActionDialog({
         action: this.pendingAction,

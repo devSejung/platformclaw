@@ -106,6 +106,7 @@ describe("PlatformClawControlUiAdapter", () => {
       },
     });
     expect(options.routeOverrides?.organization).toBeDefined();
+    expect(options.shellSession?.renderMainBanner).toEqual(expect.any(Function));
     const organizationTitle = options.navigation?.routeCopy?.organization?.title;
     expect(typeof organizationTitle === "function" ? organizationTitle() : organizationTitle).toBe(
       "Organization",
@@ -249,7 +250,7 @@ describe("PlatformClawControlUiAdapter", () => {
     installDescriptor();
     const stopApplication = vi.fn();
     const navigate = vi.fn();
-    const sessionStorage = { removeItem: vi.fn() };
+    const sessionStorage = { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn() };
     const adapter = createPlatformClawControlUiAdapter({
       location: {
         href: "https://platformclaw.example/platformclaw/app/chat",
@@ -268,6 +269,9 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(navigate).toHaveBeenCalledWith("/platformclaw/login");
     expect(sessionStorage.removeItem).toHaveBeenCalledWith(
       "openclaw.control.chatComposer.v2:wss%3A%2F%2Fplatformclaw.example%2Fplatformclaw%2Fgateway",
+    );
+    expect(sessionStorage.removeItem).toHaveBeenCalledWith(
+      "platformclaw.organizationJoinPrompt.dismissed",
     );
   });
 

@@ -218,7 +218,16 @@ export class BrowserOrganizationService {
       effectiveScopesHasMore: snapshot.effectiveAccessHasMore,
       primaryScope: snapshot.primaryScope ? projectScope(snapshot.primaryScope) : null,
       primaryScopeLineage: snapshot.primaryScopeLineage.map(projectScope),
-      recentJoinRequests: snapshot.joinRequests.map(projectJoinRequest),
+      recentJoinRequestDetails: snapshot.joinRequestDetails.map(({ request, scope, lineage }) => ({
+        request: projectJoinRequest(request),
+        scope: projectScope(scope),
+        lineage: lineage.map(projectScope),
+      })),
+      isUnaffiliated: snapshot.isUnaffiliated,
+      hasPendingJoinRequest: snapshot.hasPendingJoinRequest,
+      canReviewJoinRequests: snapshot.canReviewJoinRequests,
+      joinPromptEligible:
+        actor.globalRole !== "admin" && snapshot.isUnaffiliated && !snapshot.hasPendingJoinRequest,
     };
   }
 
@@ -229,14 +238,17 @@ export class BrowserOrganizationService {
       limit + 1,
     );
     return {
-      items: results.slice(0, limit).map(({ scope, lineage, capabilities, requestEligible }) => {
-        const projected = projectMutableScope(scope);
-        return Object.assign(projected, {
-          lineage: lineage.map(projectScope),
-          capabilities,
-          requestEligible,
-        });
-      }),
+      items: results
+        .slice(0, limit)
+        .map(({ scope, lineage, capabilities, requestEligible, requestState }) => {
+          const projected = projectMutableScope(scope);
+          return Object.assign(projected, {
+            lineage: lineage.map(projectScope),
+            capabilities,
+            requestEligible,
+            requestState,
+          });
+        }),
       hasMore: results.length > limit,
     };
   }
@@ -248,10 +260,11 @@ export class BrowserOrganizationService {
       offset,
     );
     return {
-      items: details.slice(0, limit).map(({ request, applicant, scope }) => ({
+      items: details.slice(0, limit).map(({ request, applicant, scope, lineage }) => ({
         request: projectJoinRequest(request),
         applicant,
         scope: projectScope(scope),
+        lineage: lineage.map(projectScope),
       })),
       nextOffset: details.length > limit ? offset + limit : undefined,
     };
@@ -278,14 +291,18 @@ export class BrowserOrganizationService {
   }
 
   async ownRequests(actorUserId: string, limit: number, offset: number) {
-    const requests = await this.options.organization.listOwnRequests(
+    const details = await this.options.organization.listOwnRequestDetails(
       actorUserId,
       limit + 1,
       offset,
     );
     return {
-      items: requests.slice(0, limit).map(projectJoinRequest),
-      nextOffset: requests.length > limit ? offset + limit : undefined,
+      items: details.slice(0, limit).map(({ request, scope, lineage }) => ({
+        request: projectJoinRequest(request),
+        scope: projectScope(scope),
+        lineage: lineage.map(projectScope),
+      })),
+      nextOffset: details.length > limit ? offset + limit : undefined,
     };
   }
 

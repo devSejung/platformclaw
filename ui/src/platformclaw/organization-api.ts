@@ -22,6 +22,7 @@ export type OrganizationScopeResult = OrganizationScope & {
   revision: number;
   lineage: OrganizationScope[];
   capabilities: OrganizationScopeCapabilities;
+  requestState: "eligible" | "member" | "pending";
   requestEligible: boolean;
 };
 
@@ -38,6 +39,10 @@ export type OrganizationContext = {
   effectiveScopesHasMore: boolean;
   primaryScope: OrganizationScope | null;
   primaryScopeLineage: OrganizationScope[];
+  isUnaffiliated: boolean;
+  hasPendingJoinRequest: boolean;
+  canReviewJoinRequests: boolean;
+  joinPromptEligible: boolean;
 };
 
 type OrganizationMember = {
@@ -61,6 +66,28 @@ export type OrganizationUserSearch = {
   }>;
   hasMore: boolean;
 };
+
+type OrganizationJoinRequest = {
+  id: string;
+  scopeId: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  createdAt: number;
+  decidedAt?: number;
+  decisionReason?: string;
+};
+
+export type OrganizationJoinRequestDetail = {
+  request: OrganizationJoinRequest;
+  scope: OrganizationScope;
+  lineage: OrganizationScope[];
+};
+
+export type OrganizationReviewRequestDetail = OrganizationJoinRequestDetail & {
+  applicant: { id: string; accountId: string; displayName?: string; status: "active" | "disabled" };
+};
+
+type OrganizationRequestPage<T> = { items: T[]; nextOffset?: number };
 
 export class PlatformClawOrganizationApiError extends Error {
   constructor(
@@ -124,6 +151,41 @@ export class PlatformClawOrganizationApi {
   users(scopeId: string, query: string): Promise<OrganizationUserSearch> {
     const search = new URLSearchParams({ q: query, limit: "50" });
     return this.request(`/management/scopes/${encodeURIComponent(scopeId)}/users?${search}`);
+  }
+
+  ownRequests(offset = 0): Promise<OrganizationRequestPage<OrganizationJoinRequestDetail>> {
+    return this.request(`/requests/own?limit=25&offset=${offset}`);
+  }
+
+  reviewableRequests(
+    offset = 0,
+  ): Promise<OrganizationRequestPage<OrganizationReviewRequestDetail>> {
+    return this.request(`/requests/reviewable?limit=25&offset=${offset}`);
+  }
+
+  requestMembership(scopeId: string, reason: string): Promise<OrganizationJoinRequest> {
+    return this.request("/requests", {
+      method: "POST",
+      body: JSON.stringify({ scopeId, reason }),
+    });
+  }
+
+  cancelRequest(requestId: string, reason: string): Promise<OrganizationJoinRequest> {
+    return this.request(`/requests/${encodeURIComponent(requestId)}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  decideRequest(
+    requestId: string,
+    decision: "approved" | "rejected",
+    reason: string,
+  ): Promise<OrganizationJoinRequest> {
+    return this.request(`/requests/${encodeURIComponent(requestId)}/decision`, {
+      method: "POST",
+      body: JSON.stringify({ decision, reason }),
+    });
   }
 
   setPrimary(scopeId: string | null): Promise<OrganizationScope | null> {

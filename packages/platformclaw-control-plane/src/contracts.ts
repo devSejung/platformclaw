@@ -220,6 +220,15 @@ export type ReviewableOrganizationJoinRequest = {
   request: OrganizationJoinRequest;
   applicant: OrganizationUserSummary;
   scope: ManagedScope;
+  /** Active scope lineage ordered from Team root to the request target. */
+  lineage: ManagedScope[];
+};
+
+export type OwnOrganizationJoinRequest = {
+  request: OrganizationJoinRequest;
+  scope: ManagedScope;
+  /** Active or historical lineage ordered from Team root to the request target. */
+  lineage: ManagedScope[];
 };
 
 export type OrganizationContextSnapshot = {
@@ -230,7 +239,10 @@ export type OrganizationContextSnapshot = {
   directScopeLineages: Array<{ scopeId: string; lineage: ManagedScope[] }>;
   primaryScope: ManagedScope | null;
   primaryScopeLineage: ManagedScope[];
-  joinRequests: OrganizationJoinRequest[];
+  joinRequestDetails: OwnOrganizationJoinRequest[];
+  isUnaffiliated: boolean;
+  hasPendingJoinRequest: boolean;
+  canReviewJoinRequests: boolean;
 };
 
 export type OrganizationScopeSearchResult = {
@@ -241,6 +253,8 @@ export type OrganizationScopeSearchResult = {
     OrganizationAuthorization,
     "canManageMembers" | "canManageStructure" | "canManageLeaders"
   >;
+  /** Current actor's exact direct join state for this scope. */
+  requestState: "eligible" | "member" | "pending";
   requestEligible: boolean;
 };
 
@@ -580,6 +594,11 @@ export interface ControlPlaneManagementStore {
     limit?: number;
     offset?: number;
   }): Promise<OrganizationJoinRequest[]>;
+  listOwnOrganizationJoinRequestDetails(params: {
+    userId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<OwnOrganizationJoinRequest[]>;
   getOrganizationContextSnapshot(params: {
     userId: string;
     requestLimit?: number;

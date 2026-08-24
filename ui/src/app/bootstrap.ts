@@ -235,6 +235,8 @@ export type ApplicationShellSession = {
   readonly secondaryLabel?: string;
   /** Product-specific controls rendered inside the stable account footer. */
   readonly renderFooterAccessory?: () => unknown;
+  /** Product-owned, nonblocking notice rendered above the active route. */
+  readonly renderMainBanner?: () => unknown;
   readonly onLogout: () => Promise<void>;
 };
 

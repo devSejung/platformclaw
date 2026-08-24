@@ -170,6 +170,11 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
       return scopes.map((scope) => {
         const managedScope = rowToScope(scope);
         const scopeAuthorization = authorization.authorize(managedScope);
+        const requestState: "eligible" | "member" | "pending" = directScopeIds.has(scope.id)
+          ? "member"
+          : pendingScopeIds.has(scope.id)
+            ? "pending"
+            : "eligible";
         return {
           scope: managedScope,
           lineage: authorization.lineage(managedScope).toReversed(),
@@ -178,7 +183,8 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
             canManageStructure: scopeAuthorization.canManageStructure,
             canManageLeaders: scopeAuthorization.canManageLeaders,
           },
-          requestEligible: !directScopeIds.has(scope.id) && !pendingScopeIds.has(scope.id),
+          requestState,
+          requestEligible: requestState === "eligible",
         };
       });
     });

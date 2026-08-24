@@ -138,6 +138,15 @@ export class OrganizationService {
     });
   }
 
+  async listOwnRequestDetails(userId: string, limit = 100, offset = 0) {
+    const bounded = Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 200)) : 100;
+    return await this.store.listOwnOrganizationJoinRequestDetails({
+      userId,
+      limit: bounded,
+      offset: Math.max(0, Math.min(Math.trunc(offset), 10_000)),
+    });
+  }
+
   async getContext(userId: string, requestLimit = 20) {
     const bounded = Number.isFinite(requestLimit)
       ? Math.max(1, Math.min(Math.trunc(requestLimit), 50))
