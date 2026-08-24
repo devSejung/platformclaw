@@ -5,7 +5,7 @@ import { listSelectableAgents, normalizeAgentLabel } from "../../lib/agents/disp
 import type { MemoryTab } from "./memory-schema.ts";
 import type { ConfigRouteData } from "./route-data.ts";
 
-export type MemoryRouteAgentResolution = {
+type MemoryRouteAgentResolution = {
   agentId: string | null;
   invalidSource?: string;
   normalizedSearch?: string;

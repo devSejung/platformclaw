@@ -4,7 +4,7 @@
 import { consume } from "@lit/context";
 import { formatErrorMessage } from "@openclaw/normalization-core";
 import { asNullableRecord as asConfigRecord } from "@openclaw/normalization-core/record-coerce";
-import { html, type PropertyValues, type TemplateResult } from "lit";
+import { html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import type { SystemInfoResult } from "../../../../packages/gateway-protocol/src/schema/system-info.ts";
 import type { DoctorMemoryStatusPayload } from "../../../../src/gateway/server-methods/doctor.ts";
@@ -45,7 +45,7 @@ import {
 import { renderMemoryDreamingControls } from "./memory-dreaming-controls.ts";
 import { renderDreamingSettings } from "./memory-dreaming.ts";
 import { renderMemoryOverview, type MemoryOverviewStatus } from "./memory-overview.ts";
-import { renderMemoryPageElement } from "./memory-page-view.ts";
+import { renderMemoryPageElement, type MemoryPageProps } from "./memory-page-view.ts";
 import {
   canonicalMemoryRouteLocation,
   memoryTabForRoute,
@@ -84,15 +84,6 @@ type CatalogConnection = {
 type MemoryAddonNotice = {
   message: string;
   processInstanceId: string | null;
-};
-
-export type MemoryPageProps = {
-  configObject: Record<string, unknown>;
-  mutationDisabled: boolean;
-  pluginsHref: string;
-  memoryImportHref: string;
-  routeData: ConfigRouteData | null;
-  buildEditor: (keys: readonly string[]) => TemplateResult;
 };
 
 class MemorySettingsPage extends OpenClawLightDomElement {

@@ -1,5 +1,14 @@
-import { html } from "lit";
-import type { MemoryPageProps } from "./memory-page.ts";
+import { html, type TemplateResult } from "lit";
+import type { ConfigRouteData } from "./route-data.ts";
+
+export type MemoryPageProps = {
+  configObject: Record<string, unknown>;
+  mutationDisabled: boolean;
+  pluginsHref: string;
+  memoryImportHref: string;
+  routeData: ConfigRouteData | null;
+  buildEditor: (keys: readonly string[]) => TemplateResult;
+};
 
 export function renderMemoryPageElement(props: MemoryPageProps) {
   return html`<openclaw-memory-settings
