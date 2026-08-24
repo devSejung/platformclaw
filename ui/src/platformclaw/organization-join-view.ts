@@ -37,7 +37,8 @@ function renderBrowse(props: {
         @submit=${(event: SubmitEvent) => {
           event.preventDefault();
           const form = event.currentTarget as HTMLFormElement;
-          props.onSearch(String(new FormData(form).get("query") ?? ""));
+          const query = new FormData(form).get("query");
+          props.onSearch(typeof query === "string" ? query : "");
         }}
       >
         <label>
@@ -215,7 +216,7 @@ export function renderOrganizationJoin(props: {
       ],
       ariaLabel: t("platformClaw.organization.join.tabs.label"),
       panelId: "platformclaw-organization-join-panel",
-      onSelect: props.onSelect,
+      onSelect: (section) => props.onSelect(section),
     })}
     <section id="platformclaw-organization-join-panel">
       ${props.active === "mine"
@@ -223,21 +224,21 @@ export function renderOrganizationJoin(props: {
             scopes: props.scopes,
             hasMore: props.scopesHasMore,
             busy: props.busy,
-            onSearch: props.onSearch,
-            onRequest: props.onRequest,
+            onSearch: (query) => props.onSearch(query),
+            onRequest: (scope) => props.onRequest(scope),
           })}${renderMine({
             items: props.own,
             nextOffset: props.ownNextOffset,
             busy: props.busy,
-            onCancel: props.onCancel,
-            onMore: props.onMoreOwn,
+            onCancel: (item) => props.onCancel(item),
+            onMore: (offset) => props.onMoreOwn(offset),
           })}`
         : renderReview({
             items: props.reviewable,
             nextOffset: props.reviewNextOffset,
             busy: props.busy,
-            onDecision: props.onDecision,
-            onMore: props.onMoreReview,
+            onDecision: (item, decision) => props.onDecision(item, decision),
+            onMore: (offset) => props.onMoreReview(offset),
           })}
     </section>`;
 }

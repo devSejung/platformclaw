@@ -5,7 +5,7 @@ import { ORGANIZATION_JOIN_PROMPT_DISMISSED_KEY } from "./organization-join-prom
 
 type JoinPrompt = HTMLElement & {
   fetchImpl: typeof fetch;
-  storage: Storage;
+  storage: Pick<Storage, "getItem" | "setItem"> | null;
   updateComplete: Promise<unknown>;
 };
 
@@ -77,7 +77,7 @@ describe("PlatformClaw organization join prompt", () => {
       setItem: () => {
         throw new Error("storage disabled");
       },
-    } as Storage;
+    };
     element.fetchImpl = vi.fn(async () => context(true, "authoritative-user"));
     document.body.append(element);
     await settle(element);

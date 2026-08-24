@@ -16,6 +16,20 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function requestUrl(input: string | URL | Request): string {
+  if (typeof input === "string") {
+    return input;
+  }
+  return input instanceof URL ? input.href : input.url;
+}
+
+function requestBody(init: RequestInit | undefined): unknown {
+  if (typeof init?.body !== "string") {
+    throw new TypeError("expected a JSON request body");
+  }
+  return JSON.parse(init.body) as unknown;
+}
+
 function scopeResult() {
   const scope = { id: "team-1", kind: "team", name: "Platform", status: "active" };
   return {
@@ -61,7 +75,7 @@ describe("PlatformClaw organization requests", () => {
   it("shows a retry after initial loading fails and recovers without a false empty state", async () => {
     let failed = false;
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.endsWith("/context") && !failed) {
         failed = true;
         return json({ error: { code: "unavailable" } }, 503);
@@ -95,7 +109,7 @@ describe("PlatformClaw organization requests", () => {
       rejectOld = reject;
     });
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.endsWith("/context")) {
         return json({ canReviewJoinRequests: false });
       }
@@ -140,7 +154,7 @@ describe("PlatformClaw organization requests", () => {
   it("submits one reasoned join request and refreshes its authoritative history", async () => {
     let pending = false;
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.endsWith("/context")) {
         return json({ canReviewJoinRequests: false });
       }
@@ -180,7 +194,7 @@ describe("PlatformClaw organization requests", () => {
       }
       if (url.endsWith("/requests") && init?.method === "POST") {
         pending = true;
-        expect(JSON.parse(String(init.body))).toEqual({
+        expect(requestBody(init)).toEqual({
           scopeId: "team-1",
           reason: "Work with Platform",
         });
@@ -208,7 +222,7 @@ describe("PlatformClaw organization requests", () => {
   it("refetches but never retries or claims success when the mutation outcome is unknown", async () => {
     let postCount = 0;
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.endsWith("/context")) {
         return json({ canReviewJoinRequests: false });
       }
@@ -244,7 +258,7 @@ describe("PlatformClaw organization requests", () => {
   it("does not infer a page-two review decision from its absence on refreshed page one", async () => {
     let pageOneLoads = 0;
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.endsWith("/context")) {
         return json({ canReviewJoinRequests: true });
       }
@@ -295,7 +309,7 @@ describe("PlatformClaw organization requests", () => {
   it("reports an unconfirmed outcome when both the mutation and reconciliation fail", async () => {
     let afterMutation = false;
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.endsWith("/context")) {
         if (afterMutation) {
           throw new TypeError("reload unavailable");
@@ -348,7 +362,7 @@ describe("PlatformClaw organization requests", () => {
         lineage: scopeResult().lineage,
       };
       const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
-        const url = String(input);
+        const url = requestUrl(input);
         if (url.endsWith("/context")) {
           return json({ canReviewJoinRequests: kind === "approve" });
         }
@@ -393,7 +407,7 @@ describe("PlatformClaw organization requests", () => {
   it("shows the server-authorized review inbox and submits one decision", async () => {
     let decided = false;
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.endsWith("/context")) {
         return json({ canReviewJoinRequests: true });
       }
@@ -422,7 +436,7 @@ describe("PlatformClaw organization requests", () => {
       }
       if (url.endsWith("/requests/request-2/decision") && init?.method === "POST") {
         decided = true;
-        expect(JSON.parse(String(init.body))).toEqual({
+        expect(requestBody(init)).toEqual({
           decision: "approved",
           reason: "Role confirmed",
         });
