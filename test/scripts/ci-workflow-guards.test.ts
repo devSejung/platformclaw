@@ -3297,6 +3297,9 @@ NODE
     expect(workflow.jobs["checks-node-core-test-nondist-shard"]["runs-on"]).toContain(
       "blacksmith-4vcpu-ubuntu-2404",
     );
+    expect(workflow.jobs["check-shard"]["timeout-minutes"]).toBe(
+      "${{ matrix.task == 'lint' && (github.event_name == 'workflow_dispatch' || github.repository != 'openclaw/openclaw' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 30 || 20 }}",
+    );
     expect(workflow.jobs["check-shard"].strategy.matrix.include).toContainEqual({
       check_name: "check-dependencies",
       task: "dependencies",
