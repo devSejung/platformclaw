@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import {
+  fetchWithSsrFGuard,
+  ssrfPolicyFromHttpBaseUrlAllowedOrigin,
+} from "openclaw/plugin-sdk/ssrf-runtime";
 
 const DEFAULT_CONTROL_PLANE_URL =
   "http://control.platformclaw.local:19001/platformclaw/internal/knox/skillhub";
@@ -90,7 +94,7 @@ export function registerPlatformClawSkillHubCommand(api: OpenClawPluginApi): voi
       if (!senderId) {
         return { text: "Employee identity is unavailable.", isError: true };
       }
-      let response: Response;
+      let guarded: Awaited<ReturnType<typeof fetchWithSsrFGuard>>;
       try {
         // Deployment credentials are process-stable. Resolve once on first use
         // without making an unused optional integration fail Gateway startup.
@@ -98,43 +102,52 @@ export function registerPlatformClawSkillHubCommand(api: OpenClawPluginApi): voi
           token: readServiceToken(process.env),
           url: resolveControlPlaneUrl(process.env),
         };
-        response = await fetch(endpoint.url, {
-          method: "POST",
-          redirect: "error",
-          headers: {
-            Authorization: `Bearer ${endpoint.token}`,
-            "Content-Type": "application/json",
+        guarded = await fetchWithSsrFGuard({
+          url: endpoint.url,
+          init: {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${endpoint.token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ accountId: senderId, args: ctx.args ?? "" }),
           },
-          body: JSON.stringify({ accountId: senderId, args: ctx.args ?? "" }),
-          signal: AbortSignal.timeout(120_000),
+          maxRedirects: 0,
+          timeoutMs: 120_000,
+          policy: ssrfPolicyFromHttpBaseUrlAllowedOrigin(endpoint.url),
+          auditContext: "platformclaw.skillhub_command",
         });
       } catch (error) {
         api.logger.warn(`SkillHub command failed: ${String(error)}`);
         return { text: "SkillHub is unavailable. Try again later.", isError: true };
       }
-      let body: Record<string, unknown>;
       try {
-        body = await readResponse(response);
-      } catch (error) {
-        api.logger.warn(`SkillHub response failed: ${String(error)}`);
-        return { text: "SkillHub returned an invalid response.", isError: true };
+        let body: Record<string, unknown>;
+        try {
+          body = await readResponse(guarded.response);
+        } catch (error) {
+          api.logger.warn(`SkillHub response failed: ${String(error)}`);
+          return { text: "SkillHub returned an invalid response.", isError: true };
+        }
+        if (!guarded.response.ok) {
+          const candidates =
+            body.details && typeof body.details === "object" && !Array.isArray(body.details)
+              ? (body.details as Record<string, unknown>).candidates
+              : undefined;
+          const suffix = Array.isArray(candidates)
+            ? `\n\n${candidates.map((candidate) => `- \`${String(candidate)}\``).join("\n")}`
+            : "";
+          return {
+            text: `${typeof body.error === "string" ? body.error : "SkillHub command failed."}${suffix}`,
+            isError: true,
+          };
+        }
+        return typeof body.text === "string"
+          ? { text: body.text }
+          : { text: "SkillHub returned an invalid response.", isError: true };
+      } finally {
+        await guarded.release();
       }
-      if (!response.ok) {
-        const candidates =
-          body.details && typeof body.details === "object" && !Array.isArray(body.details)
-            ? (body.details as Record<string, unknown>).candidates
-            : undefined;
-        const suffix = Array.isArray(candidates)
-          ? `\n\n${candidates.map((candidate) => `- \`${String(candidate)}\``).join("\n")}`
-          : "";
-        return {
-          text: `${typeof body.error === "string" ? body.error : "SkillHub command failed."}${suffix}`,
-          isError: true,
-        };
-      }
-      return typeof body.text === "string"
-        ? { text: body.text }
-        : { text: "SkillHub returned an invalid response.", isError: true };
     },
   });
 }
