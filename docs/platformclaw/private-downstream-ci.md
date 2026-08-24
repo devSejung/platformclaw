@@ -73,7 +73,19 @@ private UI files. The job keeps a 60-minute safety ceiling for that genuine
 upstream work; focused PlatformClaw changes do not run the expensive fallback.
 
 Docker image construction remains a release or deployment validation step. It
-is not part of every pull request.
+is not part of every pull request. UI and runtime-image changes retain the
+deterministic Jammy smoke because the resulting image, including its compiled
+Control UI, is the artifact that workflow owns. It deliberately self-builds;
+cross-workflow artifact reuse would weaken exact-source and image-boundary
+proof.
+
+The generic QA Smoke workflow follows the same ownership split. UI-only and
+broad runtime pull requests do not start its four profiles; canonical `main`
+and release validation remain full. QA-owned pull requests still run all four
+profiles, but each profile builds only one private QA runtime. The workflow
+does not rebuild the public runtime, Control UI, or package, and it fails closed
+if a selected scenario later requires Playwright, Control UI, or Docker
+artifacts.
 
 ## Repository workflow state
 
