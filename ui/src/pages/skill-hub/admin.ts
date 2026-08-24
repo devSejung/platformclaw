@@ -7,6 +7,7 @@ import type {
   PlatformClawSkillHubUnassignedSkill,
 } from "../../platformclaw/skill-hub.ts";
 import { skillHubScopeKindLabel, skillHubVisibilityLabel } from "./labels.ts";
+import { skillHubScopeLineageLabel } from "./scope-lineage.ts";
 
 export type SkillHubAdminDraft = {
   namespace: string;
@@ -21,22 +22,6 @@ export type SkillHubAdminAction = {
   action: "activate" | "restrict" | "remove";
   reason: string;
 };
-
-export function skillHubScopeLineageLabel(
-  scopeId: string,
-  scopes: readonly PlatformClawManagedScope[],
-): string {
-  const byId = new Map(scopes.map((scope) => [scope.id, scope]));
-  const names: string[] = [];
-  const visited = new Set<string>();
-  let current = byId.get(scopeId);
-  while (current && !visited.has(current.id)) {
-    visited.add(current.id);
-    names.push(current.name);
-    current = current.parentScopeId ? byId.get(current.parentScopeId) : undefined;
-  }
-  return names.reverse().join(" / ") || scopeId;
-}
 
 export function renderSkillHubAdmin(props: {
   open: boolean;
@@ -176,7 +161,7 @@ export function renderSkillHubAdmin(props: {
                           <small
                             >${skillHubScopeKindLabel(binding.scopeKind)}${binding.scopeId
                               ? ` · ${
-                                  props.scopes.find((scope) => scope.id === binding.scopeId)
+                                  props.scopes.some((scope) => scope.id === binding.scopeId)
                                     ? skillHubScopeLineageLabel(binding.scopeId, props.scopes)
                                     : binding.scopeId
                                 }`

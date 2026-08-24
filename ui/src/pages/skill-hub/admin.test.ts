@@ -3,7 +3,8 @@
 import { render } from "lit";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
-import { renderSkillHubAdmin, skillHubScopeLineageLabel } from "./admin.ts";
+import { renderSkillHubAdmin } from "./admin.ts";
+import { skillHubScopeLineageLabel } from "./scope-lineage.ts";
 
 describe("Skill Hub namespace administration", () => {
   beforeEach(async () => {

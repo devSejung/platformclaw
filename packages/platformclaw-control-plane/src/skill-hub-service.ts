@@ -288,7 +288,9 @@ export class SkillHubService extends SkillHubPublicationService {
     if (!(await this.resolveNamespaceCapabilities(nextOwner, namespace)).canOwn) {
       throw new SkillHubServiceError("new owner is not eligible for this namespace", 400);
     }
-    const registrySkill = await this.adapterCall(() => this.options.adapter.getSkill(namespace, slug));
+    const registrySkill = await this.adapterCall(() =>
+      this.options.adapter.getSkill(namespace, slug),
+    );
     this.validateSkillIdentity(registrySkill.namespace, registrySkill.slug, namespace, slug);
     const changedAt = this.now();
     const ownership = await this.options.store.transferSkillHubOwner({
@@ -393,11 +395,11 @@ export class SkillHubService extends SkillHubPublicationService {
     slugRaw: string,
     params: { version: string; acknowledged: boolean; reason: string },
   ) {
-    const { namespace, slug, ownership: expectedOwnership } = await this.requireManagedSkill(
-      actor,
-      namespaceRaw,
-      slugRaw,
-    );
+    const {
+      namespace,
+      slug,
+      ownership: expectedOwnership,
+    } = await this.requireManagedSkill(actor, namespaceRaw, slugRaw);
     const version = validVersion(params.version);
     const reason = params.reason.trim();
     if (!params.acknowledged || reason.length < 10 || reason.length > 1_000) {
