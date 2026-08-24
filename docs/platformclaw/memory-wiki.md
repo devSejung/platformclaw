@@ -181,6 +181,12 @@ variable: the plugin reuses the existing owner-only Control Plane handoff token
 and socket. Redeploy/restart the PlatformClaw Gateway and web ingress after
 upgrade. Before PR4, an empty organization result set is expected.
 
+These are the currently implemented schema v2 rules. The approved organization
+rollout will replace them during its Memory integration phase: Team becomes a
+fifth organization corpus class, and direct lower-scope membership grants
+effective read access to active ancestors. See
+[PlatformClaw organization architecture](/platformclaw/organization-architecture).
+
 ## PR4: promotion and lifecycle
 
 Promotion unit is a structured claim, not an entire generated page. A request
@@ -231,8 +237,8 @@ sidecars and no new environment variable. Approved claims compile into PR3's
 from active recall, and hard purge clears claim text and evidence while keeping
 the decision and audit tombstones.
 
-The only valid edges are `personal -> part`, `part -> its parent group`, and
-`group -> global`. Submission and approval both resolve current membership at
+The currently implemented edges are `personal -> part`,
+`part -> its parent group`, and `group -> global`. Submission and approval both resolve current membership at
 the Control Plane owner boundary. A target Part or Group leader approves its
 scope; a parent Group leader retains the existing authority to administer
 child Parts. Global approval and hard purge require an active PlatformClaw
@@ -260,49 +266,48 @@ PlatformClaw does not translate knowledge automatically.
 
 ### Planned organization membership architecture
 
-This section is an approved design contract, not runtime functionality shipped
-by the Memory UI. Organization membership and delegated authority must be one
-shared Control Plane capability used by Memory and future organization tools;
-Memory must not create a parallel role store.
+The canonical approved target is documented in
+[PlatformClaw organization architecture](/platformclaw/organization-architecture).
+It is not runtime functionality shipped by the existing Memory UI.
 
-- The hierarchy is `Global > Group > Part`. An employee may belong to multiple
-  Parts, and each Part or Group may have multiple leaders.
-- PlatformClaw administrators manage all organization memberships and roles. A
-  Group leader manages that Group and its child Parts, including assigning Part
-  leaders. A Part leader manages only that Part and its members.
-- A common capability resolver derives delegated roles such as Memory reviewer
-  and Skill curator from canonical membership. Agents inherit the memberships
-  and capabilities of their bound human user; an Agent never owns independent
-  organization membership.
-- Administrator self-approval is allowed only as an explicit audited decision.
-  Membership changes, delegation, revocation, scope archival, reviews, and
-  destructive actions remain attributable in the Control Plane audit trail.
-- SkillHub reuses membership, capability resolution, and audit. SkillHub still
-  owns skill versions, hashes, provenance, and security gates; those do not
-  belong in the organization-membership owner.
-- Rollout order is: common capability resolver, organization management UI,
-  Memory integration, then SkillHub integration. Until those phases land, the
-  existing PR4 promotion authorization remains the only runtime contract.
+- The hierarchy becomes `Global > Team > Group > Part`, with direct membership
+  allowed at any managed level, multiple memberships, multiple leaders, an
+  optional primary scope, and upward-only effective read access.
+- Users may remain unaffiliated. Join requests and their leader/administrator
+  review workflow belong to the shared organization owner, not Memory.
+- Only PlatformClaw administrators appoint or remove leaders. Scope leaders
+  manage ordinary membership and review requests within their delegated scope
+  and descendants.
+- Agents inherit the memberships and capabilities of their bound human user;
+  an Agent never owns independent organization membership.
+- Memory reuses shared hierarchy, membership, authorization, lifecycle, and
+  audit facts while retaining claims, revisions, promotion edges, compilation,
+  and provenance.
+- Until the Memory conversion PR lands, the schema v2 read and promotion rules
+  above remain the runtime contract.
 
 Organization CRUD (create, rename, archive, and hierarchy changes) belongs in
 the organization management surface. Settings > Memory owns knowledge search,
 promotion, review, retirement, and audit presentation only.
 
-The first membership implementation must expose one reusable authorization
-contract rather than Memory-specific roles:
+The shared authorization contract replaces Memory-specific roles:
 
-| Actor                      | Managed scope             | Default delegated capabilities                         |
-| -------------------------- | ------------------------- | ------------------------------------------------------ |
-| PlatformClaw administrator | Every Group and Part      | Membership, leaders, Memory review, SkillHub curation  |
-| Group leader               | Own Group and child Parts | Group membership, Part leaders, scoped review/curation |
-| Part leader                | Own Part                  | Part membership and scoped review/curation             |
-| Member                     | Assigned Groups and Parts | Read/use capabilities granted by policy                |
+| Actor                      | Managed scope                        | Default delegated capabilities                       |
+| -------------------------- | ------------------------------------ | ---------------------------------------------------- |
+| PlatformClaw administrator | Every Team, Group, and Part          | Structure, leaders, membership, review, and curation |
+| Team leader                | Own Team and descendant Groups/Parts | Ordinary membership and scoped review/curation       |
+| Group leader               | Own Group and descendant Parts       | Ordinary membership and scoped review/curation       |
+| Part leader                | Own Part                             | Ordinary membership and scoped review/curation       |
+| Member                     | Direct scopes and active ancestors   | Read/use capabilities granted by domain policy       |
 
-An employee may belong to multiple Groups or Parts. Multiple leaders are
+An employee may belong to multiple Teams, Groups, or Parts. Multiple leaders are
 allowed. The resolver evaluates active membership and delegation at request
 time, returns explicit capabilities, and records the acting user, target scope,
 decision, and reason for mutations. PlatformClaw administrators may publish
-directly to Global or self-approve only through an explicit audited action.
+directly to any organization scope or self-approve only through an explicit
+audited action. Administrators do not receive routine access to another user's
+Personal Memory or Personal Wiki; they may review only a personal claim the user
+explicitly submits.
 
 Memory and SkillHub reuse this identity, hierarchy, membership, delegation,
 revocation, archival, and audit layer. They do not reuse domain state:

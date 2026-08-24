@@ -23,7 +23,8 @@ registry runtime.
 | --------------------------------------------------------------------------- | ------- |
 | Search, version detail, direct workspace publish, and exact-version install | Current |
 | Basic and assigned-VM installs as separate destinations                     | Current |
-| Stable namespace bindings to company Team, Group, and Part scopes           | Current |
+| Legacy company-wide `team` binding plus managed Group and Part bindings     | Current |
+| Shared Global, Team, Group, and Part namespace authorization                | Planned |
 | Per-user skill access grants                                                | Current |
 | Scanner-gated automatic publication and current risk badges                 | Current |
 | Owner and administrator force publication with reason and audit             | Current |
@@ -33,22 +34,33 @@ registry runtime.
 
 ## Organization and ownership
 
-Every skill has one owning organizational unit and one accountable owner.
-Organizational units use the existing PlatformClaw company hierarchy:
+Every skill has one owning organizational unit and one accountable owner. The
+current registry binding uses `team` with no scope ID as a legacy label for the
+company-wide root; it does not represent a managed Team. Current Group and Part
+bindings use schema v2 managed scopes.
 
-- **Team** is the broadest Skill Hub ownership scope.
-- **Group** belongs to a Team.
-- **Part** belongs to a Group.
+The approved organization rollout replaces that convention with distinct
+**Global**, **Team**, **Group**, and **Part** bindings. A real Team has an
+immutable managed-scope ID, a Group belongs to one Team, and a Part belongs to
+one Group. See
+[PlatformClaw organization architecture](/platformclaw/organization-architecture).
+Until the Skill Hub conversion PR lands, the legacy binding remains the runtime
+contract.
 
 The owner can transfer ownership immediately to another eligible active employee.
 Transfer does not wait for a registry review, but it must be recorded in the audit
 log and notify the old and new owners.
 
-When an owner becomes inactive, ownership transfers to that unit's **Primary
-Admin**. If no active Primary Admin exists, the skill enters an **unassigned owner
-queue** for administrator resolution. The skill remains visible according to its
-ACL, but ownership-required mutations are blocked until reassignment. The system
-must not silently assign an arbitrary employee.
+The current runtime may transfer an inactive owner's skills to the one
+deployment-configured active Skill Hub primary administrator. This is legacy
+Skill-Hub-specific behavior, not a Team/Group/Part leader role or organization
+authority. The organization conversion removes that automatic fallback:
+inactive-owner skills enter an **unassigned owner queue** for explicit
+administrator resolution. The skill remains visible according to its ACL, but
+ownership-required mutations are blocked until reassignment. The system must
+not silently choose one of multiple scope leaders or another arbitrary employee.
+PR4 must retire the primary-administrator configuration with a visible operator
+diagnostic rather than silently changing its meaning.
 
 ## Access control
 
@@ -56,9 +68,9 @@ Access is evaluated from the authenticated PlatformClaw actor on every server
 request. Browser-supplied user IDs, organization IDs, paths, or registry roles are
 never authority.
 
-The authorization model combines:
+The target authorization model combines:
 
-1. the owning Team, Group, or Part;
+1. the owning Global, Team, Group, or Part scope;
 2. the skill visibility;
 3. explicit per-user ACL entries; and
 4. owner and PlatformClaw administrator privileges.
@@ -67,8 +79,25 @@ An explicit per-user grant permits reading and installing the named skill, for
 all versions or one exact version. It cannot be reshared, confer administrator
 status, publish, force publication, transfer ownership, or bypass package
 validation. Denials and missing grants fail closed and produce a visible result.
-Namespace bindings use immutable managed-scope IDs rather than mutable Group or
-Part display names. A parent Group leader governs its child Parts.
+Managed namespace bindings use immutable scope IDs rather than mutable display
+names. Global has no scope ID. Effective access follows the shared upward-only
+membership policy; ancestor leader administration is resolved by the shared
+authorization service rather than duplicated in Skill Hub.
+
+Scope access is capability-specific. In the target model:
+
+- Global catalog read/install is available to active employees only when the
+  selected skill visibility permits it;
+- Global publish and curation are PlatformClaw-administrator-only;
+- Team, Group, and Part read/install/publish/curate are evaluated separately
+  from membership, leadership, ownership, visibility, and explicit user ACL;
+  and
+- no read or install capability implies publish, force, transfer, or curation.
+
+The current `team` binding with no scope ID denies non-administrator namespace
+access. Its migration to Global must remain restricted until an administrator
+explicitly enables organization-wide access after reviewing visibility. The
+migration cannot silently turn an existing denial into access.
 
 ## Scan and publication policy
 

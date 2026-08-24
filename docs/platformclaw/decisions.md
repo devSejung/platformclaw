@@ -152,6 +152,10 @@ manage member assignments in that group and its child parts but cannot assign
 leaders or remove their own leadership. Changes are audited, and the last
 active administrator cannot be disabled or demoted.
 
+This records the schema v1/v2 runtime. PC-128 supersedes its target hierarchy
+and delegation rules: Team becomes a real managed scope, access inherits toward
+ancestors, and only PlatformClaw administrators appoint or remove leaders.
+
 ### PC-111 Bootstrap administrators from deployment configuration
 
 A new control-plane database requires at least one initial administrator
@@ -618,11 +622,56 @@ the existing setup/attestation rows. Because assigned-VM execution was not
 released, same-named files created during development are not imported,
 deleted, or read as compatibility state; new runs simply stop creating them.
 
+### PC-128 Use one organization system across PlatformClaw
+
+PlatformClaw adopts the approved `Global > Team > Group > Part > User`
+hierarchy and the shared organization contract in
+[PlatformClaw organization architecture](/platformclaw/organization-architecture).
+Global is a virtual company root; Team, Group, and Part are managed scopes.
+Users may hold multiple direct memberships at any managed level, select an
+optional primary direct membership, or remain unaffiliated without losing
+personal PlatformClaw access. Effective read/use access includes active
+ancestors but never descendants or siblings.
+
+Each scope may have multiple leaders. Leaders may manage ordinary memberships
+and decide join requests within their scope and descendants, while only a
+PlatformClaw administrator may change structure or appoint and remove leaders.
+Unaffiliated users receive a dismissible post-login join flow and may use the
+same flow later under Settings. Joining remains optional and every request,
+decision, direct assignment, membership change, leader change, and structural
+mutation is audited.
+
+One Control Plane `OrganizationService` owns hierarchy, direct membership,
+primary scope, join requests, lifecycle, and audit. One
+`AuthorizationService` derives capabilities for Memory, Skill Hub, Agent, VM,
+MCP, Knox, and later PlatformClaw services. Consumers retain their domain data
+and must not infer authority from browser parameters, directory claims, Knox
+rooms, or mutable names.
+
+The approved implementation includes a control-schema v3 migration. It rebuilds
+the v2 Group/Part table around `team | group | part` plus a parent-scope link,
+places existing Groups under a migration-created Unassigned Team, preserves
+existing memberships and domain history, adds primary-scope and join-request
+state, and adds Team to organization Memory. Existing Skill Hub `team` bindings
+without a scope ID use a legacy company-wide scope label and migrate to `global`
+without a scope ID; they remain restricted until an administrator explicitly
+reviews access, so migration cannot broaden a current denial. Real Team bindings
+require a managed Team ID. There is no runtime fallback or dual write after
+migration.
+
+Administrator organization authority does not expose another user's Personal
+Memory or Personal Wiki. Administrators may directly publish and promote
+organization knowledge, including Global, with explicit reason and audit; they
+may review personal content only after its owner submits a promotion claim.
+Dreaming never publishes organization knowledge automatically.
+
 ## Open operational decisions
 
-No remaining decision blocks the SQLite v1 store. Deployment work still needs
-backup frequency and retention and any named workflow that requires browser
-control.
+No remaining product decision blocks the implemented SQLite v2 store or the
+approved schema v3 organization migration. PR2 must implement and verify the
+one-time pre-migration backup defined by PC-128. Deployment work still needs a
+recurring backup frequency and retention policy and any named workflow that
+requires browser control.
 
 ## Decision procedure
 
