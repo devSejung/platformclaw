@@ -204,7 +204,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
       const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
 
       const provisioning = provisioner.provisionOrRefresh(request());
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(250);
 
       await expect(provisioning).resolves.toBeUndefined();
       expect(configRead).toBe(3);

@@ -164,9 +164,11 @@ describe("SkillHubPage", () => {
         }),
       }),
     );
-    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/execution"))).toBe(
-      false,
-    );
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        (input instanceof Request ? input.url : input.toString()).includes("/execution"),
+      ),
+    ).toBe(false);
   });
 
   it("defaults workspace publishing to the active assigned VM", async () => {
