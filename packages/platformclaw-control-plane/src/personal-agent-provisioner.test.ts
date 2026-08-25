@@ -224,7 +224,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
       const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
 
       const provisioning = provisioner.provisionOrRefresh(request());
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(300);
 
       await expect(provisioning).resolves.toBeUndefined();
       expect(configRead).toBe(3);
@@ -260,7 +260,7 @@ describe("GatewayPersonalAgentProvisioner", () => {
       const provisioner = new GatewayPersonalAgentProvisioner({ rpc, workspaceRoot });
 
       const provisioning = provisioner.provisionOrRefresh(request());
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(20_000);
 
       await expect(provisioning).resolves.toBeUndefined();
       expect(runtimeReads).toBe(9);

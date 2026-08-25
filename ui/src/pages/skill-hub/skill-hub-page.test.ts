@@ -229,7 +229,8 @@ describe("SkillHubPage", () => {
 
   it("lets an administrator bind namespaces to managed scopes and inspect unassigned owners", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = input instanceof Request ? input.url : String(input);
+      const url =
+        input instanceof Request ? input.url : input instanceof URL ? input.href : input;
       if (url.endsWith("/config")) {
         return jsonResponse({
           namespaces: ["engineering"],
