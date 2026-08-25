@@ -5,14 +5,13 @@ import {
   type ManagedScope,
   type ManagedScopeMember,
   type ManagedScopeMembership,
-  type OrganizationAuditRecord,
 } from "./contracts.js";
 import { executeSync, runReadTransaction, takeFirstSync } from "./kysely-sync.js";
 import { prepareOrganizationAuthorizationContext } from "./organization-policy.js";
 import { normalizeScopeName, rowToMembership, rowToScope } from "./sqlite-store-core.js";
-import { SqliteControlPlaneOrganizationMemoryLifecycleStore } from "./sqlite-store-organization-memory-lifecycle-actions.js";
+import { SqliteControlPlaneOrganizationAuditStore } from "./sqlite-store-organization-audit.js";
 
-export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteControlPlaneOrganizationMemoryLifecycleStore {
+export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteControlPlaneOrganizationAuditStore {
   async listManagedScopes(): Promise<ManagedScope[]> {
     return executeSync(
       this.db,
@@ -302,64 +301,6 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
           return result;
         },
       );
-    });
-  }
-
-  async listAuthorizedOrganizationAuditEvents(params: {
-    actorUserId: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<OrganizationAuditRecord[]> {
-    const limit = Number.isFinite(params.limit)
-      ? Math.max(1, Math.min(Math.trunc(params.limit!), 200))
-      : 100;
-    const offset = Number.isFinite(params.offset)
-      ? Math.max(0, Math.min(Math.trunc(params.offset!), 10_000))
-      : 0;
-    return runReadTransaction(this.db, () => {
-      this.requireAdmin(params.actorUserId);
-      return executeSync(
-        this.db,
-        this.query
-          .selectFrom("control_audit_events")
-          .leftJoin("platform_users", "platform_users.id", "control_audit_events.actor_user_id")
-          .selectAll("control_audit_events")
-          .select([
-            "platform_users.id as actor_id",
-            "platform_users.display_name as actor_display_name",
-          ])
-          .where((expression) =>
-            expression.or([
-              expression("event_type", "like", "organization.%"),
-              expression("event_type", "like", "scope.%"),
-            ]),
-          )
-          .orderBy("created_at", "desc")
-          .orderBy("id", "desc")
-          .limit(limit)
-          .offset(offset),
-      ).rows.map((row) => {
-        const details = row.details_json
-          ? (JSON.parse(row.details_json) as Record<string, unknown>)
-          : undefined;
-        const rawOutcome = details?.outcome;
-        const outcome: OrganizationAuditRecord["outcome"] =
-          rawOutcome === "succeeded" || rawOutcome === "denied" ? rawOutcome : undefined;
-        const reason = details?.reason;
-        const result = {
-          id: row.id,
-          eventType: row.event_type,
-          targetType: row.target_type,
-          targetId: row.target_id,
-          createdAt: row.created_at,
-          outcome,
-          reason: typeof reason === "string" ? reason : undefined,
-          actor: row.actor_id
-            ? { id: row.actor_id, displayName: row.actor_display_name ?? undefined }
-            : undefined,
-        };
-        return result;
-      });
     });
   }
 

@@ -195,13 +195,35 @@ export type ManagedScopeMember = {
 
 export type OrganizationAuditRecord = {
   id: string;
-  eventType: string;
-  targetType: string;
-  targetId: string;
-  createdAt: number;
+  action: string;
+  category: "scope" | "membership" | "primary" | "join" | "other";
+  occurredAt: number;
   outcome?: "succeeded" | "denied";
   reason?: string;
-  actor?: { id: string; displayName?: string };
+  actor?: Omit<OrganizationUserSummary, "id">;
+  subject?: Omit<OrganizationUserSummary, "id">;
+  target?:
+    | {
+        type: "scope";
+        scope: Pick<ManagedScope, "kind" | "name" | "status">;
+        lineage: Array<Pick<ManagedScope, "kind" | "name" | "status">>;
+      }
+    | { type: "user"; user: Omit<OrganizationUserSummary, "id"> }
+    | { type: "unavailable"; targetType: string };
+  change?: {
+    beforeName?: string;
+    resultName?: string;
+    priorRole?: ManagedScopeRole;
+    resultRole?: ManagedScopeRole;
+    priorScope?: Pick<ManagedScope, "kind" | "name" | "status">;
+    resultScope?: Pick<ManagedScope, "kind" | "name" | "status">;
+  };
+};
+
+export type OrganizationAuditCursor = { occurredAt: number; id: string };
+export type OrganizationAuditPage = {
+  items: OrganizationAuditRecord[];
+  nextCursor?: OrganizationAuditCursor;
 };
 
 export type OrganizationJoinRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
@@ -243,6 +265,8 @@ export type OrganizationContextSnapshot = {
   isUnaffiliated: boolean;
   hasPendingJoinRequest: boolean;
   canReviewJoinRequests: boolean;
+  canManageOrganization: boolean;
+  canViewOrganizationAudit: boolean;
 };
 
 export type OrganizationScopeSearchResult = {
@@ -617,8 +641,10 @@ export interface ControlPlaneManagementStore {
   listAuthorizedOrganizationAuditEvents(params: {
     actorUserId: string;
     limit?: number;
-    offset?: number;
-  }): Promise<OrganizationAuditRecord[]>;
+    cursor?: OrganizationAuditCursor;
+    category?: OrganizationAuditRecord["category"];
+    outcome?: NonNullable<OrganizationAuditRecord["outcome"]>;
+  }): Promise<OrganizationAuditPage>;
 }
 
 export type ControlPlaneConflictCode =

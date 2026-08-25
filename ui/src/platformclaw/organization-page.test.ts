@@ -101,6 +101,9 @@ function fixtureFetch(options?: {
         effectiveScopesHasMore: false,
         primaryScope: options?.empty ? null : group,
         primaryScopeLineage: options?.empty ? [] : [team, group],
+        canReviewJoinRequests: options?.manager === true || options?.administrator === true,
+        canManageOrganization: options?.manager === true || options?.administrator === true,
+        canViewOrganizationAudit: options?.administrator === true,
       });
     }
     if (url.includes("/scopes?")) {
@@ -261,5 +264,55 @@ describe("PlatformClaw Organization settings", () => {
     );
     expect(element.querySelector("openclaw-modal-dialog")).toBeNull();
     expect(element.textContent).not.toContain("Organization request failed");
+  });
+
+  it("does not render or fetch audit for an ordinary-user deep link", async () => {
+    globalThis.history.pushState({}, "", "?tab=audit");
+    const fetchImpl = fixtureFetch();
+    const element = await mount(fetchImpl);
+    expect(element.querySelector("#platformclaw-organization-tab-audit")).toBeNull();
+    expect(
+      fetchImpl.mock.calls.some(([input]) =>
+        (typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url
+        ).includes("/audit"),
+      ),
+    ).toBe(false);
+    globalThis.history.pushState({}, "", "/");
+  });
+
+  it("lazily fetches audit only after an administrator selects the tab", async () => {
+    const base = fixtureFetch({ administrator: true, empty: true });
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return url.includes("/audit") ? json({ items: [] }) : base(input, init);
+    });
+    const element = await mount(fetchImpl);
+    expect(
+      fetchImpl.mock.calls.some(([input]) =>
+        (typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url
+        ).includes("/audit"),
+      ),
+    ).toBe(false);
+    await selectTab(element, "audit");
+    await vi.waitFor(() =>
+      expect(
+        fetchImpl.mock.calls.some(([input]) =>
+          (typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url
+          ).includes("/audit"),
+        ),
+      ).toBe(true),
+    );
   });
 });

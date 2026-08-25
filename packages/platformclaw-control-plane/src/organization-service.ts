@@ -5,6 +5,7 @@ import type {
   ManagedScope,
   ManagedScopeRole,
   OrganizationAuthorization,
+  OrganizationAuditCursor,
   OrganizationJoinRequest,
 } from "./contracts.js";
 
@@ -109,12 +110,20 @@ export class OrganizationService {
     });
   }
 
-  async listOrganizationAudit(actorUserId: string, limit = 100, offset = 0) {
-    const bounded = Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 200)) : 100;
+  async listOrganizationAudit(
+    actorUserId: string,
+    limit = 50,
+    cursor?: OrganizationAuditCursor,
+    category?: "scope" | "membership" | "primary" | "join" | "other",
+    outcome?: "succeeded" | "denied",
+  ) {
+    const bounded = Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 100)) : 50;
     return await this.store.listAuthorizedOrganizationAuditEvents({
       actorUserId,
       limit: bounded,
-      offset: Math.max(0, Math.min(Math.trunc(offset), 10_000)),
+      cursor,
+      category,
+      outcome,
     });
   }
 

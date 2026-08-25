@@ -25,8 +25,8 @@ upward access inheritance, and the shared organization and authorization
 services are implemented. The authenticated browser API described below is
 also implemented. Skill Hub and Memory now consume this shared authorization
 owner. Settings > Organization provides membership and structure management,
-join requests, and delegated review. The organization audit explorer remains
-later PR6 work.
+join requests, delegated review, and the administrator organization audit
+explorer.
 
 ## Scope model
 
@@ -370,7 +370,7 @@ and database backup together.
 | 6B  | First-login join request and review inbox UX                                           |
 | 6C  | Organization audit explorer and remaining operational UX                               |
 
-PR1 through PR6B are implemented. PR6C remains planned.
+PR1 through PR6C are implemented.
 
 ## Authenticated browser API
 
@@ -385,7 +385,8 @@ The current routes are:
 
 - `GET /context` for one consistent, bounded snapshot of the current actor's
   direct and effective scopes, primary scope, recent join outcomes, and
-  authoritative unaffiliated, pending-request, prompt, and review capabilities;
+  authoritative unaffiliated, pending-request, prompt, review, management, and
+  administrator-only audit capabilities;
 - `GET /scopes` for bounded active-scope search, root-to-leaf lineage, exact
   self-relative management capabilities, and request eligibility, without
   rosters, leader identities, or internal authorization facts;
@@ -397,7 +398,15 @@ The current routes are:
 - capability-gated scope roster and active-user search under
   `/management/scopes/:scopeId`, plus membership assignment and removal;
 - administrator scope creation, rename, and archive; and
-- administrator-only, paged organization audit history.
+- administrator-only organization audit history with stable seek pagination,
+  bounded category/outcome filters, safe actor and affected-user summaries,
+  and current or archived scope labels without raw identifiers or generic
+  audit details.
+
+The audit explorer presents organization events only; Memory and Skill Hub keep
+their existing domain-specific audit owners. Retention, export, and audit
+deletion are not Organization UI capabilities and remain deployment-owned or
+deferred.
 
 Browser membership writes carry the roster/search snapshot's `expectedRole`
 (`null` for a new member). The transactional owner rejects stale add, role, or
@@ -420,7 +429,7 @@ Scope move and restore remain deferred. Moving an active subtree changes
 effective Memory and Skill Hub lineage, reviewer authority, and ownership
 reach; those operations will ship only with cross-consumer lifecycle proof.
 
-PR6A and PR6B localize their product prose, statuses, errors, and accessible labels in
+PR6A through PR6C localize their product prose, statuses, errors, and accessible labels in
 Korean and English while keeping stable technical terms such as Team, Group,
 Part, Memory, and Skill Hub where a forced translation would reduce clarity.
 

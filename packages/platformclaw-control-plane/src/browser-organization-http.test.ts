@@ -405,6 +405,8 @@ describe("PlatformClaw organization browser API", () => {
         isUnaffiliated: false,
         hasPendingJoinRequest: false,
         canReviewJoinRequests: false,
+        canManageOrganization: false,
+        canViewOrganizationAudit: false,
         joinPromptEligible: false,
       },
     });
@@ -611,7 +613,13 @@ describe("PlatformClaw organization browser API", () => {
       }),
     ).toMatchObject({
       status: 200,
-      body: { isUnaffiliated: false, canReviewJoinRequests: true, joinPromptEligible: false },
+      body: {
+        isUnaffiliated: false,
+        canReviewJoinRequests: true,
+        canManageOrganization: true,
+        canViewOrganizationAudit: false,
+        joinPromptEligible: false,
+      },
     });
 
     const review = await call(fixture.service, {
@@ -892,13 +900,80 @@ describe("PlatformClaw organization browser API", () => {
       childScope.updatedAt,
     );
     expect(await rename(renamedRevision)).toMatchObject({ status: 409 });
+    expect(
+      await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/context`,
+        token: "admin-token",
+      }),
+    ).toMatchObject({
+      status: 200,
+      body: { canManageOrganization: true, canViewOrganizationAudit: true },
+    });
     const audit = await call(fixture.service, {
-      path: `${PLATFORMCLAW_ORGANIZATION_PATH}/audit?limit=10`,
+      path: `${PLATFORMCLAW_ORGANIZATION_PATH}/audit?limit=1&category=scope&outcome=succeeded`,
       token: "admin-token",
     });
-    expect(audit).toMatchObject({ status: 200, body: { items: expect.any(Array) } });
-    expect(JSON.stringify(audit.body)).not.toContain("details");
-    expect(JSON.stringify(audit.body)).not.toContain("denialReason");
+    expect(audit).toMatchObject({
+      status: 200,
+      body: {
+        items: [
+          {
+            category: "scope",
+            outcome: "succeeded",
+            target: {
+              type: "scope",
+              scope: { status: "archived" },
+            },
+          },
+        ],
+        nextCursor: expect.any(String),
+      },
+    });
+    const auditJson = JSON.stringify(audit.body);
+    for (const privateField of [
+      "details",
+      "denialReason",
+      "targetId",
+      "actor_user_id",
+      "createdByUserId",
+      "employeeId",
+      "email",
+      "department",
+      "private-directory-group",
+    ]) {
+      expect(auditJson).not.toContain(privateField);
+    }
+    expect(auditJson).not.toContain(scopeId);
+    expect(auditJson).not.toContain(admin.id);
+    const membershipAudit = await call(fixture.service, {
+      path: `${PLATFORMCLAW_ORGANIZATION_PATH}/audit?limit=10&category=membership`,
+      token: "admin-token",
+    });
+    expect(membershipAudit).toMatchObject({
+      status: 200,
+      body: {
+        items: [
+          {
+            action: "scope.membership.set",
+            subject: { accountId: "admin" },
+            change: { resultRole: "leader" },
+          },
+        ],
+      },
+    });
+    const nextCursor = (audit.body as { nextCursor: string }).nextCursor;
+    expect(
+      await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/audit?limit=1&category=scope&outcome=succeeded&cursor=${nextCursor}`,
+        token: "admin-token",
+      }),
+    ).toMatchObject({ status: 200, body: { items: [{ category: "scope" }] } });
+    expect(
+      await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/audit?cursor=not-a-valid-cursor`,
+        token: "admin-token",
+      }),
+    ).toMatchObject({ status: 400 });
     fixture.store.close();
   });
 });

@@ -19,6 +19,7 @@ import {
 } from "./organization-api.ts";
 import { organizationErrorMessage } from "./organization-errors.ts";
 import "./organization-join-panel.ts";
+import "./organization-audit-panel.ts";
 import {
   renderOrganizationAddMember,
   renderOrganizationRoster,
@@ -48,7 +49,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
   @state() private busy = false;
   @state() private error = "";
   @state() private notice = "";
-  @state() private activeTab: "overview" | "requests" | "management" = "overview";
+  @state() private activeTab: "overview" | "requests" | "management" | "audit" = "overview";
   @state() private pendingAction: OrganizationPendingAction | null = null;
   private managementEpoch = 0;
   private scopeSearchEpoch = 0;
@@ -64,8 +65,9 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
-    if (new URL(globalThis.location.href).searchParams.get("tab") === "requests") {
-      this.activeTab = "requests";
+    const requestedTab = new URL(globalThis.location.href).searchParams.get("tab");
+    if (requestedTab === "requests" || requestedTab === "management" || requestedTab === "audit") {
+      this.activeTab = requestedTab;
     }
     void loadPlatformClawLocale().then(() => this.refresh());
   }
@@ -82,6 +84,12 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
     try {
       const [context, result] = await Promise.all([this.api.context(), this.api.scopes()]);
       this.context = context;
+      if (this.activeTab === "audit" && !context.canViewOrganizationAudit) {
+        this.activeTab = "overview";
+      }
+      if (this.activeTab === "management" && !context.canManageOrganization) {
+        this.activeTab = "overview";
+      }
       this.scopes = result.items;
       this.managementScopes = result.items;
       this.managementScopesHasMore = result.hasMore;
@@ -466,7 +474,17 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
         tabs: [
           { value: "overview", label: t("platformClaw.organization.tabs.overview") },
           { value: "requests", label: t("platformClaw.organization.tabs.requests") },
-          { value: "management", label: t("platformClaw.organization.tabs.management") },
+          ...(this.context?.canManageOrganization
+            ? [
+                {
+                  value: "management" as const,
+                  label: t("platformClaw.organization.tabs.management"),
+                },
+              ]
+            : []),
+          ...(this.context?.canViewOrganizationAudit
+            ? [{ value: "audit" as const, label: t("platformClaw.organization.tabs.audit") }]
+            : []),
         ],
         ariaLabel: t("platformClaw.organization.tabs.label"),
         panelId: "platformclaw-organization-panel",
@@ -493,7 +511,16 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
                 .fetchImpl=${this.fetchImpl}
                 .onUnauthenticated=${this.onUnauthenticated}
               ></platformclaw-organization-join-panel>`
-            : this.renderManagement()}
+            : this.activeTab === "audit"
+              ? html`<platformclaw-organization-audit-panel
+                  .fetchImpl=${this.fetchImpl}
+                  .onUnauthenticated=${this.onUnauthenticated}
+                  .onAuthorizationLost=${() => {
+                    this.activeTab = "overview";
+                    void this.refresh();
+                  }}
+                ></platformclaw-organization-audit-panel>`
+              : this.renderManagement()}
       </section>
       ${renderOrganizationActionDialog({
         action: this.pendingAction,
