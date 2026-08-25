@@ -17,10 +17,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
-import {
-  VM_REMOTE_SKILL_EXPORT_PYTHON,
-  VmRemoteSkillExportService,
-} from "./remote-skill-export.js";
+import { VmRemoteSkillExportService } from "./remote-skill-export.js";
 
 const TARGET: AssignedVmTargetSnapshot = {
   kind: "assigned_vm",
@@ -111,12 +108,7 @@ async function withLocalSkill(run: (fixture: LocalFixture) => Promise<void>): Pr
         host: "vm",
       })),
       disposeSession,
-      spawnProcess: (_command, _args, options) =>
-        spawn(
-          "python3",
-          ["-c", VM_REMOTE_SKILL_EXPORT_PYTHON, workspace, "demo-skill", "2.1.0"],
-          options,
-        ),
+      spawnProcess: (_command, args, options) => spawn("sh", ["-c", args.at(-1)!], options),
       tempRoot: root,
     });
     await run({ root, skillDir, target, service, disposeSession });

@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { render } from "lit";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import { loadPlatformClawLocale } from "../../platformclaw/i18n.ts";
 import { renderSkillHubUpload, renderSkillHubWorkspacePublish } from "./dialogs.ts";
@@ -82,6 +82,11 @@ describe("Skill Hub ZIP upload dialog", () => {
 
 describe("Skill Hub workspace publish dialog", () => {
   beforeEach(async () => {
+    await i18n.setLocale("en");
+    await loadPlatformClawLocale();
+  });
+
+  afterEach(async () => {
     await i18n.setLocale("en");
     await loadPlatformClawLocale();
   });

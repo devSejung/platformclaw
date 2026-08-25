@@ -9,7 +9,7 @@ const EXPORT_PREPARATION_TIMEOUT_MS = 10 * 60_000;
 const MAX_EXPORT_SESSIONS = 32;
 const SKILL_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u;
 
-export type PlatformClawExportedSkillArchive = {
+type PlatformClawExportedSkillArchive = {
   path: string;
   size: number;
   cleanup(): Promise<void>;
@@ -36,7 +36,7 @@ type ExportSession = {
   timer: NodeJS.Timeout;
 };
 
-type GatewayApi = Pick<OpenClawPluginApi, "logger" | "on" | "registerGatewayMethod">;
+type GatewayApi = Pick<OpenClawPluginApi, "logger" | "registerGatewayMethod">;
 
 function authorizedSession(
   sessions: Map<string, ExportSession>,
@@ -64,7 +64,7 @@ export function registerPlatformClawSkillExportGateway(
   api: GatewayApi,
   runtimePromise: Promise<PlatformClawSkillExportRuntime>,
   targetMutations: PlatformClawTargetMutationCoordinator,
-): void {
+): () => Promise<void> {
   const sessions = new Map<string, ExportSession>();
 
   const remove = async (exportId: string): Promise<void> => {
@@ -90,10 +90,6 @@ export function registerPlatformClawSkillExportGateway(
     );
     session.timer.unref();
   };
-
-  api.on("gateway_stop", async () => {
-    await Promise.allSettled([...sessions.keys()].map(async (exportId) => await remove(exportId)));
-  });
 
   api.registerGatewayMethod(
     "platformclaw-execution.skillExport.begin",
@@ -272,4 +268,8 @@ export function registerPlatformClawSkillExportGateway(
     },
     { scope: "operator.admin" },
   );
+
+  return async () => {
+    await Promise.allSettled([...sessions.keys()].map(async (exportId) => await remove(exportId)));
+  };
 }

@@ -40,8 +40,12 @@ export function registerPlatformClawExecutionGateway(
   api: Pick<OpenClawPluginApi, "logger" | "on" | "registerGatewayMethod">,
   runtimePromise: Promise<PlatformClawExecutionGatewayRuntime>,
   targetMutations: PlatformClawTargetMutationCoordinator,
-): void {
-  registerPlatformClawSkillExportGateway(api, runtimePromise, targetMutations);
+): () => Promise<void> {
+  const disposeSkillExports = registerPlatformClawSkillExportGateway(
+    api,
+    runtimePromise,
+    targetMutations,
+  );
   api.on("before_agent_run", (_event, context) => {
     const agentId = context.agentId?.trim();
     return agentId && targetMutations.isHeld(agentId, "target-change")
@@ -190,4 +194,6 @@ export function registerPlatformClawExecutionGateway(
     },
     { scope: "operator.admin" },
   );
+
+  return disposeSkillExports;
 }

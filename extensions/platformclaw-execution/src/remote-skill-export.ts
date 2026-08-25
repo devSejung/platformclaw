@@ -20,7 +20,7 @@ const SKILL_VERSION_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 
 /** Private script constant also gives Linux-focused tests the exact production encoder. */
-export const VM_REMOTE_SKILL_EXPORT_PYTHON = String.raw`
+const VM_REMOTE_SKILL_EXPORT_PYTHON = String.raw`
 import contextlib
 import fcntl
 import json
@@ -249,7 +249,7 @@ type RemoteSkillExportIo = {
   tempRoot?: string;
 };
 
-export type VmRemoteSkillExportArchive = {
+type VmRemoteSkillExportArchive = {
   path: string;
   size: number;
   cleanup(): Promise<void>;
