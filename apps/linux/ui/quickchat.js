@@ -227,11 +227,17 @@ function resolveInlineWidgetUrl(rawSurfaceUrl, rawTarget) {
     }
     segments.push(decoded);
   }
+  const capabilityIndex = segments.findIndex(
+    (segment, index) => segment === "__openclaw__" && segments[index + 1] === "cap",
+  );
+  const scopedDocumentIndex = capabilityIndex + 3;
   if (
-    segments.length < 3 ||
-    segments.at(-3) !== "__openclaw__" ||
-    segments.at(-2) !== "cap" ||
-    !segments.at(-1)
+    capabilityIndex < 0 ||
+    segments[capabilityIndex + 2] === "" ||
+    segments[scopedDocumentIndex] !== "__openclaw__" ||
+    segments[scopedDocumentIndex + 1] !== "canvas" ||
+    segments[scopedDocumentIndex + 2] !== "documents" ||
+    segments.length < scopedDocumentIndex + 5
   ) {
     return null;
   }
