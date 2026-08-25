@@ -8,7 +8,9 @@ const ASSISTANT_MEDIA_PATHS = new Set([
   "/platformclaw/app/__openclaw__/assistant-media",
 ]);
 const MANAGED_MEDIA_PATH_RE = /^\/api\/chat\/media\/outgoing\/([^/]+)\/([^/]+)\/full$/u;
-const INBOUND_MEDIA_SOURCE_RE = /^media:\/\/inbound\/[^/?#\\]+$/iu;
+const INBOUND_MEDIA_SOURCE_RE = /^media:\/\/inbound\/([^/?#\\]+)$/iu;
+const FILE_MEDIA_SOURCE_RE = /^file:\/\/([^/]*)(\/[^?#]*)$/iu;
+const TRANSCRIPT_MEDIA_BLOCK_TYPES = new Set(["image", "audio", "video", "file", "attachment"]);
 const MEDIA_TICKET_SCOPE = "platformclaw-browser-media";
 const MEDIA_TICKET_TTL_MS = 5 * 60_000;
 const MAX_META_RESPONSE_BYTES = 64 * 1024;
@@ -73,24 +75,108 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function historyContainsInboundSource(result: unknown, source: string): boolean {
+function isSafeAbsoluteMediaPath(value: string): boolean {
+  return (
+    (value.startsWith("/") || /^[a-z]:[\\/]/iu.test(value)) &&
+    !value.startsWith("//") &&
+    !value.includes("\0") &&
+    !value.split(/[\\/]/u).some((segment) => segment === "." || segment === "..")
+  );
+}
+
+function isAllowedTranscriptMediaSource(source: string): boolean {
+  const inbound = INBOUND_MEDIA_SOURCE_RE.exec(source);
+  if (inbound) {
+    try {
+      const fileName = decodeURIComponent(inbound[1] ?? "");
+      return (
+        fileName !== "." &&
+        fileName !== ".." &&
+        !fileName.includes("\0") &&
+        !/[\\/]/u.test(fileName)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  const fileUrl = FILE_MEDIA_SOURCE_RE.exec(source);
+  if (fileUrl) {
+    if (fileUrl[1] && fileUrl[1].toLowerCase() !== "localhost") {
+      return false;
+    }
+    try {
+      return isSafeAbsoluteMediaPath(decodeURIComponent(fileUrl[2] ?? ""));
+    } catch {
+      return false;
+    }
+  }
+  return isSafeAbsoluteMediaPath(source);
+}
+
+function matchesPublicTranscriptMedia(value: unknown, source: string): boolean {
+  const record = asRecord(value);
+  return (
+    record !== null &&
+    record.sensitive !== true &&
+    record.sensitiveMedia !== true &&
+    (record.path === source || record.url === source)
+  );
+}
+
+function isSensitiveTranscriptMedia(value: unknown): boolean {
+  const record = asRecord(value);
+  return record?.sensitive === true || record?.sensitiveMedia === true;
+}
+
+function historyContainsOwnedMediaSource(result: unknown, source: string): boolean {
   const messages = asRecord(result)?.messages;
   if (!Array.isArray(messages)) {
     return false;
   }
   return messages.some((message) => {
     const record = asRecord(message);
-    if (record?.role !== "user") {
+    if (
+      !record ||
+      (record.role !== "user" && record.role !== "assistant") ||
+      isSensitiveTranscriptMedia(record)
+    ) {
       return false;
     }
-    const media = asRecord(record["__openclaw"])?.media;
-    return (
+    const envelope = asRecord(record["__openclaw"]);
+    if (isSensitiveTranscriptMedia(envelope)) {
+      return false;
+    }
+    const media = envelope?.media;
+    if (
       Array.isArray(media) &&
-      media.some((entry) => {
-        const fact = asRecord(entry);
-        return fact?.path === source || fact?.url === source;
-      })
-    );
+      media.some((entry) => matchesPublicTranscriptMedia(entry, source))
+    ) {
+      return true;
+    }
+    if (record.role !== "assistant" || !Array.isArray(record.content)) {
+      return false;
+    }
+    // Text and tool payloads are not attachment ownership. Only explicit
+    // assistant media blocks may authorize their exact local path or URL.
+    return record.content.some((entry) => {
+      const block = asRecord(entry);
+      if (
+        !block ||
+        typeof block.type !== "string" ||
+        !TRANSCRIPT_MEDIA_BLOCK_TYPES.has(block.type) ||
+        isSensitiveTranscriptMedia(block) ||
+        isSensitiveTranscriptMedia(block.attachment) ||
+        isSensitiveTranscriptMedia(block.source)
+      ) {
+        return false;
+      }
+      return (
+        matchesPublicTranscriptMedia(block, source) ||
+        matchesPublicTranscriptMedia(block.attachment, source) ||
+        matchesPublicTranscriptMedia(block.source, source)
+      );
+    });
   });
 }
 
@@ -208,7 +294,7 @@ export class PlatformClawBrowserMediaRelay {
       sendJson(res, 404, { error: "media not found" });
       return true;
     }
-    await this.proxyBytes(req, res, false);
+    await this.proxyBytes(req, res);
     return true;
   }
 
@@ -222,7 +308,7 @@ export class PlatformClawBrowserMediaRelay {
     const source = requestUrl.searchParams.get("source")?.trim() ?? "";
     const sessionKey = requestUrl.searchParams.get("sessionKey")?.trim() ?? "";
     if (
-      !INBOUND_MEDIA_SOURCE_RE.test(source) ||
+      !isAllowedTranscriptMediaSource(source) ||
       this.options.resolveAgentIdFromSessionKey(sessionKey) !== access.binding.agentId
     ) {
       sendJson(res, 404, { available: false, reason: "Attachment unavailable" });
@@ -242,7 +328,7 @@ export class PlatformClawBrowserMediaRelay {
       sendJson(res, 404, { error: "media not found" });
       return true;
     }
-    await this.proxyBytes(req, res, true);
+    await this.proxyBytes(req, res, access.binding.agentId);
     return true;
   }
 
@@ -264,7 +350,7 @@ export class PlatformClawBrowserMediaRelay {
       sendJson(res, 404, { available: false, reason: "Attachment unavailable" });
       return true;
     }
-    if (!historyContainsInboundSource(history, source)) {
+    if (!historyContainsOwnedMediaSource(history, source)) {
       sendJson(res, 404, { available: false, reason: "Attachment unavailable" });
       return true;
     }
@@ -281,6 +367,7 @@ export class PlatformClawBrowserMediaRelay {
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${this.options.gatewayAuth}`,
+          "X-OpenClaw-Agent-Id": access.binding.agentId,
         },
         redirect: "error",
         signal: controller.signal,
@@ -372,8 +459,9 @@ export class PlatformClawBrowserMediaRelay {
   private async proxyBytes(
     req: IncomingMessage,
     res: ServerResponse,
-    assistantMedia: boolean,
+    agentId?: string,
   ): Promise<void> {
+    const assistantMedia = agentId !== undefined;
     const incomingUrl = new URL(req.url ?? "/", "http://localhost");
     const upstreamUrl = assistantMedia
       ? new URL("/__openclaw__/assistant-media", this.gatewayOrigin)
@@ -395,6 +483,7 @@ export class PlatformClawBrowserMediaRelay {
     }
     if (assistantMedia) {
       headers.set("Authorization", `Bearer ${this.options.gatewayAuth}`);
+      headers.set("X-OpenClaw-Agent-Id", agentId);
     }
     const controller = new AbortController();
     const abort = () => controller.abort();

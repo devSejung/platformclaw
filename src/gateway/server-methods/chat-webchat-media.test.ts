@@ -7,6 +7,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDefaultLocalRoots } from "../../media/local-media-access.js";
+import { replaceAssistantContentTextBlocks } from "./chat-assistant-content.js";
 import { __testing, buildWebchatAssistantMessageFromReplyPayloads } from "./chat-webchat-media.js";
 
 const { buildWebchatAudioContentBlocksFromReplyPayloads } = __testing;
@@ -252,6 +253,126 @@ describe("buildWebchatAudioContentBlocksFromReplyPayloads", () => {
 });
 
 describe("buildWebchatAssistantMessageFromReplyPayloads", () => {
+  const fixtureRoots = new Set<string>();
+
+  afterEach(() => {
+    for (const fixtureRoot of fixtureRoots) {
+      fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+    fixtureRoots.clear();
+  });
+
+  function writeDocumentFixture(name: string, contents: string) {
+    const localRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-webchat-document-"));
+    fixtureRoots.add(localRoot);
+    const documentPath = path.join(localRoot, name);
+    fs.writeFileSync(documentPath, contents);
+    return { documentPath, localRoot };
+  }
+
+  it.each([
+    { name: "report.pdf", contents: "%PDF-1.7", mimeType: "application/pdf" },
+    {
+      name: "project page.html",
+      contents: "<!doctype html><h1>Hello</h1>",
+      mimeType: "text/html",
+    },
+  ])("persists trusted $name as a structured document attachment", async (fixture) => {
+    const { documentPath, localRoot } = writeDocumentFixture(fixture.name, fixture.contents);
+    const realPath = fs.realpathSync(documentPath);
+    const sizeBytes = fs.statSync(documentPath).size;
+
+    const message = await buildWebchatAssistantMessageFromReplyPayloads(
+      [{ mediaUrl: documentPath, trustedLocalMedia: true }],
+      { localRoots: [localRoot] },
+    );
+
+    expect(message).toEqual({
+      transcriptText: "Document reply",
+      content: [
+        { type: "text", text: "Document reply" },
+        {
+          type: "attachment",
+          attachment: {
+            url: realPath,
+            kind: "document",
+            label: fixture.name,
+            mimeType: fixture.mimeType,
+            sizeBytes,
+          },
+        },
+      ],
+    });
+    expect(
+      replaceAssistantContentTextBlocks([{ type: "text", text: "Unnormalized text" }], message),
+    ).toEqual(message?.content);
+  });
+
+  it("rejects untrusted, sensitive, and outside-root document references", async () => {
+    const { documentPath } = writeDocumentFixture("private.pdf", "%PDF-1.7");
+    const { localRoot: allowedRoot } = writeDocumentFixture("allowed.html", "<p>allowed</p>");
+
+    await expect(
+      buildWebchatAssistantMessageFromReplyPayloads([{ mediaUrl: documentPath }], {
+        localRoots: [path.dirname(documentPath)],
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      buildWebchatAssistantMessageFromReplyPayloads(
+        [{ mediaUrl: documentPath, trustedLocalMedia: true, sensitiveMedia: true }],
+        { localRoots: [path.dirname(documentPath)] },
+      ),
+    ).resolves.toBeNull();
+    const onLocalAudioAccessDenied = vi.fn();
+    await expect(
+      buildWebchatAssistantMessageFromReplyPayloads(
+        [{ mediaUrl: documentPath, trustedLocalMedia: true }],
+        { localRoots: [allowedRoot], onLocalAudioAccessDenied },
+      ),
+    ).resolves.toBeNull();
+    expect(onLocalAudioAccessDenied).toHaveBeenCalledOnce();
+  });
+
+  it("deduplicates trusted document paths across local-path and file URL references", async () => {
+    const { documentPath, localRoot } = writeDocumentFixture("report.pdf", "%PDF-1.7");
+
+    const message = await buildWebchatAssistantMessageFromReplyPayloads(
+      [
+        {
+          mediaUrls: [documentPath, pathToFileURL(documentPath).href],
+          trustedLocalMedia: true,
+        },
+      ],
+      { localRoots: [localRoot] },
+    );
+
+    expect(message?.content.filter((block) => block.type === "attachment")).toHaveLength(1);
+  });
+
+  it("merges trusted documents without duplicating managed audio or existing documents", async () => {
+    const { documentPath, localRoot } = writeDocumentFixture("report.pdf", "%PDF-1.7");
+    const message = await buildWebchatAssistantMessageFromReplyPayloads(
+      [{ mediaUrl: documentPath, trustedLocalMedia: true }],
+      { localRoots: [localRoot] },
+    );
+    const document = message?.content.find((block) => block.type === "attachment");
+    if (!document || !message) {
+      throw new Error("expected trusted document attachment");
+    }
+    const managedAudio = { type: "audio", url: "/api/chat/media/outgoing/audio/full" };
+    const transcriptAudio = {
+      type: "attachment",
+      attachment: { kind: "audio", url: "/workspace/clip.mp3" },
+    };
+
+    expect(
+      replaceAssistantContentTextBlocks(
+        [{ type: "text", text: "Before" }, managedAudio, document],
+        { content: [...message.content, transcriptAudio] },
+      ),
+    ).toEqual([{ type: "text", text: "Document reply" }, managedAudio, document]);
+  });
+
   it("converts image data URLs into webchat image blocks", async () => {
     const message = await buildWebchatAssistantMessageFromReplyPayloads([
       {

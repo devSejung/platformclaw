@@ -140,7 +140,9 @@ export function readTranscriptMediaEntries(message: unknown): Array<{
     return [];
   }
   return (readPersistedMediaFacts(message) ?? []).flatMap((fact) => {
-    const path = fact.path ?? fact.url;
+    // The claim-check URL is the browser-owned identity; its host path is only
+    // for agent hydration and cannot cross an employee's media relay.
+    const path = fact.url?.startsWith("media://inbound/") ? fact.url : (fact.path ?? fact.url);
     return path
       ? [{ path, mediaType: fact.contentType ?? fact.kind, fileName: fact.fileName }]
       : [];

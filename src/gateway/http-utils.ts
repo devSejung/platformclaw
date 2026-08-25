@@ -81,7 +81,11 @@ function assertKnownAgentId(agentId: string, cfg = getRuntimeConfig()): void {
   }
 }
 
-function resolveAgentIdFromHeader(req: IncomingMessage): string | undefined {
+/** Resolves an explicit Gateway agent header only when it names a configured agent. */
+export function resolveAgentIdFromHeader(
+  req: IncomingMessage,
+  cfg = getRuntimeConfig(),
+): string | undefined {
   const raw =
     normalizeOptionalString(getHeader(req, "x-openclaw-agent-id")) ||
     normalizeOptionalString(getHeader(req, "x-openclaw-agent")) ||
@@ -92,7 +96,9 @@ function resolveAgentIdFromHeader(req: IncomingMessage): string | undefined {
   if (!isValidAgentId(raw)) {
     throw new UnknownGatewayAgentError(raw);
   }
-  return normalizeAgentId(raw);
+  const agentId = normalizeAgentId(raw);
+  assertKnownAgentId(agentId, cfg);
+  return agentId;
 }
 
 /** Resolves the target agent encoded by an OpenAI-compatible model id. */
@@ -186,9 +192,8 @@ export function resolveAgentIdForRequest(params: {
   model: string | undefined;
 }): string {
   const cfg = getRuntimeConfig();
-  const fromHeader = resolveAgentIdFromHeader(params.req);
+  const fromHeader = resolveAgentIdFromHeader(params.req, cfg);
   if (fromHeader) {
-    assertKnownAgentId(fromHeader, cfg);
     return fromHeader;
   }
 

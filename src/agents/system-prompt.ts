@@ -902,7 +902,8 @@ export function buildAgentSystemPrompt(params: {
     screen: "Drive operator web UI",
     terminal:
       "Own visible shell. Use for long/interactive jobs user should watch. exec for quiet work",
-    show_widget: "Render self-contained HTML/SVG in the current chat or browser surface",
+    show_widget:
+      "Render HTML/SVG visibly in the current chat or browser; for a requested webpage, display its HTML even after saving the file",
     canvas: "Control a paired node's Canvas; node required; file URLs are node-local",
     nodes: "Paired node status/control/media",
     [AUTOMATIONS_TOOL_NAME]:

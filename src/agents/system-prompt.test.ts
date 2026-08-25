@@ -19,7 +19,7 @@ describe("buildAgentSystemPrompt", () => {
     });
 
     expect(prompt).toContain(
-      "- show_widget: Render self-contained HTML/SVG in the current chat or browser surface",
+      "- show_widget: Render HTML/SVG visibly in the current chat or browser; for a requested webpage, display its HTML even after saving the file",
     );
     expect(prompt).toContain(
       "- canvas: Control a paired node's Canvas; node required; file URLs are node-local",

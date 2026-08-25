@@ -95,6 +95,18 @@ async function executeWidget(params: {
 }
 
 describe("show_widget", () => {
+  it("requires a visible preview and explains the self-contained image boundary", () => {
+    const tool = createShowWidgetTool();
+
+    expect(tool.description).toContain("MUST call show_widget(widget_code)");
+    expect(tool.description).toContain("downloadable HTML file, create the file");
+    expect(tool.description).toContain("read its actual contents");
+    expect(tool.description).toContain("inline SVG, data:image/... URLs");
+    expect(tool.description).toContain("document-created blob: URLs");
+    expect(tool.description).toContain("HTTP(S) image URLs are blocked in inline previews");
+    expect(tool.description).toContain("only approved pinned widgets may fetch");
+  });
+
   it("uses flat provider-safe enums for dashboard options", () => {
     const tool = createShowWidgetTool();
     const properties = (
@@ -110,15 +122,29 @@ describe("show_widget", () => {
     expect(properties?.presentation?.anyOf).toBeUndefined();
   });
 
+  it("allows self-contained data and blob images without opening image network access", () => {
+    const html = buildWidgetDocument("Image preview", '<img src="data:image/png;base64,cG5n">');
+    const contentSecurityPolicy = html.match(
+      /http-equiv="Content-Security-Policy" content="([^"]+)"/u,
+    )?.[1];
+    const imagePolicy = contentSecurityPolicy
+      ?.split(";")
+      .map((directive) => directive.trim())
+      .find((directive) => directive.startsWith("img-src "));
+
+    expect(imagePolicy).toBe("img-src data: blob:");
+    expect(contentSecurityPolicy).toContain("connect-src 'none'");
+  });
+
   it("keeps the wrapped document bytes stable", () => {
     const html = buildWidgetDocument(
       "Status <live>",
       '<SvG viewBox="0 0 10 10"><circle r="4" /></SvG>',
     );
 
-    expect(Buffer.byteLength(html)).toBe(13075);
+    expect(Buffer.byteLength(html)).toBe(13081);
     expect(createHash("sha256").update(html).digest("hex")).toBe(
-      "3dd21b774b05d53d12088018babfc82604cc098fcacb1cca48dff5be7e7f8812",
+      "9da21f70be9855b20c865dc649c2607dd6feed7df30f5204b327b031866dcb1b",
     );
     expect(html).toContain("openclaw:widget-host-init-ack");
     expect(html).toContain("else push.call(waiting,{send,reject})");
@@ -240,7 +266,7 @@ describe("show_widget", () => {
       "utf8",
     );
     expect(html).toContain(
-      `Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;`,
+      `Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:;`,
     );
     expect(html).toContain("<title>&lt;Status&gt;</title>");
     expect(html).toContain("--accent:#bd4531");

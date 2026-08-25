@@ -2,7 +2,8 @@
 // blocks that the control UI can render without unsafe file exposure.
 import path from "node:path";
 import { estimateBase64DecodedBytes } from "@openclaw/media-core/base64";
-import { isAudioFileName, mimeTypeFromFilePath } from "@openclaw/media-core/mime";
+import { MAX_DOCUMENT_BYTES } from "@openclaw/media-core/constants";
+import { isAudioFileName, kindFromMime, mimeTypeFromFilePath } from "@openclaw/media-core/mime";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { ReplyPayload } from "../../auto-reply/reply-payload.js";
 import { openLocalFileSafely } from "../../infra/fs-safe.js";
@@ -31,14 +32,15 @@ type WebchatAudioEmbeddingOptions = {
   onLocalAudioAccessDenied?: (err: LocalMediaAccessError) => void;
 };
 
-type LocalAudioContentBlock = {
+type LocalMediaContentBlock = {
   path: string;
+  kind: "audio" | "document";
   block: Record<string, unknown>;
 };
 
-type ReplyMediaAudioEmbedding = {
+type ReplyMediaEmbedding = {
   url: string;
-  audioBlock?: Record<string, unknown>;
+  attachment?: LocalMediaContentBlock;
 };
 
 /** Map `mediaUrl` strings to an absolute filesystem path for local embedding (plain paths or `file:` URLs). */
@@ -75,20 +77,26 @@ function resolveLocalMediaPathForEmbedding(raw: string): string | null {
   return trimmed;
 }
 
-async function readLocalAudioContentBlockForEmbedding(
+async function readLocalMediaContentBlockForEmbedding(
   payload: ReplyPayload,
   raw: string,
   options: WebchatAudioEmbeddingOptions | undefined,
-): Promise<LocalAudioContentBlock | null> {
+  audioOnly = false,
+): Promise<LocalMediaContentBlock | null> {
   if (payload.trustedLocalMedia !== true) {
-    // WebChat may embed local audio only after an upstream path normalizer grants trust.
+    // Local transcript references require trust from the upstream path normalizer.
     return null;
   }
   const resolved = resolveLocalMediaPathForEmbedding(raw);
   if (!resolved) {
     return null;
   }
-  if (!isAudioFileName(resolved)) {
+  const isAudio = isAudioFileName(resolved);
+  const mimeType = mimeTypeFromFilePath(resolved) ?? "application/octet-stream";
+  if (
+    (!isAudio && (audioOnly || kindFromMime(mimeType) !== "document")) ||
+    (!isAudio && payload.sensitiveMedia === true)
+  ) {
     return null;
   }
   let opened: Awaited<ReturnType<typeof openLocalFileSafely>> | undefined;
@@ -96,17 +104,35 @@ async function readLocalAudioContentBlockForEmbedding(
     await assertLocalMediaAllowed(resolved, options?.localRoots);
     opened = await openLocalFileSafely({ filePath: resolved });
     await assertLocalMediaAllowed(opened.realPath, options?.localRoots);
-    if (opened.stat.size > MAX_WEBCHAT_AUDIO_BYTES) {
+    if (opened.stat.size > (isAudio ? MAX_WEBCHAT_AUDIO_BYTES : MAX_DOCUMENT_BYTES)) {
       return null;
+    }
+    const label = path.basename(opened.realPath);
+    if (!isAudio) {
+      return {
+        path: opened.realPath,
+        kind: "document",
+        block: {
+          type: "attachment",
+          attachment: {
+            url: opened.realPath,
+            kind: "document",
+            label,
+            mimeType,
+            sizeBytes: opened.stat.size,
+          },
+        },
+      };
     }
     return {
       path: opened.realPath,
+      kind: "audio",
       block: {
         type: "attachment",
         attachment: {
           url: opened.realPath,
           kind: "audio",
-          label: path.basename(opened.realPath),
+          label,
           mimeType: mimeTypeForPath(opened.realPath),
           ...(payload.audioAsVoice === true ? { isVoiceNote: true } : {}),
         },
@@ -122,22 +148,23 @@ async function readLocalAudioContentBlockForEmbedding(
   }
 }
 
-async function resolveReplyMediaAudioEmbedding(
+async function resolveReplyMediaEmbedding(
   payload: ReplyPayload,
   raw: string,
-  seenAudio: Set<string>,
+  seenAttachments: Set<string>,
   options: WebchatAudioEmbeddingOptions | undefined,
-): Promise<ReplyMediaAudioEmbedding | null> {
+  audioOnly = false,
+): Promise<ReplyMediaEmbedding | null> {
   const url = raw.trim();
   if (!url) {
     return null;
   }
-  const audio = await readLocalAudioContentBlockForEmbedding(payload, url, options);
-  if (!audio || seenAudio.has(audio.path)) {
+  const attachment = await readLocalMediaContentBlockForEmbedding(payload, url, options, audioOnly);
+  if (!attachment || seenAttachments.has(attachment.path)) {
     return { url };
   }
-  seenAudio.add(audio.path);
-  return { url, audioBlock: audio.block };
+  seenAttachments.add(attachment.path);
+  return { url, attachment };
 }
 
 function mimeTypeForPath(filePath: string): string {
@@ -227,11 +254,11 @@ async function buildWebchatAudioContentBlocksFromReplyPayloads(
     }
     const parts = resolveSendableOutboundReplyParts(payload);
     for (const raw of parts.mediaUrls) {
-      const media = await resolveReplyMediaAudioEmbedding(payload, raw, seen, options);
-      if (!media?.audioBlock) {
+      const media = await resolveReplyMediaEmbedding(payload, raw, seen, options, true);
+      if (!media?.attachment) {
         continue;
       }
-      blocks.push(media.audioBlock);
+      blocks.push(media.attachment.block);
     }
   }
   return blocks;
@@ -243,10 +270,11 @@ export async function buildWebchatAssistantMessageFromReplyPayloads(
 ): Promise<{ content: Array<Record<string, unknown>>; transcriptText: string } | null> {
   const content: Array<Record<string, unknown>> = [];
   const transcriptTextParts: string[] = [];
-  const seenAudio = new Set<string>();
+  const seenAttachments = new Set<string>();
   const seenImages = new Set<string>();
   let hasAudio = false;
   let hasImage = false;
+  let hasDocument = false;
 
   for (const payload of payloads) {
     if (payload.isReasoning === true) {
@@ -258,17 +286,23 @@ export async function buildWebchatAssistantMessageFromReplyPayloads(
     const replyDirectivePrefix = resolveReplyDirectivePrefix(payload);
     let payloadHasAudio = false;
     let payloadHasImage = false;
+    let payloadHasDocument = false;
     const payloadMediaBlocks: Array<Record<string, unknown>> = [];
     const parts = resolveSendableOutboundReplyParts(payload);
     for (const raw of parts.mediaUrls) {
-      const media = await resolveReplyMediaAudioEmbedding(payload, raw, seenAudio, options);
+      const media = await resolveReplyMediaEmbedding(payload, raw, seenAttachments, options);
       if (!media) {
         continue;
       }
-      if (media.audioBlock) {
-        payloadMediaBlocks.push(media.audioBlock);
-        hasAudio = true;
-        payloadHasAudio = true;
+      if (media.attachment) {
+        payloadMediaBlocks.push(media.attachment.block);
+        if (media.attachment.kind === "audio") {
+          hasAudio = true;
+          payloadHasAudio = true;
+        } else {
+          hasDocument = true;
+          payloadHasDocument = true;
+        }
         continue;
       }
       const imageUrl = resolveEmbeddableImageUrl(media.url);
@@ -286,11 +320,13 @@ export async function buildWebchatAssistantMessageFromReplyPayloads(
       transcriptTextParts.length === 0;
     // Media-only replies need stable transcript text so later context is readable.
     const syntheticText = needsSyntheticText
-      ? payloadHasAudio && payloadHasImage
+      ? Number(payloadHasAudio) + Number(payloadHasImage) + Number(payloadHasDocument) > 1
         ? "Media reply"
         : payloadHasAudio
           ? "Audio reply"
-          : "Image reply"
+          : payloadHasImage
+            ? "Image reply"
+            : "Document reply"
       : undefined;
     const blockText = text ?? syntheticText;
     if (blockText) {
@@ -304,12 +340,18 @@ export async function buildWebchatAssistantMessageFromReplyPayloads(
     content.push(...payloadMediaBlocks);
   }
 
-  if (!hasAudio && !hasImage) {
+  if (!hasAudio && !hasImage && !hasDocument) {
     return null;
   }
   const transcriptText =
     transcriptTextParts.join("\n\n").trim() ||
-    (hasAudio && hasImage ? "Media reply" : hasAudio ? "Audio reply" : "Image reply");
+    (Number(hasAudio) + Number(hasImage) + Number(hasDocument) > 1
+      ? "Media reply"
+      : hasAudio
+        ? "Audio reply"
+        : hasImage
+          ? "Image reply"
+          : "Document reply");
   if (transcriptTextParts.length === 0) {
     content.unshift({ type: "text", text: transcriptText });
   }

@@ -85,6 +85,7 @@ import {
 import { buildMissingScopeForbiddenBody, sendGatewayAuthFailure } from "./http-common.js";
 import {
   getBearerToken,
+  resolveAgentIdFromHeader,
   resolveHttpBrowserOriginPolicy,
   resolveTrustedHttpOperatorScopes,
   setControlUiPluginAuthCookieForRequest as setPluginAuthCookie,
@@ -668,8 +669,19 @@ export async function handleControlUiAssistantMediaRequest(
   ) {
     return true;
   }
+  let agentId = opts?.agentId;
+  if (opts?.config && !hasValidMediaTicket) {
+    try {
+      // Only an operator-authenticated relay may select another agent; legacy
+      // source-only media tickets must never widen their workspace roots.
+      agentId = resolveAgentIdFromHeader(req, opts.config) ?? agentId;
+    } catch {
+      respondControlUiNotFound(res);
+      return true;
+    }
+  }
   const localRoots = opts?.config
-    ? getAgentScopedMediaLocalRoots(opts.config, opts.agentId)
+    ? getAgentScopedMediaLocalRoots(opts.config, agentId)
     : getDefaultLocalRoots();
 
   if (isMetaRequest) {
