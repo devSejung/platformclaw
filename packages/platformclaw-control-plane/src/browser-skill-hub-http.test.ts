@@ -136,6 +136,47 @@ describe("Skill Hub browser HTTP", () => {
     expect(JSON.stringify(harness.json())).not.toMatch(/token|authorization|url/iu);
   });
 
+  it("lists only the explicitly selected authenticated workspace without changing target", async () => {
+    const workspaceSkills = vi.fn(async () => ({
+      source: "assigned_vm",
+      items: [{ skillKey: "demo-skill", version: "1.2.3" }],
+    }));
+    const service = {
+      authenticate: vi.fn(async () => actor),
+      workspaceSkills,
+    } as unknown as SkillHubService;
+    const harness = responseHarness();
+    await handlePlatformClawSkillHubRequest(
+      {
+        url: `${PLATFORMCLAW_SKILL_HUB_PATH}/workspace-skills?source=assigned_vm`,
+        method: "GET",
+        headers: { cookie: "platformclaw_session=session-token" },
+      } as IncomingMessage,
+      harness.response,
+      { service, readJsonBody: vi.fn(), isMutationOriginAllowed: () => true },
+    );
+    expect(workspaceSkills).toHaveBeenCalledWith(actor, "assigned_vm");
+    expect(harness.json()).toEqual({
+      source: "assigned_vm",
+      items: [{ skillKey: "demo-skill", version: "1.2.3" }],
+    });
+  });
+
+  it("rejects an unknown workspace publication source", async () => {
+    const service = { authenticate: vi.fn(async () => actor) } as unknown as SkillHubService;
+    const harness = responseHarness();
+    await handlePlatformClawSkillHubRequest(
+      {
+        url: `${PLATFORMCLAW_SKILL_HUB_PATH}/workspace-skills?source=shared`,
+        method: "GET",
+        headers: { cookie: "platformclaw_session=session-token" },
+      } as IncomingMessage,
+      harness.response,
+      { service, readJsonBody: vi.fn(), isMutationOriginAllowed: () => true },
+    );
+    expect(harness.response.statusCode).toBe(400);
+  });
+
   it("rejects publish mutations from another origin before reading the body", async () => {
     const service = { authenticate: vi.fn(async () => actor) } as unknown as SkillHubService;
     const readJsonBody = vi.fn();

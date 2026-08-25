@@ -1,4 +1,8 @@
-type PlatformClawTargetMutationKind = "target-change" | "skill-install" | "terminal-open";
+type PlatformClawTargetMutationKind =
+  | "target-change"
+  | "skill-install"
+  | "skill-export"
+  | "terminal-open";
 
 type HeldMutation = { kind: PlatformClawTargetMutationKind; token: symbol };
 

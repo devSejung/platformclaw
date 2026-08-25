@@ -1,9 +1,13 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { PlatformClawExecutionTargetSnapshot } from "./backend.js";
 import { classifyVmConnectionFailure } from "./connection-errors.js";
+import {
+  registerPlatformClawSkillExportGateway,
+  type PlatformClawSkillExportRuntime,
+} from "./skill-export-gateway.js";
 import type { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordinator.js";
 
-type PlatformClawExecutionGatewayRuntime = {
+type PlatformClawExecutionGatewayRuntime = PlatformClawSkillExportRuntime & {
   testConnection(params: {
     agentId: string;
     credentialBrokerAddress: string;
@@ -36,7 +40,12 @@ export function registerPlatformClawExecutionGateway(
   api: Pick<OpenClawPluginApi, "logger" | "on" | "registerGatewayMethod">,
   runtimePromise: Promise<PlatformClawExecutionGatewayRuntime>,
   targetMutations: PlatformClawTargetMutationCoordinator,
-): void {
+): () => Promise<void> {
+  const disposeSkillExports = registerPlatformClawSkillExportGateway(
+    api,
+    runtimePromise,
+    targetMutations,
+  );
   api.on("before_agent_run", (_event, context) => {
     const agentId = context.agentId?.trim();
     return agentId && targetMutations.isHeld(agentId, "target-change")
@@ -185,4 +194,6 @@ export function registerPlatformClawExecutionGateway(
     },
     { scope: "operator.admin" },
   );
+
+  return disposeSkillExports;
 }

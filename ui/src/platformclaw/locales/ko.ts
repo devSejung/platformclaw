@@ -1,4 +1,17 @@
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.skillHub.publish.action": "작업 공간 스킬 게시",
+  "platformClaw.skillHub.publish.title": "작업 공간의 스킬 게시",
+  "platformClaw.skillHub.publish.description":
+    "기본 작업 공간이나 내 VM에서 스킬을 선택합니다. 현재 작업 위치는 변경되지 않습니다.",
+  "platformClaw.skillHub.publish.source": "스킬 위치",
+  "platformClaw.skillHub.publish.sourceBasic": "기본 작업 공간",
+  "platformClaw.skillHub.publish.sourceVm": "내 VM 작업 공간",
+  "platformClaw.skillHub.publish.skill": "작업 공간 스킬",
+  "platformClaw.skillHub.publish.chooseSkill": "게시할 스킬 선택",
+  "platformClaw.skillHub.publish.loading": "작업 공간의 스킬을 불러오는 중…",
+  "platformClaw.skillHub.publish.empty": "이 작업 공간에는 게시할 수 있는 스킬이 없습니다.",
+  "platformClaw.skillHub.publish.submit": "검사 후 스킬 게시",
+  "platformClaw.skillHub.publish.published": "{source}의 {skill} 스킬을 게시했습니다.",
   "platformClaw.organization.title": "조직",
   "platformClaw.organization.navLabel": "조직",
   "platformClaw.organization.subtitle": "내 조직 소속을 확인하고 위임받은 범위를 관리합니다.",

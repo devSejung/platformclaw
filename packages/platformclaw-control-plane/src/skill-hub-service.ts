@@ -85,6 +85,36 @@ export class SkillHubService extends SkillHubPublicationService {
         ].join("\n"),
       };
     }
+    if (action === "publish") {
+      if (tail.length !== 1) {
+        throw new SkillHubServiceError("usage: /skillhub publish <slug>", 400);
+      }
+      const slug = safeName(tail[0]!, "skill slug", SKILL_KEY_PATTERN);
+      const execution = await this.resolveExecutionTarget(actor.agentId);
+      const workspace = await this.workspaceSkills(actor, execution.activeTarget);
+      const skill = workspace.items.find((item) => item.skillKey === slug);
+      if (!skill) {
+        throw new SkillHubServiceError(`skill is not installed on the active target: ${slug}`, 404);
+      }
+      const config = await this.config(actor);
+      const namespace = config.namespaces[0];
+      if (!namespace) {
+        throw new SkillHubServiceError("no authorized publishing namespace is available", 403);
+      }
+      const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
+      const visibility = binding?.visibilityCeiling === "PRIVATE" ? "PRIVATE" : "NAMESPACE_ONLY";
+      const version = skill.version ?? "0.1.0";
+      const result = await this.publish(actor, {
+        skill: slug,
+        source: execution.activeTarget,
+        namespace,
+        version,
+        visibility,
+      });
+      return {
+        text: `## Published\n\n- Skill: \`${result.namespace}/${result.slug}\`\n- Version: \`${result.version}\`\n- Source: \`${execution.activeTarget}\`\n- Visibility: \`${visibility}\``,
+      };
+    }
     if (action === "install" || action === "update") {
       if (tail.length !== 1) {
         throw new SkillHubServiceError(`usage: /skillhub ${action} <slug|namespace/slug>`, 400);
@@ -585,6 +615,7 @@ function skillHubHelpEn(): string {
     "- `/skillhub help [ko|en]`",
     "- `/skillhub list [page]`",
     "- `/skillhub installed`",
+    "- `/skillhub publish <slug>`",
     "- `/skillhub install <slug|namespace/slug>`",
     "- `/skillhub update <slug|namespace/slug>`",
     "- `/skillhub delete <slug|namespace/slug> --confirm`",
@@ -598,6 +629,7 @@ function skillHubHelpKo(): string {
     "- `/skillhub help [ko|en]`: 도움말",
     "- `/skillhub list [페이지]`: 다운로드 가능한 스킬",
     "- `/skillhub installed`: 현재 설치된 스킬",
+    "- `/skillhub publish <slug>`: 현재 작업공간의 스킬 게시",
     "- `/skillhub install <slug|namespace/slug>`: 설치",
     "- `/skillhub update <slug|namespace/slug>`: 업데이트",
     "- `/skillhub delete <slug|namespace/slug> --confirm`: 현재 실행 대상에서 제거",

@@ -23,6 +23,7 @@ import {
   type AuthenticatedWorkspace,
   type SkillInstallTarget,
 } from "./skill-hub-service-support.js";
+import { downloadVmWorkspaceArchive } from "./skill-hub-workspace-export.js";
 import { validateZipArchiveFile, ZipArchiveValidationError } from "./zip-archive-validator.js";
 
 export abstract class SkillHubPublicationService extends SkillHubServiceBase {
@@ -188,21 +189,44 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     return { namespace: match.namespace, slug: match.slug, version: match.latestVersion };
   }
 
-  async commandInstalled(actor: AuthenticatedWorkspace) {
-    const execution = await this.resolveExecutionTarget(actor.agentId);
+  async workspaceSkills(actor: AuthenticatedWorkspace, source: SkillInstallTarget) {
+    await this.authorizeInstallTarget(actor.agentId, source);
     const status = await this.gatewayCall<{
-      skills?: Array<{ skillKey?: string; source?: string; version?: string; revision?: string }>;
+      skills?: Array<{
+        skillKey?: string;
+        name?: string;
+        description?: string;
+        source?: string;
+        version?: string;
+        revision?: string;
+      }>;
     }>("skills.status", {
       agentId: actor.agentId,
       refresh: true,
-      backendTarget: execution.activeTarget,
+      backendTarget: source,
     });
-    const source =
-      execution.activeTarget === "assigned_vm" ? "platformclaw-vm-workspace" : "openclaw-workspace";
+    const ownerSource =
+      source === "assigned_vm" ? "platformclaw-vm-workspace" : "openclaw-workspace";
     return {
-      target: execution.activeTarget,
-      items: (status.skills ?? []).filter((item) => item.source === source),
+      source,
+      items: (status.skills ?? [])
+        .filter((item) => item.source === ownerSource && typeof item.skillKey === "string")
+        .map((item) =>
+          Object.assign(
+            { skillKey: item.skillKey! },
+            typeof item.name === "string" ? { name: item.name } : {},
+            typeof item.description === "string" ? { description: item.description } : {},
+            typeof item.version === "string" ? { version: item.version } : {},
+            typeof item.revision === "string" ? { revision: item.revision } : {},
+          ),
+        ),
     };
+  }
+
+  async commandInstalled(actor: AuthenticatedWorkspace) {
+    const execution = await this.resolveExecutionTarget(actor.agentId);
+    const workspace = await this.workspaceSkills(actor, execution.activeTarget);
+    return { target: workspace.source, items: workspace.items };
   }
 
   async uninstall(actor: AuthenticatedWorkspace, slugRaw: string) {
@@ -292,21 +316,41 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
 
   async publish(
     actor: AuthenticatedWorkspace,
-    params: { skill: string; namespace: string; version: string; visibility: string },
+    params: {
+      skill: string;
+      source?: SkillInstallTarget;
+      namespace: string;
+      version: string;
+      visibility: string;
+    },
   ) {
-    const execution = await this.resolveExecutionTarget(actor.agentId);
-    if (execution.activeTarget !== "platform_server") {
-      throw new SkillHubServiceError(
-        "Switch to the Basic workspace before publishing a workspace skill.",
-        409,
-      );
-    }
     const skill = safeName(params.skill, "skill", SKILL_KEY_PATTERN);
     const namespace = await this.authorizePublishNamespace(actor.user, params.namespace);
     const version = validVersion(params.version);
     const visibility = validVisibility(params.visibility);
     await this.authorizeVisibilityCeiling(namespace, visibility);
     await this.authorizeExistingSkillMutation(actor.user, namespace, skill);
+    const source = params.source ?? (await this.resolveExecutionTarget(actor.agentId)).activeTarget;
+    const execution = await this.authorizeInstallTarget(actor.agentId, source);
+    if (source === "assigned_vm") {
+      const archive = await downloadVmWorkspaceArchive(this.gatewayCall.bind(this), {
+        agentId: actor.agentId,
+        slug: skill,
+        version,
+        expectedTargetRevision: execution.targetRevision,
+        expectedAllocationId: execution.allocationId!,
+      });
+      try {
+        return await this.publishArchive(
+          actor,
+          { slug: skill, namespace, version, visibility },
+          archive,
+          { source },
+        );
+      } finally {
+        await archive.cleanup();
+      }
+    }
     const archive = await this.packageWorkspaceSkill(actor.workspaceDir, skill, version);
     await this.authorizePublishNamespace(actor.user, namespace);
     const finalCapabilities = await this.resolveNamespaceCapabilities(actor.user, namespace);
@@ -347,6 +391,7 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     await this.audit(actor.user.id, "skill-hub.publish", `${namespace}/${skill}@${version}`, {
       visibility,
       archiveBytes: archive.byteLength,
+      source,
     });
     return recorded.reconciliationRequired
       ? { ...result, ownershipReviewRequired: true as const }
@@ -357,6 +402,7 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     actor: AuthenticatedWorkspace,
     params: { slug: string; namespace: string; version: string; visibility: string },
     archive: { path: string; size: number },
+    options: { source?: SkillInstallTarget } = {},
   ) {
     const slug = safeName(params.slug, "skill slug", SKILL_KEY_PATTERN);
     const namespace = await this.authorizePublishNamespace(actor.user, params.namespace);
@@ -415,10 +461,16 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     });
     await this.reconcileOwners();
     await this.enqueueGovernance(recorded.ownerUserId, namespace, slug, version, visibility);
-    await this.audit(actor.user.id, "skill-hub.publish-upload", `${namespace}/${slug}@${version}`, {
-      visibility,
-      archiveBytes: archive.size,
-    });
+    await this.audit(
+      actor.user.id,
+      options.source ? "skill-hub.publish" : "skill-hub.publish-upload",
+      `${namespace}/${slug}@${version}`,
+      {
+        visibility,
+        archiveBytes: archive.size,
+        ...(options.source ? { source: options.source } : {}),
+      },
+    );
     return recorded.reconciliationRequired
       ? { ...result, ownershipReviewRequired: true as const }
       : result;

@@ -23,8 +23,8 @@ This architecture is implemented by the PlatformClaw deployment profile.
 | Browser          | Same-origin PlatformClaw Skill Hub BFF and Lit UI only                           |
 | Control plane    | Employee actor, scope ACL, ownership, packaging, scan governance, audit, inbox   |
 | Registry runtime | Pinned SkillHub server and scanner on the PlatformClaw server's internal network |
-| Gateway          | Canonical uploaded-archive validation and atomic Basic install/update            |
-| Execution plugin | Assigned-VM transfer and atomic install/update/remove with rollback              |
+| Gateway          | Canonical archive validation, Basic install/update, bounded VM-export sessions   |
+| Execution plugin | Assigned-VM export, transfer, atomic install/update/remove, and target locking   |
 | SkillHub plugin  | Authorized Knox `/skillhub` command registration and bounded control-plane call  |
 | Release          | One PlatformClaw image archive and checksum flow for all runtime images          |
 
@@ -36,6 +36,7 @@ employee browser
       -> private OpenClaw Gateway upload/install path
           -> Basic workspace
           -> platformclaw-execution -> assigned VM workspace
+      <- bounded Gateway export capability <- platformclaw-execution <- assigned VM
 ```
 
 Only `platformclaw-control` is browser-facing. The registry listener, database,
@@ -56,7 +57,22 @@ scanner, Gateway credential, and VM SSH boundary remain private.
 The registry owns immutable skill versions, package blobs, registry indexing,
 version metadata, and scanner results. The OpenClaw Gateway remains the canonical
 owner of local archive extraction and Basic workspace installation. The
-`platformclaw-execution` plugin remains the owner of remote VM mutation.
+`platformclaw-execution` plugin remains the owner of remote VM access and mutation.
+
+Assigned-VM publication builds a seekable ZIP in an owner-only VM temporary
+file using the existing required Python runtime. The execution plugin streams
+that file over its authenticated SSH lease into an owner-only Gateway temporary
+file while pinning the allocation identity and target revision and holding the
+per-Agent target
+mutation guard. Preparation is asynchronous because the private Admin RPC has a
+15-second request deadline. Four plugin-owned `skillExport.begin`, `.status`,
+`.read`, and `.close` methods expose only an Agent-bound random capability;
+each raw chunk is at most 384 KiB and remains below the 1 MiB RPC envelope.
+Control reconstructs the ZIP in its own owner-only temporary file, applies the
+canonical 500 MiB / 1 GiB / 250 MiB / 100-entry validator, and streams the
+result through the existing registry adapter. Completion, cancellation,
+expiration, and Gateway shutdown clean up temporary archives. Credentials,
+workspace paths, and archive bytes never cross the browser boundary.
 
 The adapter must stay replaceable. Browser routes and UI models must not depend on
 raw SkillHub response objects, internal URLs, tokens, storage paths, or database

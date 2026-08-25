@@ -98,16 +98,22 @@ process after changing Skill Hub environment values or its token file.
 
 ## Publish a workspace skill
 
-1. Open **Skills** for a personal Agent whose execution target is the platform
-   workspace.
-2. Find a skill loaded from `<workspace>/skills/<skill>/`.
-3. Select **Publish to Hub**.
-4. Choose an allowed namespace, enter a SemVer version, and choose **Public**,
-   **Namespace only**, or **Private**.
-5. Select **Publish**.
+Use either entry point:
 
-The server resolves the authenticated user's active personal-Agent binding and
-packages that Agent's real workspace directory. It requires a root `SKILL.md`
+1. Open **Skills**, select the Basic or My development VM work location, find a
+   skill loaded from that personal workspace's `skills/<skill>/`, and select
+   **Publish to Hub**; or open **Skill Hub**, select **Publish workspace skill**,
+   explicitly choose **Basic workspace** or **My development VM**, and select a
+   discovered workspace skill.
+2. Choose an allowed namespace, enter a SemVer version, and choose **Public**,
+   **Namespace only**, or **Private**.
+3. Select **Publish**.
+
+The server resolves the authenticated user's personal-Agent binding and
+packages the explicitly selected real Basic or assigned-VM workspace without
+switching the active work location. VM publication uses its existing server-side
+SSH session; no file attachment, browser download, or manual VM copy is needed.
+It requires a root `SKILL.md`
 with valid YAML frontmatter, a `name` equal to the skill directory, and a
 non-empty `description`. The chosen version is written only into the temporary
 package; the workspace `SKILL.md` is unchanged.
@@ -154,6 +160,7 @@ help text.
 | `/skillhub help ko`                                 | Korean command help                                              |
 | `/skillhub list [page]`                             | Skills the employee may download                                 |
 | `/skillhub installed`                               | Skill Hub skills installed on the active target                  |
+| `/skillhub publish <slug>`                          | Publish a skill from the active Basic or assigned-VM workspace   |
 | `/skillhub install <slug\|namespace/slug>`          | Install the latest accessible version                            |
 | `/skillhub update <slug\|namespace/slug>`           | Replace the installed version with the latest accessible version |
 | `/skillhub delete <slug\|namespace/slug> --confirm` | Remove the revision-pinned skill from the active target          |
@@ -162,7 +169,9 @@ A bare slug works when it identifies exactly one accessible namespace. If the
 same slug is visible in multiple namespaces, the response lists candidates and
 requires `namespace/slug`. Install, update, and delete resolve the authoritative
 Basic or assigned-VM target at execution time; they never fall back to the other
-workspace. Delete requires `--confirm` and refuses to remove a skill whose
+workspace. Publication chooses the first authorized namespace, the installed
+skill version (or `0.1.0`), and Namespace-only visibility unless the namespace
+is limited to Private. Delete requires `--confirm` and refuses to remove a skill whose
 revision changed after status was read.
 
 ## Validation and security limits

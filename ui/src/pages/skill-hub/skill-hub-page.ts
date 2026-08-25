@@ -44,6 +44,7 @@ import {
 } from "./labels.ts";
 import { renderSkillHubManagement } from "./management.ts";
 import * as pageSupport from "./page-support.ts";
+import { SkillHubWorkspacePublishController } from "./workspace-publish-controller.ts";
 
 class SkillHubPage extends SkillHubAdminController {
   @consume({ context: applicationContext, subscribe: true })
@@ -79,6 +80,10 @@ class SkillHubPage extends SkillHubAdminController {
   @state() private forceReason = "";
   @state() private forceAcknowledged = false;
   @state() private pendingVersionChange: pageSupport.PendingVersionChange | null = null;
+  private readonly workspacePublish = new SkillHubWorkspacePublishController(this, {
+    refresh: () => this.search(),
+    setMessage: (message) => (this.message = message),
+  });
 
   override connectedCallback() {
     super.connectedCallback();
@@ -556,6 +561,7 @@ class SkillHubPage extends SkillHubAdminController {
           <div class="page-subtitle">${t("subtitles.skillHub")}</div>
         </div>
         <div class="skill-hub-header-actions">
+          ${this.workspacePublish.renderAction(this.config)}
           ${this.config?.admin
             ? html`<button class="btn" @click=${() => this.openAdmin()}>
                 ${t("skillHubPage.admin")}
@@ -654,6 +660,7 @@ class SkillHubPage extends SkillHubAdminController {
           onClose: () => (this.notificationsOpen = false),
           onMarkAllRead: () => void this.markAllNotificationsRead(),
         })}
+        ${this.workspacePublish.renderDialog(this.config)}
         ${renderSkillHubUpload({
           open: this.uploadOpen,
           config: this.config,

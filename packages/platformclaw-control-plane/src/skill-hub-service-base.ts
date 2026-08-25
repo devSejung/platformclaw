@@ -65,7 +65,7 @@ export abstract class SkillHubServiceBase {
   protected async authorizeInstallTarget(
     agentId: string,
     destination: SkillInstallTarget,
-  ): Promise<{ targetRevision: number }> {
+  ): Promise<{ targetRevision: number; allocationId?: string }> {
     const profile = await this.options.store.getPersonalExecutionProfile(agentId);
     if (!profile) {
       if (destination === "platform_server") {
@@ -78,6 +78,7 @@ export abstract class SkillHubServiceBase {
       if (allocation?.status !== "ready" || !allocation.remoteWorkspaceDir) {
         throw new SkillHubServiceError("My VM workspace is not ready.", 409);
       }
+      return { targetRevision: profile.targetRevision, allocationId: allocation.id };
     }
     return { targetRevision: profile.targetRevision };
   }

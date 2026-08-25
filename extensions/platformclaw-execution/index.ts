@@ -55,9 +55,14 @@ export default definePluginEntry({
     if (!executionRuntimePromise) {
       return;
     }
+    const disposeSkillExports = registerPlatformClawExecutionGateway(
+      api,
+      executionRuntimePromise,
+      targetMutations,
+    );
     api.on("gateway_stop", async () => {
+      await disposeSkillExports();
       await (await executionRuntimePromise).dispose();
     });
-    registerPlatformClawExecutionGateway(api, executionRuntimePromise, targetMutations);
   },
 });

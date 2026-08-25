@@ -132,12 +132,19 @@ a fresh embedded deployment and 5 GiB for later restarts.
 
 Basic and assigned-VM workspaces are separate destinations. A publish or install
 operation never copies, mirrors, or falls back between them. The server resolves
-the active target and serializes target changes with the final mutation. A stale
-browser target fails visibly.
+the explicitly selected source or destination without changing the active work
+location. VM export and workspace mutation are serialized with target changes;
+an unavailable allocation or stale target revision fails visibly.
 
-Publishing remains limited to a real skill in the Basic workspace until a
-separately reviewed VM publish path exists. Installing an exact Hub version is
-supported for both active destinations.
+Publishing is available for real personal skills in either the Basic workspace
+or the employee's assigned VM. The Skills tab publishes from its displayed work
+location; the Skill Hub tab selects Basic or My development VM explicitly.
+Knox `/skillhub publish <slug>` uses the current work location, the first
+authorized namespace, the installed version (or `0.1.0` when absent), and
+Namespace-only visibility unless that namespace requires Private. VM archives
+travel only over server-owned SSH and bounded private Gateway RPC chunks; no
+browser attachment, shared cross-container mount, target switch, or Basic
+workspace fallback is involved.
 
 ## Notifications and audit
 

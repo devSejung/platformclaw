@@ -174,6 +174,14 @@ export async function handlePlatformClawSkillHubRequest(
         sendBrowserJson(res, 200, await options.service.config(actor));
         return true;
       }
+      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/workspace-skills`) {
+        const source = url.searchParams.get("source");
+        if (source !== "platform_server" && source !== "assigned_vm") {
+          throw new SkillHubServiceError("invalid workspace skill source", 400);
+        }
+        sendBrowserJson(res, 200, await options.service.workspaceSkills(actor, source));
+        return true;
+      }
       if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/notifications`) {
         const rawLimit = url.searchParams.get("limit");
         sendBrowserJson(
@@ -296,6 +304,7 @@ export async function handlePlatformClawSkillHubRequest(
           200,
           await options.service.publish(actor, {
             skill: stringField(body, "skill"),
+            ...(body.source === undefined ? {} : { source: executionTargetField(body, "source") }),
             namespace: stringField(body, "namespace"),
             version: stringField(body, "version"),
             visibility: stringField(body, "visibility"),

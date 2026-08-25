@@ -1,4 +1,17 @@
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.skillHub.publish.action": "Publish workspace skill",
+  "platformClaw.skillHub.publish.title": "Publish a workspace skill",
+  "platformClaw.skillHub.publish.description":
+    "Choose a skill from your Basic workspace or assigned VM. Your current work location will not change.",
+  "platformClaw.skillHub.publish.source": "Workspace source",
+  "platformClaw.skillHub.publish.sourceBasic": "Basic workspace",
+  "platformClaw.skillHub.publish.sourceVm": "My VM workspace",
+  "platformClaw.skillHub.publish.skill": "Workspace skill",
+  "platformClaw.skillHub.publish.chooseSkill": "Choose a workspace skill",
+  "platformClaw.skillHub.publish.loading": "Loading workspace skills…",
+  "platformClaw.skillHub.publish.empty": "No publishable skills were found in this workspace.",
+  "platformClaw.skillHub.publish.submit": "Scan and publish skill",
+  "platformClaw.skillHub.publish.published": "Published {skill} from {source}.",
   "platformClaw.organization.title": "Organization",
   "platformClaw.organization.navLabel": "Organization",
   "platformClaw.organization.subtitle":

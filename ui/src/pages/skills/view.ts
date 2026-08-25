@@ -321,9 +321,7 @@ export function renderSkills(props: SkillsProps) {
     )}
     ${detailSkill ? renderSkillDetail(detailSkill, props) : nothing}
     ${props.clawhubDetailSlug && !personalVm ? renderClawHubDetailDialog(props) : nothing}
-    ${props.skillHubPublishSkill && !personalVm
-      ? renderPlatformClawSkillHubPublish(props)
-      : nothing}
+    ${props.skillHubPublishSkill ? renderPlatformClawSkillHubPublish(props) : nothing}
     ${props.skillHubMessage
       ? html`<div
           class="callout ${props.skillHubMessage.kind === "error"
@@ -717,10 +715,12 @@ function renderSkill(skill: SkillStatusEntry, props: SkillsProps) {
           : skill.clawhub?.status === "invalid"
             ? renderSettingsStatus({ kind: "warn", label: t("skillsPage.invalidLink") })
             : nothing}
-        ${props.personalAccess && skill.source === "openclaw-workspace" && props.skillHubConfig
+        ${props.personalAccess &&
+        (skill.source === "openclaw-workspace" || skill.source === "platformclaw-vm-workspace") &&
+        props.skillHubConfig
           ? html`<button
               class="btn btn--sm"
-              ?disabled=${locked || props.skillHubOperation !== null}
+              ?disabled=${skillControlsLocked(props) || props.skillHubOperation !== null}
               @click=${() => props.onSkillHubPublishOpen(skill.skillKey)}
             >
               ${t("skillsPage.skillHub.publishToHub")}

@@ -4,6 +4,7 @@ export type PlatformClawSkillHubConfig = {
   namespaces: string[];
   maxPackageBytes: number;
   maxUploadBytes?: number;
+  activeTarget?: PlatformClawSkillHubWorkspaceTarget;
   capabilities?: {
     scanner: boolean;
     forcePublish: boolean;
@@ -13,7 +14,7 @@ export type PlatformClawSkillHubConfig = {
     zipUpload: boolean;
   };
   installTargets?: Array<{
-    target: "platform_server" | "assigned_vm";
+    target: PlatformClawSkillHubWorkspaceTarget;
     available: boolean;
     status: string;
     disabledReason?: string;
@@ -21,6 +22,16 @@ export type PlatformClawSkillHubConfig = {
   admin?: boolean;
   notifications?: { unreadCount: number };
   unassignedOwnerCount?: number;
+};
+
+export type PlatformClawSkillHubWorkspaceTarget = "platform_server" | "assigned_vm";
+
+export type PlatformClawSkillHubWorkspaceSkill = {
+  skillKey: string;
+  name?: string;
+  description?: string;
+  version?: string;
+  revision?: string;
 };
 
 export type PlatformClawSkillHubSearchItem = {
@@ -166,6 +177,15 @@ export function loadPlatformClawSkillHubConfig(): Promise<PlatformClawSkillHubCo
   return request("/config");
 }
 
+export function loadPlatformClawWorkspaceSkills(
+  source: PlatformClawSkillHubWorkspaceTarget,
+): Promise<{
+  source: PlatformClawSkillHubWorkspaceTarget;
+  items: PlatformClawSkillHubWorkspaceSkill[];
+}> {
+  return request(`/workspace-skills?source=${encodeURIComponent(source)}`);
+}
+
 export function searchPlatformClawSkillHub(
   query: string,
 ): Promise<{ items: PlatformClawSkillHubSearchItem[]; total: number }> {
@@ -181,6 +201,7 @@ export function loadPlatformClawSkillHubDetail(
 
 export function publishPlatformClawWorkspaceSkill(params: {
   skill: string;
+  source: PlatformClawSkillHubWorkspaceTarget;
   namespace: string;
   version: string;
   visibility: string;
