@@ -20,9 +20,11 @@ import {
   isSshpassAuthenticationFailure,
   PlatformClawVmAuthenticationError,
 } from "./connection-errors.js";
+import { VmRemoteSkillExportService } from "./remote-skill-export.js";
 import { VmRemoteSkillInstallerService } from "./remote-skill-install.js";
 import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
+import type { PlatformClawSkillExportRuntime } from "./skill-export-gateway.js";
 import { SafeConnectSshLeaseManager } from "./ssh-lease-manager.js";
 
 const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
@@ -496,34 +498,35 @@ export async function createExecutionDependenciesFromEnvironment(
   env: NodeJS.ProcessEnv = process.env,
   timing: { logTiming?: (message: string) => void } = {},
 ): Promise<
-  PlatformClawExecutionDependencies & {
-    testConnection(params: {
-      agentId: string;
-      credentialBrokerAddress: string;
-      credentialGrantToken: string;
-    }): Promise<{
-      allocationId: string;
-      targetRevision: number;
-      remoteHomeDir: string;
-      remoteWorkspaceDir: string;
-    }>;
-    testCandidateConnection(params: {
-      target: unknown;
-      credentialBrokerAddress: string;
-      credentialGrantToken: string;
-    }): Promise<{
-      allocationId: string;
-      targetRevision: number;
-      remoteHomeDir: string;
-      remoteWorkspaceDir: string;
-    }>;
-    changeTarget(params: {
-      agentId: string;
-      target: "platform_server" | "assigned_vm";
-      expectedRevision: number;
-    }): Promise<PlatformClawExecutionTargetSnapshot>;
-    dispose(): Promise<void>;
-  }
+  PlatformClawExecutionDependencies &
+    PlatformClawSkillExportRuntime & {
+      testConnection(params: {
+        agentId: string;
+        credentialBrokerAddress: string;
+        credentialGrantToken: string;
+      }): Promise<{
+        allocationId: string;
+        targetRevision: number;
+        remoteHomeDir: string;
+        remoteWorkspaceDir: string;
+      }>;
+      testCandidateConnection(params: {
+        target: unknown;
+        credentialBrokerAddress: string;
+        credentialGrantToken: string;
+      }): Promise<{
+        allocationId: string;
+        targetRevision: number;
+        remoteHomeDir: string;
+        remoteWorkspaceDir: string;
+      }>;
+      changeTarget(params: {
+        agentId: string;
+        target: "platform_server" | "assigned_vm";
+        expectedRevision: number;
+      }): Promise<PlatformClawExecutionTargetSnapshot>;
+      dispose(): Promise<void>;
+    }
 > {
   const brokerAddress = requireSingleLine(
     env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS ?? "",
@@ -565,6 +568,25 @@ export async function createExecutionDependenciesFromEnvironment(
     runCommand: runSshSandboxCommand,
     uploadDirectory: uploadDirectoryToSshTarget,
   });
+  const remoteSkillExporter = new VmRemoteSkillExportService({
+    createSession: async (target) => await sshLeases.createSession(target),
+    disposeSession: disposeSshSandboxSession,
+  });
+  const resolveTarget: PlatformClawExecutionDependencies["resolveTarget"] = async ({
+    agentId,
+    target: requestedTarget,
+  }) => {
+    const target = parseTarget(
+      await callExecutionHandoff({
+        socketPath: executionHandoffAddress(brokerAddress),
+        serviceToken,
+        path: EXECUTION_TARGET_PATH,
+        body: { agentId, ...(requestedTarget ? { target: requestedTarget } : {}) },
+      }),
+    );
+    sshLeases.observeTarget(agentId, target.kind === "assigned_vm" ? target : undefined);
+    return target;
+  };
   return {
     resolveExecCredentials: async (agentId) => {
       const value = await callExecutionHandoff({
@@ -583,18 +605,7 @@ export async function createExecutionDependenciesFromEnvironment(
       }
       return value as Record<string, string>;
     },
-    resolveTarget: async ({ agentId, target: requestedTarget }) => {
-      const target = parseTarget(
-        await callExecutionHandoff({
-          socketPath: executionHandoffAddress(brokerAddress),
-          serviceToken,
-          path: EXECUTION_TARGET_PATH,
-          body: { agentId, ...(requestedTarget ? { target: requestedTarget } : {}) },
-        }),
-      );
-      sshLeases.observeTarget(agentId, target.kind === "assigned_vm" ? target : undefined);
-      return target;
-    },
+    resolveTarget,
     createPlatformServerHandle: async ({ createParams }) =>
       await requireSandboxBackendFactory("docker")(createParams),
     createAssignedVmHandle: async ({ createParams, target }) =>
@@ -682,6 +693,24 @@ export async function createExecutionDependenciesFromEnvironment(
       );
       sshLeases.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
       return changed;
+    },
+    exportWorkspaceSkill: async ({
+      agentId,
+      slug,
+      version,
+      expectedTargetRevision,
+      expectedAllocationId,
+      signal,
+    }) => {
+      const target = await resolveTarget({ agentId, target: "assigned_vm" });
+      if (
+        target.kind !== "assigned_vm" ||
+        target.revision !== expectedTargetRevision ||
+        target.allocationId !== expectedAllocationId
+      ) {
+        throw new Error("My VM work location changed; reload and retry publishing");
+      }
+      return await remoteSkillExporter.export({ target, slug, version, signal });
     },
     dispose: async () => await sshLeases.dispose(),
   };

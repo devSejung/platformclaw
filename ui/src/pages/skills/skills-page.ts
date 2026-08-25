@@ -475,6 +475,8 @@ class SkillsPage extends OpenClawLightDomElement {
     try {
       const result = await publishPlatformClawWorkspaceSkill({
         skill,
+        source:
+          this.skillsReport?.executionTarget === "assigned_vm" ? "assigned_vm" : "platform_server",
         namespace: this.skillHubPublishNamespace,
         version: this.skillHubPublishVersion,
         visibility: this.skillHubPublishVisibility,

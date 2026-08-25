@@ -694,27 +694,6 @@ describe("SkillHubService", () => {
     );
   });
 
-  it("rejects publishing while the authoritative target is an assigned VM", async () => {
-    const { service, actor, adapterMocks, getPersonalExecutionProfile } = await fixture();
-    getPersonalExecutionProfile.mockResolvedValue({
-      agentBindingId: "binding-1",
-      activeTarget: "assigned_vm",
-      activeAllocationId: "allocation-1",
-      targetRevision: 8,
-      updatedAt: 1,
-    });
-
-    await expect(
-      service.publish(actor, {
-        skill: "demo-skill",
-        namespace: "engineering",
-        version: "1.0.0",
-        visibility: "PUBLIC",
-      }),
-    ).rejects.toMatchObject({ statusCode: 409 });
-    expect(adapterMocks.publish).not.toHaveBeenCalled();
-  });
-
   it("rejects an archive whose SKILL.md declares a different requested version", async () => {
     const { service, actor, adapterMocks, adminRpcCall } = await fixture();
     adapterMocks.download.mockResolvedValue(await skillArchive({ version: "9.9.9" }));

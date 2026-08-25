@@ -94,6 +94,119 @@ describe("SkillHubPage", () => {
     );
   });
 
+  it("publishes an assigned-VM skill from the Skill Hub without switching the active workspace", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith("/config")) {
+        return jsonResponse({
+          namespaces: ["engineering"],
+          maxPackageBytes: 524_288_000,
+          activeTarget: "platform_server",
+          installTargets: [
+            { target: "platform_server", available: true, status: "ready" },
+            { target: "assigned_vm", available: true, status: "ready" },
+          ],
+        });
+      }
+      if (url.includes("/workspace-skills?source=platform_server")) {
+        return jsonResponse({
+          source: "platform_server",
+          items: [{ skillKey: "basic-skill", version: "1.0.0" }],
+        });
+      }
+      if (url.includes("/workspace-skills?source=assigned_vm")) {
+        return jsonResponse({
+          source: "assigned_vm",
+          items: [{ skillKey: "vm-release", name: "VM Release", version: "2.3.0" }],
+        });
+      }
+      if (url.endsWith("/publish") && init?.method === "POST") {
+        return jsonResponse({ namespace: "engineering", slug: "vm-release", version: "2.3.0" });
+      }
+      return jsonResponse({ total: 0, items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+    await waitForFast(() => expect(page.textContent).toContain("Publish workspace skill"));
+
+    [...page.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Publish workspace skill"))
+      ?.click();
+    await waitForFast(() => expect(page.textContent).toContain("basic-skill"));
+    const source = page.querySelector<HTMLSelectElement>(".skill-hub-workspace-publish select")!;
+    source.value = "assigned_vm";
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitForFast(() => expect(page.textContent).toContain("VM Release (vm-release)"));
+    expect(
+      page.querySelectorAll<HTMLSelectElement>(".skill-hub-workspace-publish select")[1]?.value,
+    ).toBe("vm-release");
+
+    [...page.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Scan and publish skill"))
+      ?.click();
+    await waitForFast(() =>
+      expect(page.textContent).toContain(
+        "Published engineering/vm-release@2.3.0 from My VM workspace",
+      ),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/publish"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          skill: "vm-release",
+          source: "assigned_vm",
+          namespace: "engineering",
+          version: "2.3.0",
+          visibility: "NAMESPACE_ONLY",
+        }),
+      }),
+    );
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/execution"))).toBe(
+      false,
+    );
+  });
+
+  it("defaults workspace publishing to the active assigned VM", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith("/config")) {
+        return jsonResponse({
+          namespaces: ["engineering"],
+          maxPackageBytes: 1024,
+          activeTarget: "assigned_vm",
+          installTargets: [
+            { target: "platform_server", available: true, status: "ready" },
+            { target: "assigned_vm", available: true, status: "ready" },
+          ],
+        });
+      }
+      if (url.includes("/workspace-skills")) {
+        return jsonResponse({ source: "assigned_vm", items: [{ skillKey: "vm-only" }] });
+      }
+      return jsonResponse({ total: 0, items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+    await waitForFast(() => expect(page.textContent).toContain("Publish workspace skill"));
+
+    [...page.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Publish workspace skill"))
+      ?.click();
+    await waitForFast(() => expect(page.textContent).toContain("vm-only"));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/workspace-skills?source=assigned_vm"),
+      expect.any(Object),
+    );
+    expect(
+      page.querySelector<HTMLSelectElement>(".skill-hub-workspace-publish select")?.value,
+    ).toBe("assigned_vm");
+  });
+
   it("opens the persistent notification inbox and marks all items read", async () => {
     const fetchMock = vi
       .fn()

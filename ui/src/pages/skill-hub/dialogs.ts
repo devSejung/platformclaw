@@ -1,9 +1,12 @@
 import { html, nothing } from "lit";
 import "../../components/modal-dialog.ts";
 import { t } from "../../i18n/index.ts";
+import { platformClawT } from "../../platformclaw/i18n.ts";
 import type {
   PlatformClawSkillHubConfig,
   PlatformClawSkillHubNotification,
+  PlatformClawSkillHubWorkspaceSkill,
+  PlatformClawSkillHubWorkspaceTarget,
 } from "../../platformclaw/skill-hub.ts";
 
 export function renderSkillHubNotifications(props: {
@@ -48,6 +51,152 @@ export function renderSkillHubNotifications(props: {
                 </article>`,
               )}
             </div>`}
+    </section>
+  </openclaw-modal-dialog>`;
+}
+
+export function renderSkillHubWorkspacePublish(props: {
+  open: boolean;
+  config: PlatformClawSkillHubConfig | null;
+  source: PlatformClawSkillHubWorkspaceTarget;
+  skills: PlatformClawSkillHubWorkspaceSkill[];
+  skill: string;
+  namespace: string;
+  version: string;
+  visibility: string;
+  loading: boolean;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSource: (source: PlatformClawSkillHubWorkspaceTarget) => void;
+  onSkill: (skill: string) => void;
+  onNamespace: (namespace: string) => void;
+  onVersion: (version: string) => void;
+  onVisibility: (visibility: string) => void;
+  onPublish: () => void;
+}) {
+  if (!props.open) {
+    return nothing;
+  }
+  const vmAvailable =
+    props.config?.installTargets?.find((target) => target.target === "assigned_vm")?.available ===
+    true;
+  return html`<openclaw-modal-dialog
+    label=${platformClawT("platformClaw.skillHub.publish.title")}
+    @modal-cancel=${props.onClose}
+  >
+    <section class="skill-hub-dialog skill-hub-workspace-publish">
+      <header class="skill-hub-dialog__header">
+        <div>
+          <h2>${platformClawT("platformClaw.skillHub.publish.title")}</h2>
+          <p>${platformClawT("platformClaw.skillHub.publish.description")}</p>
+        </div>
+        <button class="btn btn--sm" ?disabled=${props.busy} @click=${props.onClose}>
+          ${t("skillsPage.close")}
+        </button>
+      </header>
+      <div class="skill-hub-upload__fields">
+        <label class="field">
+          <span>${platformClawT("platformClaw.skillHub.publish.source")}</span>
+          <select
+            .value=${props.source}
+            ?disabled=${props.busy}
+            @change=${(event: Event) =>
+              props.onSource(
+                (event.target as HTMLSelectElement).value as PlatformClawSkillHubWorkspaceTarget,
+              )}
+          >
+            <option value="platform_server">
+              ${platformClawT("platformClaw.skillHub.publish.sourceBasic")}
+            </option>
+            <option value="assigned_vm" ?disabled=${!vmAvailable}>
+              ${platformClawT("platformClaw.skillHub.publish.sourceVm")}
+            </option>
+          </select>
+        </label>
+        <label class="field">
+          <span>${platformClawT("platformClaw.skillHub.publish.skill")}</span>
+          <select
+            .value=${props.skill}
+            ?disabled=${props.loading || props.busy || props.skills.length === 0}
+            @change=${(event: Event) => props.onSkill((event.target as HTMLSelectElement).value)}
+          >
+            <option value="" ?selected=${props.skill === ""}>
+              ${platformClawT("platformClaw.skillHub.publish.chooseSkill")}
+            </option>
+            ${props.skills.map(
+              (skill) => html`<option
+                value=${skill.skillKey}
+                ?selected=${props.skill === skill.skillKey}
+              >
+                ${skill.name && skill.name !== skill.skillKey
+                  ? `${skill.name} (${skill.skillKey})`
+                  : skill.skillKey}
+              </option>`,
+            )}
+          </select>
+        </label>
+        <label class="field">
+          <span>${t("skillsPage.skillHub.namespace")}</span>
+          <select
+            .value=${props.namespace}
+            ?disabled=${props.busy}
+            @change=${(event: Event) =>
+              props.onNamespace((event.target as HTMLSelectElement).value)}
+          >
+            ${props.config?.namespaces.map(
+              (namespace) => html`<option value=${namespace}>${namespace}</option>`,
+            )}
+          </select>
+        </label>
+        <label class="field">
+          <span>${t("skillsPage.skillHub.version")}</span>
+          <input
+            .value=${props.version}
+            ?disabled=${props.busy}
+            placeholder="1.0.0"
+            @input=${(event: Event) => props.onVersion((event.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="field">
+          <span>${t("skillsPage.skillHub.visibility")}</span>
+          <select
+            .value=${props.visibility}
+            ?disabled=${props.busy}
+            @change=${(event: Event) =>
+              props.onVisibility((event.target as HTMLSelectElement).value)}
+          >
+            <option value="PUBLIC">${t("skillsPage.skillHub.public")}</option>
+            <option value="NAMESPACE_ONLY">${t("skillsPage.skillHub.namespaceOnly")}</option>
+            <option value="PRIVATE">${t("skillsPage.skillHub.private")}</option>
+          </select>
+        </label>
+      </div>
+      ${props.loading
+        ? html`<div class="skill-hub-state" role="status">
+            ${platformClawT("platformClaw.skillHub.publish.loading")}
+          </div>`
+        : props.error
+          ? html`<div class="callout danger" role="alert">${props.error}</div>`
+          : props.skills.length === 0
+            ? html`<div class="skill-hub-state">
+                ${platformClawT("platformClaw.skillHub.publish.empty")}
+              </div>`
+            : nothing}
+      <button
+        class="btn primary"
+        ?disabled=${props.loading ||
+        props.busy ||
+        props.error !== null ||
+        !props.skill ||
+        !props.namespace ||
+        !props.version}
+        @click=${props.onPublish}
+      >
+        ${props.busy
+          ? t("skillsPage.skillHub.publishing")
+          : platformClawT("platformClaw.skillHub.publish.submit")}
+      </button>
     </section>
   </openclaw-modal-dialog>`;
 }

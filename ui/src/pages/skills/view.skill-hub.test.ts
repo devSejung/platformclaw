@@ -12,6 +12,8 @@ describe("renderSkills Skill Hub publishing", () => {
     const onSkillHubPublishOpen = vi.fn();
     const props = createProps({
       personalAccess: true,
+      canUpdate: false,
+      canInstall: false,
       skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
       onSkillHubPublishOpen,
     });
@@ -27,15 +29,20 @@ describe("renderSkills Skill Hub publishing", () => {
     const publish = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
       button.textContent?.includes("Publish to Hub"),
     );
+    expect(publish?.disabled).toBe(false);
     publish?.click();
     expect(onSkillHubPublishOpen).toHaveBeenCalledWith("repo-skill");
   });
 
-  it("does not offer server-side workspace publishing for an assigned VM skill", () => {
+  it("offers assigned-VM workspace publishing without showing bundled skills", () => {
     const container = document.createElement("div");
+    const onSkillHubPublishOpen = vi.fn();
     const props = createProps({
       personalAccess: true,
+      canUpdate: false,
+      canInstall: false,
       skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+      onSkillHubPublishOpen,
     });
     props.report = {
       ...expectDefined(props.report, "skills report"),
@@ -46,7 +53,33 @@ describe("renderSkills Skill Hub publishing", () => {
     render(renderSkills(props), container);
 
     expect(normalizeText(container)).not.toContain("Search Skill Hub");
-    expect(normalizeText(container)).not.toContain("Publish to Hub");
+    expect(normalizeText(container)).toContain("Publish to Hub");
+    const publish = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Publish to Hub"),
+    );
+    expect(publish?.disabled).toBe(false);
+    publish?.click();
+    expect(onSkillHubPublishOpen).toHaveBeenCalledWith("vm-skill");
+  });
+
+  it("keeps the assigned-VM publish dialog visible", () => {
+    const container = document.createElement("div");
+    const props = createProps({
+      personalAccess: true,
+      skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+      skillHubPublishSkill: "vm-skill",
+      skillHubPublishNamespace: "engineering",
+    });
+    props.report = {
+      ...expectDefined(props.report, "skills report"),
+      executionTarget: "assigned_vm",
+      skills: [createSkill({ source: "platformclaw-vm-workspace", skillKey: "vm-skill" })],
+    };
+
+    render(renderSkills(props), container);
+
+    expect(normalizeText(container)).toContain("Publish vm-skill");
+    expect(container.querySelector("openclaw-modal-dialog")).not.toBeNull();
   });
 
   it("keeps a registry-success ownership warning visible after the publish dialog closes", () => {
