@@ -1,5 +1,8 @@
 /** Browser-safe identity and replay rules shared by Gateway conversation clients. */
 
+import { carryPendingUserAttachments } from "./session-projection-attachments.js";
+import { readNonemptyString, readRecord, readSequence } from "./session-projection-values.js";
+
 export type SessionMessageEnvelope = {
   messageId?: unknown;
   messageSeq?: unknown;
@@ -118,27 +121,13 @@ export type SessionProjectionEvent = ScopedSessionProjectionEvent &
     | { type: "reconnected" }
   );
 
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function readNonemptyString(value: unknown): string | null {
-  return typeof value === "string" ? value.trim() || null : null;
-}
-
-function readPositiveSafeInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
-}
-
 /** History and status markers carry transcript order even when they have no chat role. */
 export function readSessionMessageSequence(
   message: unknown,
   envelope?: SessionMessageEnvelope,
 ): number | null {
   const metadata = readRecord(readRecord(message)?.["__openclaw"]);
-  return readPositiveSafeInteger(metadata?.seq) ?? readPositiveSafeInteger(envelope?.messageSeq);
+  return readSequence(metadata?.seq) ?? readSequence(envelope?.messageSeq);
 }
 
 /** Run ownership normalizes a user-turn suffix without changing its persisted send key. */
@@ -395,6 +384,7 @@ export function projectLiveSessionMessage(
     return state;
   }
   if (existing?.pending && incoming.identity.sequence !== null) {
+    const adopted = carryPendingUserAttachments(existing, incoming) ?? incoming;
     const sequence = incoming.identity.sequence;
     const violatesOrder = state.entries.some(
       ({ identity }, index) =>
@@ -406,10 +396,10 @@ export function projectLiveSessionMessage(
       violatesOrder
         ? insertEntry(
             state.entries.filter((_, index) => index !== existingIndex),
-            incoming,
+            adopted,
             state.runs,
           )
-        : state.entries.toSpliced(existingIndex, 1, incoming),
+        : state.entries.toSpliced(existingIndex, 1, adopted),
     );
   }
   return withEntries(state, [
@@ -434,10 +424,18 @@ export function reconcileSessionProjectionSnapshot(
   }
   let entries = createProjectionEntries(visibleMessages);
   for (const current of state.entries) {
+    const matchingEntries = entries.filter((entry) => entryMatches(entry, current, true));
+    if (matchingEntries.length === 1) {
+      const matching = matchingEntries[0];
+      const carried = matching ? carryPendingUserAttachments(current, matching) : null;
+      if (matching && carried) {
+        entries = entries.toSpliced(entries.indexOf(matching), 1, carried);
+      }
+      continue;
+    }
     if (
       (!current.live && !current.pending) ||
-      options.shouldIncludeMessage?.(current.message) === false ||
-      entries.filter((entry) => entryMatches(entry, current, true)).length === 1
+      options.shouldIncludeMessage?.(current.message) === false
     ) {
       continue;
     }

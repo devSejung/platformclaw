@@ -5,7 +5,10 @@ import { t } from "../../i18n/index.ts";
 import type { ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { scopedAgentIdForSession, visibleSessionMatches } from "../../lib/sessions/index.ts";
 import { generateUUID } from "../../lib/uuid.ts";
-import { discardChatAttachmentDataUrls } from "./attachment-payload-store.ts";
+import {
+  discardChatAttachmentDataUrls,
+  snapshotChatAttachmentsWithDataUrls,
+} from "./attachment-payload-store.ts";
 import { readChatResetTargetAccess } from "./chat-commands.ts";
 import { loadChatBranches, loadChatHistory, type ChatState } from "./chat-history.ts";
 import {
@@ -365,7 +368,8 @@ async function sendQueuedChatMessage(
       retirementFailed = storageMode === "durable" && readQueuedMessageById(host, id) !== null;
     }
     if (isVisible()) {
-      if (retireOnAck) {
+      const shouldMaterializePending = retireOnAck || attachments.length > 0;
+      if (shouldMaterializePending) {
         const projectionScope = readChatSessionProjectionScope(host, {
           sessionKey,
           agentId: prepared.agentId,
@@ -379,7 +383,11 @@ async function sendQueuedChatMessage(
               role: "user",
               content: buildUserChatMessageContentBlocks(
                 message,
-                attachments.length ? attachments : undefined,
+                attachments.length
+                  ? retireOnAck
+                    ? attachments
+                    : snapshotChatAttachmentsWithDataUrls(attachments)
+                  : undefined,
               ),
               timestamp: startedAt,
               __openclaw: { idempotencyKey: `${runId}:user` },

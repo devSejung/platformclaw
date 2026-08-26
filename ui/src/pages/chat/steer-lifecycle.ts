@@ -5,8 +5,8 @@ import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts
 import { visibleSessionMatches } from "../../lib/sessions/index.ts";
 import { generateUUID } from "../../lib/uuid.ts";
 import {
-  getChatAttachmentDataUrl,
   releaseChatAttachmentPayloads,
+  snapshotChatAttachmentsWithDataUrls,
 } from "./attachment-payload-store.ts";
 import {
   clearPendingQueueItemsForRun,
@@ -121,23 +121,6 @@ function findQueuedSendMessageIndex(
   });
 }
 
-function durableDeliveredAttachments(
-  attachments: readonly ChatAttachment[] | undefined,
-): ChatAttachment[] | undefined {
-  return attachments?.flatMap((attachment) => {
-    // Composer uploads keep their bytes in the payload store; queue rows carry
-    // metadata only. Resolve through the store or attachment-only turns
-    // materialize empty and vanish at chip retirement.
-    const dataUrl = getChatAttachmentDataUrl(attachment);
-    if (!dataUrl) {
-      return [];
-    }
-    // Terminal retirement releases the queue-owned live blob. Pin synthetic
-    // transcript content to durable bytes before that ownership ends.
-    return [{ ...attachment, dataUrl, previewUrl: dataUrl }];
-  });
-}
-
 export function preserveQueuedUserTurn(state: SteerLifecycleHost, item: ChatQueueItem): void {
   const runId = item.sendRunId;
   const sessionKey = item.sessionKey ?? state.sessionKey;
@@ -146,7 +129,7 @@ export function preserveQueuedUserTurn(state: SteerLifecycleHost, item: ChatQueu
   }
   const content = buildUserChatMessageContentBlocks(
     item.text,
-    durableDeliveredAttachments(item.attachments),
+    snapshotChatAttachmentsWithDataUrls(item.attachments),
   );
   if (!content.length) {
     return;

@@ -9037,6 +9037,70 @@ describe("handleSendChat", () => {
     ]);
   });
 
+  it("materializes accepted attachment bytes before discarding the queue payload", async () => {
+    const file = new File(["%PDF-1.4\n"], "brief.pdf", { type: "application/pdf" });
+    const dataUrl = "data:application/pdf;base64,JVBERi0xLjQK";
+    const attachment = registerChatAttachmentPayload({
+      attachment: {
+        id: "terminal-att",
+        mimeType: "application/pdf",
+        fileName: "brief.pdf",
+        sizeBytes: file.size,
+      },
+      dataUrl,
+      file,
+    });
+    const host = makeHost({
+      requestHandlers: {
+        "chat.send": { status: "started", runId: "terminal-run" },
+      },
+      chatAttachments: [attachment],
+      chatMessage: "summarize",
+      sessionKey: "agent:main:main",
+    });
+
+    await handleSendChat(host);
+    expect(getChatAttachmentDataUrl(attachment)).toBeNull();
+    expect(host.chatMessages[0]).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "summarize" },
+        { type: "attachment", attachment: { url: dataUrl, label: "brief.pdf" } },
+      ],
+    });
+
+    handlePageGatewayEvent(asChatPageHost(host), {
+      event: "chat",
+      payload: {
+        state: "final",
+        runId: "terminal-run",
+        sessionKey: "agent:main:main",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+          timestamp: 2,
+        },
+      },
+    } as Parameters<typeof handlePageGatewayEvent>[1]);
+
+    expect(host.chatMessages[0]).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "summarize" },
+        {
+          type: "attachment",
+          attachment: {
+            url: dataUrl,
+            kind: "document",
+            label: "brief.pdf",
+            mimeType: "application/pdf",
+          },
+        },
+      ],
+      __openclaw: { idempotencyKey: expect.stringMatching(/:user$/u) },
+    });
+  });
+
   it("releases queued attachment payloads when the queued item is removed", () => {
     const revokeObjectURL = vi.fn();
     vi.stubGlobal(
