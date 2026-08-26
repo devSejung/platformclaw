@@ -52,6 +52,10 @@ import {
   readSkillFrontmatterSafe,
   type LocalSkillLoadDiagnostic,
 } from "./local-loader.js";
+import {
+  normalizeSkillMaterializationDirectory,
+  prepareSkillMaterializationDirectory,
+} from "./materialization-directory.js";
 import { resolvePluginSkillDirs } from "./plugin-skills.js";
 import { serializeByKey } from "./serialize.js";
 import { formatSkillsForPrompt, type Skill } from "./skill-contract.js";
@@ -1851,29 +1855,6 @@ function resolveSyncedSkillDestinationPath(params: {
   }).resolved;
 }
 
-async function prepareSyncedSkillsDirectory(targetSkillsDir: string): Promise<void> {
-  let stats: fs.Stats;
-  try {
-    stats = await fsp.lstat(targetSkillsDir);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error;
-    }
-    await fsp.mkdir(targetSkillsDir, { recursive: true });
-    return;
-  }
-
-  if (!stats.isDirectory() || stats.isSymbolicLink()) {
-    await fsp.rm(targetSkillsDir, { recursive: true, force: true });
-    await fsp.mkdir(targetSkillsDir, { recursive: true });
-    return;
-  }
-
-  for (const entry of await fsp.readdir(targetSkillsDir)) {
-    await fsp.rm(path.join(targetSkillsDir, entry), { recursive: true, force: true });
-  }
-}
-
 export async function syncSkillsToWorkspace(params: {
   sourceWorkspaceDir: string;
   targetWorkspaceDir: string;
@@ -1904,7 +1885,7 @@ export async function syncSkillsToWorkspace(params: {
       pluginSkillsDir: params.pluginSkillsDir,
     });
 
-    await prepareSyncedSkillsDirectory(targetSkillsDir);
+    await prepareSkillMaterializationDirectory(targetSkillsDir);
 
     const usedDirNames = new Set<string>();
     const skillUsagePaths: SkillUsagePath[] = [];
@@ -1937,6 +1918,9 @@ export async function syncSkillsToWorkspace(params: {
             return !(name === ".git" || name === "node_modules");
           },
         });
+        // The cache must stay mutable even when the authoritative source is mounted 0555.
+        // Files keep their source modes; only copied directories gain owner access.
+        await normalizeSkillMaterializationDirectory(dest);
         skillUsagePaths.push({
           readPath: path.join(dest, path.relative(entry.skill.baseDir, entry.skill.filePath)),
           skillFile: canonicalizePath(entry.skill.filePath),

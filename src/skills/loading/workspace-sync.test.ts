@@ -176,6 +176,51 @@ describe("buildWorkspaceSkillsPrompt", () => {
     },
   );
 
+  it.runIf(process.platform !== "win32")(
+    "refreshes read-only skill trees with dotfiles without losing file modes",
+    async () => {
+      const sourceWorkspace = await createCaseDir("source");
+      const targetWorkspace = await createCaseDir("target");
+      const sourceSkillDir = path.join(sourceWorkspace, "skills", "read-only-skill");
+      const sourceDotfile = path.join(sourceSkillDir, ".env.atlassian");
+      const sourceExecutable = path.join(sourceSkillDir, "run.sh");
+      await writeSkill({
+        dir: sourceSkillDir,
+        name: "read-only-skill",
+        description: "Read-only source",
+      });
+      await fs.writeFile(sourceDotfile, "TOKEN=first\n", "utf8");
+      await fs.writeFile(sourceExecutable, "#!/bin/sh\n", "utf8");
+      await fs.chmod(sourceDotfile, 0o400);
+      await fs.chmod(sourceExecutable, 0o500);
+      await fs.chmod(sourceSkillDir, 0o555);
+
+      await syncSourceSkillsToTarget(sourceWorkspace, targetWorkspace);
+
+      const targetSkillDir = path.join(targetWorkspace, "skills", "read-only-skill");
+      expect(await fs.readFile(path.join(targetSkillDir, ".env.atlassian"), "utf8")).toBe(
+        "TOKEN=first\n",
+      );
+      expect((await fs.stat(path.join(targetSkillDir, "run.sh"))).mode & 0o111).toBe(0o100);
+      expect((await fs.stat(targetSkillDir)).mode & 0o700).toBe(0o700);
+
+      // Simulate a cache produced by an older image before directory modes were normalized.
+      await fs.chmod(targetSkillDir, 0o555);
+      await fs.chmod(sourceDotfile, 0o600);
+      await fs.writeFile(sourceDotfile, "TOKEN=second\n", "utf8");
+      await fs.chmod(sourceDotfile, 0o400);
+
+      await syncSourceSkillsToTarget(sourceWorkspace, targetWorkspace);
+
+      expect(await fs.readFile(path.join(targetSkillDir, ".env.atlassian"), "utf8")).toBe(
+        "TOKEN=second\n",
+      );
+      expect((await fs.stat(path.join(targetSkillDir, "run.sh"))).mode & 0o111).toBe(0o100);
+      expect((await fs.stat(targetSkillDir)).mode & 0o700).toBe(0o700);
+      await fs.chmod(sourceSkillDir, 0o755);
+    },
+  );
+
   it("syncs the explicit agent skill subset instead of inherited defaults", async () => {
     const sourceWorkspace = await createCaseDir("source");
     const targetWorkspace = await createCaseDir("target");
