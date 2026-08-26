@@ -185,6 +185,48 @@ describe("admin-http-rpc plugin handler", () => {
   );
 
   it.each([
+    ["skills.status", { agentId: "person-one", refresh: true, backendTarget: "assigned_vm" }],
+    ["skills.uninstall", { agentId: "person-one", slug: "demo-skill" }],
+    [
+      "platformclaw-execution.skillExport.begin",
+      {
+        agentId: "person-one",
+        slug: "demo-skill",
+        version: "1.0.0",
+        expectedTargetRevision: 3,
+        expectedAllocationId: "allocation-1",
+      },
+    ],
+    [
+      "platformclaw-execution.skillExport.status",
+      { agentId: "person-one", exportId: "export-1", token: "token-1" },
+    ],
+    [
+      "platformclaw-execution.skillExport.read",
+      { agentId: "person-one", exportId: "export-1", token: "token-1", offset: 0 },
+    ],
+    [
+      "platformclaw-execution.skillExport.close",
+      { agentId: "person-one", exportId: "export-1", token: "token-1" },
+    ],
+  ] as const)("dispatches Skill Hub dependency %s through Admin HTTP", async (method, params) => {
+    dispatchGatewayMethod.mockResolvedValueOnce({
+      ok: true,
+      payload: { status: "ok" },
+    });
+
+    const result = await invoke({ id: "skill-hub", method, params });
+
+    expect(dispatchGatewayMethod).toHaveBeenCalledWith(method, params);
+    expect(result.captured.statusCode).toBe(200);
+    expect(result.json).toEqual({
+      id: "skill-hub",
+      ok: true,
+      payload: { status: "ok" },
+    });
+  });
+
+  it.each([
     ["gateway.suspend.prepare", { requestId: "host-request-1" }],
     ["gateway.suspend.status", { suspensionId: "suspension-1" }],
     ["gateway.suspend.resume", { suspensionId: "suspension-1" }],
