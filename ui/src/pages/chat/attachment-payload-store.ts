@@ -62,6 +62,16 @@ export function cloneChatAttachmentsMetadata(
   return attachments.map(cloneChatAttachmentMetadata);
 }
 
+/** Pins queue-owned bytes into a synthetic transcript turn before queue retirement. */
+export function snapshotChatAttachmentsWithDataUrls(
+  attachments: readonly ChatAttachment[] | undefined,
+): ChatAttachment[] | undefined {
+  return attachments?.flatMap((attachment) => {
+    const dataUrl = getChatAttachmentDataUrl(attachment);
+    return dataUrl ? [{ ...attachment, dataUrl, previewUrl: dataUrl }] : [];
+  });
+}
+
 export function releaseChatAttachmentPayload(id: string): void {
   const payload = payloads.get(id);
   if (!payload) {

@@ -32,6 +32,8 @@ type SamplerWindow = Window & {
 
 const PROBE_TEXT = "Flicker probe message 4242";
 const USER_ECHO_ENTRY_ID = "pending-handoff-user-echo";
+const ATTACHMENT_PROBE_TEXT = "Review the handoff attachment";
+const ATTACHMENT_FILE_NAME = "handoff-report.pdf";
 
 async function startFrameSampler(currentPage: Page): Promise<void> {
   await currentPage.evaluate((probeText) => {
@@ -222,7 +224,6 @@ describeControlUiE2e("Control UI chat send pending handoff", () => {
     const currentPage = await context.newPage();
     page = currentPage;
     const gateway = await installMockGateway(currentPage, { historyMessages: BASE_HISTORY });
-
     const runId = await openChatAndSubmitProbe(currentPage, gateway);
     // A locally submitted turn plays the composer entry animation exactly once.
     expect(await currentPage.locator(".chat-bubble--user-turn-enter").count()).toBe(1);
@@ -292,6 +293,250 @@ describeControlUiE2e("Control UI chat send pending handoff", () => {
     // still carries the (inert, completed) animation class.
     expect(await currentPage.locator(".chat-bubble--user-turn-enter").count()).toBeLessThanOrEqual(
       1,
+    );
+  });
+
+  it("keeps user and assistant file bubbles visible through an early attachment-free echo", async () => {
+    const context = await browser.newContext({ viewport: { height: 800, width: 1200 } });
+    const currentPage = await context.newPage();
+    page = currentPage;
+    const gateway = await installMockGateway(currentPage, { historyMessages: BASE_HISTORY });
+    await currentPage.route("**/__openclaw__/assistant-media?*", async (route) => {
+      const url = new URL(route.request().url());
+      const source = url.searchParams.get("source");
+      expect(source).toMatch(
+        /^(?:media:\/\/inbound\/handoff-report\.pdf|\/workspace\/generated-page\.html)$/u,
+      );
+      if (url.searchParams.get("meta") !== "1") {
+        const isUserPdf = source === "media://inbound/handoff-report.pdf";
+        await route.fulfill({
+          body: isUserPdf
+            ? Buffer.from("%PDF-1.4\ncommitted attachment handoff proof")
+            : "<!doctype html><title>Generated page</title>",
+          headers: {
+            "Content-Disposition": isUserPdf
+              ? "attachment; filename=document; filename*=UTF-8''handoff-report.pdf"
+              : "attachment; filename=document; filename*=UTF-8''generated-page.html",
+            "Content-Type": isUserPdf ? "application/pdf" : "text/html; charset=utf-8",
+          },
+        });
+        return;
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          available: true,
+          mediaTicket: "handoff-ticket",
+          mediaTicketExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      });
+    });
+
+    await currentPage.goto(`${server?.baseUrl ?? ""}chat`);
+    await currentPage.getByText("Ready.").waitFor({ timeout: 10_000 });
+    await currentPage.locator(".agent-chat__file-input").setInputFiles({
+      name: ATTACHMENT_FILE_NAME,
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\nattachment handoff proof"),
+    });
+    await currentPage
+      .locator(".chat-attachment-file__name", { hasText: ATTACHMENT_FILE_NAME })
+      .waitFor();
+    await gateway.deferNext("chat.send");
+    await currentPage.locator(".agent-chat__input textarea").fill(ATTACHMENT_PROBE_TEXT);
+    await currentPage.locator(".agent-chat__input textarea").press("Enter");
+    const send = await gateway.waitForRequest("chat.send");
+    const runId = (send.params as { idempotencyKey?: string }).idempotencyKey ?? "";
+    expect(runId).toBeTruthy();
+
+    const userGroup = currentPage.locator(".chat-group.user", {
+      hasText: ATTACHMENT_PROBE_TEXT,
+    });
+    const pendingUserBubble = userGroup.locator(".chat-bubble");
+    const pendingUserCard = pendingUserBubble.locator(".chat-assistant-attachment-card", {
+      hasText: ATTACHMENT_FILE_NAME,
+    });
+    const userAttachment = pendingUserCard.getByRole("link", {
+      name: ATTACHMENT_FILE_NAME,
+      exact: true,
+    });
+    await userGroup.waitFor({ state: "visible" });
+    await pendingUserBubble.waitFor({ state: "visible" });
+    await pendingUserCard.waitFor({ state: "visible" });
+    await userAttachment.waitFor({ state: "visible" });
+    expect(await userAttachment.getAttribute("href")).toMatch(/^blob:/u);
+
+    const userEcho = {
+      content: [{ text: ATTACHMENT_PROBE_TEXT, type: "text" }],
+      role: "user",
+      timestamp: Date.now(),
+      __openclaw: {
+        id: USER_ECHO_ENTRY_ID,
+        idempotencyKey: `${runId}:user`,
+        seq: 2,
+      },
+    };
+    await gateway.resolveDeferred("chat.send");
+    await gateway.emitGatewayEvent("session.message", {
+      activeRunIds: [runId],
+      clientRunId: runId,
+      hasActiveRun: true,
+      message: userEcho,
+      messageId: USER_ECHO_ENTRY_ID,
+      messageSeq: 2,
+      session: {
+        activeRunIds: [runId],
+        hasActiveRun: true,
+        key: "main",
+        kind: "direct",
+        status: "running",
+        updatedAt: Date.now(),
+      },
+      sessionKey: "main",
+    });
+    const earlyUserBubble = currentPage.locator(
+      `.chat-bubble[data-entry-id="${USER_ECHO_ENTRY_ID}"]`,
+    );
+    await earlyUserBubble.waitFor({ state: "visible" });
+    const earlyUserCard = earlyUserBubble.locator(".chat-assistant-attachment-card", {
+      hasText: ATTACHMENT_FILE_NAME,
+    });
+    await earlyUserCard.waitFor({ state: "visible" });
+    // The pending data URL keeps the card visible, but safeAttachmentHref deliberately
+    // refuses to expose data: as a clickable link until the signed BFF URL arrives.
+    expect(await earlyUserCard.getByRole("link").count()).toBe(0);
+    const assistantReply = {
+      content: [
+        { text: "Generated document ready.", type: "text" },
+        {
+          type: "attachment",
+          attachment: {
+            url: "/workspace/generated-page.html",
+            kind: "document",
+            label: "generated-page.html",
+            mimeType: "text/html",
+          },
+        },
+      ],
+      role: "assistant",
+      timestamp: Date.now() + 1,
+      __openclaw: { id: "pending-handoff-assistant", seq: 3 },
+    };
+    await gateway.setHistoryMessages([...BASE_HISTORY, userEcho, assistantReply]);
+    const historyRequestsBeforeTerminal = (await gateway.getRequests("chat.history")).length;
+    await gateway.emitChatFinal({ runId, text: "Generated document ready." });
+    await gateway.emitGatewayEvent("session.message", {
+      activeRunIds: [],
+      clientRunId: runId,
+      hasActiveRun: false,
+      message: assistantReply,
+      messageId: "pending-handoff-final-attachment",
+      messageSeq: 3,
+      session: {
+        activeRunIds: [],
+        hasActiveRun: false,
+        key: "main",
+        kind: "direct",
+        status: "done",
+        updatedAt: Date.now(),
+      },
+      sessionKey: "main",
+    });
+
+    await expect
+      .poll(async () => (await gateway.getRequests("chat.history")).length, { timeout: 10_000 })
+      .toBeGreaterThan(historyRequestsBeforeTerminal);
+    await currentPage
+      .locator(`.chat-bubble[data-entry-id="${USER_ECHO_ENTRY_ID}"]`)
+      .waitFor({ state: "visible" });
+    const settledUserBubble = currentPage.locator(
+      `.chat-bubble[data-entry-id="${USER_ECHO_ENTRY_ID}"]`,
+    );
+    await settledUserBubble
+      .locator(".chat-assistant-attachment-card", { hasText: ATTACHMENT_FILE_NAME })
+      .waitFor({ state: "visible" });
+    const assistantBubble = currentPage.locator(
+      '.chat-bubble[data-entry-id="pending-handoff-assistant"]',
+    );
+    const assistantGroup = currentPage.locator(".chat-group.assistant", {
+      has: assistantBubble,
+    });
+    const assistantCard = assistantBubble.locator(".chat-assistant-attachment-card", {
+      hasText: "generated-page.html",
+    });
+    const assistantAttachment = assistantCard.getByRole("link", {
+      name: "generated-page.html",
+      exact: true,
+    });
+    await assistantGroup.waitFor({ state: "visible" });
+    await assistantBubble.waitFor({ state: "visible" });
+    await assistantCard.waitFor({ state: "visible" });
+    await assistantAttachment.waitFor({ state: "visible" });
+    const assistantHref = await assistantAttachment.getAttribute("href");
+    expect(assistantHref).toContain("mediaTicket=handoff-ticket");
+    const assistantDownload = await currentPage.evaluate(async (href) => {
+      const response = await fetch(href);
+      return {
+        disposition: response.headers.get("content-disposition"),
+        text: await response.text(),
+      };
+    }, assistantHref!);
+    expect(assistantDownload.disposition).toContain("generated-page.html");
+    expect(assistantDownload.text).toContain("Generated page");
+
+    const committedUserEcho = {
+      ...userEcho,
+      __openclaw: {
+        ...userEcho["__openclaw"],
+        media: [
+          {
+            path: "/media/inbound/handoff-report.pdf",
+            url: "media://inbound/handoff-report.pdf",
+            fileName: ATTACHMENT_FILE_NAME,
+            contentType: "application/pdf",
+          },
+        ],
+      },
+    };
+    await gateway.setHistoryMessages([...BASE_HISTORY, committedUserEcho, assistantReply]);
+    const historyRequestsBeforeMediaCommit = (await gateway.getRequests("chat.history")).length;
+    await gateway.emitGatewayEvent("session.message", {
+      activeRunIds: [],
+      clientRunId: runId,
+      hasActiveRun: false,
+      message: assistantReply,
+      messageId: "pending-handoff-final-attachment",
+      messageSeq: 3,
+      session: {
+        activeRunIds: [],
+        hasActiveRun: false,
+        key: "main",
+        kind: "direct",
+        status: "done",
+        updatedAt: Date.now(),
+      },
+      sessionKey: "main",
+    });
+    await expect
+      .poll(async () => (await gateway.getRequests("chat.history")).length, { timeout: 10_000 })
+      .toBeGreaterThan(historyRequestsBeforeMediaCommit);
+    const committedAttachment = settledUserBubble.getByRole("link", {
+      name: ATTACHMENT_FILE_NAME,
+      exact: true,
+    });
+    await committedAttachment.waitFor({ state: "visible" });
+    const committedHref = await committedAttachment.getAttribute("href");
+    expect(committedHref).toContain("mediaTicket=handoff-ticket");
+    const committedDownload = await currentPage.evaluate(async (href) => {
+      const response = await fetch(href);
+      return {
+        bytes: [...new Uint8Array(await response.arrayBuffer())],
+        disposition: response.headers.get("content-disposition"),
+      };
+    }, committedHref!);
+    expect(committedDownload.disposition).toContain(ATTACHMENT_FILE_NAME);
+    expect(Buffer.from(committedDownload.bytes).toString()).toContain(
+      "committed attachment handoff proof",
     );
   });
 });
