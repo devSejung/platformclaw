@@ -183,7 +183,9 @@ describe("platformclaw-quick-actions", () => {
   it("waits for a manual launch outside the chat route", async () => {
     globalThis.history.replaceState(null, "", "/platformclaw/app/settings/appearance");
     const element = await mount();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => {
+      requestAnimationFrame(resolve);
+    });
 
     expect(element.shadowRoot?.querySelector(".tour-popover")).toBeNull();
     element.shadowRoot?.querySelector<HTMLButtonElement>('[data-tour="guide"]')?.click();
