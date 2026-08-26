@@ -239,6 +239,79 @@ describe("sandbox backend skill materialization", () => {
     );
   });
 
+  it.runIf(process.platform !== "win32")(
+    "refreshes a legacy read-only canonical skill cache on the next context",
+    async () => {
+      await withTempWorkspace(
+        { rootDir: resolvePreferredOpenClawTmpDir(), prefix: "openclaw-canonical-refresh-" },
+        async ({ dir }) => {
+          let revision = 0;
+          mocks.syncSkillsToWorkspace.mockImplementation(async ({ targetWorkspaceDir }) => {
+            revision += 1;
+            const skillDir = path.join(targetWorkspaceDir, "skills", "confluence-read");
+            const readPath = path.join(skillDir, "SKILL.md");
+            await fs.mkdir(skillDir, { recursive: true });
+            await fs.writeFile(
+              readPath,
+              `---\nname: confluence-read\ndescription: Revision ${revision}\n---\n`,
+            );
+            await fs.writeFile(path.join(skillDir, ".env.atlassian"), `TOKEN=${revision}\n`);
+            return [
+              {
+                readPath,
+                skillFile: path.join(dir, "managed", "confluence-read", "SKILL.md"),
+                skillName: "confluence-read",
+                skillSource: "workspace" as const,
+                skillSourceId: "openclaw-managed",
+              },
+            ];
+          });
+          const backendId = `test-canonical-refresh-${Date.now()}`;
+          let hostRoot = "";
+          const restore = registerSandboxBackend(backendId, {
+            factory: async ({ materializeSkills }) => {
+              const materialized = await materializeSkills?.({
+                sourceMounts: [
+                  { source: "openclaw-managed", containerPath: "/opt/platformclaw/skills" },
+                ],
+              });
+              hostRoot = materialized?.mounts[0]?.hostPath ?? "";
+              return {
+                ...createHandle({ catalog: false, runtimeId: "canonical-refresh" }),
+                ...(materialized ? { skillCatalog: materialized.catalog } : {}),
+              };
+            },
+            skillMaterialization: "backend-deferred",
+          });
+          const resolve = () =>
+            resolveSandboxContext({
+              config: createConfig({
+                backend: backendId,
+                workspaceRoot: path.join(dir, "sandboxes"),
+              }),
+              agentId: "main",
+              sessionKey: "agent:main:main",
+              workspaceDir: path.join(dir, "workspace"),
+            });
+          try {
+            await resolve();
+            const cachedSkillDir = path.join(hostRoot, "confluence-read");
+            await fs.chmod(cachedSkillDir, 0o555);
+
+            await resolve();
+
+            await expect(
+              fs.readFile(path.join(cachedSkillDir, ".env.atlassian"), "utf8"),
+            ).resolves.toBe("TOKEN=2\n");
+            expect((await fs.stat(cachedSkillDir)).mode & 0o700).toBe(0o700);
+          } finally {
+            restore();
+          }
+        },
+      );
+    },
+  );
+
   it("rejects a deferred backend that returns neither a catalog nor materialized skills", async () => {
     await withTempWorkspace(
       { rootDir: resolvePreferredOpenClawTmpDir(), prefix: "openclaw-backend-skills-" },

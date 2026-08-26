@@ -16,6 +16,7 @@ import {
   resolveBrowserConfig,
 } from "../../plugin-sdk/browser-profiles.js";
 import { defaultRuntime } from "../../runtime.js";
+import { prepareSkillMaterializationDirectory } from "../../skills/loading/materialization-directory.js";
 import type { SkillEligibilityContext, SkillUsagePath } from "../../skills/types.js";
 import type { ExecPolicyOverrides } from "../exec-defaults.js";
 import {
@@ -107,10 +108,7 @@ async function syncSandboxSkillsToWorkspace(params: {
         throw new Error(`Invalid canonical skill mount path: ${sourceMount.containerPath}`);
       }
       const hostRoot = path.join(sourceMountRoot, String(index));
-      await fs.mkdir(hostRoot, { recursive: true });
-      for (const entry of await fs.readdir(hostRoot)) {
-        await fs.rm(path.join(hostRoot, entry), { recursive: true, force: true });
-      }
+      await prepareSkillMaterializationDirectory(hostRoot);
       // Keep each source root inode stable: a running container's bind mount must
       // observe refreshed contents instead of retaining a deleted directory snapshot.
       mounts.push({ hostPath: hostRoot, containerPath: containerRoot });
