@@ -47,6 +47,7 @@ type SettingsSidebarProps = {
   onNavigate: (routeId: RouteId, options?: ApplicationNavigationOptions) => void;
   onPreload?: (routeId: RouteId) => Promise<void> | void;
   onSearchQueryChange: (query: string) => void;
+  renderFooterAccessory?: () => unknown;
   preloadTimers: Map<EventTarget, ReturnType<typeof globalThis.setTimeout>>;
   isRouteEnabled?: (routeId: RouteId) => boolean;
   saveIndicator: SettingsSaveIndicatorProps;
@@ -341,6 +342,7 @@ export function renderSettingsSidebar(props: SettingsSidebarProps) {
         .onUpdate=${props.onUpdate}
       ></openclaw-sidebar-update-card>
       <footer class="settings-sidebar__footer">
+        ${props.renderFooterAccessory ? props.renderFooterAccessory() : nothing}
         ${props.offline
           ? renderOfflineSidebarStatus({
               queuedOutboxCount: props.queuedOutboxCount ?? 0,

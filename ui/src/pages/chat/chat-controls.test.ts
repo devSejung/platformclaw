@@ -121,14 +121,22 @@ describe("chat composer view menu", () => {
     expect(onSettingsChange).not.toHaveBeenCalled();
   });
 
-  it("keeps the composer control cluster limited to the view menu and model controls", () => {
+  it("shows the terminal beside View only when available", () => {
     const container = document.createElement("div");
-    render(renderChatControls(createProps()), container);
+    const onToggleTerminal = vi.fn();
+    render(renderChatControls(createProps({ onToggleTerminal })), container);
 
-    expect(Array.from(container.children).map((node) => node.className)).toEqual([
-      "chat-view-menu-wrapper",
-      "chat-composer-model-control",
-    ]);
+    const terminal = container.querySelector<HTMLButtonElement>(".chat-terminal-toggle");
+    expect(
+      terminal
+        ?.closest("openclaw-tooltip")
+        ?.previousElementSibling?.classList.contains("chat-view-menu-wrapper"),
+    ).toBe(true);
+    terminal?.click();
+    expect(onToggleTerminal).toHaveBeenCalledOnce();
     expect(container.querySelector('[data-chat-provider-usage="true"]')).toBeNull();
+
+    render(renderChatControls(createProps()), container);
+    expect(container.querySelector(".chat-terminal-toggle")).toBeNull();
   });
 });

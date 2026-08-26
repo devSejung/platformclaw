@@ -250,6 +250,7 @@ export function renderAppSidebarFooterBar(host: AppSidebarRenderHost) {
             ? html`<button
                 type="button"
                 class="sidebar-footer-bar__settings"
+                data-tour="settings"
                 aria-label=${t("tabs.appearance")}
                 title=${t("tabs.appearance")}
                 @click=${() => host.onNavigate?.("appearance")}

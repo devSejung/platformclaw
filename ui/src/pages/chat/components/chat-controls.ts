@@ -13,6 +13,7 @@ type ChatControlsProps = {
   onboarding: boolean;
   settings: UiSettings;
   viewMenuOpen: boolean;
+  onToggleTerminal?: () => void;
   onSettingsChange: (next: UiSettings) => void;
   onViewMenuOpenChange: (
     open: boolean,
@@ -111,6 +112,22 @@ export function renderChatControls(props: ChatControlsProps) {
         </wa-dropdown>
       </openclaw-tooltip>
     </div>
+    ${props.onToggleTerminal
+      ? html`
+          <openclaw-tooltip .content=${`${t("terminal.toggle")} (Ctrl+~)`}>
+            <button
+              class="chat-view-menu-trigger chat-terminal-toggle"
+              type="button"
+              data-tour="terminal"
+              aria-label=${t("terminal.toggle")}
+              aria-keyshortcuts="Control+Backquote"
+              @click=${props.onToggleTerminal}
+            >
+              ${icons.terminal}
+            </button>
+          </openclaw-tooltip>
+        `
+      : ""}
     <div
       class="chat-composer-model-control"
       @click=${() => {

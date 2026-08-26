@@ -332,6 +332,11 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.chatBody": "새 요청을 입력하고 Agent와 대화를 시작하는 기본 화면입니다.",
   "platformClaw.guide.chatDetails":
     "한 대화 안에서는 앞에서 나눈 내용과 작업 맥락이 이어집니다.|서로 관계없는 일은 새 대화로 나누면 결과와 기록을 찾기 쉽습니다.",
+  "platformClaw.guide.terminalTitle": "터미널: 채팅하면서 명령 실행하기",
+  "platformClaw.guide.terminalBody":
+    "강조된 터미널 버튼을 누르면 현재 채팅 화면에서 명령줄 패널을 열 수 있습니다.",
+  "platformClaw.guide.terminalDetails":
+    "입력창 아래 보기 버튼 옆의 터미널 아이콘을 누르세요.|키보드에서는 Ctrl+~로 같은 패널을 빠르게 열 수 있습니다.|명령 실행 결과와 서버 상태를 확인하고, 작업이 끝나면 패널의 닫기 버튼으로 돌아옵니다.",
   "platformClaw.guide.usageTitle": "Usage: 사용량과 비용 확인하기",
   "platformClaw.guide.usageBody": "Agent가 사용한 토큰과 예상 비용을 기간별로 확인하는 화면입니다.",
   "platformClaw.guide.usageDetails":
@@ -356,6 +361,51 @@ export const translations: Readonly<Record<string, string>> = {
     "정해진 시간이나 주기에 맞춰 Agent 작업이 자동 실행되도록 관리합니다.",
   "platformClaw.guide.automationsDetails":
     "예약 시간, 담당 Agent, 실행할 내용을 설정합니다.|다음 실행 시각과 최근 성공·실패 상태를 확인하고 필요하면 지금 실행할 수 있습니다.|실행 기록에서 결과와 전달 상태를 확인합니다.",
+  "platformClaw.guide.settingsNavTitle": "설정 버튼: 전체 환경 설정 열기",
+  "platformClaw.guide.settingsNavBody":
+    "강조된 설정 버튼을 누르면 화면 모양, 연결, Agent 도구, 보안과 시스템 설정을 모아 둔 설정 화면으로 이동합니다.",
+  "platformClaw.guide.settingsNavDetails":
+    "지금은 가이드가 버튼의 위치를 보여주고 있습니다.|다음을 누르면 가이드가 설정 화면으로 이동해 왼쪽 카테고리를 설명합니다.",
+  "platformClaw.guide.settingsTitle": "설정: 작업 환경과 연결 관리하기",
+  "platformClaw.guide.settingsBody":
+    "가이드가 설정 화면을 열었습니다. 전용 왼쪽 메뉴에서 분류별 항목을 확인할 수 있습니다.",
+  "platformClaw.guide.settingsDetails":
+    "기본에는 프로필, 화면 모양, 알림이 있습니다.|연결에는 Gateway 연결, 채널, 커뮤니케이션, Talk, 노드가 있습니다.|Agent 및 도구에는 Agents, Labs, 모델 제공자, MCP, 메모리, 조직, 자동화가 있습니다. MCP 서버 등록은 관리자 기능이며, 일반 사용자는 관리자가 요구한 경우에만 본인 자격 증명을 연결합니다.|개인정보 및 보안에는 보안과 승인이 있고, 시스템에는 인프라, 고급 설정, 디버그, 로그, 정보가 있습니다.|원하는 항목을 알고 있다면 설정 상단 검색창에서 바로 찾을 수 있습니다.",
+  "platformClaw.guide.organizationNavTitle": "조직: 소속과 권한 확인하기",
+  "platformClaw.guide.organizationNavBody":
+    "조직에서는 내 Team·Group·Part 소속과 기본 조직 범위를 확인하고 가입을 요청할 수 있습니다.",
+  "platformClaw.guide.organizationNavDetails":
+    "개요에서 현재 소속과 상속받은 접근 범위를 확인합니다.|요청에서 조직 가입을 신청하고 처리 상태를 봅니다.|위임받은 리더와 관리자는 허용된 범위의 멤버와 조직 구조를 관리합니다.|감사 기록은 권한이 있는 사용자에게만 표시됩니다.|이 설정 카테고리는 Memory 안의 조직 지식 승격 탭과 다른 기능입니다.",
+  "platformClaw.guide.memoryNavTitle": "메모리: 지식 작업 공간 열기",
+  "platformClaw.guide.memoryNavBody":
+    "Agent 및 도구 아래의 메모리를 누르세요. 가이드가 실제 화면으로 들어가 각 탭을 설명합니다.",
+  "platformClaw.guide.memoryNavDetails":
+    "메모리는 할당된 내 Agent를 기준으로 관리됩니다.|개인 지식은 자동으로 Part 지식이 되지 않으며 조직 지식 승격과 승인 절차를 거쳐야 합니다.",
+  "platformClaw.guide.memoryOverviewTitle": "메모리: 다섯 가지 지식 보기",
+  "platformClaw.guide.memoryOverviewBody":
+    "이 화면은 개인 회상, 정리된 문서, 조직 공유, 장기 지식 정리 기록을 나누어 보여줍니다.",
+  "platformClaw.guide.memoryOverviewDetails":
+    "개요는 사용할 수 있는 저장소를 요약합니다.|Memory는 개인 기억을 검색합니다.|Personal Wiki는 재사용할 수 있게 정리된 문서를 엽니다.|조직 지식은 지식 승격을 요청하고 승인합니다.|Dreaming은 장기 기억이 정리된 기록을 보여줍니다.",
+  "platformClaw.guide.personalMemoryTitle": "Memory: 개인 기억 검색하기",
+  "platformClaw.guide.personalMemoryBody":
+    "내 작업과 대화에서 Agent가 기억한 내용을 구체적인 문구로 검색합니다.",
+  "platformClaw.guide.personalMemoryDetails":
+    "찾을 내용을 구체적으로 입력하고 검색합니다.|결과를 열어 출처와 맥락이 맞는지 확인한 뒤 사용합니다.|이 단계의 내용은 개인 메모리입니다. Part 지식으로 공유하려면 조직 지식 탭을 이용하세요.",
+  "platformClaw.guide.personalWikiTitle": "Personal Wiki: 공유할 원본 문서 검토하기",
+  "platformClaw.guide.personalWikiBody":
+    "재사용하거나 공유할 지식이 담긴 Wiki 페이지 전체를 열어 확인합니다.",
+  "platformClaw.guide.personalWikiDetails":
+    "페이지 제목이나 주제로 검색합니다.|전체 페이지를 열어 내용이 완전하고 정확한지 검토합니다.|조직 지식 승격은 검색된 원시 메모리가 아니라 검토한 Personal Wiki 페이지를 원본으로 시작합니다.",
+  "platformClaw.guide.organizationMemoryTitle": "조직 지식: 개인 지식을 Part 지식으로 승격하기",
+  "platformClaw.guide.organizationMemoryBody":
+    "Personal Wiki 페이지는 승격 요청이 검토되고 승인되어야 Part 지식이 됩니다.",
+  "platformClaw.guide.organizationMemoryDetails":
+    "원본 범위에서 개인을 선택하고 검토한 Personal Wiki 페이지를 검색해 선택합니다.|승격 대상으로 내 Part를 고른 뒤 공유할 지식, 근거, 승격 이유를 확인합니다.|승격 요청을 누르면 내 요청에 승인 대기로 표시됩니다.|검토 권한이 있는 리더가 검토 필요에서 내용을 확인하고 사유와 함께 승인 또는 거절합니다.|승인된 요청만 사용 중인 Part 지식이 됩니다. 더 높은 조직 범위로 올릴 때도 같은 승인 절차를 반복하며, 관리자는 정책상 허용된 범위에서만 바로 등록할 수 있습니다.",
+  "platformClaw.guide.dreamingTitle": "Dreaming: 메모리 정리 기록 확인하기",
+  "platformClaw.guide.dreamingBody":
+    "개인 메모리가 시간에 따라 장기 지식으로 정리된 과정을 확인합니다.",
+  "platformClaw.guide.dreamingDetails":
+    "Dream Diary에서 정리 실행과 결과를 확인합니다.|Personal Wiki에서 장기 지식으로 만들어진 페이지를 확인합니다.|Dreaming은 개인 지식을 정리하지만 Part 지식에 필요한 조직 승인을 대신하지는 않습니다.",
   "platformClaw.guide.pluginsNavTitle": "Plugins: Agent 기능 확장하기",
   "platformClaw.guide.pluginsNavBody":
     "서비스 연결, 작업 지침, 사내 스킬을 관리하는 플러그인 허브로 들어가는 메뉴입니다.",
@@ -389,14 +439,17 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.workshopBody":
     "작성 중인 스킬 변경안은 승인하기 전까지 실제 사용 중인 스킬과 분리됩니다.",
   "platformClaw.guide.workshopDetails":
-    "채팅에서 Agent에게 스킬 생성이나 개선을 요청하면 제안이 나타납니다.|평가는 검사를 실행하고, 개정 요청은 수정할 내용을 다시 Agent에게 보냅니다.|작업 위치를 확인한 뒤 적용을 누르면 검토된 버전이 실제 스킬이 됩니다.",
+    "채팅에서 Agent에게 스킬 생성이나 개선을 요청하면 Workshop에 제안이 생기며, 이때 실제 스킬은 바뀌지 않습니다.|제안을 열어 지침과 지원 파일을 먼저 검토합니다.|평가는 검사를 실행해 결과를 남기고, 개정 요청은 구체적인 수정 의견을 Agent에게 보내 새 초안을 받습니다.|기본 작업 공간 또는 내 VM 작업 공간이 제안 대상과 일치하는지 확인합니다.|평가와 내용이 만족스러울 때만 적용을 누르면 검토된 버전이 실제 스킬이 됩니다.",
   "platformClaw.guide.skillHubTitle": "Skill Hub: 사내 스킬 설치하고 공유하기",
   "platformClaw.guide.skillHubBody":
     "하려는 작업을 이미 해결한 스킬이 있는지 회사 카탈로그에서 먼저 찾아보세요.",
   "platformClaw.guide.skillHubDetails":
     "작업 이름으로 검색하고 결과를 열어 설명과 버전을 확인합니다.|사용할 버전을 선택한 뒤 설치를 누릅니다.|설치 위치로 기본 작업 공간 또는 내 VM 작업 공간을 정확히 선택합니다.",
-  "platformClaw.guide.reopenTitle": "언제든 가이드 다시 보기",
-  "platformClaw.guide.reopenBody": "기능을 다시 확인하려면 가이드 버튼을 누르세요.",
+  "platformClaw.guide.reopenTitle": "홈으로 돌아왔습니다",
+  "platformClaw.guide.reopenBody":
+    "가이드는 여기서 끝납니다. 나중에 다시 보고 싶을 때는 강조된 가이드 버튼을 누르세요.",
+  "platformClaw.guide.reopenDetails":
+    "완료를 누르면 지금 안내창만 사라집니다.|사이드바의 가이드 버튼은 남아 있으며 언제든 처음부터 다시 볼 수 있습니다.",
   "platformClaw.workshop.currentTarget": "현재 작업 위치: {target}",
   "platformClaw.workshop.loadingTarget": "작업 위치 확인 중…",
   "platformClaw.workshop.proposalTarget": "적용 대상: {target}",

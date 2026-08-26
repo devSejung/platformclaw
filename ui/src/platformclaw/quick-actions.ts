@@ -2,18 +2,20 @@ import { css, html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import { icons } from "../components/icons.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
+import "./execution-settings.ts";
 import {
   loadPlatformClawLocale,
   platformClawGuideT as guideT,
   platformClawT as t,
 } from "./i18n.ts";
-import "./execution-settings.ts";
 import "./voc-dialog.ts";
 
 export const PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY = "platformclaw.product-tour.v1.completed";
+let activeTourStepId: string | null = null;
 
 type TourLaunch = "automatic" | "manual";
 type TourStep = {
+  id: string;
   title: string;
   body: string;
   details?: string[];
@@ -53,8 +55,26 @@ function findSidebarHome(): Element | null {
     sidebar?.querySelector(".nav-item--home")) as Element | null;
 }
 
+function findSidebarSettings(): Element | null {
+  const sidebar = document.querySelector("openclaw-app-sidebar");
+  return (sidebar?.shadowRoot?.querySelector('[data-tour="settings"]') ??
+    sidebar?.querySelector('[data-tour="settings"]')) as Element | null;
+}
+
 function findPluginHubElement(selector: string): Element | null {
   return document.querySelector(selector);
+}
+
+function findSettingsElement(selector: string): Element | null {
+  return document.querySelector(selector);
+}
+
+function findChatTerminal(): Element | null {
+  return document.querySelector('[data-tour="terminal"]');
+}
+
+function isChatRoute(): boolean {
+  return /\/chat(?:\/|$)/.test(globalThis.location.pathname);
 }
 
 export class PlatformClawQuickActionsElement extends OpenClawLitElement {
@@ -72,6 +92,14 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   @state() private tourShadeStyles: string[] = [];
 
   private automaticLaunchAttempted = false;
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    if (this.hasUpdated) {
+      this.tourIndex = null;
+      globalThis.requestAnimationFrame(() => void this.restoreActiveTourStep());
+    }
+  }
 
   static override styles = [
     css`
@@ -228,11 +256,16 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         color: var(--muted);
       }
       .tour-footer {
+        position: sticky;
+        z-index: 1;
+        bottom: -18px;
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 8px;
-        padding-top: 14px;
+        margin: 0 -18px -18px;
+        padding: 14px 18px 18px;
+        background: var(--bg-elevated);
       }
       .tour-footer button {
         min-height: 32px;
@@ -281,8 +314,33 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     if (!this.isConnected) {
       return;
     }
+    if (await this.restoreActiveTourStep()) {
+      return;
+    }
     this.requestUpdate();
     await this.launchTour("automatic");
+  }
+
+  private async restoreActiveTourStep(): Promise<boolean> {
+    const stepId = activeTourStepId;
+    if (!this.isConnected || stepId === null) {
+      return false;
+    }
+    await loadPlatformClawLocale();
+    const stepIndex = this.tourSteps().findIndex((step) => step.id === stepId);
+    if (stepIndex < 0) {
+      return false;
+    }
+    const step = this.tourSteps()[stepIndex];
+    if (step?.element && !(await this.waitForElement(() => step.element?.() ?? null))) {
+      this.tourIndex = null;
+      return true;
+    }
+    this.tourIndex = stepIndex;
+    await this.updateComplete;
+    this.addTourListeners();
+    this.updateTourPosition();
+    return true;
   }
 
   private completeTour(): void {
@@ -306,6 +364,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     const pluginCatalogSteps: TourStep[] = catalogTabsAvailable
       ? [
           {
+            id: "installed-plugins",
             title: guideT("platformClaw.guide.installedPluginsTitle"),
             body: guideT("platformClaw.guide.installedPluginsBody"),
             details: guideT("platformClaw.guide.installedPluginsDetails").split("|"),
@@ -313,6 +372,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
             activate: () => this.activatePluginHubTab("installed"),
           },
           {
+            id: "discover-plugins",
             title: guideT("platformClaw.guide.discoverPluginsTitle"),
             body: guideT("platformClaw.guide.discoverPluginsBody"),
             details: guideT("platformClaw.guide.discoverPluginsDetails").split("|"),
@@ -323,57 +383,75 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       : [];
     return [
       {
+        id: "welcome",
         title: guideT("platformClaw.guide.welcomeTitle"),
         body: guideT("platformClaw.guide.welcomeBody"),
       },
       {
+        id: "chat",
         title: guideT("platformClaw.guide.chatTitle"),
         body: guideT("platformClaw.guide.chatBody"),
         details: guideT("platformClaw.guide.chatDetails").split("|"),
         element: findSidebarHome,
       },
       {
+        id: "terminal",
+        title: guideT("platformClaw.guide.terminalTitle"),
+        body: guideT("platformClaw.guide.terminalBody"),
+        details: guideT("platformClaw.guide.terminalDetails").split("|"),
+        element: findChatTerminal,
+        activate: () => this.openHomeToTerminal(),
+      },
+      {
+        id: "usage",
         title: guideT("platformClaw.guide.usageTitle"),
         body: guideT("platformClaw.guide.usageBody"),
         details: guideT("platformClaw.guide.usageDetails").split("|"),
         element: () => findSidebarRoute("usage"),
       },
       {
+        id: "tasks",
         title: guideT("platformClaw.guide.tasksTitle"),
         body: guideT("platformClaw.guide.tasksBody"),
         details: guideT("platformClaw.guide.tasksDetails").split("|"),
         element: () => findSidebarRoute("tasks"),
       },
       {
+        id: "sessions",
         title: guideT("platformClaw.guide.sessionsTitle"),
         body: guideT("platformClaw.guide.sessionsBody"),
         details: guideT("platformClaw.guide.sessionsDetails").split("|"),
         element: () => findSidebarRoute("sessions"),
       },
       {
+        id: "activity",
         title: guideT("platformClaw.guide.activityTitle"),
         body: guideT("platformClaw.guide.activityBody"),
         details: guideT("platformClaw.guide.activityDetails").split("|"),
         element: () => findSidebarRoute("activity"),
       },
       {
+        id: "automations",
         title: guideT("platformClaw.guide.automationsTitle"),
         body: guideT("platformClaw.guide.automationsBody"),
         details: guideT("platformClaw.guide.automationsDetails").split("|"),
         element: () => findSidebarRoute("automations", "cron"),
       },
       {
+        id: "plugins-nav",
         title: guideT("platformClaw.guide.pluginsNavTitle"),
         body: guideT("platformClaw.guide.pluginsNavBody"),
         details: guideT("platformClaw.guide.pluginsNavDetails").split("|"),
         element: () => findSidebarRoute("settings/plugins", "skills"),
       },
       {
+        id: "work-location",
         title: guideT("platformClaw.guide.workLocationTitle"),
         body: guideT("platformClaw.guide.workLocationBody"),
         element: () => this.tourElement("platformclaw-execution-settings", '[data-action="open"]'),
       },
       {
+        id: "plugins-overview",
         title: guideT("platformClaw.guide.pluginsTitle"),
         body: guideT("platformClaw.guide.pluginsBody"),
         details: guideT("platformClaw.guide.pluginsDetails").split("|"),
@@ -382,6 +460,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       },
       ...pluginCatalogSteps,
       {
+        id: "skills",
         title: guideT("platformClaw.guide.skillsTitle"),
         body: guideT("platformClaw.guide.skillsBody"),
         details: guideT("platformClaw.guide.skillsDetails").split("|"),
@@ -389,6 +468,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         activate: () => this.activatePluginHubTab("skills"),
       },
       {
+        id: "workshop",
         title: guideT("platformClaw.guide.workshopTitle"),
         body: guideT("platformClaw.guide.workshopBody"),
         details: guideT("platformClaw.guide.workshopDetails").split("|"),
@@ -396,6 +476,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         activate: () => this.activatePluginHubTab("workshop"),
       },
       {
+        id: "skill-hub",
         title: guideT("platformClaw.guide.skillHubTitle"),
         body: guideT("platformClaw.guide.skillHubBody"),
         details: guideT("platformClaw.guide.skillHubDetails").split("|"),
@@ -403,11 +484,94 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         activate: () => this.activatePluginHubTab("skill-hub"),
       },
       {
+        id: "settings-nav",
+        title: guideT("platformClaw.guide.settingsNavTitle"),
+        body: guideT("platformClaw.guide.settingsNavBody"),
+        details: guideT("platformClaw.guide.settingsNavDetails").split("|"),
+        element: findSidebarSettings,
+      },
+      {
+        id: "settings-overview",
+        title: guideT("platformClaw.guide.settingsTitle"),
+        body: guideT("platformClaw.guide.settingsBody"),
+        details: guideT("platformClaw.guide.settingsDetails").split("|"),
+        element: () => findSettingsElement(".settings-sidebar"),
+        activate: () => this.openSettings(),
+      },
+      {
+        id: "organization-nav",
+        title: guideT("platformClaw.guide.organizationNavTitle"),
+        body: guideT("platformClaw.guide.organizationNavBody"),
+        details: guideT("platformClaw.guide.organizationNavDetails").split("|"),
+        element: () => this.findSettingsRoute("settings/organization"),
+      },
+      {
+        id: "memory-nav",
+        title: guideT("platformClaw.guide.memoryNavTitle"),
+        body: guideT("platformClaw.guide.memoryNavBody"),
+        details: guideT("platformClaw.guide.memoryNavDetails").split("|"),
+        element: () => this.findSettingsRoute("settings/memory"),
+      },
+      {
+        id: "memory-overview",
+        title: guideT("platformClaw.guide.memoryOverviewTitle"),
+        body: guideT("platformClaw.guide.memoryOverviewBody"),
+        details: guideT("platformClaw.guide.memoryOverviewDetails").split("|"),
+        element: () => findSettingsElement(".platformclaw-memory-page__tabs"),
+        activate: () => this.openMemory(),
+      },
+      {
+        id: "personal-memory",
+        title: guideT("platformClaw.guide.personalMemoryTitle"),
+        body: guideT("platformClaw.guide.personalMemoryBody"),
+        details: guideT("platformClaw.guide.personalMemoryDetails").split("|"),
+        element: () => findSettingsElement("#platformclaw-memory-tab-memory"),
+        activate: () => this.activateMemoryTab("memory"),
+      },
+      {
+        id: "personal-wiki",
+        title: guideT("platformClaw.guide.personalWikiTitle"),
+        body: guideT("platformClaw.guide.personalWikiBody"),
+        details: guideT("platformClaw.guide.personalWikiDetails").split("|"),
+        element: () => findSettingsElement("#platformclaw-memory-tab-wiki"),
+        activate: () => this.activateMemoryTab("wiki"),
+      },
+      {
+        id: "organization-memory",
+        title: guideT("platformClaw.guide.organizationMemoryTitle"),
+        body: guideT("platformClaw.guide.organizationMemoryBody"),
+        details: guideT("platformClaw.guide.organizationMemoryDetails").split("|"),
+        element: () => findSettingsElement("#platformclaw-memory-tab-organization"),
+        activate: () => this.activateMemoryTab("organization"),
+      },
+      {
+        id: "dreaming",
+        title: guideT("platformClaw.guide.dreamingTitle"),
+        body: guideT("platformClaw.guide.dreamingBody"),
+        details: guideT("platformClaw.guide.dreamingDetails").split("|"),
+        element: () => findSettingsElement("#platformclaw-memory-tab-dreaming"),
+        activate: () => this.activateMemoryTab("dreaming"),
+      },
+      {
+        id: "reopen-guide",
         title: guideT("platformClaw.guide.reopenTitle"),
         body: guideT("platformClaw.guide.reopenBody"),
+        details: guideT("platformClaw.guide.reopenDetails").split("|"),
         element: () => this.tourElement('[data-tour="guide"]'),
+        activate: () => this.openHome(),
       },
     ];
+  }
+
+  private async waitForElement(find: () => Element | null): Promise<Element | null> {
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      const element = find();
+      if (element) {
+        return element;
+      }
+      await new Promise<void>((resolve) => globalThis.requestAnimationFrame(() => resolve()));
+    }
+    return null;
   }
 
   private async waitForTourElement(selector: string): Promise<Element | null> {
@@ -436,6 +600,66 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     await this.waitForTourElement("#plugins-tab-skills, #plugins-tab-installed");
   }
 
+  private findSettingsRoute(route: string): Element | null {
+    for (const anchor of document.querySelectorAll<HTMLAnchorElement>(
+      ".settings-sidebar__item[href]",
+    )) {
+      if (new URL(anchor.href, globalThis.location.href).pathname.endsWith(`/${route}`)) {
+        return anchor;
+      }
+    }
+    return null;
+  }
+
+  private async openSettings(): Promise<void> {
+    const button = findSidebarSettings();
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+    button.click();
+    await this.waitForTourElement(".settings-sidebar");
+  }
+
+  private async openMemory(): Promise<void> {
+    const link = this.findSettingsRoute("settings/memory");
+    if (!(link instanceof HTMLElement)) {
+      return;
+    }
+    link.click();
+    await this.waitForTourElement(".platformclaw-memory-page__tabs");
+  }
+
+  private async openHome(): Promise<void> {
+    const settingsBack = document.querySelector<HTMLElement>(".settings-sidebar__back");
+    if (!settingsBack && !findSidebarHome()) {
+      return;
+    }
+    settingsBack?.click();
+    const home = await this.waitForElement(findSidebarHome);
+    if (home instanceof HTMLElement) {
+      home.click();
+    }
+  }
+
+  private async openHomeToTerminal(): Promise<void> {
+    await this.openHome();
+    await this.waitForElement(findChatTerminal);
+  }
+
+  private async activateMemoryTab(tab: string): Promise<void> {
+    const selector = `#platformclaw-memory-tab-${tab}`;
+    let target = findSettingsElement(selector);
+    if (!target) {
+      await this.openMemory();
+      target = findSettingsElement(selector);
+    }
+    if (!target) {
+      return;
+    }
+    target?.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, detail: 1 }));
+    await this.waitForTourElement(selector);
+  }
+
   private async activatePluginHubTab(tab: string): Promise<void> {
     let target = findPluginHubElement(`#plugins-tab-${tab}`);
     if (!target) {
@@ -451,6 +675,9 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
 
   private async launchTour(launch: TourLaunch): Promise<void> {
     if (launch === "automatic") {
+      if (!isChatRoute()) {
+        return;
+      }
       if (this.automaticLaunchAttempted) {
         return;
       }
@@ -467,6 +694,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     try {
       await loadPlatformClawLocale();
       this.tourIndex = 0;
+      activeTourStepId = this.tourSteps()[0]?.id ?? null;
       await this.updateComplete;
       this.addTourListeners();
       this.updateTourPosition();
@@ -547,6 +775,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
 
   private closeTour(): void {
     this.tourIndex = null;
+    activeTourStepId = null;
     this.removeTourListeners();
   }
 
@@ -564,10 +793,13 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     this.guideMoving = true;
     try {
       const nextStep = this.tourSteps()[nextIndex];
-      await nextStep?.activate?.();
-      this.positionTourStep(nextStep);
       this.tourIndex = nextIndex;
+      activeTourStepId = nextStep?.id ?? null;
       await this.updateComplete;
+      await nextStep?.activate?.();
+      if (!this.isConnected) {
+        return;
+      }
       this.positionTourStep(nextStep);
     } finally {
       this.guideMoving = false;
