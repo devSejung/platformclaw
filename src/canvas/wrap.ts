@@ -91,8 +91,8 @@ export function buildWidgetDocument(
 ): string {
   const isSvg = /^<svg/i.test(widgetCode);
   const bodyClass = isSvg ? ' class="svg-widget"' : "";
-  // Inline scripts may drive the widget; CSP blocks resource loads, while preview metadata
-  // prevents the iframe from inheriting same-origin access to the parent application.
+  // Inline scripts and data/blob images never grant network or parent-origin
+  // access; preview metadata prevents the iframe inheriting parent authority.
   // The size reporter lets the embedding chat fit the iframe to the content; the
   // parent clamps reported heights, so widget code cannot abuse the channel.
   const sizeReporter =
@@ -238,5 +238,5 @@ export function buildWidgetDocument(
     ? options.connectOrigins.join(" ")
     : "'none'";
   return `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src ${connectSources};"><title>${escapeHtml(title)}</title><style>${WIDGET_BASE_STYLES}</style></head><body${bodyClass}>${widgetBridge}${themeBridge}${snapshotBridge}${widgetCode}${sizeReporter}</body></html>`;
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; connect-src ${connectSources};"><title>${escapeHtml(title)}</title><style>${WIDGET_BASE_STYLES}</style></head><body${bodyClass}>${widgetBridge}${themeBridge}${snapshotBridge}${widgetCode}${sizeReporter}</body></html>`;
 }

@@ -6,6 +6,7 @@ import {
   extractText,
   extractTextCached,
   extractThinkingCached,
+  readTranscriptMediaEntries,
 } from "./message-extract.ts";
 
 describe("extractTextCached", () => {
@@ -153,5 +154,48 @@ describe("nullish messages", () => {
       expect(extractRawText(message)).toBeNull();
       expect(extractThinkingCached(message)).toBeNull();
     }
+  });
+});
+
+describe("readTranscriptMediaEntries", () => {
+  it("prefers the browser-owned inbound claim-check over its private host path", () => {
+    const source = "media://inbound/report---123.pdf";
+
+    expect(
+      readTranscriptMediaEntries({
+        role: "user",
+        __openclaw: {
+          media: [
+            {
+              path: "/srv/private/media/inbound/report---123.pdf",
+              url: source,
+              contentType: "application/pdf",
+              fileName: "report.pdf",
+            },
+          ],
+        },
+      }),
+    ).toEqual([{ path: source, mediaType: "application/pdf", fileName: "report.pdf" }]);
+  });
+
+  it("preserves host-path precedence for media without an inbound claim-check", () => {
+    expect(
+      readTranscriptMediaEntries({
+        __openclaw: {
+          media: [
+            { path: "/workspace/report.pdf", url: "https://example.test/report.pdf" },
+            { url: "https://example.test/remote.pdf" },
+          ],
+        },
+      }),
+    ).toEqual([
+      { path: "/workspace/report.pdf", mediaType: undefined, fileName: undefined },
+      { path: "https://example.test/remote.pdf", mediaType: undefined, fileName: undefined },
+    ]);
+  });
+
+  it("ignores missing transcript media envelopes", () => {
+    expect(readTranscriptMediaEntries(null)).toEqual([]);
+    expect(readTranscriptMediaEntries({ role: "user" })).toEqual([]);
   });
 });

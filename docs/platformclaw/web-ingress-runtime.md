@@ -98,11 +98,13 @@ metadata is revalidated against the same Agent boundary, and `artifacts.get`
 remains unadvertised because the Control UI does not require it.
 
 Attachment bytes use a separate same-origin HTTP bridge. Managed artifact URLs
-must carry the short-lived capability minted by `artifacts.download`. Inbound
-uploads require an active browser cookie, an owned session key, and an exact
-structured media fact in that session's user transcript before the BFF mints a
-short-lived ticket. Browser cookies, Gateway credentials, redirects, and
-unapproved response headers never cross the bridge.
+must carry the short-lived capability minted by `artifacts.download`. User
+uploads and assistant-generated files require an active browser cookie, an owned
+session key, and an exact structured media fact in that session's user or
+assistant transcript before the BFF mints a short-lived ticket. The private
+Gateway validates each file against the owning Agent's allowed media roots.
+Plain-text file claims do not grant access. Browser cookies, Gateway
+credentials, redirects, and unapproved response headers never cross the bridge.
 
 Inline Canvas widgets use an independent BFF capability. The browser hello
 contains only a short-lived, employee-bound PlatformClaw surface URL; the
@@ -116,7 +118,9 @@ Inline `show_widget` rendering remains available when the employee selects an
 assigned VM. The agent loop and widget document owner stay on the Gateway; only
 project shell and file tools move through the assigned-VM sandbox backend. A
 widget may show results computed on that VM, but HTML must be passed as
-`widget_code`: neither `file://` nor a VM path becomes a browser URL.
+`widget_code` even when the same document was saved as a downloadable file.
+Images must use inline SVG, `data:` URLs, or `blob:` URLs; local paths, relative
+paths, remote URLs, `file://` URLs, and VM paths do not become browser URLs.
 
 PlatformClaw disables the separate paired-node Canvas plugin and the
 `group:nodes` agent tool family (`nodes`, `computer`, and `mobile_ui`). Assigned
@@ -138,7 +142,7 @@ limit alone would create roughly 133 MB frames and bypass the upstream ceiling.
 | `/platformclaw/api/auth/logout`                       | `POST`        | Revoke the active browser session and clear its cookie       |
 | `/platformclaw/api/auth/session`                      | `GET`, `HEAD` | Return the current browser authentication state              |
 | `/platformclaw/api/skill-hub/*`                       | `GET`, `POST` | Search, publish, and install registry skills                 |
-| `/platformclaw/app/__openclaw__/assistant-media`      | `GET`, `HEAD` | Check or download transcript-owned inbound uploads           |
+| `/platformclaw/app/__openclaw__/assistant-media`      | `GET`, `HEAD` | Download transcript-owned user or assistant attachments      |
 | `/api/chat/media/outgoing/*`                          | `GET`, `HEAD` | Download an owned artifact with its Gateway media ticket     |
 | `/__openclaw__/cap/*/__openclaw__/canvas/documents/*` | `GET`, `HEAD` | Render an Agent-owned Canvas document through a BFF lease    |
 | `/platformclaw/gateway`                               | WebSocket     | Expose the policy-filtered OpenClaw Gateway protocol         |

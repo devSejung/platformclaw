@@ -305,18 +305,35 @@ export function replaceAssistantContentTextBlocks(
   content: readonly AssistantDisplayContentBlock[] | undefined,
   transcriptMediaMessage: { content: Array<Record<string, unknown>> } | null,
 ): AssistantDisplayContentBlock[] | undefined {
-  const transcriptTextBlocks = (transcriptMediaMessage?.content ?? []).filter(
+  const transcriptBlocks = transcriptMediaMessage?.content ?? [];
+  const transcriptTextBlocks = transcriptBlocks.filter(
     (block): block is AssistantDisplayContentBlock =>
       Boolean(block) &&
       typeof block === "object" &&
       block.type === "text" &&
       typeof block.text === "string",
   );
+  const transcriptDocumentBlocks = transcriptBlocks.filter((block) => {
+    if (block?.type !== "attachment") {
+      return false;
+    }
+    const attachment = block.attachment as { kind?: unknown; url?: unknown } | undefined;
+    return (
+      attachment?.kind === "document" &&
+      typeof attachment.url === "string" &&
+      !content?.some((existing) => {
+        const existingAttachment = existing.attachment as { url?: unknown } | undefined;
+        return existingAttachment?.url === attachment.url;
+      })
+    );
+  });
   if (transcriptTextBlocks.length === 0) {
-    return content ? [...content] : undefined;
+    return content || transcriptDocumentBlocks.length > 0
+      ? [...(content ?? []), ...transcriptDocumentBlocks]
+      : undefined;
   }
   if (!content || content.length === 0) {
-    return [...transcriptTextBlocks];
+    return [...transcriptTextBlocks, ...transcriptDocumentBlocks];
   }
   const merged: AssistantDisplayContentBlock[] = [];
   let transcriptTextIndex = 0;
@@ -339,7 +356,9 @@ export function replaceAssistantContentTextBlocks(
   if (transcriptTextIndex < transcriptTextBlocks.length) {
     merged.unshift(...transcriptTextBlocks.slice(transcriptTextIndex));
   }
-  return merged;
+  // Managed media owns image/audio/video projection, but only the trusted
+  // transcript producer can retain local document ownership for history.
+  return [...merged, ...transcriptDocumentBlocks];
 }
 
 function isManagedOutgoingMediaUrl(value: unknown): boolean {
