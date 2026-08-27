@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 
 const DEFAULT_GATEWAY_ADMIN_RPC_TIMEOUT_MS = 15_000;
+const REMOTE_SKILL_STATUS_RPC_TIMEOUT_MS = 30_000;
+const UPLOADED_SKILL_MUTATION_RPC_TIMEOUT_MS = 180_000;
 const MAX_ABORT_SIGNAL_TIMEOUT_MS = 2 ** 32 - 1;
 const MAX_GATEWAY_ADMIN_RPC_RESPONSE_BYTES = 1024 * 1024;
 
@@ -48,6 +51,34 @@ function normalizeRpcUrl(raw: string): string {
     throw new Error("Gateway Admin RPC URL must not contain query or fragment data");
   }
   return url.toString();
+}
+
+function resolveCallTimeoutMs(
+  method: string,
+  params: unknown,
+  configuredTimeoutMs: number,
+): number {
+  if (!isRecord(params)) {
+    return configuredTimeoutMs;
+  }
+  if (
+    method === "skills.status" &&
+    params.refresh === true &&
+    params.backendTarget === "assigned_vm"
+  ) {
+    // The VM catalog scan owns a 15-second deadline. Leave bounded transport
+    // headroom so its terminal result can cross the HTTP boundary.
+    return Math.max(configuredTimeoutMs, REMOTE_SKILL_STATUS_RPC_TIMEOUT_MS);
+  }
+  if (
+    (method === "skills.install" && params.source === "upload") ||
+    (method === "skills.uninstall" && params.destination === "sandbox-backend")
+  ) {
+    // Uploaded archive mutation owns a 120-second operation deadline, including
+    // remote transfer and catalog refresh. The caller must outlive that owner.
+    return Math.max(configuredTimeoutMs, UPLOADED_SKILL_MUTATION_RPC_TIMEOUT_MS);
+  }
+  return configuredTimeoutMs;
 }
 
 function parseError(value: unknown): RpcErrorBody | null {
@@ -148,6 +179,7 @@ export class HttpGatewayAdminRpcClient implements GatewayAdminRpc {
       throw new Error("Gateway Admin RPC method is required");
     }
     const id = randomUUID();
+    const timeoutMs = resolveCallTimeoutMs(normalizedMethod, params, this.config.timeoutMs);
     let response: Response;
     try {
       response = await this.fetchImpl(this.config.rpcUrl, {
@@ -157,7 +189,7 @@ export class HttpGatewayAdminRpcClient implements GatewayAdminRpc {
           Authorization: `Bearer ${this.config.bearerToken}`,
           "Content-Type": "application/json",
         },
-        signal: AbortSignal.timeout(this.config.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({ id, method: normalizedMethod, params }),
       });
     } catch {

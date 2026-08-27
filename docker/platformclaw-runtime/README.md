@@ -178,7 +178,11 @@ EDITOR=nano ./platformclaw-deploy config edit
 
 Safe edit creates a timestamped backup, validates the canonical config, and
 restarts Gateway only after validation succeeds. PlatformClaw-managed sandbox
-and private-plugin policy remains enforced at startup.
+and private-plugin policy remains enforced at startup. When the managed
+SkillHub profile is enabled, startup also merges
+`skills.install.allowUploadedArchives: true` into the existing config. This
+preserves all other administrator-owned Skills and installer settings and is
+reapplied automatically after image updates; no manual config edit is required.
 
 ### Global MCP servers
 

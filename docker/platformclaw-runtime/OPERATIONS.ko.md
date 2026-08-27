@@ -134,7 +134,9 @@ server/scanner, PostgreSQL, Redis 이미지가 함께 들어 있다. SkillHub는
 최초 시작 전 최소 RAM 4 GiB와 배포 경로 여유 공간 20 GiB를 검사하며 이후
 재시작은 여유 공간 5 GiB를 하한으로 검사한다. 기존 설치에 SkillHub 설정이 없고 통합
 archive의 네 이미지가 모두 로드되면 `up` 또는 `image update`가 누락된 기본값을 합치고
-SkillHub를 자동 활성화한다. 관리자가 명시적으로
+SkillHub를 자동 활성화한다. 활성화된 배포는 Gateway 시작 시 기존 Skills 설정을 보존하면서
+`skills.install.allowUploadedArchives=true`를 자동으로 병합하므로 설치나 이미지 업데이트 후
+별도 config 편집이 필요 없다. 관리자가 명시적으로
 `PLATFORMCLAW_SKILL_HUB_ENABLED=false`를 지정한 설치는 그대로 유지되므로 기존 2-image
 archive도 계속 지원한다. SkillHub secret의 호스트 경로는 service-user의 실제 배포 root에서
 스크립트가 계산하므로 `deployment.env`에 복사하거나 직접 만들지 않는다.

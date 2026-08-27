@@ -470,7 +470,7 @@ describe("SkillHubService", () => {
     adapterMocks.download.mockResolvedValue(await skillArchive());
     adminRpcCall.mockImplementation(async (method) => {
       if (method === "skills.upload.begin") {
-        return { uploadId: "upload-1" };
+        return { uploadId: "upload-1", receivedBytes: 0 };
       }
       if (method === "skills.install") {
         return { ok: true, slug: "demo-skill" };
@@ -499,6 +499,14 @@ describe("SkillHubService", () => {
       "skills.upload.commit",
       "skills.install",
     ]);
+    expect(adminRpcCall).toHaveBeenCalledWith(
+      "skills.upload.begin",
+      expect.objectContaining({
+        idempotencyKey: expect.stringContaining(
+          '["skill-hub","agent-1","platform_server","install"',
+        ),
+      }),
+    );
     expect(adminRpcCall).toHaveBeenLastCalledWith(
       "skills.install",
       expect.objectContaining({
@@ -552,7 +560,7 @@ describe("SkillHubService", () => {
         };
       }
       if (method === "skills.upload.begin") {
-        return { uploadId: "upload-update" };
+        return { uploadId: "upload-update", receivedBytes: 0 };
       }
       if (method === "skills.install") {
         return { ok: true, slug: "demo-skill" };
@@ -587,6 +595,14 @@ describe("SkillHubService", () => {
         currentVersion: "1.0.0",
       }),
     ).resolves.toMatchObject({ ok: true, noOp: false, version: "2.0.0" });
+    expect(adminRpcCall).toHaveBeenCalledWith(
+      "skills.upload.begin",
+      expect.objectContaining({
+        idempotencyKey: expect.stringContaining(
+          '["skill-hub","agent-1","platform_server","update"',
+        ),
+      }),
+    );
     expect(adminRpcCall).toHaveBeenLastCalledWith(
       "skills.install",
       expect.objectContaining({
@@ -628,7 +644,7 @@ describe("SkillHubService", () => {
     adapterMocks.download.mockResolvedValue(await skillArchive());
     adminRpcCall.mockImplementation(async (method) => {
       if (method === "skills.upload.begin") {
-        return { uploadId: "upload-1" };
+        return { uploadId: "upload-1", receivedBytes: 0 };
       }
       if (method === "skills.install") {
         return { ok: true, slug: "demo-skill", targetDir: "/private/vm/path" };
@@ -672,7 +688,7 @@ describe("SkillHubService", () => {
     adapterMocks.download.mockResolvedValue(await skillArchive());
     adminRpcCall.mockImplementation(async (method) => {
       if (method === "skills.upload.begin") {
-        return { uploadId: "upload-1" };
+        return { uploadId: "upload-1", receivedBytes: 0 };
       }
       if (method === "skills.install") {
         return { ok: true, slug: "demo-skill" };

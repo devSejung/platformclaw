@@ -13,6 +13,35 @@ const MCP_DENY_MIGRATION_ERROR =
   "Existing sandbox tool deny policy blocks managed global MCP; remove bundle-mcp, matching wildcards, or group:plugins before upgrading PlatformClaw";
 const MANAGED_DISABLED_AGENT_TOOLS = ["group:nodes"];
 
+function reconcileSkillHubArchiveInstallPolicy(config, skillHubEnabled) {
+  if (!skillHubEnabled) {
+    return { config, changed: false };
+  }
+  const skills = config?.skills;
+  const install = skills?.install;
+  if (install?.allowUploadedArchives === true) {
+    return { config, changed: false };
+  }
+  // Preserve operator-owned skill and installer tuning. Malformed non-object
+  // values remain untouched so validation fails instead of masking bad config.
+  if (
+    (skills !== undefined && (!skills || typeof skills !== "object" || Array.isArray(skills))) ||
+    (install !== undefined && (!install || typeof install !== "object" || Array.isArray(install)))
+  ) {
+    return { config, changed: false };
+  }
+  return {
+    changed: true,
+    config: {
+      ...config,
+      skills: {
+        ...skills,
+        install: { ...install, allowUploadedArchives: true },
+      },
+    },
+  };
+}
+
 const MANAGED_MEMORY_WIKI_CONFIG = {
   vaultMode: "bridge",
   vault: {
@@ -276,24 +305,35 @@ function reconcileRequiredPlugins(config) {
   };
 }
 
-export function reconcileManagedConfig(config, sandboxImage) {
+export function reconcileManagedConfig(config, sandboxImage, skillHubEnabled = false) {
   const imageResult = reconcileSandboxImage(config, sandboxImage);
   const mcpResult = reconcileGlobalMcpSandboxGate(imageResult.config);
   const toolResult = reconcileManagedAgentToolPolicy(mcpResult.config);
   const pluginResult = reconcileRequiredPlugins(toolResult.config);
+  const skillHubResult = reconcileSkillHubArchiveInstallPolicy(
+    pluginResult.config,
+    skillHubEnabled,
+  );
   return {
-    config: pluginResult.config,
-    changed: imageResult.changed || mcpResult.changed || toolResult.changed || pluginResult.changed,
+    config: skillHubResult.config,
+    changed:
+      imageResult.changed ||
+      mcpResult.changed ||
+      toolResult.changed ||
+      pluginResult.changed ||
+      skillHubResult.changed,
   };
 }
 
 async function main() {
-  const [configPath, sandboxImage] = process.argv.slice(2);
-  if (!configPath || !sandboxImage) {
-    throw new Error("usage: reconcile-managed-config.mjs <config-path> <sandbox-image>");
+  const [configPath, sandboxImage, skillHubEnabledValue] = process.argv.slice(2);
+  if (!configPath || !sandboxImage || !["true", "false"].includes(skillHubEnabledValue)) {
+    throw new Error(
+      "usage: reconcile-managed-config.mjs <config-path> <sandbox-image> <skillhub-enabled>",
+    );
   }
   const source = JSON.parse(await readFile(configPath, "utf8"));
-  const result = reconcileManagedConfig(source, sandboxImage);
+  const result = reconcileManagedConfig(source, sandboxImage, skillHubEnabledValue === "true");
   if (!result.changed) {
     return;
   }

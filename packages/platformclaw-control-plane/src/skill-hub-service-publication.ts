@@ -27,6 +27,32 @@ import { downloadVmWorkspaceArchive } from "./skill-hub-workspace-export.js";
 import { validateZipArchiveFile, ZipArchiveValidationError } from "./zip-archive-validator.js";
 
 export abstract class SkillHubPublicationService extends SkillHubServiceBase {
+  private readonly installLocks = new Map<string, Promise<void>>();
+
+  private async withInstallLock<T>(
+    agentId: string,
+    destination: SkillInstallTarget,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${agentId}\0${destination}`;
+    const previous = this.installLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => gate);
+    this.installLocks.set(key, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.installLocks.get(key) === tail) {
+        this.installLocks.delete(key);
+      }
+    }
+  }
+
   async authenticate(token: string): Promise<AuthenticatedWorkspace | null> {
     const auth = await this.options.authService.authenticateToken(token);
     if (auth.status !== "active") {
@@ -487,6 +513,22 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       currentVersion?: string;
     },
   ) {
+    return await this.withInstallLock(actor.agentId, params.destination, async () =>
+      this.installUnlocked(actor, params),
+    );
+  }
+
+  private async installUnlocked(
+    actor: AuthenticatedWorkspace,
+    params: {
+      namespace: string;
+      slug: string;
+      version: string;
+      destination: SkillInstallTarget;
+      acknowledgedVersionChange?: boolean;
+      currentVersion?: string;
+    },
+  ) {
     const execution = await this.authorizeInstallTarget(actor.agentId, params.destination);
     const namespace = this.authorizeNamespace(params.namespace);
     const slug = safeName(params.slug, "skill slug", SKILL_KEY_PATTERN);
@@ -557,18 +599,38 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       files: MAX_SKILL_FILES,
     });
     const sha256 = createHash("sha256").update(archive).digest("hex");
-    const begin = await this.gatewayCall<{ uploadId: string }>("skills.upload.begin", {
-      kind: "skill-archive",
-      slug,
-      sizeBytes: archive.byteLength,
-      sha256,
-      force: replacing,
-      idempotencyKey: `skill-hub:${namespace}/${slug}@${version}:${sha256}`,
-    });
-    if (!begin?.uploadId) {
+    const begin = await this.gatewayCall<{ uploadId?: string; receivedBytes?: number }>(
+      "skills.upload.begin",
+      {
+        kind: "skill-archive",
+        slug,
+        sizeBytes: archive.byteLength,
+        sha256,
+        force: replacing,
+        idempotencyKey: JSON.stringify([
+          "skill-hub",
+          actor.agentId,
+          params.destination,
+          replacing ? "update" : "install",
+          namespace,
+          slug,
+          version,
+          sha256,
+        ]),
+      },
+    );
+    const receivedBytes = begin?.receivedBytes;
+    if (
+      !begin?.uploadId ||
+      typeof receivedBytes !== "number" ||
+      !Number.isSafeInteger(receivedBytes) ||
+      receivedBytes < 0 ||
+      receivedBytes > archive.byteLength
+    ) {
       throw new SkillHubServiceError("Gateway returned an invalid upload session", 503);
     }
-    for (let offset = 0; offset < archive.byteLength; offset += UPLOAD_CHUNK_BYTES) {
+    // Begin is the resume authority: retries continue a partial upload and skip chunks after commit.
+    for (let offset = receivedBytes; offset < archive.byteLength; offset += UPLOAD_CHUNK_BYTES) {
       const chunk = archive.subarray(
         offset,
         Math.min(offset + UPLOAD_CHUNK_BYTES, archive.byteLength),

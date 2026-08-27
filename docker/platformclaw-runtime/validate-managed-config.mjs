@@ -125,11 +125,14 @@ function mergeSandboxPolicy(defaults, override) {
   };
 }
 
-export function validateManagedConfig(config, sandboxImage) {
+export function validateManagedConfig(config, sandboxImage, skillHubEnabled = false) {
   const defaults = config?.agents?.defaults?.sandbox;
   validateSandboxPolicy(defaults, sandboxImage, new Set(["platformclaw-execution"]));
   validateToolPolicy(config?.tools);
   validateManagedAgentToolPolicy(config?.tools);
+  if (skillHubEnabled) {
+    requirePolicy(config?.skills?.install?.allowUploadedArchives === true);
+  }
   const globalSandboxTools = config?.tools?.sandbox?.tools;
   validateGlobalMcpSandboxGate(globalSandboxTools);
 
@@ -201,17 +204,17 @@ export function validateManagedConfig(config, sandboxImage) {
 }
 
 async function main() {
-  const [sandboxImage] = process.argv.slice(2);
-  if (!sandboxImage) {
-    throw new Error("usage: validate-managed-config.mjs <sandbox-image>");
+  const [sandboxImage, skillHubEnabledValue] = process.argv.slice(2);
+  if (!sandboxImage || !["true", "false"].includes(skillHubEnabledValue)) {
+    throw new Error("usage: validate-managed-config.mjs <sandbox-image> <skillhub-enabled>");
   }
   const { loadConfig } = await import("/app/dist/config/config.js");
-  validateManagedConfig(loadConfig({ pin: false }), sandboxImage);
+  validateManagedConfig(loadConfig({ pin: false }), sandboxImage, skillHubEnabledValue === "true");
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
-  main().catch((error) => {
+  main().catch((/** @type {unknown} */ error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });

@@ -49,7 +49,8 @@ never publishes registry, database, Redis, or scanner ports. PlatformClaw uses
 its existing employee session and personal-Agent binding; it does not enable
 SkillHub OAuth in the browser.
 
-Enable the existing trusted uploaded-archive path on the private Gateway:
+Managed SkillHub deployments automatically enable the existing trusted
+uploaded-archive path on the private Gateway:
 
 ```json5
 {
@@ -61,7 +62,10 @@ Enable the existing trusted uploaded-archive path on the private Gateway:
 }
 ```
 
-This setting is off by default upstream. PlatformClaw sends downloaded packages
+This setting remains off by default upstream. PlatformClaw merges it into the
+preserved Gateway config whenever the managed SkillHub profile starts, including
+after image updates, without replacing other Skills or installer settings.
+PlatformClaw sends downloaded packages
 through `skills.upload.begin`, `skills.upload.chunk`, `skills.upload.commit`, and
 `skills.install`; it does not add a second archive extractor or write directly
 into an Agent workspace.
@@ -93,8 +97,8 @@ environment variable, or a reverse-proxy header visible to the browser. The
 adapter keeps it inside the control process and redacts it if an upstream error
 reflects the token.
 
-Restart the Gateway after enabling uploaded archives, then restart the control
-process after changing Skill Hub environment values or its token file.
+Restart the control process after changing Skill Hub environment values or its
+token file. Managed startup handles the Gateway archive-install setting.
 
 ## Publish a workspace skill
 
@@ -251,9 +255,9 @@ remote filesystem path.
 - **Publishing or installing from this namespace is not allowed**: add the
   namespace to `PLATFORMCLAW_SKILL_HUB_NAMESPACES` only after approving employee
   access, then restart the control process.
-- **Uploaded skill archive installs are disabled**: set
-  `skills.install.allowUploadedArchives: true` on the private Gateway and restart
-  it.
+- **Uploaded skill archive installs are disabled**: verify
+  `PLATFORMCLAW_SKILL_HUB_ENABLED=true`, then restart Gateway. Managed startup
+  repairs the archive-install setting while preserving other Skills config.
 - **Version change requires confirmation**: review the current and requested
   versions, then use the explicit replacement action. A stale confirmation is
   rejected.

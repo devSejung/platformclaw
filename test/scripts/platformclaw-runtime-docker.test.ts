@@ -257,6 +257,9 @@ describe("PlatformClaw Docker runtime", () => {
     expect(gateway?.environment?.OPENCLAW_STATE_DIR).toBe(
       "${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home/.openclaw",
     );
+    expect(gateway?.environment?.PLATFORMCLAW_SKILL_HUB_ENABLED).toBe(
+      "${PLATFORMCLAW_SKILL_HUB_ENABLED:-false}",
+    );
     expect(gateway?.tmpfs).toEqual([
       "${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home:uid=${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user},gid=${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user},mode=0700",
     ]);
@@ -499,6 +502,43 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(result.config.tools.sandbox.tools.alsoAllow).toEqual(["memory_search", "bundle-mcp"]);
     expect(result.config.tools.deny).toEqual(["group:nodes"]);
     expect(source.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:old");
+  });
+
+  it("enables uploaded archives only for managed SkillHub deployments", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      skills?: {
+        load?: { extraDirs?: string[] };
+        install?: { allowUploadedArchives?: boolean; nodeManager?: string };
+      };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    source.skills = {
+      load: { extraDirs: ["/opt/company-skills"] },
+      install: { allowUploadedArchives: false, nodeManager: "pnpm" },
+    };
+
+    const enabled = reconcileManagedConfig(source, "platformclaw-sandbox:test", true);
+
+    expect(enabled.changed).toBe(true);
+    expect(enabled.config.skills).toEqual({
+      load: { extraDirs: ["/opt/company-skills"] },
+      install: { allowUploadedArchives: true, nodeManager: "pnpm" },
+    });
+    expect(() =>
+      validateManagedConfig(enabled.config, "platformclaw-sandbox:test", true),
+    ).not.toThrow();
+    expect(reconcileManagedConfig(enabled.config, "platformclaw-sandbox:test", true).changed).toBe(
+      false,
+    );
+
+    const disabled = reconcileManagedConfig(source, "platformclaw-sandbox:test", false);
+    expect(disabled.config.skills?.install?.allowUploadedArchives).toBe(false);
+    expect(() => validateManagedConfig(disabled.config, "platformclaw-sandbox:test", true)).toThrow(
+      "managed PlatformClaw execution policy",
+    );
   });
 
   it("removes the paired-node Canvas surface while preserving the widget host", () => {

@@ -127,7 +127,7 @@ describe("PlatformClaw Skill Hub integration", () => {
       async call<T>(method: string, params: unknown): Promise<T> {
         rpcCalls.push([method, params]);
         if (method === "skills.upload.begin") {
-          return { uploadId: "upload-one" } as T;
+          return { uploadId: "upload-one", receivedBytes: 0 } as T;
         }
         if (method === "skills.install") {
           return { ok: true, slug: "demo-skill" } as T;

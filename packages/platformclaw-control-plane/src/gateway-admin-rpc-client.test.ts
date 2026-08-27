@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GatewayAdminRpcError, HttpGatewayAdminRpcClient } from "./gateway-admin-rpc-client.js";
 
 function parseJsonRequestBody(body: BodyInit | null | undefined): Record<string, unknown> {
@@ -29,6 +29,10 @@ function createClient(
   return { client, fetchImpl };
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("HttpGatewayAdminRpcClient", () => {
   it.each([0.5, 2 ** 32])(
     "rejects timeout values unsupported by AbortSignal.timeout: %s",
@@ -55,6 +59,44 @@ describe("HttpGatewayAdminRpcClient", () => {
     expect(init?.method).toBe("POST");
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer test-bearer-token");
     expect(parseJsonRequestBody(init?.body)).toMatchObject({ method: "agents.list", params: {} });
+  });
+
+  it("gives bounded long-running SkillHub operations transport headroom", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const { client } = createClient((request) => ({
+      body: { id: request.id, ok: true, payload: {} },
+    }));
+
+    await client.call("agents.list", {});
+    await client.call("skills.status", { refresh: true, backendTarget: "platform_server" });
+    await client.call("skills.status", { refresh: true, backendTarget: "assigned_vm" });
+    await client.call("skills.install", { source: "upload", destination: "sandbox-backend" });
+    await client.call("skills.uninstall", { destination: "sandbox-backend" });
+
+    expect(timeout.mock.calls.map(([timeoutMs]) => timeoutMs)).toEqual([
+      15_000, 15_000, 30_000, 180_000, 180_000,
+    ]);
+  });
+
+  it("preserves a longer operator-configured Admin RPC deadline", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const request = parseJsonRequestBody(init?.body);
+      return new Response(JSON.stringify({ id: request.id, ok: true, payload: {} }));
+    });
+    const client = new HttpGatewayAdminRpcClient(
+      {
+        rpcUrl: "http://127.0.0.1:18789/api/v1/admin/rpc",
+        bearerToken: "test-bearer-token",
+        timeoutMs: 240_000,
+      },
+      fetchImpl,
+    );
+
+    await client.call("skills.status", { refresh: true, backendTarget: "assigned_vm" });
+    await client.call("skills.install", { source: "upload" });
+
+    expect(timeout.mock.calls.map(([timeoutMs]) => timeoutMs)).toEqual([240_000, 240_000]);
   });
 
   it("returns bounded Gateway errors without exposing response bodies", async () => {
