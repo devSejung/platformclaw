@@ -3638,8 +3638,8 @@ openclaw-chat-video-player {
   .agent-chat__composer-controls {
     order: 0;
     display: grid;
-    /* Three columns: settings, the transient interrupted toast (absent in
-       the normal state, so its column collapses), and the model picker. */
+    /* View, optional terminal/run status, then the model picker. Extra controls
+       use implicit content-sized columns instead of reserving empty space. */
     grid-template-columns: 40px minmax(0, max-content) minmax(0, max-content);
     flex: 1 1 0;
     width: auto;

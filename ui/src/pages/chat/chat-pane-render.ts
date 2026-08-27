@@ -401,6 +401,7 @@ export class ChatPane extends ChatPaneHeader {
             selectedSession,
             agentDefaultModel,
             mutationAccess: mutationAccess.runtimePatch,
+            onToggleTerminal: sessionWorkspace?.onToggleTerminal,
           }),
       sessionWorkspace: catalogKey ? undefined : sessionWorkspace,
       backgroundTasks: catalogKey ? undefined : backgroundTasks,

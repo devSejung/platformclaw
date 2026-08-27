@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("./i18n.ts", () => ({
+  platformClawT: (key: string) => key,
+}));
+
 import "./organization-join-panel.ts";
 
 type JoinPanel = HTMLElement & {

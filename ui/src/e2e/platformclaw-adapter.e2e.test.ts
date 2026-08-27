@@ -12,6 +12,7 @@ import {
   type ControlUiE2eServer,
   type ControlUiMockGatewayScenario,
 } from "../test-helpers/control-ui-e2e.ts";
+import { runPlatformClawSettingsAndMemoryGuide } from "./platformclaw-guide-flow.test-support.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
@@ -205,7 +206,11 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await installMockGateway(page, {
       basePath: "/platformclaw/app",
       defaultAgentId: "person_one",
+      featureCapabilities: ["platformclaw.personal-vm-terminal"],
+      methodResponses: { "terminal.open": { sessionId: "guide-terminal" } },
+      operatorScopes: ["operator.read", "operator.write"],
       sessionKey: "agent:person_one:main",
+      terminalEnabled: true,
     });
 
     await page.goto(`${server.baseUrl}platformclaw/app/chat`);
@@ -228,6 +233,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
 
     const sidebarGuideSteps = [
       ["Home: start a conversation with your Agent", "05a-01-home-guide.png"],
+      ["Terminal: run commands while you chat", "05a-01b-terminal-guide.png"],
       ["Usage: understand tokens and cost", "05a-02-usage-guide.png"],
       ["Tasks: follow assigned work", "05a-03-tasks-guide.png"],
       ["Threads: continue an earlier conversation", "05a-04-threads-guide.png"],
@@ -235,7 +241,6 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       ["Automations: schedule recurring work", "05a-06-automations-guide.png"],
       ["Plugins: extend Agent capabilities", "05a-07-plugins-guide.png"],
     ] as const;
-    let previousHighlightTop = -1;
     for (const [heading, screenshot] of sidebarGuideSteps) {
       await page.getByRole("button", { name: "Next" }).click();
       await expect.poll(() => page.getByRole("heading", { name: heading }).isVisible()).toBe(true);
@@ -243,16 +248,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       await expect
         .poll(() => page.locator(".tour-highlight").evaluate((element) => element.clientHeight))
         .toBeGreaterThanOrEqual(40);
-      await expect
-        .poll(() =>
-          page
-            .locator(".tour-highlight")
-            .evaluate((element) => element.getBoundingClientRect().top),
-        )
-        .toBeGreaterThan(previousHighlightTop + 10);
-      previousHighlightTop = await page
-        .locator(".tour-highlight")
-        .evaluate((element) => element.getBoundingClientRect().top);
+      if (heading.startsWith("Terminal:")) {
+        await expect.poll(() => page.locator(".chat-terminal-toggle").isVisible()).toBe(true);
+      }
       if (heading.startsWith("Usage:")) {
         await expect
           .poll(() =>
@@ -277,7 +275,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     if (captureUiProofEnabled) {
       await page.screenshot({
         fullPage: true,
-        path: path.join(proofDir, "05a-08-work-location-guide.png"),
+        path: path.join(proofDir, "05a-10-work-location-guide.png"),
       });
     }
 
@@ -349,19 +347,12 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       });
     }
 
-    await page.getByRole("button", { name: "Don't show again" }).click();
-    await expect.poll(() => page.locator(".tour-popover").count()).toBe(0);
-    expect(
-      await page.evaluate(() => localStorage.getItem("platformclaw.product-tour.v1.completed")),
-    ).toBe("true");
-
-    await page.reload();
-    await expect
-      .poll(() => quickActions.getByRole("button", { name: "Guide" }).isVisible())
-      .toBe(true);
-    await expect.poll(() => page.locator(".tour-popover").count()).toBe(0);
-    await quickActions.getByRole("button", { name: "Guide" }).click();
-    await expect.poll(() => page.locator(".tour-popover").isVisible()).toBe(true);
+    await runPlatformClawSettingsAndMemoryGuide({
+      captureUiProofEnabled,
+      page,
+      proofDir,
+      quickActions,
+    });
   });
 
   it("opens the owned-agent self-service surface through the cookie-authenticated proxy", async () => {

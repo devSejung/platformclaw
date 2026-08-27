@@ -256,6 +256,11 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.chatBody": "Start a new request and work with your Agent from here.",
   "platformClaw.guide.chatDetails":
     "A conversation keeps the context established by earlier messages.|Use a new conversation for unrelated work so results and history stay easy to find.",
+  "platformClaw.guide.terminalTitle": "Terminal: run commands while you chat",
+  "platformClaw.guide.terminalBody":
+    "Use the highlighted Terminal button to open a command-line panel without leaving the conversation.",
+  "platformClaw.guide.terminalDetails":
+    "Select the Terminal icon beside View below the composer.|Press Ctrl+~ to open the same panel from the keyboard.|Check command output and server status, then use the panel close button when you are done.",
   "platformClaw.guide.usageTitle": "Usage: understand tokens and cost",
   "platformClaw.guide.usageBody":
     "Review the tokens your Agents used and their estimated cost over a selected period.",
@@ -280,6 +285,52 @@ export const translations: Readonly<Record<string, string>> = {
     "Manage Agent work that runs at a particular time or on a recurring schedule.",
   "platformClaw.guide.automationsDetails":
     "Set the schedule, responsible Agent, and work to perform.|Review the next run and recent success or failure, or run it immediately.|Open run history to inspect results and delivery status.",
+  "platformClaw.guide.settingsNavTitle": "Settings button: open all workspace settings",
+  "platformClaw.guide.settingsNavBody":
+    "The highlighted Settings button opens appearance, connections, Agent tools, security, and system settings.",
+  "platformClaw.guide.settingsNavDetails":
+    "This step shows where the Settings button is.|Select Next and the guide will open Settings before explaining its sidebar categories.",
+  "platformClaw.guide.settingsTitle": "Settings: manage your workspace and connections",
+  "platformClaw.guide.settingsBody":
+    "The guide has opened Settings so you can see each group in the dedicated sidebar.",
+  "platformClaw.guide.settingsDetails":
+    "Basic covers your profile, appearance, and notifications.|Connections covers the Gateway connection, channels, communications, Talk, and nodes.|Agents & tools contains Agents, Labs, model providers, MCP, Memory, Organization, and Automation. Administrators register MCP servers; members only connect credentials when an administrator requires it.|Privacy & security contains security controls and approvals; System contains infrastructure, advanced options, debug, logs, and About.|Use the search box at the top of Settings when you know the option you need.",
+  "platformClaw.guide.organizationNavTitle": "Organization: review membership and access",
+  "platformClaw.guide.organizationNavBody":
+    "Organization shows your Team, Group, and Part membership, your primary scope, and available join requests.",
+  "platformClaw.guide.organizationNavDetails":
+    "Overview shows current membership and inherited access.|Requests is where you apply to join and track the decision.|Delegated leaders and administrators manage members and structure only within their allowed scope.|Audit appears only to users with permission.|This Settings category is separate from the Organization knowledge-promotion tab inside Memory.",
+  "platformClaw.guide.memoryNavTitle": "Memory: open your knowledge workspace",
+  "platformClaw.guide.memoryNavBody":
+    "Select Memory under Agents & tools. The guide will enter the screen and explain each tab.",
+  "platformClaw.guide.memoryNavDetails":
+    "Memory is personal to your assigned Agent.|Personal knowledge does not become Part knowledge automatically; it follows the Organization promotion and approval flow.",
+  "platformClaw.guide.memoryOverviewTitle": "Memory: five views for retained knowledge",
+  "platformClaw.guide.memoryOverviewBody":
+    "This screen separates raw recall, compiled pages, organization sharing, and consolidation history.",
+  "platformClaw.guide.memoryOverviewDetails":
+    "Overview summarizes the available stores.|Memory searches personal recall.|Personal Wiki opens reusable compiled pages.|Organization submits and reviews knowledge promotions.|Dreaming shows how durable memory was consolidated.",
+  "platformClaw.guide.personalMemoryTitle": "Memory: search personal recall",
+  "platformClaw.guide.personalMemoryBody":
+    "Search for details your Agent retained from your own work and conversations.",
+  "platformClaw.guide.personalMemoryDetails":
+    "Enter a specific phrase and run the search.|Open matching results to verify the source and context before relying on them.|This remains personal memory; use the Organization tab when it should become shared Part knowledge.",
+  "platformClaw.guide.personalWikiTitle": "Personal Wiki: review reusable source pages",
+  "platformClaw.guide.personalWikiBody":
+    "Open the complete Wiki page that contains the knowledge you want to reuse or share.",
+  "platformClaw.guide.personalWikiDetails":
+    "Search by page title or topic.|Open the full page and verify that it is complete and accurate.|Organization promotion starts from one of these reviewed Personal Wiki pages, not directly from a raw memory search result.",
+  "platformClaw.guide.organizationMemoryTitle":
+    "Organization: promote personal knowledge to your Part",
+  "platformClaw.guide.organizationMemoryBody":
+    "A Personal Wiki page becomes Part knowledge only after a promotion request is reviewed and approved.",
+  "platformClaw.guide.organizationMemoryDetails":
+    "Choose Personal as the source and search for the verified Personal Wiki page.|Select your Part as the target, then review the proposed text, evidence, and promotion reason.|Submit the promotion request; it appears under My requests as Pending.|A leader with review permission checks Needs review and selects Approve or Reject with a reason.|Only an approved request becomes active Part knowledge. Higher-scope promotion repeats the same review path; administrators may publish directly only where policy allows.",
+  "platformClaw.guide.dreamingTitle": "Dreaming: inspect memory consolidation",
+  "platformClaw.guide.dreamingBody":
+    "Review how personal memory was organized into durable knowledge over time.",
+  "platformClaw.guide.dreamingDetails":
+    "Dream Diary shows consolidation runs and their outcomes.|Use Personal Wiki to inspect the pages produced from durable knowledge.|Dreaming organizes personal knowledge; it does not bypass the Organization approval required for Part knowledge.",
   "platformClaw.guide.pluginsNavTitle": "Plugins: extend Agent capabilities",
   "platformClaw.guide.pluginsNavBody":
     "Open the hub for service connections, reusable instructions, and company skills.",
@@ -313,13 +364,15 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.workshopBody":
     "Draft skill changes stay separate from live skills until you approve them.",
   "platformClaw.guide.workshopDetails":
-    "Ask the Agent in chat to create or improve a skill.|Evaluate runs checks; Request revision sends it back for changes.|Confirm the work location, then Apply to make the reviewed version live.",
+    "Ask the Agent in chat to create or improve a skill; the proposal appears in Workshop without changing the live skill.|Open the proposal and review its instructions and support files.|Evaluate runs checks and records the result; Request revision sends specific feedback back for another draft.|Confirm Basic Workspace or My VM Workspace matches the proposal target.|Apply only after the evaluation and content are acceptable; the reviewed version then becomes the live skill.",
   "platformClaw.guide.skillHubTitle": "Skill Hub: install and share company skills",
   "platformClaw.guide.skillHubBody":
     "Search the company catalog for a skill that already solves your task.",
   "platformClaw.guide.skillHubDetails":
     "Search by task, then open a result to review its description and versions.|Choose a version and select Install.|Pick Basic Workspace or My VM Workspace as the installation target.",
-  "platformClaw.guide.reopenTitle": "Open this guide anytime",
+  "platformClaw.guide.reopenTitle": "You are back Home",
   "platformClaw.guide.reopenBody":
-    "Use the Guide button whenever you want to review these features.",
+    "This is the end of the guide. Use the highlighted Guide button whenever you want to review it again.",
+  "platformClaw.guide.reopenDetails":
+    "Done closes only this walkthrough.|The Guide button remains in the sidebar so you can restart from the beginning anytime.",
 };

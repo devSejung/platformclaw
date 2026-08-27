@@ -257,6 +257,7 @@ export function renderApplicationShell(host: ShellViewHost) {
         onSearchQueryChange: (nextQuery) => {
           void host.handleSettingsSearchQueryChange(nextQuery);
         },
+        renderFooterAccessory: runtime.shellSession?.renderFooterAccessory,
         preloadTimers: host.settingsPreloadTimers,
         saveIndicator: {
           status: runtimeConfig.configAutoSaveStatus,

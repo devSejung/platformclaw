@@ -19,6 +19,7 @@ import {
   resolveUiConfiguredMainKey,
   uiSessionEventMatches,
 } from "../../lib/sessions/session-key.ts";
+import { isTerminalAvailable } from "../../lib/terminal-availability.ts";
 import { invalidateChatAvatarCache } from "./chat-avatar.ts";
 import { applyChatAgentsList, syncSelectedSessionMessageSubscription } from "./chat-history.ts";
 import { ChatPaneLifecycle } from "./chat-pane-lifecycle.ts";
@@ -137,11 +138,10 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       return;
     }
     const previousTerminalAvailable = state.terminalAvailable;
-    state.terminalAvailable =
-      config.terminalEnabled &&
-      state.connected &&
-      hasOperatorAdminAccess(state.hello?.auth ?? null) &&
-      isGatewayMethodAdvertised(this.context.gateway.snapshot, "terminal.open") === true;
+    state.terminalAvailable = isTerminalAvailable(
+      this.context.gateway.snapshot,
+      config.terminalEnabled,
+    );
     const rootsChanged =
       state.localMediaPreviewRoots.length !== config.localMediaPreviewRoots.length ||
       state.localMediaPreviewRoots.some(
@@ -271,11 +271,10 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       });
       this.deferSessionHydrationUntilTranscript(state.sessionKey, historyRefresh);
     }
-    state.terminalAvailable =
-      this.context.config.current.terminalEnabled &&
-      snapshot.phase === "connected" &&
-      hasOperatorAdminAccess(snapshot.hello?.auth ?? null) &&
-      isGatewayMethodAdvertised(snapshot, "terminal.open") === true;
+    state.terminalAvailable = isTerminalAvailable(
+      snapshot,
+      this.context.config.current.terminalEnabled,
+    );
     state.browserPanelAvailable =
       snapshot.phase === "connected" &&
       hasOperatorAdminAccess(snapshot.hello?.auth ?? null) &&
