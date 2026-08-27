@@ -76,7 +76,7 @@ describe("BrowserGatewayProxy cron", () => {
       includeDeliveryPreviews: false,
       scheduleKinds: ["at", "every", "cron"],
       payloadKinds: ["agentTurn", "systemEvent"],
-      sessionTargets: ["main", "isolated"],
+      sessionTargets: ["main", "isolated", "current"],
       sessionAgentId: binding.agentId,
       ownerAgentId: binding.agentId,
       ownerSessionAgentId: binding.agentId,
@@ -112,6 +112,83 @@ describe("BrowserGatewayProxy cron", () => {
       proxy.request(token, "cron.list", { includeDeliveryPreviews: true }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an owned current-session job and rejects an owner-session mismatch", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const sessionKey = `agent:${binding.agentId}:main`;
+    const currentJob = safeCronJob(binding.agentId, {
+      sessionTarget: "current",
+      sessionKey,
+      delivery: { mode: "announce", channel: "last" },
+    });
+    request.mockResolvedValueOnce({ jobs: [currentJob], total: 1, hasMore: false });
+
+    await expect(proxy.request(token, "cron.list", {})).resolves.toMatchObject({
+      jobs: [currentJob],
+    });
+
+    const mismatchedOwner = safeCronJob(binding.agentId, {
+      sessionTarget: "current",
+      sessionKey,
+      owner: {
+        agentId: binding.agentId,
+        sessionKey: `agent:${binding.agentId}:other`,
+        accountId: "first.user",
+      },
+    });
+    request.mockReset();
+    request.mockResolvedValueOnce({ jobs: [mismatchedOwner], total: 1, hasMore: false });
+    await expect(proxy.request(token, "cron.list", {})).rejects.toMatchObject({
+      code: "upstream-result-denied",
+    });
+  });
+
+  it("gets, updates, and runs an existing owned current-session job", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const sessionKey = `agent:${binding.agentId}:main`;
+    const currentJob = safeCronJob(binding.agentId, {
+      sessionTarget: "current",
+      sessionKey,
+      delivery: { mode: "announce", channel: "last" },
+    });
+    request
+      .mockResolvedValueOnce(currentJob)
+      .mockResolvedValueOnce({ ...currentJob, name: "Renamed current job" });
+
+    await expect(
+      proxy.request(token, "cron.update", {
+        id: currentJob.id,
+        expectedConfigRevision: "revision-1",
+        patch: { name: "Renamed current job" },
+      }),
+    ).resolves.toMatchObject({ name: "Renamed current job", sessionTarget: "current" });
+    expect(request).toHaveBeenNthCalledWith(1, "cron.get", { id: currentJob.id });
+    expect(request).toHaveBeenNthCalledWith(2, "cron.update", {
+      id: currentJob.id,
+      expectedConfigRevision: "revision-1",
+      patch: {
+        agentId: binding.agentId,
+        sessionKey,
+        name: "Renamed current job",
+      },
+    });
+
+    request.mockReset();
+    request.mockResolvedValueOnce(currentJob).mockResolvedValueOnce({ ok: true, ran: true });
+    await expect(
+      proxy.request(token, "cron.run", {
+        id: currentJob.id,
+        mode: "force",
+        expectedConfigRevision: "revision-1",
+      }),
+    ).resolves.toEqual({ ok: true, ran: true });
+    expect(request).toHaveBeenNthCalledWith(1, "cron.get", { id: currentJob.id });
+    expect(request).toHaveBeenNthCalledWith(2, "cron.run", {
+      id: currentJob.id,
+      mode: "force",
+      expectedConfigRevision: "revision-1",
+    });
   });
 
   it("returns an empty run-history page when the owned registry has no jobs", async () => {
@@ -339,6 +416,36 @@ describe("BrowserGatewayProxy cron", () => {
       }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("keeps current-session creation in the owned conversation flow", async () => {
+    const { proxy, request, token } = await setup();
+
+    await expect(
+      proxy.request(token, "cron.add", {
+        name: "Daily GitHub investigation",
+        sessionTarget: "current",
+        schedule: { kind: "cron", expr: "0 9 * * *", tz: "Asia/Seoul" },
+        payload: { kind: "agentTurn", message: "Investigate GitHub" },
+        delivery: { mode: "announce" },
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("does not convert a browser-created job into a current-session job", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const isolatedJob = safeCronJob(binding.agentId);
+    request.mockResolvedValueOnce(isolatedJob);
+
+    await expect(
+      proxy.request(token, "cron.update", {
+        id: isolatedJob.id,
+        expectedConfigRevision: "revision-1",
+        patch: { sessionTarget: "current" },
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it("limits browser cron models to the configured model catalog", async () => {

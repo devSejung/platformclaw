@@ -27,7 +27,7 @@ export function browserCronListScope(agentId: string): JsonObject {
     agentId,
     scheduleKinds: ["at", "every", "cron"],
     payloadKinds: ["agentTurn", "systemEvent"],
-    sessionTargets: ["main", "isolated"],
+    sessionTargets: ["main", "isolated", "current"],
     sessionAgentId: agentId,
     ownerAgentId: agentId,
     ownerSessionAgentId: agentId,
@@ -141,13 +141,24 @@ function restrictJob(
   if (
     job.sessionTarget !== undefined &&
     job.sessionTarget !== "main" &&
-    job.sessionTarget !== "isolated"
+    job.sessionTarget !== "isolated" &&
+    job.sessionTarget !== "current"
   ) {
-    return input.deny("browser cron session targets are limited to main and isolated");
+    return input.deny("browser cron session targets are limited to main, isolated, and current");
+  }
+  if (mode === "create" && job.sessionTarget === "current") {
+    return input.deny(
+      "browser cron creation is limited to main and isolated; current jobs are created from an owned conversation",
+    );
   }
   const delivery = restrictDelivery(job.delivery, input.deny, mode);
-  if (mode === "create" && delivery?.mode === "announce" && job.sessionTarget !== "isolated") {
-    return input.deny("browser cron delivery requires isolated Agent execution");
+  if (
+    mode === "create" &&
+    delivery?.mode === "announce" &&
+    job.sessionTarget !== "isolated" &&
+    job.sessionTarget !== "current"
+  ) {
+    return input.deny("browser cron delivery requires current or isolated Agent execution");
   }
   if (job.failureAlert && typeof job.failureAlert === "object") {
     return input.deny("browser cron cannot configure outbound failure alerts");
@@ -240,7 +251,11 @@ function browserCronJobIsSafe(
     owner?.agentId === agentId &&
     Boolean(optionalString(owner?.accountId)) &&
     Boolean(ownerSessionKey && sessionKeyBelongsToAgent(ownerSessionKey)) &&
-    (job.sessionTarget === "main" || job.sessionTarget === "isolated") &&
+    (job.sessionTarget !== "current" ||
+      Boolean(sessionKey && ownerSessionKey && sessionKey === ownerSessionKey)) &&
+    (job.sessionTarget === "main" ||
+      job.sessionTarget === "isolated" ||
+      job.sessionTarget === "current") &&
     (schedule?.kind === "at" || schedule?.kind === "every" || schedule?.kind === "cron") &&
     (payload?.kind === "agentTurn" || payload?.kind === "systemEvent")
   );

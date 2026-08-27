@@ -72,14 +72,24 @@ function assertEffectiveCronDelivery(
   const delivery = patch.delivery === undefined ? currentJob.delivery : patch.delivery;
   const sessionTarget =
     patch.sessionTarget === undefined ? currentJob.sessionTarget : patch.sessionTarget;
+  if (patch.sessionTarget === "current" && currentJob.sessionTarget !== "current") {
+    context.fail(
+      "method-not-allowed",
+      "current-session jobs are created from an owned conversation",
+    );
+  }
   if (
     delivery &&
     typeof delivery === "object" &&
     !Array.isArray(delivery) &&
     (delivery as JsonObject).mode === "announce" &&
-    sessionTarget !== "isolated"
+    sessionTarget !== "isolated" &&
+    sessionTarget !== "current"
   ) {
-    context.fail("method-not-allowed", "browser cron delivery requires isolated Agent execution");
+    context.fail(
+      "method-not-allowed",
+      "browser cron delivery requires current or isolated Agent execution",
+    );
   }
 }
 

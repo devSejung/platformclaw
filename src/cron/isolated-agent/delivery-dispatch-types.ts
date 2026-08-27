@@ -16,6 +16,7 @@ export type DispatchCronDeliveryParams = {
   job: CronJob;
   agentId: string;
   agentSessionKey: string;
+  sourceSessionKey?: string;
   runSessionKey: string;
   sessionId: string;
   lifecycleRevision: string;
@@ -29,6 +30,8 @@ export type DispatchCronDeliveryParams = {
   skipHeartbeatDelivery: boolean;
   spawnOnlyHandoff: boolean;
   sourceDeliveryOutcome: SourceDeliveryOutcome;
+  /** Queues same-source fallback awareness only after a durable completion commit fails. */
+  queueSourceSessionMessageToolAwareness?: () => Promise<void>;
   deliveryBestEffort: boolean;
   deliveryPayloadHasStructuredContent: boolean;
   deliveryPayloads: ReplyPayload[];

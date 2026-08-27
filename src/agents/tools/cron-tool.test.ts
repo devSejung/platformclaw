@@ -808,6 +808,15 @@ describe("cron tool", () => {
     const tool = createTestCronTool();
     expect(tool.description).toContain("reminders, delayed self-wakeups, loops, recurring work");
     expect(tool.description).toContain("Never exec sleep/poll as timer.");
+    expect(tool.description).toContain(
+      "the run stays detached, reads bounded chat context, then commits its final visible assistant result to this conversation's durable history",
+    );
+    expect(tool.description).toContain(
+      "current=>canonical session commit, plus one normal channel send for external chats",
+    );
+    expect(tool.description).toContain(
+      "WebChat observes that commit live and after reconnect without another user message",
+    );
   });
 
   it("documents the event-trigger authoring contract", () => {

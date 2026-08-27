@@ -301,7 +301,7 @@ SCHEDULE:
 - {kind:"stream",command:[argv],mode?:"line"|"match",match?}: fires on supervised process output; needs cron.triggers.enabled.
 
 TARGET+PAYLOAD:
-- "current" (agentTurn default) = this conversation: run carries this chat's context, result lands here. Self-wakeup/"continue later"/loop = at|every + agentTurn + current.
+- "current" (agentTurn default) = this conversation: the run stays detached, reads bounded chat context, then commits its final visible assistant result to this conversation's durable history. Self-wakeup/"continue later"/loop = at|every + agentTurn + current.
 - "isolated" = fresh detached session (shows in \`openclaw tasks\`); standalone background work.
 - "main" = heartbeat lane; payload {kind:"systemEvent",text} (systemEvent default target).
 - "session:<key>" = named session.
@@ -312,7 +312,7 @@ PACED LOOP: recurring job + pacing{min?,max?} durations ("15m","4h"; at least on
 
 TRIGGER (condition watcher on every/cron): {script,once?}; needs cron.triggers.enabled — if off, say so; never model-poll instead. Quiet headless check, no model; 30s/5 tool calls/16KB state. Read frozen trigger.state, return json({fire,message?,state?}) with NEW state; dedupe via state, never memory. fire:false saves state only. fire:true runs payload; message is that run's entire context — self-contained. Fire on failures/timeouts too; success-only watchers look healthy when broken. Script stays read-only; actions belong in payload. once:true disables after first fire. Code Mode: await tools.call("exec",{command:"..."}).
 
-DELIVERY {mode:"none"|"announce"|"webhook",channel?,to?,threadId?,bestEffort?}: where detached run output goes. Omitted=announce (current=>this chat; isolated=>last route; set channel/to for a specific chat — no messaging tool inside the run). Silent watcher=>mode:"none". webhook posts finished-run event to URL in \`to\`.
+DELIVERY {mode:"none"|"announce"|"webhook",channel?,to?,threadId?,bestEffort?}: where detached run output goes. Omitted=announce (current=>canonical session commit, plus one normal channel send for external chats; isolated=>last route; set channel/to for a specific chat — no messaging tool inside the run). A current announce succeeds only after its history commit; WebChat observes that commit live and after reconnect without another user message. Silent watcher=>mode:"none". webhook posts finished-run event to URL in \`to\`.
 
 Job wakeMode (main jobs): "now"(default)|"next-heartbeat". Restricted automation-run sessions: self status/list/get/runs/remove + own next_check only. failureAlert {...}|false disables. jobId canonical (id=compat). contextMessages 0-10 embeds recent chat lines into reminder text.`,
     parameters: createCronToolSchema(),
