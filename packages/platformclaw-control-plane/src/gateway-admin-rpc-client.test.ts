@@ -190,4 +190,23 @@ describe("HttpGatewayAdminRpcClient", () => {
       message: "Gateway Admin RPC response exceeded the size limit",
     });
   });
+
+  it("accepts a bounded multi-megabyte skills.status response", async () => {
+    const payload = { skills: [{ description: "x".repeat(1024 * 1024 + 32) }] };
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const request = parseJsonRequestBody(init?.body) as { id: string };
+      return new Response(JSON.stringify({ id: request.id, ok: true, payload }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    const client = new HttpGatewayAdminRpcClient(
+      {
+        rpcUrl: "http://127.0.0.1:18789/api/v1/admin/rpc",
+        bearerToken: "test-bearer-token",
+      },
+      fetchImpl as typeof fetch,
+    );
+
+    await expect(client.call("skills.status", {})).resolves.toEqual(payload);
+  });
 });

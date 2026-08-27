@@ -6,7 +6,7 @@ import type {
   SkillWorkshopTargetFile,
 } from "./types.js";
 
-const MAX_TARGET_FILES = 256;
+const MAX_TARGET_FILES = 2_000;
 const MAX_TARGET_FILE_BYTES = 1024 * 1024;
 const MAX_TARGET_TREE_BYTES = 8 * 1024 * 1024;
 

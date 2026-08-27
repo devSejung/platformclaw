@@ -252,14 +252,14 @@ describe("VM remote skill export", () => {
     "enforces archive file-count and per-entry limits",
     async () => {
       await withLocalSkill(async ({ skillDir, target, service }) => {
-        for (let index = 0; index < 100; index += 1) {
-          await writeFile(path.join(skillDir, `file-${String(index).padStart(3, "0")}.txt`), "x");
+        for (let index = 0; index < 2_000; index += 1) {
+          await writeFile(path.join(skillDir, `file-${String(index).padStart(4, "0")}.txt`), "x");
         }
         await expect(
           service.export({ target, slug: "demo-skill", version: "2.1.0" }),
-        ).rejects.toThrow("100-file limit");
-        for (let index = 0; index < 100; index += 1) {
-          await rm(path.join(skillDir, `file-${String(index).padStart(3, "0")}.txt`));
+        ).rejects.toThrow("2000-entry security limit");
+        for (let index = 0; index < 2_000; index += 1) {
+          await rm(path.join(skillDir, `file-${String(index).padStart(4, "0")}.txt`));
         }
         const oversized = path.join(skillDir, "oversized.bin");
         await writeFile(oversized, "");

@@ -203,7 +203,7 @@ describe("SkillHubService install retry", () => {
 
     await expect(Promise.all([first, second])).resolves.toEqual([
       expect.objectContaining({ noOp: false }),
-      expect.objectContaining({ noOp: true }),
+      expect.objectContaining({ noOp: false }),
     ]);
     expect(
       adminRpcCall.mock.calls.filter(([method]) => method === "skills.upload.begin"),

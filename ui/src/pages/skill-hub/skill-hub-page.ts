@@ -279,36 +279,36 @@ class SkillHubPage extends SkillHubAdminController {
         destination: target,
         ...(versionChange
           ? {
-              acknowledgedVersionChange: true as const,
-              currentVersion: versionChange.currentVersion,
+              acknowledgedReplacement: true as const,
+              currentRevision: versionChange.currentRevision,
             }
           : {}),
       });
       this.pendingVersionChange = null;
       this.message = {
         kind: "success",
-        text: result.noOp
-          ? t("skillHubPage.alreadyInstalled", { skill: `${result.slug}@${result.version}` })
-          : t("skillHubPage.installed", {
-              skill: `${result.slug}@${result.version}`,
-              target: t(
-                target === "assigned_vm"
-                  ? "platformClaw.execution.vm"
-                  : "platformClaw.execution.basic",
-              ),
-            }),
+        text: t("skillHubPage.installed", {
+          skill: `${result.slug}@${result.version}`,
+          target: t(
+            target === "assigned_vm" ? "platformClaw.execution.vm" : "platformClaw.execution.basic",
+          ),
+        }),
       };
     } catch (error) {
       if (
         error instanceof PlatformClawSkillHubRequestError &&
-        error.details?.code === "version-change-required" &&
+        error.details?.code === "existing-skill-replacement-required" &&
         typeof error.details.currentVersion === "string" &&
+        typeof error.details.currentRevision === "string" &&
         typeof error.details.requestedVersion === "string" &&
-        (error.details.direction === "upgrade" || error.details.direction === "downgrade")
+        (error.details.direction === "upgrade" ||
+          error.details.direction === "downgrade" ||
+          error.details.direction === "reinstall")
       ) {
         this.pendingVersionChange = {
           target,
           currentVersion: error.details.currentVersion,
+          currentRevision: error.details.currentRevision,
           requestedVersion: error.details.requestedVersion,
           direction: error.details.direction,
         };

@@ -309,7 +309,7 @@ export function renderSkillHubVersionChange(props: {
   open: boolean;
   currentVersion: string;
   requestedVersion: string;
-  direction: "upgrade" | "downgrade";
+  direction: "upgrade" | "downgrade" | "reinstall";
   busy: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -326,11 +326,13 @@ export function renderSkillHubVersionChange(props: {
         <div>
           <h2>${t("skillHubPage.versionChangeTitle")}</h2>
           <p>
-            ${t("skillHubPage.versionChangeHelp", {
-              direction: t(`skillHubPage.${props.direction}`),
-              current: props.currentVersion,
-              requested: props.requestedVersion,
-            })}
+            ${props.direction === "reinstall"
+              ? `${t("skillHubPage.confirmVersionChange")}: v${props.currentVersion}.`
+              : t("skillHubPage.versionChangeHelp", {
+                  direction: t(`skillHubPage.${props.direction}`),
+                  current: props.currentVersion,
+                  requested: props.requestedVersion,
+                })}
           </p>
         </div>
       </header>

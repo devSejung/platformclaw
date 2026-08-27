@@ -2,11 +2,8 @@ import { link, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
-import type { BrowserAuthService } from "./browser-auth-service.js";
-import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
-import type { SkillHubAdapter } from "./skill-hub-adapter.js";
-import type { SkillHubStore } from "./skill-hub-service-support.js";
-import { SkillHubService, SkillHubServiceError } from "./skill-hub-service.js";
+import { validateDownloadedArchive } from "./skill-hub-service-support.js";
+import { SkillHubServiceError } from "./skill-hub-service.js";
 import {
   createSkillHubServiceFixture as fixture,
   skillHubTestUser as user,
@@ -320,6 +317,12 @@ describe("SkillHubService", () => {
 
   it("packages the real workspace skill and overrides only the published version", async () => {
     const { service, actor, adapterMocks, skillDir, recordAuditEvent } = await fixture();
+    await writeFile(path.join(skillDir, ".env"), "TOKEN=must-not-publish");
+    await writeFile(path.join(skillDir, "client.pem"), "must-not-publish");
+    await mkdir(path.join(skillDir, ".openclaw"));
+    await writeFile(path.join(skillDir, ".openclaw", "state.json"), "must-not-publish");
+    await mkdir(path.join(skillDir, "references"));
+    await writeFile(path.join(skillDir, "references", "guide.md"), "guide");
 
     await expect(
       service.publish(actor, {
@@ -335,6 +338,11 @@ describe("SkillHubService", () => {
     const zip = await JSZip.loadAsync(archive!);
     expect(await zip.file("SKILL.md")!.async("string")).toContain("version: 1.2.3");
     expect(await zip.file("helper.txt")!.async("string")).toBe("hello");
+    expect(await zip.file("references/guide.md")!.async("string")).toBe("guide");
+    expect(zip.files["references/"]).toBeUndefined();
+    expect(zip.file(".env")).toBeNull();
+    expect(zip.file("client.pem")).toBeNull();
+    expect(zip.file(".openclaw/state.json")).toBeNull();
     expect(await readFile(path.join(skillDir, "SKILL.md"), "utf8")).toContain("version: 0.0.1");
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: "skill-hub.publish", actorUserId: user.id }),
@@ -407,6 +415,13 @@ describe("SkillHubService", () => {
         }),
     ],
     ["invalid SKILL.md", () => skillArchive({ name: "wrong-skill" })],
+    [
+      "reserved runtime metadata",
+      () =>
+        skillArchive({
+          extra: (zip) => zip.file(".openclaw/source-origin.json", '{"slug":"other"}'),
+        }),
+    ],
   ])("blocks downloaded archives with %s", async (_label, makeArchive) => {
     const { service, actor, adapterMocks, adminRpcCall } = await fixture();
     adapterMocks.download.mockResolvedValue(await makeArchive());
@@ -427,42 +442,21 @@ describe("SkillHubService", () => {
   });
 
   it("streams to the package limit even when ZIP metadata understates extracted size", async () => {
-    const { workspaceRoot, actor, adapterMocks, adminRpcCall, store, organization } =
-      await fixture();
-    const service = new SkillHubService({
-      authService: { authenticateToken: vi.fn() } as unknown as BrowserAuthService,
-      store: {
-        ...store,
-        getPersonalExecutionProfile: vi.fn(async () => null),
-      } as unknown as SkillHubStore,
-      adapter: adapterMocks as SkillHubAdapter,
-      adminRpc: { call: adminRpcCall } as unknown as GatewayAdminRpc,
-      workspaceRoot,
-      allowedNamespaces: ["engineering"],
-      organization,
-      maxPackageBytes: 1024,
-    });
-    adapterMocks.download.mockResolvedValue(
-      overwriteCentralUncompressedSize(
-        await skillArchive({ extra: (zip) => zip.file("large.txt", "x".repeat(4096)) }),
-        "large.txt",
-        1,
-      ),
+    const archive = overwriteCentralUncompressedSize(
+      await skillArchive({ extra: (zip) => zip.file("large.txt", "x".repeat(4096)) }),
+      "large.txt",
+      1,
     );
 
     await expect(
-      service.install(actor, {
-        namespace: "engineering",
-        slug: "demo-skill",
-        version: "1.0.0",
-        destination: "platform_server",
+      validateDownloadedArchive(archive, "demo-skill", "1.0.0", {
+        archiveBytes: 1024 * 1024,
+        expandedBytes: 1024,
+        entryBytes: 1024,
+        files: 500,
+        entries: 2_000,
       }),
     ).rejects.toThrow(/oversized entry|expands past/u);
-    expect(adminRpcCall).toHaveBeenCalledOnce();
-    expect(adminRpcCall).toHaveBeenCalledWith(
-      "skills.status",
-      expect.objectContaining({ backendTarget: "platform_server", refresh: true }),
-    );
   });
 
   it("uploads a validated exact version through the existing Gateway skill installer", async () => {
@@ -519,10 +513,17 @@ describe("SkillHubService", () => {
     );
   });
 
-  it("returns a no-op when the requested target already has the exact version", async () => {
+  it("requires explicit replacement when the installed slug has the exact version", async () => {
     const { service, actor, adapterMocks, adminRpcCall } = await fixture();
     adminRpcCall.mockResolvedValue({
-      skills: [{ skillKey: "demo-skill", source: "openclaw-workspace", version: "1.0.0" }],
+      skills: [
+        {
+          skillKey: "demo-skill",
+          source: "openclaw-workspace",
+          version: "1.0.0",
+          revision: "sha256:0123456789abcdef",
+        },
+      ],
     });
 
     await expect(
@@ -532,12 +533,15 @@ describe("SkillHubService", () => {
         version: "1.0.0",
         destination: "platform_server",
       }),
-    ).resolves.toEqual({
-      ok: true,
-      noOp: true,
-      slug: "demo-skill",
-      version: "1.0.0",
-      target: "platform_server",
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      details: {
+        code: "existing-skill-replacement-required",
+        currentVersion: "1.0.0",
+        currentRevision: "sha256:0123456789abcdef",
+        requestedVersion: "1.0.0",
+        direction: "reinstall",
+      },
     });
     expect(adapterMocks.download).not.toHaveBeenCalled();
     expect(adminRpcCall).toHaveBeenCalledOnce();
@@ -578,8 +582,9 @@ describe("SkillHubService", () => {
     ).rejects.toMatchObject({
       statusCode: 409,
       details: {
-        code: "version-change-required",
+        code: "existing-skill-replacement-required",
         currentVersion: "1.0.0",
+        currentRevision: "sha256:0123456789abcdef",
         requestedVersion: "2.0.0",
         direction: "upgrade",
       },
@@ -591,8 +596,8 @@ describe("SkillHubService", () => {
         slug: "demo-skill",
         version: "2.0.0",
         destination: "platform_server",
-        acknowledgedVersionChange: true,
-        currentVersion: "1.0.0",
+        acknowledgedReplacement: true,
+        currentRevision: "sha256:0123456789abcdef",
       }),
     ).resolves.toMatchObject({ ok: true, noOp: false, version: "2.0.0" });
     expect(adminRpcCall).toHaveBeenCalledWith(

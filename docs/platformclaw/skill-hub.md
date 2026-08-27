@@ -147,8 +147,9 @@ streams only the approved extracted tree over its server-side SSH session. It
 stages under the remote workspace's `.openclaw/skill-installs`, validates the
 remote tree, locks the `skills` directory, and atomically moves it into
 `workspace/skills/<slug>`. Staging is removed on success or failure. Installing
-the exact version already present is a no-op. An upgrade or downgrade returns
-the current and requested versions and requires a second confirmation. The Basic
+an existing skill with the same slug always returns a revision-bound replacement
+challenge, including when the requested version is unchanged. PlatformClaw does
+not claim the namespace of an existing install without durable provenance. The Basic
 and VM installers use sibling staging and backup directories to replace
 atomically and restore the old tree if validation or commit fails.
 
@@ -158,16 +159,16 @@ Authenticated employees can manage the active execution target from Knox Teams.
 Responses are Markdown. English is the default; only `help ko` selects Korean
 help text.
 
-| Command                                             | Result                                                           |
-| --------------------------------------------------- | ---------------------------------------------------------------- |
-| `/skillhub help`                                    | English command help                                             |
-| `/skillhub help ko`                                 | Korean command help                                              |
-| `/skillhub list [page]`                             | Skills the employee may download                                 |
-| `/skillhub installed`                               | Skill Hub skills installed on the active target                  |
-| `/skillhub publish <slug>`                          | Publish a skill from the active Basic or assigned-VM workspace   |
-| `/skillhub install <slug\|namespace/slug>`          | Install the latest accessible version                            |
-| `/skillhub update <slug\|namespace/slug>`           | Replace the installed version with the latest accessible version |
-| `/skillhub delete <slug\|namespace/slug> --confirm` | Remove the revision-pinned skill from the active target          |
+| Command                                    | Result                                                           |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| `/skillhub help`                           | English command help                                             |
+| `/skillhub help ko`                        | Korean command help                                              |
+| `/skillhub list [page]`                    | Skills the employee may download                                 |
+| `/skillhub installed`                      | Skill Hub skills installed on the active target                  |
+| `/skillhub publish <slug>`                 | Publish a skill from the active Basic or assigned-VM workspace   |
+| `/skillhub install <slug\|namespace/slug>` | Install the latest accessible version                            |
+| `/skillhub update <slug\|namespace/slug>`  | Replace the installed version with the latest accessible version |
+| `/skillhub delete <slug> --confirm`        | Remove the revision-pinned skill from the active target          |
 
 A bare slug works when it identifies exactly one accessible namespace. If the
 same slug is visible in multiple namespaces, the response lists candidates and
@@ -182,9 +183,10 @@ revision changed after status was read.
 
 The compressed ZIP ceiling is **500 MiB**. Browser ingress streams to an
 owner-only temporary file with a running cap. Validation then enforces **1 GiB
-expanded content**, **250 MiB per entry**, and **100 entries** without trusting
-central-directory sizes. The scanner timeout is ten minutes. LLM and VirusTotal
-analyzers are explicitly disabled.
+expanded content**, **250 MiB per entry**, and **2,000 total ZIP entries** without
+trusting central-directory sizes. There is no lower, separate regular-file cap.
+The scanner timeout is ten minutes. LLM and VirusTotal analyzers are explicitly
+disabled.
 
 Both publication and installation reject:
 
@@ -193,7 +195,7 @@ Both publication and installation reject:
   escapes;
 - a missing, oversized, malformed, or name-mismatched `SKILL.md`;
 - a `SKILL.md` version that differs from the exact version requested for install;
-- more than 100 archive entries;
+- more than 2,000 total ZIP entries (files and directories combined);
 - a compressed archive over 500 MiB, expanded content over 1 GiB, or one entry
   over 250 MiB; and
 - an unconfirmed version replacement.

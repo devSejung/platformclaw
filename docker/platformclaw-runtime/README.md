@@ -228,6 +228,12 @@ copied between hosts. The Hub keeps its database, Redis AOF, and package storage
 under `~/platformclaw/data/skillhub/`. Initial startup requires 4 GiB RAM and
 20 GiB free space; later restarts retain a 5 GiB free-space floor.
 
+Run an image update from the deployment bundle carrying the same release SHA as
+the transfer archive. Loading new images while retaining an older
+`platformclaw-deploy`, Compose file, or environment template cannot provision
+new SkillHub services, secrets, or managed policy. Replace those bundle files
+first; preserve the existing `deployment.env` and data directories.
+
 The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
 health, recreates existing agent sandboxes with the new image, and restores the

@@ -183,6 +183,25 @@ describe("skill upload store", () => {
     );
   });
 
+  it("accepts the operator-enabled 500 MiB upload contract at begin", async () => {
+    const { store } = await makeStore();
+
+    await expect(
+      store.begin({
+        kind: "skill-archive",
+        slug: "large-skill",
+        sizeBytes: 500 * 1024 * 1024,
+      }),
+    ).resolves.toMatchObject({ receivedBytes: 0 });
+    await expect(
+      store.begin({
+        kind: "skill-archive",
+        slug: "oversized-skill",
+        sizeBytes: 500 * 1024 * 1024 + 1,
+      }),
+    ).rejects.toThrow("maximum upload size");
+  });
+
   it("stores chunks, commits one archive blob, and materializes only for the action", async () => {
     const { root, databasePath, store } = await makeStore();
     const archive = Buffer.from("zip-bytes");

@@ -7,6 +7,7 @@ import type { ControlPlaneExecutionManagementStore } from "./execution-contracts
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import type { OrganizationService } from "./organization-service.js";
 import type { SkillHubAdapter, SkillHubVisibility } from "./skill-hub-adapter.js";
+import { isExcludedSkillArchivePath } from "./skill-hub-archive-policy.js";
 import type { SkillHubGovernanceClient } from "./skill-hub-governance-client.js";
 import type { SkillHubAccessGrant, SkillHubStateStore } from "./skill-hub-state.js";
 
@@ -14,13 +15,15 @@ export const SKILL_KEY_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u;
 export const NAMESPACE_PATTERN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/u;
 const VERSION_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
-export const MAX_SKILL_FILES = 256;
+export const SKILL_HUB_UPLOAD_ENTRIES = 2_000;
+// No lower product file-count cap: the archive-wide entry ceiling is the
+// security boundary for both files and directories.
+export const MAX_SKILL_FILES = SKILL_HUB_UPLOAD_ENTRIES;
 export const MAX_SKILL_MD_BYTES = 256 * 1024;
 export const UPLOAD_CHUNK_BYTES = 512 * 1024;
 export const SKILL_HUB_UPLOAD_ARCHIVE_BYTES = 500 * 1024 * 1024;
 export const SKILL_HUB_UPLOAD_EXPANDED_BYTES = 1024 * 1024 * 1024;
 export const SKILL_HUB_UPLOAD_ENTRY_BYTES = 250 * 1024 * 1024;
-export const SKILL_HUB_UPLOAD_FILES = 100;
 
 export type SkillHubStore = ControlPlaneStore &
   ControlPlaneAuditWriter &
@@ -215,6 +218,9 @@ function zipEntryPath(entry: JSZipObject): string {
   ) {
     throw new SkillHubServiceError("Skill Hub archive contains an unsafe path", 400);
   }
+  if (isExcludedSkillArchivePath(normalized, entry.dir)) {
+    throw new SkillHubServiceError("Skill Hub archive contains a reserved path", 400);
+  }
   return original;
 }
 
@@ -287,7 +293,13 @@ export async function validateDownloadedArchive(
   archive: Buffer,
   expectedSlug: string,
   expectedVersion: string,
-  limits: { archiveBytes: number; expandedBytes: number; entryBytes: number; files: number },
+  limits: {
+    archiveBytes: number;
+    expandedBytes: number;
+    entryBytes: number;
+    files: number;
+    entries: number;
+  },
 ): Promise<void> {
   if (archive.byteLength === 0 || archive.byteLength > limits.archiveBytes) {
     throw new SkillHubServiceError("Skill Hub archive exceeds the configured size limit", 400);
@@ -301,7 +313,11 @@ export async function validateDownloadedArchive(
     throw new SkillHubServiceError("Skill Hub returned an invalid ZIP archive", 400);
   }
   const entries = Object.values(zip.files);
-  if (entries.length === 0 || entries.length > limits.files) {
+  if (entries.length > limits.entries) {
+    throw new SkillHubServiceError("Skill Hub archive contains too many entries", 400);
+  }
+  const files = entries.filter((entry) => !entry.dir);
+  if (files.length === 0 || files.length > limits.files) {
     throw new SkillHubServiceError("Skill Hub archive contains too many files", 400);
   }
   const extracted = { bytes: 0 };

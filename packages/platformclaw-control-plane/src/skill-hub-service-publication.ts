@@ -13,7 +13,7 @@ import {
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
   SKILL_HUB_UPLOAD_ENTRY_BYTES,
   SKILL_HUB_UPLOAD_EXPANDED_BYTES,
-  SKILL_HUB_UPLOAD_FILES,
+  SKILL_HUB_UPLOAD_ENTRIES,
   SKILL_KEY_PATTERN,
   SkillHubServiceError,
   UPLOAD_CHUNK_BYTES,
@@ -26,8 +26,17 @@ import {
 import { downloadVmWorkspaceArchive } from "./skill-hub-workspace-export.js";
 import { validateZipArchiveFile, ZipArchiveValidationError } from "./zip-archive-validator.js";
 
+type SkillHubInstallResult = {
+  ok: true;
+  noOp: false;
+  slug: string;
+  version: string;
+  target: SkillInstallTarget;
+};
+
 export abstract class SkillHubPublicationService extends SkillHubServiceBase {
   private readonly installLocks = new Map<string, Promise<void>>();
+  private readonly installsInFlight = new Map<string, Promise<SkillHubInstallResult>>();
 
   private async withInstallLock<T>(
     agentId: string,
@@ -442,7 +451,8 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
         archiveBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
         expandedBytes: SKILL_HUB_UPLOAD_EXPANDED_BYTES,
         entryBytes: SKILL_HUB_UPLOAD_ENTRY_BYTES,
-        files: SKILL_HUB_UPLOAD_FILES,
+        files: MAX_SKILL_FILES,
+        entries: SKILL_HUB_UPLOAD_ENTRIES,
         retainedEntryBytes: MAX_SKILL_MD_BYTES,
       }));
     } catch (error) {
@@ -509,13 +519,35 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       slug: string;
       version: string;
       destination: SkillInstallTarget;
-      acknowledgedVersionChange?: boolean;
-      currentVersion?: string;
+      acknowledgedReplacement?: boolean;
+      currentRevision?: string;
     },
   ) {
-    return await this.withInstallLock(actor.agentId, params.destination, async () =>
+    const requestKey = JSON.stringify([
+      actor.agentId,
+      actor.user.id,
+      params.destination,
+      params.namespace,
+      params.slug,
+      params.version,
+      params.acknowledgedReplacement === true,
+      params.currentRevision ?? null,
+    ]);
+    const existing = this.installsInFlight.get(requestKey);
+    if (existing) {
+      return await existing;
+    }
+    const operation = this.withInstallLock(actor.agentId, params.destination, async () =>
       this.installUnlocked(actor, params),
     );
+    this.installsInFlight.set(requestKey, operation);
+    try {
+      return await operation;
+    } finally {
+      if (this.installsInFlight.get(requestKey) === operation) {
+        this.installsInFlight.delete(requestKey);
+      }
+    }
   }
 
   private async installUnlocked(
@@ -525,10 +557,10 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       slug: string;
       version: string;
       destination: SkillInstallTarget;
-      acknowledgedVersionChange?: boolean;
-      currentVersion?: string;
+      acknowledgedReplacement?: boolean;
+      currentRevision?: string;
     },
-  ) {
+  ): Promise<SkillHubInstallResult> {
     const execution = await this.authorizeInstallTarget(actor.agentId, params.destination);
     const namespace = this.authorizeNamespace(params.namespace);
     const slug = safeName(params.slug, "skill slug", SKILL_KEY_PATTERN);
@@ -555,18 +587,6 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
         code: "installed-version-unavailable",
       });
     }
-    if (installedVersion === version) {
-      await this.audit(
-        actor.user.id,
-        "skill-hub.install.no-op",
-        `${namespace}/${slug}@${version}`,
-        {
-          agentId: actor.agentId,
-          destination: params.destination,
-        },
-      );
-      return { ok: true, noOp: true, slug, version, target: params.destination };
-    }
     const replacing = installedVersion !== undefined;
     if (replacing && !/^sha256:[a-f0-9]{16}$/u.test(installedRevision ?? "")) {
       throw new SkillHubServiceError("installed skill revision is unavailable", 409, {
@@ -575,15 +595,17 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     }
     if (
       replacing &&
-      (!params.acknowledgedVersionChange || params.currentVersion !== installedVersion)
+      (!params.acknowledgedReplacement || params.currentRevision !== installedRevision)
     ) {
-      const direction = compareSemVer(version, installedVersion) > 0 ? "upgrade" : "downgrade";
+      const comparison = compareSemVer(version, installedVersion);
+      const direction = comparison > 0 ? "upgrade" : comparison < 0 ? "downgrade" : "reinstall";
       throw new SkillHubServiceError(
-        `confirm ${direction} from ${installedVersion} to ${version}`,
+        `confirm replacement of installed ${slug}@${installedVersion}`,
         409,
         {
-          code: "version-change-required",
+          code: "existing-skill-replacement-required",
           currentVersion: installedVersion,
+          currentRevision: installedRevision,
           requestedVersion: version,
           direction,
         },
@@ -593,10 +615,11 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       this.options.adapter.download(namespace, slug, version),
     );
     await validateDownloadedArchive(archive, slug, version, {
-      archiveBytes: this.options.maxPackageBytes,
-      expandedBytes: this.options.maxPackageBytes,
-      entryBytes: this.options.maxPackageBytes,
+      archiveBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
+      expandedBytes: SKILL_HUB_UPLOAD_EXPANDED_BYTES,
+      entryBytes: SKILL_HUB_UPLOAD_ENTRY_BYTES,
       files: MAX_SKILL_FILES,
+      entries: SKILL_HUB_UPLOAD_ENTRIES,
     });
     const sha256 = createHash("sha256").update(archive).digest("hex");
     const begin = await this.gatewayCall<{ uploadId?: string; receivedBytes?: number }>(

@@ -219,14 +219,13 @@ export function installPlatformClawHubSkill(params: {
   slug: string;
   version: string;
   destination: "platform_server" | "assigned_vm";
-  acknowledgedVersionChange?: true;
-  currentVersion?: string;
+  acknowledgedReplacement?: true;
+  currentRevision?: string;
 }): Promise<{
   ok: true;
   slug: string;
   version: string;
   target: "platform_server" | "assigned_vm";
-  noOp?: boolean;
 }> {
   return request("/install", { method: "POST", body: JSON.stringify(params) });
 }

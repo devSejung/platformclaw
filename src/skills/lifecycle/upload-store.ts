@@ -7,7 +7,6 @@ import {
   isFutureDateTimestampMs,
   resolveExpiresAtMsFromDurationMs,
 } from "@openclaw/normalization-core/number-coercion";
-import { DEFAULT_MAX_ARCHIVE_BYTES_ZIP } from "../../infra/archive.js";
 import { sha256Hex } from "../../infra/crypto-digest.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { createAsyncLock } from "../../infra/json-files.js";
@@ -24,6 +23,7 @@ import {
   type OpenClawStateDatabaseOptions,
 } from "../../state/openclaw-state-db.js";
 import { validateRequestedSkillSlug } from "./archive-install.js";
+import { UPLOADED_SKILL_ARCHIVE_MAX_BYTES } from "./upload-limits.js";
 import {
   deleteOwnedSkillUpload,
   deleteSkillUploadState,
@@ -149,7 +149,7 @@ function validateSizeBytes(sizeBytes: number): number {
   if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 1) {
     throw new SkillUploadRequestError("invalid sizeBytes");
   }
-  if (sizeBytes > DEFAULT_MAX_ARCHIVE_BYTES_ZIP) {
+  if (sizeBytes > UPLOADED_SKILL_ARCHIVE_MAX_BYTES) {
     throw new SkillUploadRequestError("skill archive exceeds maximum upload size");
   }
   return sizeBytes;

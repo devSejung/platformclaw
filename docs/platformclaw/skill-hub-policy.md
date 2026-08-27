@@ -113,9 +113,9 @@ silently activated as a fallback.
 
 The compressed ZIP ceiling is **500 MiB**. Compressed size alone is not a safe
 extraction policy, so publication enforces **1 GiB expanded cumulative bytes**,
-**250 MiB per file**, and **100 entries** while streaming and validating every
-entry. Installation repeats the canonical Gateway archive policy before either
-workspace is mutated.
+**250 MiB per file**, and **2,000 total ZIP entries** while streaming and
+validating every entry. No lower regular-file cap applies. Installation repeats
+the canonical Gateway archive policy before either workspace is mutated.
 
 All paths continue to reject traversal, absolute and drive-qualified names,
 symbolic-link or junction escape, hard-link escape, malformed `SKILL.md`, and

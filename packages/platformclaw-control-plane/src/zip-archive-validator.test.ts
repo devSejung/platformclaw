@@ -47,8 +47,39 @@ describe("streaming ZIP archive validation", () => {
       /symbolic link/u,
     ],
     ["oversized entry", (zip: JSZip) => zip.file("large", "x".repeat(800)), /oversized/u],
+    [
+      "reserved runtime metadata",
+      (zip: JSZip) => zip.file(".openclaw/source-origin.json", "{}"),
+      /reserved path/u,
+    ],
   ])("rejects %s without extracting to disk", async (_label, mutate, expected) => {
     const { file, bytes } = await archiveFile(mutate);
     await expect(validateZipArchiveFile(file, bytes.byteLength, limits)).rejects.toThrow(expected);
+  });
+
+  it("enforces regular-file and total-entry budgets separately", async () => {
+    const files = await archiveFile((zip) => {
+      zip.file("one.txt", "1");
+      zip.file("two.txt", "2");
+    });
+    await expect(
+      validateZipArchiveFile(files.file, files.bytes.byteLength, {
+        ...limits,
+        files: 2,
+        entries: 100,
+      }),
+    ).rejects.toThrow("too many files");
+
+    const directories = await archiveFile((zip) => {
+      zip.folder("one");
+      zip.folder("two");
+    });
+    await expect(
+      validateZipArchiveFile(directories.file, directories.bytes.byteLength, {
+        ...limits,
+        files: 2,
+        entries: 2,
+      }),
+    ).rejects.toThrow("too many entries");
   });
 });

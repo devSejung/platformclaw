@@ -84,6 +84,7 @@ type AdapterOptions = {
 
 const MAX_JSON_BYTES = 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const ARCHIVE_TRANSFER_TIMEOUT_MS = 10 * 60_000;
 
 function normalizeBaseUrl(raw: string): URL {
   const url = new URL(raw);
@@ -372,6 +373,7 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
         await this.jsonRequest(
           this.url(`api/cli/v1/skills/${encodePath(params.namespace)}/publish`),
           init,
+          ARCHIVE_TRANSFER_TIMEOUT_MS,
         ),
       ),
       "publish result",
@@ -392,6 +394,7 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
       {},
       true,
       "manual",
+      ARCHIVE_TRANSFER_TIMEOUT_MS,
     );
     if (response.status === 302) {
       const location = response.headers.get("location");
@@ -408,7 +411,13 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
       ) {
         throw new SkillHubAdapterError("Skill Hub returned an invalid download redirect");
       }
-      response = await this.fetchResponse(redirectUrl, {}, false);
+      response = await this.fetchResponse(
+        redirectUrl,
+        {},
+        false,
+        "error",
+        ARCHIVE_TRANSFER_TIMEOUT_MS,
+      );
     }
     await this.ensureOk(response);
     return await readBounded(response, this.maxArchiveBytes);
@@ -418,12 +427,20 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     return new URL(pathname, this.baseUrl);
   }
 
-  private async jsonRequest(url: URL, init: RequestInit = {}): Promise<Record<string, unknown>> {
-    return await readJson(await this.request(url, init));
+  private async jsonRequest(
+    url: URL,
+    init: RequestInit = {},
+    timeoutMs = this.timeoutMs,
+  ): Promise<Record<string, unknown>> {
+    return await readJson(await this.request(url, init, timeoutMs));
   }
 
-  private async request(url: URL, init: RequestInit = {}): Promise<Response> {
-    const response = await this.fetchResponse(url, init, true);
+  private async request(
+    url: URL,
+    init: RequestInit = {},
+    timeoutMs = this.timeoutMs,
+  ): Promise<Response> {
+    const response = await this.fetchResponse(url, init, true, "error", timeoutMs);
     await this.ensureOk(response);
     return response;
   }
@@ -433,6 +450,7 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     init: RequestInit,
     authenticated: boolean,
     redirect: NonNullable<RequestInit["redirect"]> = "error",
+    timeoutMs = this.timeoutMs,
   ): Promise<Response> {
     let response: Response;
     try {
@@ -444,7 +462,7 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
         ...init,
         headers,
         redirect,
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
       throw new SkillHubAdapterError("Skill Hub is unavailable");

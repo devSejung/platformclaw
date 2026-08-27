@@ -9,6 +9,12 @@ import {
   validateRequestedSkillSlug,
 } from "./archive-install.js";
 import {
+  UPLOADED_SKILL_ARCHIVE_MAX_BYTES,
+  UPLOADED_SKILL_ARCHIVE_MAX_ENTRIES,
+  UPLOADED_SKILL_ARCHIVE_MAX_ENTRY_BYTES,
+  UPLOADED_SKILL_ARCHIVE_MAX_EXTRACTED_BYTES,
+} from "./upload-limits.js";
+import {
   defaultSkillUploadStore,
   normalizeSkillUploadSha256,
   SkillUploadRequestError,
@@ -102,6 +108,12 @@ export async function installUploadedSkillArchive(params: {
         force: record.force,
         timeoutMs: params.timeoutMs,
         logger: params.log,
+        archiveLimits: {
+          maxArchiveBytes: UPLOADED_SKILL_ARCHIVE_MAX_BYTES,
+          maxEntries: UPLOADED_SKILL_ARCHIVE_MAX_ENTRIES,
+          maxExtractedBytes: UPLOADED_SKILL_ARCHIVE_MAX_EXTRACTED_BYTES,
+          maxEntryBytes: UPLOADED_SKILL_ARCHIVE_MAX_ENTRY_BYTES,
+        },
         policy: {
           config: params.config,
           installId: "upload",

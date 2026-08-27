@@ -29,8 +29,9 @@ function projectNamespaceBinding(binding: SkillHubNamespaceBinding) {
 export {
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
   SKILL_HUB_UPLOAD_ENTRY_BYTES,
+  SKILL_HUB_UPLOAD_ENTRIES,
   SKILL_HUB_UPLOAD_EXPANDED_BYTES,
-  SKILL_HUB_UPLOAD_FILES,
+  MAX_SKILL_FILES,
   SkillHubServiceError,
 } from "./skill-hub-service-support.js";
 export type { AuthenticatedWorkspace, SkillInstallTarget } from "./skill-hub-service-support.js";
@@ -122,12 +123,15 @@ export class SkillHubService extends SkillHubPublicationService {
       const skill = await this.resolveCommandSkill(actor.user, tail[0]!);
       const execution = await this.resolveExecutionTarget(actor.agentId);
       let currentVersion: string | undefined;
+      let currentRevision: string | undefined;
       if (action === "update") {
         const installed = await this.commandInstalled(actor);
-        currentVersion = installed.items.find((item) => item.skillKey === skill.slug)?.version;
-        if (!currentVersion) {
+        const current = installed.items.find((item) => item.skillKey === skill.slug);
+        currentVersion = current?.version;
+        currentRevision = current?.revision;
+        if (!currentVersion || !currentRevision) {
           throw new SkillHubServiceError(
-            `skill is not installed on the active target: ${skill.slug}`,
+            `installed skill identity is unavailable on the active target: ${skill.slug}`,
             409,
           );
         }
@@ -138,16 +142,12 @@ export class SkillHubService extends SkillHubPublicationService {
           );
         }
       }
-      const result = await this.install(actor, {
+      await this.install(actor, {
         ...skill,
         destination: execution.activeTarget,
-        ...(currentVersion ? { acknowledgedVersionChange: true, currentVersion } : {}),
+        ...(currentRevision ? { acknowledgedReplacement: true, currentRevision } : {}),
       });
-      const verb = result.noOp
-        ? "Already installed"
-        : action === "update"
-          ? "Updated"
-          : "Installed";
+      const verb = action === "update" ? "Updated" : "Installed";
       return {
         text: `## ${verb}\n\n- Skill: \`${skill.namespace}/${skill.slug}\`\n- Version: \`${skill.version}\`\n- Target: \`${execution.activeTarget}\``,
       };
@@ -155,21 +155,16 @@ export class SkillHubService extends SkillHubPublicationService {
     if (action === "delete") {
       const refs = tail.filter((value) => value !== "--confirm");
       if (!tail.includes("--confirm") || refs.length !== 1 || refs.length === tail.length) {
-        throw new SkillHubServiceError(
-          "usage: /skillhub delete <slug|namespace/slug> --confirm",
-          400,
-        );
+        throw new SkillHubServiceError("usage: /skillhub delete <slug> --confirm", 400);
       }
       const reference = refs[0]!.trim().toLowerCase();
-      const segments = reference.split("/");
-      if (segments.length > 2) {
-        throw new SkillHubServiceError("invalid skill reference", 400);
+      if (reference.includes("/")) {
+        throw new SkillHubServiceError("delete accepts an installed skill slug only", 400);
       }
-      const slug = safeName(segments.at(-1) ?? "", "skill slug", SKILL_KEY_PATTERN);
-      const namespace = segments.length === 2 ? this.authorizeNamespace(segments[0]!) : undefined;
+      const slug = safeName(reference, "skill slug", SKILL_KEY_PATTERN);
       const result = await this.uninstall(actor, slug);
       return {
-        text: `## Deleted\n\n- Skill: \`${namespace ? `${namespace}/` : ""}${slug}\`\n- Version: \`${result.version ?? "unknown"}\`\n- Target: \`${result.target}\``,
+        text: `## Deleted\n\n- Skill: \`${slug}\`\n- Version: \`${result.version ?? "unknown"}\`\n- Target: \`${result.target}\``,
       };
     }
     throw new SkillHubServiceError(`unknown SkillHub command: ${action}`, 400);
@@ -618,7 +613,7 @@ function skillHubHelpEn(): string {
     "- `/skillhub publish <slug>`",
     "- `/skillhub install <slug|namespace/slug>`",
     "- `/skillhub update <slug|namespace/slug>`",
-    "- `/skillhub delete <slug|namespace/slug> --confirm`",
+    "- `/skillhub delete <slug> --confirm`",
   ].join("\n");
 }
 
@@ -632,6 +627,6 @@ function skillHubHelpKo(): string {
     "- `/skillhub publish <slug>`: 현재 작업공간의 스킬 게시",
     "- `/skillhub install <slug|namespace/slug>`: 설치",
     "- `/skillhub update <slug|namespace/slug>`: 업데이트",
-    "- `/skillhub delete <slug|namespace/slug> --confirm`: 현재 실행 대상에서 제거",
+    "- `/skillhub delete <slug> --confirm`: 현재 실행 대상에서 제거",
   ].join("\n");
 }

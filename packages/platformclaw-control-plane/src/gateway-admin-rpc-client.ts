@@ -6,6 +6,7 @@ const REMOTE_SKILL_STATUS_RPC_TIMEOUT_MS = 30_000;
 const UPLOADED_SKILL_MUTATION_RPC_TIMEOUT_MS = 180_000;
 const MAX_ABORT_SIGNAL_TIMEOUT_MS = 2 ** 32 - 1;
 const MAX_GATEWAY_ADMIN_RPC_RESPONSE_BYTES = 1024 * 1024;
+const MAX_REMOTE_SKILL_STATUS_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 export type GatewayAdminRpcClientConfig = {
   rpcUrl: string;
@@ -98,13 +99,9 @@ function parseError(value: unknown): RpcErrorBody | null {
   };
 }
 
-async function readBoundedJsonResponse(response: Response): Promise<unknown> {
+async function readBoundedJsonResponse(response: Response, maxBytes: number): Promise<unknown> {
   const declaredLength = response.headers.get("content-length");
-  if (
-    declaredLength &&
-    /^\d+$/.test(declaredLength) &&
-    Number(declaredLength) > MAX_GATEWAY_ADMIN_RPC_RESPONSE_BYTES
-  ) {
+  if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
     void response.body?.cancel().catch(() => undefined);
     throw new GatewayAdminRpcError(
       "Gateway Admin RPC response exceeded the size limit",
@@ -131,7 +128,7 @@ async function readBoundedJsonResponse(response: Response): Promise<unknown> {
         break;
       }
       receivedBytes += value.byteLength;
-      if (receivedBytes > MAX_GATEWAY_ADMIN_RPC_RESPONSE_BYTES) {
+      if (receivedBytes > maxBytes) {
         void reader.cancel().catch(() => undefined);
         throw new GatewayAdminRpcError(
           "Gateway Admin RPC response exceeded the size limit",
@@ -196,7 +193,11 @@ export class HttpGatewayAdminRpcClient implements GatewayAdminRpc {
       throw new GatewayAdminRpcError("Gateway Admin RPC unavailable", "UNAVAILABLE");
     }
 
-    const body = await readBoundedJsonResponse(response);
+    const maxResponseBytes =
+      normalizedMethod === "skills.status"
+        ? MAX_REMOTE_SKILL_STATUS_RESPONSE_BYTES
+        : MAX_GATEWAY_ADMIN_RPC_RESPONSE_BYTES;
+    const body = await readBoundedJsonResponse(response, maxResponseBytes);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       throw new GatewayAdminRpcError(
         "Gateway Admin RPC returned an invalid response",

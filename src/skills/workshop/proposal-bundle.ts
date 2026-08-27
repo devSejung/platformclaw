@@ -11,7 +11,7 @@ import { assertSkillWorkshopTargetAccess, readExternalSkillTree } from "./target
 import type { SkillProposalReadResult } from "./types.js";
 import type { SkillWorkshopTargetAccess } from "./types.js";
 
-const MAX_EVALUATION_FILES = 256;
+const MAX_EVALUATION_FILES = 2_000;
 const MAX_EVALUATION_FILE_BYTES = 1024 * 1024;
 const MAX_EVALUATION_BUNDLE_BYTES = 8 * 1024 * 1024;
 const EXCLUDED_ROOT_DIRS = new Set([".clawhub", ".clawdhub", ".openclaw"]);

@@ -296,8 +296,9 @@ describe("SkillHubPage", () => {
           {
             error: "version change requires confirmation",
             details: {
-              code: "version-change-required",
+              code: "existing-skill-replacement-required",
               currentVersion: "2.0.0",
+              currentRevision: "sha256:0123456789abcdef",
               requestedVersion: "2.1.0",
               direction: "upgrade",
             },
@@ -335,8 +336,8 @@ describe("SkillHubPage", () => {
           slug: "release-notes",
           version: "2.1.0",
           destination: "platform_server",
-          acknowledgedVersionChange: true,
-          currentVersion: "2.0.0",
+          acknowledgedReplacement: true,
+          currentRevision: "sha256:0123456789abcdef",
         }),
       }),
     );

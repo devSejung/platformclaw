@@ -364,6 +364,11 @@ docker compose down --volumes
 
 ### 4.1 업데이트
 
+Release의 transfer tar와 **같은 SHA의 deployment bundle**에서 아래 명령을 실행한다.
+이미지만 새로 로드하고 이전 버전의 `platformclaw-deploy`, Compose, env template을 계속
+사용하면 새 SkillHub 서비스·secret·정책이 반영되지 않는다. 먼저 bundle 파일을 교체한 뒤
+기존 `~/platformclaw/deployment.env`와 data 디렉터리는 그대로 보존한다.
+
 ```bash
 ./platformclaw-deploy image update \
   platformclaw-<version>-<sha12>.tar \
