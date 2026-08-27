@@ -483,9 +483,12 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await page.getByRole("tab", { name: "Files" }).click();
     await page.goto(`${server.baseUrl}platformclaw/app/skills`);
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/skills");
+    await expect.poll(() => page.locator("openclaw-skills-page").isVisible()).toBe(true);
     await expect.poll(() => page.getByText("Reports").first().isVisible()).toBe(true);
-    await expect.poll(() => page.getByRole("tab", { name: "Skills" }).isVisible()).toBe(true);
-    await expect.poll(() => page.getByRole("tab", { name: "Workshop" }).isVisible()).toBe(true);
+    await expect
+      .poll(() => page.getByRole("heading", { name: "Skills", exact: true }).isVisible())
+      .toBe(true);
+    await expect.poll(() => page.locator(".plugins-hub-tabs-row").count()).toBe(0);
     await openPlatformClawMcpSettings(page);
     expect(await gateway.getRequests("config.get")).toHaveLength(1);
 

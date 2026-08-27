@@ -14,11 +14,3 @@ export type PendingVersionChange = {
   requestedVersion: string;
   direction: "upgrade" | "downgrade";
 };
-
-export function selectSkillHubTab(tab: PluginsHubTab, navigate: (route: string) => void): void {
-  const route = routeForPluginsHubTab(tab);
-  if (route) {
-    navigate(route);
-  }
-}
-import { routeForPluginsHubTab, type PluginsHubTab } from "../plugins/plugins-hub.ts";
