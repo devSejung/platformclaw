@@ -367,6 +367,11 @@ describe("titleForRoute", () => {
       logs: "Logs",
     });
   });
+
+  it("keeps the Skill Hub product name in Korean chrome", async () => {
+    await i18n.setLocale("ko");
+    expect(titleForRoute("skill-hub")).toBe("Skill Hub");
+  });
 });
 
 describe("subtitleForRoute", () => {
@@ -801,10 +806,10 @@ describe("SIDEBAR_NAV_ROUTES", () => {
     expect(new Set(SIDEBAR_NAV_ROUTES).size).toBe(SIDEBAR_NAV_ROUTES.length);
   });
 
-  it("collapses the plugins hub to a single sidebar entry", () => {
-    expect(SIDEBAR_NAV_ROUTES).not.toContain("skills");
-    expect(SIDEBAR_NAV_ROUTES).not.toContain("skill-workshop");
-    expect(SIDEBAR_NAV_ROUTES).not.toContain("skill-hub");
+  it("exposes plugin destinations as independent sidebar routes", () => {
+    expect(SIDEBAR_NAV_ROUTES).toContain("skills");
+    expect(SIDEBAR_NAV_ROUTES).toContain("skill-workshop");
+    expect(SIDEBAR_NAV_ROUTES).toContain("skill-hub");
     expect(isPluginsHubRoute("plugins")).toBe(true);
     expect(isPluginsHubRoute("skills")).toBe(true);
     expect(isPluginsHubRoute("skill-workshop")).toBe(true);

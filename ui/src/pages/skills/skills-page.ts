@@ -42,11 +42,6 @@ import {
   type PlatformClawSkillHubMessage,
 } from "../../platformclaw/skill-hub.ts";
 import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
-import {
-  PLUGINS_HUB_PANEL_ID,
-  routeForPluginsHubTab,
-  type PluginsHubTab,
-} from "../plugins/plugins-hub.ts";
 import { renderSkills, type SkillDetailTab, type SkillsStatusFilter } from "./view.ts";
 
 export type SkillsRouteData = {
@@ -502,120 +497,103 @@ class SkillsPage extends OpenClawLightDomElement {
     }
   }
 
-  private selectHubTab(tab: PluginsHubTab) {
-    const route = routeForPluginsHubTab(tab);
-    if (route) {
-      this.context.navigate(route);
-    }
-  }
-
   override render() {
     const agents = this.context.agents.state;
     const error = this.skillsError ?? agents.agentsError;
     return renderPluginsHubShell({
-      context: this.context,
-      active: "skills",
       header: html`<section class="content-header content-header--page plugins-content-header">
         <div>
           <h1 class="page-title">${titleForRoute("skills")}</h1>
         </div>
       </section>`,
       content: renderSettingsWorkspace(html`
-        <wa-tab-panel
-          id=${PLUGINS_HUB_PANEL_ID}
-          name="skills"
-          active
-          aria-labelledby="plugins-tab-skills"
-        >
-          ${renderSkills({
-            personalAccess: this.context.accessMode === "personal-agent",
-            canUpdate: this.canUpdateSkills(),
-            canInstall: this.canInstallSkills(),
-            connected: this.gateway.connected,
-            loading: this.skillsLoading || agents.agentsLoading,
-            report: this.skillsReport,
-            agentsList: agents.agentsList,
-            selectedAgentId: this.skillsAgentId ?? agents.agentsList?.defaultId ?? null,
-            error,
-            filter: this.skillsFilter,
-            statusFilter: this.skillsStatusFilter,
-            edits: this.skillEdits,
-            messages: this.skillMessages,
-            operation: this.skillOperation,
-            detailKey: this.skillsDetailKey,
-            detailTab: this.skillsDetailTab,
-            clawhubVerdicts: this.clawhubVerdicts,
-            clawhubVerdictsLoading: this.clawhubVerdictsLoading,
-            clawhubVerdictsError: this.clawhubVerdictsError,
-            skillCardContents: this.skillCardContents,
-            skillCardLoadingKey: this.skillCardLoadingKey,
-            skillCardErrors: this.skillCardErrors,
-            clawhubQuery: this.clawhubSearchQuery,
-            clawhubResults: this.clawhubSearchResults,
-            clawhubSearchLoading: this.clawhubSearchLoading,
-            clawhubSearchError: this.clawhubSearchError,
-            clawhubDetail: this.clawhubDetail,
-            clawhubDetailSlug: this.clawhubDetailSlug,
-            clawhubDetailLoading: this.clawhubDetailLoading,
-            clawhubDetailError: this.clawhubDetailError,
-            clawhubInstallMessage: this.clawhubInstallMessage,
-            skillHubConfig: this.skillHubConfig,
-            skillHubPublishSkill: this.skillHubPublishSkill,
-            skillHubPublishNamespace: this.skillHubPublishNamespace,
-            skillHubPublishVersion: this.skillHubPublishVersion,
-            skillHubPublishVisibility: this.skillHubPublishVisibility,
-            skillHubOperation: this.skillHubOperation,
-            skillHubMessage: this.skillHubMessage,
-            onAgentChange: (agentId) => this.changeAgent(agentId),
-            onFilterChange: (next) => (this.skillsFilter = next),
-            onStatusFilterChange: (next) => (this.skillsStatusFilter = next),
-            onRefresh: () => void this.refreshPage(),
-            onToggle: (key, enabled) => {
-              if (this.canUpdateSkills()) {
-                void updateSkillEnabled(this, key, enabled, () => this.canUpdateSkills());
-              }
-            },
-            onEdit: (key, value) => {
-              if (this.canUpdateSkills()) {
-                updateSkillEdit(this, key, value);
-              }
-            },
-            onSaveKey: (key) => {
-              if (this.canUpdateSkills()) {
-                void saveSkillApiKey(this, key, () => this.canUpdateSkills());
-              }
-            },
-            onInstall: (skillKey, name, installId) => {
-              if (this.canInstallSkills()) {
-                void installSkill(this, skillKey, name, installId);
-              }
-            },
-            onDetailOpen: (key) => {
-              this.skillsDetailKey = key;
-              this.skillsDetailTab = "overview";
-            },
-            onDetailClose: () => (this.skillsDetailKey = null),
-            onDetailTabChange: (tab) => this.changeDetailTab(tab),
-            onClawHubQueryChange: (query) => this.changeClawHubQuery(query),
-            onClawHubDetailOpen: (slug) => void loadClawHubDetail(this, slug),
-            onClawHubDetailClose: () => closeClawHubDetail(this),
-            onClawHubInstall: (slug, acknowledgeClawHubRisk, version) => {
-              if (this.canInstallSkills()) {
-                void installFromClawHub(this, slug, acknowledgeClawHubRisk, version);
-              }
-            },
-            onSkillHubPublishOpen: (skill) => this.openSkillHubPublish(skill),
-            onSkillHubPublishClose: () => (this.skillHubPublishSkill = null),
-            onSkillHubPublishNamespaceChange: (namespace) =>
-              (this.skillHubPublishNamespace = namespace),
-            onSkillHubPublishVersionChange: (version) => (this.skillHubPublishVersion = version),
-            onSkillHubPublishVisibilityChange: (visibility) =>
-              (this.skillHubPublishVisibility = visibility),
-            onSkillHubPublish: () => void this.publishSkillHub(),
-          })}
-        </wa-tab-panel>
+        ${renderSkills({
+          personalAccess: this.context.accessMode === "personal-agent",
+          canUpdate: this.canUpdateSkills(),
+          canInstall: this.canInstallSkills(),
+          connected: this.gateway.connected,
+          loading: this.skillsLoading || agents.agentsLoading,
+          report: this.skillsReport,
+          agentsList: agents.agentsList,
+          selectedAgentId: this.skillsAgentId ?? agents.agentsList?.defaultId ?? null,
+          error,
+          filter: this.skillsFilter,
+          statusFilter: this.skillsStatusFilter,
+          edits: this.skillEdits,
+          messages: this.skillMessages,
+          operation: this.skillOperation,
+          detailKey: this.skillsDetailKey,
+          detailTab: this.skillsDetailTab,
+          clawhubVerdicts: this.clawhubVerdicts,
+          clawhubVerdictsLoading: this.clawhubVerdictsLoading,
+          clawhubVerdictsError: this.clawhubVerdictsError,
+          skillCardContents: this.skillCardContents,
+          skillCardLoadingKey: this.skillCardLoadingKey,
+          skillCardErrors: this.skillCardErrors,
+          clawhubQuery: this.clawhubSearchQuery,
+          clawhubResults: this.clawhubSearchResults,
+          clawhubSearchLoading: this.clawhubSearchLoading,
+          clawhubSearchError: this.clawhubSearchError,
+          clawhubDetail: this.clawhubDetail,
+          clawhubDetailSlug: this.clawhubDetailSlug,
+          clawhubDetailLoading: this.clawhubDetailLoading,
+          clawhubDetailError: this.clawhubDetailError,
+          clawhubInstallMessage: this.clawhubInstallMessage,
+          skillHubConfig: this.skillHubConfig,
+          skillHubPublishSkill: this.skillHubPublishSkill,
+          skillHubPublishNamespace: this.skillHubPublishNamespace,
+          skillHubPublishVersion: this.skillHubPublishVersion,
+          skillHubPublishVisibility: this.skillHubPublishVisibility,
+          skillHubOperation: this.skillHubOperation,
+          skillHubMessage: this.skillHubMessage,
+          onAgentChange: (agentId) => this.changeAgent(agentId),
+          onFilterChange: (next) => (this.skillsFilter = next),
+          onStatusFilterChange: (next) => (this.skillsStatusFilter = next),
+          onRefresh: () => void this.refreshPage(),
+          onToggle: (key, enabled) => {
+            if (this.canUpdateSkills()) {
+              void updateSkillEnabled(this, key, enabled, () => this.canUpdateSkills());
+            }
+          },
+          onEdit: (key, value) => {
+            if (this.canUpdateSkills()) {
+              updateSkillEdit(this, key, value);
+            }
+          },
+          onSaveKey: (key) => {
+            if (this.canUpdateSkills()) {
+              void saveSkillApiKey(this, key, () => this.canUpdateSkills());
+            }
+          },
+          onInstall: (skillKey, name, installId) => {
+            if (this.canInstallSkills()) {
+              void installSkill(this, skillKey, name, installId);
+            }
+          },
+          onDetailOpen: (key) => {
+            this.skillsDetailKey = key;
+            this.skillsDetailTab = "overview";
+          },
+          onDetailClose: () => (this.skillsDetailKey = null),
+          onDetailTabChange: (tab) => this.changeDetailTab(tab),
+          onClawHubQueryChange: (query) => this.changeClawHubQuery(query),
+          onClawHubDetailOpen: (slug) => void loadClawHubDetail(this, slug),
+          onClawHubDetailClose: () => closeClawHubDetail(this),
+          onClawHubInstall: (slug, acknowledgeClawHubRisk, version) => {
+            if (this.canInstallSkills()) {
+              void installFromClawHub(this, slug, acknowledgeClawHubRisk, version);
+            }
+          },
+          onSkillHubPublishOpen: (skill) => this.openSkillHubPublish(skill),
+          onSkillHubPublishClose: () => (this.skillHubPublishSkill = null),
+          onSkillHubPublishNamespaceChange: (namespace) =>
+            (this.skillHubPublishNamespace = namespace),
+          onSkillHubPublishVersionChange: (version) => (this.skillHubPublishVersion = version),
+          onSkillHubPublishVisibilityChange: (visibility) =>
+            (this.skillHubPublishVisibility = visibility),
+          onSkillHubPublish: () => void this.publishSkillHub(),
+        })}
       `),
-      onSelect: (tab) => this.selectHubTab(tab),
     });
   }
 }

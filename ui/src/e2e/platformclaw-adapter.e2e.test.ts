@@ -86,14 +86,14 @@ async function openPlatformClawMcpSettings(page: Page): Promise<void> {
   await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/mcp");
 }
 
-function activeSession() {
+function activeSession(globalRole: "member" | "admin" = "member") {
   return {
     authenticated: true,
     user: {
       accountId: "person.one",
       displayName: "Person One",
       department: "Platform Lab",
-      globalRole: "member",
+      globalRole,
     },
     session: {
       idleExpiresAt: Date.now() + 60_000,
@@ -239,7 +239,6 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       ["Threads: continue an earlier conversation", "05a-04-threads-guide.png"],
       ["Activity: inspect what the Agent did", "05a-05-activity-guide.png"],
       ["Automations: schedule recurring work", "05a-06-automations-guide.png"],
-      ["Plugins: extend Agent capabilities", "05a-07-plugins-guide.png"],
     ] as const;
     for (const [heading, screenshot] of sidebarGuideSteps) {
       await page.getByRole("button", { name: "Next" }).click();
@@ -270,47 +269,18 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
 
     await page.getByRole("button", { name: "Next" }).click();
     await expect
-      .poll(() => page.getByRole("heading", { name: "Choose where work runs" }).isVisible())
-      .toBe(true);
-    if (captureUiProofEnabled) {
-      await page.screenshot({
-        fullPage: true,
-        path: path.join(proofDir, "05a-10-work-location-guide.png"),
-      });
-    }
-
-    await page.getByRole("button", { name: "Next" }).click();
-    await expect
-      .poll(() => page.getByRole("heading", { name: "Understand the Plugins hub" }).isVisible())
-      .toBe(true);
-    await expect.poll(() => page.url().endsWith("/skills")).toBe(true);
-    await expect.poll(() => page.locator(".plugins-hub-tabs-row").isVisible()).toBe(true);
-    await expect.poll(() => page.locator(".tour-shade").count()).toBe(4);
-    await expect.poll(() => page.getByText("LOOK HERE", { exact: true }).isVisible()).toBe(true);
-    await expect
-      .poll(() => page.getByText("Skill Hub is the company catalog", { exact: false }).isVisible())
-      .toBe(true);
-
-    if (captureUiProofEnabled) {
-      await page.screenshot({
-        fullPage: true,
-        path: path.join(proofDir, "05b-plugin-guide.png"),
-      });
-    }
-
-    await page.getByRole("button", { name: "Next" }).click();
-    await expect
       .poll(() =>
         page
           .getByRole("heading", { name: "Skills: instructions your Agent can reuse" })
           .isVisible(),
       )
       .toBe(true);
-    await expect.poll(() => page.locator("#plugins-tab-skills").isVisible()).toBe(true);
+    await expect.poll(() => page.url().endsWith("/skills")).toBe(true);
+    await expect.poll(() => page.locator(".plugins-hub-tabs-row").count()).toBe(0);
     if (captureUiProofEnabled) {
       await page.screenshot({
         fullPage: true,
-        path: path.join(proofDir, "05c-skills-guide.png"),
+        path: path.join(proofDir, "05a-07-skills-guide.png"),
       });
     }
 
@@ -320,11 +290,10 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         page.getByRole("heading", { name: "Workshop: review skill changes safely" }).isVisible(),
       )
       .toBe(true);
-    await expect.poll(() => page.url().endsWith("/skills/workshop")).toBe(true);
     if (captureUiProofEnabled) {
       await page.screenshot({
         fullPage: true,
-        path: path.join(proofDir, "05d-workshop-guide.png"),
+        path: path.join(proofDir, "05a-08-workshop-guide.png"),
       });
     }
 
@@ -337,13 +306,25 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       )
       .toBe(true);
     await expect.poll(() => page.url().endsWith("/skills/hub")).toBe(true);
+    await expect.poll(() => page.locator(".plugins-hub-tabs-row").count()).toBe(0);
     await expect
       .poll(() => page.getByText("No Skill Hub results", { exact: true }).isVisible())
       .toBe(true);
     if (captureUiProofEnabled) {
       await page.screenshot({
         fullPage: true,
-        path: path.join(proofDir, "05e-skill-hub-guide.png"),
+        path: path.join(proofDir, "05a-09-skill-hub-guide.png"),
+      });
+    }
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() => page.getByRole("heading", { name: "Choose where work runs" }).isVisible())
+      .toBe(true);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "05a-10-work-location-guide.png"),
       });
     }
 
@@ -353,6 +334,47 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       proofDir,
       quickActions,
     });
+  });
+
+  it("renders standalone plugin destinations for members and administrators", async () => {
+    for (const globalRole of ["member", "admin"] as const) {
+      const { page } = await newPage();
+      await installPlatformClawDocument(page);
+      await page.route("**/platformclaw/api/auth/session", (route) =>
+        route.fulfill({ json: activeSession(globalRole), status: 200 }),
+      );
+      await installMockGateway(page, {
+        basePath: "/platformclaw/app",
+        defaultAgentId: "person_one",
+        featureMethods: [...PLATFORMCLAW_WEB_GATEWAY_METHODS],
+        operatorScopes: ["operator.read", "operator.write", "operator.admin"],
+        sessionKey: "agent:person_one:main",
+      });
+
+      await page.goto(`${server.baseUrl}platformclaw/app/chat`);
+      const sidebar = page.locator("openclaw-app-sidebar");
+      const destinations = [
+        ["skills", "Skills", "/platformclaw/app/skills"],
+        ["skill-workshop", "Skill Workshop", "/platformclaw/app/skills/workshop"],
+        ["skill-hub", "Skill Hub", "/platformclaw/app/skills/hub"],
+      ] as const;
+      for (const [route, label, href] of destinations) {
+        const entry = sidebar.locator(`[data-sidebar-entry="route:${route}"] > .nav-item`);
+        await expect.poll(() => entry.isVisible()).toBe(true);
+        await expect.poll(() => entry.locator(".nav-item__text").textContent()).toBe(label);
+        await expect.poll(() => entry.getAttribute("href")).toBe(href);
+      }
+      await expect
+        .poll(() => sidebar.locator('[data-sidebar-entry="route:plugins"]').count())
+        .toBe(0);
+      if (captureUiProofEnabled) {
+        await page.screenshot({
+          animations: "disabled",
+          fullPage: true,
+          path: path.join(proofDir, `${globalRole}-plugin-destinations.png`),
+        });
+      }
+    }
   });
 
   it("opens the owned-agent self-service surface through the cookie-authenticated proxy", async () => {

@@ -92,9 +92,10 @@ describe("PlatformClawControlUiAdapter", () => {
           "route:sessions",
           "route:activity",
           "route:cron",
-          "route:plugins",
+          "route:skills",
+          "route:skill-workshop",
+          "route:skill-hub",
         ],
-        sidebarRouteTargets: { plugins: "skills" },
       },
       gateway: {
         url: "wss://platformclaw.example/platformclaw/gateway",
@@ -316,7 +317,16 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(adminOptions.enabledRouteIds).toContain("plugins");
     expect(adminOptions.enabledRouteIds).toContain("mcp");
     expect(adminOptions.enabledRouteIds).toContain("credentials");
-    expect(adminOptions.navigation?.sidebarEntries).toContain("route:plugins");
+    expect(adminOptions.navigation?.sidebarEntries).toEqual([
+      "route:usage",
+      "route:tasks",
+      "route:sessions",
+      "route:activity",
+      "route:cron",
+      "route:skills",
+      "route:skill-workshop",
+      "route:skill-hub",
+    ]);
     expect(adminOptions.navigation?.settingsNavigationMode).toBe("takeover");
     render(adminOptions.shellSession?.renderFooterAccessory?.(), document.body);
 
@@ -364,9 +374,17 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(memberOptions.enabledRouteIds).not.toContain("plugins");
     expect(memberOptions.enabledRouteIds).toContain("mcp");
     expect(memberOptions.enabledRouteIds).toContain("credentials");
-    expect(memberOptions.navigation?.sidebarEntries).toContain("route:plugins");
-    expect(memberOptions.navigation?.sidebarEntries).not.toContain("route:skills");
-    expect(memberOptions.navigation?.sidebarRouteTargets).toEqual({ plugins: "skills" });
+    expect(memberOptions.navigation?.sidebarEntries).toEqual([
+      "route:usage",
+      "route:tasks",
+      "route:sessions",
+      "route:activity",
+      "route:cron",
+      "route:skills",
+      "route:skill-workshop",
+      "route:skill-hub",
+    ]);
+    expect(memberOptions.navigation?.sidebarRouteTargets).toBeUndefined();
     expect(memberOptions.navigation?.settingsNavigationMode).toBe("takeover");
     render(memberOptions.shellSession?.renderFooterAccessory?.(), document.body);
 

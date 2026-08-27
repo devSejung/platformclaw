@@ -8,11 +8,30 @@ import {
 
 installBrowserHistoryIsolation();
 
-async function mount(options: { admin?: boolean; vocEnabled?: boolean } = {}) {
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+const BASIC_EXECUTION_SETTINGS = {
+  activeTarget: "platform_server",
+  targetRevision: 4,
+  credentialStatus: "current",
+  accountId: "person.one",
+  availableVms: [],
+};
+
+async function mount(
+  options: { admin?: boolean; fetchImpl?: typeof fetch; vocEnabled?: boolean } = {},
+) {
   const element = document.createElement(
     "platformclaw-quick-actions",
   ) as PlatformClawQuickActionsElement;
   element.admin = options.admin ?? false;
+  if (options.fetchImpl) {
+    element.fetchImpl = options.fetchImpl;
+  }
   element.vocEnabled = options.vocEnabled ?? false;
   document.body.append(element);
   await element.updateComplete;
@@ -36,21 +55,36 @@ async function advanceTour(element: PlatformClawQuickActionsElement) {
 function installMemberPluginsHub(link: HTMLAnchorElement) {
   link.addEventListener("click", (event) => {
     event.preventDefault();
-    if (document.querySelector(".plugins-hub-tabs-row")) {
+    if (link.href.endsWith("/skills")) {
+      globalThis.history.replaceState(null, "", "/skills");
+    }
+    if (document.querySelector(".plugins-content-header")) {
       return;
     }
-    const row = document.createElement("div");
-    row.className = "plugins-hub-tabs-row";
-    row.getBoundingClientRect = () => DOMRect.fromRect({ x: 190, y: 90, width: 430, height: 46 });
-    for (const [index, tab] of ["skills", "workshop", "skill-hub"].entries()) {
-      const element = document.createElement("button");
-      element.id = `plugins-tab-${tab}`;
-      element.getBoundingClientRect = () =>
-        DOMRect.fromRect({ x: 200 + index * 130, y: 96, width: 120, height: 34 });
-      row.append(element);
-    }
-    document.body.append(row);
+    const header = document.createElement("section");
+    header.className = "plugins-content-header";
+    header.getBoundingClientRect = () =>
+      DOMRect.fromRect({ x: 320, y: 90, width: 600, height: 56 });
+    document.body.append(header);
   });
+  for (const [index, href] of ["/skills", "/skills/workshop", "/skills/hub"].entries()) {
+    const destination = document.createElement("a");
+    destination.className = "nav-item";
+    destination.href = href;
+    destination.getBoundingClientRect = () =>
+      DOMRect.fromRect({ x: 20, y: 120 + index * 40, width: 180, height: 36 });
+    destination.addEventListener("click", (event) => {
+      event.preventDefault();
+      globalThis.history.replaceState(null, "", href);
+      document.querySelector(".plugins-content-header")?.remove();
+      const header = document.createElement("section");
+      header.className = "plugins-content-header";
+      header.getBoundingClientRect = () =>
+        DOMRect.fromRect({ x: 320, y: 90, width: 600, height: 56 });
+      document.body.append(header);
+    });
+    (link.parentElement ?? document.body).append(destination);
+  }
 }
 
 function installMemberSettings(button: HTMLButtonElement) {
@@ -143,14 +177,15 @@ describe("platformclaw-quick-actions", () => {
 
   it("uses the PlatformClaw-owned Korean quick actions and tour copy", async () => {
     await i18n.setLocale("ko");
-    const member = await mount({ vocEnabled: true });
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(BASIC_EXECUTION_SETTINGS));
+    const member = await mount({ fetchImpl, vocEnabled: true });
 
     await vi.waitFor(() => expect(member.shadowRoot?.textContent).toContain("가이드"));
     await vi.waitFor(() =>
       expect(
         member.shadowRoot?.querySelector("platformclaw-execution-settings")?.shadowRoot
           ?.textContent,
-      ).toContain("VM 서버"),
+      ).toContain("기본 작업 공간"),
     );
     await vi.waitFor(() =>
       expect(member.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
@@ -158,7 +193,45 @@ describe("platformclaw-quick-actions", () => {
       ),
     );
     expect(member.shadowRoot?.querySelector(".tour-next")?.textContent?.trim()).toBe("다음");
-    expect(member.shadowRoot?.querySelector(".tour-progress")?.textContent?.trim()).toBe("1 / 24");
+    expect(member.shadowRoot?.querySelector(".tour-progress")?.textContent?.trim()).toBe("1 / 22");
+  });
+
+  it("updates the quick-action label after changing work location", async () => {
+    localStorage.setItem(PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY, "true");
+    const vmSettings = {
+      ...BASIC_EXECUTION_SETTINGS,
+      activeTarget: "assigned_vm",
+      targetRevision: 3,
+      assignment: {
+        vmHostId: "vm-one",
+        status: "ready",
+        vmLabel: "Development VM",
+        safeConnectLabel: "SafeConnect",
+        linuxAccount: "person.one",
+      },
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(vmSettings))
+      .mockResolvedValueOnce(jsonResponse(BASIC_EXECUTION_SETTINGS));
+    const member = await mount({ fetchImpl });
+    const settings = member.shadowRoot?.querySelector("platformclaw-execution-settings");
+
+    await vi.waitFor(() =>
+      expect(settings?.shadowRoot?.textContent).toContain("My development VM"),
+    );
+    settings?.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+    settings?.shadowRoot?.querySelector<HTMLElement>("[data-target='platform_server']")?.click();
+    settings?.shadowRoot?.querySelector<HTMLElement>("[data-action='confirm-switch']")?.click();
+
+    await vi.waitFor(() => expect(settings?.shadowRoot?.textContent).toContain("Basic workspace"));
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      "/platformclaw/api/execution/target",
+      expect.objectContaining({
+        body: JSON.stringify({ target: "platform_server", expectedRevision: 3 }),
+        method: "POST",
+      }),
+    );
   });
 
   it("starts automatically until the user completes or suppresses the versioned tour", async () => {
@@ -213,7 +286,7 @@ describe("platformclaw-quick-actions", () => {
       "Usage: understand tokens and cost",
     );
     expect(element.shadowRoot?.querySelector(".tour-progress")?.textContent?.trim()).toBe(
-      "3 of 23",
+      "3 of 21",
     );
   });
 
@@ -223,7 +296,7 @@ describe("platformclaw-quick-actions", () => {
       expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
     );
 
-    for (let index = 0; index < 24; index += 1) {
+    for (let index = 0; index < 22; index += 1) {
       await advanceTour(element);
     }
 
@@ -246,7 +319,7 @@ describe("platformclaw-quick-actions", () => {
       expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
     );
 
-    for (let index = 0; index < 14; index += 1) {
+    for (let index = 0; index < 12; index += 1) {
       await advanceTour(element);
     }
 
@@ -282,29 +355,29 @@ describe("platformclaw-quick-actions", () => {
     );
   });
 
-  it("keeps the target clear and explains the plugin workflow step by step", async () => {
+  it("walks through Skills, Workshop, and Skill Hub before work location", async () => {
     const sidebar = document.createElement("openclaw-app-sidebar");
     const pluginsLink = document.createElement("a");
     pluginsLink.className = "nav-item";
     pluginsLink.href = "/skills";
     pluginsLink.getBoundingClientRect = () =>
       DOMRect.fromRect({ x: 20, y: 120, width: 140, height: 36 });
-    installMemberPluginsHub(pluginsLink);
     sidebar.append(pluginsLink);
+    installMemberPluginsHub(pluginsLink);
     document.body.append(sidebar);
     const element = await mount();
     await vi.waitFor(() =>
       expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
     );
 
-    for (let index = 0; index < 10; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
       await advanceTour(element);
     }
 
     expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
-      "Understand the Plugins hub",
+      "Skills: instructions your Agent can reuse",
     );
-    expect(element.shadowRoot?.querySelectorAll(".tour-popover li")).toHaveLength(5);
+    expect(element.shadowRoot?.querySelectorAll(".tour-popover li")).toHaveLength(3);
     expect(element.shadowRoot?.querySelector(".tour-target-label")?.textContent).toBe("LOOK HERE");
     await vi.waitFor(() =>
       expect(element.shadowRoot?.querySelectorAll(".tour-shade")).toHaveLength(4),
@@ -312,13 +385,23 @@ describe("platformclaw-quick-actions", () => {
 
     await advanceTour(element);
     expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
-      "Skills: instructions your Agent can reuse",
+      "Workshop: review skill changes safely",
     );
     expect(element.shadowRoot?.querySelector(".tour-popover")?.textContent).toContain(
-      "Needs Setup shows missing requirements",
+      "Draft skill changes stay separate from live skills",
     );
     expect(element.shadowRoot?.querySelector(".tour-highlight")?.getAttribute("style")).toContain(
-      "left:193px",
+      "left:313px",
+    );
+
+    await advanceTour(element);
+    expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
+      "Skill Hub: install and share company skills",
+    );
+
+    await advanceTour(element);
+    expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
+      "Choose where work runs",
     );
   });
 
@@ -327,18 +410,17 @@ describe("platformclaw-quick-actions", () => {
     const pluginsLink = document.createElement("a");
     pluginsLink.className = "nav-item";
     pluginsLink.href = "/settings/plugins";
-    installMemberPluginsHub(pluginsLink);
     const settingsButton = document.createElement("button");
     settingsButton.dataset.tour = "settings";
     installMemberSettings(settingsButton);
     sidebar.append(pluginsLink, settingsButton);
     document.body.append(sidebar);
-
+    installMemberPluginsHub(pluginsLink);
     const beforeNavigation = await mount();
     await vi.waitFor(() =>
       expect(beforeNavigation.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
     );
-    for (let index = 0; index < 16; index += 1) {
+    for (let index = 0; index < 14; index += 1) {
       await advanceTour(beforeNavigation);
     }
     expect(beforeNavigation.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(

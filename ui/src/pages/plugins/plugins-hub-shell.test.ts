@@ -15,7 +15,7 @@ const ALL_TABS: readonly PluginsHubTab[] = [
   "skill-hub",
 ];
 
-function renderShell(active: PluginsHubTab, enabledRoutes: ReadonlySet<RouteId>) {
+function renderShell(active: PluginsHubTab, enabledRoutes: ReadonlySet<RouteId>, showTabs = false) {
   const container = document.createElement("div");
   document.body.append(container);
   render(
@@ -25,6 +25,7 @@ function renderShell(active: PluginsHubTab, enabledRoutes: ReadonlySet<RouteId>)
         isRouteEnabled: (routeId) => enabledRoutes.has(routeId),
       },
       active,
+      showTabs,
       header: "Header",
       content: "Content",
       onSelect: vi.fn(),
@@ -51,6 +52,7 @@ describe("Plugins Hub shell", () => {
     const container = renderShell(
       active,
       new Set<RouteId>(["plugins", "skills", "skill-workshop", "skill-hub"]),
+      true,
     );
 
     expect(renderedTabs(container)).toEqual(ALL_TABS);
@@ -60,15 +62,15 @@ describe("Plugins Hub shell", () => {
     );
   });
 
-  it.each(["skills", "workshop", "skill-hub"] as const)(
-    "keeps the personal tab set on %s",
-    (active) => {
-      const container = renderShell(
-        active,
-        new Set<RouteId>(["skills", "skill-workshop", "skill-hub"]),
-      );
+  it("omits the hub tabs for standalone destinations", () => {
+    const container = renderShell(
+      "skills",
+      new Set<RouteId>(["skills", "skill-workshop", "skill-hub"]),
+    );
 
-      expect(renderedTabs(container)).toEqual(["skills", "workshop", "skill-hub"]);
-    },
-  );
+    expect(renderedTabs(container)).toEqual([]);
+    expect(container.querySelector(".plugins-hub-tabs-row")).toBeNull();
+    expect(container.textContent).toContain("Header");
+    expect(container.textContent).toContain("Content");
+  });
 });
