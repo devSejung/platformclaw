@@ -63,8 +63,27 @@ export function findChatTerminal(): Element | null {
   return document.querySelector('[data-tour="terminal"]');
 }
 
+function isTerminalTourAvailable(): boolean {
+  const sidebar = document.querySelector("openclaw-app-sidebar") as
+    | (Element & { terminalAvailable?: boolean })
+    | null;
+  return findChatTerminal() !== null || sidebar?.terminalAvailable === true;
+}
+
 export function buildPlatformClawTourSteps(actions: TourActions): TourStep[] {
   const catalogTabsAvailable = Boolean(findSidebarRoute("settings/plugins"));
+  const terminalSteps: TourStep[] = isTerminalTourAvailable()
+    ? [
+        {
+          id: "terminal",
+          title: guideT("platformClaw.guide.terminalTitle"),
+          body: guideT("platformClaw.guide.terminalBody"),
+          details: guideT("platformClaw.guide.terminalDetails").split("|"),
+          element: findChatTerminal,
+          activate: actions.openHomeToTerminal,
+        },
+      ]
+    : [];
   const pluginCatalogSteps: TourStep[] = catalogTabsAvailable
     ? [
         {
@@ -98,14 +117,7 @@ export function buildPlatformClawTourSteps(actions: TourActions): TourStep[] {
       details: guideT("platformClaw.guide.chatDetails").split("|"),
       element: findSidebarHome,
     },
-    {
-      id: "terminal",
-      title: guideT("platformClaw.guide.terminalTitle"),
-      body: guideT("platformClaw.guide.terminalBody"),
-      details: guideT("platformClaw.guide.terminalDetails").split("|"),
-      element: findChatTerminal,
-      activate: actions.openHomeToTerminal,
-    },
+    ...terminalSteps,
     {
       id: "usage",
       title: guideT("platformClaw.guide.usageTitle"),

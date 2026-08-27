@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
+import { installBrowserHistoryIsolation } from "../test-helpers/browser-history.ts";
 import {
   PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY,
   PlatformClawQuickActionsElement,
 } from "./quick-actions.ts";
+
+installBrowserHistoryIsolation();
 
 async function mount(options: { admin?: boolean; vocEnabled?: boolean } = {}) {
   const element = document.createElement(
@@ -191,6 +194,26 @@ describe("platformclaw-quick-actions", () => {
     element.shadowRoot?.querySelector<HTMLButtonElement>('[data-tour="guide"]')?.click();
     await vi.waitFor(() =>
       expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
+    );
+  });
+
+  it("omits the Terminal guide step when the capability is unavailable", async () => {
+    document.querySelector('[data-tour="terminal"]')?.remove();
+    const element = await mount();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
+    );
+
+    await advanceTour(element);
+    expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
+      "Home: start a conversation with your Agent",
+    );
+    await advanceTour(element);
+    expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
+      "Usage: understand tokens and cost",
+    );
+    expect(element.shadowRoot?.querySelector(".tour-progress")?.textContent?.trim()).toBe(
+      "3 of 23",
     );
   });
 
