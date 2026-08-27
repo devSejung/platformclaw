@@ -60,9 +60,7 @@ def excluded(name, directory):
     return (
         (directory and lowered in EXCLUDED_DIRS)
         or (not directory and (
-            lowered == '.env'
-            or lowered.startswith('.env.')
-            or lowered in EXCLUDED_FILES
+            lowered in EXCLUDED_FILES
             or lowered.endswith(EXCLUDED_SUFFIXES)
         ))
     )

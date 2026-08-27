@@ -207,6 +207,11 @@ authoritative extraction and destination checks. Successful publish and install
 operations create control-plane audit records without package contents or
 credentials.
 
+`.env` and `.env.*` are ordinary skill package files and are not excluded. They
+remain subject to scanning and visibility policy, so publishers must not place
+deploy-time credentials in them. Private keys, certificates, credential files,
+VCS state, runtime metadata, and dependency trees remain excluded or rejected.
+
 ## Catalog lifecycle
 
 The current managed integration adds:

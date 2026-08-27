@@ -39,6 +39,15 @@ describe("streaming ZIP archive validation", () => {
     });
   });
 
+  it("accepts .env package files", async () => {
+    const { file, bytes } = await archiveFile((zip) =>
+      zip.file(".env.production", "RUNTIME_MODE=production"),
+    );
+    await expect(validateZipArchiveFile(file, bytes.byteLength, limits)).resolves.toMatchObject({
+      skillMarkdown: expect.any(Buffer),
+    });
+  });
+
   it.each([
     ["path traversal", (zip: JSZip) => zip.file("../escape", "bad"), /unsafe path/u],
     [

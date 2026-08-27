@@ -317,7 +317,7 @@ describe("SkillHubService", () => {
 
   it("packages the real workspace skill and overrides only the published version", async () => {
     const { service, actor, adapterMocks, skillDir, recordAuditEvent } = await fixture();
-    await writeFile(path.join(skillDir, ".env"), "TOKEN=must-not-publish");
+    await writeFile(path.join(skillDir, ".env"), "RUNTIME_MODE=production");
     await writeFile(path.join(skillDir, "client.pem"), "must-not-publish");
     await mkdir(path.join(skillDir, ".openclaw"));
     await writeFile(path.join(skillDir, ".openclaw", "state.json"), "must-not-publish");
@@ -340,7 +340,7 @@ describe("SkillHubService", () => {
     expect(await zip.file("helper.txt")!.async("string")).toBe("hello");
     expect(await zip.file("references/guide.md")!.async("string")).toBe("guide");
     expect(zip.files["references/"]).toBeUndefined();
-    expect(zip.file(".env")).toBeNull();
+    expect(await zip.file(".env")!.async("string")).toBe("RUNTIME_MODE=production");
     expect(zip.file("client.pem")).toBeNull();
     expect(zip.file(".openclaw/state.json")).toBeNull();
     expect(await readFile(path.join(skillDir, "SKILL.md"), "utf8")).toContain("version: 0.0.1");
@@ -461,7 +461,9 @@ describe("SkillHubService", () => {
 
   it("uploads a validated exact version through the existing Gateway skill installer", async () => {
     const { service, actor, adapterMocks, adminRpcCall } = await fixture();
-    adapterMocks.download.mockResolvedValue(await skillArchive());
+    adapterMocks.download.mockResolvedValue(
+      await skillArchive({ extra: (zip) => zip.file(".env", "RUNTIME_MODE=production") }),
+    );
     adminRpcCall.mockImplementation(async (method) => {
       if (method === "skills.upload.begin") {
         return { uploadId: "upload-1", receivedBytes: 0 };

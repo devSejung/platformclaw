@@ -45,8 +45,6 @@ export function isExcludedSkillArchivePath(entryPath: string, directory: boolean
     return EXCLUDED_DIRECTORIES.has(basename);
   }
   return (
-    basename === ".env" ||
-    basename.startsWith(".env.") ||
     EXCLUDED_FILES.has(basename) ||
     EXCLUDED_FILE_SUFFIXES.some((suffix) => basename.endsWith(suffix))
   );

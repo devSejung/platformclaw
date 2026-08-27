@@ -122,6 +122,12 @@ symbolic-link or junction escape, hard-link escape, malformed `SKILL.md`, and
 destination collision. Size metadata from the ZIP central directory is not
 trusted.
 
+`.env` and `.env.*` remain valid package files because some skills use them for
+non-secret runtime defaults. They are scanned and governed like all other
+content; deploy-time credentials must use PlatformClaw credential surfaces.
+Private keys, certificates, credential files, VCS state, runtime metadata, and
+dependency trees remain excluded or rejected.
+
 The registry multipart ceiling is 500 MiB and its expanded package policy is
 1 GiB. Browser ingress writes an owner-only temporary file with a running byte
 cap; it does not assemble a 500 MiB browser upload in process memory. Scanner
