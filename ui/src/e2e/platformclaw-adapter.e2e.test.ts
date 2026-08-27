@@ -12,7 +12,7 @@ import {
   type ControlUiE2eServer,
   type ControlUiMockGatewayScenario,
 } from "../test-helpers/control-ui-e2e.ts";
-import { runPlatformClawSettingsAndMemoryGuide } from "./platformclaw-guide-flow.ts";
+import { runPlatformClawSettingsAndMemoryGuide } from "./platformclaw-guide-flow.test-support.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);

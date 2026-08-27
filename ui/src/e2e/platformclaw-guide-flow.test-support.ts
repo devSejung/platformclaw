@@ -2,6 +2,7 @@ import path from "node:path";
 import type { Locator, Page } from "playwright";
 import { expect } from "vitest";
 
+/** Drive the route-changing half of the PlatformClaw guide without bloating the owning E2E. */
 export async function runPlatformClawSettingsAndMemoryGuide(options: {
   captureUiProofEnabled: boolean;
   page: Page;
