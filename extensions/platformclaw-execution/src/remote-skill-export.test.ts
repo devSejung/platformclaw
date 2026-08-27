@@ -195,14 +195,14 @@ describe("VM remote skill export", () => {
   });
 
   it.runIf(process.platform !== "win32")(
-    "packages a real VM skill, updates only published metadata, and excludes secrets",
+    "packages a real VM skill, includes .env, and excludes reserved secrets",
     async () => {
       await withLocalSkill(async ({ skillDir, target, service, disposeSession }) => {
         await mkdir(path.join(skillDir, "references"));
         await mkdir(path.join(skillDir, ".git"));
         await writeFile(path.join(skillDir, "references", "guide.md"), "safe guide\n");
         await writeFile(path.join(skillDir, ".git", "config"), "private git settings");
-        await writeFile(path.join(skillDir, ".env"), "TOKEN=secret");
+        await writeFile(path.join(skillDir, ".env"), "RUNTIME_MODE=production");
         await writeFile(path.join(skillDir, "private.pem"), "secret key");
 
         const archive = await service.export({ target, slug: "demo-skill", version: "2.1.0" });
@@ -218,7 +218,7 @@ describe("VM remote skill export", () => {
           ),
         ) as { names: string[]; markdown: string; flags: number[] };
 
-        expect(result.names).toEqual(["SKILL.md", "references/guide.md"]);
+        expect(result.names).toEqual([".env", "SKILL.md", "references/guide.md"]);
         expect(result.markdown).toContain('version: "2.1.0"');
         expect(result.flags.every((flags) => (flags & ~0x800) === 0)).toBe(true);
         expect(await readFile(path.join(skillDir, "SKILL.md"), "utf8")).not.toContain("version:");
@@ -252,14 +252,14 @@ describe("VM remote skill export", () => {
     "enforces archive file-count and per-entry limits",
     async () => {
       await withLocalSkill(async ({ skillDir, target, service }) => {
-        for (let index = 0; index < 100; index += 1) {
-          await writeFile(path.join(skillDir, `file-${String(index).padStart(3, "0")}.txt`), "x");
+        for (let index = 0; index < 2_000; index += 1) {
+          await writeFile(path.join(skillDir, `file-${String(index).padStart(4, "0")}.txt`), "x");
         }
         await expect(
           service.export({ target, slug: "demo-skill", version: "2.1.0" }),
-        ).rejects.toThrow("100-file limit");
-        for (let index = 0; index < 100; index += 1) {
-          await rm(path.join(skillDir, `file-${String(index).padStart(3, "0")}.txt`));
+        ).rejects.toThrow("2000-entry security limit");
+        for (let index = 0; index < 2_000; index += 1) {
+          await rm(path.join(skillDir, `file-${String(index).padStart(4, "0")}.txt`));
         }
         const oversized = path.join(skillDir, "oversized.bin");
         await writeFile(oversized, "");

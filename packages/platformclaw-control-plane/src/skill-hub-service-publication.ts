@@ -13,7 +13,7 @@ import {
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
   SKILL_HUB_UPLOAD_ENTRY_BYTES,
   SKILL_HUB_UPLOAD_EXPANDED_BYTES,
-  SKILL_HUB_UPLOAD_FILES,
+  SKILL_HUB_UPLOAD_ENTRIES,
   SKILL_KEY_PATTERN,
   SkillHubServiceError,
   UPLOAD_CHUNK_BYTES,
@@ -26,7 +26,42 @@ import {
 import { downloadVmWorkspaceArchive } from "./skill-hub-workspace-export.js";
 import { validateZipArchiveFile, ZipArchiveValidationError } from "./zip-archive-validator.js";
 
+type SkillHubInstallResult = {
+  ok: true;
+  noOp: false;
+  slug: string;
+  version: string;
+  target: SkillInstallTarget;
+};
+
 export abstract class SkillHubPublicationService extends SkillHubServiceBase {
+  private readonly installLocks = new Map<string, Promise<void>>();
+  private readonly installsInFlight = new Map<string, Promise<SkillHubInstallResult>>();
+
+  private async withInstallLock<T>(
+    agentId: string,
+    destination: SkillInstallTarget,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${agentId}\0${destination}`;
+    const previous = this.installLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => gate);
+    this.installLocks.set(key, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.installLocks.get(key) === tail) {
+        this.installLocks.delete(key);
+      }
+    }
+  }
+
   async authenticate(token: string): Promise<AuthenticatedWorkspace | null> {
     const auth = await this.options.authService.authenticateToken(token);
     if (auth.status !== "active") {
@@ -416,7 +451,8 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
         archiveBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
         expandedBytes: SKILL_HUB_UPLOAD_EXPANDED_BYTES,
         entryBytes: SKILL_HUB_UPLOAD_ENTRY_BYTES,
-        files: SKILL_HUB_UPLOAD_FILES,
+        files: MAX_SKILL_FILES,
+        entries: SKILL_HUB_UPLOAD_ENTRIES,
         retainedEntryBytes: MAX_SKILL_MD_BYTES,
       }));
     } catch (error) {
@@ -483,10 +519,48 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       slug: string;
       version: string;
       destination: SkillInstallTarget;
-      acknowledgedVersionChange?: boolean;
-      currentVersion?: string;
+      acknowledgedReplacement?: boolean;
+      currentRevision?: string;
     },
   ) {
+    const requestKey = JSON.stringify([
+      actor.agentId,
+      actor.user.id,
+      params.destination,
+      params.namespace,
+      params.slug,
+      params.version,
+      params.acknowledgedReplacement === true,
+      params.currentRevision ?? null,
+    ]);
+    const existing = this.installsInFlight.get(requestKey);
+    if (existing) {
+      return await existing;
+    }
+    const operation = this.withInstallLock(actor.agentId, params.destination, async () =>
+      this.installUnlocked(actor, params),
+    );
+    this.installsInFlight.set(requestKey, operation);
+    try {
+      return await operation;
+    } finally {
+      if (this.installsInFlight.get(requestKey) === operation) {
+        this.installsInFlight.delete(requestKey);
+      }
+    }
+  }
+
+  private async installUnlocked(
+    actor: AuthenticatedWorkspace,
+    params: {
+      namespace: string;
+      slug: string;
+      version: string;
+      destination: SkillInstallTarget;
+      acknowledgedReplacement?: boolean;
+      currentRevision?: string;
+    },
+  ): Promise<SkillHubInstallResult> {
     const execution = await this.authorizeInstallTarget(actor.agentId, params.destination);
     const namespace = this.authorizeNamespace(params.namespace);
     const slug = safeName(params.slug, "skill slug", SKILL_KEY_PATTERN);
@@ -513,18 +587,6 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
         code: "installed-version-unavailable",
       });
     }
-    if (installedVersion === version) {
-      await this.audit(
-        actor.user.id,
-        "skill-hub.install.no-op",
-        `${namespace}/${slug}@${version}`,
-        {
-          agentId: actor.agentId,
-          destination: params.destination,
-        },
-      );
-      return { ok: true, noOp: true, slug, version, target: params.destination };
-    }
     const replacing = installedVersion !== undefined;
     if (replacing && !/^sha256:[a-f0-9]{16}$/u.test(installedRevision ?? "")) {
       throw new SkillHubServiceError("installed skill revision is unavailable", 409, {
@@ -533,15 +595,17 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     }
     if (
       replacing &&
-      (!params.acknowledgedVersionChange || params.currentVersion !== installedVersion)
+      (!params.acknowledgedReplacement || params.currentRevision !== installedRevision)
     ) {
-      const direction = compareSemVer(version, installedVersion) > 0 ? "upgrade" : "downgrade";
+      const comparison = compareSemVer(version, installedVersion);
+      const direction = comparison > 0 ? "upgrade" : comparison < 0 ? "downgrade" : "reinstall";
       throw new SkillHubServiceError(
-        `confirm ${direction} from ${installedVersion} to ${version}`,
+        `confirm replacement of installed ${slug}@${installedVersion}`,
         409,
         {
-          code: "version-change-required",
+          code: "existing-skill-replacement-required",
           currentVersion: installedVersion,
+          currentRevision: installedRevision,
           requestedVersion: version,
           direction,
         },
@@ -551,24 +615,45 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       this.options.adapter.download(namespace, slug, version),
     );
     await validateDownloadedArchive(archive, slug, version, {
-      archiveBytes: this.options.maxPackageBytes,
-      expandedBytes: this.options.maxPackageBytes,
-      entryBytes: this.options.maxPackageBytes,
+      archiveBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
+      expandedBytes: SKILL_HUB_UPLOAD_EXPANDED_BYTES,
+      entryBytes: SKILL_HUB_UPLOAD_ENTRY_BYTES,
       files: MAX_SKILL_FILES,
+      entries: SKILL_HUB_UPLOAD_ENTRIES,
     });
     const sha256 = createHash("sha256").update(archive).digest("hex");
-    const begin = await this.gatewayCall<{ uploadId: string }>("skills.upload.begin", {
-      kind: "skill-archive",
-      slug,
-      sizeBytes: archive.byteLength,
-      sha256,
-      force: replacing,
-      idempotencyKey: `skill-hub:${namespace}/${slug}@${version}:${sha256}`,
-    });
-    if (!begin?.uploadId) {
+    const begin = await this.gatewayCall<{ uploadId?: string; receivedBytes?: number }>(
+      "skills.upload.begin",
+      {
+        kind: "skill-archive",
+        slug,
+        sizeBytes: archive.byteLength,
+        sha256,
+        force: replacing,
+        idempotencyKey: JSON.stringify([
+          "skill-hub",
+          actor.agentId,
+          params.destination,
+          replacing ? "update" : "install",
+          namespace,
+          slug,
+          version,
+          sha256,
+        ]),
+      },
+    );
+    const receivedBytes = begin?.receivedBytes;
+    if (
+      !begin?.uploadId ||
+      typeof receivedBytes !== "number" ||
+      !Number.isSafeInteger(receivedBytes) ||
+      receivedBytes < 0 ||
+      receivedBytes > archive.byteLength
+    ) {
       throw new SkillHubServiceError("Gateway returned an invalid upload session", 503);
     }
-    for (let offset = 0; offset < archive.byteLength; offset += UPLOAD_CHUNK_BYTES) {
+    // Begin is the resume authority: retries continue a partial upload and skip chunks after commit.
+    for (let offset = receivedBytes; offset < archive.byteLength; offset += UPLOAD_CHUNK_BYTES) {
       const chunk = archive.subarray(
         offset,
         Math.min(offset + UPLOAD_CHUNK_BYTES, archive.byteLength),

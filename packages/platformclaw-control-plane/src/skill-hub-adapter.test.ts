@@ -143,4 +143,42 @@ describe("IflytekSkillHubAdapter", () => {
       }),
     ).rejects.not.toThrow("server-secret-token");
   });
+
+  it("gives bounded archive transfers enough time for the 500 MiB contract", async () => {
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation(() => new AbortController().signal);
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith("/download")) {
+        return new Response(Buffer.from("zip"));
+      }
+      return json({
+        code: 0,
+        data: {
+          namespace: "engineering",
+          slug: "demo-skill",
+          version: "1.0.0",
+          visibility: "PRIVATE",
+        },
+      });
+    });
+    const adapter = new IflytekSkillHubAdapter({
+      baseUrl: "https://skillhub.example.test",
+      token: "server-secret-token",
+      maxArchiveBytes: 1024,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    await adapter.publish({
+      namespace: "engineering",
+      archive: Buffer.from("zip"),
+      filename: "demo.zip",
+      visibility: "PRIVATE",
+    });
+    await adapter.download("engineering", "demo-skill", "1.0.0");
+
+    expect(timeout).toHaveBeenNthCalledWith(1, 600_000);
+    expect(timeout).toHaveBeenNthCalledWith(2, 600_000);
+  });
 });

@@ -134,7 +134,9 @@ server/scanner, PostgreSQL, Redis 이미지가 함께 들어 있다. SkillHub는
 최초 시작 전 최소 RAM 4 GiB와 배포 경로 여유 공간 20 GiB를 검사하며 이후
 재시작은 여유 공간 5 GiB를 하한으로 검사한다. 기존 설치에 SkillHub 설정이 없고 통합
 archive의 네 이미지가 모두 로드되면 `up` 또는 `image update`가 누락된 기본값을 합치고
-SkillHub를 자동 활성화한다. 관리자가 명시적으로
+SkillHub를 자동 활성화한다. 활성화된 배포는 Gateway 시작 시 기존 Skills 설정을 보존하면서
+`skills.install.allowUploadedArchives=true`를 자동으로 병합하므로 설치나 이미지 업데이트 후
+별도 config 편집이 필요 없다. 관리자가 명시적으로
 `PLATFORMCLAW_SKILL_HUB_ENABLED=false`를 지정한 설치는 그대로 유지되므로 기존 2-image
 archive도 계속 지원한다. SkillHub secret의 호스트 경로는 service-user의 실제 배포 root에서
 스크립트가 계산하므로 `deployment.env`에 복사하거나 직접 만들지 않는다.
@@ -361,6 +363,11 @@ docker compose down --volumes
 ## 4. 이미지 업데이트와 롤백
 
 ### 4.1 업데이트
+
+Release의 transfer tar와 **같은 SHA의 deployment bundle**에서 아래 명령을 실행한다.
+이미지만 새로 로드하고 이전 버전의 `platformclaw-deploy`, Compose, env template을 계속
+사용하면 새 SkillHub 서비스·secret·정책이 반영되지 않는다. 먼저 bundle 파일을 교체한 뒤
+기존 `~/platformclaw/deployment.env`와 data 디렉터리는 그대로 보존한다.
 
 ```bash
 ./platformclaw-deploy image update \

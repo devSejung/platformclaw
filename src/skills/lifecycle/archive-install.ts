@@ -2,7 +2,7 @@
 import { lstat, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import type { ArchiveLogger } from "../../infra/archive.js";
+import type { ArchiveExtractLimits, ArchiveLogger } from "../../infra/archive.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { pathExists } from "../../infra/fs-safe.js";
 import { withExtractedArchiveRoot } from "../../infra/install-flow.js";
@@ -360,6 +360,7 @@ export async function installSkillArchiveFromPath(params: {
   force?: boolean;
   timeoutMs?: number;
   logger?: ArchiveLogger;
+  archiveLimits?: ArchiveExtractLimits;
   policy?: SkillArchiveInstallPolicy;
   targetAccess?: SkillArchiveInstallTargetAccess;
   expectedSkillRevision?: string;
@@ -369,6 +370,7 @@ export async function installSkillArchiveFromPath(params: {
     tempDirPrefix: "openclaw-skill-archive-",
     timeoutMs: params.timeoutMs ?? 120_000,
     logger: params.logger,
+    limits: params.archiveLimits,
     rootMarkers: ["SKILL.md"],
     onExtracted: async (rootDir) =>
       await installExtractedSkillRoot({

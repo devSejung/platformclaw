@@ -49,7 +49,8 @@ never publishes registry, database, Redis, or scanner ports. PlatformClaw uses
 its existing employee session and personal-Agent binding; it does not enable
 SkillHub OAuth in the browser.
 
-Enable the existing trusted uploaded-archive path on the private Gateway:
+Managed SkillHub deployments automatically enable the existing trusted
+uploaded-archive path on the private Gateway:
 
 ```json5
 {
@@ -61,7 +62,10 @@ Enable the existing trusted uploaded-archive path on the private Gateway:
 }
 ```
 
-This setting is off by default upstream. PlatformClaw sends downloaded packages
+This setting remains off by default upstream. PlatformClaw merges it into the
+preserved Gateway config whenever the managed SkillHub profile starts, including
+after image updates, without replacing other Skills or installer settings.
+PlatformClaw sends downloaded packages
 through `skills.upload.begin`, `skills.upload.chunk`, `skills.upload.commit`, and
 `skills.install`; it does not add a second archive extractor or write directly
 into an Agent workspace.
@@ -93,8 +97,8 @@ environment variable, or a reverse-proxy header visible to the browser. The
 adapter keeps it inside the control process and redacts it if an upstream error
 reflects the token.
 
-Restart the Gateway after enabling uploaded archives, then restart the control
-process after changing Skill Hub environment values or its token file.
+Restart the control process after changing Skill Hub environment values or its
+token file. Managed startup handles the Gateway archive-install setting.
 
 ## Publish a workspace skill
 
@@ -143,8 +147,9 @@ streams only the approved extracted tree over its server-side SSH session. It
 stages under the remote workspace's `.openclaw/skill-installs`, validates the
 remote tree, locks the `skills` directory, and atomically moves it into
 `workspace/skills/<slug>`. Staging is removed on success or failure. Installing
-the exact version already present is a no-op. An upgrade or downgrade returns
-the current and requested versions and requires a second confirmation. The Basic
+an existing skill with the same slug always returns a revision-bound replacement
+challenge, including when the requested version is unchanged. PlatformClaw does
+not claim the namespace of an existing install without durable provenance. The Basic
 and VM installers use sibling staging and backup directories to replace
 atomically and restore the old tree if validation or commit fails.
 
@@ -154,16 +159,16 @@ Authenticated employees can manage the active execution target from Knox Teams.
 Responses are Markdown. English is the default; only `help ko` selects Korean
 help text.
 
-| Command                                             | Result                                                           |
-| --------------------------------------------------- | ---------------------------------------------------------------- |
-| `/skillhub help`                                    | English command help                                             |
-| `/skillhub help ko`                                 | Korean command help                                              |
-| `/skillhub list [page]`                             | Skills the employee may download                                 |
-| `/skillhub installed`                               | Skill Hub skills installed on the active target                  |
-| `/skillhub publish <slug>`                          | Publish a skill from the active Basic or assigned-VM workspace   |
-| `/skillhub install <slug\|namespace/slug>`          | Install the latest accessible version                            |
-| `/skillhub update <slug\|namespace/slug>`           | Replace the installed version with the latest accessible version |
-| `/skillhub delete <slug\|namespace/slug> --confirm` | Remove the revision-pinned skill from the active target          |
+| Command                                    | Result                                                           |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| `/skillhub help`                           | English command help                                             |
+| `/skillhub help ko`                        | Korean command help                                              |
+| `/skillhub list [page]`                    | Skills the employee may download                                 |
+| `/skillhub installed`                      | Skill Hub skills installed on the active target                  |
+| `/skillhub publish <slug>`                 | Publish a skill from the active Basic or assigned-VM workspace   |
+| `/skillhub install <slug\|namespace/slug>` | Install the latest accessible version                            |
+| `/skillhub update <slug\|namespace/slug>`  | Replace the installed version with the latest accessible version |
+| `/skillhub delete <slug> --confirm`        | Remove the revision-pinned skill from the active target          |
 
 A bare slug works when it identifies exactly one accessible namespace. If the
 same slug is visible in multiple namespaces, the response lists candidates and
@@ -178,9 +183,10 @@ revision changed after status was read.
 
 The compressed ZIP ceiling is **500 MiB**. Browser ingress streams to an
 owner-only temporary file with a running cap. Validation then enforces **1 GiB
-expanded content**, **250 MiB per entry**, and **100 entries** without trusting
-central-directory sizes. The scanner timeout is ten minutes. LLM and VirusTotal
-analyzers are explicitly disabled.
+expanded content**, **250 MiB per entry**, and **2,000 total ZIP entries** without
+trusting central-directory sizes. There is no lower, separate regular-file cap.
+The scanner timeout is ten minutes. LLM and VirusTotal analyzers are explicitly
+disabled.
 
 Both publication and installation reject:
 
@@ -189,7 +195,7 @@ Both publication and installation reject:
   escapes;
 - a missing, oversized, malformed, or name-mismatched `SKILL.md`;
 - a `SKILL.md` version that differs from the exact version requested for install;
-- more than 100 archive entries;
+- more than 2,000 total ZIP entries (files and directories combined);
 - a compressed archive over 500 MiB, expanded content over 1 GiB, or one entry
   over 250 MiB; and
 - an unconfirmed version replacement.
@@ -200,6 +206,11 @@ Gateway archive extractor and install security policy then perform the
 authoritative extraction and destination checks. Successful publish and install
 operations create control-plane audit records without package contents or
 credentials.
+
+`.env` and `.env.*` are ordinary skill package files and are not excluded. They
+remain subject to scanning and visibility policy, so publishers must not place
+deploy-time credentials in them. Private keys, certificates, credential files,
+VCS state, runtime metadata, and dependency trees remain excluded or rejected.
 
 ## Catalog lifecycle
 
@@ -251,9 +262,9 @@ remote filesystem path.
 - **Publishing or installing from this namespace is not allowed**: add the
   namespace to `PLATFORMCLAW_SKILL_HUB_NAMESPACES` only after approving employee
   access, then restart the control process.
-- **Uploaded skill archive installs are disabled**: set
-  `skills.install.allowUploadedArchives: true` on the private Gateway and restart
-  it.
+- **Uploaded skill archive installs are disabled**: verify
+  `PLATFORMCLAW_SKILL_HUB_ENABLED=true`, then restart Gateway. Managed startup
+  repairs the archive-install setting while preserving other Skills config.
 - **Version change requires confirmation**: review the current and requested
   versions, then use the explicit replacement action. A stale confirmation is
   rejected.

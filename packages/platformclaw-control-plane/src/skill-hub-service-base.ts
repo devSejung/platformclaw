@@ -9,6 +9,7 @@ import {
   type SkillHubAdapter,
   type SkillHubVisibility,
 } from "./skill-hub-adapter.js";
+import { isExcludedSkillArchivePath } from "./skill-hub-archive-policy.js";
 import {
   resolveSkillHubNamespaceCapabilities,
   type SkillHubNamespaceCapabilities,
@@ -22,11 +23,16 @@ import {
   safeName,
   SKILL_KEY_PATTERN,
   SkillHubServiceError,
+  SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
+  SKILL_HUB_UPLOAD_ENTRY_BYTES,
+  SKILL_HUB_UPLOAD_EXPANDED_BYTES,
   type SkillHubServiceOptions,
   type SkillInstallTarget,
 } from "./skill-hub-service-support.js";
 import type { SkillHubGovernanceJob } from "./skill-hub-state.js";
 import type { SkillHubNamespaceBinding } from "./skill-hub-state.js";
+
+const MAX_SKILL_DIRECTORY_DEPTH = 16;
 
 type ResolvedSkillHubNamespaceCapabilities = SkillHubNamespaceCapabilities & {
   binding: SkillHubNamespaceBinding | null;
@@ -385,13 +391,15 @@ export abstract class SkillHubServiceBase {
       throw new SkillHubServiceError("workspace skill escapes the skills directory", 400);
     }
     const zip = new JSZip();
-    const pending = [skillDir];
+    const pending = [{ directory: skillDir, depth: 0 }];
     let fileCount = 0;
     let totalBytes = 0;
     let sawSkillMarkdown = false;
     while (pending.length > 0) {
-      const current = pending.pop()!;
-      const entries = await readdir(current, { withFileTypes: true });
+      const { directory: current, depth } = pending.pop()!;
+      const entries = (await readdir(current, { withFileTypes: true })).toSorted((a, b) =>
+        a.name.localeCompare(b.name),
+      );
       for (const entry of entries) {
         const absolute = path.join(current, entry.name);
         const stat = await lstat(absolute);
@@ -402,15 +410,24 @@ export abstract class SkillHubServiceBase {
         if (!isInside(realRoot, canonical)) {
           throw new SkillHubServiceError("workspace skill contains an escaping path", 400);
         }
+        if (isExcludedSkillArchivePath(entry.name, stat.isDirectory())) {
+          continue;
+        }
         if (stat.isDirectory()) {
-          pending.push(absolute);
+          if (depth >= MAX_SKILL_DIRECTORY_DEPTH) {
+            throw new SkillHubServiceError(
+              "workspace skill exceeds the directory depth limit",
+              400,
+            );
+          }
+          pending.push({ directory: absolute, depth: depth + 1 });
           continue;
         }
         if (!stat.isFile() || stat.nlink !== 1) {
           throw new SkillHubServiceError("workspace skill contains an unsupported file", 400);
         }
         fileCount += 1;
-        if (fileCount > MAX_SKILL_FILES || stat.size > this.options.maxPackageBytes) {
+        if (fileCount > MAX_SKILL_FILES || stat.size > SKILL_HUB_UPLOAD_ENTRY_BYTES) {
           throw new SkillHubServiceError(
             "workspace skill exceeds the configured package limit",
             400,
@@ -448,20 +465,26 @@ export abstract class SkillHubServiceBase {
           sawSkillMarkdown = true;
         }
         totalBytes += bytes.byteLength;
-        if (totalBytes > this.options.maxPackageBytes) {
+        if (totalBytes > SKILL_HUB_UPLOAD_EXPANDED_BYTES) {
           throw new SkillHubServiceError(
             "workspace skill exceeds the configured package limit",
             400,
           );
         }
-        zip.file(relative, bytes, { binary: true, unixPermissions: stat.mode & 0o777 });
+        zip.file(relative, bytes, {
+          binary: true,
+          createFolders: false,
+          unixPermissions: stat.mode & 0o777,
+        });
       }
     }
     if (!sawSkillMarkdown) {
       throw new SkillHubServiceError("workspace skill is missing SKILL.md", 400);
     }
     const archive = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
-    if (archive.byteLength > this.options.maxPackageBytes) {
+    if (
+      archive.byteLength > Math.min(this.options.maxPackageBytes, SKILL_HUB_UPLOAD_ARCHIVE_BYTES)
+    ) {
       throw new SkillHubServiceError(
         "workspace skill ZIP exceeds the configured package limit",
         400,

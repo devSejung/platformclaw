@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
 import { open } from "node:fs/promises";
 import { createInflateRaw } from "node:zlib";
+import { isExcludedSkillArchivePath } from "./skill-hub-archive-policy.js";
 
 const EOCD_SIGNATURE = 0x06054b50;
 const CENTRAL_SIGNATURE = 0x02014b50;
@@ -16,6 +17,7 @@ type ZipArchiveLimits = {
   expandedBytes: number;
   entryBytes: number;
   files: number;
+  entries?: number;
   retainedEntryBytes: number;
 };
 
@@ -54,6 +56,9 @@ function validatePath(name: string, directory: boolean): void {
     path.split("/").some((part) => !part || part === "." || part === "..")
   ) {
     invalid("ZIP archive contains an unsafe path");
+  }
+  if (isExcludedSkillArchivePath(path, directory)) {
+    invalid("ZIP archive contains a reserved path");
   }
 }
 
@@ -281,6 +286,9 @@ export async function validateZipArchiveFile(
     invalid("ZIP archive exceeds the configured size limit");
   }
   const { entries, centralOffset } = await readCentralDirectory(path, archiveBytes);
+  if (entries.length > (limits.entries ?? limits.files)) {
+    invalid("ZIP archive contains too many entries");
+  }
   const files = entries.filter((entry) => !entry.directory);
   if (files.length < 1 || files.length > limits.files) {
     invalid("ZIP archive contains too many files");

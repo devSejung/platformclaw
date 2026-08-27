@@ -11,8 +11,9 @@ export type InstallTarget = "platform_server" | "assigned_vm";
 export type PendingVersionChange = {
   target: InstallTarget;
   currentVersion: string;
+  currentRevision: string;
   requestedVersion: string;
-  direction: "upgrade" | "downgrade";
+  direction: "upgrade" | "downgrade" | "reinstall";
 };
 
 export function selectSkillHubTab(tab: PluginsHubTab, navigate: (route: string) => void): void {

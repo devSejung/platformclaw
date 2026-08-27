@@ -357,7 +357,7 @@ describe("Skill Workshop proposal evaluation", () => {
       "---\nname: candidate-count-limit\ndescription: Existing skill\n---\n\n# Existing\n",
     );
     await Promise.all(
-      Array.from({ length: 254 }, (_, index) =>
+      Array.from({ length: 1_998 }, (_, index) =>
         fs.writeFile(path.join(skillDir, "references", `${index}.txt`), "existing\n"),
       ),
     );
@@ -376,7 +376,7 @@ describe("Skill Workshop proposal evaluation", () => {
           { path: "references/candidate-b.txt", content: "b\n" },
         ]),
       }),
-    ).rejects.toThrow("exceeds 256 files");
+    ).rejects.toThrow("exceeds 2000 files");
   });
 
   it("rejects a candidate whose proposed files push it over the total-byte limit", async () => {

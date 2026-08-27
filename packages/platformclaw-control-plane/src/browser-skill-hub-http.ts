@@ -321,8 +321,8 @@ export async function handlePlatformClawSkillHubRequest(
             slug: stringField(body, "slug"),
             version: stringField(body, "version"),
             destination: executionTargetField(body, "destination"),
-            acknowledgedVersionChange: optionalBoolean(body, "acknowledgedVersionChange"),
-            currentVersion: optionalString(body, "currentVersion"),
+            acknowledgedReplacement: optionalBoolean(body, "acknowledgedReplacement"),
+            currentRevision: optionalString(body, "currentRevision"),
           }),
         );
         return true;

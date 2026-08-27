@@ -14,7 +14,7 @@ import {
 } from "openclaw/plugin-sdk/sandbox";
 import { PLATFORMCLAW_EXECUTION_BACKEND_ID, type AssignedVmTargetSnapshot } from "./backend.js";
 
-const MAX_FILES = 256;
+const MAX_FILES = 2_000;
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 12 * 1024 * 1024;

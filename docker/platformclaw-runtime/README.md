@@ -178,7 +178,11 @@ EDITOR=nano ./platformclaw-deploy config edit
 
 Safe edit creates a timestamped backup, validates the canonical config, and
 restarts Gateway only after validation succeeds. PlatformClaw-managed sandbox
-and private-plugin policy remains enforced at startup.
+and private-plugin policy remains enforced at startup. When the managed
+SkillHub profile is enabled, startup also merges
+`skills.install.allowUploadedArchives: true` into the existing config. This
+preserves all other administrator-owned Skills and installer settings and is
+reapplied automatically after image updates; no manual config edit is required.
 
 ### Global MCP servers
 
@@ -223,6 +227,12 @@ are always derived from the actual service-user deployment root rather than
 copied between hosts. The Hub keeps its database, Redis AOF, and package storage
 under `~/platformclaw/data/skillhub/`. Initial startup requires 4 GiB RAM and
 20 GiB free space; later restarts retain a 5 GiB free-space floor.
+
+Run an image update from the deployment bundle carrying the same release SHA as
+the transfer archive. Loading new images while retaining an older
+`platformclaw-deploy`, Compose file, or environment template cannot provision
+new SkillHub services, secrets, or managed policy. Replace those bundle files
+first; preserve the existing `deployment.env` and data directories.
 
 The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for

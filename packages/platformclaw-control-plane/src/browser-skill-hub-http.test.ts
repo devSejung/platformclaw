@@ -194,13 +194,14 @@ describe("Skill Hub browser HTTP", () => {
     expect(readJsonBody).not.toHaveBeenCalled();
   });
 
-  it("returns the structured version-change contract without leaking server state", async () => {
+  it("returns the structured replacement contract without leaking server state", async () => {
     const service = {
       authenticate: vi.fn(async () => actor),
       install: vi.fn(async () => {
         throw new SkillHubServiceError("confirm upgrade", 409, {
-          code: "version-change-required",
+          code: "existing-skill-replacement-required",
           currentVersion: "1.0.0",
+          currentRevision: "sha256:0123456789abcdef",
           requestedVersion: "2.0.0",
           direction: "upgrade",
         });
@@ -233,8 +234,9 @@ describe("Skill Hub browser HTTP", () => {
     expect(harness.json()).toEqual({
       error: "confirm upgrade",
       details: {
-        code: "version-change-required",
+        code: "existing-skill-replacement-required",
         currentVersion: "1.0.0",
+        currentRevision: "sha256:0123456789abcdef",
         requestedVersion: "2.0.0",
         direction: "upgrade",
       },

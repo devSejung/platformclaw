@@ -36,7 +36,7 @@ MAX_ARCHIVE = 500 * 1024 * 1024
 MAX_EXPANDED = 1024 * 1024 * 1024
 MAX_ENTRY = 250 * 1024 * 1024
 MAX_MARKDOWN = 256 * 1024
-MAX_FILES = 100
+MAX_FILES = 2000
 MAX_DEPTH = 16
 CHUNK = 64 * 1024
 EXCLUDED_DIRS = {
@@ -60,9 +60,7 @@ def excluded(name, directory):
     return (
         (directory and lowered in EXCLUDED_DIRS)
         or (not directory and (
-            lowered == '.env'
-            or lowered.startswith('.env.')
-            or lowered in EXCLUDED_FILES
+            lowered in EXCLUDED_FILES
             or lowered.endswith(EXCLUDED_SUFFIXES)
         ))
     )
@@ -170,7 +168,7 @@ def main():
                         raise ValueError('SKILL.md exceeds the 256 KiB limit')
                     count += 1
                     if count > MAX_FILES:
-                        raise ValueError('skill exceeds the 100-file limit')
+                        raise ValueError('skill exceeds the 2000-entry security limit')
                     file_fd = os.open(entry.name, FILE_FLAGS, dir_fd=directory_fd)
                     try:
                         opened = os.fstat(file_fd)

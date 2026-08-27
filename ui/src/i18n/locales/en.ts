@@ -3089,7 +3089,6 @@ export const en: TranslationMap = {
     installBasic: "Install to Basic Workspace",
     installVm: "Install to My VM Workspace",
     installed: "Installed {skill} to {target}.",
-    alreadyInstalled: "{skill} is already installed in that workspace.",
     versionChangeTitle: "Confirm version change",
     versionChangeHelp:
       "This will {direction} the installed skill from v{current} to v{requested}. PlatformClaw will replace it atomically and restore the previous version if installation fails.",

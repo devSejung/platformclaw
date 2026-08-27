@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 
 const DEFAULT_GATEWAY_ADMIN_RPC_TIMEOUT_MS = 15_000;
+const REMOTE_SKILL_STATUS_RPC_TIMEOUT_MS = 30_000;
+const UPLOADED_SKILL_MUTATION_RPC_TIMEOUT_MS = 180_000;
 const MAX_ABORT_SIGNAL_TIMEOUT_MS = 2 ** 32 - 1;
 const MAX_GATEWAY_ADMIN_RPC_RESPONSE_BYTES = 1024 * 1024;
+const MAX_REMOTE_SKILL_STATUS_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 export type GatewayAdminRpcClientConfig = {
   rpcUrl: string;
@@ -50,6 +54,34 @@ function normalizeRpcUrl(raw: string): string {
   return url.toString();
 }
 
+function resolveCallTimeoutMs(
+  method: string,
+  params: unknown,
+  configuredTimeoutMs: number,
+): number {
+  if (!isRecord(params)) {
+    return configuredTimeoutMs;
+  }
+  if (
+    method === "skills.status" &&
+    params.refresh === true &&
+    params.backendTarget === "assigned_vm"
+  ) {
+    // The VM catalog scan owns a 15-second deadline. Leave bounded transport
+    // headroom so its terminal result can cross the HTTP boundary.
+    return Math.max(configuredTimeoutMs, REMOTE_SKILL_STATUS_RPC_TIMEOUT_MS);
+  }
+  if (
+    (method === "skills.install" && params.source === "upload") ||
+    (method === "skills.uninstall" && params.destination === "sandbox-backend")
+  ) {
+    // Uploaded archive mutation owns a 120-second operation deadline, including
+    // remote transfer and catalog refresh. The caller must outlive that owner.
+    return Math.max(configuredTimeoutMs, UPLOADED_SKILL_MUTATION_RPC_TIMEOUT_MS);
+  }
+  return configuredTimeoutMs;
+}
+
 function parseError(value: unknown): RpcErrorBody | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -67,13 +99,9 @@ function parseError(value: unknown): RpcErrorBody | null {
   };
 }
 
-async function readBoundedJsonResponse(response: Response): Promise<unknown> {
+async function readBoundedJsonResponse(response: Response, maxBytes: number): Promise<unknown> {
   const declaredLength = response.headers.get("content-length");
-  if (
-    declaredLength &&
-    /^\d+$/.test(declaredLength) &&
-    Number(declaredLength) > MAX_GATEWAY_ADMIN_RPC_RESPONSE_BYTES
-  ) {
+  if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
     void response.body?.cancel().catch(() => undefined);
     throw new GatewayAdminRpcError(
       "Gateway Admin RPC response exceeded the size limit",
@@ -100,7 +128,7 @@ async function readBoundedJsonResponse(response: Response): Promise<unknown> {
         break;
       }
       receivedBytes += value.byteLength;
-      if (receivedBytes > MAX_GATEWAY_ADMIN_RPC_RESPONSE_BYTES) {
+      if (receivedBytes > maxBytes) {
         void reader.cancel().catch(() => undefined);
         throw new GatewayAdminRpcError(
           "Gateway Admin RPC response exceeded the size limit",
@@ -148,6 +176,7 @@ export class HttpGatewayAdminRpcClient implements GatewayAdminRpc {
       throw new Error("Gateway Admin RPC method is required");
     }
     const id = randomUUID();
+    const timeoutMs = resolveCallTimeoutMs(normalizedMethod, params, this.config.timeoutMs);
     let response: Response;
     try {
       response = await this.fetchImpl(this.config.rpcUrl, {
@@ -157,14 +186,18 @@ export class HttpGatewayAdminRpcClient implements GatewayAdminRpc {
           Authorization: `Bearer ${this.config.bearerToken}`,
           "Content-Type": "application/json",
         },
-        signal: AbortSignal.timeout(this.config.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({ id, method: normalizedMethod, params }),
       });
     } catch {
       throw new GatewayAdminRpcError("Gateway Admin RPC unavailable", "UNAVAILABLE");
     }
 
-    const body = await readBoundedJsonResponse(response);
+    const maxResponseBytes =
+      normalizedMethod === "skills.status"
+        ? MAX_REMOTE_SKILL_STATUS_RESPONSE_BYTES
+        : MAX_GATEWAY_ADMIN_RPC_RESPONSE_BYTES;
+    const body = await readBoundedJsonResponse(response, maxResponseBytes);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       throw new GatewayAdminRpcError(
         "Gateway Admin RPC returned an invalid response",
