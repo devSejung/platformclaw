@@ -10,7 +10,7 @@ const CANVAS_OWNER_AGENT_HEADER = "x-openclaw-canvas-owner-agent-id";
 const CANVAS_TICKET_SCOPE = "platformclaw-browser-canvas";
 const CANVAS_TICKET_TTL_MS = 10 * 60_000;
 const UPSTREAM_TIMEOUT_MS = 30_000;
-export const CANVAS_LEASE_EXPIRED_MESSAGE_TYPE = "openclaw:canvas-lease-expired";
+const CANVAS_LEASE_EXPIRED_MESSAGE_TYPE = "openclaw:canvas-lease-expired";
 
 const CANVAS_LEASE_EXPIRED_HTML = `<!doctype html><meta charset="utf-8"><script>parent.postMessage({type:${JSON.stringify(
   CANVAS_LEASE_EXPIRED_MESSAGE_TYPE,

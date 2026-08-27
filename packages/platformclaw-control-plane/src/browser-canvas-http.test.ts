@@ -2,12 +2,12 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  CANVAS_LEASE_EXPIRED_MESSAGE_TYPE,
   PlatformClawBrowserCanvasRelay,
   type PlatformClawBrowserCanvasPolicy,
 } from "./browser-canvas-http.js";
 
 const SESSION_COOKIE = "platformclaw_session=browser-token";
+const CANVAS_LEASE_EXPIRED_MESSAGE_TYPE = "openclaw:canvas-lease-expired";
 
 function createPolicy(agentId = "employee-one"): PlatformClawBrowserCanvasPolicy {
   return {
