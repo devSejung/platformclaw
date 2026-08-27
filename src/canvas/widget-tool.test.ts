@@ -211,7 +211,9 @@ describe("show_widget", () => {
         containerPath,
       };
     });
-    const readFileSpy = vi.fn(hostBridge.readFile);
+    const readFileSpy = vi.fn((params: Parameters<typeof hostBridge.readFile>[0]) =>
+      hostBridge.readFile(params),
+    );
     const bridge = { ...hostBridge, readFile: readFileSpy };
 
     await executeWidget({

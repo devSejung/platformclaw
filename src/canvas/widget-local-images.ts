@@ -145,10 +145,10 @@ async function readWorkspaceFile(params: {
 
 function resolveSourceDirectory(workspace: WidgetWorkspace, widgetPath: string): string {
   if (workspace.bridge) {
-    const resolver = workspace.bridge.resolveUserPath ?? workspace.bridge.resolvePath;
-    return path.posix.dirname(
-      resolver({ filePath: widgetPath, cwd: workspace.root }).containerPath,
-    );
+    const resolved = workspace.bridge.resolveUserPath
+      ? workspace.bridge.resolveUserPath({ filePath: widgetPath, cwd: workspace.root })
+      : workspace.bridge.resolvePath({ filePath: widgetPath, cwd: workspace.root });
+    return path.posix.dirname(resolved.containerPath);
   }
   return path.dirname(
     path.isAbsolute(widgetPath)
