@@ -279,6 +279,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
                 });
           },
         });
+        let canvasNow = 1_000;
         const bff = createServer((req, res) => {
           void relay.handle(req, res).then(async (handled) => {
             if (!handled && !(await mediaRelay.handle(req, res))) {
@@ -295,8 +296,11 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           gatewayProxy: {
             resolveAccess: async () => ({ binding: { agentId } }),
           },
+          now: () => canvasNow,
         });
         const surface = relay.issueSurface({ binding: { agentId } });
+        canvasNow = surface.expiresAtMs + 1;
+        const refreshedSurface = relay.issueSurface({ binding: { agentId } });
         const context = await browser.newContext({ locale, acceptDownloads: true });
         try {
           await context.addCookies([
@@ -315,8 +319,10 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           const gatewayMock = await installMockGateway(page, {
             assistantAgentId: agentId,
             defaultAgentId: agentId,
-            featureMethods: ["chat.metadata", "chat.startup"],
+            deferredMethods: ["plugin.surface.refresh"],
+            featureMethods: ["chat.metadata", "chat.startup", "plugin.surface.refresh"],
             historyMessages,
+            methodResponses: { "plugin.surface.refresh": refreshedSurface },
             pluginSurfaceUrls: surface.pluginSurfaceUrls,
             sessionKey,
           });
@@ -331,6 +337,25 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
 
           const preview = page.locator('.chat-tool-card__preview[data-kind="canvas"]');
           await preview.waitFor();
+          const staleFrame = await preview.locator("iframe").elementHandle();
+          expect(await preview.locator("iframe").getAttribute("src")).toBe(
+            `${surface.pluginSurfaceUrls.canvas}${documentPath}`,
+          );
+          await expect
+            .poll(async () => (await gatewayMock.getRequests("plugin.surface.refresh")).length)
+            .toBe(1);
+          await gatewayMock.resolveDeferred("plugin.surface.refresh", refreshedSurface);
+          await expect
+            .poll(async () => {
+              const current = await preview.locator("iframe").elementHandle();
+              return current && staleFrame
+                ? !(await current.evaluate((node, old) => node === old, staleFrame))
+                : false;
+            })
+            .toBe(true);
+          expect(await preview.locator("iframe").getAttribute("src")).toBe(
+            `${refreshedSurface.pluginSurfaceUrls.canvas}${documentPath}`,
+          );
           const frame = preview.frameLocator("iframe");
           await expect
             .poll(() => frame.locator(`[data-proof-target="${target}"]`).textContent())
@@ -368,10 +393,11 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
                 ),
             )
             .toBe(1);
-          expect(await preview.locator("iframe").getAttribute("src")).toBe(
-            `${surface.pluginSurfaceUrls.canvas}${documentPath}`,
-          );
           await page.reload();
+          await expect
+            .poll(async () => (await gatewayMock.getRequests("plugin.surface.refresh")).length)
+            .toBe(1);
+          await gatewayMock.resolveDeferred("plugin.surface.refresh", refreshedSurface);
           const reloadedFrame = page
             .locator('.chat-tool-card__preview[data-kind="canvas"]')
             .frameLocator("iframe");
@@ -392,6 +418,11 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
               )
               .toBe(1);
           }
+          expect(
+            await page
+              .locator('.chat-tool-card__preview[data-kind="canvas"] iframe')
+              .getAttribute("src"),
+          ).toBe(`${refreshedSurface.pluginSurfaceUrls.canvas}${documentPath}`);
 
           const uploadedDocument = page.getByRole("link", { name: attachmentName, exact: true });
           const assistantDocument = page.getByRole("link", {

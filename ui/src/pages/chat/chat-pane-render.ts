@@ -536,6 +536,7 @@ export class ChatPane extends ChatPaneHeader {
         this.onPaneSessionChange?.(this.paneId, next);
       },
       canvasPluginSurfaceUrl: state.canvasPluginSurfaceUrl,
+      recoverCanvasPluginSurfaceUrl: state.recoverCanvasPluginSurfaceUrl,
       boardProvider: board.provider,
       onOpenSidebar: state.handleOpenSidebar,
       onRequestOpenImage: state.beginImageOpen,

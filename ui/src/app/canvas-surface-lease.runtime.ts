@@ -18,6 +18,7 @@ type CanvasSurfaceRefresh = {
 };
 
 type CanvasSurfaceLease = {
+  recover: (observedUrl: string) => Promise<string | null>;
   start: (helloUrl: string | undefined) => void;
   stop: () => void;
 };
@@ -43,7 +44,7 @@ export function createCanvasSurfaceLease<
       globalThis.clearTimeout(timer as ReturnType<typeof globalThis.setTimeout>));
   let currentUrl: string | null = null;
   let timer: TimerHandle | null = null;
-  let inFlight: { generation: number; promise: Promise<void> } | null = null;
+  let inFlight: { generation: number; promise: Promise<string | null> } | null = null;
   let consecutiveFailures = 0;
   let generation = 0;
   let started = false;
@@ -82,25 +83,31 @@ export function createCanvasSurfaceLease<
     schedule(retryDelayMs, expectedGeneration);
   };
 
-  const renew = (expectedGeneration: number) => {
-    if (
-      inFlight?.generation === expectedGeneration ||
-      !ownsGeneration(expectedGeneration) ||
-      !currentUrl
-    ) {
-      return;
+  const rotate = (expectedGeneration: number, observedUrl: string): Promise<string | null> => {
+    if (!ownsGeneration(expectedGeneration) || !currentUrl) {
+      return Promise.resolve(null);
     }
-    const observedUrl = currentUrl;
+    // A proactive renewal may have already replaced the URL that failed in a
+    // mounted frame. Reuse it instead of rotating the current authority again.
+    if (currentUrl !== observedUrl) {
+      return Promise.resolve(currentUrl);
+    }
+    if (inFlight?.generation === expectedGeneration) {
+      return inFlight.promise;
+    }
     const request = Promise.resolve()
       .then(() => params.request("plugin.surface.refresh", { surface: "canvas", observedUrl }))
       .then((response) => {
-        if (!ownsGeneration(expectedGeneration) || currentUrl !== observedUrl) {
-          return;
+        if (!ownsGeneration(expectedGeneration)) {
+          return null;
+        }
+        if (currentUrl !== observedUrl) {
+          return currentUrl;
         }
         const refreshed = parseCanvasSurfaceRefresh(response);
         if (!refreshed) {
           handleFailure(expectedGeneration);
-          return;
+          return null;
         }
         consecutiveFailures = 0;
         currentUrl = refreshed.canvasUrl;
@@ -110,17 +117,36 @@ export function createCanvasSurfaceLease<
             ? MISSING_EXPIRY_RENEWAL_DELAY_MS
             : Math.max(MIN_RENEWAL_DELAY_MS, refreshed.expiresAtMs - now() - RENEWAL_LEAD_MS);
         schedule(delayMs, expectedGeneration);
+        return currentUrl;
       })
-      .catch(() => handleFailure(expectedGeneration))
+      .catch(() => {
+        handleFailure(expectedGeneration);
+        return null;
+      })
       .finally(() => {
         if (inFlight?.promise === request) {
           inFlight = null;
         }
       });
     inFlight = { generation: expectedGeneration, promise: request };
+    return request;
+  };
+
+  const renew = (expectedGeneration: number) => {
+    if (!ownsGeneration(expectedGeneration) || !currentUrl) {
+      return;
+    }
+    void rotate(expectedGeneration, currentUrl);
   };
 
   return {
+    recover(observedUrl) {
+      const observed = observedUrl.trim();
+      if (!observed || !started || !currentUrl) {
+        return Promise.resolve(null);
+      }
+      return rotate(generation, observed);
+    },
     start(helloUrl) {
       generation += 1;
       started = true;

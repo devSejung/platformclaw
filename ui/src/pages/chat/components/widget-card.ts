@@ -1,4 +1,4 @@
-import { html, nothing } from "lit";
+import { html, LitElement, nothing } from "lit";
 import { keyed } from "lit/directives/keyed.js";
 import { ref } from "lit/directives/ref.js";
 import { ensureCustomElementDefined } from "../../../app/lazy-custom-element.ts";
@@ -35,6 +35,7 @@ type WidgetCardOptions = {
   onOpenSidebar?: (content: SidebarContent) => void;
   rawText?: string | null;
   canvasPluginSurfaceUrl?: string | null;
+  recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   embedSandboxMode?: EmbedSandboxMode;
   allowExternalEmbedUrls?: boolean;
   sessionKey?: string;
@@ -136,6 +137,8 @@ const WIDGET_SIZE_MESSAGE_TYPE = "openclaw:widget-size";
 const WIDGET_PROMPT_OFFER_MESSAGE_TYPE = "openclaw:widget-prompt-offer";
 const WIDGET_PROMPT_MESSAGE_TYPE = "openclaw:widget-prompt";
 const WIDGET_PROMPT_HOST_READY_MESSAGE_TYPE = "openclaw:widget-prompt-host-ready";
+const CANVAS_LEASE_EXPIRED_MESSAGE_TYPE = "openclaw:canvas-lease-expired";
+const CANVAS_FRAME_RECOVERY_MAX_ATTEMPTS = 3;
 const WIDGET_FRAME_MIN_HEIGHT = 160;
 const WIDGET_FRAME_MAX_HEIGHT = 1200;
 // Preview frames render inside lit shadow roots, so a document query cannot
@@ -355,6 +358,153 @@ function renderPreviewFrame(params: {
   );
 }
 
+type RecoverableCanvasFrameConfig = {
+  title: string;
+  entryUrl: string;
+  surfaceUrl: string;
+  frameKey: string;
+  connectionGeneration: number;
+  height?: number;
+  sandbox: string;
+  recover: (observedUrl: string) => Promise<string | null>;
+};
+
+class RecoverableCanvasFrame extends LitElement {
+  static override properties = { config: { attribute: false } };
+
+  declare config?: RecoverableCanvasFrameConfig;
+  private attempts = 0;
+  private awaitingSurfaceChange = false;
+  private mountedSurfaceUrl = "";
+  private ownerKey = "";
+  private recoveryGeneration = 0;
+  private recoveryInFlight: Promise<void> | null = null;
+
+  override createRenderRoot() {
+    return this;
+  }
+
+  override connectedCallback() {
+    super.connectedCallback();
+    this.style.display = "contents";
+    window.addEventListener("message", this.handleLeaseExpired);
+  }
+
+  override disconnectedCallback() {
+    window.removeEventListener("message", this.handleLeaseExpired);
+    super.disconnectedCallback();
+  }
+
+  private readonly handleLeaseExpired = (event: MessageEvent) => {
+    const config = this.config;
+    const frame = this.querySelector<HTMLIFrameElement>(".chat-tool-card__preview-frame");
+    const data = event.data as { type?: unknown } | null;
+    if (
+      !config ||
+      !frame ||
+      data?.type !== CANVAS_LEASE_EXPIRED_MESSAGE_TYPE ||
+      event.origin !== "null" ||
+      event.source !== frame.contentWindow ||
+      this.recoveryInFlight ||
+      this.attempts >= CANVAS_FRAME_RECOVERY_MAX_ATTEMPTS
+    ) {
+      return;
+    }
+    const observedSurfaceUrl = this.mountedSurfaceUrl;
+    const observedFrameUrl = resolveCanvasIframeUrl(config.entryUrl, observedSurfaceUrl, false);
+    if (
+      !observedSurfaceUrl ||
+      !observedFrameUrl ||
+      frame.getAttribute("src") !== observedFrameUrl
+    ) {
+      return;
+    }
+    this.attempts += 1;
+    const ownerKey = this.ownerKey;
+    const source = event.source;
+    const recovery = Promise.resolve(config.recover(observedSurfaceUrl))
+      .then((surfaceUrl) => {
+        const currentFrame = this.querySelector<HTMLIFrameElement>(
+          ".chat-tool-card__preview-frame",
+        );
+        if (
+          ownerKey !== this.ownerKey ||
+          currentFrame !== frame ||
+          currentFrame.contentWindow !== source
+        ) {
+          return;
+        }
+        if (!surfaceUrl) {
+          this.awaitingSurfaceChange = true;
+          return;
+        }
+        const replacement = resolveCanvasIframeUrl(config.entryUrl, surfaceUrl, false);
+        if (!replacement || replacement === observedFrameUrl) {
+          this.awaitingSurfaceChange = true;
+          return;
+        }
+        this.awaitingSurfaceChange = false;
+        this.mountedSurfaceUrl = surfaceUrl;
+        this.recoveryGeneration += 1;
+        this.requestUpdate();
+      })
+      .catch(() => {
+        this.awaitingSurfaceChange = true;
+      })
+      .finally(() => {
+        if (this.recoveryInFlight === recovery) {
+          this.recoveryInFlight = null;
+        }
+      });
+    this.recoveryInFlight = recovery;
+  };
+
+  override render() {
+    const config = this.config;
+    if (!config) {
+      return nothing;
+    }
+    const ownerKey = `${config.frameKey}\u0000${config.connectionGeneration}`;
+    if (ownerKey !== this.ownerKey) {
+      this.ownerKey = ownerKey;
+      this.attempts = 0;
+      this.awaitingSurfaceChange = false;
+      this.mountedSurfaceUrl = config.surfaceUrl;
+      this.recoveryGeneration = 0;
+      this.recoveryInFlight = null;
+    } else if (!this.mountedSurfaceUrl) {
+      this.mountedSurfaceUrl = config.surfaceUrl;
+    } else if (this.awaitingSurfaceChange && this.mountedSurfaceUrl !== config.surfaceUrl) {
+      // A failed on-demand refresh leaves the normal lease retry as owner.
+      // Adopt its later rotation only for this failed frame; healthy siblings
+      // continue holding their already-mounted document.
+      this.awaitingSurfaceChange = false;
+      this.mountedSurfaceUrl = config.surfaceUrl;
+      this.recoveryGeneration += 1;
+    }
+    return renderPreviewFrame({
+      title: config.title,
+      src: resolveCanvasIframeUrl(config.entryUrl, this.mountedSurfaceUrl, false),
+      frameKey: config.frameKey,
+      connectionGeneration: config.connectionGeneration + this.recoveryGeneration,
+      height: config.height,
+      sandbox: config.sandbox,
+      promptCapable: true,
+    });
+  }
+}
+
+if (typeof customElements !== "undefined" && !customElements.get("openclaw-canvas-frame")) {
+  customElements.define("openclaw-canvas-frame", RecoverableCanvasFrame);
+}
+
+function renderRecoverableCanvasFrame(config: RecoverableCanvasFrameConfig) {
+  return keyed(
+    `${config.sandbox}\u0000${config.frameKey}\u0000${config.connectionGeneration}\u0000${config.height ?? ""}`,
+    html`<openclaw-canvas-frame .config=${config}></openclaw-canvas-frame>`,
+  );
+}
+
 const loadMcpAppView = async () => {
   const registration = await import("../../../components/mcp-app-view-registration.ts");
   registration.registerMcpAppView();
@@ -387,19 +537,38 @@ function renderWidgetContent(
   switch (kind) {
     case "canvas-html": {
       const promptCapable = isInternalCanvasEntryUrl(preview.url);
+      const entryUrl = preview.url?.trim();
+      const surfaceUrl = options?.canvasPluginSurfaceUrl?.trim();
+      const recover = options?.recoverCanvasPluginSurfaceUrl;
+      const title = preview.title?.trim() || t("chat.toolCards.canvas");
+      const frameKey = entryUrl || preview.viewId?.trim();
+      const connectionGeneration = promptCapable
+        ? getCanvasWidgetFrameConnectionGeneration()
+        : undefined;
+      const sandbox = resolveEmbedSandbox(options?.embedSandboxMode ?? "scripts", preview.sandbox);
+      if (promptCapable && entryUrl && surfaceUrl && frameKey && recover) {
+        return renderRecoverableCanvasFrame({
+          title,
+          entryUrl,
+          surfaceUrl,
+          frameKey,
+          connectionGeneration: connectionGeneration ?? 0,
+          height: preview.preferredHeight,
+          sandbox,
+          recover,
+        });
+      }
       return renderPreviewFrame({
-        title: preview.title?.trim() || t("chat.toolCards.canvas"),
+        title,
         src: resolveCanvasIframeUrl(
           preview.url,
           options?.canvasPluginSurfaceUrl,
           options?.allowExternalEmbedUrls ?? false,
         ),
-        frameKey: preview.url?.trim() || preview.viewId?.trim(),
-        connectionGeneration: promptCapable
-          ? getCanvasWidgetFrameConnectionGeneration()
-          : undefined,
+        frameKey,
+        connectionGeneration,
         height: preview.preferredHeight,
-        sandbox: resolveEmbedSandbox(options?.embedSandboxMode ?? "scripts", preview.sandbox),
+        sandbox,
         // Only hosted Canvas documents may drive the chat; externally
         // allowed embed URLs render but never get prompt authority.
         promptCapable,

@@ -1,12 +1,165 @@
 /* @vitest-environment jsdom */
 
 import { nothing, render } from "lit";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mcpAppWidgetNameForViewId, type BoardProvider } from "../../../lib/board/provider.ts";
 import { bumpCanvasWidgetFrameConnectionGeneration } from "../../../lib/chat/canvas-widget-frame-generation.ts";
+import { settleLitElement } from "../../../test-helpers/lit-settle.ts";
 import { renderToolPreview } from "./widget-card.ts";
 
+afterEach(() => document.body.replaceChildren());
+
+async function flushCanvasFrame(host: HTMLElement): Promise<HTMLIFrameElement | null> {
+  const owner = host.querySelector<HTMLElement & { updateComplete: Promise<boolean> }>(
+    "openclaw-canvas-frame",
+  );
+  if (!owner) {
+    throw new Error("expected recoverable Canvas frame owner");
+  }
+  await settleLitElement(owner);
+  return host.querySelector<HTMLIFrameElement>("iframe");
+}
+
 describe("widget-card", () => {
+  it("recovers only the internal frame that reports its authenticated lease expiry", async () => {
+    const preview = {
+      kind: "canvas",
+      surface: "assistant_message",
+      render: "url",
+      viewId: "cv_recover_one",
+      url: "/__openclaw__/canvas/documents/cv_recover_one/index.html",
+      sandbox: "scripts",
+    } as const;
+    const recover = vi.fn(async () => "https://canvas.test/__openclaw__/cap/two");
+    const failedHost = document.createElement("div");
+    const healthyHost = document.createElement("div");
+    document.body.append(failedHost, healthyHost);
+    const options = {
+      canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/one",
+      recoverCanvasPluginSurfaceUrl: recover,
+    };
+    render(renderToolPreview(preview, "chat_message", options), failedHost);
+    render(renderToolPreview(preview, "chat_message", options), healthyHost);
+    const failedFrame = await flushCanvasFrame(failedHost);
+    const healthyFrame = await flushCanvasFrame(healthyHost);
+    expect(failedFrame?.getAttribute("src")).toContain("/__openclaw__/cap/one/");
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "openclaw:canvas-lease-expired" },
+        origin: "https://canvas.test",
+        source: failedFrame?.contentWindow,
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "openclaw:canvas-lease-expired" },
+        origin: "null",
+        source: healthyFrame?.contentWindow,
+      }),
+    );
+    await vi.waitFor(() => expect(recover).toHaveBeenCalledOnce());
+    await flushCanvasFrame(healthyHost);
+    expect(recover).toHaveBeenCalledWith("https://canvas.test/__openclaw__/cap/one");
+    expect(healthyHost.querySelector("iframe")).not.toBe(healthyFrame);
+    expect(healthyHost.querySelector("iframe")?.getAttribute("src")).toContain(
+      "/__openclaw__/cap/two/",
+    );
+    expect(failedHost.querySelector("iframe")).toBe(failedFrame);
+  });
+
+  it("bounds expired-frame recovery to three attempts per document generation", async () => {
+    const preview = {
+      kind: "canvas",
+      surface: "assistant_message",
+      render: "url",
+      viewId: "cv_recover_bound",
+      url: "/__openclaw__/canvas/documents/cv_recover_bound/index.html",
+      sandbox: "scripts",
+    } as const;
+    let ticket = 1;
+    const recover = vi.fn(async () => {
+      ticket += 1;
+      return `https://canvas.test/__openclaw__/cap/${ticket}`;
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    render(
+      renderToolPreview(preview, "chat_message", {
+        canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/1",
+        recoverCanvasPluginSurfaceUrl: recover,
+      }),
+      host,
+    );
+    await flushCanvasFrame(host);
+
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      const frame = host.querySelector<HTMLIFrameElement>("iframe");
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "openclaw:canvas-lease-expired" },
+          origin: "null",
+          source: frame?.contentWindow,
+        }),
+      );
+      if (attempt <= 3) {
+        await vi.waitFor(() => expect(recover).toHaveBeenCalledTimes(attempt));
+        await flushCanvasFrame(host);
+        expect(host.querySelector("iframe")).not.toBe(frame);
+      } else {
+        await Promise.resolve();
+        expect(recover).toHaveBeenCalledTimes(3);
+        expect(host.querySelector("iframe")).toBe(frame);
+      }
+    }
+  });
+
+  it("adopts a later scheduled lease rotation only after this frame fails recovery", async () => {
+    const preview = {
+      kind: "canvas",
+      surface: "assistant_message",
+      render: "url",
+      viewId: "cv_recover_retry",
+      url: "/__openclaw__/canvas/documents/cv_recover_retry/index.html",
+      sandbox: "scripts",
+    } as const;
+    const recover = vi.fn(async () => null);
+    const failedHost = document.createElement("div");
+    const healthyHost = document.createElement("div");
+    document.body.append(failedHost, healthyHost);
+    const renderAt = (host: HTMLElement, ticket: string) =>
+      render(
+        renderToolPreview(preview, "chat_message", {
+          canvasPluginSurfaceUrl: `https://canvas.test/__openclaw__/cap/${ticket}`,
+          recoverCanvasPluginSurfaceUrl: recover,
+        }),
+        host,
+      );
+    renderAt(failedHost, "one");
+    renderAt(healthyHost, "one");
+    const failedFrame = await flushCanvasFrame(failedHost);
+    const healthyFrame = await flushCanvasFrame(healthyHost);
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "openclaw:canvas-lease-expired" },
+        origin: "null",
+        source: failedFrame?.contentWindow,
+      }),
+    );
+    await vi.waitFor(() => expect(recover).toHaveBeenCalledOnce());
+
+    renderAt(failedHost, "two");
+    renderAt(healthyHost, "two");
+    await flushCanvasFrame(failedHost);
+    await flushCanvasFrame(healthyHost);
+    expect(failedHost.querySelector("iframe")).not.toBe(failedFrame);
+    expect(failedHost.querySelector("iframe")?.getAttribute("src")).toContain(
+      "/__openclaw__/cap/two/",
+    );
+    expect(healthyHost.querySelector("iframe")).toBe(healthyFrame);
+    expect(healthyFrame?.getAttribute("src")).toContain("/__openclaw__/cap/one/");
+  });
+
   it("keeps mounted frames stable but refreshes remounts and new connection generations", () => {
     const firstPreview = {
       kind: "canvas",

@@ -10,6 +10,11 @@ const CANVAS_OWNER_AGENT_HEADER = "x-openclaw-canvas-owner-agent-id";
 const CANVAS_TICKET_SCOPE = "platformclaw-browser-canvas";
 const CANVAS_TICKET_TTL_MS = 10 * 60_000;
 const UPSTREAM_TIMEOUT_MS = 30_000;
+export const CANVAS_LEASE_EXPIRED_MESSAGE_TYPE = "openclaw:canvas-lease-expired";
+
+const CANVAS_LEASE_EXPIRED_HTML = `<!doctype html><meta charset="utf-8"><script>parent.postMessage({type:${JSON.stringify(
+  CANVAS_LEASE_EXPIRED_MESSAGE_TYPE,
+)}},"*")</script>`;
 
 const RESPONSE_HEADER_ALLOWLIST = [
   "cache-control",
@@ -62,6 +67,19 @@ function sendJson(res: ServerResponse, statusCode: number, body: unknown): void 
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.end(JSON.stringify(body));
+}
+
+function sendExpiredLeaseSignal(req: IncomingMessage, res: ServerResponse): void {
+  res.statusCode = 404;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; sandbox allow-scripts",
+  );
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.end(req.method === "HEAD" ? undefined : CANVAS_LEASE_EXPIRED_HTML);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -153,7 +171,9 @@ export class PlatformClawBrowserCanvasRelay {
       sendJson(res, 404, { error: "Canvas document not found" });
       return true;
     }
-    const ticket = this.verifyTicket(remainder.slice(0, slashIndex), false);
+    // Verify authenticity before browser identity, but defer expiry disclosure
+    // until the active session proves it owns this agent-bound capability.
+    const ticket = this.verifyTicket(remainder.slice(0, slashIndex), true);
     const canvasPath = remainder.slice(slashIndex);
     if (!ticket || !canvasPath.startsWith(CANVAS_DOCUMENT_PREFIX)) {
       sendJson(res, 404, { error: "Canvas document not found" });
@@ -179,6 +199,10 @@ export class PlatformClawBrowserCanvasRelay {
     }
     if (access.binding.agentId !== ticket.agentId) {
       sendJson(res, 404, { error: "Canvas document not found" });
+      return true;
+    }
+    if (ticket.exp < this.now()) {
+      sendExpiredLeaseSignal(req, res);
       return true;
     }
 
