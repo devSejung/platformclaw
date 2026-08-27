@@ -1,8 +1,7 @@
-import { consume } from "@lit/context";
 import { html, nothing } from "lit";
 import { state } from "lit/decorators.js";
-import { applicationContext, type ApplicationContext } from "../../app/context.ts";
 import "../../components/modal-dialog.ts";
+import { titleForRoute } from "../../app-navigation.ts";
 import { t } from "../../i18n/index.ts";
 import {
   installPlatformClawHubSkill,
@@ -28,7 +27,6 @@ import {
 import "../../styles/plugins.css";
 import "../../styles/skill-hub.css";
 import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
-import { PLUGINS_HUB_PANEL_ID } from "../plugins/plugins-hub.ts";
 import { SkillHubAdminController } from "./admin-controller.ts";
 import { renderSkillHubAdmin } from "./admin.ts";
 import {
@@ -47,9 +45,6 @@ import * as pageSupport from "./page-support.ts";
 import { SkillHubWorkspacePublishController } from "./workspace-publish-controller.ts";
 
 class SkillHubPage extends SkillHubAdminController {
-  @consume({ context: applicationContext, subscribe: true })
-  private context!: ApplicationContext;
-
   @state() private config: PlatformClawSkillHubConfig | null = null;
   @state() private query = pageSupport.readSkillHubInitialQuery(window.location.href);
   @state() private results: PlatformClawSkillHubSearchItem[] | null = null;
@@ -552,12 +547,10 @@ class SkillHubPage extends SkillHubAdminController {
 
   override render() {
     return renderPluginsHubShell({
-      context: this.context,
-      active: "skill-hub",
       className: "content--skill-hub",
       header: html`<section class="content-header content-header--page plugins-content-header">
         <div>
-          <h1 class="page-title">${t("tabs.skillHub")}</h1>
+          <h1 class="page-title">${titleForRoute("skill-hub")}</h1>
           <div class="page-subtitle">${t("subtitles.skillHub")}</div>
         </div>
         <div class="skill-hub-header-actions">
@@ -585,73 +578,65 @@ class SkillHubPage extends SkillHubAdminController {
           </button>
         </div>
       </section>`,
-      content: html`<wa-tab-panel
-          id=${PLUGINS_HUB_PANEL_ID}
-          name="skill-hub"
-          active
-          aria-labelledby="plugins-tab-skill-hub"
-        >
-          <main class="skill-hub-page">
-            <section class="skill-hub-hero">
-              <div>
-                <span class="skill-hub-eyebrow">${t("skillHubPage.companyRegistry")}</span>
-                <h2>${t("skillHubPage.heroTitle")}</h2>
-                <p>${t("skillHubPage.heroDescription")}</p>
-                ${this.config
-                  ? html`<p class="skill-hub-registry-status">
-                      ${t("skillHubPage.namespacesAvailable", {
-                        count: String(this.config.namespaces.length),
-                      })}
-                    </p>`
-                  : nothing}
-              </div>
-              <div class="skill-hub-search">
-                <input
-                  class="settings-input"
-                  .value=${this.query}
-                  placeholder=${t("skillsPage.skillHub.searchPlaceholder")}
-                  @input=${(event: Event) =>
-                    (this.query = (event.target as HTMLInputElement).value)}
-                  @keydown=${(event: KeyboardEvent) => {
-                    if (event.key === "Enter") {
-                      void this.search();
-                    }
-                  }}
-                />
-                <button class="btn primary" ?disabled=${this.loading} @click=${() => this.search()}>
-                  ${this.loading
-                    ? t("skillsPage.skillHub.searching")
-                    : t("skillsPage.skillHub.search")}
-                </button>
-              </div>
-            </section>
-            ${this.error ? html`<div class="callout danger">${this.error}</div>` : nothing}
-            ${this.message
-              ? html`<div
-                  class="callout ${this.message.kind === "error"
-                    ? "danger"
-                    : this.message.kind === "warning"
-                      ? "warning"
-                      : "success"}"
-                >
-                  ${this.message.text}
-                </div>`
-              : nothing}
-            <section class="skill-hub-results" aria-busy=${this.loading ? "true" : "false"}>
-              <header>
-                <h2>${t("skillHubPage.catalog")}</h2>
-                <span>${t("skillHubPage.resultCount", { count: String(this.total) })}</span>
-              </header>
-              ${this.loading && !this.results
-                ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
-                : this.results?.length
-                  ? html`<div class="skill-hub-grid">
-                      ${this.results.map((item) => this.renderCard(item))}
-                    </div>`
-                  : html`<div class="skill-hub-state">${t("skillsPage.skillHub.noResults")}</div>`}
-            </section>
-          </main>
-        </wa-tab-panel>
+      content: html`<main class="skill-hub-page">
+          <section class="skill-hub-hero">
+            <div>
+              <span class="skill-hub-eyebrow">${t("skillHubPage.companyRegistry")}</span>
+              <h2>${t("skillHubPage.heroTitle")}</h2>
+              <p>${t("skillHubPage.heroDescription")}</p>
+              ${this.config
+                ? html`<p class="skill-hub-registry-status">
+                    ${t("skillHubPage.namespacesAvailable", {
+                      count: String(this.config.namespaces.length),
+                    })}
+                  </p>`
+                : nothing}
+            </div>
+            <div class="skill-hub-search">
+              <input
+                class="settings-input"
+                .value=${this.query}
+                placeholder=${t("skillsPage.skillHub.searchPlaceholder")}
+                @input=${(event: Event) => (this.query = (event.target as HTMLInputElement).value)}
+                @keydown=${(event: KeyboardEvent) => {
+                  if (event.key === "Enter") {
+                    void this.search();
+                  }
+                }}
+              />
+              <button class="btn primary" ?disabled=${this.loading} @click=${() => this.search()}>
+                ${this.loading
+                  ? t("skillsPage.skillHub.searching")
+                  : t("skillsPage.skillHub.search")}
+              </button>
+            </div>
+          </section>
+          ${this.error ? html`<div class="callout danger">${this.error}</div>` : nothing}
+          ${this.message
+            ? html`<div
+                class="callout ${this.message.kind === "error"
+                  ? "danger"
+                  : this.message.kind === "warning"
+                    ? "warning"
+                    : "success"}"
+              >
+                ${this.message.text}
+              </div>`
+            : nothing}
+          <section class="skill-hub-results" aria-busy=${this.loading ? "true" : "false"}>
+            <header>
+              <h2>${t("skillHubPage.catalog")}</h2>
+              <span>${t("skillHubPage.resultCount", { count: String(this.total) })}</span>
+            </header>
+            ${this.loading && !this.results
+              ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
+              : this.results?.length
+                ? html`<div class="skill-hub-grid">
+                    ${this.results.map((item) => this.renderCard(item))}
+                  </div>`
+                : html`<div class="skill-hub-state">${t("skillsPage.skillHub.noResults")}</div>`}
+          </section>
+        </main>
         ${this.renderDetail()}
         ${renderSkillHubNotifications({
           open: this.notificationsOpen,
@@ -710,7 +695,6 @@ class SkillHubPage extends SkillHubAdminController {
             }
           },
         })}`,
-      onSelect: (tab) => pageSupport.selectSkillHubTab(tab, this.context.navigate),
     });
   }
 }

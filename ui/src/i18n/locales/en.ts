@@ -105,7 +105,6 @@ export const en: TranslationMap = {
       label: "PlatformClaw quick actions",
       voc: "VOC",
       guide: "Guide",
-      vmServer: "VM server",
       loading: "Loading quick actions…",
       unavailable: "Quick actions are unavailable. Refresh the page and try again.",
     },

@@ -46,43 +46,59 @@ describeControlUiE2e("PlatformClaw employee execution settings", () => {
     await server?.close();
   });
 
-  it("shows the active work location and requires confirmation before switching", async () => {
+  it("updates the quick-action work-location label after switching to Basic", async () => {
     const page = await browser.newPage({ locale: "en-US", viewport: { width: 574, height: 789 } });
-    await page.route("**/platformclaw/api/execution", async (route) => {
+    const vmSettings = {
+      activeTarget: "assigned_vm",
+      targetRevision: 3,
+      credentialStatus: "current",
+      accountId: "person.one",
+      availableVms: [{ id: "development", label: "Development VM" }],
+      assignment: {
+        vmHostId: "development",
+        status: "ready",
+        vmLabel: "Development VM",
+        safeConnectLabel: "Corporate access",
+        linuxAccount: "person.one",
+        remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
+        lastConnectionSucceededAt: 1_787_642_400_000,
+      },
+    };
+    const basicSettings = { ...vmSettings, activeTarget: "platform_server", targetRevision: 4 };
+    await page.route("**/platformclaw/api/execution**", async (route) => {
+      if (route.request().method() === "POST") {
+        expect(route.request().postDataJSON()).toEqual({
+          expectedRevision: 3,
+          target: "platform_server",
+        });
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify(basicSettings),
+        });
+        return;
+      }
       await route.fulfill({
         contentType: "application/json",
-        body: JSON.stringify({
-          activeTarget: "assigned_vm",
-          targetRevision: 3,
-          credentialStatus: "current",
-          accountId: "person.one",
-          availableVms: [{ id: "development", label: "Development VM" }],
-          assignment: {
-            vmHostId: "development",
-            status: "ready",
-            vmLabel: "Development VM",
-            safeConnectLabel: "Corporate access",
-            linuxAccount: "person.one",
-            remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
-            lastConnectionSucceededAt: 1_787_642_400_000,
-          },
-        }),
+        body: JSON.stringify(vmSettings),
       });
     });
     await page.goto(new URL("sw.js", server.baseUrl).href);
     await page.setContent("<!doctype html><html><body></body></html>");
     await page.addScriptTag({
       type: "module",
-      url: `${server.baseUrl}src/platformclaw/execution-settings.ts`,
+      url: `${server.baseUrl}src/platformclaw/quick-actions.ts`,
     });
     const initialRefresh = page.waitForResponse("**/platformclaw/api/execution");
     await page.evaluate(async () => {
-      await customElements.whenDefined("platformclaw-execution-settings");
-      document.body.replaceChildren(document.createElement("platformclaw-execution-settings"));
+      localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
+      await customElements.whenDefined("platformclaw-quick-actions");
+      document.body.replaceChildren(document.createElement("platformclaw-quick-actions"));
     });
     await initialRefresh;
 
-    const component = page.locator("platformclaw-execution-settings");
+    const component = page
+      .locator("platformclaw-quick-actions")
+      .locator("platformclaw-execution-settings");
     const badge = component.getByRole("button", { name: "Open work location settings" });
     await expect.poll(async () => await badge.textContent()).toContain("My development VM");
     await badge.click();
@@ -117,6 +133,9 @@ describeControlUiE2e("PlatformClaw employee execution settings", () => {
     expect(footerBox!.y + footerBox!.height).toBeLessThanOrEqual(789);
     expect(confirmBox!.y + confirmBox!.height).toBeLessThanOrEqual(789);
     await screenshot(page, "01-confirm-basic-switch-narrow.png");
+    await confirmButton.click();
+    await expect.poll(async () => await badge.textContent()).toContain("Basic workspace");
+    await screenshot(page, "02-basic-workspace-active.png");
     await page.close();
   });
 });

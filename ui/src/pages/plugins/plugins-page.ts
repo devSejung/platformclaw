@@ -981,6 +981,7 @@ class PluginsPage extends OpenClawLightDomElement {
     return renderPluginsHubShell({
       context: this.context,
       active: this.activeTab,
+      showTabs: true,
       header: html`<section class="content-header content-header--page plugins-content-header">
         <div>
           <h1 class="page-title">${titleForRoute("plugins")}</h1>

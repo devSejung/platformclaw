@@ -217,7 +217,6 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.quickActions.label": "PlatformClaw 빠른 실행",
   "platformClaw.quickActions.voc": "VOC",
   "platformClaw.quickActions.guide": "가이드",
-  "platformClaw.quickActions.vmServer": "VM 서버",
   "platformClaw.quickActions.loading": "빠른 실행을 불러오는 중…",
   "platformClaw.quickActions.unavailable":
     "빠른 실행을 사용할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
@@ -406,20 +405,10 @@ export const translations: Readonly<Record<string, string>> = {
     "개인 메모리가 시간에 따라 장기 지식으로 정리된 과정을 확인합니다.",
   "platformClaw.guide.dreamingDetails":
     "Dream Diary에서 정리 실행과 결과를 확인합니다.|Personal Wiki에서 장기 지식으로 만들어진 페이지를 확인합니다.|Dreaming은 개인 지식을 정리하지만 Part 지식에 필요한 조직 승인을 대신하지는 않습니다.",
-  "platformClaw.guide.pluginsNavTitle": "Plugins: Agent 기능 확장하기",
-  "platformClaw.guide.pluginsNavBody":
-    "서비스 연결, 작업 지침, 사내 스킬을 관리하는 플러그인 허브로 들어가는 메뉴입니다.",
-  "platformClaw.guide.pluginsNavDetails":
-    "플러그인은 Agent를 외부 서비스와 도구에 연결합니다.|Skills는 Agent가 반복해서 따를 작업 방법을 제공합니다.|다음을 누르면 실제 플러그인 화면으로 이동해 각 탭을 하나씩 설명합니다.",
   "platformClaw.guide.workLocationTitle": "작업 위치 선택",
   "platformClaw.guide.workLocationBody":
     "기본 작업 공간과 할당된 개발 VM 사이를 전환할 수 있습니다.",
   "platformClaw.guide.clickTarget": "여기를 보세요",
-  "platformClaw.guide.pluginsTitle": "플러그인 허브 화면 이해하기",
-  "platformClaw.guide.pluginsBody":
-    "이 화면에는 Agent가 할 수 있는 일을 확장하는 방법들이 탭별로 모여 있습니다.",
-  "platformClaw.guide.pluginsDetails":
-    "설치됨은 현재 연결된 플러그인과 서비스 연결을 관리합니다.|찾기는 새 플러그인과 간편 연결 항목을 찾는 곳입니다.|Skills는 Agent가 반복해서 따르는 작업 지침을 관리합니다.|Workshop은 스킬 변경안을 실제 적용 전에 검토합니다.|Skill Hub는 사내 스킬을 공유하고 설치하는 회사 카탈로그입니다.|권한에 따라 사용할 수 있는 탭만 화면에 표시됩니다.",
   "platformClaw.guide.installedPluginsTitle": "설치됨: 현재 플러그인 관리하기",
   "platformClaw.guide.installedPluginsBody":
     "플러그인은 Agent를 서비스·도구·채널·모델 제공자와 연결하는 확장 기능입니다.",
