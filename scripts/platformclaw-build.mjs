@@ -360,6 +360,7 @@ const sandboxSecretArgs = [
 const extensions = [
   ...new Set([
     "admin-http-rpc",
+    "codex",
     "knox",
     "platformclaw-execution",
     "platformclaw-org-memory",

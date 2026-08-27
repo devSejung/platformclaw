@@ -51,6 +51,12 @@ function readRepoFile(filePath: string): string {
 }
 
 describe("PlatformClaw Docker runtime", () => {
+  it("bundles the Codex harness used by the default Terra model", () => {
+    const build = readRepoFile("scripts/platformclaw-build.mjs");
+
+    expect(build).toMatch(/const extensions = \[[\s\S]*?"codex",[\s\S]*?options\.extensions/u);
+  });
+
   it("automatically embeds the canonical local pip config only in the sandbox image", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
     const sandboxDockerfile = readRepoFile("Dockerfile.sandbox.jammy");
