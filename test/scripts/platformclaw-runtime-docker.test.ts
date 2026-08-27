@@ -10,6 +10,11 @@ import {
   validateManagedConfig,
 } from "../../docker/platformclaw-runtime/validate-managed-config.mjs";
 import { mainLanes } from "../../scripts/lib/docker-e2e-scenarios.mjs";
+import {
+  isToolAllowed,
+  resolveSandboxToolPolicyForAgent,
+} from "../../src/agents/sandbox/tool-policy.js";
+import type { OpenClawConfig } from "../../src/config/config.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -496,7 +501,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(serialized).not.toContain("platformclaw_gateway_token");
   });
 
-  it("reconciles deployment-owned sandbox image and global MCP access", () => {
+  it("reconciles deployment-owned sandbox image and managed agent tools", () => {
     const source = JSON.parse(
       readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
     ) as {
@@ -544,6 +549,12 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
       "wiki_status",
     ]);
     expect(result.config.tools.deny).toEqual(["group:nodes"]);
+    const sandboxToolPolicy = resolveSandboxToolPolicyForAgent(
+      result.config as OpenClawConfig,
+      undefined,
+    );
+    expect(sandboxToolPolicy.deny).not.toContain("automations");
+    expect(isToolAllowed(sandboxToolPolicy, "automations")).toBe(true);
     expect(source.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:old");
   });
 
@@ -786,7 +797,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
   });
 
-  it("adds global MCP access to an existing explicit sandbox allowlist", () => {
+  it("adds managed agent tools to an existing explicit sandbox allowlist", () => {
     const source = JSON.parse(
       readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
     ) as {
@@ -822,7 +833,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
   });
 
-  it("adds global MCP access to config created before the managed gate existed", () => {
+  it("adds managed agent tools to config created before the managed gate existed", () => {
     const source = JSON.parse(
       readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
     ) as {
@@ -908,6 +919,19 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
       );
       expect(() => reconcileManagedConfig(candidate, sandboxImage)).toThrow(
         "Existing sandbox tool deny policy blocks managed global MCP",
+      );
+    }
+
+    for (const deniedGate of ["automations", "auto*"]) {
+      const candidate = structuredClone(config) as {
+        tools: { sandbox: { tools: { deny?: string[] } } };
+      };
+      candidate.tools.sandbox.tools.deny = [deniedGate];
+      expect(() => validateManagedConfig(candidate, sandboxImage)).toThrow(
+        "Existing OpenClaw config does not match the managed PlatformClaw execution policy",
+      );
+      expect(() => reconcileManagedConfig(candidate, sandboxImage)).toThrow(
+        "Existing sandbox tool deny policy blocks managed personal automations",
       );
     }
 

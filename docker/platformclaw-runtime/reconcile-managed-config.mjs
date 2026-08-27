@@ -9,10 +9,13 @@ import {
   REQUIRED_MANAGED_PLUGIN_IDS,
   REQUIRED_MANAGED_SANDBOX_TOOL_IDS,
   sandboxPolicyDeniesBundleMcp,
+  sandboxPolicyDeniesManagedTool,
 } from "./validate-managed-config.mjs";
 
 const MCP_DENY_MIGRATION_ERROR =
   "Existing sandbox tool deny policy blocks managed global MCP; remove bundle-mcp, matching wildcards, or group:plugins before upgrading PlatformClaw";
+const AUTOMATIONS_DENY_MIGRATION_ERROR =
+  "Existing sandbox tool deny policy blocks managed personal automations; remove automations or matching wildcards before upgrading PlatformClaw";
 const MANAGED_DISABLED_AGENT_TOOLS = ["group:nodes"];
 
 function reconcileSkillHubArchiveInstallPolicy(config, skillHubEnabled) {
@@ -150,10 +153,13 @@ function sandboxPolicyAllowsManagedTools(globalPolicy, agentPolicy) {
   );
 }
 
-function reconcileGlobalMcpSandboxGate(config) {
+function reconcileManagedSandboxGate(config) {
   const rootResult = reconcileSandboxToolPolicy(config?.tools?.sandbox?.tools, true);
   if (sandboxPolicyDeniesBundleMcp(rootResult.policy)) {
     throw new Error(MCP_DENY_MIGRATION_ERROR);
+  }
+  if (sandboxPolicyDeniesManagedTool(rootResult.policy, "automations")) {
+    throw new Error(AUTOMATIONS_DENY_MIGRATION_ERROR);
   }
   let entriesChanged = false;
   const entries = Object.fromEntries(
@@ -164,6 +170,9 @@ function reconcileGlobalMcpSandboxGate(config) {
       };
       if (sandboxPolicyDeniesBundleMcp(effectiveDenyPolicy)) {
         throw new Error(`${MCP_DENY_MIGRATION_ERROR} (agent: ${agentId})`);
+      }
+      if (sandboxPolicyDeniesManagedTool(effectiveDenyPolicy, "automations")) {
+        throw new Error(`${AUTOMATIONS_DENY_MIGRATION_ERROR} (agent: ${agentId})`);
       }
       if (policy === undefined || sandboxPolicyAllowsManagedTools(rootResult.policy, policy)) {
         return [agentId, agent];
@@ -335,8 +344,8 @@ function reconcileRequiredPlugins(config) {
 
 export function reconcileManagedConfig(config, sandboxImage, skillHubEnabled = false) {
   const imageResult = reconcileSandboxImage(config, sandboxImage);
-  const mcpResult = reconcileGlobalMcpSandboxGate(imageResult.config);
-  const toolResult = reconcileManagedAgentToolPolicy(mcpResult.config);
+  const sandboxGateResult = reconcileManagedSandboxGate(imageResult.config);
+  const toolResult = reconcileManagedAgentToolPolicy(sandboxGateResult.config);
   const pluginResult = reconcileRequiredPlugins(toolResult.config);
   const skillHubResult = reconcileSkillHubArchiveInstallPolicy(
     pluginResult.config,
@@ -346,7 +355,7 @@ export function reconcileManagedConfig(config, sandboxImage, skillHubEnabled = f
     config: skillHubResult.config,
     changed:
       imageResult.changed ||
-      mcpResult.changed ||
+      sandboxGateResult.changed ||
       toolResult.changed ||
       pluginResult.changed ||
       skillHubResult.changed,
