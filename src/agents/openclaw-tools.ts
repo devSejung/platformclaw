@@ -537,6 +537,8 @@ export function createOpenClawTools(
             sessionId: options?.sessionId,
             agentId: sessionAgentId,
             agentSessionKey: options?.runSessionKey ?? options?.agentSessionKey,
+            workspaceDir,
+            sandbox,
           }),
         ]),
     ...collectPresentOpenClawTools([heartbeatTool]),

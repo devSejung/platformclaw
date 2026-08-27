@@ -9,6 +9,7 @@ import { PlatformClawBrowserCanvasRelay } from "../../../packages/platformclaw-c
 import { PlatformClawBrowserMediaRelay } from "../../../packages/platformclaw-control-plane/src/browser-media-http.js";
 import { filterToolsByPolicy } from "../../../src/agents/agent-tools.policy.js";
 import { createOpenClawTools } from "../../../src/agents/openclaw-tools.js";
+import { createSandboxFsBridgeFromResolver } from "../../../src/agents/test-helpers/host-sandbox-fs-bridge.js";
 import { expandToolGroups } from "../../../src/agents/tool-policy-shared.js";
 import { resolveCanvasNodeCapability } from "../../../src/canvas/constants.js";
 import type { OpenClawConfig } from "../../../src/config/types.openclaw.js";
@@ -90,6 +91,22 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
     async ({ label, target, locale }) => {
       const stateDir = await mkdtemp(path.join(tmpdir(), "platformclaw-canvas-e2e-"));
       await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
+        const generatedWorkspace = path.join(stateDir, "workspace");
+        const generatedDocumentSource = path.join(generatedWorkspace, generatedDocumentName);
+        await mkdir(generatedWorkspace, { recursive: true });
+        const assignedVmBridge = createSandboxFsBridgeFromResolver((filePath, cwd) => {
+          const remoteCwd = cwd?.startsWith("/workspace") ? cwd : "/workspace";
+          const containerPath = path.posix.resolve(remoteCwd, filePath);
+          if (containerPath !== "/workspace" && !containerPath.startsWith("/workspace/")) {
+            throw new Error("escapes assigned VM workspace");
+          }
+          const relativePath = path.posix.relative("/workspace", containerPath);
+          return {
+            hostPath: path.join(generatedWorkspace, ...relativePath.split("/").filter(Boolean)),
+            relativePath,
+            containerPath,
+          };
+        });
         const config: OpenClawConfig = {
           agents: { entries: { [agentId]: { default: true } } },
           plugins: {
@@ -107,6 +124,10 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             sandboxed: true,
             sessionId: `${target}-session`,
             wrapBeforeToolCallHook: false,
+            workspaceDir: generatedWorkspace,
+            ...(target === "assigned_vm"
+              ? { sandboxRoot: "/workspace", sandboxFsBridge: assignedVmBridge }
+              : {}),
           }),
           { deny: expandToolGroups(config.tools?.deny) },
         );
@@ -129,19 +150,30 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         ).rejects.toThrow("widget_code required");
         const widgetCode = [
           `<main data-proof-target="${target}"><h1>${label}</h1><p>Gateway-owned widget</p>`,
+          '<img data-proof-relative-image src="pixel.png" alt="Workspace image">',
           `<img data-proof-image src="data:image/png;base64,${inlineImageBase64}" alt="Inline image">`,
           '<img data-proof-blob-image alt="Blob image">',
-          '<img data-blocked-external src="https://blocked-widget-image.invalid/pixel.png" alt="Blocked external image">',
           `<script>document.querySelector("[data-proof-blob-image]").src=URL.createObjectURL(new Blob([Uint8Array.from(atob("${inlineImageBase64}"),character=>character.charCodeAt(0))],{type:"image/png"}))</script>`,
           "</main>",
         ].join("");
-        const generatedWorkspace = path.join(stateDir, "workspace");
-        const generatedDocumentSource = path.join(generatedWorkspace, generatedDocumentName);
-        await mkdir(generatedWorkspace, { recursive: true });
         await writeFile(generatedDocumentSource, widgetCode);
+        await writeFile(
+          path.join(generatedWorkspace, "pixel.png"),
+          Buffer.from(inlineImageBase64, "base64"),
+        );
+        await expect(
+          showWidget.execute(`reject-remote-image-${target}`, {
+            title: `${label} remote image`,
+            widget_code: '<img src="https://blocked-widget-image.invalid/pixel.png">',
+          }),
+        ).rejects.toThrow("cannot fetch image URL");
         const toolResult = await showWidget.execute(`show-widget-${target}`, {
           title: `${label} widget`,
           widget_code: await readFile(generatedDocumentSource, "utf8"),
+          widget_path:
+            target === "assigned_vm"
+              ? `/workspace/${generatedDocumentName}`
+              : generatedDocumentSource,
         });
         const details = toolResult.details as {
           view?: { url?: string };
@@ -272,11 +304,6 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           ]);
           const page = await context.newPage();
           const browserMediaRequests: URL[] = [];
-          let externalImageRequests = 0;
-          await context.route("**/blocked-widget-image.invalid/**", async (route) => {
-            externalImageRequests += 1;
-            await route.abort();
-          });
           await context.route("**/__openclaw__/assistant-media?**", async (route) => {
             const requestUrl = new URL(route.request().url());
             browserMediaRequests.push(requestUrl);
@@ -311,6 +338,17 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           await expect
             .poll(() =>
               frame
+                .locator("[data-proof-relative-image]")
+                .evaluate((element) =>
+                  element instanceof HTMLImageElement && element.complete
+                    ? element.naturalWidth
+                    : 0,
+                ),
+            )
+            .toBe(1);
+          await expect
+            .poll(() =>
+              frame
                 .locator("[data-proof-image]")
                 .evaluate((element) =>
                   element instanceof HTMLImageElement && element.complete
@@ -330,21 +368,30 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
                 ),
             )
             .toBe(1);
-          await expect
-            .poll(() =>
-              frame
-                .locator("[data-blocked-external]")
-                .evaluate((element) =>
-                  element instanceof HTMLImageElement && element.complete
-                    ? element.naturalWidth
-                    : -1,
-                ),
-            )
-            .toBe(0);
-          expect(externalImageRequests).toBe(0);
           expect(await preview.locator("iframe").getAttribute("src")).toBe(
             `${surface.pluginSurfaceUrls.canvas}${documentPath}`,
           );
+          await page.reload();
+          const reloadedFrame = page
+            .locator('.chat-tool-card__preview[data-kind="canvas"]')
+            .frameLocator("iframe");
+          for (const selector of [
+            "[data-proof-relative-image]",
+            "[data-proof-image]",
+            "[data-proof-blob-image]",
+          ]) {
+            await expect
+              .poll(() =>
+                reloadedFrame
+                  .locator(selector)
+                  .evaluate((element) =>
+                    element instanceof HTMLImageElement && element.complete
+                      ? element.naturalWidth
+                      : 0,
+                  ),
+              )
+              .toBe(1);
+          }
 
           const uploadedDocument = page.getByRole("link", { name: attachmentName, exact: true });
           const assistantDocument = page.getByRole("link", {
