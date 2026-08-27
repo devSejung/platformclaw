@@ -550,5 +550,4 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       });
     }
   });
-
 });
