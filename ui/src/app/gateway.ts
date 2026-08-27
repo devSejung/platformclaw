@@ -42,6 +42,7 @@ export type ApplicationGateway = {
   readonly eventLog: readonly EventLogEntry[];
   connect: (connection?: ApplicationGatewayConnectOptions) => void;
   setSessionKey: (sessionKey: string) => void;
+  recoverCanvasSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   start: () => void;
   stop: () => void;
   subscribe: (listener: (snapshot: ApplicationGatewaySnapshot) => void) => () => void;

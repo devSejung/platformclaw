@@ -155,6 +155,69 @@ describe("createCanvasSurfaceLease", () => {
     expect(clock.pendingCount).toBe(1);
   });
 
+  it("recovers a failed mounted URL without rotating an already-fresh lease", async () => {
+    const pending = deferred<unknown>();
+    const request = vi
+      .fn<(method: string, params: unknown) => Promise<unknown>>()
+      .mockResolvedValueOnce({
+        surface: "canvas",
+        pluginSurfaceUrls: { canvas: "https://canvas.test/__openclaw__/cap/two" },
+        expiresAtMs: 200_000,
+      })
+      .mockImplementation(() => pending.promise);
+    const { lease } = createLeaseHarness(request);
+    const firstUrl = "https://canvas.test/__openclaw__/cap/one";
+    const secondUrl = "https://canvas.test/__openclaw__/cap/two";
+    lease.start(firstUrl);
+    await flushPromises();
+
+    await expect(lease.recover(firstUrl)).resolves.toBe(secondUrl);
+    expect(request).toHaveBeenCalledOnce();
+
+    const firstRecovery = lease.recover(secondUrl);
+    const overlappingRecovery = lease.recover(secondUrl);
+    expect(overlappingRecovery).toBe(firstRecovery);
+    await flushPromises();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenLastCalledWith("plugin.surface.refresh", {
+      surface: "canvas",
+      observedUrl: secondUrl,
+    });
+
+    pending.resolve({
+      surface: "canvas",
+      pluginSurfaceUrls: { canvas: "https://canvas.test/__openclaw__/cap/three" },
+    });
+    await expect(firstRecovery).resolves.toBe("https://canvas.test/__openclaw__/cap/three");
+  });
+
+  it("does not publish recovery from a retired connection generation", async () => {
+    const firstRefresh = deferred<unknown>();
+    const request = vi
+      .fn<(method: string, params: unknown) => Promise<unknown>>()
+      .mockImplementationOnce(() => firstRefresh.promise)
+      .mockResolvedValueOnce({
+        surface: "canvas",
+        pluginSurfaceUrls: { canvas: "https://canvas.test/__openclaw__/cap/reconnected" },
+      });
+    const { changes, lease } = createLeaseHarness(request);
+    const originalUrl = "https://canvas.test/__openclaw__/cap/original";
+    lease.start(originalUrl);
+    await flushPromises();
+    const recovery = lease.recover(originalUrl);
+
+    lease.start("https://canvas.test/__openclaw__/cap/reconnect");
+    await flushPromises();
+    firstRefresh.resolve({
+      surface: "canvas",
+      pluginSurfaceUrls: { canvas: "https://canvas.test/__openclaw__/cap/stale" },
+    });
+
+    await expect(recovery).resolves.toBeNull();
+    expect(changes).not.toContain("https://canvas.test/__openclaw__/cap/stale");
+    expect(changes.at(-1)).toBe("https://canvas.test/__openclaw__/cap/reconnected");
+  });
+
   it("keeps retrying past three failures, caps its backoff, and recovers", async () => {
     let failuresRemaining = 10;
     const request = vi.fn<(method: string, params: unknown) => Promise<unknown>>(async () => {

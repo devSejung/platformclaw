@@ -225,6 +225,36 @@ describe("createApplicationGateway connection phase", () => {
     gateway.stop();
   });
 
+  it("shares an authenticated canvas refresh with failed-frame recovery", async () => {
+    let resolveRefresh: (value: unknown) => void = () => {};
+    const refresh = new Promise<unknown>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const { gateway, current } = createStore();
+    gateway.start();
+    current().request.mockReturnValueOnce(refresh);
+    const observedUrl = "https://canvas.test/__openclaw__/cap/observed";
+    current().opts.onHello?.({
+      ...HELLO,
+      pluginSurfaceUrls: { canvas: observedUrl },
+    });
+    await vi.waitFor(() => expect(current().request).toHaveBeenCalledOnce());
+
+    const recovered = gateway.recoverCanvasSurfaceUrl?.(observedUrl);
+    expect(current().request).toHaveBeenCalledOnce();
+    resolveRefresh({
+      surface: "canvas",
+      pluginSurfaceUrls: { canvas: "https://canvas.test/__openclaw__/cap/recovered" },
+      expiresAtMs: Date.now() + 60_000,
+    });
+
+    await expect(recovered).resolves.toBe("https://canvas.test/__openclaw__/cap/recovered");
+    expect(gateway.snapshot.canvasPluginSurfaceUrl).toBe(
+      "https://canvas.test/__openclaw__/cap/recovered",
+    );
+    gateway.stop();
+  });
+
   it("stays on the gate when the first connect fails, even with auto-retry pending", () => {
     const { gateway, current } = createStore();
     gateway.start();

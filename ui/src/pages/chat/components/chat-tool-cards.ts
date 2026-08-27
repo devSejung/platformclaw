@@ -587,6 +587,7 @@ export function renderToolCard(
     onOpenSidebar?: (content: SidebarContent) => void;
     onOpenWorkspaceFile?: (target: { path: string; line?: number | null }) => void;
     canvasPluginSurfaceUrl?: string | null;
+    recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
     embedSandboxMode?: EmbedSandboxMode;
     allowExternalEmbedUrls?: boolean;
   },
@@ -636,6 +637,7 @@ export function renderToolCard(
                 opts.sessionKey,
                 opts.onOpenSidebar,
                 opts.canvasPluginSurfaceUrl,
+                opts.recoverCanvasPluginSurfaceUrl,
                 opts.embedSandboxMode ?? "scripts",
                 opts.allowExternalEmbedUrls ?? false,
                 opts.runActive,
@@ -653,6 +655,7 @@ export function renderExpandedToolCardContent(
   sessionKey?: string,
   onOpenSidebar?: (content: SidebarContent) => void,
   canvasPluginSurfaceUrl?: string | null,
+  recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>,
   embedSandboxMode: EmbedSandboxMode = "scripts",
   allowExternalEmbedUrls = false,
   runActive?: boolean,
@@ -691,6 +694,7 @@ export function renderExpandedToolCardContent(
         onOpenSidebar,
         rawText: card.outputText,
         canvasPluginSurfaceUrl,
+        recoverCanvasPluginSurfaceUrl,
         embedSandboxMode,
         allowExternalEmbedUrls,
         sessionKey,

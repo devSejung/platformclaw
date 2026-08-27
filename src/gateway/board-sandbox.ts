@@ -17,6 +17,9 @@ export function buildBoardWidgetSandboxPath(document: BoardWidgetSandboxMetadata
     // Best-effort hardening for the documented WebRTC residual; the DOM guard
     // reduces fresh descendant realms but is not an authorization boundary.
     blockDescendantFrames: true,
+    // Board HTML is already limited to data/blob images by its inner wrapper.
+    // The srcdoc inherits this outer CSP, so it must preserve the same blob source.
+    allowBlobImages: true,
     ...(connectDomains ? { connectDomains } : {}),
   });
 }
@@ -30,7 +33,7 @@ export function buildBoardWidgetContentSecurityPolicy(
     "default-src 'none'",
     "script-src 'unsafe-inline'",
     "style-src 'unsafe-inline'",
-    "img-src data:",
+    "img-src data: blob:",
     `connect-src ${connectSources}`,
     "webrtc 'block'",
     "base-uri 'none'",

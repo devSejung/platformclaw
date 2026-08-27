@@ -82,6 +82,7 @@ function renderInlineToolCards(
     onToggleToolExpanded?: (toolCardId: string) => void;
     runActive?: boolean;
     canvasPluginSurfaceUrl?: string | null;
+    recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
     embedSandboxMode?: EmbedSandboxMode;
     allowExternalEmbedUrls?: boolean;
   },
@@ -100,6 +101,7 @@ function renderInlineToolCards(
           onOpenSidebar: opts.onOpenSidebar,
           onOpenWorkspaceFile: opts.onOpenWorkspaceFile,
           canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+          recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
           embedSandboxMode: opts.embedSandboxMode ?? "scripts",
           allowExternalEmbedUrls: opts.allowExternalEmbedUrls ?? false,
         }),
@@ -178,6 +180,7 @@ export function renderGroupedMessage(
     onToggleToolExpanded?: (toolCardId: string) => void;
     onRequestUpdate?: () => void;
     canvasPluginSurfaceUrl?: string | null;
+    recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
     basePath?: string;
     localMediaPreviewRoots?: readonly string[];
     assistantAttachmentAuthToken?: string | null;
@@ -321,6 +324,7 @@ export function renderGroupedMessage(
             onOpenSidebar,
             rawText: block.rawText ?? null,
             canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+            recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
             boardProvider: opts.boardProvider,
             embedSandboxMode: opts.embedSandboxMode ?? "scripts",
             sessionKey: opts.sessionKey,
@@ -362,6 +366,7 @@ export function renderGroupedMessage(
           onToggleToolExpanded: opts.onToggleToolExpanded,
           runActive: opts.runActive,
           canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+          recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
           embedSandboxMode: opts.embedSandboxMode ?? "scripts",
           allowExternalEmbedUrls: opts.allowExternalEmbedUrls ?? false,
         })}
@@ -460,6 +465,7 @@ export function renderGroupedMessage(
                               opts.sessionKey,
                               onOpenSidebar,
                               opts.canvasPluginSurfaceUrl,
+                              opts.recoverCanvasPluginSurfaceUrl,
                               opts.embedSandboxMode ?? "scripts",
                               opts.allowExternalEmbedUrls ?? false,
                               opts.runActive,
@@ -475,6 +481,7 @@ export function renderGroupedMessage(
                               onToggleToolExpanded: opts.onToggleToolExpanded,
                               runActive: opts.runActive,
                               canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+                              recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
                               embedSandboxMode: opts.embedSandboxMode ?? "scripts",
                               allowExternalEmbedUrls: opts.allowExternalEmbedUrls ?? false,
                             })
@@ -536,6 +543,7 @@ export function renderGroupedMessage(
                   onToggleToolExpanded: opts.onToggleToolExpanded,
                   runActive: opts.runActive,
                   canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+                  recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
                   embedSandboxMode: opts.embedSandboxMode ?? "scripts",
                   allowExternalEmbedUrls: opts.allowExternalEmbedUrls ?? false,
                 })

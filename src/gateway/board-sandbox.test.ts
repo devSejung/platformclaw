@@ -29,11 +29,18 @@ describe("board widget sandbox CSP", () => {
     const path = buildBoardWidgetSandboxPath(document("pending"));
     const encoded = new URL(path, "https://sandbox.example").searchParams.get("csp");
 
-    expect(decodeSandboxHostCsp(encoded)).toEqual({ blockDescendantFrames: true });
+    expect(decodeSandboxHostCsp(encoded)).toEqual({
+      allowBlobImages: true,
+      blockDescendantFrames: true,
+    });
     expect(buildSandboxHostContentSecurityPolicy()).toContain("connect-src 'none'");
+    expect(buildSandboxHostContentSecurityPolicy()).not.toContain("blob:");
     expect(buildSandboxHostContentSecurityPolicy()).toContain("webrtc 'block'");
     expect(buildBoardWidgetContentSecurityPolicy(document("pending"))).toContain(
       "connect-src 'none'",
+    );
+    expect(buildBoardWidgetContentSecurityPolicy(document("pending"))).toContain(
+      "img-src data: blob:",
     );
     expect(buildBoardWidgetContentSecurityPolicy(document("pending"))).toContain("webrtc 'block'");
   });
@@ -55,8 +62,10 @@ describe("board widget sandbox CSP", () => {
         "https://status.example:8443",
         "https://[2001:db8::1]:9443",
       ],
+      allowBlobImages: true,
       blockDescendantFrames: true,
     });
+    expect(buildSandboxHostContentSecurityPolicy(csp)).toContain("img-src 'self' data: blob:");
     expect(buildSandboxHostContentSecurityPolicy(csp)).toContain(
       "connect-src https://api.open-meteo.com https://status.example:8443 https://[2001:db8::1]:9443",
     );
