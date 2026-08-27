@@ -62,21 +62,6 @@ async function installPlatformClawDocument(
   });
 }
 
-async function dragAcross(page: Page, selector: string): Promise<string> {
-  const locator = page.locator(selector).first();
-  await locator.scrollIntoViewIfNeeded();
-  const box = await locator.boundingBox();
-  if (!box) {
-    throw new Error(`Expected a visible selection target: ${selector}`);
-  }
-  const y = box.y + box.height / 2;
-  await page.mouse.move(box.x + 2, y);
-  await page.mouse.down();
-  await page.mouse.move(box.x + Math.max(3, box.width - 2), y, { steps: 8 });
-  await page.mouse.up();
-  return page.evaluate(() => globalThis.getSelection()?.toString() ?? "");
-}
-
 async function openPlatformClawMcpSettings(page: Page): Promise<void> {
   await page.goto(`${server.baseUrl}platformclaw/app/settings/appearance`);
   const settingsSidebar = page.locator(".settings-sidebar");
