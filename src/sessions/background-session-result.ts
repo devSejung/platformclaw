@@ -1,7 +1,7 @@
 // Commits detached background results into an existing conversation generation.
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { resolveSessionWorkStartError } from "../config/sessions/lifecycle.js";
-import { resolveSessionStorePathCore } from "../config/sessions/paths.js";
+import { resolveStorePath } from "../config/sessions/paths.js";
 import { loadSessionEntryReadOnly } from "../config/sessions/session-accessor.js";
 import {
   appendExactAssistantMessageToSessionTranscript,
@@ -48,7 +48,7 @@ export async function commitBackgroundResultToSession(params: {
     return { ok: false, reason: "background session result is missing required data" };
   }
 
-  const storePath = resolveSessionStorePathCore(params.config.session?.store, {
+  const storePath = resolveStorePath(params.config.session?.store, {
     agentId: params.agentId,
   });
   const initial = loadSessionEntryReadOnly({
