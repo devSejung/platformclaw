@@ -62,6 +62,22 @@ describe("PlatformClaw Docker runtime", () => {
     expect(build).toMatch(/const extensions = \[[\s\S]*?"codex",[\s\S]*?options\.extensions/u);
   });
 
+  it("provides the GitHub CLI required by the bundled GitHub skill in sandboxes", () => {
+    const build = readRepoFile("scripts/platformclaw-build.mjs");
+    const sandboxDockerfile = readRepoFile("Dockerfile.sandbox.jammy");
+    const githubSkill = readRepoFile("skills/github/SKILL.md");
+
+    expect(githubSkill).toContain('"requires": { "bins": ["gh"] }');
+    expect(githubSkill).toContain("For read-only public-repository lookups");
+    expect(sandboxDockerfile).toContain(
+      "COPY --from=platformclaw-jammy-build /usr/bin/gh /usr/bin/gh",
+    );
+    expect(build).toContain(
+      "`platformclaw-jammy-build=docker-image://${jammyBuildImage}`",
+    );
+    expect(build.match(/"gh --version"/gu)).toHaveLength(2);
+  });
+
   it("automatically embeds the canonical local pip config only in the sandbox image", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
     const sandboxDockerfile = readRepoFile("Dockerfile.sandbox.jammy");

@@ -33,6 +33,8 @@ RUN --mount=type=secret,id=platformclaw_apt_sources \
     rm -rf /var/lib/apt/lists/*; \
     useradd --create-home --shell /bin/bash sandbox
 
+COPY --from=platformclaw-jammy-build /usr/bin/gh /usr/bin/gh
+
 # Build dependencies use public PyPI before the runtime-only company config is
 # installed because those indexes may be reachable only from the deployed network.
 RUN python3 -m pip install --no-cache-dir \
