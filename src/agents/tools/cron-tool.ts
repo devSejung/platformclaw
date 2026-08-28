@@ -301,7 +301,7 @@ SCHEDULE:
 - {kind:"stream",command:[argv],mode?:"line"|"match",match?}: fires on supervised process output; needs cron.triggers.enabled.
 
 TARGET+PAYLOAD:
-- "current" (agentTurn default) = this conversation: the run stays detached, reads bounded chat context, then commits its final visible assistant result to this conversation's durable history. Self-wakeup/"continue later"/loop = at|every + agentTurn + current.
+- "current" (agentTurn default) = this conversation: the run stays detached and sandboxed, reads bounded chat context, then commits its final visible assistant result to this conversation's durable history. Use current whenever the user wants the result in this chat, even if they call the work background or isolated. Self-wakeup/"continue later"/loop = at|every + agentTurn + current.
 - "isolated" = fresh detached session (shows in \`openclaw tasks\`); standalone background work.
 - "main" = heartbeat lane; payload {kind:"systemEvent",text} (systemEvent default target).
 - "session:<key>" = named session.
@@ -531,6 +531,22 @@ Job wakeMode (main jobs): "now"(default)|"next-heartbeat". Restricted automation
                     ...inferred,
                     ...delivery,
                   } satisfies CronDelivery;
+                } else if (
+                  opts.agentSessionKey &&
+                  normalizeLowercaseStringOrEmpty(
+                    (job as { sessionTarget?: unknown }).sessionTarget,
+                  ) === "isolated" &&
+                  !("sessionKey" in job)
+                ) {
+                  // A scoped announce with no routable channel would be a silent dead end. "current"
+                  // keeps the execution detached while making its signed source session the recipient.
+                  const { mainKey, alias } = resolveMainSessionAlias(runtimeConfig);
+                  (job as { sessionTarget?: string }).sessionTarget = "current";
+                  (job as { sessionKey?: string }).sessionKey = resolveInternalSessionKey({
+                    key: opts.agentSessionKey,
+                    alias,
+                    mainKey,
+                  });
                 }
               }
             }
