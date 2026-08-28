@@ -603,10 +603,13 @@ export const CronListParamsSchema = closedObject({
     ),
   ),
   sessionTargets: Type.Optional(
-    Type.Array(Type.Union([Type.Literal("main"), Type.Literal("isolated")]), {
-      minItems: 1,
-      maxItems: 2,
-    }),
+    Type.Array(
+      Type.Union([Type.Literal("main"), Type.Literal("isolated"), Type.Literal("current")]),
+      {
+        minItems: 1,
+        maxItems: 3,
+      },
+    ),
   ),
   sessionAgentId: Type.Optional(NonEmptyString),
   ownerAgentId: Type.Optional(NonEmptyString),

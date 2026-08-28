@@ -222,6 +222,14 @@ describe("cron listPage sort guards", () => {
         payload: { kind: "agentTurn", message: "summarize" },
       }),
       createBaseJob({
+        id: "current",
+        agentId: "ops",
+        sessionTarget: "current",
+        sessionKey: "agent:ops:main",
+        owner: { agentId: "ops", sessionKey: "agent:ops:main", accountId: "work" },
+        payload: { kind: "agentTurn", message: "summarize" },
+      }),
+      createBaseJob({
         id: "command",
         agentId: "ops",
         sessionTarget: "isolated",
@@ -249,16 +257,16 @@ describe("cron listPage sort guards", () => {
       agentId: "ops",
       scheduleKinds: ["at", "every", "cron"],
       payloadKinds: ["agentTurn", "systemEvent"],
-      sessionTargets: ["main", "isolated"],
+      sessionTargets: ["main", "isolated", "current"],
       sessionAgentId: "ops",
       ownerAgentId: "ops",
       ownerSessionAgentId: "ops",
       requireOwnerAccountId: true,
-      limit: 1,
+      limit: 2,
     });
 
-    expect(page.jobs.map((job) => job.id)).toEqual(["safe"]);
-    expect(page.total).toBe(1);
+    expect(page.jobs.map((job) => job.id)).toEqual(["current", "safe"]);
+    expect(page.total).toBe(2);
     expect(page.hasMore).toBe(false);
   });
 

@@ -30,7 +30,7 @@ export type CronListPageOptions = {
   agentId?: string;
   scheduleKinds?: readonly CronJob["schedule"]["kind"][];
   payloadKinds?: readonly CronJob["payload"]["kind"][];
-  sessionTargets?: readonly ("main" | "isolated")[];
+  sessionTargets?: readonly ("main" | "isolated" | "current")[];
   sessionAgentId?: string;
   ownerAgentId?: string;
   ownerSessionAgentId?: string;

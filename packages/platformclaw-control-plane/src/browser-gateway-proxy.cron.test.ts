@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { projectBrowserCronEvent } from "./browser-gateway-cron-policy.js";
+import { validateCronListParams } from "@openclaw/gateway-protocol";
+import {
+  browserCronListScope,
+  projectBrowserCronEvent,
+} from "./browser-gateway-cron-policy.js";
 import {
   safeCronJob,
   setupBrowserGatewayProxyTest as setup,
@@ -44,6 +48,7 @@ describe("BrowserGatewayProxy cron", () => {
 
   it("scopes cron listing and status to the browser Agent", async () => {
     const { binding, proxy, request, token } = await setup();
+    expect(validateCronListParams(browserCronListScope(binding.agentId))).toBe(true);
     const job = safeCronJob(binding.agentId, {
       enabled: true,
       state: { nextRunAtMs: 9_000 },

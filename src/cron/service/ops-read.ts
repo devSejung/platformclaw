@@ -297,7 +297,7 @@ export async function listPage(state: CronServiceState, opts?: CronListPageOptio
       }
       if (
         opts?.sessionTargets &&
-        !opts.sessionTargets.includes(job.sessionTarget as "main" | "isolated")
+        !opts.sessionTargets.includes(job.sessionTarget as "main" | "isolated" | "current")
       ) {
         return false;
       }
