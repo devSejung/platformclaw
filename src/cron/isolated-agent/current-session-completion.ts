@@ -3,7 +3,11 @@ import {
   createOutboundPayloadPlan,
   projectOutboundPayloadPlanForMirror,
 } from "../../infra/outbound/payloads.js";
-import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
+import {
+  normalizeAgentId,
+  parseAgentSessionKey,
+  parseSessionDeliveryRoute,
+} from "../../routing/session-key.js";
 import { commitBackgroundResultToSession } from "../../sessions/background-session-result.js";
 import { createCronExecutionId } from "../run-id.js";
 import {
@@ -65,8 +69,14 @@ export async function commitCurrentSessionCronCompletion(
   if (params.resolvedDelivery.ok) {
     return { ok: true, requiresExternalDelivery: true };
   }
-  const sourceChannel = parseAgentSessionKey(sourceSessionKey)?.rest.split(":")[0];
-  if (params.resolvedDelivery.channel === "webchat" || sourceChannel === "webchat") {
+  // Internal owner sessions have no transport route: their durable transcript
+  // commit is the delivery. Complete external routes must still fail closed.
+  const sourceRoute = parseSessionDeliveryRoute(sourceSessionKey);
+  if (
+    params.resolvedDelivery.channel === "webchat" ||
+    sourceRoute?.channel === "webchat" ||
+    !sourceRoute
+  ) {
     return { ok: true, requiresExternalDelivery: false };
   }
   return { ok: false, reason: params.resolvedDelivery.error.message };

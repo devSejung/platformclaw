@@ -2972,6 +2972,40 @@ describe("dispatchCronDelivery — double-announce guard", () => {
     expect(deliverOutboundPayloads).not.toHaveBeenCalled();
   });
 
+  it("commits a dashboard current-target completion without an external route", async () => {
+    const params = makeBaseParams({
+      synthesizedText: "durable dashboard completion",
+      sessionTarget: "current",
+      runStartedAt: 1_250,
+    });
+    const sourceSessionKey = "agent:main:dashboard:owner-session";
+    params.job.sessionKey = sourceSessionKey;
+    params.job.owner = { agentId: "main", sessionKey: sourceSessionKey };
+    params.sourceSessionKey = sourceSessionKey;
+    params.resolvedDelivery = {
+      ok: false,
+      channel: "last",
+      to: undefined,
+      accountId: undefined,
+      threadId: undefined,
+      mode: "implicit",
+      error: new Error("no external route for dashboard session"),
+    };
+
+    const state = await dispatchCronDelivery(params);
+
+    expect(state.result).toBeUndefined();
+    expect(state).toMatchObject({ delivered: true, deliveryAttempted: true });
+    expect(commitBackgroundResultToSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: sourceSessionKey,
+        text: "durable dashboard completion",
+        idempotencyKey: "cron-current-completion:cron:test-job:1250",
+      }),
+    );
+    expect(deliverOutboundPayloads).not.toHaveBeenCalled();
+  });
+
   it("requires the signed owner session before committing a current-target completion", async () => {
     const params = makeBaseParams({
       synthesizedText: "must stay private",
