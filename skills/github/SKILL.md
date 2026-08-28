@@ -34,6 +34,8 @@ gh auth login
 
 Gateway HOME can differ from operator HOME. If `gh` auth exists elsewhere, set `GH_CONFIG_DIR` in the gateway service env and restart.
 
+If `gh auth status` fails, stop before private-repository reads or any write and ask the user to configure GitHub auth. For read-only public-repository lookups, an unauthenticated GitHub REST request with `curl` is allowed; report rate-limit or access failures instead of treating a `404` as proof that a repository does not exist.
+
 ## PRs
 
 ```bash

@@ -29,7 +29,11 @@ export const REQUIRED_MANAGED_AGENT_TOOL_IDS = [
   "wiki_status",
 ];
 
-export const REQUIRED_MANAGED_SANDBOX_TOOL_IDS = ["bundle-mcp", ...REQUIRED_MANAGED_AGENT_TOOL_IDS];
+export const REQUIRED_MANAGED_SANDBOX_TOOL_IDS = [
+  "bundle-mcp",
+  "automations",
+  ...REQUIRED_MANAGED_AGENT_TOOL_IDS,
+];
 
 function normalizedPluginIds(value) {
   return Array.isArray(value)
@@ -110,14 +114,21 @@ export function sandboxPolicyDeniesBundleMcp(sandboxTools) {
   );
 }
 
-function validateGlobalMcpSandboxGate(sandboxTools) {
+export function sandboxPolicyDeniesManagedTool(sandboxTools, toolName) {
+  const deny = Array.isArray(sandboxTools?.deny) ? sandboxTools.deny : [];
+  return deny.some((entry) => globMatches(toolName, entry));
+}
+
+function validateManagedSandboxGate(sandboxTools) {
   const allow = Array.isArray(sandboxTools?.allow) ? sandboxTools.allow : [];
   const alsoAllow = Array.isArray(sandboxTools?.alsoAllow) ? sandboxTools.alsoAllow : [];
   const unrestricted = Array.isArray(sandboxTools?.allow) && allow.length === 0;
   requirePolicy(
     REQUIRED_MANAGED_SANDBOX_TOOL_IDS.every(
       (toolId) => unrestricted || allow.includes(toolId) || alsoAllow.includes(toolId),
-    ) && !sandboxPolicyDeniesBundleMcp(sandboxTools),
+    ) &&
+      !sandboxPolicyDeniesBundleMcp(sandboxTools) &&
+      !sandboxPolicyDeniesManagedTool(sandboxTools, "automations"),
   );
 }
 
@@ -150,7 +161,7 @@ export function validateManagedConfig(config, sandboxImage, skillHubEnabled = fa
     requirePolicy(config?.skills?.install?.allowUploadedArchives === true);
   }
   const globalSandboxTools = config?.tools?.sandbox?.tools;
-  validateGlobalMcpSandboxGate(globalSandboxTools);
+  validateManagedSandboxGate(globalSandboxTools);
 
   const entries = config?.agents?.entries;
   requirePolicy(entries === undefined || (entries !== null && typeof entries === "object"));
@@ -164,7 +175,7 @@ export function validateManagedConfig(config, sandboxImage, skillHubEnabled = fa
   ];
   for (const agent of configuredAgents) {
     validateToolPolicy(agent?.tools);
-    validateGlobalMcpSandboxGate(
+    validateManagedSandboxGate(
       effectiveSandboxTools(globalSandboxTools, agent?.tools?.sandbox?.tools),
     );
     if (agent?.sandbox === undefined) {

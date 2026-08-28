@@ -360,6 +360,7 @@ const sandboxSecretArgs = [
 const extensions = [
   ...new Set([
     "admin-http-rpc",
+    "codex",
     "knox",
     "platformclaw-execution",
     "platformclaw-org-memory",
@@ -514,6 +515,8 @@ try {
     "--load",
     "-f",
     "Dockerfile.sandbox.jammy",
+    "--build-context",
+    `platformclaw-jammy-build=docker-image://${jammyBuildImage}`,
     ...sandboxSecretArgs,
     "-t",
     sandboxShaTag,
@@ -585,6 +588,7 @@ try {
     "-lc",
     [
       "grep -qx 'VERSION_ID=\"22.04\"' /etc/os-release",
+      "gh --version",
       "jq --version",
       "rg --version",
       'test "$(readlink -f /usr/bin/python)" = /usr/bin/python3.10',

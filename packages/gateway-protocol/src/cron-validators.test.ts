@@ -299,7 +299,7 @@ describe("cron protocol validators", () => {
         agentId: "ops",
         scheduleKinds: ["at", "every", "cron"],
         payloadKinds: ["agentTurn", "systemEvent"],
-        sessionTargets: ["main", "isolated"],
+        sessionTargets: ["main", "isolated", "current"],
         sessionAgentId: "ops",
         ownerAgentId: "ops",
         ownerSessionAgentId: "ops",
@@ -313,6 +313,8 @@ describe("cron protocol validators", () => {
       { agentId: "" },
       { scheduleKind: "yearly" },
       { lastRunStatus: "pending" },
+      { sessionTargets: ["main", "isolated", "current", "main"] },
+      { sessionTargets: ["session:agent:main"] },
     ]);
   });
 

@@ -477,11 +477,13 @@ export async function queueCronMessageToolDeliveryAwareness(params: {
   job: CronJob;
   agentId: string;
   agentSessionKey: string;
+  deferredTargetSessionKey?: string;
   runStartedAt: number;
   resolvedDelivery: DeliveryTargetResolution;
   sourceDeliveryOutcome: SourceDeliveryOutcome;
-}): Promise<void> {
+}): Promise<(() => Promise<void>) | undefined> {
   const seen = new Set<string>();
+  const deferredAwareness: Array<() => Promise<void>> = [];
   for (const delivery of params.sourceDeliveryOutcome.visibleDeliveries) {
     const target = resolveCronMessageToolAwarenessTarget({
       delivery,
@@ -514,7 +516,7 @@ export async function queueCronMessageToolDeliveryAwareness(params: {
       runStartedAt: params.runStartedAt,
       delivery: target,
     });
-    await queueCronAwarenessSystemEvent({
+    const awarenessParams = {
       cfg: params.cfg,
       jobId: params.job.id,
       agentId: params.agentId,
@@ -522,8 +524,23 @@ export async function queueCronMessageToolDeliveryAwareness(params: {
       queueMainSession: false,
       targetSessionKey,
       text: target.text,
-    });
+    };
+    if (isSameSessionKey(targetSessionKey, params.deferredTargetSessionKey)) {
+      // A current-session completion owns this target durably. Keep awareness
+      // unavailable until that commit fails so reply admission cannot race it.
+      deferredAwareness.push(() => queueCronAwarenessSystemEvent(awarenessParams));
+      continue;
+    }
+    await queueCronAwarenessSystemEvent(awarenessParams);
   }
+  if (deferredAwareness.length === 0) {
+    return undefined;
+  }
+  return async () => {
+    for (const queue of deferredAwareness) {
+      await queue();
+    }
+  };
 }
 
 async function appendDirectCronDeliveryTranscriptMirror(params: {

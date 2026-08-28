@@ -702,7 +702,7 @@ describe("cron service timer seam coverage", () => {
     });
   });
 
-  it("records current-bound cron task runs against the backing cron session", async () => {
+  it("naturally fires a due owner-bound current job without cron.run", async () => {
     const { storePath } = await makeStorePath();
     const now = Date.parse("2026-03-23T12:00:00.000Z");
     const runIsolatedAgentJob = vi.fn(async () => ({
@@ -718,6 +718,12 @@ describe("cron service timer seam coverage", () => {
           ...createDueIsolatedAgentJob({ now }),
           sessionTarget: "current",
           sessionKey: "agent:finn:telegram:direct:42",
+          owner: {
+            agentId: "finn",
+            sessionKey: "agent:finn:telegram:direct:42",
+            accountId: "finn-example-test",
+          },
+          delivery: { mode: "announce", channel: "last" },
         },
       ],
     });
@@ -734,12 +740,31 @@ describe("cron service timer seam coverage", () => {
 
     await onTimer(state);
 
+    expect(runIsolatedAgentJob).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        job: expect.objectContaining({
+          id: "isolated-agent-job",
+          sessionTarget: "current",
+          sessionKey: "agent:finn:telegram:direct:42",
+          owner: {
+            agentId: "finn",
+            sessionKey: "agent:finn:telegram:direct:42",
+            accountId: "finn-example-test",
+          },
+          delivery: { mode: "announce", channel: "last" },
+        }),
+        message: "run isolated cron",
+      }),
+    );
+
     const task = findCronTaskByBaseRunId(`cron:isolated-agent-job:${now}`);
     if (!task) {
       throw new Error("expected current-bound cron task ledger record");
     }
     expect(task.childSessionKey).toBe("agent:finn:cron:isolated-agent-job:run:run-1");
     expect(task.status).toBe("succeeded");
+    const persisted = await loadCronStore(storePath);
+    expect(persisted.jobs[0]?.state.nextRunAtMs).toBe(now + 60_000);
   });
 
   it("seeds active scheduled cron task progress for status surfaces", async () => {

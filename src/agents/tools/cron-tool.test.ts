@@ -808,6 +808,15 @@ describe("cron tool", () => {
     const tool = createTestCronTool();
     expect(tool.description).toContain("reminders, delayed self-wakeups, loops, recurring work");
     expect(tool.description).toContain("Never exec sleep/poll as timer.");
+    expect(tool.description).toContain(
+      "the run stays detached and sandboxed, reads bounded chat context, then commits its final visible assistant result to this conversation's durable history",
+    );
+    expect(tool.description).toContain(
+      "current=>canonical session commit, plus one normal channel send for external chats",
+    );
+    expect(tool.description).toContain(
+      "WebChat observes that commit live and after reconnect without another user message",
+    );
   });
 
   it("documents the event-trigger authoring contract", () => {
@@ -1731,12 +1740,59 @@ describe("cron tool", () => {
         schedule: { at: new Date(123).toISOString() },
         sessionTarget: "isolated",
         payload: { kind: "agentTurn", message: "hello" },
+        delivery: { mode: "none" },
       },
     });
     const call = readGatewayCall();
     const payload = call.params as { sessionKey?: string; sessionTarget?: string } | undefined;
     expect(payload?.sessionTarget).toBe("isolated");
     expect(payload).not.toHaveProperty("sessionKey");
+  });
+
+  it("binds an unroutable scoped isolated announce to its source conversation", async () => {
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const callerSessionKey = "agent:person_one:dashboard:conversation-id";
+    const tool = createTestCronTool({ agentSessionKey: callerSessionKey });
+    await tool.execute("call-isolated-source-announce", {
+      action: "add",
+      job: {
+        name: "isolated result back here",
+        schedule: { at: new Date(123).toISOString() },
+        sessionTarget: "isolated",
+        payload: { kind: "agentTurn", message: "research GitHub" },
+        delivery: { mode: "announce" },
+      },
+    });
+
+    expect(expectSingleGatewayCallMethod("cron.add")).toMatchObject({
+      sessionTarget: "current",
+      sessionKey: callerSessionKey,
+      delivery: { mode: "announce" },
+    });
+  });
+
+  it("keeps isolated announces with an explicit outbound target standalone", async () => {
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const tool = createTestCronTool({
+      agentSessionKey: "agent:person_one:dashboard:conversation-id",
+    });
+    await tool.execute("call-isolated-explicit-announce", {
+      action: "add",
+      job: {
+        name: "isolated result to channel",
+        schedule: { at: new Date(123).toISOString() },
+        sessionTarget: "isolated",
+        payload: { kind: "agentTurn", message: "research GitHub" },
+        delivery: { mode: "announce", channel: "telegram", to: "123" },
+      },
+    });
+
+    expect(expectSingleGatewayCallMethod("cron.add")).toMatchObject({
+      sessionTarget: "isolated",
+      delivery: { mode: "announce", channel: "telegram", to: "123" },
+    });
   });
 
   it("adds recent context for systemEvent reminders when contextMessages > 0", async () => {

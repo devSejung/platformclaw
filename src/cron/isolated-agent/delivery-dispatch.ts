@@ -1,5 +1,4 @@
 /** Dispatches isolated cron output to direct delivery, mirrors, and follow-up queues. */
-import type { ReplyPayload } from "../../auto-reply/reply-payload.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
 import { resolveStorePath } from "../../config/sessions/inbound.runtime.js";
 import { formatErrorMessage } from "../../infra/errors.js";
@@ -16,6 +15,10 @@ import { stringifyRouteThreadId } from "../../plugin-sdk/channel-route.js";
 import { isCronSessionKey } from "../../routing/session-key.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import {
+  commitCurrentSessionCronCompletion,
+  failCurrentSessionCronCompletion,
+} from "./current-session-completion.js";
+import {
   appendAdmittedDirectCronDeliveryTranscriptMirror,
   buildDirectCronTranscriptMirrorPayloads,
   type DirectCronTranscriptMirror,
@@ -26,10 +29,7 @@ import {
   resolveCronAwarenessMainSessionKey,
   resolveCronAwarenessText,
   resolveDirectCronDeliverySessionKey,
-  resolveDirectCronFallbackSourceIndex,
-  resolveDirectCronSummaryFallbackText,
   resolveDirectCronTranscriptMirrorText,
-  shouldAttachDirectCronFallbackText,
   isSameSessionKey,
   shouldQueueCronAwareness,
 } from "./delivery-dispatch-awareness.js";
@@ -56,6 +56,7 @@ import type {
   DispatchCronDeliveryState,
   SuccessfulCronDeliveryTarget,
 } from "./delivery-dispatch-types.js";
+import { normalizeDirectCronDeliveryPayloads } from "./delivery-payload-normalization.js";
 import { pickSummaryFromOutput } from "./helpers.js";
 import type { RunCronAgentTurnResult } from "./run.types.js";
 import {
@@ -70,17 +71,6 @@ const deliveryOutboundRuntimeLoader = createLazyImportLoader(
 const subagentFollowupRuntimeLoader = createLazyImportLoader(
   () => import("./subagent-followup.runtime.js"),
 );
-async function loadDeliveryOutboundRuntime(): Promise<
-  typeof import("./delivery-outbound.runtime.js")
-> {
-  return await deliveryOutboundRuntimeLoader.load();
-}
-
-async function loadSubagentFollowupRuntime(): Promise<
-  typeof import("./subagent-followup.runtime.js")
-> {
-  return await subagentFollowupRuntimeLoader.load();
-}
 
 export {
   cleanupDirectCronSession,
@@ -92,6 +82,7 @@ export async function dispatchCronDelivery(
   params: DispatchCronDeliveryParams,
 ): Promise<DispatchCronDeliveryState> {
   const sourceDeliverySatisfied = params.sourceDeliveryOutcome.satisfiesSourceDelivery;
+  const requiresCurrentSessionCompletion = params.job.sessionTarget === "current";
   const verifiedMessageToolDelivery = params.sourceDeliveryOutcome.verifiedMessageToolDelivery;
   let summary = params.summary;
   let outputText = params.outputText;
@@ -103,17 +94,22 @@ export async function dispatchCronDelivery(
   let deliveryError: string | undefined;
   let directCronSessionCleanupAttempted = false;
   let deferredDeletingSessionMirror: DirectCronTranscriptMirror | undefined;
-  const buildDeliveryState = (result?: RunCronAgentTurnResult): DispatchCronDeliveryState => ({
-    ...(result ? { result } : {}),
-    delivered,
-    deliveryAttempted,
-    ...(deliveryError ? { deliveryError } : {}),
-    cronRunSessionCleanupAttempted: directCronSessionCleanupAttempted,
-    summary,
-    outputText,
-    synthesizedText,
-    deliveryPayloads,
-  });
+  const buildDeliveryState = async (
+    result?: RunCronAgentTurnResult,
+  ): Promise<DispatchCronDeliveryState> => {
+    await params.queueSourceSessionMessageToolAwareness?.();
+    return {
+      ...(result ? { result } : {}),
+      delivered,
+      deliveryAttempted,
+      ...(deliveryError ? { deliveryError } : {}),
+      cronRunSessionCleanupAttempted: directCronSessionCleanupAttempted,
+      summary,
+      outputText,
+      synthesizedText,
+      deliveryPayloads,
+    };
+  };
   const formatDeliveryTargetError = (error: string) =>
     params.sourceDeliveryOutcome.unverifiedMessageToolDelivery
       ? `${error}; the agent used the message tool, but OpenClaw could not verify that message matched the cron delivery target`
@@ -201,64 +197,15 @@ export async function dispatchCronDelivery(
       createOutboundSendDeps,
       resolveAgentOutboundIdentity,
       sendDurableMessageBatch,
-    } = await loadDeliveryOutboundRuntime();
+    } = await deliveryOutboundRuntimeLoader.load();
     const identity = resolveAgentOutboundIdentity(params.cfgWithAgentDefaults, params.agentId);
     try {
-      const summaryFallbackText = resolveDirectCronSummaryFallbackText({
+      const normalizedPayloads = normalizeDirectCronDeliveryPayloads({
+        deliveryPayloads,
         outputText,
         summary,
         synthesizedText,
       });
-      const normalizedSummaryFallback = summaryFallbackText
-        ? normalizeSilentReplyText(summaryFallbackText)
-        : undefined;
-      const normalizedSummaryFallbackText =
-        normalizedSummaryFallback?.strippedTrailingSilentToken === true
-          ? undefined
-          : normalizedSummaryFallback?.text;
-      const normalizeDirectPayload = (payload: ReplyPayload): ReplyPayload => {
-        const normalized = payload.text ? normalizeSilentReplyText(payload.text) : undefined;
-        return normalized
-          ? {
-              ...payload,
-              text: normalized.strippedTrailingSilentToken ? undefined : normalized.text,
-            }
-          : payload;
-      };
-      const normalizedDeliveryPayloads = deliveryPayloads
-        .map(normalizeDirectPayload)
-        .filter((payload) => hasReplyPayloadContent(payload, { trimText: true }));
-      const existingFallbackSourceIndex = resolveDirectCronFallbackSourceIndex(
-        normalizedDeliveryPayloads,
-        normalizedSummaryFallbackText,
-      );
-      const needsFallbackSource =
-        Boolean(normalizedSummaryFallbackText) &&
-        normalizedDeliveryPayloads.some(shouldAttachDirectCronFallbackText) &&
-        existingFallbackSourceIndex === undefined;
-      const fallbackSourceIndex = needsFallbackSource ? 0 : existingFallbackSourceIndex;
-      const directPayloads = needsFallbackSource
-        ? [{ text: normalizedSummaryFallbackText }, ...normalizedDeliveryPayloads]
-        : normalizedDeliveryPayloads;
-      let normalizedPayloads: ReplyPayload[] = [];
-      for (const payload of directPayloads) {
-        normalizedPayloads.push(
-          shouldAttachDirectCronFallbackText(payload) && normalizedSummaryFallbackText
-            ? {
-                ...payload,
-                fallbackText: {
-                  text: normalizedSummaryFallbackText,
-                  ...(fallbackSourceIndex !== undefined
-                    ? { replacesPayloadIndex: fallbackSourceIndex }
-                    : {}),
-                },
-              }
-            : payload,
-        );
-      }
-      if (normalizedPayloads.length === 0 && normalizedSummaryFallbackText) {
-        normalizedPayloads = [{ text: normalizedSummaryFallbackText }];
-      }
       if (normalizedPayloads.length === 0) {
         return await finishSilentReplyDelivery();
       }
@@ -474,6 +421,7 @@ export async function dispatchCronDelivery(
         delivery.mode !== "explicit";
       if (
         delivered &&
+        !requiresCurrentSessionCompletion &&
         !deliveryWillReachAwarenessMainSession &&
         !mirrorWouldBypassIsolatedAwarenessPolicy
       ) {
@@ -571,9 +519,13 @@ export async function dispatchCronDelivery(
   };
 
   const finalizeTextDelivery = async (
-    delivery: SuccessfulCronDeliveryTarget,
+    delivery?: SuccessfulCronDeliveryTarget,
   ): Promise<RunCronAgentTurnResult | null> => {
-    if (!synthesizedText && !params.spawnOnlyHandoff) {
+    if (
+      !synthesizedText &&
+      !params.spawnOnlyHandoff &&
+      !(requiresCurrentSessionCompletion && params.deliveryPayloadHasStructuredContent)
+    ) {
       return null;
     }
     const initialSynthesizedText = synthesizedText?.trim() ?? "";
@@ -590,7 +542,7 @@ export async function dispatchCronDelivery(
     const needsSubagentFollowupRuntime =
       shouldCheckCompletedDescendants || activeSubagentRuns > 0 || expectedSubagentFollowup;
     const subagentFollowupRuntime = needsSubagentFollowupRuntime
-      ? await loadSubagentFollowupRuntime()
+      ? await subagentFollowupRuntimeLoader.load()
       : undefined;
     // Also check for already-completed descendants. If the subagent finished
     // before delivery-dispatch runs, activeSubagentRuns is 0 and
@@ -687,14 +639,19 @@ export async function dispatchCronDelivery(
       });
     }
     const normalizedSynthesizedText = normalizeSilentReplyText(synthesizedText);
+    const hasStructuredCurrentSessionCompletion =
+      requiresCurrentSessionCompletion && params.deliveryPayloadHasStructuredContent;
     if (
-      normalizedSynthesizedText.text === undefined ||
-      normalizedSynthesizedText.strippedTrailingSilentToken
+      (normalizedSynthesizedText.text === undefined ||
+        normalizedSynthesizedText.strippedTrailingSilentToken) &&
+      !hasStructuredCurrentSessionCompletion
     ) {
       return await finishSilentReplyDelivery();
     }
     synthesizedText = normalizedSynthesizedText.text;
-    outputText = synthesizedText;
+    if (synthesizedText) {
+      outputText = synthesizedText;
+    }
     if (params.isAborted()) {
       return params.withRunSession({
         status: "error",
@@ -703,11 +660,47 @@ export async function dispatchCronDelivery(
         ...params.telemetry,
       });
     }
+    if (requiresCurrentSessionCompletion) {
+      deliveryAttempted = true;
+      const completion = await commitCurrentSessionCronCompletion(params, synthesizedText);
+      if (!completion.ok) {
+        delivered = false;
+        deliveryAttempted = true;
+        deliveryError = completion.reason;
+        return await failCurrentSessionCronCompletion({
+          dispatch: params,
+          reason: completion.reason,
+          summary,
+          outputText,
+          cleanup: cleanupDirectCronSessionIfNeeded,
+        });
+      }
+      params.queueSourceSessionMessageToolAwareness = undefined;
+      if (!completion.requiresExternalDelivery) {
+        delivered = true;
+        await cleanupDirectCronSessionIfNeeded();
+        return null;
+      }
+      // The source transcript is committed. External custody remains required
+      // before the overall delivery can be reported as successful.
+      delivered = false;
+    }
+    if (!delivery) {
+      return null;
+    }
     return await deliverViaDirectAndCleanup(delivery, { retryTransient: true });
   };
 
-  if (params.deliveryRequested && !params.skipHeartbeatDelivery && !sourceDeliverySatisfied) {
+  if (
+    params.deliveryRequested &&
+    !params.skipHeartbeatDelivery &&
+    (!sourceDeliverySatisfied || requiresCurrentSessionCompletion)
+  ) {
     if (!params.resolvedDelivery.ok) {
+      if (requiresCurrentSessionCompletion) {
+        const finalizedTextResult = await finalizeTextDelivery();
+        return await buildDeliveryState(finalizedTextResult ?? undefined);
+      }
       // The target could not be resolved (e.g. a keyless implicit cron whose
       // inherited shared-bucket target was refused). We never send here, so a
       // deleteAfterRun cron must still retire its session/transcript before
@@ -715,12 +708,12 @@ export async function dispatchCronDelivery(
       // non-deleteAfterRun / non-cron sessions (see cleanupDirectCronSession).
       await cleanupDirectCronSessionIfNeeded();
       if (!params.deliveryBestEffort) {
-        return buildDeliveryState(failDeliveryTarget(params.resolvedDelivery.error.message));
+        return await buildDeliveryState(failDeliveryTarget(params.resolvedDelivery.error.message));
       }
       delivered = false;
       deliveryError = params.resolvedDelivery.error.message;
       await logCronDeliveryWarn(`[cron:${params.job.id}] ${params.resolvedDelivery.error.message}`);
-      return buildDeliveryState(
+      return await buildDeliveryState(
         params.withRunSession({
           status: "ok",
           summary,
@@ -737,20 +730,21 @@ export async function dispatchCronDelivery(
     // send through the real outbound adapter so delivered=true always reflects
     // an actual channel send instead of internal announce routing.
     const useDirectDelivery =
-      params.deliveryPayloadHasStructuredContent ||
-      (params.resolvedDelivery.threadId != null && !params.spawnOnlyHandoff);
+      !requiresCurrentSessionCompletion &&
+      (params.deliveryPayloadHasStructuredContent ||
+        (params.resolvedDelivery.threadId != null && !params.spawnOnlyHandoff));
     if (useDirectDelivery) {
       const directResult = await deliverViaDirectAndCleanup(params.resolvedDelivery);
       if (directResult) {
-        return buildDeliveryState(directResult);
+        return await buildDeliveryState(directResult);
       }
     } else {
       const finalizedTextResult = await finalizeTextDelivery(params.resolvedDelivery);
       if (finalizedTextResult) {
-        return buildDeliveryState(finalizedTextResult);
+        return await buildDeliveryState(finalizedTextResult);
       }
     }
   }
 
-  return buildDeliveryState();
+  return await buildDeliveryState();
 }
