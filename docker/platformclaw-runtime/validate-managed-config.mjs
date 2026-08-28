@@ -18,6 +18,19 @@ export const REQUIRED_MANAGED_PLUGIN_IDS = [
   "platformclaw-user-mcp",
 ];
 
+export const REQUIRED_MANAGED_AGENT_TOOL_IDS = [
+  "memory_search",
+  "memory_get",
+  "memory_write",
+  "wiki_apply",
+  "wiki_get",
+  "wiki_lint",
+  "wiki_search",
+  "wiki_status",
+];
+
+export const REQUIRED_MANAGED_SANDBOX_TOOL_IDS = ["bundle-mcp", ...REQUIRED_MANAGED_AGENT_TOOL_IDS];
+
 function normalizedPluginIds(value) {
   return Array.isArray(value)
     ? value.flatMap((pluginId) =>
@@ -75,7 +88,9 @@ function validateToolPolicy(tools) {
 
 function validateManagedAgentToolPolicy(tools) {
   const deny = normalizedPluginIds(tools?.deny);
+  const alsoAllow = normalizedPluginIds(tools?.alsoAllow);
   requirePolicy(deny.includes("group:nodes"));
+  requirePolicy(REQUIRED_MANAGED_AGENT_TOOL_IDS.every((toolId) => alsoAllow.includes(toolId)));
 }
 
 function globMatches(value, rawPattern) {
@@ -98,11 +113,12 @@ export function sandboxPolicyDeniesBundleMcp(sandboxTools) {
 function validateGlobalMcpSandboxGate(sandboxTools) {
   const allow = Array.isArray(sandboxTools?.allow) ? sandboxTools.allow : [];
   const alsoAllow = Array.isArray(sandboxTools?.alsoAllow) ? sandboxTools.alsoAllow : [];
-  const allowsBundleMcp =
-    (Array.isArray(sandboxTools?.allow) && allow.length === 0) ||
-    allow.includes("bundle-mcp") ||
-    alsoAllow.includes("bundle-mcp");
-  requirePolicy(allowsBundleMcp && !sandboxPolicyDeniesBundleMcp(sandboxTools));
+  const unrestricted = Array.isArray(sandboxTools?.allow) && allow.length === 0;
+  requirePolicy(
+    REQUIRED_MANAGED_SANDBOX_TOOL_IDS.every(
+      (toolId) => unrestricted || allow.includes(toolId) || alsoAllow.includes(toolId),
+    ) && !sandboxPolicyDeniesBundleMcp(sandboxTools),
+  );
 }
 
 function effectiveSandboxTools(globalTools, agentTools) {

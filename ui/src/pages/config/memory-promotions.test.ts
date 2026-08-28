@@ -97,7 +97,7 @@ describe("MemoryPromotionsElement", () => {
         : {},
     );
     const element = createElement(request);
-    await waitForFast(() => expect(element.textContent).toContain("Drain jobs before restart"));
+    await waitForFast(() => expect(element.textContent).toContain("revision 1"));
     expect(request).toHaveBeenCalledWith("platformclaw.memory.lifecycle", {});
     expect(element.textContent).toContain("Share Wiki knowledge");
     expect(element.textContent).toContain("Approve");
@@ -106,6 +106,34 @@ describe("MemoryPromotionsElement", () => {
     expect(element.textContent).toContain("revision 1");
     expect(element.textContent).toContain("incident-42");
     expect(element.textContent).toContain("Needs newer evidence");
+    element.remove();
+  });
+
+  it("collects an explicit decision reason in an accessible modal", async () => {
+    const request = vi.fn(async (method: string) =>
+      method === "platformclaw.memory.lifecycle" ? snapshot : { status: "approved" },
+    );
+    const element = createElement(request);
+    await waitForFast(() => expect(element.textContent).toContain("Drain jobs before restart"));
+
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Approve")!
+      .click();
+    await element.updateComplete;
+    const dialog = element.querySelector("openclaw-modal-dialog")!;
+    const reason = dialog.querySelector<HTMLTextAreaElement>('textarea[name="reason"]')!;
+    reason.value = "Verified against the incident record";
+    dialog
+      .querySelector("form")!
+      .dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+
+    await waitForFast(() =>
+      expect(request).toHaveBeenCalledWith("platformclaw.memory.promotion.decide", {
+        requestId: "request-1",
+        decision: "approve",
+        reason: "Verified against the incident record",
+      }),
+    );
     element.remove();
   });
 

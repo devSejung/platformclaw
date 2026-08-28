@@ -13,6 +13,7 @@ import {
 
 export type PlatformClawSessionIdentity = {
   accountId: string;
+  agentId: string;
   displayName: string;
   department: string;
   globalRole: "member" | "admin";
@@ -41,13 +42,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseSessionPayload(value: unknown): PlatformClawSessionPayload | null {
-  if (!isRecord(value) || value.authenticated !== true || !isRecord(value.user)) {
+  if (
+    !isRecord(value) ||
+    value.authenticated !== true ||
+    !isRecord(value.user) ||
+    !isRecord(value.agent)
+  ) {
     return null;
   }
   const { accountId, displayName, department, globalRole } = value.user;
+  const { agentId } = value.agent;
   if (
     typeof accountId !== "string" ||
     !accountId.trim() ||
+    typeof agentId !== "string" ||
+    !agentId.trim() ||
     typeof displayName !== "string" ||
     !displayName.trim() ||
     typeof department !== "string" ||
@@ -59,6 +68,7 @@ function parseSessionPayload(value: unknown): PlatformClawSessionPayload | null 
     authenticated: true,
     user: {
       accountId: accountId.trim(),
+      agentId: agentId.trim(),
       displayName: displayName.trim(),
       department: department.trim(),
       globalRole,
@@ -208,13 +218,8 @@ export class PlatformClawControlUiAdapter {
         memory: {
           loader: async (context, { location: routeLocation }) => {
             const { platformClawMemoryTabFromLocation } = await import("./memory-page.ts");
-            const agents = context.agents.state.agentsList ?? (await context.agents.ensureList());
-            const assignedAgentId =
-              agents?.agents.find((agent) => agent.id === agents.defaultId)?.id ??
-              agents?.agents[0]?.id ??
-              null;
             const initialTab = platformClawMemoryTabFromLocation(routeLocation, context.basePath);
-            return { agentId: assignedAgentId, initialTab };
+            return { agentId: identity.agentId, initialTab };
           },
           component: async () => {
             await Promise.all([import("./memory-page.ts"), loadPlatformClawLocale()]);

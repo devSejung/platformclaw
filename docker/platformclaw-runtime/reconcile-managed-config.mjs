@@ -5,7 +5,9 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
+  REQUIRED_MANAGED_AGENT_TOOL_IDS,
   REQUIRED_MANAGED_PLUGIN_IDS,
+  REQUIRED_MANAGED_SANDBOX_TOOL_IDS,
   sandboxPolicyDeniesBundleMcp,
 } from "./validate-managed-config.mjs";
 
@@ -102,7 +104,7 @@ function reconcileSandboxImage(config, sandboxImage) {
 function reconcileSandboxToolPolicy(sandboxTools, createWhenMissing) {
   if (!sandboxTools || typeof sandboxTools !== "object" || Array.isArray(sandboxTools)) {
     return createWhenMissing
-      ? { policy: { alsoAllow: ["bundle-mcp"] }, changed: true }
+      ? { policy: { alsoAllow: [...REQUIRED_MANAGED_SANDBOX_TOOL_IDS] }, changed: true }
       : { policy: sandboxTools, changed: false };
   }
   // Upstream defines `allow: []` as unrestricted. Adding one item would turn
@@ -115,27 +117,36 @@ function reconcileSandboxToolPolicy(sandboxTools, createWhenMissing) {
   if (currentAllow !== undefined && !Array.isArray(currentAllow)) {
     return { policy: sandboxTools, changed: false };
   }
-  if (currentAllow?.includes("bundle-mcp")) {
+  const normalizedAllow = new Set(
+    (currentAllow ?? []).flatMap((entry) =>
+      typeof entry === "string" ? [entry.trim().toLowerCase()] : [],
+    ),
+  );
+  const missingTools = REQUIRED_MANAGED_SANDBOX_TOOL_IDS.filter(
+    (toolId) => !normalizedAllow.has(toolId),
+  );
+  if (missingTools.length === 0) {
     return { policy: sandboxTools, changed: false };
   }
   return {
     policy: {
       ...sandboxTools,
-      [allowKey]: [...(currentAllow ?? []), "bundle-mcp"],
+      [allowKey]: [...(currentAllow ?? []), ...missingTools],
     },
     changed: true,
   };
 }
 
-function sandboxPolicyAllowsBundleMcp(globalPolicy, agentPolicy) {
+function sandboxPolicyAllowsManagedTools(globalPolicy, agentPolicy) {
   const allow = Array.isArray(agentPolicy?.allow) ? agentPolicy.allow : globalPolicy?.allow;
   const alsoAllow = Array.isArray(agentPolicy?.alsoAllow)
     ? agentPolicy.alsoAllow
     : globalPolicy?.alsoAllow;
-  return (
-    (Array.isArray(allow) && allow.length === 0) ||
-    allow?.includes("bundle-mcp") ||
-    alsoAllow?.includes("bundle-mcp")
+  return REQUIRED_MANAGED_SANDBOX_TOOL_IDS.every(
+    (toolId) =>
+      (Array.isArray(allow) && allow.length === 0) ||
+      allow?.includes(toolId) ||
+      alsoAllow?.includes(toolId),
   );
 }
 
@@ -154,7 +165,7 @@ function reconcileGlobalMcpSandboxGate(config) {
       if (sandboxPolicyDeniesBundleMcp(effectiveDenyPolicy)) {
         throw new Error(`${MCP_DENY_MIGRATION_ERROR} (agent: ${agentId})`);
       }
-      if (policy === undefined || sandboxPolicyAllowsBundleMcp(rootResult.policy, policy)) {
+      if (policy === undefined || sandboxPolicyAllowsManagedTools(rootResult.policy, policy)) {
         return [agentId, agent];
       }
       const result = reconcileSandboxToolPolicy(policy, false);
@@ -203,11 +214,27 @@ function reconcileGlobalMcpSandboxGate(config) {
 function reconcileManagedAgentToolPolicy(config) {
   const tools = config?.tools && typeof config.tools === "object" ? config.tools : {};
   const currentDeny = Array.isArray(tools.deny) ? tools.deny : [];
+  const currentAlsoAllow = Array.isArray(tools.alsoAllow) ? tools.alsoAllow : [];
   const normalizedDeny = new Set(
     currentDeny.flatMap((entry) => (typeof entry === "string" ? [entry.trim().toLowerCase()] : [])),
   );
-  const missing = MANAGED_DISABLED_AGENT_TOOLS.filter((toolName) => !normalizedDeny.has(toolName));
-  if (missing.length === 0 && Array.isArray(tools.deny)) {
+  const normalizedAlsoAllow = new Set(
+    currentAlsoAllow.flatMap((entry) =>
+      typeof entry === "string" ? [entry.trim().toLowerCase()] : [],
+    ),
+  );
+  const missingDeny = MANAGED_DISABLED_AGENT_TOOLS.filter(
+    (toolName) => !normalizedDeny.has(toolName),
+  );
+  const missingAlsoAllow = REQUIRED_MANAGED_AGENT_TOOL_IDS.filter(
+    (toolName) => !normalizedAlsoAllow.has(toolName),
+  );
+  if (
+    missingDeny.length === 0 &&
+    missingAlsoAllow.length === 0 &&
+    Array.isArray(tools.deny) &&
+    Array.isArray(tools.alsoAllow)
+  ) {
     return { config, changed: false };
   }
   return {
@@ -216,7 +243,8 @@ function reconcileManagedAgentToolPolicy(config) {
       ...config,
       tools: {
         ...tools,
-        deny: [...currentDeny, ...missing],
+        deny: [...currentDeny, ...missingDeny],
+        alsoAllow: [...currentAlsoAllow, ...missingAlsoAllow],
       },
     },
   };

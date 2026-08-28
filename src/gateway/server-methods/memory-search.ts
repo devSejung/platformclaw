@@ -1,11 +1,7 @@
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
 import { listAgentIds, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import type {
-  MemoryProviderStatus,
-  MemorySearchManager,
-  MemorySearchResult,
-} from "../../memory-host-sdk/host/types.js";
+import type { MemorySearchManager, MemorySearchResult } from "../../memory-host-sdk/host/types.js";
 import { resolveMemorySearchStaleness } from "../../memory-host-sdk/host/types.js";
 import { getActiveMemorySearchManager } from "../../plugins/memory-runtime.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
@@ -23,14 +19,6 @@ export type MemorySearchResponse = {
   warning?: string;
   action?: string;
 };
-
-function resolveSearchMode(status: MemoryProviderStatus): MemorySearchResponse["searchMode"] {
-  const statusMode = status.custom?.searchMode;
-  if (statusMode === "hybrid" || statusMode === "fts-only") {
-    return statusMode;
-  }
-  return status.provider === "none" || status.vector?.enabled === false ? "fts-only" : "hybrid";
-}
 
 function resolveSearchOptions(
   params: Record<string, unknown>,
@@ -55,6 +43,9 @@ function resolveSearchOptions(
   }
   return {
     maxResults,
+    // Browser/operator search must work with OAuth-only model auth and must not
+    // add an embeddings API round trip. FTS still searches the canonical index.
+    lexicalOnly: true,
     ...(rawMinScore === undefined ? {} : { minScore: rawMinScore }),
   };
 }
@@ -144,7 +135,7 @@ export const memorySearchHandlers: GatewayRequestHandlers = {
       const payload: MemorySearchResponse = {
         agentId,
         provider: status.provider,
-        searchMode: resolveSearchMode(status),
+        searchMode: "fts-only",
         results,
         ...resolveMemorySearchStaleness(status, agentId),
       };

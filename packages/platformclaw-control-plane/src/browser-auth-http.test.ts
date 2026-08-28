@@ -5,6 +5,7 @@ import {
   handlePlatformClawBrowserAuthRequest,
   PLATFORMCLAW_LOGIN_PATH,
   PLATFORMCLAW_SESSION_COOKIE,
+  PLATFORMCLAW_SESSION_PATH,
 } from "./browser-auth-http.js";
 import { BrowserAuthService } from "./browser-auth-service.js";
 import type { ControlPlaneIdFactory } from "./contracts.js";
@@ -215,6 +216,37 @@ describe("PlatformClaw browser auth HTTP boundary", () => {
     expect(harness.headers.get("Set-Cookie")).toContain("Secure");
     expect(harness.headers.get("Set-Cookie")).toContain("SameSite=Lax");
     expect(harness.body()).not.toContain("test-token-factory");
+    expect(JSON.parse(harness.body())).toMatchObject({
+      authenticated: true,
+      user: { accountId: "seungon.jung" },
+      agent: { agentId: "seungon_jung", state: "active" },
+    });
+  });
+
+  it("returns the authoritative personal agent binding with an active session", async () => {
+    const service = createService();
+    await service.loginPassword({
+      login: { identifier: "seungon.jung", password: "test-password" },
+      context: {},
+    });
+    const harness = responseHarness();
+
+    await handlePlatformClawBrowserAuthRequest(
+      {
+        url: PLATFORMCLAW_SESSION_PATH,
+        method: "GET",
+        headers: { cookie: `${PLATFORMCLAW_SESSION_COOKIE}=test-token-factory` },
+      } as IncomingMessage,
+      harness.res,
+      {
+        service,
+        requestIsSecure: false,
+        isMutationOriginAllowed: () => true,
+        rateLimiter: createRateLimiter(),
+        readJsonBody: vi.fn(),
+      },
+    );
+
     expect(JSON.parse(harness.body())).toMatchObject({
       authenticated: true,
       user: { accountId: "seungon.jung" },

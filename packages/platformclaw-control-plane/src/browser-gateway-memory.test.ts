@@ -76,6 +76,45 @@ describe("BrowserGatewayProxy personal memory", () => {
     });
   });
 
+  it("opens an authorized organization result without dispatching to the Gateway", async () => {
+    const getOrganizationMemory = vi.fn(async () => ({
+      id: "claim-1",
+      path: "organization/group/claim-1",
+      scopeKind: "group" as const,
+      scopeId: "scope-1",
+      scopeName: "Memory Group",
+      title: "Release policy",
+      snippet: "Use the reviewed checklist.",
+      score: 1,
+      updatedAt: 1_000,
+      content: "# Release policy\nUse the reviewed checklist.",
+      fromLine: 1,
+      lineCount: 2,
+    }));
+    const { binding, proxy, request, token } = await setup({ getOrganizationMemory });
+
+    await expect(
+      proxy.request(token, "platformclaw.memory.get", {
+        agentId: binding.agentId,
+        path: "organization/group/claim-1",
+      }),
+    ).resolves.toEqual({
+      path: "organization/group/claim-1",
+      title: "Release policy",
+      kind: "group",
+      provenanceLabel: "Memory Group",
+      content: "# Release policy\nUse the reviewed checklist.",
+      fromLine: 1,
+      lineCount: 2,
+      updatedAt: "1970-01-01T00:00:01.000Z",
+    });
+    expect(getOrganizationMemory).toHaveBeenCalledWith({
+      agentId: binding.agentId,
+      path: "organization/group/claim-1",
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("ranks combined personal and organization results within the browser cap", async () => {
     const { binding, proxy, request, token } = await setup({
       searchOrganizationMemory: vi.fn(async () => [
@@ -219,6 +258,21 @@ describe("BrowserGatewayProxy personal memory", () => {
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     await expect(
       proxy.request(token, "memory.search", { query: "Ada", includeSessions: true }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, "platformclaw.memory.get", {
+        agentId: "other",
+        path: "organization/group/claim-1",
+      }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+    await expect(
+      proxy.request(token, "platformclaw.memory.get", { path: "organization/group/../claim-1" }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, "platformclaw.memory.get", {
+        path: "organization/group/claim-1",
+        includeEvidence: true,
+      }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     expect(request).not.toHaveBeenCalled();
   });

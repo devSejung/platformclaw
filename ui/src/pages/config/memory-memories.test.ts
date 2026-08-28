@@ -10,6 +10,8 @@ type MemoryMemoriesTestElement = HTMLElement & {
   client: GatewayBrowserClient | null;
   connected: boolean;
   methodAdvertised: boolean;
+  wikiSearchAdvertised: boolean;
+  detailAdvertised: boolean;
   agentId: string | null;
   updateComplete: Promise<unknown>;
 };
@@ -24,11 +26,17 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function createElement(request: Request, advertised = true) {
+function createElement(
+  request: Request,
+  advertised = true,
+  options: { wikiSearch?: boolean; detail?: boolean } = {},
+) {
   const element = document.createElement("openclaw-memory-memories") as MemoryMemoriesTestElement;
   element.client = { request } as unknown as GatewayBrowserClient;
   element.connected = true;
   element.methodAdvertised = advertised;
+  element.wikiSearchAdvertised = options.wikiSearch ?? false;
+  element.detailAdvertised = options.detail ?? false;
   element.agentId = "main";
   document.body.append(element);
   return element;
@@ -64,7 +72,7 @@ describe("MemoryMemoriesElement", () => {
   it("renders idle and gateway-update-required states", async () => {
     const current = createElement(vi.fn(() => Promise.resolve({})));
     await current.updateComplete;
-    expect(current.textContent).toContain("Search for a person, project, decision");
+    expect(current.textContent).toContain("Search once across personal memory");
     expect(current.querySelector("form")).not.toBeNull();
     current.remove();
 
@@ -156,6 +164,103 @@ describe("MemoryMemoriesElement", () => {
       expect(element.textContent).toContain("Organization memory is temporarily unavailable.");
       expect(element.querySelector("article > button")).toBeNull();
       expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      element.remove();
+    }
+  });
+
+  it("searches personal memory, Personal Wiki, and organization knowledge together and opens each", async () => {
+    const request = vi.fn<Request>((method) => {
+      if (method === "memory.search") {
+        return Promise.resolve({
+          agentId: "main",
+          provider: "local",
+          searchMode: "hybrid",
+          results: [
+            result,
+            {
+              ...result,
+              source: "organization",
+              path: "organization/group/release-policy",
+              title: "Group release policy",
+              kind: "group",
+              provenanceLabel: "Platform",
+              snippet: "Use the group checklist.",
+              startLine: 1,
+              endLine: 1,
+            },
+          ],
+        });
+      }
+      if (method === "wiki.search") {
+        return Promise.resolve([
+          {
+            path: "concepts/release-policy.md",
+            title: "Personal release notes",
+            kind: "concept",
+            score: 0.95,
+            snippet: "My release checklist.",
+          },
+        ]);
+      }
+      if (method === "wiki.get") {
+        return Promise.resolve({
+          content: "# Personal\nMy release checklist.",
+          fromLine: 1,
+          lineCount: 2,
+        });
+      }
+      if (method === "platformclaw.memory.get") {
+        return Promise.resolve({
+          content: "# Group\nUse the group checklist.",
+          fromLine: 1,
+          lineCount: 2,
+        });
+      }
+      return Promise.resolve({
+        agentId: "main",
+        file: {
+          path: result.path,
+          encoding: "utf8",
+          content: "# Ada\nAda prefers careful reviews.",
+        },
+      });
+    });
+    const element = createElement(request, true, { wikiSearch: true, detail: true });
+    try {
+      await typeQuery(element, "release");
+      submit(element);
+      await waitForFast(() => expect(element.querySelectorAll("article")).toHaveLength(3));
+      expect(element.textContent).toContain("Personal release notes");
+      expect(element.textContent).toContain("Group release policy");
+      expect(element.textContent).toContain("Personal Wiki");
+      expect(element.textContent).toContain("organization · Platform");
+
+      const articles = [...element.querySelectorAll("article")];
+      const wiki = articles.find((article) =>
+        article.textContent?.includes("Personal release notes"),
+      );
+      wiki?.querySelector<HTMLButtonElement>("button")?.click();
+      await waitForFast(() => expect(element.textContent).toContain("# Personal"));
+      const organization = articles.find((article) =>
+        article.textContent?.includes("Group release policy"),
+      );
+      organization?.querySelector<HTMLButtonElement>("button")?.click();
+      await waitForFast(() => expect(element.textContent).toContain("# Group"));
+
+      expect(request).toHaveBeenCalledWith("wiki.search", {
+        query: "release",
+        agentId: "main",
+        maxResults: 50,
+      });
+      expect(request).toHaveBeenCalledWith("wiki.get", {
+        agentId: "main",
+        lookup: "concepts/release-policy.md",
+      });
+      expect(request).toHaveBeenCalledWith("platformclaw.memory.get", {
+        agentId: "main",
+        path: "organization/group/release-policy",
+      });
     } finally {
       element.remove();
     }
@@ -329,7 +434,7 @@ describe("MemoryMemoriesElement", () => {
       await waitForFast(() => expect(element.textContent).toContain(result.snippet));
 
       element.agentId = "research";
-      await waitForFast(() => expect(element.textContent).toContain("Search for a person"));
+      await waitForFast(() => expect(element.textContent).toContain("Search once across"));
       expect(element.textContent).not.toContain(result.snippet);
       expect(element.querySelector<HTMLInputElement>("#memory-search-input")?.value).toBe("");
     } finally {

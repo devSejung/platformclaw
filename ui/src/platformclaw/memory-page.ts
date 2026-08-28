@@ -1,7 +1,12 @@
 import { consume } from "@lit/context";
 import { html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
-import { INTERNAL_MEMORY_PATH_PARAM, memoryTabFromPath } from "../app-route-paths.ts";
+import {
+  INTERNAL_MEMORY_PATH_PARAM,
+  memoryTabFromPath,
+  pathForMemoryTab,
+  type MemoryRouteTab,
+} from "../app-route-paths.ts";
 import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { renderHubTabs } from "../components/hub-tabs.ts";
 import { renderSettingsRow, renderSettingsSection } from "../components/settings-ui.ts";
@@ -56,6 +61,11 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
 
   private selectTab(tab: PersonalMemoryTab) {
     this.activeTab = tab;
+    const routeTab: MemoryRouteTab =
+      tab === "memory" ? "memories" : tab === "dreaming" ? "dreams" : tab;
+    this.context.navigate("memory", {
+      pathname: pathForMemoryTab(routeTab, this.context.basePath),
+    });
   }
 
   private renderOverview() {
@@ -79,6 +89,16 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
               description: t("platformClaw.memory.overview.wikiDescription"),
               control: html`<button class="btn btn--sm" @click=${() => this.selectTab("wiki")}>
                 ${t("platformClaw.memory.overview.openWiki")}
+              </button>`,
+            })}
+            ${renderSettingsRow({
+              title: t("platformClaw.memory.tabs.organization"),
+              description: t("platformClaw.memory.overview.organizationDescription"),
+              control: html`<button
+                class="btn btn--sm"
+                @click=${() => this.selectTab("organization")}
+              >
+                ${t("platformClaw.memory.overview.openOrganization")}
               </button>`,
             })}
             ${renderSettingsRow({
@@ -106,6 +126,9 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           .client=${gateway.client}
           .connected=${gateway.phase === "connected"}
           .methodAdvertised=${isGatewayMethodAdvertised(gateway, "memory.search") === true}
+          .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search") === true}
+          .detailAdvertised=${isGatewayMethodAdvertised(gateway, "platformclaw.memory.get") ===
+          true}
           .agentId=${this.agentId}
         ></openclaw-memory-memories>`;
       case "wiki":

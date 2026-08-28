@@ -11,12 +11,26 @@ import "../../styles/memory-memories.css";
 
 type SearchResult = Omit<MemorySearchResponse["results"][number], "source"> & {
   source: string;
+  title?: string;
+  kind?: string;
   provenanceLabel?: string;
 };
 type BrowserMemorySearchResponse = Omit<MemorySearchResponse, "results"> & {
   results: SearchResult[];
   organizationMemoryUnavailable?: boolean;
+  personalWikiUnavailable?: boolean;
 };
+type WikiSearchResult = {
+  path: string;
+  title: string;
+  kind: string;
+  score: number;
+  snippet: string;
+  startLine?: number;
+  endLine?: number;
+};
+type WikiGetResult = { content: string; fromLine: number; lineCount: number };
+type OrganizationMemoryGetResult = WikiGetResult | null;
 type SearchState =
   | { kind: "idle" }
   | { kind: "loading"; query: string }
@@ -31,7 +45,7 @@ function resultKey(result: SearchResult, index: number): string {
   return `${index}:${result.path}:${result.startLine}:${result.endLine}`;
 }
 
-function isExpandableWorkspaceResult(result: SearchResult): boolean {
+function isExpandableResult(result: SearchResult): boolean {
   const normalizedPath = result.path.replaceAll("\\", "/");
   const safeRelativePath =
     !normalizedPath.startsWith("/") &&
@@ -41,6 +55,14 @@ function isExpandableWorkspaceResult(result: SearchResult): boolean {
   const workspaceMemoryPath =
     normalizedPath === "MEMORY.md" || normalizedPath.startsWith("memory/");
   // workspace.get is workspace-contained; sessions/* and qmd/* are logical manager paths.
+  if (result.source === "wiki") {
+    return safeRelativePath && result.path.endsWith(".md");
+  }
+  if (result.source === "organization") {
+    return /^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(
+      normalizedPath,
+    );
+  }
   return result.source === "memory" && safeRelativePath && workspaceMemoryPath;
 }
 
@@ -61,6 +83,8 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
   @property({ type: Boolean }) connected = false;
   @property({ type: Boolean }) methodAdvertised = true;
+  @property({ type: Boolean }) wikiSearchAdvertised = false;
+  @property({ type: Boolean }) detailAdvertised = false;
   @property() agentId: string | null = null;
 
   @state() private query = "";
@@ -76,7 +100,9 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
       changed.has("agentId") ||
       changed.has("client") ||
       changed.has("connected") ||
-      changed.has("methodAdvertised")
+      changed.has("methodAdvertised") ||
+      changed.has("wikiSearchAdvertised") ||
+      changed.has("detailAdvertised")
     ) {
       this.resetSearch();
     }
@@ -106,14 +132,44 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     this.details = new Map();
     this.detailRequests.clear();
     try {
-      const result = await client.request<BrowserMemorySearchResponse>("memory.search", {
-        query: normalizedQuery,
-        agentId,
-      });
+      const [result, wiki] = await Promise.all([
+        client.request<BrowserMemorySearchResponse>("memory.search", {
+          query: normalizedQuery,
+          agentId,
+        }),
+        this.wikiSearchAdvertised
+          ? client
+              .request<WikiSearchResult[]>("wiki.search", {
+                query: normalizedQuery,
+                agentId,
+                maxResults: 50,
+              })
+              .then((results) => ({ results, unavailable: false }))
+              .catch(() => ({ results: [], unavailable: true }))
+          : Promise.resolve({ results: [], unavailable: true }),
+      ]);
       if (this.searchRequest !== request || this.agentId !== agentId || this.client !== client) {
         return;
       }
-      this.searchState = { kind: "ready", query: normalizedQuery, ...result };
+      const wikiResults: SearchResult[] = wiki.results.map((item) => ({
+        path: item.path,
+        title: item.title,
+        kind: item.kind,
+        score: item.score,
+        snippet: item.snippet,
+        startLine: item.startLine ?? 1,
+        endLine: item.endLine ?? item.startLine ?? 1,
+        source: "wiki",
+      }));
+      this.searchState = {
+        kind: "ready",
+        query: normalizedQuery,
+        ...result,
+        results: [...result.results, ...wikiResults].toSorted(
+          (left, right) => right.score - left.score,
+        ),
+        ...(wiki.unavailable ? { personalWikiUnavailable: true } : {}),
+      };
     } catch (error) {
       if (this.searchRequest !== request || this.agentId !== agentId || this.client !== client) {
         return;
@@ -148,17 +204,32 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     this.detailRequests.set(key, request);
     this.details = new Map(this.details).set(key, { kind: "loading" });
     try {
-      const response = await client.request<AgentsWorkspaceGetResult>("agents.workspace.get", {
-        agentId,
-        path: result.path,
-      });
+      const response =
+        result.source === "wiki"
+          ? await client.request<WikiGetResult>("wiki.get", {
+              agentId,
+              lookup: result.path,
+            })
+          : result.source === "organization"
+            ? await client.request<OrganizationMemoryGetResult>("platformclaw.memory.get", {
+                agentId,
+                path: result.path,
+              })
+            : await client.request<AgentsWorkspaceGetResult>("agents.workspace.get", {
+                agentId,
+                path: result.path,
+              });
       if (this.detailRequests.get(key) !== request || this.agentId !== agentId) {
         return;
       }
       const detail: DetailState =
-        response.file.encoding === "utf8"
-          ? { kind: "ready", content: response.file.content }
-          : { kind: "error", message: t("memoryPage.memories.fileUnsupported") };
+        response === null
+          ? { kind: "error", message: t("memoryPage.memories.detailNotFound") }
+          : "file" in response
+            ? response.file.encoding === "utf8"
+              ? { kind: "ready", content: response.file.content }
+              : { kind: "error", message: t("memoryPage.memories.fileUnsupported") }
+            : { kind: "ready", content: response.content };
       this.details = new Map(this.details).set(key, detail);
     } catch (error) {
       if (this.detailRequests.get(key) !== request || this.agentId !== agentId) {
@@ -206,6 +277,11 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
             ${t("memoryPage.memories.organizationUnavailable")}
           </p>`
         : nothing}
+      ${ready.personalWikiUnavailable
+        ? html`<p class="memory-memories__state" role="status">
+            ${t("memoryPage.memories.wikiUnavailable")}
+          </p>`
+        : nothing}
       ${ready.results.length === 0
         ? html`<p class="memory-memories__state">
             ${t("memoryPage.memories.empty", {
@@ -216,11 +292,17 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
             ${ready.results.map((result, index) => {
               const key = resultKey(result, index);
               const open = this.openResultKey === key;
-              const expandable = isExpandableWorkspaceResult(result);
+              const expandable =
+                isExpandableResult(result) && (result.source === "memory" || this.detailAdvertised);
               const panelId = `memory-detail-${index}`;
               const summary = html`
                 <span class="settings-row__text">
-                  <span class="settings-row__title">${result.snippet}</span>
+                  <span class="settings-row__title">${result.title ?? result.snippet}</span>
+                  ${result.title
+                    ? html`<span class="settings-row__desc memory-memories__snippet"
+                        >${result.snippet}</span
+                      >`
+                    : nothing}
                   <span class="settings-row__desc memory-memories__path"
                     >${result.path} ·
                     ${t("memoryPage.memories.lineRange", {
@@ -235,11 +317,13 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
                       ? t("memoryPage.memories.sourceOrganization", {
                           scope: result.provenanceLabel ?? "",
                         })
-                      : t(
-                          result.source === "sessions"
-                            ? "memoryPage.memories.sourceSessions"
-                            : "memoryPage.memories.sourceMemory",
-                        )}</span
+                      : result.source === "wiki"
+                        ? t("memoryPage.memories.sourceWiki")
+                        : t(
+                            result.source === "sessions"
+                              ? "memoryPage.memories.sourceSessions"
+                              : "memoryPage.memories.sourceMemory",
+                          )}</span
                   >
                   <span
                     >${t("memoryPage.memories.score", {

@@ -1,4 +1,5 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
 import type { OrganizationMemorySearchHit } from "./contracts.js";
 
 type JsonObject = Record<string, unknown>;
@@ -11,6 +12,7 @@ const MAX_COMBINED_RESULTS = 100;
 const MAX_PROVIDER_CHARS = 256;
 const MAX_SNIPPET_CHARS = 16 * 1024;
 const MAX_MEMORY_FILE_CHARS = 256 * 1024;
+const MAX_DOCUMENT_LINES = 5_000;
 const ORGANIZATION_MEMORY_PATH =
   /^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
 
@@ -158,7 +160,11 @@ export function prepareBrowserMemoryRequest(params: {
   assertOptionalAgentId(value: unknown, label: string): void;
   fail(message: string): never;
 }): JsonObject | undefined {
-  if (params.method !== "memory.search" && params.method !== "agents.workspace.get") {
+  if (
+    params.method !== "memory.search" &&
+    params.method !== "agents.workspace.get" &&
+    params.method !== "platformclaw.memory.get"
+  ) {
     return undefined;
   }
   params.assertOptionalAgentId(params.request.agentId, params.method);
@@ -169,10 +175,98 @@ export function prepareBrowserMemoryRequest(params: {
     }
     return { query, agentId: params.agentId };
   }
+  if (params.method === "platformclaw.memory.get") {
+    const path = typeof params.request.path === "string" ? params.request.path : "";
+    if (!ORGANIZATION_MEMORY_PATH.test(path)) {
+      return params.fail("organization memory path is invalid");
+    }
+    const prepared: JsonObject = { agentId: params.agentId, path };
+    for (const [key, max] of [
+      ["fromLine", Number.MAX_SAFE_INTEGER],
+      ["lineCount", MAX_DOCUMENT_LINES],
+    ] as const) {
+      const value = params.request[key];
+      if (value !== undefined) {
+        if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > max) {
+          return params.fail(`${key} must be an integer from 1 to ${max}`);
+        }
+        prepared[key] = value;
+      }
+    }
+    return prepared;
+  }
   const path = canonicalMemoryFilePath(params.request.path);
   return path
     ? { agentId: params.agentId, path }
     : params.fail("browser workspace reads are limited to personal memory Markdown files");
+}
+
+export async function requestBrowserOrganizationMemoryGet(params: {
+  method: string;
+  request: JsonObject;
+  agentId: string;
+  get?: (request: {
+    agentId: string;
+    path: string;
+    fromLine?: number;
+    lineCount?: number;
+  }) => Promise<import("./contracts.js").OrganizationMemoryDocument | null>;
+}): Promise<{ handled: false } | { handled: true; result: unknown }> {
+  if (params.method !== "platformclaw.memory.get") {
+    return { handled: false };
+  }
+  if (!params.get) {
+    throw new BrowserGatewayProxyError("method-not-allowed", "Organization memory is unavailable");
+  }
+  const path = params.request.path as string;
+  const document = await params.get({
+    agentId: params.agentId,
+    path,
+    ...(typeof params.request.fromLine === "number" ? { fromLine: params.request.fromLine } : {}),
+    ...(typeof params.request.lineCount === "number"
+      ? { lineCount: params.request.lineCount }
+      : {}),
+  });
+  if (!document) {
+    return { handled: true, result: null };
+  }
+  if (
+    document.path !== path ||
+    !ORGANIZATION_MEMORY_PATH.test(document.path) ||
+    typeof document.content !== "string" ||
+    document.content.length > MAX_MEMORY_FILE_CHARS ||
+    typeof document.title !== "string" ||
+    document.title.length > 512 ||
+    (document.scopeKind !== "global" &&
+      document.scopeKind !== "team" &&
+      document.scopeKind !== "group" &&
+      document.scopeKind !== "part") ||
+    typeof document.scopeName !== "string" ||
+    !document.scopeName ||
+    document.scopeName.length > 256 ||
+    finiteNumber(document.updatedAt) === null ||
+    !positiveInteger(document.fromLine) ||
+    !positiveInteger(document.lineCount) ||
+    document.lineCount > MAX_DOCUMENT_LINES
+  ) {
+    throw new BrowserGatewayProxyError(
+      "upstream-result-denied",
+      "Organization memory returned an invalid document",
+    );
+  }
+  return {
+    handled: true,
+    result: {
+      path: document.path,
+      title: document.title,
+      kind: document.scopeKind,
+      provenanceLabel: document.scopeName,
+      content: document.content,
+      fromLine: document.fromLine,
+      lineCount: document.lineCount,
+      updatedAt: new Date(document.updatedAt).toISOString(),
+    },
+  };
 }
 
 export function projectBrowserMemoryResult(params: {

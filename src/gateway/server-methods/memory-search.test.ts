@@ -109,6 +109,7 @@ describe("memory.search gateway method", () => {
     expect(manager.search).toHaveBeenCalledWith("lantern", {
       maxResults: expected,
       minScore: 0.42,
+      lexicalOnly: true,
     });
     expect(manager.close).toHaveBeenCalledOnce();
   });

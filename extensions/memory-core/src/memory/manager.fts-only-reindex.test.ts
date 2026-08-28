@@ -228,6 +228,23 @@ describe("memory manager FTS-only reindex", () => {
     expect(createEmbeddingProviderMock).toHaveBeenCalledOnce();
   });
 
+  it("searches an existing FTS-only index lexically after an embedding provider appears", async () => {
+    const fallbackManager = await createManager();
+    await fallbackManager.sync({ force: true });
+    await fallbackManager.close();
+    manager = null;
+    await closeAllMemorySearchManagers();
+    await closeAllMemoryIndexManagers();
+
+    providerAvailable = true;
+    const semanticManager = await createManager();
+
+    await expect(
+      semanticManager.search("Alpha topic", { lexicalOnly: true, minScore: 0 }),
+    ).resolves.toEqual([expect.objectContaining({ path: "MEMORY.md", source: "memory" })]);
+    expect(providerQueryCalls).toBe(0);
+  });
+
   it("returns keyword matches when the first bootstrap embedding request fails", async () => {
     providerAvailable = true;
     providerEmbeddingError = new Error("embedding request failed during bootstrap");

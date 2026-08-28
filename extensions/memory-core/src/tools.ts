@@ -817,6 +817,7 @@ export function createMemorySearchTool(options: {
                 );
               }
             }
+            const supplementWarnings: string[] = [];
             const supplementResults = shouldQuerySupplements
               ? await runUnavailablePhase(
                   "supplement",
@@ -830,6 +831,11 @@ export function createMemorySearchTool(options: {
                           agentSessionKey: options.agentSessionKey,
                           sandboxed: options.sandboxed,
                           corpus: requestedCorpus,
+                          onSupplementError: (pluginId) => {
+                            supplementWarnings.push(
+                              `Memory corpus from plugin "${pluginId}" is temporarily unavailable.`,
+                            );
+                          },
                         }),
                     ),
                 )
@@ -859,6 +865,7 @@ export function createMemorySearchTool(options: {
               citations: citationsMode,
               mode: searchMode,
               ...staleness,
+              ...(supplementWarnings.length > 0 ? { warnings: supplementWarnings } : {}),
               debug: searchDebug,
             });
           } finally {
