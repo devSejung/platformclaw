@@ -721,7 +721,7 @@ describe("cron service timer seam coverage", () => {
           owner: {
             agentId: "finn",
             sessionKey: "agent:finn:telegram:direct:42",
-            accountId: "finn@example.test",
+            accountId: "finn-example-test",
           },
           delivery: { mode: "announce", channel: "last" },
         },
@@ -749,7 +749,7 @@ describe("cron service timer seam coverage", () => {
           owner: {
             agentId: "finn",
             sessionKey: "agent:finn:telegram:direct:42",
-            accountId: "finn@example.test",
+            accountId: "finn-example-test",
           },
           delivery: { mode: "announce", channel: "last" },
         }),

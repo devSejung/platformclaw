@@ -15,10 +15,35 @@ import {
   resolveDirectCronTranscriptMirrorText,
 } from "./delivery-dispatch-awareness.js";
 import type { DispatchCronDeliveryParams } from "./delivery-dispatch-types.js";
+import type { RunCronAgentTurnResult } from "./run.types.js";
 
 type CurrentSessionCompletionResult =
   | { ok: false; reason: string }
   | { ok: true; requiresExternalDelivery: boolean };
+
+export async function failCurrentSessionCronCompletion(params: {
+  dispatch: DispatchCronDeliveryParams;
+  reason: string;
+  summary?: string;
+  outputText?: string;
+  cleanup: () => Promise<unknown>;
+}): Promise<RunCronAgentTurnResult> {
+  await params.cleanup();
+  const error = params.dispatch.sourceDeliveryOutcome.unverifiedMessageToolDelivery
+    ? `${params.reason}; the agent used the message tool, but OpenClaw could not verify that message matched the cron delivery target`
+    : params.reason;
+  return params.dispatch.withRunSession({
+    status: "error",
+    error,
+    errorKind: "delivery-target",
+    summary: params.summary,
+    outputText: params.outputText,
+    delivered: false,
+    deliveryAttempted: true,
+    deliveryError: params.reason,
+    ...params.dispatch.telemetry,
+  });
+}
 
 export async function commitCurrentSessionCronCompletion(
   params: DispatchCronDeliveryParams,

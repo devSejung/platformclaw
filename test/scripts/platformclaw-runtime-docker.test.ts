@@ -72,9 +72,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(sandboxDockerfile).toContain(
       "COPY --from=platformclaw-jammy-build /usr/bin/gh /usr/bin/gh",
     );
-    expect(build).toContain(
-      "`platformclaw-jammy-build=docker-image://${jammyBuildImage}`",
-    );
+    expect(build).toContain("`platformclaw-jammy-build=docker-image://${jammyBuildImage}`");
     expect(build.match(/"gh --version"/gu)).toHaveLength(2);
   });
 

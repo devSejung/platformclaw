@@ -1,9 +1,6 @@
-import { describe, expect, it } from "vitest";
 import { validateCronListParams } from "@openclaw/gateway-protocol";
-import {
-  browserCronListScope,
-  projectBrowserCronEvent,
-} from "./browser-gateway-cron-policy.js";
+import { describe, expect, it } from "vitest";
+import { browserCronListScope, projectBrowserCronEvent } from "./browser-gateway-cron-policy.js";
 import {
   safeCronJob,
   setupBrowserGatewayProxyTest as setup,
