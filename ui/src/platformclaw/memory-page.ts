@@ -1,12 +1,7 @@
 import { consume } from "@lit/context";
 import { html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
-import {
-  INTERNAL_MEMORY_PATH_PARAM,
-  memoryTabFromPath,
-  pathForMemoryTab,
-  type MemoryRouteTab,
-} from "../app-route-paths.ts";
+import { INTERNAL_MEMORY_PATH_PARAM, memoryTabFromPath } from "../app-route-paths.ts";
 import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { renderHubTabs } from "../components/hub-tabs.ts";
 import { renderSettingsRow, renderSettingsSection } from "../components/settings-ui.ts";
@@ -61,11 +56,6 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
 
   private selectTab(tab: PersonalMemoryTab) {
     this.activeTab = tab;
-    const routeTab: MemoryRouteTab =
-      tab === "memory" ? "memories" : tab === "dreaming" ? "dreams" : tab;
-    this.context.navigate("memory", {
-      pathname: pathForMemoryTab(routeTab, this.context.basePath),
-    });
   }
 
   private renderOverview() {

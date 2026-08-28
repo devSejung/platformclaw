@@ -232,10 +232,8 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
         class="exec-approval-card"
         @submit=${(event: SubmitEvent) => {
           event.preventDefault();
-          const reason = new FormData(event.currentTarget as HTMLFormElement)
-            .get("reason")
-            ?.toString()
-            .trim();
+          const value = new FormData(event.currentTarget as HTMLFormElement).get("reason");
+          const reason = typeof value === "string" ? value.trim() : "";
           if (reason) {
             void this.submitDecision(reason);
           }

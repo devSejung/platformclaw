@@ -47,6 +47,7 @@ async function installPlatformClawDocument(page: import("playwright").Page): Pro
           department: "Platform",
           globalRole: "member",
         },
+        agent: { agentId: "assigned-personal", state: "active" },
       },
       status: 200,
     }),
@@ -149,6 +150,7 @@ suite("PlatformClaw organization memory Settings E2E", () => {
               },
             ],
           },
+          "wiki.search": [],
           "platformclaw.memory.lifecycle": {
             scopes: [
               { kind: "global", name: "Global", canAdminister: false },
