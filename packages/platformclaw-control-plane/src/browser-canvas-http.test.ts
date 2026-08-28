@@ -7,6 +7,7 @@ import {
 } from "./browser-canvas-http.js";
 
 const SESSION_COOKIE = "platformclaw_session=browser-token";
+const CANVAS_LEASE_EXPIRED_MESSAGE_TYPE = "openclaw:canvas-lease-expired";
 
 function createPolicy(agentId = "employee-one"): PlatformClawBrowserCanvasPolicy {
   return {
@@ -92,7 +93,7 @@ describe("PlatformClaw browser Canvas relay", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
-  it("fails closed for missing cookies, foreign users, tampering, and expiry", async () => {
+  it("keeps invalid and foreign capabilities opaque while signaling owned expiry", async () => {
     let now = 1_000;
     const policy = createPolicy();
     const upstreamFetch = vi.fn() as unknown as typeof fetch;
@@ -116,15 +117,43 @@ describe("PlatformClaw browser Canvas relay", () => {
       binding: { agentId: "employee-two" },
     });
     expect((await fetch(documentUrl, { headers: { Cookie: SESSION_COOKIE } })).status).toBe(404);
-    expect(
-      (
-        await fetch(documentUrl.replace("v1.", "v1.x"), {
-          headers: { Cookie: SESSION_COOKIE },
-        })
-      ).status,
-    ).toBe(404);
+    const tampered = await fetch(documentUrl.replace("v1.", "v1.x"), {
+      headers: { Cookie: SESSION_COOKIE },
+    });
+    expect(tampered.status).toBe(404);
+    expect(tampered.headers.get("content-type")).toContain("application/json");
+    expect(await tampered.text()).not.toContain(CANVAS_LEASE_EXPIRED_MESSAGE_TYPE);
     now = 700_000;
-    expect((await fetch(documentUrl, { headers: { Cookie: SESSION_COOKIE } })).status).toBe(404);
+    const missingSession = await fetch(documentUrl);
+    expect(missingSession.status).toBe(401);
+    expect(await missingSession.text()).not.toContain(CANVAS_LEASE_EXPIRED_MESSAGE_TYPE);
+
+    resolveAccess.mockRejectedValueOnce(new Error("expired browser session"));
+    const deadSession = await fetch(documentUrl, { headers: { Cookie: SESSION_COOKIE } });
+    expect(deadSession.status).toBe(401);
+    expect(await deadSession.text()).not.toContain(CANVAS_LEASE_EXPIRED_MESSAGE_TYPE);
+
+    resolveAccess.mockResolvedValueOnce({ binding: { agentId: "employee-two" } });
+    const foreignExpired = await fetch(documentUrl, { headers: { Cookie: SESSION_COOKIE } });
+    expect(foreignExpired.status).toBe(404);
+    expect(foreignExpired.headers.get("content-type")).toContain("application/json");
+    expect(await foreignExpired.text()).not.toContain(CANVAS_LEASE_EXPIRED_MESSAGE_TYPE);
+
+    const expired = await fetch(documentUrl, { headers: { Cookie: SESSION_COOKIE } });
+    expect(expired.status).toBe(404);
+    expect(expired.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(expired.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
+    const expiredHtml = await expired.text();
+    expect(expiredHtml).toContain(CANVAS_LEASE_EXPIRED_MESSAGE_TYPE);
+    expect(expiredHtml).not.toContain("cv_owned");
+    expect(expiredHtml).not.toContain("employee-one");
+
+    const expiredHead = await fetch(documentUrl, {
+      method: "HEAD",
+      headers: { Cookie: SESSION_COOKIE },
+    });
+    expect(expiredHead.status).toBe(404);
+    expect(await expiredHead.text()).toBe("");
     expect(upstreamFetch).not.toHaveBeenCalled();
   });
 

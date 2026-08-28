@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { Type } from "typebox";
 import type { BoardWidgetPutResult } from "../../packages/gateway-protocol/src/index.js";
+import type { SandboxFsBridge } from "../agents/sandbox/fs-bridge.types.js";
 import { optionalStringEnum } from "../agents/schema/string-enum.js";
 import { type AnyAgentTool, jsonResult, readStringParam } from "../agents/tools/common.js";
 import {
@@ -11,6 +12,7 @@ import {
 import { normalizeBoardWidgetDeclared } from "../boards/board-capabilities.js";
 import { assertWidgetHtmlSize, WidgetHtmlInputError } from "../plugin-sdk/widget-html.js";
 import { createCanvasDocument } from "./documents.js";
+import { embedWidgetWorkspaceImages } from "./widget-local-images.js";
 import { buildWidgetDocument } from "./wrap.js";
 
 const SHOW_WIDGET_REQUIRED_CLIENT_CAPS = ["inline-widgets"];
@@ -21,6 +23,12 @@ const WIDGET_MAX_PER_SCOPE = 32;
 const ShowWidgetToolSchema = Type.Object({
   title: Type.String(),
   widget_code: Type.String(),
+  widget_path: Type.Optional(
+    Type.String({
+      description:
+        "Saved HTML file path whose directory resolves relative workspace image references",
+    }),
+  ),
   name: Type.Optional(
     Type.String({
       pattern: "^[a-z0-9][a-z0-9._-]{0,63}$",
@@ -68,6 +76,8 @@ type ShowWidgetToolOptions = {
   agentSessionKey?: string;
   stateDir?: string;
   callGateway?: InProcessGatewayCaller;
+  workspaceDir?: string;
+  sandbox?: { root: string; bridge: SandboxFsBridge };
 };
 
 function slugWidgetName(title: string): string {
@@ -122,7 +132,7 @@ export function createShowWidgetTool(options: ShowWidgetToolOptions = {}): AnyAg
     label: "Show Widget",
     name: "show_widget",
     description:
-      'Show interactive self-contained HTML or SVG widget on the user\'s current surface. When the user asks for an HTML page, website, or visual, you MUST call show_widget(widget_code) so it renders in chat. If the user requests a downloadable HTML file, create the file, read its actual contents, and pass those contents as widget_code; never replace the requested file with only a widget. Embed images as inline SVG, data:image/... URLs, or document-created blob: URLs; local, relative, and HTTP(S) image URLs are blocked in inline previews. Set pin=true to also place it on this session\'s dashboard; use name for a stable widget id, tab for a tab slug, size sm|md|lg|xl|full, presentation card|full-bleed|frameless, and after for a sibling widget anchor. Dashboard widgets auto-fit their content height until the user resizes them. Pinned widgets may declare capabilities.netOrigins and capabilities.tools for operator approval; only approved pinned widgets may fetch from their exact declared HTTPS origins. Inline all markup, styles, scripts, and images. Dashboard host APIs: openclaw.prompt.send(text), openclaw.state.emit(payload), openclaw.data.read(bindingId, params?), and openclaw.cron.trigger(jobId). Pre-themed: bare button, input, select, textarea, table, code, h1-h3 already styled — write minimal HTML. Helper classes: .card, .badge (.ok/.warn/.danger/.info), .metric, .muted, .row; button.primary = the one main action. Theme vars (auto light/dark, live host sync): --surface --card --elevated --text --text-strong --muted --border --border-strong --accent (links/focus/highlight) --accent-fill (primary bg) --accent-fg --ok --warn --danger --info (each with -subtle tint) --radius --font-body --font-mono. Colors ONLY via these vars — never hex/rgb/hsl, no own color palette; layout-only custom vars fine. Page background stays transparent. Pattern: <div class="card"><div class="muted">Uptime</div><div class="metric">18d</div></div> <span class="badge ok">connected</span>. Web chat: sendPrompt(text) sends text as the user\'s message — wire to buttons, suffix label with ↗; works only after a real click inside the widget (never call automatically; slash commands rejected).',
+      'Show interactive self-contained HTML or SVG widget on the user\'s current surface. When the user asks for an HTML page, website, or visual, you MUST call show_widget(widget_code) so it renders in chat. If the user requests a downloadable HTML file, create the file, read its actual unchanged contents, pass them as widget_code, and set widget_path to that file; never replace the requested file with only a widget. widget_path safely embeds static relative <img>, image input, video poster, and SVG <image> files from the HTML file\'s workspace directory. srcset and local/HTTP CSS url() assets are unsupported; use those static elements instead. CSS data:, blob:, and fragment URLs remain supported. Runtime-created local or relative image URLs cannot be resolved; create runtime images from inline bytes with Blob instead. Without widget_path, images must be inline SVG, data:image/... URLs, or document-created blob: URLs. Local/relative images without widget_path and all HTTP(S) images are rejected with retry guidance. Set pin=true to also place it on this session\'s dashboard; use name for a stable widget id, tab for a tab slug, size sm|md|lg|xl|full, presentation card|full-bleed|frameless, and after for a sibling widget anchor. Dashboard widgets auto-fit their content height until the user resizes them. Pinned widgets may declare capabilities.netOrigins and capabilities.tools for operator approval; only approved pinned widgets may fetch from their exact declared HTTPS origins. Inline all other markup, styles, and scripts. Dashboard host APIs: openclaw.prompt.send(text), openclaw.state.emit(payload), openclaw.data.read(bindingId, params?), and openclaw.cron.trigger(jobId). Pre-themed: bare button, input, select, textarea, table, code, h1-h3 already styled — write minimal HTML. Helper classes: .card, .badge (.ok/.warn/.danger/.info), .metric, .muted, .row; button.primary = the one main action. Theme vars (auto light/dark, live host sync): --surface --card --elevated --text --text-strong --muted --border --border-strong --accent (links/focus/highlight) --accent-fill (primary bg) --accent-fg --ok --warn --danger --info (each with -subtle tint) --radius --font-body --font-mono. Colors ONLY via these vars — never hex/rgb/hsl, no own color palette; layout-only custom vars fine. Page background stays transparent. Pattern: <div class="card"><div class="muted">Uptime</div><div class="metric">18d</div></div> <span class="badge ok">connected</span>. Web chat: sendPrompt(text) sends text as the user\'s message — wire to buttons, suffix label with ↗; works only after a real click inside the widget (never call automatically; slash commands rejected).',
     parameters: ShowWidgetToolSchema,
     requiredClientCaps: SHOW_WIDGET_REQUIRED_CLIENT_CAPS,
     execute: async (_toolCallId, args) => {
@@ -139,6 +149,7 @@ export function createShowWidgetTool(options: ShowWidgetToolOptions = {}): AnyAg
         inputName: "widget_code",
         unit: "characters",
       });
+      const widgetPath = readStringParam(params, "widget_path");
       const shouldPin = params.pin === true;
       const capabilities = normalizeBoardWidgetDeclared(
         params.capabilities as { netOrigins?: string[]; tools?: string[] } | undefined,
@@ -150,7 +161,21 @@ export function createShowWidgetTool(options: ShowWidgetToolOptions = {}): AnyAg
       if (shouldPin && !pinSessionKey) {
         throw new WidgetHtmlInputError("pin requires an agent session");
       }
-      const widgetCode = rawWidgetCode.trim();
+      const widgetCode = (
+        await embedWidgetWorkspaceImages({
+          widgetCode: rawWidgetCode,
+          widgetPath,
+          workspace: options.sandbox
+            ? { root: options.sandbox.root, bridge: options.sandbox.bridge }
+            : options.workspaceDir
+              ? { root: options.workspaceDir }
+              : undefined,
+        })
+      ).trim();
+      assertWidgetHtmlSize(widgetCode, WIDGET_CODE_MAX_CHARS, {
+        inputName: "widget_code after embedding local images; compress or resize images and retry",
+        unit: "characters",
+      });
       const wrappedDocument = buildWidgetDocument(title, widgetCode);
       let pinnedText = "";
       let pinnedWidgetName: string | undefined;

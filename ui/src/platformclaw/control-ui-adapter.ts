@@ -181,7 +181,9 @@ export class PlatformClawControlUiAdapter {
       "route:sessions",
       "route:activity",
       "route:cron",
-      "route:plugins",
+      "route:skills",
+      "route:skill-workshop",
+      "route:skill-hub",
     ];
     return {
       accessMode: "personal-agent",
@@ -323,7 +325,6 @@ export class PlatformClawControlUiAdapter {
       },
       navigation: {
         sidebarEntries,
-        sidebarRouteTargets: identity.globalRole === "admin" ? undefined : { plugins: "skills" },
         settingsNavigationMode: "takeover",
         routeCopy: {
           organization: {

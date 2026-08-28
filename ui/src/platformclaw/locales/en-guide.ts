@@ -334,20 +334,10 @@ export const translations: Readonly<Record<string, string>> = {
     "Review how personal memory was organized into durable knowledge over time.",
   "platformClaw.guide.dreamingDetails":
     "Dream Diary shows consolidation runs and their outcomes.|Use Personal Wiki to inspect the pages produced from durable knowledge.|Dreaming organizes personal knowledge; it does not bypass the Organization approval required for Part knowledge.",
-  "platformClaw.guide.pluginsNavTitle": "Plugins: extend Agent capabilities",
-  "platformClaw.guide.pluginsNavBody":
-    "Open the hub for service connections, reusable instructions, and company skills.",
-  "platformClaw.guide.pluginsNavDetails":
-    "Plugins connect the Agent to external services and tools.|Skills give the Agent a reusable way to perform work.|Select Next to enter the Plugins screen and learn each tab in order.",
   "platformClaw.guide.workLocationTitle": "Choose where work runs",
   "platformClaw.guide.workLocationBody":
     "Switch between the Basic workspace and your assigned development VM.",
   "platformClaw.guide.clickTarget": "LOOK HERE",
-  "platformClaw.guide.pluginsTitle": "Understand the Plugins hub",
-  "platformClaw.guide.pluginsBody":
-    "This screen groups every way you can extend what your Agent can do.",
-  "platformClaw.guide.pluginsDetails":
-    "Installed manages active plugins and service connections.|Discover finds new plugins and one-click connectors.|Skills contains reusable instructions the Agent follows.|Workshop reviews proposed skill changes before they go live.|Skill Hub is the company catalog for sharing and installing skills.",
   "platformClaw.guide.installedPluginsTitle": "Installed: manage active plugins",
   "platformClaw.guide.installedPluginsBody":
     "A plugin connects the Agent to a service, tool, channel, or model provider.",

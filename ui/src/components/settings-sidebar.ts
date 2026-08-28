@@ -342,7 +342,19 @@ export function renderSettingsSidebar(props: SettingsSidebarProps) {
         .onUpdate=${props.onUpdate}
       ></openclaw-sidebar-update-card>
       <footer class="settings-sidebar__footer">
-        ${props.renderFooterAccessory ? props.renderFooterAccessory() : nothing}
+        ${props.renderFooterAccessory
+          ? html`<div class="settings-sidebar__footer-accessory">
+              ${props.renderFooterAccessory()}
+            </div>`
+          : nothing}
+        <div class="settings-sidebar__footer-build">
+          <openclaw-sidebar-build-chip
+            .basePath=${props.basePath}
+            .gatewayVersion=${props.gatewayVersion || null}
+            .variant=${"settings"}
+            .onNavigate=${() => props.onNavigate("about")}
+          ></openclaw-sidebar-build-chip>
+        </div>
         ${props.offline
           ? renderOfflineSidebarStatus({
               queuedOutboxCount: props.queuedOutboxCount ?? 0,
@@ -353,12 +365,6 @@ export function renderSettingsSidebar(props: SettingsSidebarProps) {
           : html`<openclaw-settings-save-indicator
               .props=${props.saveIndicator}
             ></openclaw-settings-save-indicator>`}
-        <openclaw-sidebar-build-chip
-          .basePath=${props.basePath}
-          .gatewayVersion=${props.gatewayVersion || null}
-          .variant=${"settings"}
-          .onNavigate=${() => props.onNavigate("about")}
-        ></openclaw-sidebar-build-chip>
       </footer>
     </aside>
   `;

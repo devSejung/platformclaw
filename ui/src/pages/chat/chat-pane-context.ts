@@ -241,6 +241,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       releaseChatMediaResourceSubscriber(state.requestUpdate);
     }
     state.canvasPluginSurfaceUrl = snapshot.canvasPluginSurfaceUrl;
+    state.recoverCanvasPluginSurfaceUrl = this.context.gateway.recoverCanvasSurfaceUrl;
     const sidebarSessionKey = canonicalUiSessionKeyForPersistence(state, state.sessionKey);
     const sidebarKeyChanged = sidebarSessionKey !== previousSidebarSessionKey;
     if (sidebarSessionKey && (clientChanged || sidebarKeyChanged)) {

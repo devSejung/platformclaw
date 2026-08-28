@@ -1,3 +1,4 @@
+import { titleForRoute } from "../../app-navigation.ts";
 import type { RouteId } from "../../app-route-paths.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import type { HubTabOption } from "../../components/hub-tabs.ts";
@@ -25,7 +26,7 @@ function pluginsHubTabs(
     { value: "discover", label: t("pluginsPage.discoverTab") },
     { value: "skills", label: t("tabs.skills") },
     { value: "workshop", label: t("pluginsPage.workshopTab") },
-    { value: "skill-hub", label: t("pluginsPage.skillHubTab") },
+    { value: "skill-hub", label: titleForRoute("skill-hub") },
   ];
   const allowed = allowedTabs ? new Set(allowedTabs) : null;
   return allowed ? tabs.filter((tab) => allowed.has(tab.value)) : tabs;

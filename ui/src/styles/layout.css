@@ -593,12 +593,34 @@ html.openclaw-native-web-chrome .shell-chrome-controls {
 .settings-sidebar__footer {
   flex-shrink: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 12px 21px;
   border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   font-size: 11.5px;
   color: var(--muted);
+}
+
+/* Keep product actions independent from the footer status row so admin
+   controls do not shrink into split labels inside the fixed takeover rail. */
+.settings-sidebar__footer-accessory {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+
+.settings-sidebar__footer-accessory > * {
+  width: 100%;
+}
+
+.settings-sidebar__footer-build {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+
+.settings-sidebar__footer-build .sidebar-footer-build {
+  width: 100%;
+  margin-left: 0;
 }
 
 openclaw-settings-save-indicator {
@@ -682,7 +704,6 @@ openclaw-settings-save-indicator {
 }
 
 .settings-sidebar__footer .sidebar-footer-build {
-  margin-left: auto;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--muted) 82%, transparent);

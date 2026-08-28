@@ -34,6 +34,42 @@ afterEach(async () => {
 });
 
 describe("settings sidebar search", () => {
+  it("gives footer accessories their own full-width row", () => {
+    const accessory = document.createElement("span");
+    accessory.dataset.testid = "footer-accessory";
+    render(
+      renderSettingsSidebar({
+        basePath: "",
+        activeRouteId: "appearance",
+        offline: false,
+        lastError: null,
+        gatewayVersion: "",
+        updateAvailable: null,
+        updateRunning: false,
+        onUpdate: vi.fn(),
+        searchQuery: "",
+        onExit: vi.fn(),
+        onRetryConnect: vi.fn(),
+        onNavigate: vi.fn(),
+        onSearchQueryChange: vi.fn(),
+        renderFooterAccessory: () => accessory,
+        preloadTimers: new Map(),
+        saveIndicator: saveIndicator(),
+      }),
+      container,
+    );
+
+    const footer = container.querySelector(".settings-sidebar__footer");
+    const accessoryRow = footer?.querySelector(".settings-sidebar__footer-accessory");
+    const buildRow = footer?.querySelector(".settings-sidebar__footer-build");
+    expect(accessoryRow).not.toBeNull();
+    expect(accessoryRow?.contains(accessory)).toBe(true);
+    expect(accessoryRow?.nextElementSibling).toBe(buildRow);
+    expect(buildRow?.nextElementSibling?.tagName.toLowerCase()).toBe(
+      "openclaw-settings-save-indicator",
+    );
+  });
+
   it("keeps disabled settings routes out of navigation and search", () => {
     const renderSidebar = (
       searchQuery: string,

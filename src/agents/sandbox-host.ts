@@ -5,6 +5,7 @@ export type SandboxHostCsp = {
   resourceDomains?: string[];
   frameDomains?: string[];
   baseUriDomains?: string[];
+  allowBlobImages?: boolean;
   blockDescendantFrames?: boolean;
 };
 
@@ -138,6 +139,7 @@ export function normalizeSandboxHostCsp(value: unknown): SandboxHostCsp | undefi
     resourceDomains: normalizeDomains(record.resourceDomains),
     frameDomains: normalizeDomains(record.frameDomains),
     baseUriDomains: normalizeDomains(record.baseUriDomains),
+    allowBlobImages: record.allowBlobImages === true ? true : undefined,
     blockDescendantFrames: record.blockDescendantFrames === true ? true : undefined,
   };
   if (!Object.values(csp).some(Boolean)) {
@@ -304,6 +306,12 @@ export function buildSandboxHostProxyHtml(csp?: SandboxHostCsp): string {
 /** HTTP response policy for the isolated proxy and its inner about:blank content. */
 export function buildSandboxHostContentSecurityPolicy(csp?: SandboxHostCsp): string {
   const resources = csp?.resourceDomains ?? [];
+  const images = [
+    "'self'",
+    "data:",
+    ...(csp?.allowBlobImages === true ? ["blob:"] : []),
+    ...resources,
+  ];
   const connections = csp?.connectDomains ?? [];
   const frames = csp?.frameDomains ?? [];
   const bases = csp?.baseUriDomains ?? [];
@@ -312,7 +320,7 @@ export function buildSandboxHostContentSecurityPolicy(csp?: SandboxHostCsp): str
     "default-src 'none'",
     `script-src 'self' 'unsafe-inline' ${resources.join(" ")}`.trim(),
     `style-src 'self' 'unsafe-inline' ${resources.join(" ")}`.trim(),
-    `img-src 'self' data: ${resources.join(" ")}`.trim(),
+    `img-src ${images.join(" ")}`,
     `media-src 'self' data: ${resources.join(" ")}`.trim(),
     `connect-src ${sources(connections)}`,
     "webrtc 'block'",

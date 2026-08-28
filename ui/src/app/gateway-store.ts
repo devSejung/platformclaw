@@ -480,6 +480,24 @@ export function createApplicationGateway(
       return eventLog;
     },
     connect,
+    recoverCanvasSurfaceUrl: (observedUrl) => {
+      const expectedClient = canvasSurfaceLeaseClient;
+      const expectedGeneration = canvasSurfaceLeaseGeneration;
+      if (!canvasSurfaceLeaseStarted || !expectedClient || client !== expectedClient) {
+        return Promise.resolve(null);
+      }
+      return loadCanvasSurfaceLease().then((lease) => {
+        if (
+          !canvasSurfaceLeaseStarted ||
+          canvasSurfaceLeaseGeneration !== expectedGeneration ||
+          canvasSurfaceLeaseClient !== expectedClient ||
+          client !== expectedClient
+        ) {
+          return null;
+        }
+        return lease.recover(observedUrl);
+      });
+    },
     setSessionKey: (sessionKey) => {
       const nextSessionKey = sessionKey.trim();
       if (!nextSessionKey || nextSessionKey === snapshot.sessionKey) {

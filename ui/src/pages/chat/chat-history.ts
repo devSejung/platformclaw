@@ -299,6 +299,7 @@ export type ChatState = {
   agentsSelectedId?: string | null;
   hello: GatewayHelloOk | null;
   canvasPluginSurfaceUrl?: string | null;
+  recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   settings?: { chatPersistCommentary?: boolean; gatewayUrl?: string | null };
   sessions?: Partial<SessionCapability>;
   chatSessionMessageSubscriptionRequestedKey?: string | null;

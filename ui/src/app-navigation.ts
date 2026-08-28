@@ -26,7 +26,8 @@ type NavigationItem = {
 // The sidebar shows a small user-customizable ordered zone; every other nav route
 // lives in the collapsed "More" section. Chat is reachable through the session
 // list and Settings/Docs live in the sidebar footer, so neither is listed here.
-// Skills and Skill Workshop are tabs inside the Plugins hub, not sidebar items.
+// Skills, Skill Workshop, and Skill Hub are standalone destinations. The Plugins
+// route remains available for administrator plugin management through More.
 // Worktrees is a tab of the Sessions hub, so it is not listed either.
 export const SIDEBAR_NAV_ROUTES = [
   "workboard",
@@ -37,11 +38,15 @@ export const SIDEBAR_NAV_ROUTES = [
   "sessions",
   "activity",
   "plugins",
+  "skills",
+  "skill-workshop",
+  "skill-hub",
   "apps",
 ] as const satisfies readonly NavigationRouteId[];
 
-// Routes presented as tabs of the Plugins hub. The sidebar highlights the
-// Plugins entry for all of them, mirroring how config covers settings routes.
+// Plugin-owned routes still share the same active-state family for embedded
+// callers that render a plugin hub, even though the PlatformClaw sidebar shows
+// the three user-facing destinations as separate entries.
 const PLUGINS_HUB_ROUTES: ReadonlySet<NavigationRouteId> = new Set([
   "plugins",
   "skills",
@@ -411,8 +416,15 @@ const NAVIGATION_COPY: Record<NavigationRouteId, { titleKey: string; subtitleKey
   "new-session": { titleKey: "newSession.title", subtitleKey: "newSession.hint" },
 };
 
+// Skill Hub is a product name, so it stays in English even in translated chrome.
+const UNTRANSLATED_PRODUCT_TITLES: Partial<Record<NavigationRouteId, string>> = {
+  "skill-hub": "Skill Hub",
+};
+
 export function titleForRoute(routeId: NavigationRouteId, override?: NavigationRouteCopy): string {
-  return override ? resolveNavigationCopy(override.title) : t(NAVIGATION_COPY[routeId].titleKey);
+  return override
+    ? resolveNavigationCopy(override.title)
+    : (UNTRANSLATED_PRODUCT_TITLES[routeId] ?? t(NAVIGATION_COPY[routeId].titleKey));
 }
 
 /** Window/tab title, markers leftmost because tabs truncate from the right.

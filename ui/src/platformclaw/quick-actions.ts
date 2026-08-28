@@ -70,7 +70,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       .grid {
         display: grid;
         min-width: 0;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
         gap: 4px;
       }
       platformclaw-execution-settings,
@@ -362,13 +362,16 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   }
 
   private async openPluginsHub(): Promise<void> {
-    const link = findSidebarRoute("settings/plugins", "skills", "skills/workshop", "skills/hub");
+    const link = findSidebarRoute("skills");
     if (!(link instanceof HTMLElement)) {
       return;
     }
     link.click();
-    await this.waitForTourElement(".plugins-hub-tabs-row");
-    await this.waitForTourElement("#plugins-tab-skills, #plugins-tab-installed");
+    await this.waitForElement(() =>
+      globalThis.location.pathname.endsWith("/skills")
+        ? findPluginHubElement(".plugins-content-header")
+        : null,
+    );
   }
 
   private findSettingsRoute(route: string): Element | null {
@@ -432,6 +435,23 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   }
 
   private async activatePluginHubTab(tab: string): Promise<void> {
+    const standaloneRoute =
+      tab === "skills" ? "skills" : tab === "workshop" ? "skills/workshop" : "skills/hub";
+    if (tab === "skills" || tab === "workshop" || tab === "skill-hub") {
+      const link = findSidebarRoute(standaloneRoute);
+      if (!(link instanceof HTMLElement)) {
+        return;
+      }
+      link.click();
+      const expectedPath =
+        tab === "skills" ? "/skills" : tab === "workshop" ? "/skills/workshop" : "/skills/hub";
+      await this.waitForElement(() =>
+        globalThis.location.pathname.endsWith(expectedPath)
+          ? findPluginHubElement(".plugins-content-header")
+          : null,
+      );
+      return;
+    }
     let target = findPluginHubElement(`#plugins-tab-${tab}`);
     if (!target) {
       await this.openPluginsHub();
@@ -681,7 +701,6 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         <platformclaw-execution-settings
           class=${this.admin ? "" : "span-two"}
           data-tour="work-location"
-          .compactLabelKey=${"platformClaw.quickActions.vmServer"}
           .fetchImpl=${this.fetchImpl}
           .onUnauthenticated=${this.onUnauthenticated}
         ></platformclaw-execution-settings>

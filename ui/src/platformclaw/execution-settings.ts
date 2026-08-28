@@ -74,7 +74,6 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
 
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   onUnauthenticated: () => void = () => {};
-  compactLabelKey: string | null = null;
 
   connectedCallback(): void {
     this.unsubscribeLocale = i18n.subscribe(() => void this.renderLocale());
@@ -256,13 +255,11 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
 
   private render(): void {
     const settings = this.settings;
-    const badgeLabel = this.compactLabelKey
-      ? t(this.compactLabelKey)
-      : settings
-        ? settings.activeTarget === "assigned_vm"
-          ? t("platformClaw.execution.vm")
-          : t("platformClaw.execution.basic")
-        : t("platformClaw.execution.workLocation");
+    const badgeLabel = settings
+      ? settings.activeTarget === "assigned_vm"
+        ? t("platformClaw.execution.vm")
+        : t("platformClaw.execution.basic")
+      : t("platformClaw.execution.workLocation");
     const assignment = settings?.assignment;
     const canUseVm = assignment?.status === "ready" && settings?.credentialStatus === "current";
     const targetLabel =

@@ -88,6 +88,7 @@ type RenderMessageGroupOptions = {
   assistantAttachmentAuthToken?: string | null;
   resolveArtifactDownload?: ArtifactDownloadResolver;
   canvasPluginSurfaceUrl?: string | null;
+  recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   embedSandboxMode?: EmbedSandboxMode;
   allowExternalEmbedUrls?: boolean;
   contextWindow?: number | null;
@@ -154,6 +155,7 @@ function buildGroupedMessageRenderOptions(
     onRequestOpenImage: opts.onRequestOpenImage,
     onOpenImage: opts.onOpenImage,
     canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+    recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
     basePath: opts.basePath,
     localMediaPreviewRoots: opts.localMediaPreviewRoots,
     assistantAttachmentAuthToken: opts.assistantAttachmentAuthToken,

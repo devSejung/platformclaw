@@ -1,9 +1,21 @@
 // Core inline widget validation, byte stability, materialization, and retention.
 import { createHash } from "node:crypto";
-import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import {
+  access,
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SandboxFsBridge } from "../agents/sandbox/fs-bridge.types.js";
+import { createSandboxFsBridgeFromResolver } from "../agents/test-helpers/host-sandbox-fs-bridge.js";
 import type { InProcessGatewayCaller } from "../agents/tools/in-process-gateway.js";
 import { createTestBoardStore } from "../boards/board-store.test-support.js";
 import { createBoardHandlers } from "../gateway/server-methods/board.js";
@@ -17,6 +29,10 @@ import { buildWidgetDocument } from "./wrap.js";
 const WIDGET_CODE_MAX_CHARS = 262_144;
 const PINNED_WIDGET_MAX_UTF8_BYTES = 256 * 1024;
 const WIDGET_MAX_PER_SCOPE = 32;
+const PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
 const tempDirs: string[] = [];
 
 afterEach(async () => {
@@ -50,6 +66,9 @@ async function executeWidget(params: {
   presentation?: "card" | "full-bleed" | "frameless";
   after?: string;
   capabilities?: { netOrigins?: string[]; tools?: string[] };
+  widgetPath?: string;
+  workspaceDir?: string;
+  sandbox?: { root: string; bridge: SandboxFsBridge };
 }) {
   const tool = createShowWidgetTool({
     stateDir: params.stateDir,
@@ -57,10 +76,13 @@ async function executeWidget(params: {
     agentId: "main",
     agentSessionKey: params.agentSessionKey,
     callGateway: params.callGateway,
+    workspaceDir: params.workspaceDir,
+    sandbox: params.sandbox,
   });
   const result = await tool.execute("widget-call", {
     title: params.title ?? "Widget title",
     widget_code: params.widgetCode,
+    ...(params.widgetPath ? { widget_path: params.widgetPath } : {}),
     ...(params.pin !== undefined ? { pin: params.pin } : {}),
     ...(params.name ? { name: params.name } : {}),
     ...(params.tab ? { tab: params.tab } : {}),
@@ -100,11 +122,324 @@ describe("show_widget", () => {
 
     expect(tool.description).toContain("MUST call show_widget(widget_code)");
     expect(tool.description).toContain("downloadable HTML file, create the file");
-    expect(tool.description).toContain("read its actual contents");
+    expect(tool.description).toContain("read its actual unchanged contents");
     expect(tool.description).toContain("inline SVG, data:image/... URLs");
     expect(tool.description).toContain("document-created blob: URLs");
-    expect(tool.description).toContain("HTTP(S) image URLs are blocked in inline previews");
+    expect(tool.description).toContain("set widget_path to that file");
+    expect(tool.description).toContain("srcset and local/HTTP CSS url() assets are unsupported");
+    expect(tool.description).toContain("CSS data:, blob:, and fragment URLs remain supported");
+    expect(tool.description).toContain(
+      "Runtime-created local or relative image URLs cannot be resolved",
+    );
+    expect(tool.description).toContain("all HTTP(S) images are rejected with retry guidance");
     expect(tool.description).toContain("only approved pinned widgets may fetch");
+  });
+
+  it("embeds saved relative images for both inline preview and pinned dashboard", async () => {
+    const stateDir = await createStateDir();
+    const workspaceDir = await createStateDir();
+    const htmlDir = path.join(workspaceDir, "site");
+    await mkdir(path.join(htmlDir, "images"), { recursive: true });
+    const png = PIXEL_PNG;
+    const widgetCode = '<main><img data-proof="relative" src="images/pixel.png"></main>';
+    await writeFile(path.join(htmlDir, "index.html"), widgetCode);
+    await writeFile(path.join(htmlDir, "images", "pixel.png"), png);
+    let pinnedHtml: string | undefined;
+    const callGateway: InProcessGatewayCaller = async <T>(
+      _method: string,
+      params: Record<string, unknown>,
+    ) => {
+      pinnedHtml = (params.content as { html?: string } | undefined)?.html;
+      const request = params as { name: string; sessionKey: string };
+      return {
+        sessionKey: request.sessionKey,
+        revision: 1,
+        tabs: [{ tabId: "main", title: "Main", position: 0, chatDock: "right" }],
+        widgets: [
+          {
+            name: request.name,
+            tabId: "main",
+            contentKind: "html",
+            sizeW: 6,
+            sizeH: 4,
+            position: 0,
+            grantState: "none",
+            revision: 1,
+          },
+        ],
+        resolvedWidgetName: request.name,
+      } as T;
+    };
+
+    const result = await executeWidget({
+      stateDir,
+      workspaceDir,
+      widgetPath: "site/index.html",
+      widgetCode,
+      agentSessionKey: "agent:main:relative-images",
+      pin: true,
+      callGateway,
+    });
+    const inlineHtml = await readFile(
+      path.join(resolveCanvasDocumentDir(stateDir, result.viewId), "index.html"),
+      "utf8",
+    );
+    expect(inlineHtml).toContain(`src="data:image/png;base64,${png.toString("base64")}"`);
+    expect(pinnedHtml).toContain(`src="data:image/png;base64,${png.toString("base64")}"`);
+    expect(inlineHtml).not.toContain('src="images/pixel.png"');
+  });
+
+  it("uses the sandbox bridge and the HTML source directory for assigned-VM paths", async () => {
+    const stateDir = await createStateDir();
+    const workspaceDir = await createStateDir();
+    const htmlDir = path.join(workspaceDir, "nested");
+    await mkdir(htmlDir, { recursive: true });
+    const png = PIXEL_PNG;
+    const widgetCode = '<img src="pixel.png">';
+    await writeFile(path.join(htmlDir, "page.html"), widgetCode);
+    await writeFile(path.join(htmlDir, "pixel.png"), png);
+    const hostBridge = createSandboxFsBridgeFromResolver((filePath, cwd) => {
+      const remoteCwd = cwd?.startsWith("/workspace") ? cwd : "/workspace";
+      const containerPath = path.posix.resolve(remoteCwd, filePath);
+      if (containerPath !== "/workspace" && !containerPath.startsWith("/workspace/")) {
+        throw new Error("escapes assigned VM workspace");
+      }
+      const relativePath = path.posix.relative("/workspace", containerPath);
+      return {
+        hostPath: path.join(workspaceDir, ...relativePath.split("/").filter(Boolean)),
+        relativePath,
+        containerPath,
+      };
+    });
+    const readFileSpy = vi.fn((params: Parameters<typeof hostBridge.readFile>[0]) =>
+      hostBridge.readFile(params),
+    );
+    const bridge = { ...hostBridge, readFile: readFileSpy };
+
+    await executeWidget({
+      stateDir,
+      widgetPath: "/workspace/nested/page.html",
+      widgetCode,
+      sandbox: { root: "/workspace", bridge },
+    });
+
+    expect(readFileSpy).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        filePath: "/workspace/nested/page.html",
+        cwd: "/workspace",
+        maxBytes: 6 * 1024 * 1024,
+      }),
+    );
+    expect(readFileSpy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ filePath: "pixel.png", cwd: "/workspace/nested" }),
+    );
+  });
+
+  it("rejects unresolved, unsupported, stale, and unsafe workspace image inputs", async () => {
+    const stateDir = await createStateDir();
+    const workspaceDir = await createStateDir();
+    await writeFile(path.join(workspaceDir, "pixel.png"), Buffer.from("not-an-image"));
+    const relativeTool = createShowWidgetTool({ stateDir, workspaceDir });
+
+    await expect(
+      relativeTool.execute("missing-path", {
+        title: "Missing path",
+        widget_code: '<img src="pixel.png">',
+      }),
+    ).rejects.toThrow("Relative or local image references require widget_path");
+    await expect(
+      relativeTool.execute("remote", {
+        title: "Remote",
+        widget_code: '<img src="https://example.com/pixel.png">',
+      }),
+    ).rejects.toThrow("cannot fetch image URL");
+    await expect(
+      relativeTool.execute("css", {
+        title: "CSS",
+        widget_code: '<div style="background:url(pixel.png)"></div>',
+      }),
+    ).rejects.toThrow("does not resolve local or HTTP CSS url() assets");
+    await expect(
+      relativeTool.execute("inline-css", {
+        title: "Inline CSS",
+        widget_code:
+          '<style>.data{background:url(data:image/png;base64,cG5n)}.blob{background:url("blob:proof")}.fragment{filter:url(#blur)}</style>',
+      }),
+    ).resolves.toBeDefined();
+    await expect(
+      relativeTool.execute("srcset", {
+        title: "Srcset",
+        widget_code: '<img src="data:image/png;base64,cG5n" srcset="pixel.png 2x">',
+      }),
+    ).rejects.toThrow("does not support srcset workspace images");
+
+    const widgetCode = '<img src="pixel.png">';
+    await writeFile(path.join(workspaceDir, "page.html"), `${widgetCode}\n`);
+    await expect(
+      relativeTool.execute("stale", {
+        title: "Stale",
+        widget_code: widgetCode,
+        widget_path: "page.html",
+      }),
+    ).rejects.toThrow("must exactly match widget_code");
+    await writeFile(path.join(workspaceDir, "page.html"), widgetCode);
+    await expect(
+      relativeTool.execute("invalid-image", {
+        title: "Invalid",
+        widget_code: widgetCode,
+        widget_path: "page.html",
+      }),
+    ).rejects.toThrow("not a supported PNG, JPEG, WebP, or GIF");
+
+    const outsideDir = await createStateDir();
+    const outsideImage = path.join(outsideDir, "outside.png");
+    await writeFile(outsideImage, PIXEL_PNG);
+    const traversal = `<img src="../${path.basename(outsideDir)}/outside.png">`;
+    await writeFile(path.join(workspaceDir, "traversal.html"), traversal);
+    await expect(
+      relativeTool.execute("traversal", {
+        title: "Traversal",
+        widget_code: traversal,
+        widget_path: "traversal.html",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects hardlinked workspace images", async () => {
+    const stateDir = await createStateDir();
+    const workspaceDir = await createStateDir();
+    const original = path.join(workspaceDir, "original.png");
+    const hardlink = path.join(workspaceDir, "linked.png");
+    await writeFile(original, PIXEL_PNG);
+    await link(original, hardlink);
+    const widgetCode = '<img src="linked.png">';
+    await writeFile(path.join(workspaceDir, "page.html"), widgetCode);
+    const tool = createShowWidgetTool({ stateDir, workspaceDir });
+
+    await expect(
+      tool.execute("hardlink", {
+        title: "Hardlink",
+        widget_code: widgetCode,
+        widget_path: "page.html",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects symlinked and excessive workspace image sets", async () => {
+    const stateDir = await createStateDir();
+    const workspaceDir = await createStateDir();
+    const png = PIXEL_PNG;
+    const targetImage = path.join(workspaceDir, "target.png");
+    await writeFile(targetImage, png);
+    let symlinkCreated = true;
+    try {
+      await symlink(targetImage, path.join(workspaceDir, "linked.png"), "file");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EPERM") {
+        throw error;
+      }
+      symlinkCreated = false;
+    }
+    const tool = createShowWidgetTool({ stateDir, workspaceDir });
+
+    if (symlinkCreated) {
+      const symlinked = '<img src="linked.png">';
+      await writeFile(path.join(workspaceDir, "symlinked.html"), symlinked);
+      await expect(
+        tool.execute("symlink", {
+          title: "Symlink",
+          widget_code: symlinked,
+          widget_path: "symlinked.html",
+        }),
+      ).rejects.toThrow();
+    }
+
+    const excessive = Array.from(
+      { length: 17 },
+      (_, index) => `<img src="image-${index}.png">`,
+    ).join("");
+    await writeFile(path.join(workspaceDir, "excessive.html"), excessive);
+    await expect(
+      tool.execute("excessive", {
+        title: "Excessive",
+        widget_code: excessive,
+        widget_path: "excessive.html",
+      }),
+    ).rejects.toThrow("at most 16 local images");
+  });
+
+  it("rejects local images whose declared dimensions exceed the decode budget", async () => {
+    const stateDir = await createStateDir();
+    const workspaceDir = await createStateDir();
+    const oversizedPng = Buffer.from(PIXEL_PNG);
+    oversizedPng.writeUInt32BE(10_000, 16);
+    oversizedPng.writeUInt32BE(10_000, 20);
+    const widgetCode = '<img src="oversized.png">';
+    await writeFile(path.join(workspaceDir, "page.html"), widgetCode);
+    await writeFile(path.join(workspaceDir, "oversized.png"), oversizedPng);
+    const tool = createShowWidgetTool({ stateDir, workspaceDir });
+
+    await expect(
+      tool.execute("oversized-dimensions", {
+        title: "Oversized dimensions",
+        widget_code: widgetCode,
+        widget_path: "page.html",
+      }),
+    ).rejects.toThrow("dimensions are invalid or exceed 8192px / 25000000 pixels");
+  });
+
+  it("rejects local image bytes and embedded output beyond their separate budgets", async () => {
+    const stateDir = await createStateDir();
+    const workspaceDir = await createStateDir();
+    const widgetCode = '<img src="large.png">';
+    await writeFile(path.join(workspaceDir, "page.html"), widgetCode);
+    const tool = createShowWidgetTool({ stateDir, workspaceDir });
+    const overReadBudget = Buffer.alloc(2 * 1024 * 1024 + 1);
+    PIXEL_PNG.copy(overReadBudget);
+    await writeFile(path.join(workspaceDir, "large.png"), overReadBudget);
+    await expect(
+      tool.execute("oversized-bytes", {
+        title: "Oversized bytes",
+        widget_code: widgetCode,
+        widget_path: "page.html",
+      }),
+    ).rejects.toThrow(/2097152|exceed/iu);
+
+    const overOutputBudget = Buffer.alloc(200 * 1024);
+    PIXEL_PNG.copy(overOutputBudget);
+    await writeFile(path.join(workspaceDir, "large.png"), overOutputBudget);
+    await expect(
+      tool.execute("oversized-output", {
+        title: "Oversized output",
+        widget_code: widgetCode,
+        widget_path: "page.html",
+      }),
+    ).rejects.toThrow("widget_code after embedding local images; compress or resize images");
+  });
+
+  it("bounds aggregate decoded pixels across multiple local images", async () => {
+    const stateDir = await createStateDir();
+    const workspaceDir = await createStateDir();
+    const largeHeader = Buffer.from(PIXEL_PNG);
+    largeHeader.writeUInt32BE(4096, 16);
+    largeHeader.writeUInt32BE(2049, 20);
+    const widgetCode = '<img src="one.png"><img src="two.png">';
+    await writeFile(path.join(workspaceDir, "page.html"), widgetCode);
+    await Promise.all([
+      writeFile(path.join(workspaceDir, "one.png"), largeHeader),
+      writeFile(path.join(workspaceDir, "two.png"), largeHeader),
+    ]);
+    const tool = createShowWidgetTool({ stateDir, workspaceDir });
+
+    await expect(
+      tool.execute("aggregate-pixels", {
+        title: "Aggregate pixels",
+        widget_code: widgetCode,
+        widget_path: "page.html",
+      }),
+    ).rejects.toThrow("exceed 16777216 aggregate decoded pixels");
   });
 
   it("uses flat provider-safe enums for dashboard options", () => {
