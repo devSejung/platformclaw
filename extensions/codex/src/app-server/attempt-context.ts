@@ -165,6 +165,7 @@ export async function buildCodexWorkspaceBootstrapContext(params: {
   sessionKey: string;
   sessionAgentId: string;
   memoryToolNames: readonly string[];
+  availableToolNames: readonly string[];
   sandboxed?: boolean;
   nativeProjectInstructions?: boolean;
 }): Promise<CodexWorkspaceBootstrapContext> {
@@ -262,8 +263,8 @@ export async function buildCodexWorkspaceBootstrapContext(params: {
       memoryCollaborationInstructions: shouldInjectCodexOpenClawPromptContext(params.params)
         ? await renderCodexWorkspaceMemoryCollaborationInstructions({
             files: memoryReferenceFiles,
-            toolNames: params.memoryToolNames,
-            memoryToolRouted: memoryToolsAvailable,
+            memoryToolNames: params.memoryToolNames,
+            availableToolNames: params.availableToolNames,
             citationsMode: params.params.config?.memory?.citations,
             agentId: params.params.agentId ?? params.sessionAgentId,
             agentSessionKey: params.sessionKey,
@@ -829,25 +830,23 @@ function renderCodexWorkspaceMemoryReference(params: {
 
 async function renderCodexWorkspaceMemoryCollaborationInstructions(params: {
   files: EmbeddedContextFile[];
-  toolNames: readonly string[];
-  memoryToolRouted: boolean;
+  memoryToolNames: readonly string[];
+  availableToolNames: readonly string[];
   citationsMode?: Parameters<typeof buildMemorySystemPromptAddition>[0]["citationsMode"];
   agentId?: string;
   agentSessionKey?: string;
   sandboxed?: boolean;
 }): Promise<string | undefined> {
-  const memoryRecallInstructions = params.memoryToolRouted
-    ? await renderCodexMemoryRecallInstructions({
-        toolNames: params.toolNames,
-        citationsMode: params.citationsMode,
-        agentId: params.agentId,
-        agentSessionKey: params.agentSessionKey,
-        sandboxed: params.sandboxed,
-      })
-    : undefined;
+  const memoryRecallInstructions = await renderCodexMemoryRecallInstructions({
+    toolNames: params.availableToolNames,
+    citationsMode: params.citationsMode,
+    agentId: params.agentId,
+    agentSessionKey: params.agentSessionKey,
+    sandboxed: params.sandboxed,
+  });
   const memoryReferenceInstructions = renderCodexWorkspaceMemoryReference({
     files: params.files,
-    toolNames: params.toolNames,
+    toolNames: params.memoryToolNames,
   });
   const sections = [memoryRecallInstructions, memoryReferenceInstructions].filter(isNonEmptyString);
   return sections.length > 0 ? sections.join("\n\n") : undefined;
@@ -873,27 +872,38 @@ async function renderCodexMemoryRecallInstructions(params: {
     // Codex-side fallback text can mask plugin lifecycle bugs or misdescribe third-party memory tools.
     return undefined;
   }
-  const toolSearchBridge = renderCodexMemoryToolSearchBridge(params.toolNames);
+  const toolSearchBridge = renderCodexMemoryToolSearchBridge({
+    toolNames: params.toolNames,
+    memoryPrompt,
+  });
   return [memoryPrompt, toolSearchBridge].filter(isNonEmptyString).join("\n").trim();
 }
 
-function renderCodexMemoryToolSearchBridge(toolNames: readonly string[]): string | undefined {
-  const memoryToolNames = toolNames
+function renderCodexMemoryToolSearchBridge(params: {
+  toolNames: readonly string[];
+  memoryPrompt: string;
+}): string | undefined {
+  const promptTokens = new Set(params.memoryPrompt.split(/[^A-Za-z0-9_.-]+/u).filter(Boolean));
+  const guidedToolNames = params.toolNames
     .map((name) => normalizeCodexDynamicToolName(name))
-    .filter((name) => CODEX_MEMORY_TOOL_NAMES.has(name))
+    .filter((name) => promptTokens.has(name))
     .toSorted();
-  if (memoryToolNames.length === 0) {
-    return undefined;
-  }
-  return `Codex may expose ${memoryToolNames.join(" and ")} as deferred tools. When the memory guidance above calls for memory recall, use an already-loaded memory tool directly. If the needed memory tool is deferred and not currently callable, use \`tool_search\` to load it, then call that memory tool.`;
+  const namedTools =
+    guidedToolNames.length > 0 ? guidedToolNames.join(", ") : "the tools named above";
+  return `Codex may expose these memory-guidance tools as deferred: ${namedTools}. Before using a shell, CLI, or direct filesystem edit for a workflow described above, use the already-loaded named tool. If it is deferred and not currently callable, use \`tool_search\` to load the exact named tool, then call it. Do not infer storage paths as a fallback while that named tool is available.`;
 }
 
 /** Lists available memory tool names understood by Codex workspace memory routing. */
 export function getCodexWorkspaceMemoryToolNames(tools: readonly CodexDynamicToolSpec[]): string[] {
-  const availableToolNames = new Set(
-    flattenCodexDynamicToolFunctions(tools).map((tool) => normalizeCodexDynamicToolName(tool.name)),
-  );
+  const availableToolNames = new Set(getCodexAvailableToolNames(tools));
   return Array.from(CODEX_MEMORY_TOOL_NAMES).filter((name) => availableToolNames.has(name));
+}
+
+/** Lists every exact dynamic tool available to capability-owned prompt builders. */
+export function getCodexAvailableToolNames(tools: readonly CodexDynamicToolSpec[]): string[] {
+  return flattenCodexDynamicToolFunctions(tools)
+    .map((tool) => normalizeCodexDynamicToolName(tool.name))
+    .filter(Boolean);
 }
 
 function canRouteCodexWorkspaceMemoryThroughTools(params: {

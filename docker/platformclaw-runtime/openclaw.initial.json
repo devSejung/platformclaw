@@ -25,10 +25,30 @@
     }
   },
   "tools": {
+    "alsoAllow": [
+      "memory_search",
+      "memory_get",
+      "memory_write",
+      "wiki_apply",
+      "wiki_get",
+      "wiki_lint",
+      "wiki_search",
+      "wiki_status"
+    ],
     "deny": ["group:nodes"],
     "sandbox": {
       "tools": {
-        "alsoAllow": ["bundle-mcp"]
+        "alsoAllow": [
+          "bundle-mcp",
+          "memory_search",
+          "memory_get",
+          "memory_write",
+          "wiki_apply",
+          "wiki_get",
+          "wiki_lint",
+          "wiki_search",
+          "wiki_status"
+        ]
       }
     }
   },

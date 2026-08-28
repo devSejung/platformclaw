@@ -47,8 +47,14 @@ export type BrowserLoginResult =
   | { status: "provisioning-failed"; message: string };
 
 export type BrowserAuthenticationResult =
-  | Exclude<BrowserSessionResolution, { status: "revoked" | "expired" | "user-disabled" }>
-  | { status: "unauthenticated"; reason: "revoked" | "expired" | "user-disabled" };
+  | (Extract<BrowserSessionResolution, { status: "active" }> & {
+      binding: PersonalAgentBinding;
+    })
+  | Extract<BrowserSessionResolution, { status: "not-found" }>
+  | {
+      status: "unauthenticated";
+      reason: "revoked" | "expired" | "user-disabled" | "agent-unavailable";
+    };
 
 function defaultTokenFactory(): string {
   return randomBytes(32).toString("base64url");
@@ -274,7 +280,14 @@ export class BrowserAuthService {
         reason: result.status === "user-disabled" ? "user-disabled" : result.status,
       };
     }
-    return result;
+    if (result.status === "not-found") {
+      return result;
+    }
+    const binding = await this.options.store.getPersonalAgentBinding(result.user.id);
+    if (!binding) {
+      return { status: "unauthenticated", reason: "agent-unavailable" };
+    }
+    return { ...result, binding };
   }
 
   async logout(token: string): Promise<boolean> {

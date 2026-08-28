@@ -614,6 +614,45 @@ describe("memory tools", () => {
     expect(getMemorySearchManagerMockCalls()).toBe(1);
   });
 
+  it("keeps successful corpus results when an independent supplement fails", async () => {
+    registerMemoryCorpusSupplement("memory-wiki", {
+      search: async () => [
+        {
+          corpus: "wiki",
+          path: "entities/alpha.md",
+          title: "Alpha",
+          kind: "entity",
+          score: 1.1,
+          snippet: "Alpha wiki entry",
+        },
+      ],
+      get: async () => null,
+    });
+    registerMemoryCorpusSupplement("organization", {
+      search: async () => {
+        throw new Error("organization store unavailable");
+      },
+      get: async () => null,
+    });
+
+    const tool = createMemorySearchToolOrThrow();
+    const result = await tool.execute("call_all_one_supplement_failed", {
+      query: "alpha",
+      corpus: "all",
+    });
+    const details = result.details as {
+      results: Array<{ corpus: string; path: string }>;
+      warnings: string[];
+    };
+    expect(details.results.map((entry) => [entry.corpus, entry.path])).toEqual([
+      ["wiki", "entities/alpha.md"],
+      ["memory", "MEMORY.md"],
+    ]);
+    expect(details.warnings).toEqual([
+      'Memory corpus from plugin "organization" is temporarily unavailable.',
+    ]);
+  });
+
   it("does not cooldown primary memory when a corpus=all wiki supplement stalls", async () => {
     vi.useFakeTimers();
     try {

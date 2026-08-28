@@ -1241,11 +1241,14 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
           });
         }
       }
-      const indexIdentity = embeddingBootstrapKeywordOnly
-        ? this.refreshKeywordFallbackIndexIdentity()
-        : this.refreshIndexIdentityDirty({
-            providerKeyKnown: this.providerInitialized,
-          });
+      // lexicalOnly is allowed to search the FTS projection of either a semantic
+      // or FTS-only index without requiring the configured embedding identity.
+      const indexIdentity =
+        embeddingBootstrapKeywordOnly || opts?.lexicalOnly === true
+          ? this.refreshKeywordFallbackIndexIdentity()
+          : this.refreshIndexIdentityDirty({
+              providerKeyKnown: this.providerInitialized,
+            });
       if (indexIdentity.status !== "valid") {
         return [];
       }

@@ -210,10 +210,13 @@ export const translations: Readonly<Record<string, string>> = {
     "Search MEMORY.md, daily memory, and other indexed personal context.",
   "platformClaw.memory.overview.wikiDescription":
     "Browse structured pages that can be reviewed and shared with your organization.",
+  "platformClaw.memory.overview.organizationDescription":
+    "Share and review Personal Wiki knowledge for your Part, Group, Team, or the whole organization.",
   "platformClaw.memory.overview.dreamingDescription":
     "Review consolidation status, Dream Diary, and memory activity.",
   "platformClaw.memory.overview.openMemory": "Open Memory",
   "platformClaw.memory.overview.openWiki": "Open Personal Wiki",
+  "platformClaw.memory.overview.openOrganization": "Open organization sharing",
   "platformClaw.memory.overview.openDreaming": "Open Dreaming",
   "memoryPage.promotions.loading": "Loading organization knowledge…",
   "memoryPage.promotions.target": "Target scope",

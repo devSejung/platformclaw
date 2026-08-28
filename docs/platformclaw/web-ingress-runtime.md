@@ -62,14 +62,15 @@ other host-absolute paths. `sessions.files.set`, `sessions.files.reveal`, and
 `sessions.diff` remain blocked. This read-only Session Files surface is
 separate from the Agent page's bounded Core Files editor.
 
-The Settings > Memory > Memories view can search the personal Agent's
-long-term memory with `memory.search` and open a result with
-`agents.workspace.get`. The proxy pins both calls to the browser binding,
-removes session-transcript search hits, and permits file reads only for
-`MEMORY.md` and Markdown files below `memory/`. Gateway workspace roots and
-search-provider metadata are not projected. Selecting an assigned VM does not
-change this ownership: long-term memory remains in the Gateway-hosted personal
-Agent workspace, while VM project files stay behind the sandbox file tools.
+The Settings > Memory > Memory view searches personal long-term memory,
+Personal Wiki, and authorized organization knowledge together. Personal files
+open with `agents.workspace.get` and remain limited to `MEMORY.md` and Markdown
+files below `memory/`; Wiki pages use `wiki.get`. Organization results use
+virtual `organization/<scope>/<page-id>` paths and the local
+`platformclaw.memory.get` method, which repeats membership authorization before
+returning bounded text. Gateway workspace roots and search-provider metadata
+are not projected. Selecting an assigned VM does not change this ownership:
+memory stays Gateway-hosted while VM project files remain behind sandbox tools.
 
 The Settings > Memory > Dreams view uses the bundled personal Memory Wiki. The
 deployment keeps `memory-wiki` in agent-scoped bridge mode and exposes bounded

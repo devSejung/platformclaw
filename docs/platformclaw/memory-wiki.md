@@ -106,17 +106,20 @@ Agent context.
 Users access the feature through **Settings > Memory**. PlatformClaw groups the
 native surfaces into one hub without merging their data models:
 
-- **Memory** searches the personal Agent's durable recall, including
-  `MEMORY.md` and daily memory files.
+- **Memory** searches the personal Agent's durable recall, Personal Wiki, and
+  every organization scope the employee can currently read. Personal, Wiki,
+  and organization results are labeled and open in place.
 - **Personal Wiki** opens compiled Wiki pages and imported insights.
 - **Dreaming** contains Overview, Dream Diary, and Activity views for scheduled
   memory consolidation.
 - **Organization** contains promotion, review, and shared-knowledge lifecycle.
 
 The hub keeps only one surface open at a time, so Dreaming and organization
-administration do not create one unbounded Settings page. `memory.search`
-remains personal long-term-memory search; Wiki search/page reads remain a
-separate native corpus until PR2.
+administration do not create one unbounded Settings page. The browser combines
+the bounded `memory.search` and `wiki.search` reads in one user-facing search.
+Personal files still open through `agents.workspace.get`, Wiki pages through
+`wiki.get`, and organization pages through the local, Agent-pinned
+`platformclaw.memory.get` BFF method.
 
 ### PR1 acceptance
 
@@ -174,10 +177,12 @@ The private `platformclaw-org-memory` plugin adapts the Control Plane read model
 to the generic memory corpus registry. It runs with the Gateway on the Basic
 server, so Basic and assigned-VM execution targets see the same authorized
 results. Models use `memory_search` with `corpus=all` or `corpus=wiki`.
-Employee browsers use **Settings > Memory > Memories**; the BFF pins the Agent,
-combines personal and organization results, and returns only virtual
+Employee browsers use **Settings > Memory > Memory**; the BFF pins the Agent,
+combines personal, Personal Wiki, and organization results, and returns only virtual
 `organization/<scope>/<page-id>` paths plus a display scope. Host paths,
 internal provenance, scope IDs, and approval identities never reach the UI.
+Opening an organization result reauthorizes the virtual path against current
+membership before returning bounded text; it never reads a workspace path.
 
 Deployment owns the plugin enablement. Operators need no new environment
 variable: the plugin reuses the existing owner-only Control Plane handoff token

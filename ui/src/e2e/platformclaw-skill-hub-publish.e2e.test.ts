@@ -74,6 +74,7 @@ async function installWorkspaceRoutes(page: Page) {
           department: "Platform Lab",
           globalRole: "member",
         },
+        agent: { agentId: "person_one", state: "active" },
         session: {
           idleExpiresAt: Date.now() + 60_000,
           absoluteExpiresAt: Date.now() + 120_000,

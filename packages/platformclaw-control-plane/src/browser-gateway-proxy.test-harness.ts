@@ -6,6 +6,7 @@ import type {
   ControlPlaneAuditWriter,
   EnterprisePrincipal,
   OrganizationMemorySearchHit,
+  OrganizationMemoryDocument,
   OrganizationMemoryLifecycle,
 } from "./contracts.js";
 import { InMemoryControlPlaneStore } from "./memory-store.js";
@@ -42,6 +43,12 @@ export async function setupBrowserGatewayProxyTest(
       query: string;
       maxResults?: number;
     }) => Promise<OrganizationMemorySearchHit[]>;
+    getOrganizationMemory?: (params: {
+      agentId: string;
+      path: string;
+      fromLine?: number;
+      lineCount?: number;
+    }) => Promise<OrganizationMemoryDocument | null>;
     organizationMemoryLifecycle?: OrganizationMemoryLifecycle;
   } = {},
 ) {
@@ -112,6 +119,9 @@ export async function setupBrowserGatewayProxyTest(
     resolveAgentIdFromSessionKey: sessionAgentId,
     ...(options.searchOrganizationMemory
       ? { searchOrganizationMemory: options.searchOrganizationMemory }
+      : {}),
+    ...(options.getOrganizationMemory
+      ? { getOrganizationMemory: options.getOrganizationMemory }
       : {}),
     ...(options.organizationMemoryLifecycle
       ? { organizationMemoryLifecycle: options.organizationMemoryLifecycle }

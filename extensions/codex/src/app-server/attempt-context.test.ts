@@ -16,6 +16,8 @@ import {
   buildCodexWatchedSessionsContext,
   buildCodexWorkspaceBootstrapContext,
   buildCodexSystemPromptReport,
+  getCodexAvailableToolNames,
+  getCodexWorkspaceMemoryToolNames,
   readContextEngineThreadBootstrapProjection,
   readMirroredSessionHistoryMessages,
   resolveContextEngineBootstrapProjectionDecision,
@@ -140,6 +142,7 @@ describe("Codex app-server attempt context", () => {
       sessionKey: "agent:main:session-1",
       sessionAgentId: "main",
       memoryToolNames: ["memory_search", "memory_get"],
+      availableToolNames: ["memory_search", "memory_get"],
     });
 
     expect(context.memoryReferenceFiles).toEqual([]);
@@ -164,6 +167,7 @@ describe("Codex app-server attempt context", () => {
         sessionKey: "agent:main:session-1",
         sessionAgentId: "main",
         memoryToolNames: ["memory_search", "memory_get", "memory_write"],
+        availableToolNames: ["memory_search", "memory_get", "memory_write"],
         sandboxed: true,
         nativeProjectInstructions: true,
       });
@@ -213,6 +217,7 @@ describe("Codex app-server attempt context", () => {
         sessionKey: "agent:marketing-agent:session-1",
         sessionAgentId: "marketing-agent",
         memoryToolNames: ["memory_search", "memory_get"],
+        availableToolNames: ["memory_search", "memory_get"],
         sandboxed: true,
       });
 
@@ -224,6 +229,72 @@ describe("Codex app-server attempt context", () => {
       });
       expect(context.memoryCollaborationInstructions).toContain(
         "agent=marketing-agent session=agent:marketing-agent:session-1",
+      );
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("routes deferred wiki tools into memory collaboration guidance", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-wiki-memory-"));
+    registerMemoryCapability("memory-wiki-test", {
+      promptBuilder: ({ availableTools }) =>
+        availableTools.has("wiki_search") && availableTools.has("wiki_apply")
+          ? ["## Compiled Wiki", "Use `wiki_search` before `wiki_apply`.", ""]
+          : [],
+    });
+    const dynamicTools: CodexDynamicToolSpec[] = [
+      {
+        type: "namespace",
+        name: "openclaw",
+        description: "",
+        tools: [
+          {
+            type: "function",
+            name: "wiki_search",
+            description: "Search wiki",
+            inputSchema: { type: "object", properties: {} },
+            deferLoading: true,
+          },
+          {
+            type: "function",
+            name: "wiki_apply",
+            description: "Update wiki",
+            inputSchema: { type: "object", properties: {} },
+            deferLoading: true,
+          },
+        ],
+      },
+    ];
+    const memoryToolNames = getCodexWorkspaceMemoryToolNames(dynamicTools);
+    const availableToolNames = getCodexAvailableToolNames(dynamicTools);
+
+    try {
+      const context = await buildCodexWorkspaceBootstrapContext({
+        params: {
+          sessionId: "session-1",
+          config: { agents: { defaults: { workspace: workspaceDir } } },
+        } as EmbeddedRunAttemptParams,
+        resolvedWorkspace: workspaceDir,
+        effectiveWorkspace: workspaceDir,
+        sessionKey: "agent:main:session-1",
+        sessionAgentId: "main",
+        memoryToolNames,
+        availableToolNames,
+      });
+
+      expect(memoryToolNames).toEqual([]);
+      expect(availableToolNames).toEqual(["wiki_search", "wiki_apply"]);
+      expect(context.memoryToolRouted).toBe(false);
+      expect(context.memoryCollaborationInstructions).toContain("## Compiled Wiki");
+      expect(context.memoryCollaborationInstructions).toContain(
+        "Codex may expose these memory-guidance tools as deferred: wiki_apply, wiki_search.",
+      );
+      expect(context.memoryCollaborationInstructions).toContain(
+        "Before using a shell, CLI, or direct filesystem edit",
+      );
+      expect(context.memoryCollaborationInstructions).toContain(
+        "use `tool_search` to load the exact named tool",
       );
     } finally {
       await fs.rm(workspaceDir, { recursive: true, force: true });

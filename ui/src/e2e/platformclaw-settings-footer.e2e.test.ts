@@ -69,6 +69,7 @@ function session(globalRole: "member" | "admin") {
       department: "Platform Lab",
       globalRole,
     },
+    agent: { agentId: "person_one", state: "active" },
     session: {
       idleExpiresAt: Date.now() + 60_000,
       absoluteExpiresAt: Date.now() + 120_000,

@@ -5,7 +5,7 @@ import { createOrganizationMemorySupplement } from "./src/supplement.js";
 export default definePluginEntry({
   id: "platformclaw-org-memory",
   name: "PlatformClaw Organization Memory",
-  description: "Authorized Group, Part, and Global memory corpus for personal agents.",
+  description: "Authorized Team, Group, Part, and Global memory corpus for personal agents.",
   register(api) {
     if (api.registrationMode !== "full") {
       return;
@@ -18,7 +18,7 @@ export default definePluginEntry({
     api.registerMemoryPromptSupplement(({ availableTools }) =>
       availableTools.has("memory_search")
         ? [
-            "Authorized PlatformClaw organizational memory is available with memory_search corpus=all or corpus=wiki. Global results are company-wide; Group and Part results are membership-scoped.",
+            "Authorized PlatformClaw organizational memory is available with memory_search corpus=all or corpus=wiki. Global results are company-wide; Team, Group, and Part results are membership-scoped.",
           ]
         : [],
     );

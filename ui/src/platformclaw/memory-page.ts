@@ -82,6 +82,16 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
               </button>`,
             })}
             ${renderSettingsRow({
+              title: t("platformClaw.memory.tabs.organization"),
+              description: t("platformClaw.memory.overview.organizationDescription"),
+              control: html`<button
+                class="btn btn--sm"
+                @click=${() => this.selectTab("organization")}
+              >
+                ${t("platformClaw.memory.overview.openOrganization")}
+              </button>`,
+            })}
+            ${renderSettingsRow({
               title: "Dreaming",
               description: t("platformClaw.memory.overview.dreamingDescription"),
               control: html`<button class="btn btn--sm" @click=${() => this.selectTab("dreaming")}>
@@ -106,6 +116,9 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           .client=${gateway.client}
           .connected=${gateway.phase === "connected"}
           .methodAdvertised=${isGatewayMethodAdvertised(gateway, "memory.search") === true}
+          .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search") === true}
+          .detailAdvertised=${isGatewayMethodAdvertised(gateway, "platformclaw.memory.get") ===
+          true}
           .agentId=${this.agentId}
         ></openclaw-memory-memories>`;
       case "wiki":

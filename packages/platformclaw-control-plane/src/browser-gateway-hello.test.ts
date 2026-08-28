@@ -99,6 +99,7 @@ describe("projectPlatformClawBrowserHello", () => {
         "commands.list",
         "platformclaw.memory.claim.retire",
         "platformclaw.memory.lifecycle",
+        "platformclaw.memory.get",
         "platformclaw.memory.promotion.decide",
         "platformclaw.memory.promotion.submit",
         "sessions.companion.ask",

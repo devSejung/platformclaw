@@ -31,6 +31,7 @@ import {
   buildCodexOpenClawPromptContext,
   buildCodexSystemPromptReport,
   buildCodexWorkspaceBootstrapContext,
+  getCodexAvailableToolNames,
   getCodexWorkspaceMemoryToolNames,
   prependCodexOpenClawPromptContext,
 } from "./attempt-context.js";
@@ -421,6 +422,7 @@ async function buildCodexTurnContextForTest(
   });
   const dynamicTools = toolBridge.availableSpecs;
   const memoryToolNames = getCodexWorkspaceMemoryToolNames(dynamicTools);
+  const availableToolNames = getCodexAvailableToolNames(dynamicTools);
   const workspaceBootstrapContext = await buildCodexWorkspaceBootstrapContext({
     params,
     resolvedWorkspace: workspaceDir,
@@ -428,6 +430,7 @@ async function buildCodexTurnContextForTest(
     sessionKey: params.sessionKey ?? params.sessionId,
     sessionAgentId,
     memoryToolNames,
+    availableToolNames,
   });
   const threadDeveloperInstructions = testing.buildDeveloperInstructions(params, { dynamicTools });
   const openClawPromptContext = buildCodexOpenClawPromptContext({
@@ -3100,10 +3103,10 @@ describe("runCodexAppServerAttempt", () => {
     expect(collaborationInstructions).toContain("memory_search");
     expect(collaborationInstructions).toContain("memory_get");
     expect(collaborationInstructions).toContain(
-      "When the memory guidance above calls for memory recall, use an already-loaded memory tool directly.",
+      "Before using a shell, CLI, or direct filesystem edit for a workflow described above, use the already-loaded named tool.",
     );
     expect(collaborationInstructions).toContain(
-      "If the needed memory tool is deferred and not currently callable, use `tool_search` to load it, then call that memory tool.",
+      "If it is deferred and not currently callable, use `tool_search` to load the exact named tool, then call it.",
     );
     expect(collaborationInstructions).not.toContain(memorySummary);
     expect(inputText).not.toContain("OpenClaw runtime context for this turn:");

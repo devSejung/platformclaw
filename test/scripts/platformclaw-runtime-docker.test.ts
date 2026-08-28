@@ -5,7 +5,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { reconcileManagedConfig } from "../../docker/platformclaw-runtime/reconcile-managed-config.mjs";
-import { validateManagedConfig } from "../../docker/platformclaw-runtime/validate-managed-config.mjs";
+import {
+  REQUIRED_MANAGED_SANDBOX_TOOL_IDS,
+  validateManagedConfig,
+} from "../../docker/platformclaw-runtime/validate-managed-config.mjs";
 import { mainLanes } from "../../scripts/lib/docker-e2e-scenarios.mjs";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
@@ -440,7 +443,20 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
           },
         },
       },
-      tools: { deny: ["group:nodes"], sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
+      tools: {
+        alsoAllow: [
+          "memory_search",
+          "memory_get",
+          "memory_write",
+          "wiki_apply",
+          "wiki_get",
+          "wiki_lint",
+          "wiki_search",
+          "wiki_status",
+        ],
+        deny: ["group:nodes"],
+        sandbox: { tools: { alsoAllow: REQUIRED_MANAGED_SANDBOX_TOOL_IDS } },
+      },
       plugins: {
         slots: { memory: "memory-core" },
         entries: {
@@ -485,13 +501,20 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
         };
         entries?: Record<string, unknown>;
       };
-      tools: { deny?: string[]; sandbox: { tools: { alsoAllow: string[] } } };
+      tools: {
+        alsoAllow?: string[];
+        deny?: string[];
+        sandbox: { tools: { alsoAllow: string[] } };
+      };
     };
     source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:old";
     source.agents.defaults.model = { primary: "openai/gpt-5.4" };
     source.agents.entries = { person_one: { name: "Person One" } };
 
-    source.tools = { sandbox: { tools: { alsoAllow: ["memory_search"] } } };
+    source.tools = {
+      alsoAllow: ["operator-tool"],
+      sandbox: { tools: { alsoAllow: ["memory_search"] } },
+    };
 
     const result = reconcileManagedConfig(source, "platformclaw-sandbox:new");
 
@@ -499,7 +522,21 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(result.config.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:new");
     expect(result.config.agents.defaults.model).toEqual({ primary: "openai/gpt-5.4" });
     expect(result.config.agents.entries).toEqual(source.agents.entries);
-    expect(result.config.tools.sandbox.tools.alsoAllow).toEqual(["memory_search", "bundle-mcp"]);
+    expect(result.config.tools.sandbox.tools.alsoAllow).toEqual([
+      "memory_search",
+      ...REQUIRED_MANAGED_SANDBOX_TOOL_IDS.filter((toolId) => toolId !== "memory_search"),
+    ]);
+    expect(result.config.tools.alsoAllow).toEqual([
+      "operator-tool",
+      "memory_search",
+      "memory_get",
+      "memory_write",
+      "wiki_apply",
+      "wiki_get",
+      "wiki_lint",
+      "wiki_search",
+      "wiki_status",
+    ]);
     expect(result.config.tools.deny).toEqual(["group:nodes"]);
     expect(source.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:old");
   });
@@ -756,7 +793,9 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
 
     expect(result.changed).toBe(true);
-    expect(result.config.tools.sandbox.tools).toEqual({ allow: ["read", "bundle-mcp"] });
+    expect(result.config.tools.sandbox.tools).toEqual({
+      allow: ["read", ...REQUIRED_MANAGED_SANDBOX_TOOL_IDS],
+    });
     expect(reconcileManagedConfig(result.config, "platformclaw-sandbox:test").changed).toBe(false);
   });
 
@@ -791,7 +830,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
 
     expect(result.changed).toBe(true);
     expect(result.config).toMatchObject({
-      tools: { sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
+      tools: { sandbox: { tools: { alsoAllow: REQUIRED_MANAGED_SANDBOX_TOOL_IDS } } },
     });
   });
 
@@ -814,7 +853,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(result.changed).toBe(true);
     expect(result.config.agents.entries).toMatchObject({
       person_one: {
-        tools: { sandbox: { tools: { alsoAllow: ["bundle-mcp"] } } },
+        tools: { sandbox: { tools: { alsoAllow: REQUIRED_MANAGED_SANDBOX_TOOL_IDS } } },
       },
     });
     expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();

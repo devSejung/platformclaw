@@ -167,6 +167,7 @@ export async function searchMemoryCorpusSupplements(params: {
   agentSessionKey?: string;
   sandboxed?: boolean;
   corpus?: "memory" | "wiki" | "all" | "sessions";
+  onSupplementError?: (pluginId: string) => void;
 }): Promise<MemoryCorpusSearchResult[]> {
   if (params.corpus === "memory" || params.corpus === "sessions") {
     return [];
@@ -175,11 +176,22 @@ export async function searchMemoryCorpusSupplements(params: {
   if (supplements.length === 0) {
     return [];
   }
-  const results = (
-    await Promise.all(
-      supplements.map(async (registration) => await registration.supplement.search(params)),
-    )
-  ).flat();
+  // Supplements are independent corpora. One optional owner being unavailable must
+  // not erase successful personal or organization memory from sibling owners.
+  const { onSupplementError, ...searchParams } = params;
+  const settled = await Promise.allSettled(
+    supplements.map(async (registration) => await registration.supplement.search(searchParams)),
+  );
+  const results = settled.flatMap((result, index) => {
+    if (result.status === "fulfilled") {
+      return result.value;
+    }
+    const pluginId = supplements[index]?.pluginId;
+    if (pluginId) {
+      onSupplementError?.(pluginId);
+    }
+    return [];
+  });
   return results
     .toSorted((left, right) => {
       if (left.score !== right.score) {

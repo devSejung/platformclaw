@@ -323,6 +323,10 @@ export async function handlePlatformClawBrowserAuthRequest(
               department: result.user.department,
               globalRole: result.user.globalRole,
             },
+            agent: {
+              agentId: result.binding.agentId,
+              state: result.binding.state,
+            },
             session: {
               idleExpiresAt: result.session.idleExpiresAt,
               absoluteExpiresAt: result.session.absoluteExpiresAt,

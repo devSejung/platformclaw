@@ -5,6 +5,7 @@ import type {
 } from "./browser-gateway-contracts.js";
 import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
 import { requestBrowserOrganizationMemoryLifecycle } from "./browser-gateway-memory-lifecycle.js";
+import { requestBrowserOrganizationMemoryGet } from "./browser-gateway-memory.js";
 import { projectBrowserSelfUser } from "./browser-gateway-self-service-projections.js";
 
 type JsonObject = Record<string, unknown>;
@@ -24,6 +25,15 @@ export async function requestBrowserGatewayLocal(
     return { handled: true, result: { subscribed: true } };
   }
   try {
+    const memory = await requestBrowserOrganizationMemoryGet({
+      method,
+      request,
+      agentId: access.binding.agentId,
+      get: options.getOrganizationMemory?.bind(options),
+    });
+    if (memory.handled) {
+      return memory;
+    }
     return await requestBrowserOrganizationMemoryLifecycle({
       lifecycle: options.organizationMemoryLifecycle,
       agentId: access.binding.agentId,

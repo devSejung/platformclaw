@@ -3,6 +3,7 @@ import type {
   ControlPlaneAuditWriter,
   ControlPlaneStore,
   OrganizationMemoryLifecycle,
+  OrganizationMemoryDocument,
   OrganizationMemorySearchHit,
   PersonalAgentBinding,
   PlatformUser,
@@ -72,6 +73,12 @@ export type BrowserGatewayProxyOptions = {
     query: string;
     maxResults?: number;
   }): Promise<OrganizationMemorySearchHit[]>;
+  getOrganizationMemory?(params: {
+    agentId: string;
+    path: string;
+    fromLine?: number;
+    lineCount?: number;
+  }): Promise<OrganizationMemoryDocument | null>;
   organizationMemoryLifecycle?: OrganizationMemoryLifecycle;
   now?: () => number;
 };

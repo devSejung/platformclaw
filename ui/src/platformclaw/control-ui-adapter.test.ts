@@ -41,6 +41,7 @@ describe("PlatformClawControlUiAdapter", () => {
           department: "Platform",
           globalRole: "member",
         },
+        agent: { agentId: "person_one", state: "active" },
       }),
     );
     const adapter = createPlatformClawControlUiAdapter({
@@ -57,6 +58,7 @@ describe("PlatformClawControlUiAdapter", () => {
     const identity = await adapter!.loadSession();
     expect(identity).toEqual({
       accountId: "person.one",
+      agentId: "person_one",
       displayName: "Jung Seungon",
       department: "Platform",
       globalRole: "member",
@@ -132,6 +134,7 @@ describe("PlatformClawControlUiAdapter", () => {
             department: "Lab",
             globalRole: "member",
           },
+          agent: { agentId: "person_one", state: "active" },
         }),
       )
       .mockResolvedValueOnce(jsonResponse({ authenticated: false }));
@@ -165,6 +168,7 @@ describe("PlatformClawControlUiAdapter", () => {
     const options = adapter.applicationOptions(
       {
         accountId: "person.one",
+        agentId: "assigned-personal",
         displayName: "Person One",
         department: "Platform",
         globalRole: "member",
@@ -211,15 +215,16 @@ describe("PlatformClawControlUiAdapter", () => {
         } as never,
       ),
     ).resolves.toEqual({ agentId: "assigned-personal", initialTab: "dreaming" });
-    expect(ensureList).toHaveBeenCalledOnce();
+    expect(ensureList).not.toHaveBeenCalled();
   });
 
-  it("renders a visible unavailable state when no personal agent is assigned", async () => {
+  it("uses the authenticated personal binding before the Gateway agent list loads", async () => {
     installDescriptor();
     const adapter = createPlatformClawControlUiAdapter()!;
     const options = adapter.applicationOptions(
       {
         accountId: "person.one",
+        agentId: "assigned-personal",
         displayName: "Person One",
         department: "Platform",
         globalRole: "member",
@@ -237,14 +242,12 @@ describe("PlatformClawControlUiAdapter", () => {
       } as never,
       { location: { pathname: "/settings/memory" } } as never,
     );
-    expect(routeData).toEqual({ agentId: null, initialTab: "overview" });
+    expect(routeData).toEqual({ agentId: "assigned-personal", initialTab: "overview" });
 
     const component = await options.routeOverrides?.memory?.component?.();
     const container = document.createElement("div");
     render(component?.render(routeData), container);
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "No personal agent is assigned",
-    );
+    expect(container.querySelector("platformclaw-memory-page")).not.toBeNull();
   });
 
   it("stops the app and redirects even when logout fails", async () => {
@@ -308,6 +311,7 @@ describe("PlatformClawControlUiAdapter", () => {
     const adminOptions = adapter.applicationOptions(
       {
         accountId: "admin.user",
+        agentId: "admin_user",
         displayName: "Administrator",
         department: "Platform",
         globalRole: "admin",
@@ -365,6 +369,7 @@ describe("PlatformClawControlUiAdapter", () => {
     const memberOptions = adapter.applicationOptions(
       {
         accountId: "person.one",
+        agentId: "person_one",
         displayName: "Person One",
         department: "Platform",
         globalRole: "member",

@@ -11,6 +11,7 @@ import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "../../platformclaw/i18n.ts";
 import type { PersonalWikiSourceSelected } from "./memory-promotion-source-picker.ts";
+import "../../components/modal-dialog.ts";
 import "./memory-promotion-source-picker.ts";
 
 class MemoryPromotionsElement extends OpenClawLightDomElement {
@@ -31,6 +32,10 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   @state() private proposedText = "";
   @state() private evidence = "";
   @state() private reason = "";
+  @state() private pendingDecision: {
+    request: OrganizationMemoryPromotionRequest;
+    decision: "approve" | "reject";
+  } | null = null;
   private loadRequest: object | null = null;
 
   override connectedCallback() {
@@ -180,26 +185,83 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     this.targetScopeId = "";
   }
 
-  private async decide(
-    request: OrganizationMemoryPromotionRequest,
-    decision: "approve" | "reject",
-  ) {
-    const reason = window.prompt(t("memoryPage.promotions.decisionReason"));
-    if (!reason || !this.client) {
+  private decide(request: OrganizationMemoryPromotionRequest, decision: "approve" | "reject") {
+    this.pendingDecision = { request, decision };
+  }
+
+  private async submitDecision(reason: string) {
+    const pending = this.pendingDecision;
+    if (!pending || !reason || !this.client) {
       return;
     }
     this.loading = true;
     try {
       await this.client.request("platformclaw.memory.promotion.decide", {
-        requestId: request.id,
-        decision,
+        requestId: pending.request.id,
+        decision: pending.decision,
         reason,
       });
+      this.pendingDecision = null;
       await this.load();
     } catch (error) {
       this.error = formatErrorMessage(error, { redact: redactToolDetail });
       this.loading = false;
     }
+  }
+
+  private renderDecisionDialog() {
+    const pending = this.pendingDecision;
+    if (!pending) {
+      return nothing;
+    }
+    const label = t(
+      pending.decision === "approve"
+        ? "memoryPage.promotions.approve"
+        : "memoryPage.promotions.reject",
+    );
+    return html`<openclaw-modal-dialog
+      label=${label}
+      description=${pending.request.targetScopeName}
+      @modal-cancel=${() => {
+        if (!this.loading) {
+          this.pendingDecision = null;
+        }
+      }}
+    >
+      <form
+        class="exec-approval-card"
+        @submit=${(event: SubmitEvent) => {
+          event.preventDefault();
+          const value = new FormData(event.currentTarget as HTMLFormElement).get("reason");
+          const reason = typeof value === "string" ? value.trim() : "";
+          if (reason) {
+            void this.submitDecision(reason);
+          }
+        }}
+      >
+        <div class="exec-approval-header">
+          <div>
+            <div class="exec-approval-title">${label}</div>
+            <div class="exec-approval-sub">${pending.request.targetScopeName}</div>
+          </div>
+        </div>
+        <label class="field">
+          <span>${t("memoryPage.promotions.decisionReason")}</span>
+          <textarea name="reason" maxlength="500" required></textarea>
+        </label>
+        <div class="exec-approval-actions">
+          <button class="btn primary" type="submit" ?disabled=${this.loading}>${label}</button>
+          <button
+            class="btn"
+            type="button"
+            ?disabled=${this.loading}
+            @click=${() => (this.pendingDecision = null)}
+          >
+            ${t("common.cancel")}
+          </button>
+        </div>
+      </form>
+    </openclaw-modal-dialog>`;
   }
 
   private async retire(claimId: string, purge: boolean) {
@@ -273,13 +335,10 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       </span>
       ${review && request.canReview
         ? html`<span class="settings-row__control">
-            <button
-              class="btn btn--sm primary"
-              @click=${() => void this.decide(request, "approve")}
-            >
+            <button class="btn btn--sm primary" @click=${() => this.decide(request, "approve")}>
               ${t("memoryPage.promotions.approve")}
             </button>
-            <button class="btn btn--sm" @click=${() => void this.decide(request, "reject")}>
+            <button class="btn btn--sm" @click=${() => this.decide(request, "reject")}>
               ${t("memoryPage.promotions.reject")}
             </button>
           </span>`
@@ -488,6 +547,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
             </button>`
           : nothing}
       </section>
+      ${this.renderDecisionDialog()}
     </div>`;
   }
 }

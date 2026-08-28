@@ -11,6 +11,7 @@ import {
   buildCodexOpenClawPromptContext,
   buildCodexWatchedSessionsContext,
   buildCodexWorkspaceBootstrapContext,
+  getCodexAvailableToolNames,
   getCodexWorkspaceMemoryToolNames,
   readMirroredSessionHistoryMessages,
   renderCodexSkillsCollaborationInstructions,
@@ -134,6 +135,7 @@ export async function prepareCodexAttemptContext(
       (await readMirroredSessionHistoryMessages(activeTranscriptTarget)) ?? historyState.messages;
   }
   const memoryToolNames = getCodexWorkspaceMemoryToolNames(toolBridge.availableSpecs);
+  const availableToolNames = getCodexAvailableToolNames(toolBridge.availableSpecs);
   const workspaceBootstrapContext = await buildCodexWorkspaceBootstrapContext({
     params: runtimeParams,
     resolvedWorkspace,
@@ -141,6 +143,7 @@ export async function prepareCodexAttemptContext(
     sessionKey: contextSessionKey,
     sessionAgentId,
     memoryToolNames,
+    availableToolNames,
     sandboxed: sandbox?.enabled === true,
     nativeProjectInstructions: sandbox?.backend?.capabilities?.separateAgentWorkspace === true,
   });
