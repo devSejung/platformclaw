@@ -9,7 +9,7 @@ import {
 import controlUiViteConfig from "./vite.config.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DEFAULT_PLATFORMCLAW_BACKEND_ORIGIN = "http://127.0.0.1:19001";
+export const DEFAULT_PLATFORMCLAW_BACKEND_ORIGIN = "http://127.0.0.1:19001";
 const PLATFORMCLAW_DEV_PROXY_PATHS = [
   "/platformclaw/api",
   "/platformclaw/gateway",
