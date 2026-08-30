@@ -11,16 +11,13 @@ describe("PlatformClaw Vite dev config", () => {
     expect(resolvePlatformClawDevBackendOrigin(undefined)).toBe("http://127.0.0.1:19001");
   });
 
-  it("accepts a team-provided HTTP(S) backend origin and rejects URL data", () => {
+  it("accepts a team-provided HTTP(S) backend origin and rejects URL paths", () => {
     expect(resolvePlatformClawDevBackendOrigin("https://control.example.test:9443/")).toBe(
       "https://control.example.test:9443",
     );
-    const originWithCredentials = new URL("https://control.example.test:9443");
-    originWithCredentials.username = "user";
-    originWithCredentials.password = "value";
-    expect(() => resolvePlatformClawDevBackendOrigin(originWithCredentials.toString())).toThrow(
-      "PLATFORMCLAW_DEV_BACKEND_URL must be an HTTP(S) origin",
-    );
+    expect(() =>
+      resolvePlatformClawDevBackendOrigin("https://control.example.test:9443/path"),
+    ).toThrow("PLATFORMCLAW_DEV_BACKEND_URL must be an HTTP(S) origin");
     expect(() => resolvePlatformClawDevBackendOrigin("ws://control.example.test")).toThrow(
       "PLATFORMCLAW_DEV_BACKEND_URL must be an HTTP(S) origin",
     );
