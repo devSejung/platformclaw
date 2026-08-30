@@ -1541,7 +1541,6 @@
     "db:kysely:gen": "node scripts/generate-kysely-types.mjs",
     "dev": "node scripts/run-node.mjs",
     "dev:ui:mock": "node --import tsx scripts/control-ui-mock-dev.ts",
-    "platformclaw:ui:dev": "node scripts/ui.js dev --config vite.platformclaw-dev.config.ts",
     "docs:check-i18n-glossary": "node scripts/check-docs-i18n-glossary.mjs",
     "docs:check-links": "node scripts/docs-link-audit.mjs",
     "docs:check-links:anchors": "node scripts/docs-link-audit.mjs --anchors",
