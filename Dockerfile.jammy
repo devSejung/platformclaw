@@ -115,6 +115,8 @@ COPY --chown=root:root docker/platformclaw-runtime/platformclaw-gateway /usr/loc
 COPY --chown=root:root docker/platformclaw-runtime/platformclaw-runtime-entrypoint /usr/local/bin/platformclaw-runtime-entrypoint
 COPY --chown=root:root docker/platformclaw-runtime/migrate-workspaces /usr/local/bin/platformclaw-migrate-workspaces
 
+# WORKDIR creates the app root before COPY --chown can set child ownership.
+# Fix only the parent directories; the final assertion below protects the full trees.
 RUN set -eux; \
     npm install -g --omit=dev --no-fund --no-audit \
       "@agentclientprotocol/codex-acp@${PLATFORMCLAW_CODEX_ACP_VERSION}" \
@@ -136,7 +138,7 @@ RUN set -eux; \
     python3 -c 'import markdown, pygments'; \
     ln -sf /app/openclaw.mjs /usr/local/bin/openclaw; \
     chmod 755 /app/openclaw.mjs; \
-    chown -R node:node /app /home/node; \
+    chown node:node /app /home/node; \
     nss_wrapper_path="$(dpkg-query -L libnss-wrapper | grep -E '/libnss_wrapper\.so$' | head -n 1)"; \
     test -f "$nss_wrapper_path"; \
     ln -s "$nss_wrapper_path" /usr/local/lib/libnss_wrapper.so
@@ -161,12 +163,13 @@ RUN --mount=type=cache,id=platformclaw-jammy-apt-cache,target=/var/cache/apt,sha
     if [ -n "$OPENCLAW_INSTALL_BROWSER" ]; then \
       apt-get update && \
       apt-get install -y --no-install-recommends xvfb && \
-      mkdir -p /home/node/.cache/ms-playwright && \
+      install -d -o node -g node /home/node/.cache /home/node/.cache/ms-playwright && \
       PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright \
         node /app/node_modules/playwright-core/cli.js install --with-deps chromium && \
       chown -R node:node /home/node/.cache/ms-playwright; \
     fi
 
+# Fail on ownership drift instead of hiding it with a recursive metadata rewrite.
 RUN chmod 0755 /home/node && \
     install -d -m 0755 -o node -g node /home/node/.config && \
     install -d -m 0700 -o node -g node \
@@ -182,7 +185,16 @@ RUN chmod 0755 /home/node && \
     ln -s /app/packages/platformclaw-control-plane/dist/server-main.mjs \
       /usr/local/bin/platformclaw-control && \
     ln -s /app/packages/platformclaw-control-plane/dist/sshpass-main.mjs \
-      /usr/local/bin/platformclaw-sshpass
+      /usr/local/bin/platformclaw-sshpass && \
+    node_uid="$(id -u node)" && \
+    node_gid="$(id -g node)" && \
+    unexpected_owner="$(find /app /home/node -xdev \
+      \( ! -uid "$node_uid" -o ! -gid "$node_gid" \) -print -quit)" && \
+    if [ -n "$unexpected_owner" ]; then \
+      stat -c 'unexpected runtime owner uid=%u gid=%g mode=%a path=%n' \
+        -- "$unexpected_owner" >&2; \
+      exit 1; \
+    fi
 
 ENV NODE_ENV=production \
   PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright

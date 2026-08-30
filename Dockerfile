@@ -113,13 +113,6 @@ RUN set -eux; \
     find /app/node_modules -name "matrix-sdk-crypto*.node" 2>/dev/null | grep -q . || \
       (echo "ERROR: matrix-sdk-crypto native addon missing after retries" >&2 && exit 1)
 
-# Public source provenance supplied by release automation or local setup. Keep
-# these after the dependency layer so a new timestamp does not invalidate install.
-ARG GIT_COMMIT=""
-ARG OPENCLAW_BUILD_TIMESTAMP=""
-ENV GIT_COMMIT=${GIT_COMMIT} \
-    OPENCLAW_BUILD_TIMESTAMP=${OPENCLAW_BUILD_TIMESTAMP}
-
 COPY . .
 
 # The build stage also backs non-root live-test containers. Build contexts preserve
@@ -146,6 +139,14 @@ RUN pnpm_config_verify_deps_before_run=false pnpm canvas:a2ui:bundle || \
      rm -rf vendor/a2ui apps/shared/OpenClawKit/Tools/CanvasA2UI)
 # Force pnpm for UI build (Bun may fail on ARM/Synology architectures)
 ENV OPENCLAW_PREFER_PNPM=1
+
+# Public source provenance supplied by release automation or local setup. Keep it
+# immediately before the builds so timestamp changes retain source-preparation cache.
+ARG GIT_COMMIT=""
+ARG OPENCLAW_BUILD_TIMESTAMP=""
+ENV GIT_COMMIT=${GIT_COMMIT} \
+    OPENCLAW_BUILD_TIMESTAMP=${OPENCLAW_BUILD_TIMESTAMP}
+
 RUN set -eu; \
     selected_plugin_dirs="$(cat /tmp/openclaw-selected-plugin-dirs)"; \
     if [ -z "$OPENCLAW_BUILD_TIMESTAMP" ]; then \

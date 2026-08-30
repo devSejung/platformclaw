@@ -132,6 +132,40 @@ describe("PlatformClaw Docker runtime", () => {
     expect(build).toContain('"ssh -G -F /dev/null platformclaw.invalid >/dev/null"');
   });
 
+  it("keeps runtime assets node-owned without recursively rewriting them", () => {
+    const dockerfile = readRepoFile("Dockerfile.jammy");
+    const appAssetsStart = dockerfile.indexOf("# openclaw-runtime is a named BuildKit context");
+    const rootAssetsStart = dockerfile.indexOf("COPY --chown=root:root", appAssetsStart);
+    const appCopyLines = dockerfile
+      .slice(appAssetsStart, rootAssetsStart)
+      .split(/\r?\n/u)
+      .filter((line) => line.startsWith("COPY "));
+    const ownershipAssertionIndex = dockerfile.indexOf(
+      'unexpected_owner="$(find /app /home/node -xdev',
+    );
+
+    expect(appAssetsStart).toBeGreaterThan(-1);
+    expect(rootAssetsStart).toBeGreaterThan(appAssetsStart);
+    expect(appCopyLines.length).toBeGreaterThan(0);
+    for (const copyLine of appCopyLines) {
+      expect(copyLine).toContain("--chown=1000:1000");
+    }
+    expect(dockerfile).toContain("chown node:node /app /home/node;");
+    expect(dockerfile).not.toContain("chown -R node:node /app /home/node;");
+    expect(dockerfile).toContain(
+      "install -d -o node -g node /home/node/.cache /home/node/.cache/ms-playwright",
+    );
+    expect(dockerfile).toContain("chown -R node:node /home/node/.cache/ms-playwright;");
+    expect(ownershipAssertionIndex).toBeGreaterThan(
+      dockerfile.indexOf("OPENCLAW_INSTALL_BROWSER", appAssetsStart),
+    );
+    expect(ownershipAssertionIndex).toBeLessThan(dockerfile.indexOf("USER node"));
+    expect(dockerfile.slice(ownershipAssertionIndex, dockerfile.indexOf("USER node"))).not.toMatch(
+      /\n(?:ADD|COPY|RUN)\s/u,
+    );
+    expect(dockerfile).toContain('\\( ! -uid "$node_uid" -o ! -gid "$node_gid" \\) -print -quit');
+  });
+
   it("bounds home-development Docker and release artifact storage", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
     const cleanup = readRepoFile("scripts/platformclaw-dev-cleanup.mjs");
