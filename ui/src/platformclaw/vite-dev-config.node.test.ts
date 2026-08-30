@@ -12,41 +12,35 @@ describe("PlatformClaw Vite dev config", () => {
   });
 
   it("accepts a team-provided HTTP(S) backend origin and rejects URL paths", () => {
-    expect(resolvePlatformClawDevBackendOrigin("https://control.example.test:9443/")).toBe(
-      "https://control.example.test:9443",
+    expect(resolvePlatformClawDevBackendOrigin("http://127.0.0.1:19443/")).toBe(
+      "http://127.0.0.1:19443",
     );
-    expect(() =>
-      resolvePlatformClawDevBackendOrigin("https://control.example.test:9443/path"),
-    ).toThrow("PLATFORMCLAW_DEV_BACKEND_URL must be an HTTP(S) origin");
+    expect(() => resolvePlatformClawDevBackendOrigin("http://127.0.0.1:19443/path")).toThrow(
+      "PLATFORMCLAW_DEV_BACKEND_URL must be an HTTP(S) origin",
+    );
     expect(() => resolvePlatformClawDevBackendOrigin("ws://control.example.test")).toThrow(
       "PLATFORMCLAW_DEV_BACKEND_URL must be an HTTP(S) origin",
     );
     expect(
-      resolvePlatformClawDevRequestOrigin(
-        "http://backend.example.test:19001",
-        "http://localhost:5173",
-      ),
+      resolvePlatformClawDevRequestOrigin("http://127.0.0.1:19001", "http://localhost:5173"),
     ).toBe("http://localhost:5173");
     expect(() =>
-      resolvePlatformClawDevRequestOrigin("http://backend.example.test:19001", "ws://localhost"),
+      resolvePlatformClawDevRequestOrigin("http://127.0.0.1:19001", "ws://localhost"),
     ).toThrow("PLATFORMCLAW_DEV_REQUEST_ORIGIN must be an HTTP(S) origin");
   });
 
   it("keeps PlatformClaw routes on Vite while proxying backend APIs and the Gateway", () => {
-    const config = createPlatformClawDevConfig(
-      "http://backend.example.test:19001",
-      "http://localhost:5173",
-    );
+    const config = createPlatformClawDevConfig("http://127.0.0.1:19001", "http://localhost:5173");
     expect(config.base).toBe("/");
     const proxy = config.server?.proxy as Record<string, { target?: string; ws?: boolean }>;
     expect(proxy["/platformclaw/api"]).toMatchObject({
-      target: "http://backend.example.test:19001",
+      target: "http://127.0.0.1:19001",
     });
     expect(proxy["/platformclaw/gateway"]).toMatchObject({
-      target: "http://backend.example.test:19001",
+      target: "http://127.0.0.1:19001",
       ws: true,
     });
-    expect(proxy["/employee"]).toMatchObject({ target: "http://backend.example.test:19001" });
+    expect(proxy["/employee"]).toMatchObject({ target: "http://127.0.0.1:19001" });
     const descriptorPlugin = config.plugins?.find(
       (plugin) =>
         !Array.isArray(plugin) &&
