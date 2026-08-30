@@ -106,6 +106,9 @@ describe("MemoryPromotionsElement", () => {
     expect(element.textContent).toContain("revision 1");
     expect(element.textContent).toContain("incident-42");
     expect(element.textContent).toContain("Needs newer evidence");
+    expect(
+      element.querySelector(".memory-promotions__source-row > .settings-row__control > select"),
+    ).not.toBeNull();
     element.remove();
   });
 

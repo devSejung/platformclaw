@@ -369,24 +369,26 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
         </header>
         ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
         <div class="settings-group">
-          <label class="settings-row">
+          <label class="settings-row memory-promotions__source-row">
             <span class="settings-row__text"
               ><span class="settings-row__title">${t("memoryPage.promotions.source")}</span></span
             >
-            <select
-              class="settings-select"
-              .value=${this.sourceKind}
-              @change=${(event: Event) =>
-                this.resetForSourceKind(
-                  (event.currentTarget as HTMLSelectElement)
-                    .value as OrganizationMemoryPromotionSourceKind,
-                )}
-            >
-              <option value="personal">${t("memoryPage.promotions.personal")}</option>
-              <option value="part">${t("memoryPage.promotions.part")}</option>
-              <option value="group">${t("memoryPage.promotions.group")}</option>
-              <option value="team">${t("memoryPage.promotions.team")}</option>
-            </select>
+            <span class="settings-row__control">
+              <select
+                class="settings-select"
+                .value=${this.sourceKind}
+                @change=${(event: Event) =>
+                  this.resetForSourceKind(
+                    (event.currentTarget as HTMLSelectElement)
+                      .value as OrganizationMemoryPromotionSourceKind,
+                  )}
+              >
+                <option value="personal">${t("memoryPage.promotions.personal")}</option>
+                <option value="part">${t("memoryPage.promotions.part")}</option>
+                <option value="group">${t("memoryPage.promotions.group")}</option>
+                <option value="team">${t("memoryPage.promotions.team")}</option>
+              </select>
+            </span>
           </label>
           ${this.sourceKind === "personal"
             ? html`<openclaw-memory-promotion-source-picker
