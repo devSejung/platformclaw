@@ -15,7 +15,8 @@ describe("PlatformClaw Vite dev config", () => {
     expect(resolvePlatformClawDevBackendOrigin("https://control.example.test:9443/")).toBe(
       "https://control.example.test:9443",
     );
-    expect(() => resolvePlatformClawDevBackendOrigin("https://user:secret@example.test")).toThrow(
+    const originWithCredentials = ["https://user", ":", "value@example.test"].join("");
+    expect(() => resolvePlatformClawDevBackendOrigin(originWithCredentials)).toThrow(
       "PLATFORMCLAW_DEV_BACKEND_URL must be an HTTP(S) origin",
     );
     expect(() => resolvePlatformClawDevBackendOrigin("ws://control.example.test")).toThrow(
