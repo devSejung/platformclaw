@@ -369,13 +369,27 @@ describe("Dockerfile", () => {
   it("shares public source provenance across backend and Control UI builds", async () => {
     const dockerfile = await readFile(dockerfilePath, "utf8");
     const installIndex = dockerfile.indexOf("pnpm install --frozen-lockfile");
+    const sourceCopyIndex = dockerfile.indexOf("COPY . .");
+    const sourcePermissionIndex = dockerfile.indexOf(
+      "RUN find /app -path /app/node_modules -prune",
+    );
+    const extensionPermissionIndex = dockerfile.indexOf(
+      "RUN for dir in /app/${OPENCLAW_BUNDLED_PLUGIN_DIR}",
+    );
+    const a2uiBuildIndex = dockerfile.indexOf("pnpm canvas:a2ui:bundle");
+    const preferPnpmIndex = dockerfile.indexOf("ENV OPENCLAW_PREFER_PNPM=1");
     const commitArgIndex = dockerfile.indexOf('ARG GIT_COMMIT=""');
     const timestampArgIndex = dockerfile.indexOf('ARG OPENCLAW_BUILD_TIMESTAMP=""');
     const provenanceEnvIndex = dockerfile.indexOf("ENV GIT_COMMIT=${GIT_COMMIT}");
     const backendBuildIndex = dockerfile.indexOf("pnpm build:docker");
     const uiBuildIndex = dockerfile.indexOf("pnpm ui:build");
 
-    expect(commitArgIndex).toBeGreaterThan(installIndex);
+    expect(sourceCopyIndex).toBeGreaterThan(installIndex);
+    expect(sourcePermissionIndex).toBeGreaterThan(sourceCopyIndex);
+    expect(extensionPermissionIndex).toBeGreaterThan(sourcePermissionIndex);
+    expect(a2uiBuildIndex).toBeGreaterThan(extensionPermissionIndex);
+    expect(preferPnpmIndex).toBeGreaterThan(a2uiBuildIndex);
+    expect(commitArgIndex).toBeGreaterThan(preferPnpmIndex);
     expect(timestampArgIndex).toBeGreaterThan(commitArgIndex);
     expect(provenanceEnvIndex).toBeGreaterThan(timestampArgIndex);
     expect(dockerfile).toContain("OPENCLAW_BUILD_TIMESTAMP=${OPENCLAW_BUILD_TIMESTAMP}");
