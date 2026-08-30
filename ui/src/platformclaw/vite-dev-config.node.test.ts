@@ -18,7 +18,7 @@ describe("PlatformClaw Vite dev config", () => {
     expect(() => resolvePlatformClawDevBackendOrigin("http://127.0.0.1:19443/path")).toThrow(
       "PLATFORMCLAW_DEV_BACKEND_URL must be an HTTP(S) origin",
     );
-    expect(() => resolvePlatformClawDevBackendOrigin("ws://control.example.test")).toThrow(
+    expect(() => resolvePlatformClawDevBackendOrigin("ws://127.0.0.1:19443")).toThrow(
       "PLATFORMCLAW_DEV_BACKEND_URL must be an HTTP(S) origin",
     );
     expect(
