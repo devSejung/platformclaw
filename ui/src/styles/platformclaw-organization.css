@@ -1,3 +1,12 @@
+.platformclaw-organization-page
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+.platformclaw-organization-page select,
+.platformclaw-organization-page textarea {
+  border-color: var(--border-strong);
+  background-color: var(--bg-elevated);
+  color: var(--text);
+}
+
 .platformclaw-organization-create-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
