@@ -98,6 +98,21 @@
   margin-inline: auto;
 }
 
+.memory-promotions__source-row > .settings-row__text {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.memory-promotions__source-row > .settings-row__control {
+  flex: 1 1 0;
+  max-width: none;
+}
+
+.memory-promotions__source-row > .settings-row__control > .settings-select {
+  width: 100%;
+  min-width: 0;
+}
+
 .memory-promotions h2,
 .memory-promotions h3,
 .memory-promotions p {
@@ -190,6 +205,9 @@
 .memory-promotions .settings-textarea {
   box-sizing: border-box;
   width: 100%;
+  border-color: var(--border-strong);
+  background-color: var(--bg-elevated);
+  color: var(--text);
 }
 
 .memory-promotions .settings-textarea {

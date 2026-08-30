@@ -38,6 +38,7 @@ and Knox direct or group conversations:
 - [Knox Proxy integration contract](/platformclaw/knox-proxy-spec)
 - [Private downstream CI](/platformclaw/private-downstream-ci)
 - [Windows main preview](/platformclaw/windows-main-preview)
+- [UI development with HMR](/platformclaw/ui-development)
 - [Manual VM preview](/platformclaw/manual-vm-preview)
 
 The first five implementation slices are in the private
