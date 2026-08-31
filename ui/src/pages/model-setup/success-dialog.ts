@@ -7,6 +7,7 @@ import {
   renderProviderBrandIcon,
 } from "../../components/provider-icon.ts";
 import { t } from "../../i18n/index.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import type { ModelSetupActivationState } from "./state.ts";
 
 export function renderModelSetupSuccessDialog(
@@ -20,7 +21,7 @@ export function renderModelSetupSuccessDialog(
   return html`
     <openclaw-modal-dialog
       label=${t("modelSetup.success.title")}
-      description=${t("modelSetup.success.body", { modelRef: activation.modelRef })}
+      description=${productT("modelSetup.success.body", { modelRef: activation.modelRef })}
       @modal-cancel=${onClose}
     >
       <section class="model-setup-success" role="status">
@@ -39,7 +40,7 @@ export function renderModelSetupSuccessDialog(
         </div>
         <div class="model-setup-success__copy">
           <h2>${t("modelSetup.success.title")}</h2>
-          <p>${t("modelSetup.success.body", { modelRef: activation.modelRef })}</p>
+          <p>${productT("modelSetup.success.body", { modelRef: activation.modelRef })}</p>
         </div>
         ${activation.warning
           ? html`<div class="model-setup-success__warning">${activation.warning}</div>`

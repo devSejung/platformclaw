@@ -4,6 +4,7 @@ import type { RouteId } from "./app-route-paths.ts";
 import type { IconName } from "./components/icons.ts";
 import { i18n, t } from "./i18n/index.ts";
 import { normalizeLowercaseStringOrEmpty } from "./lib/string-coerce.ts";
+import { resolveControlUiProductName, resolveProductDisplayText } from "./platformclaw/branding.ts";
 
 export type NavigationRouteId = RouteId;
 
@@ -429,17 +430,18 @@ export function titleForRoute(routeId: NavigationRouteId, override?: NavigationR
 
 /** Window/tab title, markers leftmost because tabs truncate from the right.
  * Offline replaces the approval count (a stale queue is not actionable) and
- * carries the pending-outbox total; titles already ending in the brand
- * ("Ask OpenClaw") skip the suffix so it never reads "… OpenClaw — OpenClaw". */
+ * carries the pending-outbox total; titles already ending in the active brand
+ * skip the suffix so the product name is never duplicated. */
 export function formatDocumentTitle(options: {
   context: string;
   attentionCount?: number;
   offline?: boolean;
   queuedCount?: number;
 }): string {
-  const base = options.context.endsWith("OpenClaw")
+  const productName = resolveControlUiProductName();
+  const base = options.context.endsWith(productName)
     ? options.context
-    : `${options.context} — OpenClaw`;
+    : `${options.context} — ${productName}`;
   if (options.offline) {
     const queued =
       options.queuedCount && options.queuedCount > 0
@@ -461,7 +463,7 @@ export function settingsNavigationLabelForRoute(
     return resolveNavigationCopy(override.settingsLabel);
   }
   if (routeId === "custodian") {
-    return t("nav.askOpenClaw");
+    return resolveProductDisplayText(t("nav.askOpenClaw"));
   }
   return titleForRoute(routeId, override);
 }

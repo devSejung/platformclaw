@@ -23,6 +23,7 @@ import { readGatewayOperatorAccess } from "../../app/operator-access.ts";
 import { controlUiPublicAssetPath } from "../../app/public-assets.ts";
 import { i18n, t } from "../../i18n/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 const APPROVAL_POLL_INTERVAL_MS = 2_000;
 const APPROVAL_MIN_POLL_DELAY_MS = 250;
 const APPROVAL_REQUIRED_SCOPE = "operator.approvals";
@@ -533,7 +534,7 @@ export class ApprovalPage extends OpenClawLightDomElement {
         />
         <div>
           <div class="approval-page__eyebrow">${t("approvalPage.eyebrow")}</div>
-          <div class="approval-page__brand-name">${t("approvalPage.brandName")}</div>
+          <div class="approval-page__brand-name">${productT("approvalPage.brandName")}</div>
         </div>
       </header>
     `;
@@ -574,7 +575,7 @@ export class ApprovalPage extends OpenClawLightDomElement {
       <div class="approval-page__state approval-page__state--connection" role="alert">
         <div class="approval-page__state-mark" aria-hidden="true">!</div>
         <h1 id="approval-page-title">${t("approvalPage.connectionErrorTitle")}</h1>
-        <p>${t("approvalPage.connectionErrorDescription")}</p>
+        <p>${productT("approvalPage.connectionErrorDescription")}</p>
         <button
           type="button"
           class="btn"
@@ -592,7 +593,7 @@ export class ApprovalPage extends OpenClawLightDomElement {
       <div class="approval-page__callout" role="alert">
         <div>
           <strong>${t("approvalPage.connectionErrorTitle")}</strong>
-          <span>${t("approvalPage.connectionErrorDescription")}</span>
+          <span>${productT("approvalPage.connectionErrorDescription")}</span>
         </div>
         <button
           type="button"
@@ -728,7 +729,7 @@ export class ApprovalPage extends OpenClawLightDomElement {
                   : t("approvalPage.execTitle")
                 : terminalTitle(this.approval, this.resolutionOrigin)
               : t("approvalPage.loadingTitle");
-    const title = `${pageTitle} — ${t("approvalPage.brandName")}`;
+    const title = `${pageTitle} — ${productT("approvalPage.brandName")}`;
     document.title = title;
     this.activeDocumentTitle = title;
   }

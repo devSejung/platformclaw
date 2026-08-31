@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import plugin from "./index.js";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
+import { PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT } from "./src/product-identity.js";
 
 type PluginApi = Parameters<typeof plugin.register>[0];
 
@@ -16,11 +17,18 @@ describe("admin-http-rpc plugin entry", () => {
     });
   });
 
-  it("registers one trusted gateway HTTP route", () => {
+  it("registers one trusted gateway HTTP route and stable product identity", async () => {
     const routes: Array<Record<string, unknown>> = [];
     const gatewayMethods: Array<{ method: string; options: unknown }> = [];
     const hooks: string[] = [];
     const stores: unknown[] = [];
+    const profileStore: { value?: unknown } = {};
+    const beforePromptBuild: Array<
+      (
+        event: unknown,
+        context: { agentId?: string },
+      ) => Record<string, string> | Promise<Record<string, string> | undefined> | undefined
+    > = [];
     plugin.register({
       runtime: {
         state: {
@@ -28,7 +36,7 @@ describe("admin-http-rpc plugin entry", () => {
             stores.push(options);
             return {
               update: async () => true,
-              lookup: async () => undefined,
+              lookup: async () => profileStore.value,
             };
           },
         },
@@ -43,8 +51,11 @@ describe("admin-http-rpc plugin entry", () => {
       ) {
         gatewayMethods.push({ method, options });
       },
-      on(hook: Parameters<PluginApi["on"]>[0]) {
+      on(hook: Parameters<PluginApi["on"]>[0], handler: unknown) {
         hooks.push(hook);
+        if (hook === "before_prompt_build") {
+          beforePromptBuild.push(handler as (typeof beforePromptBuild)[number]);
+        }
       },
     } as unknown as Parameters<typeof plugin.register>[0]);
 
@@ -68,5 +79,27 @@ describe("admin-http-rpc plugin entry", () => {
         overflowPolicy: "reject-new",
       },
     ]);
+    expect(PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT).toBe(
+      "Host product: PlatformClaw. Call it PlatformClaw; preserve agent identity. OpenClaw names mean runtime and CLI/API/package/path/config compatibility only.",
+    );
+    expect(Buffer.byteLength(PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT, "utf8")).toBeLessThanOrEqual(160);
+    await expect(Promise.resolve(beforePromptBuild[0]?.({}, {}))).resolves.toEqual({
+      appendSystemContext: PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT,
+    });
+
+    profileStore.value = {
+      schema: "platformclaw.employee-profile.v1",
+      profile: {
+        employeeId: "employee-1",
+        groups: [],
+        attributes: {},
+      },
+    };
+    await expect(
+      Promise.resolve(beforePromptBuild[0]?.({}, { agentId: "employee-1" })),
+    ).resolves.toMatchObject({
+      appendSystemContext: PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT,
+      prependContext: expect.stringContaining('"employeeId": "employee-1"'),
+    });
   });
 });

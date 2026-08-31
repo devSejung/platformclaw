@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -24,12 +25,30 @@ function fixtureRoot(): string {
   writeFileSync(join(root, "platformclaw-login.html"), "<!doctype html><title>Login</title>");
   writeFileSync(
     join(root, "index.html"),
-    '<!doctype html><html><head><title>Control</title><script>globalThis.ready=true</script></head><body><script type="module" src="./assets/app-ABC123.js"></script></body></html>',
+    '<!doctype html><html><head><!-- OpenClaw upstream compatibility --><title>OpenClaw Control</title><link rel="icon" type="image/svg+xml" href="./favicon.svg"><link rel="icon" type="image/png" href="./favicon-32.png"><link rel="apple-touch-icon" href="./apple-touch-icon.png"><link rel="manifest" href="./manifest.webmanifest"><script>globalThis.ready=true;globalThis.message="OpenClaw will retry"</script></head><body><p>OpenClaw Control UI</p><script type="module" src="./assets/app-ABC123.js"></script></body></html>',
   );
   writeFileSync(join(root, "assets", "login-ABC123.js"), "export const ready = true;");
   writeFileSync(join(root, "assets", "app-ABC123.js"), "export const app = true;");
-  writeFileSync(join(root, "sw.js"), "self.addEventListener('install', () => undefined);");
-  writeFileSync(join(root, "manifest.webmanifest"), '{"name":"OpenClaw"}');
+  writeFileSync(
+    join(root, "sw.js"),
+    [
+      'if (url.pathname.startsWith("/api/") || false) {}',
+      'data = { title: "OpenClaw", body: event.data.text() };',
+      'const title = data.title || "OpenClaw";',
+      "const options = {",
+      '  icon: "./apple-touch-icon.png",',
+      '  badge: "./favicon-32.png",',
+      "};",
+    ].join("\n"),
+  );
+  writeFileSync(
+    join(root, "manifest.webmanifest"),
+    '{"name":"OpenClaw Control","short_name":"OpenClaw","icons":[]}',
+  );
+  writeFileSync(join(root, "favicon.svg"), "<svg>upstream favicon</svg>");
+  writeFileSync(join(root, "favicon-32.png"), "upstream favicon png");
+  writeFileSync(join(root, "apple-touch-icon.png"), "upstream touch icon");
+  writeFileSync(join(root, "assets", "platformclaw-pixel-ABC123.svg"), "<svg></svg>");
   return root;
 }
 
@@ -132,13 +151,57 @@ describe("createPlatformClawWebAssetHandler", () => {
       expect(serviceWorker.status).toBe(200);
       expect(serviceWorker.headers.get("content-type")).toContain("text/javascript");
       expect(serviceWorker.headers.get("cache-control")).toBe("no-cache");
-      expect(await serviceWorker.text()).toContain("addEventListener");
+      const serviceWorkerText = await serviceWorker.text();
+      expect(serviceWorkerText).toContain(
+        'data = { title: "PlatformClaw", body: event.data.text() };',
+      );
+      expect(serviceWorkerText).toContain(
+        'data.title === "OpenClaw" || !data.title ? "PlatformClaw" : data.title',
+      );
+      expect(
+        serviceWorkerText.match(/"\/platformclaw\/assets\/platformclaw-pixel-ABC123\.svg"/gu),
+      ).toHaveLength(2);
+      expect(serviceWorkerText).toContain('url.pathname.startsWith("/platformclaw/api/")');
+      expect(serviceWorkerText).toContain(
+        'url.pathname.startsWith("/platformclaw/app/__openclaw__/")',
+      );
+      const serviceWorkerHead = await fetch(`${fixture.origin}${PLATFORMCLAW_WEB_APP_PATH}/sw.js`, {
+        method: "HEAD",
+      });
+      expect(serviceWorkerHead.status).toBe(200);
+      expect(serviceWorkerHead.headers.get("cache-control")).toBe("no-cache");
+      expect(await serviceWorkerHead.text()).toBe("");
 
       const manifest = await fetch(
         `${fixture.origin}${PLATFORMCLAW_WEB_APP_PATH}/manifest.webmanifest`,
       );
       expect(manifest.status).toBe(200);
       expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
+      await expect(manifest.json()).resolves.toMatchObject({
+        name: "PlatformClaw",
+        short_name: "PlatformClaw",
+        icons: [
+          {
+            src: "/platformclaw/assets/platformclaw-pixel-ABC123.svg",
+            sizes: "any",
+            type: "image/svg+xml",
+          },
+        ],
+      });
+
+      for (const asset of ["favicon.svg", "favicon-32.png", "apple-touch-icon.png"]) {
+        const response = await fetch(`${fixture.origin}${PLATFORMCLAW_WEB_APP_PATH}/${asset}`);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("cache-control")).toBe("no-cache");
+      }
+
+      const mascot = await fetch(
+        `${fixture.origin}${PLATFORMCLAW_WEB_ASSET_PREFIX}platformclaw-pixel-ABC123.svg`,
+      );
+      expect(mascot.status).toBe(200);
+      expect(mascot.headers.get("content-type")).toContain("image/svg+xml");
+      expect(mascot.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect(await mascot.text()).toBe("<svg></svg>");
     } finally {
       await fixture.close();
     }
@@ -167,10 +230,13 @@ describe("createPlatformClawWebAssetHandler", () => {
       const response = await fetch(`${fixture.origin}${PLATFORMCLAW_WEB_APP_PATH}/chat`);
       const body = await response.text();
       const contentSecurityPolicy = response.headers.get("content-security-policy") ?? "";
+      const brandedInlineScriptHash = createHash("sha256")
+        .update('globalThis.ready=true;globalThis.message="PlatformClaw will retry"')
+        .digest("base64");
 
       expect(response.status).toBe(200);
       expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(contentSecurityPolicy).toContain("'sha256-");
+      expect(contentSecurityPolicy).toContain(`'sha256-${brandedInlineScriptHash}'`);
       expect(contentSecurityPolicy).toContain("base-uri 'self'");
       expect(contentSecurityPolicy).toContain(
         "connect-src 'self' data: wss://platformclaw.example",
@@ -181,8 +247,17 @@ describe("createPlatformClawWebAssetHandler", () => {
       expect(body).toContain('<base href="/platformclaw/" />');
       expect(body).toContain('data-openclaw-terminal-enabled="true"');
       expect(body.indexOf('<base href="/platformclaw/" />')).toBeLessThan(
-        body.indexOf("<title>Control</title>"),
+        body.indexOf("<title>PlatformClaw Control</title>"),
       );
+      expect(body).toContain("<p>PlatformClaw Control UI</p>");
+      expect(body).not.toContain("OpenClaw Control");
+      expect(body).toContain("<!-- OpenClaw upstream compatibility -->");
+      expect(body).toContain('href="/platformclaw/assets/platformclaw-pixel-ABC123.svg"');
+      expect(
+        body.match(/href="\/platformclaw\/assets\/platformclaw-pixel-ABC123\.svg"/gu),
+      ).toHaveLength(3);
+      expect(body).toContain('href="/platformclaw/app/manifest.webmanifest"');
+      expect(body).not.toMatch(/href="\/(?:favicon|apple-touch-icon|manifest\.webmanifest)/u);
       expect(body).toContain(`name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}"`);
       expect(body).toContain("&quot;enabledRoutes&quot;");
       expect(body).toContain("&quot;vocEnabled&quot;:true");
@@ -215,11 +290,52 @@ describe("createPlatformClawWebAssetHandler", () => {
     const root = fixtureRoot();
     writeFileSync(
       join(root, "index.html"),
-      '<!doctype html><html><head><base href="/upstream/"></head><body></body></html>',
+      '<!doctype html><html><head><title>Control</title><base href="/upstream/"></head><body></body></html>',
     );
 
     expect(() => createPlatformClawWebAssetHandler(root, { publicOrigin: PUBLIC_ORIGIN })).toThrow(
       "PlatformClaw Control UI document already contains a base element",
+    );
+  });
+
+  it("fails closed when an upstream bootstrap asset link drifts", () => {
+    const root = fixtureRoot();
+    const applicationPath = join(root, "index.html");
+    writeFileSync(
+      applicationPath,
+      readFileSync(applicationPath, "utf8").replace(
+        'href="./manifest.webmanifest"',
+        'href="./changed.webmanifest"',
+      ),
+    );
+
+    expect(() => createPlatformClawWebAssetHandler(root, { publicOrigin: PUBLIC_ORIGIN })).toThrow(
+      "PlatformClaw Control UI document manifest.webmanifest link contract changed",
+    );
+  });
+
+  it("fails closed when one service worker branding literal drifts", () => {
+    const root = fixtureRoot();
+    const serviceWorkerPath = join(root, "sw.js");
+    writeFileSync(
+      serviceWorkerPath,
+      readFileSync(serviceWorkerPath, "utf8").replace(
+        'badge: "./favicon-32.png",',
+        'badge: "./changed.png",',
+      ),
+    );
+
+    expect(() => createPlatformClawWebAssetHandler(root, { publicOrigin: PUBLIC_ORIGIN })).toThrow(
+      "PlatformClaw Control UI service worker notification badge contract changed",
+    );
+  });
+
+  it("fails closed when the canonical mascot asset is ambiguous", () => {
+    const root = fixtureRoot();
+    writeFileSync(join(root, "assets", "platformclaw-pixel-SECOND.svg"), "<svg></svg>");
+
+    expect(() => createPlatformClawWebAssetHandler(root, { publicOrigin: PUBLIC_ORIGIN })).toThrow(
+      "PlatformClaw Control UI must contain one canonical mascot asset",
     );
   });
 });

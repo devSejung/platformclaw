@@ -56,6 +56,13 @@
   height: 160px;
 }
 
+.dreams__platformclaw-mascot {
+  width: 160px;
+  height: 160px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
 /* Stirring: press the sleeper and it half-opens one eye, without quite
    waking. The peek eye ships hidden inside the sleeping svg. */
 .dreams__lobster .lob-eye-peek {

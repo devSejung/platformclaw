@@ -19,6 +19,7 @@ import {
 import { t } from "../../i18n/index.ts";
 import { formatThinkingOverrideLabel } from "../../lib/chat/thinking.ts";
 import { formatCost, formatTimeMs, formatTokens } from "../../lib/format.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import { MODEL_SETTINGS_TARGET_IDS } from "../config/settings-targets.ts";
 import "../../styles/model-providers.css";
 import "../../styles/usage.css";
@@ -625,7 +626,7 @@ function renderModelReadiness(props: ModelProvidersViewProps) {
           title: t("modelProviders.readiness.heading"),
           description: signedIn
             ? t("modelProviders.readiness.signedInNoModels")
-            : t("modelProviders.readiness.notConfigured"),
+            : productT("modelProviders.readiness.notConfigured"),
           control: html`
             ${renderSettingsStatus({
               kind: "warn",

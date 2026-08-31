@@ -7,6 +7,7 @@ import { renderLoadingState } from "../components/loading-state.ts";
 import { McpAppUnmountGate } from "../components/mcp-app-unmount.ts";
 import { t } from "../i18n/index.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
+import { platformClawProductT as productT } from "../platformclaw/i18n.ts";
 import {
   RouterOutletController,
   selectRenderedRouteMatch,
@@ -126,7 +127,7 @@ function renderError<TRouteId extends string, TLoadContext, TModule, TData>(
         ${staleChunk ? t("lazyView.staleTitle") : t("lazyView.errorTitle")}
       </div>
       <div class="lazy-view-error__subtitle">
-        ${staleChunk ? t("lazyView.staleSubtitle") : t("lazyView.genericSubtitle")}
+        ${staleChunk ? productT("lazyView.staleSubtitle") : t("lazyView.genericSubtitle")}
       </div>
       <button class="btn lazy-view-error__action" @click=${handleRetry}>
         ${staleChunk ? t("common.reload") : t("lazyView.retry")}

@@ -20,7 +20,6 @@ import {
 import { t } from "../../i18n/index.ts";
 import type { McpServerSummary } from "../../lib/config/mcp-servers.ts";
 import { EXTERNAL_LINK_TARGET, buildExternalLinkRel } from "../../lib/external-link.ts";
-import "../../styles/plugins.css";
 import {
   CLAWHUB_BROWSE_URL,
   type PluginCatalogItem,
@@ -28,6 +27,9 @@ import {
   type PluginListResult,
   type PluginSearchResult,
 } from "../../lib/plugins/index.ts";
+import { resolveProductDisplayText } from "../../platformclaw/branding.ts";
+import "../../styles/plugins.css";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import {
   CONNECTOR_GROUP_ORDER,
   CONNECTOR_SUGGESTIONS,
@@ -356,6 +358,17 @@ function originLabel(origin: string): string {
   }
 }
 
+function pluginDescription(plugin: PluginCatalogItem): string {
+  if (!plugin.description) {
+    return productT("pluginsPage.optionalCapability");
+  }
+  // Bundled and official catalog copy is product-owned. Installed workspace or
+  // global plugin text is third-party data and must remain byte-for-byte intact.
+  return plugin.origin === "bundled" || plugin.origin === "official"
+    ? resolveProductDisplayText(plugin.description)
+    : plugin.description;
+}
+
 /** Dot-separated plain-text meta line under a row description. */
 function renderMetaLine(parts: ReadonlyArray<TemplateResult | string | typeof nothing>) {
   const visible = parts.filter((part) => part !== nothing && part !== "");
@@ -637,9 +650,7 @@ function renderPluginRow(
           `,
           onShowDetails: () => props.onShowDetails(plugin.id),
         })}
-        <span class="settings-row__desc">
-          ${plugin.description || t("pluginsPage.optionalCapability")}
-        </span>
+        <span class="settings-row__desc"> ${pluginDescription(plugin)} </span>
         ${renderMetaLine([
           plugin.origin ? originLabel(plugin.origin) : nothing,
           includePackageName && plugin.packageName
@@ -762,7 +773,7 @@ function renderInstalled(props: PluginsViewProps) {
     ${groups.length === 0
       ? renderEmpty(
           filtered ? t("pluginsPage.noInstalledMatchTitle") : t("pluginsPage.noInstalledTitle"),
-          filtered ? t("pluginsPage.noMatchBody") : t("pluginsPage.noInstalledBody"),
+          filtered ? t("pluginsPage.noMatchBody") : productT("pluginsPage.noInstalledBody"),
           filtered ? "curious" : "sleepy",
         )
       : groups.map((group) =>
@@ -1081,9 +1092,7 @@ function renderDetailOverlay(props: PluginsViewProps) {
               : nothing}
             ${stateStatus(plugin)}
           </div>
-          <p class="plugins-detail__description">
-            ${plugin.description || t("pluginsPage.optionalCapability")}
-          </p>
+          <p class="plugins-detail__description">${pluginDescription(plugin)}</p>
           <div class="plugins-detail__actions">
             ${props.pendingRemoval[key]
               ? renderRemoveConfirm(plugin, props, busy, key)

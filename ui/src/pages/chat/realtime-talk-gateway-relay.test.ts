@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME } from "../../platformclaw/web-contract.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import { GatewayRelayRealtimeTalkTransport } from "./realtime-talk-gateway-relay.ts";
 import {
@@ -194,6 +195,9 @@ describe("GatewayRelayRealtimeTalkTransport", () => {
     processors.length = 0;
     inputSinks.length = 0;
     createdSources.length = 0;
+    document.head
+      .querySelectorAll(`meta[name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}"]`)
+      .forEach((element) => element.remove());
   });
 
   it("preserves audio processing while selecting the exact microphone", async () => {
@@ -1050,6 +1054,9 @@ describe("GatewayRelayRealtimeTalkTransport", () => {
   });
 
   it("submits an interim working result for forced consult tool calls", async () => {
+    const descriptor = document.createElement("meta");
+    descriptor.name = PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME;
+    document.head.append(descriptor);
     const client = createClient();
     vi.mocked(client["request"]).mockImplementation(async (method) => {
       if (method === "talk.client.toolCall") {
@@ -1077,7 +1084,7 @@ describe("GatewayRelayRealtimeTalkTransport", () => {
           status: "working",
           tool: REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
           message:
-            "Tell the person briefly that you are checking, then wait for the final OpenClaw result before answering with the actual result.",
+            "Tell the person briefly that you are checking, then wait for the final PlatformClaw result before answering with the actual result.",
         },
         options: { willContinue: true },
       }),

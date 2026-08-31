@@ -31,6 +31,13 @@
   object-fit: cover;
 }
 
+.profile-hero__avatar-image--product {
+  box-sizing: border-box;
+  padding: 12px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
 .profile-hero__avatar-text {
   font-size: 42px;
   line-height: 1;

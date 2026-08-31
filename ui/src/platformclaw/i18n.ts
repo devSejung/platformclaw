@@ -1,4 +1,5 @@
 import { i18n, t } from "../i18n/index.ts";
+import { resolveProductDisplayText } from "./branding.ts";
 
 type PlatformClawKoreanBundle = typeof import("./locales/ko.ts");
 type PlatformClawEnglishGuideBundle = typeof import("./locales/en-guide.ts");
@@ -62,6 +63,13 @@ export function platformClawGuideT(key: string, params?: Record<string, string>)
   return params
     ? value.replace(/\{(\w+)\}/gu, (_, name: string) => params[name] ?? `{${name}}`)
     : value;
+}
+
+export function platformClawProductT(key: string, params?: Record<string, string>): string {
+  const template = resolveProductDisplayText(platformClawT(key));
+  return params
+    ? template.replace(/\{(\w+)\}/gu, (_, name: string) => params[name] ?? `{${name}}`)
+    : template;
 }
 
 export function platformClawStatus(value: string): string {

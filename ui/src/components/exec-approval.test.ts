@@ -4,6 +4,7 @@ import { html, nothing, render, type LitElement } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExecApprovalRequest } from "../app/exec-approval.ts";
 import { i18n } from "../i18n/index.ts";
+import { PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME } from "../platformclaw/web-contract.ts";
 import { getRenderedModalDialog, installDialogPolyfill } from "../test-helpers/modal-dialog.ts";
 import "./exec-approval.ts";
 
@@ -72,6 +73,9 @@ describe("openclaw-exec-approval", () => {
   afterEach(async () => {
     render(nothing, container);
     container.remove();
+    document.head
+      .querySelectorAll(`meta[name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}"]`)
+      .forEach((element) => element.remove());
     await i18n.setLocale("en");
     restoreDialogPolyfill();
     vi.restoreAllMocks();
@@ -121,6 +125,34 @@ describe("openclaw-exec-approval", () => {
       ),
     ).toEqual(["Allow once", "Deny"]);
     expect(container.querySelector(".exec-approval-warning")).toBeNull();
+  });
+
+  it("brands system-agent approval titles without mutating plugin titles", async () => {
+    const descriptor = document.createElement("meta");
+    descriptor.name = PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME;
+    document.head.append(descriptor);
+    await renderApproval(
+      createExecRequest({
+        id: "system-agent-approval",
+        kind: "system-agent",
+        pluginTitle: "OpenClaw change",
+      }),
+    );
+    await getRenderedModalDialog(container);
+    expect(container.querySelector(".exec-approval-title")?.textContent?.trim()).toBe(
+      "PlatformClaw change",
+    );
+
+    await renderApproval(
+      createExecRequest({
+        id: "plugin-approval",
+        kind: "plugin",
+        pluginTitle: "Audit OpenClaw compatibility",
+      }),
+    );
+    expect(container.querySelector(".exec-approval-title")?.textContent?.trim()).toBe(
+      "Audit OpenClaw compatibility",
+    );
   });
 
   it("renders the live expiry countdown as mm:ss", async () => {

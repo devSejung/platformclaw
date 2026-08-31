@@ -7,6 +7,7 @@ import {
   resolveEditableSnapshotConfig,
   type RuntimeConfigCapability,
 } from "../../lib/config/index.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 
 export type SkillWorkshopSelfLearning = {
   enabled: boolean;
@@ -112,7 +113,7 @@ export function renderSelfLearningPitch(
   return html`
     <div class="sw-empty-state__selflearn">
       <h3>${t("skillWorkshop.selfLearning.pitchTitle")}</h3>
-      <p>${t("skillWorkshop.selfLearning.pitchBody")}</p>
+      <p>${productT("skillWorkshop.selfLearning.pitchBody")}</p>
       <button
         type="button"
         class="sw-btn sw-btn--primary ${selfLearning.busy ? "is-busy" : ""}"

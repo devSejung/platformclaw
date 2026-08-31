@@ -2,6 +2,7 @@ import { html } from "lit";
 import { property } from "lit/decorators.js";
 import { t } from "../i18n/index.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
+import { platformClawProductT as productT } from "../platformclaw/i18n.ts";
 import { DropdownMenuController } from "./dropdown-menu-controller.ts";
 import { icons } from "./icons.ts";
 import { promoteToPopoverTopLayer } from "./menu-surface.ts";
@@ -82,7 +83,7 @@ class CatalogSessionMenu extends OpenClawLightDomElement {
           <span slot="icon" class="session-menu__icon" aria-hidden="true"
             >${icons.messageSquare}</span
           >
-          <span class="session-menu__text">${t("chat.catalog.openInOpenClaw")}</span>
+          <span class="session-menu__text">${productT("chat.catalog.openInOpenClaw")}</span>
         </wa-dropdown-item>
         <wa-dropdown-item
           class="session-menu__item"

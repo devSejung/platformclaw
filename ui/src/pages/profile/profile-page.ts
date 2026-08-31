@@ -29,6 +29,10 @@ import { renderSettingsWorkspace } from "../../components/settings-workspace.ts"
 import { t } from "../../i18n/index.ts";
 import { resolveAgentAvatarUrl, resolveAssistantTextAvatar } from "../../lib/avatar.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
+import {
+  resolveControlUiProductName,
+  resolvePlatformClawBranding,
+} from "../../platformclaw/branding.ts";
 import { PROFILE_SETTINGS_TARGET_IDS } from "../config/settings-targets.ts";
 import "../../styles/profile.css";
 import { processProfileAvatar, ProfileAvatarError } from "./avatar-processing.ts";
@@ -339,6 +343,15 @@ export class ProfilePage extends OpenClawLightDomElement {
     if (textAvatar) {
       return html`<span class="profile-hero__avatar-text">${textAvatar}</span>`;
     }
+    const branding = resolvePlatformClawBranding();
+    if (branding) {
+      return html`<img
+        class="profile-hero__avatar-image profile-hero__avatar-image--product"
+        src=${branding.mascotUrl}
+        alt=""
+        aria-hidden="true"
+      />`;
+    }
     return html`<span class="profile-hero__avatar-mascot" aria-hidden="true"
       >${icons.lobster}</span
     >`;
@@ -352,7 +365,7 @@ export class ProfilePage extends OpenClawLightDomElement {
         <div class="profile-hero__name">${name}</div>
         <div class="profile-hero__handle">
           <span>@${agentId}</span>
-          <span class="profile-hero__badge">OpenClaw</span>
+          <span class="profile-hero__badge">${resolveControlUiProductName()}</span>
         </div>
       </section>
     `);

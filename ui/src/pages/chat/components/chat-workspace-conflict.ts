@@ -2,6 +2,7 @@ import { html, nothing } from "lit";
 import { renderCopyButton } from "../../../components/copy-button.ts";
 import { icons } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
+import { platformClawProductT as productT } from "../../../platformclaw/i18n.ts";
 import {
   visibleWorkspaceConflictPaths,
   workspaceConflictCount,
@@ -32,7 +33,7 @@ export function renderWorkspaceConflictNotice(props: {
           <span aria-hidden="true">${icons.alertTriangle}</span>
           <strong>${title}</strong>
         </div>
-        <p>${t("chat.workspaceConflict.description")}</p>
+        <p>${productT("chat.workspaceConflict.description")}</p>
         <ul class="chat-workspace-conflict-paths">
           ${visible.paths.map(
             (entryPath) =>
@@ -75,7 +76,7 @@ export function renderWorkspaceConflictNotice(props: {
                 ${t("chat.workspaceConflict.commandHelp")}
               </p>`
           : html`<p class="chat-workspace-conflict-command-help">
-              ${t("chat.workspaceConflict.commandsUnavailable")}
+              ${productT("chat.workspaceConflict.commandsUnavailable")}
             </p>`}
       </div>
       ${props.onDismiss

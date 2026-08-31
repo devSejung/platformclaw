@@ -5,6 +5,7 @@ import { nothing, render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import type { PluginCatalogItem, PluginListResult } from "../../lib/plugins/index.ts";
+import { PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME } from "../../platformclaw/web-contract.ts";
 import { CONNECTOR_SUGGESTIONS } from "./presentation.ts";
 import { pluginRowKey, renderPlugins } from "./view.ts";
 
@@ -111,7 +112,55 @@ describe("renderPlugins", () => {
       render(nothing, container);
     }
     document.body.replaceChildren();
+    document.head
+      .querySelectorAll(`meta[name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}"]`)
+      .forEach((element) => element.remove());
     vi.restoreAllMocks();
+  });
+
+  it("brands product-owned plugin copy without mutating third-party descriptions", () => {
+    const descriptor = document.createElement("meta");
+    descriptor.name = PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME;
+    document.head.append(descriptor);
+    const bundled = createPlugin({
+      id: "bundled-copy",
+      description: "Adds tools to OpenClaw.",
+    });
+    const official = createPlugin({
+      id: "official-copy",
+      description: "Extends OpenClaw safely.",
+      origin: "official",
+    });
+    const thirdParty = createPlugin({
+      id: "third-party-copy",
+      description: "Connects OpenClaw to a private service.",
+      origin: "global",
+    });
+    const container = mount(
+      createProps({
+        detailPluginId: bundled.id,
+        result: createResult([bundled, official, thirdParty]),
+      }),
+    );
+
+    expect(
+      normalizedText(
+        container.querySelector('[data-plugin-id="bundled-copy"] .settings-row__desc'),
+      ),
+    ).toBe("Adds tools to PlatformClaw.");
+    expect(normalizedText(container.querySelector(".plugins-detail__description"))).toBe(
+      "Adds tools to PlatformClaw.",
+    );
+    expect(
+      normalizedText(
+        container.querySelector('[data-plugin-id="official-copy"] .settings-row__desc'),
+      ),
+    ).toBe("Extends PlatformClaw safely.");
+    expect(
+      normalizedText(
+        container.querySelector('[data-plugin-id="third-party-copy"] .settings-row__desc'),
+      ),
+    ).toBe("Connects OpenClaw to a private service.");
   });
 
   it("renders grouped inventory counts", () => {

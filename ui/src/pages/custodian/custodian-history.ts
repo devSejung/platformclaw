@@ -2,6 +2,7 @@ import type { SystemChangeEntry } from "@openclaw/gateway-protocol";
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
 import { formatRelativeTimestamp } from "../../lib/format.ts";
+import { resolveSystemAgentProductDisplayText } from "../../platformclaw/branding.ts";
 
 function changeSourceLabel(source: SystemChangeEntry["source"]): string {
   switch (source) {
@@ -32,7 +33,11 @@ function renderHistoryCard(entry: SystemChangeEntry) {
           >${formatRelativeTimestamp(entry.at)}</time
         >
       </div>
-      <div class="custodian__change-summary">${entry.summary}</div>
+      <div class="custodian__change-summary">
+        ${entry.source === "system-agent" || entry.source === "external"
+          ? resolveSystemAgentProductDisplayText(entry.summary)
+          : entry.summary}
+      </div>
       ${entry.invalid
         ? html`<div class="custodian__change-warning">${t("custodian.history.invalidEdit")}</div>`
         : nothing}

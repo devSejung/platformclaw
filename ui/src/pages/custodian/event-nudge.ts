@@ -1,6 +1,7 @@
 import { html } from "lit";
 import { GatewayRequestError, type GatewayEventFrame } from "../../api/gateway.ts";
 import { t } from "../../i18n/index.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 
 export type CustodianEventNudge = {
   severity: 1 | 2 | 3;
@@ -106,8 +107,8 @@ export function renderCustodianChannelOnboardingNudge(params: {
 }) {
   return html`<div class="custodian__nudge custodian__nudge--channel-onboarding" role="status">
     <div class="custodian__nudge-copy">
-      <strong>${t("custodian.nudge.channelSetupTitle")}</strong>
-      <span>${t("custodian.nudge.channelSetupBody")}</span>
+      <strong>${productT("custodian.nudge.channelSetupTitle")}</strong>
+      <span>${productT("custodian.nudge.channelSetupBody")}</span>
     </div>
     <button
       class="btn btn--sm primary custodian__nudge-cta"

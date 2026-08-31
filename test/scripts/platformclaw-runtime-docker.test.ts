@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { reconcileManagedConfig } from "../../docker/platformclaw-runtime/reconcile-managed-config.mjs";
 import {
+  PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION,
   REQUIRED_MANAGED_SANDBOX_TOOL_IDS,
   validateManagedConfig,
 } from "../../docker/platformclaw-runtime/validate-managed-config.mjs";
@@ -15,6 +16,7 @@ import {
   resolveSandboxToolPolicyForAgent,
 } from "../../src/agents/sandbox/tool-policy.js";
 import type { OpenClawConfig } from "../../src/config/config.js";
+import { buildRealtimeInstructions } from "../../src/gateway/server-methods/talk-shared.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -686,6 +688,49 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(result.changed).toBe(true);
     expect(result.config.plugins.entries.knox).toEqual({ enabled: true });
     expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
+  });
+
+  it("keeps managed PlatformClaw product identity prompt injection enabled", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      talk: { realtime: { instructions: string } };
+      plugins: {
+        entries: Record<
+          string,
+          { enabled?: boolean; hooks?: { allowPromptInjection?: boolean; timeouts?: unknown } }
+        >;
+      };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+    source.talk.realtime.instructions = "Keep answers under two sentences.";
+    source.plugins.entries["admin-http-rpc"] = {
+      enabled: true,
+      hooks: { allowPromptInjection: false, timeouts: { before_prompt_build: 1_000 } },
+    };
+
+    expect(() => validateManagedConfig(source, "platformclaw-sandbox:test")).toThrow(
+      "managed PlatformClaw execution policy",
+    );
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+    expect(result.changed).toBe(true);
+    expect(result.config.plugins.entries["admin-http-rpc"]).toEqual({
+      enabled: true,
+      hooks: {
+        allowPromptInjection: true,
+        timeouts: { before_prompt_build: 1_000 },
+      },
+    });
+    expect(result.config.talk.realtime.instructions).toBe(
+      `Keep answers under two sentences.\n\n${PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION}`,
+    );
+    const realtimePrompt = buildRealtimeInstructions(result.config.talk.realtime.instructions);
+    expect(realtimePrompt).toContain("You are OpenClaw's realtime voice interface");
+    expect(realtimePrompt.endsWith(PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION)).toBe(true);
+    expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
+    expect(reconcileManagedConfig(result.config, "platformclaw-sandbox:test").changed).toBe(false);
   });
 
   it("migrates existing deployments to the agent-scoped native Memory Wiki", () => {

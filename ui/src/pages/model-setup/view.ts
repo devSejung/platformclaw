@@ -9,6 +9,7 @@ import {
 } from "../../components/provider-icon.ts";
 import { syncDropdownItemRadio } from "../../components/web-awesome.ts";
 import { t } from "../../i18n/index.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import "../../styles/model-setup.css";
 import {
   failureLabel,
@@ -515,7 +516,7 @@ function renderManual(props: ModelSetupViewProps, result: SystemAgentSetupDetect
         </label>
         <div class="model-setup__manual-help">
           ${icons.shieldCheck}
-          <span>${t("modelSetup.manual.verifyHint")}</span>
+          <span>${productT("modelSetup.manual.verifyHint")}</span>
         </div>
         ${props.manualError
           ? html`<div class="callout danger" role="alert">${props.manualError}</div>`
@@ -561,7 +562,9 @@ function renderReady(props: ModelSetupViewProps, result: SystemAgentSetupDetectR
   }
   if (props.gatewayTooOld) {
     return html`${current}
-      <div class="callout warning" role="note">${t("modelSetup.access.gatewayTooOld")}</div>`;
+      <div class="callout warning" role="note">
+        ${productT("modelSetup.access.gatewayTooOld")}
+      </div>`;
   }
   return html`
     ${current} ${renderEmptyState(props, result)} ${renderCandidateRows(props, result)}
@@ -580,7 +583,7 @@ export function renderModelSetup(props: ModelSetupViewProps): TemplateResult {
     </div>`;
   } else if (props.gatewayTooOld) {
     body = html`<div class="callout warning" role="note">
-      ${t("modelSetup.access.gatewayTooOld")}
+      ${productT("modelSetup.access.gatewayTooOld")}
     </div>`;
   } else if (props.page.phase === "loading") {
     body = html`<div class="model-setup__loading" role="status">${t("modelSetup.loading")}</div>`;
@@ -595,7 +598,7 @@ export function renderModelSetup(props: ModelSetupViewProps): TemplateResult {
       <div class="model-setup__intro">
         <div>
           <h1>${t("modelSetup.heading")}</h1>
-          <p>${t("modelSetup.intro")}</p>
+          <p>${productT("modelSetup.intro")}</p>
         </div>
         ${props.page.phase === "ready" &&
         !props.page.result.configuredModel &&

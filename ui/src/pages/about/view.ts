@@ -19,6 +19,8 @@ import "../../components/tooltip.ts";
 import { i18n, t } from "../../i18n/index.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../../lib/external-link.ts";
 import { formatRelativeTimestamp } from "../../lib/format.ts";
+import { resolvePlatformClawBranding } from "../../platformclaw/branding.ts";
+import { platformClawProductT } from "../../platformclaw/i18n.ts";
 import "../../styles/about.css";
 import { brandIcons } from "./brand-icons.ts";
 
@@ -61,6 +63,7 @@ const ABOUT_LINKS: ReadonlyArray<{ href: string; icon: TemplateResult; label: ()
     label: () => t("aboutPage.linkChangelog"),
   },
 ];
+const UPSTREAM_COMMUNITY_LINKS = new Set(["https://discord.gg/clawd", "https://x.com/openclaw"]);
 
 function formatControlUiBuildDate(
   value: string | null,
@@ -157,6 +160,10 @@ function renderCommit(props: AboutProps) {
 // The same canonical crimson Clawd as the chat welcome hero, rendered big.
 // The poke button replays the claw wave; ambient motion lives in about.css.
 function renderHero(props: AboutProps) {
+  const branding = resolvePlatformClawBranding();
+  const links = branding
+    ? ABOUT_LINKS.filter((link) => !UPSTREAM_COMMUNITY_LINKS.has(link.href))
+    : ABOUT_LINKS;
   const palette =
     LOBSTER_PET_PALETTES.find((entry) => entry.id === "crimson") ??
     expectDefined(LOBSTER_PET_PALETTES[0], "about lobster palette");
@@ -165,20 +172,29 @@ function renderHero(props: AboutProps) {
     <section class="about-hero">
       <button
         type="button"
-        class="about-hero__clawd ${props.clawdWaving ? "about-hero__clawd--wave" : ""}"
+        class="about-hero__clawd ${branding
+          ? "about-hero__clawd--platformclaw"
+          : ""} ${props.clawdWaving ? "about-hero__clawd--wave" : ""}"
         style=${lobsterLookStyle(look)}
-        aria-label=${t("aboutPage.waveHello")}
+        aria-label=${branding?.productName ?? t("aboutPage.waveHello")}
         @click=${props.onPokeClawd}
       >
-        ${renderLobsterSvg(look)}
+        ${branding
+          ? html`<img
+              class="about-hero__platformclaw-mascot"
+              src=${branding.mascotUrl}
+              alt=""
+              aria-hidden="true"
+            />`
+          : renderLobsterSvg(look)}
       </button>
-      <h2 class="about-hero__name">${t("aboutPage.productName")}</h2>
+      <h2 class="about-hero__name">${platformClawProductT("aboutPage.productName")}</h2>
       <p class="about-hero__tagline">${t("aboutPage.tagline")}</p>
       ${props.buildInfo.version
         ? html`<code class="about-hero__version" dir="ltr">v${props.buildInfo.version}</code>`
         : nothing}
       <nav class="about-hero__links" aria-label=${t("aboutPage.linksLabel")}>
-        ${ABOUT_LINKS.map(
+        ${links.map(
           (link) => html`
             <a
               class="about-hero__link"

@@ -5,6 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
+  PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION,
   REQUIRED_MANAGED_AGENT_TOOL_IDS,
   REQUIRED_MANAGED_PLUGIN_IDS,
   REQUIRED_MANAGED_SANDBOX_TOOL_IDS,
@@ -17,6 +18,41 @@ const MCP_DENY_MIGRATION_ERROR =
 const AUTOMATIONS_DENY_MIGRATION_ERROR =
   "Existing sandbox tool deny policy blocks managed personal automations; remove automations or matching wildcards before upgrading PlatformClaw";
 const MANAGED_DISABLED_AGENT_TOOLS = ["group:nodes"];
+
+function reconcileRealtimeProductIdentity(config) {
+  const talk = config?.talk;
+  const realtime = talk?.realtime;
+  if (
+    (talk !== undefined && (!talk || typeof talk !== "object" || Array.isArray(talk))) ||
+    (realtime !== undefined &&
+      (!realtime || typeof realtime !== "object" || Array.isArray(realtime)))
+  ) {
+    return { config, changed: false };
+  }
+  const configured = realtime?.instructions;
+  if (configured !== undefined && typeof configured !== "string") {
+    return { config, changed: false };
+  }
+  const operatorInstructions = (configured ?? "")
+    .replaceAll(PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION, "")
+    .trim();
+  const instructions = operatorInstructions
+    ? `${operatorInstructions}\n\n${PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION}`
+    : PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION;
+  if (configured === instructions) {
+    return { config, changed: false };
+  }
+  return {
+    changed: true,
+    config: {
+      ...config,
+      talk: {
+        ...talk,
+        realtime: { ...realtime, instructions },
+      },
+    },
+  };
+}
 
 function reconcileSkillHubArchiveInstallPolicy(config, skillHubEnabled) {
   if (!skillHubEnabled) {
@@ -267,6 +303,8 @@ function reconcileRequiredPlugins(config) {
   const memoryCoreEntry = entries["memory-core"] ?? {};
   const memoryCoreConfig = memoryCoreEntry.config ?? {};
   const memoryCoreDreaming = memoryCoreConfig.dreaming ?? {};
+  const adminHttpRpcEntry = entries["admin-http-rpc"] ?? {};
+  const adminHttpRpcHooks = adminHttpRpcEntry.hooks ?? {};
   const canvasEntry = entries.canvas ?? {};
   const canvasConfig = canvasEntry.config ?? {};
   const canvasHost = canvasConfig.host ?? {};
@@ -278,6 +316,11 @@ function reconcileRequiredPlugins(config) {
         { ...entries[pluginId], enabled: true },
       ]),
     ),
+    "admin-http-rpc": {
+      ...adminHttpRpcEntry,
+      enabled: true,
+      hooks: { ...adminHttpRpcHooks, allowPromptInjection: true },
+    },
     canvas: {
       ...canvasEntry,
       enabled: false,
@@ -347,8 +390,9 @@ export function reconcileManagedConfig(config, sandboxImage, skillHubEnabled = f
   const sandboxGateResult = reconcileManagedSandboxGate(imageResult.config);
   const toolResult = reconcileManagedAgentToolPolicy(sandboxGateResult.config);
   const pluginResult = reconcileRequiredPlugins(toolResult.config);
+  const realtimeIdentityResult = reconcileRealtimeProductIdentity(pluginResult.config);
   const skillHubResult = reconcileSkillHubArchiveInstallPolicy(
-    pluginResult.config,
+    realtimeIdentityResult.config,
     skillHubEnabled,
   );
   return {
@@ -358,6 +402,7 @@ export function reconcileManagedConfig(config, sandboxImage, skillHubEnabled = f
       sandboxGateResult.changed ||
       toolResult.changed ||
       pluginResult.changed ||
+      realtimeIdentityResult.changed ||
       skillHubResult.changed,
   };
 }

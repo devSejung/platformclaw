@@ -4,6 +4,7 @@ import { loadSettings, normalizeChatSendShortcut, patchSettings } from "../../..
 import "../../../components/tooltip.ts";
 import { t } from "../../../i18n/index.ts";
 import { areUiSessionKeysEquivalent } from "../../../lib/sessions/session-key.ts";
+import { resolveControlUiProductName } from "../../../platformclaw/branding.ts";
 import { ComposerDictationController, insertComposerDictation } from "../composer-dictation.ts";
 import { discoverRealtimeTalkInputs } from "../realtime-talk-input.ts";
 import { isLargePastedTextAttachment } from "./chat-attachments.ts";
@@ -177,7 +178,7 @@ export function renderChatComposer(props: ChatComposerProps) {
     },
   );
   const composerControls = props.composerControls ?? nothing;
-  const assistantName = props.assistantName || "OpenClaw";
+  const assistantName = props.assistantName || resolveControlUiProductName();
   const inProgressLabel = props.waitingApproval
     ? t("chat.waitingForApproval")
     : submittedProgress?.sendState === "waiting-model"

@@ -21,6 +21,7 @@ import {
 } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
 import { normalizeAgentLabel } from "../../lib/agents/display.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import "../../styles/memory-import.css";
 
 type MemoryCollection = {
@@ -399,7 +400,7 @@ function renderConfirmation(props: MemoryImportViewProps) {
         <div class="callout ${props.replaceExisting ? "warn" : ""}">
           ${props.replaceExisting
             ? t("memoryImport.confirmReplace")
-            : t("memoryImport.confirmBackup")}
+            : productT("memoryImport.confirmBackup")}
         </div>
         <div class="exec-approval-actions">
           <button
@@ -428,7 +429,7 @@ function renderIntroSection(props: MemoryImportViewProps) {
   return renderSettingsSection(
     {
       title: t("memoryImport.title"),
-      description: t("memoryImport.subtitle"),
+      description: productT("memoryImport.subtitle"),
       actions: html`
         <button class="btn btn--sm" ?disabled=${busy} @click=${props.onRefresh}>
           ${props.loading ? t("common.refreshing") : t("common.refresh")}

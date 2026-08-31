@@ -514,6 +514,13 @@ openclaw-chat-sidebar-region,
   stroke-linejoin: round;
 }
 
+.chat-workspace-rail__platformclaw-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
 .chat-workspace-rail__path {
   /* Fixed rows: only the scroll area gives way when the bottom dock is short. */
   flex-shrink: 0;

@@ -40,6 +40,7 @@ import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import type { ChatPage } from "../pages/chat/chat-page.ts";
 import type { NewSessionTarget } from "../pages/new-session/location.ts";
+import { resolveProductDisplayText } from "../platformclaw/branding.ts";
 import { selectShellRouteState, type ShellRouteState } from "./app-host-route-state.ts";
 import { OpenClawApp } from "./app-root.ts";
 import {
@@ -494,7 +495,7 @@ class OpenClawShell
     if (isSessionRouteId(routeId) && this.activeSessionKey) {
       primaryContext = this.chatTitleContext(context, outboxScopeHost) || primaryContext;
     } else if (routeId === "custodian") {
-      primaryContext = t("nav.askOpenClaw");
+      primaryContext = resolveProductDisplayText(t("nav.askOpenClaw"));
     }
     const title = formatDocumentTitle({
       context: primaryContext,

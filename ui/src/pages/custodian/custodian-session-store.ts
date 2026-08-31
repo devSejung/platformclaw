@@ -10,6 +10,7 @@ import type { ApplicationContext } from "../../app/context.ts";
 import { t } from "../../i18n/index.ts";
 import { canCallGatewayMethod, isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
 import { buildAgentMainSessionKey, normalizeAgentId } from "../../lib/sessions/session-key.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import { pathForCustodianAgentHandoff } from "./custodian-navigation.ts";
 import { custodianWizardSubmission, initialCustodianWizardValue } from "./custodian-wizard-step.ts";
 import * as eventNudgeState from "./event-nudge.ts";
@@ -432,7 +433,7 @@ export class CustodianSessionStore {
       if (!chatSupported) {
         this.sessionStarted = false;
         this.abandonPendingUserTurn(pendingParams);
-        this.error = t("custodian.unsupportedGateway");
+        this.error = productT("custodian.unsupportedGateway");
         return;
       }
       this.chatAvailable = true;
@@ -449,7 +450,7 @@ export class CustodianSessionStore {
       return;
     }
     if (!chatSupported) {
-      this.error = t("custodian.unsupportedGateway");
+      this.error = productT("custodian.unsupportedGateway");
       return;
     }
     if (configuredInferenceState === "unresolved") {
@@ -663,7 +664,9 @@ export class CustodianSessionStore {
         if (hasCustodianUserInput(params) && isCustodianSessionInvalidatedError(error)) {
           // Retained transcript rows are display context only; the next turn needs a fresh id.
           this.rotateVolatileSession(client, this.currentSessionVariant());
-          this.error = t("custodian.sessionRestarted", { error: custodianErrorMessage(error) });
+          this.error = productT("custodian.sessionRestarted", {
+            error: custodianErrorMessage(error),
+          });
         }
       }
       if (hasCustodianUserInput(params) && this.retryParams === params) {

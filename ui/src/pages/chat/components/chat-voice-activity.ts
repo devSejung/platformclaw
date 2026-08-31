@@ -2,6 +2,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import { icons } from "../../../components/icons.ts";
 import "../../../components/tooltip.ts";
 import { t } from "../../../i18n/index.ts";
+import { platformClawProductT as productT } from "../../../platformclaw/i18n.ts";
 import { RealtimeTalkLevelSignal } from "../realtime-talk-level.ts";
 import type { RealtimeTalkStatus } from "../realtime-talk.ts";
 
@@ -84,7 +85,7 @@ export function voiceStatusLabel(
     return explicitDetail;
   }
   if (status === "thinking") {
-    return t("chat.voice.asking");
+    return productT("chat.voice.asking");
   }
   if (status === "connecting") {
     return t("chat.voice.connecting");

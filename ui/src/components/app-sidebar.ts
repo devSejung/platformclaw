@@ -16,6 +16,7 @@ import { createIdleImport } from "../lib/idle-import.ts";
 import type { CatalogProjectGrouping } from "../lib/sessions/catalog-project-grouping.ts";
 import { normalizeAgentId } from "../lib/sessions/session-key.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
+import { resolvePlatformClawBranding } from "../platformclaw/branding.ts";
 import { sidebarPluginTabs } from "./app-sidebar-nav-menus.ts";
 import {
   renderAppSidebarAttention,
@@ -59,7 +60,9 @@ import { SidebarMenusController } from "./sidebar-menus-controller.ts";
 // chunk still stays off until reload when that retry fails, by design.
 const sidebarChromeImport = createIdleImport(() =>
   Promise.all([
-    customElements.get("openclaw-lobster-pet") ? undefined : import("./lobster-pet.ts"),
+    resolvePlatformClawBranding() || customElements.get("openclaw-lobster-pet")
+      ? undefined
+      : import("./lobster-pet.ts"),
     customElements.get("openclaw-viewer-facepile") ? undefined : import("./viewer-facepile.ts"),
   ]),
 );
@@ -480,17 +483,19 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                     .updateRunning=${this.updateRunning}
                     .onUpdate=${this.onUpdate}
                   ></openclaw-sidebar-update-card>`}
-            <openclaw-lobster-pet
-              .seed=${lobsterPetSeed(this.sessionKey)}
-              .mode=${resolveLobsterPetMode(
-                !this.offline,
-                this.sessionData.sessionsResult?.sessions,
-              )}
-              .runOutcome=${resolveLobsterRunOutcome(this.sessionData.sessionsResult?.sessions)}
-              .visitsEnabled=${this.lobsterPetVisits}
-              .soundsEnabled=${this.lobsterPetSounds}
-              .gatewayVersion=${this.gatewayVersion}
-            ></openclaw-lobster-pet>
+            ${resolvePlatformClawBranding()
+              ? nothing
+              : html`<openclaw-lobster-pet
+                  .seed=${lobsterPetSeed(this.sessionKey)}
+                  .mode=${resolveLobsterPetMode(
+                    !this.offline,
+                    this.sessionData.sessionsResult?.sessions,
+                  )}
+                  .runOutcome=${resolveLobsterRunOutcome(this.sessionData.sessionsResult?.sessions)}
+                  .visitsEnabled=${this.lobsterPetVisits}
+                  .soundsEnabled=${this.lobsterPetSounds}
+                  .gatewayVersion=${this.gatewayVersion}
+                ></openclaw-lobster-pet>`}
             ${this.devGitBranch
               ? html`<openclaw-tooltip .content=${this.devGitBranch}>
                   <div class="sidebar-footer-branch">
