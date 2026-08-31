@@ -9,7 +9,9 @@ export function buildMemoryTabContent(snapshot: GatewaySnapshot, agentId: string
     memories: html`<openclaw-memory-memories
       .client=${snapshot.client}
       .connected=${snapshot.phase === "connected"}
-      .methodAdvertised=${isGatewayMethodAdvertised(snapshot, "memory.search") === true}
+      .connectionPhase=${snapshot.phase}
+      .methodAdvertised=${isGatewayMethodAdvertised(snapshot, "memory.search")}
+      .personalDetailAdvertised=${isGatewayMethodAdvertised(snapshot, "agents.workspace.get")}
       .agentId=${agentId}
     ></openclaw-memory-memories>`,
     wiki: html`<openclaw-agent-memory-panel

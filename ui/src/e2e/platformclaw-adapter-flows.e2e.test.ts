@@ -123,6 +123,8 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       defaultAgentId: "person_one",
       featureMethods: [
         "agents.list",
+        "agents.workspace.get",
+        "agents.workspace.list",
         "doctor.memory.status",
         "doctor.memory.dreamDiary",
         "memory.search",
@@ -137,6 +139,23 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
           defaultId: "person_one",
           mainKey: "person_one",
           scope: "agent",
+        },
+        "agents.workspace.get": {
+          file: {
+            path: "MEMORY.md",
+            name: "MEMORY.md",
+            encoding: "utf8",
+            content: "# Person One memory\n\nAssigned personal memory stays agent scoped.",
+          },
+        },
+        "agents.workspace.list": {
+          entries: [
+            {
+              path: "memory/2026-08-31.md",
+              name: "2026-08-31.md",
+              updatedAtMs: 1_778_457_600_000,
+            },
+          ],
         },
         "doctor.memory.status": {
           agentId: "person_one",
@@ -227,14 +246,37 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/memory");
     await expect.poll(() => page.locator(".page-title").textContent()).toContain("Memory");
     const memoryTabs = page.locator(".platformclaw-memory-page__tabs");
+    const memoryPanel = page.locator("#platformclaw-memory-panel");
     await expect.poll(() => memoryTabs.getByRole("tab").count()).toBe(5);
+    await memoryTabs.getByRole("tab", { name: "Memory", exact: true }).click();
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe("/platformclaw/app/settings/memory/memories");
+    await expect
+      .poll(() => memoryPanel.getAttribute("aria-labelledby"))
+      .toBe("platformclaw-memory-tab-memory");
+    await expect
+      .poll(() => page.locator("openclaw-memory-memories").textContent())
+      .toContain("2026-08-31.md");
     await memoryTabs.getByRole("tab", { name: "Dreaming", exact: true }).click();
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe("/platformclaw/app/settings/memory/dreams");
+    await expect
+      .poll(() => memoryPanel.getAttribute("aria-labelledby"))
+      .toBe("platformclaw-memory-tab-dreaming");
     await page.getByRole("tab", { name: "Dream Diary", exact: true }).click();
     const diary = page.locator(".dreams-diary");
     await expect
       .poll(() => diary.textContent())
       .toContain("Assigned personal memory was consolidated.");
     await memoryTabs.getByRole("tab", { name: "Personal Wiki", exact: true }).click();
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe("/platformclaw/app/settings/memory/wiki");
+    await expect
+      .poll(() => memoryPanel.getAttribute("aria-labelledby"))
+      .toBe("platformclaw-memory-tab-wiki");
     const wiki = page.locator(".memory-wiki-page");
     await expect.poll(() => wiki.textContent()).toContain("Person One knowledge");
     await wiki.getByRole("button", { name: "Open wiki page" }).click();

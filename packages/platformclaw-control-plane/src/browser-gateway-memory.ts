@@ -13,6 +13,7 @@ const MAX_PROVIDER_CHARS = 256;
 const MAX_SNIPPET_CHARS = 16 * 1024;
 const MAX_MEMORY_FILE_CHARS = 256 * 1024;
 const MAX_DOCUMENT_LINES = 5_000;
+const MAX_WORKSPACE_LIST_LIMIT = 500;
 const ORGANIZATION_MEMORY_PATH =
   /^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
 
@@ -153,6 +154,43 @@ export async function appendOrganizationMemorySearch(
   }
 }
 
+export function recoverMissingBrowserMemoryResult(params: {
+  method: string;
+  request: JsonObject;
+  agentId: string;
+  error: unknown;
+}): JsonObject | undefined {
+  const error = isRecord(params.error) ? params.error : null;
+  const details = error && isRecord(error.details) ? error.details : null;
+  if (
+    params.method === "agents.workspace.list" &&
+    params.request.path === "memory" &&
+    details?.type === "workspace_path_not_found" &&
+    details.path === "memory"
+  ) {
+    return {
+      agentId: params.agentId,
+      path: "memory",
+      parentPath: "",
+      entries: [],
+      totalEntries: 0,
+      offset: 0,
+    };
+  }
+  if (
+    params.method === "agents.workspace.get" &&
+    params.request.path === "MEMORY.md" &&
+    details?.type === "workspace_file_not_found" &&
+    details.path === "MEMORY.md"
+  ) {
+    return {
+      agentId: params.agentId,
+      file: { path: "MEMORY.md", encoding: "utf8", content: "", missing: true },
+    };
+  }
+  return undefined;
+}
+
 export function prepareBrowserMemoryRequest(params: {
   method: string;
   request: JsonObject;
@@ -163,6 +201,7 @@ export function prepareBrowserMemoryRequest(params: {
   if (
     params.method !== "memory.search" &&
     params.method !== "agents.workspace.get" &&
+    params.method !== "agents.workspace.list" &&
     params.method !== "platformclaw.memory.get"
   ) {
     return undefined;
@@ -194,6 +233,17 @@ export function prepareBrowserMemoryRequest(params: {
       }
     }
     return prepared;
+  }
+  if (params.method === "agents.workspace.list") {
+    if (params.request.path !== "memory") {
+      return params.fail("browser workspace browsing is limited to the personal memory directory");
+    }
+    return {
+      agentId: params.agentId,
+      path: "memory",
+      offset: 0,
+      limit: MAX_WORKSPACE_LIST_LIMIT,
+    };
   }
   const path = canonicalMemoryFilePath(params.request.path);
   return path
@@ -276,7 +326,11 @@ export function projectBrowserMemoryResult(params: {
   agentId: string;
   fail: ProjectionFailure;
 }): JsonObject | undefined {
-  if (params.method !== "memory.search" && params.method !== "agents.workspace.get") {
+  if (
+    params.method !== "memory.search" &&
+    params.method !== "agents.workspace.get" &&
+    params.method !== "agents.workspace.list"
+  ) {
     return undefined;
   }
   const payload = requireObject(params.result, `${params.method} result`, params.fail);
@@ -322,15 +376,75 @@ export function projectBrowserMemoryResult(params: {
         : {}),
     };
   }
+  if (params.method === "agents.workspace.list") {
+    const returnedOffset = finiteNumber(payload.offset);
+    const totalEntries = finiteNumber(payload.totalEntries);
+    if (
+      params.request.path !== "memory" ||
+      payload.path !== "memory" ||
+      payload.parentPath !== "" ||
+      returnedOffset !== 0 ||
+      totalEntries === null ||
+      !Number.isInteger(totalEntries) ||
+      totalEntries < 0 ||
+      !Array.isArray(payload.entries) ||
+      payload.entries.length > MAX_WORKSPACE_LIST_LIMIT ||
+      returnedOffset + payload.entries.length > totalEntries
+    ) {
+      return params.fail("Gateway returned an invalid personal memory directory");
+    }
+    const entries = payload.entries.map((value) => {
+      const entry = requireObject(value, "workspace list entry", params.fail);
+      const name = typeof entry.name === "string" ? entry.name : "";
+      const kind = entry.kind === "file" || entry.kind === "directory" ? entry.kind : null;
+      const updatedAtMs =
+        entry.updatedAtMs === undefined ? undefined : finiteNumber(entry.updatedAtMs);
+      if (
+        !name ||
+        name.length > 1_024 ||
+        name === "." ||
+        name === ".." ||
+        name.includes("/") ||
+        name.includes("\\") ||
+        entry.path !== `memory/${name}` ||
+        !kind ||
+        (entry.updatedAtMs !== undefined &&
+          (updatedAtMs === null || !Number.isInteger(updatedAtMs) || updatedAtMs < 0))
+      ) {
+        return params.fail("Gateway returned an invalid workspace list entry");
+      }
+      return {
+        path: entry.path as string,
+        name,
+        kind,
+        ...(updatedAtMs !== undefined && updatedAtMs !== null ? { updatedAtMs } : {}),
+      };
+    });
+    const projectedEntries = entries.flatMap(({ kind, ...entry }) =>
+      kind === "file" && canonicalMemoryFilePath(entry.path) ? [entry] : [],
+    );
+    return {
+      agentId: params.agentId,
+      path: "memory",
+      entries: projectedEntries,
+      ...(entries.some((entry) => entry.kind === "directory")
+        ? { hasAdditionalFolders: true }
+        : {}),
+      ...(payload.entries.length < totalEntries ? { truncated: true } : {}),
+    };
+  }
   const requestedPath = canonicalMemoryFilePath(params.request.path);
   const file = requireObject(payload.file, "personal memory file", params.fail);
   const returnedPath = canonicalMemoryFilePath(file.path);
+  const missing = requestedPath === "MEMORY.md" && file.missing === true;
   if (
     !requestedPath ||
     returnedPath !== requestedPath ||
     file.encoding !== "utf8" ||
     typeof file.content !== "string" ||
-    file.content.length > MAX_MEMORY_FILE_CHARS
+    file.content.length > MAX_MEMORY_FILE_CHARS ||
+    (file.missing !== undefined && !missing) ||
+    (missing && file.content !== "")
   ) {
     return params.fail("Gateway returned an invalid personal memory file");
   }
@@ -344,6 +458,7 @@ export function projectBrowserMemoryResult(params: {
       mimeType: "text/plain",
       encoding: "utf8",
       content: file.content,
+      ...(missing ? { missing: true } : {}),
     },
   };
 }

@@ -8,7 +8,12 @@
   flex: 1;
 }
 
-.memory-memories__state,
+.memory-memories__state {
+  margin: 0;
+  padding: var(--space-3) 0;
+  color: var(--muted);
+}
+
 .memory-memories__unavailable {
   margin: 0;
   padding: var(--space-4);
@@ -85,7 +90,8 @@
   background: var(--bg);
   color: var(--text);
   font: 12px/1.55 var(--mono);
-  white-space: pre;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
   padding: var(--space-3);
 }
 

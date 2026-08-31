@@ -196,6 +196,7 @@ describe("projectPlatformClawBrowserHello", () => {
       "doctor.memory.status",
       "memory.search",
       "agents.workspace.get",
+      "agents.workspace.list",
       "wiki.get",
       "wiki.overview",
     );
@@ -210,6 +211,7 @@ describe("projectPlatformClawBrowserHello", () => {
         "doctor.memory.status",
         "memory.search",
         "agents.workspace.get",
+        "agents.workspace.list",
         "wiki.get",
         "wiki.overview",
       ]),

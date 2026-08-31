@@ -244,6 +244,71 @@ describe("BrowserGatewayProxy personal memory", () => {
     });
   });
 
+  it("lists only top-level personal memory Markdown with a bounded projection", async () => {
+    const { binding, proxy, request, token } = await setup();
+    request.mockResolvedValueOnce({
+      agentId: binding.agentId,
+      path: "memory",
+      parentPath: "",
+      entries: [
+        { path: "memory/people", name: "people", kind: "directory", updatedAtMs: 5 },
+        { path: "memory/2026-08-31.md", name: "2026-08-31.md", kind: "file", size: 30 },
+        { path: "memory/cache.json", name: "cache.json", kind: "file", size: 40 },
+      ],
+      totalEntries: 501,
+      offset: 0,
+    });
+
+    const projected = await proxy.request(token, "agents.workspace.list", { path: "memory" });
+    expect(projected).toEqual({
+      agentId: binding.agentId,
+      path: "memory",
+      entries: [{ path: "memory/2026-08-31.md", name: "2026-08-31.md" }],
+      hasAdditionalFolders: true,
+      truncated: true,
+    });
+    expect(JSON.stringify(projected)).not.toContain("people");
+    expect(JSON.stringify(projected)).not.toContain("cache.json");
+    expect(request).toHaveBeenNthCalledWith(1, "agents.workspace.list", {
+      agentId: binding.agentId,
+      path: "memory",
+      offset: 0,
+      limit: 500,
+    });
+  });
+
+  it("projects missing canonical memory artifacts as calm empty results", async () => {
+    const { binding, proxy, request, token } = await setup();
+    request
+      .mockRejectedValueOnce(
+        Object.assign(new Error("workspace file not found"), {
+          details: { type: "workspace_file_not_found", path: "MEMORY.md" },
+        }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new Error("workspace directory not found"), {
+          details: { type: "workspace_path_not_found", path: "memory" },
+        }),
+      );
+
+    await expect(
+      proxy.request(token, "agents.workspace.get", { path: "MEMORY.md" }),
+    ).resolves.toEqual({
+      agentId: binding.agentId,
+      file: {
+        path: "MEMORY.md",
+        name: "MEMORY.md",
+        mimeType: "text/plain",
+        encoding: "utf8",
+        content: "",
+        missing: true,
+      },
+    });
+    await expect(
+      proxy.request(token, "agents.workspace.list", { path: "memory" }),
+    ).resolves.toEqual({ agentId: binding.agentId, path: "memory", entries: [] });
+  });
+
   it("denies cross-Agent, arbitrary workspace, and future-parameter requests before dispatch", async () => {
     const { proxy, request, token } = await setup();
 
@@ -255,6 +320,21 @@ describe("BrowserGatewayProxy personal memory", () => {
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     await expect(
       proxy.request(token, "agents.workspace.get", { path: "memory/../secrets.md" }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, "agents.workspace.list", { path: "../memory" }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, "agents.workspace.list", { path: "memory", agentId: "other" }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+    await expect(
+      proxy.request(token, "agents.workspace.list", { path: "memory/people" }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, "agents.workspace.list", { path: "memory", limit: 1 }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, "agents.workspace.list", { path: "memory", recursive: true }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     await expect(
       proxy.request(token, "memory.search", { query: "Ada", includeSessions: true }),
@@ -293,6 +373,29 @@ describe("BrowserGatewayProxy personal memory", () => {
           encoding: "utf8",
           content: "wrong file",
         },
+      })
+      .mockResolvedValueOnce({
+        agentId: binding.agentId,
+        path: "memory",
+        parentPath: "",
+        entries: [
+          {
+            path: "C:/private/memory/secret.md",
+            name: "secret.md",
+            kind: "file",
+            size: 12,
+          },
+        ],
+        totalEntries: 1,
+        offset: 0,
+      })
+      .mockResolvedValueOnce({
+        agentId: "other",
+        path: "memory",
+        parentPath: "",
+        entries: [],
+        totalEntries: 0,
+        offset: 0,
       });
 
     await expect(proxy.request(token, "memory.search", { query: "Ada" })).rejects.toMatchObject({
@@ -300,6 +403,12 @@ describe("BrowserGatewayProxy personal memory", () => {
     });
     await expect(
       proxy.request(token, "agents.workspace.get", { path: "MEMORY.md" }),
+    ).rejects.toMatchObject({ code: "upstream-result-denied" });
+    await expect(
+      proxy.request(token, "agents.workspace.list", { path: "memory" }),
+    ).rejects.toMatchObject({ code: "upstream-result-denied" });
+    await expect(
+      proxy.request(token, "agents.workspace.list", { path: "memory" }),
     ).rejects.toMatchObject({ code: "upstream-result-denied" });
   });
 });
