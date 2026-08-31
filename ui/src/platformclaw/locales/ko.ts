@@ -242,36 +242,28 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.memory.overview.openDreaming": "Dreaming 열기",
   "memoryPage.memories.longTermTitle": "장기 Memory",
   "memoryPage.memories.longTermDescription": "Agent가 MEMORY.md에 보관하는 지속적인 맥락입니다.",
-  "memoryPage.memories.longTermEmpty":
-    "MEMORY.md가 비어 있습니다. 오래 보관할 내용이 생기면 Agent가 여기에 정리합니다.",
+  "memoryPage.memories.longTermEmpty": "MEMORY.md가 비어 있습니다. 장기 내용은 여기에 저장됩니다.",
   "memoryPage.memories.previewHint": "전체 장기 Memory를 엽니다.",
   "memoryPage.memories.recentTitle": "최근 일일 Memory",
-  "memoryPage.memories.recentDescription":
-    "이 Agent의 memory 폴더에 있는 표준 Markdown 항목을 최신순으로 표시합니다.",
+  "memoryPage.memories.recentDescription": "이 Agent의 표준 일일 Markdown을 최신순으로 표시합니다.",
   "memoryPage.memories.recentEmpty": "아직 일일 Memory 항목이 없습니다.",
-  "memoryPage.memories.recentUnavailable":
-    "일일 Memory 탐색에는 최신 Gateway가 필요합니다. 위의 MEMORY.md는 계속 볼 수 있습니다.",
+  "memoryPage.memories.recentUnavailable": "최신 Gateway가 필요합니다. MEMORY.md는 볼 수 있습니다.",
   "memoryPage.memories.recentPartialError": "최근 일일 Memory를 새로고침하지 못했습니다: {message}",
   "memoryPage.memories.recentMoreTitle": "더 많은 Memory를 검색할 수 있습니다",
-  "memoryPage.memories.recentTruncated":
-    "일부만 표시됩니다. 추가 최상위 항목과 하위 폴더의 Markdown은 검색으로 찾을 수 있습니다.",
+  "memoryPage.memories.recentTruncated": "목록 일부입니다. 나머지 Markdown은 검색할 수 있습니다.",
   "memoryPage.memories.browseLoading": "개인 Memory를 불러오는 중…",
   "memoryPage.memories.capabilitiesLoading": "사용 가능한 Memory 기능을 확인하는 중…",
   "memoryPage.memories.browseErrorWithMessage": "개인 Memory를 불러오지 못했습니다: {message}",
-  "memoryPage.memories.browseUpdateRequired":
-    "Control UI에서 개인 Memory를 탐색하려면 Gateway를 업데이트하세요.",
+  "memoryPage.memories.browseUpdateRequired": "개인 Memory 탐색을 위해 Gateway를 업데이트하세요.",
   "memoryPage.memories.previewUnavailable": "전체 미리보기에는 최신 Gateway가 필요합니다.",
   "memoryPage.memories.refresh": "개인 Memory 새로고침",
   "memoryPage.memories.refreshing": "새로고침 중…",
   "memoryPage.memories.refreshed": "개인 Memory를 새로고침했습니다.",
   "memoryPage.memories.connecting": "Gateway에 연결하는 중…",
-  "memoryPage.memories.reconnecting":
-    "Gateway에 다시 연결하는 중입니다. 연결되면 개인 Memory를 새로고칩니다.",
-  "memoryPage.memories.offline":
-    "Gateway가 오프라인입니다. 개인 Memory를 불러오거나 새로고치려면 다시 연결하세요.",
+  "memoryPage.memories.reconnecting": "Gateway에 다시 연결 중입니다. 연결되면 새로고칩니다.",
+  "memoryPage.memories.offline": "Gateway가 오프라인입니다. 개인 Memory를 보려면 다시 연결하세요.",
   "memoryPage.memories.searchTitle": "전체 지식 검색",
-  "memoryPage.memories.searchDescription":
-    "개인 Memory, Personal Wiki와 접근 가능한 조직 지식을 한 번에 검색합니다.",
+  "memoryPage.memories.searchDescription": "개인 Memory, Personal Wiki와 조직 지식을 검색합니다.",
   "memoryPage.memories.searchLabel": "전체 Memory 검색",
   "memoryPage.memories.searchPlaceholder": "개인 Memory, Personal Wiki, 접근 가능한 조직 지식 검색",
   "memoryPage.memories.searchButton": "검색",
@@ -280,8 +272,7 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.memories.empty": "“{query}”와 일치하는 Memory가 없습니다.",
   "memoryPage.memories.error": "Memory 검색 실패: {message}",
   "memoryPage.memories.retry": "다시 시도",
-  "memoryPage.memories.gatewayUpdateRequired":
-    "Control UI에서 Memory를 검색하려면 Gateway를 업데이트하세요.",
+  "memoryPage.memories.gatewayUpdateRequired": "Memory 검색을 위해 Gateway를 업데이트하세요.",
   "memoryPage.memories.hybridSearch": "하이브리드 검색",
   "memoryPage.memories.keywordSearch": "키워드 검색",
   "memoryPage.memories.lineRange": "{start}–{end}행",
@@ -293,12 +284,11 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.memories.organizationUnavailable": "조직 지식을 지금 불러올 수 없습니다.",
   "memoryPage.memories.wikiUnavailable": "Personal Wiki 검색을 지금 사용할 수 없습니다.",
   "memoryPage.memories.wikiMethodUnavailable":
-    "이 Gateway에서는 Personal Wiki 검색을 사용할 수 없습니다.",
+    "이 Gateway는 Personal Wiki 검색을 지원하지 않습니다.",
   "memoryPage.memories.personalUnavailable": "개인 Memory 검색을 지금 사용할 수 없습니다.",
   "memoryPage.memories.personalMethodUnavailable":
-    "이 Gateway에서는 개인 Memory 검색을 사용할 수 없습니다.",
-  "memoryPage.memories.staleResults":
-    "Memory 색인을 갱신하는 중입니다. 이 결과는 최신 내용과 다를 수 있습니다.",
+    "이 Gateway는 개인 Memory 검색을 지원하지 않습니다.",
+  "memoryPage.memories.staleResults": "Memory 색인 갱신 중입니다. 결과가 최신과 다를 수 있습니다.",
   "memoryPage.memories.fileLoading": "전체 내용을 불러오는 중…",
   "memoryPage.memories.fileError": "전체 내용을 열 수 없습니다: {message}",
   "memoryPage.memories.fileUnsupported": "이 Memory는 텍스트로 표시할 수 없습니다.",
