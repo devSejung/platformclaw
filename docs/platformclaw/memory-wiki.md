@@ -103,6 +103,12 @@ unsafe-local, Obsidian command, or global `config.*` RPCs. Agents write Wiki
 content through the plugin's native tools, which already run in the selected
 Agent context.
 
+`agents.workspace.list` is not a general browser workspace API: the BFF pins
+the authenticated personal Agent, accepts only the exact top-level `memory`
+directory, caps the upstream read, and projects direct-child `.md` entries only.
+Directory names, raw totals and cursors, host metadata, malformed paths, and
+foreign-Agent results are stripped or fail closed.
+
 Users access the feature through **Settings > Memory**. PlatformClaw groups the
 native surfaces into one hub without merging their data models:
 

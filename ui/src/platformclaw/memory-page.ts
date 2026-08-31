@@ -1,12 +1,18 @@
 import { consume } from "@lit/context";
 import { html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
-import { INTERNAL_MEMORY_PATH_PARAM, memoryTabFromPath } from "../app-route-paths.ts";
+import {
+  INTERNAL_MEMORY_PATH_PARAM,
+  memoryTabFromPath,
+  pathForMemoryTab,
+  type MemoryRouteTab,
+} from "../app-route-paths.ts";
 import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { renderHubTabs } from "../components/hub-tabs.ts";
 import { renderSettingsRow, renderSettingsSection } from "../components/settings-ui.ts";
 import { isGatewayMethodAdvertised } from "../lib/gateway-methods.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
+import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import "../pages/agents/memory/memory-panel.ts";
 import "../pages/config/memory-memories.ts";
 import "../pages/config/memory-promotions.ts";
@@ -41,11 +47,20 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
   @property() agentId: string | null = null;
   @property() initialTab: PersonalMemoryTab = "overview";
   @state() private activeTab: PersonalMemoryTab = "overview";
+  private readonly subscriptions = new SubscriptionsController(this).watch(
+    () => this.context?.gateway,
+    (gateway, notify) => gateway.subscribe(notify),
+  );
 
   override connectedCallback() {
     super.connectedCallback();
     this.activeTab = this.initialTab;
     void loadPlatformClawLocale().then(() => this.requestUpdate());
+  }
+
+  override disconnectedCallback() {
+    this.subscriptions.clear();
+    super.disconnectedCallback();
   }
 
   protected override updated(changed: PropertyValues<this>) {
@@ -55,7 +70,11 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
   }
 
   private selectTab(tab: PersonalMemoryTab) {
-    this.activeTab = tab;
+    const routeTab: MemoryRouteTab =
+      tab === "memory" ? "memories" : tab === "dreaming" ? "dreams" : tab;
+    this.context.navigate("memory", {
+      pathname: pathForMemoryTab(routeTab, this.context.basePath),
+    });
   }
 
   private renderOverview() {
@@ -115,10 +134,18 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
         return html`<openclaw-memory-memories
           .client=${gateway.client}
           .connected=${gateway.phase === "connected"}
-          .methodAdvertised=${isGatewayMethodAdvertised(gateway, "memory.search") === true}
-          .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search") === true}
-          .detailAdvertised=${isGatewayMethodAdvertised(gateway, "platformclaw.memory.get") ===
-          true}
+          .connectionPhase=${gateway.phase}
+          .methodAdvertised=${isGatewayMethodAdvertised(gateway, "memory.search")}
+          .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search")}
+          .browseEnabled=${true}
+          .browseListAdvertised=${isGatewayMethodAdvertised(gateway, "agents.workspace.list")}
+          .personalDetailAdvertised=${isGatewayMethodAdvertised(gateway, "agents.workspace.get")}
+          .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.get")}
+          .organizationGetAdvertised=${isGatewayMethodAdvertised(
+            gateway,
+            "platformclaw.memory.get",
+          )}
+          .translator=${t}
           .agentId=${this.agentId}
         ></openclaw-memory-memories>`;
       case "wiki":
@@ -175,7 +202,12 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
             onSelect: (tab) => this.selectTab(tab),
           })}
         </nav>
-        <section id=${PANEL_ID} class="platformclaw-memory-page__panel" role="tabpanel">
+        <section
+          id=${PANEL_ID}
+          class="platformclaw-memory-page__panel"
+          role="tabpanel"
+          aria-labelledby=${`platformclaw-memory-tab-${this.activeTab}`}
+        >
           ${this.renderPanel()}
         </section>
       </main>
