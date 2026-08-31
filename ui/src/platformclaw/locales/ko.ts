@@ -254,7 +254,7 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.memories.recentPartialError": "최근 일일 Memory를 새로고침하지 못했습니다: {message}",
   "memoryPage.memories.recentMoreTitle": "더 많은 Memory를 검색할 수 있습니다",
   "memoryPage.memories.recentTruncated":
-    "검색하면 더 오래된 최상위 항목과 하위 폴더의 Markdown도 찾을 수 있습니다.",
+    "일부만 표시됩니다. 추가 최상위 항목과 하위 폴더의 Markdown은 검색으로 찾을 수 있습니다.",
   "memoryPage.memories.browseLoading": "개인 Memory를 불러오는 중…",
   "memoryPage.memories.capabilitiesLoading": "사용 가능한 Memory 기능을 확인하는 중…",
   "memoryPage.memories.browseErrorWithMessage": "개인 Memory를 불러오지 못했습니다: {message}",

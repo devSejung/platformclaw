@@ -2734,7 +2734,8 @@ export const en: TranslationMap = {
         "Daily memory browsing requires a newer Gateway. MEMORY.md is still available above.",
       recentPartialError: "Recent daily memory could not be refreshed: {message}",
       recentMoreTitle: "More memory is searchable",
-      recentTruncated: "Search finds older top-level entries and Markdown kept in nested folders.",
+      recentTruncated:
+        "This is a partial list. Additional top-level entries and Markdown in nested folders remain searchable.",
       browseLoading: "Loading personal memory…",
       capabilitiesLoading: "Checking available memory features…",
       browseErrorWithMessage: "Personal memory could not be loaded: {message}",

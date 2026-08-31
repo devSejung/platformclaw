@@ -182,7 +182,9 @@ describe("MemoryMemoriesElement", () => {
         ),
       ).toHaveLength(1);
 
-      expect(element.textContent).toContain("Markdown kept in nested folders");
+      expect(element.textContent).toContain("This is a partial list");
+      expect(element.textContent).toContain("Additional top-level entries");
+      expect(element.textContent).not.toContain("older top-level entries");
       const searchMore = [...element.querySelectorAll<HTMLButtonElement>("button")].find(
         (button) => button.textContent?.trim() === "Search",
       );
