@@ -2,10 +2,8 @@ import { formatErrorMessage } from "@openclaw/normalization-core";
 import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import type { AgentsWorkspaceGetResult } from "../../../../packages/gateway-protocol/src/index.js";
-import type { MemorySearchResponse } from "../../../../src/gateway/server-methods/memory-search.ts";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationGatewayPhase } from "../../app/gateway.ts";
-import { icons } from "../../components/icons.ts";
 import {
   renderSettingsEmpty,
   renderSettingsRow,
@@ -15,22 +13,18 @@ import { t } from "../../i18n/index.ts";
 import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import "../../styles/memory-memories.css";
+import {
+  type BrowserMemorySearchResponse,
+  type DetailState,
+  isExpandableResult,
+  renderMemoryBrowseFile,
+  renderMemorySearchResults,
+  resultKey,
+  type SearchResult,
+  type SearchState,
+  type Translate,
+} from "./memory-memories-view.ts";
 
-type Translate = (key: string, params?: Record<string, string>) => string;
-type SearchResult = Omit<MemorySearchResponse["results"][number], "source"> & {
-  source: string;
-  title?: string;
-  kind?: string;
-  provenanceLabel?: string;
-};
-type BrowserMemorySearchResponse = Omit<MemorySearchResponse, "results"> & {
-  results: SearchResult[];
-  organizationMemoryUnavailable?: boolean;
-  personalWikiUnavailable?: boolean;
-  personalMemoryUnavailable?: boolean;
-  personalMemoryMethodUnavailable?: boolean;
-  personalWikiMethodUnavailable?: boolean;
-};
 type WikiSearchResult = {
   path: string;
   title: string;
@@ -41,16 +35,6 @@ type WikiSearchResult = {
   endLine?: number;
 };
 type WikiGetResult = { content: string; fromLine: number; lineCount: number };
-type OrganizationMemoryGetResult = WikiGetResult | null;
-type SearchState =
-  | { kind: "idle" }
-  | { kind: "loading"; query: string }
-  | ({ kind: "ready"; query: string } & BrowserMemorySearchResponse)
-  | { kind: "error"; query: string; message: string };
-type DetailState =
-  | { kind: "loading" }
-  | { kind: "ready"; content: string }
-  | { kind: "error"; message: string };
 type BrowseEntry = {
   path: string;
   name: string;
@@ -84,58 +68,12 @@ type BrowseState =
 
 const RECENT_MEMORY_LIMIT = 7;
 
-type RequestOutcome<T> = { ok: true; value: T } | { ok: false; message: string };
-
-async function requestOutcome<T>(request: Promise<T>): Promise<RequestOutcome<T>> {
+async function requestOutcome<T>(request: Promise<T>) {
   try {
-    return { ok: true, value: await request };
+    return { ok: true as const, value: await request };
   } catch (error) {
-    return {
-      ok: false,
-      message: formatErrorMessage(error, { redact: redactToolDetail }),
-    };
+    return { ok: false as const, message: formatErrorMessage(error, { redact: redactToolDetail }) };
   }
-}
-
-function resultKey(result: SearchResult, index: number): string {
-  return `${index}:${result.path}:${result.startLine}:${result.endLine}`;
-}
-
-function isExpandableResult(result: SearchResult): boolean {
-  const normalizedPath = result.path.replaceAll("\\", "/");
-  const safeRelativePath =
-    !normalizedPath.startsWith("/") &&
-    !normalizedPath.startsWith("sessions/") &&
-    !/^[a-zA-Z]:\//.test(normalizedPath) &&
-    normalizedPath.split("/").every((segment) => segment && segment !== "." && segment !== "..");
-  const workspaceMemoryPath =
-    normalizedPath === "MEMORY.md" || normalizedPath.startsWith("memory/");
-  // workspace.get is workspace-contained; sessions/* and qmd/* are logical manager paths.
-  if (result.source === "wiki") {
-    return safeRelativePath && result.path.endsWith(".md");
-  }
-  if (result.source === "organization") {
-    return /^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(
-      normalizedPath,
-    );
-  }
-  return result.source === "memory" && safeRelativePath && workspaceMemoryPath;
-}
-
-function renderFileContent(content: string, result?: SearchResult) {
-  if (!result) {
-    return html`<pre class="memory-memories__file" tabindex="0">${content}</pre>`;
-  }
-  const lines = content.split(/\r?\n/);
-  const start = Math.max(0, result.startLine - 1);
-  const end = Math.min(lines.length, result.endLine);
-  const before = lines.slice(0, start);
-  const matched = lines.slice(start, end);
-  const after = lines.slice(end);
-  return html`<pre class="memory-memories__file" tabindex="0"><span
-      >${before.join("\n")}${before.length ? "\n" : ""}</span
-    ><mark data-memory-match="true">${matched.join("\n")}</mark
-    ><span>${after.length ? `\n${after.join("\n")}` : ""}</span></pre>`;
 }
 
 class MemoryMemoriesElement extends OpenClawLightDomElement {
@@ -496,7 +434,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
               lookup: result.path,
             })
           : result.source === "organization"
-            ? await client.request<OrganizationMemoryGetResult>("platformclaw.memory.get", {
+            ? await client.request<WikiGetResult | null>("platformclaw.memory.get", {
                 agentId,
                 path: result.path,
               })
@@ -552,42 +490,20 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     description?: string,
     content?: string,
   ) {
-    const result: SearchResult = {
+    return renderMemoryBrowseFile({
       path,
-      startLine: 0,
-      endLine: 0,
-      score: 0,
-      snippet: name,
-      source: "memory",
-    };
-    const key = resultKey(result, index);
-    const cached = content !== undefined || this.details.get(key)?.kind === "ready";
-    if (!cached && !this.canLoadResult(result)) {
-      return renderSettingsRow({ title: name, description });
-    }
-    const panelId = index === -1 ? "memory-long-term-detail" : `memory-browse-detail-${-index}`;
-    return html`<article class="memory-memories__result">
-      <button
-        type="button"
-        class="settings-row settings-row--nav"
-        aria-expanded=${String(this.openResultKey === key)}
-        aria-controls=${panelId}
-        @click=${() => this.toggleResult(result, index, content)}
-      >
-        <span class="settings-row__text">
-          <span class="settings-row__title">${name}</span>
-          ${description === undefined
-            ? nothing
-            : html`<span class="settings-row__desc">${description}</span>`}
-        </span>
-        <span class="settings-row__control">
-          <span class="settings-row__chevron" aria-hidden="true"
-            >${this.openResultKey === key ? icons.chevronDown : icons.chevronRight}</span
-          >
-        </span>
-      </button>
-      ${this.renderDetail(key, panelId, result)}
-    </article>`;
+      name,
+      index,
+      description,
+      content,
+      details: this.details,
+      openResultKey: this.openResultKey,
+      text: this.text.bind(this),
+      canLoadResult: (result) => this.canLoadResult(result),
+      onToggle: (result, resultIndex, inlineContent) =>
+        this.toggleResult(result, resultIndex, inlineContent),
+      onRetry: (key, result) => void this.loadDetail(key, result),
+    });
   }
 
   private renderBrowseReady(ready: Extract<BrowseState, { kind: "ready" }>) {
@@ -708,142 +624,6 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     );
   }
 
-  private renderDetail(key: string, panelId: string, result: SearchResult) {
-    if (this.openResultKey !== key) {
-      return nothing;
-    }
-    const detail = this.details.get(key);
-    return html`<div id=${panelId} class="memory-memories__detail">
-      ${!detail || detail.kind === "loading"
-        ? html`<p role="status">${this.text("memoryPage.memories.fileLoading")}</p>`
-        : detail.kind === "error"
-          ? html`<div class="memory-memories__detail-error" role="alert">
-              <p>${this.text("memoryPage.memories.fileError", { message: detail.message })}</p>
-              <button class="btn btn--sm" @click=${() => void this.loadDetail(key, result)}>
-                ${this.text("memoryPage.memories.retry")}
-              </button>
-            </div>`
-          : renderFileContent(detail.content, result.startLine > 0 ? result : undefined)}
-    </div>`;
-  }
-
-  private renderResults(ready: Extract<SearchState, { kind: "ready" }>) {
-    const mode =
-      ready.searchMode === "hybrid"
-        ? this.text("memoryPage.memories.hybridSearch")
-        : this.text("memoryPage.memories.keywordSearch");
-    const resultCount = this.text("memoryPage.memories.results", {
-      count: String(ready.results.length),
-    });
-    const sourceNotices = [
-      ready.personalMemoryUnavailable
-        ? this.text("memoryPage.memories.personalUnavailable")
-        : ready.personalMemoryMethodUnavailable
-          ? this.text("memoryPage.memories.personalMethodUnavailable")
-          : null,
-      ready.organizationMemoryUnavailable
-        ? this.text("memoryPage.memories.organizationUnavailable")
-        : null,
-      ready.personalWikiUnavailable
-        ? this.text("memoryPage.memories.wikiUnavailable")
-        : ready.personalWikiMethodUnavailable
-          ? this.text("memoryPage.memories.wikiMethodUnavailable")
-          : null,
-    ].filter((message): message is string => message !== null);
-    const liveSummary = [
-      resultCount,
-      mode,
-      ...(ready.stale ? [this.text("memoryPage.memories.staleResults")] : []),
-      ...sourceNotices,
-    ].join(" ");
-    return html`
-      <div
-        class="memory-memories__results-heading"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        aria-label=${liveSummary}
-      >
-        <span>${resultCount}</span>
-        <span class="memory-memories__mode">${mode}</span>
-      </div>
-      ${ready.stale
-        ? html`<p class="memory-memories__state">
-            ${this.text("memoryPage.memories.staleResults")}
-          </p>`
-        : nothing}
-      ${sourceNotices.length > 0
-        ? html`<p class="memory-memories__state">${sourceNotices.join(" ")}</p>`
-        : nothing}
-      ${ready.results.length === 0
-        ? html`<p class="memory-memories__state">
-            ${this.text("memoryPage.memories.empty", {
-              query: ready.query,
-            })}
-          </p>`
-        : html`<div class="settings-group memory-memories__results">
-            ${ready.results.map((result, index) => {
-              const key = resultKey(result, index);
-              const open = this.openResultKey === key;
-              const expandable =
-                this.details.get(key)?.kind === "ready" || this.canLoadResult(result);
-              const panelId = `memory-detail-${index}`;
-              const summary = html`
-                <span class="settings-row__text">
-                  <span class="settings-row__title">${result.title ?? result.snippet}</span>
-                  ${result.title
-                    ? html`<span class="settings-row__desc memory-memories__snippet"
-                        >${result.snippet}</span
-                      >`
-                    : nothing}
-                  <span class="settings-row__desc memory-memories__path"
-                    >${result.path} ·
-                    ${this.text("memoryPage.memories.lineRange", {
-                      start: String(result.startLine),
-                      end: String(result.endLine),
-                    })}</span
-                  >
-                </span>
-                <span class="settings-row__control memory-memories__meta">
-                  <span class="memory-memories__source"
-                    >${result.source === "organization"
-                      ? this.text("memoryPage.memories.sourceOrganization", {
-                          scope: result.provenanceLabel ?? "",
-                        })
-                      : result.source === "wiki"
-                        ? this.text("memoryPage.memories.sourceWiki")
-                        : this.text(
-                            result.source === "sessions"
-                              ? "memoryPage.memories.sourceSessions"
-                              : "memoryPage.memories.sourceMemory",
-                          )}</span
-                  >
-                  <span
-                    >${this.text("memoryPage.memories.score", {
-                      score: result.score.toFixed(2),
-                    })}</span
-                  >
-                </span>
-              `;
-              return html`<article class="memory-memories__result">
-                ${expandable
-                  ? html`<button
-                      type="button"
-                      class="settings-row settings-row--nav"
-                      aria-expanded=${String(open)}
-                      aria-controls=${panelId}
-                      @click=${() => this.toggleResult(result, index)}
-                    >
-                      ${summary}
-                    </button>`
-                  : html`<div class="settings-row">${summary}</div>`}
-                ${expandable ? this.renderDetail(key, panelId, result) : nothing}
-              </article>`;
-            })}
-          </div>`}
-    `;
-  }
-
   private renderSearchState() {
     switch (this.searchState.kind) {
       case "loading":
@@ -860,7 +640,15 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
         </div>`;
       }
       case "ready":
-        return this.renderResults(this.searchState);
+        return renderMemorySearchResults({
+          ready: this.searchState,
+          details: this.details,
+          openResultKey: this.openResultKey,
+          text: this.text.bind(this),
+          canLoadResult: (result) => this.canLoadResult(result),
+          onToggle: (result, index) => this.toggleResult(result, index),
+          onRetry: (key, result) => void this.loadDetail(key, result),
+        });
       default:
         return nothing;
     }

@@ -277,7 +277,13 @@ describe("platformclaw-quick-actions", () => {
       expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
     );
 
-    await advanceTour(element);
+    const next = element.shadowRoot?.querySelector<HTMLButtonElement>(".tour-next");
+    next?.click();
+    await new Promise<void>((resolve) => {
+      globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(() => resolve()));
+    });
+    await element.updateComplete;
+    expect(next?.disabled).toBe(false);
     expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
       "Home: start a conversation with your Agent",
     );
@@ -349,7 +355,19 @@ describe("platformclaw-quick-actions", () => {
     expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
       "Memory: five views for retained knowledge",
     );
+    const personalMemoryTab = document.querySelector<HTMLElement>(
+      "#platformclaw-memory-tab-memory",
+    );
+    const personalMemoryRect = vi
+      .fn<() => DOMRect>()
+      .mockReturnValueOnce(DOMRect.fromRect())
+      .mockReturnValueOnce(DOMRect.fromRect())
+      .mockReturnValue(DOMRect.fromRect({ x: 320, y: 96, width: 125, height: 34 }));
+    if (personalMemoryTab) {
+      personalMemoryTab.getBoundingClientRect = personalMemoryRect;
+    }
     await advanceTour(element);
+    expect(personalMemoryRect.mock.calls.length).toBeGreaterThanOrEqual(4);
     expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
       "Memory: search personal recall",
     );
@@ -412,6 +430,16 @@ describe("platformclaw-quick-actions", () => {
     pluginsLink.href = "/settings/plugins";
     const settingsButton = document.createElement("button");
     settingsButton.dataset.tour = "settings";
+    let settingsButtonPosition: "visible" | "zero" = "visible";
+    const settingsButtonRect = vi.fn(() =>
+      DOMRect.fromRect(
+        settingsButtonPosition === "visible" ? { x: 20, y: 360, width: 140, height: 36 } : {},
+      ),
+    );
+    settingsButton.getBoundingClientRect = settingsButtonRect;
+    settingsButton.scrollIntoView = vi.fn(() => {
+      settingsButtonPosition = "visible";
+    });
     installMemberSettings(settingsButton);
     sidebar.append(pluginsLink, settingsButton);
     document.body.append(sidebar);
@@ -429,12 +457,47 @@ describe("platformclaw-quick-actions", () => {
 
     beforeNavigation.remove();
     pluginsLink.remove();
+    settingsButtonPosition = "zero";
+    const rectCallsBeforeRestore = settingsButtonRect.mock.calls.length;
+    const addListener = vi.spyOn(globalThis, "addEventListener");
+    const staleNavigation = await mount();
+    await vi.waitFor(() =>
+      expect(settingsButtonRect.mock.calls.length).toBeGreaterThan(rectCallsBeforeRestore),
+    );
+    staleNavigation.remove();
+    await new Promise<void>((resolve) => {
+      globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(() => resolve()));
+    });
+    expect(addListener.mock.calls.some(([type]) => type === "keydown")).toBe(false);
+    addListener.mockRestore();
+    const replacementButton = document.createElement("button");
+    replacementButton.dataset.tour = "settings";
+    let replacementOffscreen = true;
+    replacementButton.getBoundingClientRect = () =>
+      DOMRect.fromRect({
+        x: 20,
+        y: replacementOffscreen ? 1200 : 360,
+        width: 140,
+        height: 36,
+      });
+    replacementButton.scrollIntoView = vi.fn(() => {
+      replacementOffscreen = false;
+    });
+    installMemberSettings(replacementButton);
     const afterNavigation = await mount();
+    globalThis.requestAnimationFrame(() => {
+      settingsButton.replaceWith(replacementButton);
+    });
     await vi.waitFor(() =>
       expect(afterNavigation.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
         "Settings button: open all workspace settings",
       ),
     );
+    expect(
+      afterNavigation.shadowRoot?.querySelector(".tour-highlight")?.getAttribute("style"),
+    ).not.toContain("display:none");
+    expect(staleNavigation.shadowRoot?.querySelector(".tour-popover")).toBeNull();
+    expect(replacementButton.scrollIntoView).toHaveBeenCalled();
     await advanceTour(afterNavigation);
     await advanceTour(afterNavigation);
     expect(afterNavigation.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
@@ -455,7 +518,7 @@ describe("platformclaw-quick-actions", () => {
     await beforeNavigation.updateComplete;
     expect(beforeNavigation.shadowRoot?.querySelector(".tour-popover")).toBeNull();
 
-    settingsButton.click();
+    replacementButton.click();
     const validSettingsInstance = await mount();
     await vi.waitFor(() =>
       expect(validSettingsInstance.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(

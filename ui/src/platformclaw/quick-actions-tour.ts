@@ -6,19 +6,19 @@ export type TourStep = {
   body: string;
   details?: string[];
   element?: () => Element | null;
-  activate?: () => void | Promise<void>;
+  activate?: () => boolean | void | Promise<boolean | void>;
 };
 
 type TourActions = {
   tourElement: (selector: string, shadowSelector?: string) => Element;
   findSettingsRoute: (route: string) => Element | null;
-  openHomeToTerminal: () => Promise<void>;
-  openPluginsHub: () => Promise<void>;
-  activatePluginHubTab: (tab: string) => Promise<void>;
-  openSettings: () => Promise<void>;
-  openMemory: () => Promise<void>;
-  activateMemoryTab: (tab: string) => Promise<void>;
-  openHome: () => Promise<void>;
+  openHomeToTerminal: () => Promise<boolean>;
+  openPluginsHub: () => Promise<boolean>;
+  activatePluginHubTab: (tab: string) => Promise<boolean>;
+  openSettings: () => Promise<boolean>;
+  openMemory: () => Promise<boolean>;
+  activateMemoryTab: (tab: string) => Promise<boolean>;
+  openHome: () => Promise<boolean>;
 };
 
 export function findSidebarRoute(...routes: string[]): Element | null {
@@ -59,8 +59,78 @@ export function findSettingsElement(selector: string): Element | null {
   return document.querySelector(selector);
 }
 
+export function findSettingsRoute(route: string): Element | null {
+  for (const anchor of document.querySelectorAll<HTMLAnchorElement>(
+    ".settings-sidebar__item[href]",
+  )) {
+    if (new URL(anchor.href, globalThis.location.href).pathname.endsWith(`/${route}`)) {
+      return anchor;
+    }
+  }
+  return null;
+}
+
 export function findChatTerminal(): Element | null {
   return document.querySelector('[data-tour="terminal"]');
+}
+
+export async function waitForElement(find: () => Element | null): Promise<Element | null> {
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    const element = find();
+    if (element) {
+      return element;
+    }
+    await new Promise<void>((resolve) => {
+      globalThis.requestAnimationFrame(() => resolve());
+    });
+  }
+  return null;
+}
+
+export async function waitForTourTarget(
+  find: () => Element | null,
+  expectedStepId: string,
+  isCurrent: (stepId: string) => boolean,
+  layoutAttempts = 90,
+): Promise<Element | null> {
+  for (let attempt = 0; attempt < layoutAttempts; attempt += 1) {
+    if (!isCurrent(expectedStepId)) {
+      return null;
+    }
+    const candidate = find();
+    const candidateRect = candidate?.getBoundingClientRect();
+    if (
+      candidate?.isConnected &&
+      candidateRect &&
+      candidateRect.width > 0 &&
+      candidateRect.height > 0
+    ) {
+      candidate.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    }
+    await new Promise<void>((resolve) => {
+      globalThis.requestAnimationFrame(() => resolve());
+    });
+    if (!isCurrent(expectedStepId)) {
+      return null;
+    }
+    // Route-owned tab strips replace their nodes. Requery after scrolling so a stale node
+    // cannot resurrect a highlight or global listeners after its owner disconnects.
+    const element = find();
+    const rect = element?.getBoundingClientRect();
+    if (
+      element?.isConnected &&
+      rect &&
+      rect.width > 0 &&
+      rect.height > 0 &&
+      rect.bottom > 0 &&
+      rect.right > 0 &&
+      rect.top < globalThis.innerHeight &&
+      rect.left < globalThis.innerWidth
+    ) {
+      return element;
+    }
+  }
+  return null;
 }
 
 function isTerminalTourAvailable(): boolean {

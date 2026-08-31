@@ -13,9 +13,12 @@ import {
   findChatTerminal,
   findPluginHubElement,
   findSettingsElement,
+  findSettingsRoute,
   findSidebarHome,
   findSidebarRoute,
   findSidebarSettings,
+  waitForElement,
+  waitForTourTarget,
   type TourStep,
 } from "./quick-actions-tour.ts";
 import "./voc-dialog.ts";
@@ -291,12 +294,25 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       return false;
     }
     const step = this.tourSteps()[stepIndex];
-    if (step?.element && !(await this.waitForElement(() => step.element?.() ?? null))) {
+    if (
+      step?.element &&
+      !(await waitForTourTarget(
+        () => step.element?.() ?? null,
+        stepId,
+        (currentStepId) => this.isConnected && activeTourStepId === currentStepId,
+      ))
+    ) {
       this.tourIndex = null;
+      return true;
+    }
+    if (!this.isConnected || activeTourStepId !== stepId) {
       return true;
     }
     this.tourIndex = stepIndex;
     await this.updateComplete;
+    if (!this.isConnected || activeTourStepId !== stepId) {
+      return true;
+    }
     this.addTourListeners();
     this.updateTourPosition();
     return true;
@@ -321,7 +337,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   private tourSteps(): TourStep[] {
     return buildPlatformClawTourSteps({
       tourElement: (selector, shadowSelector) => this.tourElement(selector, shadowSelector),
-      findSettingsRoute: (route) => this.findSettingsRoute(route),
+      findSettingsRoute,
       openHomeToTerminal: () => this.openHomeToTerminal(),
       openPluginsHub: () => this.openPluginsHub(),
       activatePluginHubTab: (tab) => this.activatePluginHubTab(tab),
@@ -332,95 +348,61 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     });
   }
 
-  private async waitForElement(find: () => Element | null): Promise<Element | null> {
-    for (let attempt = 0; attempt < 90; attempt += 1) {
-      const element = find();
-      if (element) {
-        return element;
-      }
-      await new Promise<void>((resolve) => {
-        globalThis.requestAnimationFrame(() => resolve());
-      });
-    }
-    return null;
-  }
-
-  private async waitForTourElement(selector: string): Promise<Element | null> {
-    for (let attempt = 0; attempt < 90; attempt += 1) {
-      const element = findPluginHubElement(selector);
-      const rect = element?.getBoundingClientRect();
-      if (rect && rect.width > 0 && rect.height > 0) {
-        return element;
-      }
-      await new Promise<void>((resolve) => {
-        globalThis.requestAnimationFrame(() => {
-          resolve();
-        });
-      });
-    }
-    return null;
-  }
-
-  private async openPluginsHub(): Promise<void> {
+  private async openPluginsHub(): Promise<boolean> {
     const link = findSidebarRoute("skills");
     if (!(link instanceof HTMLElement)) {
-      return;
+      return false;
     }
     link.click();
-    await this.waitForElement(() =>
-      globalThis.location.pathname.endsWith("/skills")
-        ? findPluginHubElement(".plugins-content-header")
-        : null,
+    return Boolean(
+      await waitForElement(() =>
+        globalThis.location.pathname.endsWith("/skills")
+          ? findPluginHubElement(".plugins-content-header")
+          : null,
+      ),
     );
   }
 
-  private findSettingsRoute(route: string): Element | null {
-    for (const anchor of document.querySelectorAll<HTMLAnchorElement>(
-      ".settings-sidebar__item[href]",
-    )) {
-      if (new URL(anchor.href, globalThis.location.href).pathname.endsWith(`/${route}`)) {
-        return anchor;
-      }
-    }
-    return null;
-  }
-
-  private async openSettings(): Promise<void> {
+  private async openSettings(): Promise<boolean> {
     const button = findSidebarSettings();
     if (!(button instanceof HTMLElement)) {
-      return;
+      return false;
     }
     button.click();
-    await this.waitForTourElement(".settings-sidebar");
+    return Boolean(await waitForElement(() => findSettingsElement(".settings-sidebar")));
   }
 
-  private async openMemory(): Promise<void> {
-    const link = this.findSettingsRoute("settings/memory");
+  private async openMemory(): Promise<boolean> {
+    const link = findSettingsRoute("settings/memory");
     if (!(link instanceof HTMLElement)) {
-      return;
+      return false;
     }
     link.click();
-    await this.waitForTourElement(".platformclaw-memory-page__tabs");
+    return Boolean(
+      await waitForElement(() => findSettingsElement(".platformclaw-memory-page__tabs")),
+    );
   }
 
-  private async openHome(): Promise<void> {
+  private async openHome(): Promise<boolean> {
     const settingsBack = document.querySelector<HTMLElement>(".settings-sidebar__back");
     if (!settingsBack && !findSidebarHome()) {
-      return;
+      return false;
     }
     settingsBack?.click();
-    const home = await this.waitForElement(findSidebarHome);
+    const home = await waitForElement(findSidebarHome);
     if (home instanceof HTMLElement) {
       home.click();
+      return true;
     }
+    return false;
   }
 
-  private async openHomeToTerminal(): Promise<void> {
+  private async openHomeToTerminal(): Promise<boolean> {
     await this.openHome();
-    await this.waitForElement(findChatTerminal);
+    return Boolean(await waitForElement(findChatTerminal));
   }
 
-  private async activateMemoryTab(tab: string): Promise<void> {
+  private async activateMemoryTab(tab: string): Promise<boolean> {
     const selector = `#platformclaw-memory-tab-${tab}`;
     let target = findSettingsElement(selector);
     if (!target) {
@@ -428,29 +410,30 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       target = findSettingsElement(selector);
     }
     if (!target) {
-      return;
+      return false;
     }
     target?.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, detail: 1 }));
-    await this.waitForTourElement(selector);
+    return Boolean(await waitForElement(() => findSettingsElement(selector)));
   }
 
-  private async activatePluginHubTab(tab: string): Promise<void> {
+  private async activatePluginHubTab(tab: string): Promise<boolean> {
     const standaloneRoute =
       tab === "skills" ? "skills" : tab === "workshop" ? "skills/workshop" : "skills/hub";
     if (tab === "skills" || tab === "workshop" || tab === "skill-hub") {
       const link = findSidebarRoute(standaloneRoute);
       if (!(link instanceof HTMLElement)) {
-        return;
+        return false;
       }
       link.click();
       const expectedPath =
         tab === "skills" ? "/skills" : tab === "workshop" ? "/skills/workshop" : "/skills/hub";
-      await this.waitForElement(() =>
-        globalThis.location.pathname.endsWith(expectedPath)
-          ? findPluginHubElement(".plugins-content-header")
-          : null,
+      return Boolean(
+        await waitForElement(() =>
+          globalThis.location.pathname.endsWith(expectedPath)
+            ? findPluginHubElement(".plugins-content-header")
+            : null,
+        ),
       );
-      return;
     }
     let target = findPluginHubElement(`#plugins-tab-${tab}`);
     if (!target) {
@@ -458,10 +441,10 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       target = findPluginHubElement(`#plugins-tab-${tab}`);
     }
     if (!target) {
-      return;
+      return false;
     }
     target?.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, detail: 1 }));
-    await this.waitForTourElement(`#plugins-tab-${tab}`);
+    return Boolean(await waitForElement(() => findPluginHubElement(`#plugins-tab-${tab}`)));
   }
 
   private async launchTour(launch: TourLaunch): Promise<void> {
@@ -587,8 +570,26 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       this.tourIndex = nextIndex;
       activeTourStepId = nextStep?.id ?? null;
       await this.updateComplete;
-      await nextStep?.activate?.();
+      const activated = await nextStep?.activate?.();
       if (!this.isConnected) {
+        return;
+      }
+      if (
+        nextStep?.element &&
+        !(await waitForTourTarget(
+          () => nextStep.element?.() ?? null,
+          nextStep.id,
+          (currentStepId) => this.isConnected && activeTourStepId === currentStepId,
+          // Only a completed activation can replace route-owned layout across the full budget.
+          nextStep.activate && activated !== false ? 90 : 1,
+        ))
+      ) {
+        if (this.isConnected && activeTourStepId === nextStep.id) {
+          this.positionTourStep(undefined);
+        }
+        return;
+      }
+      if (!this.isConnected || activeTourStepId !== nextStep?.id) {
         return;
       }
       this.positionTourStep(nextStep);

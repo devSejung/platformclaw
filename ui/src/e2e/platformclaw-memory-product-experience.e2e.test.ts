@@ -12,7 +12,6 @@ import {
   waitForControlUiRoute,
   type ControlUiE2eServer,
   type ControlUiMockGatewayScenario,
-  type MockGatewayControls,
 } from "../test-helpers/control-ui-e2e.ts";
 
 const executablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
@@ -253,10 +252,10 @@ async function createContext(params: {
   mode: "dark" | "light";
   viewport: { height: number; width: number };
 }) {
-  const bundledGatewayUrl = controlUiBundledGatewayUrl(server.baseUrl);
-  const appGatewayUrl = `${bundledGatewayUrl}/platformclaw/app`;
-  const gatewayUrl = new URL(PLATFORMCLAW_WEB_DESCRIPTOR.gatewayPath, server.baseUrl);
-  gatewayUrl.protocol = gatewayUrl.protocol === "https:" ? "wss:" : "ws:";
+  const bundledSettingsUrl = controlUiBundledGatewayUrl(server.baseUrl);
+  const appSettingsUrl = `${bundledSettingsUrl}/platformclaw/app`;
+  const browserGatewayUrl = new URL(PLATFORMCLAW_WEB_DESCRIPTOR.gatewayPath, server.baseUrl);
+  browserGatewayUrl.protocol = browserGatewayUrl.protocol === "https:" ? "wss:" : "ws:";
   const context = await browser.newContext({
     colorScheme: params.mode,
     locale: params.locale,
@@ -278,9 +277,9 @@ async function createContext(params: {
       localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
     },
     {
-      appGatewayUrl,
-      bundledGatewayUrl,
-      gatewayUrl: gatewayUrl.href.replace(/\/$/u, ""),
+      appGatewayUrl: appSettingsUrl,
+      bundledGatewayUrl: bundledSettingsUrl,
+      gatewayUrl: browserGatewayUrl.href.replace(/\/$/u, ""),
       mode: params.mode,
     },
   );
@@ -441,6 +440,25 @@ suite("PlatformClaw browse-first Memory product experience", () => {
         .poll(() => page.locator(".dreams-diary").textContent())
         .toContain("consolidated safely");
       await captureScreenshot(page, "11-dreaming-member-desktop-light.png");
+
+      await page.setViewportSize({ height: 844, width: 390 });
+      const dreamingTab = memoryTabs.getByRole("tab", { name: "Dreaming", exact: true });
+      await expect
+        .poll(() =>
+          dreamingTab.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return (
+              rect.width > 0 &&
+              rect.height > 0 &&
+              rect.bottom > 0 &&
+              rect.right > 0 &&
+              rect.top < globalThis.innerHeight &&
+              rect.left < globalThis.innerWidth
+            );
+          }),
+        )
+        .toBe(true);
+      await page.setViewportSize({ height: 900, width: 1440 });
 
       await memoryTabs.getByRole("tab", { name: "Overview", exact: true }).click();
       await expectActive("Overview", "overview", "/platformclaw/app/settings/memory");

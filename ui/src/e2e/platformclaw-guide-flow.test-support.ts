@@ -70,20 +70,57 @@ export async function runPlatformClawSettingsAndMemoryGuide(options: {
     .toBe(true);
 
   const memoryGuideSteps = [
-    ["Memory: five views for retained knowledge", "05f-02-memory-overview-guide.png"],
-    ["Memory: search personal recall", "05f-03-personal-memory-guide.png"],
-    ["Personal Wiki: review reusable source pages", "05f-04-personal-wiki-guide.png"],
-    ["Organization: promote personal knowledge to your Part", "05f-05-promotion-guide.png"],
-    ["Dreaming: inspect memory consolidation", "05f-06-dreaming-guide.png"],
+    [
+      "Memory: five views for retained knowledge",
+      "05f-02-memory-overview-guide.png",
+      "/platformclaw/app/settings/memory",
+    ],
+    [
+      "Memory: search personal recall",
+      "05f-03-personal-memory-guide.png",
+      "/platformclaw/app/settings/memory/memories",
+    ],
+    [
+      "Personal Wiki: review reusable source pages",
+      "05f-04-personal-wiki-guide.png",
+      "/platformclaw/app/settings/memory/wiki",
+    ],
+    [
+      "Organization: promote personal knowledge to your Part",
+      "05f-05-promotion-guide.png",
+      "/platformclaw/app/settings/memory/organization",
+    ],
+    [
+      "Dreaming: inspect memory consolidation",
+      "05f-06-dreaming-guide.png",
+      "/platformclaw/app/settings/memory/dreams",
+    ],
   ] as const;
-  for (const [heading, screenshot] of memoryGuideSteps) {
-    await page.getByRole("button", { name: "Next" }).click();
+  for (const [heading, screenshot, pathname] of memoryGuideSteps) {
+    const nextButton = page.getByRole("button", { name: "Next" });
+    await expect
+      .poll(async () => (await nextButton.isVisible()) && (await nextButton.isEnabled()))
+      .toBe(true);
+    await nextButton.click();
     await expect.poll(() => page.getByRole("heading", { name: heading }).isVisible()).toBe(true);
+    await expect.poll(() => new URL(page.url()).pathname).toBe(pathname);
     await expect.poll(() => page.locator(".tour-highlight").isVisible()).toBe(true);
-    if (heading.startsWith("Memory: five")) {
+    if (heading.startsWith("Dreaming:")) {
       await expect
-        .poll(() => new URL(page.url()).pathname)
-        .toBe("/platformclaw/app/settings/memory");
+        .poll(() =>
+          page.locator("#platformclaw-memory-tab-dreaming").evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return (
+              rect.width > 0 &&
+              rect.height > 0 &&
+              rect.bottom > 0 &&
+              rect.right > 0 &&
+              rect.top < globalThis.innerHeight &&
+              rect.left < globalThis.innerWidth
+            );
+          }),
+        )
+        .toBe(true);
     }
     if (heading.startsWith("Organization:")) {
       await expect
