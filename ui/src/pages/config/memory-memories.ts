@@ -149,7 +149,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   @property({ attribute: false }) personalDetailAdvertised: boolean | null = true;
   @property({ attribute: false }) wikiGetAdvertised: boolean | null = false;
   @property({ attribute: false }) organizationGetAdvertised: boolean | null = false;
-  @property({ attribute: false }) translate: Translate = t;
+  @property({ attribute: false }) translator: Translate = t;
   @property() agentId: string | null = null;
 
   @state() private query = "";
@@ -169,7 +169,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     if (identityChanged) {
       this.resetSearch();
       this.resetBrowse();
-    } else if (connectionChanged && !this.isConnected) {
+    } else if (connectionChanged && !this.gatewayReady) {
       this.cancelPendingSearch();
       this.detailRequests.clear();
       this.discardTransientDetails();
@@ -202,7 +202,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     const identityChanged = changed.has("agentId") || changed.has("client");
     const connectionChanged = changed.has("connected") || changed.has("connectionPhase");
     if (
-      this.isConnected &&
+      this.gatewayReady &&
       this.browseEnabled &&
       (identityChanged ||
         connectionChanged ||
@@ -218,7 +218,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     return this.connectionPhase || (this.connected ? "connected" : "offline");
   }
 
-  private get isConnected() {
+  private get gatewayReady() {
     return this.phase === "connected" && this.client !== null;
   }
 
@@ -233,7 +233,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   }
 
   private text(key: string, params?: Record<string, string>) {
-    return this.translate(key, params);
+    return this.translator(key, params);
   }
 
   private resetSearch() {
@@ -284,7 +284,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   }
 
   private async loadBrowse(refresh = false) {
-    const client = this.isConnected ? this.client : null;
+    const client = this.gatewayReady ? this.client : null;
     const agentId = this.agentId;
     if (
       !client ||
@@ -324,7 +324,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     ]);
     if (
       this.browseRequest !== request ||
-      !this.isConnected ||
+      !this.gatewayReady ||
       this.client !== client ||
       this.agentId !== agentId
     ) {
@@ -353,7 +353,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
 
   private async search(query: string) {
     const normalizedQuery = query.trim();
-    const client = this.isConnected ? this.client : null;
+    const client = this.gatewayReady ? this.client : null;
     const agentId = this.agentId;
     if (
       !normalizedQuery ||
@@ -389,7 +389,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     ]);
     if (
       this.searchRequest !== request ||
-      !this.isConnected ||
+      !this.gatewayReady ||
       this.agentId !== agentId ||
       this.client !== client
     ) {
@@ -469,7 +469,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   }
 
   private canLoadResult(result: SearchResult): boolean {
-    if (!this.isConnected || !isExpandableResult(result)) {
+    if (!this.gatewayReady || !isExpandableResult(result)) {
       return false;
     }
     return result.source === "wiki"
@@ -480,7 +480,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   }
 
   private async loadDetail(key: string, result: SearchResult) {
-    const client = this.isConnected ? this.client : null;
+    const client = this.gatewayReady ? this.client : null;
     const agentId = this.agentId;
     if (!client || !agentId || !this.canLoadResult(result)) {
       return;
@@ -506,7 +506,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
               });
       if (
         this.detailRequests.get(key) !== request ||
-        !this.isConnected ||
+        !this.gatewayReady ||
         this.agentId !== agentId ||
         this.client !== client
       ) {
@@ -524,7 +524,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     } catch (error) {
       if (
         this.detailRequests.get(key) !== request ||
-        !this.isConnected ||
+        !this.gatewayReady ||
         this.agentId !== agentId ||
         this.client !== client
       ) {
@@ -604,9 +604,9 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
               ready.memory.content,
             );
     const longTerm =
-      this.isConnected && this.personalDetailAdvertised === null
+      this.gatewayReady && this.personalDetailAdvertised === null
         ? renderSettingsEmpty(this.text("memoryPage.memories.capabilitiesLoading"))
-        : this.isConnected && this.personalDetailAdvertised === false
+        : this.gatewayReady && this.personalDetailAdvertised === false
           ? renderSettingsEmpty(this.text("memoryPage.memories.previewUnavailable"))
           : html`${ready.memoryError
               ? html`<div class="settings-empty" role="alert">
@@ -616,9 +616,9 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
                 </div>`
               : nothing}${memoryRow}`;
     const recentRows =
-      this.isConnected && this.browseListAdvertised === null
+      this.gatewayReady && this.browseListAdvertised === null
         ? renderSettingsEmpty(this.text("memoryPage.memories.capabilitiesLoading"))
-        : this.isConnected && this.browseListAdvertised === false
+        : this.gatewayReady && this.browseListAdvertised === false
           ? renderSettingsEmpty(this.text("memoryPage.memories.recentUnavailable"))
           : ready.recentError && ready.recent.length === 0
             ? nothing
@@ -637,7 +637,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
           description: this.text("memoryPage.memories.longTermDescription"),
           actions: html`<button
             class="btn btn--sm"
-            ?disabled=${refreshBusy || !this.isConnected}
+            ?disabled=${refreshBusy || !this.gatewayReady}
             @click=${() => void this.loadBrowse(true)}
           >
             ${this.text(
@@ -697,7 +697,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     return renderSettingsSection(
       { title: this.text("memoryPage.memories.longTermTitle") },
       html`<div class="settings-empty" role="status">
-        ${this.isConnected
+        ${this.gatewayReady
           ? this.text(
               this.personalDetailAdvertised === null || this.browseListAdvertised === null
                 ? "memoryPage.memories.capabilitiesLoading"
@@ -869,9 +869,9 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   override render() {
     const searchAvailable = this.methodAdvertised === true || this.wikiSearchAdvertised === true;
     const searchUnavailable =
-      this.isConnected && this.methodAdvertised === false && this.wikiSearchAdvertised === false;
+      this.gatewayReady && this.methodAdvertised === false && this.wikiSearchAdvertised === false;
     const searchCapabilitiesLoading =
-      this.isConnected &&
+      this.gatewayReady &&
       !searchAvailable &&
       (this.methodAdvertised === null || this.wikiSearchAdvertised === null);
     const connectionStatus =
@@ -917,7 +917,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
                 <button
                   class="btn btn--sm primary"
                   type="submit"
-                  ?disabled=${!this.isConnected ||
+                  ?disabled=${!this.gatewayReady ||
                   !searchAvailable ||
                   !this.agentId ||
                   !this.query.trim() ||

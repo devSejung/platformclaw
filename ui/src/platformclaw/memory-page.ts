@@ -145,7 +145,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
             gateway,
             "platformclaw.memory.get",
           )}
-          .translate=${t}
+          .translator=${t}
           .agentId=${this.agentId}
         ></openclaw-memory-memories>`;
       case "wiki":
