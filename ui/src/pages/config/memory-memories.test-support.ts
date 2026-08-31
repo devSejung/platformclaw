@@ -1,6 +1,6 @@
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 
-export type MemoryMemoriesTestElement = HTMLElement & {
+type MemoryMemoriesTestElement = HTMLElement & {
   client: GatewayBrowserClient | null;
   connected: boolean;
   connectionPhase: "stopped" | "connecting" | "connected" | "reconnecting" | "offline" | "";

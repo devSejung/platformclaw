@@ -480,9 +480,10 @@ describe("platformclaw-quick-actions", () => {
         width: 140,
         height: 36,
       });
-    replacementButton.scrollIntoView = vi.fn(() => {
+    const replacementScrollIntoView = vi.fn(() => {
       replacementOffscreen = false;
     });
+    replacementButton.scrollIntoView = replacementScrollIntoView;
     installMemberSettings(replacementButton);
     const afterNavigation = await mount();
     globalThis.requestAnimationFrame(() => {
@@ -497,7 +498,7 @@ describe("platformclaw-quick-actions", () => {
       afterNavigation.shadowRoot?.querySelector(".tour-highlight")?.getAttribute("style"),
     ).not.toContain("display:none");
     expect(staleNavigation.shadowRoot?.querySelector(".tour-popover")).toBeNull();
-    expect(replacementButton.scrollIntoView).toHaveBeenCalled();
+    expect(replacementScrollIntoView).toHaveBeenCalled();
     await advanceTour(afterNavigation);
     await advanceTour(afterNavigation);
     expect(afterNavigation.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
