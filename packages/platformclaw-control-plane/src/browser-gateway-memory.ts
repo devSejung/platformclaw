@@ -409,7 +409,7 @@ export function projectBrowserMemoryResult(params: {
         entry.path !== `memory/${name}` ||
         !kind ||
         (entry.updatedAtMs !== undefined &&
-          (updatedAtMs === null || !Number.isInteger(updatedAtMs) || updatedAtMs < 0))
+          (typeof updatedAtMs !== "number" || !Number.isInteger(updatedAtMs) || updatedAtMs < 0))
       ) {
         return params.fail("Gateway returned an invalid workspace list entry");
       }
