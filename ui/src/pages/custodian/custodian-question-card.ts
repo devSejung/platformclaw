@@ -1,5 +1,6 @@
 import { html } from "lit";
 import "../../components/option-card.ts";
+import { resolveSystemAgentProductDisplayText } from "../../platformclaw/branding.ts";
 import type { CustodianStructuredQuestion } from "./structured-question.ts";
 
 export function renderCustodianQuestionCard(params: {
@@ -11,12 +12,14 @@ export function renderCustodianQuestionCard(params: {
   return html`<div class="custodian__option-card">
     <openclaw-option-card
       .props=${{
-        header: params.question.header,
-        question: params.question.question,
+        header: resolveSystemAgentProductDisplayText(params.question.header),
+        question: resolveSystemAgentProductDisplayText(params.question.question),
         options: params.question.options.map((option) => ({
           value: option.label,
-          label: option.label,
-          description: option.description,
+          label: resolveSystemAgentProductDisplayText(option.label),
+          description: option.description
+            ? resolveSystemAgentProductDisplayText(option.description)
+            : undefined,
           recommended: option.recommended,
         })),
         disabled: params.disabled,

@@ -24,6 +24,8 @@ import {
   renderSettingsToggleRow,
 } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
+import { resolvePlatformClawBranding } from "../../platformclaw/branding.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import { languageLabel, renderLanguageSelect } from "./language-select.ts";
 import { renderSessionObserverSettings } from "./session-observer-settings.ts";
 import { renderSettingsSelectRow } from "./settings-select-row.ts";
@@ -212,7 +214,7 @@ export function renderChatPreferencesSection(
   const sendShortcutProvenance = serverUiPrefProvenanceHint(props.chatSendShortcutProvenance);
   const followUpProvenance = serverUiPrefProvenanceHint(props.chatFollowUpModeProvenance);
   const catalogTargetDefaultState = renderSettingsDefaultState({
-    value: t("chat.catalogOpenTargetViewer"),
+    value: productT("chat.catalogOpenTargetViewer"),
     overridden: props.catalogOpenTarget !== UI_APPEARANCE_DEFAULTS.catalogOpenTarget,
     onReset: () => props.setCatalogOpenTarget(UI_APPEARANCE_DEFAULTS.catalogOpenTarget),
   });
@@ -292,7 +294,7 @@ export function renderChatPreferencesSection(
           ${t("quickSettings.personal.browserOnly")}`,
           actions: catalogTargetDefaultState.action,
           options: [
-            { value: "viewer", label: t("chat.catalogOpenTargetViewer") },
+            { value: "viewer", label: productT("chat.catalogOpenTargetViewer") },
             { value: "terminal", label: t("chat.catalogOpenTargetTerminal") },
           ],
           onChange: (value) => props.setCatalogOpenTarget(normalizeCatalogOpenTarget(value)),
@@ -316,7 +318,7 @@ export function renderChatPreferencesSection(
 // Lobster pet toggles and the Lobsterdex live with the rest of the appearance
 // prefs; the toggles are browser-local, so embedded editors omit this section.
 export function renderLobsterPetSection(props: ConfigProps) {
-  if (!props.setLobsterPetVisits || !props.setLobsterPetSounds) {
+  if (resolvePlatformClawBranding() || !props.setLobsterPetVisits || !props.setLobsterPetSounds) {
     return nothing;
   }
   const lobsterPetVisits = props.lobsterPetVisits ?? UI_APPEARANCE_DEFAULTS.lobsterPetVisits;

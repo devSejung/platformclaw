@@ -16,6 +16,7 @@ import {
   PLATFORMCLAW_PROFILE_STORE_NAMESPACE,
 } from "./src/employee-profile.js";
 import { handleAdminHttpRpcRequest } from "./src/handler.js";
+import { PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT } from "./src/product-identity.js";
 
 // Matches the SDK's per-plugin row ceiling. Reject-new preserves active
 // employee ownership instead of evicting a profile during mutable refresh.
@@ -51,6 +52,11 @@ export default definePluginEntry({
       async (options) => await handleEmployeeProfileStatus(options, employeeProfiles),
       { scope: "operator.admin" },
     );
+    // Keep static identity independent from profile storage so a slow or
+    // unavailable profile lookup cannot make the product rename disappear.
+    api.on("before_prompt_build", () => ({
+      appendSystemContext: PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT,
+    }));
     api.on("before_prompt_build", async (_event, context) => {
       const prependContext = await loadEmployeeProfilePromptContext(
         employeeProfiles,

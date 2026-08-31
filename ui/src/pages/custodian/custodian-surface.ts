@@ -7,6 +7,8 @@ import { icons } from "../../components/icons.ts";
 import "../../components/openclaw-mascot.ts";
 import { t } from "../../i18n/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
+import { resolveSystemAgentProductDisplayText } from "../../platformclaw/branding.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import "../../styles/chat/grouped.css";
 import "../../styles/chat/layout.css";
 import "../../styles/chat/text.css";
@@ -107,7 +109,9 @@ class CustodianSurface extends OpenClawLightDomElement {
               ${t(unavailable ? "modelSetup.connectionFailure.title" : "modelSetup.required.title")}
             </h2>
             <p>
-              ${t(unavailable ? "modelSetup.connectionFailure.body" : "modelSetup.required.body")}
+              ${productT(
+                unavailable ? "modelSetup.connectionFailure.body" : "modelSetup.required.body",
+              )}
             </p>
             <div class="custodian__setup-actions">
               <button class="btn primary" type="button" @click=${() => store.openModelSetup()}>
@@ -191,7 +195,7 @@ class CustodianSurface extends OpenClawLightDomElement {
                 </div>
                 <div class="chat-group-messages custodian__thinking">
                   <span></span><span></span><span></span>
-                  <span class="sr-only">${t("custodian.thinking")}</span>
+                  <span class="sr-only">${productT("custodian.thinking")}</span>
                 </div>
               </div>`
             : nothing}
@@ -203,7 +207,7 @@ class CustodianSurface extends OpenClawLightDomElement {
           ${store.error &&
           !(store.abandonedTurnOutcomeUnknown && store.error === t("custodian.connectionChanged"))
             ? html`<div class="custodian__error" role="alert">
-                <span>${store.error}</span>
+                <span>${resolveSystemAgentProductDisplayText(store.error)}</span>
                 ${store.activeClient && store.chatAvailable && store.canRetry()
                   ? html`<button class="btn btn--sm" type="button" @click=${() => store.retry()}>
                       ${t("common.retry")}
@@ -239,8 +243,8 @@ class CustodianSurface extends OpenClawLightDomElement {
                           rows="1"
                           .value=${store.input}
                           autocomplete="on"
-                          placeholder=${t("custodian.placeholder")}
-                          aria-label=${t("custodian.placeholder")}
+                          placeholder=${productT("custodian.placeholder")}
+                          aria-label=${productT("custodian.placeholder")}
                           ?disabled=${!store.activeClient ||
                           !store.chatAvailable ||
                           store.sending ||

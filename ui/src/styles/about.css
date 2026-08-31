@@ -55,6 +55,18 @@
   animation-delay: var(--lob-breathe-delay, 0s);
 }
 
+.about-hero__clawd--platformclaw {
+  aspect-ratio: 1;
+}
+
+.about-hero__platformclaw-mascot {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
 .about-hero__clawd .lob-eye-open {
   animation: lobster-pet-blink-open 5.2s linear infinite;
   animation-delay: var(--lob-blink-delay, 0s);
@@ -90,6 +102,16 @@
    Duration must stay in sync with CLAWD_WAVE_MS in about-page.ts. */
 .about-hero__clawd--wave .lob-claw--r {
   animation: about-clawd-poke-wave 1.4s ease-in-out;
+}
+
+.about-hero__clawd--wave .about-hero__platformclaw-mascot {
+  animation: about-platformclaw-poke 560ms steps(2, end) 2;
+}
+
+@keyframes about-platformclaw-poke {
+  50% {
+    transform: translateY(-8%) scale(1.03);
+  }
 }
 
 @keyframes about-clawd-poke-wave {
@@ -205,6 +227,7 @@
   .about-hero__clawd .lob-eye-open,
   .about-hero__clawd .lob-eye-closed,
   .about-hero__clawd .lob-claw--r,
+  .about-hero__platformclaw-mascot,
   .about-hero__link {
     animation: none;
     transition: none;

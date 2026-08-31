@@ -10,6 +10,7 @@ import { channelSnapshotHasActiveChannel } from "../../lib/channels/index.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import "../../styles/custodian.css";
 import { renderCustodianChangeHistory } from "./custodian-history.ts";
 import { custodianSessionStore, type CustodianSessionStore } from "./custodian-session-store.ts";
@@ -187,7 +188,7 @@ export class CustodianPage extends OpenClawLightDomElement {
       this.historyLoaded = true;
     } catch {
       if (isCurrent()) {
-        this.historyError = t("custodian.history.requestFailed");
+        this.historyError = productT("custodian.history.requestFailed");
         this.historyLoaded = true;
       }
     } finally {
@@ -233,7 +234,7 @@ export class CustodianPage extends OpenClawLightDomElement {
               ></openclaw-mascot>
             </div>
             <div>
-              <h1>${t("custodian.title")}</h1>
+              <h1>${productT("custodian.title")}</h1>
               <p>${t(this.onboarding ? "custodian.subtitle" : "custodian.subtitleCaretaker")}</p>
             </div>
           </div>

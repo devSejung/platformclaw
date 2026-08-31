@@ -7,6 +7,7 @@ import {
 } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
 import { summarizeMcpServers } from "../../lib/config/mcp-servers.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 
 const MCP_DOCS_URL = "https://docs.openclaw.ai/tools/mcp";
 
@@ -26,7 +27,7 @@ export function renderMcp(props: McpViewProps) {
     <section class="mcp-page">
       <div class="settings-page">
         <p class="settings-page__intro">
-          ${t("mcpPage.intro")} ${renderDocsLink(MCP_DOCS_URL, t("common.learnMore"))}
+          ${productT("mcpPage.intro")} ${renderDocsLink(MCP_DOCS_URL, t("common.learnMore"))}
         </p>
         <section class="settings-section mcp-page__summary">
           <div class="settings-section__header">

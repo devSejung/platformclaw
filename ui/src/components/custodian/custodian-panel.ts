@@ -1,12 +1,12 @@
 import { html, nothing, type PropertyValues } from "lit";
 import { property } from "lit/decorators.js";
-import { t } from "../../i18n/index.ts";
-import "../openclaw-mascot.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
+import "../openclaw-mascot.ts";
 import {
   custodianSessionStore,
   type CustodianSessionStore,
 } from "../../pages/custodian/custodian-session-store.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import { DockLayoutController } from "../dock-layout-controller.ts";
 import { createDockPanelLayout, type DockPanelSide } from "../dock-panel-layout.ts";
 import { icons } from "../icons.ts";
@@ -143,23 +143,27 @@ export class OpenClawCustodianPanel extends OpenClawLightDomElement {
     const style =
       dock === "bottom" ? `height:${this.dockLayout.height}px` : `width:${this.dockLayout.width}px`;
     return html`
-      <section class="cp cp--${dock}" style=${style} aria-label=${t("custodian.panel.title")}>
-        ${this.dockLayout.renderResizer("cp", t("custodian.panel.resize"))}
+      <section
+        class="cp cp--${dock}"
+        style=${style}
+        aria-label=${productT("custodian.panel.title")}
+      >
+        ${this.dockLayout.renderResizer("cp", productT("custodian.panel.resize"))}
         <header class="cp-header">
           <div class="cp-title">
             <openclaw-mascot
               .mood=${this.store.sending ? "thinking" : "idle"}
               .size=${26}
             ></openclaw-mascot>
-            <strong>${t("custodian.panel.title")}</strong>
+            <strong>${productT("custodian.panel.title")}</strong>
           </div>
           <div class="cp-actions">
             <button
               class="cp-icon"
               type="button"
               aria-label=${dock === "bottom"
-                ? t("custodian.panel.dockRight")
-                : t("custodian.panel.dockBottom")}
+                ? productT("custodian.panel.dockRight")
+                : productT("custodian.panel.dockBottom")}
               @click=${() => this.setDock(dock === "bottom" ? "right" : "bottom")}
             >
               ${dock === "bottom" ? icons.panelRightOpen : icons.panelBottomOpen}
@@ -167,7 +171,7 @@ export class OpenClawCustodianPanel extends OpenClawLightDomElement {
             <button
               class="cp-icon"
               type="button"
-              aria-label=${t("custodian.panel.close")}
+              aria-label=${productT("custodian.panel.close")}
               @click=${() => this.dockLayout.setOpen(false)}
             >
               ${icons.x}

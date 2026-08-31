@@ -7,6 +7,7 @@ import type {
   ExecApprovalRequestPayload,
 } from "../app/exec-approval.ts";
 import { t } from "../i18n/index.ts";
+import { resolveSystemAgentProductDisplayText } from "../platformclaw/branding.ts";
 
 const DEFAULT_EXEC_APPROVAL_DECISIONS = [
   "allow-once",
@@ -145,9 +146,13 @@ export function resolveApprovalDecisions(
 }
 
 export function approvalTitle(active: ExecApprovalRequest): string {
-  return active.kind !== "exec"
-    ? (active.pluginTitle ?? t("execApproval.pluginApprovalNeeded"))
-    : t("execApproval.execApprovalNeeded");
+  if (active.kind === "exec") {
+    return t("execApproval.execApprovalNeeded");
+  }
+  const title = active.pluginTitle ?? t("execApproval.pluginApprovalNeeded");
+  // System-agent copy is core-owned. Plugin titles are third-party data and
+  // stay untouched even when they mention OpenClaw compatibility.
+  return active.kind === "system-agent" ? resolveSystemAgentProductDisplayText(title) : title;
 }
 
 export function renderExecApprovalCard(props: ExecApprovalCardProps) {

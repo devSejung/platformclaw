@@ -11,6 +11,7 @@ import {
 } from "../../../components/lobster-pet.ts";
 import "../../../components/modal-dialog.ts";
 import { toSanitizedMarkdownHtml } from "../../../components/markdown.ts";
+import { resolvePlatformClawBranding } from "../../../platformclaw/branding.ts";
 import { platformClawT as t } from "../../../platformclaw/i18n.ts";
 import "../../../styles/dreams.css";
 import type { DreamingEntry, WikiImportInsights, WikiOverview } from "./dreaming.ts";
@@ -259,13 +260,23 @@ const STARS: {
   { top: 88, left: 18, size: 2, delay: 2.3, hue: "neutral" },
 ];
 
-// The dreams sleeper is the same seeded lobster that visits the sidebar for
-// this agent (eyes closed), so the pet identity carries across surfaces.
+// Upstream keeps the agent's seeded sidebar lobster; hosted PlatformClaw uses
+// its canonical mascot so the retired lobster identity cannot leak back in.
 function renderDreamsCameo(agentId: string) {
+  const branding = resolvePlatformClawBranding();
   const look = createLobsterPetLook(lobsterPetSeed(agentId));
   const style = `--lob-shell:${look.palette.shell};--lob-claw:${look.palette.claw}`;
   return html`
-    <div class="dreams__lobster" style=${style}>${renderLobsterSvg(look, { sleeping: true })}</div>
+    <div class="dreams__lobster" style=${style}>
+      ${branding
+        ? html`<img
+            class="dreams__platformclaw-mascot"
+            src=${branding.mascotUrl}
+            alt=""
+            aria-hidden="true"
+          />`
+        : renderLobsterSvg(look, { sleeping: true })}
+    </div>
   `;
 }
 

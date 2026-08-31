@@ -1,8 +1,12 @@
 /* @vitest-environment jsdom */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { AgentsListResult, GatewayAgentRow, GatewaySessionRow } from "../api/types.ts";
 import type { RouteId } from "../app-routes.ts";
+import {
+  PLATFORMCLAW_WEB_DESCRIPTOR,
+  PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
+} from "../platformclaw/web-contract.ts";
 import "./app-host.ts";
 import type { ApplicationContext } from "./context.ts";
 
@@ -21,6 +25,17 @@ function roster(defaultId: string, agents: GatewayAgentRow[]): AgentsListResult 
 }
 
 describe("OpenClaw shell document title", () => {
+  afterEach(() => {
+    document.head.querySelector(`meta[name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}"]`)?.remove();
+  });
+
+  function installPlatformClawDescriptor(): void {
+    const descriptor = document.createElement("meta");
+    descriptor.name = PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME;
+    descriptor.content = JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR);
+    document.head.append(descriptor);
+  }
+
   function createShell(context?: ApplicationContext): ShellDocumentTitleState {
     const shell = document.createElement(
       "openclaw-app-shell",
@@ -86,6 +101,23 @@ describe("OpenClaw shell document title", () => {
     shell.syncDocumentTitle();
 
     expect(document.title).toBe("Quarterly launch plan — OpenClaw");
+  });
+
+  it("does not rewrite OpenClaw inside a hosted user session title", () => {
+    installPlatformClawDescriptor();
+    const session: GatewaySessionRow = {
+      key: "agent:main:dashboard:upstream-audit",
+      kind: "direct",
+      updatedAt: 1,
+      derivedTitle: "Investigate OpenClaw upstream",
+    };
+    const shell = createShell(createContext({ sessions: [session] }));
+    shell.routeState = { routeId: "chat" };
+    shell.activeSessionKey = session.key;
+
+    shell.syncDocumentTitle();
+
+    expect(document.title).toBe("Investigate OpenClaw upstream — PlatformClaw");
   });
 
   it("uses the agent name for an agent main chat", () => {
@@ -170,5 +202,18 @@ describe("OpenClaw shell document title", () => {
     shell.syncDocumentTitle();
 
     expect(document.title).toBe("Ask OpenClaw");
+  });
+
+  it("uses PlatformClaw for hosted route and custodian titles", () => {
+    installPlatformClawDescriptor();
+    const shell = createShell(createContext({}));
+
+    shell.routeState = { routeId: "usage" };
+    shell.syncDocumentTitle();
+    expect(document.title).toBe("Usage — PlatformClaw");
+
+    shell.routeState = { routeId: "custodian" };
+    shell.syncDocumentTitle();
+    expect(document.title).toBe("Ask PlatformClaw");
   });
 });

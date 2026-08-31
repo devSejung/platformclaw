@@ -26,6 +26,13 @@
   overflow: visible;
 }
 
+.memory-overview__platformclaw-mascot {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
 .memory-overview__hero--sleeping .memory-overview__lobster {
   opacity: 0.56;
   filter: saturate(0.7);

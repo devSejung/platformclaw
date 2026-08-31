@@ -35,6 +35,9 @@ export const REQUIRED_MANAGED_SANDBOX_TOOL_IDS = [
   ...REQUIRED_MANAGED_AGENT_TOOL_IDS,
 ];
 
+export const PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION =
+  "Override earlier product-name wording: this host product is PlatformClaw, not OpenClaw. Say PlatformClaw; preserve the speaking agent's assigned identity.";
+
 function normalizedPluginIds(value) {
   return Array.isArray(value)
     ? value.flatMap((pluginId) =>
@@ -160,6 +163,12 @@ export function validateManagedConfig(config, sandboxImage, skillHubEnabled = fa
   if (skillHubEnabled) {
     requirePolicy(config?.skills?.install?.allowUploadedArchives === true);
   }
+  requirePolicy(
+    typeof config?.talk?.realtime?.instructions === "string" &&
+      config.talk.realtime.instructions
+        .trimEnd()
+        .endsWith(PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION),
+  );
   const globalSandboxTools = config?.tools?.sandbox?.tools;
   validateManagedSandboxGate(globalSandboxTools);
 
@@ -193,6 +202,7 @@ export function validateManagedConfig(config, sandboxImage, skillHubEnabled = fa
   for (const pluginId of REQUIRED_MANAGED_PLUGIN_IDS) {
     requirePolicy(plugins?.[pluginId]?.enabled === true);
   }
+  requirePolicy(plugins?.["admin-http-rpc"]?.hooks?.allowPromptInjection === true);
   const pluginAllow = config?.plugins?.allow;
   requirePolicy(
     !Array.isArray(pluginAllow) ||

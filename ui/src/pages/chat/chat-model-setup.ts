@@ -1,4 +1,5 @@
 import { t } from "../../i18n/index.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import type { ChatComposerDisabledBanner } from "./components/chat-composer-types.ts";
 
 type ChatModelSetupState = {
@@ -19,7 +20,7 @@ export function requiresChatModelSetup(state: ChatModelSetupState): boolean {
 export function createChatModelSetupBanner(onAction: () => void): ChatComposerDisabledBanner {
   return {
     kind: "composer-replacement",
-    text: t("modelSetup.required.body"),
+    text: productT("modelSetup.required.body"),
     actionLabel: t("modelSetup.required.action"),
     onAction,
   };

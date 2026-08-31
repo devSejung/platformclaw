@@ -1,9 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import {
+  PLATFORMCLAW_WEB_DESCRIPTOR,
+  PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
+} from "../../platformclaw/web-contract.ts";
 import { createGatewayHarness, createSessions, mountSidebar } from "../app-sidebar.ts";
 import "../../components/app-sidebar.ts";
 
 describe("AppSidebar footer identity menu", () => {
+  afterEach(() => {
+    document.head.querySelector(`meta[name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}"]`)?.remove();
+  });
+
   it("owns account utilities, restores focus, and routes Profile", async () => {
     const gatewayHarness = createGatewayHarness({
       instanceId: "self-instance",
@@ -97,5 +105,37 @@ describe("AppSidebar footer identity menu", () => {
     await sidebar.updateComplete;
     expect(onNavigate).toHaveBeenCalledWith("profile", { hash: "#settings-profile-identity" });
     expect(sidebar.querySelector(".sidebar-identity-menu")).toBeNull();
+  });
+
+  it("hides the upstream Discord community link in PlatformClaw", async () => {
+    const descriptor = document.createElement("meta");
+    descriptor.name = PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME;
+    descriptor.content = JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR);
+    document.head.append(descriptor);
+    const gatewayHarness = createGatewayHarness({} as GatewayBrowserClient);
+    const { sidebar } = await mountSidebar(
+      gatewayHarness.gateway,
+      createSessions("main", ["agent:main:main"]),
+    );
+    sidebar.connected = true;
+    await sidebar.updateComplete;
+
+    const identity = sidebar.querySelector<HTMLButtonElement>(".sidebar-identity-card");
+    vi.spyOn(identity!, "getBoundingClientRect").mockReturnValue({
+      left: 12,
+      right: 224,
+      top: 700,
+      width: 212,
+    } as DOMRect);
+    identity?.click();
+    await sidebar.updateComplete;
+    const helpRow = sidebar.querySelector<HTMLElement>(".sidebar-identity-menu__help");
+    await (helpRow as (HTMLElement & { updateComplete?: Promise<unknown> }) | null)?.updateComplete;
+
+    const links = [
+      ...(helpRow?.querySelectorAll('wa-dropdown-item[slot="submenu"] a[href]') ?? []),
+    ].map((link) => link.getAttribute("href"));
+    expect(links).not.toContain("https://discord.gg/clawd");
+    expect(links).toContain("https://docs.openclaw.ai/help");
   });
 });

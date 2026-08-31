@@ -13,6 +13,7 @@ import {
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../lib/external-link.ts";
 import { normalizeLowercaseStringOrEmpty } from "../lib/string-coerce.ts";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
+import { resolveControlUiProductName } from "../platformclaw/branding.ts";
 import { renderConnectCommand } from "./connect-command.ts";
 import { icons } from "./icons.ts";
 
@@ -314,6 +315,7 @@ function renderLoginFailure(feedback: LoginFailureFeedback) {
 }
 
 function renderLoginGate(props: LoginGateProps) {
+  const productName = resolveControlUiProductName();
   const basePath = normalizeBasePath(props.basePath);
   const faviconSrc = controlUiPublicAssetPath("favicon.svg", basePath);
   const failure = resolveLoginFailureFeedback({
@@ -328,8 +330,8 @@ function renderLoginGate(props: LoginGateProps) {
     <div class="login-gate">
       <div class="login-gate__card">
         <div class="login-gate__header">
-          <img class="login-gate__logo" src=${faviconSrc} alt="OpenClaw" />
-          <div class="login-gate__title">OpenClaw</div>
+          <img class="login-gate__logo" src=${faviconSrc} alt=${productName} />
+          <div class="login-gate__title">${productName}</div>
           <div class="login-gate__sub">${t("login.subtitle")}</div>
         </div>
         <div class="login-gate__form">

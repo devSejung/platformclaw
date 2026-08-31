@@ -12,6 +12,7 @@ import { hasOperatorAdminAccess } from "../app/operator-access.ts";
 import { t } from "../i18n/index.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
+import { platformClawProductT as productT } from "../platformclaw/i18n.ts";
 import "../styles/onboarding-memory-import.css";
 import "./modal-dialog.ts";
 
@@ -389,7 +390,7 @@ class OnboardingMemoryImport extends OpenClawLightDomElement {
       0,
     );
     const title = t("onboarding.memoryImport.title");
-    const body = t("onboarding.memoryImport.body");
+    const body = productT("onboarding.memoryImport.body");
     return html`
       <openclaw-modal-dialog
         class="onboarding-memory-import-dialog"
@@ -402,7 +403,7 @@ class OnboardingMemoryImport extends OpenClawLightDomElement {
             <h2>${this.done ? t("onboarding.memoryImport.doneTitle") : title}</h2>
             <p>
               ${this.done
-                ? t("onboarding.memoryImport.doneBody", {
+                ? productT("onboarding.memoryImport.doneBody", {
                     migrated: String(migrated),
                     skipped: String(skipped),
                   })

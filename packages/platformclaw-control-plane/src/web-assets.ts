@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, realpathSync, statSync, type Dirent } from "
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE } from "../../../src/gateway/control-ui-contract.js";
 
 export const PLATFORMCLAW_WEB_LOGIN_PATH = "/platformclaw/login";
@@ -10,6 +11,7 @@ export const PLATFORMCLAW_WEB_APP_PATH = "/platformclaw/app";
 export const PLATFORMCLAW_WEB_DEFAULT_APP_PATH = `${PLATFORMCLAW_WEB_APP_PATH}/chat`;
 export const PLATFORMCLAW_WEB_ASSET_PREFIX = "/platformclaw/assets/";
 export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descriptor";
+const PLATFORMCLAW_PRODUCT_NAME = "PlatformClaw";
 
 export const PLATFORMCLAW_WEB_DESCRIPTOR = {
   mode: "platformclaw",
@@ -78,7 +80,96 @@ const DOCUMENT_SECURITY_POLICY_BASE = [
 type WebAsset = {
   filePath: string;
   contentType: string;
+  content?: Buffer;
 };
+
+function replaceRequiredLiteral(
+  source: string,
+  expected: string,
+  replacement: string,
+  label: string,
+): string {
+  const firstIndex = source.indexOf(expected);
+  if (firstIndex < 0 || source.includes(expected, firstIndex + expected.length)) {
+    throw new Error(`PlatformClaw Control UI ${label} contract changed`);
+  }
+  return `${source.slice(0, firstIndex)}${replacement}${source.slice(firstIndex + expected.length)}`;
+}
+
+function preparePlatformClawPublicAssets(assets: Map<string, WebAsset>): string {
+  const mascotPaths = [...assets.keys()].filter((pathname) =>
+    /\/platformclaw-pixel-[^/]+\.svg$/u.test(pathname),
+  );
+  const mascotPath = mascotPaths[0];
+  if (!mascotPath || mascotPaths.length !== 1) {
+    throw new Error("PlatformClaw Control UI must contain one canonical mascot asset");
+  }
+  const manifestPath = `${PLATFORMCLAW_WEB_APP_PATH}/manifest.webmanifest`;
+  const manifestAsset = assets.get(manifestPath);
+  if (!manifestAsset) {
+    throw new Error("PlatformClaw Control UI is missing its web manifest");
+  }
+  const manifest = JSON.parse(readFileSync(manifestAsset.filePath, "utf8")) as unknown;
+  if (!isRecord(manifest)) {
+    throw new Error("PlatformClaw Control UI web manifest must be an object");
+  }
+  manifestAsset.content = Buffer.from(
+    `${JSON.stringify({
+      ...manifest,
+      name: PLATFORMCLAW_PRODUCT_NAME,
+      short_name: PLATFORMCLAW_PRODUCT_NAME,
+      icons: [{ src: mascotPath, sizes: "any", type: "image/svg+xml", purpose: "any" }],
+    })}\n`,
+  );
+
+  const serviceWorkerPath = `${PLATFORMCLAW_WEB_APP_PATH}/sw.js`;
+  const serviceWorkerAsset = assets.get(serviceWorkerPath);
+  if (!serviceWorkerAsset) {
+    throw new Error("PlatformClaw Control UI is missing its service worker");
+  }
+  const serviceWorkerSource = readFileSync(serviceWorkerAsset.filePath, "utf8");
+  // Exact literals make upstream drift fail closed instead of serving a mixed
+  // brand or caching authenticated PlatformClaw API responses.
+  const serviceWorkerReplacements = [
+    {
+      expected: 'data = { title: "OpenClaw", body: event.data.text() };',
+      replacement: `data = { title: ${JSON.stringify(PLATFORMCLAW_PRODUCT_NAME)}, body: event.data.text() };`,
+      label: "service worker text-push title",
+    },
+    {
+      expected: 'const title = data.title || "OpenClaw";',
+      replacement: `const title = data.title === "OpenClaw" || !data.title ? ${JSON.stringify(PLATFORMCLAW_PRODUCT_NAME)} : data.title;`,
+      label: "service worker notification title",
+    },
+    {
+      expected: 'icon: "./apple-touch-icon.png",',
+      replacement: `icon: ${JSON.stringify(mascotPath)},`,
+      label: "service worker notification icon",
+    },
+    {
+      expected: 'badge: "./favicon-32.png",',
+      replacement: `badge: ${JSON.stringify(mascotPath)},`,
+      label: "service worker notification badge",
+    },
+    {
+      expected: 'url.pathname.startsWith("/api/") ||',
+      replacement:
+        'url.pathname.startsWith("/api/") ||\n    url.pathname.startsWith("/platformclaw/api/") ||\n    url.pathname.startsWith("/platformclaw/app/__openclaw__/") ||',
+      label: "service worker managed private-route exclusion",
+    },
+  ] as const;
+  let brandedServiceWorker = serviceWorkerSource;
+  for (const replacement of serviceWorkerReplacements) {
+    brandedServiceWorker = replaceRequiredLiteral(
+      brandedServiceWorker,
+      replacement.expected,
+      replacement.replacement,
+      replacement.label,
+    );
+  }
+  serviceWorkerAsset.content = Buffer.from(brandedServiceWorker);
+  return mascotPath;
+}
 
 function assertRegularFileInsideRoot(root: string, filePath: string): string {
   const resolved = realpathSync(filePath);
@@ -216,6 +307,7 @@ type PlatformClawWebDescriptorPayload = Omit<typeof PLATFORMCLAW_WEB_DESCRIPTOR,
 function prepareApplicationDocument(
   source: string,
   descriptor: PlatformClawWebDescriptorPayload,
+  mascotPath: string,
 ): {
   content: Buffer;
   inlineScriptHashes: string[];
@@ -223,10 +315,37 @@ function prepareApplicationDocument(
   // Browsers normalize HTML newlines before CSP hashes are checked. Normalize the
   // served document too so Windows-built assets keep the same inline-script hashes.
   const normalizedSource = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-  if (/<base\b/i.test(normalizedSource)) {
+  const titlePattern = /<title(?:\s[^>]*)?>[\s\S]*?<\/title>/iu;
+  if (!titlePattern.test(normalizedSource)) {
+    throw new Error("PlatformClaw Control UI document is missing <title>");
+  }
+  // Brand only shipped bootstrap copy. Upstream comments and technical
+  // compatibility text must not turn a harmless sync into a startup failure.
+  let brandedSource = normalizedSource
+    .replace(titlePattern, `<title>${PLATFORMCLAW_PRODUCT_NAME} Control</title>`)
+    .replaceAll("OpenClaw Control UI", `${PLATFORMCLAW_PRODUCT_NAME} Control UI`)
+    .replaceAll("different OpenClaw version", `different ${PLATFORMCLAW_PRODUCT_NAME} version`)
+    .replaceAll("OpenClaw will retry", `${PLATFORMCLAW_PRODUCT_NAME} will retry`)
+    .replaceAll("OpenClaw will keep retrying", `${PLATFORMCLAW_PRODUCT_NAME} will keep retrying`);
+  if (/<base\b/i.test(brandedSource)) {
     throw new Error("PlatformClaw Control UI document already contains a base element");
   }
-  const headOpen = /<head(?:\s[^>]*)?>/i.exec(normalizedSource);
+  for (const asset of [
+    "favicon.svg",
+    "favicon-32.png",
+    "apple-touch-icon.png",
+    "manifest.webmanifest",
+  ] as const) {
+    const replacementPath =
+      asset === "manifest.webmanifest" ? `${PLATFORMCLAW_WEB_APP_PATH}/${asset}` : mascotPath;
+    brandedSource = replaceRequiredLiteral(
+      brandedSource,
+      `href="./${asset}"`,
+      `href="${replacementPath}"`,
+      `document ${asset} link`,
+    );
+  }
+  const headOpen = /<head(?:\s[^>]*)?>/i.exec(brandedSource);
   if (!headOpen?.[0] || headOpen.index < 0) {
     throw new Error("PlatformClaw Control UI document is missing <head>");
   }
@@ -241,12 +360,12 @@ function prepareApplicationDocument(
     `\\s${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}=(?:"[^"]*"|'[^']*')`,
     "i",
   );
-  const documentWithTerminal = terminalAttributePattern.test(normalizedSource)
-    ? normalizedSource.replace(
+  const documentWithTerminal = terminalAttributePattern.test(brandedSource)
+    ? brandedSource.replace(
         terminalAttributePattern,
         ` ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="true"`,
       )
-    : normalizedSource.replace(/<html\b/i, `<html ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="true"`);
+    : brandedSource.replace(/<html\b/i, `<html ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="true"`);
   const adjustedHeadOpen = /<head(?:\s[^>]*)?>/i.exec(documentWithTerminal);
   const adjustedInjectionIndex =
     (adjustedHeadOpen?.index ?? headOpen.index) +
@@ -275,10 +394,6 @@ export function createPlatformClawWebAssetHandler(
   const root = realpathSync(resolve(rootDirectory));
   const loginFile = assertRegularFileInsideRoot(root, join(root, "platformclaw-login.html"));
   const applicationFile = assertRegularFileInsideRoot(root, join(root, "index.html"));
-  const applicationDocument = prepareApplicationDocument(readFileSync(applicationFile, "utf8"), {
-    ...PLATFORMCLAW_WEB_DESCRIPTOR,
-    vocEnabled: options.vocEnabled ?? false,
-  });
   const websocketOrigin = resolveWebSocketOrigin(options.publicOrigin);
   const assetsDirectory = realpathSync(join(root, "assets"));
   if (!assetsDirectory.startsWith(`${root}${sep}`)) {
@@ -288,6 +403,15 @@ export function createPlatformClawWebAssetHandler(
   for (const [pathname, asset] of collectApplicationPublicFiles(root)) {
     assets.set(pathname, asset);
   }
+  const mascotPath = preparePlatformClawPublicAssets(assets);
+  const applicationDocument = prepareApplicationDocument(
+    readFileSync(applicationFile, "utf8"),
+    {
+      ...PLATFORMCLAW_WEB_DESCRIPTOR,
+      vocEnabled: options.vocEnabled ?? false,
+    },
+    mascotPath,
+  );
 
   return {
     async handlePublic(req, res) {
@@ -333,7 +457,7 @@ export function createPlatformClawWebAssetHandler(
         res.end();
         return true;
       }
-      res.end(await readFile(filePath));
+      res.end(asset?.content ?? (await readFile(filePath)));
       return true;
     },
     async handleApplication(req, res) {

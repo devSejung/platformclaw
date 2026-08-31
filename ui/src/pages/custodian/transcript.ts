@@ -8,6 +8,8 @@ import type { WizardStep } from "../../api/types.ts";
 import { renderWizardStepControls } from "../../components/wizard-step-controls.ts";
 import { t } from "../../i18n/index.ts";
 import type { MessageGroup } from "../../lib/chat/chat-types.ts";
+import { resolveSystemAgentProductDisplayText } from "../../platformclaw/branding.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import { renderChatDivider } from "../chat/components/chat-divider.ts";
 import { renderMessageGroup } from "../chat/components/chat-message.ts";
 import { renderCustodianQuestionCard } from "./custodian-question-card.ts";
@@ -69,16 +71,20 @@ export function createCustodianSessionId(): string {
 export function custodianErrorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim()
     ? error.message
-    : t("custodian.requestFailed");
+    : productT("custodian.requestFailed");
 }
 
 function toCustodianMessageGroup(message: CustodianMessage): MessageGroup {
   const key = `msg-${message.id}`;
+  const content =
+    message.role === "assistant"
+      ? resolveSystemAgentProductDisplayText(message.text)
+      : message.text;
   return {
     kind: "group",
     key,
     role: message.role,
-    messages: [{ message: { role: message.role, content: message.text }, key }],
+    messages: [{ message: { role: message.role, content }, key }],
     timestamp: message.at,
     isStreaming: false,
   };
@@ -163,7 +169,7 @@ export function renderCustodianTranscriptEntry(params: {
       ? renderMessageGroup(toCustodianMessageGroup(params.message), {
           showReasoning: false,
           showToolCalls: false,
-          assistantName: t("custodian.title"),
+          assistantName: productT("custodian.title"),
           assistantAvatar: params.assistantAvatar,
         })
       : nothing}

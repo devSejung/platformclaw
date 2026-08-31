@@ -12,6 +12,7 @@ import { normalizeAgentLabel } from "../lib/agents/display.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../lib/external-link.ts";
 import { openExternalUrlSafe } from "../lib/open-external-url.ts";
 import { normalizeAgentId } from "../lib/sessions/session-key.ts";
+import { resolvePlatformClawBranding } from "../platformclaw/branding.ts";
 import { renderAgentSelectAvatar, renderAgentSelectCopy } from "./agent-select.ts";
 import { icons, type IconName } from "./icons.ts";
 import "./sidebar-build-chip.ts";
@@ -205,8 +206,11 @@ function renderAgentRow(agent: AgentMenuAgent, params: SidebarAgentMenuParams) {
 }
 
 function renderIdentityMenuHelpSubmenu() {
+  const links = resolvePlatformClawBranding()
+    ? IDENTITY_MENU_LINKS.filter((link) => link.href !== "https://discord.gg/clawd")
+    : IDENTITY_MENU_LINKS;
   return html`
-    ${IDENTITY_MENU_LINKS.map(
+    ${links.map(
       (link) => html`
         <wa-dropdown-item
           slot="submenu"

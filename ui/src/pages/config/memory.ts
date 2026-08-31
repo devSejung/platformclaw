@@ -15,6 +15,7 @@ import {
 } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
 import type { PluginCatalogItem } from "../../lib/plugins/index.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import {
   selectedEngineId,
   DEFAULT_MEMORY_ENGINE_ID,
@@ -58,7 +59,7 @@ export function buildMemoryEngineOptions(
       id: plugin.id,
       label:
         plugin.id === DEFAULT_MEMORY_ENGINE_ID
-          ? t("memoryPage.engine.openClawMemory")
+          ? productT("memoryPage.engine.openClawMemory")
           : plugin.name,
       available: true,
     }))
@@ -76,7 +77,9 @@ export function buildMemoryEngineOptions(
     const unavailable = {
       id: selected,
       label:
-        selected === DEFAULT_MEMORY_ENGINE_ID ? t("memoryPage.engine.openClawMemory") : selected,
+        selected === DEFAULT_MEMORY_ENGINE_ID
+          ? productT("memoryPage.engine.openClawMemory")
+          : selected,
       available: false,
     };
     if (selected === DEFAULT_MEMORY_ENGINE_ID) {
@@ -222,7 +225,7 @@ function renderEngineSection(props: MemoryViewProps) {
   const engineId = selectedEngineId(props.engineSelection);
   const defaultEngine =
     props.engineOptions.find((option) => option.id === DEFAULT_MEMORY_ENGINE_ID)?.label ??
-    t("memoryPage.engine.openClawMemory");
+    productT("memoryPage.engine.openClawMemory");
   const defaultState = renderSettingsDefaultState({
     value: defaultEngine,
     overridden: props.engineSelection.kind !== "auto",
@@ -361,7 +364,7 @@ function renderBackendSection(props: MemoryViewProps) {
             ? t("memoryPage.backend.invalidHint")
             : backend === "qmd"
               ? t("memoryPage.backend.qmdHint")
-              : t("memoryPage.backend.builtinHint")}
+              : productT("memoryPage.backend.builtinHint")}
           ${defaultState.description}
         `,
         stacked: true,
@@ -478,7 +481,8 @@ export function renderMemory(props: MemoryViewProps) {
         <div class="hub-page-header__title">
           <div class="page-title">${t("tabs.memory")}</div>
           <div class="page-subtitle">
-            ${t("memoryPage.intro")} ${renderDocsLink(MEMORY_DOCS_URL, t("common.learnMore"))}
+            ${productT("memoryPage.intro")}
+            ${renderDocsLink(MEMORY_DOCS_URL, t("common.learnMore"))}
           </div>
         </div>
         <div class="hub-page-header__tabs">

@@ -32,14 +32,14 @@ function installMockGateway(page: Page, scenario: ControlUiMockGatewayScenario =
   });
 }
 
-async function newPage(): Promise<{ context: BrowserContext; page: Page }> {
+async function newPage(
+  viewport: { height: number; width: number } = { height: 900, width: 1440 },
+): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     locale: "en-US",
-    ...(captureUiProofEnabled
-      ? { recordVideo: { dir: proofDir, size: { height: 900, width: 1440 } } }
-      : {}),
+    ...(captureUiProofEnabled ? { recordVideo: { dir: proofDir, size: viewport } } : {}),
     serviceWorkers: "block",
-    viewport: { height: 900, width: 1440 },
+    viewport,
   });
   contexts.add(context);
   return { context, page: await context.newPage() };
@@ -548,6 +548,87 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       await page.screenshot({
         fullPage: true,
         path: path.join(proofDir, "04-selectable-settings-text.png"),
+      });
+    }
+  });
+
+  it("uses PlatformClaw identity and mascot across hosted product surfaces", async () => {
+    const { page } = await newPage({ height: 844, width: 390 });
+    await installPlatformClawDocument(page);
+    await page.addInitScript(() => {
+      localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
+    });
+    await page.route("**/platformclaw/api/auth/session", (route) =>
+      route.fulfill({ json: activeSession(), status: 200 }),
+    );
+    await installMockGateway(page, {
+      assistantName: "Person One Agent",
+      basePath: "/platformclaw/app",
+      defaultAgentId: "person_one",
+      sessionKey: "agent:person_one:main",
+    });
+
+    await page.goto(`${server.baseUrl}platformclaw/app/chat`);
+    await expect.poll(() => page.title()).toMatch(/PlatformClaw$/u);
+    await expect
+      .poll(() => page.getByRole("heading", { name: "Person One Agent" }).isVisible())
+      .toBe(true);
+    await expect
+      .poll(() =>
+        page.locator(".agent-chat__welcome openclaw-mascot .platformclaw-mascot").isVisible(),
+      )
+      .toBe(true);
+    await expect
+      .poll(() => page.locator("openclaw-app-sidebar openclaw-lobster-pet").count())
+      .toBe(0);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        animations: "disabled",
+        fullPage: true,
+        path: path.join(proofDir, "06-platformclaw-chat-mobile.png"),
+      });
+    }
+
+    await page.goto(`${server.baseUrl}platformclaw/app/settings/profile`);
+    const topbarBrand = page.locator(".topbar-brand");
+    await expect.poll(() => topbarBrand.isVisible()).toBe(true);
+    await expect.poll(() => topbarBrand.getAttribute("aria-label")).toBe("PlatformClaw");
+    await expect
+      .poll(() => topbarBrand.locator(".topbar-brand__title").textContent())
+      .toBe("PlatformClaw");
+    await expect
+      .poll(() => page.locator(".profile-hero__badge").textContent())
+      .toBe("PlatformClaw");
+    await expect.poll(() => page.locator(".profile-hero__avatar-image--product").count()).toBe(1);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        animations: "disabled",
+        fullPage: true,
+        path: path.join(proofDir, "07-platformclaw-profile-mobile.png"),
+      });
+    }
+
+    await page.goto(`${server.baseUrl}platformclaw/app/settings/appearance`);
+    await expect.poll(() => page.locator("#settings-appearance-theme").count()).toBe(1);
+    await expect.poll(() => page.getByText("Lobsterdex", { exact: true }).count()).toBe(0);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        animations: "disabled",
+        fullPage: true,
+        path: path.join(proofDir, "08-platformclaw-appearance-mobile.png"),
+      });
+    }
+
+    await page.goto(`${server.baseUrl}platformclaw/app/settings/about`);
+    await expect.poll(() => page.locator(".about-hero__name").textContent()).toBe("PlatformClaw");
+    await expect.poll(() => page.locator(".about-hero__platformclaw-mascot").count()).toBe(1);
+    await expect.poll(() => page.locator(".about-hero__clawd svg").count()).toBe(0);
+
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        animations: "disabled",
+        fullPage: true,
+        path: path.join(proofDir, "09-platformclaw-about-mobile.png"),
       });
     }
   });

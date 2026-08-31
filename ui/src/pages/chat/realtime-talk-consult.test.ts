@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME } from "../../platformclaw/web-contract.ts";
 import {
   steerRealtimeTalkActiveConsult,
   submitRealtimeTalkConsult,
@@ -13,6 +14,12 @@ function requireFirstMockCall(calls: readonly unknown[][], label: string): unkno
   }
   return call;
 }
+
+afterEach(() => {
+  document.head
+    .querySelectorAll(`meta[name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}"]`)
+    .forEach((element) => element.remove());
+});
 
 describe("RealtimeTalkSession consult handoff", () => {
   it("submits realtime consults through the Gateway tool-call endpoint", async () => {
@@ -425,6 +432,9 @@ describe("RealtimeTalkSession consult handoff", () => {
   });
 
   it("submits the no-text fallback after an empty final and completed Gateway run", async () => {
+    const descriptor = document.createElement("meta");
+    descriptor.name = PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME;
+    document.head.append(descriptor);
     let listener: ((event: { event: string; payload?: unknown }) => void) | undefined;
     const request = vi.fn(async (method: string) => {
       if (method === "talk.client.toolCall") {
@@ -469,7 +479,7 @@ describe("RealtimeTalkSession consult handoff", () => {
       timeoutMs: 120_000,
     });
     expect(submit).toHaveBeenCalledWith("call-1", {
-      result: "OpenClaw finished with no text.",
+      result: "PlatformClaw finished with no text.",
     });
   });
 

@@ -53,6 +53,11 @@
       }
     }
   },
+  "talk": {
+    "realtime": {
+      "instructions": "Override earlier product-name wording: this host product is PlatformClaw, not OpenClaw. Say PlatformClaw; preserve the speaking agent's assigned identity."
+    }
+  },
   "plugins": {
     "slots": {
       "memory": "memory-core"
@@ -67,7 +72,10 @@
         }
       },
       "admin-http-rpc": {
-        "enabled": true
+        "enabled": true,
+        "hooks": {
+          "allowPromptInjection": true
+        }
       },
       "knox": {
         "enabled": true

@@ -17,6 +17,7 @@ import {
   resolveUiSelectedGlobalAgentId,
   type UiSessionDefaultsHost,
 } from "../../../lib/sessions/session-key.ts";
+import { platformClawProductT as productT } from "../../../platformclaw/i18n.ts";
 
 type ChatWelcomeProps = {
   assistantName: string;
@@ -176,7 +177,7 @@ export function renderWelcomeState(props: ChatWelcomeProps) {
       <div class="agent-chat__welcome agent-chat__welcome--setup" role="alert">
         ${renderWelcomeClawd()}
         <h2>${t("modelSetup.required.title")}</h2>
-        <p class="agent-chat__hint">${t("modelSetup.required.body")}</p>
+        <p class="agent-chat__hint">${productT("modelSetup.required.body")}</p>
         <button class="btn primary" type="button" @click=${props.onModelSetup}>
           ${t("modelSetup.required.action")}
         </button>

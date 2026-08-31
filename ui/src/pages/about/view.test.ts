@@ -3,6 +3,10 @@
 import { render } from "lit";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
+import {
+  PLATFORMCLAW_WEB_DESCRIPTOR,
+  PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
+} from "../../platformclaw/web-contract.ts";
 import { renderAbout } from "./view.ts";
 
 type AboutProps = Parameters<typeof renderAbout>[0];
@@ -32,8 +36,16 @@ function createProps(overrides: Partial<AboutProps> = {}): AboutProps {
   };
 }
 
+function installPlatformClawDescriptor(): void {
+  const descriptor = document.createElement("meta");
+  descriptor.name = PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME;
+  descriptor.content = JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR);
+  document.head.append(descriptor);
+}
+
 describe("renderAbout", () => {
   beforeEach(async () => {
+    document.head.querySelector(`meta[name="${PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME}"]`)?.remove();
     document.body.innerHTML = "";
     await i18n.setLocale("en");
   });
@@ -78,6 +90,22 @@ describe("renderAbout", () => {
 
     render(renderAbout(createProps({ clawdWaving: false })), container);
     expect(container.querySelector(".about-hero__clawd--wave")).toBeNull();
+  });
+
+  it("uses PlatformClaw product identity while preserving upstream attribution", () => {
+    installPlatformClawDescriptor();
+    const container = document.createElement("div");
+    render(renderAbout(createProps()), container);
+
+    expect(container.querySelector(".about-hero__name")?.textContent).toBe("PlatformClaw");
+    expect(container.querySelector(".about-hero__platformclaw-mascot")).not.toBeNull();
+    expect(container.querySelector(".about-hero__clawd svg")).toBeNull();
+    expect(container.querySelector('a[href="https://discord.gg/clawd"]')).toBeNull();
+    expect(container.querySelector('a[href="https://x.com/openclaw"]')).toBeNull();
+    expect(
+      container.querySelector('a[href="https://github.com/openclaw/openclaw"]'),
+    ).not.toBeNull();
+    expect(container.querySelector(".about-footer")?.textContent).toContain("OpenClaw Foundation");
   });
 
   it("keeps version, commit, branch, and localized UTC build date in one facts grid", () => {

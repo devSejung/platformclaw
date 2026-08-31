@@ -40,6 +40,7 @@ import type {
 import { formatRelativeTimestamp, formatMs } from "../../lib/format.ts";
 import { formatCronSchedule } from "../../lib/presenter.ts";
 import { normalizeStringEntries, uniqueStrings } from "../../lib/string-coerce.ts";
+import { platformClawProductT as productT } from "../../platformclaw/i18n.ts";
 import { renderSegmented } from "./segmented-control.ts";
 import { renderCronStats } from "./stats.ts";
 import { CRON_SUGGESTIONS, suggestionFormPatch } from "./suggestions.ts";
@@ -688,7 +689,9 @@ function renderJobsTable(props: CronProps, hasAnyJobsFilters: boolean) {
               </div>
               ${hasAnyJobsFilters
                 ? nothing
-                : html`<div class="cron-empty-state__copy">${t("cron.list.emptyHint")}</div>`}
+                : html`<div class="cron-empty-state__copy">
+                    ${productT("cron.list.emptyHint")}
+                  </div>`}
             </div>
           `
         : repeat(
@@ -944,7 +947,7 @@ function renderDetailHeader(props: CronProps, mode: CronPanelMode, selectedJob?:
   const subtitle =
     mode === "job" && selectedJob
       ? `${formatCronSchedule(selectedJob)}${nextRunSuffix}`
-      : t("cron.detail.newSubtitle");
+      : productT("cron.detail.newSubtitle");
   return html`
     <div class="cron-detail-header">
       <div class="cron-detail-header__copy">
@@ -1212,7 +1215,7 @@ function renderPromptSection(
             .value=${props.form.payloadText}
             ?readonly=${ctx.payloadLocked}
             aria-required="true"
-            placeholder=${t("cron.form.promptPlaceholder")}
+            placeholder=${productT("cron.form.promptPlaceholder")}
             aria-invalid=${props.fieldErrors.payloadText ? "true" : "false"}
             aria-describedby=${ifDefined(
               props.fieldErrors.payloadText ? errorIdForField("payloadText") : undefined,

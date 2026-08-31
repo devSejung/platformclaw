@@ -46,8 +46,28 @@ describe("createPlatformClawWebIngressRuntime", () => {
     writeFileSync(join(controlUiRoot, "platformclaw-login.html"), "<!doctype html>Login");
     writeFileSync(
       join(controlUiRoot, "index.html"),
-      "<!doctype html><html><head><title>Control</title></head><body>App</body></html>",
+      '<!doctype html><html><head><title>Control</title><link rel="icon" type="image/svg+xml" href="./favicon.svg"><link rel="icon" type="image/png" href="./favicon-32.png"><link rel="apple-touch-icon" href="./apple-touch-icon.png"><link rel="manifest" href="./manifest.webmanifest"></head><body>App</body></html>',
     );
+    writeFileSync(
+      join(controlUiRoot, "manifest.webmanifest"),
+      '{"name":"OpenClaw Control","short_name":"OpenClaw","icons":[]}',
+    );
+    writeFileSync(join(controlUiRoot, "favicon.svg"), "<svg>upstream favicon</svg>");
+    writeFileSync(join(controlUiRoot, "favicon-32.png"), "upstream favicon png");
+    writeFileSync(join(controlUiRoot, "apple-touch-icon.png"), "upstream touch icon");
+    writeFileSync(
+      join(controlUiRoot, "sw.js"),
+      [
+        'if (url.pathname.startsWith("/api/") || false) {}',
+        'data = { title: "OpenClaw", body: event.data.text() };',
+        'const title = data.title || "OpenClaw";',
+        "const options = {",
+        '  icon: "./apple-touch-icon.png",',
+        '  badge: "./favicon-32.png",',
+        "};",
+      ].join("\n"),
+    );
+    writeFileSync(join(controlUiRoot, "assets", "platformclaw-pixel-ABC123.svg"), "<svg></svg>");
     const credentialBrokerAddress =
       process.platform === "win32"
         ? String.raw`\\.\pipe\platformclaw-runtime-${process.pid}-${randomUUID()}`

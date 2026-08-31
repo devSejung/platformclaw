@@ -10,6 +10,12 @@
 
 ### PlatformClaw downstream policy repairs
 
+- PlatformClaw product branding is a downstream presentation and managed-config
+  overlay. The Control UI reads a bounded host descriptor, the Web host rewrites
+  only exact upstream bootstrap assets, and the managed admin plugin appends one
+  short, stable product-identity instruction. OpenClaw remains unchanged in
+  CLI/API/package/path/config compatibility text. Upstream syncs must preserve
+  these seams instead of replacing OpenClaw core identity or protocol contracts.
 - The 2026-08-21 Plugin SDK compatibility-window cleanup ports only the
   upstream `998d442b39f` embedded-Pi alias retirement and `692520a4698`
   memory-embedding registrar retirement from OpenClaw PR #124416. This is a
@@ -197,18 +203,18 @@ Environment setup complete. Control-plane Phase 1 implementation in progress.
 
 ## Migration Status
 
-| Capability                             | Status                                                        | Related PR/commit                     |
-| -------------------------------------- | ------------------------------------------------------------- | ------------------------------------- |
-| Branding and product boundary          | Not started                                                   | -                                     |
-| Account/session/workspace isolation    | Web runtime implemented                                       | `packages/platformclaw-control-plane` |
-| Enterprise authentication              | LDAP-phase adapter implemented                                | `packages/platformclaw-control-plane` |
-| Credential runtime and policy          | Vault and local broker implemented                            | `packages/platformclaw-control-plane` |
-| Skill Hub                              | Embedded registry, scanner governance, Basic and VM lifecycle | `packages/platformclaw-control-plane` |
-| Knox adapter                           | Control-plane contracts implemented                           | `packages/platformclaw-control-plane` |
-| Remote execution and filesystem bridge | Backend foundation in progress                                | `extensions/platformclaw-execution`   |
-| Operations UI, retry and recovery      | Employee Web shell implemented                                | `ui/src/platformclaw`                 |
-| Cron and automation                    | Agent-scoped self-service in progress                         | `feature/employee-cron-self-service`  |
-| Production Docker deployment           | In progress                                                   | `feature/jammy-company-build`         |
+| Capability                             | Status                                                        | Related PR/commit                                  |
+| -------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------- |
+| Branding and product boundary          | Product identity and employee Web presentation implemented    | `ui/src/platformclaw`, `extensions/admin-http-rpc` |
+| Account/session/workspace isolation    | Web runtime implemented                                       | `packages/platformclaw-control-plane`              |
+| Enterprise authentication              | LDAP-phase adapter implemented                                | `packages/platformclaw-control-plane`              |
+| Credential runtime and policy          | Vault and local broker implemented                            | `packages/platformclaw-control-plane`              |
+| Skill Hub                              | Embedded registry, scanner governance, Basic and VM lifecycle | `packages/platformclaw-control-plane`              |
+| Knox adapter                           | Control-plane contracts implemented                           | `packages/platformclaw-control-plane`              |
+| Remote execution and filesystem bridge | Backend foundation in progress                                | `extensions/platformclaw-execution`                |
+| Operations UI, retry and recovery      | Employee Web shell implemented                                | `ui/src/platformclaw`                              |
+| Cron and automation                    | Agent-scoped self-service in progress                         | `feature/employee-cron-self-service`               |
+| Production Docker deployment           | In progress                                                   | `feature/jammy-company-build`                      |
 
 ## Update Rule
 

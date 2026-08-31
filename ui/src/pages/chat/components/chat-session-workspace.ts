@@ -39,6 +39,8 @@ import {
   normalizeAgentId,
 } from "../../../lib/sessions/session-key.ts";
 import { normalizeOptionalString } from "../../../lib/string-coerce.ts";
+import { resolvePlatformClawBranding } from "../../../platformclaw/branding.ts";
+import { platformClawProductT } from "../../../platformclaw/i18n.ts";
 import { hasUniformLineEndings, type SidebarContent } from "./chat-sidebar.ts";
 
 export type SessionWorkspaceProps = {
@@ -980,16 +982,24 @@ export function renderSessionWorkspaceRail(
         </openclaw-tooltip>
       `
     : nothing;
+  const branding = resolvePlatformClawBranding();
   const custodianButton = sessionWorkspace.onToggleCustodian
     ? html`
-        <openclaw-tooltip .content=${t("custodian.panel.toggle")}>
+        <openclaw-tooltip .content=${platformClawProductT("custodian.panel.toggle")}>
           <button
             type="button"
             class="chat-workspace-rail__terminal"
-            aria-label=${t("custodian.panel.toggle")}
+            aria-label=${platformClawProductT("custodian.panel.toggle")}
             @click=${sessionWorkspace.onToggleCustodian}
           >
-            ${icons.lobster}
+            ${branding
+              ? html`<img
+                  class="chat-workspace-rail__platformclaw-icon"
+                  src=${branding.mascotUrl}
+                  alt=""
+                  aria-hidden="true"
+                />`
+              : icons.lobster}
           </button>
         </openclaw-tooltip>
       `

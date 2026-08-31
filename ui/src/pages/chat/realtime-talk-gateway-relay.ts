@@ -1,3 +1,4 @@
+import { resolveControlUiProductName } from "../../platformclaw/branding.ts";
 import {
   bytesToBase64,
   floatToPcm16,
@@ -455,8 +456,7 @@ export class GatewayRelayRealtimeTalkTransport implements RealtimeTalkTransport 
           {
             status: "working",
             tool: REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
-            message:
-              "Tell the person briefly that you are checking, then wait for the final OpenClaw result before answering with the actual result.",
+            message: `Tell the person briefly that you are checking, then wait for the final ${resolveControlUiProductName()} result before answering with the actual result.`,
           },
           { willContinue: true },
         );

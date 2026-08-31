@@ -15,6 +15,7 @@ import {
 } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
 import { formatRelativeTimestamp } from "../../lib/format.ts";
+import { resolvePlatformClawBranding } from "../../platformclaw/branding.ts";
 import "../../styles/memory-overview.css";
 import type { MemoryEngineSelection } from "./memory-schema.ts";
 import { selectedEngineId } from "./memory-schema.ts";
@@ -55,6 +56,7 @@ function searchMode(payload: DoctorMemoryStatusPayload): string {
 }
 
 function renderHero(props: MemoryOverviewProps) {
+  const branding = resolvePlatformClawBranding();
   const engineId = selectedEngineId(props.engineSelection);
   const off = props.engineSelection.kind === "off" || props.engineDisabled;
   const readyPayload = props.status.kind === "ready" ? props.status.payload : null;
@@ -95,7 +97,14 @@ function renderHero(props: MemoryOverviewProps) {
   return html`
     <section class="memory-overview__hero ${off ? "memory-overview__hero--sleeping" : ""}">
       <div class="memory-overview__lobster" style=${lobsterLookStyle(look)}>
-        ${renderLobsterSvg(look, pose)}
+        ${branding
+          ? html`<img
+              class="memory-overview__platformclaw-mascot"
+              src=${branding.mascotUrl}
+              alt=""
+              aria-hidden="true"
+            />`
+          : renderLobsterSvg(look, pose)}
       </div>
       <div class="memory-overview__hero-copy">
         <h2>${headline}</h2>
