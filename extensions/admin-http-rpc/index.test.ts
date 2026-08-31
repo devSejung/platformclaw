@@ -71,7 +71,7 @@ describe("admin-http-rpc plugin entry", () => {
       { method: "platformclaw.profile.seed", options: { scope: "operator.admin" } },
       { method: "platformclaw.profile.status", options: { scope: "operator.admin" } },
     ]);
-    expect(hooks).toEqual(["before_prompt_build", "before_prompt_build"]);
+    expect(hooks).toEqual(["before_prompt_build"]);
     expect(stores).toEqual([
       {
         namespace: "platformclaw.employee-profiles",
@@ -86,7 +86,6 @@ describe("admin-http-rpc plugin entry", () => {
     await expect(Promise.resolve(beforePromptBuild[0]?.({}, {}))).resolves.toEqual({
       appendSystemContext: PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT,
     });
-    await expect(Promise.resolve(beforePromptBuild[1]?.({}, {}))).resolves.toBeUndefined();
 
     profileStore.value = {
       schema: "platformclaw.employee-profile.v1",
@@ -97,8 +96,9 @@ describe("admin-http-rpc plugin entry", () => {
       },
     };
     await expect(
-      Promise.resolve(beforePromptBuild[1]?.({}, { agentId: "employee-1" })),
+      Promise.resolve(beforePromptBuild[0]?.({}, { agentId: "employee-1" })),
     ).resolves.toMatchObject({
+      appendSystemContext: PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT,
       prependContext: expect.stringContaining('"employeeId": "employee-1"'),
     });
   });

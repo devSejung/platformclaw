@@ -52,17 +52,15 @@ export default definePluginEntry({
       async (options) => await handleEmployeeProfileStatus(options, employeeProfiles),
       { scope: "operator.admin" },
     );
-    // Keep static identity independent from profile storage so a slow or
-    // unavailable profile lookup cannot make the product rename disappear.
-    api.on("before_prompt_build", () => ({
-      appendSystemContext: PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT,
-    }));
     api.on("before_prompt_build", async (_event, context) => {
       const prependContext = await loadEmployeeProfilePromptContext(
         employeeProfiles,
         context.agentId,
       );
-      return prependContext ? { prependContext } : undefined;
+      return {
+        appendSystemContext: PLATFORMCLAW_PRODUCT_SYSTEM_CONTEXT,
+        ...(prependContext ? { prependContext } : {}),
+      };
     });
   },
 });
