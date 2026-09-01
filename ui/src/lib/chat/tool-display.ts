@@ -43,7 +43,7 @@ type ToolDisplay = {
 
 export type EmbedSandboxMode = ControlUiEmbedSandboxMode;
 export type { CanvasPluginSurfaceRoute } from "../canvas-surface-route.ts";
-export type CanvasIframeRoute =
+type CanvasIframeRoute =
   | { state: "ready"; url: string }
   | { state: "waiting"; reason: "connecting" | "unavailable" }
   | { state: "unavailable" };
@@ -200,7 +200,7 @@ export function isInternalCanvasEntryUrl(entryUrl: string | undefined): boolean 
   return Boolean(rawEntryUrl && sanitizeCanvasEntryUrl(rawEntryUrl, false));
 }
 
-export function resolveCanvasIframeUrl(
+function resolveCanvasIframeUrl(
   entryUrl: string | undefined,
   allowExternalEmbedUrls = false,
 ): string | undefined {

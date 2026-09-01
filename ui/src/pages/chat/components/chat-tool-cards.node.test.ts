@@ -550,14 +550,6 @@ describe("tool-card canvas URLs", () => {
     );
   }
 
-  it("accepts hosted canvas paths for a direct Gateway", async () => {
-    const { resolveCanvasIframeUrl } = await loadResolver();
-
-    expect(resolveCanvasIframeUrl("/__openclaw__/canvas/documents/cv_demo/index.html")).toBe(
-      "/__openclaw__/canvas/documents/cv_demo/index.html",
-    );
-  });
-
   it("requires an authoritative relay route before resolving hosted Canvas", async () => {
     const { resolveCanvasIframeRoute } = await loadResolver();
     const entry = "/__openclaw__/canvas/documents/cv_demo/index.html";
@@ -606,14 +598,20 @@ describe("tool-card canvas URLs", () => {
   });
 
   it("rejects unsafe canvas frame URLs unless external embeds are explicitly enabled", async () => {
-    const { resolveCanvasIframeUrl } = await loadResolver();
+    const { resolveCanvasIframeRoute } = await loadResolver();
 
-    expect(resolveCanvasIframeUrl("/not-canvas/snake.html")).toBeUndefined();
-    expect(resolveCanvasIframeUrl("https://example.com/evil.html")).toBeUndefined();
-    expect(resolveCanvasIframeUrl("file:///tmp/snake.html")).toBeUndefined();
-    expect(resolveCanvasIframeUrl("https://example.com/embed.html?x=1#y", true)).toBe(
-      "https://example.com/embed.html?x=1#y",
-    );
+    expect(resolveCanvasIframeRoute("/not-canvas/snake.html", { mode: "direct" })).toEqual({
+      state: "unavailable",
+    });
+    expect(resolveCanvasIframeRoute("https://example.com/evil.html", { mode: "direct" })).toEqual({
+      state: "unavailable",
+    });
+    expect(resolveCanvasIframeRoute("file:///tmp/snake.html", { mode: "direct" })).toEqual({
+      state: "unavailable",
+    });
+    expect(
+      resolveCanvasIframeRoute("https://example.com/embed.html?x=1#y", { mode: "direct" }, true),
+    ).toEqual({ state: "ready", url: "https://example.com/embed.html?x=1#y" });
   });
 });
 
