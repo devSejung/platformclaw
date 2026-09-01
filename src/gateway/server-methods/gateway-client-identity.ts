@@ -3,9 +3,15 @@ import type { GatewayClient } from "./shared-types.js";
 
 type GatewayClientSender = { id: string; name?: string };
 
-export function gatewayClientSenderFields(client: GatewayClient | null): {
+export function gatewayClientSenderFields(
+  client: GatewayClient | null,
+  requestSender?: GatewayClientSender,
+): {
   sender?: GatewayClientSender;
 } {
+  if (requestSender) {
+    return { sender: requestSender };
+  }
   if (client?.internal?.senderAttribution) {
     return { sender: client.internal.senderAttribution };
   }

@@ -9,6 +9,7 @@ import {
   formatValidationErrors,
   validateChatSendParams,
 } from "../../../packages/gateway-protocol/src/index.js";
+import type { ChatSenderAttribution } from "../../../packages/gateway-protocol/src/schema/logs-chat.js";
 import { isBtwRequestText } from "../../auto-reply/reply/btw-command.js";
 import type { QueueMode } from "../../auto-reply/reply/queue/types.js";
 import type { InputProvenance } from "../../sessions/input-provenance.js";
@@ -53,6 +54,7 @@ type ChatSendRequestParams = {
   systemInputProvenance?: InputProvenance;
   systemProvenanceReceipt?: string;
   suppressCommandInterpretation?: boolean;
+  senderAttribution?: ChatSenderAttribution;
   expectedLeafEntryId?: string | null;
   expectedSessionRoutingContract?: string;
   idempotencyKey: string;
@@ -68,6 +70,7 @@ export type NormalizedChatSendRequest = {
   systemInputProvenance?: InputProvenance;
   systemProvenanceReceipt?: string;
   suppressCommandInterpretation: boolean;
+  senderAttribution?: ChatSenderAttribution;
   toolBindings?: Readonly<Record<string, unknown>>;
   stopCommand: boolean;
   turnKind: "btw" | "main";
@@ -102,6 +105,15 @@ export function normalizeChatSendRequest(params: {
 
   const p = controlUiReconnectResume.params as ChatSendRequestParams;
   const suppressCommandInterpretation = p.suppressCommandInterpretation === true;
+  const requestedSenderAttribution = p.senderAttribution
+    ? {
+        id: p.senderAttribution.id.trim(),
+        ...(p.senderAttribution.name?.trim() ? { name: p.senderAttribution.name.trim() } : {}),
+      }
+    : undefined;
+  if (requestedSenderAttribution && !requestedSenderAttribution.id) {
+    return { ok: false, error: "sender attribution id must not be blank" };
+  }
   const explicitOriginResult = normalizeExplicitChatSendOrigin({
     originatingChannel: p.originatingChannel,
     originatingTo: p.originatingTo,
@@ -115,6 +127,7 @@ export function normalizeChatSendRequest(params: {
     (p.systemInputProvenance ||
       p.systemProvenanceReceipt ||
       suppressCommandInterpretation ||
+      requestedSenderAttribution ||
       explicitOriginResult.value) &&
     !hasGatewayAdminScope(params.client)
   ) {
@@ -123,7 +136,9 @@ export function normalizeChatSendRequest(params: {
       error:
         p.systemInputProvenance || p.systemProvenanceReceipt || suppressCommandInterpretation
           ? "system provenance fields require admin scope"
-          : "originating route fields require admin scope",
+          : requestedSenderAttribution
+            ? "sender attribution requires admin scope"
+            : "originating route fields require admin scope",
     };
   }
 
@@ -139,6 +154,8 @@ export function normalizeChatSendRequest(params: {
   const inboundMessage = sanitizedMessageResult.message;
   const systemInputProvenance = normalizeInputProvenance(p.systemInputProvenance);
   const systemProvenanceReceipt = systemReceiptResult.receipt;
+  const senderAttribution =
+    requestedSenderAttribution ?? params.client?.internal?.senderAttribution;
   const stopCommand = !suppressCommandInterpretation && isChatStopCommandText(inboundMessage);
   if (p.toolBindings) {
     if (
@@ -181,6 +198,7 @@ export function normalizeChatSendRequest(params: {
       systemInputProvenance,
       systemProvenanceReceipt,
       suppressCommandInterpretation,
+      senderAttribution,
       toolBindings: p.toolBindings,
       stopCommand,
       turnKind,

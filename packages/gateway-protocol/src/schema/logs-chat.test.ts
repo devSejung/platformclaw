@@ -51,4 +51,28 @@ describe("ChatSendParamsSchema", () => {
     expect(Value.Check(ChatSendParamsSchema, { ...send, expectedLeafEntryId: null })).toBe(true);
     expect(Value.Check(ChatSendParamsSchema, { ...send, unknown: true })).toBe(false);
   });
+
+  it("bounds privileged sender attribution", () => {
+    expect(
+      Value.Check(ChatSendParamsSchema, {
+        ...send,
+        senderAttribution: { id: "first.user", name: "First User" },
+      }),
+    ).toBe(true);
+    expect(Value.Check(ChatSendParamsSchema, { ...send, senderAttribution: { id: "" } })).toBe(
+      false,
+    );
+    expect(
+      Value.Check(ChatSendParamsSchema, {
+        ...send,
+        senderAttribution: { id: "x".repeat(257) },
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(ChatSendParamsSchema, {
+        ...send,
+        senderAttribution: { id: "first.user", extra: true },
+      }),
+    ).toBe(false);
+  });
 });

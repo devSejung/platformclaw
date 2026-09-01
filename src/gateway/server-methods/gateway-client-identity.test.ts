@@ -28,5 +28,8 @@ describe("gateway client identity", () => {
     expect(gatewayClientSenderFields(client)).toEqual({
       sender: { id: "alice", name: "Suggested by Alice" },
     });
+    expect(gatewayClientSenderFields(client, { id: "first.user", name: "First User" })).toEqual({
+      sender: { id: "first.user", name: "First User" },
+    });
   });
 });

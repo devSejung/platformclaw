@@ -109,6 +109,12 @@ const RunToolBindingsSchema = Type.Record(
   { maxProperties: 16 },
 );
 
+/** Privileged request-scoped identity used to attribute a chat turn to its human sender. */
+export const ChatSenderAttributionSchema = closedObject({
+  id: Type.String({ minLength: 1, maxLength: 256 }),
+  name: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+});
+
 /** User-to-agent send request; idempotency key lets clients safely retry transport failures. */
 export const ChatSendParamsSchema = closedObject({
   sessionKey: ChatSendSessionKeyString,
@@ -135,6 +141,7 @@ export const ChatSendParamsSchema = closedObject({
   systemInputProvenance: Type.Optional(InputProvenanceSchema),
   systemProvenanceReceipt: Type.Optional(Type.String()),
   suppressCommandInterpretation: Type.Optional(Type.Boolean()),
+  senderAttribution: Type.Optional(ChatSenderAttributionSchema),
   // Client's believed active-branch leaf entry id. A mismatch with the
   // session's current active leaf rejects the send so stale views cannot post elsewhere.
   expectedLeafEntryId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
@@ -243,6 +250,7 @@ export const ChatEventSchema = Type.Union([
 // Wire types derive directly from local schema consts so public d.ts graphs never
 // pull in the ProtocolSchemas registry.
 export type ChatMetadataParams = Static<typeof ChatMetadataParamsSchema>;
+export type ChatSenderAttribution = Static<typeof ChatSenderAttributionSchema>;
 export type ChatToolTitlesParams = Static<typeof ChatToolTitlesParamsSchema>;
 export type LogsTailParams = Static<typeof LogsTailParamsSchema>;
 export type LogsTailResult = Static<typeof LogsTailResultSchema>;
