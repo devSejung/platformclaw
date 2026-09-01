@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- **Runtime lifecycle recovery:** recreate unregistered stale sandbox containers on first use, re-provision Knox room agents deleted outside the room-binding lifecycle, and let `openclaw agents delete --force` resume an interrupted deletion after config removal.
 - **PlatformClaw personal Memory Wiki:** enable bundled Memory Wiki in agent-scoped bridge mode for new and upgraded deployments, expose path-redacted personal Dreaming and Wiki reads plus confirmed personal maintenance actions through the employee BFF, and keep the same personal vault when execution moves to an assigned VM.
 - **Approval history Agent filter:** let operator clients page terminal approval history for one source Agent while preserving the existing global view when no Agent is selected.
 - **Plugin uninstall cleanup:** remove exact recorded install paths from `plugins.load.paths` for marketplace, npm, and other managed installs while preserving parent, child, prefix, and unrelated paths.

@@ -104,11 +104,6 @@ export class KnoxRoutingService {
     if (binding.state === "disabled") {
       return binding;
     }
-    // Active bindings already name the canonical Gateway agent. Restart reconciliation,
-    // rather than this message hot path, owns repair if the Gateway later drifts.
-    if (binding.state === "active") {
-      return binding;
-    }
     if (binding.state === "failed") {
       const transitioned = await this.options.store.transitionAgent({
         bindingId: binding.id,
@@ -121,6 +116,8 @@ export class KnoxRoutingService {
       binding = transitioned;
     }
     try {
+      // The binding and Gateway roster have independent lifecycles. Revalidate active
+      // bindings so an externally deleted room agent is recreated before dispatch.
       await this.options.roomProvisioner.provision(binding);
       if (binding.state !== "provisioning") {
         return binding;

@@ -103,7 +103,46 @@ export async function agentsDeleteCommand(
     runtime.exit(1);
     return;
   }
-  if (findAgentEntryIndex(listAgentEntries(cfg), agentId) < 0) {
+  const configured = findAgentEntryIndex(listAgentEntries(cfg), agentId) >= 0;
+  if (!configured) {
+    if (!opts.force) {
+      if (!process.stdin.isTTY) {
+        runtime.error("Non-interactive session. Re-run with --force.");
+        runtime.exit(1);
+        return;
+      }
+      const prompter = createClackPrompter();
+      const confirmed = await prompter.confirm({
+        message: `Resume pending deletion cleanup for agent "${agentId}"?`,
+        initialValue: false,
+      });
+      if (!confirmed) {
+        runtime.log("Cancelled.");
+        return;
+      }
+    }
+    // Config removal is committed before filesystem cleanup. Let the Gateway resume its
+    // deletion journal even though the agent is no longer visible in the local roster.
+    const gatewayResult = await maybeDeleteAgentThroughGateway({ agentId, deleteFiles: true });
+    if (gatewayResult) {
+      if (opts.json) {
+        writeRuntimeJson(runtime, {
+          agentId,
+          removedBindings: gatewayResult.removedBindings,
+          removed: gatewayResult.removed,
+          failed: gatewayResult.failed,
+          transport: "gateway",
+        });
+      } else {
+        runtime.log(`Completed pending agent deletion: ${agentId}`);
+        for (const failure of gatewayResult.failed ?? []) {
+          runtime.error(
+            `Warning: path could not be moved to Trash: ${failure.reason}; remove it manually at ${failure.path}`,
+          );
+        }
+      }
+      return;
+    }
     runtime.error(
       `Agent "${agentId}" not found. Run ${formatCliCommand("openclaw agents list")} to see configured agents.`,
     );

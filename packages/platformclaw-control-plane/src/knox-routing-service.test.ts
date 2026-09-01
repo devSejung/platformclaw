@@ -86,6 +86,32 @@ describe("KnoxRoutingService", () => {
     expect(provision).toHaveBeenCalledOnce();
   });
 
+  it("revalidates an active room agent before dispatch", async () => {
+    const store = createStore();
+    const provision = vi.fn(async () => undefined);
+    const service = new KnoxRoutingService({
+      store,
+      roomProvisioner: { provision },
+      buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
+      now: () => 1_000,
+    });
+    const request = {
+      accountId: "relay-a",
+      conversationType: "room" as const,
+      conversationId: "9988",
+      knoxUserId: "user.name",
+    };
+
+    await service.resolve(request);
+    provision.mockClear();
+
+    await expect(service.resolve(request)).resolves.toMatchObject({
+      status: "resolved",
+      agentId: "group-9988",
+    });
+    expect(provision).toHaveBeenCalledOnce();
+  });
+
   it("requires prior Web login for DM", async () => {
     const service = new KnoxRoutingService({
       store: createStore(),

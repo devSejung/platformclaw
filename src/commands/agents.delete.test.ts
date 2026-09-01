@@ -248,6 +248,36 @@ describe("agents delete command", () => {
     });
   });
 
+  it("resumes Gateway deletion cleanup after config removal", async () => {
+    await withStateDirEnv("openclaw-agents-delete-resume-", async ({ stateDir }) => {
+      const cfg: OpenClawConfig = { agents: { list: [{ id: "main" }] } };
+      await arrangeAgentsDeleteTest({ stateDir, cfg, sessions: {} });
+      gatewayMocks.callGateway.mockResolvedValue({
+        ok: true,
+        agentId: "ops",
+        removedBindings: 0,
+        removed: [],
+        failed: [],
+      });
+
+      await agentsDeleteCommand({ id: "ops", force: true, json: true }, runtime);
+
+      expect(gatewayMocks.callGateway).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "agents.delete",
+          params: { agentId: "ops", deleteFiles: true },
+        }),
+      );
+      expect(configMocks.replaceConfigFile).not.toHaveBeenCalled();
+      expect(readJsonLogs()[0]).toMatchObject({
+        agentId: "ops",
+        removedBindings: 0,
+        transport: "gateway",
+      });
+      expect(runtime.exit).not.toHaveBeenCalled();
+    });
+  });
+
   it("falls back to local deletion when the optional Gateway probe needs credentials", async () => {
     await withStateDirEnv("openclaw-agents-delete-gateway-auth-", async ({ stateDir }) => {
       const now = Date.now();

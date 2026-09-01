@@ -502,6 +502,25 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     expect(registryMocks.updateRegistry).not.toHaveBeenCalled();
   });
 
+  it("recreates an unregistered stale container even when it is running", async () => {
+    const workspaceDir = makeTempDir();
+    const cfg = createSandboxConfig([], [`${workspaceDir}:/workspace:rw`], "rw", {});
+    spawnState.labelHash = "stale-hash";
+    registryMocks.readRegistryEntry.mockResolvedValue(null);
+
+    await ensureSandboxContainer({
+      scopeKey: "shared",
+      workspaceDir,
+      agentWorkspaceDir: workspaceDir,
+      cfg,
+      requireCurrentConfig: true,
+    });
+
+    expect(spawnState.calls.some((call) => call.args[0] === "rm")).toBe(true);
+    expect(spawnState.calls.some((call) => call.args[0] === "create")).toBe(true);
+    expect(registryMocks.updateRegistry.mock.calls.at(-1)?.[0]?.configHash).not.toBe("stale-hash");
+  });
+
   it("recreates shared container when previously filtered explicit env becomes allowed", async () => {
     const workspaceDir = makeTempDir();
     const cfg = createSandboxConfig(["1.1.1.1"], undefined, "rw", {
