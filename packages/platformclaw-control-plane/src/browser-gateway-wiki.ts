@@ -1,4 +1,5 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { dreamingEntryPath, wikiPath } from "./browser-gateway-content-paths.js";
 
 type JsonObject = Record<string, unknown>;
 type ProjectionFailure = (message: string) => never;
@@ -38,7 +39,6 @@ const MAX_CONTENT_CHARS = 1024 * 1024;
 const MAX_ITEMS = 500;
 const MAX_LIST_ITEMS = 100;
 const MAX_TEXT_CHARS = 16 * 1024;
-const WIKI_ROOTS = new Set(["entities", "concepts", "sources", "syntheses", "reports"]);
 
 function failObject(value: unknown, label: string, fail: ProjectionFailure): JsonObject {
   return isRecord(value) ? value : fail(`Gateway returned invalid ${label}`);
@@ -83,33 +83,6 @@ function stringList(value: unknown, label: string, fail: ProjectionFailure): str
   return value.map((entry) => text(entry, label, fail));
 }
 
-function relativePath(value: unknown, label: string, fail: ProjectionFailure): string {
-  const candidate = text(value, label, fail, 1_024).replaceAll("\\", "/");
-  if (
-    candidate.startsWith("/") ||
-    /^[a-zA-Z]:\//u.test(candidate) ||
-    candidate.split("/").some((segment) => !segment || segment === "." || segment === "..")
-  ) {
-    return fail(`Gateway returned unsafe ${label}`);
-  }
-  return candidate;
-}
-
-function wikiPath(value: unknown, label: string, fail: ProjectionFailure): string {
-  const candidate = relativePath(value, label, fail);
-  const [root] = candidate.split("/");
-  return root && WIKI_ROOTS.has(root) && candidate.endsWith(".md")
-    ? candidate
-    : fail(`Gateway returned invalid ${label}`);
-}
-
-function memoryPath(value: unknown, label: string, fail: ProjectionFailure): string {
-  const candidate = relativePath(value, label, fail);
-  return candidate === "MEMORY.md" || (candidate.startsWith("memory/") && candidate.endsWith(".md"))
-    ? candidate
-    : fail(`Gateway returned invalid ${label}`);
-}
-
 function optionalEnum<T extends string>(
   value: unknown,
   allowed: readonly T[],
@@ -142,7 +115,7 @@ function projectDreamingEntry(value: unknown, fail: ProjectionFailure): JsonObje
   const entry = failObject(value, "dreaming entry", fail);
   return {
     key: text(entry.key, "dreaming entry key", fail, 1_024),
-    path: memoryPath(entry.path, "dreaming entry path", fail),
+    path: dreamingEntryPath(entry.path, "dreaming entry path", fail),
     startLine: count(entry.startLine, "dreaming entry startLine", fail),
     endLine: count(entry.endLine, "dreaming entry endLine", fail),
     snippet: text(entry.snippet, "dreaming entry snippet", fail),
