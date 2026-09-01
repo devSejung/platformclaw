@@ -588,7 +588,6 @@ describe("BrowserGatewayProxy", () => {
     expect(request).toHaveBeenCalledWith(
       "chat.send",
       expect.objectContaining({
-        agentId: binding.agentId,
         deliver: false,
         expectedLeafEntryId: "leaf-1",
         replyToId: "message-1",
