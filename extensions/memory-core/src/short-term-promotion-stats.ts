@@ -24,6 +24,7 @@ import {
   normalizeSnippet,
   parseEntryRangeFromKey,
   parseStoreTimestampMs,
+  SHORT_TERM_BASENAME_RE,
   toNonNegativeInt,
 } from "./short-term-promotion-utils.js";
 import { resolveMemoryCoreNowMs, resolveMemoryCoreTimestamp } from "./time.js";
@@ -141,7 +142,12 @@ export async function loadShortTermPromotionDreamingStats(params: {
     const dailyCount = toNonNegativeInt(entry.dailyCount);
     const groundedCount = toNonNegativeInt(entry.groundedCount);
     const totalEntrySignalCount = recallCount + dailyCount + groundedCount;
-    const normalizedEntryPath = normalizeMemoryPathForWorkspace(workspaceDir, entry.path);
+    const workspaceEntryPath = normalizeMemoryPathForWorkspace(workspaceDir, entry.path);
+    // Legacy recall stores kept daily files as basenames. Keep storage untouched, but expose
+    // canonical workspace-relative provenance so status consumers resolve the same artifact.
+    const normalizedEntryPath = SHORT_TERM_BASENAME_RE.test(workspaceEntryPath)
+      ? `memory/${workspaceEntryPath}`
+      : workspaceEntryPath;
     const detail: ShortTermDreamingStatsEntry = {
       key: entryKey,
       path: normalizedEntryPath,
