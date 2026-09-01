@@ -1,6 +1,7 @@
 import type { ControlUiBootstrapProfileHint } from "../../../src/gateway/control-ui-contract.js";
 import type { EventLogEntry } from "../api/event-log.ts";
 import type { GatewayBrowserClient, GatewayEventListener, GatewayHelloOk } from "../api/gateway.ts";
+import type { CanvasPluginSurfaceRoute } from "../lib/canvas-surface-route.ts";
 import type { AuthenticatedUser } from "./user-profile.ts";
 
 export type ApplicationGatewayPhase =
@@ -15,7 +16,7 @@ export type ApplicationGatewaySnapshot = {
   phase: ApplicationGatewayPhase;
   offlineStable: boolean;
   hello: GatewayHelloOk | null;
-  canvasPluginSurfaceUrl: string | null;
+  canvasPluginSurfaceRoute: CanvasPluginSurfaceRoute;
   assistantAgentId: string | null;
   sessionKey: string;
   lastError: string | null;

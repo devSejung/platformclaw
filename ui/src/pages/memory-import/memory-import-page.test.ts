@@ -62,7 +62,7 @@ function createContext(request: ReturnType<typeof vi.fn>): ApplicationContext {
     client,
     phase: "connected",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: null,
     assistantAgentId: "research",
     sessionKey: "agent:research:main",

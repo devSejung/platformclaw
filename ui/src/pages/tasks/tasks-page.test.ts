@@ -28,7 +28,7 @@ function createGateway(client: GatewayBrowserClient) {
     client,
     phase: "connected",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: null,
     assistantAgentId: null,
     sessionKey: "main",

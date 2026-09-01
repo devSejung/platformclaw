@@ -21,6 +21,96 @@ async function flushCanvasFrame(host: HTMLElement): Promise<HTMLIFrameElement | 
 }
 
 describe("widget-card", () => {
+  it("waits for a required relay, then mounts only the signed Canvas URL", async () => {
+    const preview = {
+      kind: "canvas",
+      surface: "assistant_message",
+      render: "url",
+      viewId: "cv_delayed_surface",
+      url: "/__openclaw__/canvas/documents/cv_delayed_surface/index.html",
+      sandbox: "scripts",
+    } as const;
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    render(
+      renderToolPreview(preview, "chat_message", {
+        canvasPluginSurfaceRoute: { mode: "relay-waiting", reason: "connecting" },
+      }),
+      host,
+    );
+    expect(host.querySelector("iframe")).toBeNull();
+    expect(host.querySelector('[data-canvas-surface-state="connecting"]')?.textContent).toContain(
+      "Connecting",
+    );
+
+    render(
+      renderToolPreview(preview, "chat_message", {
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/signed",
+        },
+        recoverCanvasPluginSurfaceUrl: vi.fn(async () => null),
+      }),
+      host,
+    );
+    const frame = await flushCanvasFrame(host);
+    expect(frame?.getAttribute("src")).toBe(
+      "https://canvas.test/__openclaw__/cap/signed/__openclaw__/canvas/documents/cv_delayed_surface/index.html",
+    );
+  });
+
+  it("shows relay failure without navigating a managed document to the app origin", () => {
+    const preview = {
+      kind: "canvas",
+      surface: "assistant_message",
+      render: "url",
+      viewId: "cv_missing_surface",
+      url: "/__openclaw__/canvas/documents/cv_missing_surface/index.html",
+      sandbox: "scripts",
+    } as const;
+    const host = document.createElement("div");
+
+    render(
+      renderToolPreview(preview, "chat_message", {
+        canvasPluginSurfaceRoute: { mode: "relay-waiting", reason: "unavailable" },
+      }),
+      host,
+    );
+    expect(host.querySelector("iframe")).toBeNull();
+    expect(host.querySelector('[data-canvas-surface-state="unavailable"]')?.textContent).toContain(
+      "Reconnect",
+    );
+
+    render(
+      renderToolPreview(preview, "chat_message", {
+        canvasPluginSurfaceRoute: { mode: "relay-ready", baseUrl: "https://canvas.test/" },
+      }),
+      host,
+    );
+    expect(host.querySelector("iframe")).toBeNull();
+  });
+
+  it("preserves the bare managed path for a confirmed direct Gateway", () => {
+    const host = document.createElement("div");
+    render(
+      renderToolPreview(
+        {
+          kind: "canvas",
+          surface: "assistant_message",
+          render: "url",
+          url: "/__openclaw__/canvas/documents/cv_direct/index.html",
+        },
+        "chat_message",
+        { canvasPluginSurfaceRoute: { mode: "direct" } },
+      ),
+      host,
+    );
+    expect(host.querySelector("iframe")?.getAttribute("src")).toBe(
+      "/__openclaw__/canvas/documents/cv_direct/index.html",
+    );
+  });
+
   it("recovers only the internal frame that reports its authenticated lease expiry", async () => {
     const preview = {
       kind: "canvas",
@@ -35,9 +125,12 @@ describe("widget-card", () => {
     const healthyHost = document.createElement("div");
     document.body.append(failedHost, healthyHost);
     const options = {
-      canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/one",
+      canvasPluginSurfaceRoute: {
+        mode: "relay-ready",
+        baseUrl: "https://canvas.test/__openclaw__/cap/one",
+      },
       recoverCanvasPluginSurfaceUrl: recover,
-    };
+    } satisfies NonNullable<Parameters<typeof renderToolPreview>[2]>;
     render(renderToolPreview(preview, "chat_message", options), failedHost);
     render(renderToolPreview(preview, "chat_message", options), healthyHost);
     const failedFrame = await flushCanvasFrame(failedHost);
@@ -86,7 +179,10 @@ describe("widget-card", () => {
     document.body.append(host);
     render(
       renderToolPreview(preview, "chat_message", {
-        canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/1",
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/1",
+        },
         recoverCanvasPluginSurfaceUrl: recover,
       }),
       host,
@@ -130,7 +226,10 @@ describe("widget-card", () => {
     const renderAt = (host: HTMLElement, ticket: string) =>
       render(
         renderToolPreview(preview, "chat_message", {
-          canvasPluginSurfaceUrl: `https://canvas.test/__openclaw__/cap/${ticket}`,
+          canvasPluginSurfaceRoute: {
+            mode: "relay-ready",
+            baseUrl: `https://canvas.test/__openclaw__/cap/${ticket}`,
+          },
           recoverCanvasPluginSurfaceUrl: recover,
         }),
         host,
@@ -172,7 +271,10 @@ describe("widget-card", () => {
     const host = document.createElement("div");
     render(
       renderToolPreview(firstPreview, "chat_message", {
-        canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/one",
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/one",
+        },
       }),
       host,
     );
@@ -182,7 +284,10 @@ describe("widget-card", () => {
 
     render(
       renderToolPreview(firstPreview, "chat_message", {
-        canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/two",
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/two",
+        },
       }),
       host,
     );
@@ -192,7 +297,10 @@ describe("widget-card", () => {
     render(nothing, host);
     render(
       renderToolPreview(firstPreview, "chat_message", {
-        canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/two",
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/two",
+        },
       }),
       host,
     );
@@ -203,7 +311,10 @@ describe("widget-card", () => {
     bumpCanvasWidgetFrameConnectionGeneration();
     render(
       renderToolPreview(firstPreview, "chat_message", {
-        canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/three",
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/three",
+        },
       }),
       host,
     );
@@ -224,7 +335,10 @@ describe("widget-card", () => {
     document.body.append(host);
     render(
       renderToolPreview(preview, "chat_message", {
-        canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/one",
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/one",
+        },
       }),
       host,
     );
@@ -242,7 +356,10 @@ describe("widget-card", () => {
     // remembered height; only then can a later rotation clear it.
     render(
       renderToolPreview(preview, "chat_message", {
-        canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/one",
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/one",
+        },
       }),
       host,
     );
@@ -253,7 +370,10 @@ describe("widget-card", () => {
     // default until the widget content happened to resize.
     render(
       renderToolPreview(preview, "chat_message", {
-        canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/two",
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/two",
+        },
       }),
       host,
     );
@@ -274,7 +394,10 @@ describe("widget-card", () => {
     const mountedHost = document.createElement("div");
     render(
       renderToolPreview(preview, "chat_message", {
-        canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/one",
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/one",
+        },
       }),
       mountedHost,
     );
@@ -294,7 +417,12 @@ describe("widget-card", () => {
           url: "/__openclaw__/canvas/documents/cv_surface_lease_rotated/index.html",
         },
         "chat_message",
-        { canvasPluginSurfaceUrl: "https://canvas.test/__openclaw__/cap/two" },
+        {
+          canvasPluginSurfaceRoute: {
+            mode: "relay-ready",
+            baseUrl: "https://canvas.test/__openclaw__/cap/two",
+          },
+        },
       ),
       rotatedHost,
     );
@@ -318,8 +446,8 @@ describe("widget-card", () => {
     expect(allowedFrame?.getAttribute("src")).toBe("https://example.test/widget");
 
     render(renderToolPreview(preview, "chat_message", { allowExternalEmbedUrls: false }), host);
-    expect(host.querySelector("iframe")).not.toBe(allowedFrame);
-    expect(host.querySelector("iframe")?.hasAttribute("src")).toBe(false);
+    expect(host.querySelector("iframe")).toBeNull();
+    expect(host.querySelector('[data-canvas-surface-state="unavailable"]')).not.toBeNull();
   });
 
   it("dispatches canvas HTML and MCP App content and ignores unknown kinds", () => {

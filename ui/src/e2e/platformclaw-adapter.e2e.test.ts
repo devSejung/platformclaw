@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { PROTOCOL_VERSION } from "../../../packages/gateway-protocol/src/version.js";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import {
@@ -126,6 +127,110 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await Promise.all([...contexts].map((context) => context.close().catch(() => {})));
     await browser?.close();
     await server?.close();
+  });
+
+  it("waits for the hosted Canvas relay and never navigates a widget to the app shell", async () => {
+    const { page } = await newPage();
+    await installPlatformClawDocument(page);
+    await page.route("**/platformclaw/api/auth/session", (route) =>
+      route.fulfill({ json: activeSession(), status: 200 }),
+    );
+    const documentPath = "/__openclaw__/canvas/documents/cv_hosted_reconnect/index.html";
+    const historyMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "canvas",
+            preview: {
+              kind: "canvas",
+              render: "url",
+              sandbox: "scripts",
+              surface: "assistant_message",
+              title: "Hosted reconnect proof",
+              url: documentPath,
+              viewId: "cv_hosted_reconnect",
+            },
+          },
+        ],
+      },
+    ];
+    const bareRequests: string[] = [];
+    await page.route("**/__openclaw__/canvas/**", (route) => {
+      bareRequests.push(route.request().url());
+      return route.abort();
+    });
+    const signedSurface = `${server.baseUrl}__openclaw__/cap/signed-hosted`;
+    await page.route("**/__openclaw__/cap/**", (route) =>
+      route.fulfill({
+        body: "<!doctype html><h1 data-hosted-canvas>Hosted Canvas ready</h1>",
+        contentType: "text/html",
+        headers: {
+          "Content-Security-Policy": "sandbox allow-scripts",
+          "X-Content-Type-Options": "nosniff",
+        },
+        status: 200,
+      }),
+    );
+    const gateway = await installMockGateway(page, {
+      basePath: "/platformclaw/app",
+      defaultAgentId: "person_one",
+      featureMethods: ["chat.metadata", "chat.startup"],
+      historyMessages,
+      sessionKey: "agent:person_one:main",
+    });
+
+    await page.goto(`${server.baseUrl}platformclaw/app/chat`);
+    const preview = page.locator('.chat-tool-card__preview[data-kind="canvas"]');
+    await preview.getByText("Reconnect to the Gateway", { exact: false }).waitFor();
+    expect(await preview.locator("iframe").count()).toBe(0);
+    expect(bareRequests).toEqual([]);
+
+    await gateway.setMethodResponse("connect", {
+      auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+      features: {
+        capabilities: ["platformclaw.personal-vm-terminal"],
+        events: [],
+        methods: ["chat.metadata", "chat.startup"],
+      },
+      pluginSurfaceUrls: { canvas: signedSurface },
+      policy: {
+        allowedSessionVisibilities: [],
+        hasMultipleSessionSharingIdentities: false,
+        maxBufferedBytes: 1_048_576,
+        maxPayload: 1_048_576,
+        tickIntervalMs: 30_000,
+      },
+      protocol: PROTOCOL_VERSION,
+      server: { connId: "hosted-canvas-reconnect", version: "e2e" },
+      snapshot: {
+        sessionDefaults: {
+          defaultAgentId: "person_one",
+          mainKey: "main",
+          mainSessionKey: "agent:person_one:main",
+          scope: "agent",
+        },
+      },
+      type: "hello-ok",
+    });
+    const initialConnectCount = (await gateway.getRequests("connect")).length;
+    await gateway.deferNext("connect");
+    await gateway.closeLatest(1012, "rotate hosted Canvas route");
+    await expect
+      .poll(async () => (await gateway.getRequests("connect")).length)
+      .toBeGreaterThan(initialConnectCount);
+    await preview.getByText("Connecting to the secure widget host", { exact: false }).waitFor();
+    expect(await preview.locator("iframe").count()).toBe(0);
+    expect(bareRequests).toEqual([]);
+
+    await gateway.resolveDeferred("connect");
+    const frame = preview.locator("iframe");
+    await frame.waitFor();
+    expect(await frame.getAttribute("src")).toBe(`${signedSurface}${documentPath}`);
+    await expect
+      .poll(() => preview.frameLocator("iframe").locator("[data-hosted-canvas]").textContent())
+      .toBe("Hosted Canvas ready");
+    expect(bareRequests).toEqual([]);
   });
 
   it("hides session controls omitted by the projected Gateway hello", async () => {

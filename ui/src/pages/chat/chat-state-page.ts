@@ -144,7 +144,7 @@ export function createPageState(
     connected: false,
     connectionEpoch: 0,
     hello: null,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     terminalAvailable: false,
     browserPanelAvailable: false,
     assistantAgentId: context.agentSelection.state.selectedId,

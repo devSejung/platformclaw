@@ -19,8 +19,9 @@ import { getCanvasWidgetFrameConnectionGeneration } from "../../../lib/chat/canv
 import type { ToolPreview } from "../../../lib/chat/tool-cards.ts";
 import {
   isInternalCanvasEntryUrl,
-  resolveCanvasIframeUrl,
+  resolveCanvasIframeRoute,
   resolveEmbedSandbox,
+  type CanvasPluginSurfaceRoute,
   type EmbedSandboxMode,
 } from "../../../lib/chat/tool-display.ts";
 import { showToast } from "../../../lib/toast.ts";
@@ -34,13 +35,35 @@ export type { WidgetPromptEventDetail };
 type WidgetCardOptions = {
   onOpenSidebar?: (content: SidebarContent) => void;
   rawText?: string | null;
-  canvasPluginSurfaceUrl?: string | null;
+  canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
   recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   embedSandboxMode?: EmbedSandboxMode;
   allowExternalEmbedUrls?: boolean;
   sessionKey?: string;
   boardProvider?: BoardProvider;
 };
+
+function renderCanvasSurfaceStatus(reason: "connecting" | "unavailable") {
+  return html`<div
+    class="chat-tool-card__preview-status muted"
+    data-canvas-surface-state=${reason}
+    role="status"
+  >
+    ${t(
+      reason === "connecting"
+        ? "chat.toolCards.canvasHostConnecting"
+        : "chat.toolCards.canvasHostUnavailable",
+    )}
+  </div>`;
+}
+
+function resolveRelayCanvasUrl(entryUrl: string, surfaceUrl: string): string | undefined {
+  const resolved = resolveCanvasIframeRoute(entryUrl, {
+    mode: "relay-ready",
+    baseUrl: surfaceUrl,
+  });
+  return resolved.state === "ready" ? resolved.url : undefined;
+}
 
 async function pinCanvasWidget(
   event: Event,
@@ -411,7 +434,7 @@ class RecoverableCanvasFrame extends LitElement {
       return;
     }
     const observedSurfaceUrl = this.mountedSurfaceUrl;
-    const observedFrameUrl = resolveCanvasIframeUrl(config.entryUrl, observedSurfaceUrl, false);
+    const observedFrameUrl = resolveRelayCanvasUrl(config.entryUrl, observedSurfaceUrl);
     if (
       !observedSurfaceUrl ||
       !observedFrameUrl ||
@@ -438,7 +461,7 @@ class RecoverableCanvasFrame extends LitElement {
           this.awaitingSurfaceChange = true;
           return;
         }
-        const replacement = resolveCanvasIframeUrl(config.entryUrl, surfaceUrl, false);
+        const replacement = resolveRelayCanvasUrl(config.entryUrl, surfaceUrl);
         if (!replacement || replacement === observedFrameUrl) {
           this.awaitingSurfaceChange = true;
           return;
@@ -484,7 +507,7 @@ class RecoverableCanvasFrame extends LitElement {
     }
     return renderPreviewFrame({
       title: config.title,
-      src: resolveCanvasIframeUrl(config.entryUrl, this.mountedSurfaceUrl, false),
+      src: resolveRelayCanvasUrl(config.entryUrl, this.mountedSurfaceUrl),
       frameKey: config.frameKey,
       connectionGeneration: config.connectionGeneration + this.recoveryGeneration,
       height: config.height,
@@ -538,7 +561,13 @@ function renderWidgetContent(
     case "canvas-html": {
       const promptCapable = isInternalCanvasEntryUrl(preview.url);
       const entryUrl = preview.url?.trim();
-      const surfaceUrl = options?.canvasPluginSurfaceUrl?.trim();
+      const surfaceRoute = options?.canvasPluginSurfaceRoute ?? { mode: "direct" as const };
+      const iframeRoute = resolveCanvasIframeRoute(
+        preview.url,
+        surfaceRoute,
+        options?.allowExternalEmbedUrls ?? false,
+      );
+      const surfaceUrl = surfaceRoute.mode === "relay-ready" ? surfaceRoute.baseUrl : undefined;
       const recover = options?.recoverCanvasPluginSurfaceUrl;
       const title = preview.title?.trim() || t("chat.toolCards.canvas");
       const frameKey = entryUrl || preview.viewId?.trim();
@@ -546,6 +575,12 @@ function renderWidgetContent(
         ? getCanvasWidgetFrameConnectionGeneration()
         : undefined;
       const sandbox = resolveEmbedSandbox(options?.embedSandboxMode ?? "scripts", preview.sandbox);
+      if (iframeRoute.state === "waiting") {
+        return renderCanvasSurfaceStatus(iframeRoute.reason);
+      }
+      if (iframeRoute.state === "unavailable") {
+        return renderCanvasSurfaceStatus("unavailable");
+      }
       if (promptCapable && entryUrl && surfaceUrl && frameKey && recover) {
         return renderRecoverableCanvasFrame({
           title,
@@ -560,11 +595,7 @@ function renderWidgetContent(
       }
       return renderPreviewFrame({
         title,
-        src: resolveCanvasIframeUrl(
-          preview.url,
-          options?.canvasPluginSurfaceUrl,
-          options?.allowExternalEmbedUrls ?? false,
-        ),
+        src: iframeRoute.url,
         frameKey,
         connectionGeneration,
         height: preview.preferredHeight,

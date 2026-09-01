@@ -7,6 +7,7 @@ import {
 } from "../../api/gateway.ts";
 import type { SessionsListResult } from "../../api/types.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
+import type { CanvasPluginSurfaceRoute } from "../canvas-surface-route.ts";
 import { createSessionCapability } from "./index.ts";
 
 function emptySessionsResult(): SessionsListResult {
@@ -17,6 +18,10 @@ function emptySessionsResult(): SessionsListResult {
     defaults: { modelProvider: null, model: null, contextTokens: null },
     sessions: [],
   };
+}
+
+function directCanvasSurfaceRoute(): CanvasPluginSurfaceRoute {
+  return { mode: "direct" };
 }
 
 function runningSessionsResult(): SessionsListResult {
@@ -189,7 +194,7 @@ describe("session connection hydration", () => {
       sessionKey: "agent:main:main",
       assistantAgentId: "main" as string | null,
       hello: null as GatewayHelloOk | null,
-      canvasPluginSurfaceUrl: null as string | null,
+      canvasPluginSurfaceRoute: directCanvasSurfaceRoute(),
       selfUser: null as { id: string; name?: string } | null,
     };
     let gatewayListener: ((next: typeof snapshot) => void) | undefined;
@@ -208,7 +213,13 @@ describe("session connection hydration", () => {
     gatewayListener?.(snapshot);
     await waitForFast(() => expect(listCalls).toBe(1));
 
-    snapshot = { ...snapshot, canvasPluginSurfaceUrl: "https://gateway.example.test/canvas" };
+    snapshot = {
+      ...snapshot,
+      canvasPluginSurfaceRoute: {
+        mode: "relay-ready",
+        baseUrl: "https://gateway.example.test/__openclaw__/cap/test",
+      },
+    };
     gatewayListener?.(snapshot);
     snapshot = { ...snapshot, selfUser: { id: "operator", name: "Operator" } };
     gatewayListener?.(snapshot);
@@ -247,7 +258,7 @@ describe("session connection hydration", () => {
       sessionKey: "agent:main:main",
       assistantAgentId: "main" as string | null,
       hello: null as GatewayHelloOk | null,
-      canvasPluginSurfaceUrl: null as string | null,
+      canvasPluginSurfaceRoute: { mode: "direct" as const },
       selfUser: null as { id: string; name?: string } | null,
     };
     let gatewayListener: ((next: typeof snapshot) => void) | undefined;

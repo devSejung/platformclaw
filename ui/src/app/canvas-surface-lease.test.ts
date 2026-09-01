@@ -94,6 +94,24 @@ function createLeaseHarness(request: (method: string, params: unknown) => Promis
 }
 
 describe("createCanvasSurfaceLease", () => {
+  it("rejects malformed hello and refresh capability URLs", async () => {
+    const request = vi.fn<(method: string, params: unknown) => Promise<unknown>>();
+    const { changes, lease } = createLeaseHarness(request);
+
+    lease.start("https://canvas.test/__openclaw__/cap/ticket/extra");
+    await flushPromises();
+    expect(changes).toEqual([null]);
+    expect(request).not.toHaveBeenCalled();
+
+    request.mockResolvedValueOnce({
+      surface: "canvas",
+      pluginSurfaceUrls: { canvas: "https://canvas.test/__openclaw__/cap/fresh?query=1" },
+    });
+    lease.start("https://canvas.test/__openclaw__/cap/valid");
+    await flushPromises();
+    expect(changes.at(-1)).toBe("https://canvas.test/__openclaw__/cap/valid");
+  });
+
   it("seeds from hello, renews immediately, and honors the refreshed expiry", async () => {
     const request = vi
       .fn<(method: string, params: unknown) => Promise<unknown>>()

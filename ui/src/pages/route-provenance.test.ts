@@ -46,7 +46,7 @@ function snapshot(
     client,
     phase: connected ? "connected" : "reconnecting",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: null,
     assistantAgentId: null,
     sessionKey: "main",

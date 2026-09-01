@@ -24,7 +24,7 @@ function createGateway(connected: boolean): GatewayHarness {
     client,
     phase: connected ? "connected" : "reconnecting",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: null,
     assistantAgentId: "main",
     sessionKey: "main",

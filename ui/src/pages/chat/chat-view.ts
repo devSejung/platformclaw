@@ -29,7 +29,7 @@ import type {
   ChatStreamSegment,
 } from "../../lib/chat/chat-types.ts";
 import type { ControlUiFollowUpMode } from "../../lib/chat/follow-up-mode.ts";
-import type { EmbedSandboxMode } from "../../lib/chat/tool-display.ts";
+import type { CanvasPluginSurfaceRoute, EmbedSandboxMode } from "../../lib/chat/tool-display.ts";
 import { resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
 import type { ProviderUsageDisplayProps } from "../../lib/provider-quota-summary.ts";
 import type { SessionToolOverrides } from "../../lib/sessions/patch.ts";
@@ -182,7 +182,7 @@ export type ChatProps = {
   sessionHost?: UiSessionDefaultsHost | null;
   providerUsage?: ProviderUsageDisplayProps;
   focusMode?: boolean;
-  canvasPluginSurfaceUrl?: string | null;
+  canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
   recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   boardProvider?: BoardProvider;
   embedSandboxMode?: EmbedSandboxMode;
@@ -363,7 +363,7 @@ export function renderChat(props: ChatProps) {
       localMediaPreviewRoots: props.localMediaPreviewRoots,
       assistantAttachmentAuthToken: props.assistantAttachmentAuthToken,
       resolveArtifactDownload: props.resolveArtifactDownload,
-      canvasPluginSurfaceUrl: props.canvasPluginSurfaceUrl,
+      canvasPluginSurfaceRoute: props.canvasPluginSurfaceRoute,
       recoverCanvasPluginSurfaceUrl: props.recoverCanvasPluginSurfaceUrl,
       embedSandboxMode: props.embedSandboxMode,
       allowExternalEmbedUrls: props.allowExternalEmbedUrls,

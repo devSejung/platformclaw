@@ -535,7 +535,7 @@ export class ChatPane extends ChatPaneHeader {
       onSessionSelect: (next) => {
         this.onPaneSessionChange?.(this.paneId, next);
       },
-      canvasPluginSurfaceUrl: state.canvasPluginSurfaceUrl,
+      canvasPluginSurfaceRoute: state.canvasPluginSurfaceRoute,
       recoverCanvasPluginSurfaceUrl: state.recoverCanvasPluginSurfaceUrl,
       boardProvider: board.provider,
       onOpenSidebar: state.handleOpenSidebar,
@@ -602,7 +602,7 @@ export class ChatPane extends ChatPaneHeader {
               class="chat-sidebar"
               .content=${state.sidebarContent}
               .loadFullMessage=${fullMessageLoader}
-              .canvasPluginSurfaceUrl=${state.canvasPluginSurfaceUrl}
+              .canvasPluginSurfaceRoute=${state.canvasPluginSurfaceRoute}
               .embedSandboxMode=${state.embedSandboxMode}
               .allowExternalEmbedUrls=${state.allowExternalEmbedUrls}
               .onOpenWorkspaceFile=${workspace.openFile}

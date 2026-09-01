@@ -139,6 +139,7 @@ describe("createPlatformClawWebAssetHandler", () => {
       expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
       expect(response.headers.get("content-security-policy")).toContain("base-uri 'self'");
       expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("x-frame-options")).toBe("DENY");
     } finally {
       await fixture.close();
     }

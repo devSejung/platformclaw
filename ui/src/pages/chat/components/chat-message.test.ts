@@ -4859,7 +4859,10 @@ describe("grouped chat rendering", () => {
         timestamp: Date.now(),
       },
       {
-        canvasPluginSurfaceUrl: "http://127.0.0.1:19003/__openclaw__/cap/cap_123",
+        canvasPluginSurfaceRoute: {
+          mode: "relay-ready",
+          baseUrl: "http://127.0.0.1:19003/__openclaw__/cap/cap_123",
+        },
       },
     );
 

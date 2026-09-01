@@ -1,5 +1,6 @@
 // Loaded after hello so capability renewal does not inflate the startup chunk.
 import { resolveSafeTimeoutDelayMs } from "@openclaw/gateway-client/browser";
+import { normalizeCanvasRelaySurfaceUrl } from "../lib/canvas-surface-route.ts";
 
 const RENEWAL_LEAD_MS = 15_000;
 const MIN_RENEWAL_DELAY_MS = 1_000;
@@ -141,7 +142,7 @@ export function createCanvasSurfaceLease<
 
   return {
     recover(observedUrl) {
-      const observed = observedUrl.trim();
+      const observed = normalizeCanvasRelaySurfaceUrl(observedUrl);
       if (!observed || !started || !currentUrl) {
         return Promise.resolve(null);
       }
@@ -153,8 +154,7 @@ export function createCanvasSurfaceLease<
       consecutiveFailures = 0;
       clearScheduledRenewal();
       params.onConnectionChange?.();
-      const trimmedUrl = helloUrl?.trim();
-      currentUrl = trimmedUrl ? trimmedUrl : null;
+      currentUrl = normalizeCanvasRelaySurfaceUrl(helloUrl);
       params.onChange(currentUrl);
       if (currentUrl) {
         renew(generation);
@@ -191,8 +191,10 @@ function parseCanvasSurfaceRefresh(value: unknown): CanvasSurfaceRefresh | undef
   if (!urls || typeof urls !== "object" || Array.isArray(urls)) {
     return undefined;
   }
-  const canvasUrl = (urls as Record<string, unknown>).canvas;
-  if (typeof canvasUrl !== "string" || !canvasUrl.trim()) {
+  const rawCanvasUrl = (urls as Record<string, unknown>).canvas;
+  const canvasUrl =
+    typeof rawCanvasUrl === "string" ? normalizeCanvasRelaySurfaceUrl(rawCanvasUrl) : null;
+  if (!canvasUrl) {
     return undefined;
   }
   const expiresAtMs = response.expiresAtMs;
@@ -204,7 +206,7 @@ function parseCanvasSurfaceRefresh(value: unknown): CanvasSurfaceRefresh | undef
   }
   return {
     surface: "canvas",
-    canvasUrl: canvasUrl.trim(),
+    canvasUrl,
     ...(expiresAtMs === undefined ? {} : { expiresAtMs }),
   };
 }

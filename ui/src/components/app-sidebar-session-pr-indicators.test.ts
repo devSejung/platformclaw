@@ -31,7 +31,7 @@ function createGatewayHarness() {
       phase: "connected",
       offlineStable: false,
       hello: { features: { methods: [SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD] } },
-      canvasPluginSurfaceUrl: null,
+      canvasPluginSurfaceRoute: { mode: "direct" },
       assistantAgentId: "main",
       sessionKey: "agent:main:main",
       lastError: null,

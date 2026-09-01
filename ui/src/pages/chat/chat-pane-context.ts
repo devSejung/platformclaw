@@ -240,7 +240,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     if (!sourceChanged && previousMediaAuthToken !== resolveAssistantAttachmentAuthToken(state)) {
       releaseChatMediaResourceSubscriber(state.requestUpdate);
     }
-    state.canvasPluginSurfaceUrl = snapshot.canvasPluginSurfaceUrl;
+    state.canvasPluginSurfaceRoute = snapshot.canvasPluginSurfaceRoute;
     state.recoverCanvasPluginSurfaceUrl = this.context.gateway.recoverCanvasSurfaceUrl;
     const sidebarSessionKey = canonicalUiSessionKeyForPersistence(state, state.sessionKey);
     const sidebarKeyChanged = sidebarSessionKey !== previousSidebarSessionKey;

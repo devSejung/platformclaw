@@ -20,6 +20,7 @@ import {
   stripHeartbeatTokenForDisplay,
 } from "../../lib/chat/heartbeat-display.ts";
 import { extractText, isEmptyUserTextOnlyMessage } from "../../lib/chat/message-extract.ts";
+import type { CanvasPluginSurfaceRoute } from "../../lib/chat/tool-display.ts";
 import {
   formatMissingOperatorReadScopeMessage,
   isMissingOperatorReadScopeError,
@@ -298,7 +299,7 @@ export type ChatState = {
   agentsList?: ChatAgentsListSnapshot | null;
   agentsSelectedId?: string | null;
   hello: GatewayHelloOk | null;
-  canvasPluginSurfaceUrl?: string | null;
+  canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
   recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   settings?: { chatPersistCommentary?: boolean; gatewayUrl?: string | null };
   sessions?: Partial<SessionCapability>;

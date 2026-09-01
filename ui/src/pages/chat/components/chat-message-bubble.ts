@@ -27,7 +27,7 @@ import {
   formatCollapsedToolSummaryText,
   isToolCardError,
 } from "../../../lib/chat/tool-cards.ts";
-import type { EmbedSandboxMode } from "../../../lib/chat/tool-display.ts";
+import type { CanvasPluginSurfaceRoute, EmbedSandboxMode } from "../../../lib/chat/tool-display.ts";
 import { resolveToolDisplay } from "../../../lib/chat/tool-display.ts";
 import {
   visibleWorkspaceConflictPaths,
@@ -81,7 +81,7 @@ function renderInlineToolCards(
     isToolExpanded?: (toolCardId: string) => boolean;
     onToggleToolExpanded?: (toolCardId: string) => void;
     runActive?: boolean;
-    canvasPluginSurfaceUrl?: string | null;
+    canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
     recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
     embedSandboxMode?: EmbedSandboxMode;
     allowExternalEmbedUrls?: boolean;
@@ -100,7 +100,7 @@ function renderInlineToolCards(
           agentId: opts.agentId,
           onOpenSidebar: opts.onOpenSidebar,
           onOpenWorkspaceFile: opts.onOpenWorkspaceFile,
-          canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+          canvasPluginSurfaceRoute: opts.canvasPluginSurfaceRoute,
           recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
           embedSandboxMode: opts.embedSandboxMode ?? "scripts",
           allowExternalEmbedUrls: opts.allowExternalEmbedUrls ?? false,
@@ -179,7 +179,7 @@ export function renderGroupedMessage(
     isToolExpanded?: (toolCardId: string) => boolean;
     onToggleToolExpanded?: (toolCardId: string) => void;
     onRequestUpdate?: () => void;
-    canvasPluginSurfaceUrl?: string | null;
+    canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
     recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
     basePath?: string;
     localMediaPreviewRoots?: readonly string[];
@@ -323,7 +323,7 @@ export function renderGroupedMessage(
           (block) => html`${renderToolPreview(block.preview, "chat_message", {
             onOpenSidebar,
             rawText: block.rawText ?? null,
-            canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+            canvasPluginSurfaceRoute: opts.canvasPluginSurfaceRoute,
             recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
             boardProvider: opts.boardProvider,
             embedSandboxMode: opts.embedSandboxMode ?? "scripts",
@@ -365,7 +365,7 @@ export function renderGroupedMessage(
           isToolExpanded: opts.isToolExpanded,
           onToggleToolExpanded: opts.onToggleToolExpanded,
           runActive: opts.runActive,
-          canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+          canvasPluginSurfaceRoute: opts.canvasPluginSurfaceRoute,
           recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
           embedSandboxMode: opts.embedSandboxMode ?? "scripts",
           allowExternalEmbedUrls: opts.allowExternalEmbedUrls ?? false,
@@ -464,7 +464,7 @@ export function renderGroupedMessage(
                               singleToolCard,
                               opts.sessionKey,
                               onOpenSidebar,
-                              opts.canvasPluginSurfaceUrl,
+                              opts.canvasPluginSurfaceRoute,
                               opts.recoverCanvasPluginSurfaceUrl,
                               opts.embedSandboxMode ?? "scripts",
                               opts.allowExternalEmbedUrls ?? false,
@@ -480,7 +480,7 @@ export function renderGroupedMessage(
                               isToolExpanded: opts.isToolExpanded,
                               onToggleToolExpanded: opts.onToggleToolExpanded,
                               runActive: opts.runActive,
-                              canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+                              canvasPluginSurfaceRoute: opts.canvasPluginSurfaceRoute,
                               recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
                               embedSandboxMode: opts.embedSandboxMode ?? "scripts",
                               allowExternalEmbedUrls: opts.allowExternalEmbedUrls ?? false,
@@ -542,7 +542,7 @@ export function renderGroupedMessage(
                   isToolExpanded: opts.isToolExpanded,
                   onToggleToolExpanded: opts.onToggleToolExpanded,
                   runActive: opts.runActive,
-                  canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+                  canvasPluginSurfaceRoute: opts.canvasPluginSurfaceRoute,
                   recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
                   embedSandboxMode: opts.embedSandboxMode ?? "scripts",
                   allowExternalEmbedUrls: opts.allowExternalEmbedUrls ?? false,

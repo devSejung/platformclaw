@@ -25,7 +25,7 @@ function createContext(params: {
     client,
     phase: "connected",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: {
       type: "hello-ok",
       protocol: 1,

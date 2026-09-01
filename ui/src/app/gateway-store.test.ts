@@ -72,6 +72,7 @@ function createStore(
     settings?: ReturnType<typeof loadSettings>;
     persistDefaultConnectionSettings?: boolean;
     basePath?: string;
+    canvasSurfaceRelayRequired?: boolean;
   } = {},
 ) {
   const clients: FakeGatewayClient[] = [];
@@ -87,6 +88,7 @@ function createStore(
     {
       persistDefaultConnectionSettings: params.persistDefaultConnectionSettings,
       basePath: params.basePath,
+      canvasSurfaceRelayRequired: params.canvasSurfaceRelayRequired,
     },
   );
   const current = () => {
@@ -182,12 +184,62 @@ describe("createApplicationGateway connection phase", () => {
       },
     });
 
-    expect(gateway.snapshot.canvasPluginSurfaceUrl).toBe(
-      "https://canvas.test/__openclaw__/cap/hello",
-    );
+    expect(gateway.snapshot.canvasPluginSurfaceRoute).toEqual({
+      mode: "relay-ready",
+      baseUrl: "https://canvas.test/__openclaw__/cap/hello",
+    });
 
     current().opts.onClose?.({ code: 1006, reason: "socket lost", willRetry: true });
-    expect(gateway.snapshot.canvasPluginSurfaceUrl).toBeNull();
+    expect(gateway.snapshot.canvasPluginSurfaceRoute).toEqual({ mode: "direct" });
+  });
+
+  it("keeps a required browser relay authoritative before hello and when hello omits it", () => {
+    const { gateway, current } = createStore({ canvasSurfaceRelayRequired: true });
+
+    expect(gateway.snapshot.canvasPluginSurfaceRoute).toEqual({
+      mode: "relay-waiting",
+      reason: "connecting",
+    });
+    gateway.start();
+    current().opts.onHello?.(HELLO);
+    expect(gateway.snapshot.canvasPluginSurfaceRoute).toEqual({
+      mode: "relay-waiting",
+      reason: "unavailable",
+    });
+
+    gateway.connect();
+    expect(gateway.snapshot.canvasPluginSurfaceRoute).toEqual({
+      mode: "relay-waiting",
+      reason: "connecting",
+    });
+    current().opts.onHello?.({
+      ...HELLO,
+      pluginSurfaceUrls: { canvas: "https://canvas.test/__openclaw__/cap/reconnected" },
+    });
+    expect(gateway.snapshot.canvasPluginSurfaceRoute).toEqual({
+      mode: "relay-ready",
+      baseUrl: "https://canvas.test/__openclaw__/cap/reconnected",
+    });
+  });
+
+  it.each([
+    "ftp://canvas.test/__openclaw__/cap/ticket",
+    "https://user@canvas.test/__openclaw__/cap/ticket",
+    "https://canvas.test/__openclaw__/cap/ticket/extra",
+    "https://canvas.test/__openclaw__/cap/ticket?query=1",
+    "https://canvas.test/__openclaw__/cap/ticket#fragment",
+  ])("keeps a malformed required canvas relay unavailable: %s", (canvasUrl) => {
+    const { gateway, current } = createStore({ canvasSurfaceRelayRequired: true });
+    gateway.start();
+    current().opts.onHello?.({
+      ...HELLO,
+      pluginSurfaceUrls: { canvas: canvasUrl },
+    });
+
+    expect(gateway.snapshot.canvasPluginSurfaceRoute).toEqual({
+      mode: "relay-waiting",
+      reason: "unavailable",
+    });
   });
 
   it("does not let a superseded canvas refresh publish into the current snapshot", async () => {
@@ -219,9 +271,10 @@ describe("createApplicationGateway connection phase", () => {
       globalThis.setTimeout(resolve, 0);
     });
 
-    expect(gateway.snapshot.canvasPluginSurfaceUrl).toBe(
-      "https://canvas.test/__openclaw__/cap/current",
-    );
+    expect(gateway.snapshot.canvasPluginSurfaceRoute).toEqual({
+      mode: "relay-ready",
+      baseUrl: "https://canvas.test/__openclaw__/cap/current",
+    });
     gateway.stop();
   });
 
@@ -249,9 +302,10 @@ describe("createApplicationGateway connection phase", () => {
     });
 
     await expect(recovered).resolves.toBe("https://canvas.test/__openclaw__/cap/recovered");
-    expect(gateway.snapshot.canvasPluginSurfaceUrl).toBe(
-      "https://canvas.test/__openclaw__/cap/recovered",
-    );
+    expect(gateway.snapshot.canvasPluginSurfaceRoute).toEqual({
+      mode: "relay-ready",
+      baseUrl: "https://canvas.test/__openclaw__/cap/recovered",
+    });
     gateway.stop();
   });
 

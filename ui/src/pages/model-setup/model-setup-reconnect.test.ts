@@ -40,7 +40,7 @@ function createFixture() {
       auth: { role: "operator", scopes: ["operator.read", "operator.admin"] },
       features: { methods: ["openclaw.setup.detect", "openclaw.setup.verify"] },
     },
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     assistantAgentId: "main",
     sessionKey: "main",
     lastError: null,

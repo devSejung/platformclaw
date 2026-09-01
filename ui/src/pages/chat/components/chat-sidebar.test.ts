@@ -195,16 +195,19 @@ describe("markdown sidebar", () => {
     const panel = document.createElement("openclaw-chat-detail-panel") as HTMLElement & {
       content: unknown;
       embedSandboxMode: "trusted";
-      canvasPluginSurfaceUrl: string;
+      canvasPluginSurfaceRoute: { mode: "relay-ready"; baseUrl: string };
       updateComplete?: Promise<unknown>;
     };
     panel.embedSandboxMode = "trusted";
-    panel.canvasPluginSurfaceUrl = "https://canvas.example";
+    panel.canvasPluginSurfaceRoute = {
+      mode: "relay-ready",
+      baseUrl: "https://canvas.example/__openclaw__/cap/test",
+    };
     panel.content = {
       kind: "canvas",
       docId: "preview-1",
       title: "Preview",
-      entryUrl: "https://canvas.example/previews/preview-1",
+      entryUrl: "/__openclaw__/canvas/documents/preview-1/index.html",
       sandbox: "scripts",
     };
     document.body.append(panel);
@@ -214,6 +217,33 @@ describe("markdown sidebar", () => {
     expect(panel.querySelector("iframe")?.getAttribute("sandbox")).not.toContain(
       "allow-same-origin",
     );
+    expect(panel.querySelector("iframe")?.getAttribute("src")).toContain(
+      "/__openclaw__/cap/test/__openclaw__/canvas/documents/preview-1/index.html",
+    );
+    panel.remove();
+  });
+
+  it("does not mount a bare Canvas path while the hosted relay is unavailable", async () => {
+    const panel = document.createElement("openclaw-chat-detail-panel") as HTMLElement & {
+      content: unknown;
+      canvasPluginSurfaceRoute: {
+        mode: "relay-waiting";
+        reason: "connecting" | "unavailable";
+      };
+      updateComplete?: Promise<unknown>;
+    };
+    panel.canvasPluginSurfaceRoute = { mode: "relay-waiting", reason: "unavailable" };
+    panel.content = {
+      kind: "canvas",
+      docId: "preview-waiting",
+      title: "Preview",
+      entryUrl: "/__openclaw__/canvas/documents/preview-waiting/index.html",
+    };
+    document.body.append(panel);
+    await panel.updateComplete;
+
+    expect(panel.querySelector("iframe")).toBeNull();
+    expect(panel.querySelector('[data-canvas-surface-state="unavailable"]')).not.toBeNull();
     panel.remove();
   });
 });

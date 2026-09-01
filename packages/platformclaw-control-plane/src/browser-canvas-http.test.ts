@@ -90,6 +90,7 @@ describe("PlatformClaw browser Canvas relay", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("owned widget");
     expect(response.headers.get("content-security-policy")).toBe("sandbox allow-scripts");
+    expect(response.headers.get("x-frame-options")).toBeNull();
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
@@ -143,6 +144,7 @@ describe("PlatformClaw browser Canvas relay", () => {
     expect(expired.status).toBe(404);
     expect(expired.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(expired.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
+    expect(expired.headers.get("x-frame-options")).toBeNull();
     const expiredHtml = await expired.text();
     expect(expiredHtml).toContain(CANVAS_LEASE_EXPIRED_MESSAGE_TYPE);
     expect(expiredHtml).not.toContain("cv_owned");

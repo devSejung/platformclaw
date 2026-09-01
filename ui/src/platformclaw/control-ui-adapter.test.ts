@@ -102,6 +102,7 @@ describe("PlatformClawControlUiAdapter", () => {
       gateway: {
         url: "wss://platformclaw.example/platformclaw/gateway",
         browserDeviceAuth: false,
+        canvasSurfaceRelayRequired: true,
       },
       shellSession: {
         primaryLabel: "Jung Seungon",

@@ -668,7 +668,7 @@ function createChatProps(
     error: null,
     runError: null,
     sessions: null,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     embedSandboxMode: "scripts",
     allowExternalEmbedUrls: false,
     assistantName: "Val",
