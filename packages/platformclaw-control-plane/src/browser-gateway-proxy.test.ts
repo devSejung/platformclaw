@@ -67,7 +67,7 @@ describe("BrowserGatewayProxy", () => {
   });
 
   it("projects browser-safe agent rows and preserves scoped session pagination", async () => {
-    const { binding, proxy, request, token, user } = await setup();
+    const { binding, proxy, request, token } = await setup();
     request
       .mockResolvedValueOnce({
         defaultId: "other",
@@ -597,20 +597,16 @@ describe("BrowserGatewayProxy", () => {
       }),
     );
     expect(request.mock.calls[0]?.[1]).not.toHaveProperty("__controlUiReconnectResume");
-  });
-
-  it("rejects browser-supplied sender attribution before dispatch", async () => {
-    const { binding, proxy, request, token } = await setup();
 
     await expect(
       proxy.request(token, "chat.send", {
-        sessionKey: `agent:${binding.agentId}:main`,
+        sessionKey: key,
         message: "hello",
-        idempotencyKey: "request-1",
+        idempotencyKey: "request-2",
         senderAttribution: { id: "forged.user" },
       }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
-    expect(request).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it("advertises user commands while removing operator command metadata", async () => {

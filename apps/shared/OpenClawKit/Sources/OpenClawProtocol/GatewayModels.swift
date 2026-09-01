@@ -17496,6 +17496,7 @@ public struct ChatSendParams: Codable, Sendable {
     public let systeminputprovenance: [String: AnyCodable]?
     public let systemprovenancereceipt: String?
     public let suppresscommandinterpretation: Bool?
+    public let senderattribution: [String: AnyCodable]?
     public let expectedleafentryid: AnyCodable?
     public let expectedsessionroutingcontract: String?
     public let idempotencykey: String
@@ -17521,6 +17522,7 @@ public struct ChatSendParams: Codable, Sendable {
         systeminputprovenance: [String: AnyCodable]? = nil,
         systemprovenancereceipt: String? = nil,
         suppresscommandinterpretation: Bool? = nil,
+        senderattribution: [String: AnyCodable]? = nil,
         expectedleafentryid: AnyCodable? = nil,
         expectedsessionroutingcontract: String? = nil,
         idempotencykey: String)
@@ -17545,6 +17547,7 @@ public struct ChatSendParams: Codable, Sendable {
         self.systeminputprovenance = systeminputprovenance
         self.systemprovenancereceipt = systemprovenancereceipt
         self.suppresscommandinterpretation = suppresscommandinterpretation
+        self.senderattribution = senderattribution
         self.expectedleafentryid = expectedleafentryid
         self.expectedsessionroutingcontract = expectedsessionroutingcontract
         self.idempotencykey = idempotencykey
@@ -17570,6 +17573,7 @@ public struct ChatSendParams: Codable, Sendable {
         systeminputprovenance: [String: AnyCodable]? = nil,
         systemprovenancereceipt: String? = nil,
         suppresscommandinterpretation: Bool? = nil,
+        senderattribution: [String: AnyCodable]? = nil,
         expectedleafentryid: AnyCodable? = nil,
         expectedsessionroutingcontract: String? = nil,
         idempotencykey: String)
@@ -17595,6 +17599,7 @@ public struct ChatSendParams: Codable, Sendable {
             systeminputprovenance: systeminputprovenance,
             systemprovenancereceipt: systemprovenancereceipt,
             suppresscommandinterpretation: suppresscommandinterpretation,
+            senderattribution: senderattribution,
             expectedleafentryid: expectedleafentryid,
             expectedsessionroutingcontract: expectedsessionroutingcontract,
             idempotencykey: idempotencykey)
@@ -17621,6 +17626,7 @@ public struct ChatSendParams: Codable, Sendable {
         case systeminputprovenance = "systemInputProvenance"
         case systemprovenancereceipt = "systemProvenanceReceipt"
         case suppresscommandinterpretation = "suppressCommandInterpretation"
+        case senderattribution = "senderAttribution"
         case expectedleafentryid = "expectedLeafEntryId"
         case expectedsessionroutingcontract = "expectedSessionRoutingContract"
         case idempotencykey = "idempotencyKey"
