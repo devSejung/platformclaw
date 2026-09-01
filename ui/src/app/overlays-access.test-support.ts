@@ -40,7 +40,7 @@ export function createGatewayHarness(
     client: initialClient,
     phase: initialConnected ? "connected" : "stopped",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: { auth: { role: "operator" } } as ApplicationGatewaySnapshot["hello"],
     lastError: null,
     lastErrorCode: null,

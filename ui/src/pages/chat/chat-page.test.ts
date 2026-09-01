@@ -172,7 +172,7 @@ function setViewerPresenceContext(page: ChatPage) {
       phase: "connected",
       offlineStable: false,
       hello,
-      canvasPluginSurfaceUrl: null,
+      canvasPluginSurfaceRoute: { mode: "direct" },
       assistantAgentId: "main",
       sessionKey: "agent:main:main",
       lastError: null,

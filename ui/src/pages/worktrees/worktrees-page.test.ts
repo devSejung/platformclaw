@@ -61,7 +61,7 @@ function gatewayWithSnapshot(client: GatewayBrowserClient | null, connected: boo
     client,
     phase: connected ? "connected" : "stopped",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: null,
     assistantAgentId: null,
     sessionKey: "main",

@@ -88,7 +88,7 @@ function createContext(
     client: connected ? client : null,
     phase: connected ? "connected" : "stopped",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: {
       auth: {
         role: "operator",

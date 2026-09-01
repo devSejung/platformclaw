@@ -59,7 +59,7 @@ function gatewayWithClient(
     client,
     phase: connected ? "connected" : "stopped",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: null,
     assistantAgentId: null,
     sessionKey: "main",

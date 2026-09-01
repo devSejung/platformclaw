@@ -82,7 +82,7 @@ function createGateway(
     client,
     phase: connected ? "connected" : "stopped",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello,
     assistantAgentId: "main",
     sessionKey: "main",

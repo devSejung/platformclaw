@@ -13,7 +13,7 @@ function snapshot(
     phase,
     offlineStable: false,
     hello: null,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     assistantAgentId: null,
     sessionKey: "agent:main:main",
     lastError: null,

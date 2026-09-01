@@ -9,12 +9,15 @@ import {
 } from "../../../../src/agents/tool-display-common.js";
 import type { ToolDetailMode } from "../../../../src/agents/tool-display-exec.js";
 import type { ControlUiEmbedSandboxMode } from "../../../../src/gateway/control-ui-contract.js";
+import {
+  normalizeCanvasRelaySurfaceUrl,
+  type CanvasPluginSurfaceRoute,
+} from "../canvas-surface-route.ts";
 import { normalizeLowercaseStringOrEmpty } from "../string-coerce.ts";
 
 const A2UI_PATH = "/__openclaw__/a2ui";
 const CANVAS_HOST_PATH = "/__openclaw__/canvas";
-const CANVAS_CAPABILITY_PATH_PREFIX = "/__openclaw__/cap";
-
+const CANVAS_RELAY_DOCUMENT_PATH = "/__openclaw__/canvas/documents/";
 type ToolDisplaySpec = ToolDisplaySpecBase & {
   icon?: string;
 };
@@ -39,6 +42,11 @@ type ToolDisplay = {
 };
 
 export type EmbedSandboxMode = ControlUiEmbedSandboxMode;
+export type { CanvasPluginSurfaceRoute } from "../canvas-surface-route.ts";
+type CanvasIframeRoute =
+  | { state: "ready"; url: string }
+  | { state: "waiting"; reason: "connecting" | "unavailable" }
+  | { state: "unavailable" };
 type ChatToolIconName = string;
 
 const EMOJI_ICON_MAP: Record<string, ChatToolIconName> = {
@@ -192,9 +200,8 @@ export function isInternalCanvasEntryUrl(entryUrl: string | undefined): boolean 
   return Boolean(rawEntryUrl && sanitizeCanvasEntryUrl(rawEntryUrl, false));
 }
 
-export function resolveCanvasIframeUrl(
+function resolveCanvasIframeUrl(
   entryUrl: string | undefined,
-  canvasPluginSurfaceUrl?: string | null,
   allowExternalEmbedUrls = false,
 ): string | undefined {
   const rawEntryUrl = entryUrl?.trim();
@@ -205,28 +212,39 @@ export function resolveCanvasIframeUrl(
   if (!safeEntryUrl) {
     return undefined;
   }
-  if (!canvasPluginSurfaceUrl?.trim()) {
-    return safeEntryUrl;
+  return safeEntryUrl;
+}
+
+/** Resolve a Canvas entry only after its hosting route is authoritative. */
+export function resolveCanvasIframeRoute(
+  entryUrl: string | undefined,
+  surfaceRoute: CanvasPluginSurfaceRoute,
+  allowExternalEmbedUrls = false,
+): CanvasIframeRoute {
+  const rawEntryUrl = entryUrl?.trim();
+  const internalEntryUrl = rawEntryUrl ? sanitizeCanvasEntryUrl(rawEntryUrl, false) : undefined;
+  if (!internalEntryUrl) {
+    const externalUrl = resolveCanvasIframeUrl(entryUrl, allowExternalEmbedUrls);
+    return externalUrl ? { state: "ready", url: externalUrl } : { state: "unavailable" };
   }
-  try {
-    const scopedHostUrl = new URL(canvasPluginSurfaceUrl);
-    const scopedPrefix = scopedHostUrl.pathname.replace(/\/+$/, "");
-    if (!scopedPrefix.startsWith(CANVAS_CAPABILITY_PATH_PREFIX)) {
-      return safeEntryUrl;
-    }
-    const entry = new URL(safeEntryUrl, scopedHostUrl.origin);
-    if (!isCanvasHttpPath(entry.pathname)) {
-      return safeEntryUrl;
-    }
-    entry.protocol = scopedHostUrl.protocol;
-    entry.username = scopedHostUrl.username;
-    entry.password = scopedHostUrl.password;
-    entry.host = scopedHostUrl.host;
-    entry.pathname = `${scopedPrefix}${entry.pathname}`;
-    return entry.toString();
-  } catch {
-    return safeEntryUrl;
+  if (surfaceRoute.mode === "relay-waiting") {
+    return { state: "waiting", reason: surfaceRoute.reason };
   }
+  if (surfaceRoute.mode === "direct") {
+    return { state: "ready", url: internalEntryUrl };
+  }
+  if (!internalEntryUrl.startsWith(CANVAS_RELAY_DOCUMENT_PATH)) {
+    return { state: "unavailable" };
+  }
+  const relayBaseUrl = normalizeCanvasRelaySurfaceUrl(surfaceRoute.baseUrl);
+  if (!relayBaseUrl) {
+    return { state: "unavailable" };
+  }
+  const base = new URL(relayBaseUrl);
+  const relayEntry = new URL(internalEntryUrl, base.origin);
+  relayEntry.pathname = `${base.pathname}${relayEntry.pathname}`;
+  const relayUrl = relayEntry.toString();
+  return { state: "ready", url: relayUrl };
 }
 
 export function resolveEmbedSandbox(

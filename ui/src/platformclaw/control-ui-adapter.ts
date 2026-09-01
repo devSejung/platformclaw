@@ -317,6 +317,9 @@ export class PlatformClawControlUiAdapter {
       gateway: {
         url: websocketUrl(this.location, this.descriptor.gatewayPath),
         browserDeviceAuth: false,
+        // Employee browsers reach private Canvas documents only through the
+        // signed BFF relay advertised by the Gateway hello.
+        canvasSurfaceRelayRequired: true,
         onClose: (info) => {
           if (info.code === 1008) {
             void this.verifySessionAfterPolicyClose();

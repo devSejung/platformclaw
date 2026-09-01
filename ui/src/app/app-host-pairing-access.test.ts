@@ -28,7 +28,7 @@ function createPairingShell(params: {
     client: { request: vi.fn(async () => ({})) } as unknown as GatewayBrowserClient,
     phase: params.connected === false ? "stopped" : "connected",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: params.auth ? ({ auth: params.auth } as ApplicationGatewaySnapshot["hello"]) : null,
     assistantAgentId: "main",
     sessionKey: "main",

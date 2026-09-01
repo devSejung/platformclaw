@@ -19,6 +19,7 @@ import {
 import {
   formatToolDetail,
   resolveToolDisplay,
+  type CanvasPluginSurfaceRoute,
   type EmbedSandboxMode,
 } from "../../../lib/chat/tool-display.ts";
 import { getToolCallTitle } from "../tool-titles.ts";
@@ -586,7 +587,7 @@ export function renderToolCard(
     agentId?: string;
     onOpenSidebar?: (content: SidebarContent) => void;
     onOpenWorkspaceFile?: (target: { path: string; line?: number | null }) => void;
-    canvasPluginSurfaceUrl?: string | null;
+    canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
     recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
     embedSandboxMode?: EmbedSandboxMode;
     allowExternalEmbedUrls?: boolean;
@@ -636,7 +637,7 @@ export function renderToolCard(
                 card,
                 opts.sessionKey,
                 opts.onOpenSidebar,
-                opts.canvasPluginSurfaceUrl,
+                opts.canvasPluginSurfaceRoute,
                 opts.recoverCanvasPluginSurfaceUrl,
                 opts.embedSandboxMode ?? "scripts",
                 opts.allowExternalEmbedUrls ?? false,
@@ -654,7 +655,7 @@ export function renderExpandedToolCardContent(
   card: ToolCard,
   sessionKey?: string,
   onOpenSidebar?: (content: SidebarContent) => void,
-  canvasPluginSurfaceUrl?: string | null,
+  canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute,
   recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>,
   embedSandboxMode: EmbedSandboxMode = "scripts",
   allowExternalEmbedUrls = false,
@@ -693,7 +694,7 @@ export function renderExpandedToolCardContent(
     ? renderToolPreview(card.preview, "chat_tool", {
         onOpenSidebar,
         rawText: card.outputText,
-        canvasPluginSurfaceUrl,
+        canvasPluginSurfaceRoute,
         recoverCanvasPluginSurfaceUrl,
         embedSandboxMode,
         allowExternalEmbedUrls,

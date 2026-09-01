@@ -100,7 +100,7 @@ function createSnapshot(
     client,
     phase: connected ? "connected" : "reconnecting",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: {
       type: "hello-ok",
       protocol: 1,

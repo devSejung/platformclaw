@@ -15,8 +15,9 @@ import { t } from "../../../i18n/index.ts";
 import "../../../components/tooltip.ts";
 import { extractRawText } from "../../../lib/chat/message-extract.ts";
 import {
-  resolveCanvasIframeUrl,
+  resolveCanvasIframeRoute,
   resolveEmbedSandbox,
+  type CanvasPluginSurfaceRoute,
   type EmbedSandboxMode,
 } from "../../../lib/chat/tool-display.ts";
 import { copyToClipboard } from "../../../lib/clipboard.ts";
@@ -511,7 +512,7 @@ type MarkdownSidebarProps = {
   onClose: () => void;
   onOpenImage?: (item: ImageLightboxItem) => void;
   onViewRawText: () => void;
-  canvasPluginSurfaceUrl?: string | null;
+  canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
   embedSandboxMode?: EmbedSandboxMode;
   allowExternalEmbedUrls?: boolean;
   embedded?: boolean;
@@ -530,14 +531,15 @@ function renderMarkdownSidebar(props: MarkdownSidebarProps) {
     content?.kind === "canvas"
       ? resolveSidebarCanvasSandbox(content, props.embedSandboxMode ?? "scripts")
       : "";
-  const canvasSrc =
+  const canvasRoute =
     content?.kind === "canvas"
-      ? resolveCanvasIframeUrl(
+      ? resolveCanvasIframeRoute(
           content.entryUrl,
-          props.canvasPluginSurfaceUrl,
+          props.canvasPluginSurfaceRoute ?? { mode: "direct" },
           props.allowExternalEmbedUrls ?? false,
         )
       : null;
+  const canvasSrc = canvasRoute?.state === "ready" ? canvasRoute.url : null;
   const title =
     content?.kind === "canvas"
       ? content.title?.trim() || t("chat.detailPanel.renderPreview")
@@ -595,21 +597,41 @@ function renderMarkdownSidebar(props: MarkdownSidebarProps) {
                   ? html`
                       <div class="chat-tool-card__preview" data-kind="canvas">
                         <div class="chat-tool-card__preview-panel" data-side="front">
-                          ${keyed(
-                            `${canvasSandbox}\u0000${canvasSrc ?? ""}\u0000${content.preferredHeight ?? ""}`,
-                            html`
-                              <iframe
-                                class="chat-tool-card__preview-frame"
-                                title=${content.title?.trim() ||
-                                t("chat.detailPanel.renderPreview")}
-                                sandbox=${canvasSandbox}
-                                src=${canvasSrc ?? nothing}
-                                style=${content.preferredHeight
-                                  ? `height:${content.preferredHeight}px`
-                                  : ""}
-                              ></iframe>
-                            `,
-                          )}
+                          ${canvasRoute?.state === "waiting"
+                            ? html`<div
+                                class="chat-tool-card__preview-status muted"
+                                data-canvas-surface-state=${canvasRoute.reason}
+                                role="status"
+                              >
+                                ${t(
+                                  canvasRoute.reason === "connecting"
+                                    ? "chat.toolCards.canvasHostConnecting"
+                                    : "chat.toolCards.canvasHostUnavailable",
+                                )}
+                              </div>`
+                            : canvasSrc
+                              ? keyed(
+                                  `${canvasSandbox}\u0000${canvasSrc}\u0000${content.preferredHeight ?? ""}`,
+                                  html`
+                                    <iframe
+                                      class="chat-tool-card__preview-frame"
+                                      title=${content.title?.trim() ||
+                                      t("chat.detailPanel.renderPreview")}
+                                      sandbox=${canvasSandbox}
+                                      src=${canvasSrc}
+                                      style=${content.preferredHeight
+                                        ? `height:${content.preferredHeight}px`
+                                        : ""}
+                                    ></iframe>
+                                  `,
+                                )
+                              : html`<div
+                                  class="chat-tool-card__preview-status muted"
+                                  data-canvas-surface-state="unavailable"
+                                  role="status"
+                                >
+                                  ${t("chat.toolCards.canvasHostUnavailable")}
+                                </div>`}
                         </div>
                         ${content.rawText?.trim()
                           ? html`
@@ -690,7 +712,9 @@ function renderMarkdownSidebar(props: MarkdownSidebarProps) {
 class ChatDetailPanel extends OpenClawLightDomElement {
   @property({ attribute: false }) content: SidebarContent | null = null;
   @property({ attribute: false }) loadFullMessage?: SidebarFullMessageLoader | null = null;
-  @property() canvasPluginSurfaceUrl: string | null = null;
+  @property({ attribute: false }) canvasPluginSurfaceRoute: CanvasPluginSurfaceRoute = {
+    mode: "direct",
+  };
   @property() embedSandboxMode: EmbedSandboxMode = "scripts";
   @property({ type: Boolean }) allowExternalEmbedUrls = false;
   @property({ type: Boolean }) embedded = false;
@@ -1375,7 +1399,7 @@ class ChatDetailPanel extends OpenClawLightDomElement {
             },
             onToggleSearch: this.toggleFileSearch,
           },
-          canvasPluginSurfaceUrl: this.canvasPluginSurfaceUrl,
+          canvasPluginSurfaceRoute: this.canvasPluginSurfaceRoute,
           embedSandboxMode: this.embedSandboxMode,
           allowExternalEmbedUrls: this.allowExternalEmbedUrls,
           embedded: this.embedded,

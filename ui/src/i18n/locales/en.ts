@@ -5720,6 +5720,9 @@ export const en: TranslationMap = {
       downloadFile: "Download file",
       widgetExportRerender: "This widget needs to be re-rendered to export as an image.",
       widgetExportFailed: "Widget export failed. Try again.",
+      canvasHostConnecting: "Connecting to the secure widget host…",
+      canvasHostUnavailable:
+        "Widget content is unavailable. Reconnect to the Gateway and try again.",
       pinToDashboard: "Pin to dashboard",
       pinToDashboardPending: "Pinning…",
       pinnedToDashboard: "Pinned",

@@ -9,6 +9,7 @@ import {
   type GatewayHelloOk,
 } from "../api/gateway.ts";
 import { CONTROL_UI_BUILD_INFO } from "../build-info.ts";
+import { createCanvasPluginSurfaceRoute } from "../lib/canvas-surface-route.ts";
 import { bumpCanvasWidgetFrameConnectionGeneration } from "../lib/chat/canvas-widget-frame-generation.ts";
 import { setAvatarGatewayOrigin } from "../lib/identity-avatar.ts";
 import { resolveSessionKey } from "../lib/sessions/index.ts";
@@ -70,11 +71,15 @@ export function createApplicationGateway(
   options: {
     persistDefaultConnectionSettings?: boolean;
     browserDeviceAuth?: boolean;
+    canvasSurfaceRelayRequired?: boolean;
     onClose?: (info: { code: number; reason: string; willRetry: boolean }) => void;
     basePath?: string;
     bootstrapProfile?: ControlUiBootstrapProfileHint;
   } = {},
 ): ApplicationGateway {
+  const canvasSurfaceRelayRequired = options.canvasSurfaceRelayRequired === true;
+  const canvasSurfaceRoute = (url: string | null, reason: "connecting" | "unavailable") =>
+    createCanvasPluginSurfaceRoute(url, canvasSurfaceRelayRequired, reason);
   let settings = initialSettings;
   let persistConnectionSettings = options.persistDefaultConnectionSettings !== false;
   let connection: ApplicationGatewayConnection = {
@@ -89,7 +94,7 @@ export function createApplicationGateway(
     phase: "stopped",
     offlineStable: false,
     hello: null,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: canvasSurfaceRoute(null, "connecting"),
     assistantAgentId: null,
     sessionKey: settings.sessionKey,
     lastError: null,
@@ -170,7 +175,13 @@ export function createApplicationGateway(
             if (!canvasSurfaceLeaseClient || client !== canvasSurfaceLeaseClient) {
               return;
             }
-            setSnapshot({ ...snapshot, canvasPluginSurfaceUrl });
+            setSnapshot({
+              ...snapshot,
+              canvasPluginSurfaceRoute: canvasSurfaceRoute(
+                canvasPluginSurfaceUrl,
+                snapshot.phase === "connected" ? "unavailable" : "connecting",
+              ),
+            });
           },
         });
         canvasSurfaceLease = lease;
@@ -364,16 +375,19 @@ export function createApplicationGateway(
           });
         }
         everConnected = true;
-        const canvasPluginSurfaceUrl = normalizeCanvasPluginSurfaceUrl(
-          hello.pluginSurfaceUrls?.canvas,
+        const canvasPluginSurfaceRoute = canvasSurfaceRoute(
+          hello.pluginSurfaceUrls?.canvas ?? null,
+          "unavailable",
         );
+        const canvasPluginSurfaceUrl =
+          canvasPluginSurfaceRoute.mode === "relay-ready" ? canvasPluginSurfaceRoute.baseUrl : null;
         const canvasLeaseGeneration = beginCanvasSurfaceLease(nextClient);
         setSnapshot({
           ...snapshot,
           client: nextClient,
           phase: "connected",
           hello,
-          canvasPluginSurfaceUrl,
+          canvasPluginSurfaceRoute,
           // Trim guards a whitespace-only defaultId from becoming a truthy selection.
           assistantAgentId: sessionDefaults?.defaultAgentId?.trim() || null,
           sessionKey,
@@ -412,7 +426,7 @@ export function createApplicationGateway(
               ? "connecting"
               : "stopped",
           hello: null,
-          canvasPluginSurfaceUrl: null,
+          canvasPluginSurfaceRoute: canvasSurfaceRoute(null, "connecting"),
           selfUser: null,
           lastError: error?.message ?? `disconnected (${code}): ${reason || "no reason"}`,
           lastErrorCode: error?.code ?? null,
@@ -457,7 +471,7 @@ export function createApplicationGateway(
       // recovery or a manual retry when a session already existed.
       phase: everConnected ? "reconnecting" : "connecting",
       hello: null,
-      canvasPluginSurfaceUrl: null,
+      canvasPluginSurfaceRoute: canvasSurfaceRoute(null, "connecting"),
       assistantAgentId: null,
       selfUser: null,
       sessionKey: nextSessionKey,
@@ -523,7 +537,7 @@ export function createApplicationGateway(
         phase: "stopped",
         offlineStable: false,
         hello: null,
-        canvasPluginSurfaceUrl: null,
+        canvasPluginSurfaceRoute: canvasSurfaceRoute(null, "connecting"),
         assistantAgentId: null,
         selfUser: null,
         lastError: null,
@@ -550,11 +564,6 @@ export function createApplicationGateway(
     },
   };
   return gateway;
-}
-
-function normalizeCanvasPluginSurfaceUrl(value: string | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
 }
 
 function readSessionDefaults(

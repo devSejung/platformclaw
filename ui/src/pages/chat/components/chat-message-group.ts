@@ -9,7 +9,7 @@ import { normalizeRoleForGrouping } from "../../../lib/chat/message-normalizer.t
 import { formatSenderLabel } from "../../../lib/chat/sender-label.ts";
 import { summarizeToolGroup } from "../../../lib/chat/tool-call-grouping.ts";
 import { extractToolCardsCached, isToolCardError } from "../../../lib/chat/tool-cards.ts";
-import type { EmbedSandboxMode } from "../../../lib/chat/tool-display.ts";
+import type { CanvasPluginSurfaceRoute, EmbedSandboxMode } from "../../../lib/chat/tool-display.ts";
 import { resolveIdentityHue } from "../../../lib/identity-avatar.ts";
 import { renderChatAvatar } from "../chat-avatar.ts";
 import type { TurnRecap } from "../chat-progress.ts";
@@ -87,7 +87,7 @@ type RenderMessageGroupOptions = {
   localMediaPreviewRoots?: readonly string[];
   assistantAttachmentAuthToken?: string | null;
   resolveArtifactDownload?: ArtifactDownloadResolver;
-  canvasPluginSurfaceUrl?: string | null;
+  canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
   recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   embedSandboxMode?: EmbedSandboxMode;
   allowExternalEmbedUrls?: boolean;
@@ -154,7 +154,7 @@ function buildGroupedMessageRenderOptions(
     onAssistantAttachmentLoaded: opts.onAssistantAttachmentLoaded,
     onRequestOpenImage: opts.onRequestOpenImage,
     onOpenImage: opts.onOpenImage,
-    canvasPluginSurfaceUrl: opts.canvasPluginSurfaceUrl,
+    canvasPluginSurfaceRoute: opts.canvasPluginSurfaceRoute,
     recoverCanvasPluginSurfaceUrl: opts.recoverCanvasPluginSurfaceUrl,
     basePath: opts.basePath,
     localMediaPreviewRoots: opts.localMediaPreviewRoots,

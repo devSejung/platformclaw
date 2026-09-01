@@ -550,31 +550,68 @@ describe("tool-card canvas URLs", () => {
     );
   }
 
-  it("accepts hosted canvas paths and scopes them through the canvas capability host", async () => {
-    const { resolveCanvasIframeUrl } = await loadResolver();
+  it("requires an authoritative relay route before resolving hosted Canvas", async () => {
+    const { resolveCanvasIframeRoute } = await loadResolver();
+    const entry = "/__openclaw__/canvas/documents/cv_demo/index.html";
 
-    expect(resolveCanvasIframeUrl("/__openclaw__/canvas/documents/cv_demo/index.html")).toBe(
-      "/__openclaw__/canvas/documents/cv_demo/index.html",
-    );
     expect(
-      resolveCanvasIframeUrl(
-        "/__openclaw__/canvas/documents/cv_demo/index.html",
-        "http://127.0.0.1:19003/__openclaw__/cap/cap_123",
+      resolveCanvasIframeRoute(entry, { mode: "relay-waiting", reason: "connecting" }),
+    ).toEqual({ state: "waiting", reason: "connecting" });
+    expect(
+      resolveCanvasIframeRoute(entry, {
+        mode: "relay-ready",
+        baseUrl: "https://canvas.test/",
+      }),
+    ).toEqual({ state: "unavailable" });
+    expect(
+      resolveCanvasIframeRoute(entry, {
+        mode: "relay-ready",
+        baseUrl: "https://canvas.test/__openclaw__/capability/not-a-ticket",
+      }),
+    ).toEqual({ state: "unavailable" });
+    expect(resolveCanvasIframeRoute(entry, { mode: "direct" })).toEqual({
+      state: "ready",
+      url: entry,
+    });
+    expect(
+      resolveCanvasIframeRoute("/__openclaw__/a2ui/index.html", {
+        mode: "relay-ready",
+        baseUrl: "https://canvas.test/__openclaw__/cap/ticket",
+      }),
+    ).toEqual({ state: "unavailable" });
+    expect(resolveCanvasIframeRoute("/__openclaw__/a2ui/index.html", { mode: "direct" })).toEqual({
+      state: "ready",
+      url: "/__openclaw__/a2ui/index.html",
+    });
+    expect(
+      resolveCanvasIframeRoute(
+        "http://localhost/__openclaw__/canvas/documents/cv_absolute/index.html?theme=dark#main",
+        {
+          mode: "relay-ready",
+          baseUrl: "https://canvas.test/__openclaw__/cap/ticket",
+        },
       ),
-    ).toBe(
-      "http://127.0.0.1:19003/__openclaw__/cap/cap_123/__openclaw__/canvas/documents/cv_demo/index.html",
-    );
+    ).toEqual({
+      state: "ready",
+      url: "https://canvas.test/__openclaw__/cap/ticket/__openclaw__/canvas/documents/cv_absolute/index.html?theme=dark#main",
+    });
   });
 
   it("rejects unsafe canvas frame URLs unless external embeds are explicitly enabled", async () => {
-    const { resolveCanvasIframeUrl } = await loadResolver();
+    const { resolveCanvasIframeRoute } = await loadResolver();
 
-    expect(resolveCanvasIframeUrl("/not-canvas/snake.html")).toBeUndefined();
-    expect(resolveCanvasIframeUrl("https://example.com/evil.html")).toBeUndefined();
-    expect(resolveCanvasIframeUrl("file:///tmp/snake.html")).toBeUndefined();
-    expect(resolveCanvasIframeUrl("https://example.com/embed.html?x=1#y", undefined, true)).toBe(
-      "https://example.com/embed.html?x=1#y",
-    );
+    expect(resolveCanvasIframeRoute("/not-canvas/snake.html", { mode: "direct" })).toEqual({
+      state: "unavailable",
+    });
+    expect(resolveCanvasIframeRoute("https://example.com/evil.html", { mode: "direct" })).toEqual({
+      state: "unavailable",
+    });
+    expect(resolveCanvasIframeRoute("file:///tmp/snake.html", { mode: "direct" })).toEqual({
+      state: "unavailable",
+    });
+    expect(
+      resolveCanvasIframeRoute("https://example.com/embed.html?x=1#y", { mode: "direct" }, true),
+    ).toEqual({ state: "ready", url: "https://example.com/embed.html?x=1#y" });
   });
 });
 

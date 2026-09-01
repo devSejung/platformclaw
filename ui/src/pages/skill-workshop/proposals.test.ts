@@ -34,7 +34,7 @@ function createFixture(
     client: { request } as unknown as ApplicationGatewaySnapshot["client"],
     phase: "connected",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: null,
     assistantAgentId: "research",
     sessionKey: "global",

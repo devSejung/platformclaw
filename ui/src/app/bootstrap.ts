@@ -249,6 +249,8 @@ export type ApplicationBootstrapOptions = {
   readonly gateway?: {
     readonly url: string;
     readonly browserDeviceAuth?: boolean;
+    /** Hosted products whose browser cannot address private Canvas paths directly. */
+    readonly canvasSurfaceRelayRequired?: boolean;
     readonly onClose?: (info: { code: number; reason: string; willRetry: boolean }) => void;
   };
   readonly shellSession?: ApplicationShellSession;
@@ -341,6 +343,7 @@ export function bootstrapApplication(
     {
       persistDefaultConnectionSettings: options.gateway ? false : documentMode === null,
       browserDeviceAuth: options.gateway?.browserDeviceAuth,
+      canvasSurfaceRelayRequired: options.gateway?.canvasSurfaceRelayRequired,
       onClose: options.gateway?.onClose,
       basePath,
       ...(startup.pendingBootstrapProfile

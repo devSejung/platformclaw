@@ -25,7 +25,7 @@ function snapshot(params: {
             },
       features: params.methods === undefined ? {} : { methods: params.methods },
     } as ApplicationGatewaySnapshot["hello"],
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     assistantAgentId: null,
     sessionKey: "agent:main:main",
     lastError: null,

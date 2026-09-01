@@ -39,7 +39,7 @@ import {
   buildMoreDetailsCompanionQuestion,
 } from "../../../lib/chat/companion-question.ts";
 import { extractTextCached } from "../../../lib/chat/message-extract.ts";
-import type { EmbedSandboxMode } from "../../../lib/chat/tool-display.ts";
+import type { CanvasPluginSurfaceRoute, EmbedSandboxMode } from "../../../lib/chat/tool-display.ts";
 import { copyToClipboard } from "../../../lib/clipboard.ts";
 import { fnv1aUtf16 } from "../../../lib/fnv1a.ts";
 import {
@@ -158,7 +158,7 @@ type ChatThreadProps = {
   localMediaPreviewRoots?: string[];
   assistantAttachmentAuthToken?: string | null;
   resolveArtifactDownload?: ArtifactDownloadResolver;
-  canvasPluginSurfaceUrl?: string | null;
+  canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
   recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   embedSandboxMode?: EmbedSandboxMode;
   allowExternalEmbedUrls?: boolean;
@@ -1631,7 +1631,7 @@ function renderChatThreadContents(
       localMediaPreviewRoots: props.localMediaPreviewRoots ?? [],
       assistantAttachmentAuthToken: props.assistantAttachmentAuthToken ?? null,
       resolveArtifactDownload: props.resolveArtifactDownload,
-      canvasPluginSurfaceUrl: props.canvasPluginSurfaceUrl,
+      canvasPluginSurfaceRoute: props.canvasPluginSurfaceRoute,
       recoverCanvasPluginSurfaceUrl: props.recoverCanvasPluginSurfaceUrl,
       embedSandboxMode: props.embedSandboxMode ?? "scripts",
       allowExternalEmbedUrls: props.allowExternalEmbedUrls ?? false,
@@ -1842,7 +1842,7 @@ function renderChatThreadContents(
     props.basePath,
     (props.localMediaPreviewRoots ?? []).join("\u0000"),
     props.assistantAttachmentAuthToken,
-    props.canvasPluginSurfaceUrl,
+    props.canvasPluginSurfaceRoute,
     props.embedSandboxMode ?? "scripts",
     props.allowExternalEmbedUrls ?? false,
     threadContextWindow,

@@ -45,7 +45,7 @@ export function createContext(
     client,
     phase: "connected",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: {
       type: "hello-ok" as const,
       protocol: 1,

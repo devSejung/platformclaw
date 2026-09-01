@@ -20,7 +20,7 @@ function gateway(): ApplicationContext["gateway"] {
     client: null,
     phase: "stopped",
     offlineStable: false,
-    canvasPluginSurfaceUrl: null,
+    canvasPluginSurfaceRoute: { mode: "direct" },
     hello: null,
     assistantAgentId: null,
     sessionKey: "main",

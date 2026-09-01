@@ -73,7 +73,7 @@ function createInitializationContext(): ApplicationContext {
         phase: "stopped",
         offlineStable: false,
         hello: null,
-        canvasPluginSurfaceUrl: null,
+        canvasPluginSurfaceRoute: { mode: "direct" },
         assistantAgentId: null,
         sessionKey: "",
         lastError: null,
