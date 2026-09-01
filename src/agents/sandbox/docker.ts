@@ -652,7 +652,10 @@ async function ensureSandboxContainerLifecycle(
     hashMismatch = !currentHash || currentHash !== expectedHash;
     if (hashMismatch) {
       const lastUsedAtMs = registryEntry?.lastUsedAtMs;
+      // Only the registry proves that this Gateway owns a live container. An unregistered
+      // managed container is an orphan and must not permanently block config repair.
       const isHot =
+        registryEntry !== undefined &&
         running &&
         (typeof lastUsedAtMs !== "number" || now - lastUsedAtMs < HOT_CONTAINER_WINDOW_MS);
       if (isHot) {
