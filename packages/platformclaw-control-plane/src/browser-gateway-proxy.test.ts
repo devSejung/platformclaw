@@ -67,7 +67,7 @@ describe("BrowserGatewayProxy", () => {
   });
 
   it("projects browser-safe agent rows and preserves scoped session pagination", async () => {
-    const { binding, proxy, request, token } = await setup();
+    const { binding, proxy, request, token, user } = await setup();
     request
       .mockResolvedValueOnce({
         defaultId: "other",
@@ -571,7 +571,7 @@ describe("BrowserGatewayProxy", () => {
   });
 
   it("suppresses command interpretation and external delivery for browser chat", async () => {
-    const { binding, proxy, request, token } = await setup();
+    const { binding, proxy, request, token, user } = await setup();
     const key = `agent:${binding.agentId}:main`;
     request.mockResolvedValueOnce({ status: "started", runId: "run-1" });
 
@@ -592,10 +592,25 @@ describe("BrowserGatewayProxy", () => {
         deliver: false,
         expectedLeafEntryId: "leaf-1",
         replyToId: "message-1",
+        senderAttribution: { id: user.accountId, name: user.displayName },
         suppressCommandInterpretation: true,
       }),
     );
     expect(request.mock.calls[0]?.[1]).not.toHaveProperty("__controlUiReconnectResume");
+  });
+
+  it("rejects browser-supplied sender attribution before dispatch", async () => {
+    const { binding, proxy, request, token } = await setup();
+
+    await expect(
+      proxy.request(token, "chat.send", {
+        sessionKey: `agent:${binding.agentId}:main`,
+        message: "hello",
+        idempotencyKey: "request-1",
+        senderAttribution: { id: "forged.user" },
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("advertises user commands while removing operator command metadata", async () => {
@@ -729,7 +744,7 @@ describe("BrowserGatewayProxy", () => {
   });
 
   it("starts a browser-created session through the command-suppressed chat path", async () => {
-    const { binding, proxy, request, token } = await setup();
+    const { binding, proxy, request, token, user } = await setup();
     request
       .mockImplementationOnce(async (_method, params) => ({
         ok: true,
@@ -762,12 +777,13 @@ describe("BrowserGatewayProxy", () => {
       message: "hello",
       idempotencyKey: expect.any(String),
       deliver: false,
+      senderAttribution: { id: user.accountId, name: user.displayName },
       suppressCommandInterpretation: true,
     });
   });
 
   it("relays new-session attachments through the owned chat path", async () => {
-    const { binding, proxy, request, token } = await setup();
+    const { binding, proxy, request, token, user } = await setup();
     const attachment = {
       type: "file",
       mimeType: "text/plain",
@@ -803,6 +819,7 @@ describe("BrowserGatewayProxy", () => {
       attachments: [attachment],
       idempotencyKey: expect.any(String),
       deliver: false,
+      senderAttribution: { id: user.accountId, name: user.displayName },
       suppressCommandInterpretation: true,
     });
   });

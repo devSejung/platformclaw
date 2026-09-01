@@ -20,6 +20,16 @@ function copilotClient(caps: string[] = []): NonNullable<GatewayRequestHandlerOp
   } as unknown as NonNullable<GatewayRequestHandlerOptions["client"]>;
 }
 
+function adminClient(): NonNullable<GatewayRequestHandlerOptions["client"]> {
+  return {
+    connect: {
+      role: "operator",
+      scopes: ["operator.admin"],
+      client: { id: "gateway-client", version: "test", platform: "test", mode: "backend" },
+    },
+  } as NonNullable<GatewayRequestHandlerOptions["client"]>;
+}
+
 function validParams(overrides: Record<string, unknown> = {}) {
   return {
     sessionKey: "agent:main:main",
@@ -94,6 +104,19 @@ describe("normalizeChatSendRequest", () => {
     expect(result).toEqual({
       ok: false,
       error: "system provenance fields require admin scope",
+    });
+  });
+
+  it("accepts normalized sender attribution only from an admin client", () => {
+    const params = validParams({ senderAttribution: { id: " first.user ", name: " First User " } });
+
+    expect(normalizeChatSendRequest({ params, client: null })).toEqual({
+      ok: false,
+      error: "sender attribution requires admin scope",
+    });
+    expect(normalizeChatSendRequest({ params, client: adminClient() })).toMatchObject({
+      ok: true,
+      value: { senderAttribution: { id: "first.user", name: "First User" } },
     });
   });
 

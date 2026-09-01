@@ -122,6 +122,7 @@ function buildChatSendMessageContext(params: {
   originatingRoute: AdmittedChatSend["originatingRoute"];
   parsedMessage: string;
   sessionKey: string;
+  senderAttribution?: NormalizedChatSendRequest["senderAttribution"];
   suppressCommandInterpretation: boolean;
   systemInputProvenance?: InputProvenance;
   systemProvenanceReceipt?: string;
@@ -181,13 +182,19 @@ function buildChatSendMessageContext(params: {
     MessageSid: params.clientRunId,
     SessionCreation: resolveOperatorSessionCreation(params.client),
     ApprovalReviewerDeviceId: queuedFollowupOwnerDeviceId,
-    ...(!isOperatorUiClient(params.clientInfo)
+    ...(params.senderAttribution
       ? {
-          SenderId: params.clientInfo?.id,
-          SenderName: params.clientInfo?.displayName,
-          SenderUsername: params.clientInfo?.displayName,
+          SenderId: params.senderAttribution.id,
+          SenderName: params.senderAttribution.name,
+          SenderUsername: params.senderAttribution.name,
         }
-      : {}),
+      : !isOperatorUiClient(params.clientInfo)
+        ? {
+            SenderId: params.clientInfo?.id,
+            SenderName: params.clientInfo?.displayName,
+            SenderUsername: params.clientInfo?.displayName,
+          }
+        : {}),
     GatewayClientScopes: params.client?.connect?.scopes ?? [],
     GatewayClientCaps: params.client?.connect?.caps ?? [],
     GatewayRunToolBindings: params.toolBindings,
@@ -215,6 +222,7 @@ export function prepareChatSendUserTurn(params: {
     NormalizedChatSendRequest,
     | "clientInfo"
     | "normalizedAttachments"
+    | "senderAttribution"
     | "suppressCommandInterpretation"
     | "systemInputProvenance"
     | "systemProvenanceReceipt"
@@ -271,6 +279,7 @@ export function prepareChatSendUserTurn(params: {
     originatingRoute: admission.originatingRoute,
     parsedMessage: attachments.parsedMessage,
     sessionKey: session.sessionKey,
+    senderAttribution: request.senderAttribution,
     suppressCommandInterpretation: request.suppressCommandInterpretation,
     systemInputProvenance: request.systemInputProvenance,
     systemProvenanceReceipt: request.systemProvenanceReceipt,

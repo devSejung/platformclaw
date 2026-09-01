@@ -80,6 +80,35 @@ function createAttachments(
 }
 
 describe("prepareChatSendUserTurn", () => {
+  it("uses request-scoped sender attribution for an operator UI turn", () => {
+    const { controller } = createUserTurnInputController();
+    const prepared = prepareChatSendUserTurn({
+      request: {
+        clientInfo: createClientInfo({
+          id: GATEWAY_CLIENT_IDS.CONTROL_UI,
+          mode: GATEWAY_CLIENT_MODES.UI,
+        }),
+        normalizedAttachments: [],
+        senderAttribution: { id: "first.user", name: "First User" },
+        suppressCommandInterpretation: true,
+      },
+      session: { agentId: "main", clientRunId: "run-1", sessionKey: "agent:main:main" },
+      admission: {
+        originatingRoute: { originatingChannel: "webchat", explicitDeliverRoute: false },
+      },
+      attachments: createAttachments(),
+      client: null,
+      logGateway: { warn: vi.fn() } as never,
+      userTurn: controller,
+    });
+
+    expect(prepared.ctx).toMatchObject({
+      SenderId: "first.user",
+      SenderName: "First User",
+      SenderUsername: "First User",
+    });
+  });
+
   it("assembles command, provenance, sender, and origin facts", async () => {
     const { controller, readInput } = createUserTurnInputController();
     const prepared = prepareChatSendUserTurn({
