@@ -17,12 +17,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
   LC_ALL=ko_KR.UTF-8 \
   TZ=Asia/Seoul
 
+ARG PLATFORMCLAW_APT_SOURCES_SHA256=""
 RUN --mount=type=secret,id=platformclaw_apt_sources \
     set -eux; \
     cp /etc/apt/sources.list /tmp/ubuntu.sources.list; \
-    if [ -f /run/secrets/platformclaw_apt_sources ]; then \
+    if [ -n "${PLATFORMCLAW_APT_SOURCES_SHA256}" ]; then \
+      test -f /run/secrets/platformclaw_apt_sources; \
+      printf '%s  %s\n' "${PLATFORMCLAW_APT_SOURCES_SHA256}" /run/secrets/platformclaw_apt_sources | sha256sum -c -; \
       cp /run/secrets/platformclaw_apt_sources /etc/apt/sources.list; \
       rm -f /etc/apt/sources.list.d/*.list; \
+    else \
+      test ! -f /run/secrets/platformclaw_apt_sources; \
     fi; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -52,10 +57,15 @@ RUN python3 -m pip install --no-cache-dir \
 
 # This file intentionally persists in the internal sandbox image so runtime
 # workspace virtualenvs use the approved package indexes. Keep credentials out.
+ARG PLATFORMCLAW_PIP_CONFIG_SHA256=""
 RUN --mount=type=secret,id=platformclaw_pip_config \
     set -eux; \
-    if [ -f /run/secrets/platformclaw_pip_config ]; then \
+    if [ -n "${PLATFORMCLAW_PIP_CONFIG_SHA256}" ]; then \
+      test -f /run/secrets/platformclaw_pip_config; \
+      printf '%s  %s\n' "${PLATFORMCLAW_PIP_CONFIG_SHA256}" /run/secrets/platformclaw_pip_config | sha256sum -c -; \
       install -m 0644 /run/secrets/platformclaw_pip_config /etc/pip.conf; \
+    else \
+      test ! -f /run/secrets/platformclaw_pip_config; \
     fi
 
 USER sandbox
