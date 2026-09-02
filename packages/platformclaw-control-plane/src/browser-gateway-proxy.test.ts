@@ -591,7 +591,7 @@ describe("BrowserGatewayProxy", () => {
         deliver: false,
         expectedLeafEntryId: "leaf-1",
         replyToId: "message-1",
-        senderAttribution: { id: user.accountId, name: user.displayName },
+        senderAttribution: expect.objectContaining({ id: user.accountId, profileId: user.id }),
         suppressCommandInterpretation: true,
       }),
     );
@@ -772,7 +772,7 @@ describe("BrowserGatewayProxy", () => {
       message: "hello",
       idempotencyKey: expect.any(String),
       deliver: false,
-      senderAttribution: { id: user.accountId, name: user.displayName },
+      senderAttribution: expect.objectContaining({ id: user.accountId, profileId: user.id }),
       suppressCommandInterpretation: true,
     });
   });
@@ -814,7 +814,7 @@ describe("BrowserGatewayProxy", () => {
       attachments: [attachment],
       idempotencyKey: expect.any(String),
       deliver: false,
-      senderAttribution: { id: user.accountId, name: user.displayName },
+      senderAttribution: expect.objectContaining({ id: user.accountId, profileId: user.id }),
       suppressCommandInterpretation: true,
     });
   });

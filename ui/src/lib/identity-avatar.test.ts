@@ -39,6 +39,24 @@ describe("resolveAvatar", () => {
     }
   });
 
+  it("keeps initials color stable across runtime ids for one profile", () => {
+    const first = resolveAvatar({
+      id: "alice.account",
+      profileId: "profile_123",
+      name: "Alice Example",
+    });
+    const second = resolveAvatar({
+      id: "gateway-web-2",
+      profileId: "profile_123",
+      name: "Alice Example",
+    });
+    expect(first).toMatchObject({ kind: "initials", initials: "AE" });
+    expect(second).toMatchObject({ kind: "initials", initials: "AE" });
+    if (first.kind === "initials" && second.kind === "initials") {
+      expect(first.colorSeed).toBe(second.colorSeed);
+    }
+  });
+
   it("derives a stable identity hue from the same seed as the initials color", () => {
     const first = resolveIdentityHue({ id: "profile_123", name: "Ada Lovelace" });
     const second = resolveIdentityHue({ id: "profile_123", name: "Renamed User" });
@@ -49,6 +67,15 @@ describe("resolveAvatar", () => {
     if (resolved.kind === "initials") {
       expect(first).toBe(resolved.colorSeed % 360);
     }
+  });
+
+  it("uses profile identity for hue and runtime identity as the legacy fallback", () => {
+    expect(
+      resolveIdentityHue({ id: "alice.account", profileId: "profile_123", name: "Alice" }),
+    ).toBe(resolveIdentityHue({ id: "gateway-web-2", profileId: "profile_123", name: "Alice" }));
+    expect(resolveIdentityHue({ id: "alice.account", name: "Alice" })).toBe(
+      resolveIdentityHue({ id: "alice.account", name: "Renamed Alice" }),
+    );
   });
 });
 
@@ -183,6 +210,19 @@ describe("resolveAvatar profile-id senders", () => {
         url: "/api/users/c3e32452-0467-47e5-aafa-233cd5dae29f/avatar",
       },
     );
+  });
+
+  it("derives the canonical avatar route from a dedicated profile id", () => {
+    expect(
+      resolveAvatar({
+        id: "alice.account",
+        profileId: "c3e32452-0467-47e5-aafa-233cd5dae29f",
+        name: "Alice",
+      }),
+    ).toEqual({
+      kind: "profile",
+      url: "/api/users/c3e32452-0467-47e5-aafa-233cd5dae29f/avatar",
+    });
   });
 
   it("resolves the derived route against the gateway origin", () => {

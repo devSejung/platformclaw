@@ -1,7 +1,7 @@
 // Projects prepared connection identity into user-turn attribution fields.
 import type { GatewayClient } from "./shared-types.js";
 
-type GatewayClientSender = { id: string; name?: string };
+type GatewayClientSender = { id: string; name?: string; profileId?: string };
 
 export function gatewayClientSenderFields(
   client: GatewayClient | null,

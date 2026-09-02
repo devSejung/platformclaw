@@ -852,9 +852,20 @@ describe("message-normalizer", () => {
         normalizeMessage({
           role: "user",
           content: "Prompt from a profile",
-          __openclaw: { senderId: "profile_123", senderName: "Alice Example" },
-        }).senderLabel,
-      ).toBe("Alice Example");
+          __openclaw: {
+            senderId: "alice.account",
+            senderName: "Alice Example",
+            senderProfileId: "profile_123",
+          },
+        }),
+      ).toMatchObject({
+        senderLabel: "Alice Example",
+        sender: {
+          id: "alice.account",
+          name: "Alice Example",
+          profileId: "profile_123",
+        },
+      });
     });
   });
 });

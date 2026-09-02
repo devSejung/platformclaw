@@ -585,6 +585,7 @@ export function queuedSendThreadMessage(item: ChatQueueItem): Record<string, unk
       state: item.sendState,
       ...(item.sender?.id ? { senderId: item.sender.id } : {}),
       ...(item.sender?.name ? { senderName: item.sender.name } : {}),
+      ...(item.sender?.profileId ? { senderProfileId: item.sender.profileId } : {}),
       ...(item.sender?.username ? { senderUsername: item.sender.username } : {}),
       ...(item.sender?.profileAvatarUrl
         ? { senderProfileAvatarUrl: item.sender.profileAvatarUrl }

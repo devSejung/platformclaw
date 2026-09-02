@@ -1914,6 +1914,12 @@ describe("grouped chat rendering", () => {
   it.each([
     { label: "foreign sender", sender: { id: "other-user" }, userId: "current-user", peer: true },
     { label: "own sender", sender: { id: "current-user" }, userId: "current-user", peer: false },
+    {
+      label: "own profiled sender with a distinct runtime id",
+      sender: { id: "current.account", profileId: "current-user" },
+      userId: "current-user",
+      peer: false,
+    },
     { label: "unattributed sender", sender: undefined, userId: "current-user", peer: false },
     {
       label: "attributed sender without a viewer",

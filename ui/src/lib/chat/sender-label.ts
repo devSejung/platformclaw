@@ -1,6 +1,7 @@
 export type SenderIdentity = {
   id?: string;
   name?: string;
+  profileId?: string;
   username?: string;
   profileAvatarUrl?: string;
 };
@@ -8,6 +9,7 @@ export type SenderIdentity = {
 type SenderIdentityInput = {
   id?: unknown;
   name?: unknown;
+  profileId?: unknown;
   username?: unknown;
   profileAvatarUrl?: unknown;
 };
@@ -34,14 +36,16 @@ export function normalizeSenderIdentity(
 ): SenderIdentity | null {
   const id = normalizeLabelPart(sender?.id);
   const name = normalizeLabelPart(sender?.name);
+  const profileId = normalizeLabelPart(sender?.profileId);
   const username = normalizeLabelPart(sender?.username);
   const profileAvatarUrl = normalizeLabelPart(sender?.profileAvatarUrl);
-  if (!id && !name && !username && !profileAvatarUrl) {
+  if (!id && !name && !profileId && !username && !profileAvatarUrl) {
     return null;
   }
   return {
     ...(id ? { id } : {}),
     ...(name ? { name } : {}),
+    ...(profileId ? { profileId } : {}),
     ...(username ? { username } : {}),
     ...(profileAvatarUrl ? { profileAvatarUrl } : {}),
   };
@@ -52,7 +56,7 @@ export function senderIdentityKey(sender: SenderIdentity | null | undefined): st
     return null;
   }
   return [
-    sender.id ?? "",
+    sender.profileId ?? sender.id ?? "",
     sender.name ?? "",
     sender.username ?? "",
     sender.profileAvatarUrl ?? "",

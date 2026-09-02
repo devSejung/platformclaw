@@ -89,7 +89,11 @@ describe("prepareChatSendUserTurn", () => {
           mode: GATEWAY_CLIENT_MODES.UI,
         }),
         normalizedAttachments: [],
-        senderAttribution: { id: "first.user", name: "First User" },
+        senderAttribution: {
+          id: "first.user",
+          name: "First User",
+          profileId: "profile-first",
+        },
         suppressCommandInterpretation: true,
       },
       session: { agentId: "main", clientRunId: "run-1", sessionKey: "agent:main:main" },
@@ -107,6 +111,7 @@ describe("prepareChatSendUserTurn", () => {
       SenderName: "First User",
       SenderUsername: "First User",
     });
+    expect(prepared.ctx.SenderId).not.toBe("profile-first");
   });
 
   it("assembles command, provenance, sender, and origin facts", async () => {

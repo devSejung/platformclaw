@@ -56,9 +56,19 @@ describe("ChatSendParamsSchema", () => {
     expect(
       Value.Check(ChatSendParamsSchema, {
         ...send,
-        senderAttribution: { id: "first.user", name: "First User" },
+        senderAttribution: {
+          id: "first.user",
+          name: "First User",
+          profileId: "profile-first",
+        },
       }),
     ).toBe(true);
+    expect(
+      Value.Check(ChatSendParamsSchema, {
+        ...send,
+        senderAttribution: { id: "first.user", profileId: "" },
+      }),
+    ).toBe(false);
     expect(Value.Check(ChatSendParamsSchema, { ...send, senderAttribution: { id: "" } })).toBe(
       false,
     );

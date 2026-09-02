@@ -230,7 +230,7 @@ function initialsFromLabel(label: string): string {
 export function resolveAvatarInitials(
   input: IdentityAvatarInput,
 ): Extract<ResolvedIdentityAvatar, { kind: "initials" }> {
-  const id = input.id?.trim();
+  const id = input.profileId?.trim() || input.id?.trim();
   const label = formatSenderLabel(input) ?? "?";
   return {
     kind: "initials",
@@ -254,9 +254,8 @@ export function resolveIdentityHue(input: IdentityAvatarInput): number {
  * the client never constructs a Gravatar URL — it only ever renders the
  * canonical /api/users/<id>/avatar endpoint or falls back to initials.
  */
-// User-profile ids are crypto UUIDs. Chat sender metadata carries only the id
-// (the prompt-visible envelope stays free of URLs), so a UUID-shaped sender id
-// is the signal to resolve the canonical avatar route for it client-side.
+// User-profile ids are crypto UUIDs. Chat sender metadata can carry a dedicated
+// profile id so runtime sender ids remain free to use their own namespace.
 const PROFILE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 export function resolveAvatar(input: IdentityAvatarInput): ResolvedIdentityAvatar {
@@ -273,10 +272,10 @@ export function resolveAvatar(input: IdentityAvatarInput): ResolvedIdentityAvata
 
   // Sender metadata without an explicit route: a profile-id sender still has a
   // canonical gateway avatar (upload → Gravatar proxy → 404-to-initials).
-  const id = input.id?.trim();
-  if (id && PROFILE_ID_RE.test(id)) {
+  const profileId = input.profileId?.trim() || input.id?.trim();
+  if (profileId && PROFILE_ID_RE.test(profileId)) {
     const trusted = toTrustedAvatarUrl(
-      `/api/users/${encodeURIComponent(id)}/avatar`,
+      `/api/users/${encodeURIComponent(profileId)}/avatar`,
       gatewayOrigin,
     );
     if (trusted) {
