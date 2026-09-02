@@ -7,6 +7,9 @@ ARG PLATFORMCLAW_URLLIB3_VERSION="2.7.0"
 ARG PLATFORMCLAW_MARKDOWN_VERSION="3.10.2"
 ARG PLATFORMCLAW_MARKDOWNIFY_VERSION="1.2.3"
 ARG PLATFORMCLAW_PYGMENTS_VERSION="2.20.0"
+ARG PLATFORMCLAW_REQUESTS_VERSION="2.34.2"
+ARG PLATFORMCLAW_NUMPY_VERSION="2.2.6"
+ARG PLATFORMCLAW_PYPDF_VERSION="6.16.2"
 
 ENV DEBIAN_FRONTEND=noninteractive \
   LANG=ko_KR.UTF-8 \
@@ -41,8 +44,11 @@ RUN python3 -m pip install --no-cache-dir \
       "urllib3==${PLATFORMCLAW_URLLIB3_VERSION}" \
       "Markdown==${PLATFORMCLAW_MARKDOWN_VERSION}" \
       "markdownify==${PLATFORMCLAW_MARKDOWNIFY_VERSION}" \
-      "Pygments==${PLATFORMCLAW_PYGMENTS_VERSION}"; \
-    python -c 'import markdown, markdownify, pygments, urllib3'
+      "Pygments==${PLATFORMCLAW_PYGMENTS_VERSION}" \
+      "requests==${PLATFORMCLAW_REQUESTS_VERSION}" \
+      "numpy==${PLATFORMCLAW_NUMPY_VERSION}" \
+      "pypdf==${PLATFORMCLAW_PYPDF_VERSION}"; \
+    python -c 'import markdown, markdownify, numpy, pygments, pypdf, requests, urllib3'
 
 # This file intentionally persists in the internal sandbox image so runtime
 # workspace virtualenvs use the approved package indexes. Keep credentials out.
