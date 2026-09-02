@@ -52,10 +52,15 @@ RUN python3 -m pip install --no-cache-dir \
 
 # This file intentionally persists in the internal sandbox image so runtime
 # workspace virtualenvs use the approved package indexes. Keep credentials out.
+ARG PLATFORMCLAW_PIP_CONFIG_SHA256=""
 RUN --mount=type=secret,id=platformclaw_pip_config \
     set -eux; \
-    if [ -f /run/secrets/platformclaw_pip_config ]; then \
+    if [ -n "${PLATFORMCLAW_PIP_CONFIG_SHA256}" ]; then \
+      test -f /run/secrets/platformclaw_pip_config; \
+      printf '%s  %s\n' "${PLATFORMCLAW_PIP_CONFIG_SHA256}" /run/secrets/platformclaw_pip_config | sha256sum -c -; \
       install -m 0644 /run/secrets/platformclaw_pip_config /etc/pip.conf; \
+    else \
+      test ! -f /run/secrets/platformclaw_pip_config; \
     fi
 
 USER sandbox

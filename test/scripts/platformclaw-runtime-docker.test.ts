@@ -88,11 +88,14 @@ describe("PlatformClaw Docker runtime", () => {
     );
     expect(build).toContain("--pip-config");
     expect(build).toContain("id=platformclaw_pip_config");
+    expect(build).toContain("PLATFORMCLAW_PIP_CONFIG_SHA256=${pipConfigSha");
     expect(build).toContain("pip config must not contain credentials");
     expect(build).toContain("Transfer builds require a sandbox pip config");
     expect(build).toContain("/etc/pip.conf | sha256sum -c -");
     expect(build).toContain("python3 -m pip config list");
     expect(sandboxDockerfile).toContain("install -m 0644");
+    expect(sandboxDockerfile).toContain('ARG PLATFORMCLAW_PIP_CONFIG_SHA256=""');
+    expect(sandboxDockerfile).toContain("/run/secrets/platformclaw_pip_config | sha256sum -c -");
     expect(sandboxDockerfile).toContain("/etc/pip.conf");
     expect(sandboxDockerfile).toContain("python-is-python3");
     expect(sandboxDockerfile.indexOf("python3 -m pip install")).toBeLessThan(

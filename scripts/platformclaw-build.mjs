@@ -351,8 +351,10 @@ const secretArgs =
   typeof aptSources === "string"
     ? ["--secret", `id=platformclaw_apt_sources,src=${aptSources}`]
     : [];
-const sandboxSecretArgs = [
+const sandboxBuildArgs = [
   ...secretArgs,
+  "--build-arg",
+  `PLATFORMCLAW_PIP_CONFIG_SHA256=${pipConfigSha ?? ""}`,
   ...(typeof pipConfig === "string"
     ? ["--secret", `id=platformclaw_pip_config,src=${pipConfig}`]
     : []),
@@ -517,7 +519,7 @@ try {
     "Dockerfile.sandbox.jammy",
     "--build-context",
     `platformclaw-jammy-build=docker-image://${jammyBuildImage}`,
-    ...sandboxSecretArgs,
+    ...sandboxBuildArgs,
     "-t",
     sandboxShaTag,
     ".",
