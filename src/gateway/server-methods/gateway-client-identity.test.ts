@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildPersistedUserTurnMessage } from "../../sessions/user-turn-transcript.js";
 import {
   gatewayClientSenderFields,
   gatewayClientSessionCreator,
@@ -28,8 +29,27 @@ describe("gateway client identity", () => {
     expect(gatewayClientSenderFields(client)).toEqual({
       sender: { id: "alice", name: "Suggested by Alice" },
     });
-    expect(gatewayClientSenderFields(client, { id: "first.user", name: "First User" })).toEqual({
-      sender: { id: "first.user", name: "First User" },
+    expect(
+      gatewayClientSenderFields(client, {
+        id: "first.user",
+        name: "First User",
+        profileId: "profile-first",
+      }),
+    ).toEqual({
+      sender: { id: "first.user", name: "First User", profileId: "profile-first" },
+    });
+
+    const attributed = gatewayClientSenderFields(client, {
+      id: "first.user",
+      name: "First User",
+      profileId: "profile-first",
+    });
+    expect(buildPersistedUserTurnMessage({ text: "hello", ...attributed })).toMatchObject({
+      __openclaw: {
+        senderId: "first.user",
+        senderName: "First User",
+        senderProfileId: "profile-first",
+      },
     });
   });
 });

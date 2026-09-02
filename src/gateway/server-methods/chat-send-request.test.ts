@@ -108,7 +108,13 @@ describe("normalizeChatSendRequest", () => {
   });
 
   it("accepts normalized sender attribution only from an admin client", () => {
-    const params = validParams({ senderAttribution: { id: " first.user ", name: " First User " } });
+    const params = validParams({
+      senderAttribution: {
+        id: " first.user ",
+        name: " First User ",
+        profileId: " profile-first ",
+      },
+    });
 
     expect(normalizeChatSendRequest({ params, client: null })).toEqual({
       ok: false,
@@ -116,7 +122,13 @@ describe("normalizeChatSendRequest", () => {
     });
     expect(normalizeChatSendRequest({ params, client: adminClient() })).toMatchObject({
       ok: true,
-      value: { senderAttribution: { id: "first.user", name: "First User" } },
+      value: {
+        senderAttribution: {
+          id: "first.user",
+          name: "First User",
+          profileId: "profile-first",
+        },
+      },
     });
   });
 

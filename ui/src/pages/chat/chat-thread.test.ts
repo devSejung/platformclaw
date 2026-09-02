@@ -1373,6 +1373,72 @@ describe("buildCachedChatItems", () => {
     expect(groups.map((group) => group.sender?.id)).toEqual(["iris", "joaquin"]);
   });
 
+  it("splits legacy and profile-attributed turns for the same runtime sender", () => {
+    const groups = messageGroups({
+      messages: [
+        {
+          role: "user",
+          content: "legacy",
+          __openclaw: { senderId: "alice.account", senderName: "Alice" },
+          timestamp: 1000,
+        },
+        {
+          role: "user",
+          content: "profiled",
+          __openclaw: {
+            senderId: "alice.account",
+            senderName: "Alice",
+            senderProfileId: "profile-alice",
+          },
+          timestamp: 1001,
+        },
+      ],
+    });
+
+    expect(groups).toHaveLength(2);
+    expect(groups.map((group) => group.sender)).toEqual([
+      { id: "alice.account", name: "Alice" },
+      { id: "alice.account", name: "Alice", profileId: "profile-alice" },
+    ]);
+  });
+
+  it("groups one profile across pending and changed runtime sender ids", () => {
+    const profileId = "c3e32452-0467-47e5-aafa-233cd5dae29f";
+    const groups = messageGroups({
+      messages: [
+        {
+          role: "user",
+          content: "pending",
+          __openclaw: { senderId: profileId, senderName: "Alice" },
+          timestamp: 1000,
+        },
+        {
+          role: "user",
+          content: "persisted",
+          __openclaw: {
+            senderId: "alice.account",
+            senderName: "Alice",
+            senderProfileId: profileId,
+          },
+          timestamp: 1001,
+        },
+        {
+          role: "user",
+          content: "new runtime",
+          __openclaw: {
+            senderId: "gateway-web-2",
+            senderName: "Alice",
+            senderProfileId: profileId,
+          },
+          timestamp: 1002,
+        },
+      ],
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.messages).toHaveLength(3);
+  });
+
   it("renders non-compaction system messages as notices and skips empty output", () => {
     const items = buildCachedChatItems(
       createProps({

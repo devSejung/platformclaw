@@ -634,6 +634,7 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
   const metaSender = normalizeSenderIdentity({
     id: openClawMeta?.senderId,
     name: openClawMeta?.senderName,
+    profileId: openClawMeta?.senderProfileId,
     username: openClawMeta?.senderUsername,
     profileAvatarUrl: openClawMeta?.senderProfileAvatarUrl,
   });

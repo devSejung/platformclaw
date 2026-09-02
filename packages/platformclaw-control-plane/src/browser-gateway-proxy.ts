@@ -485,8 +485,8 @@ export class BrowserGatewayProxy {
           senderAttribution: {
             id: access.user.accountId,
             ...(access.user.displayName ? { name: access.user.displayName } : {}),
+            profileId: access.user.id,
           },
-          suppressCommandInterpretation: true,
         };
       }
       // Never let a browser-selected run id cross the shared Gateway client.

@@ -122,13 +122,15 @@ function buildUserTurnSenderMeta(
 ): Record<string, string> | undefined {
   const senderId = normalizeOptionalString(sender?.id);
   const senderName = normalizeOptionalString(sender?.name);
+  const senderProfileId = normalizeOptionalString(sender?.profileId);
   const senderUsername = normalizeOptionalString(sender?.username);
-  if (!senderId && !senderName && !senderUsername) {
+  if (!senderId && !senderName && !senderProfileId && !senderUsername) {
     return undefined;
   }
   return {
     ...(senderId ? { senderId } : {}),
     ...(senderName ? { senderName } : {}),
+    ...(senderProfileId ? { senderProfileId } : {}),
     ...(senderUsername ? { senderUsername } : {}),
   };
 }

@@ -109,6 +109,9 @@ export function normalizeChatSendRequest(params: {
     ? {
         id: p.senderAttribution.id.trim(),
         ...(p.senderAttribution.name?.trim() ? { name: p.senderAttribution.name.trim() } : {}),
+        ...(p.senderAttribution.profileId?.trim()
+          ? { profileId: p.senderAttribution.profileId.trim() }
+          : {}),
       }
     : undefined;
   if (requestedSenderAttribution && !requestedSenderAttribution.id) {
