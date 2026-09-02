@@ -275,6 +275,7 @@ const aptSources = options.aptSources;
 if (typeof aptSources === "string" && !existsSync(aptSources)) {
   throw new Error(`APT sources file does not exist: ${aptSources}`);
 }
+const aptSourcesSha = typeof aptSources === "string" ? await sha256File(aptSources) : undefined;
 const pipConfig = options.pipConfig;
 if (options.exportImage && typeof pipConfig !== "string") {
   throw new Error(
@@ -347,12 +348,17 @@ const bundledImages = [
     target: "platformclaw-skillhub-redis:e7723ff73d96",
   },
 ];
-const secretArgs =
-  typeof aptSources === "string"
+const aptBuildArgs = [
+  "--build-arg",
+  `PLATFORMCLAW_APT_SOURCES_SHA256=${aptSourcesSha ?? ""}`,
+  ...(typeof aptSources === "string"
     ? ["--secret", `id=platformclaw_apt_sources,src=${aptSources}`]
-    : [];
-const sandboxSecretArgs = [
-  ...secretArgs,
+    : []),
+];
+const sandboxBuildArgs = [
+  ...aptBuildArgs,
+  "--build-arg",
+  `PLATFORMCLAW_PIP_CONFIG_SHA256=${pipConfigSha ?? ""}`,
   ...(typeof pipConfig === "string"
     ? ["--secret", `id=platformclaw_pip_config,src=${pipConfig}`]
     : []),
@@ -430,7 +436,7 @@ try {
     "platformclaw-jammy-node",
     "-f",
     "Dockerfile.jammy",
-    ...secretArgs,
+    ...aptBuildArgs,
     "-t",
     jammyBuildImage,
     ".",
@@ -503,7 +509,7 @@ try {
     `openclaw-runtime=docker-image://${assetsImage}`,
     "--build-context",
     `platformclaw-control-assets=docker-image://${controlAssetsImage}`,
-    ...secretArgs,
+    ...aptBuildArgs,
     "-t",
     runtimeShaTag,
     ".",
@@ -517,7 +523,7 @@ try {
     "Dockerfile.sandbox.jammy",
     "--build-context",
     `platformclaw-jammy-build=docker-image://${jammyBuildImage}`,
-    ...sandboxSecretArgs,
+    ...sandboxBuildArgs,
     "-t",
     sandboxShaTag,
     ".",

@@ -39,12 +39,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # An optional private apt sources file is supplied only at build time:
 #   --secret id=platformclaw_apt_sources,src=<path>
 # The source URLs never become repository content or image layers.
+ARG PLATFORMCLAW_APT_SOURCES_SHA256=""
 RUN --mount=type=secret,id=platformclaw_apt_sources \
     set -eux; \
     cp /etc/apt/sources.list /tmp/ubuntu.sources.list; \
-    if [ -f /run/secrets/platformclaw_apt_sources ]; then \
+    if [ -n "${PLATFORMCLAW_APT_SOURCES_SHA256}" ]; then \
+      test -f /run/secrets/platformclaw_apt_sources; \
+      printf '%s  %s\n' "${PLATFORMCLAW_APT_SOURCES_SHA256}" /run/secrets/platformclaw_apt_sources | sha256sum -c -; \
       cp /run/secrets/platformclaw_apt_sources /etc/apt/sources.list; \
       rm -f /etc/apt/sources.list.d/*.list; \
+    else \
+      test ! -f /run/secrets/platformclaw_apt_sources; \
     fi; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
