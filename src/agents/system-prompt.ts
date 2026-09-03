@@ -878,8 +878,7 @@ export function buildAgentSystemPrompt(params: {
 }) {
   const acpEnabled = params.acpEnabled === true;
   const promptSurface = params.promptSurface ?? "openclaw_main";
-  const sandboxedRuntime = params.sandboxInfo?.enabled === true;
-  const acpSpawnRuntimeEnabled = acpEnabled && !sandboxedRuntime;
+  const acpSpawnRuntimeEnabled = acpEnabled;
   const coreToolSummaries: Record<string, string> = {
     read: "Read files",
     write: "Write files",
@@ -1343,9 +1342,6 @@ export function buildAgentSystemPrompt(params: {
         ? [
             "Sandbox runtime; tools execute in Docker. Policy may hide tools.",
             "Subagents remain sandboxed; no elevated/host access. Need host read/write: do not spawn; ask.",
-            hasSessionsSpawn && acpEnabled
-              ? 'Sandbox blocks ACP spawn. Use `sessions_spawn(runtime:"subagent")`.'
-              : "",
             params.sandboxInfo.containerWorkspaceDir
               ? `Sandbox container workdir: ${sanitizeForPromptLiteral(params.sandboxInfo.containerWorkspaceDir)}`
               : "",

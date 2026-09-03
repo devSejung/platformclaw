@@ -14,6 +14,7 @@ import {
   resolveAcpDispatchPolicyError,
   resolveAcpDispatchPolicyMessage,
 } from "../../../acp/policy.js";
+import { canUseAcpProcessTransport } from "../../../acp/runtime/process-transport.js";
 import { resolveSessionStorePathForAcp } from "../../../acp/runtime/session-meta.js";
 import {
   resolveAcpSpawnRuntimePolicyError,
@@ -119,6 +120,8 @@ export async function handleAcpSpawnAction(
   const runtimePolicyError = resolveAcpSpawnRuntimePolicyError({
     cfg: params.cfg,
     requesterSessionKey: params.sessionKey,
+    executionOwnerAgentId: params.agentId,
+    targetAgentId: spawn.agentId,
   });
   if (runtimePolicyError) {
     return stopWithText(`⚠️ ${runtimePolicyError}`);
@@ -166,6 +169,10 @@ export async function handleAcpSpawnAction(
       cfg: params.cfg,
       sessionKey,
       agent: spawn.agentId,
+      ...(params.agentId &&
+      canUseAcpProcessTransport({ executionOwnerAgentId: params.agentId, agent: spawn.agentId })
+        ? { executionOwnerAgentId: params.agentId }
+        : {}),
       mode: spawn.mode,
       cwd: runtimeCwd,
     });

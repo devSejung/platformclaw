@@ -117,6 +117,35 @@ describe("PlatformClaw execution settings", () => {
     unsubscribe();
   });
 
+  it("detects and saves a per-account Claude Code executable", async () => {
+    const configured = {
+      ...SETTINGS,
+      targetRevision: 4,
+      claudeCode: {
+        executablePath: "/home/person.one/.local/bin/claude",
+        reportedVersion: "Claude Code 2.1.0",
+        validatedAt: 1_700_000_000_000,
+      },
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(SETTINGS))
+      .mockResolvedValueOnce(jsonResponse(configured));
+    mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
+    const element = document.querySelector("platformclaw-execution-settings")!;
+    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Basic workspace"));
+    element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+    element.shadowRoot?.querySelector<HTMLElement>("[data-action='claude-detect']")?.click();
+
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    const [, init] = fetchImpl.mock.calls[1]!;
+    expect(fetchImpl.mock.calls[1]?.[0]).toBe("/platformclaw/api/execution/claude-code");
+    expect(JSON.parse(String(init?.body))).toEqual({ expectedRevision: 3 });
+    await vi.waitFor(() => {
+      expect(element.shadowRoot?.textContent).toContain("Claude Code 2.1.0");
+    });
+  });
+
   it("keeps an Escape-cancelled work-location dialog closed", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(SETTINGS));
     mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });

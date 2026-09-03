@@ -11,6 +11,7 @@ import {
   type ConfiguredAcpBindingSpec,
   type ResolvedConfiguredAcpBinding,
 } from "./persistent-bindings.types.js";
+import { canUseAcpProcessTransport } from "./runtime/process-transport.js";
 
 // Binding lifecycle keeps configured channel conversations attached to matching ACP sessions.
 function sessionMatchesConfiguredBinding(params: {
@@ -27,6 +28,18 @@ function sessionMatchesConfiguredBinding(params: {
   );
   const currentAgent = normalizeLowercaseStringOrEmpty(params.meta.agent);
   if (!currentAgent || currentAgent !== desiredAgent) {
+    return false;
+  }
+  const desiredExecutionOwner = canUseAcpProcessTransport({
+    executionOwnerAgentId: params.spec.agentId,
+    agent: params.spec.acpAgentId ?? params.spec.agentId,
+  })
+    ? params.spec.agentId
+    : undefined;
+  if (
+    normalizeLowercaseStringOrEmpty(params.meta.executionOwnerAgentId) !==
+    normalizeLowercaseStringOrEmpty(desiredExecutionOwner)
+  ) {
     return false;
   }
 
@@ -94,6 +107,12 @@ export async function ensureConfiguredAcpBindingSession(params: {
       cfg: params.cfg,
       sessionKey,
       agent: params.spec.acpAgentId ?? params.spec.agentId,
+      ...(canUseAcpProcessTransport({
+        executionOwnerAgentId: params.spec.agentId,
+        agent: params.spec.acpAgentId ?? params.spec.agentId,
+      })
+        ? { executionOwnerAgentId: params.spec.agentId }
+        : {}),
       mode: params.spec.mode,
       cwd: params.spec.cwd,
       backendId: params.spec.backend,

@@ -50,6 +50,8 @@ export async function ensureManagerRuntimeHandle(params: {
   if (cached) {
     const backendMatches = !configuredBackend || cached.backend === configuredBackend;
     const agentMatches = cached.agent === agent;
+    const executionOwnerMatches =
+      cached.executionOwnerAgentId === params.meta.executionOwnerAgentId;
     const modeMatches = cached.mode === mode;
     const cwdMatches = (cached.cwd ?? "") === (cwd ?? "");
     const configMatches = cached.configSignature === configSignature;
@@ -60,6 +62,7 @@ export async function ensureManagerRuntimeHandle(params: {
     if (
       backendMatches &&
       agentMatches &&
+      executionOwnerMatches &&
       modeMatches &&
       cwdMatches &&
       configMatches &&
@@ -104,6 +107,9 @@ export async function ensureManagerRuntimeHandle(params: {
         await runtime.ensureSession({
           sessionKey: params.sessionKey,
           agent,
+          ...(params.meta.executionOwnerAgentId
+            ? { executionOwnerAgentId: params.meta.executionOwnerAgentId }
+            : {}),
           mode,
           ...(resumeSessionId ? { resumeSessionId } : {}),
           ...(model ? { model } : {}),
@@ -181,6 +187,9 @@ export async function ensureManagerRuntimeHandle(params: {
   const nextMeta: SessionAcpMeta = {
     backend: ensured.backend || backend.id,
     agent,
+    ...(previousMeta.executionOwnerAgentId
+      ? { executionOwnerAgentId: previousMeta.executionOwnerAgentId }
+      : {}),
     runtimeSessionName: ensured.runtimeSessionName,
     ...(nextIdentity ? { identity: nextIdentity } : {}),
     mode: params.meta.mode,
@@ -195,6 +204,7 @@ export async function ensureManagerRuntimeHandle(params: {
     previousMeta.runtimeSessionName !== nextMeta.runtimeSessionName ||
     !identityEquals(previousIdentity, nextIdentity) ||
     previousMeta.agent !== nextMeta.agent ||
+    previousMeta.executionOwnerAgentId !== nextMeta.executionOwnerAgentId ||
     previousMeta.cwd !== nextMeta.cwd ||
     !runtimeOptionsEqual(previousMeta.runtimeOptions, nextMeta.runtimeOptions) ||
     hasLegacyAcpIdentityProjection(previousMeta);
@@ -215,6 +225,9 @@ export async function ensureManagerRuntimeHandle(params: {
     handle: nextHandle,
     backend: ensured.backend || backend.id,
     agent,
+    ...(nextMeta.executionOwnerAgentId
+      ? { executionOwnerAgentId: nextMeta.executionOwnerAgentId }
+      : {}),
     mode,
     cwd: effectiveCwd,
     configSignature,

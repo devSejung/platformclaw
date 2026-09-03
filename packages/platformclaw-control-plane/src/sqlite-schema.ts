@@ -256,9 +256,25 @@ CREATE TABLE IF NOT EXISTS vm_host_execution_environments (
 ) STRICT;
 `;
 
+const VM_ALLOCATION_CLAUDE_CODE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS vm_allocation_claude_code_settings (
+  allocation_id TEXT PRIMARY KEY REFERENCES vm_allocations(id) ON DELETE CASCADE,
+  executable_path TEXT NOT NULL CHECK (length(executable_path) BETWEEN 1 AND 4096),
+  reported_version TEXT NOT NULL CHECK (length(reported_version) BETWEEN 1 AND 512),
+  validated_at INTEGER NOT NULL,
+  updated_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
+  updated_at INTEGER NOT NULL
+) STRICT;
+`;
+
 /** Additive VM feature table; safe for older schema-v2 readers to ignore. */
 export function ensureVmHostExecutionEnvironmentSchema(db: DatabaseSync): void {
   db.exec(VM_HOST_EXECUTION_ENVIRONMENT_SCHEMA);
+}
+
+/** Additive per-allocation Claude Code setting; safe for older readers to ignore. */
+export function ensureVmAllocationClaudeCodeSchema(db: DatabaseSync): void {
+  db.exec(VM_ALLOCATION_CLAUDE_CODE_SCHEMA);
 }
 
 /** Additive shared-memory table; safe for older schema-v2 readers to ignore. */

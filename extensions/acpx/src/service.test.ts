@@ -10,8 +10,9 @@ import {
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { runtimeRegistry } = vi.hoisted(() => ({
+const { runtimeRegistry, isolatedProcessTransport } = vi.hoisted(() => ({
   runtimeRegistry: new Map<string, { runtime: unknown; healthy?: () => boolean }>(),
+  isolatedProcessTransport: { available: false },
 }));
 const { prepareAcpxCodexAuthConfigMock } = vi.hoisted(() => ({
   prepareAcpxCodexAuthConfigMock: vi.fn(
@@ -70,6 +71,8 @@ const { acpxRuntimeConstructorMock, createAgentRegistryMock, createFileSessionSt
   }));
 
 vi.mock("../runtime-api.js", () => ({
+  hasIsolatedAcpProcessTransport: () => isolatedProcessTransport.available,
+  launchWithAcpProcessTransport: vi.fn(async () => undefined),
   getAcpRuntimeBackend: (id: string) => runtimeRegistry.get(id),
   registerAcpRuntimeBackend: (entry: { id: string; runtime: unknown; healthy?: () => boolean }) => {
     runtimeRegistry.set(entry.id, entry);
@@ -134,6 +137,7 @@ async function makeTempDir(): Promise<string> {
 afterEach(async () => {
   resetPluginStateStoreForTests();
   runtimeRegistry.clear();
+  isolatedProcessTransport.available = false;
   prepareAcpxCodexAuthConfigMock.mockClear();
   cleanupOpenClawOwnedAcpxProcessTreeMock.mockClear();
   reapStaleOpenClawOwnedAcpxOrphansMock.mockClear();
@@ -294,6 +298,22 @@ describe("createAcpxRuntimeService", () => {
     await service.stop?.(ctx);
   });
 
+  it("does not run a host-local adapter probe when an isolated transport owns launch", async () => {
+    isolatedProcessTransport.available = true;
+    const workspaceDir = await makeTempDir();
+    const ctx = createServiceContext(workspaceDir);
+    const runtime = createMockRuntime({ isHealthy: () => false });
+    const service = createAcpxRuntimeService(ctx, {
+      runtimeFactory: () => runtime as never,
+    });
+
+    await service.start(ctx);
+
+    expect(runtime.probeAvailability).not.toHaveBeenCalled();
+    expect(getAcpRuntimeBackend("acpx")?.healthy).toBeUndefined();
+    await service.stop?.(ctx);
+  });
+
   it("waits for the embedded runtime startup probe before resolving by default", async () => {
     delete process.env.OPENCLAW_ACPX_RUNTIME_STARTUP_PROBE;
     const workspaceDir = await makeTempDir();
@@ -364,6 +384,7 @@ describe("createAcpxRuntimeService", () => {
         name: "probe-policy",
         metrics: [
           ["startupProbeEnabledCount", 1],
+          ["isolatedProcessTransportCount", 0],
           ["probeAgent", "default"],
         ],
       },

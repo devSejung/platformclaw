@@ -181,6 +181,27 @@ describe("SQLite execution runtime target", () => {
       },
     });
 
+    await store.setPersonalClaudeCode({
+      actorUserId: user.id,
+      agentId: binding.agentId,
+      expectedRevision: 1,
+      executablePath: "/users/linux-user/.local/bin/claude",
+      reportedVersion: "2.1.0 (Claude Code)",
+      validatedAt: 11,
+    });
+    await expect(store.resolvePersonalExecutionTarget(binding.agentId)).resolves.toMatchObject({
+      revision: 2,
+      claudeCodeExecutablePath: "/users/linux-user/.local/bin/claude",
+    });
+    await expect(store.getPersonalExecutionSettings(binding.agentId)).resolves.toMatchObject({
+      targetRevision: 2,
+      claudeCode: {
+        executablePath: "/users/linux-user/.local/bin/claude",
+        reportedVersion: "2.1.0 (Claude Code)",
+        validatedAt: 11,
+      },
+    });
+
     await store.updateVmHostExecutionEnvironment({
       actorUserId: user.id,
       vmHostId: host.id,
@@ -188,7 +209,7 @@ describe("SQLite execution runtime target", () => {
         pathPrepend: ["/opt/clang-17/bin"],
         variables: { CC: "/opt/clang-17/bin/clang" },
       },
-      updatedAt: 11,
+      updatedAt: 12,
     });
     await expect(store.resolvePersonalExecutionTarget(binding.agentId)).resolves.toMatchObject({
       executionEnvironment: {

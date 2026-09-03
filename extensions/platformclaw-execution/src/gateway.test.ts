@@ -34,6 +34,7 @@ function createHarness(runtime: {
     api as never,
     Promise.resolve(runtime as never),
     targetMutations,
+    vi.fn(),
   );
   return { beforeRun: () => beforeRun!, methods, targetMutations };
 }

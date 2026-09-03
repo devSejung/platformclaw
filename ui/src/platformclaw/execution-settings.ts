@@ -21,6 +21,11 @@ type ExecutionSettings = {
     remoteWorkspaceDir?: string;
     lastConnectionSucceededAt?: number;
   };
+  claudeCode?: {
+    executablePath: string;
+    reportedVersion: string;
+    validatedAt: number;
+  };
 };
 
 function escapeHtml(value: string): string {
@@ -193,6 +198,27 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         void this.mutate(`${PLATFORMCLAW_EXECUTION_API_PATH}/credential`, { password });
       });
     this.root
+      .querySelector<HTMLElement>("[data-action='claude-detect']")
+      ?.addEventListener("click", () => {
+        if (this.settings) {
+          void this.mutate(`${PLATFORMCLAW_EXECUTION_API_PATH}/claude-code`, {
+            expectedRevision: this.settings.targetRevision,
+          });
+        }
+      });
+    this.root
+      .querySelector<HTMLElement>("[data-action='claude-save']")
+      ?.addEventListener("click", () => {
+        const executablePath =
+          this.root.querySelector<HTMLInputElement>("[data-claude-path]")?.value ?? "";
+        if (this.settings) {
+          void this.mutate(`${PLATFORMCLAW_EXECUTION_API_PATH}/claude-code`, {
+            expectedRevision: this.settings.targetRevision,
+            executablePath,
+          });
+        }
+      });
+    this.root
       .querySelector<HTMLFormElement>("[data-action='select-vm']")
       ?.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -313,6 +339,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
           ${this.message ? `<div class="message">${escapeHtml(this.message)}</div>` : ""}
           ${settings ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.current"))}</h3><strong>${escapeHtml(badgeLabel)}</strong><p class="muted">${escapeHtml(t("platformClaw.execution.boundary"))}</p><div class="row"><button class="button" data-target="platform_server" ${settings.activeTarget === "platform_server" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.useBasic"))}</button><button class="button primary" data-target="assigned_vm" ${settings.activeTarget === "assigned_vm" || !canUseVm || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.useVm"))}</button></div></section>` : ""}
           ${assignment ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.assignedVm"))}</h3><strong>${escapeHtml(assignment.vmLabel)}</strong><p class="muted">${escapeHtml(assignment.linuxAccount)} · ${escapeHtml(assignment.remoteWorkspaceDir ?? t("platformClaw.execution.workspacePending"))}</p><p class="muted">${escapeHtml(t("platformClaw.execution.lastCheck"))}: ${escapeHtml(formatCheckTime(assignment.lastConnectionSucceededAt))}</p><label>${escapeHtml(t("platformClaw.execution.password"))}<input data-password type="password" autocomplete="current-password" maxlength="4096" /></label><div class="row"><button class="button primary" data-action="credential" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.saveAndTest"))}</button><button class="button" data-action="test" ${settings?.credentialStatus !== "current" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.test"))}</button><button class="button" data-action="release" ${settings.activeTarget !== "platform_server" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.release"))}</button></div></section>` : ""}
+          ${assignment ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.codingAgents"))}</h3><label>${escapeHtml(t("platformClaw.execution.claudePath"))}<input data-claude-path value="${escapeHtml(settings?.claudeCode?.executablePath ?? "")}" placeholder="/home/${escapeHtml(assignment.linuxAccount)}/.local/bin/claude" maxlength="4096" /></label>${settings?.claudeCode ? `<p class="muted">${escapeHtml(settings.claudeCode.reportedVersion)} · ${escapeHtml(formatCheckTime(settings.claudeCode.validatedAt))}</p>` : `<p class="muted">${escapeHtml(t("platformClaw.execution.claudeNotConfigured"))}</p>`}<div class="row"><button class="button" data-action="claude-detect" ${!canUseVm || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.detectClaude"))}</button><button class="button primary" data-action="claude-save" ${!canUseVm || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.saveClaude"))}</button></div></section>` : ""}
           ${settings ? (settings.activeTarget === "platform_server" ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.selectVm"))}</h3>${settings.availableVms.length ? `<form data-action="select-vm"><label>${escapeHtml(t("platformClaw.execution.vmChoice"))}<select name="vmHostId" required>${vmOptions}</select></label><label>${escapeHtml(t("platformClaw.execution.linuxAccount"))}<input name="linuxAccount" value="${escapeHtml(assignment?.linuxAccount ?? settings.accountId)}" required></label><label>${escapeHtml(t("platformClaw.execution.password"))}<input name="password" type="password" autocomplete="current-password" maxlength="4096" required></label><p class="muted">${escapeHtml(t("platformClaw.execution.selectionHelp"))}</p><button class="button primary" ${this.busy ? "disabled" : ""}>${escapeHtml(assignment ? t("platformClaw.execution.changeVm") : t("platformClaw.execution.connectVm"))}</button></form>` : `<p class="muted">${escapeHtml(t("platformClaw.execution.noAvailableVm"))}</p>`}</section>` : `<section class="card"><p class="muted">${escapeHtml(t("platformClaw.execution.switchBasicToChange"))}</p></section>`) : ""}
         </main>
         <footer data-confirmation-footer aria-live="polite">

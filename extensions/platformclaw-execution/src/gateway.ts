@@ -33,6 +33,12 @@ type PlatformClawExecutionGatewayRuntime = PlatformClawSkillExportRuntime & {
     target: "platform_server" | "assigned_vm";
     expectedRevision: number;
   }): Promise<PlatformClawExecutionTargetSnapshot>;
+  validateClaudeCode(params: { agentId: string; executablePath?: string }): Promise<{
+    allocationId: string;
+    targetRevision: number;
+    executablePath: string;
+    reportedVersion: string;
+  }>;
   dispose(): Promise<void>;
 };
 
@@ -40,6 +46,7 @@ export function registerPlatformClawExecutionGateway(
   api: Pick<OpenClawPluginApi, "logger" | "on" | "registerGatewayMethod">,
   runtimePromise: Promise<PlatformClawExecutionGatewayRuntime>,
   targetMutations: PlatformClawTargetMutationCoordinator,
+  invalidateAcpProcesses: (agentId: string) => void,
 ): () => Promise<void> {
   const disposeSkillExports = registerPlatformClawSkillExportGateway(
     api,
@@ -140,6 +147,37 @@ export function registerPlatformClawExecutionGateway(
     { scope: "operator.admin" },
   );
   api.registerGatewayMethod(
+    "platformclaw-execution.validateClaudeCode",
+    async ({ params, respond }) => {
+      const input = params as Record<string, unknown>;
+      const agentId = typeof input.agentId === "string" ? input.agentId.trim() : "";
+      const executablePath =
+        typeof input.executablePath === "string" ? input.executablePath.trim() : undefined;
+      if (
+        !agentId ||
+        (executablePath && (!executablePath.startsWith("/") || executablePath.length > 4096))
+      ) {
+        respond(false, undefined, {
+          code: "INVALID_REQUEST",
+          message: "Claude Code path is invalid",
+        });
+        return;
+      }
+      try {
+        respond(true, await (await runtimePromise).validateClaudeCode({ agentId, executablePath }));
+      } catch (error) {
+        api.logger.warn?.(
+          `[platformclaw-execution] Claude Code validation failed agent=${agentId}`,
+        );
+        respond(false, undefined, {
+          code: "UNAVAILABLE",
+          message: error instanceof Error ? error.message : "Claude Code validation failed",
+        });
+      }
+    },
+    { scope: "operator.admin" },
+  );
+  api.registerGatewayMethod(
     "platformclaw-execution.changeTarget",
     async ({ params, context, respond }) => {
       const input = params as Record<string, unknown>;
@@ -179,7 +217,9 @@ export function registerPlatformClawExecutionGateway(
           return;
         }
         const runtime = await runtimePromise;
-        respond(true, await runtime.changeTarget({ agentId, target, expectedRevision }));
+        const changed = await runtime.changeTarget({ agentId, target, expectedRevision });
+        invalidateAcpProcesses(agentId);
+        respond(true, changed);
       } catch (error) {
         const conflict = error instanceof Error && error.message.includes("(409)");
         respond(false, undefined, {
@@ -191,6 +231,20 @@ export function registerPlatformClawExecutionGateway(
       } finally {
         releaseMutation();
       }
+    },
+    { scope: "operator.admin" },
+  );
+  api.registerGatewayMethod(
+    "platformclaw-execution.invalidateAgent",
+    async ({ params, respond }) => {
+      const input = params as Record<string, unknown>;
+      const agentId = typeof input.agentId === "string" ? input.agentId.trim() : "";
+      if (!agentId) {
+        respond(false, undefined, { code: "INVALID_REQUEST", message: "agent id is required" });
+        return;
+      }
+      invalidateAcpProcesses(agentId);
+      respond(true, { invalidated: true });
     },
     { scope: "operator.admin" },
   );

@@ -149,6 +149,7 @@ export async function initializeAcpSpawnRuntime(params: {
   cfg: OpenClawConfig;
   sessionKey: string;
   targetAgentId: string;
+  executionOwnerAgentId?: string;
   runtimeMode: AcpRuntimeSessionMode;
   resumeSessionId?: string;
   runtimeOptions?: AcpSpawnRuntimeOptions;
@@ -177,6 +178,9 @@ export async function initializeAcpSpawnRuntime(params: {
     cfg: params.cfg,
     sessionKey: params.sessionKey,
     agent: params.targetAgentId,
+    ...(params.executionOwnerAgentId
+      ? { executionOwnerAgentId: params.executionOwnerAgentId }
+      : {}),
     mode: params.runtimeMode,
     resumeSessionId: params.resumeSessionId,
     runtimeOptions: params.runtimeOptions,

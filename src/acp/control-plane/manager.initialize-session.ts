@@ -56,6 +56,9 @@ export async function runManagerInitializeSession(params: {
       await runtime.ensureSession({
         sessionKey,
         agent,
+        ...(input.executionOwnerAgentId
+          ? { executionOwnerAgentId: normalizeAgentId(input.executionOwnerAgentId) }
+          : {}),
         mode: input.mode,
         resumeSessionId: input.resumeSessionId,
         ...(requestedModel ? { model: requestedModel } : {}),
@@ -95,6 +98,9 @@ export async function runManagerInitializeSession(params: {
   const meta: SessionAcpMeta = {
     backend: handle.backend || backend.id,
     agent,
+    ...(input.executionOwnerAgentId
+      ? { executionOwnerAgentId: normalizeAgentId(input.executionOwnerAgentId) }
+      : {}),
     runtimeSessionName: handle.runtimeSessionName,
     identity: initializedIdentity,
     mode: input.mode,
@@ -125,6 +131,7 @@ export async function runManagerInitializeSession(params: {
     handle,
     backend: handle.backend || backend.id,
     agent,
+    ...(meta.executionOwnerAgentId ? { executionOwnerAgentId: meta.executionOwnerAgentId } : {}),
     mode: input.mode,
     cwd: effectiveCwd,
     configSignature: resolveRuntimeConfigCacheKey(input.cfg),

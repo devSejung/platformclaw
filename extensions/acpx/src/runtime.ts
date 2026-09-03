@@ -28,7 +28,16 @@ import { parseStrictPositiveInteger } from "openclaw/plugin-sdk/number-runtime";
 import { redactSensitiveText } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeStringEntries } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { sliceUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
-import { AcpRuntimeError, type AcpRuntime, type AcpRuntimeErrorCode } from "../runtime-api.js";
+import {
+  ACP_AGENT_ENV,
+  ACP_EXECUTION_OWNER_ENV,
+  ACP_SESSION_KEY_ENV,
+  prepareAcpProcessTransport,
+  releaseAcpProcessTransport,
+  AcpRuntimeError,
+  type AcpRuntime,
+  type AcpRuntimeErrorCode,
+} from "../runtime-api.js";
 import { CODEX_ACP_PACKAGE, OPENCLAW_CODEX_CONFIG_ARG } from "./codex-adapter.js";
 import { splitCommandParts } from "./command-line.js";
 import {
@@ -651,8 +660,28 @@ function normalizeClaudeAcpModelOverride(rawModel: string | undefined): string |
 function withAcpxSessionOptions(input: OpenClawRuntimeEnsureInput): AcpxDelegateEnsureInput {
   const existingOptions = (input as { sessionOptions?: SessionAgentOptions }).sessionOptions;
   const model = input.model?.trim() || existingOptions?.model;
-  const sessionOptions = model ? { ...existingOptions, model } : existingOptions;
-  const { modelExplicit: _modelExplicit, ...rest } = input;
+  const executionOwnerAgentId = input.executionOwnerAgentId?.trim();
+  const sessionEnv = executionOwnerAgentId
+    ? {
+        ...existingOptions?.env,
+        [ACP_EXECUTION_OWNER_ENV]: executionOwnerAgentId,
+        [ACP_AGENT_ENV]: input.agent,
+        [ACP_SESSION_KEY_ENV]: input.sessionKey,
+      }
+    : existingOptions?.env;
+  const sessionOptions =
+    model || sessionEnv
+      ? {
+          ...existingOptions,
+          ...(model ? { model } : {}),
+          ...(sessionEnv ? { env: sessionEnv } : {}),
+        }
+      : existingOptions;
+  const {
+    modelExplicit: _modelExplicit,
+    executionOwnerAgentId: _executionOwnerAgentId,
+    ...rest
+  } = input;
   return {
     ...rest,
     ...(sessionOptions ? { sessionOptions } : {}),
@@ -801,6 +830,8 @@ export class AcpxRuntime implements AcpRuntime {
   private readonly openclawToolsMcpBridgeEnabled: boolean;
   private readonly managedToolsMcpBridgeEnabled: boolean;
   private readonly managedToolsSessionDelegates = new Map<string, BaseAcpxRuntime>();
+  private readonly isolatedSessionDelegates = new Map<string, BaseAcpxRuntime>();
+  private readonly isolatedSessionOwners = new Map<string, string>();
   private readonly processCleanupDeps: AcpxProcessCleanupDeps | undefined;
   private readonly wrapperRoot: string | undefined;
   private readonly gatewayInstanceId: string | undefined;
@@ -863,7 +894,32 @@ export class AcpxRuntime implements AcpRuntime {
   private resolveDelegateForSession(params: {
     command: string | undefined;
     sessionKey: string;
+    executionOwnerAgentId?: string;
   }): BaseAcpxRuntime {
+    const normalizedSessionKey = params.sessionKey.trim();
+    if (params.executionOwnerAgentId?.trim()) {
+      const cached = this.isolatedSessionDelegates.get(normalizedSessionKey);
+      if (cached) {
+        return cached;
+      }
+      // Remote ACP agents own their filesystem and terminal inside the assigned VM.
+      // Advertising Gateway-local client capabilities would cross the execution boundary.
+      const isolated = new BaseAcpxRuntime(
+        {
+          ...this.delegateOptions,
+          mcpServers: [],
+          fs: false,
+          terminal: false,
+        },
+        this.delegateTestOptions,
+      );
+      this.isolatedSessionDelegates.set(normalizedSessionKey, isolated);
+      return isolated;
+    }
+    const isolated = this.isolatedSessionDelegates.get(normalizedSessionKey);
+    if (isolated) {
+      return isolated;
+    }
     if (shouldUseBridgeSafeDelegateForCommand(params.command)) {
       return this.bridgeSafeDelegate;
     }
@@ -902,6 +958,7 @@ export class AcpxRuntime implements AcpRuntime {
   }
 
   private releaseManagedToolsDelegateForSession(sessionKey: string): void {
+    this.isolatedSessionDelegates.delete(sessionKey.trim());
     if (!this.managedToolsMcpBridgeEnabled) {
       return;
     }
@@ -1428,30 +1485,66 @@ export class AcpxRuntime implements AcpRuntime {
   async ensureSession(
     input: Parameters<AcpRuntime["ensureSession"]>[0],
   ): Promise<OpenClawRuntimeHandle> {
-    return await this.runSerializedSessionEnsure(input.sessionKey, () =>
-      this.ensureSessionUnlocked(input),
-    );
+    return await this.runSerializedSessionEnsure(input.sessionKey, async () => {
+      const normalizedSessionKey = input.sessionKey.trim();
+      const existingOwner = this.isolatedSessionOwners.get(normalizedSessionKey);
+      if (
+        existingOwner &&
+        input.executionOwnerAgentId &&
+        existingOwner !== input.executionOwnerAgentId
+      ) {
+        throw new Error("ACP execution owner changed; close the session and retry.");
+      }
+      try {
+        return await this.ensureSessionUnlocked(input);
+      } catch (error) {
+        if (input.executionOwnerAgentId && !existingOwner) {
+          this.isolatedSessionOwners.delete(normalizedSessionKey);
+          this.isolatedSessionDelegates.delete(normalizedSessionKey);
+          await releaseAcpProcessTransport({
+            executionOwnerAgentId: input.executionOwnerAgentId,
+            sessionKey: input.sessionKey,
+          }).catch(() => {});
+        }
+        throw error;
+      }
+    });
   }
 
   private async ensureSessionUnlocked(
     input: Parameters<AcpRuntime["ensureSession"]>[0],
   ): Promise<OpenClawRuntimeHandle> {
     assertSupportedRuntimeSessionMode(input.mode);
+    const preparedTransport = input.executionOwnerAgentId
+      ? await prepareAcpProcessTransport({
+          executionOwnerAgentId: input.executionOwnerAgentId,
+          agent: input.agent,
+          sessionKey: input.sessionKey,
+        })
+      : undefined;
+    if (input.executionOwnerAgentId) {
+      this.isolatedSessionOwners.set(input.sessionKey.trim(), input.executionOwnerAgentId);
+    }
+    const effectiveInput = preparedTransport ? { ...input, cwd: preparedTransport.cwd } : input;
     const command = resolveAgentCommand({
-      agentName: input.agent,
+      agentName: effectiveInput.agent,
       agentRegistry: this.agentRegistry,
     });
-    const delegate = this.resolveDelegateForSession({ command, sessionKey: input.sessionKey });
+    const delegate = this.resolveDelegateForSession({
+      command,
+      sessionKey: effectiveInput.sessionKey,
+      executionOwnerAgentId: effectiveInput.executionOwnerAgentId,
+    });
     const isCodexAcp =
-      normalizeAgentName(input.agent) === CODEX_ACP_AGENT_ID && isCodexAcpCommand(command);
+      normalizeAgentName(effectiveInput.agent) === CODEX_ACP_AGENT_ID && isCodexAcpCommand(command);
     const claudeModelOverride = isClaudeAcpCommand(command)
-      ? normalizeClaudeAcpModelOverride(input.model)
+      ? normalizeClaudeAcpModelOverride(effectiveInput.model)
       : undefined;
     const codexClassification = isCodexAcp
-      ? classifyCodexAcpModelRequest(input.model, input.thinking)
+      ? classifyCodexAcpModelRequest(effectiveInput.model, effectiveInput.thinking)
       : undefined;
-    if (codexClassification?.kind === "unsupported" && input.modelExplicit) {
-      failUnsupportedCodexAcpModel(input.model ?? "");
+    if (codexClassification?.kind === "unsupported" && effectiveInput.modelExplicit) {
+      failUnsupportedCodexAcpModel(effectiveInput.model ?? "");
     }
     const classifiedCodexOverride =
       codexClassification?.kind === "override"
@@ -1461,7 +1554,7 @@ export class AcpxRuntime implements AcpRuntime {
       classifiedCodexOverride && Object.keys(classifiedCodexOverride).length > 0
         ? classifiedCodexOverride
         : undefined;
-    const requestedModel = input.model?.trim();
+    const requestedModel = effectiveInput.model?.trim();
     const appliedModel: OpenClawRuntimeHandle["appliedModel"] =
       isCodexAcp && requestedModel
         ? codexModelOverride?.model
@@ -1469,20 +1562,20 @@ export class AcpxRuntime implements AcpRuntime {
           : { kind: "dropped" }
         : undefined;
     const ensureInput = isCodexAcp
-      ? withCodexSessionModel(input, codexModelOverride)
+      ? withCodexSessionModel(effectiveInput, codexModelOverride)
       : claudeModelOverride
-        ? { ...input, model: claudeModelOverride }
-        : input;
+        ? { ...effectiveInput, model: claudeModelOverride }
+        : effectiveInput;
     const stableLaunchCommand =
       codexModelOverride && command
         ? appendCodexAcpConfigOverrides(command, codexModelOverride)
         : command;
     const reusableCommand = await this.readReusablePersistentSessionCommand({
-      sessionKey: input.sessionKey,
-      mode: input.mode,
-      cwd: input.cwd,
+      sessionKey: effectiveInput.sessionKey,
+      mode: effectiveInput.mode,
+      cwd: effectiveInput.cwd,
       command: stableLaunchCommand,
-      resumeSessionId: input.resumeSessionId,
+      resumeSessionId: effectiveInput.resumeSessionId,
     });
 
     const handle = !codexModelOverride
@@ -1498,7 +1591,7 @@ export class AcpxRuntime implements AcpRuntime {
             }),
         })
       : await this.runWithLaunchLease({
-          sessionKey: input.sessionKey,
+          sessionKey: effectiveInput.sessionKey,
           command: stableLaunchCommand,
           reusableCommand,
           run: () =>
@@ -1587,6 +1680,9 @@ export class AcpxRuntime implements AcpRuntime {
 
     return {
       requestId: input.requestId,
+      get promptStarted() {
+        return turnPromise.then(({ turn }) => turn.promptStarted);
+      },
       events: {
         async *[Symbol.asyncIterator](): AsyncIterator<AcpRuntimeEvent> {
           const { command, turn } = await turnPromise;
@@ -1769,6 +1865,7 @@ export class AcpxRuntime implements AcpRuntime {
   }
 
   async close(input: Parameters<AcpRuntime["close"]>[0]): Promise<void> {
+    const isolatedOwner = this.isolatedSessionOwners.get(input.handle.sessionKey.trim());
     const closeLease = await this.prepareProcessLeaseForOperation(input.handle);
     let cleanupSucceeded = false;
     try {
@@ -1799,6 +1896,14 @@ export class AcpxRuntime implements AcpRuntime {
         await this.finalizeProcessLeaseForOperation(input.handle, closeLease);
       } else {
         await this.retirePendingProcessLease(closeLease);
+      }
+      if (isolatedOwner) {
+        this.isolatedSessionOwners.delete(input.handle.sessionKey.trim());
+        this.isolatedSessionDelegates.delete(input.handle.sessionKey.trim());
+        await releaseAcpProcessTransport({
+          executionOwnerAgentId: isolatedOwner,
+          sessionKey: input.handle.sessionKey,
+        }).catch(() => {});
       }
     }
   }

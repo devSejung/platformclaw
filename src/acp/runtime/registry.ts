@@ -9,6 +9,8 @@ export type AcpRuntimeBackend = {
   id: string;
   runtime: AcpRuntime;
   healthy?: () => boolean;
+  /** True only when sandboxed callers are kept inside a requester-owned execution target. */
+  isolatesSandboxedRequesters?: () => boolean;
 };
 
 type AcpRuntimeRegistryGlobalState = {

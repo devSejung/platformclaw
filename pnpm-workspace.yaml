@@ -154,6 +154,7 @@ overrides:
   uuid: 14.0.1
 
 allowBuilds:
+  "acpx@https://codeload.github.com/devSejung/acpx/tar.gz/484a8a4101ff2cd1c9933c7e0db5871d42074fe5": true
   "@openclaw/fs-safe": true
   "@google/genai": true
   "@lydell/node-pty": true

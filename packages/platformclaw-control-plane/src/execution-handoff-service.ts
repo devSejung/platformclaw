@@ -70,6 +70,9 @@ function publicSnapshot(target: ExecutionTarget): ExecutionTargetSnapshot {
     ...(target.executionEnvironment
       ? { executionEnvironment: structuredClone(target.executionEnvironment) }
       : {}),
+    ...(target.claudeCodeExecutablePath
+      ? { claudeCodeExecutablePath: target.claudeCodeExecutablePath }
+      : {}),
   };
 }
 

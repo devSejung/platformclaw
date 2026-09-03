@@ -388,8 +388,8 @@ importers:
         specifier: 1.1.7
         version: 1.1.7
       acpx:
-        specifier: 0.13.0
-        version: 0.13.0
+        specifier: github:devSejung/acpx#484a8a4101ff2cd1c9933c7e0db5871d42074fe5
+        version: https://codeload.github.com/devSejung/acpx/tar.gz/484a8a4101ff2cd1c9933c7e0db5871d42074fe5
       smol-toml:
         specifier: 1.7.1
         version: 1.7.1
@@ -1554,40 +1554,6 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
-  extensions/platformclaw-execution:
-    devDependencies:
-      '@openclaw/plugin-sdk':
-        specifier: workspace:*
-        version: link:../../packages/plugin-sdk
-
-  extensions/platformclaw-org-memory:
-    devDependencies:
-      '@openclaw/plugin-sdk':
-        specifier: workspace:*
-        version: link:../../packages/plugin-sdk
-
-  extensions/platformclaw-skillhub:
-    devDependencies:
-      '@openclaw/plugin-sdk':
-        specifier: workspace:*
-        version: link:../../packages/plugin-sdk
-
-  extensions/platformclaw-web-relay:
-    dependencies:
-      typebox:
-        specifier: 1.3.6
-        version: 1.3.6
-    devDependencies:
-      '@openclaw/plugin-sdk':
-        specifier: workspace:*
-        version: link:../../packages/plugin-sdk
-
-  extensions/platformclaw-user-mcp:
-    devDependencies:
-      '@openclaw/plugin-sdk':
-        specifier: workspace:*
-        version: link:../../packages/plugin-sdk
-
   extensions/parallel:
     devDependencies:
       '@openclaw/plugin-sdk':
@@ -1608,6 +1574,40 @@ importers:
       openclaw:
         specifier: workspace:*
         version: link:../..
+
+  extensions/platformclaw-execution:
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
+  extensions/platformclaw-org-memory:
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
+  extensions/platformclaw-skillhub:
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
+  extensions/platformclaw-user-mcp:
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
+  extensions/platformclaw-web-relay:
+    dependencies:
+      typebox:
+        specifier: 1.3.6
+        version: 1.3.6
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
 
   extensions/policy:
     dependencies:
@@ -2232,7 +2232,7 @@ importers:
         version: 0.115.0(zod@4.4.3)
       '@google/genai':
         specifier: 2.13.0
-        version: 2.13.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.4.3))(supports-color@10.2.2)
+        version: 2.13.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(supports-color@10.2.2)
       '@mistralai/mistralai':
         specifier: 2.5.0
         version: 2.5.0(@opentelemetry/api@1.9.1)
@@ -2351,10 +2351,6 @@ importers:
         specifier: 1.3.6
         version: 1.3.6
 
-  packages/plugin-package-contract: {}
-
-  packages/plugin-sdk: {}
-
   packages/platformclaw-control-plane:
     dependencies:
       '@modelcontextprotocol/sdk':
@@ -2391,6 +2387,10 @@ importers:
       '@types/proper-lockfile':
         specifier: 4.1.4
         version: 4.1.4
+
+  packages/plugin-package-contract: {}
+
+  packages/plugin-sdk: {}
 
   packages/retry: {}
 
@@ -2573,6 +2573,11 @@ packages:
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
 
+  '@agentclientprotocol/sdk@1.4.0':
+    resolution: {integrity: sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
+
   '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.219':
     resolution: {integrity: sha512-TQhGAlbMsOGXi03dwf4nD274Lc5BOJg4QFJTuXcQyhLhx0hUqzxCmtvpXt6S70K6yl1Zgc+2n5W/r1Dgt8G8iw==}
     cpu: [arm64]
@@ -2675,6 +2680,9 @@ packages:
   '@aws-sdk/core@3.977.1':
     resolution: {integrity: sha512-KVtQRtc00ES/y+Sc3vYXeP6pCIcNlBJCZOwvqSy8ZpVGmbM5+IG+AfhuTKQ2oXmIVqZJewaGMMpzPkywC6xg0w==}
     engines: {node: '>=20.0.0'}
+    deprecated: |-
+      Deprecated due to Document number parsing bug in JSON, see
+        https://github.com/aws/aws-sdk-js-v3/issues/8246. Newer version available.
 
   '@aws-sdk/credential-provider-cognito-identity@3.972.60':
     resolution: {integrity: sha512-16Fxa3veKIO6nHJr+vN76z3BkSU7725lzruc5S2SQSTUTbK4TXtmi8033WQljZj4k1+383UsMaNOHN6B76fK5A==}
@@ -5496,10 +5504,11 @@ packages:
   '@types/node@24.13.3':
     resolution: {integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==}
 
-  '@types/proper-lockfile@4.1.4':
-    resolution: {integrity: sha512-uo2ABllncSqg9F1D4nugVl9v93RmjxF6LJzQLMLDdPaXCUIDPeOJ21Gbqi43xNKzBi/WQ0Q0dICqufzQbMjipQ==}
   '@types/node@26.1.2':
     resolution: {integrity: sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg==}
+
+  '@types/proper-lockfile@4.1.4':
+    resolution: {integrity: sha512-uo2ABllncSqg9F1D4nugVl9v93RmjxF6LJzQLMLDdPaXCUIDPeOJ21Gbqi43xNKzBi/WQ0Q0dICqufzQbMjipQ==}
 
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
@@ -5850,8 +5859,9 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  acpx@0.13.0:
-    resolution: {integrity: sha512-EdGgMx5osY4bNpVN+7dTTT67ZXsFqx/itl4QjGYTKH/Nzm3fqGmWL3E6FjRkVrlWRpiFnRNi+J1lxUJPie4lmg==}
+  acpx@https://codeload.github.com/devSejung/acpx/tar.gz/484a8a4101ff2cd1c9933c7e0db5871d42074fe5:
+    resolution: {gitHosted: true, integrity: sha512-rCIdZix8ORXp3d1YzjZL6UyTGGyoArRwOAahVmktfXNWSJyZlwJdB2raGcXoo1IM/PruMbAcIx6D/zCaWLGnEA==, tarball: https://codeload.github.com/devSejung/acpx/tar.gz/484a8a4101ff2cd1c9933c7e0db5871d42074fe5}
+    version: 0.13.2
     engines: {node: '>=22.13.0'}
     hasBin: true
 
@@ -6346,6 +6356,7 @@ packages:
 
   crypto-js@4.2.0:
     resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
+    deprecated: Active development of CryptoJS has been discontinued. This library is no longer maintained.
 
   css-functions-list@3.3.3:
     resolution: {integrity: sha512-8HFEBPKhOpJPEPu70wJJetjKta86Gw9+CCyCnB3sui2qQfOvRyqBy4IKLKKAwdMpWb2lHXWk9Wb4Z6AmaUT1Pg==}
@@ -9090,6 +9101,11 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
+  tsx@4.23.13:
+    resolution: {integrity: sha512-BL5MGkRln6aDYhb0xbQlEAGw743BaZYWdbWtdJOBriYJboKgUUYCadFp2/FpBBZquBC/ezNBn7wMMPx7FDZUDw==}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
+
   tsyringe@4.10.0:
     resolution: {integrity: sha512-axr3IdNuVIxnaK5XGEUFTu3YmAQ6lllgrvqfEoR16g/HGnYY/6We4oWENtAnzK6/LpJ2ur9PAb80RBt7/U4ugw==}
     engines: {node: '>= 6.0.0'}
@@ -9553,6 +9569,9 @@ packages:
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
+  zod@4.5.4:
+    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
@@ -9597,6 +9616,10 @@ snapshots:
   '@agentclientprotocol/sdk@1.3.0(zod@4.4.3)':
     dependencies:
       zod: 4.4.3
+
+  '@agentclientprotocol/sdk@1.4.0(zod@4.5.4)':
+    dependencies:
+      zod: 4.5.4
 
   '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.219':
     optional: true
@@ -10730,6 +10753,19 @@ snapshots:
       - supports-color
       - utf-8-validate
 
+  '@google/genai@2.13.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(supports-color@10.2.2)':
+    dependencies:
+      google-auth-library: 10.9.1(supports-color@10.2.2)
+      p-retry: 4.6.2
+      protobufjs: 8.7.1
+      ws: 8.21.1
+    optionalDependencies:
+      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.5.4)
+    transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+
   '@grammyjs/runner@2.0.3(grammy@1.45.1(supports-color@10.2.2))':
     dependencies:
       abort-controller: 3.0.0
@@ -11338,6 +11374,29 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.4.3)
     transitivePeerDependencies:
       - supports-color
+
+  '@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4)':
+    dependencies:
+      '@hono/node-server': 2.0.12(hono@4.12.32)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.0
+      express: 5.2.1(supports-color@10.2.2)
+      express-rate-limit: 8.6.1(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
+      hono: 4.12.32
+      jose: 6.2.4
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 4.5.4
+      zod-to-json-schema: 3.25.2(zod@4.5.4)
+    transitivePeerDependencies:
+      - supports-color
+    optional: true
 
   '@mozilla/readability@0.6.0': {}
 
@@ -12680,12 +12739,13 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
-  '@types/proper-lockfile@4.1.4':
-    dependencies:
-      '@types/retry': 0.12.0
   '@types/node@26.1.2':
     dependencies:
       undici-types: 8.3.0
+
+  '@types/proper-lockfile@4.1.4':
+    dependencies:
+      '@types/retry': 0.12.0
 
   '@types/qs@6.15.1': {}
 
@@ -13027,13 +13087,13 @@ snapshots:
 
   acorn@8.17.0: {}
 
-  acpx@0.13.0:
+  acpx@https://codeload.github.com/devSejung/acpx/tar.gz/484a8a4101ff2cd1c9933c7e0db5871d42074fe5:
     dependencies:
-      '@agentclientprotocol/sdk': 1.3.0(zod@4.4.3)
+      '@agentclientprotocol/sdk': 1.4.0(zod@4.5.4)
       commander: 15.0.0
       skillflag: 0.2.1
-      tsx: 4.23.1
-      zod: 4.4.3
+      tsx: 4.23.13
+      zod: 4.5.4
     transitivePeerDependencies:
       - bare-abort-controller
       - bare-buffer
@@ -16750,6 +16810,12 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
+  tsx@4.23.13:
+    dependencies:
+      esbuild: 0.28.1
+    optionalDependencies:
+      fsevents: 2.3.3
+
   tsyringe@4.10.0:
     dependencies:
       tslib: 1.14.1
@@ -17260,8 +17326,15 @@ snapshots:
     dependencies:
       zod: 4.4.3
 
+  zod-to-json-schema@3.25.2(zod@4.5.4):
+    dependencies:
+      zod: 4.5.4
+    optional: true
+
   zod@3.25.76: {}
 
   zod@4.4.3: {}
+
+  zod@4.5.4: {}
 
   zwitch@2.0.4: {}

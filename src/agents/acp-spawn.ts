@@ -7,6 +7,7 @@ import {
   type AcpSpawnRuntimeCloseHandle,
 } from "../acp/control-plane/spawn.js";
 import { isAcpEnabledByPolicy, resolveAcpAgentPolicyError } from "../acp/policy.js";
+import { canUseAcpProcessTransport } from "../acp/runtime/process-transport.js";
 import { getRuntimeConfig } from "../config/config.js";
 import { resolveStorePath } from "../config/sessions/paths.js";
 import {
@@ -15,7 +16,6 @@ import {
 } from "../config/sessions/session-accessor.js";
 import { buildSessionCreationStamp } from "../config/sessions/session-entry-provenance.js";
 import type { SessionEntry } from "../config/sessions/types.js";
-import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { callGateway } from "../gateway/call.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { resolveEventSessionRoutingPolicy } from "../infra/event-session-routing.js";
@@ -49,6 +49,7 @@ import {
   resolveRequesterInternalSessionKey,
   validateAcpResumeSessionOwnership,
 } from "./acp-spawn-requester.js";
+import { resolveAcpSpawnRuntimePolicyError } from "./acp-spawn-runtime-policy.js";
 import {
   bindPreparedAcpThread,
   initializeAcpSpawnRuntime,
@@ -72,7 +73,6 @@ import {
   inheritedToolDenyPatch,
 } from "./inherited-tool-deny.js";
 import { AGENT_LANE_SUBAGENT } from "./lanes.js";
-import { resolveSandboxRuntimeStatus } from "./sandbox/runtime-status.js";
 import {
   runSpawnPipeline,
   type SpawnBackendAdapter,
@@ -83,7 +83,6 @@ import {
   prepareSpawnThreadBinding,
   resolveSpawnAdmission,
   resolveSpawnMode,
-  resolveSpawnSandboxError,
   type PreparedSpawnThreadBinding,
 } from "./spawn-plan.js";
 import { resolveSpawnedWorkspaceInheritance } from "./spawned-context.js";
@@ -193,25 +192,6 @@ const ACP_SPAWN_ACCEPTED_NOTE =
 const ACP_SPAWN_SESSION_ACCEPTED_NOTE =
   "thread-bound ACP session stays active after this task; continue in-thread for follow-ups.";
 
-export function resolveAcpSpawnRuntimePolicyError(params: {
-  cfg: OpenClawConfig;
-  requesterSessionKey?: string;
-  requesterSandboxed?: boolean;
-  sandbox?: SpawnAcpSandboxMode;
-}): string | undefined {
-  const sandboxMode = params.sandbox === "require" ? "require" : "inherit";
-  const requesterRuntime = resolveSandboxRuntimeStatus({
-    cfg: params.cfg,
-    sessionKey: params.requesterSessionKey,
-  });
-  const requesterSandboxed = params.requesterSandboxed === true || requesterRuntime.sandboxed;
-  return resolveSpawnSandboxError({
-    backend: "acp",
-    requesterSandboxed,
-    sandbox: sandboxMode,
-  });
-}
-
 function createAcpSpawnFailure(params: {
   status: "forbidden" | "error";
   errorCode: SpawnAcpErrorCode;
@@ -229,6 +209,7 @@ function createAcpSpawnFailure(params: {
 }
 
 export { resolveRuntimeCwdForAcpSpawn } from "./acp-spawn-runtime.js";
+export { resolveAcpSpawnRuntimePolicyError } from "./acp-spawn-runtime-policy.js";
 
 export async function spawnAcpDirect(
   params: SpawnAcpParams,
@@ -264,19 +245,6 @@ export async function spawnAcpDirect(
   }
 
   const requestThreadBinding = params.thread === true;
-  const runtimePolicyError = resolveAcpSpawnRuntimePolicyError({
-    cfg,
-    requesterSessionKey: ctx.agentSessionKey,
-    requesterSandboxed: ctx.sandboxed,
-    sandbox: params.sandbox,
-  });
-  if (runtimePolicyError) {
-    return createAcpSpawnFailure({
-      status: "forbidden",
-      errorCode: "runtime_policy",
-      error: runtimePolicyError,
-    });
-  }
   const acpUnsupportedInheritedTool = findAcpUnsupportedInheritedToolDeny(
     ctx.inheritedToolDenylist,
   );
@@ -327,6 +295,21 @@ export async function spawnAcpDirect(
     });
   }
   const targetAgentId = targetAgentResult.agentId;
+  const runtimePolicyError = resolveAcpSpawnRuntimePolicyError({
+    cfg,
+    requesterSessionKey: ctx.agentSessionKey,
+    requesterSandboxed: ctx.sandboxed,
+    sandbox: params.sandbox,
+    executionOwnerAgentId: requesterAgentId,
+    targetAgentId,
+  });
+  if (runtimePolicyError) {
+    return createAcpSpawnFailure({
+      status: "forbidden",
+      errorCode: "runtime_policy",
+      error: runtimePolicyError,
+    });
+  }
   const agentPolicyError = resolveAcpAgentPolicyError(cfg, targetAgentId);
   if (agentPolicyError) {
     return createAcpSpawnFailure({
@@ -533,6 +516,12 @@ export async function spawnAcpDirect(
         cfg,
         sessionKey,
         targetAgentId,
+        executionOwnerAgentId: canUseAcpProcessTransport({
+          executionOwnerAgentId: requesterAgentId,
+          agent: targetAgentId,
+        })
+          ? requesterAgentId
+          : undefined,
         runtimeMode,
         resumeSessionId: params.resumeSessionId,
         runtimeOptions: runtimeOptionsResult.runtimeOptions,

@@ -9,15 +9,21 @@ export function isAcpRuntimeSpawnAvailable(params: {
   sandboxed?: boolean;
   backendId?: string;
 }): boolean {
-  if (params.sandboxed === true) {
-    return false;
-  }
   if (params.config && !isAcpEnabledByPolicy(params.config)) {
     return false;
   }
   const backend = getAcpRuntimeBackend(params.backendId ?? params.config?.acp?.backend);
   if (!backend) {
     return false;
+  }
+  if (params.sandboxed === true) {
+    try {
+      if (backend.isolatesSandboxedRequesters?.() !== true) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
   }
   if (!backend.healthy) {
     return true;
