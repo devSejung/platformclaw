@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { testing } from "./acp-process-transport.js";
+import { buildAssignedVmAcpRemoteCommand } from "./acp-process-command.js";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
 
 const TARGET: AssignedVmTargetSnapshot = {
@@ -27,7 +27,7 @@ const TARGET: AssignedVmTargetSnapshot = {
 
 describe("assigned VM ACP process transport", () => {
   it("uses only the root-managed Claude adapter and typed per-user executable", () => {
-    const command = testing.buildAssignedVmAcpRemoteCommand(
+    const command = buildAssignedVmAcpRemoteCommand(
       {
         executionOwnerAgentId: "person_one",
         agent: "claude",
@@ -49,10 +49,33 @@ describe("assigned VM ACP process transport", () => {
   });
 
   it("uses the pinned OpenCode adapter contract", () => {
-    expect(testing.remoteAgentArgv("opencode")).toEqual([
-      "/opt/platformclaw/libexec/opencode-acp/bin/opencode",
-      "acp",
-    ]);
-    expect(() => testing.remoteAgentArgv("codex")).toThrow("unsupported");
+    const command = buildAssignedVmAcpRemoteCommand(
+      {
+        executionOwnerAgentId: "person_one",
+        agent: "opencode",
+        sessionKey: "session-one",
+        command: "ignored",
+        args: [],
+        cwd: "/ignored",
+        env: {},
+      },
+      TARGET,
+    );
+    expect(command).toContain("/opt/platformclaw/libexec/opencode-acp/bin/opencode");
+    expect(command).toContain("'acp'");
+    expect(() =>
+      buildAssignedVmAcpRemoteCommand(
+        {
+          executionOwnerAgentId: "person_one",
+          agent: "codex",
+          sessionKey: "session-one",
+          command: "ignored",
+          args: [],
+          cwd: "/ignored",
+          env: {},
+        },
+        TARGET,
+      ),
+    ).toThrow("unsupported");
   });
 });

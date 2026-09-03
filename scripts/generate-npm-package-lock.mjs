@@ -128,13 +128,14 @@ function readPnpmLockPackages() {
   return lockPackages;
 }
 
-function readPnpmLockPackageIntegrities() {
-  const lockfile = parseYaml(readFileSync(path.join(ROOT_DIR, "pnpm-lock.yaml"), "utf8"));
+function pnpmLockPackageIntegrities(lockfile) {
   const integrities = new Map();
   for (const [packageKey, metadata] of Object.entries(lockfile?.packages ?? {})) {
     const parsed = parsePnpmPackageKey(packageKey);
     const integrity = metadata?.resolution?.integrity;
-    if (!parsed || typeof integrity !== "string") {
+    // npm runs the lifecycle and repacks git dependencies, so its integrity
+    // cannot equal pnpm's raw hosted-source tarball integrity.
+    if (!parsed || typeof integrity !== "string" || metadata?.resolution?.gitHosted === true) {
       continue;
     }
     const versions = new Set([parsed.version]);
@@ -149,6 +150,11 @@ function readPnpmLockPackageIntegrities() {
     }
   }
   return integrities;
+}
+
+function readPnpmLockPackageIntegrities() {
+  const lockfile = parseYaml(readFileSync(path.join(ROOT_DIR, "pnpm-lock.yaml"), "utf8"));
+  return pnpmLockPackageIntegrities(lockfile);
 }
 
 function collectPnpmLockPackageVersions(lockfile) {
@@ -1213,6 +1219,7 @@ export {
   resolvePnpmLockOverridePlan,
   parsePnpmPackageKey,
   parseLockPackagePath,
+  pnpmLockPackageIntegrities,
   readNpmLockOverrides,
   shouldUseLegacyPeerDepsForNpmLock,
   npmLockPackageDirsForChangedPaths,

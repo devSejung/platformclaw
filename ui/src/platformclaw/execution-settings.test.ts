@@ -140,7 +140,10 @@ describe("PlatformClaw execution settings", () => {
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
     const [, init] = fetchImpl.mock.calls[1]!;
     expect(fetchImpl.mock.calls[1]?.[0]).toBe("/platformclaw/api/execution/claude-code");
-    expect(JSON.parse(String(init?.body))).toEqual({ expectedRevision: 3 });
+    if (typeof init?.body !== "string") {
+      throw new Error("expected a JSON request body");
+    }
+    expect(JSON.parse(init.body)).toEqual({ expectedRevision: 3 });
     await vi.waitFor(() => {
       expect(element.shadowRoot?.textContent).toContain("Claude Code 2.1.0");
     });

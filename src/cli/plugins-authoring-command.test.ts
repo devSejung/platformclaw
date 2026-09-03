@@ -820,7 +820,10 @@ describe("plugin authoring commands", () => {
     const indexSource = fs.readFileSync(path.join(projectDir, "src/index.ts"), "utf8");
     expect(indexSource).toContain("definePluginEntry");
     expect(indexSource).toContain("api.registerProvider");
-    expect(indexSource).toContain("buildSingleProviderApiKeyCatalog");
+    expect(indexSource).toContain('from "openclaw/plugin-sdk/provider-auth"');
+    expect(indexSource).toContain("async function buildCatalog");
+    expect(indexSource).not.toContain("provider-catalog-shared");
+    expect(indexSource).not.toContain("provider-model-shared");
 
     expect(fs.readFileSync(path.join(projectDir, "src/index.test.ts"), "utf8")).toContain(
       "OpenClawPluginApi",

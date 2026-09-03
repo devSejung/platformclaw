@@ -2,41 +2,15 @@ import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import type { AcpProcessTransportLaunch } from "openclaw/plugin-sdk/acp-runtime-backend";
 import {
-  buildExecRemoteCommand,
-  buildRemoteCommand,
   buildSshSandboxArgv,
   disposeSshSandboxSession,
   sanitizeEnvVars,
   type SshSandboxSession,
 } from "openclaw/plugin-sdk/sandbox";
-import { buildAssignedVmProcessEnvironment, type AssignedVmTargetSnapshot } from "./backend.js";
-
-const CLAUDE_ADAPTER = "/opt/platformclaw/libexec/claude-agent-acp/bin/claude-agent-acp";
-const OPENCODE_ADAPTER = "/opt/platformclaw/libexec/opencode-acp/bin/opencode";
+import { buildAssignedVmAcpRemoteCommand } from "./acp-process-command.js";
+import type { AssignedVmTargetSnapshot } from "./backend.js";
 
 export const PLATFORMCLAW_VM_ACP_AGENTS = new Set(["claude", "opencode"]);
-
-function remoteAgentArgv(agent: string): string[] {
-  switch (agent.trim().toLowerCase()) {
-    case "claude":
-      return [CLAUDE_ADAPTER];
-    case "opencode":
-      return [OPENCODE_ADAPTER, "acp"];
-    default:
-      throw new Error(`Assigned VM ACP agent is unsupported: ${agent}`);
-  }
-}
-
-function buildAssignedVmAcpRemoteCommand(
-  input: AcpProcessTransportLaunch,
-  target: Readonly<AssignedVmTargetSnapshot>,
-): string {
-  return buildExecRemoteCommand({
-    command: `exec ${buildRemoteCommand(remoteAgentArgv(input.agent))}`,
-    workdir: target.remoteWorkspaceDir,
-    env: buildAssignedVmProcessEnvironment(target),
-  });
-}
 
 async function waitForSpawn(
   child: ChildProcessByStdio<Writable, Readable, Readable>,
@@ -82,5 +56,3 @@ export async function launchAssignedVmAcpProcess(params: {
     throw error;
   }
 }
-
-export const testing = { buildAssignedVmAcpRemoteCommand, remoteAgentArgv };

@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { registerAcpProcessTransport, testing } from "../acp/runtime/process-transport.js";
+import { registerAcpProcessTransport } from "../acp/runtime/process-transport.js";
 import { registerAcpRuntimeBackend, unregisterAcpRuntimeBackend } from "../acp/runtime/registry.js";
 import { resolveAcpSpawnRuntimePolicyError } from "./acp-spawn.js";
 
 describe("ACP sandbox runtime policy", () => {
+  let unregisterProcessTransport: (() => void) | undefined;
+
   afterEach(() => {
     unregisterAcpRuntimeBackend("acpx");
-    testing.resetAcpProcessTransportsForTests();
+    unregisterProcessTransport?.();
+    unregisterProcessTransport = undefined;
   });
 
   it("allows only target agents owned by the isolated requester transport", () => {
@@ -15,7 +18,7 @@ describe("ACP sandbox runtime policy", () => {
       runtime: {} as never,
       isolatesSandboxedRequesters: () => true,
     });
-    registerAcpProcessTransport({
+    unregisterProcessTransport = registerAcpProcessTransport({
       id: "assigned-vm",
       isolatesSandboxedRequesters: true,
       supports: ({ agent }) => agent === "claude",

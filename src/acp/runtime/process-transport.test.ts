@@ -10,24 +10,30 @@ import {
   prepareAcpProcessTransport,
   registerAcpProcessTransport,
   releaseAcpProcessTransport,
-  testing,
 } from "./process-transport.js";
 
 describe("ACP process transport registry", () => {
-  afterEach(() => testing.resetAcpProcessTransportsForTests());
+  const unregisters: Array<() => void> = [];
+  afterEach(() => {
+    for (const unregister of unregisters.splice(0).toReversed()) {
+      unregister();
+    }
+  });
 
   it("pins preparation and launch to the same provider and strips routing markers", async () => {
     const child = {} as ChildProcessByStdio<Writable, Readable, Readable>;
     const launch = vi.fn(async () => child);
     const release = vi.fn(async () => undefined);
-    registerAcpProcessTransport({
-      id: "vm",
-      isolatesSandboxedRequesters: true,
-      supports: ({ agent }) => agent === "claude",
-      prepare: async () => ({ cwd: "/home/alice/workspace" }),
-      launch,
-      release,
-    });
+    unregisters.push(
+      registerAcpProcessTransport({
+        id: "vm",
+        isolatesSandboxedRequesters: true,
+        supports: ({ agent }) => agent === "claude",
+        prepare: async () => ({ cwd: "/home/alice/workspace" }),
+        launch,
+        release,
+      }),
+    );
 
     expect(canUseAcpProcessTransport({ executionOwnerAgentId: "Alice", agent: "claude" })).toBe(
       true,
@@ -75,6 +81,7 @@ describe("ACP process transport registry", () => {
       prepare: async () => ({ cwd: "/workspace" }),
       launch: vi.fn(),
     });
+    unregisters.push(unregister);
     await prepareAcpProcessTransport({
       executionOwnerAgentId: "alice",
       agent: "claude",

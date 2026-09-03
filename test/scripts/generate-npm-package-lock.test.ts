@@ -17,6 +17,7 @@ import {
   pnpmLockOverrideVersionForVersions,
   parsePnpmPackageKey,
   parseLockPackagePath,
+  pnpmLockPackageIntegrities,
   resolvePnpmLockOverridePlan,
   resolvePackageDirs,
   resolveNpmLockJobs,
@@ -311,6 +312,21 @@ describe("generate-npm-package-lock", () => {
         expectedIntegrities: ["sha512-reviewed"],
       },
     ]);
+  });
+
+  it("does not compare npm repacks with raw git-hosted tarball integrity", () => {
+    expect(
+      pnpmLockPackageIntegrities({
+        packages: {
+          "acpx@https://codeload.github.com/example/acpx/tar.gz/commit": {
+            resolution: {
+              gitHosted: true,
+              integrity: "sha512-raw-source-tarball",
+            },
+          },
+        },
+      }),
+    ).toEqual(new Map());
   });
 
   it("normalizes npm patch-version metadata drift", () => {

@@ -259,7 +259,7 @@ function buildRuntimePromptContext(
   ].join("\n");
 }
 
-export const VM_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+const VM_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
 export function buildAssignedVmProcessEnvironment(
   target: Readonly<AssignedVmTargetSnapshot>,

@@ -166,10 +166,3 @@ export async function launchWithAcpProcessTransport(input: {
     env,
   });
 }
-
-export const testing = {
-  resetAcpProcessTransportsForTests() {
-    STATE.providers.clear();
-    STATE.preparedProviders.clear();
-  },
-};
