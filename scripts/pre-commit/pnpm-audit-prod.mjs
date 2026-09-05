@@ -16,6 +16,24 @@ const MIN_SEVERITY = "high";
 const BULK_ADVISORY_ERROR_BODY_MAX_CHARS = 4096;
 const BULK_ADVISORY_RESPONSE_BODY_MAX_BYTES = 8 * 1024 * 1024;
 const BULK_ADVISORY_REQUEST_TIMEOUT_MS = 60_000;
+const BULK_ADVISORY_MAX_ATTEMPTS = 3;
+const BULK_ADVISORY_RETRY_BASE_DELAY_MS = 1_000;
+const BULK_ADVISORY_RETRY_MAX_DELAY_MS = 5_000;
+const BULK_ADVISORY_TIMEOUT_ERROR_CODE = "OPENCLAW_PNPM_AUDIT_TIMEOUT";
+const RETRIABLE_BULK_ADVISORY_STATUS_CODES = new Set([408, 420, 429]);
+const RETRIABLE_BULK_ADVISORY_ERROR_CODES = new Set([
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EPIPE",
+  "ETIMEDOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
 const MAX_TIMER_TIMEOUT_MS = 2_147_000_000;
 const SEVERITY_RANK = {
   info: 0,
@@ -724,7 +742,10 @@ async function withBulkAdvisoryTimeout({ label, timeoutMs, run }) {
   let timeout;
   const timeoutPromise = new Promise((_resolve, reject) => {
     timeout = setTimeout(() => {
-      const error = new Error(`${label} exceeded timeout of ${resolvedTimeoutMs}ms`);
+      const error = Object.assign(
+        new Error(`${label} exceeded timeout of ${resolvedTimeoutMs}ms`),
+        { code: BULK_ADVISORY_TIMEOUT_ERROR_CODE },
+      );
       controller.abort(error);
       reject(error);
     }, resolvedTimeoutMs);
@@ -736,6 +757,63 @@ async function withBulkAdvisoryTimeout({ label, timeoutMs, run }) {
       clearTimeout(timeout);
     }
   }
+}
+
+function findRetriableBulkAdvisoryErrorCode(error) {
+  const seen = new Set();
+  let current = error;
+  while ((typeof current === "object" && current !== null) || typeof current === "function") {
+    if (seen.has(current)) {
+      break;
+    }
+    seen.add(current);
+    if (
+      typeof current.code === "string" &&
+      (current.code === BULK_ADVISORY_TIMEOUT_ERROR_CODE ||
+        RETRIABLE_BULK_ADVISORY_ERROR_CODES.has(current.code))
+    ) {
+      return current.code;
+    }
+    current = current.cause;
+  }
+  return null;
+}
+
+function isRetriableBulkAdvisoryError(error) {
+  if ((typeof error !== "object" || error === null) && typeof error !== "function") {
+    return false;
+  }
+  if (
+    typeof error.status === "number" &&
+    (RETRIABLE_BULK_ADVISORY_STATUS_CODES.has(error.status) ||
+      (error.status >= 500 && error.status < 600))
+  ) {
+    return true;
+  }
+  return findRetriableBulkAdvisoryErrorCode(error) !== null;
+}
+
+function describeRetriableBulkAdvisoryError(error) {
+  if ((typeof error === "object" && error !== null) || typeof error === "function") {
+    if (typeof error.status === "number") {
+      return `HTTP ${error.status}`;
+    }
+  }
+  const code = findRetriableBulkAdvisoryErrorCode(error);
+  return code === BULK_ADVISORY_TIMEOUT_ERROR_CODE ? "request timeout" : `network error ${code}`;
+}
+
+function bulkAdvisoryRetryDelayMs(failedAttempt) {
+  return Math.min(
+    BULK_ADVISORY_RETRY_BASE_DELAY_MS * 2 ** (failedAttempt - 1),
+    BULK_ADVISORY_RETRY_MAX_DELAY_MS,
+  );
+}
+
+async function sleep(delayMs) {
+  await new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
 }
 
 async function readBoundedResponseText(response, maxBytes, label, options = {}) {
@@ -820,37 +898,73 @@ export async function fetchBulkAdvisories({
   registryBaseUrl = resolveRegistryBaseUrl(),
   responseBodyMaxBytes = resolveBulkAdvisoryResponseBodyMaxBytes(),
   timeoutMs = resolveBulkAdvisoryRequestTimeoutMs(),
+  maxAttempts = BULK_ADVISORY_MAX_ATTEMPTS,
+  sleepImpl = sleep,
 }) {
+  if (
+    !Number.isSafeInteger(maxAttempts) ||
+    maxAttempts < 1 ||
+    maxAttempts > BULK_ADVISORY_MAX_ATTEMPTS
+  ) {
+    throw new Error(
+      `Bulk advisory maxAttempts must be an integer between 1 and ${BULK_ADVISORY_MAX_ATTEMPTS}`,
+    );
+  }
   const url = `${registryBaseUrl}${BULK_ADVISORY_PATH}`;
-  return await withBulkAdvisoryTimeout({
-    label: "Bulk advisory request",
-    timeoutMs,
-    run: async ({ signal, timeoutPromise }) => {
-      const response = await fetchImpl(url, {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(payload),
-        signal,
-      });
+  // Retry only the failed advisory chunk, with a fresh timeout per attempt. Parsed
+  // advisory results never enter this path, so confirmed vulnerabilities stay fail-closed.
+  // The bulk endpoint is a read-only query despite POST, so replaying the identical chunk is safe.
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await withBulkAdvisoryTimeout({
+        label: "Bulk advisory request",
+        timeoutMs,
+        run: async ({ signal, timeoutPromise }) => {
+          const response = await fetchImpl(url, {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(payload),
+            signal,
+          });
 
-      if (!response.ok) {
-        const bodyText = await readBoundedBulkAdvisoryErrorText(response, undefined, {
-          timeoutPromise,
-        });
+          if (!response.ok) {
+            const bodyText = await readBoundedBulkAdvisoryErrorText(response, undefined, {
+              timeoutPromise,
+            });
+            throw Object.assign(
+              new Error(
+                `Bulk advisory request failed (${response.status} ${response.statusText}): ${bodyText}`,
+              ),
+              { status: response.status },
+            );
+          }
+
+          return await readBulkAdvisoryJson(response, responseBodyMaxBytes, {
+            signal,
+            timeoutPromise,
+          });
+        },
+      });
+    } catch (error) {
+      if (!isRetriableBulkAdvisoryError(error)) {
+        throw error;
+      }
+      if (attempt === maxAttempts) {
+        if (maxAttempts === 1) {
+          throw error;
+        }
         throw new Error(
-          `Bulk advisory request failed (${response.status} ${response.statusText}): ${bodyText}`,
+          `Bulk advisory infrastructure request failed after ${maxAttempts} attempts (${describeRetriableBulkAdvisoryError(error)})`,
+          { cause: error },
         );
       }
-
-      return await readBulkAdvisoryJson(response, responseBodyMaxBytes, {
-        signal,
-        timeoutPromise,
-      });
-    },
-  });
+      await sleepImpl(bulkAdvisoryRetryDelayMs(attempt));
+    }
+  }
+  throw new Error("Bulk advisory retry loop ended unexpectedly");
 }
 
 export async function runPnpmAuditProd({
@@ -955,7 +1069,8 @@ async function main() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);
-    process.exitCode = 1;
+    // Exit 1 is reserved for confirmed findings; operational audit failures still block as 2.
+    process.exitCode = 2;
   }
 }
 

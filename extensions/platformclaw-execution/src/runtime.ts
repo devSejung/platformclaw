@@ -11,15 +11,23 @@ import {
   uploadDirectoryToSshTarget,
   type SshSandboxSession,
 } from "openclaw/plugin-sdk/sandbox";
+import { launchAssignedVmAcpProcess } from "./acp-process-transport.js";
 import type {
   AssignedVmTargetSnapshot,
   PlatformClawExecutionDependencies,
   PlatformClawExecutionTargetSnapshot,
 } from "./backend.js";
+import { validateAssignedVmClaudeCode } from "./claude-code-validation.js";
 import {
   isSshpassAuthenticationFailure,
   PlatformClawVmAuthenticationError,
 } from "./connection-errors.js";
+import {
+  parseClaudeCodeExecutablePath,
+  parseExecutionEnvironment,
+  requireSingleLine,
+  requireString,
+} from "./execution-target-validation.js";
 import { VmRemoteSkillExportService } from "./remote-skill-export.js";
 import { VmRemoteSkillInstallerService } from "./remote-skill-install.js";
 import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
@@ -34,101 +42,12 @@ const EXECUTION_CHANGE_TARGET_PATH = "/platformclaw/internal/execution/change-ta
 const EXECUTION_CREDENTIALS_PATH = "/platformclaw/internal/execution/credentials";
 const MAX_HANDOFF_RESPONSE_BYTES = 512 * 1024;
 const VM_CONNECTION_TEST_TIMEOUT_MS = 15_000;
-const VM_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
-const VM_ENV_BLOCKED_NAMES = new Set([
-  "BASHOPTS",
-  "BASH_ENV",
-  "CDPATH",
-  "ENV",
-  "GLOBIGNORE",
-  "HOME",
-  "IFS",
-  "LOGNAME",
-  "NODE_OPTIONS",
-  "PATH",
-  "PWD",
-  "SHELL",
-  "SHELLOPTS",
-  "TMPDIR",
-  "USER",
-]);
-
-function requireSingleLine(value: string, label: string): string {
-  const trimmed = value.trim();
-  if (!trimmed || /[\r\n]/u.test(trimmed) || trimmed.includes(String.fromCharCode(0))) {
-    throw new Error(`${label} is invalid`);
-  }
-  return trimmed;
-}
-
-function requireString(value: unknown, label: string): string {
-  if (typeof value !== "string") {
-    throw new Error(`${label} is invalid`);
-  }
-  return requireSingleLine(value, label);
-}
-
 function requireSshToken(value: unknown, label: string): string {
   const token = requireString(value, label);
   if (/\s/u.test(token)) {
     throw new Error(`${label} is invalid`);
   }
   return token;
-}
-
-function parseExecutionEnvironment(
-  value: unknown,
-): NonNullable<AssignedVmTargetSnapshot["executionEnvironment"]> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("VM execution environment is invalid");
-  }
-  const candidate = value as Record<string, unknown>;
-  if (!Array.isArray(candidate.pathPrepend) || candidate.pathPrepend.length > 32) {
-    throw new Error("VM execution PATH is invalid");
-  }
-  const pathPrepend = candidate.pathPrepend.map((entry) => {
-    const normalized = requireString(entry, "VM execution PATH");
-    if (
-      !path.posix.isAbsolute(normalized) ||
-      path.posix.normalize(normalized) !== normalized ||
-      normalized.includes(":")
-    ) {
-      throw new Error("VM execution PATH is invalid");
-    }
-    return normalized;
-  });
-  if (
-    !candidate.variables ||
-    typeof candidate.variables !== "object" ||
-    Array.isArray(candidate.variables)
-  ) {
-    throw new Error("VM execution variables are invalid");
-  }
-  const entries = Object.entries(candidate.variables);
-  if (entries.length > 64) {
-    throw new Error("VM execution variables are invalid");
-  }
-  const variables: Record<string, string> = {};
-  for (const [name, rawValue] of entries) {
-    const upper = name.toUpperCase();
-    if (
-      !VM_ENV_NAME_PATTERN.test(name) ||
-      VM_ENV_BLOCKED_NAMES.has(upper) ||
-      upper.startsWith("LD_") ||
-      upper.startsWith("DYLD_") ||
-      upper.startsWith("OPENCLAW_") ||
-      upper.startsWith("PLATFORMCLAW_") ||
-      typeof rawValue !== "string" ||
-      Buffer.byteLength(rawValue) > 4096 ||
-      rawValue.includes("\u0000") ||
-      rawValue.includes("\r") ||
-      rawValue.includes("\n")
-    ) {
-      throw new Error(`VM execution variable is invalid: ${name}`);
-    }
-    variables[name] = rawValue;
-  }
-  return { pathPrepend, variables };
 }
 
 export function quoteOpenSshConfigPath(value: string): string {
@@ -250,6 +169,7 @@ export function parseTarget(
   ) {
     throw new Error("remote workspace is outside the remote home");
   }
+  const claudeCodeExecutablePath = parseClaudeCodeExecutablePath(target.claudeCodeExecutablePath);
   return {
     ...base,
     kind: "assigned_vm",
@@ -271,6 +191,7 @@ export function parseTarget(
     ...(target.executionEnvironment === undefined
       ? {}
       : { executionEnvironment: parseExecutionEnvironment(target.executionEnvironment) }),
+    ...(claudeCodeExecutablePath ? { claudeCodeExecutablePath } : {}),
   };
 }
 
@@ -525,6 +446,12 @@ export async function createExecutionDependenciesFromEnvironment(
         target: "platform_server" | "assigned_vm";
         expectedRevision: number;
       }): Promise<PlatformClawExecutionTargetSnapshot>;
+      validateClaudeCode(params: { agentId: string; executablePath?: string }): Promise<{
+        allocationId: string;
+        targetRevision: number;
+        executablePath: string;
+        reportedVersion: string;
+      }>;
       dispose(): Promise<void>;
     }
 > {
@@ -606,6 +533,23 @@ export async function createExecutionDependenciesFromEnvironment(
       return value as Record<string, string>;
     },
     resolveTarget,
+    launchAcpProcess: async (input, target) =>
+      await launchAssignedVmAcpProcess({
+        input,
+        target,
+        createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
+      }),
+    validateClaudeCode: async ({ agentId, executablePath }) => {
+      const target = await resolveTarget({ agentId, target: "assigned_vm" });
+      if (target.kind !== "assigned_vm") {
+        throw new Error("assigned development VM is unavailable");
+      }
+      return await validateAssignedVmClaudeCode({
+        target,
+        executablePath,
+        createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
+      });
+    },
     createPlatformServerHandle: async ({ createParams }) =>
       await requireSandboxBackendFactory("docker")(createParams),
     createAssignedVmHandle: async ({ createParams, target }) =>

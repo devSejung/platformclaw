@@ -27,6 +27,7 @@ and Knox direct or group conversations:
 - [VM execution policy](/platformclaw/vm-execution-policy)
 - [VM execution schema v2](/platformclaw/vm-execution-schema-v2)
 - [VM administration](/platformclaw/vm-administration)
+- [Assigned VM coding agents](/platformclaw/vm-acp-agents)
 - [Credential broker](/platformclaw/credential-broker)
 - [Web ingress runtime](/platformclaw/web-ingress-runtime)
 - [Web login bootstrap plan](/platformclaw/web-login-bootstrap-plan)

@@ -82,6 +82,9 @@ function createDependencies(
       cwd: "/gateway",
       dispose: vi.fn(async () => undefined),
     })),
+    launchAcpProcess: vi.fn(async () => {
+      throw new Error("ACP process launch is not expected in this test");
+    }),
     resolveExecCredentials: vi.fn(async () => ({})),
   };
 }

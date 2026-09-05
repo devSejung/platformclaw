@@ -84,6 +84,8 @@ export type AcpSessionRuntimeOptions = {
 export type SessionAcpMeta = {
   backend: string;
   agent: string;
+  /** Platform agent that owns the isolated execution target for this ACP session. */
+  executionOwnerAgentId?: string;
   runtimeSessionName: string;
   /** Canonical backend/agent ids used for resume hints and thread/status details. */
   identity?: SessionAcpIdentity;

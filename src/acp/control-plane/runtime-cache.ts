@@ -11,6 +11,7 @@ export type CachedRuntimeState = {
   handle: AcpRuntimeHandle;
   backend: string;
   agent: string;
+  executionOwnerAgentId?: string;
   mode: AcpRuntimeSessionMode;
   cwd?: string;
   configSignature: string;

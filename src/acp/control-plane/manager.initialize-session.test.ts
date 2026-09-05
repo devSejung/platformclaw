@@ -96,6 +96,41 @@ describe("AcpSessionManager initializeSession", () => {
     ]);
   });
 
+  it("persists and forwards the isolated execution owner", async () => {
+    const runtimeState = createRuntime();
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
+      id: "acpx",
+      runtime: runtimeState.runtime,
+    });
+    hoisted.upsertAcpSessionMetaMock.mockResolvedValue({
+      sessionKey: "agent:claude:acp:session-owner",
+      storeSessionKey: "agent:claude:acp:session-owner",
+      acp: readySessionMeta({ executionOwnerAgentId: "person_one" }),
+    });
+
+    const manager = new AcpSessionManager();
+    await manager.initializeSession({
+      cfg: baseCfg,
+      sessionKey: "agent:claude:acp:session-owner",
+      agent: "claude",
+      executionOwnerAgentId: "Person_One",
+      mode: "persistent",
+    });
+
+    expectRecordFields(mockCallArg(runtimeState.ensureSession), {
+      executionOwnerAgentId: "person_one",
+    });
+    const [upsert] = hoisted.upsertAcpSessionMetaMock.mock.calls[0] as [
+      {
+        mutate: (
+          current: undefined,
+          entry: undefined,
+        ) => { executionOwnerAgentId?: string } | null | undefined;
+      },
+    ];
+    expect(upsert.mutate(undefined, undefined)?.executionOwnerAgentId).toBe("person_one");
+  });
+
   it("rolls back ensured runtime sessions when metadata persistence fails", async () => {
     const runtimeState = createRuntime();
     hoisted.requireAcpRuntimeBackendMock.mockReturnValue({

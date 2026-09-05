@@ -31,6 +31,7 @@ import {
 } from "./organization-policy.js";
 import {
   ensureVmHostExecutionEnvironmentSchema,
+  ensureVmAllocationClaudeCodeSchema,
   initializeControlPlaneSchema,
 } from "./sqlite-schema.js";
 import type {
@@ -174,6 +175,7 @@ export abstract class SqliteControlPlaneStoreCore {
   protected readonly onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
   protected readonly resolvePersonalOrganizationMemorySource?: PersonalOrganizationMemorySourceResolver;
   private vmHostExecutionEnvironmentSchemaReady = false;
+  private vmAllocationClaudeCodeSchemaReady = false;
 
   constructor(options: SqliteControlPlaneStoreOptions) {
     const databaseDirectory = dirname(options.databasePath);
@@ -231,6 +233,14 @@ export abstract class SqliteControlPlaneStoreCore {
     }
     ensureVmHostExecutionEnvironmentSchema(this.db);
     this.vmHostExecutionEnvironmentSchemaReady = true;
+  }
+
+  protected ensureVmAllocationClaudeCodeSchema(): void {
+    if (this.vmAllocationClaudeCodeSchemaReady) {
+      return;
+    }
+    ensureVmAllocationClaudeCodeSchema(this.db);
+    this.vmAllocationClaudeCodeSchemaReady = true;
   }
 
   close(): void {

@@ -131,6 +131,30 @@ not change the Basic workspace environment, PlatformClaw service processes, or
 an already prepared run. Direct PATH replacement and shell, loader, OpenClaw,
 and PlatformClaw control variables are not supported.
 
+## ACP coding agents
+
+Personal agents may launch approved ACP coding agents only through the assigned
+VM transport. The Gateway owns orchestration and session metadata, while the ACP
+adapter and coding-agent process run over the same pinned SafeConnect SSH target
+as the employee's tools. Sandbox-originated ACP requests are allowed only when
+the selected ACP agent has an isolated transport for that requester.
+
+Adapter commands are an operator-owned allowlist under
+`/opt/platformclaw/libexec`; agent-supplied command, argument, environment, and
+working-directory values cannot replace them. Claude Code's executable is a
+validated per-allocation employee setting. Coding-agent credentials and home
+state remain under the assigned Linux account.
+
+Allocation, target revision, credential revision, and ACP session identity stay
+pinned for the process lifetime. Allocation replacement or release, credential
+replacement or rejection, work-location change, user disablement, logout, and
+Claude executable replacement invalidate active ACP processes. A missing or
+stale VM transport fails visibly and never falls back to Gateway-host execution
+or the Basic workspace.
+
+See [Assigned VM coding agents](/platformclaw/vm-acp-agents) for installation,
+employee configuration, verification, and troubleshooting.
+
 ## Browser VM terminal
 
 The first browser-terminal release is available only while the personal Agent

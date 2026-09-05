@@ -1,4 +1,5 @@
 // Pnpm Audit Prod tests cover pnpm audit prod script behavior.
+import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -273,6 +274,7 @@ snapshots:
     const request = fetchBulkAdvisories({
       payload: { axios: ["1.0.0"] },
       timeoutMs: 5,
+      maxAttempts: 1,
       fetchImpl: ((_url, init) => {
         signal = init?.signal ?? undefined;
         return new Promise((_resolve, reject) => {
@@ -320,6 +322,33 @@ snapshots:
     expect(signal?.aborted).toBe(false);
   });
 
+  it("retries an owned request timeout with a fresh signal", async () => {
+    const signals: AbortSignal[] = [];
+    let calls = 0;
+    const result = await fetchBulkAdvisories({
+      payload: { axios: ["1.0.0"] },
+      timeoutMs: 5,
+      fetchImpl: ((_url, init) => {
+        const signal = init?.signal as AbortSignal;
+        signals.push(signal);
+        calls += 1;
+        if (calls === 2) {
+          return Promise.resolve(new Response("{}", { status: 200 }));
+        }
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      }) as typeof fetch,
+      sleepImpl: async () => {},
+    });
+
+    expect(result).toEqual({});
+    expect(signals).toHaveLength(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+    expect(signals[0]).not.toBe(signals[1]);
+  });
+
   it("cancels stalled successful bulk advisory response bodies on request timeout", async () => {
     let cancelled = false;
     const body = new ReadableStream({
@@ -333,6 +362,7 @@ snapshots:
     const request = fetchBulkAdvisories({
       payload: { axios: ["1.0.0"] },
       timeoutMs: 5,
+      maxAttempts: 1,
       fetchImpl: async () => new Response(body, { status: 200 }),
     });
 
@@ -353,6 +383,7 @@ snapshots:
     const request = fetchBulkAdvisories({
       payload: { axios: ["1.0.0"] },
       timeoutMs: 5,
+      maxAttempts: 1,
       fetchImpl: async () => new Response(body, { status: 500, statusText: "Internal Error" }),
     });
 
@@ -420,6 +451,132 @@ snapshots:
     await expect(request).rejects.toThrow(/Bulk advisory response body was empty/u);
   });
 
+  it("retries transient HTTP failures with bounded exponential backoff", async () => {
+    const delays: number[] = [];
+    const responses = [
+      new Response("unavailable", { status: 503 }),
+      new Response("rate limited", { status: 429 }),
+      new Response('{"axios":[]}', { status: 200 }),
+    ];
+    let calls = 0;
+
+    const result = await fetchBulkAdvisories({
+      payload: { axios: ["1.0.0"] },
+      fetchImpl: async () => responses[calls++] as Response,
+      sleepImpl: async (delayMs) => {
+        delays.push(delayMs);
+      },
+    });
+
+    expect(result).toEqual({ axios: [] });
+    expect(calls).toBe(3);
+    expect(delays).toEqual([1_000, 2_000]);
+  });
+
+  it("retries structured nested transport failures with a fresh request signal", async () => {
+    const signals: AbortSignal[] = [];
+    let calls = 0;
+
+    const result = await fetchBulkAdvisories({
+      payload: { axios: ["1.0.0"] },
+      fetchImpl: (async (_url, init) => {
+        signals.push(init?.signal as AbortSignal);
+        calls += 1;
+        if (calls === 1) {
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error("socket reset"), { code: "ECONNRESET" }),
+          });
+        }
+        return new Response("{}", { status: 200 });
+      }) as typeof fetch,
+      sleepImpl: async () => {},
+    });
+
+    expect(result).toEqual({});
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).not.toBe(signals[1]);
+  });
+
+  it("sanitizes the final message after bounded transient retries", async () => {
+    const secretBody = "secret registry diagnostic";
+    let calls = 0;
+
+    const request = fetchBulkAdvisories({
+      payload: { "private-package": ["1.0.0"] },
+      registryBaseUrl: "https://token@example.invalid",
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response(secretBody, { status: 503 });
+      },
+      sleepImpl: async () => {},
+    });
+
+    const error = await request.catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      "Bulk advisory infrastructure request failed after 3 attempts (HTTP 503)",
+    );
+    expect((error as Error).message).not.toContain("token@example.invalid");
+    expect((error as Error).message).not.toContain("private-package");
+    expect((error as Error).message).not.toContain(secretBody);
+    expect((error as Error).cause).toBeInstanceOf(Error);
+    expect(calls).toBe(3);
+  });
+
+  it("does not retry permanent HTTP failures", async () => {
+    let calls = 0;
+    const request = fetchBulkAdvisories({
+      payload: { axios: ["1.0.0"] },
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response("bad request", { status: 400, statusText: "Bad Request" });
+      },
+      sleepImpl: async () => {
+        throw new Error("unexpected retry");
+      },
+    });
+
+    await expect(request).rejects.toThrow(
+      /Bulk advisory request failed \(400 Bad Request\): bad request/u,
+    );
+    expect(calls).toBe(1);
+  });
+
+  it("rejects retry counts above the audit budget before fetching", async () => {
+    let calls = 0;
+    const request = fetchBulkAdvisories({
+      payload: { axios: ["1.0.0"] },
+      maxAttempts: 4,
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response("{}", { status: 200 });
+      },
+    });
+
+    await expect(request).rejects.toThrow(
+      "Bulk advisory maxAttempts must be an integer between 1 and 3",
+    );
+    expect(calls).toBe(0);
+  });
+
+  it("uses a distinct CLI exit code for operational audit failures", () => {
+    const scriptPath = path.join(process.cwd(), "scripts/pre-commit/pnpm-audit-prod.mjs");
+    const result = spawnSync(process.execPath, [scriptPath, "--audit-level=high"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_PNPM_AUDIT_BULK_TIMEOUT_MS: "invalid",
+      },
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      "OPENCLAW_PNPM_AUDIT_BULK_TIMEOUT_MS must be a positive integer",
+    );
+  });
+
   it("returns a failing exit code when bulk advisories include high severity findings", async () => {
     const tempDir = await mkdtemp(path.join(tmpdir(), "openclaw-audit-prod-"));
     await writeFile(
@@ -441,10 +598,15 @@ snapshots:
     try {
       const stdoutChunks: string[] = [];
       const stderrChunks: string[] = [];
+      let calls = 0;
       const exitCode = await runPnpmAuditProd({
         rootDir: tempDir,
-        fetchImpl: async () =>
-          new Response(
+        fetchImpl: async () => {
+          calls += 1;
+          if (calls === 1) {
+            return new Response("unavailable", { status: 503 });
+          }
+          return new Response(
             JSON.stringify({
               axios: [
                 {
@@ -462,7 +624,8 @@ snapshots:
                 "content-type": "application/json",
               },
             },
-          ),
+          );
+        },
         stdout: {
           write(chunk: string) {
             stdoutChunks.push(chunk);
@@ -478,6 +641,7 @@ snapshots:
       });
 
       expect(exitCode).toBe(1);
+      expect(calls).toBe(2);
       expect(stdoutChunks).toStrictEqual([]);
       expect(stderrChunks.join("")).toContain("Found 1 high or higher advisories");
     } finally {

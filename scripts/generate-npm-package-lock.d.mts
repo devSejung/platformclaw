@@ -120,6 +120,7 @@ export function parsePnpmPackageKey(packageKey: unknown): {
   name: string;
   version: string;
 } | null;
+export function pnpmLockPackageIntegrities(lockfile: unknown): Map<string, Set<string>>;
 export function parseLockPackagePath(lockPath: unknown): {
   name: unknown;
   path: string;

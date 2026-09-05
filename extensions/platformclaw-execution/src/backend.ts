@@ -1,3 +1,6 @@
+import type { ChildProcessByStdio } from "node:child_process";
+import type { Readable, Writable } from "node:stream";
+import type { AcpProcessTransportLaunch } from "openclaw/plugin-sdk/acp-runtime-backend";
 import type {
   CreateSandboxBackendParams,
   SandboxBackendFactory,
@@ -47,6 +50,7 @@ export type AssignedVmTargetSnapshot = ExecutionTargetBase & {
     pathPrepend: readonly string[];
     variables: Readonly<Record<string, string>>;
   };
+  claudeCodeExecutablePath?: string;
 };
 
 export type PlatformClawExecutionTargetSnapshot =
@@ -82,6 +86,10 @@ export type PlatformClawExecutionDependencies = {
     target: Readonly<AssignedVmTargetSnapshot>,
   ) => Promise<SandboxBackendTerminalProcess>;
   resolveExecCredentials: (agentId: string) => Promise<Record<string, string>>;
+  launchAcpProcess: (
+    input: AcpProcessTransportLaunch,
+    target: Readonly<AssignedVmTargetSnapshot>,
+  ) => Promise<ChildProcessByStdio<Writable, Readable, Readable>>;
 };
 
 const EXEC_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
@@ -253,6 +261,23 @@ function buildRuntimePromptContext(
 
 const VM_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
+export function buildAssignedVmProcessEnvironment(
+  target: Readonly<AssignedVmTargetSnapshot>,
+): Record<string, string> {
+  const configured = target.executionEnvironment;
+  return {
+    ...configured?.variables,
+    ...(target.claudeCodeExecutablePath
+      ? { CLAUDE_CODE_EXECUTABLE: target.claudeCodeExecutablePath }
+      : {}),
+    HOME: target.remoteHomeDir,
+    PATH:
+      configured && configured.pathPrepend.length > 0
+        ? [...configured.pathPrepend, VM_DEFAULT_PATH].join(":")
+        : VM_DEFAULT_PATH,
+  };
+}
+
 function buildAssignedVmEnvironment(
   handle: SandboxBackendHandle,
   target: Readonly<AssignedVmTargetSnapshot>,
@@ -263,6 +288,9 @@ function buildAssignedVmEnvironment(
   const environment: Record<string, string> = {
     ...handle.env,
     ...configured?.variables,
+    ...(target.claudeCodeExecutablePath
+      ? { CLAUDE_CODE_EXECUTABLE: target.claudeCodeExecutablePath }
+      : {}),
     HOME: target.remoteHomeDir,
   };
   if (configured && configured.pathPrepend.length > 0) {
@@ -521,6 +549,7 @@ export function createUnavailableExecutionDependencies(): PlatformClawExecutionD
     createSkillInstallTarget: unavailable,
     createTerminalProcess: unavailable,
     resolveExecCredentials: unavailable,
+    launchAcpProcess: unavailable,
   };
 }
 

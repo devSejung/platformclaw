@@ -20,13 +20,16 @@ import {
 } from "./execution-validation.js";
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
+import {
+  readPersonalExecutionSettings,
+  setPersonalClaudeCodeInStore,
+} from "./sqlite-store-claude-code.js";
 import { required } from "./sqlite-store-core.js";
 import { readVmAdministrationSnapshot } from "./sqlite-store-execution-admin.js";
 import {
   rowToAssignedVmExecutionTarget,
   rowToAllocation,
   rowToEndpoint,
-  rowToPersonalExecutionSettings,
 } from "./sqlite-store-execution-mappers.js";
 import {
   hasCompleteAssignedVmExecutionFields,
@@ -237,6 +240,7 @@ export abstract class SqliteControlPlaneExecutionStore
     agentId: string,
     requestedTarget?: "platform_server" | "assigned_vm",
   ): Promise<PersonalExecutionTarget> {
+    this.ensureVmAllocationClaudeCodeSchema();
     const owner = takeFirstSync(
       this.db,
       this.query
@@ -283,6 +287,11 @@ export abstract class SqliteControlPlaneExecutionStore
         "vm_host_execution_environments.vm_host_id",
         "vm_hosts.id",
       )
+      .leftJoin(
+        "vm_allocation_claude_code_settings",
+        "vm_allocation_claude_code_settings.allocation_id",
+        "vm_allocations.id",
+      )
       .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
       .leftJoin("encrypted_user_ssh_credentials", (join) =>
         join.on("encrypted_user_ssh_credentials.user_id", "=", owner.user_id),
@@ -308,6 +317,7 @@ export abstract class SqliteControlPlaneExecutionStore
         "encrypted_user_ssh_credentials.revision as credential_revision",
         "encrypted_user_ssh_credentials.status as credential_status",
         "vm_host_execution_environments.config_json as execution_environment_json",
+        "vm_allocation_claude_code_settings.executable_path as claude_code_executable_path",
       ]);
     vmQuery = requestedTarget
       ? vmQuery
@@ -579,44 +589,32 @@ export abstract class SqliteControlPlaneExecutionStore
   }
 
   async getPersonalExecutionSettings(agentId: string): Promise<PersonalExecutionSettings | null> {
-    const row = takeFirstSync(
-      this.db,
-      this.query
-        .selectFrom("agent_bindings")
-        .innerJoin(
-          "personal_execution_profiles",
-          "personal_execution_profiles.agent_binding_id",
-          "agent_bindings.id",
-        )
-        .leftJoin("vm_allocations", (join) =>
-          join
-            .onRef("vm_allocations.agent_binding_id", "=", "agent_bindings.id")
-            .on("vm_allocations.status", "!=", "revoked"),
-        )
-        .leftJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
-        .leftJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
-        .select([
-          "agent_bindings.agent_id as agent_id",
-          "agent_bindings.user_id as user_id",
-          "personal_execution_profiles.active_target as active_target",
-          "personal_execution_profiles.target_revision as target_revision",
-          "vm_allocations.id as allocation_id",
-          "vm_allocations.vm_host_id as vm_host_id",
-          "vm_allocations.status as allocation_status",
-          "vm_allocations.linux_account as linux_account",
-          "vm_allocations.remote_home_dir as remote_home_dir",
-          "vm_allocations.remote_workspace_dir as remote_workspace_dir",
-          "vm_allocations.last_connection_check_at as last_connection_check_at",
-          "vm_allocations.last_connection_succeeded_at as last_connection_succeeded_at",
-          "vm_allocations.failure_code as failure_code",
-          "vm_hosts.label as vm_label",
-          "safeconnect_endpoints.label as safeconnect_label",
-        ])
-        .where("agent_bindings.agent_id", "=", agentId)
-        .where("agent_bindings.kind", "=", "personal")
-        .where("agent_bindings.state", "=", "active"),
-    );
-    return row ? rowToPersonalExecutionSettings(row) : null;
+    this.ensureVmAllocationClaudeCodeSchema();
+    return readPersonalExecutionSettings({ db: this.db, query: this.query }, agentId);
+  }
+
+  async setPersonalClaudeCode(params: {
+    actorUserId: string;
+    agentId: string;
+    expectedRevision: number;
+    executablePath: string;
+    reportedVersion: string;
+    validatedAt: number;
+  }): Promise<void> {
+    this.ensureVmAllocationClaudeCodeSchema();
+    setPersonalClaudeCodeInStore({
+      store: { db: this.db, query: this.query },
+      ...params,
+      insertAudit: (allocationId) =>
+        this.insertAudit(
+          params.actorUserId,
+          "claude-code.executable.updated",
+          "vm-allocation",
+          allocationId,
+          params.validatedAt,
+          { reportedVersion: params.reportedVersion },
+        ),
+    });
   }
 
   async recordVmConnectionResult(params: {

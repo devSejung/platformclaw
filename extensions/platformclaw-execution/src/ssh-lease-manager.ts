@@ -270,9 +270,9 @@ class SafeConnectSshLease {
     for (const waiter of this.waiters.splice(0)) {
       waiter.reject(new Error("SafeConnect SSH lease changed while waiting for capacity"));
     }
-    if (this.activeChannels === 0) {
-      void this.close(reason);
-    }
+    // A target revision or credential change must terminate every multiplexed
+    // channel immediately; waiting for long-lived ACP channels would retain old access.
+    void this.close(reason);
   }
 
   isAvailable(): boolean {

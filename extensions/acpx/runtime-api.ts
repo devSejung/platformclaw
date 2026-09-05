@@ -9,6 +9,13 @@ export {
   tryDispatchAcpReplyHook,
   registerAcpRuntimeBackend,
   unregisterAcpRuntimeBackend,
+  hasIsolatedAcpProcessTransport,
+  launchWithAcpProcessTransport,
+  ACP_AGENT_ENV,
+  ACP_EXECUTION_OWNER_ENV,
+  ACP_SESSION_KEY_ENV,
+  prepareAcpProcessTransport,
+  releaseAcpProcessTransport,
 } from "openclaw/plugin-sdk/acp-runtime-backend";
 export type {
   AcpRuntime,

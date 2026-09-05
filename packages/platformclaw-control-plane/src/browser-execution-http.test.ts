@@ -65,6 +65,7 @@ function createHarness() {
       ...SETTINGS.allocation,
       status: "revoked" as const,
     })),
+    setPersonalClaudeCode: vi.fn(async () => undefined),
   };
   const vault = {
     getMetadata: vi.fn(async () => ({ status: "current" })),
@@ -278,6 +279,37 @@ describe("EmployeeExecutionService", () => {
       target: "assigned_vm",
       expectedRevision: 2,
     });
+  });
+
+  it("validates and stores a per-user Claude Code executable", async () => {
+    const harness = createHarness();
+    harness.adminRpcCall.mockResolvedValueOnce({
+      allocationId: "allocation-one",
+      targetRevision: 2,
+      executablePath: "/home/person.one/.local/bin/claude",
+      reportedVersion: "2.1.0 (Claude Code)",
+    });
+
+    await harness.service.configureClaudeCode({
+      userId: "user-one",
+      agentId: "person_one",
+      expectedRevision: 2,
+      executablePath: "/home/person.one/.local/bin/claude",
+    });
+
+    expect(harness.adminRpcCall).toHaveBeenCalledWith("platformclaw-execution.validateClaudeCode", {
+      agentId: "person_one",
+      executablePath: "/home/person.one/.local/bin/claude",
+    });
+    expect(harness.store.setPersonalClaudeCode).toHaveBeenCalledWith({
+      actorUserId: "user-one",
+      agentId: "person_one",
+      expectedRevision: 2,
+      executablePath: "/home/person.one/.local/bin/claude",
+      reportedVersion: "2.1.0 (Claude Code)",
+      validatedAt: 1234,
+    });
+    expect(harness.closeTerminalForAgent).toHaveBeenCalledWith("person_one", "claude_code_changed");
   });
 
   it("tests a self-selected VM before atomically replacing the allocation", async () => {

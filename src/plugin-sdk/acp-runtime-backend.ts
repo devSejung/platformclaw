@@ -35,6 +35,21 @@ export type {
   AcpRuntimeTurnResultError,
   AcpSessionUpdateTag,
 } from "@openclaw/acp-core/runtime/types";
+export {
+  ACP_AGENT_ENV,
+  ACP_EXECUTION_OWNER_ENV,
+  ACP_SESSION_KEY_ENV,
+  canUseAcpProcessTransport,
+  hasIsolatedAcpProcessTransport,
+  launchWithAcpProcessTransport,
+  prepareAcpProcessTransport,
+  releaseAcpProcessTransport,
+  registerAcpProcessTransport,
+} from "../acp/runtime/process-transport.js";
+export type {
+  AcpProcessTransportLaunch,
+  AcpProcessTransportProvider,
+} from "../acp/runtime/process-transport.js";
 
 // ACP dispatch pulls in session/media/manager code; keep it lazy so
 // startup-loaded plugin surfaces stay light and concurrent hooks share one load.

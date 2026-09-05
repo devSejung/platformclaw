@@ -18,6 +18,7 @@ const PLATFORMCLAW_EXECUTION_TEST_PATH = "/platformclaw/api/execution/test";
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/api/execution/target";
 const PLATFORMCLAW_EXECUTION_SELECTION_PATH = "/platformclaw/api/execution/selection";
 const PLATFORMCLAW_EXECUTION_RELEASE_PATH = "/platformclaw/api/execution/release";
+const PLATFORMCLAW_EXECUTION_CLAUDE_CODE_PATH = "/platformclaw/api/execution/claude-code";
 
 const EXECUTION_BODY_LIMIT_BYTES = 8 * 1024;
 const CONNECTION_ATTEMPT_WINDOW_MS = 5 * 60_000;
@@ -57,6 +58,34 @@ type ConnectionTestResult = {
   remoteHomeDir: string;
   remoteWorkspaceDir: string;
 };
+
+type ClaudeCodeValidationResult = {
+  allocationId: string;
+  targetRevision: number;
+  executablePath: string;
+  reportedVersion: string;
+};
+
+function claudeCodeValidationResult(value: unknown): ClaudeCodeValidationResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("development VM returned an invalid Claude Code result");
+  }
+  const result = value as Record<string, unknown>;
+  if (
+    typeof result.allocationId !== "string" ||
+    typeof result.targetRevision !== "number" ||
+    !Number.isSafeInteger(result.targetRevision) ||
+    typeof result.executablePath !== "string" ||
+    !result.executablePath.startsWith("/") ||
+    result.executablePath.length > 4096 ||
+    typeof result.reportedVersion !== "string" ||
+    !result.reportedVersion.trim() ||
+    result.reportedVersion.length > 512
+  ) {
+    throw new Error("development VM returned an invalid Claude Code result");
+  }
+  return result as ClaudeCodeValidationResult;
+}
 
 function connectionTestResult(value: unknown): ConnectionTestResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -363,6 +392,49 @@ export class EmployeeExecutionService {
     return await this.getSettings(params.userId, params.agentId);
   }
 
+  async configureClaudeCode(params: {
+    userId: string;
+    agentId: string;
+    expectedRevision: number;
+    executablePath?: string;
+  }) {
+    const settings = await this.requireOwnedSettings(params.userId, params.agentId);
+    if (!settings.allocation || settings.allocation.status !== "ready") {
+      throw new EmployeeExecutionHttpError(409, "development VM is not ready");
+    }
+    const requestedPath = params.executablePath?.trim();
+    if (
+      requestedPath &&
+      (!requestedPath.startsWith("/") ||
+        requestedPath.includes("\0") ||
+        requestedPath.length > 4096)
+    ) {
+      throw new EmployeeExecutionHttpError(400, "Claude Code executable path is invalid");
+    }
+    const validated = claudeCodeValidationResult(
+      await this.options.adminRpc.call("platformclaw-execution.validateClaudeCode", {
+        agentId: params.agentId,
+        ...(requestedPath ? { executablePath: requestedPath } : {}),
+      }),
+    );
+    if (
+      validated.allocationId !== settings.allocation.id ||
+      validated.targetRevision !== params.expectedRevision
+    ) {
+      throw new EmployeeExecutionHttpError(409, "development VM changed during validation");
+    }
+    await this.options.store.setPersonalClaudeCode({
+      actorUserId: params.userId,
+      agentId: params.agentId,
+      expectedRevision: params.expectedRevision,
+      executablePath: validated.executablePath,
+      reportedVersion: validated.reportedVersion,
+      validatedAt: this.now(),
+    });
+    await this.options.closeTerminalForAgent?.(params.agentId, "claude_code_changed");
+    return await this.getSettings(params.userId, params.agentId);
+  }
+
   private async requireOwnedSettings(
     userId: string,
     agentId: string,
@@ -417,6 +489,7 @@ export class EmployeeExecutionService {
       accountId: catalog.accountId,
       availableVms: catalog.hosts,
       ...(settings.allocation ? { assignment: settings.allocation } : {}),
+      ...(settings.claudeCode ? { claudeCode: settings.claudeCode } : {}),
     };
   }
 }
@@ -437,7 +510,8 @@ export async function handlePlatformClawEmployeeExecutionRequest(
     pathname !== PLATFORMCLAW_EXECUTION_TEST_PATH &&
     pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH &&
     pathname !== PLATFORMCLAW_EXECUTION_SELECTION_PATH &&
-    pathname !== PLATFORMCLAW_EXECUTION_RELEASE_PATH
+    pathname !== PLATFORMCLAW_EXECUTION_RELEASE_PATH &&
+    pathname !== PLATFORMCLAW_EXECUTION_CLAUDE_CODE_PATH
   ) {
     return false;
   }
@@ -506,6 +580,30 @@ export async function handlePlatformClawEmployeeExecutionRequest(
           vmHostId: typeof body.vmHostId === "string" ? body.vmHostId : "",
           linuxAccount: typeof body.linuxAccount === "string" ? body.linuxAccount : "",
           password: typeof body.password === "string" ? body.password : "",
+        }),
+      );
+      return true;
+    }
+    if (pathname === PLATFORMCLAW_EXECUTION_CLAUDE_CODE_PATH) {
+      const expectedRevision = body.expectedRevision;
+      if (
+        typeof expectedRevision !== "number" ||
+        !Number.isSafeInteger(expectedRevision) ||
+        expectedRevision < 0
+      ) {
+        sendJson(res, 400, { error: "invalid Claude Code settings revision" });
+        return true;
+      }
+      sendJson(
+        res,
+        200,
+        await options.service.configureClaudeCode({
+          userId: auth.user.id,
+          agentId: auth.binding.agentId,
+          expectedRevision,
+          ...(typeof body.executablePath === "string"
+            ? { executablePath: body.executablePath }
+            : {}),
         }),
       );
       return true;

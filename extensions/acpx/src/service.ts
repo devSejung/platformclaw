@@ -20,7 +20,12 @@ import type {
   OpenClawPluginServiceContext,
   PluginLogger,
 } from "../runtime-api.js";
-import { registerAcpRuntimeBackend, unregisterAcpRuntimeBackend } from "../runtime-api.js";
+import {
+  hasIsolatedAcpProcessTransport,
+  launchWithAcpProcessTransport,
+  registerAcpRuntimeBackend,
+  unregisterAcpRuntimeBackend,
+} from "../runtime-api.js";
 import { prepareAcpxCodexAuthConfig } from "./codex-auth-bridge.js";
 import { DEFAULT_ACPX_TIMEOUT_SECONDS } from "./config-schema.js";
 import {
@@ -111,6 +116,7 @@ function createLazyDefaultRuntime(params: AcpxRuntimeFactoryParams): AcpxRuntime
         openclawToolsMcpBridgeEnabled: params.pluginConfig.openClawToolsMcpBridge,
         permissionMode: params.pluginConfig.permissionMode,
         nonInteractivePermissions: params.pluginConfig.nonInteractivePermissions,
+        processLauncher: launchWithAcpProcessTransport,
         timeoutMs: resolveAcpxTimerTimeoutMs(params.pluginConfig.timeoutSeconds),
       }) as AcpxRuntimeLike;
       return runtime;
@@ -405,15 +411,21 @@ export function createAcpxRuntimeService(
       );
       runtime = startedRuntime;
 
-      const shouldProbeRuntime = shouldProbeRuntimeAtStartup();
+      // An isolated process transport is validated per owner at session prepare time.
+      // A host-local adapter probe would test the wrong machine and can trigger npx.
+      const isolatedProcessTransportAvailable = hasIsolatedAcpProcessTransport();
+      const shouldProbeRuntime =
+        shouldProbeRuntimeAtStartup() && !isolatedProcessTransportAvailable;
       detailAcpxStartup(ctx, "probe-policy", [
         ["startupProbeEnabledCount", shouldProbeRuntime ? 1 : 0],
+        ["isolatedProcessTransportCount", isolatedProcessTransportAvailable ? 1 : 0],
         ["probeAgent", pluginConfig.probeAgent ?? "default"],
       ]);
       await measureAcpxStartup(ctx, "backend.register", () => {
         registerAcpRuntimeBackend({
           id: ACPX_BACKEND_ID,
           runtime: startedRuntime,
+          isolatesSandboxedRequesters: hasIsolatedAcpProcessTransport,
           ...(shouldProbeRuntime ? { healthy: () => runtime?.isHealthy() ?? false } : {}),
         });
         ctx.logger.info(`embedded acpx runtime backend registered (cwd: ${pluginConfig.cwd})`);

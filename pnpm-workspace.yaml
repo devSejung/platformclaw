@@ -128,7 +128,7 @@ overrides:
   hono: 4.12.32
   "@hono/node-server": 2.0.12
   axios: 1.18.1
-  fast-uri: 4.1.2
+  fast-uri: 4.1.3
   "undici@7": 7.29.0
   follow-redirects: 1.16.0
   defu: 6.1.7
@@ -154,6 +154,7 @@ overrides:
   uuid: 14.0.1
 
 allowBuilds:
+  "acpx@https://codeload.github.com/devSejung/acpx/tar.gz/484a8a4101ff2cd1c9933c7e0db5871d42074fe5": true
   "@openclaw/fs-safe": true
   "@google/genai": true
   "@lydell/node-pty": true

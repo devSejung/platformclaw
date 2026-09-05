@@ -25,6 +25,7 @@ type AssignedVmExecutionTargetRow = {
   host_key_public_key: string;
   host_key_fingerprint: string;
   execution_environment_json: string | null;
+  claude_code_executable_path?: string | null;
 };
 
 export function rowToAssignedVmExecutionTarget(params: {
@@ -58,6 +59,9 @@ export function rowToAssignedVmExecutionTarget(params: {
     hostKeyPublicKey: row.host_key_public_key,
     hostKeyFingerprint: row.host_key_fingerprint,
     ...(executionEnvironment ? { executionEnvironment } : {}),
+    ...(row.claude_code_executable_path
+      ? { claudeCodeExecutablePath: row.claude_code_executable_path }
+      : {}),
   };
 }
 
@@ -138,6 +142,9 @@ type PersonalExecutionSettingsRow = {
   failure_code: string | null;
   vm_label: string | null;
   safeconnect_label: string | null;
+  claude_code_executable_path?: string | null;
+  claude_code_reported_version?: string | null;
+  claude_code_validated_at?: number | null;
 };
 
 export function rowToPersonalExecutionSettings(
@@ -151,6 +158,17 @@ export function rowToPersonalExecutionSettings(
     userId: row.user_id,
     activeTarget: row.active_target,
     targetRevision: row.target_revision,
+    ...(row.claude_code_executable_path &&
+    row.claude_code_reported_version &&
+    row.claude_code_validated_at != null
+      ? {
+          claudeCode: {
+            executablePath: row.claude_code_executable_path,
+            reportedVersion: row.claude_code_reported_version,
+            validatedAt: row.claude_code_validated_at,
+          },
+        }
+      : {}),
   };
   if (
     !row.allocation_id ||

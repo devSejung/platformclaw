@@ -44,6 +44,8 @@ export type AcpRuntimeHandle = {
 export type AcpRuntimeEnsureInput = {
   sessionKey: string;
   agent: string;
+  /** Platform owner whose isolated execution target must host this ACP process. */
+  executionOwnerAgentId?: string;
   mode: AcpRuntimeSessionMode;
   /** Backend or agent session id to resume when reopening an existing conversation. */
   resumeSessionId?: string;

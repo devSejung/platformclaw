@@ -706,7 +706,7 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("- agents_list: List allowed subagent ids");
   });
 
-  it("omits ACP harness spawn guidance for sandboxed sessions and shows ACP block note", () => {
+  it("shows ACP guidance for sandboxed sessions when an isolated runtime is available", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",
       toolNames: ["sessions_spawn", "subagents", "agents_list", "exec"],
@@ -716,13 +716,9 @@ describe("buildAgentSystemPrompt", () => {
       },
     });
 
-    expect(prompt).not.toContain("ACP needs agentId");
-    expect(prompt).not.toContain("ACP harness ids follow acp.allowedAgents");
-    expect(prompt).not.toContain('"Do in claude code/cursor/gemini/opencode" = ACP intent');
-    expect(prompt).not.toContain('sessions_spawn(runtime:"acp", thread:true)');
-    expect(prompt).toContain("Sandbox blocks ACP spawn");
-    expect(prompt).toContain('`sessions_spawn(runtime:"subagent")`');
-    expect(prompt).toContain('Use `sessions_spawn(runtime:"subagent")`.');
+    expect(prompt).toContain("ACP needs agentId");
+    expect(prompt).toContain('"Do in claude code/cursor/gemini/opencode" = ACP intent');
+    expect(prompt).not.toContain("Sandbox blocks ACP spawn");
   });
 
   it("preserves tool casing in the prompt", () => {

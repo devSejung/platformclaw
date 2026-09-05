@@ -199,6 +199,15 @@ type VmHostExecutionEnvironmentRow = {
   updated_at: number;
 };
 
+type VmAllocationClaudeCodeSettingRow = {
+  allocation_id: string;
+  executable_path: string;
+  reported_version: string;
+  validated_at: number;
+  updated_by_user_id: string;
+  updated_at: number;
+};
+
 export type VmAllocationRow = {
   id: string;
   agent_binding_id: string;
@@ -355,6 +364,7 @@ export type ControlPlaneDatabase = {
   safeconnect_endpoints: SafeConnectEndpointRow;
   vm_hosts: VmHostRow;
   vm_host_execution_environments: VmHostExecutionEnvironmentRow;
+  vm_allocation_claude_code_settings: VmAllocationClaudeCodeSettingRow;
   vm_allocations: VmAllocationRow;
   personal_execution_profiles: PersonalExecutionProfileRow;
   encrypted_user_ssh_credentials: EncryptedUserSshCredentialRow;

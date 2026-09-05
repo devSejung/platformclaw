@@ -72,6 +72,18 @@ describe("PlatformClaw SafeConnect session", () => {
     ).toThrow("LD_PRELOAD");
   });
 
+  it("accepts only canonical absolute Claude Code executable paths", () => {
+    expect(
+      parseTarget({ ...TARGET, claudeCodeExecutablePath: "/home/person.one/.local/bin/claude" }),
+    ).toMatchObject({ claudeCodeExecutablePath: "/home/person.one/.local/bin/claude" });
+    expect(() => parseTarget({ ...TARGET, claudeCodeExecutablePath: "bin/claude" })).toThrow(
+      "executable path is invalid",
+    );
+    expect(() =>
+      parseTarget({ ...TARGET, claudeCodeExecutablePath: "/tmp/../bin/claude" }),
+    ).toThrow("executable path is invalid");
+  });
+
   it("quotes whitespace and OpenSSH percent tokens in generated paths", () => {
     expect(quoteOpenSshConfigPath("/tmp/Person One/100%/known_hosts")).toBe(
       '"/tmp/Person One/100%%/known_hosts"',

@@ -279,8 +279,14 @@ export function createPlatformClawWebIngressRuntime(
     organizationMemoryLifecycle: auth.store,
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
-  closeTerminalForAgent = async (agentId, reason) =>
-    await gatewayProxy.closeTerminalsForAgent(agentId, reason);
+  closeTerminalForAgent = async (agentId, reason) => {
+    // Target or identity changes revoke both interactive shells and ACP SSH
+    // processes so no session can keep using stale VM credentials or ownership.
+    await Promise.allSettled([
+      gatewayProxy.closeTerminalsForAgent(agentId, reason),
+      options.adminRpc.call("platformclaw-execution.invalidateAgent", { agentId }),
+    ]);
+  };
   const mediaRelay = options.mediaGateway
     ? new PlatformClawBrowserMediaRelay({
         gatewayOrigin: options.mediaGateway.origin,

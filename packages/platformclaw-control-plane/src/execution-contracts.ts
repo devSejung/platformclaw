@@ -86,6 +86,7 @@ export type AssignedVmExecutionTarget = {
   hostKeyPublicKey: string;
   hostKeyFingerprint: string;
   executionEnvironment?: VmHostExecutionEnvironment;
+  claudeCodeExecutablePath?: string;
 };
 
 export type PersonalExecutionTarget = PlatformServerExecutionTarget | AssignedVmExecutionTarget;
@@ -107,6 +108,11 @@ export type PersonalExecutionSettings = {
   userId: string;
   activeTarget: "platform_server" | "assigned_vm";
   targetRevision: number;
+  claudeCode?: {
+    executablePath: string;
+    reportedVersion: string;
+    validatedAt: number;
+  };
   allocation?: {
     id: string;
     vmHostId: string;
@@ -175,6 +181,14 @@ export interface ControlPlaneExecutionTargetStore extends ControlPlaneExecutionR
 
 export interface ControlPlaneEmployeeExecutionStore {
   getPersonalExecutionSettings(agentId: string): Promise<PersonalExecutionSettings | null>;
+  setPersonalClaudeCode(params: {
+    actorUserId: string;
+    agentId: string;
+    expectedRevision: number;
+    executablePath: string;
+    reportedVersion: string;
+    validatedAt: number;
+  }): Promise<void>;
   recordVmConnectionResult(params: {
     actorUserId: string;
     agentId: string;
