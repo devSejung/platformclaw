@@ -35,12 +35,16 @@ export function fetchBulkAdvisories({
   registryBaseUrl,
   responseBodyMaxBytes,
   timeoutMs,
+  maxAttempts,
+  sleepImpl,
 }: {
   payload: unknown;
   fetchImpl?: typeof fetch | undefined;
   registryBaseUrl?: string | undefined;
   responseBodyMaxBytes?: unknown;
   timeoutMs?: number | undefined;
+  maxAttempts?: number | undefined;
+  sleepImpl?: ((delayMs: number) => Promise<void>) | undefined;
 }): Promise<unknown>;
 export function runPnpmAuditProd({
   rootDir,
