@@ -4,6 +4,7 @@
  */
 import {
   getAcpRuntimeBackend,
+  hasIsolatedAcpProcessTransport,
   registerAcpRuntimeBackend,
   unregisterAcpRuntimeBackend,
   type AcpRuntime,
@@ -86,6 +87,7 @@ export function createAcpxRuntimeService(
       registerAcpRuntimeBackend({
         id: ACPX_BACKEND_ID,
         runtime: createDeferredRuntime(state),
+        isolatesSandboxedRequesters: hasIsolatedAcpProcessTransport,
       });
       ctx.logger.info("embedded acpx runtime backend registered lazily");
     },

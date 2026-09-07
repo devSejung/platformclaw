@@ -1,8 +1,12 @@
 // ACPX tests cover register plugin behavior.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { runtimeRegistry } = vi.hoisted(() => ({
-  runtimeRegistry: new Map<string, { runtime: unknown }>(),
+const { isolatedProcessTransport, runtimeRegistry } = vi.hoisted(() => ({
+  isolatedProcessTransport: { available: false },
+  runtimeRegistry: new Map<
+    string,
+    { runtime: unknown; isolatesSandboxedRequesters?: () => boolean }
+  >(),
 }));
 
 const { realRuntime, realServiceStartMock, realServiceStopMock, createRealServiceMock } =
@@ -37,7 +41,12 @@ const { realRuntime, realServiceStartMock, realServiceStopMock, createRealServic
 
 vi.mock("openclaw/plugin-sdk/acp-runtime-backend", () => ({
   getAcpRuntimeBackend: (id: string) => runtimeRegistry.get(id),
-  registerAcpRuntimeBackend: (entry: { id: string; runtime: unknown }) => {
+  hasIsolatedAcpProcessTransport: () => isolatedProcessTransport.available,
+  registerAcpRuntimeBackend: (entry: {
+    id: string;
+    runtime: unknown;
+    isolatesSandboxedRequesters?: () => boolean;
+  }) => {
     runtimeRegistry.set(entry.id, entry);
   },
   unregisterAcpRuntimeBackend: (id: string) => {
@@ -78,6 +87,7 @@ function createServiceContext() {
 describe("acpx register runtime service", () => {
   afterEach(() => {
     runtimeRegistry.clear();
+    isolatedProcessTransport.available = false;
     realServiceStartMock.mockClear();
     realServiceStopMock.mockClear();
     createRealServiceMock.mockClear();
@@ -106,6 +116,10 @@ describe("acpx register runtime service", () => {
       };
     };
     expect(deferredRuntime).toBeTruthy();
+    const deferredBackend = runtimeRegistry.get("acpx");
+    expect(deferredBackend?.isolatesSandboxedRequesters?.()).toBe(false);
+    isolatedProcessTransport.available = true;
+    expect(deferredBackend?.isolatesSandboxedRequesters?.()).toBe(true);
     expect(createRealServiceMock).not.toHaveBeenCalled();
     expect(realServiceStartMock).not.toHaveBeenCalled();
 
