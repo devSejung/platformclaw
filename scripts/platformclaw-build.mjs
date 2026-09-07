@@ -365,6 +365,7 @@ const sandboxBuildArgs = [
 ];
 const extensions = [
   ...new Set([
+    "acpx",
     "admin-http-rpc",
     "codex",
     "knox",
@@ -550,6 +551,7 @@ try {
       "claude --version",
       "nano-pdf --help >/dev/null",
       "openclaw --version",
+      'OPENCLAW_SKIP_ACPX_RUNTIME=1 openclaw plugins inspect acpx --runtime --json | jq -e \'.plugin.id == "acpx" and .plugin.origin == "bundled" and .plugin.status == "loaded"\' >/dev/null',
       "test -x /usr/local/bin/platformclaw-admin",
       "test -x /usr/local/bin/platformclaw-control",
       "test -x /usr/local/bin/platformclaw-sshpass",
