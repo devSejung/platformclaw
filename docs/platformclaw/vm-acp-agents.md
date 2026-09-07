@@ -84,8 +84,15 @@ Users must not be able to modify either directory or symlink.
 
 ## Enable ACP on the PlatformClaw server
 
-Enable the bundled ACPX plugin and allow only the two VM adapters in
-`openclaw.json`:
+The PlatformClaw Docker image already contains the `@openclaw/acpx` Gateway
+plugin and its pinned runtime dependencies. Do not run `openclaw plugins
+install`, `npm install -g acpx`, or `npx acpx` in the Gateway container; those
+runtime changes disappear when the container is recreated and a global `acpx`
+CLI is not an OpenClaw plugin installation.
+
+Enable the bundled plugin and allow only the two VM adapters in
+`openclaw.json`. If `plugins.allow` is already a non-empty allowlist, add
+`"acpx"` to it as shown here:
 
 ```json5
 {
@@ -96,6 +103,7 @@ Enable the bundled ACPX plugin and allow only the two VM adapters in
     allowedAgents: ["claude", "opencode"],
   },
   plugins: {
+    allow: ["acpx"], // Merge with existing entries; do not replace them.
     entries: {
       acpx: {
         enabled: true,
@@ -108,9 +116,21 @@ Enable the bundled ACPX plugin and allow only the two VM adapters in
 }
 ```
 
-Restart the Gateway after changing plugin or ACP configuration. No adapter path,
-employee home, SSH credential, or Claude executable path belongs in the shared
-Gateway configuration.
+Before restarting, verify the immutable image can discover and load the plugin:
+
+```bash
+docker run --rm --network none \
+  --entrypoint bash "$PLATFORMCLAW_IMAGE" -ceu \
+  'OPENCLAW_SKIP_ACPX_RUNTIME=1 openclaw plugins inspect acpx --runtime --json |
+    jq -e ".plugin.id == \"acpx\" and .plugin.origin == \"bundled\" and
+      .plugin.status == \"loaded\"" >/dev/null'
+```
+
+This check uses no host state volume and suppresses service startup; it verifies
+plugin discovery and runtime imports from the image itself. Restart the Gateway
+after changing plugin or ACP configuration. No adapter path, employee home, SSH
+credential, or Claude executable path belongs in the shared Gateway
+configuration.
 
 ## Configure each employee account
 
@@ -152,6 +172,9 @@ that employee's VM account.
   one. PlatformClaw intentionally pins allocation and credential revisions.
 - **Adapter file not found:** verify the two stable `/opt/platformclaw/libexec`
   links and root ownership on the VM.
+- **`plugins.entries.acpx: plugin not installed`:** upgrade to a PlatformClaw
+  image that bundles `acpx`, run the image-only inspection above, and recreate
+  the Gateway container. Do not install the plugin into the running container.
 - **Authentication prompt or failure:** open a shell as the same Linux user and
   complete that coding agent's login. Authentication is per employee home.
 - **Session limit reached:** close an existing ACP session. PlatformClaw reserves

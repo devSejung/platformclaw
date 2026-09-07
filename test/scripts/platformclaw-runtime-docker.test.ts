@@ -58,6 +58,17 @@ function readRepoFile(filePath: string): string {
 }
 
 describe("PlatformClaw Docker runtime", () => {
+  it("bundles and runtime-loads the ACPX backend without a state-volume install", () => {
+    const build = readRepoFile("scripts/platformclaw-build.mjs");
+
+    expect(build).toMatch(/const extensions = \[[\s\S]*?"acpx",[\s\S]*?options\.extensions/u);
+    expect(build).toContain(
+      "OPENCLAW_SKIP_ACPX_RUNTIME=1 openclaw plugins inspect acpx --runtime --json",
+    );
+    expect(build).toContain('.plugin.origin == "bundled"');
+    expect(build).toContain('.plugin.status == "loaded"');
+  });
+
   it("bundles the Codex harness used by the default Terra model", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
 
