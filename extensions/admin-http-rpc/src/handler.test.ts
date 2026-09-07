@@ -185,6 +185,8 @@ describe("admin-http-rpc plugin handler", () => {
   );
 
   it.each([
+    ["platformclaw-execution.validateClaudeCode", { agentId: "person-one" }],
+    ["platformclaw-execution.invalidateAgent", { agentId: "person-one" }],
     ["skills.status", { agentId: "person-one", refresh: true, backendTarget: "assigned_vm" }],
     ["skills.uninstall", { agentId: "person-one", slug: "demo-skill" }],
     [
@@ -209,7 +211,7 @@ describe("admin-http-rpc plugin handler", () => {
       "platformclaw-execution.skillExport.close",
       { agentId: "person-one", exportId: "export-1", token: "token-1" },
     ],
-  ] as const)("dispatches Skill Hub dependency %s through Admin HTTP", async (method, params) => {
+  ] as const)("dispatches dependency %s through Admin HTTP", async (method, params) => {
     dispatchGatewayMethod.mockResolvedValueOnce({
       ok: true,
       payload: { status: "ok" },
