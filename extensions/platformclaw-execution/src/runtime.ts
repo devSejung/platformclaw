@@ -11,7 +11,10 @@ import {
   uploadDirectoryToSshTarget,
   type SshSandboxSession,
 } from "openclaw/plugin-sdk/sandbox";
-import { launchAssignedVmAcpProcess } from "./acp-process-transport.js";
+import {
+  diagnoseAssignedVmAcpProcess,
+  launchAssignedVmAcpProcess,
+} from "./acp-process-transport.js";
 import type {
   AssignedVmTargetSnapshot,
   PlatformClawExecutionDependencies,
@@ -538,6 +541,13 @@ export async function createExecutionDependenciesFromEnvironment(
         input,
         target,
         createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
+      }),
+    diagnoseAcpProcess: async (agent, target, signal) =>
+      await diagnoseAssignedVmAcpProcess({
+        agent,
+        target,
+        createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
+        signal,
       }),
     validateClaudeCode: async ({ agentId, executablePath }) => {
       const target = await resolveTarget({ agentId, target: "assigned_vm" });

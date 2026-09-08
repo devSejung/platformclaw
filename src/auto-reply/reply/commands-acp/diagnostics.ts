@@ -4,8 +4,11 @@ import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
+import { sliceUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { getAcpSessionManager } from "../../../acp/control-plane/manager.js";
+import { resolveAcpAgentPolicyError } from "../../../acp/policy.js";
 import { toAcpRuntimeError } from "../../../acp/runtime/errors.js";
+import { diagnoseAcpProcessTransport } from "../../../acp/runtime/process-transport.js";
 import { getAcpRuntimeBackend, requireAcpRuntimeBackend } from "../../../acp/runtime/registry.js";
 import { listAcpSessionEntries, readAcpSessionEntry } from "../../../acp/runtime/session-meta.js";
 import type { SessionEntry } from "../../../config/sessions/types.js";
@@ -23,6 +26,15 @@ import {
   stopWithText,
 } from "./shared.js";
 import { resolveBoundAcpThreadSessionKey } from "./targets.js";
+
+const ACP_TRANSPORT_DIAGNOSTIC_MESSAGE_CHARS = 500;
+
+function formatTransportDiagnosticField(value: string, fallback: string): string {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  return normalized
+    ? sliceUtf16Safe(normalized, 0, ACP_TRANSPORT_DIAGNOSTIC_MESSAGE_CHARS)
+    : fallback;
+}
 
 function isBackendPluginBlockedByAllowlist(params: {
   cfg: HandleCommandsParams["cfg"];
@@ -59,7 +71,7 @@ export async function handleAcpDoctorAction(
   params: HandleCommandsParams,
   restTokens: string[],
 ): Promise<CommandHandlerResult> {
-  if (restTokens.length > 0) {
+  if (restTokens.length > 1) {
     return stopWithText(`⚠️ ${ACP_DOCTOR_USAGE}`);
   }
 
@@ -98,10 +110,43 @@ export async function handleAcpDoctorAction(
   }
 
   const runtimeDoctorDeferred = shouldDeferRuntimeDoctorToIsolatedTarget(params, registeredBackend);
+  let transportDiagnosticReady = false;
   if (runtimeDoctorDeferred) {
     // Browser attribution identifies a personal execution target. Probing the
     // Gateway host would test the wrong adapter and may trigger local installation.
-    lines.push("runtimeDoctor: deferred (isolated process transport)");
+    const executionOwnerAgentId = resolveAcpCommandAgentScope(params)!;
+    const agent = normalizeLowercaseStringOrEmpty(restTokens[0] ?? params.cfg.acp?.defaultAgent);
+    if (!agent) {
+      lines.push("runtimeDoctor: deferred (isolated process transport)");
+      lines.push("transportDiagnostic: unverified (no ACP agent selected)");
+      lines.push("next: pass `/acp doctor <agent>` or configure `acp.defaultAgent`.");
+    } else {
+      const policyError = resolveAcpAgentPolicyError(params.cfg, agent);
+      if (policyError) {
+        lines.push(`transportDiagnostic: blocked (${policyError.message})`);
+      } else {
+        try {
+          const report = await diagnoseAcpProcessTransport({
+            executionOwnerAgentId,
+            agent,
+          });
+          if (report) {
+            transportDiagnosticReady = report.ok && report.stage === "ready";
+            lines.push(
+              `transportDiagnostic: ${report.ok ? "ok" : "error"} (${formatTransportDiagnosticField(report.message, "No diagnostic detail was provided.")})`,
+            );
+            lines.push(`transportStage: ${report.stage}`);
+            lines.push(`transportCode: ${formatTransportDiagnosticField(report.code, "unknown")}`);
+          } else {
+            lines.push("transportDiagnostic: unverified (provider has no diagnostic hook)");
+          }
+        } catch {
+          lines.push("transportDiagnostic: error (Assigned VM ACP diagnostic failed.)");
+          lines.push("transportStage: routing");
+          lines.push("transportCode: diagnostic_failed");
+        }
+      }
+    }
   } else if (registeredBackend?.runtime.doctor) {
     try {
       const report = await registeredBackend.runtime.doctor();
@@ -134,7 +179,7 @@ export async function handleAcpDoctorAction(
       ? await backend.runtime.getCapabilities({})
       : { controls: [] as string[], configOptionKeys: [] as string[] };
     lines.push(
-      runtimeDoctorDeferred
+      runtimeDoctorDeferred && !transportDiagnosticReady
         ? "healthy: unverified (isolated target is validated when an ACP session starts)"
         : "healthy: yes",
     );
@@ -142,7 +187,7 @@ export async function handleAcpDoctorAction(
     if ((capabilities.configOptionKeys?.length ?? 0) > 0) {
       lines.push(`configKeys: ${capabilities.configOptionKeys?.join(", ")}`);
     }
-    if (runtimeDoctorDeferred) {
+    if (runtimeDoctorDeferred && !transportDiagnosticReady) {
       lines.push("next: use /acp spawn <agent> to validate the personal execution target.");
     }
     return stopWithText(lines.join("\n"));

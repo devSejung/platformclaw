@@ -38,6 +38,7 @@ const hoisted = vi.hoisted(() => {
   const updateSessionRuntimeOptionsMock = vi.fn();
   const updateSessionEntryMock = vi.fn();
   const doctorMock = vi.fn();
+  const diagnoseAcpProcessTransportMock = vi.fn();
   return {
     callGatewayMock,
     requireAcpRuntimeBackendMock,
@@ -63,6 +64,7 @@ const hoisted = vi.hoisted(() => {
     updateSessionRuntimeOptionsMock,
     updateSessionEntryMock,
     doctorMock,
+    diagnoseAcpProcessTransportMock,
   };
 });
 
@@ -89,6 +91,10 @@ vi.mock("../../gateway/call.js", () => ({
 vi.mock("../../acp/runtime/registry.js", () => ({
   requireAcpRuntimeBackend: (id?: string) => hoisted.requireAcpRuntimeBackendMock(id),
   getAcpRuntimeBackend: (id?: string) => hoisted.getAcpRuntimeBackendMock(id),
+}));
+
+vi.mock("../../acp/runtime/process-transport.js", () => ({
+  diagnoseAcpProcessTransport: (input: unknown) => hoisted.diagnoseAcpProcessTransportMock(input),
 }));
 
 vi.mock("../../acp/runtime/session-meta.js", () => ({
@@ -987,6 +993,7 @@ describe("/acp command", () => {
       ok: true,
       message: "acpx command available",
     });
+    hoisted.diagnoseAcpProcessTransportMock.mockReset().mockResolvedValue(undefined);
 
     const runtimeBackend = {
       id: "acpx",
@@ -2425,6 +2432,104 @@ describe("/acp command", () => {
     expect(result?.reply?.text).toContain("runtimeDoctor: deferred (isolated process transport)");
     expect(result?.reply?.text).toContain("healthy: unverified");
     expect(result?.reply?.text).toContain("/acp spawn <agent>");
+  });
+
+  it("runs owner-scoped transport diagnostics for an attributed agent", async () => {
+    const isolatedBackend = {
+      ...(hoisted.getAcpRuntimeBackendMock("acpx") as object),
+      isolatesSandboxedRequesters: () => true,
+    };
+    hoisted.getAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+    hoisted.diagnoseAcpProcessTransportMock.mockResolvedValue({
+      ok: false,
+      stage: "adapter",
+      code: "adapter_missing",
+      message: "Assigned VM ACP adapter is not installed.",
+    });
+
+    const result = await runInternalAcpCommand({
+      commandBody: "/acp doctor claude",
+      scopes: ["operator.admin"],
+      senderAgentId: "person_one",
+    });
+
+    expect(hoisted.doctorMock).not.toHaveBeenCalled();
+    expect(hoisted.diagnoseAcpProcessTransportMock).toHaveBeenCalledWith({
+      executionOwnerAgentId: "person_one",
+      agent: "claude",
+    });
+    expect(result?.reply?.text).toContain("transportStage: adapter");
+    expect(result?.reply?.text).toContain("transportCode: adapter_missing");
+  });
+
+  it("reports an isolated runtime healthy after its owner-scoped preflight succeeds", async () => {
+    const isolatedBackend = {
+      ...(hoisted.getAcpRuntimeBackendMock("acpx") as object),
+      isolatesSandboxedRequesters: () => true,
+    };
+    hoisted.getAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+    hoisted.diagnoseAcpProcessTransportMock.mockResolvedValue({
+      ok: true,
+      stage: "ready",
+      code: "ready",
+      message: "Assigned VM ACP launch prerequisites are ready for claude.",
+    });
+
+    const result = await runInternalAcpCommand({
+      commandBody: "/acp doctor claude",
+      scopes: ["operator.admin"],
+      senderAgentId: "person_one",
+    });
+
+    expect(result?.reply?.text).toContain("transportStage: ready");
+    expect(result?.reply?.text).toContain("healthy: yes");
+    expect(result?.reply?.text).not.toContain("/acp spawn <agent>");
+  });
+
+  it("blocks attributed transport diagnostics for disallowed agents", async () => {
+    const isolatedBackend = {
+      ...(hoisted.getAcpRuntimeBackendMock("acpx") as object),
+      isolatesSandboxedRequesters: () => true,
+    };
+    hoisted.getAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+
+    const result = await runInternalAcpCommand({
+      commandBody: "/acp doctor opencode",
+      scopes: ["operator.admin"],
+      senderAgentId: "person_one",
+      cfg: { ...baseCfg, acp: { ...baseCfg.acp, allowedAgents: ["claude"] } },
+    });
+
+    expect(hoisted.diagnoseAcpProcessTransportMock).not.toHaveBeenCalled();
+    expect(result?.reply?.text).toContain("not allowed by policy");
+  });
+
+  it("bounds transport diagnostic fields before returning them to a browser user", async () => {
+    const isolatedBackend = {
+      ...(hoisted.getAcpRuntimeBackendMock("acpx") as object),
+      isolatesSandboxedRequesters: () => true,
+    };
+    hoisted.getAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+    hoisted.diagnoseAcpProcessTransportMock.mockResolvedValue({
+      ok: false,
+      stage: "ssh",
+      code: `failure-${"c".repeat(1_000)}`,
+      message: `failed\n${"m".repeat(1_000)}`,
+    });
+
+    const result = await runInternalAcpCommand({
+      commandBody: "/acp doctor claude",
+      scopes: ["operator.admin"],
+      senderAgentId: "person_one",
+    });
+
+    expect(result?.reply?.text).toContain("transportDiagnostic: error (failed ");
+    expect(result?.reply?.text).not.toContain("m".repeat(501));
+    expect(result?.reply?.text).not.toContain("c".repeat(501));
   });
 
   it("retains host-local doctor probes for Gateway owners", async () => {

@@ -7,6 +7,7 @@ import fs from "node:fs/promises";
 import path, { resolve as resolvePath } from "node:path";
 import {
   ACPX_BACKEND_ID,
+  AcpProcessLauncherError,
   AcpxRuntime as BaseAcpxRuntime,
   createAcpRuntime,
   createAgentRegistry,
@@ -32,6 +33,8 @@ import {
   ACP_AGENT_ENV,
   ACP_EXECUTION_OWNER_ENV,
   ACP_SESSION_KEY_ENV,
+  AcpProcessTransportError,
+  launchWithAcpProcessTransport,
   prepareAcpProcessTransport,
   releaseAcpProcessTransport,
   AcpRuntimeError,
@@ -73,6 +76,19 @@ type OpenClawRuntimeTurnInput = Parameters<NonNullable<AcpRuntime["startTurn"]>>
 type OpenClawRuntimeEnsureInput = Parameters<AcpRuntime["ensureSession"]>[0];
 type OpenClawRuntimeHandle = Awaited<ReturnType<AcpRuntime["ensureSession"]>>;
 type AcpxDelegateEnsureInput = Parameters<BaseAcpxRuntime["ensureSession"]>[0];
+
+export async function launchAcpxWithProcessTransport(
+  launch: Parameters<NonNullable<AcpRuntimeOptions["processLauncher"]>>[0],
+) {
+  try {
+    return await launchWithAcpProcessTransport(launch);
+  } catch (error) {
+    if (error instanceof AcpProcessTransportError) {
+      throw new AcpProcessLauncherError(error.message, error);
+    }
+    throw error;
+  }
+}
 type AcpxMcpServer = NonNullable<AcpRuntimeOptions["mcpServers"]>[number];
 
 const ACPX_PLUGIN_TOOLS_MCP_SERVER_NAME = "openclaw-plugin-tools";

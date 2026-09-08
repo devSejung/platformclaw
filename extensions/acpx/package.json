@@ -10,7 +10,7 @@
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.62.0",
     "@agentclientprotocol/codex-acp": "1.1.7",
-    "acpx": "github:devSejung/acpx#0570c4b6cf5dc4189e6d9acb4f797e28bf93661c",
+    "acpx": "github:devSejung/acpx#d3e5dd258e5a587fa5e612fae22ff5c5697f4235",
     "smol-toml": "1.7.1",
     "zod": "4.4.3"
   },

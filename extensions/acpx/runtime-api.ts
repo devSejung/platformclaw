@@ -9,6 +9,8 @@ export {
   tryDispatchAcpReplyHook,
   registerAcpRuntimeBackend,
   unregisterAcpRuntimeBackend,
+  AcpProcessTransportError,
+  diagnoseAcpProcessTransport,
   hasIsolatedAcpProcessTransport,
   launchWithAcpProcessTransport,
   ACP_AGENT_ENV,

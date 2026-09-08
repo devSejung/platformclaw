@@ -32,7 +32,7 @@ export const ACP_RESET_OPTIONS_USAGE =
   "Usage: /acp reset-options [session-key|session-id|session-label]";
 export const ACP_STATUS_USAGE = "Usage: /acp status [session-key|session-id|session-label]";
 export const ACP_INSTALL_USAGE = "Usage: /acp install";
-export const ACP_DOCTOR_USAGE = "Usage: /acp doctor";
+export const ACP_DOCTOR_USAGE = "Usage: /acp doctor [agent]";
 export const ACP_SESSIONS_USAGE = "Usage: /acp sessions";
 export const ACP_STEER_OUTPUT_LIMIT = 800;
 export type AcpAction =
