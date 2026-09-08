@@ -1,4 +1,8 @@
-import { registerAcpProcessTransport } from "openclaw/plugin-sdk/acp-runtime-backend";
+import {
+  AcpProcessTransportError,
+  registerAcpProcessTransport,
+  type AcpProcessTransportDiagnostic,
+} from "openclaw/plugin-sdk/acp-runtime-backend";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { registerSandboxBackend } from "openclaw/plugin-sdk/sandbox";
 import { PLATFORMCLAW_VM_ACP_AGENTS } from "./src/acp-process-transport.js";
@@ -47,6 +51,10 @@ export default definePluginEntry({
     const normalizeAgentId = (agentId: string) => agentId.trim().toLowerCase();
     const acpTargetKey = (agentId: string, sessionKey: string) =>
       `${normalizeAgentId(agentId)}\0${sessionKey.trim()}`;
+    const stageError = (diagnostic: Omit<AcpProcessTransportDiagnostic, "ok">, cause: unknown) =>
+      new AcpProcessTransportError(diagnostic, {
+        cause: cause instanceof Error ? cause : undefined,
+      });
     const invalidateAcpProcesses = (agentId: string) => {
       const owner = normalizeAgentId(agentId);
       const children = activeAcpChildren.get(owner);
@@ -69,14 +77,46 @@ export default definePluginEntry({
       isolatesSandboxedRequesters: true,
       supports: ({ agent }) => PLATFORMCLAW_VM_ACP_AGENTS.has(agent.trim().toLowerCase()),
       async prepare({ executionOwnerAgentId, sessionKey }) {
-        const target = await (
-          await requireExecutionRuntime()
-        ).resolveTarget({
-          agentId: executionOwnerAgentId,
-          target: "assigned_vm",
-        });
+        if (!executionRuntimePromise) {
+          throw stageError(
+            {
+              stage: "routing",
+              code: "routing_not_configured",
+              message:
+                "Assigned VM ACP routing is not configured; configure the PlatformClaw credential broker and execution service token, then restart the Gateway.",
+            },
+            undefined,
+          );
+        }
+        let target: AssignedVmTargetSnapshot;
+        try {
+          target = await (
+            await requireExecutionRuntime()
+          ).resolveTarget({
+            agentId: executionOwnerAgentId,
+            target: "assigned_vm",
+          });
+        } catch (error) {
+          throw stageError(
+            {
+              stage: "target",
+              code: "target_prepare_failed",
+              message:
+                "Assigned VM ACP target could not be prepared. Verify the personal VM assignment and Gateway execution service, then retry.",
+              retryable: true,
+            },
+            error,
+          );
+        }
         if (target.kind !== "assigned_vm") {
-          throw new Error("ACP requires an assigned development VM.");
+          throw stageError(
+            {
+              stage: "target",
+              code: "target_not_assigned_vm",
+              message: "ACP requires an assigned development VM.",
+            },
+            undefined,
+          );
         }
         const key = acpTargetKey(executionOwnerAgentId, sessionKey);
         const existing = preparedAcpTargets.get(key);
@@ -86,22 +126,123 @@ export default definePluginEntry({
             existing.revision !== target.revision ||
             existing.credentialRevision !== target.credentialRevision)
         ) {
-          throw new Error("Assigned VM ACP target changed; close the ACP session and retry.");
+          throw stageError(
+            {
+              stage: "target",
+              code: "target_changed",
+              message: "Assigned VM ACP target changed. Close the ACP session and retry.",
+              retryable: true,
+            },
+            undefined,
+          );
         }
         preparedAcpTargets.set(key, target);
         return { cwd: target.remoteWorkspaceDir };
+      },
+      async diagnose({ executionOwnerAgentId, agent, signal }) {
+        if (!executionRuntimePromise) {
+          return {
+            ok: false,
+            stage: "routing",
+            code: "routing_not_configured",
+            message:
+              "Assigned VM ACP routing is not configured; configure the PlatformClaw credential broker and execution service token, then restart the Gateway.",
+          };
+        }
+        let executionRuntime: Awaited<ReturnType<typeof requireExecutionRuntime>>;
+        let target: AssignedVmTargetSnapshot;
+        try {
+          executionRuntime = await requireExecutionRuntime();
+          target = await executionRuntime.resolveTarget({
+            agentId: executionOwnerAgentId,
+            target: "assigned_vm",
+          });
+        } catch {
+          return {
+            ok: false,
+            stage: "target",
+            code: "target_prepare_failed",
+            message:
+              "Assigned VM ACP target could not be prepared. Verify the personal VM assignment and Gateway execution service, then retry.",
+            retryable: true,
+          };
+        }
+        if (target.kind !== "assigned_vm") {
+          return {
+            ok: false,
+            stage: "target",
+            code: "target_not_assigned_vm",
+            message: "ACP requires an assigned development VM.",
+          };
+        }
+        const report = await executionRuntime.diagnoseAcpProcess(agent, target, signal);
+        if (!report.ok) {
+          return report;
+        }
+        let current;
+        try {
+          current = await executionRuntime.resolveTarget({
+            agentId: executionOwnerAgentId,
+            target: "assigned_vm",
+          });
+        } catch {
+          return {
+            ok: false,
+            stage: "target",
+            code: "target_revalidation_failed",
+            message: "Assigned VM ACP target could not be revalidated. Retry the diagnostic.",
+            retryable: true,
+          };
+        }
+        if (
+          current.kind !== "assigned_vm" ||
+          current.allocationId !== target.allocationId ||
+          current.revision !== target.revision ||
+          current.credentialRevision !== target.credentialRevision
+        ) {
+          return {
+            ok: false,
+            stage: "target",
+            code: "target_changed",
+            message: "Assigned VM ACP target changed during the diagnostic. Retry the diagnostic.",
+            retryable: true,
+          };
+        }
+        return report;
       },
       async launch(input) {
         const key = acpTargetKey(input.executionOwnerAgentId, input.sessionKey);
         const prepared = preparedAcpTargets.get(key);
         if (!prepared || prepared.agentId !== input.executionOwnerAgentId) {
-          throw new Error("Assigned VM ACP target was not prepared for this session.");
+          throw stageError(
+            {
+              stage: "target",
+              code: "target_not_prepared",
+              message: "Assigned VM ACP target was not prepared. Close the ACP session and retry.",
+              retryable: true,
+            },
+            undefined,
+          );
         }
         const executionRuntime = await requireExecutionRuntime();
-        const current = await executionRuntime.resolveTarget({
-          agentId: input.executionOwnerAgentId,
-          target: "assigned_vm",
-        });
+        let current;
+        try {
+          current = await executionRuntime.resolveTarget({
+            agentId: input.executionOwnerAgentId,
+            target: "assigned_vm",
+          });
+        } catch (error) {
+          throw stageError(
+            {
+              stage: "target",
+              code: "target_revalidation_failed",
+              message:
+                "Assigned VM ACP target could not be revalidated. Close the ACP session and retry.",
+              retryable: true,
+            },
+            error,
+          );
+        }
         if (
           current.kind !== "assigned_vm" ||
           current.allocationId !== prepared.allocationId ||
@@ -109,12 +250,28 @@ export default definePluginEntry({
           current.credentialRevision !== prepared.credentialRevision
         ) {
           preparedAcpTargets.delete(key);
-          throw new Error("Assigned VM ACP target changed; close the ACP session and retry.");
+          throw stageError(
+            {
+              stage: "target",
+              code: "target_changed",
+              message: "Assigned VM ACP target changed. Close the ACP session and retry.",
+              retryable: true,
+            },
+            undefined,
+          );
         }
         const owner = normalizeAgentId(input.executionOwnerAgentId);
         const active = activeAcpChildren.get(owner) ?? new Set();
         if (active.size >= 3) {
-          throw new Error("Assigned VM ACP session limit reached (3); close a session and retry.");
+          throw stageError(
+            {
+              stage: "routing",
+              code: "session_limit_reached",
+              message: "Assigned VM ACP session limit reached (3). Close a session and retry.",
+              retryable: true,
+            },
+            undefined,
+          );
         }
         const child = await executionRuntime.launchAcpProcess(input, prepared);
         active.add(child);

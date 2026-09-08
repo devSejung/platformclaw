@@ -6,6 +6,7 @@ import {
   ACP_EXECUTION_OWNER_ENV,
   ACP_SESSION_KEY_ENV,
   canUseAcpProcessTransport,
+  diagnoseAcpProcessTransport,
   launchWithAcpProcessTransport,
   prepareAcpProcessTransport,
   registerAcpProcessTransport,
@@ -113,6 +114,71 @@ describe("ACP process transport registry", () => {
         cwd: "/workspace",
         env: {},
       }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("diagnoses through the matching provider without preparing launch state", async () => {
+    const diagnose = vi.fn(async () => ({
+      ok: true as const,
+      stage: "ready" as const,
+      code: "ready",
+      message: "ready",
+    }));
+    const launch = vi.fn();
+    unregisters.push(
+      registerAcpProcessTransport({
+        id: "vm",
+        isolatesSandboxedRequesters: true,
+        supports: ({ agent }) => agent === "claude",
+        prepare: vi.fn(async () => ({ cwd: "/workspace" })),
+        launch,
+        diagnose,
+      }),
+    );
+
+    await expect(
+      diagnoseAcpProcessTransport({
+        executionOwnerAgentId: "alice",
+        agent: "claude",
+        signal: AbortSignal.timeout(100),
+      }),
+    ).resolves.toEqual({ ok: true, stage: "ready", code: "ready", message: "ready" });
+    expect(diagnose).toHaveBeenCalledWith(
+      expect.objectContaining({ executionOwnerAgentId: "alice", agent: "claude" }),
+    );
+    expect(launch).not.toHaveBeenCalled();
+
+    await expect(
+      launchWithAcpProcessTransport({
+        agentCommand: "claude",
+        command: "claude",
+        args: [],
+        cwd: "/workspace",
+        env: {
+          [ACP_EXECUTION_OWNER_ENV]: "alice",
+          [ACP_AGENT_ENV]: "claude",
+          [ACP_SESSION_KEY_ENV]: "not-prepared",
+        },
+      }),
+    ).rejects.toThrow("No isolated ACP process transport");
+    await expect(
+      diagnoseAcpProcessTransport({ executionOwnerAgentId: "alice", agent: "opencode" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("leaves matching providers without diagnostics unchanged", async () => {
+    unregisters.push(
+      registerAcpProcessTransport({
+        id: "legacy-vm",
+        isolatesSandboxedRequesters: true,
+        supports: ({ agent }) => agent === "claude",
+        prepare: vi.fn(async () => ({ cwd: "/workspace" })),
+        launch: vi.fn(),
+      }),
+    );
+
+    await expect(
+      diagnoseAcpProcessTransport({ executionOwnerAgentId: "alice", agent: "claude" }),
     ).resolves.toBeUndefined();
   });
 });

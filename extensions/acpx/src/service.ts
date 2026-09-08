@@ -22,7 +22,6 @@ import type {
 } from "../runtime-api.js";
 import {
   hasIsolatedAcpProcessTransport,
-  launchWithAcpProcessTransport,
   registerAcpRuntimeBackend,
   unregisterAcpRuntimeBackend,
 } from "../runtime-api.js";
@@ -116,7 +115,7 @@ function createLazyDefaultRuntime(params: AcpxRuntimeFactoryParams): AcpxRuntime
         openclawToolsMcpBridgeEnabled: params.pluginConfig.openClawToolsMcpBridge,
         permissionMode: params.pluginConfig.permissionMode,
         nonInteractivePermissions: params.pluginConfig.nonInteractivePermissions,
-        processLauncher: launchWithAcpProcessTransport,
+        processLauncher: module.launchAcpxWithProcessTransport,
         timeoutMs: resolveAcpxTimerTimeoutMs(params.pluginConfig.timeoutSeconds),
       }) as AcpxRuntimeLike;
       return runtime;

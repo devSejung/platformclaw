@@ -40,6 +40,7 @@ export {
   ACP_EXECUTION_OWNER_ENV,
   ACP_SESSION_KEY_ENV,
   canUseAcpProcessTransport,
+  diagnoseAcpProcessTransport,
   hasIsolatedAcpProcessTransport,
   launchWithAcpProcessTransport,
   prepareAcpProcessTransport,
@@ -47,9 +48,11 @@ export {
   registerAcpProcessTransport,
 } from "../acp/runtime/process-transport.js";
 export type {
+  AcpProcessTransportDiagnostic,
   AcpProcessTransportLaunch,
   AcpProcessTransportProvider,
 } from "../acp/runtime/process-transport.js";
+export { AcpProcessTransportError } from "../acp/runtime/process-transport.js";
 
 // ACP dispatch pulls in session/media/manager code; keep it lazy so
 // startup-loaded plugin surfaces stay light and concurrent hooks share one load.

@@ -1,6 +1,9 @@
 import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
-import type { AcpProcessTransportLaunch } from "openclaw/plugin-sdk/acp-runtime-backend";
+import type {
+  AcpProcessTransportDiagnostic,
+  AcpProcessTransportLaunch,
+} from "openclaw/plugin-sdk/acp-runtime-backend";
 import type {
   CreateSandboxBackendParams,
   SandboxBackendFactory,
@@ -90,6 +93,11 @@ export type PlatformClawExecutionDependencies = {
     input: AcpProcessTransportLaunch,
     target: Readonly<AssignedVmTargetSnapshot>,
   ) => Promise<ChildProcessByStdio<Writable, Readable, Readable>>;
+  diagnoseAcpProcess: (
+    agent: string,
+    target: Readonly<AssignedVmTargetSnapshot>,
+    signal?: AbortSignal,
+  ) => Promise<AcpProcessTransportDiagnostic>;
 };
 
 const EXEC_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
@@ -550,6 +558,7 @@ export function createUnavailableExecutionDependencies(): PlatformClawExecutionD
     createTerminalProcess: unavailable,
     resolveExecCredentials: unavailable,
     launchAcpProcess: unavailable,
+    diagnoseAcpProcess: unavailable,
   };
 }
 

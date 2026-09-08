@@ -17,6 +17,28 @@ export type AcpProcessTransportLaunch = {
   env: NodeJS.ProcessEnv;
 };
 
+export type AcpProcessTransportDiagnostic = {
+  ok: boolean;
+  stage: "routing" | "target" | "ssh" | "adapter" | "ready";
+  code: string;
+  message: string;
+  retryable?: boolean;
+};
+
+export class AcpProcessTransportError extends Error {
+  readonly stage: AcpProcessTransportDiagnostic["stage"];
+  readonly code: string;
+  readonly retryable?: boolean;
+
+  constructor(diagnostic: Omit<AcpProcessTransportDiagnostic, "ok">, options?: ErrorOptions) {
+    super(diagnostic.message, options);
+    this.name = "AcpProcessTransportError";
+    this.stage = diagnostic.stage;
+    this.code = diagnostic.code;
+    this.retryable = diagnostic.retryable;
+  }
+}
+
 export type AcpProcessTransportProvider = {
   id: string;
   isolatesSandboxedRequesters: boolean;
@@ -27,6 +49,11 @@ export type AcpProcessTransportProvider = {
   launch(
     input: AcpProcessTransportLaunch,
   ): Promise<ChildProcessByStdio<Writable, Readable, Readable>>;
+  diagnose?(input: {
+    executionOwnerAgentId: string;
+    agent: string;
+    signal?: AbortSignal;
+  }): Promise<AcpProcessTransportDiagnostic>;
   release?(input: { executionOwnerAgentId: string; sessionKey: string }): Promise<void> | void;
 };
 
@@ -91,6 +118,15 @@ export function canUseAcpProcessTransport(input: {
   agent: string;
 }): boolean {
   return findProvider(input) !== undefined;
+}
+
+export async function diagnoseAcpProcessTransport(input: {
+  executionOwnerAgentId: string;
+  agent: string;
+  signal?: AbortSignal;
+}): Promise<AcpProcessTransportDiagnostic | undefined> {
+  const provider = findProvider(input);
+  return await provider?.diagnose?.(input);
 }
 
 function preparedKey(executionOwnerAgentId: string, sessionKey: string): string {

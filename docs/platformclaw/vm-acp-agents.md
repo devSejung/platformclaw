@@ -171,10 +171,13 @@ separate executable-path setting.
 
 ## Test the setup
 
-From the employee's personal browser chat, `/acp doctor` should report an
-isolated process transport and `healthy: unverified`. It intentionally does not
-probe or install an adapter on the Gateway host. The assigned VM, employee
-credentials, and adapter are validated only when that employee starts a session.
+From the employee's personal browser chat, run `/acp doctor claude` and `/acp
+doctor opencode`. The transport diagnostic checks that employee's assigned VM,
+SSH route, fixed adapter path, and (for Claude) configured executable. It never
+probes or installs an adapter on the Gateway host. A `ready` result covers launch
+prerequisites; coding-agent authentication and ACP initialization are validated
+when the employee starts a session. `/acp doctor` uses `acp.defaultAgent` when
+configured, otherwise it asks for an agent name instead of guessing.
 
 From a chat owned by that employee's personal agent, ask it to start one ACP run
 with `runtime: "acp"` and `agentId: "claude"`, then repeat with `agentId:

@@ -1,6 +1,24 @@
-import { describe, expect, it } from "vitest";
-import { buildAssignedVmAcpRemoteCommand } from "./acp-process-command.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  buildAssignedVmAcpDiagnosticCommand,
+  buildAssignedVmAcpRemoteCommand,
+} from "./acp-process-command.js";
+import {
+  diagnoseAssignedVmAcpProcess,
+  launchAssignedVmAcpProcess,
+} from "./acp-process-transport.js";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
+
+const { runSshSandboxCommandMock, disposeSshSandboxSessionMock } = vi.hoisted(() => ({
+  runSshSandboxCommandMock: vi.fn(),
+  disposeSshSandboxSessionMock: vi.fn(async () => undefined),
+}));
+
+vi.mock("openclaw/plugin-sdk/sandbox", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/sandbox")>()),
+  disposeSshSandboxSession: disposeSshSandboxSessionMock,
+  runSshSandboxCommand: runSshSandboxCommandMock,
+}));
 
 const TARGET: AssignedVmTargetSnapshot = {
   kind: "assigned_vm",
@@ -26,6 +44,11 @@ const TARGET: AssignedVmTargetSnapshot = {
 };
 
 describe("assigned VM ACP process transport", () => {
+  beforeEach(() => {
+    runSshSandboxCommandMock.mockReset();
+    disposeSshSandboxSessionMock.mockClear();
+  });
+
   it("uses only the root-managed Claude adapter and typed per-user executable", () => {
     const command = buildAssignedVmAcpRemoteCommand(
       {
@@ -62,7 +85,7 @@ describe("assigned VM ACP process transport", () => {
       TARGET,
     );
     expect(command).toContain("/opt/platformclaw/libexec/opencode-acp/bin/opencode");
-    expect(command).toContain("'acp'");
+    expect(command).toContain('exec "$adapter" acp');
     expect(() =>
       buildAssignedVmAcpRemoteCommand(
         {
@@ -77,5 +100,95 @@ describe("assigned VM ACP process transport", () => {
         TARGET,
       ),
     ).toThrow("unsupported");
+  });
+
+  it.each(["claude", "opencode"])(
+    "builds a bounded %s diagnostic without logical launcher input",
+    (agent) => {
+      const command = buildAssignedVmAcpDiagnosticCommand(agent, TARGET);
+      expect(command).toContain("platformclaw-acp-check");
+      expect(command).toContain("Assigned VM ACP adapter is not installed");
+      expect(command).not.toContain("attacker");
+    },
+  );
+
+  it("returns fixed adapter diagnostics without exposing remote stderr", async () => {
+    const sentinel = "secret-host.example token=sentinel-secret";
+    runSshSandboxCommandMock.mockRejectedValueOnce(
+      Object.assign(new Error(sentinel), { code: 120, stderr: Buffer.from(sentinel) }),
+    );
+
+    const report = await diagnoseAssignedVmAcpProcess({
+      agent: "claude",
+      target: { ...TARGET, endpointHost: sentinel },
+      createSession: vi.fn(async () => ({
+        command: "ssh",
+        configPath: "/tmp/platformclaw-test/config",
+        host: sentinel,
+      })),
+    });
+
+    expect(report).toEqual({
+      ok: false,
+      stage: "adapter",
+      code: "adapter_missing",
+      message:
+        "Assigned VM ACP adapter is not installed. Install the PlatformClaw VM ACP adapter bundle.",
+    });
+    expect(JSON.stringify(report)).not.toContain("sentinel-secret");
+    expect(disposeSshSandboxSessionMock).toHaveBeenCalledOnce();
+  });
+
+  it("fails launch at adapter preflight without falling back or exposing remote stderr", async () => {
+    const sentinel = "secret-host.example token=sentinel-secret";
+    runSshSandboxCommandMock.mockRejectedValueOnce(
+      Object.assign(new Error(sentinel), { code: 120, stderr: Buffer.from(sentinel) }),
+    );
+
+    await expect(
+      launchAssignedVmAcpProcess({
+        input: {
+          executionOwnerAgentId: "person_one",
+          agent: "claude",
+          sessionKey: "session-one",
+          command: "ignored",
+          args: [],
+          cwd: "/ignored",
+          env: {},
+        },
+        target: TARGET,
+        createSession: vi.fn(async () => ({
+          command: "ssh",
+          configPath: "/tmp/platformclaw-test/config",
+          host: sentinel,
+        })),
+      }),
+    ).rejects.toMatchObject({
+      stage: "adapter",
+      code: "adapter_missing",
+      message:
+        "Assigned VM ACP adapter is not installed. Install the PlatformClaw VM ACP adapter bundle.",
+    });
+    expect(disposeSshSandboxSessionMock).toHaveBeenCalledOnce();
+  });
+
+  it("bounds diagnostic timeout and always releases the SSH session", async () => {
+    runSshSandboxCommandMock.mockImplementationOnce(async ({ signal }: { signal: AbortSignal }) => {
+      expect(signal).toBeDefined();
+      throw Object.assign(new Error("operation timed out"), { name: "AbortError" });
+    });
+
+    await expect(
+      diagnoseAssignedVmAcpProcess({
+        agent: "opencode",
+        target: TARGET,
+        createSession: vi.fn(async () => ({
+          command: "ssh",
+          configPath: "/tmp/platformclaw-test/config",
+          host: "safeconnect.example",
+        })),
+      }),
+    ).resolves.toMatchObject({ ok: false, stage: "ssh", code: "vm_connection_timeout" });
+    expect(disposeSshSandboxSessionMock).toHaveBeenCalledOnce();
   });
 });

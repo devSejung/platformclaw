@@ -87,6 +87,7 @@ vi.mock("./runtime.js", () => ({
   AcpxRuntime: acpxRuntimeConstructorMock,
   createAgentRegistry: createAgentRegistryMock,
   createFileSessionStore: createFileSessionStoreMock,
+  launchAcpxWithProcessTransport: vi.fn(async () => undefined),
 }));
 
 vi.mock("./codex-auth-bridge.js", () => ({
