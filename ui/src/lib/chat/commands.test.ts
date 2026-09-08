@@ -112,7 +112,12 @@ describe("parseSlashCommand", () => {
         args: [
           {
             name: "mode",
-            choices: ["compact", "verbose"],
+            description: "Output detail",
+            type: "string",
+            choices: [
+              { value: "compact", label: "Compact" },
+              { value: "verbose", label: "Verbose" },
+            ],
           },
         ],
       },
@@ -186,7 +191,14 @@ describe("parseSlashCommand", () => {
         source: "native",
         scope: "both",
         acceptsArgs: true,
-        args: [{ name: "instructions", required: false }],
+        args: [
+          {
+            name: "instructions",
+            description: "Compaction instructions",
+            type: "string",
+            required: false,
+          },
+        ],
       },
       {
         name: "status",
@@ -210,6 +222,27 @@ describe("parseSlashCommand", () => {
     expectRecordFields(requireCommandByName("status"), "status command", {
       executeLocal: false,
     });
+    for (const local of [
+      "help",
+      "new",
+      "reset",
+      "stop",
+      "compact",
+      "model",
+      "think",
+      "fast",
+      "verbose",
+      "export-session",
+      "usage",
+      "agents",
+      "steer",
+      "clear",
+      "redirect",
+    ]) {
+      expectRecordFields(requireCommandByName(local), `${local} command`, {
+        executeLocal: true,
+      });
+    }
     expect(SLASH_COMMANDS.filter((entry) => entry.name === "compact")).toHaveLength(1);
     for (const blocked of ["config", "exec", "restart"]) {
       expect(SLASH_COMMANDS.find((entry) => entry.name === blocked)).toBeUndefined();

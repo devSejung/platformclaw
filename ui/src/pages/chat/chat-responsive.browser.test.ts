@@ -76,6 +76,18 @@ async function createSharedAppPage(): Promise<Page> {
     await page.route("https://cdn.example/**", (route) => route.abort());
     await installResponsiveChatGateway(page, {
       assistantName: "Claw",
+      methodResponses: {
+        "commands.list": {
+          commands: Array.from({ length: 12 }, (_, index) => ({
+            name: `fixture-${index + 1}`,
+            textAliases: [`/fixture-${index + 1}`],
+            description: `Responsive slash option ${index + 1}`,
+            source: "plugin",
+            scope: "both",
+            acceptsArgs: false,
+          })),
+        },
+      },
       historyMessages: [
         {
           content: [{ text: SHARED_APP_CONTEXT_TEXT, type: "text" }],

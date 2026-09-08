@@ -426,29 +426,23 @@ export function buildSlashCommandsFromEntries(entries: CommandEntry[]): SlashCom
       if (local) {
         const remote = toSlashCommand(command, "remote");
         return remote
-          ? {
-              ...remote,
+          ? Object.assign(remote, {
               key: local.key,
               executeLocal: local.executeLocal,
               icon: local.icon,
               category: local.category,
               tier: local.tier,
-            }
+            })
           : null;
       }
-      return toSlashCommand(
-        {
-          ...command,
-          aliases: command.aliases?.filter(
-            (alias) => !reservedLocalNames.has(normalizeSlashIdentifier(alias) ?? ""),
-          ),
-        },
-        "remote",
+      command.aliases = command.aliases?.filter(
+        (alias) => !reservedLocalNames.has(normalizeSlashIdentifier(alias) ?? ""),
       );
+      return toSlashCommand(command, "remote");
     })
     .filter((command): command is SlashCommandDef => command !== null);
   const deduped = new Map<string, SlashCommandDef>();
-  for (const command of [...mapped, ...UI_ONLY_COMMANDS]) {
+  for (const command of [...mapped, ...buildLocalSlashCommands()]) {
     const key = normalizeLowercaseStringOrEmpty(command.name);
     if (!key || deduped.has(key)) {
       continue;
