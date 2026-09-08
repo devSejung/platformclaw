@@ -1,11 +1,11 @@
 type JsonObject = Record<string, unknown>;
 
-const SESSION_KEY_FIELDS = new Set([
-  "sessionKey",
+const SECONDARY_SESSION_KEY_FIELDS = [
   "parentSessionKey",
   "childSessionKey",
   "spawnedBy",
-]);
+  "controlOwnerSessionKey",
+] as const;
 
 type BrowserOwnershipAccess = {
   agentId: string;
@@ -16,36 +16,114 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function hasForeignOwnershipFields(access: BrowserOwnershipAccess, record: JsonObject): boolean {
-  const agentId = optionalString(record.agentId);
-  if (agentId && agentId !== access.agentId) {
-    return true;
+function primarySessionBelongsToAccess(
+  access: BrowserOwnershipAccess,
+  record: JsonObject,
+  requireSessionKey: boolean,
+): boolean {
+  if (record.agentId !== undefined && optionalString(record.agentId) !== access.agentId) {
+    return false;
   }
-  for (const field of SESSION_KEY_FIELDS) {
+  let hasSessionKey = false;
+  for (const field of ["sessionKey", "key"] as const) {
+    if (record[field] === undefined) {
+      continue;
+    }
+    hasSessionKey = true;
     const sessionKey = optionalString(record[field]);
-    if (sessionKey && access.resolveAgentIdFromSessionKey(sessionKey) !== access.agentId) {
-      return true;
+    if (!sessionKey || access.resolveAgentIdFromSessionKey(sessionKey) !== access.agentId) {
+      return false;
     }
   }
-  const rowKey = optionalString(record.key);
-  if (rowKey) {
-    const resolvedAgentId = access.resolveAgentIdFromSessionKey(rowKey);
-    if (resolvedAgentId && resolvedAgentId !== access.agentId) {
-      return true;
+  return hasSessionKey || (!requireSessionKey && optionalString(record.agentId) === access.agentId);
+}
+
+function secondaryLineageBelongsToAccess(
+  access: BrowserOwnershipAccess,
+  record: JsonObject,
+): boolean {
+  for (const field of SECONDARY_SESSION_KEY_FIELDS) {
+    if (record[field] === undefined) {
+      continue;
+    }
+    const sessionKey = optionalString(record[field]);
+    if (!sessionKey || access.resolveAgentIdFromSessionKey(sessionKey) !== access.agentId) {
+      return false;
     }
   }
-  if (record.childSessions !== undefined) {
-    if (!Array.isArray(record.childSessions)) {
-      return true;
+  return (
+    record.childSessions === undefined ||
+    (Array.isArray(record.childSessions) &&
+      record.childSessions.every((childSession) => {
+        const sessionKey = optionalString(childSession);
+        return Boolean(
+          sessionKey && access.resolveAgentIdFromSessionKey(sessionKey) === access.agentId,
+        );
+      }))
+  );
+}
+
+function forkSourceBelongsToAccess(access: BrowserOwnershipAccess, value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const source = value as JsonObject;
+  const sessionKey = optionalString(source.sessionKey);
+  return Boolean(
+    sessionKey &&
+    access.resolveAgentIdFromSessionKey(sessionKey) === access.agentId &&
+    typeof source.sessionId === "string" &&
+    (source.entryId === undefined || typeof source.entryId === "string"),
+  );
+}
+
+export function projectBrowserSessionPayloadForAccess(
+  access: BrowserOwnershipAccess,
+  payload: unknown,
+): JsonObject | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+  const record = payload as JsonObject;
+  if (!primarySessionBelongsToAccess(access, record, true)) {
+    return null;
+  }
+  if (record.childSessions !== undefined && !Array.isArray(record.childSessions)) {
+    return null;
+  }
+  let projected = record;
+  const omit = (field: string) => {
+    if (projected === record) {
+      projected = { ...record };
     }
-    for (const childSession of record.childSessions) {
+    delete projected[field];
+  };
+  for (const field of SECONDARY_SESSION_KEY_FIELDS) {
+    if (record[field] === undefined) {
+      continue;
+    }
+    const sessionKey = optionalString(record[field]);
+    if (!sessionKey || access.resolveAgentIdFromSessionKey(sessionKey) !== access.agentId) {
+      omit(field);
+    }
+  }
+  if (record.forkSource !== undefined && !forkSourceBelongsToAccess(access, record.forkSource)) {
+    omit("forkSource");
+  }
+  if (Array.isArray(record.childSessions)) {
+    const childSessions = record.childSessions.filter((childSession) => {
       const sessionKey = optionalString(childSession);
-      if (!sessionKey || access.resolveAgentIdFromSessionKey(sessionKey) !== access.agentId) {
-        return true;
-      }
+      return Boolean(
+        sessionKey && access.resolveAgentIdFromSessionKey(sessionKey) === access.agentId,
+      );
+    });
+    if (childSessions.length !== record.childSessions.length) {
+      projected = { ...projected, childSessions };
     }
   }
-  return false;
+  // Secondary lineage is display metadata, not authority. Keep the owned record but
+  // never expose a related session key the browser binding cannot independently own.
+  return projected;
 }
 
 export function browserPayloadBelongsToAccess(
@@ -56,14 +134,10 @@ export function browserPayloadBelongsToAccess(
     return false;
   }
   const record = payload as JsonObject;
-  if (hasForeignOwnershipFields(access, record)) {
-    return false;
-  }
-  const agentId = optionalString(record.agentId);
-  const sessionKey = optionalString(record.sessionKey) ?? optionalString(record.key);
-  return sessionKey
-    ? access.resolveAgentIdFromSessionKey(sessionKey) === access.agentId
-    : agentId === access.agentId;
+  return (
+    primarySessionBelongsToAccess(access, record, false) &&
+    secondaryLineageBelongsToAccess(access, record)
+  );
 }
 
 export function browserEventPayloadBelongsToAccess(
@@ -74,10 +148,8 @@ export function browserEventPayloadBelongsToAccess(
     return false;
   }
   const record = payload as JsonObject;
-  const sessionKey = optionalString(record.sessionKey) ?? optionalString(record.key);
-  return Boolean(
-    sessionKey &&
-    access.resolveAgentIdFromSessionKey(sessionKey) === access.agentId &&
-    !hasForeignOwnershipFields(access, record),
+  return (
+    primarySessionBelongsToAccess(access, record, true) &&
+    secondaryLineageBelongsToAccess(access, record)
   );
 }

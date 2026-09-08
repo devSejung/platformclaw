@@ -28,6 +28,7 @@ import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-vis
 import {
   browserEventPayloadBelongsToAccess,
   browserPayloadBelongsToAccess,
+  projectBrowserSessionPayloadForAccess,
 } from "./browser-gateway-ownership.js";
 import {
   prepareBrowserPersonalReadRequest,
@@ -298,6 +299,8 @@ export class BrowserGatewayProxy {
         browserTaskEventBelongsToAccess(this.browserTaskAccess(access), payload),
       eventPayloadBelongsToAccess: (payload) =>
         browserEventPayloadBelongsToAccess(this.browserTaskAccess(access), payload),
+      projectSessionPayloadForAccess: (payload) =>
+        this.projectSessionPayloadForAccess(access, payload),
     });
   }
 
@@ -518,7 +521,7 @@ export class BrowserGatewayProxy {
       result,
       assertOwnedResultSessionKey: (value) =>
         this.assertions.ownedResultSessionKey(access.binding.agentId, value),
-      payloadBelongsToAccess: (value) => this.payloadBelongsToAccess(access, value),
+      projectSessionPayloadForAccess: (value) => this.projectSessionPayloadForAccess(access, value),
       fail: (message) => {
         throw new BrowserGatewayProxyError("upstream-result-denied", message);
       },
@@ -585,19 +588,21 @@ export class BrowserGatewayProxy {
       if (payload.sessionKey !== undefined) {
         this.assertions.ownedResultSessionKey(access.binding.agentId, payload.sessionKey);
       }
-      if (
-        payload.sessionInfo !== undefined &&
-        !this.payloadBelongsToAccess(access, payload.sessionInfo)
-      ) {
+      const sessionInfo =
+        payload.sessionInfo === undefined
+          ? undefined
+          : this.projectSessionPayloadForAccess(access, payload.sessionInfo);
+      if (sessionInfo === null) {
         throw new BrowserGatewayProxyError(
           "upstream-result-denied",
           "Gateway returned session metadata outside the browser binding",
         );
       }
+      const projectedPayload = sessionInfo ? { ...payload, sessionInfo } : payload;
       if (method === "chat.history") {
-        return payload;
+        return projectedPayload;
       }
-      const agentsList = asObject(payload.agentsList, "chat.startup agentsList");
+      const agentsList = asObject(projectedPayload.agentsList, "chat.startup agentsList");
       const agents = Array.isArray(agentsList.agents)
         ? agentsList.agents
             .map(projectBrowserAgentSummary)
@@ -610,7 +615,7 @@ export class BrowserGatewayProxy {
         );
       }
       return {
-        ...payload,
+        ...projectedPayload,
         agentsList: { ...agentsList, defaultId: access.binding.agentId, agents },
       };
     }
@@ -629,17 +634,6 @@ export class BrowserGatewayProxy {
       return payload.unavailableReason === undefined
         ? { ok: false }
         : { ok: false, unavailableReason: payload.unavailableReason };
-    }
-    if (method === "sessions.list") {
-      const payload = asObject(result, "sessions.list result");
-      const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
-      if (sessions.some((entry) => !this.payloadBelongsToAccess(access, entry))) {
-        throw new BrowserGatewayProxyError(
-          "upstream-result-denied",
-          "Gateway returned a session outside the browser binding",
-        );
-      }
-      return payload;
     }
     if (method === "sessions.search") {
       const payload = asObject(result, "sessions.search result");
@@ -702,6 +696,13 @@ export class BrowserGatewayProxy {
 
   private payloadBelongsToAccess(access: BrowserGatewayAccess, payload: unknown): boolean {
     return browserPayloadBelongsToAccess(this.browserTaskAccess(access), payload);
+  }
+
+  private projectSessionPayloadForAccess(
+    access: BrowserGatewayAccess,
+    payload: unknown,
+  ): JsonObject | null {
+    return projectBrowserSessionPayloadForAccess(this.browserTaskAccess(access), payload);
   }
 
   private async auditDeniedRequest(
