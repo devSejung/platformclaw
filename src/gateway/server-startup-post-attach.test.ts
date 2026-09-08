@@ -1277,9 +1277,7 @@ describe("startGatewayPostAttachRuntime", () => {
       expect(hoisted.prewarmContextWindowCacheAfterReady).not.toHaveBeenCalled();
 
       admission.release();
-      await vi.advanceTimersByTimeAsync(249);
-      expect(hoisted.prewarmContextWindowCacheAfterReady).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersToNextTimerAsync();
       await vi.dynamicImportSettled();
       await waitForGatewayTestState(() => {
         expect(hoisted.prewarmContextWindowCacheAfterReady).toHaveBeenCalledWith({

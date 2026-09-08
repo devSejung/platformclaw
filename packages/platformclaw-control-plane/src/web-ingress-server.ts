@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
+import { GatewayClientRequestError } from "@openclaw/gateway-client";
 import {
   MIN_CLIENT_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
@@ -90,6 +91,17 @@ function rejectUpgrade(socket: Duplex, statusCode: number, statusText: string): 
 }
 
 function proxyErrorShape(error: unknown): ErrorShape {
+  // Private Gateway request errors are already protocol-safe client responses.
+  // Preserve their admission result so the browser can distinguish rejection from transport loss.
+  if (error instanceof GatewayClientRequestError) {
+    return {
+      code: error.gatewayCode,
+      message: error.message,
+      ...(error.details !== undefined ? { details: error.details } : {}),
+      ...(error.retryable ? { retryable: true } : {}),
+      ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+    };
+  }
   if (!(error instanceof BrowserGatewayProxyError)) {
     return { code: "UNAVAILABLE", message: "Gateway request failed", retryable: true };
   }
