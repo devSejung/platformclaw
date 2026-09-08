@@ -275,7 +275,11 @@ describe("WorktreesPage lifecycle", () => {
 
   it("never force-removes through a replacement gateway", async () => {
     const pendingRemove = deferred<unknown>();
+    const initialList = deferred<{ worktrees: [] }>();
     const firstRequest = vi.fn((method: string) => {
+      if (method === "worktrees.list") {
+        return initialList.promise;
+      }
       if (method === "worktrees.remove") {
         return pendingRemove.promise;
       }
@@ -295,6 +299,7 @@ describe("WorktreesPage lifecycle", () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
     );
+    initialList.resolve({ worktrees: [] });
     await waitForFast(() => expect(page.loading).toBe(false));
 
     const removing = page.removeWorktree(worktree());
@@ -321,8 +326,11 @@ describe("WorktreesPage lifecycle", () => {
 
   it("does not remove through a replacement gateway after confirmation", async () => {
     const confirmation = deferred<boolean>();
+    const initialList = deferred<{ worktrees: [] }>();
     vi.mocked(showConfirmDialog).mockReturnValueOnce(confirmation.promise);
-    const firstRequest = vi.fn(async () => ({ worktrees: [] }));
+    const firstRequest = vi.fn(async (method: string) =>
+      method === "worktrees.list" ? initialList.promise : { worktrees: [] },
+    );
     const secondRequest = vi.fn(async () => ({ worktrees: [] }));
     const page = document.createElement("openclaw-worktrees-page") as WorktreesPageTestElement;
     page.context = contextWithGateway(
@@ -330,6 +338,7 @@ describe("WorktreesPage lifecycle", () => {
     );
     document.body.append(page);
     await waitForFast(() => expect(firstRequest).toHaveBeenCalledOnce());
+    initialList.resolve({ worktrees: [] });
     await waitForFast(() => expect(page.loading).toBe(false));
 
     const removing = page.removeWorktree(worktree());
@@ -347,7 +356,11 @@ describe("WorktreesPage lifecycle", () => {
   });
 
   it("offers force removal when the gateway reports a snapshot failure", async () => {
+    const initialList = deferred<{ worktrees: [] }>();
     const request = vi.fn((method: string, params?: Record<string, unknown>) => {
+      if (method === "worktrees.list") {
+        return initialList.promise;
+      }
       if (method === "worktrees.remove") {
         return params?.force
           ? Promise.resolve({ removed: true })
@@ -368,6 +381,7 @@ describe("WorktreesPage lifecycle", () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
     );
+    initialList.resolve({ worktrees: [] });
     await waitForFast(() => expect(page.loading).toBe(false));
 
     await page.removeWorktree(worktree());
