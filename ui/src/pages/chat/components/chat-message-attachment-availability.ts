@@ -1,4 +1,7 @@
-import { buildAssistantAttachmentUrl } from "./chat-message-local-media.ts";
+import {
+  appendAttachmentUrlSearchParam,
+  buildAssistantAttachmentUrl,
+} from "./chat-message-local-media.ts";
 import {
   isChatMediaResourceCurrent,
   notifyChatMediaResourceSubscribers,
@@ -65,9 +68,13 @@ export function buildAssistantAttachmentMetaUrl(
   source: string,
   basePath?: string,
   sessionKey?: string,
+  messageId?: string,
 ): string {
   const attachmentUrl = buildAssistantAttachmentUrl(source, basePath, undefined, sessionKey);
-  return `${attachmentUrl}${attachmentUrl.includes("?") ? "&" : "?"}meta=1`;
+  const withMessageId = messageId?.trim()
+    ? appendAttachmentUrlSearchParam(attachmentUrl, "messageId", messageId.trim())
+    : attachmentUrl;
+  return appendAttachmentUrlSearchParam(withMessageId, "meta", "1");
 }
 
 export function setAssistantAttachmentAvailability(

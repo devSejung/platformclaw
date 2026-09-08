@@ -301,6 +301,7 @@ describeControlUiE2e("Control UI chat send pending handoff", () => {
     const currentPage = await context.newPage();
     page = currentPage;
     const gateway = await installMockGateway(currentPage, { historyMessages: BASE_HISTORY });
+    const metadataMessageIds = new Set<string>();
     await currentPage.route("**/__openclaw__/assistant-media?*", async (route) => {
       const url = new URL(route.request().url());
       const source = url.searchParams.get("source");
@@ -321,6 +322,10 @@ describeControlUiE2e("Control UI chat send pending handoff", () => {
           },
         });
         return;
+      }
+      const messageId = url.searchParams.get("messageId");
+      if (messageId) {
+        metadataMessageIds.add(messageId);
       }
       await route.fulfill({
         contentType: "application/json",
@@ -538,5 +543,6 @@ describeControlUiE2e("Control UI chat send pending handoff", () => {
     expect(Buffer.from(committedDownload.bytes).toString()).toContain(
       "committed attachment handoff proof",
     );
+    expect(metadataMessageIds).toEqual(new Set([USER_ECHO_ENTRY_ID, "pending-handoff-assistant"]));
   });
 });

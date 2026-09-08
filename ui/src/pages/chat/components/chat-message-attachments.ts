@@ -1,6 +1,5 @@
 import { html, nothing } from "lit";
 import { icons } from "../../../components/icons.ts";
-import type { ImageLightboxItem } from "../../../components/image-lightbox.ts";
 import { t } from "../../../i18n/index.ts";
 import "./chat-audio-player.ts";
 import "./chat-video-player.ts";
@@ -38,6 +37,7 @@ import {
   type AttachmentItem,
   type ArtifactDownloadResolver,
   type ChatMediaResource,
+  type ImageRenderOptions,
 } from "./chat-message-media.ts";
 
 export { getAssistantAttachmentAvailabilityRenderVersion };
@@ -49,6 +49,7 @@ export function resolveAssistantAttachmentAvailability(
   authToken: string | null | undefined,
   onRequestUpdate: (() => void) | undefined,
   sessionKey?: string,
+  messageId?: string,
 ): AssistantAttachmentAvailability {
   if (!isLocalAssistantAttachmentSource(source)) {
     return { status: "available" };
@@ -65,7 +66,7 @@ export function resolveAssistantAttachmentAvailability(
     };
   }
   const normalizedAuthToken = authToken?.trim() ?? "";
-  const cacheKey = `${basePath ?? ""}::${normalizedAuthToken}::${sessionKey ?? ""}::${source}`;
+  const cacheKey = `${basePath ?? ""}::${normalizedAuthToken}::${sessionKey ?? ""}::${messageId ?? ""}::${source}`;
   const resource = observeChatMediaResource<AssistantAttachmentAvailability>(
     "assistant-attachment",
     cacheKey,
@@ -155,12 +156,15 @@ export function resolveAssistantAttachmentAvailability(
         ),
       ASSISTANT_ATTACHMENT_METADATA_FETCH_TIMEOUT_MS,
     );
-    const pending = fetch(buildAssistantAttachmentMetaUrl(source, basePath, sessionKey), {
-      method: "GET",
-      headers,
-      credentials: "same-origin",
-      signal: controller.signal,
-    })
+    const pending = fetch(
+      buildAssistantAttachmentMetaUrl(source, basePath, sessionKey, messageId),
+      {
+        method: "GET",
+        headers,
+        credentials: "same-origin",
+        signal: controller.signal,
+      },
+    )
       .then(async (res) => {
         const payload = (await res.json().catch(() => null)) as {
           available?: boolean;
@@ -518,15 +522,7 @@ function resolveManagedAttachmentAvailability(
 
 export function renderAssistantAttachments(
   attachments: AttachmentItem[],
-  localMediaPreviewRoots: readonly string[],
-  basePath?: string,
-  authToken?: string | null,
-  onRequestUpdate?: () => void,
-  onAssistantAttachmentLoaded?: () => void,
-  onRequestOpenImage?: () => number,
-  onOpenImage?: (item: ImageLightboxItem, requestVersion?: number) => void,
-  resolveArtifactDownload?: ArtifactDownloadResolver,
-  sessionKey?: string,
+  opts?: ImageRenderOptions,
 ) {
   if (attachments.length === 0) {
     return nothing;
@@ -536,18 +532,19 @@ export function renderAssistantAttachments(
       ${attachments.map(({ attachment }) => {
         const assistantAvailability = resolveAssistantAttachmentAvailability(
           attachment.url,
-          localMediaPreviewRoots,
-          basePath,
-          authToken,
-          onRequestUpdate,
-          sessionKey,
+          opts?.localMediaPreviewRoots ?? [],
+          opts?.basePath,
+          opts?.authToken,
+          opts?.onRequestUpdate,
+          opts?.sessionKey,
+          opts?.messageId,
         );
         const managedAvailability =
           assistantAvailability.status === "available"
             ? resolveManagedAttachmentAvailability(
                 attachment,
-                resolveArtifactDownload,
-                onRequestUpdate,
+                opts?.resolveArtifactDownload,
+                opts?.onRequestUpdate,
               )
             : null;
         const availability =
@@ -564,9 +561,9 @@ export function renderAssistantAttachments(
             ? isLocalAssistantAttachmentSource(attachment.url)
               ? buildAssistantAttachmentUrl(
                   attachment.url,
-                  basePath,
+                  opts?.basePath,
                   assistantAvailability.mediaTicket,
-                  sessionKey,
+                  opts?.sessionKey,
                 )
               : managedAvailability.url
             : null;
@@ -584,7 +581,7 @@ export function renderAssistantAttachments(
             ? assistantAvailability.durationMs
             : undefined;
         const playbackAuthToken = isLocalAssistantAttachmentSource(attachment.url)
-          ? (authToken ?? null)
+          ? (opts?.authToken ?? null)
           : null;
         if (attachment.kind === "image") {
           if (!attachmentUrl) {
@@ -606,11 +603,11 @@ export function renderAssistantAttachments(
               aria-label=${t("chat.imageLightbox.open", { title })}
               @click=${() =>
                 openResolvedImage(
-                  onOpenImage,
+                  opts?.onOpenImage,
                   attachmentUrl,
                   title,
                   undefined,
-                  onRequestOpenImage?.(),
+                  opts?.onRequestOpenImage?.(),
                 )}
             >
               <img src=${attachmentUrl} alt=${title} class="chat-message-image" />
@@ -639,7 +636,7 @@ export function renderAssistantAttachments(
               .sizeBytes=${sizeBytes}
               .serverDurationMs=${serverDurationMs}
               .voiceNote=${attachment.isVoiceNote === true}
-              .onMediaLoaded=${onAssistantAttachmentLoaded}
+              .onMediaLoaded=${opts?.onAssistantAttachmentLoaded}
             ></openclaw-chat-audio-player>
           `;
         }
@@ -668,7 +665,7 @@ export function renderAssistantAttachments(
               .mediaHeight=${assistantAvailability.status === "available"
                 ? (assistantAvailability.height ?? attachment.height)
                 : attachment.height}
-              .onMediaLoaded=${onAssistantAttachmentLoaded}
+              .onMediaLoaded=${opts?.onAssistantAttachmentLoaded}
             ></openclaw-chat-video-player>
           `;
         }

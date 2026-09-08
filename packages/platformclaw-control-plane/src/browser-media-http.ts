@@ -129,55 +129,59 @@ function isSensitiveTranscriptMedia(value: unknown): boolean {
   return record?.sensitive === true || record?.sensitiveMedia === true;
 }
 
-function historyContainsOwnedMediaSource(result: unknown, source: string): boolean {
-  const messages = asRecord(result)?.messages;
-  if (!Array.isArray(messages)) {
+function messageContainsOwnedMediaSource(message: unknown, source: string): boolean {
+  const record = asRecord(message);
+  if (
+    !record ||
+    (record.role !== "user" && record.role !== "assistant") ||
+    isSensitiveTranscriptMedia(record)
+  ) {
     return false;
   }
-  return messages.some((message) => {
-    const record = asRecord(message);
+  const envelope = asRecord(record["__openclaw"]);
+  if (isSensitiveTranscriptMedia(envelope)) {
+    return false;
+  }
+  const media = envelope?.media;
+  if (Array.isArray(media) && media.some((entry) => matchesPublicTranscriptMedia(entry, source))) {
+    return true;
+  }
+  if (record.role !== "assistant" || !Array.isArray(record.content)) {
+    return false;
+  }
+  // Text and tool payloads are not attachment ownership. Only explicit
+  // assistant media blocks may authorize their exact local path or URL.
+  return record.content.some((entry) => {
+    const block = asRecord(entry);
     if (
-      !record ||
-      (record.role !== "user" && record.role !== "assistant") ||
-      isSensitiveTranscriptMedia(record)
+      !block ||
+      typeof block.type !== "string" ||
+      !TRANSCRIPT_MEDIA_BLOCK_TYPES.has(block.type) ||
+      isSensitiveTranscriptMedia(block) ||
+      isSensitiveTranscriptMedia(block.attachment) ||
+      isSensitiveTranscriptMedia(block.source)
     ) {
       return false;
     }
-    const envelope = asRecord(record["__openclaw"]);
-    if (isSensitiveTranscriptMedia(envelope)) {
-      return false;
-    }
-    const media = envelope?.media;
-    if (
-      Array.isArray(media) &&
-      media.some((entry) => matchesPublicTranscriptMedia(entry, source))
-    ) {
-      return true;
-    }
-    if (record.role !== "assistant" || !Array.isArray(record.content)) {
-      return false;
-    }
-    // Text and tool payloads are not attachment ownership. Only explicit
-    // assistant media blocks may authorize their exact local path or URL.
-    return record.content.some((entry) => {
-      const block = asRecord(entry);
-      if (
-        !block ||
-        typeof block.type !== "string" ||
-        !TRANSCRIPT_MEDIA_BLOCK_TYPES.has(block.type) ||
-        isSensitiveTranscriptMedia(block) ||
-        isSensitiveTranscriptMedia(block.attachment) ||
-        isSensitiveTranscriptMedia(block.source)
-      ) {
-        return false;
-      }
-      return (
-        matchesPublicTranscriptMedia(block, source) ||
-        matchesPublicTranscriptMedia(block.attachment, source) ||
-        matchesPublicTranscriptMedia(block.source, source)
-      );
-    });
+    return (
+      matchesPublicTranscriptMedia(block, source) ||
+      matchesPublicTranscriptMedia(block.attachment, source) ||
+      matchesPublicTranscriptMedia(block.source, source)
+    );
   });
+}
+
+function historyContainsOwnedMediaSource(result: unknown, source: string): boolean {
+  const messages = asRecord(result)?.messages;
+  return (
+    Array.isArray(messages) &&
+    messages.some((message) => messageContainsOwnedMediaSource(message, source))
+  );
+}
+
+function exactMessageContainsOwnedMediaSource(result: unknown, source: string): boolean {
+  const record = asRecord(result);
+  return record?.ok === true && messageContainsOwnedMediaSource(record.message, source);
 }
 
 async function readResponseTextBounded(
@@ -307,6 +311,7 @@ export class PlatformClawBrowserMediaRelay {
   ): Promise<true> {
     const source = requestUrl.searchParams.get("source")?.trim() ?? "";
     const sessionKey = requestUrl.searchParams.get("sessionKey")?.trim() ?? "";
+    const messageId = requestUrl.searchParams.get("messageId")?.trim() || undefined;
     if (
       !isAllowedTranscriptMediaSource(source) ||
       this.options.resolveAgentIdFromSessionKey(sessionKey) !== access.binding.agentId
@@ -316,7 +321,7 @@ export class PlatformClawBrowserMediaRelay {
     }
 
     if (requestUrl.searchParams.get("meta") === "1") {
-      return this.handleAssistantMediaMeta(res, token, access, sessionKey, source);
+      return this.handleAssistantMediaMeta(res, token, access, sessionKey, source, messageId);
     }
     const ticket = this.verifyTicket(requestUrl.searchParams.get("mediaTicket"));
     if (
@@ -338,19 +343,31 @@ export class PlatformClawBrowserMediaRelay {
     access: BrowserMediaAccess,
     sessionKey: string,
     source: string,
+    messageId?: string,
   ): Promise<true> {
-    let history: unknown;
+    let transcriptProof: unknown;
     try {
-      history = await this.options.gatewayProxy.request(token, "chat.history", {
-        sessionKey,
-        limit: 1000,
-        maxChars: 500_000,
-      });
+      // Persisted rows already carry their exact transcript identity. Use that
+      // authoritative row; history remains only for browser bundles predating messageId.
+      transcriptProof = messageId
+        ? await this.options.gatewayProxy.request(token, "chat.message.get", {
+            sessionKey,
+            messageId,
+            maxChars: 500_000,
+          })
+        : await this.options.gatewayProxy.request(token, "chat.history", {
+            sessionKey,
+            limit: 1000,
+            maxChars: 500_000,
+          });
     } catch {
       sendJson(res, 404, { available: false, reason: "Attachment unavailable" });
       return true;
     }
-    if (!historyContainsOwnedMediaSource(history, source)) {
+    const ownsSource = messageId
+      ? exactMessageContainsOwnedMediaSource(transcriptProof, source)
+      : historyContainsOwnedMediaSource(transcriptProof, source);
+    if (!ownsSource) {
       sendJson(res, 404, { available: false, reason: "Attachment unavailable" });
       return true;
     }

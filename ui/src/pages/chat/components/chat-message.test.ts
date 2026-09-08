@@ -3746,12 +3746,14 @@ describe("grouped chat rendering", () => {
     );
     await flushAssistantAttachmentAvailabilityChecks();
 
-    const expectedMetaUrl = `/openclaw/__openclaw__/assistant-media?source=${encodeURIComponent(source).replaceAll("%20", "+")}&meta=1`;
+    const expectedMetaUrl = `/openclaw/__openclaw__/assistant-media?source=${encodeURIComponent(source).replaceAll("%20", "+")}&messageId=assistant-local-media-inline&meta=1`;
     const [, fetchInit] = requireFetchCallForUrl(fetchMock, expectedMetaUrl);
     expectSameOriginGet(fetchInit);
     expect(
       container.querySelector<HTMLImageElement>(".chat-message-image")?.getAttribute("src"),
-    ).toBe(expectedMetaUrl.replace("&meta=1", "&mediaTicket=ticket-local"));
+    ).toBe(
+      `/openclaw/__openclaw__/assistant-media?source=${encodeURIComponent(source).replaceAll("%20", "+")}&mediaTicket=ticket-local`,
+    );
   });
 
   it("stops checking when local assistant attachment metadata fetch stalls", async () => {
@@ -3797,7 +3799,7 @@ describe("grouped chat rendering", () => {
       "Checking...",
     );
 
-    const expectedMetaUrl = `/openclaw/__openclaw__/assistant-media?source=${encodeURIComponent(source)}&meta=1`;
+    const expectedMetaUrl = `/openclaw/__openclaw__/assistant-media?source=${encodeURIComponent(source)}&messageId=assistant-local-media-stalled-metadata&meta=1`;
     const [, fetchInit] = requireFetchCallForUrl(fetchMock, expectedMetaUrl);
     await vi.advanceTimersByTimeAsync(30_001);
     await flushAssistantAttachmentAvailabilityChecks();

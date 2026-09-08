@@ -219,6 +219,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             role: "user",
             content: "Uploaded document",
             __openclaw: {
+              id: "uploaded-document-message",
               media: [
                 {
                   path: "/srv/private/media/inbound/project-report---43007e90-2ade-43f2-a781-42b843e9eca3.pdf",
@@ -233,6 +234,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           {
             role: "assistant",
             content: persistedAssistantContent,
+            __openclaw: { id: "generated-document-message" },
             timestamp: 2,
           },
           {
@@ -250,7 +252,16 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           gatewayAuth: gatewayToken,
           gatewayProxy: {
             resolveAccess: async () => ({ binding: { agentId } }),
-            request: async <T = unknown>() => ({ sessionKey, messages: historyMessages }) as T,
+            request: async <T = unknown>(_token: string, method: string, params?: unknown) => {
+              if (method === "chat.message.get") {
+                const messageId = (params as { messageId?: string } | undefined)?.messageId;
+                const message = historyMessages.find(
+                  (entry) => entry["__openclaw"]?.id === messageId,
+                );
+                return { ok: Boolean(message), message } as T;
+              }
+              return { sessionKey, messages: historyMessages } as T;
+            },
           },
           resolveAgentIdFromSessionKey: (value) => /^agent:([^:]+):/u.exec(value)?.[1] ?? null,
           fetchImpl: async (input, init) => {

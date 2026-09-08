@@ -7,8 +7,10 @@ describe("assistant attachment URLs", () => {
     const source = "media://inbound/upload-1";
     const sessionKey = "agent:employee-one:main";
 
-    expect(buildAssistantAttachmentMetaUrl(source, "/platformclaw/app", sessionKey)).toBe(
-      "/platformclaw/app/__openclaw__/assistant-media?source=media%3A%2F%2Finbound%2Fupload-1&sessionKey=agent%3Aemployee-one%3Amain&meta=1",
+    expect(
+      buildAssistantAttachmentMetaUrl(source, "/platformclaw/app", sessionKey, "message/id"),
+    ).toBe(
+      "/platformclaw/app/__openclaw__/assistant-media?source=media%3A%2F%2Finbound%2Fupload-1&sessionKey=agent%3Aemployee-one%3Amain&messageId=message%2Fid&meta=1",
     );
     expect(buildAssistantAttachmentUrl(source, "/platformclaw/app", "ticket-1", sessionKey)).toBe(
       "/platformclaw/app/__openclaw__/assistant-media?source=media%3A%2F%2Finbound%2Fupload-1&mediaTicket=ticket-1&sessionKey=agent%3Aemployee-one%3Amain",

@@ -127,6 +127,7 @@ export function resolveRenderableMessageImages(
           opts?.authToken,
           opts?.onRequestUpdate,
           opts?.sessionKey,
+          opts?.messageId,
         )
       : { status: "available" as const };
     if (availability.status !== "available") {

@@ -215,8 +215,10 @@ export function renderGroupedMessage(
     localMediaPreviewRoots: opts.localMediaPreviewRoots ?? [],
     basePath: opts.basePath,
     sessionKey: opts.sessionKey,
+    messageId: opts.entryId,
     authToken: opts.assistantAttachmentAuthToken,
     onRequestUpdate: opts.onRequestUpdate,
+    onAssistantAttachmentLoaded: opts.onAssistantAttachmentLoaded,
     onRequestOpenImage: opts.onRequestOpenImage,
     onOpenImage: opts.onOpenImage,
     resolveArtifactDownload: opts.resolveArtifactDownload,
@@ -424,18 +426,7 @@ export function renderGroupedMessage(
                     <div class="chat-tool-msg-body">
                       ${renderPairingQrExpiryNotices(pairingQrExpiryNotices)}
                       ${renderMessageImages(images, imageRenderOptions)}
-                      ${renderAssistantAttachments(
-                        visibleAttachments,
-                        opts.localMediaPreviewRoots ?? [],
-                        opts.basePath,
-                        opts.assistantAttachmentAuthToken,
-                        opts.onRequestUpdate,
-                        opts.onAssistantAttachmentLoaded,
-                        opts.onRequestOpenImage,
-                        opts.onOpenImage,
-                        opts.resolveArtifactDownload,
-                        opts.sessionKey,
-                      )}
+                      ${renderAssistantAttachments(visibleAttachments, imageRenderOptions)}
                       ${assistantViewContent}
                       ${reasoningMarkdown
                         ? html`<div class="chat-thinking">
@@ -494,18 +485,7 @@ export function renderGroupedMessage(
         : html`
             ${renderPairingQrExpiryNotices(pairingQrExpiryNotices)}
             ${renderMessageImages(images, imageRenderOptions)}
-            ${renderAssistantAttachments(
-              visibleAttachments,
-              opts.localMediaPreviewRoots ?? [],
-              opts.basePath,
-              opts.assistantAttachmentAuthToken,
-              opts.onRequestUpdate,
-              opts.onAssistantAttachmentLoaded,
-              opts.onRequestOpenImage,
-              opts.onOpenImage,
-              opts.resolveArtifactDownload,
-              opts.sessionKey,
-            )}
+            ${renderAssistantAttachments(visibleAttachments, imageRenderOptions)}
             ${reasoningMarkdown
               ? html`<div class="chat-thinking">
                   ${unsafeHTML(toSanitizedMarkdownHtml(reasoningMarkdown))}
