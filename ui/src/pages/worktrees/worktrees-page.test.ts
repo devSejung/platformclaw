@@ -204,6 +204,7 @@ describe("WorktreesPage lifecycle", () => {
 
     pendingList.resolve({ worktrees: [record] });
     await refreshing;
+    await waitForFast(() => expect(page.loading).toBe(false));
 
     await page.removeWorktree(record);
     expect(showConfirmDialog).toHaveBeenCalledOnce();
@@ -294,6 +295,7 @@ describe("WorktreesPage lifecycle", () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
     );
+    await waitForFast(() => expect(page.loading).toBe(false));
 
     const removing = page.removeWorktree(worktree());
     await waitForFast(() =>
@@ -328,6 +330,7 @@ describe("WorktreesPage lifecycle", () => {
     );
     document.body.append(page);
     await waitForFast(() => expect(firstRequest).toHaveBeenCalledOnce());
+    await waitForFast(() => expect(page.loading).toBe(false));
 
     const removing = page.removeWorktree(worktree());
     await waitForFast(() => expect(showConfirmDialog).toHaveBeenCalledOnce());
@@ -365,6 +368,7 @@ describe("WorktreesPage lifecycle", () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
     );
+    await waitForFast(() => expect(page.loading).toBe(false));
 
     await page.removeWorktree(worktree());
 
