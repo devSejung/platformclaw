@@ -1016,16 +1016,6 @@ describe("BrowserGatewayProxy", () => {
     ).resolves.toBeNull();
     await expect(
       proxy.filterEvent(token, {
-        event: "sessions.changed",
-        payload: {
-          sessionKey: `agent:${binding.agentId}:main`,
-          agentId: binding.agentId,
-          childSessions: [`agent:${binding.agentId}:child`, "agent:other:child"],
-        },
-      }),
-    ).resolves.toBeNull();
-    await expect(
-      proxy.filterEvent(token, {
         event: "chat",
         payload: { agentId: binding.agentId },
       }),

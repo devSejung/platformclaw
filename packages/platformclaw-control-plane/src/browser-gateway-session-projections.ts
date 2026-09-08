@@ -5,7 +5,7 @@ type ProjectBrowserSessionResultParams = {
   prepared: JsonObject;
   result: unknown;
   assertOwnedResultSessionKey(value: unknown): void;
-  payloadBelongsToAccess(value: unknown): boolean;
+  projectSessionPayloadForAccess(value: unknown): JsonObject | null;
   fail(message: string): never;
 };
 
@@ -235,12 +235,28 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
       ...(editorAttachments.length > 0 ? { editorAttachments } : {}),
     };
   }
+  if (input.method === "sessions.list") {
+    const payload = asObject(input.result, "sessions.list result", fail);
+    if (!Array.isArray(payload.sessions)) {
+      return input.fail("Gateway returned an invalid sessions.list result");
+    }
+    const sessions = payload.sessions;
+    const projectedSessions = sessions.map((session) =>
+      input.projectSessionPayloadForAccess(session),
+    );
+    return projectedSessions.some((session) => session === null)
+      ? input.fail("Gateway returned a session outside the browser binding")
+      : { ...payload, sessions: projectedSessions };
+  }
   if (input.method === "sessions.describe") {
     const payload = asObject(input.result, "session description", fail);
-    if (payload.session !== null && !input.payloadBelongsToAccess(payload.session)) {
-      return input.fail("Gateway returned a session outside the browser binding");
+    if (payload.session === null) {
+      return payload;
     }
-    return payload;
+    const session = input.projectSessionPayloadForAccess(payload.session);
+    return session
+      ? { ...payload, session }
+      : input.fail("Gateway returned a session outside the browser binding");
   }
   return undefined;
 }

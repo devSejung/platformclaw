@@ -53,6 +53,7 @@ export function projectBrowserGatewayEvent(options: {
   sessionKeyBelongsToAgent: (sessionKey: string) => boolean;
   taskEventBelongsToAccess: (payload: unknown) => boolean;
   eventPayloadBelongsToAccess: (payload: unknown) => boolean;
+  projectSessionPayloadForAccess: (payload: unknown) => Record<string, unknown> | null;
 }): BrowserGatewayEvent | null {
   if (SAFE_GLOBAL_EVENTS.has(options.event.event)) {
     return options.event;
@@ -85,6 +86,17 @@ export function projectBrowserGatewayEvent(options: {
   }
   if (options.event.event === "task") {
     return options.taskEventBelongsToAccess(options.event.payload) ? options.event : null;
+  }
+  if (options.event.event === "sessions.changed") {
+    const payload = options.projectSessionPayloadForAccess(options.event.payload);
+    if (!payload) {
+      return null;
+    }
+    if (payload.session === undefined) {
+      return { ...options.event, payload };
+    }
+    const session = options.projectSessionPayloadForAccess(payload.session);
+    return session ? { ...options.event, payload: { ...payload, session } } : null;
   }
   if (
     !SESSION_SCOPED_EVENTS.has(options.event.event) ||

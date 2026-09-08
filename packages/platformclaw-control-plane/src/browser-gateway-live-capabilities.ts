@@ -98,6 +98,7 @@ export class BrowserGatewayLiveCapabilities {
     context?: BrowserGatewayRequestContext;
     taskEventBelongsToAccess: (payload: unknown) => boolean;
     eventPayloadBelongsToAccess: (payload: unknown) => boolean;
+    projectSessionPayloadForAccess: (payload: unknown) => Record<string, unknown> | null;
   }): BrowserGatewayEvent | null {
     return projectBrowserGatewayEvent({
       event: options.event,
@@ -110,6 +111,7 @@ export class BrowserGatewayLiveCapabilities {
         this.resolveAgentIdFromSessionKey(sessionKey) === options.agentId,
       taskEventBelongsToAccess: options.taskEventBelongsToAccess,
       eventPayloadBelongsToAccess: options.eventPayloadBelongsToAccess,
+      projectSessionPayloadForAccess: options.projectSessionPayloadForAccess,
     });
   }
 
