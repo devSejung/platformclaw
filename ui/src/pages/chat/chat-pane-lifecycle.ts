@@ -1,5 +1,3 @@
-import "../../components/modal-dialog.ts";
-import { html, nothing } from "lit";
 import type {
   SessionObserverDigest,
   SessionSuggestionEvent,
@@ -16,7 +14,6 @@ import {
   BROWSER_ANNOTATION_EVENT,
   type BrowserAnnotationDraft,
 } from "../../components/browser/browser-annotation.ts";
-import { t } from "../../i18n/index.ts";
 import { resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
 import { resolveChatPaneObserverRunId } from "../../lib/observer-digest.ts";
 import { readSessionMethodAccess } from "../../lib/session-method-access.ts";
@@ -43,8 +40,10 @@ import {
   NEW_SESSION_CREATE_FAILED_MESSAGE,
   NEW_SESSION_LIST_LOADING_MESSAGE,
 } from "./chat-pane-shared.ts";
+import { renderChatResetConfirmation } from "./chat-reset-confirmation.ts";
 import { setChatError } from "./chat-send-queue-state.ts";
 import { handleSendChat } from "./chat-send-submit.ts";
+import { applyCreatedSessionInitialRun } from "./chat-session-create-completion.ts";
 import { applySelectedChatAgent } from "./chat-session.ts";
 import { handlePageGatewayEvent } from "./chat-state-events.ts";
 import { createPageState } from "./chat-state-page.ts";
@@ -57,11 +56,7 @@ import { toggleSessionWorkspace } from "./components/chat-session-workspace.ts";
 import { WIDGET_PROMPT_EVENT, type WidgetPromptEventDetail } from "./components/chat-tool-cards.ts";
 import { CHAT_COMPOSER_DRAFT_STORAGE_ERROR } from "./composer-persistence.ts";
 import { exportChatMarkdown } from "./export.ts";
-import {
-  admitInitialTurnHandoff,
-  admitInitialUserMessageHandoff,
-  prepareInitialUserMessageHandoff,
-} from "./initial-turn-handoff.ts";
+import { admitInitialTurnHandoff, admitInitialUserMessageHandoff } from "./initial-turn-handoff.ts";
 import { readChatSessionSnapshot } from "./session-message-cache.ts";
 import { supportsSessionWorkspace } from "./session-workspace-access.ts";
 
@@ -132,44 +127,9 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
   }
 
   protected renderResetConfirmation() {
-    if (!this.resetConfirmationOpen) {
-      return nothing;
-    }
-    const title = t("chat.board.resetTitle");
-    const description = t("chat.board.resetDescription");
-    return html`
-      <openclaw-modal-dialog
-        label=${title}
-        description=${description}
-        @modal-cancel=${() => this.settleResetConfirmation(false)}
-      >
-        <div class="exec-approval-card board-reset-confirmation">
-          <div class="exec-approval-header">
-            <div>
-              <div class="exec-approval-title">${title}</div>
-              <div class="exec-approval-sub">${description}</div>
-            </div>
-          </div>
-          <div class="exec-approval-actions">
-            <button
-              class="btn primary"
-              type="button"
-              @click=${() => this.settleResetConfirmation(true)}
-            >
-              ${t("common.confirm")}
-            </button>
-            <button
-              class="btn"
-              type="button"
-              autofocus
-              @click=${() => this.settleResetConfirmation(false)}
-            >
-              ${t("common.cancel")}
-            </button>
-          </div>
-        </div>
-      </openclaw-modal-dialog>
-    `;
+    return renderChatResetConfirmation(this.resetConfirmationOpen, (confirmed) =>
+      this.settleResetConfirmation(confirmed),
+    );
   }
 
   protected readonly createSession = async (initialMessage?: string): Promise<boolean> => {
@@ -311,26 +271,15 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
       }
       return false;
     }
-    if (initialMessage && created?.initialRun.status === "started") {
-      prepareInitialUserMessageHandoff(
-        context.initialUserMessage,
-        nextSessionKey,
-        { text: initialMessage, createdAt: submittedAt },
-        client,
-        {
-          messageId: created.initialRun.messageId,
-          messageSeq: created.initialRun.messageSeq,
-        },
-      );
-    } else if (initialMessage && created?.initialRun.status !== "started") {
-      state.chatMessage = initialMessage;
-      setChatError(
-        state,
-        created?.initialRun.status === "rejected"
-          ? created.initialRun.error
-          : "The thread was created, but its first message was not sent.",
-      );
-    }
+    applyCreatedSessionInitialRun({
+      state,
+      initialMessage,
+      created,
+      submittedAt,
+      handoff: context.initialUserMessage,
+      client,
+      nextSessionKey,
+    });
     this.chatState.captureCreatedSessionComposer(nextSessionKey);
     this.onPaneSessionChange?.(this.paneId, nextSessionKey);
     return true;
