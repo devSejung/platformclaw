@@ -62,21 +62,27 @@
   pointer-events: none;
 }
 
-.platformclaw-easter-egg__trajectory {
+.platformclaw-easter-egg__trail {
   position: absolute;
   inset: 0;
   z-index: 1;
-  width: 100%;
-  height: 100%;
   overflow: visible;
   pointer-events: none;
 }
 
-.platformclaw-easter-egg__trajectory-line {
-  fill: none;
-  stroke: color-mix(in srgb, var(--muted) 72%, var(--bg));
-  stroke-linecap: round;
-  stroke-width: 1.25;
+.platformclaw-easter-egg__trail-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 82%, var(--bg-primary));
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
 }
 
 .platformclaw-easter-egg__player,

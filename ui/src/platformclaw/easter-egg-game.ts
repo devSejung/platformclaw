@@ -15,12 +15,12 @@ import { PLATFORMCLAW_EASTER_EGG_EVENT } from "./easter-egg.ts";
 
 const PITCH_SPEED = 360;
 const PITCH_FLIGHT_GRAVITY = 8;
-const BATTED_GRAVITY = 360;
-const BATTED_MIN_SPEED = 360;
-const BATTED_MAX_SPEED = 520;
-const BATTED_MIN_LIFT = 300;
-const BATTED_MAX_LIFT = 470;
-const TRAJECTORY_POINTS = 160;
+const BATTED_GRAVITY = 440;
+const BATTED_MIN_SPEED = 460;
+const BATTED_MAX_SPEED = 640;
+const BATTED_MIN_LIFT = 360;
+const BATTED_MAX_LIFT = 540;
+const TRAIL_POINTS = 7;
 const BETWEEN_ROUNDS_MS = 650;
 const MIN_WINDUP_DELAY_MS = 520;
 const MAX_WINDUP_DELAY_MS = 820;
@@ -62,7 +62,7 @@ type Projectile = {
   outcome?: DuelOutcome;
   timingDeltaMs?: number;
   distanceM?: number;
-  trajectory: DuelPoint[];
+  trail: DuelPoint[];
 };
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
@@ -127,7 +127,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   private playerElement: HTMLElement | null = null;
   private targetElement: HTMLElement | null = null;
   private projectileElement: HTMLElement | null = null;
-  private trajectoryElement: SVGPolylineElement | null = null;
+  private trailElements: HTMLElement[] = [];
 
   private readonly handleTrigger = (): void => {
     if (this.active) {
@@ -205,13 +205,15 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
             </div>`
           : nothing}
         <div class="platformclaw-easter-egg__arena">
-          <svg
-            class="platformclaw-easter-egg__trajectory"
-            viewBox="0 0 1000 1000"
-            aria-hidden="true"
-          >
-            <polyline class="platformclaw-easter-egg__trajectory-line" points="" />
-          </svg>
+          <div class="platformclaw-easter-egg__trail" aria-hidden="true">
+            ${Array.from(
+              { length: TRAIL_POINTS },
+              (_, index) => html`<span
+                class="platformclaw-easter-egg__trail-dot"
+                data-trail-index=${index}
+              ></span>`,
+            )}
+          </div>
           <div
             class="platformclaw-easter-egg__player platformclaw-easter-egg__player--${this
               .playerState}"
@@ -238,11 +240,12 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   }
 
   override updated(): void {
-    // Lit replaces the transient projectile/trajectory nodes on round updates;
+    // Lit replaces the transient projectile/trail nodes on round updates;
     // refresh the imperative handles before the next physics tick mutates them.
     if (this.active) {
       this.cacheElements();
       this.setProjectileVisibility(Boolean(this.projectile));
+      this.setProjectileTrail(this.projectile?.trail ?? []);
     }
   }
 
@@ -313,7 +316,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     this.targetState = "idle";
     this.projectile = null;
     this.setProjectileVisibility(false);
-    this.clearTrajectory();
+    this.setProjectileTrail([]);
     this.currentRound = {
       potentialDistanceM: 120 + Math.floor(Math.random() * 31),
       targetX: 0,
@@ -372,11 +375,11 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       vy: (contactY - launchY) / flightSeconds - 0.5 * PITCH_FLIGHT_GRAVITY * flightSeconds,
       lastAt: now,
       batted: false,
-      trajectory: [{ x: launchX, y: launchY }],
+      trail: [{ x: launchX, y: launchY }],
     };
     this.setProjectileVisibility(true);
     this.setProjectilePosition(launchX, launchY);
-    this.setTrajectory(this.projectile.trajectory);
+    this.setProjectileTrail(this.projectile.trail);
     this.followThroughTimer = setTimeout(() => {
       this.followThroughTimer = null;
       if (this.active && sequence === this.playSequence) {
@@ -396,12 +399,12 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     projectile.vy += (projectile.batted ? BATTED_GRAVITY : PITCH_FLIGHT_GRAVITY) * deltaSeconds;
     projectile.x += projectile.vx * deltaSeconds;
     projectile.y += projectile.vy * deltaSeconds;
-    projectile.trajectory.push({ x: projectile.x, y: projectile.y });
-    if (projectile.trajectory.length > TRAJECTORY_POINTS) {
-      projectile.trajectory.shift();
+    projectile.trail.push({ x: projectile.x, y: projectile.y });
+    if (projectile.trail.length > TRAIL_POINTS) {
+      projectile.trail.shift();
     }
     this.setProjectilePosition(projectile.x, projectile.y);
-    this.setTrajectory(projectile.trajectory);
+    this.setProjectileTrail(projectile.trail);
 
     if (!projectile.batted && round.idealContactTime !== null) {
       const timingDeltaMs = now - round.idealContactTime;
@@ -426,6 +429,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     }
     this.projectile = null;
     this.setProjectileVisibility(false);
+    this.setProjectileTrail([]);
     this.clearBatterTimer();
     this.result =
       outcome === "MISS" && timingDeltaMs === undefined
@@ -538,10 +542,10 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     projectile.vx = BATTED_MIN_SPEED + distanceRatio * (BATTED_MAX_SPEED - BATTED_MIN_SPEED);
     projectile.vy = -(BATTED_MIN_LIFT + distanceRatio * (BATTED_MAX_LIFT - BATTED_MIN_LIFT));
     projectile.lastAt = performance.now();
-    projectile.trajectory = [{ x: projectile.x, y: projectile.y }];
+    projectile.trail = [{ x: projectile.x, y: projectile.y }];
     this.playerState = outcome === "PERFECT" ? "swing-perfect" : "swing";
     this.setProjectilePosition(projectile.x, projectile.y);
-    this.setTrajectory(projectile.trajectory);
+    this.setProjectileTrail(projectile.trail);
     this.clearBatterTimer();
     this.batterTimer = setTimeout(() => {
       this.batterTimer = null;
@@ -626,8 +630,8 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     this.projectileElement = this.querySelector<HTMLElement>(
       ".platformclaw-easter-egg__projectile",
     );
-    this.trajectoryElement = this.querySelector<SVGPolylineElement>(
-      ".platformclaw-easter-egg__trajectory-line",
+    this.trailElements = Array.from(
+      this.querySelectorAll<HTMLElement>(".platformclaw-easter-egg__trail-dot"),
     );
   }
 
@@ -641,27 +645,20 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     }
   }
 
-  private setTrajectory(points: DuelPoint[]): void {
-    if (!this.trajectoryElement) {
-      return;
-    }
-    this.trajectoryElement.setAttribute(
-      "points",
-      points
-        .map(
-          (point) => `${(point.x / this.arenaWidth) * 1000},${(point.y / this.arenaHeight) * 1000}`,
-        )
-        .join(" "),
-    );
-    this.trajectoryElement.style.opacity = "1";
-  }
-
-  private clearTrajectory(): void {
-    if (!this.trajectoryElement) {
-      return;
-    }
-    this.trajectoryElement.setAttribute("points", "");
-    this.trajectoryElement.style.opacity = "0";
+  private setProjectileTrail(points: DuelPoint[]): void {
+    const visiblePoints = points.slice(-TRAIL_POINTS);
+    this.trailElements.forEach((element, index) => {
+      const point = visiblePoints[visiblePoints.length - 1 - index];
+      if (!point) {
+        element.style.opacity = "0";
+        return;
+      }
+      const age = index / Math.max(1, TRAIL_POINTS - 1);
+      const opacity = (1 - age) * 0.42;
+      const scale = 0.92 - age * 0.28;
+      element.style.opacity = String(opacity);
+      element.style.transform = `translate3d(${point.x}px, ${point.y}px, 0) scale(${scale})`;
+    });
   }
 
   private finishGame(): void {
@@ -680,7 +677,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     this.playerElement = null;
     this.targetElement = null;
     this.projectileElement = null;
-    this.trajectoryElement = null;
+    this.trailElements = [];
   }
 
   private stopAnimationLoop(): void {
