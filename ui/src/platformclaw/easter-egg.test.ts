@@ -94,7 +94,8 @@ describe("PlatformClaw easter egg", () => {
     expect(
       egg.querySelectorAll(".platformclaw-easter-egg__player, .platformclaw-easter-egg__target"),
     ).toHaveLength(2);
-    expect(egg.querySelector(".platformclaw-easter-egg__trajectory-line")).not.toBeNull();
+    expect(egg.querySelector(".platformclaw-easter-egg__trajectory-line")).toBeNull();
+    expect(egg.querySelectorAll(".platformclaw-easter-egg__trail-dot")).toHaveLength(7);
 
     const input = document.createElement("input");
     document.body.append(input);
