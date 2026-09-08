@@ -104,6 +104,9 @@ describe("PlatformClaw scheduled agent execution", () => {
         launchAcpProcess: vi.fn(async () => {
           throw new Error("not used");
         }),
+        diagnoseAcpProcess: vi.fn(async () => {
+          throw new Error("not used");
+        }),
         resolveExecCredentials: vi.fn(async () => ({})),
       };
       const restore = registerSandboxBackend(

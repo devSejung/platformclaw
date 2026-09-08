@@ -85,6 +85,9 @@ function createDependencies(
     launchAcpProcess: vi.fn(async () => {
       throw new Error("ACP process launch is not expected in this test");
     }),
+    diagnoseAcpProcess: vi.fn(async () => {
+      throw new Error("ACP process diagnostics are not expected in this test");
+    }),
     resolveExecCredentials: vi.fn(async () => ({})),
   };
 }

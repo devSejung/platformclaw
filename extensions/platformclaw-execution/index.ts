@@ -15,7 +15,10 @@ import {
   createUnavailableExecutionDependencies,
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
 } from "./src/backend.js";
-import type { AssignedVmTargetSnapshot } from "./src/backend.js";
+import type {
+  AssignedVmTargetSnapshot,
+  PlatformClawExecutionTargetSnapshot,
+} from "./src/backend.js";
 import { registerPlatformClawExecutionGateway } from "./src/gateway.js";
 import { createExecutionDependenciesFromEnvironment } from "./src/runtime.js";
 import { PlatformClawTargetMutationCoordinator } from "./src/target-mutation-coordinator.js";
@@ -88,7 +91,7 @@ export default definePluginEntry({
             undefined,
           );
         }
-        let target: AssignedVmTargetSnapshot;
+        let target: PlatformClawExecutionTargetSnapshot;
         try {
           target = await (
             await requireExecutionRuntime()
@@ -150,7 +153,7 @@ export default definePluginEntry({
           };
         }
         let executionRuntime: Awaited<ReturnType<typeof requireExecutionRuntime>>;
-        let target: AssignedVmTargetSnapshot;
+        let target: PlatformClawExecutionTargetSnapshot;
         try {
           executionRuntime = await requireExecutionRuntime();
           target = await executionRuntime.resolveTarget({
