@@ -1,11 +1,31 @@
 // Resolves ACP command target sessions from user text and active state.
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { readAcpSessionEntry } from "../../../acp/runtime/session-meta.js";
 import { callGateway } from "../../../gateway/call.js";
 import { SESSION_ID_RE } from "../../../sessions/session-id.js";
 import { resolveEffectiveResetTargetSessionKey } from "../acp-reset-target.js";
 import { resolveRequesterSessionKey } from "../commands-subagents/shared.js";
 import type { HandleCommandsParams } from "../commands-types.js";
+import { acpSessionBelongsToAgentScope, resolveAcpCommandAgentScope } from "./agent-scope.js";
 import { resolveAcpCommandBindingContext } from "./context.js";
+
+function scopeResolvedTarget(
+  commandParams: HandleCommandsParams,
+  sessionKey: string,
+): { ok: true; sessionKey: string } | { ok: false; error: string } {
+  const agentScope = resolveAcpCommandAgentScope(commandParams);
+  if (!agentScope) {
+    return { ok: true, sessionKey };
+  }
+  const stored = readAcpSessionEntry({ cfg: commandParams.cfg, sessionKey, clone: false });
+  if (
+    stored &&
+    acpSessionBelongsToAgentScope({ agentScope, entry: stored.entry, acp: stored.acp })
+  ) {
+    return { ok: true, sessionKey };
+  }
+  return { ok: false, error: "ACP session is outside this personal agent boundary." };
+}
 
 async function resolveSessionKeyByToken(token: string): Promise<string | null> {
   const trimmed = token.trim();
@@ -61,7 +81,10 @@ export async function resolveAcpTargetSessionKey(params: {
   if (token) {
     const resolved = await resolveSessionKeyByToken(token);
     if (resolved) {
-      return { ok: true, sessionKey: resolved };
+      const scoped = scopeResolvedTarget(params.commandParams, resolved);
+      return scoped.ok
+        ? scoped
+        : { ok: false, error: `Unable to resolve session target: ${token}` };
     }
     // Token was supplied but could not be resolved as a session key/id/label.
     // Fall through to thread-bound resolution so that callers that auto-fill
@@ -71,10 +94,7 @@ export async function resolveAcpTargetSessionKey(params: {
 
   const threadBound = resolveBoundAcpThreadSessionKey(params.commandParams);
   if (threadBound) {
-    return {
-      ok: true,
-      sessionKey: threadBound,
-    };
+    return scopeResolvedTarget(params.commandParams, threadBound);
   }
 
   if (token) {
@@ -93,8 +113,5 @@ export async function resolveAcpTargetSessionKey(params: {
       error: "Missing session key.",
     };
   }
-  return {
-    ok: true,
-    sessionKey: fallback,
-  };
+  return scopeResolvedTarget(params.commandParams, fallback);
 }

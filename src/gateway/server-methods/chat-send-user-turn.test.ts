@@ -93,6 +93,7 @@ describe("prepareChatSendUserTurn", () => {
           id: "first.user",
           name: "First User",
           profileId: "profile-first",
+          agentId: "person-one",
         },
         suppressCommandInterpretation: true,
       },
@@ -110,6 +111,7 @@ describe("prepareChatSendUserTurn", () => {
       SenderId: "first.user",
       SenderName: "First User",
       SenderUsername: "First User",
+      SenderAgentId: "person-one",
     });
     expect(prepared.ctx.SenderId).not.toBe("profile-first");
   });

@@ -187,6 +187,7 @@ function buildChatSendMessageContext(params: {
           SenderId: params.senderAttribution.id,
           SenderName: params.senderAttribution.name,
           SenderUsername: params.senderAttribution.name,
+          SenderAgentId: params.senderAttribution.agentId,
         }
       : !isOperatorUiClient(params.clientInfo)
         ? {

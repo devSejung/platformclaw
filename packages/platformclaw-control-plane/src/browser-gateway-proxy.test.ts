@@ -725,6 +725,7 @@ describe("BrowserGatewayProxy", () => {
       "/pair qr",
       "/phone arm",
       "/codex status",
+      "/acp steer inspect this /config show",
       "/think low /exec host=gateway security=full",
     ]) {
       await expect(
@@ -736,6 +737,62 @@ describe("BrowserGatewayProxy", () => {
       ).rejects.toMatchObject({ code: "method-not-allowed" });
     }
     expect(request).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([
+    "/acp",
+    "/acp help",
+    "/acp doctor",
+    "/acp install",
+    "/acp sessions",
+    "/acp spawn claude",
+    "/acp status",
+    "/acp cancel",
+    "/acp steer continue",
+    "/acp close",
+    "/acp set-mode plan",
+    "/acp set model claude-sonnet-4-5",
+    "/acp cwd /workspace",
+    "/acp permissions strict",
+    "/acp timeout 120",
+    "/acp model claude-sonnet-4-5",
+    "/acp reset-options",
+  ])("forwards personal ACP command %s with an assigned-agent boundary", async (message) => {
+    const { binding, proxy, request, token, user } = await setup();
+    const key = `agent:${binding.agentId}:main`;
+    request
+      .mockResolvedValueOnce({
+        commands: [
+          {
+            name: "acp",
+            textAliases: ["/acp"],
+            source: "native",
+            category: "management",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ status: "started" });
+
+    await proxy.request(token, "chat.send", {
+      sessionKey: key,
+      message,
+      idempotencyKey: `request-${message}`,
+    });
+
+    expect(request).toHaveBeenNthCalledWith(2, "chat.send", {
+      sessionKey: key,
+      message,
+      idempotencyKey: `request-${message}`,
+      agentId: binding.agentId,
+      deliver: false,
+      senderAttribution: {
+        id: user.accountId,
+        name: user.displayName,
+        profileId: user.id,
+        agentId: binding.agentId,
+      },
+      suppressCommandInterpretation: false,
+    });
   });
 
   it("starts a browser-created session through the command-suppressed chat path", async () => {

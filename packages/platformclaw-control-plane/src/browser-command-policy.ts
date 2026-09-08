@@ -7,7 +7,6 @@ type GatewayRequest = {
 // These commands cross the personal-agent boundary into Gateway administration,
 // host execution, credentials, device control, or channel-owned bindings.
 const BLOCKED_BROWSER_COMMANDS = new Set([
-  "acp",
   "activation",
   "allowlist",
   "approve",
@@ -30,7 +29,7 @@ const BLOCKED_BROWSER_COMMANDS = new Set([
   "send",
   "unfocus",
 ]);
-const SAFE_MANAGEMENT_COMMANDS = new Set(["agents", "steer", "subagents", "tell"]);
+const SAFE_MANAGEMENT_COMMANDS = new Set(["acp", "agents", "steer", "subagents", "tell"]);
 const SAFE_NATIVE_CATEGORIES = new Set(["media", "options", "session", "status", "tools"]);
 
 function commandNames(command: JsonObject): string[] {
@@ -94,6 +93,11 @@ function resolveBrowserCommandPolicy(
     return "block";
   }
   const safeNames = new Set(projectBrowserCommands(advertisedCommands).flatMap(commandNames));
+  // ACP owns its entire argument tail, which legitimately contains absolute paths.
+  // The explicit blocked-directive scan above still rejects embedded admin commands.
+  if (leading === "acp" && safeNames.has(leading)) {
+    return "allow";
+  }
   // Every slash token can be interpreted by Gateway, not only the leading one.
   // Fail closed when any embedded directive was omitted from the safe projection.
   return safeNames.has(leading) && tokens.every((token) => safeNames.has(token))

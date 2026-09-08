@@ -486,6 +486,7 @@ export class BrowserGatewayProxy {
             id: access.user.accountId,
             ...(access.user.displayName ? { name: access.user.displayName } : {}),
             profileId: access.user.id,
+            agentId: access.binding.agentId,
           },
         };
       }

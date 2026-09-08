@@ -12,6 +12,7 @@ import type { SessionEntry } from "../../../config/sessions/types.js";
 import type { SessionAcpMeta } from "../../../config/sessions/types.js";
 import { getSessionBindingService } from "../../../infra/outbound/session-binding-service.js";
 import type { CommandHandlerResult, HandleCommandsParams } from "../commands-types.js";
+import { acpSessionBelongsToAgentScope, resolveAcpCommandAgentScope } from "./agent-scope.js";
 import { resolveAcpCommandBindingContext } from "./context.js";
 import { resolveAcpInstallCommandHint } from "./install-hints.js";
 import {
@@ -193,11 +194,20 @@ export async function handleAcpSessionsAction(
   const currentEntry = params.command.senderIsOwner
     ? null
     : readAcpSessionEntry({ cfg: params.cfg, sessionKey: currentSessionKey });
-  const visibleEntries = params.command.senderIsOwner
-    ? await listAcpSessionEntries({ cfg: params.cfg })
-    : currentEntry?.entry && currentEntry.acp
-      ? [currentEntry]
-      : [];
+  const agentScope = resolveAcpCommandAgentScope(params);
+  const visibleEntries = agentScope
+    ? (await listAcpSessionEntries({ cfg: params.cfg })).filter((stored) =>
+        acpSessionBelongsToAgentScope({
+          agentScope,
+          entry: stored.entry,
+          acp: stored.acp,
+        }),
+      )
+    : params.command.senderIsOwner
+      ? await listAcpSessionEntries({ cfg: params.cfg })
+      : currentEntry?.entry && currentEntry.acp
+        ? [currentEntry]
+        : [];
 
   const rows = visibleEntries
     .toSorted((a, b) => (b.entry?.updatedAt ?? 0) - (a.entry?.updatedAt ?? 0))

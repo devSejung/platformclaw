@@ -566,6 +566,7 @@ function createAcpSessionEntry(options?: {
   sessionKey?: string;
   state?: "idle" | "running";
   identity?: AcpSessionIdentity;
+  spawnedBy?: string;
 }) {
   const sessionKey = options?.sessionKey ?? defaultAcpSessionKey;
   return {
@@ -575,6 +576,7 @@ function createAcpSessionEntry(options?: {
       sessionId: "sess-acp",
       updatedAt: Date.now(),
       label: "codex-main",
+      ...(options?.spawnedBy ? { spawnedBy: options.spawnedBy } : {}),
     },
     acp: {
       backend: "acpx",
@@ -901,6 +903,7 @@ async function runInternalAcpCommand(params: {
   commandBody: string;
   scopes: string[];
   cfg?: OpenClawConfig;
+  senderAgentId?: string;
 }) {
   const commandParams = buildCommandTestParams(params.commandBody, params.cfg ?? baseCfg, {
     Provider: INTERNAL_MESSAGE_CHANNEL,
@@ -908,6 +911,7 @@ async function runInternalAcpCommand(params: {
     OriginatingChannel: INTERNAL_MESSAGE_CHANNEL,
     OriginatingTo: "webchat:conversation-1",
     GatewayClientScopes: params.scopes,
+    ...(params.senderAgentId ? { SenderAgentId: params.senderAgentId } : {}),
   });
   commandParams.command.channel = INTERNAL_MESSAGE_CHANNEL;
   commandParams.command.senderId = "user-1";
@@ -943,7 +947,10 @@ describe("/acp command", () => {
       storePath: "/tmp/sessions-acp.json",
     });
     hoisted.loadSessionStoreMock.mockReset().mockReturnValue({});
-    hoisted.updateSessionEntryMock.mockReset().mockResolvedValue(null);
+    hoisted.updateSessionEntryMock.mockReset().mockResolvedValue({
+      sessionId: "session-1",
+      updatedAt: Date.now(),
+    });
     hoisted.sessionBindingCapabilitiesMock
       .mockReset()
       .mockReturnValue(createSessionBindingCapabilities());
@@ -1334,6 +1341,8 @@ describe("/acp command", () => {
     });
     expect(updateCall?.[1]({ sessionId: "target", updatedAt: 1 })).toEqual({
       label: "inbox",
+      spawnedBy: "agent:main:main",
+      parentSessionKey: "agent:main:main",
       updatedAt: expect.any(Number),
     });
   });
@@ -2206,6 +2215,68 @@ describe("/acp command", () => {
     expect(result?.reply?.text).toContain("agent:codex:acp:own");
     expect(result?.reply?.text).toContain("agent:claude:acp:foreign");
     expect(hoisted.readAcpSessionEntryMock).not.toHaveBeenCalled();
+  });
+
+  it("limits attributed browser session listing to the assigned personal agent", async () => {
+    hoisted.listAcpSessionEntriesMock.mockResolvedValue([
+      createAcpSessionEntry({
+        sessionKey: "agent:claude:acp:own",
+        spawnedBy: "agent:person_one:dashboard:first",
+      }),
+      createAcpSessionEntry({
+        sessionKey: "agent:claude:acp:foreign",
+        spawnedBy: "agent:person_two:dashboard:first",
+      }),
+    ]);
+
+    const result = await runInternalAcpCommand({
+      commandBody: "/acp sessions",
+      scopes: ["operator.admin"],
+      senderAgentId: "person_one",
+    });
+
+    expect(result?.reply?.text).toContain("agent:claude:acp:own");
+    expect(result?.reply?.text).not.toContain("agent:claude:acp:foreign");
+  });
+
+  it("rejects an attributed browser control targeting another personal agent session", async () => {
+    const foreignKey = "agent:claude:acp:foreign";
+    hoisted.callGatewayMock.mockResolvedValue({ key: foreignKey });
+    hoisted.readAcpSessionEntryMock.mockReturnValue(
+      createAcpSessionEntry({
+        sessionKey: foreignKey,
+        spawnedBy: "agent:person_two:dashboard:first",
+      }),
+    );
+
+    const result = await runInternalAcpCommand({
+      commandBody: `/acp status ${foreignKey}`,
+      scopes: ["operator.admin"],
+      senderAgentId: "person_one",
+    });
+
+    expect(result?.reply?.text).toContain(`Unable to resolve session target: ${foreignKey}`);
+    expect(hoisted.getStatusMock).not.toHaveBeenCalled();
+  });
+
+  it("allows an attributed browser control for a session spawned by its personal agent", async () => {
+    const ownedKey = "agent:claude:acp:owned";
+    hoisted.callGatewayMock.mockResolvedValue({ key: ownedKey });
+    hoisted.readAcpSessionEntryMock.mockReturnValue(
+      createAcpSessionEntry({
+        sessionKey: ownedKey,
+        spawnedBy: "agent:person_one:dashboard:first",
+      }),
+    );
+
+    const result = await runInternalAcpCommand({
+      commandBody: `/acp status ${ownedKey}`,
+      scopes: ["operator.admin"],
+      senderAgentId: "person_one",
+    });
+
+    expect(result?.reply?.text).toContain("ACP status:");
+    expectMockCallFields(hoisted.getStatusMock, { sessionKey: ownedKey });
   });
 
   it("allows mutating /acp actions for internal operator.admin clients", async () => {
