@@ -353,6 +353,55 @@
     },
     {
       "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/pages/agents/memory/view.test-helpers.ts",
+      "text": "Health"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/pages/agents/memory/view.test-helpers.ts",
+      "text": "Syntheses"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/pages/agents/memory/view.test-helpers.ts",
+      "text": "Travel"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/pages/agents/memory/view.test-helpers.ts",
+      "text": "Alpha"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/pages/agents/memory/view.test-helpers.ts",
+      "text": "BA flight receipts process"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/pages/agents/memory/view.test-helpers.ts",
+      "text": "Migraine Medication Advice"
+    },
+    {
+      "count": 2,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/pages/agents/memory/view.test-helpers.ts",
+      "text": "Travel system"
+    },
+    {
+      "count": 1,
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/pages/agents/memory/view.ts",
