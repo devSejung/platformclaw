@@ -110,16 +110,17 @@ function projectCompactionCheckpoint(
   value: unknown,
   input: ProjectBrowserSessionResultParams,
 ): JsonObject {
-  const checkpoint = asObject(value, "session compaction checkpoint", input.fail);
+  const fail = (message: string): never => input.fail(message);
+  const checkpoint = asObject(value, "session compaction checkpoint", fail);
   const checkpointId = requireNonEmptyString(
     checkpoint.checkpointId,
     "session compaction checkpoint id",
-    input.fail,
+    fail,
   );
   const sessionKey = requireNonEmptyString(
     checkpoint.sessionKey,
     "session compaction checkpoint key",
-    input.fail,
+    fail,
   );
   input.assertOwnedResultSessionKey(sessionKey);
   const reason = checkpoint.reason;
@@ -129,31 +130,27 @@ function projectCompactionCheckpoint(
     reason !== "overflow-retry" &&
     reason !== "timeout-retry"
   ) {
-    return input.fail("Gateway returned an invalid session compaction checkpoint reason");
+    return fail("Gateway returned an invalid session compaction checkpoint reason");
   }
   const projectTranscriptReference = (field: "preCompaction" | "postCompaction") => {
-    const reference = asObject(
-      checkpoint[field],
-      `session compaction ${field} reference`,
-      input.fail,
-    );
+    const reference = asObject(checkpoint[field], `session compaction ${field} reference`, fail);
     return {
       sessionId: requireNonEmptyString(
         reference.sessionId,
         `session compaction ${field} session id`,
-        input.fail,
+        fail,
       ),
       ...(projectOptionalNonEmptyString(
         reference.leafId,
         `session compaction ${field} leaf id`,
-        input.fail,
+        fail,
       ) !== undefined
         ? { leafId: reference.leafId }
         : {}),
       ...(projectOptionalNonEmptyString(
         reference.entryId,
         `session compaction ${field} entry id`,
-        input.fail,
+        fail,
       ) !== undefined
         ? { entryId: reference.entryId }
         : {}),
@@ -165,25 +162,25 @@ function projectCompactionCheckpoint(
     sessionId: requireNonEmptyString(
       checkpoint.sessionId,
       "session compaction checkpoint session id",
-      input.fail,
+      fail,
     ),
     createdAt: requireNonNegativeInteger(
       checkpoint.createdAt,
       "session compaction checkpoint timestamp",
-      input.fail,
+      fail,
     ),
     reason,
     ...(projectOptionalNonNegativeInteger(
       checkpoint.tokensBefore,
       "session compaction checkpoint tokens before",
-      input.fail,
+      fail,
     ) !== undefined
       ? { tokensBefore: checkpoint.tokensBefore }
       : {}),
     ...(projectOptionalNonNegativeInteger(
       checkpoint.tokensAfter,
       "session compaction checkpoint tokens after",
-      input.fail,
+      fail,
     ) !== undefined
       ? { tokensAfter: checkpoint.tokensAfter }
       : {}),
@@ -191,11 +188,11 @@ function projectCompactionCheckpoint(
       ? {}
       : typeof checkpoint.summary === "string"
         ? { summary: checkpoint.summary }
-        : input.fail("Gateway returned an invalid session compaction checkpoint summary")),
+        : fail("Gateway returned an invalid session compaction checkpoint summary")),
     ...(projectOptionalNonEmptyString(
       checkpoint.firstKeptEntryId,
       "session compaction checkpoint first kept entry id",
-      input.fail,
+      fail,
     ) !== undefined
       ? { firstKeptEntryId: checkpoint.firstKeptEntryId }
       : {}),
@@ -205,18 +202,39 @@ function projectCompactionCheckpoint(
 }
 
 function projectCompactionEntry(value: unknown, input: ProjectBrowserSessionResultParams) {
-  const entry = asObject(value, "session compaction entry", input.fail);
+  const fail = (message: string): never => input.fail(message);
+  const entry = asObject(value, "session compaction entry", fail);
   return {
-    sessionId: requireNonEmptyString(
-      entry.sessionId,
-      "session compaction entry session id",
-      input.fail,
-    ),
+    sessionId: requireNonEmptyString(entry.sessionId, "session compaction entry session id", fail),
     updatedAt: requireNonNegativeInteger(
       entry.updatedAt,
       "session compaction entry timestamp",
-      input.fail,
+      fail,
     ),
+  };
+}
+
+function projectSessionBranch(value: unknown, fail: (message: string) => never): JsonObject {
+  const branch = asObject(value, "session branch", fail);
+  return {
+    leafEntryId: requireNonEmptyString(branch.leafEntryId, "session branch leaf id", fail),
+    headline:
+      typeof branch.headline === "string"
+        ? branch.headline
+        : fail("Gateway returned an invalid session branch headline"),
+    messageCount: requireNonNegativeInteger(
+      branch.messageCount,
+      "session branch message count",
+      fail,
+    ),
+    ...(projectOptionalNonEmptyString(branch.updatedAt, "session branch update timestamp", fail) !==
+    undefined
+      ? { updatedAt: branch.updatedAt }
+      : {}),
+    active:
+      typeof branch.active === "boolean"
+        ? branch.active
+        : fail("Gateway returned an invalid session branch active state"),
   };
 }
 
@@ -426,32 +444,7 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
     }
     input.assertOwnedResultSessionKey(input.prepared.sessionKey);
     return {
-      branches: payload.branches.map((branch) => {
-        const value = asObject(branch, "session branch", fail);
-        return {
-          leafEntryId: requireNonEmptyString(value.leafEntryId, "session branch leaf id", fail),
-          headline:
-            typeof value.headline === "string"
-              ? value.headline
-              : fail("Gateway returned an invalid session branch headline"),
-          messageCount: requireNonNegativeInteger(
-            value.messageCount,
-            "session branch message count",
-            fail,
-          ),
-          ...(projectOptionalNonEmptyString(
-            value.updatedAt,
-            "session branch update timestamp",
-            fail,
-          ) !== undefined
-            ? { updatedAt: value.updatedAt }
-            : {}),
-          active:
-            typeof value.active === "boolean"
-              ? value.active
-              : fail("Gateway returned an invalid session branch active state"),
-        };
-      }),
+      branches: payload.branches.map((branch) => projectSessionBranch(branch, fail)),
     };
   }
   if (input.method === "sessions.branches.switch") {
