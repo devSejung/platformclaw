@@ -12,6 +12,7 @@ import type { SessionEntry } from "../../../config/sessions/types.js";
 import type { SessionAcpMeta } from "../../../config/sessions/types.js";
 import { getSessionBindingService } from "../../../infra/outbound/session-binding-service.js";
 import type { CommandHandlerResult, HandleCommandsParams } from "../commands-types.js";
+import { acpSessionBelongsToAgentScope, resolveAcpCommandAgentScope } from "./agent-scope.js";
 import { resolveAcpCommandBindingContext } from "./context.js";
 import { resolveAcpInstallCommandHint } from "./install-hints.js";
 import {
@@ -38,6 +39,20 @@ function isBackendPluginBlockedByAllowlist(params: {
   return !allow.some(
     (pluginId) => normalizeLowercaseStringOrEmpty(pluginId) === normalizedBackendId,
   );
+}
+
+function shouldDeferRuntimeDoctorToIsolatedTarget(
+  params: HandleCommandsParams,
+  backend: ReturnType<typeof getAcpRuntimeBackend>,
+): boolean {
+  if (!resolveAcpCommandAgentScope(params) || !backend?.isolatesSandboxedRequesters) {
+    return false;
+  }
+  try {
+    return backend.isolatesSandboxedRequesters();
+  } catch {
+    return false;
+  }
 }
 
 export async function handleAcpDoctorAction(
@@ -82,7 +97,12 @@ export async function handleAcpDoctorAction(
     lines.push(`pluginActivation: blocked (${backendId} is missing from plugins.allow)`);
   }
 
-  if (registeredBackend?.runtime.doctor) {
+  const runtimeDoctorDeferred = shouldDeferRuntimeDoctorToIsolatedTarget(params, registeredBackend);
+  if (runtimeDoctorDeferred) {
+    // Browser attribution identifies a personal execution target. Probing the
+    // Gateway host would test the wrong adapter and may trigger local installation.
+    lines.push("runtimeDoctor: deferred (isolated process transport)");
+  } else if (registeredBackend?.runtime.doctor) {
     try {
       const report = await registeredBackend.runtime.doctor();
       lines.push(`runtimeDoctor: ${report.ok ? "ok" : "error"} (${report.message})`);
@@ -113,10 +133,17 @@ export async function handleAcpDoctorAction(
     const capabilities = backend.runtime.getCapabilities
       ? await backend.runtime.getCapabilities({})
       : { controls: [] as string[], configOptionKeys: [] as string[] };
-    lines.push("healthy: yes");
+    lines.push(
+      runtimeDoctorDeferred
+        ? "healthy: unverified (isolated target is validated when an ACP session starts)"
+        : "healthy: yes",
+    );
     lines.push(`capabilities: ${formatAcpCapabilitiesText(capabilities.controls ?? [])}`);
     if ((capabilities.configOptionKeys?.length ?? 0) > 0) {
       lines.push(`configKeys: ${capabilities.configOptionKeys?.join(", ")}`);
+    }
+    if (runtimeDoctorDeferred) {
+      lines.push("next: use /acp spawn <agent> to validate the personal execution target.");
     }
     return stopWithText(lines.join("\n"));
   } catch (error) {
@@ -193,11 +220,20 @@ export async function handleAcpSessionsAction(
   const currentEntry = params.command.senderIsOwner
     ? null
     : readAcpSessionEntry({ cfg: params.cfg, sessionKey: currentSessionKey });
-  const visibleEntries = params.command.senderIsOwner
-    ? await listAcpSessionEntries({ cfg: params.cfg })
-    : currentEntry?.entry && currentEntry.acp
-      ? [currentEntry]
-      : [];
+  const agentScope = resolveAcpCommandAgentScope(params);
+  const visibleEntries = agentScope
+    ? (await listAcpSessionEntries({ cfg: params.cfg })).filter((stored) =>
+        acpSessionBelongsToAgentScope({
+          agentScope,
+          entry: stored.entry,
+          acp: stored.acp,
+        }),
+      )
+    : params.command.senderIsOwner
+      ? await listAcpSessionEntries({ cfg: params.cfg })
+      : currentEntry?.entry && currentEntry.acp
+        ? [currentEntry]
+        : [];
 
   const rows = visibleEntries
     .toSorted((a, b) => (b.entry?.updatedAt ?? 0) - (a.entry?.updatedAt ?? 0))

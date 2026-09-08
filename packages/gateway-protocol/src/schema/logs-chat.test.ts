@@ -60,6 +60,7 @@ describe("ChatSendParamsSchema", () => {
           id: "first.user",
           name: "First User",
           profileId: "profile-first",
+          agentId: "person-one",
         },
       }),
     ).toBe(true);

@@ -62,15 +62,12 @@ async function cleanupFailedSpawn(params: {
   });
 }
 
-async function persistSpawnedSessionLabel(params: {
+async function persistSpawnedSessionMetadata(params: {
   commandParams: HandleCommandsParams;
   sessionKey: string;
   label?: string;
 }): Promise<void> {
   const label = normalizeOptionalString(params.label);
-  if (!label) {
-    return;
-  }
 
   const now = Date.now();
   // Cross-agent ACP keys belong to the target agent's store, which can differ
@@ -86,21 +83,28 @@ async function persistSpawnedSessionLabel(params: {
     if (existing) {
       params.commandParams.sessionStore[params.sessionKey] = {
         ...existing,
-        label,
+        spawnedBy: params.commandParams.sessionKey,
+        parentSessionKey: params.commandParams.sessionKey,
+        ...(label ? { label } : {}),
         updatedAt: now,
       };
     }
   }
-  await updateSessionEntry(
+  const updated = await updateSessionEntry(
     {
       storePath,
       sessionKey: params.sessionKey,
     },
     () => ({
-      label,
+      spawnedBy: params.commandParams.sessionKey,
+      parentSessionKey: params.commandParams.sessionKey,
+      ...(label ? { label } : {}),
       updatedAt: now,
     }),
   );
+  if (!updated) {
+    throw new Error("ACP session ownership metadata was not persisted.");
+  }
 }
 
 export async function handleAcpSpawnAction(
@@ -234,7 +238,7 @@ export async function handleAcpSpawnAction(
   }
 
   try {
-    await persistSpawnedSessionLabel({
+    await persistSpawnedSessionMetadata({
       commandParams: params,
       sessionKey,
       label: spawn.label,

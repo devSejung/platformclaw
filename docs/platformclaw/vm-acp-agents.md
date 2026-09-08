@@ -53,25 +53,40 @@ As root on the VM, extract into versioned, root-owned directories and switch the
 stable links atomically:
 
 ```bash
+claude_adapter_dir=/opt/platformclaw/libexec/versions/claude-agent-acp-0.62.0
+opencode_adapter_dir=/opt/platformclaw/libexec/versions/opencode-acp-1.18.27
+
 install -d -m 0755 /opt/platformclaw/libexec/versions
-install -d -m 0755 /opt/platformclaw/libexec/versions/claude-agent-acp-0.62.0
-install -d -m 0755 /opt/platformclaw/libexec/versions/opencode-acp-1.18.27
+test ! -e "$claude_adapter_dir"
+test ! -e "$opencode_adapter_dir"
+install -d -m 0755 "$claude_adapter_dir"
+install -d -m 0755 "$opencode_adapter_dir"
 
 tar -xzf platformclaw-claude-agent-acp-0.62.0-linux-x64.tar.gz \
-  -C /opt/platformclaw/libexec/versions/claude-agent-acp-0.62.0
+  -C "$claude_adapter_dir" --strip-components=1
 tar -xzf platformclaw-opencode-acp-1.18.27-linux-x64.tar.gz \
-  -C /opt/platformclaw/libexec/versions/opencode-acp-1.18.27
+  -C "$opencode_adapter_dir" --strip-components=1
 
-chown -R root:root /opt/platformclaw/libexec/versions/claude-agent-acp-0.62.0 \
-  /opt/platformclaw/libexec/versions/opencode-acp-1.18.27
-chmod -R go-w /opt/platformclaw/libexec/versions/claude-agent-acp-0.62.0 \
-  /opt/platformclaw/libexec/versions/opencode-acp-1.18.27
+chown -R root:root "$claude_adapter_dir" "$opencode_adapter_dir"
+chmod -R go-w "$claude_adapter_dir" "$opencode_adapter_dir"
 
-ln -sfnT /opt/platformclaw/libexec/versions/claude-agent-acp-0.62.0 \
+test -x "$claude_adapter_dir/bin/claude-agent-acp"
+test -x "$opencode_adapter_dir/bin/opencode"
+
+ln -sfnT "$claude_adapter_dir" \
   /opt/platformclaw/libexec/claude-agent-acp
-ln -sfnT /opt/platformclaw/libexec/versions/opencode-acp-1.18.27 \
+ln -sfnT "$opencode_adapter_dir" \
   /opt/platformclaw/libexec/opencode-acp
+
+test "$(readlink -f /opt/platformclaw/libexec/claude-agent-acp)" = "$claude_adapter_dir"
+test "$(readlink -f /opt/platformclaw/libexec/opencode-acp)" = "$opencode_adapter_dir"
 ```
+
+Each archive contains one top-level package directory, so
+`--strip-components=1` is required when extracting into these destination
+directories. The `test ! -e` checks intentionally stop instead of overwriting a
+previous installation. If a failed earlier attempt left either destination in
+place, inspect it and choose a new versioned destination before retrying.
 
 PlatformClaw invokes only these stable entry points:
 
@@ -155,6 +170,11 @@ state. OpenCode uses the same employee home and workspace but does not need a
 separate executable-path setting.
 
 ## Test the setup
+
+From the employee's personal browser chat, `/acp doctor` should report an
+isolated process transport and `healthy: unverified`. It intentionally does not
+probe or install an adapter on the Gateway host. The assigned VM, employee
+credentials, and adapter are validated only when that employee starts a session.
 
 From a chat owned by that employee's personal agent, ask it to start one ACP run
 with `runtime: "acp"` and `agentId: "claude"`, then repeat with `agentId:

@@ -388,8 +388,8 @@ importers:
         specifier: 1.1.7
         version: 1.1.7
       acpx:
-        specifier: github:devSejung/acpx#484a8a4101ff2cd1c9933c7e0db5871d42074fe5
-        version: https://codeload.github.com/devSejung/acpx/tar.gz/484a8a4101ff2cd1c9933c7e0db5871d42074fe5
+        specifier: github:devSejung/acpx#0570c4b6cf5dc4189e6d9acb4f797e28bf93661c
+        version: https://codeload.github.com/devSejung/acpx/tar.gz/0570c4b6cf5dc4189e6d9acb4f797e28bf93661c
       smol-toml:
         specifier: 1.7.1
         version: 1.7.1
@@ -5859,8 +5859,8 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  acpx@https://codeload.github.com/devSejung/acpx/tar.gz/484a8a4101ff2cd1c9933c7e0db5871d42074fe5:
-    resolution: {gitHosted: true, integrity: sha512-rCIdZix8ORXp3d1YzjZL6UyTGGyoArRwOAahVmktfXNWSJyZlwJdB2raGcXoo1IM/PruMbAcIx6D/zCaWLGnEA==, tarball: https://codeload.github.com/devSejung/acpx/tar.gz/484a8a4101ff2cd1c9933c7e0db5871d42074fe5}
+  acpx@https://codeload.github.com/devSejung/acpx/tar.gz/0570c4b6cf5dc4189e6d9acb4f797e28bf93661c:
+    resolution: {gitHosted: true, integrity: sha512-yRcqtUcXzayoqMnRFyKnecoCUprlMlc/o4C6cSHeECIPjXe/fhpy/qepjDwaJlzv5zfWY6WUAsgZNDLQ/7raxQ==, tarball: https://codeload.github.com/devSejung/acpx/tar.gz/0570c4b6cf5dc4189e6d9acb4f797e28bf93661c}
     version: 0.13.2
     engines: {node: '>=22.13.0'}
     hasBin: true
@@ -13087,7 +13087,7 @@ snapshots:
 
   acorn@8.17.0: {}
 
-  acpx@https://codeload.github.com/devSejung/acpx/tar.gz/484a8a4101ff2cd1c9933c7e0db5871d42074fe5:
+  acpx@https://codeload.github.com/devSejung/acpx/tar.gz/0570c4b6cf5dc4189e6d9acb4f797e28bf93661c:
     dependencies:
       '@agentclientprotocol/sdk': 1.4.0(zod@4.5.4)
       commander: 15.0.0

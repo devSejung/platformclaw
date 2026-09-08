@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { resolveBrowserCommandSuppression } from "./browser-command-policy.js";
-import { resolveBrowserGatewayAccess } from "./browser-gateway-access.js";
+import {
+  createBrowserSenderAttribution,
+  resolveBrowserGatewayAccess,
+} from "./browser-gateway-access.js";
 import { BrowserGatewayAssertions } from "./browser-gateway-assertions.js";
 import { projectBrowserCatalogResult } from "./browser-gateway-catalog-projections.js";
 import {
@@ -482,11 +485,7 @@ export class BrowserGatewayProxy {
           agentId: access.binding.agentId,
           deliver: false,
           // Browser parameters are validated before this server-owned identity is added.
-          senderAttribution: {
-            id: access.user.accountId,
-            ...(access.user.displayName ? { name: access.user.displayName } : {}),
-            profileId: access.user.id,
-          },
+          senderAttribution: createBrowserSenderAttribution(access),
         };
       }
       // Never let a browser-selected run id cross the shared Gateway client.

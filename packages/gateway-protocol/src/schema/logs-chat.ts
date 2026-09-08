@@ -115,6 +115,8 @@ export const ChatSenderAttributionSchema = closedObject({
   name: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
   /** Optional durable profile identity used by presentation clients. */
   profileId: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+  /** Personal agent boundary that owns this externally attributed sender. */
+  agentId: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
 });
 
 /** User-to-agent send request; idempotency key lets clients safely retry transport failures. */
