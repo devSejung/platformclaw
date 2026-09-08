@@ -8,16 +8,16 @@ import {
 import type { WikiPageKind } from "./markdown.js";
 import { readQueryableWikiPages } from "./query.js";
 
-export const MAX_MEMORY_WIKI_GRAPH_NODES = 500;
-export const MAX_MEMORY_WIKI_GRAPH_EDGES = 2_000;
+const MAX_MEMORY_WIKI_GRAPH_NODES = 500;
+const MAX_MEMORY_WIKI_GRAPH_EDGES = 2_000;
 
-export type MemoryWikiGraphEdge = {
+type MemoryWikiGraphEdge = {
   source: string;
   target: string;
   type: "link";
 };
 
-export type MemoryWikiGraph = {
+type MemoryWikiGraph = {
   nodes: Array<{
     id: string;
     title: string;
@@ -80,12 +80,15 @@ export async function listMemoryWikiGraph(
         compareText(left.source, right.source) || compareText(left.target, right.target),
     );
   const edges = allEdges.slice(0, MAX_MEMORY_WIKI_GRAPH_EDGES);
-  const nodes = selectedPages.map((page) => ({
-    id: page.relativePath,
-    title: page.title,
-    kind: page.kind,
-    ...(page.updatedAt ? { updatedAt: page.updatedAt } : {}),
-  }));
+  const nodes: MemoryWikiGraph["nodes"] = [];
+  for (const page of selectedPages) {
+    nodes.push({
+      id: page.relativePath,
+      title: page.title,
+      kind: page.kind,
+      ...(page.updatedAt ? { updatedAt: page.updatedAt } : {}),
+    });
+  }
 
   return {
     nodes,

@@ -32,17 +32,19 @@ function positionNodes(graph: NonNullable<WikiGraphRendererProps["graph"]>): Pos
     const node = sorted[0]!;
     return [{ ...node, x: WIDTH / 2, y: HEIGHT / 2, degree: degree.get(node.id) ?? 0 }];
   }
-  return sorted.map((node, index) => {
+  const positionedNodes: PositionedNode[] = [];
+  for (const [index, node] of sorted.entries()) {
     const progress = Math.sqrt((index + 1) / Math.max(1, sorted.length));
     const radius = 36 + progress * Math.min(WIDTH, HEIGHT) * 0.4;
     const angle = index * GOLDEN_ANGLE - Math.PI / 2;
-    return {
+    positionedNodes.push({
       ...node,
       x: WIDTH / 2 + Math.cos(angle) * radius,
       y: HEIGHT / 2 + Math.sin(angle) * radius,
       degree: degree.get(node.id) ?? 0,
-    };
-  });
+    });
+  }
+  return positionedNodes;
 }
 
 function renderState(

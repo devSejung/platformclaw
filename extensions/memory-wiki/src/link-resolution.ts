@@ -15,7 +15,7 @@ export function normalizeComparableWikiTarget(value: string): string {
   );
 }
 
-export function buildWikiPageLookupKeys(page: WikiPageSummary): Set<string> {
+function buildWikiPageLookupKeys(page: WikiPageSummary): Set<string> {
   const keys = new Set<string>();
   keys.add(normalizeComparableWikiTarget(page.relativePath));
   keys.add(normalizeComparableWikiTarget(page.relativePath.replace(/\.md$/i, "")));

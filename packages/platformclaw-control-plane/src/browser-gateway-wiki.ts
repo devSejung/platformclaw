@@ -1,8 +1,17 @@
-import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { dreamingEntryPath, wikiPath } from "./browser-gateway-content-paths.js";
-
-type JsonObject = Record<string, unknown>;
-type ProjectionFailure = (message: string) => never;
+import { projectWikiGraph } from "./browser-gateway-wiki-graph.js";
+import {
+  count,
+  failObject,
+  optionalEnum,
+  optionalText,
+  positiveInteger,
+  score,
+  stringList,
+  text,
+  type JsonObject,
+  type ProjectionFailure,
+} from "./browser-gateway-wiki-projection.js";
 
 const WIKI_METHODS = new Set([
   "doctor.memory.backfillDreamDiary",
@@ -38,80 +47,6 @@ const MAX_RESULTS = 50;
 const MAX_PAGE_LINES = 5_000;
 const MAX_CONTENT_CHARS = 1024 * 1024;
 const MAX_ITEMS = 500;
-const MAX_GRAPH_EDGES = 2_000;
-const MAX_LIST_ITEMS = 100;
-const MAX_TEXT_CHARS = 16 * 1024;
-
-function failObject(value: unknown, label: string, fail: ProjectionFailure): JsonObject {
-  return isRecord(value) ? value : fail(`Gateway returned invalid ${label}`);
-}
-
-function text(
-  value: unknown,
-  label: string,
-  fail: ProjectionFailure,
-  max = MAX_TEXT_CHARS,
-): string {
-  return typeof value === "string" && value.length <= max
-    ? value
-    : fail(`Gateway returned invalid ${label}`);
-}
-
-function count(value: unknown, label: string, fail: ProjectionFailure): number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : fail(`Gateway returned invalid ${label}`);
-}
-
-function score(value: unknown, label: string, fail: ProjectionFailure): number {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : fail(`Gateway returned invalid ${label}`);
-}
-
-function optionalText(
-  value: unknown,
-  label: string,
-  fail: ProjectionFailure,
-  max = MAX_TEXT_CHARS,
-): string | undefined {
-  return value === undefined ? undefined : text(value, label, fail, max);
-}
-
-function stringList(value: unknown, label: string, fail: ProjectionFailure): string[] {
-  if (!Array.isArray(value) || value.length > MAX_LIST_ITEMS) {
-    return fail(`Gateway returned invalid ${label}`);
-  }
-  return value.map((entry) => text(entry, label, fail));
-}
-
-function optionalEnum<T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  label: string,
-  fail: ProjectionFailure,
-): T | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  return typeof value === "string" && allowed.includes(value as T)
-    ? (value as T)
-    : fail(`${label} must be one of: ${allowed.join(", ")}`);
-}
-
-function positiveInteger(
-  value: unknown,
-  label: string,
-  max: number,
-  fail: ProjectionFailure,
-): number | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= max
-    ? value
-    : fail(`${label} must be an integer from 1 to ${max}`);
-}
 
 function projectDreamingEntry(value: unknown, fail: ProjectionFailure): JsonObject {
   const entry = failObject(value, "dreaming entry", fail);
@@ -378,73 +313,6 @@ function projectImportInsights(value: unknown, fail: ProjectionFailure): JsonObj
       return projectedCluster;
     }),
   };
-}
-
-function projectWikiGraph(rawValue: unknown, agentId: string, fail: ProjectionFailure): JsonObject {
-  const payload = failObject(rawValue, "wiki graph", fail);
-  if (payload.agentId !== undefined && payload.agentId !== agentId) {
-    return fail("Gateway returned wiki graph outside the browser binding");
-  }
-  if (!Array.isArray(payload.nodes) || payload.nodes.length > MAX_ITEMS) {
-    return fail("Gateway returned invalid wiki graph nodes");
-  }
-  if (!Array.isArray(payload.edges) || payload.edges.length > MAX_GRAPH_EDGES) {
-    return fail("Gateway returned invalid wiki graph edges");
-  }
-  const nodes = payload.nodes.map((value) => {
-    const node = failObject(value, "wiki graph node", fail);
-    const kind = optionalEnum(
-      node.kind,
-      ["entity", "concept", "source", "synthesis", "report"],
-      "wiki graph node kind",
-      fail,
-    );
-    if (!kind) {
-      return fail("Gateway returned invalid wiki graph node kind");
-    }
-    const updatedAt = optionalText(node.updatedAt, "wiki graph node updatedAt", fail, 256);
-    return {
-      id: wikiPath(node.id, "wiki graph node id", fail),
-      title: text(node.title, "wiki graph node title", fail),
-      kind,
-      ...(updatedAt ? { updatedAt } : {}),
-    };
-  });
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  if (nodeIds.size !== nodes.length) {
-    return fail("Gateway returned duplicate wiki graph node ids");
-  }
-  const edges = payload.edges.map((value) => {
-    const edge = failObject(value, "wiki graph edge", fail);
-    const source = wikiPath(edge.source, "wiki graph edge source", fail);
-    const target = wikiPath(edge.target, "wiki graph edge target", fail);
-    if (!nodeIds.has(source) || !nodeIds.has(target)) {
-      return fail("Gateway returned wiki graph edge outside the projected nodes");
-    }
-    if (edge.type !== "link") {
-      return fail("Gateway returned invalid wiki graph edge type");
-    }
-    return { source, target, type: "link" };
-  });
-  const stats = failObject(payload.stats, "wiki graph stats", fail);
-  const projectedStats = {
-    totalPages: count(stats.totalPages, "wiki graph totalPages", fail),
-    totalNodes: count(stats.totalNodes, "wiki graph totalNodes", fail),
-    totalEdges: count(stats.totalEdges, "wiki graph totalEdges", fail),
-    unresolvedLinks: count(stats.unresolvedLinks, "wiki graph unresolvedLinks", fail),
-    truncated:
-      typeof stats.truncated === "boolean"
-        ? stats.truncated
-        : fail("Gateway returned invalid wiki graph truncated flag"),
-  };
-  if (
-    projectedStats.totalNodes !== nodes.length ||
-    projectedStats.totalEdges !== edges.length ||
-    projectedStats.totalPages < projectedStats.totalNodes
-  ) {
-    return fail("Gateway returned inconsistent wiki graph stats");
-  }
-  return { nodes, edges, stats: projectedStats };
 }
 
 export function prepareBrowserWikiRequest(params: {

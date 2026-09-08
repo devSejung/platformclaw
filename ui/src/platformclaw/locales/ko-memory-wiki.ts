@@ -1,0 +1,15 @@
+export const memoryWikiTranslations: Readonly<Record<string, string>> = {
+  "dreaming.wiki.wikiTab": "Personal Wiki",
+  "dreaming.wiki.insightsTab": "가져온 지식",
+  "dreaming.wiki.viewMode": "Wiki 보기",
+  "dreaming.wiki.cardsView": "카드",
+  "dreaming.wiki.graphView": "그래프",
+  "dreaming.wiki.loadingGraph": "Wiki 그래프를 불러오는 중…",
+  "dreaming.wiki.emptyGraph": "연결된 Wiki 페이지가 아직 없습니다",
+  "dreaming.wiki.emptyGraphHint": "Wiki 페이지 사이에 링크를 만들면 연결 관계가 여기에 표시됩니다.",
+  "dreaming.wiki.graphError": "Wiki 그래프를 불러오지 못했습니다",
+  "dreaming.wiki.graphNodes": "노드 {count}개",
+  "dreaming.wiki.graphEdges": "링크 {count}개",
+  "dreaming.wiki.graphBroken": "해결되지 않은 링크 {count}개",
+  "dreaming.wiki.graphTruncated": "제한된 범위의 그래프를 표시 중",
+};
