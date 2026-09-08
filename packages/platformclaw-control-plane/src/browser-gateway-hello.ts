@@ -1,4 +1,5 @@
 import type { HelloOk } from "@openclaw/gateway-protocol";
+import { CONTROL_UI_SERVER_AUTHORIZED_METHODS_CAPABILITY } from "../../../src/gateway/control-ui-contract.js";
 import {
   PLATFORMCLAW_WEB_ADMIN_METHODS,
   PLATFORMCLAW_WEB_GATEWAY_METHODS,
@@ -43,7 +44,10 @@ export function projectPlatformClawBrowserHello(params: {
             !PLATFORMCLAW_WEB_ADMIN_METHODS.has(method)),
       ),
       events: PLATFORMCLAW_WEB_GATEWAY_EVENTS.filter((event) => upstreamEvents.has(event)),
-      capabilities: ["platformclaw.personal-vm-terminal"],
+      capabilities: [
+        "platformclaw.personal-vm-terminal",
+        CONTROL_UI_SERVER_AUTHORIZED_METHODS_CAPABILITY,
+      ],
     },
     snapshot: {
       presence: [

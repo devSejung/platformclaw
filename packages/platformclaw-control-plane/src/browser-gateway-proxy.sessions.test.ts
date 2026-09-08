@@ -297,6 +297,159 @@ describe("BrowserGatewayProxy session lifecycle", () => {
     ).rejects.toMatchObject({ code: "method-not-allowed" });
   });
 
+  it("projects owned checkpoint and transcript branch operations without private paths", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const key = `agent:${binding.agentId}:thread`;
+    const branchKey = `agent:${binding.agentId}:checkpoint-branch`;
+    const checkpoint = {
+      checkpointId: "checkpoint-1",
+      sessionKey: key,
+      sessionId: "source-session",
+      createdAt: 10,
+      reason: "manual",
+      summary: "Earlier context",
+      preCompaction: {
+        sessionId: "source-session",
+        sessionFile: "/srv/private/source.jsonl",
+        leafId: "leaf-before",
+      },
+      postCompaction: {
+        sessionId: "source-session",
+        sessionFile: "/srv/private/compacted.jsonl",
+        entryId: "compact-entry",
+      },
+    };
+    request
+      .mockResolvedValueOnce({ ok: true, key, checkpoints: [checkpoint] })
+      .mockResolvedValueOnce({
+        ok: true,
+        sourceKey: key,
+        key: branchKey,
+        sessionId: "branch-session",
+        checkpoint,
+        entry: { sessionId: "branch-session", updatedAt: 20, privatePath: "/srv/private" },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        key,
+        sessionId: "restored-session",
+        checkpoint,
+        entry: { sessionId: "restored-session", updatedAt: 30, privatePath: "/srv/private" },
+      })
+      .mockResolvedValueOnce({
+        branches: [
+          {
+            leafEntryId: "leaf-before",
+            headline: "Earlier branch",
+            messageCount: 4,
+            active: false,
+            privatePath: "/srv/private",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ privatePath: "/srv/private" });
+
+    const listed = await proxy.request(token, "sessions.compaction.list", { key });
+    expect(listed).toEqual({
+      ok: true,
+      key,
+      checkpoints: [
+        {
+          checkpointId: "checkpoint-1",
+          sessionKey: key,
+          sessionId: "source-session",
+          createdAt: 10,
+          reason: "manual",
+          summary: "Earlier context",
+          preCompaction: { sessionId: "source-session", leafId: "leaf-before" },
+          postCompaction: { sessionId: "source-session", entryId: "compact-entry" },
+        },
+      ],
+    });
+    await expect(
+      proxy.request(token, "sessions.compaction.branch", { key, checkpointId: "checkpoint-1" }),
+    ).resolves.toMatchObject({
+      sourceKey: key,
+      key: branchKey,
+      entry: { sessionId: "branch-session", updatedAt: 20 },
+    });
+    await expect(
+      proxy.request(token, "sessions.compaction.restore", { key, checkpointId: "checkpoint-1" }),
+    ).resolves.toMatchObject({
+      key,
+      entry: { sessionId: "restored-session", updatedAt: 30 },
+    });
+    await expect(
+      proxy.request(token, "sessions.branches.list", { sessionKey: key }),
+    ).resolves.toEqual({
+      branches: [
+        {
+          leafEntryId: "leaf-before",
+          headline: "Earlier branch",
+          messageCount: 4,
+          active: false,
+        },
+      ],
+    });
+    await expect(
+      proxy.request(token, "sessions.branches.switch", {
+        sessionKey: key,
+        leafEntryId: "leaf-before",
+      }),
+    ).resolves.toEqual({});
+
+    expect(request.mock.calls.map(([method, params]) => [method, params])).toEqual([
+      ["sessions.compaction.list", { key, agentId: binding.agentId }],
+      [
+        "sessions.compaction.branch",
+        { key, checkpointId: "checkpoint-1", agentId: binding.agentId },
+      ],
+      [
+        "sessions.compaction.restore",
+        { key, checkpointId: "checkpoint-1", agentId: binding.agentId },
+      ],
+      ["sessions.branches.list", { sessionKey: key, agentId: binding.agentId }],
+      [
+        "sessions.branches.switch",
+        { sessionKey: key, leafEntryId: "leaf-before", agentId: binding.agentId },
+      ],
+    ]);
+  });
+
+  it("rejects foreign checkpoint requests and mismatched checkpoint results", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const key = `agent:${binding.agentId}:thread`;
+    await expect(
+      proxy.request(token, "sessions.compaction.list", { key: "agent:other:thread" }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+    await expect(
+      proxy.request(token, "sessions.branches.switch", {
+        sessionKey: key,
+        leafEntryId: "leaf",
+        privatePath: "/srv/private",
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+
+    request.mockResolvedValueOnce({
+      ok: true,
+      key,
+      checkpoints: [
+        {
+          checkpointId: "checkpoint-1",
+          sessionKey: "agent:other:thread",
+          sessionId: "foreign-session",
+          createdAt: 10,
+          reason: "manual",
+          preCompaction: { sessionId: "foreign-session" },
+          postCompaction: { sessionId: "foreign-session" },
+        },
+      ],
+    });
+    await expect(proxy.request(token, "sessions.compaction.list", { key })).rejects.toMatchObject({
+      code: "upstream-result-denied",
+    });
+  });
+
   it("allows owned forks and rejects foreign fork results", async () => {
     const { binding, proxy, request, token } = await setup();
     const source = `agent:${binding.agentId}:source`;

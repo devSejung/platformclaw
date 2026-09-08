@@ -189,11 +189,11 @@ export async function executeSlashCommand(
 
 // ── Command Implementations ──
 
-function executeHelp(): SlashCommandResult {
+export function executeHelp(commands = SLASH_COMMANDS): SlashCommandResult {
   const lines = [`**${t("chat.commandResults.help.availableCommands")}**\n`];
   let currentCategory = "";
 
-  for (const cmd of SLASH_COMMANDS) {
+  for (const cmd of commands) {
     const cat = cmd.category ?? "session";
     if (cat !== currentCategory) {
       currentCategory = cat;

@@ -44,6 +44,7 @@ import {
   NEW_SESSION_LIST_LOADING_MESSAGE,
 } from "./chat-pane-shared.ts";
 import { setChatError } from "./chat-send-queue-state.ts";
+import { handleSendChat } from "./chat-send-submit.ts";
 import { applySelectedChatAgent } from "./chat-session.ts";
 import { handlePageGatewayEvent } from "./chat-state-events.ts";
 import { createPageState } from "./chat-state-page.ts";
@@ -56,7 +57,11 @@ import { toggleSessionWorkspace } from "./components/chat-session-workspace.ts";
 import { WIDGET_PROMPT_EVENT, type WidgetPromptEventDetail } from "./components/chat-tool-cards.ts";
 import { CHAT_COMPOSER_DRAFT_STORAGE_ERROR } from "./composer-persistence.ts";
 import { exportChatMarkdown } from "./export.ts";
-import { admitInitialTurnHandoff, admitInitialUserMessageHandoff } from "./initial-turn-handoff.ts";
+import {
+  admitInitialTurnHandoff,
+  admitInitialUserMessageHandoff,
+  prepareInitialUserMessageHandoff,
+} from "./initial-turn-handoff.ts";
 import { readChatSessionSnapshot } from "./session-message-cache.ts";
 import { supportsSessionWorkspace } from "./session-workspace-access.ts";
 
@@ -167,7 +172,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
     `;
   }
 
-  protected readonly createSession = async (): Promise<boolean> => {
+  protected readonly createSession = async (initialMessage?: string): Promise<boolean> => {
     const state = this.state;
     if (!state || !state.client || !state.connected) {
       return false;
@@ -182,6 +187,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
       agentId:
         scopedAgentParamsForSession(state, previousSessionKey).agentId ??
         resolveAgentIdFromSessionKey(previousSessionKey),
+      ...(initialMessage ? { message: initialMessage } : {}),
     };
     const createRequestParams = {
       ...resolveSessionCreateParams(createParams.currentSessionKey, createParams.agentId),
@@ -251,7 +257,9 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
         areUiSessionKeysEquivalent(row.key, previousSessionKey),
       )?.sessionId;
       const resetResult = await clearChatHistory(state);
-      if (resetResult !== "failed") {
+      const resetIsCurrent =
+        isCurrent() && areUiSessionKeysEquivalent(state.sessionKey, previousSessionKey);
+      if (resetResult === "completed" && resetIsCurrent) {
         // A reset reuses the session key; prior-run digests must not survive
         // into the fresh conversation or keep injecting the observer card.
         this.observerDigestHistory.markReset(
@@ -261,10 +269,28 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
         // Recompute rather than null: the builtin snapshot also carries the
         // swarm card, which must survive an observer-only invalidation.
         this.refreshBuiltinBoardSnapshot();
+        if (initialMessage) {
+          await handleSendChat(state, initialMessage);
+        }
+      } else if (initialMessage) {
+        state.chatMessage = initialMessage;
+        setChatError(
+          state,
+          resetResult === "uncertain"
+            ? "The thread reset could not be confirmed. Your message was not sent."
+            : !resetIsCurrent
+              ? "The selected thread changed. Your message was not sent."
+              : "The thread could not be reset. Your message was not sent.",
+        );
+        state.requestUpdate?.();
       }
-      return resetResult !== "failed";
+      return resetResult === "completed" && resetIsCurrent;
     }
-    const nextSessionKey = await sessions.create(createParams);
+    const submittedAt = Date.now();
+    const created = initialMessage ? await sessions.createResult(createParams) : null;
+    const nextSessionKey = initialMessage
+      ? (created?.key ?? null)
+      : await sessions.create(createParams);
     if (!isCurrent()) {
       return false;
     }
@@ -284,6 +310,26 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
         state.requestUpdate?.();
       }
       return false;
+    }
+    if (initialMessage && created?.initialRun.status === "started") {
+      prepareInitialUserMessageHandoff(
+        context.initialUserMessage,
+        nextSessionKey,
+        { text: initialMessage, createdAt: submittedAt },
+        client,
+        {
+          messageId: created.initialRun.messageId,
+          messageSeq: created.initialRun.messageSeq,
+        },
+      );
+    } else if (initialMessage && created?.initialRun.status !== "started") {
+      state.chatMessage = initialMessage;
+      setChatError(
+        state,
+        created?.initialRun.status === "rejected"
+          ? created.initialRun.error
+          : "The thread was created, but its first message was not sent.",
+      );
     }
     this.chatState.captureCreatedSessionComposer(nextSessionKey);
     this.onPaneSessionChange?.(this.paneId, nextSessionKey);
@@ -487,7 +533,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
       this.chatMessagesBySession,
     );
     pageState.chatScrollToEnd = (options) => this.transcript.scrollToEnd(options);
-    pageState.createChatSession = () => this.createSession();
+    pageState.createChatSession = (message) => this.createSession(message);
     pageState.confirmConversationReset = () => this.confirmConversationReset();
     pageState.exportCurrentChat = () =>
       exportChatMarkdown(pageState.chatMessages, pageState.assistantName);

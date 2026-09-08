@@ -5,13 +5,14 @@ import { readChatSessionActionAccess } from "./chat-session-action-access.ts";
 function snapshot(params: {
   methods: string[];
   scopes: string[];
+  capabilities?: string[];
 }): Pick<ApplicationGatewaySnapshot, "client" | "hello" | "phase"> {
   return {
     client: {} as ApplicationGatewaySnapshot["client"],
     phase: "connected",
     hello: {
       auth: { role: "operator", scopes: params.scopes },
-      features: { methods: params.methods },
+      features: { methods: params.methods, capabilities: params.capabilities },
     } as ApplicationGatewaySnapshot["hello"],
   };
 }
@@ -59,5 +60,21 @@ describe("readChatSessionActionAccess", () => {
         false,
       ).abort,
     ).toMatchObject({ allowed: false, cause: "method-unavailable" });
+  });
+
+  it("allows BFF-authorized owned session actions without granting admin scope", () => {
+    const access = readChatSessionActionAccess(
+      snapshot({
+        methods,
+        scopes: ["operator.read", "operator.write"],
+        capabilities: ["control-ui.server-authorized-methods"],
+      }),
+      false,
+    );
+
+    expect(access.compact.allowed).toBe(true);
+    expect(access.rewind.allowed).toBe(true);
+    expect(access.reset.allowed).toBe(true);
+    expect(access.branchSwitch.allowed).toBe(true);
   });
 });

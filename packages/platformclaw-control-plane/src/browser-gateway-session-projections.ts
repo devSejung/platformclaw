@@ -41,6 +41,42 @@ function projectObjectKeys(value: JsonObject, keys: readonly string[]): JsonObje
   return projected;
 }
 
+function requireNonEmptyString(
+  value: unknown,
+  label: string,
+  fail: (message: string) => never,
+): string {
+  return typeof value === "string" && value.length > 0
+    ? value
+    : fail(`Gateway returned an invalid ${label}`);
+}
+
+function requireNonNegativeInteger(
+  value: unknown,
+  label: string,
+  fail: (message: string) => never,
+): number {
+  return Number.isInteger(value) && (value as number) >= 0
+    ? (value as number)
+    : fail(`Gateway returned an invalid ${label}`);
+}
+
+function projectOptionalNonEmptyString(
+  value: unknown,
+  label: string,
+  fail: (message: string) => never,
+): string | undefined {
+  return value === undefined ? undefined : requireNonEmptyString(value, label, fail);
+}
+
+function projectOptionalNonNegativeInteger(
+  value: unknown,
+  label: string,
+  fail: (message: string) => never,
+): number | undefined {
+  return value === undefined ? undefined : requireNonNegativeInteger(value, label, fail);
+}
+
 const SESSION_FILE_KEYS = [
   "path",
   "workspacePath",
@@ -69,6 +105,120 @@ const ARTIFACT_SUMMARY_KEYS = [
   "source",
   "download",
 ] as const;
+
+function projectCompactionCheckpoint(
+  value: unknown,
+  input: ProjectBrowserSessionResultParams,
+): JsonObject {
+  const checkpoint = asObject(value, "session compaction checkpoint", input.fail);
+  const checkpointId = requireNonEmptyString(
+    checkpoint.checkpointId,
+    "session compaction checkpoint id",
+    input.fail,
+  );
+  const sessionKey = requireNonEmptyString(
+    checkpoint.sessionKey,
+    "session compaction checkpoint key",
+    input.fail,
+  );
+  input.assertOwnedResultSessionKey(sessionKey);
+  const reason = checkpoint.reason;
+  if (
+    reason !== "manual" &&
+    reason !== "auto-threshold" &&
+    reason !== "overflow-retry" &&
+    reason !== "timeout-retry"
+  ) {
+    return input.fail("Gateway returned an invalid session compaction checkpoint reason");
+  }
+  const projectTranscriptReference = (field: "preCompaction" | "postCompaction") => {
+    const reference = asObject(
+      checkpoint[field],
+      `session compaction ${field} reference`,
+      input.fail,
+    );
+    return {
+      sessionId: requireNonEmptyString(
+        reference.sessionId,
+        `session compaction ${field} session id`,
+        input.fail,
+      ),
+      ...(projectOptionalNonEmptyString(
+        reference.leafId,
+        `session compaction ${field} leaf id`,
+        input.fail,
+      ) !== undefined
+        ? { leafId: reference.leafId }
+        : {}),
+      ...(projectOptionalNonEmptyString(
+        reference.entryId,
+        `session compaction ${field} entry id`,
+        input.fail,
+      ) !== undefined
+        ? { entryId: reference.entryId }
+        : {}),
+    };
+  };
+  return {
+    checkpointId,
+    sessionKey,
+    sessionId: requireNonEmptyString(
+      checkpoint.sessionId,
+      "session compaction checkpoint session id",
+      input.fail,
+    ),
+    createdAt: requireNonNegativeInteger(
+      checkpoint.createdAt,
+      "session compaction checkpoint timestamp",
+      input.fail,
+    ),
+    reason,
+    ...(projectOptionalNonNegativeInteger(
+      checkpoint.tokensBefore,
+      "session compaction checkpoint tokens before",
+      input.fail,
+    ) !== undefined
+      ? { tokensBefore: checkpoint.tokensBefore }
+      : {}),
+    ...(projectOptionalNonNegativeInteger(
+      checkpoint.tokensAfter,
+      "session compaction checkpoint tokens after",
+      input.fail,
+    ) !== undefined
+      ? { tokensAfter: checkpoint.tokensAfter }
+      : {}),
+    ...(checkpoint.summary === undefined
+      ? {}
+      : typeof checkpoint.summary === "string"
+        ? { summary: checkpoint.summary }
+        : input.fail("Gateway returned an invalid session compaction checkpoint summary")),
+    ...(projectOptionalNonEmptyString(
+      checkpoint.firstKeptEntryId,
+      "session compaction checkpoint first kept entry id",
+      input.fail,
+    ) !== undefined
+      ? { firstKeptEntryId: checkpoint.firstKeptEntryId }
+      : {}),
+    preCompaction: projectTranscriptReference("preCompaction"),
+    postCompaction: projectTranscriptReference("postCompaction"),
+  };
+}
+
+function projectCompactionEntry(value: unknown, input: ProjectBrowserSessionResultParams) {
+  const entry = asObject(value, "session compaction entry", input.fail);
+  return {
+    sessionId: requireNonEmptyString(
+      entry.sessionId,
+      "session compaction entry session id",
+      input.fail,
+    ),
+    updatedAt: requireNonNegativeInteger(
+      entry.updatedAt,
+      "session compaction entry timestamp",
+      input.fail,
+    ),
+  };
+}
 
 function projectArtifactSummary(
   value: unknown,
@@ -204,6 +354,110 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
           }
         : {}),
     };
+  }
+  if (input.method === "sessions.compaction.list") {
+    const payload = asObject(input.result, "session compaction list result", fail);
+    if (payload.ok !== true || !Array.isArray(payload.checkpoints)) {
+      return input.fail("Gateway returned an invalid session compaction list result");
+    }
+    input.assertOwnedResultSessionKey(input.prepared.key);
+    const key = requireNonEmptyString(payload.key, "session compaction list key", fail);
+    input.assertOwnedResultSessionKey(key);
+    const checkpoints = payload.checkpoints.map((checkpoint) =>
+      projectCompactionCheckpoint(checkpoint, input),
+    );
+    if (checkpoints.some((checkpoint) => checkpoint.sessionKey !== key)) {
+      return input.fail("Gateway returned a mismatched session compaction list result");
+    }
+    return {
+      ok: true,
+      key,
+      checkpoints,
+    };
+  }
+  if (
+    input.method === "sessions.compaction.branch" ||
+    input.method === "sessions.compaction.restore"
+  ) {
+    const operation = input.method.endsWith("branch") ? "branch" : "restore";
+    const payload = asObject(input.result, `session compaction ${operation} result`, fail);
+    if (payload.ok !== true) {
+      return input.fail(`Gateway returned an invalid session compaction ${operation} result`);
+    }
+    input.assertOwnedResultSessionKey(input.prepared.key);
+    const key = requireNonEmptyString(payload.key, `session compaction ${operation} key`, fail);
+    const sessionId = requireNonEmptyString(
+      payload.sessionId,
+      `session compaction ${operation} session id`,
+      fail,
+    );
+    input.assertOwnedResultSessionKey(key);
+    const sourceKey =
+      operation === "branch"
+        ? requireNonEmptyString(payload.sourceKey, "session compaction branch source key", fail)
+        : undefined;
+    if (operation === "branch") {
+      input.assertOwnedResultSessionKey(sourceKey);
+    }
+    const checkpoint = projectCompactionCheckpoint(payload.checkpoint, input);
+    if (
+      checkpoint.checkpointId !== input.prepared.checkpointId ||
+      checkpoint.sessionKey !== (operation === "branch" ? sourceKey : key)
+    ) {
+      return input.fail(`Gateway returned a mismatched session compaction ${operation} result`);
+    }
+    const entry = projectCompactionEntry(payload.entry, input);
+    if (entry.sessionId !== sessionId) {
+      return input.fail(`Gateway returned a mismatched session compaction ${operation} entry`);
+    }
+    return {
+      ok: true,
+      ...(operation === "branch" ? { sourceKey } : {}),
+      key,
+      sessionId,
+      checkpoint,
+      entry,
+    };
+  }
+  if (input.method === "sessions.branches.list") {
+    const payload = asObject(input.result, "session branches list result", fail);
+    if (!Array.isArray(payload.branches)) {
+      return input.fail("Gateway returned an invalid session branches list result");
+    }
+    input.assertOwnedResultSessionKey(input.prepared.sessionKey);
+    return {
+      branches: payload.branches.map((branch) => {
+        const value = asObject(branch, "session branch", fail);
+        return {
+          leafEntryId: requireNonEmptyString(value.leafEntryId, "session branch leaf id", fail),
+          headline:
+            typeof value.headline === "string"
+              ? value.headline
+              : fail("Gateway returned an invalid session branch headline"),
+          messageCount: requireNonNegativeInteger(
+            value.messageCount,
+            "session branch message count",
+            fail,
+          ),
+          ...(projectOptionalNonEmptyString(
+            value.updatedAt,
+            "session branch update timestamp",
+            fail,
+          ) !== undefined
+            ? { updatedAt: value.updatedAt }
+            : {}),
+          active:
+            typeof value.active === "boolean"
+              ? value.active
+              : fail("Gateway returned an invalid session branch active state"),
+        };
+      }),
+    };
+  }
+  if (input.method === "sessions.branches.switch") {
+    asObject(input.result, "session branch switch result", fail);
+    input.assertOwnedResultSessionKey(input.prepared.sessionKey);
+    return {};
   }
   if (input.method === "sessions.steer") {
     const payload = asObject(input.result, "session steer result", fail);

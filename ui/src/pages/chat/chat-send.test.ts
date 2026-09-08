@@ -6,7 +6,11 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { GatewayRequestError } from "../../api/gateway.ts";
 import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import type { UiSettings } from "../../app/settings.ts";
-import { SLASH_COMMANDS } from "../../lib/chat/commands.ts";
+import {
+  SLASH_COMMANDS,
+  buildFallbackSlashCommands,
+  replaceSlashCommands,
+} from "../../lib/chat/commands.ts";
 import { createSessionCapability } from "../../lib/sessions/index.ts";
 import { createResolvedModelPatch } from "../../test-helpers/chat-model.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
@@ -144,6 +148,7 @@ function registerChatAttachmentPayload(
 }
 
 beforeEach(() => {
+  replaceSlashCommands(buildFallbackSlashCommands());
   executeSlashCommandMock.mockReset();
   vi.spyOn(chatCommandExecutor, "executeSlashCommand").mockImplementation((...args) => {
     const implementation = executeSlashCommandMock.getMockImplementation() as
@@ -154,6 +159,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  replaceSlashCommands(buildFallbackSlashCommands());
   releaseChatAttachmentPayloads([...registeredAttachmentPayloads.values()]);
   registeredAttachmentPayloads.clear();
   vi.unstubAllGlobals();
@@ -375,6 +381,7 @@ function makeHost(overrides?: MakeHostOverrides): TestChatHost | TestChatHostWit
     chatQueue: [],
     chatRunId: null,
     chatSending: false,
+    chatError: null,
     lastError: null,
     sessionKey: "agent:main",
     basePath: "",
@@ -1205,6 +1212,77 @@ describe("handleSendChat", () => {
     expect(host.request).not.toHaveBeenCalled();
     expect(createChatSession).toHaveBeenCalledTimes(1);
     expect(host.chatMessage).toBe("");
+  });
+
+  it("creates a distinct thread with the prompt from /new arguments", async () => {
+    const createChatSession = vi.fn(async () => true);
+    const host = makeHost({
+      requestHandlers: {},
+      chatMessage: "/new take notes",
+      sessionKey: "agent:main",
+      createChatSession,
+    });
+
+    await handleSendChat(host);
+
+    expect(host.request).not.toHaveBeenCalled();
+    expect(createChatSession).toHaveBeenCalledWith("take notes");
+    expect(host.chatMessage).toBe("");
+  });
+
+  it.each([
+    ["/compact focus on decisions", "sessions.compact"],
+    ["/usage tokens", "sessions.patch"],
+    ["/export-session exports/thread.html", "sessions.list"],
+  ])("forwards argument-bearing directive %s to the server", async (message, localMethod) => {
+    const host = makeHost({
+      requestHandlers: { "chat.send": { status: "started", runId: "directive-run" } },
+      chatMessage: message,
+      sessionKey: "agent:main",
+    });
+
+    await handleSendChat(host);
+
+    expect(host.request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({ message, sessionKey: "agent:main" }),
+    );
+    expect(host.request).not.toHaveBeenCalledWith(localMethod, expect.anything());
+  });
+
+  it("renders /help immediately while offline without queueing it", async () => {
+    const host = makeHost({
+      connected: false,
+      client: null,
+      chatMessage: "/help",
+      sessionKey: "agent:main",
+    });
+
+    await handleSendChat(host);
+
+    expect(host.chatQueue).toStrictEqual([]);
+    expect(host.chatMessages.at(-1)).toMatchObject({ role: "system" });
+    const content = String((host.chatMessages.at(-1) as { content?: unknown })?.content);
+    expect(content).toContain("Available Commands");
+    expect(content).toContain("/clear");
+    expect(content).not.toContain("Cannot run");
+    expect(content).not.toContain("not connected");
+    expect(content).not.toContain("/restart");
+    expect(host.lastError).toBeNull();
+    expect(host.chatError).toBeNull();
+  });
+
+  it("does not advertise blocked server commands in connected help before inventory", async () => {
+    const host = makeHost({ chatMessage: "/help", sessionKey: "agent:main" });
+
+    await handleSendChat(host);
+
+    const content = String((host.chatMessages.at(-1) as { content?: unknown })?.content);
+    expect(content).toContain("Available Commands");
+    expect(content).toContain("/clear");
+    expect(content).not.toContain("/config");
+    expect(content).not.toContain("/exec");
+    expect(content).not.toContain("/restart");
   });
 
   it("restores typed /new when session creation is cancelled", async () => {

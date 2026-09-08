@@ -1,3 +1,4 @@
+import { CONTROL_UI_SERVER_AUTHORIZED_METHODS_CAPABILITY } from "../../../src/gateway/control-ui-contract.js";
 import { roleScopesAllow } from "../../../src/shared/operator-scope-compat.js";
 import {
   resolveDynamicSessionMutationRequiredScope,
@@ -5,7 +6,7 @@ import {
 } from "../../../src/shared/session-method-scopes.js";
 import type { ApplicationGatewaySnapshot } from "../app/gateway.ts";
 import { t } from "../i18n/index.ts";
-import { isGatewayMethodAdvertised } from "./gateway-methods.ts";
+import { isGatewayCapabilityAdvertised, isGatewayMethodAdvertised } from "./gateway-methods.ts";
 
 type SessionMethodOperatorScope = "operator.read" | SessionMutationOperatorScope;
 
@@ -66,13 +67,22 @@ export function readSessionMethodAccess(
     };
   }
   // Older Gateways may omit method metadata. Only an explicit absence is authoritative.
-  if (isGatewayMethodAdvertised(snapshot, request.method) === false) {
+  const advertised = isGatewayMethodAdvertised(snapshot, request.method);
+  const serverAuthorizesAdvertisedMethods =
+    isGatewayCapabilityAdvertised(snapshot, CONTROL_UI_SERVER_AUTHORIZED_METHODS_CAPABILITY) ===
+    true;
+  if (advertised === false || (serverAuthorizesAdvertisedMethods && advertised !== true)) {
     return {
       allowed: false,
       requiredScope,
       reason: sessionMethodAccessReason("method-unavailable", requiredScope),
       cause: "method-unavailable",
     };
+  }
+  // A personal-session proxy can authorize the browser against its owned session
+  // before forwarding. Trust that narrower policy only for explicitly advertised methods.
+  if (advertised === true && serverAuthorizesAdvertisedMethods) {
+    return { allowed: true, requiredScope };
   }
   const auth = snapshot.hello?.auth ?? null;
   // Older Gateways did not advertise auth scopes. Preserve their existing UI behavior.
