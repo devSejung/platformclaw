@@ -92,6 +92,7 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
         "doctor.memory.status",
         "doctor.memory.dreamDiary",
         "wiki.importInsights",
+        "wiki.graph",
         "wiki.overview",
         "wiki.get",
       ],
@@ -223,6 +224,41 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
             },
           ],
         },
+        "wiki.graph": {
+          cases: [
+            {
+              match: { agentId: assignedAgentId },
+              response: {
+                nodes: [
+                  {
+                    id: "syntheses/assigned-platform.md",
+                    title: "Assigned platform knowledge",
+                    kind: "synthesis",
+                  },
+                  {
+                    id: "concepts/agent-isolation.md",
+                    title: "Agent isolation",
+                    kind: "concept",
+                  },
+                ],
+                edges: [
+                  {
+                    source: "syntheses/assigned-platform.md",
+                    target: "concepts/agent-isolation.md",
+                    type: "link",
+                  },
+                ],
+                stats: {
+                  totalPages: 2,
+                  totalNodes: 2,
+                  totalEdges: 1,
+                  unresolvedLinks: 0,
+                  truncated: false,
+                },
+              },
+            },
+          ],
+        },
         "wiki.get": {
           cases: [
             {
@@ -290,12 +326,25 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
       await wiki.getByRole("tab", { name: "Memory Wiki" }).click();
       await expect.poll(() => wiki.textContent()).toContain("Assigned platform knowledge");
       await expectRequestsPinned(gateway, "wiki.overview");
+      expect(await gateway.getRequests("wiki.graph")).toHaveLength(0);
       await wiki.getByRole("button", { name: "Open wiki page" }).click();
       await expectRequestsPinned(gateway, "wiki.get");
       await expect
         .poll(() => page.locator(".dreams-diary__preview-pre").textContent())
         .toContain("Employee browser access stays agent scoped.");
       await screenshot(page, "03-memory-wiki-preview.png");
+      await page.getByRole("button", { name: "Close" }).click();
+
+      await wiki.getByRole("button", { name: "Graph", exact: true }).click();
+      await expectRequestsPinned(gateway, "wiki.graph");
+      await expect.poll(() => wiki.locator(".memory-wiki-graph svg").count()).toBe(1);
+      await expect.poll(() => wiki.locator(".memory-wiki-graph__edges line").count()).toBe(1);
+      await screenshot(page, "04-memory-wiki-graph.png");
+      await wiki.locator('[data-wiki-node="syntheses/assigned-platform.md"] circle').click();
+      await expect
+        .poll(() => page.locator(".dreams-diary__preview-pre").textContent())
+        .toContain("Employee browser access stays agent scoped.");
+      await screenshot(page, "05-memory-wiki-graph-preview.png");
 
       expect(await page.getByText(foreignAgentId, { exact: false }).count()).toBe(0);
       expect(await gateway.getRequests("config.get")).toHaveLength(initialConfigGetCount);

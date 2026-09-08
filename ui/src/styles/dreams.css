@@ -994,6 +994,110 @@
   border: 1px solid color-mix(in oklab, var(--accent) 24%, transparent);
 }
 
+.memory-wiki-view-switch {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.memory-wiki-view-switch .btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.memory-wiki-graph {
+  padding: 18px;
+}
+
+.memory-wiki-graph__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.memory-wiki-graph__truncated {
+  color: var(--warn);
+}
+
+.memory-wiki-graph__canvas {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      circle at 50% 45%,
+      color-mix(in srgb, var(--accent) 7%, transparent),
+      transparent 55%
+    ),
+    var(--card);
+}
+
+.memory-wiki-graph__canvas svg {
+  display: block;
+  width: 100%;
+  min-height: 420px;
+}
+
+.memory-wiki-graph__edges line {
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+  opacity: 0.58;
+}
+
+.memory-wiki-graph__node {
+  cursor: pointer;
+  color: var(--text);
+  outline: none;
+}
+
+.memory-wiki-graph__node circle {
+  fill: var(--accent);
+  stroke: var(--card);
+  stroke-width: 3;
+  transition:
+    transform 120ms ease,
+    filter 120ms ease;
+}
+
+.memory-wiki-graph__node--entity circle {
+  fill: var(--ok);
+}
+
+.memory-wiki-graph__node--source circle {
+  fill: var(--muted);
+}
+
+.memory-wiki-graph__node--synthesis circle {
+  fill: var(--accent);
+}
+
+.memory-wiki-graph__node--report circle {
+  fill: var(--warn);
+}
+
+.memory-wiki-graph__node text {
+  fill: currentColor;
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--card);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.memory-wiki-graph__node:hover circle,
+.memory-wiki-graph__node:focus circle {
+  transform: scale(1.35);
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent));
+}
+
+.memory-wiki-graph__state {
+  min-height: 360px;
+}
+
 .dreams-diary__preview-panel {
   display: flex;
   flex-direction: column;

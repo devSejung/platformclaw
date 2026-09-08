@@ -13,6 +13,7 @@ import {
   renderWikiKnowledge,
   type DreamingViewState,
 } from "./view.ts";
+import { renderWikiGraph } from "./wiki-graph.runtime.ts";
 
 type DreamingProps = Parameters<typeof renderDreaming>[0];
 
@@ -276,9 +277,28 @@ function buildProps(overrides?: Partial<DreamingProps>): DreamingProps {
         },
       ],
     },
+    wikiGraphLoading: false,
+    wikiGraphError: null,
+    wikiGraph: {
+      nodes: [
+        { id: "concepts/alpha.md", title: "Alpha", kind: "concept" },
+        { id: "syntheses/travel-system.md", title: "Travel system", kind: "synthesis" },
+      ],
+      edges: [{ source: "concepts/alpha.md", target: "syntheses/travel-system.md", type: "link" }],
+      stats: {
+        totalPages: 2,
+        totalNodes: 2,
+        totalEdges: 1,
+        unresolvedLinks: 0,
+        truncated: false,
+      },
+    },
+    wikiGraphRenderer: renderWikiGraph,
     onRefreshDiary: () => {},
     onRefreshImports: () => {},
     onRefreshWikiOverview: () => {},
+    onRefreshWikiGraph: () => {},
+    onSelectWikiGraph: () => {},
     onOpenConfig: () => {},
     onOpenWikiPage: async () => null,
     onBackfillDiary: () => {},
@@ -573,6 +593,76 @@ describe("dreaming view", () => {
     );
     setDreamDiarySubTab("dreams");
     setDreamSubTab("scene");
+  });
+
+  it("switches between Cards and Graph and opens a node in the existing preview", async () => {
+    setDreamDiarySubTab("wiki");
+    const onSelectWikiGraph = vi.fn();
+    const onOpenWikiPage = vi.fn(async (lookup: string) => ({
+      title: lookup === "concepts/alpha.md" ? "Alpha" : lookup,
+      path: lookup,
+      content: "# Alpha\n\nGraph preview content.",
+      totalLines: 3,
+      truncated: false,
+    }));
+    const container = document.createElement("div");
+    const rerender = () => render(renderWikiKnowledge(props), container);
+    const props = buildProps({ onSelectWikiGraph, onOpenWikiPage, onViewStateChange: rerender });
+    rerender();
+
+    const buttons = [
+      ...container.querySelectorAll<HTMLButtonElement>(".memory-wiki-view-switch button"),
+    ];
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(["Cards", "Graph"]);
+    expect(buttons[0]?.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector(".memory-wiki-graph")).toBeNull();
+
+    buttons[1]?.click();
+    expect(onSelectWikiGraph).toHaveBeenCalledOnce();
+    expect(viewState.wikiLayout).toBe("graph");
+    const edge = expectElement(container, ".memory-wiki-graph__edges line");
+    expect(edge.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    const node = expectElement(container, "[data-wiki-node='concepts/alpha.md']");
+    expect(node.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(onOpenWikiPage).toHaveBeenCalledWith("concepts/alpha.md");
+      expect(container.querySelector(".dreams-diary__preview-pre")?.textContent).toContain(
+        "Graph preview content.",
+      );
+    });
+  });
+
+  it.each([
+    {
+      name: "empty",
+      overrides: {
+        wikiGraph: {
+          nodes: [],
+          edges: [],
+          stats: {
+            totalPages: 0,
+            totalNodes: 0,
+            totalEdges: 0,
+            unresolvedLinks: 0,
+            truncated: false,
+          },
+        },
+      },
+      expected: "No linked wiki pages yet",
+    },
+    {
+      name: "error",
+      overrides: { wikiGraph: null, wikiGraphError: "gateway unavailable" },
+      expected: "Could not load the wiki graph",
+    },
+  ])("renders the graph $name state", ({ overrides, expected }) => {
+    setDreamSubTab("diary");
+    setDreamDiarySubTab("wiki");
+    viewState.wikiLayout = "graph";
+    const container = renderInto(buildProps(overrides));
+    expect(container.textContent).toContain(expected);
   });
 
   it("keeps non-report wiki overview card clicks on details", () => {

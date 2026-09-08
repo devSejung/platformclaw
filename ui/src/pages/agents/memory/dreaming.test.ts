@@ -11,6 +11,7 @@ import {
   dedupeDreamDiary,
   loadDreamDiary,
   loadDreamingStatus,
+  loadWikiGraph,
   loadWikiImportInsights,
   loadWikiOverview,
   repairDreamingArtifacts,
@@ -147,6 +148,23 @@ const wikiResources = [
       totalQuestions: 0,
       totalContradictions: 0,
       clusters: [],
+    }),
+  },
+  {
+    label: "graph",
+    key: "wikiGraph",
+    method: "wiki.graph",
+    load: loadWikiGraph,
+    payload: () => ({
+      nodes: [],
+      edges: [],
+      stats: {
+        totalPages: 0,
+        totalNodes: 0,
+        totalEdges: 0,
+        unresolvedLinks: 0,
+        truncated: false,
+      },
     }),
   },
 ] as const;

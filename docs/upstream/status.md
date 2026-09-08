@@ -62,9 +62,11 @@
   projects only terminal rows for that Agent; direct operator calls that omit
   the filter retain the upstream global history behavior.
 - Personal Memory Wiki uses the bundled upstream `memory-wiki` plugin in
-  `vault.scope=agent` bridge mode. PlatformClaw changes no Wiki compiler,
-  storage, tool, or Gateway protocol contract; downstream policy is limited to
-  managed deployment config plus agent-pinned, path-redacted browser reads.
+  `vault.scope=agent` bridge mode. PlatformClaw adds the read-only `wiki.graph`
+  RPC and shares its link-target resolver with backlink compilation; it does not
+  change Wiki storage, write tools, the core Gateway protocol, or production
+  serving. Downstream browser policy pins the Agent and projects only bounded,
+  path-redacted graph and page data.
   Organization Team, Group, Part, and Global corpora remain separate
   PlatformClaw-owned state and reuse canonical organization authorization;
   they do not change the upstream personal Wiki compiler or Dreaming.
