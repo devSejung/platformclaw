@@ -140,6 +140,65 @@ describe("PlatformClaw browser media relay", () => {
     expect(upstreamFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("authorizes a freshly persisted upload by its exact transcript message", async () => {
+    const messageId = "upload-message-1";
+    const message = {
+      role: "user",
+      __openclaw: {
+        id: messageId,
+        media: [{ url: SOURCE, path: "/state/media/upload-1.pdf" }],
+      },
+    };
+    const policy = createPolicy(null);
+    policy.requestMock.mockImplementation(async (_token, method) => {
+      if (method === "chat.message.get") {
+        return { ok: true, message };
+      }
+      throw new Error("broad history must not be queried");
+    });
+    const upstreamFetch = vi.fn(async () =>
+      Response.json({ available: true, mimeType: "application/pdf" }),
+    ) as typeof fetch;
+    const relay = new PlatformClawBrowserMediaRelay({
+      gatewayOrigin: "http://private-gateway.invalid",
+      gatewayAuth: "service-secret",
+      gatewayProxy: policy,
+      resolveAgentIdFromSessionKey,
+      fetchImpl: upstreamFetch,
+    });
+    const runtime = await listen(relay);
+    servers.push(runtime.server);
+
+    const query = new URLSearchParams({
+      source: SOURCE,
+      sessionKey: OWN_SESSION,
+      messageId,
+      meta: "1",
+    });
+    const metadata = await fetch(
+      `${runtime.origin}/platformclaw/app/__openclaw__/assistant-media?${query}`,
+      { headers: { Cookie: SESSION_COOKIE } },
+    );
+
+    expect(metadata.status).toBe(200);
+    expect(policy.requestMock).toHaveBeenCalledTimes(1);
+    expect(policy.requestMock).toHaveBeenCalledWith("browser-token", "chat.message.get", {
+      sessionKey: OWN_SESSION,
+      messageId,
+      maxChars: 500_000,
+    });
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
+
+    policy.requestMock.mockResolvedValue({ ok: false, unavailableReason: "not_found" });
+    const missing = await fetch(
+      `${runtime.origin}/platformclaw/app/__openclaw__/assistant-media?${query}`,
+      { headers: { Cookie: SESSION_COOKIE } },
+    );
+    expect(missing.status).toBe(404);
+    expect(policy.requestMock).toHaveBeenCalledTimes(2);
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("serves an assistant attachment only when its inbound claim-check belongs to the user", async () => {
     const source = "media://inbound/report---123.pdf";
     const privatePath = "/srv/private/media/inbound/report---123.pdf";

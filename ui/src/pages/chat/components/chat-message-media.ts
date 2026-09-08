@@ -30,8 +30,10 @@ export type ImageRenderOptions = {
   localMediaPreviewRoots?: readonly string[];
   basePath?: string;
   sessionKey?: string;
+  messageId?: string;
   authToken?: string | null;
   onRequestUpdate?: () => void;
+  onAssistantAttachmentLoaded?: () => void;
   onRequestOpenImage?: () => number;
   onOpenImage?: (item: ImageLightboxItem, requestVersion?: number) => void;
   resolveArtifactDownload?: ArtifactDownloadResolver;
