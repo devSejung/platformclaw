@@ -6,18 +6,13 @@ import {
   formatHitResult,
   formatTimingFeedback,
 } from "./easter-egg-timing.ts";
-import {
-  PLATFORMCLAW_EASTER_EGG_EVENT,
-  recordPlatformClawEasterEggClick,
-  resetPlatformClawEasterEggClickCount,
-} from "./easter-egg.ts";
+import { PLATFORMCLAW_EASTER_EGG_EVENT, recordPlatformClawEasterEggClick } from "./easter-egg.ts";
 import "./easter-egg-game.ts";
 
 type EasterEggElement = HTMLElement & { updateComplete: Promise<unknown> };
 
 describe("PlatformClaw easter egg", () => {
   beforeEach(() => {
-    resetPlatformClawEasterEggClickCount();
     document.body.replaceChildren(document.createElement("platformclaw-easter-egg"));
   });
 

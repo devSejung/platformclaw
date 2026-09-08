@@ -1,7 +1,7 @@
-export const PERFECT_WINDOW_MS = 25;
-export const GOOD_WINDOW_MS = 50;
+const PERFECT_WINDOW_MS = 25;
+const GOOD_WINDOW_MS = 50;
 export const HIT_WINDOW_MS = 100;
-export const HOME_RUN_DISTANCE_M = 120;
+const HOME_RUN_DISTANCE_M = 120;
 
 export type TimingOutcome = "PERFECT" | "GOOD" | "HIT" | "MISS";
 export type HitResult = "HIT" | "HOME_RUN";

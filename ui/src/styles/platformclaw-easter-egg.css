@@ -17,7 +17,7 @@
   position: absolute;
   left: 8px;
   z-index: 4;
-  color: color-mix(in srgb, var(--text-muted) 86%, var(--text));
+  color: color-mix(in srgb, var(--muted) 86%, var(--text));
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.02em;
@@ -42,7 +42,7 @@
 
 .platformclaw-easter-egg__distance {
   bottom: calc(var(--platformclaw-easter-egg-baseline, 138px) + 10px);
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: 9px;
   opacity: 0.8;
 }
@@ -74,7 +74,7 @@
 
 .platformclaw-easter-egg__trajectory-line {
   fill: none;
-  stroke: color-mix(in srgb, var(--text-muted) 72%, var(--bg-primary));
+  stroke: color-mix(in srgb, var(--muted) 72%, var(--bg));
   stroke-linecap: round;
   stroke-width: 1.25;
 }
