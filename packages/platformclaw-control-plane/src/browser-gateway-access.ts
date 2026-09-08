@@ -1,5 +1,15 @@
 import type { BrowserAuthService } from "./browser-auth-service.js";
+import type { BrowserGatewayAccess } from "./browser-gateway-contracts.js";
 import type { ControlPlaneStore, MainSessionKeyBuilder } from "./contracts.js";
+
+export function createBrowserSenderAttribution(access: BrowserGatewayAccess) {
+  return {
+    id: access.user.accountId,
+    ...(access.user.displayName ? { name: access.user.displayName } : {}),
+    profileId: access.user.id,
+    agentId: access.binding.agentId,
+  };
+}
 
 export async function resolveBrowserGatewayAccess(params: {
   token: string;

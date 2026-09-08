@@ -33,6 +33,14 @@ export default definePluginEntry({
       : undefined;
     const dependenciesPromise =
       executionRuntimePromise ?? Promise.resolve(createUnavailableExecutionDependencies());
+    const requireExecutionRuntime = async () => {
+      if (!executionRuntimePromise) {
+        throw new Error(
+          "Assigned VM ACP routing is not configured; configure the PlatformClaw credential broker and execution service token, then restart the Gateway.",
+        );
+      }
+      return await executionRuntimePromise;
+    };
     const targetMutations = new PlatformClawTargetMutationCoordinator();
     const preparedAcpTargets = new Map<string, Readonly<AssignedVmTargetSnapshot>>();
     const activeAcpChildren = new Map<string, Set<import("node:child_process").ChildProcess>>();
@@ -54,78 +62,75 @@ export default definePluginEntry({
         }
       }
     };
-    const unregisterAcpTransport = executionRuntimePromise
-      ? registerAcpProcessTransport({
-          id: "platformclaw-assigned-vm",
-          isolatesSandboxedRequesters: true,
-          supports: ({ agent }) => PLATFORMCLAW_VM_ACP_AGENTS.has(agent.trim().toLowerCase()),
-          async prepare({ executionOwnerAgentId, sessionKey }) {
-            const target = await (
-              await dependenciesPromise
-            ).resolveTarget({
-              agentId: executionOwnerAgentId,
-              target: "assigned_vm",
-            });
-            if (target.kind !== "assigned_vm") {
-              throw new Error("ACP requires an assigned development VM.");
-            }
-            const key = acpTargetKey(executionOwnerAgentId, sessionKey);
-            const existing = preparedAcpTargets.get(key);
-            if (
-              existing &&
-              (existing.allocationId !== target.allocationId ||
-                existing.revision !== target.revision ||
-                existing.credentialRevision !== target.credentialRevision)
-            ) {
-              throw new Error("Assigned VM ACP target changed; close the ACP session and retry.");
-            }
-            preparedAcpTargets.set(key, target);
-            return { cwd: target.remoteWorkspaceDir };
-          },
-          async launch(input) {
-            const key = acpTargetKey(input.executionOwnerAgentId, input.sessionKey);
-            const prepared = preparedAcpTargets.get(key);
-            if (!prepared || prepared.agentId !== input.executionOwnerAgentId) {
-              throw new Error("Assigned VM ACP target was not prepared for this session.");
-            }
-            const current = await (
-              await dependenciesPromise
-            ).resolveTarget({
-              agentId: input.executionOwnerAgentId,
-              target: "assigned_vm",
-            });
-            if (
-              current.kind !== "assigned_vm" ||
-              current.allocationId !== prepared.allocationId ||
-              current.revision !== prepared.revision ||
-              current.credentialRevision !== prepared.credentialRevision
-            ) {
-              preparedAcpTargets.delete(key);
-              throw new Error("Assigned VM ACP target changed; close the ACP session and retry.");
-            }
-            const owner = normalizeAgentId(input.executionOwnerAgentId);
-            const active = activeAcpChildren.get(owner) ?? new Set();
-            if (active.size >= 3) {
-              throw new Error(
-                "Assigned VM ACP session limit reached (3); close a session and retry.",
-              );
-            }
-            const child = await (await dependenciesPromise).launchAcpProcess(input, prepared);
-            active.add(child);
-            activeAcpChildren.set(owner, active);
-            child.once("close", () => {
-              active.delete(child);
-              if (active.size === 0) {
-                activeAcpChildren.delete(owner);
-              }
-            });
-            return child;
-          },
-          release({ executionOwnerAgentId, sessionKey }) {
-            preparedAcpTargets.delete(acpTargetKey(executionOwnerAgentId, sessionKey));
-          },
-        })
-      : () => {};
+    // Claim PlatformClaw's VM agents even when server credentials are incomplete.
+    // Otherwise ACPX can silently launch the adapter on the Gateway host.
+    const unregisterAcpTransport = registerAcpProcessTransport({
+      id: "platformclaw-assigned-vm",
+      isolatesSandboxedRequesters: true,
+      supports: ({ agent }) => PLATFORMCLAW_VM_ACP_AGENTS.has(agent.trim().toLowerCase()),
+      async prepare({ executionOwnerAgentId, sessionKey }) {
+        const target = await (
+          await requireExecutionRuntime()
+        ).resolveTarget({
+          agentId: executionOwnerAgentId,
+          target: "assigned_vm",
+        });
+        if (target.kind !== "assigned_vm") {
+          throw new Error("ACP requires an assigned development VM.");
+        }
+        const key = acpTargetKey(executionOwnerAgentId, sessionKey);
+        const existing = preparedAcpTargets.get(key);
+        if (
+          existing &&
+          (existing.allocationId !== target.allocationId ||
+            existing.revision !== target.revision ||
+            existing.credentialRevision !== target.credentialRevision)
+        ) {
+          throw new Error("Assigned VM ACP target changed; close the ACP session and retry.");
+        }
+        preparedAcpTargets.set(key, target);
+        return { cwd: target.remoteWorkspaceDir };
+      },
+      async launch(input) {
+        const key = acpTargetKey(input.executionOwnerAgentId, input.sessionKey);
+        const prepared = preparedAcpTargets.get(key);
+        if (!prepared || prepared.agentId !== input.executionOwnerAgentId) {
+          throw new Error("Assigned VM ACP target was not prepared for this session.");
+        }
+        const executionRuntime = await requireExecutionRuntime();
+        const current = await executionRuntime.resolveTarget({
+          agentId: input.executionOwnerAgentId,
+          target: "assigned_vm",
+        });
+        if (
+          current.kind !== "assigned_vm" ||
+          current.allocationId !== prepared.allocationId ||
+          current.revision !== prepared.revision ||
+          current.credentialRevision !== prepared.credentialRevision
+        ) {
+          preparedAcpTargets.delete(key);
+          throw new Error("Assigned VM ACP target changed; close the ACP session and retry.");
+        }
+        const owner = normalizeAgentId(input.executionOwnerAgentId);
+        const active = activeAcpChildren.get(owner) ?? new Set();
+        if (active.size >= 3) {
+          throw new Error("Assigned VM ACP session limit reached (3); close a session and retry.");
+        }
+        const child = await executionRuntime.launchAcpProcess(input, prepared);
+        active.add(child);
+        activeAcpChildren.set(owner, active);
+        child.once("close", () => {
+          active.delete(child);
+          if (active.size === 0) {
+            activeAcpChildren.delete(owner);
+          }
+        });
+        return child;
+      },
+      release({ executionOwnerAgentId, sessionKey }) {
+        preparedAcpTargets.delete(acpTargetKey(executionOwnerAgentId, sessionKey));
+      },
+    });
     registerSandboxBackend(PLATFORMCLAW_EXECUTION_BACKEND_ID, {
       factory: async (params) =>
         await createPlatformClawExecutionBackendFactory(await dependenciesPromise, {
@@ -148,6 +153,9 @@ export default definePluginEntry({
         )(params),
     });
     if (!executionRuntimePromise) {
+      api.on("gateway_stop", async () => {
+        unregisterAcpTransport();
+      });
       return;
     }
     const disposeSkillExports = registerPlatformClawExecutionGateway(
