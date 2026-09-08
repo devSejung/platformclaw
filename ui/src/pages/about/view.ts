@@ -20,6 +20,7 @@ import { i18n, t } from "../../i18n/index.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../../lib/external-link.ts";
 import { formatRelativeTimestamp } from "../../lib/format.ts";
 import { resolvePlatformClawBranding } from "../../platformclaw/branding.ts";
+import { recordPlatformClawEasterEggClick } from "../../platformclaw/easter-egg.ts";
 import { platformClawProductT } from "../../platformclaw/i18n.ts";
 import "../../styles/about.css";
 import { brandIcons } from "./brand-icons.ts";
@@ -177,7 +178,10 @@ function renderHero(props: AboutProps) {
           : ""} ${props.clawdWaving ? "about-hero__clawd--wave" : ""}"
         style=${lobsterLookStyle(look)}
         aria-label=${branding?.productName ?? t("aboutPage.waveHello")}
-        @click=${props.onPokeClawd}
+        @click=${() => {
+          props.onPokeClawd();
+          recordPlatformClawEasterEggClick();
+        }}
       >
         ${branding
           ? html`<img

@@ -5,6 +5,7 @@ import { controlUiPublicAssetPath } from "../app/public-assets.ts";
 import { t } from "../i18n/index.ts";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
 import { resolveControlUiProductName } from "../platformclaw/branding.ts";
+import { recordPlatformClawEasterEggClick } from "../platformclaw/easter-egg.ts";
 import { icons } from "./icons.ts";
 import "./tooltip.ts";
 
@@ -43,7 +44,11 @@ class AppTopbar extends OpenClawLightDomContentsElement {
           <!-- The Mac app used to float a native drag strip over this brand
                row; the web now asks the host to move the window itself. -->
           <div class="topnav-shell__content" @mousedown=${beginNativeWindowDrag}>
-            <div class="topbar-brand" aria-label=${productName}>
+            <div
+              class="topbar-brand"
+              aria-label=${productName}
+              @click=${() => recordPlatformClawEasterEggClick()}
+            >
               <img
                 class="topbar-brand__logo"
                 src=${controlUiPublicAssetPath("apple-touch-icon.png", this.basePath)}
