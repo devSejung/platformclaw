@@ -135,7 +135,7 @@ RUN set -eux; \
       "Markdown==${PLATFORMCLAW_MARKDOWN_VERSION}" \
       "Pygments==${PLATFORMCLAW_PYGMENTS_VERSION}"; \
     codex-acp --version; \
-    claude-agent-acp --help >/dev/null; \
+    claude-agent-acp --version; \
     claude --version; \
     docker --version; \
     (docker compose version || docker-compose --version); \

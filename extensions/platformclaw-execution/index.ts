@@ -152,26 +152,22 @@ export default definePluginEntry({
           targetMutations,
         )(params),
     });
-    if (!executionRuntimePromise) {
-      api.on("gateway_stop", async () => {
-        unregisterAcpTransport();
-      });
-      return;
-    }
-    const disposeSkillExports = registerPlatformClawExecutionGateway(
-      api,
-      executionRuntimePromise,
-      targetMutations,
-      invalidateAcpProcesses,
-    );
+    const disposeSkillExports = executionRuntimePromise
+      ? registerPlatformClawExecutionGateway(
+          api,
+          executionRuntimePromise,
+          targetMutations,
+          invalidateAcpProcesses,
+        )
+      : undefined;
     api.on("gateway_stop", async () => {
       unregisterAcpTransport();
       for (const agentId of activeAcpChildren.keys()) {
         invalidateAcpProcesses(agentId);
       }
       preparedAcpTargets.clear();
-      await disposeSkillExports();
-      await (await executionRuntimePromise).dispose();
+      await disposeSkillExports?.();
+      await (await executionRuntimePromise)?.dispose();
     });
   },
 });
