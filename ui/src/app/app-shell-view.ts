@@ -39,6 +39,7 @@ import {
   normalizeCatalogOpenTarget,
 } from "./settings.ts";
 import { resolveControlUiRefreshRequiredBanner } from "./update-overlay-helpers.ts";
+import "../platformclaw/easter-egg.ts";
 
 const EMPTY_OUTBOX_COUNT_FOR_SESSION = () => 0;
 const PALETTE_SHORTCUT = /Mac|iP(hone|ad|od)/i.test(globalThis.navigator?.platform ?? "")
@@ -477,6 +478,7 @@ export function renderApplicationShell(host: ShellViewHost) {
         .suppressed=${activeRoute === "custodian"}
         .minimizeRequestId=${host.custodianMinimizeRequestId}
       ></openclaw-custodian-panel>
+      <platformclaw-easter-egg></platformclaw-easter-egg>
       ${isOptionalElementDefined(host.execApprovalElement)
         ? html`<openclaw-exec-approval
             .props=${{
