@@ -1,4 +1,5 @@
 import type { AddressInfo } from "node:net";
+import { GatewayClientRequestError } from "@openclaw/gateway-client";
 import type { EventFrame, HelloOk } from "@openclaw/gateway-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, type RawData } from "ws";
@@ -401,6 +402,54 @@ describe("PlatformClawWebIngressServer", () => {
         code: "FORBIDDEN",
         message: "browser parameter denied",
         details: { requestDisposition: "rejected-before-dispatch" },
+      },
+    });
+
+    request.mockRejectedValueOnce(
+      new GatewayClientRequestError({
+        code: "INVALID_REQUEST",
+        message: "active branch changed; review and resend",
+        details: { reason: "active-leaf-changed" },
+      }),
+    );
+    websocket.send(
+      JSON.stringify({ type: "req", id: "upstream-denied-1", method: "chat.send", params: {} }),
+    );
+    await expect(
+      nextFrame((frame) => isRecord(frame) && frame.id === "upstream-denied-1"),
+    ).resolves.toMatchObject({
+      type: "res",
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message: "active branch changed; review and resend",
+        details: { reason: "active-leaf-changed" },
+      },
+    });
+
+    request.mockRejectedValueOnce(
+      new GatewayClientRequestError({
+        code: "UNAVAILABLE",
+        message: "session transcript is rebuilding; retry shortly",
+        details: { reason: "transcript-rebuild" },
+        retryable: true,
+        retryAfterMs: 250,
+      }),
+    );
+    websocket.send(
+      JSON.stringify({ type: "req", id: "upstream-retry-1", method: "chat.send", params: {} }),
+    );
+    await expect(
+      nextFrame((frame) => isRecord(frame) && frame.id === "upstream-retry-1"),
+    ).resolves.toMatchObject({
+      type: "res",
+      ok: false,
+      error: {
+        code: "UNAVAILABLE",
+        message: "session transcript is rebuilding; retry shortly",
+        details: { reason: "transcript-rebuild" },
+        retryable: true,
+        retryAfterMs: 250,
       },
     });
 
