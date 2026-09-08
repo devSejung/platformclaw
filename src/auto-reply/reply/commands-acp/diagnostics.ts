@@ -49,7 +49,7 @@ function shouldDeferRuntimeDoctorToIsolatedTarget(
     return false;
   }
   try {
-    return backend.isolatesSandboxedRequesters() === true;
+    return backend.isolatesSandboxedRequesters();
   } catch {
     return false;
   }
