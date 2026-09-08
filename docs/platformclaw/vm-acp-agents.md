@@ -156,6 +156,11 @@ separate executable-path setting.
 
 ## Test the setup
 
+From the employee's personal browser chat, `/acp doctor` should report an
+isolated process transport and `healthy: unverified`. It intentionally does not
+probe or install an adapter on the Gateway host. The assigned VM, employee
+credentials, and adapter are validated only when that employee starts a session.
+
 From a chat owned by that employee's personal agent, ask it to start one ACP run
 with `runtime: "acp"` and `agentId: "claude"`, then repeat with `agentId:
 "opencode"`. Ask each coding agent to report `pwd` and create a harmless file.

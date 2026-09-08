@@ -41,6 +41,20 @@ function isBackendPluginBlockedByAllowlist(params: {
   );
 }
 
+function shouldDeferRuntimeDoctorToIsolatedTarget(
+  params: HandleCommandsParams,
+  backend: ReturnType<typeof getAcpRuntimeBackend>,
+): boolean {
+  if (!resolveAcpCommandAgentScope(params) || !backend?.isolatesSandboxedRequesters) {
+    return false;
+  }
+  try {
+    return backend.isolatesSandboxedRequesters() === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function handleAcpDoctorAction(
   params: HandleCommandsParams,
   restTokens: string[],
@@ -83,7 +97,12 @@ export async function handleAcpDoctorAction(
     lines.push(`pluginActivation: blocked (${backendId} is missing from plugins.allow)`);
   }
 
-  if (registeredBackend?.runtime.doctor) {
+  const runtimeDoctorDeferred = shouldDeferRuntimeDoctorToIsolatedTarget(params, registeredBackend);
+  if (runtimeDoctorDeferred) {
+    // Browser attribution identifies a personal execution target. Probing the
+    // Gateway host would test the wrong adapter and may trigger local installation.
+    lines.push("runtimeDoctor: deferred (isolated process transport)");
+  } else if (registeredBackend?.runtime.doctor) {
     try {
       const report = await registeredBackend.runtime.doctor();
       lines.push(`runtimeDoctor: ${report.ok ? "ok" : "error"} (${report.message})`);
@@ -114,10 +133,17 @@ export async function handleAcpDoctorAction(
     const capabilities = backend.runtime.getCapabilities
       ? await backend.runtime.getCapabilities({})
       : { controls: [] as string[], configOptionKeys: [] as string[] };
-    lines.push("healthy: yes");
+    lines.push(
+      runtimeDoctorDeferred
+        ? "healthy: unverified (isolated target is validated when an ACP session starts)"
+        : "healthy: yes",
+    );
     lines.push(`capabilities: ${formatAcpCapabilitiesText(capabilities.controls ?? [])}`);
     if ((capabilities.configOptionKeys?.length ?? 0) > 0) {
       lines.push(`configKeys: ${capabilities.configOptionKeys?.join(", ")}`);
+    }
+    if (runtimeDoctorDeferred) {
+      lines.push("next: use /acp spawn <agent> to validate the personal execution target.");
     }
     return stopWithText(lines.join("\n"));
   } catch (error) {

@@ -2406,6 +2406,42 @@ describe("/acp command", () => {
     expect(result?.reply?.text).toContain("next:");
   });
 
+  it("defers host-local doctor probes for attributed isolated execution", async () => {
+    const isolatedBackend = {
+      ...(hoisted.getAcpRuntimeBackendMock("acpx") as object),
+      isolatesSandboxedRequesters: () => true,
+    };
+    hoisted.getAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+
+    const result = await runInternalAcpCommand({
+      commandBody: "/acp doctor",
+      scopes: ["operator.admin"],
+      senderAgentId: "person_one",
+    });
+
+    expect(hoisted.doctorMock).not.toHaveBeenCalled();
+    expect(hoisted.getCapabilitiesMock).toHaveBeenCalledWith({});
+    expect(result?.reply?.text).toContain("runtimeDoctor: deferred (isolated process transport)");
+    expect(result?.reply?.text).toContain("healthy: unverified");
+    expect(result?.reply?.text).toContain("/acp spawn <agent>");
+  });
+
+  it("retains host-local doctor probes for Gateway owners", async () => {
+    const isolatedBackend = {
+      ...(hoisted.getAcpRuntimeBackendMock("acpx") as object),
+      isolatesSandboxedRequesters: () => true,
+    };
+    hoisted.getAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue(isolatedBackend);
+
+    const result = await runDiscordAcpCommand("/acp doctor", baseCfg);
+
+    expect(hoisted.doctorMock).toHaveBeenCalledOnce();
+    expect(result?.reply?.text).toContain("runtimeDoctor: ok (acpx command available)");
+    expect(result?.reply?.text).toContain("healthy: yes");
+  });
+
   it("explains when acpx is blocked by plugins.allow", async () => {
     hoisted.getAcpRuntimeBackendMock.mockReturnValue(null);
     hoisted.requireAcpRuntimeBackendMock.mockImplementation(() => {
