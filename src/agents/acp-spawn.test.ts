@@ -5,6 +5,7 @@ import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AcpInitializeSessionInput } from "../acp/control-plane/manager.types.js";
+import { registerAcpProcessTransport } from "../acp/runtime/process-transport.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { CallGatewayOptions } from "../gateway/call.js";
@@ -995,6 +996,45 @@ describe("spawnAcpDirect", () => {
     expect(transcriptCalls).toHaveLength(2);
     expect(transcriptCalls[0]?.threadId).toBeUndefined();
     expect(transcriptCalls[1]?.threadId).toBe("child-thread");
+  });
+
+  it("carries the browser requester into isolated ACP runtime initialization", async () => {
+    replaceSpawnConfig({
+      ...createDefaultSpawnConfig(),
+      acp: {
+        enabled: true,
+        backend: "acpx",
+        allowedAgents: ["claude"],
+      },
+    });
+    const unregister = registerAcpProcessTransport({
+      id: "assigned-vm",
+      isolatesSandboxedRequesters: true,
+      supports: ({ agent }) => agent === "claude",
+      prepare: async () => ({ cwd: "/home/person_one/workspace" }),
+      launch: vi.fn(),
+    });
+
+    try {
+      const result = await spawnAcpDirect(
+        { task: "Reply exactly ACP_OK", agentId: "claude", mode: "run" },
+        {
+          agentSessionKey: "agent:person_one:dashboard:browser-session",
+          requesterAgentIdOverride: "person_one",
+          agentChannel: "dashboard",
+        },
+      );
+
+      expectAcceptedSpawn(result);
+      expect(hoisted.initializeSessionMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent: "claude",
+          executionOwnerAgentId: "person_one",
+        }),
+      );
+    } finally {
+      unregister();
+    }
   });
 
   it("allows ACP resume IDs recorded for the requester session", async () => {

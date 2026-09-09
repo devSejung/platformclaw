@@ -2,10 +2,18 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { RequestedModelUnsupportedError } from "acpx/runtime";
+import {
+  AcpxRuntime as BaseAcpxRuntime,
+  RequestedModelUnsupportedError,
+  type AcpAgentProcessLauncher,
+} from "acpx/runtime";
+import { registerAcpProcessTransport } from "openclaw/plugin-sdk/acp-runtime-backend";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AcpRuntimeError,
+  ACP_AGENT_ENV,
+  ACP_EXECUTION_OWNER_ENV,
+  ACP_SESSION_KEY_ENV,
   type AcpRuntime,
   type AcpRuntimeCapabilities,
   type AcpRuntimeEvent,
@@ -196,6 +204,151 @@ describe("AcpxRuntime fresh reset wrapper", () => {
     expect(() => testing.assertSupportedRuntimeSessionMode("run" as never)).toThrow(
       AcpRuntimeError,
     );
+  });
+
+  it.each(["claude", "opencode"])(
+    "pins %s isolated launches to the prepared owner without trusting session env",
+    async (agent) => {
+      const child = {} as NonNullable<Awaited<ReturnType<AcpAgentProcessLauncher>>>;
+      const prepare = vi.fn(async () => ({ cwd: "/home/alice/workspace" }));
+      const launch = vi.fn(async () => child);
+      const unregister = registerAcpProcessTransport({
+        id: `vm-${agent}`,
+        isolatesSandboxedRequesters: true,
+        supports: (input) => input.agent === agent,
+        prepare,
+        launch,
+      });
+      const baseStore: TestSessionStore = {
+        load: vi.fn(async () => undefined),
+        save: vi.fn(async () => {}),
+      };
+      const { runtime } = makeRuntime(baseStore, {
+        agentRegistry: {
+          resolve: (agentName: string) => agentName,
+          list: () => [agent],
+        },
+      });
+      let delegateEnsures = 0;
+      const ensure = vi
+        .spyOn(BaseAcpxRuntime.prototype, "ensureSession")
+        .mockImplementation(async function (this: BaseAcpxRuntime, input) {
+          delegateEnsures += 1;
+          const processLauncher = (
+            this as unknown as {
+              options: { processLauncher?: AcpAgentProcessLauncher };
+            }
+          ).options.processLauncher;
+          expect(processLauncher).toBeTypeOf("function");
+          await processLauncher!({
+            agentCommand: agent,
+            command: agent,
+            args: [],
+            cwd: input.cwd ?? "/tmp",
+            env:
+              delegateEnsures === 1
+                ? { SAFE: "kept" }
+                : {
+                    SAFE: "kept",
+                    [ACP_EXECUTION_OWNER_ENV]: "mallory",
+                    [ACP_AGENT_ENV]: "spoofed-agent",
+                    [ACP_SESSION_KEY_ENV]: "spoofed-session",
+                  },
+          });
+          return {
+            sessionKey: input.sessionKey,
+            backend: "acpx",
+            runtimeSessionName: input.sessionKey,
+            cwd: input.cwd,
+          };
+        });
+
+      try {
+        const input = {
+          sessionKey: `agent:${agent}:acp:test`,
+          agent,
+          executionOwnerAgentId: "alice",
+          mode: "oneshot" as const,
+        };
+        await runtime.ensureSession(input);
+        await runtime.ensureSession(input);
+        await expect(
+          runtime.ensureSession({
+            sessionKey: input.sessionKey,
+            agent,
+            mode: "oneshot",
+          }),
+        ).rejects.toThrow("ACP execution owner is missing");
+
+        expect(ensure).toHaveBeenCalledTimes(2);
+        expect(prepare).toHaveBeenCalledTimes(2);
+        expect(launch).toHaveBeenCalledTimes(2);
+        expect(launch).toHaveBeenLastCalledWith({
+          executionOwnerAgentId: "alice",
+          agent,
+          sessionKey: input.sessionKey,
+          command: agent,
+          args: [],
+          cwd: "/home/alice/workspace",
+          env: { SAFE: "kept" },
+        });
+      } finally {
+        unregister();
+      }
+    },
+  );
+
+  it("fails closed when an isolated session loses its prepared transport", async () => {
+    const unregister = registerAcpProcessTransport({
+      id: "vanishing-vm",
+      isolatesSandboxedRequesters: true,
+      supports: ({ agent }) => agent === "claude",
+      prepare: async () => ({ cwd: "/home/alice/workspace" }),
+      launch: vi.fn(),
+    });
+    const baseStore: TestSessionStore = {
+      load: vi.fn(async () => undefined),
+      save: vi.fn(async () => {}),
+    };
+    const { runtime } = makeRuntime(baseStore, {
+      agentRegistry: {
+        resolve: (agentName: string) => agentName,
+        list: () => ["claude"],
+      },
+    });
+    let registered = true;
+    vi.spyOn(BaseAcpxRuntime.prototype, "ensureSession").mockImplementation(
+      async function (this: BaseAcpxRuntime, input) {
+        unregister();
+        registered = false;
+        const processLauncher = (
+          this as unknown as { options: { processLauncher?: AcpAgentProcessLauncher } }
+        ).options.processLauncher;
+        await processLauncher!({
+          agentCommand: "claude",
+          command: "claude",
+          args: [],
+          cwd: input.cwd ?? "/tmp",
+          env: {},
+        });
+        throw new Error("unreachable local fallback");
+      },
+    );
+
+    try {
+      await expect(
+        runtime.ensureSession({
+          sessionKey: "agent:claude:acp:test",
+          agent: "claude",
+          executionOwnerAgentId: "alice",
+          mode: "oneshot",
+        }),
+      ).rejects.toThrow("No isolated ACP process transport");
+    } finally {
+      if (registered) {
+        unregister();
+      }
+    }
   });
 
   it("adds the OpenClaw session key to both managed tools MCP bridges", () => {

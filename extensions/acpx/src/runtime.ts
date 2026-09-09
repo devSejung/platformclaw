@@ -15,6 +15,7 @@ import {
   decodeAcpxRuntimeHandleState,
   encodeAcpxRuntimeHandleState,
   isRequestedModelUnsupportedError,
+  type AcpAgentProcessLauncher,
   type AcpAgentRegistry,
   type AcpRuntimeDoctorReport,
   type AcpRuntimeEvent,
@@ -78,7 +79,7 @@ type OpenClawRuntimeHandle = Awaited<ReturnType<AcpRuntime["ensureSession"]>>;
 type AcpxDelegateEnsureInput = Parameters<BaseAcpxRuntime["ensureSession"]>[0];
 
 export async function launchAcpxWithProcessTransport(
-  launch: Parameters<NonNullable<AcpRuntimeOptions["processLauncher"]>>[0],
+  launch: Parameters<AcpAgentProcessLauncher>[0],
 ) {
   try {
     return await launchWithAcpProcessTransport(launch);
@@ -88,6 +89,25 @@ export async function launchAcpxWithProcessTransport(
     }
     throw error;
   }
+}
+
+function bindAcpxProcessTransport(params: {
+  executionOwnerAgentId: string;
+  agent: string;
+  sessionKey: string;
+}): AcpAgentProcessLauncher {
+  return async (launch) =>
+    await launchAcpxWithProcessTransport({
+      ...launch,
+      // The isolated delegate owns this route. Reassert it at the launcher boundary so
+      // ACPX option persistence or reconnect cannot silently fall back to Gateway-local spawn.
+      env: {
+        ...launch.env,
+        [ACP_EXECUTION_OWNER_ENV]: params.executionOwnerAgentId,
+        [ACP_AGENT_ENV]: params.agent,
+        [ACP_SESSION_KEY_ENV]: params.sessionKey,
+      },
+    });
 }
 type AcpxMcpServer = NonNullable<AcpRuntimeOptions["mcpServers"]>[number];
 
@@ -102,6 +122,11 @@ type ResetAwareSessionStore = AcpSessionStore & {
 type OpenClawLeaseSessionMetadata = {
   openclawLeaseId: string;
   openclawGatewayInstanceId: string;
+};
+
+type IsolatedSessionRoute = {
+  executionOwnerAgentId: string;
+  agent: string;
 };
 
 function withOpenClawManagedTurnTimeout<T extends object>(input: T): T & { timeoutMs: 0 } {
@@ -847,7 +872,7 @@ export class AcpxRuntime implements AcpRuntime {
   private readonly managedToolsMcpBridgeEnabled: boolean;
   private readonly managedToolsSessionDelegates = new Map<string, BaseAcpxRuntime>();
   private readonly isolatedSessionDelegates = new Map<string, BaseAcpxRuntime>();
-  private readonly isolatedSessionOwners = new Map<string, string>();
+  private readonly isolatedSessionRoutes = new Map<string, IsolatedSessionRoute>();
   private readonly processCleanupDeps: AcpxProcessCleanupDeps | undefined;
   private readonly wrapperRoot: string | undefined;
   private readonly gatewayInstanceId: string | undefined;
@@ -907,11 +932,12 @@ export class AcpxRuntime implements AcpRuntime {
     this.probeDelegate = useBridgeSafeProbe ? this.bridgeSafeDelegate : this.delegate;
   }
 
-  private resolveDelegateForSession(params: {
-    command: string | undefined;
-    sessionKey: string;
-    executionOwnerAgentId?: string;
-  }): BaseAcpxRuntime {
+  private resolveDelegateForSession(
+    params: { command: string | undefined; sessionKey: string } & (
+      | { executionOwnerAgentId: string; agent: string }
+      | { executionOwnerAgentId?: undefined; agent?: undefined }
+    ),
+  ): BaseAcpxRuntime {
     const normalizedSessionKey = params.sessionKey.trim();
     if (params.executionOwnerAgentId?.trim()) {
       const cached = this.isolatedSessionDelegates.get(normalizedSessionKey);
@@ -926,6 +952,11 @@ export class AcpxRuntime implements AcpRuntime {
           mcpServers: [],
           fs: false,
           terminal: false,
+          processLauncher: bindAcpxProcessTransport({
+            executionOwnerAgentId: params.executionOwnerAgentId,
+            agent: params.agent,
+            sessionKey: normalizedSessionKey,
+          }),
         },
         this.delegateTestOptions,
       );
@@ -1503,19 +1534,23 @@ export class AcpxRuntime implements AcpRuntime {
   ): Promise<OpenClawRuntimeHandle> {
     return await this.runSerializedSessionEnsure(input.sessionKey, async () => {
       const normalizedSessionKey = input.sessionKey.trim();
-      const existingOwner = this.isolatedSessionOwners.get(normalizedSessionKey);
-      if (
-        existingOwner &&
-        input.executionOwnerAgentId &&
-        existingOwner !== input.executionOwnerAgentId
-      ) {
-        throw new Error("ACP execution owner changed; close the session and retry.");
+      const existingRoute = this.isolatedSessionRoutes.get(normalizedSessionKey);
+      if (existingRoute && !input.executionOwnerAgentId) {
+        throw new Error("ACP execution owner is missing; close the session and retry.");
+      }
+      if (existingRoute && input.executionOwnerAgentId) {
+        if (existingRoute.executionOwnerAgentId !== input.executionOwnerAgentId) {
+          throw new Error("ACP execution owner changed; close the session and retry.");
+        }
+        if (existingRoute.agent !== input.agent) {
+          throw new Error("ACP isolated agent changed; close the session and retry.");
+        }
       }
       try {
         return await this.ensureSessionUnlocked(input);
       } catch (error) {
-        if (input.executionOwnerAgentId && !existingOwner) {
-          this.isolatedSessionOwners.delete(normalizedSessionKey);
+        if (input.executionOwnerAgentId && !existingRoute) {
+          this.isolatedSessionRoutes.delete(normalizedSessionKey);
           this.isolatedSessionDelegates.delete(normalizedSessionKey);
           await releaseAcpProcessTransport({
             executionOwnerAgentId: input.executionOwnerAgentId,
@@ -1539,18 +1574,24 @@ export class AcpxRuntime implements AcpRuntime {
         })
       : undefined;
     if (input.executionOwnerAgentId) {
-      this.isolatedSessionOwners.set(input.sessionKey.trim(), input.executionOwnerAgentId);
+      this.isolatedSessionRoutes.set(input.sessionKey.trim(), {
+        executionOwnerAgentId: input.executionOwnerAgentId,
+        agent: input.agent,
+      });
     }
     const effectiveInput = preparedTransport ? { ...input, cwd: preparedTransport.cwd } : input;
     const command = resolveAgentCommand({
       agentName: effectiveInput.agent,
       agentRegistry: this.agentRegistry,
     });
-    const delegate = this.resolveDelegateForSession({
-      command,
-      sessionKey: effectiveInput.sessionKey,
-      executionOwnerAgentId: effectiveInput.executionOwnerAgentId,
-    });
+    const delegate = effectiveInput.executionOwnerAgentId
+      ? this.resolveDelegateForSession({
+          command,
+          sessionKey: effectiveInput.sessionKey,
+          executionOwnerAgentId: effectiveInput.executionOwnerAgentId,
+          agent: effectiveInput.agent,
+        })
+      : this.resolveDelegateForSession({ command, sessionKey: effectiveInput.sessionKey });
     const isCodexAcp =
       normalizeAgentName(effectiveInput.agent) === CODEX_ACP_AGENT_ID && isCodexAcpCommand(command);
     const claudeModelOverride = isClaudeAcpCommand(command)
@@ -1881,7 +1922,7 @@ export class AcpxRuntime implements AcpRuntime {
   }
 
   async close(input: Parameters<AcpRuntime["close"]>[0]): Promise<void> {
-    const isolatedOwner = this.isolatedSessionOwners.get(input.handle.sessionKey.trim());
+    const isolatedRoute = this.isolatedSessionRoutes.get(input.handle.sessionKey.trim());
     const closeLease = await this.prepareProcessLeaseForOperation(input.handle);
     let cleanupSucceeded = false;
     try {
@@ -1913,11 +1954,11 @@ export class AcpxRuntime implements AcpRuntime {
       } else {
         await this.retirePendingProcessLease(closeLease);
       }
-      if (isolatedOwner) {
-        this.isolatedSessionOwners.delete(input.handle.sessionKey.trim());
+      if (isolatedRoute) {
+        this.isolatedSessionRoutes.delete(input.handle.sessionKey.trim());
         this.isolatedSessionDelegates.delete(input.handle.sessionKey.trim());
         await releaseAcpProcessTransport({
-          executionOwnerAgentId: isolatedOwner,
+          executionOwnerAgentId: isolatedRoute.executionOwnerAgentId,
           sessionKey: input.handle.sessionKey,
         }).catch(() => {});
       }
