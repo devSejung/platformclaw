@@ -4,14 +4,18 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveSandboxRuntimeStatus } from "./sandbox/runtime-status.js";
 import { resolveSpawnSandboxError } from "./spawn-plan.js";
 
-export function resolveAcpSpawnRuntimePolicyError(params: {
+type AcpSpawnRuntimePlan =
+  | { ok: true; executionOwnerAgentId?: string }
+  | { ok: false; error: string };
+
+export function resolveAcpSpawnRuntimePlan(params: {
   cfg: OpenClawConfig;
   requesterSessionKey?: string;
   requesterSandboxed?: boolean;
   sandbox?: "inherit" | "require";
   executionOwnerAgentId?: string;
   targetAgentId?: string;
-}): string | undefined {
+}): AcpSpawnRuntimePlan {
   const sandboxMode = params.sandbox === "require" ? "require" : "inherit";
   const requesterRuntime = resolveSandboxRuntimeStatus({
     cfg: params.cfg,
@@ -19,21 +23,33 @@ export function resolveAcpSpawnRuntimePolicyError(params: {
   });
   const requesterSandboxed = params.requesterSandboxed === true || requesterRuntime.sandboxed;
   const backend = getAcpRuntimeBackend(params.cfg.acp?.backend);
-  if (
-    (requesterSandboxed || sandboxMode === "require") &&
-    backend?.isolatesSandboxedRequesters?.() === true &&
+  // Process transport discovery is an admission decision. Carry it through initialization so a
+  // mutable registry cannot silently downgrade an admitted assigned-VM session to local execution.
+  const executionOwnerAgentId =
     params.executionOwnerAgentId &&
     params.targetAgentId &&
     canUseAcpProcessTransport({
       executionOwnerAgentId: params.executionOwnerAgentId,
       agent: params.targetAgentId,
     })
+      ? params.executionOwnerAgentId
+      : undefined;
+  if (
+    (requesterSandboxed || sandboxMode === "require") &&
+    backend?.isolatesSandboxedRequesters?.() === true &&
+    executionOwnerAgentId
   ) {
-    return undefined;
+    return { ok: true, executionOwnerAgentId };
   }
-  return resolveSpawnSandboxError({
+  const error = resolveSpawnSandboxError({
     backend: "acp",
     requesterSandboxed,
     sandbox: sandboxMode,
   });
+  return error
+    ? { ok: false, error }
+    : {
+        ok: true,
+        ...(executionOwnerAgentId ? { executionOwnerAgentId } : {}),
+      };
 }

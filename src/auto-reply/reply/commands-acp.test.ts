@@ -39,6 +39,7 @@ const hoisted = vi.hoisted(() => {
   const updateSessionEntryMock = vi.fn();
   const doctorMock = vi.fn();
   const diagnoseAcpProcessTransportMock = vi.fn();
+  const canUseAcpProcessTransportMock = vi.fn();
   return {
     callGatewayMock,
     requireAcpRuntimeBackendMock,
@@ -65,6 +66,7 @@ const hoisted = vi.hoisted(() => {
     updateSessionEntryMock,
     doctorMock,
     diagnoseAcpProcessTransportMock,
+    canUseAcpProcessTransportMock,
   };
 });
 
@@ -95,6 +97,7 @@ vi.mock("../../acp/runtime/registry.js", () => ({
 
 vi.mock("../../acp/runtime/process-transport.js", () => ({
   diagnoseAcpProcessTransport: (input: unknown) => hoisted.diagnoseAcpProcessTransportMock(input),
+  canUseAcpProcessTransport: (input: unknown) => hoisted.canUseAcpProcessTransportMock(input),
 }));
 
 vi.mock("../../acp/runtime/session-meta.js", () => ({
@@ -105,10 +108,32 @@ vi.mock("../../acp/runtime/session-meta.js", () => ({
 }));
 
 vi.mock("../../agents/acp-spawn.js", () => ({
-  resolveAcpSpawnRuntimePolicyError: (params: { cfg?: OpenClawConfig }) =>
-    params.cfg?.agents?.defaults?.sandbox?.mode === "all"
-      ? 'Sandboxed sessions cannot spawn ACP sessions because runtime="acp" runs on the host. Use runtime="subagent" from sandboxed sessions.'
-      : undefined,
+  resolveAcpSpawnRuntimePlan: (params: {
+    cfg?: OpenClawConfig;
+    executionOwnerAgentId?: string;
+    targetAgentId?: string;
+  }) => {
+    if (params.cfg?.agents?.defaults?.sandbox?.mode === "all") {
+      return {
+        ok: false,
+        error:
+          'Sandboxed sessions cannot spawn ACP sessions because runtime="acp" runs on the host. Use runtime="subagent" from sandboxed sessions.',
+      };
+    }
+    const executionOwnerAgentId =
+      params.executionOwnerAgentId &&
+      params.targetAgentId &&
+      hoisted.canUseAcpProcessTransportMock({
+        executionOwnerAgentId: params.executionOwnerAgentId,
+        agent: params.targetAgentId,
+      })
+        ? params.executionOwnerAgentId
+        : undefined;
+    return {
+      ok: true,
+      ...(executionOwnerAgentId ? { executionOwnerAgentId } : {}),
+    };
+  },
   resolveRuntimeCwdForAcpSpawn: async (params: { explicitCwd?: string; resolvedCwd?: string }) => {
     if (params.explicitCwd) {
       return params.resolvedCwd;
@@ -921,6 +946,7 @@ async function runInternalAcpCommand(params: {
   });
   commandParams.command.channel = INTERNAL_MESSAGE_CHANNEL;
   commandParams.command.senderId = "user-1";
+  commandParams.agentId = params.senderAgentId;
   return handleAcpCommand(commandParams, true);
 }
 
@@ -994,6 +1020,7 @@ describe("/acp command", () => {
       message: "acpx command available",
     });
     hoisted.diagnoseAcpProcessTransportMock.mockReset().mockResolvedValue(undefined);
+    hoisted.canUseAcpProcessTransportMock.mockReset().mockReturnValue(false);
 
     const runtimeBackend = {
       id: "acpx",
@@ -1015,6 +1042,7 @@ describe("/acp command", () => {
       initializeSession: async (input: {
         sessionKey: string;
         agent: string;
+        executionOwnerAgentId?: string;
         mode: "persistent" | "oneshot";
         cwd?: string;
       }) => {
@@ -1025,6 +1053,7 @@ describe("/acp command", () => {
         const ensured = await hoisted.ensureSessionMock({
           sessionKey: input.sessionKey,
           agent: input.agent,
+          executionOwnerAgentId: input.executionOwnerAgentId,
           mode: input.mode,
           cwd: input.cwd,
         });
@@ -1251,6 +1280,23 @@ describe("/acp command", () => {
     const seededWithoutEntry = upsertArgs?.mutate(undefined, undefined);
     expect(seededWithoutEntry?.backend).toBe("acpx");
     expect(seededWithoutEntry?.runtimeSessionName).toContain(":runtime");
+  });
+
+  it("carries one isolated admission decision through /acp spawn initialization", async () => {
+    hoisted.canUseAcpProcessTransportMock.mockReturnValueOnce(true).mockReturnValue(false);
+
+    const result = await runInternalAcpCommand({
+      commandBody: "/acp spawn claude",
+      scopes: ["operator.admin"],
+      senderAgentId: "person_one",
+    });
+
+    expect(result?.reply?.text).toContain("Spawned ACP session agent:claude:acp:");
+    expectMockCallFields(hoisted.ensureSessionMock, {
+      agent: "claude",
+      executionOwnerAgentId: "person_one",
+    });
+    expect(hoisted.canUseAcpProcessTransportMock).toHaveBeenCalledOnce();
   });
 
   it("inherits the target agent workspace when /acp spawn omits --cwd", async () => {
