@@ -321,8 +321,8 @@ function getArgChoices(arg: Record<string, unknown>): LocalArgChoice[] {
     });
 }
 
-function buildLocalSlashCommands(): SlashCommandDef[] {
-  const builtins = buildBuiltinChatCommands()
+function buildBuiltinSlashCommands(): SlashCommandDef[] {
+  return buildBuiltinChatCommands()
     .map((command) => ({
       key: command.key,
       name: command.textAliases[0]?.replace(/^\//u, "") ?? command.key,
@@ -338,36 +338,40 @@ function buildLocalSlashCommands(): SlashCommandDef[] {
     }))
     .map((command) => toSlashCommand(command, "local"))
     .filter((command): command is SlashCommandDef => command !== null);
-  return [...builtins, ...UI_ONLY_COMMANDS];
 }
 
-function buildReservedLocalSlashNames(localCommands = buildLocalSlashCommands()): Set<string> {
-  const reserved = new Set<string>();
+function buildLocalSlashCommands(): SlashCommandDef[] {
+  return [
+    ...buildBuiltinSlashCommands().filter((command) => command.executeLocal === true),
+    ...UI_ONLY_COMMANDS,
+  ];
+}
+
+function buildLocalSlashCommandIndex(
+  localCommands = [...buildBuiltinSlashCommands(), ...UI_ONLY_COMMANDS],
+): Map<string, SlashCommandDef> {
+  const reserved = new Map<string, SlashCommandDef>();
   for (const command of localCommands) {
-    reserved.add(normalizeLowercaseStringOrEmpty(command.name));
+    reserved.set(normalizeLowercaseStringOrEmpty(command.name), command);
     for (const alias of command.aliases ?? []) {
       const normalized = normalizeSlashIdentifier(alias);
       if (normalized) {
-        reserved.add(normalized);
+        reserved.set(normalized, command);
       }
     }
   }
   return reserved;
 }
 
-function normalizeCommandEntry(
-  entry: CommandEntry | Record<string, unknown>,
-  reservedLocalNames: Set<string>,
-): CommandLike | null {
+function normalizeCommandEntry(entry: CommandEntry | Record<string, unknown>): CommandLike | null {
   const aliases = (Array.isArray(entry.textAliases) ? entry.textAliases : [])
     .slice(0, MAX_REMOTE_ALIAS_COUNT)
     .filter((alias): alias is string => typeof alias === "string")
     .map(normalizeSlashIdentifier)
-    .filter((alias): alias is string => Boolean(alias))
-    .filter((alias) => !reservedLocalNames.has(alias));
+    .filter((alias): alias is string => Boolean(alias));
   const primaryName =
     aliases[0] ?? (typeof entry.name === "string" ? normalizeSlashIdentifier(entry.name) : null);
-  if (!primaryName || reservedLocalNames.has(primaryName)) {
+  if (!primaryName) {
     return null;
   }
   const args = getEntryArgs(entry)
@@ -406,16 +410,39 @@ export function replaceSlashCommands(next: SlashCommandDef[]) {
 }
 
 export function buildSlashCommandsFromEntries(entries: CommandEntry[]): SlashCommandDef[] {
-  const local = buildLocalSlashCommands();
-  const reservedLocalNames = buildReservedLocalSlashNames(local);
+  const localIndex = buildLocalSlashCommandIndex();
+  const reservedLocalNames = new Set(localIndex.keys());
   const mapped = entries
     .slice(0, MAX_REMOTE_COMMANDS)
-    .map((entry) => normalizeCommandEntry(entry, reservedLocalNames))
+    .map((entry) => normalizeCommandEntry(entry))
     .filter((command): command is CommandLike => command !== null)
-    .map((command) => toSlashCommand(command, "remote"))
+    .map((command) => {
+      const normalizedName = normalizeLowercaseStringOrEmpty(command.name);
+      const uiOnly = UI_ONLY_COMMANDS.find((entry) => entry.name === normalizedName);
+      if (uiOnly) {
+        return uiOnly;
+      }
+      const local = localIndex.get(normalizedName);
+      if (local) {
+        const remote = toSlashCommand(command, "remote");
+        return remote
+          ? Object.assign(remote, {
+              key: local.key,
+              executeLocal: local.executeLocal,
+              icon: local.icon,
+              category: local.category,
+              tier: local.tier,
+            })
+          : null;
+      }
+      command.aliases = command.aliases?.filter(
+        (alias) => !reservedLocalNames.has(normalizeSlashIdentifier(alias) ?? ""),
+      );
+      return toSlashCommand(command, "remote");
+    })
     .filter((command): command is SlashCommandDef => command !== null);
   const deduped = new Map<string, SlashCommandDef>();
-  for (const command of [...local, ...mapped]) {
+  for (const command of [...mapped, ...buildLocalSlashCommands()]) {
     const key = normalizeLowercaseStringOrEmpty(command.name);
     if (!key || deduped.has(key)) {
       continue;
@@ -441,7 +468,12 @@ export function buildFallbackSlashCommands(): SlashCommandDef[] {
   return buildLocalSlashCommands();
 }
 
+export function buildOfflineHelpSlashCommands(): SlashCommandDef[] {
+  return buildLocalSlashCommands();
+}
+
 export const SLASH_COMMANDS: SlashCommandDef[] = buildFallbackSlashCommands();
+const BUILTIN_SLASH_COMMAND_ROUTES = buildBuiltinSlashCommands();
 
 const CATEGORY_ORDER: SlashCommandCategory[] = ["session", "model", "tools", "agents"];
 
@@ -548,11 +580,11 @@ export function parseSlashCommand(text: string): ParsedSlashCommand | null {
   }
 
   const normalizedName = normalizeLowercaseStringOrEmpty(name);
-  const command = SLASH_COMMANDS.find(
-    (cmd) =>
-      cmd.name === normalizedName ||
-      cmd.aliases?.some((alias) => normalizeLowercaseStringOrEmpty(alias) === normalizedName),
-  );
+  const matchesName = (cmd: SlashCommandDef) =>
+    cmd.name === normalizedName ||
+    cmd.aliases?.some((alias) => normalizeLowercaseStringOrEmpty(alias) === normalizedName);
+  const command =
+    SLASH_COMMANDS.find(matchesName) ?? BUILTIN_SLASH_COMMAND_ROUTES.find(matchesName);
   if (!command) {
     return null;
   }

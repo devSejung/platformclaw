@@ -16,6 +16,7 @@ import { i18n, t } from "../../i18n/index.ts";
 import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import {
   buildFallbackSlashCommands,
+  buildSlashCommandsFromEntries,
   replaceSlashCommands,
   SLASH_COMMANDS,
 } from "../../lib/chat/commands.ts";
@@ -281,6 +282,32 @@ function renderWorkGroupSummaryMock(
   ..._args: Parameters<typeof chatMessage.renderWorkGroupSummary>
 ): ReturnType<typeof chatMessage.renderWorkGroupSummary> {
   return html`<div class="chat-work-group"></div>`;
+}
+
+function advertiseToolsSlashCommand() {
+  replaceSlashCommands(
+    buildSlashCommandsFromEntries([
+      {
+        name: "tools",
+        textAliases: ["/tools"],
+        description: "List available runtime tools.",
+        source: "native",
+        scope: "both",
+        acceptsArgs: true,
+        args: [
+          {
+            name: "mode",
+            description: "Output detail",
+            type: "string",
+            choices: [
+              { value: "compact", label: "Compact" },
+              { value: "verbose", label: "Verbose" },
+            ],
+          },
+        ],
+      },
+    ]),
+  );
 }
 
 beforeEach(() => {
@@ -3909,6 +3936,7 @@ describe("chat slash menu accessibility", () => {
   });
 
   it("does not submit a stale slash argument menu after disconnect", () => {
+    advertiseToolsSlashCommand();
     let draft = "";
     const onDraftChange = vi.fn((next: string) => {
       draft = next;
@@ -4222,6 +4250,7 @@ describe("chat slash menu accessibility", () => {
   });
 
   it("wires fixed argument suggestions with command-and-argument option ids", () => {
+    advertiseToolsSlashCommand();
     let draft = "";
     const onDraftChange = vi.fn((next: string) => {
       draft = next;

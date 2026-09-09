@@ -7,13 +7,17 @@ function snapshot(params: {
   methods?: string[];
   scopes?: string[];
   includeAuth?: boolean;
+  capabilities?: string[];
 }): Pick<ApplicationGatewaySnapshot, "client" | "hello" | "phase"> {
   const connected = params.connected ?? true;
   return {
     client: connected ? ({} as ApplicationGatewaySnapshot["client"]) : null,
     phase: connected ? "connected" : "offline",
     hello: {
-      features: { methods: params.methods ?? ["sessions.create"] },
+      features: {
+        methods: params.methods ?? ["sessions.create"],
+        ...(params.capabilities ? { capabilities: params.capabilities } : {}),
+      },
       ...(params.includeAuth === false
         ? {}
         : { auth: { role: "operator", scopes: params.scopes ?? ["operator.write"] } }),
@@ -93,6 +97,38 @@ describe("readSessionMethodAccess", () => {
     ).toMatchObject({ allowed: false, cause: "disconnected" });
     expect(
       readSessionMethodAccess(snapshot({ methods: [] }), { method: "sessions.create" }),
+    ).toMatchObject({ allowed: false, cause: "method-unavailable" });
+  });
+
+  it("trusts server-authorized methods only when the method is explicitly advertised", () => {
+    const capabilities = ["control-ui.server-authorized-methods"];
+    expect(
+      readSessionMethodAccess(
+        snapshot({
+          methods: ["sessions.compact"],
+          scopes: ["operator.write"],
+          capabilities,
+        }),
+        { method: "sessions.compact", requiredScope: "operator.admin" },
+      ).allowed,
+    ).toBe(true);
+    expect(
+      readSessionMethodAccess(snapshot({ methods: [], scopes: ["operator.write"], capabilities }), {
+        method: "sessions.compact",
+        requiredScope: "operator.admin",
+      }),
+    ).toMatchObject({ allowed: false, cause: "method-unavailable" });
+
+    const missingMethods = snapshot({ scopes: ["operator.write"], capabilities });
+    missingMethods.hello = {
+      ...missingMethods.hello,
+      features: { capabilities },
+    } as ApplicationGatewaySnapshot["hello"];
+    expect(
+      readSessionMethodAccess(missingMethods, {
+        method: "sessions.compact",
+        requiredScope: "operator.admin",
+      }),
     ).toMatchObject({ allowed: false, cause: "method-unavailable" });
   });
 

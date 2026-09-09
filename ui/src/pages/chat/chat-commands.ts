@@ -6,6 +6,7 @@ import type { ApplicationGatewaySnapshot } from "../../app/gateway.ts";
 import type { ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import {
   buildFallbackSlashCommands,
+  buildOfflineHelpSlashCommands,
   buildSlashCommandsFromEntries,
   getRemoteCommandEntries,
   replaceSlashCommands,
@@ -25,7 +26,7 @@ import {
   resolveUiSelectedGlobalAgentId,
   type UiSessionDefaultsHost,
 } from "../../lib/sessions/session-key.ts";
-import { executeSlashCommand } from "./chat-command-executor.ts";
+import { executeHelp, executeSlashCommand } from "./chat-command-executor.ts";
 import { clearChatHistory } from "./chat-history.ts";
 import { enqueuePendingRunMessage } from "./chat-queue.ts";
 import { readChatSessionActionAccess } from "./chat-session-action-access.ts";
@@ -72,7 +73,7 @@ export type ChatCommandHost = Parameters<typeof handleAbortChat>[0] &
     chatModelCatalog: ModelCatalogEntry[];
     sessionsResult?: SessionsListResult | null;
     sessionsResultAgentId?: string | null;
-    createChatSession?: () => Promise<boolean>;
+    createChatSession?: (message?: string) => Promise<boolean>;
     confirmConversationReset?: () => Promise<boolean>;
     exportCurrentChat?: () => Promise<void> | void;
     refreshCurrentSessionTools?: () => Promise<void>;
@@ -220,7 +221,7 @@ async function requestRemoteSlashCommands(
       scope: "text",
     });
     if (!Array.isArray(result?.commands)) {
-      return buildFallbackSlashCommands();
+      return fallback ?? buildFallbackSlashCommands();
     }
     const commands = buildSlashCommandsFromEntries(getRemoteCommandEntries(result));
     storeRemoteSlashCommands(client, agentId, commands);
@@ -298,7 +299,7 @@ export async function refreshSlashCommands(params: {
 }
 
 export function shouldQueueLocalSlashCommand(name: string): boolean {
-  return !["stop", "export-session", "steer", "redirect", "new"].includes(name);
+  return !["help", "stop", "export-session", "steer", "redirect", "new"].includes(name);
 }
 
 export async function confirmConversationResetForCurrentSession(
@@ -333,6 +334,19 @@ export async function dispatchChatSlashCommand(
   args: string,
   opts: ChatCommandSendOptions,
 ): Promise<ChatCommandDispatchResult> {
+  if (name === "help") {
+    const result = executeHelp(host.connected ? undefined : buildOfflineHelpSlashCommands());
+    if (result.content) {
+      injectCommandResult(host, result.content);
+      scheduleChatScroll(
+        host as unknown as Parameters<typeof scheduleChatScroll>[0],
+        false,
+        false,
+        { contentChanged: true },
+      );
+    }
+    return "completed";
+  }
   switch (name) {
     case "stop":
       if (!requireChatSessionAction(host, "abort")) {
@@ -345,7 +359,7 @@ export async function dispatchChatSlashCommand(
         setChatCommandError(host, "New Chat is unavailable.");
         return "failed";
       }
-      return (await host.createChatSession()) ? "completed" : "cancelled";
+      return (await host.createChatSession(args || undefined)) ? "completed" : "cancelled";
     case "reset": {
       const target = captureChatCommandTarget(host);
       if (!target || !requireChatResetTarget(host, target)) {

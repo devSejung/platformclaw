@@ -1,14 +1,20 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/gateway.ts";
 import {
   SLASH_COMMANDS,
+  buildFallbackSlashCommands,
   getSlashCommandCategoryLabel,
   getSlashCommandDescription,
+  replaceSlashCommands,
   type SlashCommandDef,
 } from "../../lib/chat/commands.ts";
 import { dispatchChatSlashCommand, refreshSlashCommands } from "./chat-commands.ts";
+
+afterEach(() => {
+  replaceSlashCommands(buildFallbackSlashCommands());
+});
 
 function requireCommandByName(name: string): Record<string, unknown> {
   const command = SLASH_COMMANDS.find((entry) => entry.name === name);
@@ -47,13 +53,11 @@ describe("refreshSlashCommands", () => {
     expect(getSlashCommandCategoryLabel("tools")).toBe("Tools");
   });
 
-  it("exposes /learn through the browser fallback registry", () => {
-    expectRecordFields(requireCommandByName("learn"), "learn command", {
-      description: "Draft a reusable skill from recent work or named sources.",
-      args: "[request]",
-      category: "tools",
-      executeLocal: false,
-      tier: "standard",
+  it("does not advertise server commands before the gateway inventory loads", () => {
+    expect(SLASH_COMMANDS.find((entry) => entry.name === "learn")).toBeUndefined();
+    expect(SLASH_COMMANDS.find((entry) => entry.name === "restart")).toBeUndefined();
+    expectRecordFields(requireCommandByName("help"), "fallback help command", {
+      executeLocal: true,
     });
   });
 

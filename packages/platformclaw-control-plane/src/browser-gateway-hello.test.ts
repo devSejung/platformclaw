@@ -21,6 +21,11 @@ function upstreamHello(): HelloOk {
         "sessions.files.get",
         "sessions.files.list",
         "sessions.fork",
+        "sessions.branches.list",
+        "sessions.branches.switch",
+        "sessions.compaction.branch",
+        "sessions.compaction.list",
+        "sessions.compaction.restore",
         "sessions.observer.visibility",
         "sessions.rewind",
         "terminal.attach",
@@ -102,6 +107,11 @@ describe("projectPlatformClawBrowserHello", () => {
         "platformclaw.memory.get",
         "platformclaw.memory.promotion.decide",
         "platformclaw.memory.promotion.submit",
+        "sessions.branches.list",
+        "sessions.branches.switch",
+        "sessions.compaction.branch",
+        "sessions.compaction.list",
+        "sessions.compaction.restore",
         "sessions.companion.ask",
         "sessions.companion.reset",
         "sessions.companion.state",
@@ -119,7 +129,7 @@ describe("projectPlatformClawBrowserHello", () => {
         "users.self",
       ],
       events: ["tick", "chat", "session.observer", "terminal.data", "terminal.exit"],
-      capabilities: ["platformclaw.personal-vm-terminal"],
+      capabilities: ["platformclaw.personal-vm-terminal", "control-ui.server-authorized-methods"],
     });
     expect(projected.snapshot).toEqual({
       presence: [

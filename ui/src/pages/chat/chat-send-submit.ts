@@ -279,9 +279,11 @@ export async function handleSendChat(
       return;
     }
 
-    const forwardModel =
-      parsed?.command.key === "model" && shouldForwardModelCommandToServer(parsed.args);
-    if (parsed?.command.executeLocal && !forwardModel) {
+    const forwardLocalCommand =
+      (parsed?.command.key === "model" && shouldForwardModelCommandToServer(parsed.args)) ||
+      (["compact", "export-session", "usage"].includes(parsed?.command.key ?? "") &&
+        Boolean(parsed?.args));
+    if (parsed?.command.executeLocal && !forwardLocalCommand) {
       if (shouldQueueLocalSlashCommand(parsed.command.key)) {
         const submitKey = chatSubmitKey(host, "local", message, attachmentsToSend);
         await withChatSubmitGuard(host, submitKey, async () => {

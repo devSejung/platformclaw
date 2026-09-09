@@ -35,7 +35,9 @@ export type TestChatPane = HTMLElement & {
   applyGatewaySnapshot: (snapshot: ApplicationContext["gateway"]["snapshot"]) => void;
   connectedCallback: () => void;
   connectionGeneration: number;
-  createSession: () => Promise<boolean>;
+  createSession: (initialMessage?: string) => Promise<boolean>;
+  resetConfirmationOpen: boolean;
+  settleResetConfirmation: (confirmed: boolean) => void;
   restoreArchivedSession: (sessionKey: string) => Promise<void>;
   disconnectedCallback: () => void;
   acceptTaskSuggestion: (suggestion: TaskSuggestion) => Promise<void>;

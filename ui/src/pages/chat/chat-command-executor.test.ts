@@ -145,6 +145,36 @@ describe("executeSlashCommand directives", () => {
     expectNoRequestCall(request, "sessions.patch");
   });
 
+  it("uses BFF-authorized compact and settings methods without an admin grant", async () => {
+    const request = vi.fn(async (method: string) =>
+      method === "sessions.compact" ? { ok: true, compacted: true } : { ok: true, key: "main" },
+    );
+    const client = { request } as unknown as GatewayBrowserClient;
+    const sessionAccessSnapshot = restrictedSnapshot(client, [
+      "sessions.compact",
+      "sessions.patch",
+    ]);
+    if (sessionAccessSnapshot.hello?.features) {
+      sessionAccessSnapshot.hello.features.capabilities = ["control-ui.server-authorized-methods"];
+    }
+
+    const compact = await executeSlashCommand(client, "main", "compact", "", {
+      sessionAccessSnapshot,
+    });
+    const model = await executeSlashCommand(client, "main", "model", "gpt-5-mini", {
+      sessionAccessSnapshot,
+      chatModelCatalog: [{ id: "gpt-5-mini", name: "GPT-5 Mini", provider: "openai" }],
+    });
+
+    expect(compact.failed).not.toBe(true);
+    expect(model.failed).not.toBe(true);
+    expect(request).toHaveBeenCalledWith("sessions.compact", { key: "main" });
+    expect(request).toHaveBeenCalledWith(
+      "sessions.patch",
+      expect.objectContaining({ key: "main", model: "gpt-5-mini" }),
+    );
+  });
+
   it("defers slash-command model cache publication to the captured chat owner", async () => {
     const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
     const patch = vi

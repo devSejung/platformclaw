@@ -79,13 +79,49 @@ describe("parseSlashCommand", () => {
     expectParsedSlash("/fast:on", { name: "fast" }, "on");
   });
 
+  it("routes cold builtin syntax without advertising server-only commands", () => {
+    expect(SLASH_COMMANDS.find((entry) => entry.name === "status")).toBeUndefined();
+    expectParsedSlash("/status", { name: "status", executeLocal: false }, "");
+  });
+
   it("keeps /status on the agent path", () => {
+    applyRemoteEntries([
+      {
+        name: "status",
+        textAliases: ["/status"],
+        description: "Show current status.",
+        source: "native",
+        scope: "both",
+        acceptsArgs: false,
+      },
+    ]);
     const status = SLASH_COMMANDS.find((entry) => entry.name === "status");
     expect(status?.executeLocal).not.toBe(true);
     expectParsedSlash("/status", { name: "status" }, "");
   });
 
   it("includes shared /tools with shared arg hints", () => {
+    applyRemoteEntries([
+      {
+        name: "tools",
+        textAliases: ["/tools"],
+        description: "List available runtime tools.",
+        source: "native",
+        scope: "both",
+        acceptsArgs: true,
+        args: [
+          {
+            name: "mode",
+            description: "Output detail",
+            type: "string",
+            choices: [
+              { value: "compact", label: "Compact" },
+              { value: "verbose", label: "Verbose" },
+            ],
+          },
+        ],
+      },
+    ]);
     const tools = requireCommandByName("tools");
     expectRecordFields(tools, "tools command", {
       key: "tools",
@@ -136,6 +172,123 @@ describe("parseSlashCommand", () => {
       executeLocal: true,
     });
     expect(requireArray(steer.aliases, "steer aliases")).toEqual(["tell"]);
+  });
+
+  it("treats a successful remote inventory as authoritative while retaining UI routing", () => {
+    applyRemoteEntries([
+      {
+        name: "new",
+        textAliases: ["/new"],
+        description: "Start an allowed thread.",
+        source: "native",
+        scope: "both",
+        acceptsArgs: true,
+      },
+      {
+        name: "compact",
+        textAliases: ["/compact"],
+        description: "Compact allowed context.",
+        source: "native",
+        scope: "both",
+        acceptsArgs: true,
+        args: [
+          {
+            name: "instructions",
+            description: "Compaction instructions",
+            type: "string",
+            required: false,
+          },
+        ],
+      },
+      {
+        name: "status",
+        textAliases: ["/status"],
+        description: "Show status.",
+        source: "native",
+        scope: "both",
+        acceptsArgs: false,
+      },
+    ]);
+
+    expectRecordFields(requireCommandByName("new"), "new command", {
+      description: "Start an allowed thread.",
+      executeLocal: true,
+    });
+    expectRecordFields(requireCommandByName("compact"), "compact command", {
+      description: "Compact allowed context.",
+      args: "[instructions]",
+      executeLocal: true,
+    });
+    expectRecordFields(requireCommandByName("status"), "status command", {
+      executeLocal: false,
+    });
+    for (const local of [
+      "help",
+      "new",
+      "reset",
+      "stop",
+      "compact",
+      "model",
+      "think",
+      "fast",
+      "verbose",
+      "export-session",
+      "usage",
+      "agents",
+      "steer",
+      "clear",
+      "redirect",
+    ]) {
+      expectRecordFields(requireCommandByName(local), `${local} command`, {
+        executeLocal: true,
+      });
+    }
+    expect(SLASH_COMMANDS.filter((entry) => entry.name === "compact")).toHaveLength(1);
+    for (const blocked of ["config", "exec", "restart"]) {
+      expect(SLASH_COMMANDS.find((entry) => entry.name === blocked)).toBeUndefined();
+    }
+  });
+
+  it("keeps server-only builtins out of the cold visible catalog", () => {
+    const fallback = buildFallbackSlashCommands();
+    expect(fallback.find((entry) => entry.name === "help")?.executeLocal).toBe(true);
+    expect(fallback.find((entry) => entry.name === "compact")?.executeLocal).toBe(true);
+    for (const serverOnly of ["config", "exec", "restart", "status"]) {
+      expect(fallback.find((entry) => entry.name === serverOnly)).toBeUndefined();
+    }
+  });
+
+  it("does not let a remote collision shadow a Control UI-only action", () => {
+    applyRemoteEntries([
+      {
+        name: "clear",
+        textAliases: ["/clear"],
+        description: "Remote clear",
+        source: "native",
+        scope: "both",
+        acceptsArgs: false,
+      },
+      {
+        name: "redirect",
+        textAliases: ["/redirect"],
+        description: "Remote redirect",
+        source: "native",
+        scope: "both",
+        acceptsArgs: false,
+      },
+    ]);
+
+    expect(SLASH_COMMANDS.filter((entry) => entry.name === "clear")).toHaveLength(1);
+    expectRecordFields(requireCommandByName("clear"), "clear command", {
+      executeLocal: true,
+      description: "Clear chat history",
+    });
+    expect(SLASH_COMMANDS.filter((entry) => entry.name === "redirect")).toHaveLength(1);
+    expectRecordFields(requireCommandByName("redirect"), "redirect command", {
+      executeLocal: true,
+      description: "Abort and restart with a new message",
+      args: "<message>",
+    });
   });
 
   it("builds runtime commands from command entries so docks, plugins, and direct skills appear", () => {
@@ -331,9 +484,9 @@ describe("parseSlashCommand", () => {
   it("falls back safely when command payload shapes are malformed", () => {
     applyCommandsListResult({ commands: { bad: "shape" } });
     expect(SLASH_COMMANDS.find((entry) => entry.name === "pair")).toBeUndefined();
-    expectRecordFields(requireCommandByName("help"), "help command", {
-      key: "help",
-      name: "help",
+    expectRecordFields(requireCommandByName("clear"), "clear command", {
+      key: "clear",
+      name: "clear",
       executeLocal: true,
     });
 

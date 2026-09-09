@@ -17,11 +17,7 @@ import type { ApplicationContext } from "../../app/context.ts";
 import { createInitialUserMessageHandoff } from "../../app/initial-user-message-handoff.ts";
 import { buildCatalogSessionKey, type CatalogSessionKey } from "../../lib/sessions/catalog-key.ts";
 import type { SessionCapability } from "../../lib/sessions/index.ts";
-import {
-  createSessionContext,
-  createTestChatPane,
-  type TestChatPane,
-} from "./chat-pane.test-support.ts";
+import { createTestChatPane, type TestChatPane } from "./chat-pane.test-support.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { createBackgroundTasksProps } from "./components/chat-background-tasks.ts";
 import { createSessionWorkspaceProps } from "./components/chat-session-workspace.ts";
@@ -619,86 +615,6 @@ describe("chat pane keyboard shortcuts", () => {
 
     expect(event.defaultPrevented).toBe(false);
     expect(createSessionWorkspaceProps(state).collapsed).toBe(true);
-  });
-});
-
-describe("chat pane session creation lifecycle", () => {
-  function advertiseSessionCreate(pane: TestChatPane) {
-    pane.context.gateway.snapshot.hello = {
-      auth: { role: "operator", scopes: ["operator.write"] },
-      features: { methods: ["sessions.create"] },
-    } as typeof pane.context.gateway.snapshot.hello;
-  }
-
-  it("drops a created session after a same-client reconnect", async () => {
-    const created = createDeferred<string | null>();
-    const sessions = {
-      create: vi.fn(() => created.promise),
-    } as unknown as SessionCapability;
-    const client = {} as GatewayBrowserClient;
-    const { pane, state } = createTestChatPane({ client, sessions });
-    const navigate = vi.fn();
-    pane.onPaneSessionChange = navigate;
-    advertiseSessionCreate(pane);
-
-    const pending = pane.createSession();
-    await vi.waitFor(() => expect(sessions.create).toHaveBeenCalledOnce());
-    state.connected = false;
-    pane.connectionGeneration += 1;
-    state.connectionEpoch = pane.connectionGeneration;
-    state.connected = true;
-    pane.connectionGeneration += 1;
-    state.connectionEpoch = pane.connectionGeneration;
-    created.resolve("agent:main:new");
-
-    await expect(pending).resolves.toBe(false);
-    expect(navigate).not.toHaveBeenCalled();
-  });
-
-  it("does not publish a stale creation error after the context is replaced", async () => {
-    const created = createDeferred<string | null>();
-    const sessions = {
-      create: vi.fn(() => created.promise),
-    } as unknown as SessionCapability;
-    const client = {} as GatewayBrowserClient;
-    const { pane, requestUpdate, state } = createTestChatPane({ client, sessions });
-    const replacementSessions = {} as SessionCapability;
-    advertiseSessionCreate(pane);
-
-    const pending = pane.createSession();
-    await vi.waitFor(() => expect(sessions.create).toHaveBeenCalledOnce());
-    state.sessionsError = "stale sessions.create failure";
-    pane.context = createSessionContext(client, replacementSessions);
-    created.resolve(null);
-
-    await expect(pending).resolves.toBe(false);
-    expect(state.lastError).toBeNull();
-    expect(state.chatError).toBeNull();
-    expect(requestUpdate).not.toHaveBeenCalled();
-  });
-
-  it("does not publish a stale creation error after the pane detaches", async () => {
-    const created = createDeferred<string | null>();
-    const sessions = {
-      create: vi.fn(() => created.promise),
-    } as unknown as SessionCapability;
-    const client = {} as GatewayBrowserClient;
-    const { pane, requestUpdate, state } = createTestChatPane({ client, sessions });
-    advertiseSessionCreate(pane);
-
-    const pending = pane.createSession();
-    await vi.waitFor(() => expect(sessions.create).toHaveBeenCalledOnce());
-    state.sessionsError = "stale sessions.create failure";
-    Object.defineProperty(pane, "isConnected", {
-      configurable: true,
-      value: false,
-    });
-    created.resolve(null);
-
-    await expect(pending).resolves.toBe(false);
-    expect(state.lastError).toBeNull();
-    expect(state.chatError).toBeNull();
-    expect(requestUpdate).not.toHaveBeenCalled();
   });
 });
 

@@ -8,6 +8,10 @@ export const CONTROL_UI_BOOTSTRAP_PROFILE_FRAGMENT_PARAM = "bootstrapProfile";
 export const CONTROL_UI_OWNER_BOOTSTRAP_PROFILE_HINT = "owner";
 export type ControlUiBootstrapProfileHint = typeof CONTROL_UI_OWNER_BOOTSTRAP_PROFILE_HINT;
 
+/** The serving proxy authorizes each advertised method against its browser-owned resource. */
+export const CONTROL_UI_SERVER_AUTHORIZED_METHODS_CAPABILITY =
+  "control-ui.server-authorized-methods";
+
 /** Authenticated same-origin prefix for plugin manifest/catalog icon bytes. */
 export const CONTROL_UI_PLUGIN_ICON_PATH_PREFIX = "/__openclaw__/plugin-icon";
 
