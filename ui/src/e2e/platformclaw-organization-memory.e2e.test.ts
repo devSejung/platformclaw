@@ -116,6 +116,8 @@ suite("PlatformClaw organization memory Settings E2E", () => {
           "doctor.memory.status",
           "memory.search",
           "platformclaw.memory.lifecycle",
+          "platformclaw.memory.graph",
+          "platformclaw.memory.get",
           "wiki.get",
           "wiki.search",
         ],
@@ -183,6 +185,69 @@ suite("PlatformClaw organization memory Settings E2E", () => {
             ],
             canApproveGlobal: false,
           },
+          "platformclaw.memory.graph": {
+            cases: [
+              {
+                match: { kind: "part" },
+                response: {
+                  kind: "part",
+                  nodes: [
+                    {
+                      id: "organization:part:runtime-policy",
+                      path: "organization/part/runtime-policy",
+                      title: "Runtime policy",
+                      scopeName: "Runtime",
+                      updatedAt: 1,
+                    },
+                  ],
+                  edges: [],
+                  stats: {
+                    totalPages: 1,
+                    totalNodes: 1,
+                    totalEdges: 0,
+                    truncated: false,
+                    partial: false,
+                  },
+                },
+              },
+              {
+                match: { kind: "group" },
+                response: {
+                  kind: "group",
+                  nodes: [
+                    {
+                      id: "organization:group:platform-policy",
+                      path: "organization/group/platform-policy",
+                      title: "Platform policy",
+                      scopeName: "Platform",
+                      updatedAt: 2,
+                    },
+                  ],
+                  edges: [],
+                  stats: {
+                    totalPages: 1,
+                    totalNodes: 1,
+                    totalEdges: 0,
+                    truncated: false,
+                    partial: false,
+                  },
+                },
+              },
+            ],
+          },
+          "platformclaw.memory.get": {
+            id: "platform-policy",
+            path: "organization/group/platform-policy",
+            scopeKind: "group",
+            scopeName: "Platform",
+            title: "Platform policy",
+            snippet: scenario.snippet,
+            score: 1,
+            updatedAt: 2,
+            content: `# Platform policy\n\n${scenario.snippet}`,
+            fromLine: 1,
+            lineCount: 3,
+          },
         },
       });
 
@@ -218,6 +283,44 @@ suite("PlatformClaw organization memory Settings E2E", () => {
       expect(await gateway.getRequests("platformclaw.memory.lifecycle")).toEqual([
         expect.objectContaining({ params: {} }),
       ]);
+      expect(await gateway.getRequests("platformclaw.memory.graph")).toHaveLength(0);
+      if (scenario.proofName === "en-US-desktop") {
+        await page.getByRole("tab", { name: "Organization Graph", exact: true }).click();
+        await expect
+          .poll(() => gateway.getRequests("platformclaw.memory.graph"))
+          .toEqual([expect.objectContaining({ params: { kind: "part" } })]);
+        await expect
+          .poll(() =>
+            page.locator('[data-organization-node="organization/part/runtime-policy"]').count(),
+          )
+          .toBe(1);
+        await page.getByRole("tab", { name: "Group Graph", exact: true }).click();
+        await expect
+          .poll(() =>
+            page.locator('[data-organization-node="organization/group/platform-policy"]').count(),
+          )
+          .toBe(1);
+        await page.getByRole("button", { name: "Zoom in" }).click();
+        await expect
+          .poll(() => page.locator("[data-svg-graph-viewport]").getAttribute("transform"))
+          .toContain("scale(1.2)");
+        await page
+          .locator('[data-organization-node="organization/group/platform-policy"] circle')
+          .click();
+        await expect
+          .poll(() => page.locator(".organization-memory-graph__preview pre").textContent())
+          .toContain(scenario.snippet);
+        expect(await gateway.getRequests("platformclaw.memory.get")).toEqual([
+          expect.objectContaining({
+            params: {
+              agentId: "assigned-personal",
+              path: "organization/group/platform-policy",
+              fromLine: 1,
+              lineCount: 200,
+            },
+          }),
+        ]);
+      }
       if (capture) {
         await page.screenshot({
           animations: "disabled",

@@ -1,4 +1,5 @@
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
+import { organizationMemoryGraphTranslations } from "./ko-organization-memory-graph.ts";
 
 export const translations: Readonly<Record<string, string>> = {
   "platformClaw.skillHub.publish.action": "작업 공간 스킬 게시",
@@ -223,10 +224,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.quickActions.unavailable":
     "빠른 실행을 사용할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
   "platformClaw.memory.unavailable": "메모리를 사용할 수 없음",
-  "platformClaw.memory.unassigned": "이 계정에 할당된 개인 Agent가 없습니다.",
-  "platformClaw.memory.tabs.label": "Memory 및 지식 영역",
-  "platformClaw.memory.tabs.overview": "개요",
-  "platformClaw.memory.tabs.organization": "조직 지식",
+  ...organizationMemoryGraphTranslations,
   "platformClaw.memory.overview.title": "Memory 및 지식",
   "platformClaw.memory.overview.description":
     "Memory는 개인 맥락을 회상하고, Personal Wiki는 재사용할 문서를 보관하며, Dreaming은 장기 지식을 정리합니다.",

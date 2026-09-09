@@ -7,6 +7,8 @@ import type {
   EnterprisePrincipal,
   OrganizationMemorySearchHit,
   OrganizationMemoryDocument,
+  OrganizationMemoryGraph,
+  OrganizationMemoryGraphKind,
   OrganizationMemoryLifecycle,
 } from "./contracts.js";
 import { InMemoryControlPlaneStore } from "./memory-store.js";
@@ -49,6 +51,10 @@ export async function setupBrowserGatewayProxyTest(
       fromLine?: number;
       lineCount?: number;
     }) => Promise<OrganizationMemoryDocument | null>;
+    getOrganizationMemoryGraph?: (params: {
+      agentId: string;
+      kind: OrganizationMemoryGraphKind;
+    }) => Promise<OrganizationMemoryGraph>;
     organizationMemoryLifecycle?: OrganizationMemoryLifecycle;
   } = {},
 ) {
@@ -122,6 +128,9 @@ export async function setupBrowserGatewayProxyTest(
       : {}),
     ...(options.getOrganizationMemory
       ? { getOrganizationMemory: options.getOrganizationMemory }
+      : {}),
+    ...(options.getOrganizationMemoryGraph
+      ? { getOrganizationMemoryGraph: options.getOrganizationMemoryGraph }
       : {}),
     ...(options.organizationMemoryLifecycle
       ? { organizationMemoryLifecycle: options.organizationMemoryLifecycle }

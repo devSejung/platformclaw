@@ -427,6 +427,49 @@ describe("dreaming view", () => {
     });
   });
 
+  it("filters the Personal Wiki graph by safe top-level directory with induced edges", () => {
+    setDreamDiarySubTab("wiki");
+    viewState.wikiLayout = "graph";
+    const container = document.createElement("div");
+    const rerender = () => render(renderWikiKnowledge(props), container);
+    const props = buildProps({
+      onViewStateChange: rerender,
+      wikiGraph: {
+        nodes: [
+          { id: "home.md", title: "Home", kind: "concept" },
+          { id: "raw/source.md", title: "Source", kind: "source" },
+          { id: "syntheses/summary.md", title: "Summary", kind: "synthesis" },
+        ],
+        edges: [
+          { source: "home.md", target: "raw/source.md", type: "link" },
+          { source: "raw/source.md", target: "syntheses/summary.md", type: "link" },
+        ],
+        stats: {
+          totalPages: 3,
+          totalNodes: 3,
+          totalEdges: 2,
+          unresolvedLinks: 1,
+          truncated: false,
+        },
+      },
+    });
+    rerender();
+
+    expect(container.textContent).toContain("Root");
+    const raw = [...container.querySelectorAll("label")].find((label) =>
+      label.textContent?.includes("raw"),
+    )!;
+    const input = raw.querySelector("input") as HTMLInputElement;
+    input.checked = false;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(container.querySelector('[data-wiki-node="raw/source.md"]')).toBeNull();
+    expect(container.querySelectorAll(".memory-wiki-graph__edges line")).toHaveLength(0);
+    expect(container.textContent).toContain("2 nodes");
+    expect(container.textContent).toContain("0 links");
+    expect(container.textContent).not.toContain("unresolved");
+  });
+
   it.each([
     {
       name: "empty",

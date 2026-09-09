@@ -4296,6 +4296,13 @@ export const en: TranslationMap = {
       graphEdges: "{count} links",
       graphBroken: "{count} unresolved",
       graphTruncated: "Showing a bounded graph",
+      graphDirectories: "Directories",
+      graphRootDirectory: "Root pages",
+      graphSelectAll: "Select all",
+      graphControls: "Graph view controls",
+      graphZoomIn: "Zoom in",
+      graphZoomOut: "Zoom out",
+      graphResetView: "Reset view",
       emptyWiki: "Memory wiki is not populated yet",
       emptyWikiHint:
         "Right now the wiki mostly has raw source imports and operational reports. This tab becomes useful once syntheses, entities, or concepts start getting written.",

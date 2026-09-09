@@ -15,7 +15,7 @@ import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import "../pages/agents/memory/memory-panel.ts";
 import "../pages/config/memory-memories.ts";
-import "../pages/config/memory-promotions.ts";
+import "./memory-organization.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 
 type PersonalMemoryTab = "overview" | "memory" | "wiki" | "organization" | "dreaming";
@@ -154,17 +154,23 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           surface="wiki"
         ></openclaw-agent-memory-panel>`;
       case "organization":
-        return html`<openclaw-memory-promotions
+        return html`<platformclaw-memory-organization
           .client=${gateway.client}
           .connected=${gateway.phase === "connected"}
-          .methodAdvertised=${isGatewayMethodAdvertised(
+          .lifecycleAdvertised=${isGatewayMethodAdvertised(
             gateway,
             "platformclaw.memory.lifecycle",
           ) === true}
+          .graphAdvertised=${isGatewayMethodAdvertised(gateway, "platformclaw.memory.graph") ===
+          true}
           .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search") === true}
           .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.get") === true}
+          .organizationGetAdvertised=${isGatewayMethodAdvertised(
+            gateway,
+            "platformclaw.memory.get",
+          ) === true}
           .agentId=${this.agentId}
-        ></openclaw-memory-promotions>`;
+        ></platformclaw-memory-organization>`;
       case "dreaming":
         return html`<openclaw-agent-memory-panel
           .agentId=${this.agentId ?? ""}

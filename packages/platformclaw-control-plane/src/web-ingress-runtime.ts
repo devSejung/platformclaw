@@ -276,6 +276,7 @@ export function createPlatformClawWebIngressRuntime(
     resolveAgentIdFromSessionKey: (sessionKey) => options.resolveAgentIdFromSessionKey(sessionKey),
     searchOrganizationMemory: (params) => auth.store.searchOrganizationMemory(params),
     getOrganizationMemory: (params) => auth.store.getOrganizationMemory(params),
+    getOrganizationMemoryGraph: (params) => auth.store.getOrganizationMemoryGraph(params),
     organizationMemoryLifecycle: auth.store,
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
