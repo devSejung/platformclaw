@@ -339,6 +339,15 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
       await expectRequestsPinned(gateway, "wiki.graph");
       await expect.poll(() => wiki.locator(".memory-wiki-graph svg").count()).toBe(1);
       await expect.poll(() => wiki.locator(".memory-wiki-graph__edges line").count()).toBe(1);
+      await wiki.getByRole("button", { name: "Zoom in" }).click();
+      await expect
+        .poll(() => wiki.locator("[data-svg-graph-viewport]").getAttribute("transform"))
+        .toContain("scale(1.2)");
+      const concepts = wiki.getByLabel("concepts", { exact: true });
+      await concepts.uncheck();
+      await expect.poll(() => wiki.locator(".memory-wiki-graph__edges line").count()).toBe(0);
+      await expect.poll(() => wiki.locator("[data-wiki-node]").count()).toBe(1);
+      await concepts.check();
       await screenshot(page, "04-memory-wiki-graph.png");
       await wiki.locator('[data-wiki-node="syntheses/assigned-platform.md"] circle').click();
       await expect

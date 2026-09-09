@@ -164,6 +164,7 @@ export type WikiGraphRendererProps = {
   error: string | null;
   onOpenNode: (id: string) => void;
   onRetry: () => void;
+  onChange: () => void;
 };
 
 export type WikiGraphRenderer = (props: WikiGraphRendererProps) => ReturnType<typeof html>;
@@ -1438,6 +1439,7 @@ export function renderWikiKnowledge(props: DreamingProps) {
             error: props.wikiGraphError,
             onOpenNode: (id) => void openWikiPreview(id, props),
             onRetry: props.onRefreshWikiGraph,
+            onChange: props.onViewStateChange,
           }) ??
           html`<div class="dreams-diary__empty">
             <div class="dreams-diary__empty-text">${t("dreaming.wiki.loadingGraph")}</div>

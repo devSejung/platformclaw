@@ -45,6 +45,27 @@ export type OrganizationMemoryDocument = OrganizationMemorySearchHit & {
   lineCount: number;
 };
 
+export type OrganizationMemoryGraphKind = "part" | "group";
+
+export type OrganizationMemoryGraph = {
+  kind: OrganizationMemoryGraphKind;
+  nodes: Array<{
+    id: string;
+    path: string;
+    title: string;
+    scopeName: string;
+    updatedAt: number;
+  }>;
+  edges: Array<{ source: string; target: string; type: "promotion" }>;
+  stats: {
+    totalPages: number;
+    totalNodes: number;
+    totalEdges: number;
+    truncated: boolean;
+    partial: boolean;
+  };
+};
+
 export type OrganizationMemoryClaim = {
   id: string;
   scopeKind: OrganizationMemoryScopeKind;
@@ -454,6 +475,10 @@ export interface OrganizationMemoryReader {
     fromLine?: number;
     lineCount?: number;
   }): Promise<OrganizationMemoryDocument | null>;
+  getOrganizationMemoryGraph(params: {
+    agentId: string;
+    kind: OrganizationMemoryGraphKind;
+  }): Promise<OrganizationMemoryGraph>;
 }
 
 /** Authenticated claim-level promotion owner. Browser callers are always Agent-pinned. */

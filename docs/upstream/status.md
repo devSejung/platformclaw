@@ -69,7 +69,11 @@
   path-redacted graph and page data.
   Organization Team, Group, Part, and Global corpora remain separate
   PlatformClaw-owned state and reuse canonical organization authorization;
-  they do not change the upstream personal Wiki compiler or Dreaming.
+  they do not change the upstream personal Wiki compiler or Dreaming. The
+  Control Plane additionally projects separate, bounded Part and Group graphs
+  through a local read-only browser method. It recomputes membership on every
+  request and exposes neither filesystem paths nor private Personal Wiki
+  promotion sources.
 - These workspace, artifact, and rewind changes are downstream Browser Gateway
   policy and response projection only. They do not modify the Gateway protocol,
   upstream handlers, filesystem resolution, transcript storage, or artifact

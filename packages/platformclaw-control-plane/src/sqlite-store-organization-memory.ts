@@ -2,6 +2,8 @@ import { sql } from "kysely";
 import {
   ControlPlaneAuthorizationError,
   type OrganizationMemoryDocument,
+  type OrganizationMemoryGraph,
+  type OrganizationMemoryGraphKind,
   type OrganizationMemoryReader,
   type OrganizationMemoryScopeKind,
   type OrganizationMemorySearchHit,
@@ -17,6 +19,8 @@ const MAX_DOCUMENT_CHARS = 64 * 1024;
 const MAX_DOCUMENT_LINES = 200;
 const ORGANIZATION_MEMORY_PATH =
   /^organization\/(global|team|group|part)\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/u;
+const MAX_GRAPH_NODES = 500;
+const MAX_GRAPH_EDGES = 2_000;
 
 export type AuthorizedOrganizationMemoryScope = {
   kind: OrganizationMemoryScopeKind;
@@ -57,6 +61,10 @@ function snippet(content: string, query: string): string {
 
 function likePattern(query: string): string {
   return `%${query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 export abstract class SqliteControlPlaneOrganizationMemoryStore
@@ -234,6 +242,117 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
         content: selected.join("\n").slice(0, MAX_DOCUMENT_CHARS),
         fromLine,
         lineCount: selected.length,
+      };
+    });
+  }
+
+  async getOrganizationMemoryGraph(params: {
+    agentId: string;
+    kind: OrganizationMemoryGraphKind;
+  }): Promise<OrganizationMemoryGraph> {
+    this.ensureOrganizationMemorySchema();
+    return runReadTransaction(this.db, () => {
+      const scopes = this.authorizedScopes(params.agentId).filter(
+        (scope) => scope.kind === params.kind,
+      );
+      if (scopes.length === 0) {
+        return {
+          kind: params.kind,
+          nodes: [],
+          edges: [],
+          stats: {
+            totalPages: 0,
+            totalNodes: 0,
+            totalEdges: 0,
+            truncated: false,
+            partial: false,
+          },
+        };
+      }
+      const scopeById = new Map(scopes.map((scope) => [scope.id!, scope]));
+      const scopeIds = [...scopeById.keys()].toSorted();
+      const totalPages =
+        takeFirstSync(
+          this.db,
+          this.query
+            .selectFrom("organization_memory_pages")
+            .select(({ fn }) => fn.countAll<number>().as("count"))
+            .where("status", "=", "active")
+            .where("scope_kind", "=", params.kind)
+            .where("scope_id", "in", scopeIds),
+        )?.count ?? 0;
+      const rows = executeSync(
+        this.db,
+        this.query
+          .selectFrom("organization_memory_pages")
+          .selectAll()
+          .where("status", "=", "active")
+          .where("scope_kind", "=", params.kind)
+          .where("scope_id", "in", scopeIds)
+          .orderBy("scope_id")
+          .orderBy("id")
+          .limit(MAX_GRAPH_NODES),
+      ).rows;
+      const nodes = rows.map((row) => ({
+        id: `organization:${params.kind}:${row.id}`,
+        path: `organization/${params.kind}/${row.id}`,
+        title: row.title,
+        scopeName: scopeById.get(row.scope_id!)!.name,
+        updatedAt: row.updated_at,
+      }));
+      const visibleIds = new Set(rows.map((row) => row.id));
+      const edgeKeys = new Set<string>();
+      let partial = false;
+      for (const row of rows) {
+        try {
+          const provenance = JSON.parse(row.provenance_json) as {
+            source?: { kind?: unknown; claimId?: unknown };
+            backlinks?: unknown;
+          };
+          if (
+            provenance.source?.kind === params.kind &&
+            typeof provenance.source.claimId === "string" &&
+            visibleIds.has(provenance.source.claimId)
+          ) {
+            edgeKeys.add(`${provenance.source.claimId}\0${row.id}`);
+          }
+          if (Array.isArray(provenance.backlinks)) {
+            for (const target of provenance.backlinks) {
+              if (typeof target === "string" && visibleIds.has(target)) {
+                edgeKeys.add(`${row.id}\0${target}`);
+              }
+            }
+          }
+        } catch {
+          // A malformed authorized page remains visible, but its relation data is incomplete.
+          partial = true;
+        }
+      }
+      const allEdges = [...edgeKeys]
+        .map((key) => {
+          const [source, target] = key.split("\0");
+          return {
+            source: `organization:${params.kind}:${source}`,
+            target: `organization:${params.kind}:${target}`,
+            type: "promotion" as const,
+          };
+        })
+        .toSorted(
+          (left, right) =>
+            compareText(left.source, right.source) || compareText(left.target, right.target),
+        );
+      const edges = allEdges.slice(0, MAX_GRAPH_EDGES);
+      return {
+        kind: params.kind,
+        nodes,
+        edges,
+        stats: {
+          totalPages,
+          totalNodes: nodes.length,
+          totalEdges: edges.length,
+          truncated: totalPages > nodes.length || allEdges.length > edges.length,
+          partial,
+        },
       };
     });
   }

@@ -1,4 +1,10 @@
 export const memoryWikiTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.memory.unassigned": "이 계정에 할당된 개인 Agent가 없습니다.",
+  "platformClaw.memory.tabs.label": "Memory 및 지식 영역",
+  "platformClaw.memory.tabs.overview": "개요",
+  "platformClaw.memory.tabs.organization": "조직 지식",
+  "platformClaw.memory.organization.views": "조직 지식 보기",
+  "platformClaw.memory.organization.sharing": "공유 및 검토",
   "dreaming.wiki.wikiTab": "Personal Wiki",
   "dreaming.wiki.insightsTab": "가져온 지식",
   "dreaming.wiki.viewMode": "Wiki 보기",
@@ -12,4 +18,11 @@ export const memoryWikiTranslations: Readonly<Record<string, string>> = {
   "dreaming.wiki.graphEdges": "링크 {count}개",
   "dreaming.wiki.graphBroken": "해결되지 않은 링크 {count}개",
   "dreaming.wiki.graphTruncated": "제한된 범위의 그래프를 표시 중",
+  "dreaming.wiki.graphDirectories": "디렉터리",
+  "dreaming.wiki.graphRootDirectory": "루트 페이지",
+  "dreaming.wiki.graphSelectAll": "전체 선택",
+  "dreaming.wiki.graphControls": "그래프 보기 제어",
+  "dreaming.wiki.graphZoomIn": "확대",
+  "dreaming.wiki.graphZoomOut": "축소",
+  "dreaming.wiki.graphResetView": "보기 초기화",
 };

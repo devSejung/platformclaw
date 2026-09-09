@@ -118,7 +118,8 @@ native surfaces into one hub without merging their data models:
 - **Personal Wiki** opens compiled Wiki pages and imported insights.
 - **Dreaming** contains Overview, Dream Diary, and Activity views for scheduled
   memory consolidation.
-- **Organization** contains promotion, review, and shared-knowledge lifecycle.
+- **Organization** keeps sharing and review separate from read-only Part and
+  Group knowledge graphs.
 
 The hub keeps only one surface open at a time, so Dreaming and organization
 administration do not create one unbounded Settings page. The browser combines
@@ -126,6 +127,21 @@ the bounded `memory.search` and `wiki.search` reads in one user-facing search.
 Personal files still open through `agents.workspace.get`, Wiki pages through
 `wiki.get`, and organization pages through the local, Agent-pinned
 `platformclaw.memory.get` BFF method.
+
+Organization Graph is a Control Plane read projection, not another vault. It
+loads only after the user selects **Organization > Organization Graph**, then
+offers separate Part and Group views. `platformclaw.memory.graph` accepts only
+the view kind; the BFF supplies the authenticated personal Agent and the store
+recomputes effective entitlements on every request. Results contain at most 500
+authorized pages and 2,000 promotion relations in deterministic order. The
+projection excludes scope IDs, absolute paths, sibling scopes, private Personal
+Wiki source IDs, and every edge whose endpoints are not both visible. Clicking
+a node reuses the Agent-pinned `platformclaw.memory.get` preview boundary.
+Both graph surfaces use the same dependency-free SVG controls for anchored
+wheel zoom, pan, reset, and draggable in-memory node positions. Personal Wiki
+also derives client-only directory toggles from each safe relative page ID;
+filtering keeps only selected nodes and edges whose two endpoints remain shown.
+No filter or layout position is sent to the Gateway or persisted.
 
 ### PR1 acceptance
 
@@ -267,9 +283,12 @@ second decisions fail closed.
 
 Employees manage the lifecycle under **Settings > Memory > Organization**. The UI
 shows authorized targets, the employee's submitted requests, requests they may
-review, and readable active/retired claims. The BFF exposes only these
+review, and readable active/retired claims. A separate read-only Graph view
+shows authorized Part or Group pages without copying them into Personal Wiki.
+The BFF exposes only these
 Agent-pinned methods:
 
+- `platformclaw.memory.graph`
 - `platformclaw.memory.lifecycle`
 - `platformclaw.memory.promotion.submit`
 - `platformclaw.memory.promotion.publishDirect` (administrator only)

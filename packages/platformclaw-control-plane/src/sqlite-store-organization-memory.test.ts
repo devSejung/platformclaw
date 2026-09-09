@@ -43,18 +43,20 @@ function insertPage(
     title: string;
     content?: string;
     status?: "active" | "retired";
+    provenance?: unknown;
   },
 ) {
   db.prepare(
     `INSERT INTO organization_memory_pages
       (id, scope_kind, scope_id, title, content, provenance_json, revision, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, '{}', 1, ?, 1, 1)`,
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, 1, 1)`,
   ).run(
     params.id,
     params.scopeKind,
     params.scopeId ?? null,
     params.title,
     params.content ?? `${params.title} body`,
+    JSON.stringify(params.provenance ?? {}),
     params.status ?? "active",
   );
 }

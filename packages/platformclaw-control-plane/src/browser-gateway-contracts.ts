@@ -4,6 +4,8 @@ import type {
   ControlPlaneStore,
   OrganizationMemoryLifecycle,
   OrganizationMemoryDocument,
+  OrganizationMemoryGraph,
+  OrganizationMemoryGraphKind,
   OrganizationMemorySearchHit,
   PersonalAgentBinding,
   PlatformUser,
@@ -79,6 +81,10 @@ export type BrowserGatewayProxyOptions = {
     fromLine?: number;
     lineCount?: number;
   }): Promise<OrganizationMemoryDocument | null>;
+  getOrganizationMemoryGraph?(params: {
+    agentId: string;
+    kind: OrganizationMemoryGraphKind;
+  }): Promise<OrganizationMemoryGraph>;
   organizationMemoryLifecycle?: OrganizationMemoryLifecycle;
   now?: () => number;
 };

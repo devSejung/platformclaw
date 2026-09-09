@@ -806,6 +806,127 @@
   padding-bottom: 0;
 }
 
+.platformclaw-memory-organization,
+.organization-memory-graph {
+  display: grid;
+  gap: 16px;
+}
+
+.organization-memory-graph {
+  max-width: none;
+}
+
+.organization-memory-graph__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.organization-memory-graph__header h2,
+.organization-memory-graph__header p {
+  margin: 0;
+}
+
+.organization-memory-graph__header p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.organization-memory-graph__state {
+  min-height: 320px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.organization-memory-graph__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.organization-memory-graph > .svg-graph-controls {
+  justify-content: flex-end;
+}
+
+.organization-memory-graph__canvas {
+  min-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+}
+
+.organization-memory-graph__canvas svg {
+  display: block;
+  width: 100%;
+  min-width: 720px;
+  min-height: 420px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.organization-memory-graph__canvas svg.svg-graph-canvas--dragging {
+  cursor: grabbing;
+}
+
+.organization-memory-graph__edges line {
+  stroke: color-mix(in srgb, var(--text) 52%, var(--panel));
+  stroke-width: 1.6;
+  stroke-dasharray: 5 4;
+  opacity: 0.9;
+}
+
+.organization-memory-graph__node {
+  cursor: grab;
+  color: var(--text);
+}
+
+.organization-memory-graph__node circle {
+  fill: var(--accent);
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.organization-memory-graph__node text {
+  fill: currentColor;
+  font-size: 12px;
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.organization-memory-graph__node:hover circle,
+.organization-memory-graph__node:focus-visible circle {
+  filter: brightness(1.2);
+  stroke: var(--focus);
+}
+
+.organization-memory-graph__preview {
+  display: grid;
+  gap: 12px;
+}
+
+.organization-memory-graph__preview-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.organization-memory-graph__preview pre {
+  max-height: 65vh;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .memory-page__link {
   color: var(--accent);
   font-size: 12.5px;

@@ -1010,6 +1010,44 @@
   padding: 18px;
 }
 
+.memory-wiki-graph__toolbar,
+.svg-graph-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-wiki-graph__toolbar {
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.memory-wiki-graph__directories {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.memory-wiki-graph__directories legend {
+  float: left;
+  margin-right: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.memory-wiki-graph__directories label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
 .memory-wiki-graph__stats {
   display: flex;
   flex-wrap: wrap;
@@ -1040,16 +1078,22 @@
   display: block;
   width: 100%;
   min-height: 420px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.memory-wiki-graph__canvas svg.svg-graph-canvas--dragging {
+  cursor: grabbing;
 }
 
 .memory-wiki-graph__edges line {
-  stroke: var(--border-strong);
-  stroke-width: 1.2;
-  opacity: 0.58;
+  stroke: color-mix(in srgb, var(--text) 48%, var(--card));
+  stroke-width: 1.5;
+  opacity: 0.88;
 }
 
 .memory-wiki-graph__node {
-  cursor: pointer;
+  cursor: grab;
   color: var(--text);
   outline: none;
 }
@@ -1089,9 +1133,16 @@
 }
 
 .memory-wiki-graph__node:hover circle,
-.memory-wiki-graph__node:focus circle {
+.memory-wiki-graph__node:focus-visible circle {
   transform: scale(1.35);
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent));
+}
+
+@media (max-width: 720px) {
+  .memory-wiki-graph__toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .memory-wiki-graph__state {
