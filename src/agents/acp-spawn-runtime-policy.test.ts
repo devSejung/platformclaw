@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { registerAcpProcessTransport } from "../acp/runtime/process-transport.js";
 import { registerAcpRuntimeBackend, unregisterAcpRuntimeBackend } from "../acp/runtime/registry.js";
-import { resolveAcpSpawnRuntimePolicyError } from "./acp-spawn.js";
+import { resolveAcpSpawnRuntimePlan } from "./acp-spawn.js";
 
 describe("ACP sandbox runtime policy", () => {
   let unregisterProcessTransport: (() => void) | undefined;
@@ -28,20 +28,35 @@ describe("ACP sandbox runtime policy", () => {
     const cfg = { acp: { enabled: true, backend: "acpx" } };
 
     expect(
-      resolveAcpSpawnRuntimePolicyError({
+      resolveAcpSpawnRuntimePlan({
         cfg,
         requesterSandboxed: true,
         executionOwnerAgentId: "alice",
         targetAgentId: "claude",
       }),
-    ).toBeUndefined();
+    ).toEqual({ ok: true, executionOwnerAgentId: "alice" });
     expect(
-      resolveAcpSpawnRuntimePolicyError({
+      resolveAcpSpawnRuntimePlan({
         cfg,
         requesterSandboxed: true,
         executionOwnerAgentId: "alice",
         targetAgentId: "codex",
       }),
-    ).toContain("Sandboxed sessions cannot spawn ACP sessions");
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining("Sandboxed sessions cannot spawn ACP sessions"),
+    });
+  });
+
+  it("keeps genuinely local ACP sessions unowned", () => {
+    const cfg = { acp: { enabled: true, backend: "acpx" } };
+
+    expect(
+      resolveAcpSpawnRuntimePlan({
+        cfg,
+        executionOwnerAgentId: "alice",
+        targetAgentId: "claude",
+      }),
+    ).toEqual({ ok: true });
   });
 });

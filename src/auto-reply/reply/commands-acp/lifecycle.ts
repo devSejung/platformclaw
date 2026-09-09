@@ -14,10 +14,9 @@ import {
   resolveAcpDispatchPolicyError,
   resolveAcpDispatchPolicyMessage,
 } from "../../../acp/policy.js";
-import { canUseAcpProcessTransport } from "../../../acp/runtime/process-transport.js";
 import { resolveSessionStorePathForAcp } from "../../../acp/runtime/session-meta.js";
 import {
-  resolveAcpSpawnRuntimePolicyError,
+  resolveAcpSpawnRuntimePlan,
   resolveRuntimeCwdForAcpSpawn,
 } from "../../../agents/acp-spawn.js";
 import { resolveSpawnedWorkspaceInheritance } from "../../../agents/spawned-context.js";
@@ -121,14 +120,14 @@ export async function handleAcpSpawnAction(
   }
 
   const spawn = parsed.value;
-  const runtimePolicyError = resolveAcpSpawnRuntimePolicyError({
+  const runtimePlan = resolveAcpSpawnRuntimePlan({
     cfg: params.cfg,
     requesterSessionKey: params.sessionKey,
     executionOwnerAgentId: params.agentId,
     targetAgentId: spawn.agentId,
   });
-  if (runtimePolicyError) {
-    return stopWithText(`⚠️ ${runtimePolicyError}`);
+  if (!runtimePlan.ok) {
+    return stopWithText(`⚠️ ${runtimePlan.error}`);
   }
   const agentPolicyError = resolveAcpAgentPolicyError(params.cfg, spawn.agentId);
   if (agentPolicyError) {
@@ -173,10 +172,7 @@ export async function handleAcpSpawnAction(
       cfg: params.cfg,
       sessionKey,
       agent: spawn.agentId,
-      ...(params.agentId &&
-      canUseAcpProcessTransport({ executionOwnerAgentId: params.agentId, agent: spawn.agentId })
-        ? { executionOwnerAgentId: params.agentId }
-        : {}),
+      executionOwnerAgentId: runtimePlan.executionOwnerAgentId,
       mode: spawn.mode,
       cwd: runtimeCwd,
     });

@@ -18,6 +18,7 @@ function sessionMatchesConfiguredBinding(params: {
   cfg: OpenClawConfig;
   spec: ConfiguredAcpBindingSpec;
   meta: SessionAcpMeta;
+  executionOwnerAgentId?: string;
 }): boolean {
   if (params.meta.state === "error") {
     return false;
@@ -30,15 +31,9 @@ function sessionMatchesConfiguredBinding(params: {
   if (!currentAgent || currentAgent !== desiredAgent) {
     return false;
   }
-  const desiredExecutionOwner = canUseAcpProcessTransport({
-    executionOwnerAgentId: params.spec.agentId,
-    agent: params.spec.acpAgentId ?? params.spec.agentId,
-  })
-    ? params.spec.agentId
-    : undefined;
   if (
     normalizeLowercaseStringOrEmpty(params.meta.executionOwnerAgentId) !==
-    normalizeLowercaseStringOrEmpty(desiredExecutionOwner)
+    normalizeLowercaseStringOrEmpty(params.executionOwnerAgentId)
   ) {
     return false;
   }
@@ -74,6 +69,15 @@ export async function ensureConfiguredAcpBindingSession(params: {
   const sessionKey = buildConfiguredAcpSessionKey(params.spec);
   const acpManager = getAcpSessionManager();
   try {
+    const targetAgentId = params.spec.acpAgentId ?? params.spec.agentId;
+    // Resolve the binding route once; session comparison and initialization must use the same
+    // decision or a registry change can silently move an assigned-VM binding onto the host.
+    const executionOwnerAgentId = canUseAcpProcessTransport({
+      executionOwnerAgentId: params.spec.agentId,
+      agent: targetAgentId,
+    })
+      ? params.spec.agentId
+      : undefined;
     const resolution = acpManager.resolveSession({
       cfg: params.cfg,
       sessionKey,
@@ -84,6 +88,7 @@ export async function ensureConfiguredAcpBindingSession(params: {
         cfg: params.cfg,
         spec: params.spec,
         meta: resolution.meta,
+        executionOwnerAgentId,
       })
     ) {
       return {
@@ -106,13 +111,8 @@ export async function ensureConfiguredAcpBindingSession(params: {
     await acpManager.initializeSession({
       cfg: params.cfg,
       sessionKey,
-      agent: params.spec.acpAgentId ?? params.spec.agentId,
-      ...(canUseAcpProcessTransport({
-        executionOwnerAgentId: params.spec.agentId,
-        agent: params.spec.acpAgentId ?? params.spec.agentId,
-      })
-        ? { executionOwnerAgentId: params.spec.agentId }
-        : {}),
+      agent: targetAgentId,
+      executionOwnerAgentId,
       mode: params.spec.mode,
       cwd: params.spec.cwd,
       backendId: params.spec.backend,

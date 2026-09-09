@@ -1,10 +1,11 @@
 /** Tests configured ACP binding lifecycle behavior. */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import {
   buildConfiguredAcpSessionKey,
   type ConfiguredAcpBindingSpec,
 } from "./persistent-bindings.types.js";
+import { registerAcpProcessTransport } from "./runtime/process-transport.js";
 
 const managerMocks = vi.hoisted(() => ({
   resolveSession: vi.fn(),
@@ -30,6 +31,7 @@ const baseCfg = {
 } satisfies OpenClawConfig;
 
 let ensureConfiguredAcpBindingSession: typeof import("./persistent-bindings.lifecycle.js").ensureConfiguredAcpBindingSession;
+let unregisterProcessTransport: (() => void) | undefined;
 
 beforeEach(async () => {
   vi.resetModules();
@@ -41,6 +43,11 @@ beforeEach(async () => {
   managerMocks.initializeSession.mockReset().mockResolvedValue(undefined);
   managerMocks.updateSessionRuntimeOptions.mockReset().mockResolvedValue(undefined);
   ({ ensureConfiguredAcpBindingSession } = await import("./persistent-bindings.lifecycle.js"));
+});
+
+afterEach(() => {
+  unregisterProcessTransport?.();
+  unregisterProcessTransport = undefined;
 });
 
 function createPersistentSpec(
@@ -60,6 +67,8 @@ function mockReadySession(params: {
   spec: ConfiguredAcpBindingSpec;
   cwd: string;
   state?: "idle" | "running" | "error";
+  executionOwnerAgentId?: string;
+  mode?: "persistent" | "oneshot";
 }) {
   const sessionKey = buildConfiguredAcpSessionKey(params.spec);
   managerMocks.resolveSession.mockReturnValue({
@@ -68,8 +77,9 @@ function mockReadySession(params: {
     meta: {
       backend: "acpx",
       agent: params.spec.acpAgentId ?? params.spec.agentId,
+      executionOwnerAgentId: params.executionOwnerAgentId,
       runtimeSessionName: "existing",
-      mode: params.spec.mode,
+      mode: params.mode ?? params.spec.mode,
       runtimeOptions: { cwd: params.cwd },
       state: params.state ?? "idle",
       lastActivityAt: Date.now(),
@@ -170,5 +180,38 @@ describe("ensureConfiguredAcpBindingSession", () => {
     expect(ensured.ok).toBe(true);
     const initializeArgs = expectInitializeArgs();
     expect(initializeArgs.agent).toBe("codex");
+  });
+
+  it("carries one isolated admission decision through binding reinitialization", async () => {
+    const supports = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+    unregisterProcessTransport = registerAcpProcessTransport({
+      id: "assigned-vm",
+      isolatesSandboxedRequesters: true,
+      supports,
+      prepare: async () => ({ cwd: "/home/coding/workspace" }),
+      launch: vi.fn(),
+    });
+    const spec = createPersistentSpec({
+      agentId: "coding",
+      acpAgentId: "claude",
+      mode: "persistent",
+    });
+    mockReadySession({
+      spec,
+      cwd: "/home/coding/workspace",
+      executionOwnerAgentId: "coding",
+      mode: "oneshot",
+    });
+
+    const ensured = await ensureConfiguredAcpBindingSession({ cfg: baseCfg, spec });
+
+    expect(ensured.ok).toBe(true);
+    expect(expectInitializeArgs()).toEqual(
+      expect.objectContaining({
+        agent: "claude",
+        executionOwnerAgentId: "coding",
+      }),
+    );
+    expect(supports).toHaveBeenCalledOnce();
   });
 });

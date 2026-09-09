@@ -7,7 +7,6 @@ import {
   type AcpSpawnRuntimeCloseHandle,
 } from "../acp/control-plane/spawn.js";
 import { isAcpEnabledByPolicy, resolveAcpAgentPolicyError } from "../acp/policy.js";
-import { canUseAcpProcessTransport } from "../acp/runtime/process-transport.js";
 import { getRuntimeConfig } from "../config/config.js";
 import { resolveStorePath } from "../config/sessions/paths.js";
 import {
@@ -49,7 +48,7 @@ import {
   resolveRequesterInternalSessionKey,
   validateAcpResumeSessionOwnership,
 } from "./acp-spawn-requester.js";
-import { resolveAcpSpawnRuntimePolicyError } from "./acp-spawn-runtime-policy.js";
+import { resolveAcpSpawnRuntimePlan } from "./acp-spawn-runtime-policy.js";
 import {
   bindPreparedAcpThread,
   initializeAcpSpawnRuntime,
@@ -209,7 +208,7 @@ function createAcpSpawnFailure(params: {
 }
 
 export { resolveRuntimeCwdForAcpSpawn } from "./acp-spawn-runtime.js";
-export { resolveAcpSpawnRuntimePolicyError } from "./acp-spawn-runtime-policy.js";
+export { resolveAcpSpawnRuntimePlan } from "./acp-spawn-runtime-policy.js";
 
 export async function spawnAcpDirect(
   params: SpawnAcpParams,
@@ -295,7 +294,7 @@ export async function spawnAcpDirect(
     });
   }
   const targetAgentId = targetAgentResult.agentId;
-  const runtimePolicyError = resolveAcpSpawnRuntimePolicyError({
+  const runtimePlan = resolveAcpSpawnRuntimePlan({
     cfg,
     requesterSessionKey: ctx.agentSessionKey,
     requesterSandboxed: ctx.sandboxed,
@@ -303,11 +302,11 @@ export async function spawnAcpDirect(
     executionOwnerAgentId: requesterAgentId,
     targetAgentId,
   });
-  if (runtimePolicyError) {
+  if (!runtimePlan.ok) {
     return createAcpSpawnFailure({
       status: "forbidden",
       errorCode: "runtime_policy",
-      error: runtimePolicyError,
+      error: runtimePlan.error,
     });
   }
   const agentPolicyError = resolveAcpAgentPolicyError(cfg, targetAgentId);
@@ -516,12 +515,7 @@ export async function spawnAcpDirect(
         cfg,
         sessionKey,
         targetAgentId,
-        executionOwnerAgentId: canUseAcpProcessTransport({
-          executionOwnerAgentId: requesterAgentId,
-          agent: targetAgentId,
-        })
-          ? requesterAgentId
-          : undefined,
+        executionOwnerAgentId: runtimePlan.executionOwnerAgentId,
         runtimeMode,
         resumeSessionId: params.resumeSessionId,
         runtimeOptions: runtimeOptionsResult.runtimeOptions,

@@ -6,6 +6,7 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AcpInitializeSessionInput } from "../acp/control-plane/manager.types.js";
 import { registerAcpProcessTransport } from "../acp/runtime/process-transport.js";
+import { registerAcpRuntimeBackend, unregisterAcpRuntimeBackend } from "../acp/runtime/registry.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { CallGatewayOptions } from "../gateway/call.js";
@@ -1007,10 +1008,16 @@ describe("spawnAcpDirect", () => {
         allowedAgents: ["claude"],
       },
     });
+    const supports = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+    registerAcpRuntimeBackend({
+      id: "acpx",
+      runtime: {} as never,
+      isolatesSandboxedRequesters: () => true,
+    });
     const unregister = registerAcpProcessTransport({
       id: "assigned-vm",
       isolatesSandboxedRequesters: true,
-      supports: ({ agent }) => agent === "claude",
+      supports,
       prepare: async () => ({ cwd: "/home/person_one/workspace" }),
       launch: vi.fn(),
     });
@@ -1022,6 +1029,7 @@ describe("spawnAcpDirect", () => {
           agentSessionKey: "agent:person_one:dashboard:browser-session",
           requesterAgentIdOverride: "person_one",
           agentChannel: "dashboard",
+          sandboxed: true,
         },
       );
 
@@ -1032,8 +1040,10 @@ describe("spawnAcpDirect", () => {
           executionOwnerAgentId: "person_one",
         }),
       );
+      expect(supports).toHaveBeenCalledOnce();
     } finally {
       unregister();
+      unregisterAcpRuntimeBackend("acpx");
     }
   });
 
