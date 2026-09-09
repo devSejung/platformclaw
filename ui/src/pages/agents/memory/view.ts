@@ -14,7 +14,7 @@ import { toSanitizedMarkdownHtml } from "../../../components/markdown.ts";
 import { resolvePlatformClawBranding } from "../../../platformclaw/branding.ts";
 import { platformClawT as t } from "../../../platformclaw/i18n.ts";
 import "../../../styles/dreams.css";
-import type { DreamingEntry, WikiImportInsights, WikiOverview } from "./dreaming.ts";
+import type { DreamingEntry, WikiGraph, WikiImportInsights, WikiOverview } from "./dreaming.ts";
 
 // ── Diary entry parser ─────────────────────────────────────────────────
 
@@ -131,9 +131,15 @@ type DreamingProps = {
   wikiOverviewLoading: boolean;
   wikiOverviewError: string | null;
   wikiOverview: WikiOverview | null;
+  wikiGraphLoading: boolean;
+  wikiGraphError: string | null;
+  wikiGraph: WikiGraph | null;
+  wikiGraphRenderer: WikiGraphRenderer | null;
   onRefreshDiary: () => void;
   onRefreshImports: () => void;
   onRefreshWikiOverview: () => void;
+  onRefreshWikiGraph: () => void;
+  onSelectWikiGraph: () => void;
   onOpenConfig: () => void;
   onOpenWikiPage: (lookup: string) => Promise<{
     title: string;
@@ -151,6 +157,16 @@ type DreamingProps = {
   onRepairDreamingArtifacts: () => void;
   onViewStateChange: () => void;
 };
+
+export type WikiGraphRendererProps = {
+  graph: WikiGraph | null;
+  loading: boolean;
+  error: string | null;
+  onOpenNode: (id: string) => void;
+  onRetry: () => void;
+};
+
+export type WikiGraphRenderer = (props: WikiGraphRendererProps) => ReturnType<typeof html>;
 
 const DREAM_PHRASE_KEYS = [
   "dreaming.phrases.consolidatingMemories",
@@ -187,6 +203,7 @@ export type DreamingViewState = {
   dreamLastSwap: number;
   activeSubTab: "scene" | "diary" | "advanced";
   activeDiarySubTab: "dreams" | "insights" | "wiki";
+  wikiLayout: "cards" | "graph";
   advancedWaitingSort: "recent" | "signals";
   expandedInsightCards: Set<string>;
   expandedWikiCards: Set<string>;
@@ -209,6 +226,7 @@ export function createDreamingViewState(): DreamingViewState {
     dreamLastSwap: 0,
     activeSubTab: "scene",
     activeDiarySubTab: "dreams",
+    wikiLayout: "cards",
     advancedWaitingSort: "recent",
     expandedInsightCards: new Set(),
     expandedWikiCards: new Set(),
@@ -1405,11 +1423,26 @@ export function renderWikiKnowledge(props: DreamingProps) {
   const state = props.viewState;
   const activeWikiTab = state.activeDiarySubTab === "insights" ? "insights" : "wiki";
   const error =
-    activeWikiTab === "insights" ? props.wikiImportInsightsError : props.wikiOverviewError;
+    activeWikiTab === "insights"
+      ? props.wikiImportInsightsError
+      : state.wikiLayout === "cards"
+        ? props.wikiOverviewError
+        : null;
   const panel =
     activeWikiTab === "insights"
       ? renderDiaryImportsSection(props)
-      : renderWikiOverviewSection(props);
+      : state.wikiLayout === "graph"
+        ? (props.wikiGraphRenderer?.({
+            graph: props.wikiGraph,
+            loading: props.wikiGraphLoading,
+            error: props.wikiGraphError,
+            onOpenNode: (id) => void openWikiPreview(id, props),
+            onRetry: props.onRefreshWikiGraph,
+          }) ??
+          html`<div class="dreams-diary__empty">
+            <div class="dreams-diary__empty-text">${t("dreaming.wiki.loadingGraph")}</div>
+          </div>`)
+        : renderWikiOverviewSection(props);
   const navigation = "navigation" in panel ? panel.navigation : nothing;
   const content = "content" in panel ? panel.content : panel;
 
@@ -1441,11 +1474,15 @@ export function renderWikiKnowledge(props: DreamingProps) {
             props.modeSaving ||
             (activeWikiTab === "insights"
               ? props.wikiImportInsightsLoading
-              : props.wikiOverviewLoading)}
+              : state.wikiLayout === "graph"
+                ? props.wikiGraphLoading
+                : props.wikiOverviewLoading)}
             @click=${() => {
               state.diaryPage = 0;
               if (activeWikiTab === "insights") {
                 props.onRefreshImports();
+              } else if (state.wikiLayout === "graph") {
+                props.onRefreshWikiGraph();
               } else {
                 props.onRefreshWikiOverview();
               }
@@ -1455,13 +1492,55 @@ export function renderWikiKnowledge(props: DreamingProps) {
               ? props.wikiImportInsightsLoading
                 ? t("dreaming.diary.reloading")
                 : t("dreaming.diary.reload")
-              : props.wikiOverviewLoading
-                ? t("dreaming.diary.reloading")
-                : t("dreaming.diary.reload")}
+              : state.wikiLayout === "graph"
+                ? props.wikiGraphLoading
+                  ? t("dreaming.diary.reloading")
+                  : t("dreaming.diary.reload")
+                : props.wikiOverviewLoading
+                  ? t("dreaming.diary.reloading")
+                  : t("dreaming.diary.reload")}
           </button>
         </div>
         ${renderDiarySubtabExplainer(activeWikiTab)}
-        ${props.memoryWikiEnabled ? navigation : nothing}
+        ${props.memoryWikiEnabled && activeWikiTab === "wiki"
+          ? html`
+              <div
+                class="memory-wiki-view-switch"
+                role="group"
+                aria-label=${t("dreaming.wiki.viewMode")}
+              >
+                <button
+                  class="btn btn--subtle btn--sm"
+                  aria-pressed=${state.wikiLayout === "cards" ? "true" : "false"}
+                  @click=${() => {
+                    state.wikiLayout = "cards";
+                    state.diaryPage = 0;
+                    resetWikiPreview(state);
+                    props.onViewStateChange();
+                  }}
+                >
+                  ${t("dreaming.wiki.cardsView")}
+                </button>
+                <button
+                  class="btn btn--subtle btn--sm"
+                  aria-pressed=${state.wikiLayout === "graph" ? "true" : "false"}
+                  @click=${() => {
+                    if (state.wikiLayout === "graph") {
+                      return;
+                    }
+                    state.wikiLayout = "graph";
+                    state.diaryPage = 0;
+                    resetWikiPreview(state);
+                    props.onSelectWikiGraph();
+                    props.onViewStateChange();
+                  }}
+                >
+                  ${t("dreaming.wiki.graphView")}
+                </button>
+              </div>
+            `
+          : nothing}
+        ${props.memoryWikiEnabled && state.wikiLayout === "cards" ? navigation : nothing}
       </div>
       <div id="memory-wiki-panel" role="tabpanel">
         ${!props.memoryWikiEnabled

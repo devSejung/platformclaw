@@ -1,8 +1,17 @@
-import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { dreamingEntryPath, wikiPath } from "./browser-gateway-content-paths.js";
-
-type JsonObject = Record<string, unknown>;
-type ProjectionFailure = (message: string) => never;
+import { projectWikiGraph } from "./browser-gateway-wiki-graph.js";
+import {
+  count,
+  failObject,
+  optionalEnum,
+  optionalText,
+  positiveInteger,
+  score,
+  stringList,
+  text,
+  type JsonObject,
+  type ProjectionFailure,
+} from "./browser-gateway-wiki-projection.js";
 
 const WIKI_METHODS = new Set([
   "doctor.memory.backfillDreamDiary",
@@ -13,6 +22,7 @@ const WIKI_METHODS = new Set([
   "doctor.memory.resetGroundedShortTerm",
   "doctor.memory.status",
   "wiki.get",
+  "wiki.graph",
   "wiki.importInsights",
   "wiki.overview",
   "wiki.search",
@@ -37,79 +47,6 @@ const MAX_RESULTS = 50;
 const MAX_PAGE_LINES = 5_000;
 const MAX_CONTENT_CHARS = 1024 * 1024;
 const MAX_ITEMS = 500;
-const MAX_LIST_ITEMS = 100;
-const MAX_TEXT_CHARS = 16 * 1024;
-
-function failObject(value: unknown, label: string, fail: ProjectionFailure): JsonObject {
-  return isRecord(value) ? value : fail(`Gateway returned invalid ${label}`);
-}
-
-function text(
-  value: unknown,
-  label: string,
-  fail: ProjectionFailure,
-  max = MAX_TEXT_CHARS,
-): string {
-  return typeof value === "string" && value.length <= max
-    ? value
-    : fail(`Gateway returned invalid ${label}`);
-}
-
-function count(value: unknown, label: string, fail: ProjectionFailure): number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : fail(`Gateway returned invalid ${label}`);
-}
-
-function score(value: unknown, label: string, fail: ProjectionFailure): number {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : fail(`Gateway returned invalid ${label}`);
-}
-
-function optionalText(
-  value: unknown,
-  label: string,
-  fail: ProjectionFailure,
-  max = MAX_TEXT_CHARS,
-): string | undefined {
-  return value === undefined ? undefined : text(value, label, fail, max);
-}
-
-function stringList(value: unknown, label: string, fail: ProjectionFailure): string[] {
-  if (!Array.isArray(value) || value.length > MAX_LIST_ITEMS) {
-    return fail(`Gateway returned invalid ${label}`);
-  }
-  return value.map((entry) => text(entry, label, fail));
-}
-
-function optionalEnum<T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  label: string,
-  fail: ProjectionFailure,
-): T | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  return typeof value === "string" && allowed.includes(value as T)
-    ? (value as T)
-    : fail(`${label} must be one of: ${allowed.join(", ")}`);
-}
-
-function positiveInteger(
-  value: unknown,
-  label: string,
-  max: number,
-  fail: ProjectionFailure,
-): number | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= max
-    ? value
-    : fail(`${label} must be an integer from 1 to ${max}`);
-}
 
 function projectDreamingEntry(value: unknown, fail: ProjectionFailure): JsonObject {
   const entry = failObject(value, "dreaming entry", fail);
@@ -573,6 +510,9 @@ export function projectBrowserWikiResult(params: {
       ),
       clusters: projectWikiClusters(payload.clusters, params.fail),
     };
+  }
+  if (params.method === "wiki.graph") {
+    return projectWikiGraph(params.result, params.agentId, params.fail);
   }
   if (params.method === "wiki.status") {
     const payload = failObject(params.result, "wiki status", params.fail);

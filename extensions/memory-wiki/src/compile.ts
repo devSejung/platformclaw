@@ -36,6 +36,11 @@ import {
 } from "./compiled-cache.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import {
+  createWikiLinkTargetIndex,
+  resolveWikiLinkTarget,
+  type WikiLinkTargetIndex,
+} from "./link-resolution.js";
+import {
   appendMemoryWikiLog,
   loadMemoryWikiValidatedVaultIdentity,
   loadMemoryWikiVaultIdentity,
@@ -685,17 +690,6 @@ function formatClaimContradictionClusterLine(
   return `- \`${cluster.label}\`: ${entries.join(" | ")}`;
 }
 
-function normalizeComparableTarget(value: string): string {
-  return normalizeLowercaseStringOrEmpty(
-    value
-      .trim()
-      .replace(/\\/g, "/")
-      .replace(/\.md$/i, "")
-      .replace(/^\.\/+/, "")
-      .replace(/\/+$/, ""),
-  );
-}
-
 function uniquePages(pages: WikiPageSummary[]): WikiPageSummary[] {
   const seen = new Set<string>();
   const unique: WikiPageSummary[] = [];
@@ -708,17 +702,6 @@ function uniquePages(pages: WikiPageSummary[]): WikiPageSummary[] {
     unique.push(page);
   }
   return unique;
-}
-
-function buildPageLookupKeys(page: WikiPageSummary): Set<string> {
-  const keys = new Set<string>();
-  keys.add(normalizeComparableTarget(page.relativePath));
-  keys.add(normalizeComparableTarget(page.relativePath.replace(/\.md$/i, "")));
-  keys.add(normalizeComparableTarget(page.title));
-  if (page.id) {
-    keys.add(normalizeComparableTarget(page.id));
-  }
-  return keys;
 }
 
 function renderWikiPageLinks(params: {
@@ -763,6 +746,7 @@ function buildRelatedBlockBody(params: {
   config: ResolvedMemoryWikiConfig;
   page: WikiPageSummary;
   allPages: WikiPageSummary[];
+  linkTargetIndex: WikiLinkTargetIndex;
 }): string {
   const candidatePages = params.allPages.filter((candidate) => candidate.kind !== "report");
   const sourceFanout = sharedSourceFanout(params.page, candidatePages);
@@ -777,7 +761,6 @@ function buildRelatedBlockBody(params: {
       return page ? [page] : [];
     }),
   );
-  const backlinkKeys = buildPageLookupKeys(params.page);
   const backlinks = uniquePages(
     candidatePages.filter((candidate) => {
       if (candidate.relativePath === params.page.relativePath) {
@@ -787,7 +770,9 @@ function buildRelatedBlockBody(params: {
         return true;
       }
       return candidate.linkTargets.some((target) =>
-        backlinkKeys.has(normalizeComparableTarget(target)),
+        resolveWikiLinkTarget(params.linkTargetIndex, target).some(
+          (match) => match.relativePath === params.page.relativePath,
+        ),
       );
     }),
   );
@@ -863,6 +848,9 @@ async function refreshPageRelatedBlocks(params: {
   }
   const root = await fsRoot(params.config.vault.path);
   const updatedFiles: string[] = [];
+  const linkTargetIndex = createWikiLinkTargetIndex(
+    params.pages.filter((candidate) => candidate.kind !== "report"),
+  );
   for (const page of params.pages) {
     if (page.kind === "report") {
       continue;
@@ -881,6 +869,7 @@ async function refreshPageRelatedBlocks(params: {
           config: params.config,
           page,
           allPages: params.pages,
+          linkTargetIndex,
         }),
       }),
     );

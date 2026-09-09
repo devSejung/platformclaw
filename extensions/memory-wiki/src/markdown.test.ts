@@ -627,6 +627,21 @@ describe("toWikiPageSummary", () => {
 });
 
 describe("scanWikiPageSummary linkTargets", () => {
+  it("resolves relative Markdown links and excludes generated Related links", () => {
+    const links = scanWikiLinkTargets(
+      [
+        "See [Alpha](../concepts/alpha.md#details) and [[Beta]].",
+        "",
+        "## Related",
+        "<!-- openclaw:wiki:related:start -->",
+        "- [Generated](../concepts/generated.md)",
+        "<!-- openclaw:wiki:related:end -->",
+      ].join("\n"),
+      "entities/test.md",
+    );
+    expect(links).toEqual(["Beta", "concepts/alpha.md"]);
+  });
+
   it("extracts real wikilinks from prose", () => {
     const links = scanWikiLinkTargets(
       "See [[Alpha]] and [[Beta]] for details.",

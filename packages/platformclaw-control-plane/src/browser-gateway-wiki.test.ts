@@ -82,17 +82,138 @@ describe("BrowserGatewayProxy personal memory wiki", () => {
         totalQuestions: 0,
         totalContradictions: 0,
         clusters: [],
+      })
+      .mockResolvedValueOnce({
+        nodes: [],
+        edges: [],
+        stats: {
+          totalPages: 0,
+          totalNodes: 0,
+          totalEdges: 0,
+          unresolvedLinks: 0,
+          truncated: false,
+        },
       });
 
     await proxy.request(token, "doctor.memory.dreamDiary", {});
     await proxy.request(token, "wiki.importInsights", {});
     await proxy.request(token, "wiki.overview", {});
+    await proxy.request(token, "wiki.graph", {});
 
     expect(request.mock.calls).toEqual([
       ["doctor.memory.dreamDiary", { agentId: binding.agentId }],
       ["wiki.importInsights", { agentId: binding.agentId }],
       ["wiki.overview", { agentId: binding.agentId }],
+      ["wiki.graph", { agentId: binding.agentId }],
     ]);
+  });
+
+  it("pins and projects a path-safe personal Wiki graph", async () => {
+    const { binding, proxy, request, token } = await setup();
+    request.mockResolvedValueOnce({
+      agentId: binding.agentId,
+      vaultPath: "/srv/private/wiki",
+      nodes: [
+        {
+          id: "concepts/alpha.md",
+          title: "Alpha",
+          kind: "concept",
+          updatedAt: "2026-09-08T01:02:03.000Z",
+          absolutePath: "/srv/private/wiki/concepts/alpha.md",
+        },
+        {
+          hidden: "ignored",
+          id: "entities/beta.md",
+          title: "Beta",
+          kind: "entity",
+          sourcePath: "/srv/private/source.md",
+        },
+      ],
+      edges: [
+        {
+          source: "concepts/alpha.md",
+          target: "entities/beta.md",
+          type: "link",
+          absolutePath: "/srv/private/edge",
+        },
+      ],
+      stats: {
+        totalPages: 2,
+        totalNodes: 2,
+        totalEdges: 1,
+        unresolvedLinks: 1,
+        truncated: false,
+        vaultPath: "/srv/private/wiki",
+      },
+    });
+
+    const result = await proxy.request(token, "wiki.graph", {});
+
+    expect(request).toHaveBeenCalledWith("wiki.graph", { agentId: binding.agentId });
+    expect(result).toEqual({
+      nodes: [
+        {
+          id: "concepts/alpha.md",
+          title: "Alpha",
+          kind: "concept",
+          updatedAt: "2026-09-08T01:02:03.000Z",
+        },
+        { id: "entities/beta.md", title: "Beta", kind: "entity" },
+      ],
+      edges: [{ source: "concepts/alpha.md", target: "entities/beta.md", type: "link" }],
+      stats: {
+        totalPages: 2,
+        totalNodes: 2,
+        totalEdges: 1,
+        unresolvedLinks: 1,
+        truncated: false,
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("/srv/private");
+
+    await expect(proxy.request(token, "wiki.graph", { agentId: "other" })).rejects.toMatchObject({
+      code: "cross-agent-denied",
+    });
+    await expect(
+      proxy.request(token, "wiki.graph", { path: "concepts/alpha.md" }),
+    ).rejects.toMatchObject({
+      code: "method-not-allowed",
+    });
+  });
+
+  it.each([
+    ["node", "/srv/private/alpha.md"],
+    ["node", "C:/private/alpha.md"],
+    ["node", "concepts/../private.md"],
+    ["source", "/srv/private/alpha.md"],
+    ["target", "../entities/beta.md"],
+  ])("rejects unsafe Wiki graph %s path %s", async (field, unsafePath) => {
+    const { proxy, request, token } = await setup();
+    const nodeId = field === "node" ? unsafePath : "concepts/alpha.md";
+    request.mockResolvedValueOnce({
+      nodes: [{ id: nodeId, title: "Alpha", kind: "concept" }],
+      edges:
+        field === "node"
+          ? []
+          : [
+              {
+                source: field === "source" ? unsafePath : nodeId,
+                target: field === "target" ? unsafePath : nodeId,
+                type: "link",
+              },
+            ],
+      stats: {
+        totalPages: 1,
+        totalNodes: 1,
+        totalEdges: field === "node" ? 0 : 1,
+        unresolvedLinks: 0,
+        truncated: false,
+      },
+    });
+
+    await expect(proxy.request(token, "wiki.graph", {})).rejects.toMatchObject({
+      code: "upstream-result-denied",
+    });
   });
 
   it("projects dreaming status without server paths or diagnostic errors", async () => {

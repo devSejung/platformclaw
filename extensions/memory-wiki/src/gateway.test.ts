@@ -10,6 +10,7 @@ import { searchMemoryWiki } from "./query.js";
 import { syncMemoryWikiImportedSources } from "./source-sync.js";
 import { resolveMemoryWikiStatus } from "./status.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
+import { listMemoryWikiGraph } from "./wiki-graph.js";
 import { listMemoryWikiOverview } from "./wiki-overview.js";
 
 type ApplyMemoryWikiMutation = ReturnType<typeof normalizeMemoryWikiMutationInput>;
@@ -41,6 +42,10 @@ vi.mock("./lint.js", () => ({
 
 vi.mock("./wiki-overview.js", () => ({
   listMemoryWikiOverview: vi.fn(),
+}));
+
+vi.mock("./wiki-graph.js", () => ({
+  listMemoryWikiGraph: vi.fn(),
 }));
 
 vi.mock("./obsidian.js", () => ({
@@ -109,6 +114,7 @@ const VAULT_BACKED_GATEWAY_CASES = [
   ["wiki.importRuns", {}],
   ["wiki.importInsights", {}],
   ["wiki.overview", {}],
+  ["wiki.graph", {}],
   ["wiki.init", {}],
   ["wiki.doctor", {}],
   ["wiki.compile", {}],
@@ -185,6 +191,46 @@ describe("memory-wiki gateway methods", () => {
       items: [],
       total: 0,
     } as never);
+  });
+
+  it("serves wiki.graph as a read-only, agent-scoped method", async () => {
+    const { config } = await createVault({ prefix: "memory-wiki-gateway-" });
+    const { api, registerGatewayMethod } = createPluginApi();
+    vi.mocked(listMemoryWikiGraph).mockResolvedValue({
+      nodes: [],
+      edges: [],
+      stats: {
+        totalPages: 0,
+        totalNodes: 0,
+        totalEdges: 0,
+        unresolvedLinks: 0,
+        truncated: false,
+      },
+    });
+
+    registerMemoryWikiGatewayMethods({ api, config });
+    const handler = findGatewayHandler(registerGatewayMethod, "wiki.graph");
+    if (!handler) {
+      throw new Error("wiki.graph handler missing");
+    }
+    const respond = vi.fn();
+    await handler({ params: {}, respond });
+
+    expect(listMemoryWikiGraph).toHaveBeenCalledWith(config);
+    expect(readGatewayMethodOptions(registerGatewayMethod, "wiki.graph")).toEqual({
+      scope: "operator.read",
+    });
+    expect(readRespondPayload(respond)).toEqual({
+      nodes: [],
+      edges: [],
+      stats: {
+        totalPages: 0,
+        totalNodes: 0,
+        totalEdges: 0,
+        unresolvedLinks: 0,
+        truncated: false,
+      },
+    });
   });
 
   it("registers Obsidian CLI methods with write scope", async () => {

@@ -26,6 +26,7 @@ import { getMemoryWikiPage, searchMemoryWiki, WIKI_SEARCH_MODES } from "./query.
 import { syncMemoryWikiImportedSources } from "./source-sync.js";
 import { buildMemoryWikiDoctorReport, resolveMemoryWikiStatus } from "./status.js";
 import { initializeMemoryWikiVault } from "./vault.js";
+import { listMemoryWikiGraph } from "./wiki-graph.js";
 import { listMemoryWikiOverview } from "./wiki-overview.js";
 
 const READ_SCOPE = "operator.read" as const;
@@ -185,6 +186,20 @@ export function registerMemoryWikiGatewayMethods(params: {
         const { appConfig, config } = resolveRequestContext(requestParams);
         await syncImportedSourcesIfNeeded(config, appConfig);
         respond(true, await listMemoryWikiOverview(config));
+      } catch (error) {
+        respondError(respond, error);
+      }
+    },
+    { scope: READ_SCOPE },
+  );
+
+  api.registerGatewayMethod(
+    "wiki.graph",
+    async ({ params: requestParams, respond }) => {
+      try {
+        const { appConfig, config } = resolveRequestContext(requestParams);
+        await syncImportedSourcesIfNeeded(config, appConfig);
+        respond(true, await listMemoryWikiGraph(config));
       } catch (error) {
         respondError(respond, error);
       }

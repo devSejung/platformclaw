@@ -27,6 +27,7 @@ import {
   loadDreamDiary,
   loadDreamingStatus,
   loadWikiImportInsights,
+  loadWikiGraph,
   loadWikiOverview,
   isMemoryWikiAvailable,
   repairDreamingArtifacts,
@@ -43,16 +44,9 @@ import {
   renderWikiKnowledge,
   resetWikiPreview,
   type DreamingViewState,
+  type WikiGraphRenderer,
 } from "./view.ts";
-
-type WikiPagePreview = {
-  title: string;
-  path: string;
-  content: string;
-  totalLines?: number;
-  truncated?: boolean;
-  updatedAt?: string;
-};
+import { readWikiPagePreview, type WikiPagePreview } from "./wiki-page-preview.ts";
 
 type DreamingTaskScope = {
   gateway: ApplicationGateway;
@@ -72,44 +66,6 @@ function resolveDreamingNextCycle(status: DreamingState["dreamingStatus"]): stri
   return nextRunAtMs === undefined ? null : formatDreamNextCycle(nextRunAtMs);
 }
 
-function readWikiPagePreview(value: unknown, lookup: string): WikiPagePreview {
-  const payload =
-    value && typeof value === "object"
-      ? (value as {
-          title?: unknown;
-          path?: unknown;
-          content?: unknown;
-          updatedAt?: unknown;
-          totalLines?: unknown;
-          truncated?: unknown;
-        })
-      : null;
-  const title =
-    typeof payload?.title === "string" && payload.title.trim() ? payload.title.trim() : lookup;
-  const path =
-    typeof payload?.path === "string" && payload.path.trim() ? payload.path.trim() : lookup;
-  const content =
-    typeof payload?.content === "string" && payload.content.length > 0
-      ? payload.content
-      : t("dreaming.wiki.noContent");
-  const updatedAt =
-    typeof payload?.updatedAt === "string" && payload.updatedAt.trim()
-      ? payload.updatedAt.trim()
-      : undefined;
-  const totalLines =
-    typeof payload?.totalLines === "number" && Number.isFinite(payload.totalLines)
-      ? Math.max(0, Math.floor(payload.totalLines))
-      : undefined;
-  return {
-    title,
-    path,
-    content,
-    ...(totalLines === undefined ? {} : { totalLines }),
-    ...(payload?.truncated === true ? { truncated: true } : {}),
-    ...(updatedAt ? { updatedAt } : {}),
-  };
-}
-
 class AgentMemoryPanel extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })
   private context!: ApplicationContext;
@@ -122,8 +78,10 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   @state() private toggleConfirmOpen = false;
   @state() private toggleConfirmLoading = false;
   @state() private pendingEnabled: boolean | null = null;
+  @state() private wikiGraphRenderer: WikiGraphRenderer | null = null;
 
   private readonly viewState: DreamingViewState = createDreamingViewState();
+  private wikiGraphRendererLoad: Promise<WikiGraphRenderer> | null = null;
   private gatewaySource: ApplicationGateway | null = null;
   private gatewayBindingEpoch = 0;
   private gatewayEpoch = 0;
@@ -320,6 +278,38 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
       this.runDreamingTask(loadWikiImportInsights, scope),
       this.runDreamingTask(loadWikiOverview, scope),
     ]);
+    if (
+      this.isTaskScopeCurrent(scope) &&
+      this.surface === "wiki" &&
+      this.viewState.wikiLayout === "graph"
+    ) {
+      await this.loadWikiGraphView(scope);
+    }
+  }
+
+  private async loadWikiGraphView(scope = this.captureTaskScope()) {
+    if (!scope || !this.isTaskScopeCurrent(scope)) {
+      return;
+    }
+    try {
+      this.wikiGraphRendererLoad ??= import("./wiki-graph.runtime.ts").then(
+        (module) => module.renderWikiGraph,
+      );
+      const renderer = await this.wikiGraphRendererLoad;
+      if (!this.isTaskScopeCurrent(scope)) {
+        return;
+      }
+      this.wikiGraphRenderer = renderer;
+      this.requestUpdate();
+      await this.runDreamingTask(loadWikiGraph, scope);
+    } catch (error) {
+      this.wikiGraphRendererLoad = null;
+      if (this.isTaskScopeCurrent(scope)) {
+        scope.state.wikiGraphLoading = false;
+        scope.state.wikiGraphError = String(error);
+        this.requestUpdate();
+      }
+    }
   }
 
   private setEnabled(enabled: boolean, dreamingOn: boolean) {
@@ -655,9 +645,15 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
         wikiOverviewLoading: dreaming.wikiOverviewLoading,
         wikiOverviewError: dreaming.wikiOverviewError,
         wikiOverview: dreaming.wikiOverview,
+        wikiGraphLoading: dreaming.wikiGraphLoading,
+        wikiGraphError: dreaming.wikiGraphError,
+        wikiGraph: dreaming.wikiGraph,
+        wikiGraphRenderer: this.wikiGraphRenderer,
         onRefreshDiary: () => void this.runDreamingTask(loadDreamDiary),
         onRefreshImports: () => void this.refreshWikiData(loadWikiImportInsights),
         onRefreshWikiOverview: () => void this.refreshWikiData(loadWikiOverview),
+        onRefreshWikiGraph: () => void this.loadWikiGraphView(),
+        onSelectWikiGraph: () => void this.loadWikiGraphView(),
         onOpenConfig: () => void this.context.runtimeConfig.openFile(),
         onOpenWikiPage: (lookup) => this.openWikiPage(lookup),
         onBackfillDiary: () => void this.runDreamingTask(backfillDreamDiary),

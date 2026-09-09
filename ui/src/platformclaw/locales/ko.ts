@@ -1,3 +1,5 @@
+import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
+
 export const translations: Readonly<Record<string, string>> = {
   "platformClaw.skillHub.publish.action": "작업 공간 스킬 게시",
   "platformClaw.skillHub.publish.title": "작업 공간의 스킬 게시",
@@ -296,8 +298,7 @@ export const translations: Readonly<Record<string, string>> = {
   "dreaming.tabs.scene": "개요",
   "dreaming.tabs.diary": "Dream Diary",
   "dreaming.tabs.advanced": "활동",
-  "dreaming.wiki.wikiTab": "Personal Wiki",
-  "dreaming.wiki.insightsTab": "가져온 지식",
+  ...memoryWikiTranslations,
   "memoryPage.promotions.title": "Wiki 지식 공유",
   "memoryPage.promotions.description":
     "검토한 Wiki 지식을 다음 조직 범위로 승격합니다. Agent가 초안을 작성할 수 있지만 제출과 승인은 사람이 합니다.",

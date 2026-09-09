@@ -102,7 +102,33 @@ export type WikiOverview = {
   clusters: WikiOverviewCluster[];
 };
 
-type DreamingResourceKey = "dreamingStatus" | "dreamDiary" | "wikiImportInsights" | "wikiOverview";
+export type WikiGraph = {
+  nodes: Array<{
+    id: string;
+    title: string;
+    kind: WikiOverviewItem["kind"];
+    updatedAt?: string;
+  }>;
+  edges: Array<{
+    source: string;
+    target: string;
+    type: "link";
+  }>;
+  stats: {
+    totalPages: number;
+    totalNodes: number;
+    totalEdges: number;
+    unresolvedLinks: number;
+    truncated: boolean;
+  };
+};
+
+type DreamingResourceKey =
+  | "dreamingStatus"
+  | "dreamDiary"
+  | "wikiImportInsights"
+  | "wikiOverview"
+  | "wikiGraph";
 type DreamingResourceRequest = { agentId: string | null };
 
 export type DreamingState = {
@@ -134,6 +160,10 @@ export type DreamingState = {
   wikiOverviewLoading: boolean;
   wikiOverviewError: string | null;
   wikiOverview: WikiOverview | null;
+  wikiGraphAgentId?: string | null;
+  wikiGraphLoading: boolean;
+  wikiGraphError: string | null;
+  wikiGraph: WikiGraph | null;
   lastError: string | null;
 };
 
@@ -170,6 +200,9 @@ export function createDreamingState(
     wikiOverviewLoading: false,
     wikiOverviewError: null,
     wikiOverview: null,
+    wikiGraphLoading: false,
+    wikiGraphError: null,
+    wikiGraph: null,
     lastError: null,
   };
 }
@@ -346,6 +379,7 @@ type DreamingResourcePayloads = {
   dreamDiary: DoctorMemoryDreamDiaryPayload;
   wikiImportInsights: WikiImportInsights;
   wikiOverview: WikiOverview;
+  wikiGraph: WikiGraph;
 };
 
 type DreamingResourceSpec<Key extends DreamingResourceKey> = {
@@ -395,6 +429,15 @@ const DREAMING_RESOURCE_SPECS: {
       state.wikiOverview = payload;
     },
   },
+  wikiGraph: {
+    method: "wiki.graph",
+    clear: (state) => {
+      state.wikiGraph = null;
+    },
+    apply: (state, payload) => {
+      state.wikiGraph = payload;
+    },
+  },
 };
 
 async function loadDreamingResource<Key extends DreamingResourceKey>(
@@ -415,7 +458,7 @@ async function loadDreamingResource<Key extends DreamingResourceKey>(
     spec.clear(state);
   }
   if (
-    (key === "wikiImportInsights" || key === "wikiOverview") &&
+    (key === "wikiImportInsights" || key === "wikiOverview" || key === "wikiGraph") &&
     !canCallMemoryWikiMethod(state, spec.method)
   ) {
     delete state.resourceRequests[key];
@@ -471,6 +514,10 @@ export async function loadWikiImportInsights(state: DreamingState): Promise<void
 
 export async function loadWikiOverview(state: DreamingState): Promise<void> {
   await loadDreamingResource(state, "wikiOverview");
+}
+
+export async function loadWikiGraph(state: DreamingState): Promise<void> {
+  await loadDreamingResource(state, "wikiGraph");
 }
 
 async function runDreamDiaryAction(

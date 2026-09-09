@@ -208,6 +208,7 @@ describe("projectPlatformClawBrowserHello", () => {
       "agents.workspace.get",
       "agents.workspace.list",
       "wiki.get",
+      "wiki.graph",
       "wiki.overview",
     );
     const projected = projectPlatformClawBrowserHello({
@@ -223,6 +224,7 @@ describe("projectPlatformClawBrowserHello", () => {
         "agents.workspace.get",
         "agents.workspace.list",
         "wiki.get",
+        "wiki.graph",
         "wiki.overview",
       ]),
     );
