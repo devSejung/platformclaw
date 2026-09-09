@@ -4,7 +4,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveSandboxRuntimeStatus } from "./sandbox/runtime-status.js";
 import { resolveSpawnSandboxError } from "./spawn-plan.js";
 
-export type AcpSpawnRuntimePlan =
+type AcpSpawnRuntimePlan =
   | { ok: true; executionOwnerAgentId?: string }
   | { ok: false; error: string };
 
