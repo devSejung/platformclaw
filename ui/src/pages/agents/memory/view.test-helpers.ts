@@ -3,7 +3,7 @@ import { renderWikiGraph } from "./wiki-graph.runtime.ts";
 
 export type DreamingProps = Parameters<typeof renderDreaming>[0];
 
-export const fullDreamingViewAccess: Parameters<typeof renderDreaming>[0]["access"] = {
+const fullDreamingViewAccess: Parameters<typeof renderDreaming>[0]["access"] = {
   canOpenConfig: true,
   canBackfillDiary: true,
   canDedupeDreamDiary: true,
