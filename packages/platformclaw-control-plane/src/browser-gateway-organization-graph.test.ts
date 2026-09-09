@@ -62,7 +62,7 @@ describe("BrowserGatewayProxy organization memory graph", () => {
   it("rejects caller-selected authority and malformed projected payloads", async () => {
     const { proxy, request, token } = await setup({
       getOrganizationMemoryGraph: vi.fn(async () => ({
-        kind: "group",
+        kind: "group" as const,
         nodes: [
           {
             id: "organization:group:claim-1",

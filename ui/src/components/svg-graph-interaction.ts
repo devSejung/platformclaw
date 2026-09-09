@@ -1,6 +1,6 @@
 import { html } from "lit";
 
-export type SvgGraphPoint = { x: number; y: number };
+type SvgGraphPoint = { x: number; y: number };
 
 type DragState = {
   pointerId: number;
@@ -10,7 +10,7 @@ type DragState = {
   moved: boolean;
 };
 
-export type SvgGraphInteraction = {
+type SvgGraphInteraction = {
   scale: number;
   x: number;
   y: number;
@@ -86,7 +86,7 @@ function updateSvg(svg: SVGSVGElement, interaction: SvgGraphInteraction) {
   }
 }
 
-export function zoomSvgGraph(
+function zoomSvgGraph(
   svg: SVGSVGElement,
   interaction: SvgGraphInteraction,
   factor: number,
@@ -105,7 +105,7 @@ export function zoomSvgGraph(
   updateSvg(svg, interaction);
 }
 
-export function resetSvgGraph(svg: SVGSVGElement, interaction: SvgGraphInteraction) {
+function resetSvgGraph(svg: SVGSVGElement, interaction: SvgGraphInteraction) {
   interaction.scale = 1;
   interaction.x = 0;
   interaction.y = 0;

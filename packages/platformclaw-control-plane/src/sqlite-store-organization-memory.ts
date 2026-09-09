@@ -271,7 +271,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
       }
       const scopeById = new Map(scopes.map((scope) => [scope.id!, scope]));
       const scopeIds = [...scopeById.keys()].toSorted();
-      const totalPages = Number(
+      const totalPages =
         takeFirstSync(
           this.db,
           this.query
@@ -280,8 +280,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
             .where("status", "=", "active")
             .where("scope_kind", "=", params.kind)
             .where("scope_id", "in", scopeIds),
-        )?.count ?? 0,
-      );
+        )?.count ?? 0;
       const rows = executeSync(
         this.db,
         this.query

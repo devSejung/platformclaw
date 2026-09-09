@@ -322,6 +322,7 @@ describe("PlatformClawWebIngressServer", () => {
             "platformclaw.memory.claim.retire",
             "platformclaw.memory.lifecycle",
             "platformclaw.memory.get",
+            "platformclaw.memory.graph",
             "platformclaw.memory.promotion.decide",
             "platformclaw.memory.promotion.submit",
           ],
