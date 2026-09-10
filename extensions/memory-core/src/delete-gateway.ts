@@ -13,7 +13,7 @@ const MAX_MEMORY_BYTES = 256 * 1024;
 const HASH = /^[a-f0-9]{64}$/u;
 class InvalidMemoryDeleteRequestError extends Error {}
 
-export function parseMemoryDeleteRequest(value: unknown): {
+function parseMemoryDeleteRequest(value: unknown): {
   agentId: string;
   path: string;
   expectedContentHash: string;
@@ -47,7 +47,7 @@ export function parseMemoryDeleteRequest(value: unknown): {
 }
 
 /** Remove the source artifact; safe-root rejects links and paths outside the workspace. */
-export async function deletePersonalMemoryFile(params: {
+async function deletePersonalMemoryFile(params: {
   workspaceDir: string;
   path: string;
   expectedContentHash: string;
@@ -77,11 +77,11 @@ export function registerMemoryDeleteGatewayMethod(
 ): void {
   api.registerGatewayMethod(
     "memory.delete",
-    async ({ params, respond }) => {
+    async ({ params, respond, context }) => {
+      const cfg = context.getRuntimeConfig();
       let request: ReturnType<typeof parseMemoryDeleteRequest>;
       try {
         request = parseMemoryDeleteRequest(params);
-        const cfg = api.runtime.config.current();
         if (!listAgentIds(cfg).includes(request.agentId)) {
           throw new InvalidMemoryDeleteRequestError("Unknown agent id");
         }
@@ -110,7 +110,7 @@ export function registerMemoryDeleteGatewayMethod(
         null;
       try {
         ({ manager } = await runtime.getMemorySearchManager({
-          cfg: api.runtime.config.current(),
+          cfg,
           agentId: request.agentId,
           purpose: "cli",
         }));
