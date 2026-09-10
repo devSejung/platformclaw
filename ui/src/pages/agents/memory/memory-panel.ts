@@ -74,6 +74,7 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   @property({ attribute: false }) agentId = "";
   @property({ type: Boolean }) summaryOnly = false;
   @property() surface: "dreaming" | "wiki" = "dreaming";
+  @property({ type: Number }) refreshRevision = 0;
   @property({ attribute: false }) wikiActions?: MemoryItemActions;
 
   @state() private dreaming = createDreamingState();
@@ -120,6 +121,13 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   override willUpdate(changed: PropertyValues<this>) {
     if (changed.has("agentId")) {
       this.applyAgentId();
+    }
+    if (changed.has("refreshRevision") && changed.get("refreshRevision") !== undefined) {
+      // A confirmed deletion invalidates in-flight reads and any open page preview.
+      this.gatewayEpoch += 1;
+      this.resetTransientState();
+      this.dreaming = this.createGatewayState();
+      void this.loadAll();
     }
   }
 

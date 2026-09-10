@@ -11,6 +11,7 @@ import {
   WIKI_SEARCH_CORPORA,
   type ResolvedMemoryWikiConfig,
 } from "./config.js";
+import { deleteMemoryWikiPage, MemoryWikiDeleteValidationError } from "./delete.js";
 import { listMemoryWikiImportInsights } from "./import-insights.js";
 import { listMemoryWikiImportRuns } from "./import-runs.js";
 import { ingestMemoryWikiSource } from "./ingest.js";
@@ -128,6 +129,51 @@ export function registerMemoryWikiGatewayMethods(params: {
       );
     }
   };
+
+  api.registerGatewayMethod(
+    "wiki.delete",
+    async ({ params: requestParams, respond }) => {
+      try {
+        if (
+          Object.keys(requestParams).some(
+            (key) => !["agentId", "path", "expectedContentHash"].includes(key),
+          )
+        ) {
+          throw new MemoryWikiDeleteValidationError(
+            "wiki.delete requires path and expectedContentHash only.",
+          );
+        }
+        if (
+          typeof requestParams.path !== "string" ||
+          typeof requestParams.expectedContentHash !== "string"
+        ) {
+          throw new MemoryWikiDeleteValidationError("Reload a Wiki page before deleting it.");
+        }
+        const { agentId, config } = resolveRequestContext(requestParams);
+        if (config.vault.scope !== "agent" || !config.agentId) {
+          throw new MemoryWikiDeleteValidationError(
+            "Wiki deletion requires a personal agent-scoped vault.",
+          );
+        }
+        const result = await deleteMemoryWikiPage({
+          config,
+          path: requestParams.path,
+          expectedContentHash: requestParams.expectedContentHash,
+        });
+        respond(true, { agentId, ...result });
+      } catch (error) {
+        respond(false, undefined, {
+          code:
+            error instanceof MemoryWikiDeleteValidationError ? "INVALID_REQUEST" : "UNAVAILABLE",
+          message:
+            error instanceof MemoryWikiDeleteValidationError
+              ? error.message
+              : "Wiki deletion could not be completed. Reload the page and try again.",
+        });
+      }
+    },
+    { scope: WRITE_SCOPE },
+  );
 
   api.registerGatewayMethod(
     "wiki.status",

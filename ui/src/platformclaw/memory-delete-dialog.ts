@@ -11,16 +11,29 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
   @property() agentId = "";
   @property() path = "";
+  @property() kind: "memory" | "wiki" = "memory";
   @state() private content = "";
   @state() private contentHash = "";
+  @state() private truncated = false;
   @state() private loading = false;
   @state() private deleting = false;
   @state() private error = "";
   private epoch = 0;
-  private preview: { client: GatewayBrowserClient; agentId: string; path: string } | null = null;
+  private preview: {
+    client: GatewayBrowserClient;
+    agentId: string;
+    path: string;
+    kind: "memory" | "wiki";
+    resolvedPath: string;
+  } | null = null;
 
   protected override willUpdate(changed: PropertyValues<this>) {
-    if (changed.has("client") || changed.has("agentId") || changed.has("path")) {
+    if (
+      changed.has("client") ||
+      changed.has("agentId") ||
+      changed.has("path") ||
+      changed.has("kind")
+    ) {
       void this.loadPreview();
     }
   }
@@ -40,6 +53,7 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
     const epoch = ++this.epoch;
     this.content = "";
     this.contentHash = "";
+    this.truncated = false;
     this.preview = null;
     this.deleting = false;
     this.error = "";
@@ -47,29 +61,71 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
     const client = this.client;
     const agentId = this.agentId;
     const path = this.path;
+    const kind = this.kind;
     if (!client || !this.agentId || !this.path) {
       this.loading = false;
       return;
     }
     try {
-      const result = await client.request<{
-        file: { content: string; contentHash?: string; missing?: boolean; encoding: string };
-      }>("agents.workspace.get", { agentId, path });
+      const file =
+        kind === "wiki"
+          ? await client.request<{
+              path: string;
+              content: string;
+              contentHash?: string;
+              truncated?: boolean;
+              deletionUnavailableReason?: "shared-vault" | "page-too-large" | "generated-page";
+            } | null>("wiki.get", { agentId, lookup: path, fromLine: 1, lineCount: 5000 })
+          : (
+              await client.request<{
+                file: {
+                  content: string;
+                  contentHash?: string;
+                  missing?: boolean;
+                  encoding: string;
+                };
+              }>("agents.workspace.get", { agentId, path })
+            ).file;
       if (
         epoch !== this.epoch ||
         !this.isConnected ||
         this.client !== client ||
         this.agentId !== agentId ||
-        this.path !== path
+        this.path !== path ||
+        this.kind !== kind
       ) {
         return;
       }
-      if (result.file.missing || result.file.encoding !== "utf8" || !result.file.contentHash) {
-        throw new Error(t("platformClaw.memory.deleteUnavailable"));
+      if (
+        !file ||
+        !file.contentHash ||
+        ("missing" in file && file.missing) ||
+        ("encoding" in file && file.encoding !== "utf8") ||
+        (kind === "wiki" && !("path" in file && file.path))
+      ) {
+        if (file && "deletionUnavailableReason" in file) {
+          if (file.deletionUnavailableReason === "shared-vault") {
+            throw new Error(t("platformClaw.wiki.deleteSharedUnavailable"));
+          }
+          if (file.deletionUnavailableReason === "generated-page") {
+            throw new Error(t("platformClaw.wiki.deleteGeneratedUnavailable"));
+          }
+          if (file.deletionUnavailableReason === "page-too-large") {
+            throw new Error(t("platformClaw.wiki.deleteLargeUnavailable"));
+          }
+        }
+        throw new Error(t(this.deleteKey("deleteUnavailable")));
       }
-      this.content = result.file.content;
-      this.contentHash = result.file.contentHash;
-      this.preview = { client, agentId, path };
+      this.content = file.content;
+      this.contentHash = file.contentHash;
+      this.truncated = "truncated" in file && file.truncated === true;
+      this.preview = {
+        client,
+        agentId,
+        path,
+        kind,
+        resolvedPath: "path" in file ? file.path : path,
+      };
     } catch (error) {
       if (epoch === this.epoch) {
         this.error = formatErrorMessage(error, { redact: redactToolDetail });
@@ -85,9 +141,11 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
     const preview = this.preview;
     if (
       !preview ||
+      !this.isConnected ||
       preview.client !== this.client ||
       preview.agentId !== this.agentId ||
       preview.path !== this.path ||
+      preview.kind !== this.kind ||
       !this.contentHash ||
       this.loading ||
       this.deleting
@@ -98,26 +156,33 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
     this.deleting = true;
     this.error = "";
     try {
-      const result = await this.client.request<{
+      const result = await preview.client.request<{
         deleted: boolean;
         indexesRefreshed: boolean;
         wikiRefreshed?: boolean;
-      }>("memory.delete", {
+      }>(preview.kind === "wiki" ? "wiki.delete" : "memory.delete", {
         agentId: this.agentId,
-        path: this.path,
+        path: preview.resolvedPath,
         expectedContentHash: this.contentHash,
       });
-      if (epoch !== this.epoch || !this.isConnected) {
+      if (
+        epoch !== this.epoch ||
+        !this.isConnected ||
+        preview.client !== this.client ||
+        preview.agentId !== this.agentId ||
+        preview.path !== this.path ||
+        preview.kind !== this.kind
+      ) {
         return;
       }
       if (!result.deleted) {
-        throw new Error(t("platformClaw.memory.deleteUnavailable"));
+        throw new Error(t(this.deleteKey("deleteUnavailable")));
       }
       this.dispatchEvent(
         new CustomEvent("memory-deleted", {
           bubbles: true,
           composed: true,
-          detail: { ...result, path: this.path },
+          detail: { ...result, kind: preview.kind, path: preview.resolvedPath },
         }),
       );
     } catch (error) {
@@ -131,15 +196,22 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
     }
   }
 
+  private deleteKey(suffix: string) {
+    return `platformClaw.${this.kind === "wiki" ? "wiki" : "memory"}.${suffix}`;
+  }
+
   override render() {
     return html`<openclaw-modal-dialog
-      label=${t("platformClaw.memory.delete")}
+      label=${t(this.deleteKey("delete"))}
       @modal-cancel=${() => this.cancel()}
     >
       <div class="settings-page platformclaw-memory-action-dialog">
-        <h2>${t("platformClaw.memory.delete")}: ${this.path}</h2>
-        <p>${t("platformClaw.memory.deleteDescription")}</p>
-        <p>${t("platformClaw.memory.deleteRetention")}</p>
+        <h2>${t(this.deleteKey("delete"))}: ${this.path}</h2>
+        <p>${t(this.deleteKey("deleteDescription"))}</p>
+        <p>${t(this.deleteKey("deleteRetention"))}</p>
+        ${this.truncated
+          ? html`<p role="status">${t("platformClaw.wiki.deletePartialPreview")}</p>`
+          : nothing}
         ${this.loading
           ? html`<p role="status">${t("memoryPage.memories.fileLoading")}</p>`
           : nothing}
@@ -156,14 +228,14 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
             ?disabled=${this.loading || this.deleting}
             @click=${() => void this.loadPreview()}
           >
-            ${t("memoryPage.memories.refresh")}
+            ${t(this.kind === "wiki" ? "common.refresh" : "memoryPage.memories.refresh")}
           </button>
           <button
             class="btn danger"
             ?disabled=${this.loading || this.deleting || !this.contentHash}
             @click=${() => void this.deleteFile()}
           >
-            ${t("platformClaw.memory.delete")}
+            ${t(this.deleteKey("delete"))}
           </button>
         </div>
       </div>

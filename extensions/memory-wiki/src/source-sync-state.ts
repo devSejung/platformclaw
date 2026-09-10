@@ -19,6 +19,8 @@ type MemoryWikiImportedSourceStateEntry = {
   sourceUpdatedAtMs: number;
   sourceSize: number;
   renderFingerprint: string;
+  /** Explicit Wiki deletion suppresses reimport even when the original source changes. */
+  deleted?: true;
 };
 
 type MemoryWikiImportedSourceState = {
@@ -111,6 +113,7 @@ function normalizeSourceSyncState(value: unknown): MemoryWikiImportedSourceState
       sourceUpdatedAtMs: entry.sourceUpdatedAtMs,
       sourceSize: entry.sourceSize,
       renderFingerprint: entry.renderFingerprint,
+      ...(entry.deleted === true ? { deleted: true as const } : {}),
     };
   }
   return { version: 1, entries };
@@ -300,6 +303,13 @@ export async function shouldSkipImportedSourceWrite(params: {
     return false;
   }
   if (
+    entry.deleted &&
+    entry.pagePath === params.expectedPagePath &&
+    entry.sourcePath === params.expectedSourcePath
+  ) {
+    return true;
+  }
+  if (
     entry.pagePath !== params.expectedPagePath ||
     entry.sourcePath !== params.expectedSourcePath ||
     entry.sourceUpdatedAtMs !== params.sourceUpdatedAtMs ||
@@ -439,7 +449,7 @@ export async function pruneImportedSourceEntries(params: {
   let removedCount = 0;
   let vault: Awaited<ReturnType<typeof fsRoot>> | undefined;
   for (const [syncKey, entry] of Object.entries(params.state.entries)) {
-    if (entry.group !== params.group || params.activeKeys.has(syncKey)) {
+    if (entry.deleted || entry.group !== params.group || params.activeKeys.has(syncKey)) {
       continue;
     }
     try {
@@ -526,7 +536,8 @@ export function setImportedSourceEntry(params: {
     current.sourcePath === params.entry.sourcePath &&
     current.sourceUpdatedAtMs === params.entry.sourceUpdatedAtMs &&
     current.sourceSize === params.entry.sourceSize &&
-    current.renderFingerprint === params.entry.renderFingerprint
+    current.renderFingerprint === params.entry.renderFingerprint &&
+    current.deleted === params.entry.deleted
   ) {
     return;
   }

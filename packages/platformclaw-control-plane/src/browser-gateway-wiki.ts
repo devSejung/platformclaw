@@ -21,6 +21,7 @@ const WIKI_METHODS = new Set([
   "doctor.memory.resetDreamDiary",
   "doctor.memory.resetGroundedShortTerm",
   "doctor.memory.status",
+  "wiki.delete",
   "wiki.get",
   "wiki.graph",
   "wiki.importInsights",
@@ -47,6 +48,18 @@ const MAX_RESULTS = 50;
 const MAX_PAGE_LINES = 5_000;
 const MAX_CONTENT_CHARS = 1024 * 1024;
 const MAX_ITEMS = 500;
+const CONTENT_HASH = /^[a-f0-9]{64}$/u;
+
+function deletionPath(value: unknown, fail: ProjectionFailure): string {
+  const path = wikiPath(value, "wiki deletion path", fail);
+  if (
+    path !== value ||
+    path.split("").some((character) => character.charCodeAt(0) < 32 || character === ":")
+  ) {
+    return fail("Wiki deletion requires a canonical personal Wiki page path");
+  }
+  return path;
+}
 
 function projectDreamingEntry(value: unknown, fail: ProjectionFailure): JsonObject {
   const entry = failObject(value, "dreaming entry", fail);
@@ -327,7 +340,16 @@ export function prepareBrowserWikiRequest(params: {
   }
   params.assertOptionalAgentId(params.request.agentId, params.method);
   const prepared: JsonObject = { agentId: params.agentId };
-  if (params.method === "doctor.memory.status" && params.request.probe !== undefined) {
+  if (params.method === "wiki.delete") {
+    prepared.path = deletionPath(params.request.path, params.fail);
+    if (
+      typeof params.request.expectedContentHash !== "string" ||
+      !CONTENT_HASH.test(params.request.expectedContentHash)
+    ) {
+      return params.fail("Reload the complete Wiki page before deleting it");
+    }
+    prepared.expectedContentHash = params.request.expectedContentHash;
+  } else if (params.method === "doctor.memory.status" && params.request.probe !== undefined) {
     if (typeof params.request.probe !== "boolean") {
       return params.fail("memory status probe must be a boolean");
     }
@@ -388,6 +410,23 @@ export function projectBrowserWikiResult(params: {
 }): JsonObject | JsonObject[] | null | undefined {
   if (!WIKI_METHODS.has(params.method)) {
     return undefined;
+  }
+  if (params.method === "wiki.delete") {
+    const payload = failObject(params.result, "wiki deletion", params.fail);
+    if (
+      payload.agentId !== params.agentId ||
+      deletionPath(payload.path, params.fail) !== params.request.path ||
+      payload.deleted !== true ||
+      typeof payload.indexesRefreshed !== "boolean"
+    ) {
+      return params.fail("Gateway returned invalid personal Wiki deletion result");
+    }
+    return {
+      agentId: params.agentId,
+      path: payload.path,
+      deleted: true,
+      indexesRefreshed: payload.indexesRefreshed,
+    };
   }
   if (DREAM_ACTION_METHODS.has(params.method)) {
     const payload = failObject(params.result, "dreaming action", params.fail);
@@ -610,6 +649,17 @@ export function projectBrowserWikiResult(params: {
       ? { totalLines: count(item.totalLines, "wiki page totalLines", params.fail) }
       : {}),
     ...(item.truncated === true ? { truncated: true } : {}),
+    ...(item.deletionUnavailableReason === "shared-vault" ||
+    item.deletionUnavailableReason === "page-too-large" ||
+    item.deletionUnavailableReason === "generated-page"
+      ? { deletionUnavailableReason: item.deletionUnavailableReason }
+      : {}),
+    // Native metadata pins the whole raw artifact, independently of the displayed body slice.
+    ...(item.deletionUnavailableReason === undefined &&
+    typeof item.contentHash === "string" &&
+    CONTENT_HASH.test(item.contentHash)
+      ? { contentHash: item.contentHash }
+      : {}),
     ...(optionalText(item.updatedAt, "wiki page updatedAt", params.fail, 256)
       ? { updatedAt: item.updatedAt }
       : {}),

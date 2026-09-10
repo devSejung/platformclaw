@@ -203,7 +203,12 @@ describe("projectPlatformClawBrowserHello", () => {
 
   it("advertises personal memory reads only when the Gateway supports them", () => {
     const upstream = upstreamHello();
+    expect(
+      projectPlatformClawBrowserHello({ upstream, access, connectionId: "old-gateway" }).features
+        .methods,
+    ).not.toContain("wiki.delete");
     upstream.features.methods.push(
+      "wiki.delete",
       "doctor.memory.status",
       "memory.search",
       "agents.workspace.get",
@@ -220,6 +225,7 @@ describe("projectPlatformClawBrowserHello", () => {
 
     expect(projected.features.methods).toEqual(
       expect.arrayContaining([
+        "wiki.delete",
         "doctor.memory.status",
         "memory.search",
         "agents.workspace.get",

@@ -334,7 +334,7 @@ export async function syncMemoryWikiBridgeSources(params: {
   // Pruning preserves sources when recovering human Notes or removing a file fails.
   // Record that partial outcome rather than calling a completed sync a completed deletion.
   const pendingRemovalCount = Object.entries(state.entries).filter(
-    ([key, entry]) => entry.group === "bridge" && !activeKeys.has(key),
+    ([key, entry]) => !entry.deleted && entry.group === "bridge" && !activeKeys.has(key),
   ).length;
   const importedCount = results.filter((result) => result.changed && result.created).length;
   const updatedCount = results.filter((result) => result.changed && !result.created).length;

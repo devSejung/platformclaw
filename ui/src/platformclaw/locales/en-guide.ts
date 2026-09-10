@@ -1,4 +1,22 @@
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.wiki.deleteGeneratedUnavailable":
+    "This is a generated report or navigation page. Delete the underlying pages instead.",
+  "platformClaw.wiki.deleteSharedUnavailable":
+    "Shared-vault pages cannot be deleted from a personal workspace.",
+  "platformClaw.wiki.deleteLargeUnavailable":
+    "This page exceeds the 256 KiB deletion limit. Ask an administrator to review it.",
+  "platformClaw.wiki.delete": "Delete Personal Wiki page",
+  "platformClaw.wiki.deleteDescription":
+    "Delete the entire selected Wiki page. This cannot be undone.",
+  "platformClaw.wiki.deleteRetention":
+    "Raw memory, conversations, and approved organization knowledge are retained. Deleted imported pages are excluded from automatic reimport; deliberate import repair can restore them.",
+  "platformClaw.wiki.deleteUnavailable":
+    "This page cannot be deleted from this preview. Refresh it and try again.",
+  "platformClaw.wiki.deletePartialPreview":
+    "Only part of the page is shown. Confirmation deletes the entire page, checked against its current full-file revision.",
+  "platformClaw.wiki.deleted": "Personal Wiki page deleted. Wiki views will refresh.",
+  "platformClaw.wiki.deletedRefreshPending":
+    "Personal Wiki page deleted, but index refresh failed. Refresh Personal Wiki to check its current state.",
   "platformClaw.memory.graph.unverified": "Approval and source revision metadata unavailable",
   "platformClaw.memory.actions": "Memory actions",
   "platformClaw.memory.share": "Request organization sharing…",

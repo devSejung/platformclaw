@@ -1,22 +1,31 @@
 /* @vitest-environment jsdom */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
-import { waitForFast } from "../test-helpers/wait-for.ts";
+import { i18n } from "../i18n/index.ts";
 import "./memory-delete-dialog.ts";
+import { waitForFast } from "../test-helpers/wait-for.ts";
+import { loadPlatformClawLocale } from "./i18n.ts";
+
+beforeEach(async () => {
+  await i18n.setLocale("en");
+  await loadPlatformClawLocale();
+});
 
 type DeleteDialog = HTMLElement & {
   client: GatewayBrowserClient | null;
   agentId: string;
   path: string;
+  kind: "memory" | "wiki";
   updateComplete: Promise<unknown>;
 };
 
-function createDialog(request: ReturnType<typeof vi.fn>) {
+function createDialog(request: ReturnType<typeof vi.fn>, kind: "memory" | "wiki" = "memory") {
   const element = document.createElement("platformclaw-memory-delete-dialog") as DeleteDialog;
   element.client = { request } as unknown as GatewayBrowserClient;
   element.agentId = "personal-agent";
   element.path = "memory/runbook.md";
+  element.kind = kind;
   document.body.append(element);
   return element;
 }
@@ -30,6 +39,78 @@ afterEach(() => {
 });
 
 describe("memory deletion confirmation", () => {
+  it.each([
+    ["shared-vault", "Shared-vault pages"],
+    ["page-too-large", "256 KiB"],
+    ["generated-page", "generated report or navigation page"],
+  ])(
+    "explains why a Wiki page cannot be deleted: %s",
+    async (deletionUnavailableReason, message) => {
+      const request = vi
+        .fn()
+        .mockResolvedValue({ path: "page.md", content: "Page", deletionUnavailableReason });
+      const element = createDialog(request, "wiki");
+      await waitForFast(() =>
+        expect(element.querySelector("[role=alert]")?.textContent).toContain(message),
+      );
+      expect(element.querySelector<HTMLButtonElement>("button.danger")?.disabled).toBe(true);
+    },
+  );
+  it.each([false, true])(
+    "deletes the resolved Wiki page with its full-file hash (partial preview: %s)",
+    async (truncated) => {
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce({
+          path: "concepts/runbook.md",
+          content: "Wiki body",
+          contentHash: "raw-file-hash",
+          truncated,
+        })
+        .mockResolvedValueOnce({ deleted: true, indexesRefreshed: true });
+      const element = createDialog(request, "wiki");
+      const deleted = vi.fn();
+      element.addEventListener("memory-deleted", deleted);
+      await waitForFast(() => expect(element.querySelector("pre")?.textContent).toBe("Wiki body"));
+      if (truncated) {
+        expect(element.textContent).toContain("Only part of the page is shown");
+      }
+      expect(request).toHaveBeenCalledExactlyOnceWith("wiki.get", {
+        agentId: "personal-agent",
+        lookup: "memory/runbook.md",
+        fromLine: 1,
+        lineCount: 5000,
+      });
+      element.querySelector<HTMLButtonElement>("button.danger")!.click();
+      await waitForFast(() => expect(deleted).toHaveBeenCalledOnce());
+      expect(request).toHaveBeenLastCalledWith("wiki.delete", {
+        agentId: "personal-agent",
+        path: "concepts/runbook.md",
+        expectedContentHash: "raw-file-hash",
+      });
+      expect(request.mock.calls.some(([method]) => method === "memory.delete")).toBe(false);
+    },
+  );
+
+  it("invalidates a memory preview immediately when its target changes to Wiki", async () => {
+    const request = vi.fn().mockResolvedValue(preview());
+    const element = createDialog(request);
+    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    element.kind = "wiki";
+    element.querySelector<HTMLButtonElement>("button.danger")!.click();
+    expect(request.mock.calls.some(([method]) => method.endsWith(".delete"))).toBe(false);
+    await element.updateComplete;
+  });
+
+  it.each([null, { path: "concepts/page.md", content: "No verifiable raw hash" }])(
+    "does not delete an unverifiable Wiki preview",
+    async (result) => {
+      const request = vi.fn().mockResolvedValue(result);
+      const element = createDialog(request, "wiki");
+      await waitForFast(() => expect(element.querySelector("[role=alert]")).not.toBeNull());
+      expect(element.querySelector<HTMLButtonElement>("button.danger")?.disabled).toBe(true);
+    },
+  );
   it("shows a fresh preview and sends its hash only after explicit deletion", async () => {
     const request = vi
       .fn()

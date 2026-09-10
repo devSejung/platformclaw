@@ -20,6 +20,7 @@ vi.mock("../../../components/confirm-dialog.ts", () => ({ showConfirmDialog: vi.
 type TestMemoryPanel = HTMLElement & {
   context: ApplicationContext;
   agentId: string;
+  refreshRevision: number;
   dreaming: DreamingState;
   viewState: DreamingViewState;
   toggleConfirmOpen: boolean;
@@ -133,6 +134,24 @@ afterEach(() => {
 });
 
 describe("AgentMemoryPanel gateway lifecycle", () => {
+  it("clears an obsolete preview and reloads after a confirmed external deletion", async () => {
+    const page = createPage(contextWithGateway({} as GatewayBrowserClient, true));
+    document.body.append(page);
+    await page.updateComplete;
+    page.viewState.wikiPreviewOpen = true;
+    page.viewState.wikiPreviewContent = "Deleted page";
+    page.viewState.wikiLayout = "graph";
+    const oldState = page.dreaming;
+    vi.mocked(page.loadAll).mockClear();
+    page.refreshRevision++;
+    await page.updateComplete;
+    expect(page.viewState.wikiPreviewOpen).toBe(false);
+    expect(page.viewState.wikiPreviewContent).toBe("");
+    expect(page.viewState.wikiLayout).toBe("graph");
+    expect(page.dreaming).not.toBe(oldState);
+    expect(page.loadAll).toHaveBeenCalledOnce();
+  });
+
   it("does not run a confirmed dreaming action after the selected agent changes", async () => {
     const confirmation = deferred<boolean>();
     vi.mocked(showConfirmDialog).mockReturnValueOnce(confirmation.promise);

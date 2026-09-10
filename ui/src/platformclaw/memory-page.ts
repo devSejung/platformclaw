@@ -19,9 +19,10 @@ import "../pages/config/memory-memories.ts";
 import "./memory-organization.ts";
 import "../pages/config/memory-promotions.ts";
 import { isExpandableResult, type SearchResult } from "../pages/config/memory-memories-view.ts";
+import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import "./memory-item-menu.ts";
 import "./memory-delete-dialog.ts";
-import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
+import type { MemoryMenuAction } from "./memory-item-menu.ts";
 
 type PersonalMemoryTab = "overview" | "memory" | "wiki" | "organization" | "dreaming";
 
@@ -60,7 +61,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     trigger: HTMLElement | null;
   } | null = null;
   @state() private promotionLookup = "";
-  @state() private deletePath = "";
+  @state() private deleteTarget: { kind: "memory" | "wiki"; path: string } | null = null;
   @state() private actionMessage = "";
   @state() private refreshRevision = 0;
   private readonly subscriptions = new SubscriptionsController(this).watch(
@@ -83,7 +84,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     if (changed.has("agentId") || this.context.gateway.snapshot.phase !== "connected") {
       this.menu = null;
       this.promotionLookup = "";
-      this.deletePath = "";
+      this.deleteTarget = null;
       this.actionMessage = "";
     }
     if (changed.has("initialTab") && this.activeTab !== this.initialTab) {
@@ -99,20 +100,30 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     });
   }
 
-  private canAct(kind: "memory" | "wiki") {
+  private availableActions(kind: "memory" | "wiki"): MemoryMenuAction[] {
     const gateway = this.context.gateway.snapshot;
-    const methods =
-      kind === "memory"
-        ? ["memory.delete", "agents.workspace.get"]
-        : ["platformclaw.memory.promotion.submit", "platformclaw.memory.lifecycle", "wiki.get"];
-    return (
-      gateway.phase === "connected" &&
-      methods.every((method) => isGatewayMethodAdvertised(gateway, method) === true)
-    );
+    if (gateway.phase !== "connected") {
+      return [];
+    }
+    const has = (methods: string[]) =>
+      methods.every((method) => isGatewayMethodAdvertised(gateway, method) === true);
+    const actions: MemoryMenuAction[] = [];
+    if (
+      kind === "wiki" &&
+      has(["platformclaw.memory.promotion.submit", "platformclaw.memory.lifecycle", "wiki.get"])
+    ) {
+      actions.push("share");
+    }
+    if (
+      has(kind === "wiki" ? ["wiki.delete", "wiki.get"] : ["memory.delete", "agents.workspace.get"])
+    ) {
+      actions.push("delete");
+    }
+    return actions;
   }
 
   private openActions(kind: "memory" | "wiki", lookup: string, event: MouseEvent) {
-    if (!this.canAct(kind)) {
+    if (this.availableActions(kind).length === 0) {
       return;
     }
     event.preventDefault();
@@ -137,15 +148,16 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
             .x=${menu.x}
             .y=${menu.y}
             .trigger=${menu.trigger}
-            .action=${menu.kind === "memory" ? "delete" : "share"}
+            .actions=${this.availableActions(menu.kind)}
+            .kind=${menu.kind}
             .onClose=${() => (this.menu = null)}
-            .onAction=${() => {
-              if (!this.canAct(menu.kind)) {
+            .onAction=${(action: MemoryMenuAction) => {
+              if (!this.availableActions(menu.kind).includes(action)) {
                 return;
               }
               this.actionMessage = "";
-              if (menu.kind === "memory") {
-                this.deletePath = menu.lookup;
+              if (action === "delete") {
+                this.deleteTarget = { kind: menu.kind, path: menu.lookup };
               } else {
                 this.promotionLookup = menu.lookup;
               }
@@ -180,21 +192,30 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
               ></openclaw-memory-promotions></div
           ></openclaw-modal-dialog>`
         : nothing}
-      ${this.deletePath
+      ${this.deleteTarget
         ? html`<platformclaw-memory-delete-dialog
             .client=${gateway.client}
             .agentId=${this.agentId ?? ""}
-            .path=${this.deletePath}
-            @delete-cancel=${() => (this.deletePath = "")}
+            .path=${this.deleteTarget.path}
+            .kind=${this.deleteTarget.kind}
+            @delete-cancel=${() => (this.deleteTarget = null)}
             @memory-deleted=${(
-              event: CustomEvent<{ indexesRefreshed: boolean; wikiRefreshed: boolean }>,
+              event: CustomEvent<{
+                kind: "memory" | "wiki";
+                indexesRefreshed: boolean;
+                wikiRefreshed?: boolean;
+              }>,
             ) => {
-              this.deletePath = "";
+              this.deleteTarget = null;
               this.refreshRevision++;
               this.actionMessage = t(
-                event.detail.indexesRefreshed && event.detail.wikiRefreshed
-                  ? "platformClaw.memory.deleted"
-                  : "platformClaw.memory.deletedRefreshPending",
+                event.detail.kind === "wiki"
+                  ? event.detail.indexesRefreshed
+                    ? "platformClaw.wiki.deleted"
+                    : "platformClaw.wiki.deletedRefreshPending"
+                  : event.detail.indexesRefreshed && event.detail.wikiRefreshed
+                    ? "platformClaw.memory.deleted"
+                    : "platformClaw.memory.deletedRefreshPending",
               );
             }}
           ></platformclaw-memory-delete-dialog>`
@@ -277,7 +298,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
             available: (result: SearchResult) =>
               isExpandableResult(result) &&
               (result.source === "memory" || result.source === "wiki") &&
-              this.canAct(result.source),
+              this.availableActions(result.source).length > 0,
             open: (result: SearchResult, event: MouseEvent) =>
               this.openActions(result.source as "memory" | "wiki", result.path, event),
           }}
@@ -287,7 +308,8 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
         return html`<openclaw-agent-memory-panel
           .agentId=${this.agentId ?? ""}
           surface="wiki"
-          .wikiActions=${this.canAct("wiki")
+          .refreshRevision=${this.refreshRevision}
+          .wikiActions=${this.availableActions("wiki").length > 0
             ? {
                 label: t("platformClaw.memory.actions"),
                 open: (lookup: string, event: MouseEvent) =>
