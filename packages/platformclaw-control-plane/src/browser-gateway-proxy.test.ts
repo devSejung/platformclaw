@@ -570,25 +570,30 @@ describe("BrowserGatewayProxy", () => {
     ).rejects.toMatchObject({ code: "method-not-allowed" });
   });
 
-  it("suppresses command interpretation and external delivery for browser chat", async () => {
+  it("preserves steering context while suppressing commands and external delivery", async () => {
     const { binding, proxy, request, token, user } = await setup();
     const key = `agent:${binding.agentId}:main`;
-    request.mockResolvedValueOnce({ status: "started", runId: "run-1" });
+    request.mockResolvedValueOnce({ status: "in_flight", runId: "run-1" });
 
-    await proxy.request(token, "chat.send", {
-      sessionKey: key,
-      message: "hello",
-      deliver: true,
-      idempotencyKey: "request-1",
-      expectedLeafEntryId: "leaf-1",
-      replyToId: "message-1",
-      __controlUiReconnectResume: true,
-    });
+    await expect(
+      proxy.request(token, "chat.send", {
+        sessionKey: key,
+        message: "hello",
+        deliver: true,
+        idempotencyKey: "request-1",
+        queueMode: "steer",
+        expectedLeafEntryId: "leaf-1",
+        replyToId: "message-1",
+        __controlUiReconnectResume: true,
+      }),
+    ).resolves.toEqual({ status: "in_flight", runId: "run-1" });
 
     expect(request).toHaveBeenCalledWith(
       "chat.send",
       expect.objectContaining({
+        agentId: binding.agentId,
         deliver: false,
+        queueMode: "steer",
         expectedLeafEntryId: "leaf-1",
         replyToId: "message-1",
         senderAttribution: expect.objectContaining({ id: user.accountId, profileId: user.id }),
