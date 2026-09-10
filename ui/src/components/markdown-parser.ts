@@ -342,6 +342,71 @@ export function createMarkdownParser(): MarkdownIt {
     }
   });
 
+  markdownParser.core.ruler.after("linkify", "wiki-links", (state) => {
+    const env = state.env as Partial<MarkdownRenderEnv> | undefined;
+    if (env?.wikiLinks !== true) {
+      return;
+    }
+    for (const blockToken of state.tokens) {
+      if (blockToken.type !== "inline" || !blockToken.children) {
+        continue;
+      }
+      const children = blockToken.children;
+      let linkDepth = 0;
+      for (let index = 0; index < children.length; index++) {
+        const token = children[index];
+        if (!token) {
+          continue;
+        }
+        if (token.type === "link_open") {
+          linkDepth += 1;
+          continue;
+        }
+        if (token.type === "link_close") {
+          linkDepth = Math.max(0, linkDepth - 1);
+          continue;
+        }
+        if (linkDepth > 0 || token.type !== "text") {
+          continue;
+        }
+        const replacements: typeof children = [];
+        let cursor = 0;
+        for (const match of token.content.matchAll(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/gu)) {
+          const matched = match[0];
+          const target = match[1]?.trim();
+          if (!target || match.index === undefined) {
+            continue;
+          }
+          if (match.index > cursor) {
+            const leading = new state.Token("text", "", 0);
+            leading.content = token.content.slice(cursor, match.index);
+            replacements.push(leading);
+          }
+          const open = new state.Token("link_open", "a", 1);
+          open.markup = "wiki-link";
+          open.attrSet("href", target);
+          open.attrSet("data-wiki-lookup", target);
+          const label = new state.Token("text", "", 0);
+          label.content = match[2]?.trim() || target;
+          const close = new state.Token("link_close", "a", -1);
+          close.markup = "wiki-link";
+          replacements.push(open, label, close);
+          cursor = match.index + matched.length;
+        }
+        if (replacements.length === 0) {
+          continue;
+        }
+        if (cursor < token.content.length) {
+          const trailing = new state.Token("text", "", 0);
+          trailing.content = token.content.slice(cursor);
+          replacements.push(trailing);
+        }
+        children.splice(index, 1, ...replacements);
+        index += replacements.length - 1;
+      }
+    }
+  });
+
   // Enable GFM task list checkboxes (- [x] / - [ ]).
   // enabled: false keeps checkboxes read-only (disabled="") — task lists in
   // chat messages are display-only, not interactive forms.

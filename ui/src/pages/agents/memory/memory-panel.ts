@@ -44,6 +44,7 @@ import {
   renderDreaming,
   renderWikiKnowledge,
   resetWikiPreview,
+  wikiDraftDirty,
   type DreamingViewState,
   type WikiGraphRenderer,
 } from "./view.ts";
@@ -89,6 +90,13 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   private gatewayBindingEpoch = 0;
   private gatewayEpoch = 0;
   private hasBoundGatewaySource = false;
+  private readonly preventDirtyWikiUnload = (event: BeforeUnloadEvent) => {
+    if (!wikiDraftDirty(this.viewState)) {
+      return;
+    }
+    event.preventDefault();
+    event.returnValue = "";
+  };
   private readonly subscriptions = new SubscriptionsController(this)
     .effect(
       () => this.context?.gateway,
@@ -131,7 +139,13 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
     }
   }
 
+  override connectedCallback() {
+    super.connectedCallback();
+    window.addEventListener("beforeunload", this.preventDirtyWikiUnload);
+  }
+
   override disconnectedCallback() {
+    window.removeEventListener("beforeunload", this.preventDirtyWikiUnload);
     this.subscriptions.clear();
     this.gatewayBindingEpoch += 1;
     this.gatewayEpoch += 1;
@@ -471,10 +485,8 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
       return null;
     }
     const agentId = scope.state.selectedAgentId?.trim() || null;
-    const payload = await client.request("wiki.get", {
+    const payload = await client.request("wiki.document.get", {
       lookup,
-      fromLine: 1,
-      lineCount: 5000,
       ...(agentId ? { agentId } : {}),
     });
     if (
@@ -484,6 +496,48 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
       return null;
     }
     return readWikiPagePreview(payload, lookup);
+  }
+
+  private async saveWikiPage(params: {
+    path: string;
+    editMode: "body" | "notes";
+    content: string;
+    expectedRevision: string;
+  }): Promise<WikiPagePreview | null> {
+    const scope = this.captureTaskScope();
+    const client = scope?.state.client;
+    if (!scope || !client || !scope.state.connected) {
+      return null;
+    }
+    const agentId = scope.state.selectedAgentId?.trim() || null;
+    const saveResult = await client.request<{
+      saved: boolean;
+      indexesRefreshed: boolean;
+    }>("wiki.document.save", {
+      ...params,
+      ...(agentId ? { agentId } : {}),
+    });
+    if (
+      !this.isTaskScopeCurrent(scope) ||
+      (scope.state.selectedAgentId?.trim() || null) !== agentId
+    ) {
+      return null;
+    }
+    const payload = await client.request("wiki.document.get", {
+      lookup: params.path,
+      ...(agentId ? { agentId } : {}),
+    });
+    if (
+      !this.isTaskScopeCurrent(scope) ||
+      (scope.state.selectedAgentId?.trim() || null) !== agentId
+    ) {
+      return null;
+    }
+    void this.refreshWikiData(loadWikiOverview);
+    if (this.surface === "wiki" && this.viewState.wikiLayout === "graph") {
+      void this.loadWikiGraphView();
+    }
+    return { ...readWikiPagePreview(payload, params.path), ...saveResult };
   }
 
   private async refreshWikiData(task: (state: DreamingState) => Promise<void>) {
@@ -628,6 +682,7 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
             "doctor.memory.repairDreamingArtifacts",
             "operator.write",
           ),
+          canEditWiki: isGatewayMethodAdvertised(dreaming, "wiki.document.save") === true,
         },
         viewState: this.viewState,
         active: dreamingOn,
@@ -666,6 +721,14 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
         onSelectWikiGraph: () => void this.loadWikiGraphView(),
         onOpenConfig: () => void this.context.runtimeConfig.openFile(),
         onOpenWikiPage: (lookup) => this.openWikiPage(lookup),
+        onSaveWikiPage: (params) => this.saveWikiPage(params),
+        onConfirmWikiDiscard: () =>
+          showConfirmDialog({
+            title: t("dreaming.wiki.discardTitle"),
+            message: t("dreaming.wiki.discardDescription"),
+            confirmLabel: t("dreaming.wiki.discard"),
+            danger: true,
+          }),
         wikiActions: this.wikiActions,
         onBackfillDiary: () => void this.runDreamingTask(backfillDreamDiary),
         onCopyDreamingArchivePath: () => void this.runDreamingTask(copyDreamingArchivePath),

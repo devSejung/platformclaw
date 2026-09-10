@@ -1,6 +1,7 @@
 import { formatErrorMessage } from "@openclaw/normalization-core";
 import { html, nothing, svg, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type {
   OrganizationMemoryDocument,
   OrganizationMemoryGraph,
@@ -8,6 +9,8 @@ import type {
 } from "../../../packages/platformclaw-control-plane/src/contracts.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import { renderHubTabs } from "../components/hub-tabs.ts";
+import { toSanitizedMarkdownHtml } from "../components/markdown.ts";
+import "../styles/sidebar-markdown.css";
 import {
   endSvgGraphPointer,
   getSvgGraphInteraction,
@@ -223,7 +226,15 @@ class PlatformClawOrganizationMemoryGraph extends OpenClawLightDomElement {
                       · ${t(`platformClaw.memory.graph.${verification.sourceStatus}`)}
                     </p>`
                   : html`<p>${t("platformClaw.memory.graph.unverified")}</p>`}
-                <pre tabindex="0">${this.preview?.content ?? ""}</pre>`}
+                <article class="sidebar-markdown wiki-document__reader">
+                  ${unsafeHTML(
+                    toSanitizedMarkdownHtml(this.preview?.content ?? "", {
+                      codeBlockChrome: "none",
+                      fileLinks: false,
+                      interactiveImages: false,
+                    }),
+                  )}
+                </article>`}
       </div>
     </openclaw-modal-dialog>`;
   }

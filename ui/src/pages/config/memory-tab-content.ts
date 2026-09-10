@@ -24,7 +24,7 @@ export function buildMemoryTabContent(snapshot: GatewaySnapshot, agentId: string
       .methodAdvertised=${isGatewayMethodAdvertised(snapshot, "platformclaw.memory.lifecycle") ===
       true}
       .wikiSearchAdvertised=${isGatewayMethodAdvertised(snapshot, "wiki.search") === true}
-      .wikiGetAdvertised=${isGatewayMethodAdvertised(snapshot, "wiki.get") === true}
+      .wikiGetAdvertised=${isGatewayMethodAdvertised(snapshot, "wiki.document.get") === true}
       .agentId=${agentId}
     ></openclaw-memory-promotions>`,
     dreams: html`<openclaw-memory-dreaming .agentId=${agentId}></openclaw-memory-dreaming>`,

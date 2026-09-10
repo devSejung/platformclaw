@@ -110,7 +110,11 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
         lineCount: 200,
       }),
     );
-    await waitForFast(() => expect(element.textContent).toContain("# Shared guidance"));
+    await waitForFast(() =>
+      expect(element.querySelector(".wiki-document__reader h1")?.textContent).toBe(
+        "Shared guidance",
+      ),
+    );
     expect(element.querySelector("[data-memory-verification]")?.textContent).toContain("3");
     expect(element.querySelector("[data-memory-verification]")?.textContent).toContain("2");
   });

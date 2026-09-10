@@ -22,6 +22,8 @@ const WIKI_METHODS = new Set([
   "doctor.memory.resetGroundedShortTerm",
   "doctor.memory.status",
   "wiki.delete",
+  "wiki.document.get",
+  "wiki.document.save",
   "wiki.get",
   "wiki.graph",
   "wiki.importInsights",
@@ -349,6 +351,29 @@ export function prepareBrowserWikiRequest(params: {
       return params.fail("Reload the complete Wiki page before deleting it");
     }
     prepared.expectedContentHash = params.request.expectedContentHash;
+  } else if (params.method === "wiki.document.save") {
+    prepared.path = deletionPath(params.request.path, params.fail);
+    const editMode = optionalEnum(
+      params.request.editMode,
+      ["body", "notes"],
+      "wiki edit mode",
+      params.fail,
+    );
+    if (!editMode || typeof params.request.content !== "string") {
+      return params.fail("Wiki save requires an editable field and Markdown content");
+    }
+    if (params.request.content.length > MAX_CONTENT_CHARS) {
+      return params.fail("Wiki Markdown content is too large");
+    }
+    if (
+      typeof params.request.expectedRevision !== "string" ||
+      !CONTENT_HASH.test(params.request.expectedRevision)
+    ) {
+      return params.fail("Reload the complete Wiki document before saving");
+    }
+    prepared.editMode = editMode;
+    prepared.content = params.request.content;
+    prepared.expectedRevision = params.request.expectedRevision;
   } else if (params.method === "doctor.memory.status" && params.request.probe !== undefined) {
     if (typeof params.request.probe !== "boolean") {
       return params.fail("memory status probe must be a boolean");
@@ -382,19 +407,21 @@ export function prepareBrowserWikiRequest(params: {
     if (mode) {
       prepared.mode = mode;
     }
-  } else if (params.method === "wiki.get") {
+  } else if (params.method === "wiki.get" || params.method === "wiki.document.get") {
     const lookup = typeof params.request.lookup === "string" ? params.request.lookup.trim() : "";
     if (!lookup || lookup.length > MAX_QUERY_CHARS) {
       return params.fail(`wiki lookup must contain 1-${MAX_QUERY_CHARS} characters`);
     }
     prepared.lookup = lookup;
-    for (const [key, max] of [
-      ["fromLine", Number.MAX_SAFE_INTEGER],
-      ["lineCount", MAX_PAGE_LINES],
-    ] as const) {
-      const value = positiveInteger(params.request[key], key, max, params.fail);
-      if (value !== undefined) {
-        prepared[key] = value;
+    if (params.method === "wiki.get") {
+      for (const [key, max] of [
+        ["fromLine", Number.MAX_SAFE_INTEGER],
+        ["lineCount", MAX_PAGE_LINES],
+      ] as const) {
+        const value = positiveInteger(params.request[key], key, max, params.fail);
+        if (value !== undefined) {
+          prepared[key] = value;
+        }
       }
     }
   }
@@ -426,6 +453,78 @@ export function projectBrowserWikiResult(params: {
       path: payload.path,
       deleted: true,
       indexesRefreshed: payload.indexesRefreshed,
+    };
+  }
+  if (params.method === "wiki.document.save") {
+    const payload = failObject(params.result, "wiki document save", params.fail);
+    if (
+      deletionPath(payload.path, params.fail) !== params.request.path ||
+      typeof payload.saved !== "boolean" ||
+      typeof payload.indexesRefreshed !== "boolean" ||
+      typeof payload.revision !== "string" ||
+      !CONTENT_HASH.test(payload.revision)
+    ) {
+      return params.fail("Gateway returned invalid Wiki save result");
+    }
+    return {
+      path: payload.path,
+      saved: payload.saved,
+      indexesRefreshed: payload.indexesRefreshed,
+      revision: payload.revision,
+    };
+  }
+  if (params.method === "wiki.document.get") {
+    if (params.result === null) {
+      return null;
+    }
+    const item = failObject(params.result, "wiki document", params.fail);
+    const editMode =
+      item.editMode === null
+        ? undefined
+        : optionalEnum(item.editMode, ["body", "notes"], "wiki edit mode", params.fail);
+    const readOnlyReason = optionalEnum(
+      item.readOnlyReason,
+      ["generated-report", "source-managed", "page-too-large"],
+      "wiki read-only reason",
+      params.fail,
+    );
+    const result: JsonObject = {
+      path: wikiPath(item.path, "wiki document path", params.fail),
+      title: text(item.title, "wiki document title", params.fail),
+      kind: text(item.kind, "wiki document kind", params.fail, 256),
+      displayContent: text(
+        item.displayContent,
+        "wiki display content",
+        params.fail,
+        MAX_CONTENT_CHARS,
+      ),
+      sourceContent: text(
+        item.sourceContent,
+        "wiki source content",
+        params.fail,
+        MAX_CONTENT_CHARS,
+      ),
+      editMode: editMode ?? null,
+      ...(readOnlyReason ? { readOnlyReason } : {}),
+    };
+    if (editMode) {
+      result.editableContent = text(
+        item.editableContent,
+        "wiki editable content",
+        params.fail,
+        MAX_CONTENT_CHARS,
+      );
+      result.revision =
+        typeof item.revision === "string" && CONTENT_HASH.test(item.revision)
+          ? item.revision
+          : params.fail("Gateway returned Wiki edit data without a valid revision");
+    }
+    const sourceType = optionalText(item.sourceType, "wiki source type", params.fail, 256);
+    const updatedAt = optionalText(item.updatedAt, "wiki updatedAt", params.fail, 256);
+    return {
+      ...result,
+      ...(sourceType ? { sourceType } : {}),
+      ...(updatedAt ? { updatedAt } : {}),
     };
   }
   if (DREAM_ACTION_METHODS.has(params.method)) {

@@ -1,10 +1,13 @@
 import { formatErrorMessage } from "@openclaw/normalization-core";
 import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import "../components/modal-dialog.ts";
+import { toSanitizedMarkdownHtml } from "../components/markdown.ts";
 import { redactToolDetail } from "../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
+import "../styles/sidebar-markdown.css";
 import { platformClawT as t } from "./i18n.ts";
 
 class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
@@ -223,7 +226,15 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
           : nothing}
         ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
         ${this.contentHash
-          ? html`<pre class="memory-memories__file" tabindex="0">${this.content}</pre>`
+          ? html`<article class="sidebar-markdown wiki-document__reader">
+              ${unsafeHTML(
+                toSanitizedMarkdownHtml(this.content, {
+                  codeBlockChrome: "none",
+                  fileLinks: false,
+                  interactiveImages: false,
+                }),
+              )}
+            </article>`
           : nothing}
         <div class="exec-approval-actions">
           <button class="btn" ?disabled=${this.deleting} @click=${() => this.cancel()}>

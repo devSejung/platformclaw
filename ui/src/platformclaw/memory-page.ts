@@ -193,7 +193,8 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
                   "platformclaw.memory.lifecycle",
                 ) === true}
                 .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search") === true}
-                .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.get") === true}
+                .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.document.get") ===
+                true}
                 .agentId=${this.agentId}
                 .initialPersonalLookup=${this.promotionLookup}
                 .formOnly=${true}
@@ -302,7 +303,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           .browseEnabled=${true}
           .browseListAdvertised=${isGatewayMethodAdvertised(gateway, "agents.workspace.list")}
           .personalDetailAdvertised=${isGatewayMethodAdvertised(gateway, "agents.workspace.get")}
-          .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.get")}
+          .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.document.get")}
           .organizationGetAdvertised=${isGatewayMethodAdvertised(
             gateway,
             "platformclaw.memory.get",
@@ -344,7 +345,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           .graphAdvertised=${isGatewayMethodAdvertised(gateway, "platformclaw.memory.graph") ===
           true}
           .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search") === true}
-          .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.get") === true}
+          .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.document.get") === true}
           .organizationGetAdvertised=${isGatewayMethodAdvertised(
             gateway,
             "platformclaw.memory.get",

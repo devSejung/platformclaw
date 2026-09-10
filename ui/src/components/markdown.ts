@@ -75,6 +75,7 @@ const allowedAttrs = [
   "data-code-encoding",
   "data-file-line",
   "data-file-path",
+  "data-wiki-lookup",
   "type",
   "aria-label",
   "role",
@@ -539,7 +540,7 @@ export function toSanitizedMarkdownHtml(
   }
   const renderInput = isMarkdownBlockArtText(rawInput) ? rawInput : input;
   const cacheable = input.length <= MARKDOWN_CACHE_MAX_CHARS;
-  const cacheKey = `${i18n.getLocale()}\0${renderOptions.assistantTranscriptRoleHeaders}\0${renderOptions.codeBlockChrome}\0${renderOptions.fileLinks}\0${renderOptions.interactiveImages}\0${renderInput}`;
+  const cacheKey = `${i18n.getLocale()}\0${renderOptions.assistantTranscriptRoleHeaders}\0${renderOptions.codeBlockChrome}\0${renderOptions.fileLinks}\0${renderOptions.interactiveImages}\0${renderOptions.wikiLinks}\0${renderInput}`;
   if (cacheable) {
     const cached = getCachedMarkdown(cacheKey);
     if (cached !== null) {

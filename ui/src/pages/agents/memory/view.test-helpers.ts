@@ -10,6 +10,7 @@ const fullDreamingViewAccess: Parameters<typeof renderDreaming>[0]["access"] = {
   canResetDiary: true,
   canResetGroundedShortTerm: true,
   canRepairDreamingArtifacts: true,
+  canEditWiki: true,
 };
 
 export function buildDreamingViewProps(
@@ -211,6 +212,8 @@ export function buildDreamingViewProps(
     onSelectWikiGraph: () => {},
     onOpenConfig: () => {},
     onOpenWikiPage: async () => null,
+    onSaveWikiPage: async () => null,
+    onConfirmWikiDiscard: async () => true,
     onBackfillDiary: () => {},
     onCopyDreamingArchivePath: () => {},
     onDedupeDreamDiary: () => {},

@@ -316,6 +316,8 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.promotions.approvedClaimEvidence": "Approved organization claim",
   "memoryPage.promotions.defaultReason": "Share this reviewed knowledge with the organization.",
   "memoryPage.promotions.proposedText": "Shared knowledge",
+  "memoryPage.promotions.write": "Write",
+  "memoryPage.promotions.preview": "Preview",
   "memoryPage.promotions.revision": "revision {revision}",
   "memoryPage.promotions.statusPending": "Pending",
   "memoryPage.promotions.statusApproved": "Approved",

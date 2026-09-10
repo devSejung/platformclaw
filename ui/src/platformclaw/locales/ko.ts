@@ -332,6 +332,8 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.promotions.chooseTarget": "승격 대상 선택",
   "memoryPage.promotions.textPlaceholder": "공유할 지식",
   "memoryPage.promotions.proposedText": "공유할 지식",
+  "memoryPage.promotions.write": "작성",
+  "memoryPage.promotions.preview": "미리보기",
   "memoryPage.promotions.evidencePlaceholder": "근거 또는 출처를 한 줄에 하나씩 입력",
   "memoryPage.promotions.reasonPlaceholder": "이 지식을 승격하는 이유",
   "memoryPage.promotions.submit": "승격 요청",

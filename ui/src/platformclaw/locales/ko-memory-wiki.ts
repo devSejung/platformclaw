@@ -1,4 +1,21 @@
 export const memoryWikiTranslations: Readonly<Record<string, string>> = {
+  "dreaming.wiki.documentActions": "문서 작업",
+  "dreaming.wiki.edit": "편집",
+  "dreaming.wiki.editNotes": "Notes 편집",
+  "dreaming.wiki.viewSource": "원문 보기",
+  "dreaming.wiki.backToPreview": "미리보기로 돌아가기",
+  "dreaming.wiki.write": "쓰기",
+  "dreaming.wiki.preview": "미리보기",
+  "dreaming.wiki.saved": "저장했습니다. 서버의 최신 문서를 표시합니다.",
+  "dreaming.wiki.savedIndexPending":
+    "문서는 저장되었습니다. 검색 및 Graph 갱신은 보류 중이며 새로고침하면 다시 시도합니다.",
+  "dreaming.wiki.saveReloadFailed": "문서는 저장했지만 최신 버전을 다시 불러오지 못했습니다.",
+  "dreaming.wiki.sourceManaged": "원본 내용은 동기화로 관리됩니다. Notes만 편집할 수 있습니다.",
+  "dreaming.wiki.generatedReadOnly": "자동 생성 보고서는 읽기 전용이며 다음 컴파일에서 교체됩니다.",
+  "dreaming.wiki.pageTooLargeReadOnly": "안전한 브라우저 편집 범위를 넘는 큰 문서입니다.",
+  "dreaming.wiki.discardTitle": "Wiki 변경 사항을 버릴까요?",
+  "dreaming.wiki.discardDescription": "저장하지 않은 Markdown 변경 사항이 사라집니다.",
+  "dreaming.wiki.discard": "변경 사항 버리기",
   "platformClaw.wiki.deleteGeneratedUnavailable":
     "자동 생성된 보고서 또는 탐색 페이지입니다. 원본 Wiki 페이지를 삭제하세요.",
   "platformClaw.wiki.deleteSharedUnavailable":

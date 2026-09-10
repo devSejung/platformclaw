@@ -286,10 +286,8 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
 
     await page.openWikiPage("support.md");
 
-    expect(request).toHaveBeenCalledWith("wiki.get", {
+    expect(request).toHaveBeenCalledWith("wiki.document.get", {
       lookup: "support.md",
-      fromLine: 1,
-      lineCount: 5000,
       agentId: "support",
     });
   });

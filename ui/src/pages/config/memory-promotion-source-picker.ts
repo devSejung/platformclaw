@@ -1,9 +1,12 @@
 import { formatErrorMessage } from "@openclaw/normalization-core";
 import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
+import "../../styles/sidebar-markdown.css";
 import { loadPlatformClawLocale, platformClawT as t } from "../../platformclaw/i18n.ts";
 
 type WikiSearchResult = {
@@ -17,8 +20,9 @@ type WikiPage = {
   id?: string;
   path: string;
   title?: string;
-  content: string;
+  content?: string;
   truncated?: boolean;
+  displayContent?: string;
 };
 
 export type PersonalWikiSourceSelected = {
@@ -135,11 +139,9 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
     this.loading = true;
     this.error = null;
     try {
-      const page = await this.client.request<WikiPage | null>("wiki.get", {
+      const page = await this.client.request<WikiPage | null>("wiki.document.get", {
         agentId: this.agentId,
         lookup,
-        fromLine: 1,
-        lineCount: 5_000,
       });
       if (this.selectionRequest !== request) {
         return;
@@ -147,7 +149,7 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
       if (!page) {
         throw new Error(t("memoryPage.promotions.sourceNotFound"));
       }
-      if (page.truncated) {
+      if (page.truncated || typeof page.displayContent !== "string") {
         throw new Error(t("memoryPage.promotions.sourceIncomplete"));
       }
       this.selected = page;
@@ -158,7 +160,7 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
           detail: {
             lookup: page.id ?? page.path,
             title: page.title ?? page.path,
-            content: page.content,
+            content: page.displayContent,
             path: page.path,
           },
         }),
@@ -236,7 +238,18 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
       ${this.selected
         ? html`<article class="memory-source-picker__preview">
             <h5>${t("memoryPage.promotions.sourcePreview")}: ${this.selected.title}</h5>
-            <pre>${this.selected.content}</pre>
+            <article class="sidebar-markdown wiki-document__reader">
+              ${unsafeHTML(
+                toSanitizedMarkdownHtml(
+                  this.selected.displayContent ?? this.selected.content ?? "",
+                  {
+                    codeBlockChrome: "none",
+                    fileLinks: false,
+                    interactiveImages: false,
+                  },
+                ),
+              )}
+            </article>
           </article>`
         : nothing}
     </section>`;

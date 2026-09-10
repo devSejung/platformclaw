@@ -131,13 +131,37 @@ describe("MemoryPromotionsElement", () => {
     },
   );
 
+  it("keeps the share draft separate while toggling Write and sanitized Preview", async () => {
+    const request = vi.fn(async (method: string) =>
+      method === "platformclaw.memory.lifecycle" ? snapshot : {},
+    );
+    const element = createElement(request);
+    await waitForFast(() => expect(element.querySelector("[role='tab']")).not.toBeNull());
+    const textarea = element.querySelector<HTMLTextAreaElement>(
+      ".memory-promotions__field textarea",
+    )!;
+    textarea.value = "# Draft\n\n**Share me**\n\n<script>window.pwned = true</script>";
+    textarea.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    [...element.querySelectorAll<HTMLButtonElement>("[role='tab']")]
+      .find((button) => button.textContent?.trim() === "Preview")
+      ?.click();
+    await element.updateComplete;
+    expect(element.querySelector(".memory-promotions__field h1")?.textContent).toBe("Draft");
+    expect(element.querySelector(".memory-promotions__field strong")?.textContent).toBe("Share me");
+    expect(element.querySelector(".memory-promotions__field script")).toBeNull();
+    expect(
+      request.mock.calls.some(([method]) => method.startsWith("platformclaw.memory.promotion.")),
+    ).toBe(false);
+    element.remove();
+  });
+
   it("prefills a fresh source in the modal without submitting and invalidates a failed replacement", async () => {
     const request = vi.fn(async (method: string, params: unknown) => {
       if (method === "platformclaw.memory.lifecycle") {
         return snapshot;
       }
-      if (method === "wiki.get" && (params as { lookup: string }).lookup === "source-id") {
-        return { id: "source-id", path: "recovery.md", content: "Fresh source content" };
+      if (method === "wiki.document.get" && (params as { lookup: string }).lookup === "source-id") {
+        return { id: "source-id", path: "recovery.md", displayContent: "Fresh source content" };
       }
       throw new Error("Page unavailable");
     });
@@ -150,7 +174,7 @@ describe("MemoryPromotionsElement", () => {
       ).toBe("Fresh source content"),
     );
     expect(element.textContent).not.toContain("Needs review");
-    expect(request.mock.calls.filter(([method]) => method === "wiki.get")).toHaveLength(1);
+    expect(request.mock.calls.filter(([method]) => method === "wiki.document.get")).toHaveLength(1);
     expect(
       request.mock.calls.some(([method]) => method.startsWith("platformclaw.memory.promotion.")),
     ).toBe(false);
