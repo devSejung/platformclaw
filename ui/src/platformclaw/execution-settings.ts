@@ -132,7 +132,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.loading = true;
     this.render();
     try {
-      this.settings = await this.request(PLATFORMCLAW_EXECUTION_API_PATH);
+      this.settings = await this.request<ExecutionSettings>(PLATFORMCLAW_EXECUTION_API_PATH);
       this.message = "";
     } catch (error) {
       this.message =
@@ -153,7 +153,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.render();
     try {
       const previousRevision = this.settings?.targetRevision;
-      this.settings = await this.request(path, {
+      this.settings = await this.request<ExecutionSettings>(path, {
         method: "POST",
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
