@@ -1,5 +1,11 @@
+import { createHash } from "node:crypto";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
+import {
+  asBrowserGatewayObject,
+  BrowserGatewayProxyError,
+  type BrowserGatewayProxyOptions,
+} from "./browser-gateway-contracts.js";
+import { projectBrowserWikiResult } from "./browser-gateway-wiki.js";
 import type { OrganizationMemorySearchHit } from "./contracts.js";
 
 type JsonObject = Record<string, unknown>;
@@ -200,6 +206,7 @@ export function prepareBrowserMemoryRequest(params: {
 }): JsonObject | undefined {
   if (
     params.method !== "memory.search" &&
+    params.method !== "memory.delete" &&
     params.method !== "agents.workspace.get" &&
     params.method !== "agents.workspace.list" &&
     params.method !== "platformclaw.memory.get"
@@ -207,6 +214,19 @@ export function prepareBrowserMemoryRequest(params: {
     return undefined;
   }
   params.assertOptionalAgentId(params.request.agentId, params.method);
+  if (params.method === "memory.delete") {
+    const path = canonicalMemoryFilePath(params.request.path);
+    const expectedContentHash = params.request.expectedContentHash;
+    if (
+      !path ||
+      path.split("").some((character) => character.charCodeAt(0) < 32 || character === ":") ||
+      typeof expectedContentHash !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(expectedContentHash)
+    ) {
+      return params.fail("Reload a personal memory Markdown file before deleting it");
+    }
+    return { agentId: params.agentId, path, expectedContentHash };
+  }
   if (params.method === "memory.search") {
     const query = typeof params.request.query === "string" ? params.request.query.trim() : "";
     if (!query || query.length > MAX_QUERY_CHARS) {
@@ -249,6 +269,33 @@ export function prepareBrowserMemoryRequest(params: {
   return path
     ? { agentId: params.agentId, path }
     : params.fail("browser workspace reads are limited to personal memory Markdown files");
+}
+
+export async function refreshDeletedMemory(
+  result: unknown,
+  agentId: string,
+  gateway: BrowserGatewayProxyOptions["gateway"],
+): Promise<JsonObject> {
+  const deletion = asBrowserGatewayObject(result, "memory deletion result");
+  let wikiRefreshed = false;
+  try {
+    // Only a validated deletion reaches this owner. Reconcile the same Agent's
+    // Wiki sources, and retain the committed deletion if that refresh fails.
+    const request = { agentId, forceSync: true };
+    const wiki = projectBrowserWikiResult({
+      method: "wiki.overview",
+      request,
+      result: await gateway.request("wiki.overview", request),
+      agentId,
+      fail: (message) => {
+        throw new BrowserGatewayProxyError("upstream-result-denied", message);
+      },
+    });
+    wikiRefreshed = isRecord(wiki) && wiki.sourceSyncComplete === true;
+  } catch {
+    // Refresh is a separate outcome; it cannot roll back deletion.
+  }
+  return { ...deletion, wikiRefreshed };
 }
 
 export async function requestBrowserOrganizationMemoryGet(params: {
@@ -328,6 +375,7 @@ export function projectBrowserMemoryResult(params: {
 }): JsonObject | undefined {
   if (
     params.method !== "memory.search" &&
+    params.method !== "memory.delete" &&
     params.method !== "agents.workspace.get" &&
     params.method !== "agents.workspace.list"
   ) {
@@ -336,6 +384,21 @@ export function projectBrowserMemoryResult(params: {
   const payload = requireObject(params.result, `${params.method} result`, params.fail);
   if (payload.agentId !== params.agentId) {
     return params.fail("Gateway returned memory outside the browser binding");
+  }
+  if (params.method === "memory.delete") {
+    if (
+      payload.path !== params.request.path ||
+      payload.deleted !== true ||
+      typeof payload.indexesRefreshed !== "boolean"
+    ) {
+      return params.fail("Gateway returned an invalid memory deletion result");
+    }
+    return {
+      agentId: params.agentId,
+      path: params.request.path,
+      deleted: true,
+      indexesRefreshed: payload.indexesRefreshed,
+    };
   }
   if (params.method === "memory.search") {
     if (
@@ -458,6 +521,7 @@ export function projectBrowserMemoryResult(params: {
       mimeType: "text/plain",
       encoding: "utf8",
       content: file.content,
+      ...(!missing ? { contentHash: createHash("sha256").update(file.content).digest("hex") } : {}),
       ...(missing ? { missing: true } : {}),
     },
   };

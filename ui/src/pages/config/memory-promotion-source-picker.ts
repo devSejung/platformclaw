@@ -34,6 +34,7 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
   @property({ type: Boolean }) searchAdvertised = false;
   @property({ type: Boolean }) getAdvertised = false;
   @property() agentId: string | null = null;
+  @property() initialPersonalLookup: string | null = null;
   @state() private query = "";
   @state() private results: WikiSearchResult[] = [];
   @state() private selected: WikiPage | null = null;
@@ -48,23 +49,38 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
     void loadPlatformClawLocale().then(() => this.requestUpdate());
   }
 
+  override disconnectedCallback() {
+    this.searchRequest = null;
+    this.selectionRequest = null;
+    super.disconnectedCallback();
+  }
+
   protected override updated(changed: PropertyValues<this>) {
     if (
       changed.has("agentId") ||
       changed.has("client") ||
       changed.has("connected") ||
       changed.has("searchAdvertised") ||
-      changed.has("getAdvertised")
+      changed.has("getAdvertised") ||
+      changed.has("initialPersonalLookup")
     ) {
       this.searchRequest = null;
       this.selectionRequest = null;
       this.query = "";
       this.results = [];
-      this.selected = null;
+      this.clearSelection();
       this.searched = false;
       this.error = null;
       this.loading = false;
+      if (this.initialPersonalLookup) {
+        void this.select(this.initialPersonalLookup);
+      }
     }
+  }
+
+  private clearSelection() {
+    this.selected = null;
+    this.dispatchEvent(new CustomEvent("source-cleared", { bubbles: true, composed: true }));
   }
 
   private async search(event: Event) {
@@ -109,23 +125,27 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
     }
   }
 
-  private async select(result: WikiSearchResult) {
-    if (!this.client || !this.agentId) {
+  private async select(lookup: string) {
+    if (!this.client || !this.agentId || !this.connected || !this.getAdvertised) {
       return;
     }
+    this.clearSelection();
     const request = {};
     this.selectionRequest = request;
     this.loading = true;
     this.error = null;
     try {
-      const page = await this.client.request<WikiPage>("wiki.get", {
+      const page = await this.client.request<WikiPage | null>("wiki.get", {
         agentId: this.agentId,
-        lookup: result.id ?? result.path,
+        lookup,
         fromLine: 1,
         lineCount: 5_000,
       });
       if (this.selectionRequest !== request) {
         return;
+      }
+      if (!page) {
+        throw new Error(t("memoryPage.promotions.sourceNotFound"));
       }
       if (page.truncated) {
         throw new Error(t("memoryPage.promotions.sourceIncomplete"));
@@ -137,7 +157,7 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
           composed: true,
           detail: {
             lookup: page.id ?? page.path,
-            title: page.title ?? result.title,
+            title: page.title ?? page.path,
             content: page.content,
             path: page.path,
           },
@@ -147,7 +167,7 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
       if (this.selectionRequest !== request) {
         return;
       }
-      this.selected = null;
+      this.clearSelection();
       this.error = formatErrorMessage(error, { redact: redactToolDetail });
     } finally {
       if (this.selectionRequest === request) {
@@ -205,7 +225,7 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
                 type="button"
                 class="settings-row settings-row--nav memory-source-picker__result"
                 aria-pressed=${this.selected?.path === result.path ? "true" : "false"}
-                @click=${() => void this.select(result)}
+                @click=${() => void this.select(result.id ?? result.path)}
               >
                 <strong>${result.title}</strong><span>${result.path}</span
                 ><small>${result.snippet}</small>

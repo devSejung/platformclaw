@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { i18n } from "../../i18n/index.ts";
+import { loadPlatformClawLocale } from "../../platformclaw/i18n.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import "./memory-promotions.ts";
 
@@ -13,6 +14,8 @@ type MemoryPromotionsTestElement = HTMLElement & {
   wikiSearchAdvertised: boolean;
   wikiGetAdvertised: boolean;
   agentId: string | null;
+  initialPersonalLookup: string | null;
+  formOnly: boolean;
   updateComplete: Promise<unknown>;
 };
 
@@ -71,6 +74,8 @@ const snapshot = {
 
 beforeEach(async () => {
   await i18n.setLocale("en");
+  // Direct element tests bypass the route loader that awaits the separate product bundle.
+  await loadPlatformClawLocale();
 });
 
 afterEach(async () => {
@@ -79,6 +84,46 @@ afterEach(async () => {
 });
 
 describe("MemoryPromotionsElement", () => {
+  it("prefills a fresh source in the modal without submitting and invalidates a failed replacement", async () => {
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "platformclaw.memory.lifecycle") {
+        return snapshot;
+      }
+      if (method === "wiki.get" && (params as { lookup: string }).lookup === "source-id") {
+        return { id: "source-id", path: "recovery.md", content: "Fresh source content" };
+      }
+      throw new Error("Page unavailable");
+    });
+    const element = createElement(request);
+    element.initialPersonalLookup = "source-id";
+    element.formOnly = true;
+    await waitForFast(() =>
+      expect(
+        element.querySelector<HTMLTextAreaElement>(".memory-promotions__field textarea")?.value,
+      ).toBe("Fresh source content"),
+    );
+    expect(element.textContent).not.toContain("Needs review");
+    expect(request.mock.calls.filter(([method]) => method === "wiki.get")).toHaveLength(1);
+    expect(
+      request.mock.calls.some(([method]) => method.startsWith("platformclaw.memory.promotion.")),
+    ).toBe(false);
+    const target = element.querySelectorAll<HTMLSelectElement>("select")[1]!;
+    target.value = "part-1";
+    target.dispatchEvent(new Event("change", { bubbles: true }));
+    await element.updateComplete;
+    expect(element.querySelector(".memory-promotions__visibility")?.textContent).toContain(
+      "Runtime",
+    );
+    element.initialPersonalLookup = "missing.md";
+    await waitForFast(() =>
+      expect(element.querySelector("[role=alert]")?.textContent).toContain("Page unavailable"),
+    );
+    expect(
+      element.querySelector<HTMLTextAreaElement>(".memory-promotions__field textarea")?.value,
+    ).toBe("");
+    expect(element.querySelector<HTMLButtonElement>("button.primary")?.disabled).toBe(true);
+  });
+
   it("loads the Agent-pinned lifecycle and renders review actions", async () => {
     const request = vi.fn(async (method: string) =>
       method === "platformclaw.memory.lifecycle"
@@ -220,6 +265,7 @@ describe("MemoryPromotionsElement", () => {
 
   it("uses server-projected Team targets and renders Korean without translating claim text", async () => {
     await i18n.setLocale("ko");
+    await loadPlatformClawLocale();
     const request = vi.fn(async (method: string) =>
       method === "platformclaw.memory.lifecycle"
         ? {

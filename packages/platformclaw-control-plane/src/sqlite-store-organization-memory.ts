@@ -252,9 +252,8 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
   }): Promise<OrganizationMemoryGraph> {
     this.ensureOrganizationMemorySchema();
     return runReadTransaction(this.db, () => {
-      const scopes = this.authorizedScopes(params.agentId).filter(
-        (scope) => scope.kind === params.kind,
-      );
+      const readableScopes = this.authorizedScopes(params.agentId);
+      const scopes = readableScopes.filter((scope) => scope.kind === params.kind);
       if (scopes.length === 0) {
         return {
           kind: params.kind,
@@ -293,12 +292,65 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
           .orderBy("id")
           .limit(MAX_GRAPH_NODES),
       ).rows;
+      const readScopeKeys = new Set(
+        readableScopes.map((scope) => `${scope.kind}:${scope.id ?? ""}`),
+      );
+      // Claim rows own approval and revision facts. Never infer verification from
+      // a graph edge or disclose a source outside the same read-policy snapshot.
+      const claims =
+        rows.length === 0
+          ? []
+          : executeSync(
+              this.db,
+              this.query
+                .selectFrom("organization_memory_claims as claim")
+                .leftJoin(
+                  "organization_memory_claims as source",
+                  "source.id",
+                  "claim.source_claim_id",
+                )
+                .select([
+                  "claim.id",
+                  "claim.revision",
+                  "claim.source_revision",
+                  "claim.source_kind",
+                  "source.scope_kind as source_scope_kind",
+                  "source.scope_id as source_scope_id",
+                  "source.revision as current_source_revision",
+                  "source.status as source_status",
+                ])
+                .where(
+                  "claim.id",
+                  "in",
+                  rows.map((row) => row.id),
+                )
+                .where("claim.status", "=", "active"),
+            ).rows;
+      const verificationById = new Map(
+        claims.map((claim) => [
+          claim.id,
+          {
+            approvalStatus: "approved" as const,
+            revision: claim.revision,
+            sourceRevision: claim.source_revision,
+            sourceStatus:
+              claim.source_kind !== "personal" &&
+              claim.source_status === "active" &&
+              readScopeKeys.has(`${claim.source_scope_kind}:${claim.source_scope_id ?? ""}`)
+                ? claim.current_source_revision === claim.source_revision
+                  ? ("current" as const)
+                  : ("changed" as const)
+                : ("unavailable" as const),
+          },
+        ]),
+      );
       const nodes = rows.map((row) => ({
         id: `organization:${params.kind}:${row.id}`,
         path: `organization/${params.kind}/${row.id}`,
         title: row.title,
         scopeName: scopeById.get(row.scope_id!)!.name,
         updatedAt: row.updated_at,
+        ...(verificationById.has(row.id) ? { verification: verificationById.get(row.id)! } : {}),
       }));
       const visibleIds = new Set(rows.map((row) => row.id));
       const edgeKeys = new Set<string>();

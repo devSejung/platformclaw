@@ -1,4 +1,13 @@
 export const organizationMemoryGraphTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.memory.graph.unverified": "승인 및 원본 버전 정보를 확인할 수 없음",
+  "platformClaw.memory.graph.description":
+    "현재 읽을 수 있는 사용 중 지식만 표시합니다. 연결은 관련 페이지를 나타내며 사실 검증을 뜻하지 않습니다. 소속 변경과 사용 종료는 새로고침하면 반영됩니다.",
+  "platformClaw.memory.graph.approved": "승인됨",
+  "platformClaw.memory.graph.current": "승인 시점과 원본 버전 일치",
+  "platformClaw.memory.graph.changed": "승인 이후 원본 변경됨",
+  "platformClaw.memory.graph.unavailable": "현재 권한으로 원본을 확인할 수 없음",
+  "platformClaw.memory.graph.revision": "버전 {revision}",
+  "platformClaw.memory.graph.sourceRevision": "승인 시점 원본 버전 {revision}",
   "platformClaw.memory.organization.graph": "조직 그래프",
   "platformClaw.memory.organization.graphDescription":
     "접근 가능한 Part와 Group에 게시된 지식을 살펴봅니다.",

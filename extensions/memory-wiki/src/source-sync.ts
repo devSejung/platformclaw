@@ -2,6 +2,7 @@
 import type { OpenClawConfig } from "../api.js";
 import { syncMemoryWikiBridgeSources, type BridgeMemoryWikiResult } from "./bridge.js";
 import {
+  compileMemoryWikiVault,
   refreshMemoryWikiIndexesAfterImport,
   type RefreshMemoryWikiIndexesResult,
 } from "./compile.js";
@@ -15,12 +16,13 @@ import { syncMemoryWikiUnsafeLocalSources } from "./unsafe-local.js";
 export type MemoryWikiImportedSourceSyncResult = BridgeMemoryWikiResult & {
   indexesRefreshed: boolean;
   indexUpdatedFiles: string[];
-  indexRefreshReason: RefreshMemoryWikiIndexesResult["reason"];
+  indexRefreshReason: RefreshMemoryWikiIndexesResult["reason"] | "forced";
 };
 
 type SyncMemoryWikiImportedSourcesParams = {
   config: ResolvedMemoryWikiConfig;
   appConfig?: OpenClawConfig;
+  forceSync?: boolean;
 };
 
 type ActiveImportedSourceSync = {
@@ -67,11 +69,17 @@ async function syncMemoryWikiImportedSourcesOnce(
     config: params.config,
     syncResult,
   });
+  // A prior prune may have committed before compilation failed. A post-mutation
+  // retry must rebuild even when source tracking now reports no further changes.
+  const forcedCompile =
+    params.forceSync && refreshResult.reason === "no-import-changes"
+      ? await compileMemoryWikiVault(params.config)
+      : undefined;
   return {
     ...syncResult,
-    indexesRefreshed: refreshResult.refreshed,
-    indexUpdatedFiles: refreshResult.compile?.updatedFiles ?? [],
-    indexRefreshReason: refreshResult.reason,
+    indexesRefreshed: refreshResult.refreshed || forcedCompile !== undefined,
+    indexUpdatedFiles: forcedCompile?.updatedFiles ?? refreshResult.compile?.updatedFiles ?? [],
+    indexRefreshReason: forcedCompile ? "forced" : refreshResult.reason,
   };
 }
 
@@ -84,7 +92,8 @@ export async function syncMemoryWikiImportedSources(
   const matching = active.find(
     (entry) => entry.requestKey === requestKey && entry.appConfig === params.appConfig,
   );
-  if (matching) {
+  // A source mutation needs a new queued observation, never an older in-flight snapshot.
+  if (matching && !params.forceSync) {
     return await matching.promise;
   }
 

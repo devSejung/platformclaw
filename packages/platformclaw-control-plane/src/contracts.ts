@@ -55,6 +55,12 @@ export type OrganizationMemoryGraph = {
     title: string;
     scopeName: string;
     updatedAt: number;
+    verification?: {
+      approvalStatus: "approved";
+      revision: number;
+      sourceRevision: number;
+      sourceStatus: "current" | "changed" | "unavailable";
+    };
   }>;
   edges: Array<{ source: string; target: string; type: "promotion" }>;
   stats: {

@@ -40,6 +40,7 @@ export type BridgeMemoryWikiResult = {
   updatedCount: number;
   skippedCount: number;
   removedCount: number;
+  pendingRemovalCount?: number;
   artifactCount: number;
   workspaces: number;
   pagePaths: string[];
@@ -330,6 +331,11 @@ export async function syncMemoryWikiBridgeSources(params: {
       })
     : 0;
   await writeMemoryWikiSourceSyncState(params.config.vault.path, state);
+  // Pruning preserves sources when recovering human Notes or removing a file fails.
+  // Record that partial outcome rather than calling a completed sync a completed deletion.
+  const pendingRemovalCount = Object.entries(state.entries).filter(
+    ([key, entry]) => entry.group === "bridge" && !activeKeys.has(key),
+  ).length;
   const importedCount = results.filter((result) => result.changed && result.created).length;
   const updatedCount = results.filter((result) => result.changed && !result.created).length;
   const skippedCount = results.filter((result) => !result.changed).length;
@@ -358,6 +364,7 @@ export async function syncMemoryWikiBridgeSources(params: {
     updatedCount,
     skippedCount,
     removedCount,
+    pendingRemovalCount,
     artifactCount,
     workspaces: workspaceCount,
     pagePaths,

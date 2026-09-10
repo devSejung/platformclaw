@@ -143,6 +143,26 @@ also derives client-only directory toggles from each safe relative page ID;
 filtering keeps only selected nodes and edges whose two endpoints remain shown.
 No filter or layout position is sent to the Gateway or persisted.
 
+### Delete a personal memory file
+
+In **Settings > Memory > Memory**, right-click a personal memory item or open
+its **…** menu, then choose **Delete memory file**. Review the freshly loaded
+file and confirm deletion. This removes the entire file, including entries
+outside the search snippet; it cannot be undone. Organization and Personal Wiki
+results do not use this file-deletion action.
+
+The confirmation sends the preview's content hash with `memory.delete`. If the
+file changed after the preview, refresh and review it again before deleting.
+The result separately reports deletion and refresh of the search index
+(`indexesRefreshed`) and imported Wiki sources (`wikiRefreshed`). A refresh
+failure does not undo a completed deletion: the UI reports the partial outcome
+and directs the user to refresh Memory and Personal Wiki.
+
+Existing conversations, independent Wiki notes, and approved organization
+knowledge remain available and may contain the same information. Deleting a
+personal source is not an erasure of every copy or a retirement of organization
+knowledge. Use the organization lifecycle actions for shared claims.
+
 ### PR1 acceptance
 
 - New and upgraded deployments advertise the bounded RPC set.
@@ -303,6 +323,26 @@ the user reviews or edits those fields and explicitly submits. Advancing an
 approved Part, Group, or Team claim likewise pre-fills its text and revision
 instead of asking the user to retype it. Source content stays in its original language;
 PlatformClaw does not translate knowledge automatically.
+
+From a Personal Wiki item in the memory hub, right-click or open **…**, then
+choose **Request organization sharing…**. This opens the existing form with
+that source selected. The picker loads the complete current page again; a
+missing or incomplete page cannot supply the request. Choose an authorized
+target and review the proposed text, provenance, reason, and sharing scope
+before submitting. Opening the menu or selecting the source does not submit
+anything. The UI confirms submission to the selected organization; an
+administrator's direct publication is identified separately.
+
+### Organization graph provenance
+
+Organization Graph previews include the approval state, claim revision, and
+approved source revision for managed claims. The source status compares the
+current readable source revision with the approved snapshot. A source outside
+the reader's scope, retired, personal, or unavailable cannot be inspected and
+its identity is omitted. Existing pages without a managed claim show that
+verification metadata is unavailable. These are provenance indicators, not
+factual verification of the content. Use the graph's Refresh action to apply
+current membership, archival, or retirement changes.
 
 ### Shared organization architecture
 

@@ -9,8 +9,12 @@ import {
   lobsterPetSeed,
   renderLobsterSvg,
 } from "../../../components/lobster-pet.ts";
-import "../../../components/modal-dialog.ts";
 import { toSanitizedMarkdownHtml } from "../../../components/markdown.ts";
+import "../../../components/modal-dialog.ts";
+import {
+  renderMemoryItemActions,
+  type MemoryItemActions,
+} from "../../../components/memory-item-actions.ts";
 import { resolvePlatformClawBranding } from "../../../platformclaw/branding.ts";
 import { platformClawT as t } from "../../../platformclaw/i18n.ts";
 import "../../../styles/dreams.css";
@@ -141,6 +145,7 @@ type DreamingProps = {
   onRefreshWikiGraph: () => void;
   onSelectWikiGraph: () => void;
   onOpenConfig: () => void;
+  wikiActions?: MemoryItemActions;
   onOpenWikiPage: (lookup: string) => Promise<{
     title: string;
     path: string;
@@ -159,6 +164,7 @@ type DreamingProps = {
 };
 
 export type WikiGraphRendererProps = {
+  wikiActions?: MemoryItemActions;
   graph: WikiGraph | null;
   loading: boolean;
   error: string | null;
@@ -668,6 +674,9 @@ function renderWikiPreviewOverlay(props: DreamingProps) {
               ${state.wikiPreviewUpdatedAt ? ` · ${state.wikiPreviewUpdatedAt}` : ""}
             </div>
           </div>
+          ${!state.wikiPreviewLoading && !state.wikiPreviewError
+            ? renderMemoryItemActions(state.wikiPreviewPath, props.wikiActions)
+            : nothing}
           <button
             type="button"
             class="btn btn--subtle btn--sm"
@@ -1116,6 +1125,9 @@ function renderWikiInsightCard(props: DreamingProps, card: WikiInsightCard) {
       class="dreams-diary__insight-card dreams-diary__insight-card--clickable"
       data-import-page=${card.kind === "import" ? item.pagePath : nothing}
       data-wiki-page=${card.kind === "wiki" ? item.pagePath : nothing}
+      @contextmenu=${props.wikiActions
+        ? (event: MouseEvent) => props.wikiActions!.open(item.pagePath, event)
+        : nothing}
       @click=${() => {
         if (card.kind === "wiki" && card.item.kind === "report") {
           void openWikiPreview(item.pagePath, props);
@@ -1137,6 +1149,7 @@ function renderWikiInsightCard(props: DreamingProps, card: WikiInsightCard) {
       </div>
       ${renderWikiInsightBody(card, expanded)}
       <div class="dreams-diary__insight-actions">
+        ${renderMemoryItemActions(item.pagePath, props.wikiActions)}
         <button
           class="btn btn--subtle btn--sm"
           @click=${(event: Event) => {
@@ -1439,6 +1452,7 @@ export function renderWikiKnowledge(props: DreamingProps) {
             error: props.wikiGraphError,
             onOpenNode: (id) => void openWikiPreview(id, props),
             onRetry: props.onRefreshWikiGraph,
+            wikiActions: props.wikiActions,
             onChange: props.onViewStateChange,
           }) ??
           html`<div class="dreams-diary__empty">

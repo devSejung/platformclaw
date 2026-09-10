@@ -184,8 +184,17 @@ export function registerMemoryWikiGatewayMethods(params: {
     async ({ params: requestParams, respond }) => {
       try {
         const { appConfig, config } = resolveRequestContext(requestParams);
-        await syncImportedSourcesIfNeeded(config, appConfig);
-        respond(true, await listMemoryWikiOverview(config));
+        const sync = await syncMemoryWikiImportedSources({
+          config,
+          appConfig,
+          ...(requestParams.forceSync === true ? { forceSync: true } : {}),
+        });
+        respond(true, {
+          ...(await listMemoryWikiOverview(config)),
+          sourceSyncComplete:
+            sync.pendingRemovalCount === 0 &&
+            (sync.indexesRefreshed || sync.indexRefreshReason === "no-import-changes"),
+        });
       } catch (error) {
         respondError(respond, error);
       }

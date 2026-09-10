@@ -73,6 +73,10 @@ describe("organization memory graphs", () => {
       buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
       initialAdminAccountIds: ["admin"],
       idFactory: ids(),
+      resolvePersonalOrganizationMemorySource: async ({ lookup }) => ({
+        claimId: lookup,
+        revision: 1,
+      }),
     });
     const admin = await activeUser(store, "admin", 10);
     const member = await activeUser(store, "member", 20);
@@ -189,6 +193,59 @@ describe("organization memory graphs", () => {
       ).nodes.map((node) => node.path),
     ).toContain("organization/part/sibling");
 
+    const personalRequest = await store.submitOrganizationMemoryPromotion({
+      agentId: member.binding.agentId,
+      sourceKind: "personal",
+      sourceClaimId: "private/wiki.md",
+      expectedSourceRevision: 1,
+      targetKind: "part",
+      targetScopeId: partA.id,
+      proposedText: "Verified runbook",
+      evidence: [],
+      reason: "Reusable procedure",
+      submittedAt: 42,
+    });
+    const approvedPart = await store.decideOrganizationMemoryPromotion({
+      agentId: admin.binding.agentId,
+      requestId: personalRequest.id,
+      decision: "approve",
+      reason: "Reviewed source",
+      decidedAt: 43,
+    });
+    const groupRequest = await store.submitOrganizationMemoryPromotion({
+      agentId: member.binding.agentId,
+      sourceKind: "part",
+      sourceClaimId: approvedPart.targetClaimId!,
+      expectedSourceRevision: 1,
+      targetKind: "group",
+      targetScopeId: groupA.id,
+      proposedText: "Shared runbook",
+      evidence: [],
+      reason: "Group procedure",
+      submittedAt: 44,
+    });
+    const approvedGroup = await store.decideOrganizationMemoryPromotion({
+      agentId: admin.binding.agentId,
+      requestId: groupRequest.id,
+      decision: "approve",
+      reason: "Reviewed procedure",
+      decidedAt: 45,
+    });
+    const verified = await store.getOrganizationMemoryGraph({
+      agentId: member.binding.agentId,
+      kind: "group",
+    });
+    expect(
+      verified.nodes.find((node) => node.path.endsWith(approvedGroup.targetClaimId!))?.verification,
+    ).toEqual({
+      approvalStatus: "approved",
+      revision: 1,
+      sourceRevision: 1,
+      sourceStatus: "current",
+    });
+    expect(
+      verified.nodes.find((node) => node.path.endsWith("group-visible"))?.verification,
+    ).toBeUndefined();
     await store.removeManagedScopeMembership({
       actorUserId: admin.user.id,
       scopeId: partA.id,
@@ -199,6 +256,46 @@ describe("organization memory graphs", () => {
     await expect(
       store.getOrganizationMemoryGraph({ agentId: member.binding.agentId, kind: "part" }),
     ).resolves.toMatchObject({ nodes: [], edges: [], stats: { totalPages: 0 } });
+    await store.setManagedScopeMembership({
+      actorUserId: admin.user.id,
+      scopeId: groupA.id,
+      userId: member.user.id,
+      role: "member",
+      reason: "Group access only",
+      changedAt: 51,
+    });
+    const groupOnly = await store.getOrganizationMemoryGraph({
+      agentId: member.binding.agentId,
+      kind: "group",
+    });
+    expect(
+      groupOnly.nodes.find((node) => node.path.endsWith(approvedGroup.targetClaimId!))?.verification
+        ?.sourceStatus,
+    ).toBe("unavailable");
+    expect(JSON.stringify(groupOnly)).not.toContain(approvedPart.targetClaimId!);
+    expect(JSON.stringify(groupOnly)).not.toContain("private/wiki.md");
+    await store.retireOrganizationMemoryClaim({
+      agentId: admin.binding.agentId,
+      claimId: approvedGroup.targetClaimId!,
+      reason: "Superseded",
+      retiredAt: 52,
+    });
+    const retired = await store.getOrganizationMemoryGraph({
+      agentId: member.binding.agentId,
+      kind: "group",
+    });
+    expect(retired.nodes.some((node) => node.path.endsWith(approvedGroup.targetClaimId!))).toBe(
+      false,
+    );
+    await store.archiveManagedScope({
+      actorUserId: admin.user.id,
+      scopeId: groupA.id,
+      reason: "Archived group",
+      archivedAt: 53,
+    });
+    await expect(
+      store.getOrganizationMemoryGraph({ agentId: member.binding.agentId, kind: "group" }),
+    ).resolves.toMatchObject({ nodes: [], edges: [] });
     await expect(
       store.getOrganizationMemoryGraph({ agentId: member.binding.agentId, kind: "group" }),
     ).resolves.toMatchObject({ nodes: [], edges: [], stats: { totalPages: 0 } });

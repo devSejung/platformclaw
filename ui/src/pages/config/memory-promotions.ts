@@ -21,6 +21,8 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   @property({ type: Boolean }) wikiSearchAdvertised = false;
   @property({ type: Boolean }) wikiGetAdvertised = false;
   @property() agentId: string | null = null;
+  @property() initialPersonalLookup: string | null = null;
+  @property({ type: Boolean }) formOnly = false;
 
   @state() private snapshot: OrganizationMemoryLifecycleSnapshot | null = null;
   @state() private loading = false;
@@ -32,6 +34,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   @state() private proposedText = "";
   @state() private evidence = "";
   @state() private reason = "";
+  @state() private success: string | null = null;
   @state() private pendingDecision: {
     request: OrganizationMemoryPromotionRequest;
     decision: "approve" | "reject";
@@ -44,6 +47,18 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   }
 
   protected override updated(changed: PropertyValues<this>) {
+    if (
+      changed.has("client") ||
+      changed.has("connected") ||
+      changed.has("agentId") ||
+      changed.has("initialPersonalLookup")
+    ) {
+      this.resetForSourceKind("personal");
+      this.pendingDecision = null;
+      if (changed.has("client") || changed.has("connected") || changed.has("agentId")) {
+        this.snapshot = null;
+      }
+    }
     if (
       changed.has("client") ||
       changed.has("connected") ||
@@ -96,6 +111,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       if (this.loadRequest !== request) {
         return;
       }
+      this.snapshot = null;
       this.error = formatErrorMessage(error, { redact: redactToolDetail });
     } finally {
       if (this.loadRequest === request) {
@@ -124,6 +140,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   }
 
   private resetForSourceKind(kind: OrganizationMemoryPromotionSourceKind) {
+    this.success = null;
     this.sourceKind = kind;
     this.sourceClaimId = "";
     this.sourceRevision = "1";
@@ -135,14 +152,23 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
 
   private async submit() {
     const client = this.client;
+    const agentId = this.agentId;
     const target = this.targetScopes().find(
       (scope) => (scope.scopeId ?? "global") === this.targetScopeId,
     );
-    if (!client || !target) {
+    if (
+      !client ||
+      !this.connected ||
+      !target ||
+      !this.sourceClaimId ||
+      !this.proposedText.trim() ||
+      !this.reason.trim()
+    ) {
       return;
     }
     this.loading = true;
     this.error = null;
+    this.success = null;
     try {
       const content = {
         sourceClaimId: this.sourceClaimId,
@@ -167,17 +193,37 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
           ...(target.scopeId ? { targetScopeId: target.scopeId } : {}),
         },
       );
+      if (this.client !== client || this.agentId !== agentId || !this.connected) {
+        return;
+      }
       this.proposedText = "";
       this.evidence = "";
       this.reason = "";
+      this.success = t(
+        target.mode === "direct"
+          ? "memoryPage.promotions.publishedSuccess"
+          : "memoryPage.promotions.submittedSuccess",
+        { scope: target.scopeName },
+      );
+      this.dispatchEvent(
+        new CustomEvent("promotion-submitted", {
+          bubbles: true,
+          composed: true,
+          detail: { message: this.success, scopeName: target.scopeName, mode: target.mode },
+        }),
+      );
       await this.load();
     } catch (error) {
+      if (this.client !== client || this.agentId !== agentId || !this.connected) {
+        return;
+      }
       this.error = formatErrorMessage(error, { redact: redactToolDetail });
       this.loading = false;
     }
   }
 
   private selectPersonalSource(event: CustomEvent<PersonalWikiSourceSelected>) {
+    this.success = null;
     this.sourceClaimId = event.detail.lookup;
     this.proposedText = event.detail.content;
     this.evidence = event.detail.path;
@@ -352,13 +398,27 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
         ${t("memoryPage.promotions.gatewayUpdateRequired")}
       </p>`;
     }
-    if (this.loading && !this.snapshot) {
+    if (!this.snapshot) {
       return html`<div class="settings-page memory-promotions">
-        <p class="memory-promotions__empty" role="status">${t("memoryPage.promotions.loading")}</p>
+        ${this.error
+          ? html`<p role="alert">${this.error}</p>
+              <button
+                class="btn btn--sm"
+                ?disabled=${this.loading || !this.connected}
+                @click=${() => void this.load()}
+              >
+                ${t("memoryPage.memories.retry")}
+              </button>`
+          : html`<p class="memory-promotions__empty" role="status">
+              ${t("memoryPage.promotions.loading")}
+            </p>`}
       </div>`;
     }
     const sourceClaims = this.sourceClaims();
     const targets = this.targetScopes();
+    const selectedTarget = targets.find(
+      (target) => (target.scopeId ?? "global") === this.targetScopeId,
+    );
     return html`<div class="settings-page memory-promotions">
       <section class="settings-section">
         <header class="settings-section__header">
@@ -366,8 +426,18 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
             <h2 class="settings-section__heading">${t("memoryPage.promotions.title")}</h2>
             <p class="settings-section__description">${t("memoryPage.promotions.description")}</p>
           </div>
+          ${!this.formOnly
+            ? html`<button
+                class="btn btn--sm"
+                ?disabled=${this.loading || !this.connected}
+                @click=${() => void this.load()}
+              >
+                ${t("memoryPage.memories.refresh")}
+              </button>`
+            : nothing}
         </header>
         ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
+        ${this.success ? html`<p role="status">${this.success}</p>` : nothing}
         <div class="settings-group">
           <label class="settings-row memory-promotions__source-row">
             <span class="settings-row__text"
@@ -397,6 +467,8 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
                 .searchAdvertised=${this.wikiSearchAdvertised}
                 .getAdvertised=${this.wikiGetAdvertised}
                 .agentId=${this.agentId}
+                .initialPersonalLookup=${this.initialPersonalLookup}
+                @source-cleared=${() => this.resetForSourceKind("personal")}
                 @source-selected=${(event: CustomEvent<PersonalWikiSourceSelected>) =>
                   this.selectPersonalSource(event)}
               ></openclaw-memory-promotion-source-picker>`
@@ -436,6 +508,16 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
               )}
             </select>
           </label>
+          ${selectedTarget
+            ? html`<p class="memory-promotions__visibility" role="status">
+                ${t(
+                  selectedTarget.mode === "direct"
+                    ? "memoryPage.promotions.directVisibility"
+                    : "memoryPage.promotions.requestVisibility",
+                  { scope: selectedTarget.scopeName },
+                )}
+              </p>`
+            : nothing}
           <label class="memory-promotions__field">
             <span>${t("memoryPage.promotions.proposedText")}</span>
             <textarea
@@ -482,74 +564,80 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
           </button>
         </div>
       </section>
-      <section class="settings-section">
-        <header class="settings-section__header">
-          <h3 class="settings-section__heading">${t("memoryPage.promotions.needsReview")}</h3>
-        </header>
-        <div class="settings-group">
-          ${(this.snapshot?.reviewable ?? []).length > 0
-            ? this.snapshot!.reviewable.map((request) => this.renderRequest(request, true))
-            : html`<p class="memory-promotions__empty">${t("memoryPage.promotions.noReviews")}</p>`}
-        </div>
-      </section>
-      <section class="settings-section">
-        <header class="settings-section__header">
-          <h3 class="settings-section__heading">${t("memoryPage.promotions.myRequests")}</h3>
-        </header>
-        <div class="settings-group">
-          ${(this.snapshot?.submitted ?? []).length > 0
-            ? this.snapshot!.submitted.map((request) => this.renderRequest(request))
-            : html`<p class="memory-promotions__empty">
-                ${t("memoryPage.promotions.noRequests")}
-              </p>`}
-        </div>
-      </section>
-      <section class="settings-section">
-        <header class="settings-section__header">
-          <h3 class="settings-section__heading">${t("memoryPage.promotions.claims")}</h3>
-        </header>
-        <div class="settings-group">
-          ${(this.snapshot?.claims ?? []).length > 0
-            ? this.snapshot!.claims.map(
-                (claim) => html`<div class="settings-row">
-                  <span class="settings-row__text">
-                    <span class="settings-row__title">${claim.title}</span>
-                    <span class="settings-row__desc"
-                      >${claim.scopeName} · ${this.statusLabel(claim.status)}</span
-                    >
-                  </span>
-                  <span class="settings-row__control">
-                    ${claim.status === "active" && claim.canRetire
-                      ? html`<button
-                          class="btn btn--sm"
-                          @click=${() => void this.retire(claim.id, false)}
-                        >
-                          ${t("memoryPage.promotions.retire")}
-                        </button>`
-                      : claim.status === "retired" && claim.canPurge
-                        ? html`<button
-                            class="btn btn--sm danger"
-                            @click=${() => void this.retire(claim.id, true)}
+      ${this.formOnly
+        ? nothing
+        : html`<section class="settings-section">
+              <header class="settings-section__header">
+                <h3 class="settings-section__heading">${t("memoryPage.promotions.needsReview")}</h3>
+              </header>
+              <div class="settings-group">
+                ${(this.snapshot?.reviewable ?? []).length > 0
+                  ? this.snapshot!.reviewable.map((request) => this.renderRequest(request, true))
+                  : html`<p class="memory-promotions__empty">
+                      ${t("memoryPage.promotions.noReviews")}
+                    </p>`}
+              </div>
+            </section>
+            <section class="settings-section">
+              <header class="settings-section__header">
+                <h3 class="settings-section__heading">${t("memoryPage.promotions.myRequests")}</h3>
+              </header>
+              <div class="settings-group">
+                ${(this.snapshot?.submitted ?? []).length > 0
+                  ? this.snapshot!.submitted.map((request) => this.renderRequest(request))
+                  : html`<p class="memory-promotions__empty">
+                      ${t("memoryPage.promotions.noRequests")}
+                    </p>`}
+              </div>
+            </section>
+            <section class="settings-section">
+              <header class="settings-section__header">
+                <h3 class="settings-section__heading">${t("memoryPage.promotions.claims")}</h3>
+              </header>
+              <div class="settings-group">
+                ${(this.snapshot?.claims ?? []).length > 0
+                  ? this.snapshot!.claims.map(
+                      (claim) => html`<div class="settings-row">
+                        <span class="settings-row__text">
+                          <span class="settings-row__title">${claim.title}</span>
+                          <span class="settings-row__desc"
+                            >${claim.scopeName} · ${this.statusLabel(claim.status)}</span
                           >
-                            ${t("memoryPage.promotions.purge")}
-                          </button>`
-                        : nothing}
-                  </span>
-                </div>`,
-              )
-            : html`<p class="memory-promotions__empty">${t("memoryPage.promotions.noClaims")}</p>`}
-        </div>
-        ${this.snapshot?.next
-          ? html`<button
-              class="btn btn--sm"
-              ?disabled=${this.loading}
-              @click=${() => void this.load(this.snapshot?.next)}
-            >
-              ${t("memoryPage.promotions.loadMore")}
-            </button>`
-          : nothing}
-      </section>
-      ${this.renderDecisionDialog()}
+                        </span>
+                        <span class="settings-row__control">
+                          ${claim.status === "active" && claim.canRetire
+                            ? html`<button
+                                class="btn btn--sm"
+                                @click=${() => void this.retire(claim.id, false)}
+                              >
+                                ${t("memoryPage.promotions.retire")}
+                              </button>`
+                            : claim.status === "retired" && claim.canPurge
+                              ? html`<button
+                                  class="btn btn--sm danger"
+                                  @click=${() => void this.retire(claim.id, true)}
+                                >
+                                  ${t("memoryPage.promotions.purge")}
+                                </button>`
+                              : nothing}
+                        </span>
+                      </div>`,
+                    )
+                  : html`<p class="memory-promotions__empty">
+                      ${t("memoryPage.promotions.noClaims")}
+                    </p>`}
+              </div>
+              ${this.snapshot?.next
+                ? html`<button
+                    class="btn btn--sm"
+                    ?disabled=${this.loading}
+                    @click=${() => void this.load(this.snapshot?.next)}
+                  >
+                    ${t("memoryPage.promotions.loadMore")}
+                  </button>`
+                : nothing}
+            </section>
+            ${this.renderDecisionDialog()}`}
     </div>`;
   }
 }

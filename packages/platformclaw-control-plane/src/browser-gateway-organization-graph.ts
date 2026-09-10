@@ -51,12 +51,34 @@ function projectGraph(value: OrganizationMemoryGraph, kind: OrganizationMemoryGr
     ) {
       fail("organization memory graph node is invalid");
     }
+    const verification = node.verification;
+    if (
+      verification &&
+      (verification.approvalStatus !== "approved" ||
+        !Number.isSafeInteger(verification.revision) ||
+        verification.revision < 1 ||
+        !Number.isSafeInteger(verification.sourceRevision) ||
+        verification.sourceRevision < 1 ||
+        !["current", "changed", "unavailable"].includes(verification.sourceStatus))
+    ) {
+      fail("organization memory graph verification is invalid");
+    }
     return {
       id: node.id,
       path: node.path,
       title: node.title.trim(),
       scopeName: node.scopeName.trim(),
       updatedAt: node.updatedAt,
+      ...(verification
+        ? {
+            verification: {
+              approvalStatus: verification.approvalStatus,
+              revision: verification.revision,
+              sourceRevision: verification.sourceRevision,
+              sourceStatus: verification.sourceStatus,
+            },
+          }
+        : {}),
     };
   });
   const nodeIds = new Set(nodes.map((node) => node.id));

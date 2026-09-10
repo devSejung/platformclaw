@@ -915,6 +915,14 @@
   gap: 12px;
 }
 
+.platformclaw-memory-action-dialog {
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+
 .organization-memory-graph__preview-meta {
   color: var(--muted);
   font-size: 12px;

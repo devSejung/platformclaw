@@ -480,12 +480,19 @@ describe("syncMemoryWikiBridgeSources", () => {
     {
       name: "prunes stale bridge pages when the source artifact disappears",
       humanNotes: null,
+      blocked: false,
     },
     {
       name: "salvages bridge page Notes when the source artifact disappears",
       humanNotes: "Durable bridge annotation",
+      blocked: false,
     },
-  ])("$name", async ({ humanNotes }) => {
+    {
+      name: "reports pending removal when a source page cannot be safely read",
+      humanNotes: null,
+      blocked: true,
+    },
+  ])("$name", async ({ humanNotes, blocked }) => {
     const workspaceDir = await createBridgeWorkspace("prune-workspace");
     const { rootDir: vaultDir, config } = await createVault({
       rootDir: nextCaseRoot("prune-vault"),
@@ -535,11 +542,22 @@ describe("syncMemoryWikiBridgeSources", () => {
     }
 
     await fs.rm(path.join(workspaceDir, "MEMORY.md"));
+    if (blocked) {
+      await fs.rm(firstPageAbsPath);
+      await fs.mkdir(firstPageAbsPath);
+    }
     registerBridgeArtifacts([]);
     const second = await syncMemoryWikiBridgeSources({ config, appConfig });
 
     expect(second.artifactCount).toBe(0);
+    if (blocked) {
+      expect(second.removedCount).toBe(0);
+      expect(second.pendingRemovalCount).toBe(1);
+      expect((await fs.stat(firstPageAbsPath)).isDirectory()).toBe(true);
+      return;
+    }
     expect(second.removedCount).toBe(1);
+    expect(second.pendingRemovalCount).toBe(0);
     await expect(fs.stat(firstPageAbsPath)).rejects.toHaveProperty("code", "ENOENT");
     const salvageDir = path.join(vaultDir, ".salvage");
     if (humanNotes) {

@@ -15,6 +15,7 @@ import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import "../../styles/memory-memories.css";
 import {
   type BrowserMemorySearchResponse,
+  type MemoryResultActions,
   type DetailState,
   isExpandableResult,
   renderMemoryBrowseFile,
@@ -89,6 +90,8 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   @property({ attribute: false }) organizationGetAdvertised: boolean | null = false;
   @property({ attribute: false }) translator: Translate = t;
   @property() agentId: string | null = null;
+  @property({ attribute: false }) itemActions?: MemoryResultActions;
+  @property({ type: Number }) refreshRevision = 0;
 
   @state() private query = "";
   @state() private searchState: SearchState = { kind: "idle" };
@@ -104,7 +107,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   protected override willUpdate(changed: PropertyValues<this>) {
     const identityChanged = changed.has("agentId") || changed.has("client");
     const connectionChanged = changed.has("connected") || changed.has("connectionPhase");
-    if (identityChanged) {
+    if (identityChanged || changed.has("refreshRevision")) {
       this.resetSearch();
       this.resetBrowse();
     } else if (connectionChanged && !this.gatewayReady) {
@@ -145,6 +148,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
       (identityChanged ||
         connectionChanged ||
         changed.has("browseEnabled") ||
+        changed.has("refreshRevision") ||
         changed.has("personalDetailAdvertised") ||
         changed.has("browseListAdvertised"))
     ) {
@@ -158,6 +162,10 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
 
   private get gatewayReady() {
     return this.phase === "connected" && this.client !== null;
+  }
+
+  private isCurrentRequest(request: { client: GatewayBrowserClient; agentId: string }) {
+    return this.gatewayReady && this.client === request.client && this.agentId === request.agentId;
   }
 
   private get connectionLabel() {
@@ -260,12 +268,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
           )
         : Promise.resolve(null),
     ]);
-    if (
-      this.browseRequest !== request ||
-      !this.gatewayReady ||
-      this.client !== client ||
-      this.agentId !== agentId
-    ) {
+    if (this.browseRequest !== request || !this.isCurrentRequest(request)) {
       return;
     }
     this.browseRequest = null;
@@ -325,12 +328,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
           )
         : Promise.resolve(null),
     ]);
-    if (
-      this.searchRequest !== request ||
-      !this.gatewayReady ||
-      this.agentId !== agentId ||
-      this.client !== client
-    ) {
+    if (this.searchRequest !== request || !this.isCurrentRequest(request)) {
       return;
     }
     if (personal?.ok !== true && wiki?.ok !== true) {
@@ -442,12 +440,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
                 agentId,
                 path: result.path,
               });
-      if (
-        this.detailRequests.get(key) !== request ||
-        !this.gatewayReady ||
-        this.agentId !== agentId ||
-        this.client !== client
-      ) {
+      if (this.detailRequests.get(key) !== request || !this.isCurrentRequest(request)) {
         return;
       }
       const detail: DetailState =
@@ -460,12 +453,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
             : { kind: "ready", content: response.content };
       this.details = new Map(this.details).set(key, detail);
     } catch (error) {
-      if (
-        this.detailRequests.get(key) !== request ||
-        !this.gatewayReady ||
-        this.agentId !== agentId ||
-        this.client !== client
-      ) {
+      if (this.detailRequests.get(key) !== request || !this.isCurrentRequest(request)) {
         return;
       }
       this.details = new Map(this.details).set(key, {
@@ -491,6 +479,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     content?: string,
   ) {
     return renderMemoryBrowseFile({
+      actions: this.gatewayReady ? this.itemActions : undefined,
       path,
       name,
       index,
@@ -641,6 +630,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
       }
       case "ready":
         return renderMemorySearchResults({
+          actions: this.gatewayReady ? this.itemActions : undefined,
           ready: this.searchState,
           details: this.details,
           openResultKey: this.openResultKey,
