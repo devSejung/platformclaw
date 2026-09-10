@@ -280,7 +280,7 @@ describe("PlatformClaw browser media relay", () => {
           : { messages: [], hasMore: true, nextOffset: 1000 },
       );
       const upstreamFetch = vi.fn(async (input: string | URL | Request) => {
-        const url = new URL(String(input));
+        const url = new URL(input instanceof Request ? input.url : input);
         return url.searchParams.get("meta") === "1"
           ? Response.json({ available: true, mimeType: contentType })
           : new Response("persisted-upload", { headers: { "Content-Type": contentType } });
