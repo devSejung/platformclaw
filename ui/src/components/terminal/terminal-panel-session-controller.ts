@@ -12,6 +12,7 @@ import {
   persistLiveTerminalSessions,
   shellBasename,
   TERMINAL_FONT_FAMILY,
+  TERMINAL_FONT_SIZE,
   TERMINAL_OUTPUT_ENCODER,
   type TerminalOperation,
   type TerminalPanelCatalogReference,
@@ -292,7 +293,7 @@ export class TerminalPanelSessionController
         parent: host,
         readOnly: false,
         terminalOptions: {
-          fontSize: 11,
+          fontSize: TERMINAL_FONT_SIZE * (this.host.terminalTextScale / 100),
           fontFamily: TERMINAL_FONT_FAMILY,
           cursorBlink: true,
           theme: terminalTheme(this.host.themeMode),

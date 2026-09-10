@@ -77,6 +77,34 @@ describe("loadSettings scoped persistence", () => {
     vi.unstubAllGlobals();
   });
 
+  it("normalizes persisted terminal text scale to the nearest supported stop", () => {
+    setTestLocation({ protocol: "https:", host: "gateway.example:8443", pathname: "/" });
+    const gatewayUrl = expectedGatewayUrl("");
+    localStorage.setItem(
+      `openclaw.control.settings.v1:${gatewayUrl}`,
+      JSON.stringify({ gatewayUrl, terminalTextScale: 138 }),
+    );
+
+    expect(loadSettings().terminalTextScale).toBe(140);
+  });
+
+  it("removes an authored terminal text scale when reset to its inherited default", () => {
+    setTestLocation({ protocol: "https:", host: "gateway.example:8443", pathname: "/" });
+    const defaults = loadSettings();
+    const scopedKey = `openclaw.control.settings.v1:${defaults.gatewayUrl}`;
+    expect(defaults.terminalTextScale).toBeUndefined();
+
+    saveSettings({ ...defaults, terminalTextScale: 125 });
+    expect(JSON.parse(localStorage.getItem(scopedKey) ?? "{}")).toMatchObject({
+      terminalTextScale: 125,
+    });
+
+    saveSettings({ ...loadSettings(), terminalTextScale: undefined });
+    expect(JSON.parse(localStorage.getItem(scopedKey) ?? "{}")).not.toHaveProperty(
+      "terminalTextScale",
+    );
+  });
+
   it("scopes persisted session selection per gateway", () => {
     setTestLocation({
       protocol: "https:",

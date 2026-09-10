@@ -86,6 +86,7 @@ type ConfigSelection = { activeSection: string | null; activeSubsection: string 
 // across devices is owned by app/server-prefs.ts, not by this type.
 type ConfigPageSetting =
   | "textScale"
+  | "terminalTextScale"
   | "sidebarLiveActivity"
   | "chatMessageMaxWidth"
   | "showAdvancedSettings"
@@ -715,6 +716,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       themeMode: next.themeMode,
       customTheme: next.customTheme,
       textScale: next.textScale,
+      terminalTextScale: next.terminalTextScale,
       sidebarLiveActivity: next.sidebarLiveActivity,
       chatMessageMaxWidth: next.chatMessageMaxWidth,
       showAdvancedSettings: next.showAdvancedSettings,
@@ -1057,6 +1059,12 @@ export class ConfigPage extends OpenClawLightDomElement {
       textScaleOverridden: this.settings.textScale !== undefined,
       setTextScale: (value) => this.setSetting("textScale", normalizeTextScale(value)),
       resetTextScale: () => this.setSetting("textScale", undefined),
+      terminalTextScale:
+        this.settings.terminalTextScale ?? UI_APPEARANCE_DEFAULTS.terminalTextScale,
+      terminalTextScaleOverridden: this.settings.terminalTextScale !== undefined,
+      setTerminalTextScale: (value) =>
+        this.setSetting("terminalTextScale", normalizeTextScale(value)),
+      resetTerminalTextScale: () => this.setSetting("terminalTextScale", undefined),
       sidebarLiveActivity:
         this.settings.sidebarLiveActivity ?? UI_APPEARANCE_DEFAULTS.sidebarLiveActivity,
       setSidebarLiveActivity: (enabled) => this.setSetting("sidebarLiveActivity", enabled),

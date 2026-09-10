@@ -27,6 +27,7 @@ import {
 } from "./lazy-custom-element.ts";
 import { resolveOnboardingMode } from "./onboarding-mode.ts";
 import { controlUiPublicAssetPath } from "./public-assets.ts";
+import { loadSettings, UI_APPEARANCE_DEFAULTS } from "./settings.ts";
 
 /**
  * Terminal-only document mode (`?view=terminal`): the mobile apps embed the
@@ -281,6 +282,8 @@ export class OpenClawApp extends OpenClawLightDomElement {
           .client=${gatewayConnected ? gatewaySnapshot.client : null}
           .available=${terminalAvailable}
           .themeMode=${resolveTerminalThemeMode()}
+          .terminalTextScale=${loadSettings().terminalTextScale ??
+          UI_APPEARANCE_DEFAULTS.terminalTextScale}
           .singleSession=${this.context?.accessMode === "personal-agent"}
           .uploadsEnabled=${this.context?.accessMode !== "personal-agent"}
           fullscreen

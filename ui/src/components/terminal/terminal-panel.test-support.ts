@@ -27,6 +27,7 @@ export function createTerminalController(dispose: () => void = vi.fn()) {
     terminal: {
       cols: 100,
       rows: 30,
+      options: { fontSize: 11 },
       viewportY: 0,
       wasmTerm,
       renderer,

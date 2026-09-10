@@ -47,6 +47,7 @@ export interface TerminalPanelSessionControllerHost extends ReactiveControllerHo
   readonly agentId: string | null;
   readonly available: boolean;
   readonly themeMode: "dark" | "light";
+  readonly terminalTextScale: number;
   readonly fullscreen: boolean;
   readonly singleSession: boolean;
   readonly terminalPanelOpen: boolean;
@@ -66,6 +67,7 @@ export interface TerminalPanelSessionControllerHost extends ReactiveControllerHo
 
 export const TERMINAL_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Symbols Nerd Font Mono", "MesloLGLDZ Nerd Font Mono", "JetBrainsMono Nerd Font Mono", "Liberation Mono", monospace';
+export const TERMINAL_FONT_SIZE = 11;
 export const TERMINAL_OUTPUT_ENCODER = new TextEncoder();
 
 /** Reduces a shell path to a tab label, e.g. "/bin/zsh" -> "zsh". */

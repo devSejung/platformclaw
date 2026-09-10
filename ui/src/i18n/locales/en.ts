@@ -1743,6 +1743,7 @@ export const en: TranslationMap = {
       inlineHintAfter:
         "to add one browser-local tweakcn theme. In tweakcn, use Share and paste the copied link here.",
       textSize: "Text size",
+      terminalTextSize: "Terminal text size",
     },
     chatPrefs: {
       title: "Chat",

@@ -37,6 +37,7 @@ import {
   NAV_WIDTH_MIN,
   loadSettings,
   normalizeCatalogOpenTarget,
+  UI_APPEARANCE_DEFAULTS,
 } from "./settings.ts";
 import { resolveControlUiRefreshRequiredBanner } from "./update-overlay-helpers.ts";
 import "../platformclaw/easter-egg.ts";
@@ -459,6 +460,8 @@ export function renderApplicationShell(host: ShellViewHost) {
         .available=${terminalAvailable}
         .suppressed=${settingsTakeover}
         .themeMode=${resolveTerminalThemeMode()}
+        .terminalTextScale=${uiSettings.terminalTextScale ??
+        UI_APPEARANCE_DEFAULTS.terminalTextScale}
         .singleSession=${context.accessMode === "personal-agent"}
         .uploadsEnabled=${context.accessMode !== "personal-agent"}
       ></openclaw-terminal-panel>
