@@ -47,9 +47,11 @@ function fixtureFetch(options?: {
   administrator?: boolean;
   empty?: boolean;
   membershipConflict?: boolean;
+  conflictRefresh?: Promise<void>;
   refreshFailsAfterMutation?: boolean;
 }) {
   let mutationCommitted = false;
+  let membershipConflictObserved = false;
   const team = { id: "team-1", kind: "team" as const, name: "Platform", status: "active" as const };
   const group = {
     id: "group-1",
@@ -64,6 +66,7 @@ function fixtureFetch(options?: {
   return vi.fn<typeof fetch>(async (input) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.endsWith("/memberships") && options?.membershipConflict) {
+      membershipConflictObserved = true;
       return json(
         { error: "organization membership changed", code: "organization_membership_changed" },
         409,
@@ -74,6 +77,9 @@ function fixtureFetch(options?: {
       return json({});
     }
     if (url.endsWith("/context")) {
+      if (membershipConflictObserved) {
+        await options?.conflictRefresh;
+      }
       if (mutationCommitted && options?.refreshFailsAfterMutation) {
         return json({ error: "unavailable" }, 503);
       }
@@ -220,7 +226,15 @@ describe("PlatformClaw Organization settings", () => {
   });
 
   it("sends expectedRole and restores authoritative roster after a 409", async () => {
-    const fetchImpl = fixtureFetch({ manager: true, membershipConflict: true });
+    let releaseConflictRefresh!: () => void;
+    const conflictRefresh = new Promise<void>((resolve) => {
+      releaseConflictRefresh = resolve;
+    });
+    const fetchImpl = fixtureFetch({
+      manager: true,
+      membershipConflict: true,
+      conflictRefresh,
+    });
     const element = await mount(fetchImpl);
     await selectTab(element, "management");
     await vi.waitFor(() => expect(element.textContent).toContain("person.one"));
@@ -229,13 +243,31 @@ describe("PlatformClaw Organization settings", () => {
     role.dispatchEvent(new Event("change", { bubbles: true }));
     await element.updateComplete;
     const dialog = element.querySelector("openclaw-modal-dialog")!;
-    dialog.querySelector("textarea")!.value = "role correction";
+    const reason = dialog.querySelector("textarea")!;
+    reason.value = "role correction";
     dialog.querySelector("form")!.dispatchEvent(new SubmitEvent("submit", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(
+        fetchImpl.mock.calls.filter(([input]) => {
+          const url =
+            typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+          return url.endsWith("/context");
+        }),
+      ).toHaveLength(2),
+    );
+    expect(element.querySelector("openclaw-modal-dialog")).toBe(dialog);
+    expect(dialog.querySelector("textarea")?.value).toBe("role correction");
+    expect(
+      [...dialog.querySelectorAll<HTMLButtonElement>("button")].every((button) => button.disabled),
+    ).toBe(true);
+    releaseConflictRefresh();
     await vi.waitFor(() => expect(element.textContent).toContain("The roster changed"));
     const modalError = element
       .querySelector("openclaw-modal-dialog")
       ?.querySelector<HTMLElement>('[role="alert"]');
     expect(modalError?.textContent).toContain("The roster changed");
+    expect(element.querySelector("openclaw-modal-dialog")).toBe(dialog);
+    expect(dialog.querySelector("textarea")?.value).toBe("role correction");
     expect(document.activeElement).toBe(modalError);
     expect(
       fetchImpl.mock.calls.some(

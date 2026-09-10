@@ -12,6 +12,7 @@ import type {
 export function renderSkillHubNotifications(props: {
   open: boolean;
   loading: boolean;
+  error?: string | null;
   items: PlatformClawSkillHubNotification[];
   onClose: () => void;
   onMarkAllRead: () => void;
@@ -33,6 +34,7 @@ export function renderSkillHubNotifications(props: {
           <button class="btn btn--sm" @click=${props.onClose}>${t("skillsPage.close")}</button>
         </div>
       </header>
+      ${props.error ? html`<div class="callout danger" role="alert">${props.error}</div>` : nothing}
       ${props.loading
         ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
         : props.items.length === 0
@@ -83,7 +85,13 @@ export function renderSkillHubWorkspacePublish(props: {
     true;
   return html`<openclaw-modal-dialog
     label=${platformClawT("platformClaw.skillHub.publish.title")}
-    @modal-cancel=${props.onClose}
+    @modal-cancel=${(event: Event) => {
+      if (props.busy) {
+        event.preventDefault();
+      } else {
+        props.onClose();
+      }
+    }}
   >
     <section class="skill-hub-dialog skill-hub-workspace-publish">
       <header class="skill-hub-dialog__header">
@@ -187,7 +195,6 @@ export function renderSkillHubWorkspacePublish(props: {
         class="btn primary"
         ?disabled=${props.loading ||
         props.busy ||
-        props.error !== null ||
         !props.skill ||
         !props.namespace ||
         !props.version}
@@ -205,6 +212,7 @@ export function renderSkillHubUpload(props: {
   open: boolean;
   config: PlatformClawSkillHubConfig | null;
   file: File | null;
+  error?: string | null;
   slug: string;
   namespace: string;
   version: string;
@@ -225,7 +233,13 @@ export function renderSkillHubUpload(props: {
   const invalidFile = props.file ? props.file.size > maxBytes : false;
   return html`<openclaw-modal-dialog
     label=${t("skillHubPage.uploadZip")}
-    @modal-cancel=${props.onClose}
+    @modal-cancel=${(event: Event) => {
+      if (props.busy) {
+        event.preventDefault();
+      } else {
+        props.onClose();
+      }
+    }}
   >
     <section class="skill-hub-dialog skill-hub-upload">
       <header class="skill-hub-dialog__header">
@@ -233,14 +247,18 @@ export function renderSkillHubUpload(props: {
           <h2>${t("skillHubPage.uploadZip")}</h2>
           <p>${t("skillHubPage.uploadDescription")}</p>
         </div>
-        <button class="btn btn--sm" @click=${props.onClose}>${t("skillsPage.close")}</button>
+        <button class="btn btn--sm" ?disabled=${props.busy} @click=${props.onClose}>
+          ${t("skillsPage.close")}
+        </button>
       </header>
+      ${props.error ? html`<div class="callout danger" role="alert">${props.error}</div>` : nothing}
       <label class="skill-hub-upload__drop">
         <strong>${props.file?.name ?? t("skillHubPage.chooseZip")}</strong>
         <span>${t("skillHubPage.uploadLimit")}</span>
         <input
           type="file"
           accept=".zip,application/zip"
+          ?disabled=${props.busy}
           @change=${(event: Event) =>
             props.onFile((event.target as HTMLInputElement).files?.[0] ?? null)}
         />
@@ -253,6 +271,7 @@ export function renderSkillHubUpload(props: {
           <span>${t("skillHubPage.slug")}</span>
           <input
             .value=${props.slug}
+            ?disabled=${props.busy}
             @input=${(event: Event) => props.onSlug((event.target as HTMLInputElement).value)}
           />
         </label>
@@ -260,6 +279,7 @@ export function renderSkillHubUpload(props: {
           <span>${t("skillsPage.skillHub.namespace")}</span>
           <select
             .value=${props.namespace}
+            ?disabled=${props.busy}
             @change=${(event: Event) =>
               props.onNamespace((event.target as HTMLSelectElement).value)}
           >
@@ -272,6 +292,7 @@ export function renderSkillHubUpload(props: {
           <span>${t("skillsPage.skillHub.version")}</span>
           <input
             .value=${props.version}
+            ?disabled=${props.busy}
             placeholder="1.0.0"
             @input=${(event: Event) => props.onVersion((event.target as HTMLInputElement).value)}
           />
@@ -280,6 +301,7 @@ export function renderSkillHubUpload(props: {
           <span>${t("skillsPage.skillHub.visibility")}</span>
           <select
             .value=${props.visibility}
+            ?disabled=${props.busy}
             @change=${(event: Event) =>
               props.onVisibility((event.target as HTMLSelectElement).value)}
           >
@@ -319,7 +341,13 @@ export function renderSkillHubVersionChange(props: {
   }
   return html`<openclaw-modal-dialog
     label=${t("skillHubPage.versionChangeTitle")}
-    @modal-cancel=${props.onClose}
+    @modal-cancel=${(event: Event) => {
+      if (props.busy) {
+        event.preventDefault();
+      } else {
+        props.onClose();
+      }
+    }}
   >
     <section class="skill-hub-dialog skill-hub-version-change">
       <header class="skill-hub-dialog__header">

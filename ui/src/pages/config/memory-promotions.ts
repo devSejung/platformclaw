@@ -169,6 +169,8 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     this.loading = true;
     this.error = null;
     this.success = null;
+    // The enclosing sharing dialog must keep pending outcomes visible to the user.
+    this.dispatchEvent(new CustomEvent("promotion-submit-state", { bubbles: true, detail: true }));
     try {
       const content = {
         sourceClaimId: this.sourceClaimId,
@@ -219,6 +221,10 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       }
       this.error = formatErrorMessage(error, { redact: redactToolDetail });
       this.loading = false;
+    } finally {
+      this.dispatchEvent(
+        new CustomEvent("promotion-submit-state", { bubbles: true, detail: false }),
+      );
     }
   }
 
@@ -232,6 +238,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   }
 
   private decide(request: OrganizationMemoryPromotionRequest, decision: "approve" | "reject") {
+    this.error = null;
     this.pendingDecision = { request, decision };
   }
 
@@ -241,6 +248,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       return;
     }
     this.loading = true;
+    this.error = null;
     try {
       await this.client.request("platformclaw.memory.promotion.decide", {
         requestId: pending.request.id,
@@ -268,9 +276,12 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     return html`<openclaw-modal-dialog
       label=${label}
       description=${pending.request.targetScopeName}
-      @modal-cancel=${() => {
-        if (!this.loading) {
+      @modal-cancel=${(event: Event) => {
+        if (this.loading) {
+          event.preventDefault();
+        } else {
           this.pendingDecision = null;
+          this.error = null;
         }
       }}
     >
@@ -278,7 +289,13 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
         class="exec-approval-card"
         @submit=${(event: SubmitEvent) => {
           event.preventDefault();
-          const value = new FormData(event.currentTarget as HTMLFormElement).get("reason");
+          const form = event.currentTarget as HTMLFormElement;
+          const input = form.elements.namedItem("reason") as HTMLTextAreaElement;
+          input.value = input.value.trim();
+          if (!form.reportValidity()) {
+            return;
+          }
+          const value = new FormData(form).get("reason");
           const reason = typeof value === "string" ? value.trim() : "";
           if (reason) {
             void this.submitDecision(reason);
@@ -293,15 +310,19 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
         </div>
         <label class="field">
           <span>${t("memoryPage.promotions.decisionReason")}</span>
-          <textarea name="reason" maxlength="500" required></textarea>
+          <textarea name="reason" maxlength="500" required ?disabled=${this.loading}></textarea>
         </label>
+        ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
         <div class="exec-approval-actions">
           <button class="btn primary" type="submit" ?disabled=${this.loading}>${label}</button>
           <button
             class="btn"
             type="button"
             ?disabled=${this.loading}
-            @click=${() => (this.pendingDecision = null)}
+            @click=${() => {
+              this.pendingDecision = null;
+              this.error = null;
+            }}
           >
             ${t("common.cancel")}
           </button>
@@ -381,10 +402,18 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       </span>
       ${review && request.canReview
         ? html`<span class="settings-row__control">
-            <button class="btn btn--sm primary" @click=${() => this.decide(request, "approve")}>
+            <button
+              class="btn btn--sm primary"
+              ?disabled=${this.loading}
+              @click=${() => this.decide(request, "approve")}
+            >
               ${t("memoryPage.promotions.approve")}
             </button>
-            <button class="btn btn--sm" @click=${() => this.decide(request, "reject")}>
+            <button
+              class="btn btn--sm"
+              ?disabled=${this.loading}
+              @click=${() => this.decide(request, "reject")}
+            >
               ${t("memoryPage.promotions.reject")}
             </button>
           </span>`
@@ -436,9 +465,9 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
               </button>`
             : nothing}
         </header>
-        ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
+        ${this.error && !this.pendingDecision ? html`<p role="alert">${this.error}</p>` : nothing}
         ${this.success ? html`<p role="status">${this.success}</p>` : nothing}
-        <div class="settings-group">
+        <fieldset class="settings-group" style="margin:0;padding:0" ?disabled=${this.loading}>
           <label class="settings-row memory-promotions__source-row">
             <span class="settings-row__text"
               ><span class="settings-row__title">${t("memoryPage.promotions.source")}</span></span
@@ -562,7 +591,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
               ? t("memoryPage.promotions.publishDirect")
               : t("memoryPage.promotions.submit")}
           </button>
-        </div>
+        </fieldset>
       </section>
       ${this.formOnly
         ? nothing
@@ -608,6 +637,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
                           ${claim.status === "active" && claim.canRetire
                             ? html`<button
                                 class="btn btn--sm"
+                                ?disabled=${this.loading}
                                 @click=${() => void this.retire(claim.id, false)}
                               >
                                 ${t("memoryPage.promotions.retire")}
@@ -615,6 +645,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
                             : claim.status === "retired" && claim.canPurge
                               ? html`<button
                                   class="btn btn--sm danger"
+                                  ?disabled=${this.loading}
                                   @click=${() => void this.retire(claim.id, true)}
                                 >
                                   ${t("memoryPage.promotions.purge")}

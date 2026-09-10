@@ -13,6 +13,51 @@ function jsonResponse(value: unknown, status = 200): Response {
 }
 
 describe("SkillHubPage", () => {
+  it.each(["load", "mark-read"])(
+    "shows notification %s errors inside the inbox and permits retry",
+    async (operation) => {
+      let fail = true;
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        if (url.endsWith("/config")) {
+          return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 });
+        }
+        if (url.includes("/notifications")) {
+          if (fail && (operation === "load" || url.endsWith("/read"))) {
+            return jsonResponse({ error: "Inbox unavailable" }, 503);
+          }
+          return jsonResponse({ items: [], unreadCount: 0, ok: true, updated: 0 });
+        }
+        return jsonResponse({ total: 0, items: [] });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const page = document.createElement("openclaw-skill-hub-page");
+      document.body.append(page);
+      await waitForFast(() => expect(page.textContent).toContain("No Skill Hub results"));
+      const button = (scope: ParentNode, label: string) =>
+        [...scope.querySelectorAll<HTMLButtonElement>("button")].find((item) =>
+          item.textContent?.includes(label),
+        )!;
+      button(page, "Notifications").click();
+      await waitForFast(() => expect(page.querySelector("openclaw-modal-dialog")).not.toBeNull());
+      if (operation === "mark-read") {
+        await waitForFast(() => expect(button(page, "Mark all read").disabled).toBe(false));
+        button(page, "Mark all read").click();
+      }
+      await waitForFast(() =>
+        expect(page.querySelector("openclaw-modal-dialog [role='alert']")?.textContent).toContain(
+          "Inbox unavailable",
+        ),
+      );
+      fail = false;
+      button(page.querySelector("openclaw-modal-dialog")!, "Close").click();
+      await waitForFast(() => expect(page.querySelector("openclaw-modal-dialog")).toBeNull());
+      button(page, "Notifications").click();
+      await waitForFast(() =>
+        expect(page.querySelector("openclaw-modal-dialog [role='alert']")).toBeNull(),
+      );
+    },
+  );
   beforeEach(async () => {
     await i18n.setLocale("en");
   });
@@ -388,6 +433,86 @@ describe("SkillHubPage", () => {
     expect(page.textContent).toContain("Unassigned owners");
   });
 
+  it("retains a failed namespace removal reason for retry and clears it only on success", async () => {
+    let removeAttempts = 0;
+    let removed = false;
+    const binding = {
+      namespace: "engineering",
+      scopeKind: "global",
+      accessState: "active",
+      visibilityCeiling: "NAMESPACE_ONLY",
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith("/config")) {
+        return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024, admin: true });
+      }
+      if (url.endsWith("/admin/namespaces") && !init?.method) {
+        return jsonResponse({ bindings: removed ? [] : [binding], scopes: [] });
+      }
+      if (url.endsWith("/admin/unassigned")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.endsWith("/admin/namespaces/engineering") && init?.method === "DELETE") {
+        removeAttempts += 1;
+        if (removeAttempts === 1) {
+          return jsonResponse({ error: "Removal unavailable. Try again." }, 503);
+        }
+        removed = true;
+        return jsonResponse({ ok: true, removed: true });
+      }
+      return jsonResponse({ total: 0, items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+    await waitForFast(() => expect(page.textContent).toContain("Skill Hub admin"));
+    const button = (label: string) =>
+      [...page.querySelectorAll<HTMLButtonElement>("button")].find(
+        (item) => item.textContent?.trim() === label,
+      )!;
+
+    button("Skill Hub admin").click();
+    await waitForFast(() => expect(page.textContent).toContain("engineering"));
+    button("Remove").click();
+    const confirmation = () => page.querySelector<HTMLElement>(".skill-hub-admin__confirmation")!;
+    await waitForFast(() => expect(confirmation()).not.toBeNull());
+    expect(button("Confirm change").disabled).toBe(true);
+    confirmation().querySelector<HTMLInputElement>("input")!.value = "Wrong namespace";
+    confirmation()
+      .querySelector<HTMLInputElement>("input")!
+      .dispatchEvent(new InputEvent("input", { bubbles: true }));
+    button("Cancel").click();
+    await waitForFast(() =>
+      expect(page.querySelector(".skill-hub-admin__confirmation")).toBeNull(),
+    );
+    expect(removeAttempts).toBe(0);
+
+    button("Remove").click();
+    await waitForFast(() => expect(confirmation()).not.toBeNull());
+    const reason = confirmation().querySelector<HTMLInputElement>("input")!;
+    reason.value = "Retire unused namespace";
+    reason.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await waitForFast(() => expect(button("Confirm change").disabled).toBe(false));
+    button("Confirm change").click();
+    await waitForFast(() =>
+      expect(page.querySelector('[role="alert"]')?.textContent).toContain("Removal unavailable"),
+    );
+    expect(confirmation().querySelector<HTMLInputElement>("input")?.value).toBe(
+      "Retire unused namespace",
+    );
+
+    await waitForFast(() => expect(button("Confirm change").disabled).toBe(false));
+    button("Confirm change").click();
+    await waitForFast(() => expect(removeAttempts).toBe(2));
+    await waitForFast(() =>
+      expect(page.querySelector(".skill-hub-admin__confirmation")).toBeNull(),
+    );
+    expect(page.textContent).toContain("No namespace bindings");
+  });
+
   it("drops stale management search state when switching skills", async () => {
     let resolveCandidates!: (response: Response) => void;
     const pendingCandidates = new Promise<Response>((resolve) => {
@@ -493,5 +618,51 @@ describe("SkillHubPage", () => {
     await internal.publishZip();
     await waitForFast(() => expect(page.textContent).toContain("private until an administrator"));
     expect(page.querySelector(".callout.warning")).not.toBeNull();
+  });
+
+  it("shows a ZIP publishing failure inside the open upload dialog and keeps the draft", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 }))
+      .mockResolvedValueOnce(jsonResponse({ total: 0, items: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "Archive scanner is unavailable. Try again." }, 503),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+    await waitForFast(() => expect(page.textContent).toContain("No Skill Hub results"));
+    [...page.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Upload ZIP")!
+      .click();
+    await waitForFast(() => expect(page.querySelector(".skill-hub-upload")).not.toBeNull());
+    const dialog = page.querySelector(".skill-hub-upload")!;
+    const file = dialog.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(file, "files", {
+      value: [new File(["zip"], "demo.zip", { type: "application/zip" })],
+    });
+    file.dispatchEvent(new Event("change", { bubbles: true }));
+    const slug = dialog.querySelector<HTMLInputElement>(".skill-hub-upload__fields input")!;
+    slug.value = "demo";
+    slug.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitForFast(() =>
+      expect(dialog.querySelector<HTMLButtonElement>("button.primary")?.disabled).toBe(false),
+    );
+    dialog.querySelector<HTMLButtonElement>("button.primary")!.click();
+    await waitForFast(() =>
+      expect(dialog.querySelector('[role="alert"]')?.textContent).toContain(
+        "Archive scanner is unavailable",
+      ),
+    );
+    expect(dialog.textContent).toContain("demo.zip");
+    expect(slug.value).toBe("demo");
+    expect(dialog.querySelector<HTMLButtonElement>("button.primary")?.disabled).toBe(false);
+    dialog.querySelector<HTMLButtonElement>("header button")!.click();
+    await waitForFast(() => expect(page.querySelector(".skill-hub-upload")).toBeNull());
+    [...page.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Upload ZIP")!
+      .click();
+    await waitForFast(() => expect(page.querySelector(".skill-hub-upload")).not.toBeNull());
+    expect(page.querySelector('.skill-hub-upload [role="alert"]')).toBeNull();
   });
 });

@@ -61,6 +61,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     trigger: HTMLElement | null;
   } | null = null;
   @state() private promotionLookup = "";
+  @state() private promotionBusy = false;
   @state() private deleteTarget: { kind: "memory" | "wiki"; path: string } | null = null;
   @state() private actionMessage = "";
   @state() private refreshRevision = 0;
@@ -84,6 +85,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     if (changed.has("agentId") || this.context.gateway.snapshot.phase !== "connected") {
       this.menu = null;
       this.promotionLookup = "";
+      this.promotionBusy = false;
       this.deleteTarget = null;
       this.actionMessage = "";
     }
@@ -168,9 +170,19 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
         ? html`<openclaw-modal-dialog
             label=${t("platformClaw.memory.share")}
             style="--openclaw-modal-width: 800px"
-            @modal-cancel=${() => (this.promotionLookup = "")}
+            @modal-cancel=${(event: Event) => {
+              if (this.promotionBusy) {
+                event.preventDefault();
+              } else {
+                this.promotionLookup = "";
+              }
+            }}
             ><div class="settings-page platformclaw-memory-action-dialog">
-              <button class="btn" @click=${() => (this.promotionLookup = "")}>
+              <button
+                class="btn"
+                ?disabled=${this.promotionBusy}
+                @click=${() => (this.promotionLookup = "")}
+              >
                 ${t("common.close")}
               </button>
               <openclaw-memory-promotions
@@ -185,8 +197,12 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
                 .agentId=${this.agentId}
                 .initialPersonalLookup=${this.promotionLookup}
                 .formOnly=${true}
+                @promotion-submit-state=${(event: CustomEvent<boolean>) => {
+                  this.promotionBusy = event.detail;
+                }}
                 @promotion-submitted=${(event: CustomEvent<{ message: string }>) => {
                   this.promotionLookup = "";
+                  this.promotionBusy = false;
                   this.actionMessage = event.detail.message;
                 }}
               ></openclaw-memory-promotions></div

@@ -1,5 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RouteId } from "../app-route-paths.ts";
+import type { ApplicationContext, ApplicationGatewaySnapshot } from "../app/context.ts";
 import { i18n } from "../i18n/index.ts";
+import { createApplicationContextProvider } from "../test-helpers/application-context.ts";
 import { installBrowserHistoryIsolation } from "../test-helpers/browser-history.ts";
 import {
   PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY,
@@ -21,6 +24,31 @@ const BASIC_EXECUTION_SETTINGS = {
   accountId: "person.one",
   availableVms: [],
 };
+
+function installMobileNavMediaQuery(matches: boolean) {
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  const mediaQuery = {
+    matches,
+    addEventListener: (_type: "change", listener: (event: MediaQueryListEvent) => void) => {
+      listeners.add(listener);
+    },
+    removeEventListener: (_type: "change", listener: (event: MediaQueryListEvent) => void) => {
+      listeners.delete(listener);
+    },
+    setMatches(nextMatches: boolean) {
+      this.matches = nextMatches;
+      const event = { matches: nextMatches } as MediaQueryListEvent;
+      for (const listener of listeners) {
+        listener(event);
+      }
+    },
+  };
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => mediaQuery),
+  );
+  return mediaQuery;
+}
 
 async function mount(
   options: { admin?: boolean; fetchImpl?: typeof fetch; vocEnabled?: boolean } = {},
@@ -57,6 +85,16 @@ function installMemberPluginsHub(link: HTMLAnchorElement) {
     event.preventDefault();
     if (link.href.endsWith("/skills")) {
       globalThis.history.replaceState(null, "", "/skills");
+    }
+    if (link.href.endsWith("/settings/plugins")) {
+      globalThis.history.replaceState(null, "", "/settings/plugins");
+      for (const tab of ["installed", "discover"]) {
+        const button = document.createElement("button");
+        button.id = `plugins-tab-${tab}`;
+        button.getBoundingClientRect = () =>
+          DOMRect.fromRect({ x: 320, y: 150, width: 140, height: 36 });
+        document.body.append(button);
+      }
     }
     if (document.querySelector(".plugins-content-header")) {
       return;
@@ -110,7 +148,13 @@ function installMemberSettings(button: HTMLButtonElement) {
       tabs.className = "platformclaw-memory-page__tabs";
       tabs.getBoundingClientRect = () =>
         DOMRect.fromRect({ x: 310, y: 90, width: 600, height: 48 });
-      for (const [index, tab] of ["memory", "wiki", "organization", "dreaming"].entries()) {
+      for (const [index, tab] of [
+        "overview",
+        "memory",
+        "wiki",
+        "organization",
+        "dreaming",
+      ].entries()) {
         const tabElement = document.createElement("button");
         tabElement.id = `platformclaw-memory-tab-${tab}`;
         tabElement.getBoundingClientRect = () =>
@@ -144,6 +188,10 @@ describe("platformclaw-quick-actions", () => {
     localStorage.clear();
     globalThis.history.replaceState(null, "", "/platformclaw/app/chat");
     await i18n.setLocale("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("renders the compact role-aware grid and server-owned VOC action", async () => {
@@ -256,6 +304,25 @@ describe("platformclaw-quick-actions", () => {
     );
   });
 
+  it("does not advertise the PC-only guide in mobile navigation", async () => {
+    const mediaQuery = installMobileNavMediaQuery(false);
+    const element = await mount();
+    expect(element.shadowRoot?.querySelector('[data-tour="guide"]')).not.toBeNull();
+
+    mediaQuery.setMatches(true);
+    await element.updateComplete;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+
+    expect(element.shadowRoot?.querySelector(".tour-popover")).toBeNull();
+    expect(element.shadowRoot?.querySelector('[data-tour="guide"]')).toBeNull();
+
+    mediaQuery.setMatches(false);
+    await element.updateComplete;
+    expect(element.shadowRoot?.querySelector('[data-tour="guide"]')).not.toBeNull();
+  });
+
   it("waits for a manual launch outside the chat route", async () => {
     globalThis.history.replaceState(null, "", "/platformclaw/app/settings/appearance");
     const element = await mount();
@@ -268,6 +335,93 @@ describe("platformclaw-quick-actions", () => {
     await vi.waitFor(() =>
       expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
     );
+  });
+
+  it("waits for gateway capabilities before freezing the first-run guide", async () => {
+    document.querySelector('[data-tour="terminal"]')?.remove();
+    let snapshot = { phase: "connecting", hello: null } as ApplicationGatewaySnapshot;
+    const listeners = new Set<(value: ApplicationGatewaySnapshot) => void>();
+    const context = {
+      gateway: {
+        get snapshot() {
+          return snapshot;
+        },
+        subscribe(listener: (value: ApplicationGatewaySnapshot) => void) {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      },
+      config: { current: { terminalEnabled: true } },
+    } as unknown as ApplicationContext<RouteId>;
+    const provider = createApplicationContextProvider(context);
+    const element = document.createElement(
+      "platformclaw-quick-actions",
+    ) as PlatformClawQuickActionsElement;
+    element.fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(BASIC_EXECUTION_SETTINGS));
+    document.body.append(provider);
+    provider.append(element);
+    await element.updateComplete;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+    expect(element.shadowRoot?.querySelector(".tour-popover")).toBeNull();
+
+    snapshot = {
+      ...snapshot,
+      phase: "connected",
+      hello: {
+        features: {
+          methods: ["terminal.open"],
+          capabilities: ["platformclaw.personal-vm-terminal"],
+        },
+      },
+    } as ApplicationGatewaySnapshot;
+    for (const listener of listeners) {
+      listener(snapshot);
+    }
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector(".tour-progress")?.textContent?.trim()).toBe(
+        "1 of 22",
+      ),
+    );
+    // The terminal button has not rendered yet; hello, not DOM timing, owns inclusion.
+    expect(document.querySelector('[data-tour="terminal"]')).toBeNull();
+    element.shadowRoot?.querySelector<HTMLButtonElement>(".tour-close")?.click();
+    element.remove();
+    expect(listeners.size).toBe(0);
+  });
+
+  it("keeps the step count stable when the terminal leaves the current screen", async () => {
+    const element = await mount();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector(".tour-progress")?.textContent?.trim()).toBe(
+        "1 of 22",
+      ),
+    );
+    document.querySelector('[data-tour="terminal"]')?.remove();
+    await advanceTour(element);
+    expect(element.shadowRoot?.querySelector(".tour-progress")?.textContent?.trim()).toBe(
+      "2 of 22",
+    );
+  });
+
+  it("keeps keyboard focus inside the tour and returns it to Guide on Escape", async () => {
+    const element = await mount();
+    const root = element.shadowRoot!;
+    await vi.waitFor(() => expect(root.querySelector(".tour-next")).not.toBeNull());
+    await vi.waitFor(() => expect(root.activeElement).toBe(root.querySelector(".tour-next")));
+    const tab = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
+    globalThis.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(root.activeElement).toBe(root.querySelector(".tour-close"));
+    globalThis.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, cancelable: true }),
+    );
+    expect(root.activeElement).toBe(root.querySelector(".tour-next"));
+    globalThis.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    await element.updateComplete;
+    expect(root.querySelector(".tour-popover")).toBeNull();
+    expect(root.activeElement).toBe(root.querySelector('[data-tour="guide"]'));
   });
 
   it("omits the Terminal guide step when the capability is unavailable", async () => {
@@ -291,8 +445,12 @@ describe("platformclaw-quick-actions", () => {
     expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
       "Usage: understand tokens and cost",
     );
+    await advanceTour(element);
+    expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
+      "Tasks: follow assigned work",
+    );
     expect(element.shadowRoot?.querySelector(".tour-progress")?.textContent?.trim()).toBe(
-      "3 of 21",
+      "4 of 21",
     );
   });
 
@@ -338,14 +496,7 @@ describe("platformclaw-quick-actions", () => {
       "Settings: manage your workspace and connections",
     );
     expect(element.shadowRoot?.querySelector(".tour-popover")?.textContent).toContain(
-      "Agents & tools contains Agents, Labs, model providers, MCP, Memory, Organization, and Automation",
-    );
-    await advanceTour(element);
-    expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
-      "Organization: review membership and access",
-    );
-    expect(element.shadowRoot?.querySelector(".tour-popover")?.textContent).toContain(
-      "separate from the Organization knowledge-promotion tab inside Memory",
+      "Only options available to your account are shown",
     );
     await advanceTour(element);
     expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
@@ -373,7 +524,7 @@ describe("platformclaw-quick-actions", () => {
     );
   });
 
-  it("walks through Skills, Workshop, and Skill Hub before work location", async () => {
+  it("explains Skills, Workshop, and Skill Hub in sidebar order without leaving Home", async () => {
     const sidebar = document.createElement("openclaw-app-sidebar");
     const pluginsLink = document.createElement("a");
     pluginsLink.className = "nav-item";
@@ -388,7 +539,7 @@ describe("platformclaw-quick-actions", () => {
       expect(element.shadowRoot?.querySelector(".tour-popover")).not.toBeNull(),
     );
 
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < 7; index += 1) {
       await advanceTour(element);
     }
 
@@ -409,13 +560,15 @@ describe("platformclaw-quick-actions", () => {
       "Draft skill changes stay separate from live skills",
     );
     expect(element.shadowRoot?.querySelector(".tour-highlight")?.getAttribute("style")).toContain(
-      "left:313px",
+      "left:13px",
     );
 
     await advanceTour(element);
     expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
       "Skill Hub: install and share company skills",
     );
+    expect(globalThis.location.pathname).toBe("/platformclaw/app/chat");
+    expect(document.querySelector(".plugins-content-header")).toBeNull();
 
     await advanceTour(element);
     expect(element.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
@@ -502,14 +655,14 @@ describe("platformclaw-quick-actions", () => {
     await advanceTour(afterNavigation);
     await advanceTour(afterNavigation);
     expect(afterNavigation.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
-      "Organization: review membership and access",
+      "Memory: open your knowledge workspace",
     );
 
     afterNavigation.remove();
     document.body.append(beforeNavigation);
     await vi.waitFor(() =>
       expect(beforeNavigation.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
-        "Organization: review membership and access",
+        "Memory: open your knowledge workspace",
       ),
     );
 
@@ -523,7 +676,7 @@ describe("platformclaw-quick-actions", () => {
     const validSettingsInstance = await mount();
     await vi.waitFor(() =>
       expect(validSettingsInstance.shadowRoot?.querySelector(".tour-popover h2")?.textContent).toBe(
-        "Organization: review membership and access",
+        "Memory: open your knowledge workspace",
       ),
     );
     validSettingsInstance.shadowRoot?.querySelector<HTMLButtonElement>(".tour-close")?.click();

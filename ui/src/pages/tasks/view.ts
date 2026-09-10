@@ -29,6 +29,8 @@ type TasksProps = {
   error: string | null;
   tasks: TaskSummary[];
   cancellingTaskIds: ReadonlySet<string>;
+  copyingTaskIds: ReadonlySet<string>;
+  copiedTaskIds: ReadonlySet<string>;
   sessionRow: (sessionKey: string) => GatewaySessionRow | undefined;
   onCancel: (taskId: string) => void;
   onRetry: (taskId: string) => void;
@@ -78,7 +80,9 @@ function renderTask(task: TaskSummary, props: TasksProps) {
   const timestamp = taskTimestampMs(task.updatedAt ?? task.createdAt);
   const detail = taskDetail(task);
   const title = taskTitle(task);
-  const cancelling = props.cancellingTaskIds.has(task.id);
+  const cancelling = props.cancellingTaskIds.has(task.taskId);
+  const copying = props.copyingTaskIds.has(task.taskId);
+  const copied = props.copiedTaskIds.has(task.taskId);
   const retainedResult = task.terminalOutcome === "blocked";
   const recoverableDelivery = retainedResult && task.deliveryStatus === "failed";
   const dismissedDelivery = retainedResult && task.deliveryStatus === "dismissed";
@@ -126,10 +130,14 @@ function renderTask(task: TaskSummary, props: TasksProps) {
               <button
                 class="btn"
                 type="button"
-                ?disabled=${cancelling || !props.connected}
+                ?disabled=${cancelling || copying || !props.connected}
                 @click=${() => props.onCopyResult(task.taskId)}
               >
-                ${t("tasksPage.copyResult")}
+                ${copying
+                  ? `${t("tasksPage.copyResult")}…`
+                  : copied
+                    ? t("common.copied")
+                    : t("tasksPage.copyResult")}
               </button>
               ${recoverableDelivery
                 ? html`
@@ -262,7 +270,7 @@ export function renderTasks(props: TasksProps) {
       ${!props.connected
         ? html`<div class="callout warn">${t("tasksPage.disconnected")}</div>`
         : nothing}
-      ${props.error ? html`<div class="callout danger">${props.error}</div>` : nothing}
+      ${props.error ? html`<div class="callout danger" role="alert">${props.error}</div>` : nothing}
       ${renderSummaryStrip(props.tasks)}
       ${props.loading && props.tasks.length === 0
         ? html`<div class="card muted">${t("tasksPage.loading")}</div>`

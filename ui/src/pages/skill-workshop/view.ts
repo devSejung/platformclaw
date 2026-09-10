@@ -191,7 +191,13 @@ function renderRevisionDialog(props: SkillWorkshopProps, proposal: SkillWorkshop
       .label=${`${t("skillWorkshop.revision.title", { verb })}: ${proposal.slug}`}
       .description=${t("skillWorkshop.revision.description")}
       style="--openclaw-modal-width: 560px"
-      @modal-cancel=${props.onRevisionCancel}
+      @modal-cancel=${(event: Event) => {
+        if (props.actionBusy) {
+          event.preventDefault();
+        } else {
+          props.onRevisionCancel();
+        }
+      }}
     >
       <section class="sw-revision-dialog ${busy ? "sw-revision-dialog--sending" : ""}">
         <div class="sw-revision-dialog__head">

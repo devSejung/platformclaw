@@ -235,6 +235,35 @@ describe("memory deletion confirmation", () => {
     expect(element.querySelector<HTMLButtonElement>("button.danger")?.disabled).toBe(false);
   });
 
+  it("keeps the dialog open while deletion is pending", async () => {
+    let rejectDelete!: (error: Error) => void;
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(preview())
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectDelete = reject;
+          }),
+      );
+    const element = createDialog(request);
+    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    element.querySelector<HTMLButtonElement>("button.danger")!.click();
+    await element.updateComplete;
+    const modal = element.querySelector("openclaw-modal-dialog")!;
+    const cancel = new CustomEvent("modal-cancel", { cancelable: true });
+    modal.dispatchEvent(cancel);
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(element.querySelector("openclaw-modal-dialog")).not.toBeNull();
+    rejectDelete(new Error("Memory changed. Refresh the preview."));
+    await waitForFast(() =>
+      expect(element.querySelector("[role=alert]")?.textContent).toContain("Memory changed"),
+    );
+    const retryCancel = new CustomEvent("modal-cancel", { cancelable: true });
+    modal.dispatchEvent(retryCancel);
+    expect(retryCancel.defaultPrevented).toBe(false);
+  });
+
   it.each([
     { file: { content: "", encoding: "utf8", missing: true } },
     { file: { content: "bytes", encoding: "base64", contentHash: "hash" } },

@@ -278,13 +278,33 @@ suite("PlatformClaw memory actions E2E", () => {
         .toContain("Delete this entire obsolete checklist");
       expect(await gateway.getRequests("memory.delete")).toHaveLength(0);
       await screenshot("02-delete-preview");
+      await gateway.deferNext("memory.delete");
+      const memoryUrl = page.url();
       await deletion.getByRole("button", { name: "Delete memory file", exact: true }).click();
-      const deleted = await gateway.waitForRequest("memory.delete");
-      expect(deleted.params).toEqual({
+      await gateway.waitForRequest("memory.delete");
+      await page.keyboard.press("Escape");
+      expect(page.url()).toBe(memoryUrl);
+      await expect
+        .poll(() =>
+          deletion.getByRole("dialog", { name: "Delete memory file", exact: true }).isVisible(),
+        )
+        .toBe(true);
+      await gateway.rejectDeferred("memory.delete", {
+        message: "Memory changed. Refresh and retry.",
+      });
+      await expect
+        .poll(() => deletion.getByRole("alert").textContent())
+        .toContain("Memory changed");
+      await deletion.getByRole("button", { name: "Delete memory file", exact: true }).click();
+      await expect.poll(async () => (await gateway.getRequests("memory.delete")).length).toBe(2);
+      const deleteParams = {
         agentId,
         path: "MEMORY.md",
         expectedContentHash: "a".repeat(64),
-      });
+      };
+      expect((await gateway.getRequests("memory.delete")).map((request) => request.params)).toEqual(
+        [deleteParams, deleteParams],
+      );
       await expect
         .poll(() => page.locator("platformclaw-memory-page").textContent())
         .toContain("Memory file deleted. Search and imported Wiki sources refreshed.");
@@ -339,8 +359,37 @@ suite("PlatformClaw memory actions E2E", () => {
         .toContain("Reviewers for Runtime");
       await screenshot("04-sharing-review");
       expect(await gateway.getRequests("platformclaw.memory.promotion.submit")).toHaveLength(0);
+      await gateway.deferNext("platformclaw.memory.promotion.submit");
       await promotion.locator("button.primary").click();
-      const submitted = await gateway.waitForRequest("platformclaw.memory.promotion.submit");
+      await gateway.waitForRequest("platformclaw.memory.promotion.submit");
+      await page.keyboard.press("Escape");
+      const shareModal = page.locator(
+        'openclaw-modal-dialog[label="Request organization sharing…"]',
+      );
+      const shareDialog = page.getByRole("dialog", {
+        name: "Request organization sharing…",
+        exact: true,
+      });
+      await expect.poll(() => shareDialog.isVisible()).toBe(true);
+      expect(
+        await shareModal.getByRole("button", { name: "Close", exact: true }).isDisabled(),
+      ).toBe(true);
+      await gateway.rejectDeferred("platformclaw.memory.promotion.submit", {
+        message: "Sharing failed. Try again.",
+      });
+      await expect
+        .poll(() => promotion.getByRole("alert").textContent())
+        .toContain("Sharing failed");
+      expect(await promotion.locator(".memory-promotions__field input").inputValue()).toBe(
+        "Verified recovery process for the team",
+      );
+      await promotion.locator("button.primary").click();
+      await expect
+        .poll(
+          async () => (await gateway.getRequests("platformclaw.memory.promotion.submit")).length,
+        )
+        .toBe(2);
+      const submitted = (await gateway.getRequests("platformclaw.memory.promotion.submit")).at(-1)!;
       expect(submitted.params).toEqual(
         expect.objectContaining({
           sourceKind: "personal",
@@ -414,7 +463,7 @@ suite("PlatformClaw memory actions E2E", () => {
       await expect.poll(() => node.count()).toBe(0);
       await personalWiki.locator(".memory-wiki-view-switch button").first().click();
       await expect.poll(() => personalWiki.textContent()).not.toContain("Recovery runbook");
-      expect(await gateway.getRequests("memory.delete")).toHaveLength(1);
+      expect(await gateway.getRequests("memory.delete")).toHaveLength(2);
       await screenshot("09-wiki-deleted");
 
       await page.getByRole("tab", { name: "Organization", exact: true }).click();

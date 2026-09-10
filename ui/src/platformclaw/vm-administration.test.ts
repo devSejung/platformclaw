@@ -101,6 +101,13 @@ describe("PlatformClaw VM administration", () => {
     await vi.waitFor(() => expect(element.shadowRoot?.querySelector("[data-open]")).not.toBeNull());
     element.shadowRoot?.querySelector<HTMLElement>("[data-open]")?.click();
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(
+        element.shadowRoot?.querySelector<HTMLInputElement>(
+          "form[data-endpoint-probe] input[name='host']",
+        )?.disabled,
+      ).toBe(false),
+    );
     const form = element.shadowRoot?.querySelector<HTMLFormElement>("form[data-endpoint-probe]");
     if (!form) {
       throw new Error("endpoint form is missing");
@@ -270,4 +277,53 @@ describe("PlatformClaw VM administration", () => {
     });
     expect(element.shadowRoot?.querySelector("openclaw-modal-dialog")).toBeNull();
   });
+
+  it("disables administration controls during a pending request while allowing close", async () => {
+    const pending = deferred<Response>();
+    const fetchImpl = vi.fn<typeof fetch>(() => pending.promise);
+    mountPlatformClawVmAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+    const root = document.querySelector("platformclaw-vm-administration")!.shadowRoot!;
+    await vi.waitFor(() => expect(root.querySelector("[data-open]")).not.toBeNull());
+    root.querySelector<HTMLButtonElement>("[data-open]")!.click();
+    const controls = [
+      ...root.querySelectorAll<HTMLInputElement | HTMLButtonElement>("main input, main button"),
+    ];
+    expect(controls.length).toBeGreaterThan(0);
+    expect(controls.every((control) => control.disabled)).toBe(true);
+    expect(root.querySelector<HTMLButtonElement>("[data-close]")!.disabled).toBe(false);
+    root.querySelector<HTMLButtonElement>("[data-refresh]")!.click();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    pending.resolve(jsonResponse(SNAPSHOT));
+    await vi.waitFor(() =>
+      expect(root.querySelector<HTMLButtonElement>("[data-refresh]")!.disabled).toBe(false),
+    );
+  });
+
+  it.each(["close", "escape"])(
+    "discards a pending VM mutation after %s and reopening",
+    async (method) => {
+      const snapshot = {
+        ...SNAPSHOT,
+        allocations: [
+          { id: "a", accountId: "person", vmLabel: "VM", linuxAccount: "person", status: "ready" },
+        ],
+      };
+      const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(snapshot));
+      mountPlatformClawVmAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+      const root = document.querySelector("platformclaw-vm-administration")!.shadowRoot!;
+      await vi.waitFor(() => expect(root.querySelector("[data-open]")).not.toBeNull());
+      root.querySelector<HTMLButtonElement>("[data-open]")!.click();
+      await vi.waitFor(() => expect(root.querySelector("[data-mutation]")).not.toBeNull());
+      root.querySelector<HTMLButtonElement>("[data-mutation]")!.click();
+      expect(root.querySelector("[data-confirm-mutation]")).not.toBeNull();
+      if (method === "close") {
+        root.querySelector<HTMLButtonElement>("[data-close]")!.click();
+      } else {
+        root.querySelector("openclaw-modal-dialog")!.dispatchEvent(new Event("modal-cancel"));
+      }
+      root.querySelector<HTMLButtonElement>("[data-open]")!.click();
+      expect(root.querySelector("[data-confirm-mutation]")).toBeNull();
+      expect(fetchImpl.mock.calls.every(([, init]) => init?.method !== "POST")).toBe(true);
+    },
+  );
 });

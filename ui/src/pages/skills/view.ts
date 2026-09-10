@@ -340,22 +340,36 @@ function renderPlatformClawSkillHubPublish(props: SkillsProps) {
   return html`
     <openclaw-modal-dialog
       label=${t("skillsPage.skillHub.publishToHub")}
-      @modal-cancel=${props.onSkillHubPublishClose}
+      @modal-cancel=${(event: Event) => {
+        if (props.skillHubOperation !== null) {
+          event.preventDefault();
+        } else {
+          props.onSkillHubPublishClose();
+        }
+      }}
     >
       <div class="md-preview-dialog__panel">
         <div class="md-preview-dialog__header">
           <div class="md-preview-dialog__title">
             ${t("skillsPage.skillHub.publishTitle", { skill: props.skillHubPublishSkill ?? "" })}
           </div>
-          <button class="btn btn--sm" @click=${props.onSkillHubPublishClose}>
+          <button
+            class="btn btn--sm"
+            ?disabled=${props.skillHubOperation !== null}
+            @click=${props.onSkillHubPublishClose}
+          >
             ${t("skillsPage.close")}
           </button>
         </div>
         <div class="md-preview-dialog__body" style="display: grid; gap: 16px;">
+          ${props.skillHubMessage?.kind === "error"
+            ? html`<div class="callout danger" role="alert">${props.skillHubMessage.text}</div>`
+            : nothing}
           <label class="field">
             <span>${t("skillsPage.skillHub.namespace")}</span>
             <select
               .value=${props.skillHubPublishNamespace}
+              ?disabled=${props.skillHubOperation !== null}
               @change=${(event: Event) =>
                 props.onSkillHubPublishNamespaceChange((event.target as HTMLSelectElement).value)}
             >
@@ -368,6 +382,7 @@ function renderPlatformClawSkillHubPublish(props: SkillsProps) {
             <span>${t("skillsPage.skillHub.version")}</span>
             <input
               .value=${props.skillHubPublishVersion}
+              ?disabled=${props.skillHubOperation !== null}
               @input=${(event: Event) =>
                 props.onSkillHubPublishVersionChange((event.target as HTMLInputElement).value)}
               placeholder="1.0.0"
@@ -377,6 +392,7 @@ function renderPlatformClawSkillHubPublish(props: SkillsProps) {
             <span>${t("skillsPage.skillHub.visibility")}</span>
             <select
               .value=${props.skillHubPublishVisibility}
+              ?disabled=${props.skillHubOperation !== null}
               @change=${(event: Event) =>
                 props.onSkillHubPublishVisibilityChange((event.target as HTMLSelectElement).value)}
             >

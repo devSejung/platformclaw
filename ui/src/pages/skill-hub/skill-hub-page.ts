@@ -57,6 +57,7 @@ class SkillHubPage extends SkillHubAdminController {
   @state() private installing: pageSupport.InstallTarget | null = null;
   @state() private notificationsOpen = false;
   @state() private notificationsLoading = false;
+  @state() private notificationsError: string | null = null;
   @state() private notifications: PlatformClawSkillHubNotification[] = [];
   @state() private uploadOpen = false;
   @state() private uploadFile: File | null = null;
@@ -102,6 +103,7 @@ class SkillHubPage extends SkillHubAdminController {
   private async openNotifications() {
     this.notificationsOpen = true;
     this.notificationsLoading = true;
+    this.notificationsError = null;
     try {
       const result = await loadPlatformClawSkillHubNotifications();
       this.notifications = result.items;
@@ -109,7 +111,7 @@ class SkillHubPage extends SkillHubAdminController {
         this.config = { ...this.config, notifications: { unreadCount: result.unreadCount } };
       }
     } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
+      this.notificationsError = error instanceof Error ? error.message : String(error);
     } finally {
       this.notificationsLoading = false;
     }
@@ -117,6 +119,7 @@ class SkillHubPage extends SkillHubAdminController {
 
   private async markAllNotificationsRead() {
     this.notificationsLoading = true;
+    this.notificationsError = null;
     try {
       await markPlatformClawSkillHubNotificationsRead();
       this.notifications = this.notifications.map((item) => ({
@@ -126,6 +129,8 @@ class SkillHubPage extends SkillHubAdminController {
       if (this.config?.notifications) {
         this.config = { ...this.config, notifications: { unreadCount: 0 } };
       }
+    } catch (error) {
+      this.notificationsError = error instanceof Error ? error.message : String(error);
     } finally {
       this.notificationsLoading = false;
     }
@@ -563,7 +568,13 @@ class SkillHubPage extends SkillHubAdminController {
                   : nothing}
               </button>`
             : nothing}
-          <button class="btn" @click=${() => (this.uploadOpen = true)}>
+          <button
+            class="btn"
+            @click=${() => {
+              this.message = null;
+              this.uploadOpen = true;
+            }}
+          >
             ${t("skillHubPage.uploadZip")}
           </button>
           <button
@@ -641,6 +652,7 @@ class SkillHubPage extends SkillHubAdminController {
         ${renderSkillHubNotifications({
           open: this.notificationsOpen,
           loading: this.notificationsLoading,
+          error: this.notificationsError,
           items: this.notifications,
           onClose: () => (this.notificationsOpen = false),
           onMarkAllRead: () => void this.markAllNotificationsRead(),
@@ -650,6 +662,7 @@ class SkillHubPage extends SkillHubAdminController {
           open: this.uploadOpen,
           config: this.config,
           file: this.uploadFile,
+          error: this.message?.kind === "error" ? this.message.text : null,
           slug: this.uploadSlug,
           namespace: this.uploadNamespace,
           version: this.uploadVersion,
@@ -667,6 +680,8 @@ class SkillHubPage extends SkillHubAdminController {
           open: this.adminOpen,
           loading: this.adminLoading,
           busy: this.adminBusy,
+          error: this.message?.kind === "error" ? this.message.text : this.error,
+          message: this.message?.kind === "success" ? this.message.text : null,
           bindings: this.namespaceBindings,
           scopes: this.managedScopes,
           unassigned: this.unassignedSkills,

@@ -40,6 +40,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 10px;
+  padding: var(--space-3) var(--space-4);
 }
 
 .organization-search label,
@@ -136,6 +137,15 @@
 .organization-request-list p,
 .platformclaw-organization-prompt p {
   margin: 4px 0 0;
+}
+
+.organization-request-list > li {
+  padding: var(--space-3) var(--space-4);
+}
+
+#platformclaw-organization-join-panel {
+  display: grid;
+  gap: var(--space-6);
 }
 
 .organization-request-actions {

@@ -97,6 +97,43 @@ describe("PlatformClaw execution settings", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["close", "escape"])(
+    "clears release confirmation after %s and reopening",
+    async (method) => {
+      const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(SETTINGS));
+      mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
+      const root = document.querySelector("platformclaw-execution-settings")!.shadowRoot!;
+      await vi.waitFor(() => expect(root.textContent).toContain("Basic workspace"));
+      root.querySelector<HTMLElement>("[data-action='open']")!.click();
+      root.querySelector<HTMLElement>("[data-action='release']")!.click();
+      expect(root.querySelector("[data-action='confirm-release']")).not.toBeNull();
+      if (method === "close") {
+        root.querySelector<HTMLElement>("[data-action='close']")!.click();
+      } else {
+        root.querySelector("openclaw-modal-dialog")!.dispatchEvent(new Event("modal-cancel"));
+      }
+      root.querySelector<HTMLElement>("[data-action='open']")!.click();
+      expect(root.querySelector("[data-action='confirm-release']")).toBeNull();
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("shows only the most recently requested work-location confirmation", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(SETTINGS));
+    mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
+    const root = document.querySelector("platformclaw-execution-settings")!.shadowRoot!;
+    await vi.waitFor(() => expect(root.textContent).toContain("Basic workspace"));
+    root.querySelector<HTMLElement>("[data-action='open']")!.click();
+    root.querySelector<HTMLElement>("[data-action='release']")!.click();
+    root.querySelector<HTMLElement>("[data-target='assigned_vm']")!.click();
+    expect(root.querySelector("[data-action='confirm-release']")).toBeNull();
+    expect(root.querySelector("[data-action='confirm-switch']")).not.toBeNull();
+    root.querySelector<HTMLElement>("[data-action='release']")!.click();
+    expect(root.querySelector("[data-action='confirm-switch']")).toBeNull();
+    expect(root.querySelector("[data-action='confirm-release']")).not.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("notifies open pages after the work location revision changes", async () => {
     const changedSettings = { ...SETTINGS, activeTarget: "assigned_vm", targetRevision: 4 };
     const fetchImpl = vi

@@ -334,7 +334,8 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.done": "Done",
   "platformClaw.guide.unavailable": "The guide could not be opened. Refresh and try again.",
   "platformClaw.guide.welcomeTitle": "Welcome to PlatformClaw",
-  "platformClaw.guide.welcomeBody": "Take a quick tour of the tools you will use most often.",
+  "platformClaw.guide.welcomeBody":
+    "Follow the left sidebar from top to bottom, then look at your workspace and Terminal. In Settings, explore Memory tabs from left to right before Organization. Next continues; Previous returns one step.",
   "platformClaw.guide.chatTitle": "Home: start a conversation with your Agent",
   "platformClaw.guide.chatBody": "Start a new request and work with your Agent from here.",
   "platformClaw.guide.chatDetails":
@@ -377,7 +378,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.settingsBody":
     "The guide has opened Settings so you can see each group in the dedicated sidebar.",
   "platformClaw.guide.settingsDetails":
-    "Basic covers your profile, appearance, and notifications.|Connections covers the Gateway connection, channels, communications, Talk, and nodes.|Agents & tools contains Agents, Labs, model providers, MCP, Memory, Organization, and Automation. Administrators register MCP servers; members only connect credentials when an administrator requires it.|Privacy & security contains security controls and approvals; System contains infrastructure, advanced options, debug, logs, and About.|Use the search box at the top of Settings when you know the option you need.",
+    "Manage your profile, appearance, notifications, and credentials here.|MCP connects external tools. Administrators register MCP servers; members connect their own credentials when required.|Memory contains personal knowledge and sharing; Organization manages membership and access.|Use the search box to find a setting. Only options available to your account are shown.",
   "platformClaw.guide.organizationNavTitle": "Organization: review membership and access",
   "platformClaw.guide.organizationNavBody":
     "Organization shows your Team, Group, and Part membership, your primary scope, and available join requests.",

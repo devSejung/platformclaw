@@ -46,6 +46,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
   @state() private userResultsHasMore = false;
   @state() private managementScopesHasMore = false;
   @state() private loading = true;
+  @state() private scopesLoading = false;
   @state() private busy = false;
   @state() private error = "";
   @state() private notice = "";
@@ -78,6 +79,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
 
   private async refresh(): Promise<boolean> {
     this.scopeSearchEpoch += 1;
+    this.scopesLoading = false;
     this.managementSearchEpoch += 1;
     this.loading = true;
     this.error = "";
@@ -198,7 +200,8 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
 
   private searchScopes(query: string): void {
     const epoch = ++this.scopeSearchEpoch;
-    this.loading = true;
+    // Keep the search form mounted so the query and keyboard focus survive a refresh.
+    this.scopesLoading = true;
     void this.api
       .scopes(query)
       .then((result) => {
@@ -215,7 +218,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
       })
       .finally(() => {
         if (epoch === this.scopeSearchEpoch) {
-          this.loading = false;
+          this.scopesLoading = false;
         }
       });
   }
@@ -460,7 +463,9 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
   }
 
   override render() {
-    if (this.loading) {
+    // Conflict refreshes must keep the pending modal mounted so its draft and
+    // focus survive while the authoritative organization data is reloaded.
+    if (this.loading && !this.pendingAction) {
       return html`<main class="settings-page">
         <p role="status">${t("platformClaw.organization.loading")}</p>
       </main>`;
@@ -498,6 +503,7 @@ class PlatformClawOrganizationPage extends OpenClawLightDomElement {
               context: this.context,
               scopes: this.scopes,
               scopesHasMore: this.scopesHasMore,
+              searching: this.scopesLoading,
               busy: this.busy,
               onPrimaryChange: (scopeId) =>
                 void this.runMutation(

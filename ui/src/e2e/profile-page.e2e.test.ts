@@ -88,7 +88,7 @@ describeControlUiE2e("Control UI profile page mocked Gateway E2E", () => {
   }
 
   it("renders hero, identity, and a Usage statistics link without loading usage", async () => {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ locale: "en-US" });
     const page = await context.newPage();
     try {
       const gateway = await openProfilePage(page);
@@ -118,6 +118,7 @@ describeControlUiE2e("Control UI profile page mocked Gateway E2E", () => {
       await mkdir(proofDir, { recursive: true });
     }
     const context = await browser.newContext({
+      locale: "en-US",
       ...(captureUiProof
         ? { recordVideo: { dir: proofDir, size: { width: 1280, height: 800 } } }
         : {}),
@@ -339,7 +340,7 @@ describeControlUiE2e("Control UI profile page mocked Gateway E2E", () => {
   });
 
   it("retries the missing identity bootstrap and opens the profile editor", async () => {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ locale: "en-US" });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       basePath,
@@ -372,7 +373,7 @@ describeControlUiE2e("Control UI profile page mocked Gateway E2E", () => {
   });
 
   it("keeps identity refresh single-flight and retries after a failed request", async () => {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ locale: "en-US" });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       basePath,

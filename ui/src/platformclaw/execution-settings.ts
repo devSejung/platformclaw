@@ -202,6 +202,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     const closeDialog = () => {
       this.opened = false;
       this.pendingTarget = null;
+      this.pendingRelease = false;
       this.render();
     };
     this.root.querySelector<HTMLElement>("[data-action='open']")?.addEventListener("click", () => {
@@ -267,6 +268,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.root
       .querySelector<HTMLElement>("[data-action='release']")
       ?.addEventListener("click", () => {
+        this.pendingTarget = null;
         this.pendingRelease = true;
         this.render();
         this.root.querySelector<HTMLElement>("[data-action='confirm-release']")?.focus();
@@ -288,6 +290,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       button.addEventListener("click", () => {
         const target = button.dataset.target;
         if (target === "platform_server" || target === "assigned_vm") {
+          this.pendingRelease = false;
           this.pendingTarget = target;
           this.render();
           this.root.querySelector<HTMLElement>("[data-action='confirm-switch']")?.focus();

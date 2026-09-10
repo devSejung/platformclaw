@@ -314,6 +314,9 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
   private bindEvents(): void {
     const closeDialog = () => {
       this.opened = false;
+      this.pendingMutation = null;
+      this.endpointDraft = null;
+      this.probe = null;
       this.render();
     };
     this.root.querySelector("[data-open]")?.addEventListener("click", () => {
@@ -461,6 +464,14 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
             </main></section></openclaw-modal-dialog>`
           : ""
       }`;
+    // A pending request must not leave duplicate submit or mutation controls active.
+    if (this.loading) {
+      for (const control of this.root.querySelectorAll<
+        HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement
+      >("main input, main select, main textarea, main button")) {
+        control.disabled = true;
+      }
+    }
     this.bindEvents();
   }
 }

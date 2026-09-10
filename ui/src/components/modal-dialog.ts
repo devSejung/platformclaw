@@ -5,7 +5,24 @@ import { css, html } from "lit";
 import { property, query } from "lit/decorators.js";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 
+// Settings Escape must still see a pending modal after disabling its focused
+// action moves focus to body; the native dialog itself lives in a shadow root.
+export function hasOpenModalDialog(): boolean {
+  // The browser retains a defined custom-element constructor across Vite HMR
+  // and test module reloads, so its registry remains the authoritative one.
+  const registeredConstructor = customElements.get("openclaw-modal-dialog") as
+    | typeof OpenClawModalDialog
+    | undefined;
+  return (registeredConstructor ?? OpenClawModalDialog).hasOpenDialogs();
+}
+
 export class OpenClawModalDialog extends OpenClawLitElement {
+  static readonly #openDialogs = new Set<OpenClawModalDialog>();
+
+  static hasOpenDialogs(): boolean {
+    return this.#openDialogs.size > 0;
+  }
+
   @property({ type: Boolean }) open = true;
   @property({ type: Boolean, reflect: true }) manual = false;
   @property() label = "";
@@ -109,6 +126,7 @@ export class OpenClawModalDialog extends OpenClawLitElement {
 
   override disconnectedCallback() {
     this.syncGeneration += 1;
+    OpenClawModalDialog.#openDialogs.delete(this);
     const webAwesomeDialog = this.webAwesomeDialog;
     const dialog = webAwesomeDialog?.shadowRoot?.querySelector("dialog");
     if (dialog?.open) {
@@ -220,13 +238,20 @@ export class OpenClawModalDialog extends OpenClawLitElement {
       return;
     }
     // Web Awesome cannot see autofocus targets through this adapter's slot.
-    queueMicrotask(() => requestAnimationFrame(() => this.handleAfterShow()));
+    queueMicrotask(() => {
+      // A different owner may cancel wa-show after this adapter observes it.
+      if (!event.defaultPrevented && this.isConnected) {
+        OpenClawModalDialog.#openDialogs.add(this);
+      }
+      requestAnimationFrame(() => this.handleAfterShow());
+    });
   };
 
   private handleAfterHide = (event: Event) => {
     if (event.target !== event.currentTarget) {
       return;
     }
+    OpenClawModalDialog.#openDialogs.delete(this);
     const returnFocus = this.returnFocusOverride;
     const originalReturnFocus = this.returnFocus;
     this.returnFocusOverride = undefined;

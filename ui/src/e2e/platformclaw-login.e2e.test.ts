@@ -172,4 +172,80 @@ describeE2e("PlatformClaw login", () => {
       await context.close();
     }
   });
+
+  it("returns keyboard focus to the password after rejected credentials", async () => {
+    const { context, page } = await openLogin("light", { width: 390, height: 844 });
+    try {
+      await page.route("**/platformclaw/api/auth/login", (route) =>
+        route.fulfill({ status: 401, json: { authenticated: false } }),
+      );
+      await page.locator('input[name="identifier"]').fill("person.one");
+      const password = page.locator('input[name="password"]');
+      await password.fill("fixture");
+      await page.getByRole("button", { name: "로그인", exact: true }).click();
+      await page.getByRole("alert").waitFor();
+      expect(await password.inputValue()).toBe("");
+      expect(await password.isEnabled()).toBe(true);
+      expect(await password.evaluate((element) => document.activeElement === element)).toBe(true);
+      await screenshot(page, "mobile-login-retry-focus.png");
+    } finally {
+      await context.close();
+    }
+  });
+
+  it("validates inputs, recovers from rejected logins, and follows login links on PC", async () => {
+    const { context, page } = await openLogin("light", { width: 1440, height: 900 });
+    try {
+      let status = 401;
+      let requestCount = 0;
+      await page.route("**/platformclaw/api/auth/login", async (route) => {
+        requestCount += 1;
+        await route.fulfill({ status, json: { authenticated: status === 200 } });
+      });
+      const account = page.locator('input[name="identifier"]');
+      const password = page.locator('input[name="password"]');
+      const submit = page.getByRole("button", { name: "로그인", exact: true });
+      await submit.click();
+      expect(
+        await account.evaluate((input) => (input as HTMLInputElement).validity.valueMissing),
+      ).toBe(true);
+      expect(requestCount).toBe(0);
+      await account.fill("person.one");
+      await submit.click();
+      expect(
+        await password.evaluate((input) => (input as HTMLInputElement).validity.valueMissing),
+      ).toBe(true);
+      expect(requestCount).toBe(0);
+      for (const [nextStatus, message] of [
+        [401, "아이디 또는 비밀번호"],
+        [403, "현재 계정"],
+        [409, "로그인 세션 수"],
+        [429, "로그인 시도가 많습니다"],
+        [503, "로그인하지 못했습니다"],
+      ] as const) {
+        status = nextStatus;
+        await password.fill("fixture-only");
+        await password.press("Enter");
+        await expect.poll(() => page.getByRole("alert").textContent()).toContain(message);
+        expect(await password.inputValue()).toBe("");
+        expect(await password.evaluate((input) => document.activeElement === input)).toBe(true);
+      }
+      await screenshot(page, "PC-login-rejected.png");
+      await page.route("**/platformclaw/app/chat", (route) =>
+        route.fulfill({ contentType: "text/html", body: "<h1>Fixture workspace</h1>" }),
+      );
+      status = 200;
+      await password.fill("fixture-only");
+      await submit.click();
+      await page.getByRole("heading", { name: "Fixture workspace" }).waitFor();
+      await page.goto(`${server.baseUrl}platformclaw-login.html`);
+      await page.route("**/employee/auth/adsso?**", (route) =>
+        route.fulfill({ contentType: "text/html", body: "<h1>Fixture SSO</h1>" }),
+      );
+      await page.getByRole("link", { name: "ADSSO 로그인" }).click();
+      await page.getByRole("heading", { name: "Fixture SSO" }).waitFor();
+    } finally {
+      await context.close();
+    }
+  });
 });
