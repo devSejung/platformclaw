@@ -1,3 +1,4 @@
+import { executionTranslations } from "./ko-execution.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
 import { organizationMemoryGraphTranslations } from "./ko-organization-memory-graph.ts";
 
@@ -506,62 +507,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.skills.vmTitle": "내 개발 VM의 스킬",
   "platformClaw.skills.vmDescription":
     "VM에서 조회한 스킬입니다. 새로고침과 Skill Workshop 제안 적용을 사용할 수 있으며, 직접 설치는 기본 작업공간에서 합니다.",
-  "platformClaw.execution.workLocation": "작업 위치",
-  "platformClaw.execution.openSettings": "작업 위치 설정 열기",
-  "platformClaw.execution.current": "현재 작업 위치",
-  "platformClaw.execution.basic": "기본 작업 공간",
-  "platformClaw.execution.vm": "내 개발 VM",
-  "platformClaw.execution.useBasic": "기본 작업 공간 사용",
-  "platformClaw.execution.useVm": "내 개발 VM 사용",
-  "platformClaw.execution.boundary":
-    "대화와 Agent 설정은 유지됩니다. 파일과 실행 중인 프로세스는 이동하지 않습니다.",
-  "platformClaw.execution.assignedVm": "할당된 개발 VM",
-  "platformClaw.execution.noVm": "할당된 개발 VM이 없습니다",
-  "platformClaw.execution.noVmHelp":
-    "기본 작업 공간을 계속 사용할 수 있습니다. VM이 필요하면 관리자에게 문의하세요.",
-  "platformClaw.execution.selectVm": "개발 VM 선택",
-  "platformClaw.execution.vmChoice": "개발 VM",
-  "platformClaw.execution.linuxAccount": "Linux 계정",
-  "platformClaw.execution.selectionHelp":
-    "로그인 계정 ID가 자동 입력됩니다. 실제 Linux 계정이 다른 경우에만 수정하세요.",
-  "platformClaw.execution.connectVm": "연결 확인 후 VM 저장",
-  "platformClaw.execution.changeVm": "연결 확인 후 VM 변경",
-  "platformClaw.execution.noAvailableVm": "현재 선택할 수 있는 개발 VM이 없습니다.",
-  "platformClaw.execution.switchBasicToChange":
-    "VM을 변경하거나 해제하려면 먼저 기본 작업 공간으로 전환하세요.",
-  "platformClaw.execution.release": "VM 할당 해제",
-  "platformClaw.execution.releaseConfirmTitle": "VM 할당을 해제할까요?",
-  "platformClaw.execution.releaseConfirmBody":
-    "VM의 파일과 백그라운드 프로세스는 남고 저장된 AD 자격증명은 삭제됩니다.",
-  "platformClaw.execution.releaseConfirm": "할당 해제",
-  "platformClaw.execution.password": "AD 비밀번호",
-  "platformClaw.execution.saveAndTest": "연결 확인 후 저장",
-  "platformClaw.execution.codingAgents": "코딩 Agent",
-  "platformClaw.execution.managedAgentHelp":
-    "작업 위치를 VM으로 바꾼 뒤 채팅에서 {agent} 사용을 요청하세요. 어댑터는 관리자가 설치하며 실행 파일 경로를 따로 설정하지 않습니다.",
-  "platformClaw.execution.managedAgentLogin":
-    "VM 터미널에서 본인 Linux 계정으로 로그인하세요. 아래 확인은 설치 여부만 검사하며 모델 접근이나 로그인 상태는 확인하지 않습니다.",
-  "platformClaw.execution.checkAgentInstallation": "VM 설치 확인",
-  "platformClaw.execution.agentInstalled": "설치 확인: {version}",
-  "platformClaw.execution.claudePath": "Claude Code 실행 파일",
-  "platformClaw.execution.claudeNotConfigured": "Claude Code 위치를 아직 확인하지 않았습니다.",
-  "platformClaw.execution.detectClaude": "VM에서 자동 찾기",
-  "platformClaw.execution.saveClaude": "저장 및 확인",
-  "platformClaw.execution.test": "연결 확인",
-  "platformClaw.execution.lastCheck": "마지막 연결 성공",
-  "platformClaw.execution.neverChecked": "아직 확인하지 않음",
-  "platformClaw.execution.workspacePending": "첫 연결 성공 후 작업 공간이 준비됩니다",
-  "platformClaw.execution.confirmTitle": "작업 위치를 변경할까요?",
-  "platformClaw.execution.confirmBody":
-    "{target}(으)로 변경합니다. 대화와 Agent 설정은 유지되지만 파일과 실행 중인 프로세스는 이전 위치에 남습니다.",
-  "platformClaw.execution.confirm": "위치 변경",
-  "platformClaw.execution.saved": "작업 위치 설정을 변경했습니다.",
-  "platformClaw.execution.passwordRejected": "AD 비밀번호가 올바르지 않습니다.",
-  "platformClaw.execution.sessionExpired": "세션이 만료되었습니다. 다시 로그인하세요.",
-  "platformClaw.execution.requestFailed": "작업 위치를 불러오지 못했습니다.",
-  "platformClaw.execution.close": "닫기",
-  "platformClaw.execution.cancel": "취소",
-  "platformClaw.execution.refresh": "새로고침",
+  ...executionTranslations,
   "platformClaw.vmAdmin.open": "VM 관리",
   "platformClaw.vmAdmin.title": "VM 관리",
   "platformClaw.vmAdmin.intro": "신뢰할 연결, 개발 VM, 사용자 할당을 관리합니다.",

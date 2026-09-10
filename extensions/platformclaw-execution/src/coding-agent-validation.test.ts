@@ -9,17 +9,31 @@ vi.mock("openclaw/plugin-sdk/sandbox", async (importOriginal) => ({
   runSshSandboxCommand: vi.fn(),
 }));
 
-const target = {
+const target: AssignedVmTargetSnapshot = {
+  kind: "assigned_vm",
   agentId: "person_one",
+  targetId: "vm-one",
   allocationId: "allocation-one",
   revision: 2,
+  credentialRevision: 3,
+  vmLabel: "Development VM",
+  safeConnectLabel: "Corporate access",
   remoteHomeDir: "/home/person.one",
   remoteWorkspaceDir: "/home/person.one/workspace",
+  endpointHost: "safeconnect.example",
+  endpointPort: 44422,
+  adDomain: "example.com",
+  adAccount: "person.one",
+  targetAddress: "192.0.2.10",
+  linuxAccount: "person.one",
+  hostKeyAlgorithm: "ssh-ed25519",
+  hostKeyPublicKey: "AAAA-approved-key",
+  hostKeyFingerprint: "SHA256:approved",
   executionEnvironment: {
     pathPrepend: ["/opt/company/bin"],
     variables: { COMPANY_MODE: "enabled" },
   },
-} as AssignedVmTargetSnapshot;
+};
 
 describe("coding agent installation check", () => {
   beforeEach(() => vi.clearAllMocks());

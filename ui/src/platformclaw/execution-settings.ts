@@ -107,7 +107,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     }
   }
 
-  private async request<T = ExecutionSettings>(path: string, init?: RequestInit): Promise<T> {
+  private async request<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await this.fetchImpl(path, {
       credentials: "same-origin",
       headers: {

@@ -177,7 +177,11 @@ describe("PlatformClaw execution settings", () => {
       element.shadowRoot?.querySelector<HTMLElement>(`[data-check-agent='${agent}']`)?.click();
       await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Installed: 1.2.3"));
       expect(fetchImpl.mock.calls[1]?.[0]).toBe("/platformclaw/api/execution/coding-agent");
-      expect(JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body))).toEqual({
+      const body = fetchImpl.mock.calls[1]?.[1]?.body;
+      if (typeof body !== "string") {
+        throw new Error("expected a JSON request body");
+      }
+      expect(JSON.parse(body)).toEqual({
         agent,
         expectedRevision: 3,
       });
