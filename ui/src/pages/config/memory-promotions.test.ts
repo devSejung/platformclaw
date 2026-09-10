@@ -74,6 +74,8 @@ const snapshot = {
 
 beforeEach(async () => {
   await i18n.setLocale("en");
+  // Direct element tests bypass the route loader that awaits the separate product bundle.
+  await loadPlatformClawLocale();
 });
 
 afterEach(async () => {
