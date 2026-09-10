@@ -697,6 +697,7 @@ function buildPendingAcpMeta(base: SessionAcpMeta, now: number): SessionAcpMeta 
   return {
     backend: base.backend,
     agent: base.agent,
+    ...(base.executionOwnerAgentId ? { executionOwnerAgentId: base.executionOwnerAgentId } : {}),
     runtimeSessionName: base.runtimeSessionName,
     ...(nextIdentity ? { identity: nextIdentity } : {}),
     mode: base.mode,

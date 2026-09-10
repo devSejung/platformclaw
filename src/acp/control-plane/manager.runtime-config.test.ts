@@ -135,6 +135,7 @@ describe("AcpSessionManager runtime config", () => {
 
     let currentMeta: SessionAcpMeta = {
       ...readySessionMeta(),
+      executionOwnerAgentId: "person_one",
       identity: {
         state: "resolved",
         source: "status",
@@ -183,6 +184,7 @@ describe("AcpSessionManager runtime config", () => {
     expect(runtimeState.getStatus).toHaveBeenCalledTimes(1);
     expect(currentMeta.identity?.acpxSessionId).toBe("acpx-fresh");
     expect(currentMeta.identity?.agentSessionId).toBe("agent-fresh");
+    expect(currentMeta.executionOwnerAgentId).toBe("person_one");
   });
 
   it("reconciles oneshot ACP identity from runtime status before closing after a turn", async () => {
@@ -678,7 +680,7 @@ describe("AcpSessionManager runtime config", () => {
     let currentEntry = {
       sessionKey,
       storeSessionKey: sessionKey,
-      acp: readySessionMeta(),
+      acp: readySessionMeta({ executionOwnerAgentId: "person_one" }),
     };
     hoisted.readAcpSessionEntryMock.mockImplementation(() => currentEntry);
     hoisted.upsertAcpSessionMetaMock.mockImplementation((paramsUnknown: unknown) => {
@@ -723,6 +725,7 @@ describe("AcpSessionManager runtime config", () => {
       cwd: "/workspace/next",
     });
     expect(currentEntry.acp.cwd).toBe("/workspace/next");
+    expect(currentEntry.acp.executionOwnerAgentId).toBe("person_one");
 
     await manager.runTurn({
       provenance: "system",

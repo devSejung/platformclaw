@@ -161,6 +161,7 @@ export function ensureAdditiveStateColumns(db: DatabaseSync): void {
   backfillCronRunLogEntryJson(db);
   ensureColumn(db, "acp_replay_events", "estimated_bytes INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "acp_replay_sessions", "estimated_bytes INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "acp_sessions", "execution_owner_agent_id TEXT");
   backfillAcpReplayEstimatedBytes(db);
   ensureColumn(db, "cron_jobs", "description TEXT");
   ensureColumn(db, "cron_jobs", "declaration_key TEXT");

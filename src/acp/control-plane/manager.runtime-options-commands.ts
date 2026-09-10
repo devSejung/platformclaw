@@ -217,6 +217,9 @@ async function persistManagerRuntimeOptions(
       return {
         backend: base.backend,
         agent: base.agent,
+        ...(base.executionOwnerAgentId
+          ? { executionOwnerAgentId: base.executionOwnerAgentId }
+          : {}),
         runtimeSessionName: base.runtimeSessionName,
         ...(base.identity ? { identity: base.identity } : {}),
         mode: base.mode,

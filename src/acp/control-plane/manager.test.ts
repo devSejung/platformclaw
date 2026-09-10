@@ -1075,6 +1075,7 @@ describe("AcpSessionManager", () => {
       storeSessionKey: sessionKey,
       acp: readySessionMeta({
         agent: "claude",
+        executionOwnerAgentId: "person_one",
         state: "running",
         lastError: "stale failure",
         identity: {
@@ -1129,6 +1130,7 @@ describe("AcpSessionManager", () => {
     });
     expect(entry.acp?.identity).not.toHaveProperty("acpxSessionId");
     expect(entry.acp?.identity).not.toHaveProperty("agentSessionId");
+    expect(entry.acp?.executionOwnerAgentId).toBe("person_one");
   });
 
   it("prepares a fresh persistent session before ensure when metadata has no stable session id", async () => {
@@ -1220,6 +1222,7 @@ describe("AcpSessionManager", () => {
       storeSessionKey: sessionKey,
       acp: readySessionMeta({
         agent: "claude",
+        executionOwnerAgentId: "person_one",
         identity: {
           state: "pending",
           acpxRecordId: sessionKey,
@@ -1269,6 +1272,7 @@ describe("AcpSessionManager", () => {
     });
     expect(entry.acp?.identity).not.toHaveProperty("acpxSessionId");
     expect(entry.acp?.identity).not.toHaveProperty("agentSessionId");
+    expect(entry.acp?.executionOwnerAgentId).toBe("person_one");
   });
 
   it("tracks ACP turn latency and error-code observability", async () => {
