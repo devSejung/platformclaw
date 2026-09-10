@@ -265,6 +265,84 @@ describe("PlatformClaw browser media relay", () => {
     expect(upstreamFetch).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"])(
+    "reopens an older %s attachment by its persisted message identity",
+    async (contentType) => {
+      const messageId = "older-upload-message";
+      const message = {
+        role: "user",
+        __openclaw: { id: messageId, media: [{ url: SOURCE, contentType }] },
+      };
+      const policy = createPolicy({ messages: [], hasMore: true, nextOffset: 1000 });
+      policy.requestMock.mockImplementation(async (_token, method, params) =>
+        method === "chat.message.get" && (params as { messageId?: string }).messageId === messageId
+          ? { ok: true, message }
+          : { messages: [], hasMore: true, nextOffset: 1000 },
+      );
+      const upstreamFetch = vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(String(input));
+        return url.searchParams.get("meta") === "1"
+          ? Response.json({ available: true, mimeType: contentType })
+          : new Response("persisted-upload", { headers: { "Content-Type": contentType } });
+      }) as typeof fetch;
+      const relay = new PlatformClawBrowserMediaRelay({
+        gatewayOrigin: "http://private-gateway.invalid",
+        gatewayAuth: "service-secret",
+        gatewayProxy: policy,
+        resolveAgentIdFromSessionKey,
+        fetchImpl: upstreamFetch,
+      });
+      const runtime = await listen(relay);
+      servers.push(runtime.server);
+      const query = new URLSearchParams({
+        source: SOURCE,
+        sessionKey: OWN_SESSION,
+        messageId,
+        meta: "1",
+      });
+      const metadata = await fetch(
+        `${runtime.origin}/platformclaw/app/__openclaw__/assistant-media?${query}`,
+        {
+          headers: { Cookie: SESSION_COOKIE },
+        },
+      );
+      expect(metadata.status).toBe(200);
+      const { mediaTicket } = (await metadata.json()) as { mediaTicket: string };
+      expect(policy.requestMock).toHaveBeenCalledExactlyOnceWith(
+        "browser-token",
+        "chat.message.get",
+        {
+          sessionKey: OWN_SESSION,
+          messageId,
+          maxChars: 500_000,
+        },
+      );
+      query.delete("meta");
+      query.delete("messageId");
+      query.set("mediaTicket", mediaTicket);
+      const downloaded = await fetch(
+        `${runtime.origin}/platformclaw/app/__openclaw__/assistant-media?${query}`,
+        {
+          headers: { Cookie: SESSION_COOKIE },
+        },
+      );
+      expect(downloaded.status).toBe(200);
+      expect(await downloaded.text()).toBe("persisted-upload");
+
+      query.set("meta", "1");
+      query.set("messageId", "missing-message");
+      const missing = await fetch(
+        `${runtime.origin}/platformclaw/app/__openclaw__/assistant-media?${query}`,
+        {
+          headers: { Cookie: SESSION_COOKIE },
+        },
+      );
+      expect(missing.status).toBe(404);
+      expect(policy.requestMock).toHaveBeenCalledTimes(2);
+      expect(upstreamFetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("fails closed before Gateway media fetch for foreign or unproven sources", async () => {
     const policy = createPolicy({
       sessionKey: OWN_SESSION,
@@ -508,6 +586,11 @@ describe("PlatformClaw browser media relay", () => {
   ])("never grants a download from $name", async ({ message }) => {
     const source = "/srv/personal/workspace/secret.pdf";
     const policy = createPolicy({ sessionKey: OWN_SESSION, messages: [message] });
+    policy.requestMock.mockImplementation(async (_token, method) =>
+      method === "chat.message.get"
+        ? { ok: true, message }
+        : { sessionKey: OWN_SESSION, messages: [message] },
+    );
     const upstreamFetch = vi.fn() as unknown as typeof fetch;
     const relay = new PlatformClawBrowserMediaRelay({
       gatewayOrigin: "http://private-gateway.invalid",
@@ -520,11 +603,17 @@ describe("PlatformClaw browser media relay", () => {
     servers.push(runtime.server);
 
     const query = new URLSearchParams({ source, sessionKey: OWN_SESSION, meta: "1" });
-    const response = await fetch(
-      `${runtime.origin}/platformclaw/app/__openclaw__/assistant-media?${query}`,
-      { headers: { Cookie: SESSION_COOKIE } },
-    );
-    expect(response.status).toBe(404);
+    for (const messageId of [undefined, "persisted-message"]) {
+      if (messageId) {
+        query.set("messageId", messageId);
+      }
+      const response = await fetch(
+        `${runtime.origin}/platformclaw/app/__openclaw__/assistant-media?${query}`,
+        { headers: { Cookie: SESSION_COOKIE } },
+      );
+      expect(response.status).toBe(404);
+    }
+    expect(policy.requestMock).toHaveBeenCalledTimes(2);
     expect(upstreamFetch).not.toHaveBeenCalled();
   });
 

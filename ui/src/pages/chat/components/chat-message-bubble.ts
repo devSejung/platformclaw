@@ -215,7 +215,8 @@ export function renderGroupedMessage(
     localMediaPreviewRoots: opts.localMediaPreviewRoots ?? [],
     basePath: opts.basePath,
     sessionKey: opts.sessionKey,
-    messageId: opts.entryId,
+    // Tool rows cannot prove ownership; their source must belong to a user/assistant turn.
+    messageId: role === "user" || role === "assistant" ? opts.entryId : undefined,
     authToken: opts.assistantAttachmentAuthToken,
     onRequestUpdate: opts.onRequestUpdate,
     onAssistantAttachmentLoaded: opts.onAssistantAttachmentLoaded,
