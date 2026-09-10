@@ -54,7 +54,12 @@ describe("BrowserGatewayProxy personal memory", () => {
         expectedContentHash,
       }),
     ).rejects.toMatchObject({ code: "cross-agent-denied" });
-    for (const path of ["AGENTS.md", "memory/../secret.md", "memory/a.md:stream"]) {
+    for (const path of [
+      "AGENTS.md",
+      "memory/../secret.md",
+      "memory/a.md:stream",
+      ...[0, 9, 10, 31].map((code) => `memory/a${String.fromCharCode(code)}.md`),
+    ]) {
       await expect(
         proxy.request(token, "memory.delete", { path, expectedContentHash }),
       ).rejects.toMatchObject({ code: "method-not-allowed" });
@@ -87,6 +92,46 @@ describe("BrowserGatewayProxy personal memory", () => {
       }),
     ).rejects.toMatchObject({ code: "upstream-result-denied" });
     expect(request).toHaveBeenCalledOnce();
+  });
+
+  it.each(["memory\\day.md", "memory/a\u007f.md", "memory/a\u0080.md"])(
+    "preserves canonical deletion path handling for %s",
+    async (path) => {
+      const { binding, proxy, request, token } = await setup();
+      const canonicalPath = path.replaceAll("\\", "/");
+      request.mockResolvedValueOnce({
+        agentId: binding.agentId,
+        path: canonicalPath,
+        deleted: true,
+        indexesRefreshed: true,
+      });
+      request.mockRejectedValueOnce(new Error("Wiki unavailable"));
+      await expect(
+        proxy.request(token, "memory.delete", { path, expectedContentHash: "a".repeat(64) }),
+      ).resolves.toMatchObject({ path: canonicalPath, deleted: true, wikiRefreshed: false });
+      expect(request).toHaveBeenNthCalledWith(1, "memory.delete", {
+        agentId: binding.agentId,
+        path: canonicalPath,
+        expectedContentHash: "a".repeat(64),
+      });
+    },
+  );
+
+  it("does not report Wiki refreshed from an invalid overview payload", async () => {
+    const { binding, proxy, request, token } = await setup();
+    request.mockResolvedValueOnce({
+      agentId: binding.agentId,
+      path: "MEMORY.md",
+      deleted: true,
+      indexesRefreshed: true,
+    });
+    request.mockResolvedValueOnce({ sourceSyncComplete: true });
+    await expect(
+      proxy.request(token, "memory.delete", {
+        path: "MEMORY.md",
+        expectedContentHash: "a".repeat(64),
+      }),
+    ).resolves.toMatchObject({ deleted: true, indexesRefreshed: true, wikiRefreshed: false });
   });
   it("adds safe organization hits for the pinned agent without exposing storage paths", async () => {
     const searchOrganizationMemory = vi.fn(async () => [

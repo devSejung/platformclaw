@@ -58,8 +58,12 @@ async function installPlatformClawDocument(page: Page) {
 
 suite("PlatformClaw memory actions E2E", () => {
   beforeAll(async () => {
-    if (!available) throw new Error(`Playwright Chromium is not available at ${executablePath}`);
-    if (capture) await mkdir(proofDir, { recursive: true });
+    if (!available) {
+      throw new Error(`Playwright Chromium is not available at ${executablePath}`);
+    }
+    if (capture) {
+      await mkdir(proofDir, { recursive: true });
+    }
     server = await startControlUiE2eServer();
     browser = await chromium.launch({ executablePath });
   });
@@ -78,12 +82,13 @@ suite("PlatformClaw memory actions E2E", () => {
     try {
       const page = await context.newPage();
       const screenshot = async (name: string) => {
-        if (capture)
+        if (capture) {
           await page.screenshot({
             path: path.join(proofDir, `${name}.png`),
             animations: "disabled",
             fullPage: true,
           });
+        }
       };
       await installPlatformClawDocument(page);
       const gateway = await installMockGateway(page, {

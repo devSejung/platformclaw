@@ -66,7 +66,6 @@ function positionNodes(graph: OrganizationMemoryGraph): PositionedNode[] {
         title: node.title,
         scopeName: node.scopeName,
         updatedAt: node.updatedAt,
-        ...(node.verification ? { verification: node.verification } : {}),
         x: centerX + Math.cos(angle) * radius,
         y: centerY + Math.sin(angle) * radius,
         degree: degree.get(node.id) ?? 0,

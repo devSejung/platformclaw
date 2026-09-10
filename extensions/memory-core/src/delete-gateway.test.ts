@@ -26,7 +26,9 @@ function gateway(workspaceDir = "", refreshSucceeds = true) {
     .mockReturnValueOnce(config)
     .mockReturnValue({ agents: { list: [] } });
   const sync = vi.fn(async () => {
-    if (!refreshSucceeds) throw new Error("offline");
+    if (!refreshSucceeds) {
+      throw new Error("offline");
+    }
   });
   const close = vi.fn(async () => {});
   const getMemorySearchManager = vi.fn(async () => ({ manager: { sync, close } }));
@@ -51,7 +53,9 @@ function gateway(workspaceDir = "", refreshSucceeds = true) {
     getMemorySearchManager,
     resolveAgentWorkspaceDir,
     async invoke(params: Record<string, unknown>) {
-      if (!handler) throw new Error("memory.delete was not registered");
+      if (!handler) {
+        throw new Error("memory.delete was not registered");
+      }
       const respond = vi.fn();
       const context: Pick<GatewayRequestHandlerOptions["context"], "getRuntimeConfig"> = {
         getRuntimeConfig,
@@ -73,7 +77,9 @@ async function requestThroughGateway(params: Record<string, unknown>, workspaceD
   const respond = await gateway(workspaceDir).invoke(params);
   expect(respond).toHaveBeenCalledOnce();
   const [ok, , error] = respond.mock.calls[0]!;
-  if (!ok) throw Object.assign(new Error(error.message), { code: error.code });
+  if (!ok) {
+    throw Object.assign(new Error(error.message), { code: error.code });
+  }
 }
 
 async function deleteThroughGateway(request: {
@@ -145,6 +151,7 @@ describe("personal memory deletion", () => {
     "AGENTS.md",
     "/memory/day.md",
     "memory/data.json",
+    ...[0, 9, 10, 31].map((code) => `memory/a${String.fromCharCode(code)}.md`),
   ])("rejects non-memory path %s", async (filePath) => {
     await expect(
       requestThroughGateway({ agentId: "main", path: filePath, expectedContentHash: hash("") }),

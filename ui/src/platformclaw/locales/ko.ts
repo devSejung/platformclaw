@@ -2,34 +2,6 @@ import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
 import { organizationMemoryGraphTranslations } from "./ko-organization-memory-graph.ts";
 
 export const translations: Readonly<Record<string, string>> = {
-  "platformClaw.memory.graph.unverified": "승인 및 원본 버전 정보를 확인할 수 없음",
-  "platformClaw.memory.actions": "메모리 작업",
-  "platformClaw.memory.share": "조직에 공유 신청…",
-  "platformClaw.memory.delete": "메모리 파일 삭제",
-  "platformClaw.memory.deleteDescription":
-    "아래 파일 전체와 포함된 모든 항목을 삭제합니다. 되돌릴 수 없습니다.",
-  "platformClaw.memory.deleteRetention":
-    "검색과 가져온 Wiki 원본을 갱신합니다. 기존 대화, 별도로 작성된 Wiki, 승인된 조직 지식은 유지되며 같은 정보가 남아 있을 수 있습니다.",
-  "platformClaw.memory.deleteUnavailable":
-    "이 미리보기에서는 파일을 삭제할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
-  "platformClaw.memory.deleted": "메모리 파일을 삭제하고 검색과 가져온 Wiki 원본을 갱신했습니다.",
-  "platformClaw.memory.deletedRefreshPending":
-    "메모리 파일은 삭제했지만 일부 검색 또는 Wiki 갱신에 실패했습니다. Memory와 Personal Wiki를 새로고침해 현재 상태를 확인하세요.",
-  "memoryPage.promotions.directVisibility": "아래 내용이 {scope}에 공개됩니다.",
-  "memoryPage.promotions.requestVisibility":
-    "{scope}의 검토자가 이 신청을 볼 수 있습니다. 승인되면 아래 내용이 해당 조직에 공개됩니다.",
-  "memoryPage.promotions.publishedSuccess": "{scope}에 공유했습니다.",
-  "memoryPage.promotions.submittedSuccess": "{scope}에 공유 신청을 제출했습니다.",
-  "memoryPage.promotions.sourceNotFound":
-    "이 Wiki 페이지를 사용할 수 없습니다. 다른 원본을 선택하세요.",
-  "platformClaw.memory.graph.description":
-    "현재 읽을 수 있는 사용 중 지식만 표시합니다. 연결은 관련 페이지를 나타내며 사실 검증을 뜻하지 않습니다. 소속 변경과 사용 종료는 새로고침하면 반영됩니다.",
-  "platformClaw.memory.graph.approved": "승인됨",
-  "platformClaw.memory.graph.current": "승인 시점과 원본 버전 일치",
-  "platformClaw.memory.graph.changed": "승인 이후 원본 변경됨",
-  "platformClaw.memory.graph.unavailable": "현재 권한으로 원본을 확인할 수 없음",
-  "platformClaw.memory.graph.revision": "버전 {revision}",
-  "platformClaw.memory.graph.sourceRevision": "승인 시점 원본 버전 {revision}",
   "platformClaw.skillHub.publish.action": "작업 공간 스킬 게시",
   "platformClaw.skillHub.publish.title": "작업 공간의 스킬 게시",
   "platformClaw.skillHub.publish.description":

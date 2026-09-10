@@ -1,4 +1,23 @@
 export const memoryWikiTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.memory.actions": "메모리 작업",
+  "platformClaw.memory.share": "조직에 공유 신청…",
+  "platformClaw.memory.delete": "메모리 파일 삭제",
+  "platformClaw.memory.deleteDescription":
+    "아래 파일 전체와 포함된 모든 항목을 삭제합니다. 되돌릴 수 없습니다.",
+  "platformClaw.memory.deleteRetention":
+    "검색과 가져온 Wiki 원본을 갱신합니다. 기존 대화, 별도로 작성된 Wiki, 승인된 조직 지식은 유지되며 같은 정보가 남아 있을 수 있습니다.",
+  "platformClaw.memory.deleteUnavailable":
+    "이 미리보기에서는 파일을 삭제할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
+  "platformClaw.memory.deleted": "메모리 파일을 삭제하고 검색과 가져온 Wiki 원본을 갱신했습니다.",
+  "platformClaw.memory.deletedRefreshPending":
+    "메모리 파일은 삭제했지만 일부 검색 또는 Wiki 갱신에 실패했습니다. Memory와 Personal Wiki를 새로고침해 현재 상태를 확인하세요.",
+  "memoryPage.promotions.directVisibility": "아래 내용이 {scope}에 공개됩니다.",
+  "memoryPage.promotions.requestVisibility":
+    "{scope}의 검토자가 이 신청을 볼 수 있습니다. 승인되면 아래 내용이 해당 조직에 공개됩니다.",
+  "memoryPage.promotions.publishedSuccess": "{scope}에 공유했습니다.",
+  "memoryPage.promotions.submittedSuccess": "{scope}에 공유 신청을 제출했습니다.",
+  "memoryPage.promotions.sourceNotFound":
+    "이 Wiki 페이지를 사용할 수 없습니다. 다른 원본을 선택하세요.",
   "platformClaw.memory.unassigned": "이 계정에 할당된 개인 Agent가 없습니다.",
   "platformClaw.memory.tabs.label": "Memory 및 지식 영역",
   "platformClaw.memory.tabs.overview": "개요",

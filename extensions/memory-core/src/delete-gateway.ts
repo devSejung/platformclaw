@@ -35,7 +35,18 @@ function parseMemoryDeleteRequest(value: unknown): {
     (path !== "MEMORY.md" && !(path.startsWith("memory/") && path.endsWith(".md"))) ||
     path
       .split("/")
-      .some((part) => !part || part === "." || part === ".." || /[\\\x00-\x1f:]/u.test(part)) ||
+      .some(
+        (part) =>
+          !part ||
+          part === "." ||
+          part === ".." ||
+          part
+            .split("")
+            .some(
+              (character) =>
+                character.charCodeAt(0) < 32 || character === "\\" || character === ":",
+            ),
+      ) ||
     typeof expectedContentHash !== "string" ||
     !HASH.test(expectedContentHash)
   ) {

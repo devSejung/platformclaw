@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
+import {
+  asBrowserGatewayObject,
+  BrowserGatewayProxyError,
+  type BrowserGatewayProxyOptions,
+} from "./browser-gateway-contracts.js";
+import { projectBrowserWikiResult } from "./browser-gateway-wiki.js";
 import type { OrganizationMemorySearchHit } from "./contracts.js";
 
 type JsonObject = Record<string, unknown>;
@@ -214,7 +219,7 @@ export function prepareBrowserMemoryRequest(params: {
     const expectedContentHash = params.request.expectedContentHash;
     if (
       !path ||
-      /[\x00-\x1f:]/u.test(path) ||
+      path.split("").some((character) => character.charCodeAt(0) < 32 || character === ":") ||
       typeof expectedContentHash !== "string" ||
       !/^[a-f0-9]{64}$/u.test(expectedContentHash)
     ) {
@@ -264,6 +269,33 @@ export function prepareBrowserMemoryRequest(params: {
   return path
     ? { agentId: params.agentId, path }
     : params.fail("browser workspace reads are limited to personal memory Markdown files");
+}
+
+export async function refreshDeletedMemory(
+  result: unknown,
+  agentId: string,
+  gateway: BrowserGatewayProxyOptions["gateway"],
+): Promise<JsonObject> {
+  const deletion = asBrowserGatewayObject(result, "memory deletion result");
+  let wikiRefreshed = false;
+  try {
+    // Only a validated deletion reaches this owner. Reconcile the same Agent's
+    // Wiki sources, and retain the committed deletion if that refresh fails.
+    const request = { agentId, forceSync: true };
+    const wiki = projectBrowserWikiResult({
+      method: "wiki.overview",
+      request,
+      result: await gateway.request("wiki.overview", request),
+      agentId,
+      fail: (message) => {
+        throw new BrowserGatewayProxyError("upstream-result-denied", message);
+      },
+    });
+    wikiRefreshed = isRecord(wiki) && wiki.sourceSyncComplete === true;
+  } catch {
+    // Refresh is a separate outcome; it cannot roll back deletion.
+  }
+  return { ...deletion, wikiRefreshed };
 }
 
 export async function requestBrowserOrganizationMemoryGet(params: {

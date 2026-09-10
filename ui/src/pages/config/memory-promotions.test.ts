@@ -84,7 +84,9 @@ afterEach(async () => {
 describe("MemoryPromotionsElement", () => {
   it("prefills a fresh source in the modal without submitting and invalidates a failed replacement", async () => {
     const request = vi.fn(async (method: string, params: unknown) => {
-      if (method === "platformclaw.memory.lifecycle") return snapshot;
+      if (method === "platformclaw.memory.lifecycle") {
+        return snapshot;
+      }
       if (method === "wiki.get" && (params as { lookup: string }).lookup === "source-id") {
         return { id: "source-id", path: "recovery.md", content: "Fresh source content" };
       }

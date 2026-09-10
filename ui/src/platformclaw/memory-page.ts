@@ -112,7 +112,9 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
   }
 
   private openActions(kind: "memory" | "wiki", lookup: string, event: MouseEvent) {
-    if (!this.canAct(kind)) return;
+    if (!this.canAct(kind)) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const target = event.currentTarget;
@@ -138,10 +140,15 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
             .action=${menu.kind === "memory" ? "delete" : "share"}
             .onClose=${() => (this.menu = null)}
             .onAction=${() => {
-              if (!this.canAct(menu.kind)) return;
+              if (!this.canAct(menu.kind)) {
+                return;
+              }
               this.actionMessage = "";
-              if (menu.kind === "memory") this.deletePath = menu.lookup;
-              else this.promotionLookup = menu.lookup;
+              if (menu.kind === "memory") {
+                this.deletePath = menu.lookup;
+              } else {
+                this.promotionLookup = menu.lookup;
+              }
             }}
           ></platformclaw-memory-item-menu>`
         : nothing}

@@ -24,6 +24,7 @@ import {
 export { PLATFORMCLAW_WEB_GATEWAY_EVENTS } from "./browser-gateway-event-policy.js";
 import { BrowserGatewayLiveCapabilities } from "./browser-gateway-live-capabilities.js";
 import { requestBrowserGatewayLocal } from "./browser-gateway-local.js";
+import { refreshDeletedMemory } from "./browser-gateway-memory.js";
 import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-visibility.js";
 import {
   browserEventPayloadBelongsToAccess,
@@ -246,25 +247,11 @@ export class BrowserGatewayProxy {
     });
     try {
       const projected = this.filterResult(access, method, prepared, result, executionTarget);
-      if (method === "memory.delete") {
-        let wikiRefreshed = false;
-        try {
-          // The Wiki owner reconciles missing bridge sources and recompiles its indexes.
-          // Run it after a validated deletion result, scoped to the same personal Agent.
-          const wikiRequest = { agentId: access.binding.agentId, forceSync: true };
-          const wiki = this.filterResult(
-            access,
-            "wiki.overview",
-            wikiRequest,
-            await this.options.gateway.request("wiki.overview", wikiRequest),
-          );
-          wikiRefreshed = asObject(wiki, "wiki overview").sourceSyncComplete === true;
-        } catch {
-          // The source deletion has committed; a refresh failure is a visible partial outcome.
-        }
-        return { ...asObject(projected, "memory deletion result"), wikiRefreshed } as T;
-      }
-      return projected as T;
+      return (
+        method === "memory.delete"
+          ? await refreshDeletedMemory(projected, access.binding.agentId, this.options.gateway)
+          : projected
+      ) as T;
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
         await this.auditDeniedRequest(access, method, error.code);
@@ -527,6 +514,9 @@ export class BrowserGatewayProxy {
     result: unknown,
     executionTarget?: "platform_server" | "assigned_vm",
   ): unknown {
+    const fail = (message: string): never => {
+      throw new BrowserGatewayProxyError("upstream-result-denied", message);
+    };
     if (method.startsWith("cron.")) {
       return projectCronResult(this.browserCronContext(access), method, result);
     }
@@ -541,9 +531,7 @@ export class BrowserGatewayProxy {
       assertOwnedResultSessionKey: (value) =>
         this.assertions.ownedResultSessionKey(access.binding.agentId, value),
       projectSessionPayloadForAccess: (value) => this.projectSessionPayloadForAccess(access, value),
-      fail: (message) => {
-        throw new BrowserGatewayProxyError("upstream-result-denied", message);
-      },
+      fail,
     });
     if (sessionResult !== undefined) {
       return sessionResult;
@@ -556,9 +544,7 @@ export class BrowserGatewayProxy {
           ? { requestedTaskIds: new Set(prepared.taskIds as string[]) }
           : {}),
         result,
-        fail: (message) => {
-          throw new BrowserGatewayProxyError("upstream-result-denied", message);
-        },
+        fail,
       });
     }
     const personalReadResult = projectBrowserPersonalReadResult({
@@ -566,9 +552,7 @@ export class BrowserGatewayProxy {
       request: prepared,
       result,
       agentId: access.binding.agentId,
-      fail: (message) => {
-        throw new BrowserGatewayProxyError("upstream-result-denied", message);
-      },
+      fail,
     });
     if (personalReadResult !== undefined) {
       return personalReadResult;
@@ -578,9 +562,7 @@ export class BrowserGatewayProxy {
         agentId: access.binding.agentId,
         method,
         result,
-        fail: (message) => {
-          throw new BrowserGatewayProxyError("upstream-result-denied", message);
-        },
+        fail,
       });
     }
     if (method.startsWith("skills.")) {
@@ -589,9 +571,7 @@ export class BrowserGatewayProxy {
         executionTarget: executionTarget ?? "platform_server",
         method,
         result,
-        fail: (message) => {
-          throw new BrowserGatewayProxyError("upstream-result-denied", message);
-        },
+        fail,
       });
     }
     const catalogResult = projectBrowserCatalogResult({

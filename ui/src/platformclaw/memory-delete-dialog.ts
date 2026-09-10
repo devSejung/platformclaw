@@ -61,8 +61,9 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
         this.client !== client ||
         this.agentId !== agentId ||
         this.path !== path
-      )
+      ) {
         return;
+      }
       if (result.file.missing || result.file.encoding !== "utf8" || !result.file.contentHash) {
         throw new Error(t("platformClaw.memory.deleteUnavailable"));
       }
@@ -70,10 +71,13 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
       this.contentHash = result.file.contentHash;
       this.preview = { client, agentId, path };
     } catch (error) {
-      if (epoch === this.epoch)
+      if (epoch === this.epoch) {
         this.error = formatErrorMessage(error, { redact: redactToolDetail });
+      }
     } finally {
-      if (epoch === this.epoch) this.loading = false;
+      if (epoch === this.epoch) {
+        this.loading = false;
+      }
     }
   }
 
@@ -87,8 +91,9 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
       !this.contentHash ||
       this.loading ||
       this.deleting
-    )
+    ) {
       return;
+    }
     const epoch = this.epoch;
     this.deleting = true;
     this.error = "";
@@ -102,8 +107,12 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
         path: this.path,
         expectedContentHash: this.contentHash,
       });
-      if (epoch !== this.epoch || !this.isConnected) return;
-      if (!result.deleted) throw new Error(t("platformClaw.memory.deleteUnavailable"));
+      if (epoch !== this.epoch || !this.isConnected) {
+        return;
+      }
+      if (!result.deleted) {
+        throw new Error(t("platformClaw.memory.deleteUnavailable"));
+      }
       this.dispatchEvent(
         new CustomEvent("memory-deleted", {
           bubbles: true,
@@ -112,10 +121,13 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
         }),
       );
     } catch (error) {
-      if (epoch === this.epoch)
+      if (epoch === this.epoch) {
         this.error = formatErrorMessage(error, { redact: redactToolDetail });
+      }
     } finally {
-      if (epoch === this.epoch) this.deleting = false;
+      if (epoch === this.epoch) {
+        this.deleting = false;
+      }
     }
   }
 
