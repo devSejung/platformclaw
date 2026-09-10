@@ -7,6 +7,43 @@ import { createProps, createSkill, normalizeText } from "./view.test-helpers.ts"
 import { renderSkills } from "./view.ts";
 
 describe("renderSkills Skill Hub publishing", () => {
+  it("keeps publish errors inside the dialog and blocks dismissal and draft edits while publishing", () => {
+    const container = document.createElement("div");
+    const onSkillHubPublishClose = vi.fn();
+    const props = createProps({
+      skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+      skillHubPublishSkill: "demo",
+      skillHubPublishNamespace: "engineering",
+      skillHubPublishVersion: "1.0.0",
+      skillHubOperation: "publish",
+      onSkillHubPublishClose,
+    });
+    render(renderSkills(props), container);
+    const dialog = container.querySelector("openclaw-modal-dialog")!;
+    for (const control of dialog.querySelectorAll<
+      HTMLButtonElement | HTMLInputElement | HTMLSelectElement
+    >("button, input, select")) {
+      expect(control.disabled).toBe(true);
+    }
+    const cancel = new Event("modal-cancel", { cancelable: true });
+    dialog.dispatchEvent(cancel);
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(onSkillHubPublishClose).not.toHaveBeenCalled();
+    render(
+      renderSkills({
+        ...props,
+        skillHubOperation: null,
+        skillHubMessage: { kind: "error", text: "Registry temporarily unavailable" },
+      }),
+      container,
+    );
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain(
+      "Registry temporarily unavailable",
+    );
+    dialog.querySelector<HTMLButtonElement>("button")!.click();
+    expect(onSkillHubPublishClose).toHaveBeenCalledOnce();
+  });
+
   it("keeps workspace publishing on Skills and moves discovery to its own tab", () => {
     const container = document.createElement("div");
     const onSkillHubPublishOpen = vi.fn();

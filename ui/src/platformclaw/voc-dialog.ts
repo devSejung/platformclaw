@@ -201,6 +201,7 @@ class PlatformClawVocDialogElement extends OpenClawLitElement {
               class="close"
               type="button"
               @click=${() => this.close()}
+              ?disabled=${this.submitting}
               aria-label=${t("platformClaw.voc.close")}
             >
               ×

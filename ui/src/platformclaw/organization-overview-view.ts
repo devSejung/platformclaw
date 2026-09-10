@@ -31,6 +31,7 @@ export function renderOrganizationOverview(options: {
   context: OrganizationContext | null;
   scopes: readonly OrganizationScopeResult[];
   scopesHasMore: boolean;
+  searching?: boolean;
   busy: boolean;
   onPrimaryChange(scopeId: string): void;
   onSearch(query: string): void;
@@ -74,6 +75,7 @@ export function renderOrganizationOverview(options: {
       title: t("platformClaw.organization.my.primary"),
       description: t("platformClaw.organization.my.primaryDescription"),
       control: html`<select
+        class="settings-select"
         aria-label=${t("platformClaw.organization.my.primary")}
         ?disabled=${options.busy}
         @change=${(event: Event) =>
@@ -120,7 +122,7 @@ export function renderOrganizationOverview(options: {
       description: t("platformClaw.organization.tree.description"),
     },
     html`<form
-        class="settings-row__controls"
+        class="organization-search"
         @submit=${(event: SubmitEvent) => {
           event.preventDefault();
           const query = new FormData(event.currentTarget as HTMLFormElement).get("scopeQuery");
@@ -129,10 +131,15 @@ export function renderOrganizationOverview(options: {
       >
         <label class="field">
           <span class="sr-only">${t("platformClaw.organization.tree.search")}</span>
-          <input name="scopeQuery" maxlength="128" />
+          <input class="settings-input" name="scopeQuery" maxlength="128" />
         </label>
-        <button class="btn btn--sm" type="submit">${t("platformClaw.organization.search")}</button>
+        <button class="btn" type="submit" ?disabled=${options.searching || options.busy}>
+          ${t("platformClaw.organization.search")}
+        </button>
       </form>
+      ${options.searching
+        ? html`<p class="muted" role="status">${t("platformClaw.organization.loading")}</p>`
+        : nothing}
       ${options.scopes.length === 0
         ? renderSettingsRow({
             title: t("platformClaw.organization.tree.empty"),

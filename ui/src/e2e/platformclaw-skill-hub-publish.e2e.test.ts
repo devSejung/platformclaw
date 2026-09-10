@@ -276,4 +276,266 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
       path: path.join(proofDir, "07-workspace-vm-ko-fhd.png"),
     });
   });
+
+  it("shows a ZIP rejection in the upload dialog without losing the selected archive", async () => {
+    const { page } = await newPage("en-US");
+    let finish!: () => void;
+    let attempts = 0;
+    await page.route("**/platformclaw/api/skill-hub/publish/upload?**", async (route) => {
+      attempts += 1;
+      if (attempts === 1) {
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      }
+      await route.fulfill({
+        status: 503,
+        json: { error: "Archive scanner is unavailable. Try again." },
+      });
+    });
+    await page.goto(`${server.baseUrl}platformclaw/app/skills/hub`);
+    await page.getByRole("button", { name: "Upload ZIP", exact: true }).click();
+    const dialog = page.locator(".skill-hub-upload");
+    await dialog.locator('input[type="file"]').setInputFiles({
+      name: "demo.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from("fixture archive"),
+    });
+    await dialog.locator(".skill-hub-upload__fields input").first().fill("demo");
+    await dialog.getByRole("button", { name: "Scan and publish ZIP" }).click();
+    await expect
+      .poll(() => dialog.locator("input:enabled, select:enabled, button:enabled").count())
+      .toBe(0);
+    try {
+      await page.keyboard.press("Escape");
+      await page.mouse.click(5, 5);
+      expect(await dialog.isVisible()).toBe(true);
+    } finally {
+      finish();
+    }
+    await expect.poll(() => dialog.getByRole("alert").isVisible()).toBe(true);
+    expect(await dialog.getByRole("alert").textContent()).toContain(
+      "Archive scanner is unavailable",
+    );
+    expect(await dialog.textContent()).toContain("demo.zip");
+    expect(await dialog.locator(".skill-hub-upload__fields input").first().inputValue()).toBe(
+      "demo",
+    );
+    expect(await dialog.getByRole("button", { name: "Scan and publish ZIP" }).isEnabled()).toBe(
+      true,
+    );
+    expect(await dialog.locator('input[type="file"]').isEnabled()).toBe(true);
+    await dialog.getByRole("button", { name: "Scan and publish ZIP" }).click();
+    await expect.poll(() => attempts).toBe(2);
+    await page.screenshot({ path: path.join(proofDir, "08-upload-error-visible.png") });
+  });
+
+  it("keeps inbox load and mark-read failures visible and recovers on retry", async () => {
+    const { page } = await newPage("en-US");
+    let loadFails = true;
+    let readFails = true;
+    await page.route("**/platformclaw/api/skill-hub/notifications**", (route) => {
+      const marking = new URL(route.request().url()).pathname.endsWith("/read");
+      return route.fulfill(
+        (marking ? readFails : loadFails)
+          ? {
+              status: 503,
+              json: { error: marking ? "Mark read unavailable" : "Inbox unavailable" },
+            }
+          : { json: { items: [], unreadCount: 0, ok: true, updated: 0 } },
+      );
+    });
+    await page.goto(`${server.baseUrl}platformclaw/app/skills/hub`);
+    await page.getByRole("button", { name: "Notifications", exact: true }).click();
+    const dialog = page.locator("openclaw-modal-dialog");
+    await expect.poll(() => dialog.getByRole("alert").textContent()).toContain("Inbox unavailable");
+    await page.screenshot({ path: path.join(proofDir, "11-inbox-load-error.png") });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    loadFails = false;
+    await page.getByRole("button", { name: "Notifications", exact: true }).click();
+    await dialog.getByRole("button", { name: "Mark all read", exact: true }).click();
+    await expect
+      .poll(() => dialog.getByRole("alert").textContent())
+      .toContain("Mark read unavailable");
+    readFails = false;
+    await dialog.getByRole("button", { name: "Mark all read", exact: true }).click();
+    await expect.poll(() => dialog.getByRole("alert").count()).toBe(0);
+    await page.keyboard.press("Escape");
+    await expect.poll(() => dialog.count()).toBe(0);
+  });
+
+  it("shows admin load and save errors inside its dialog and protects a pending draft", async () => {
+    const { page } = await newPage("en-US");
+    await page.route("**/platformclaw/api/skill-hub/config", (route) =>
+      route.fulfill({ json: { namespaces: ["engineering"], maxPackageBytes: 1024, admin: true } }),
+    );
+    let loadFails = true;
+    let finish!: () => void;
+    await page.route("**/platformclaw/api/skill-hub/admin/namespaces**", async (route) => {
+      if (route.request().method() !== "GET") {
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        await route.fulfill({ status: 503, json: { error: "Binding save unavailable" } });
+      } else
+        await route.fulfill(
+          loadFails
+            ? { status: 503, json: { error: "Namespace list unavailable" } }
+            : { json: { bindings: [], scopes: [] } },
+        );
+    });
+    await page.goto(`${server.baseUrl}platformclaw/app/skills/hub`);
+    await page.getByRole("button", { name: "Skill Hub admin", exact: true }).click();
+    const dialog = page.locator(".skill-hub-admin");
+    await expect
+      .poll(() => dialog.getByRole("alert").textContent())
+      .toContain("Namespace list unavailable");
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    loadFails = false;
+    await page.getByRole("button", { name: "Skill Hub admin", exact: true }).click();
+    await dialog.locator(".skill-hub-admin__form input").nth(0).fill("engineering");
+    await dialog.locator(".skill-hub-admin__form input").nth(1).fill("Fixture UI review");
+    await dialog.locator(".skill-hub-admin__form button").click();
+    await expect
+      .poll(() => dialog.getByRole("button", { name: "Close", exact: true }).isDisabled())
+      .toBe(true);
+    try {
+      await page.keyboard.press("Escape");
+      await page.mouse.click(5, 5);
+      expect(await dialog.isVisible()).toBe(true);
+      expect(await dialog.locator("input").nth(0).isDisabled()).toBe(true);
+    } finally {
+      finish?.();
+    }
+    await expect
+      .poll(() => dialog.getByRole("alert").textContent())
+      .toContain("Binding save unavailable");
+    expect(await dialog.locator("input").nth(0).inputValue()).toBe("engineering");
+    await page.screenshot({ path: path.join(proofDir, "12-admin-save-error.png") });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await expect.poll(() => dialog.count()).toBe(0);
+  });
+
+  it("keeps a pending workspace publish visible through Escape and backdrop clicks", async () => {
+    const { page } = await newPage("en-US");
+    let publishAttempts = 0;
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    await page.route("**/platformclaw/api/skill-hub/publish", async (route) => {
+      publishAttempts += 1;
+      await pending;
+      await route.fulfill({
+        status: 503,
+        json: { error: "Publish service is unavailable. Try again." },
+      });
+    });
+    await page.goto(`${server.baseUrl}platformclaw/app/skills/hub`);
+    await page.getByRole("button", { name: "Publish workspace skill", exact: true }).click();
+    const dialog = page.locator(".skill-hub-workspace-publish");
+    await dialog.getByRole("button", { name: "Scan and publish skill" }).click();
+    await expect
+      .poll(() => dialog.getByRole("button", { name: "Close", exact: true }).isDisabled())
+      .toBe(true);
+    try {
+      await page.keyboard.press("Escape");
+      await page.mouse.click(5, 5);
+      expect(await dialog.isVisible()).toBe(true);
+    } finally {
+      finish();
+    }
+    await expect.poll(() => dialog.getByRole("alert").isVisible()).toBe(true);
+    expect(await dialog.getByRole("alert").textContent()).toContain(
+      "Publish service is unavailable",
+    );
+    await page.screenshot({
+      path: path.join(proofDir, "09-publish-error-after-dismiss-attempt.png"),
+    });
+    await dialog.getByRole("button", { name: "Scan and publish skill" }).click();
+    await expect.poll(() => publishAttempts).toBe(2);
+    await expect.poll(() => dialog.getByRole("alert").isVisible()).toBe(true);
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await expect.poll(() => dialog.count()).toBe(0);
+  });
+
+  it("keeps a pending version replacement visible through Escape and backdrop clicks", async () => {
+    const { page } = await newPage("en-US");
+    await page.route("**/platformclaw/api/skill-hub/search?**", (route) =>
+      route.fulfill({
+        json: {
+          total: 1,
+          items: [
+            {
+              namespace: "engineering",
+              slug: "demo",
+              latestVersion: "2.0.0",
+              summary: "Demo skill",
+            },
+          ],
+        },
+      }),
+    );
+    await page.route("**/platformclaw/api/skill-hub/skills/engineering/demo", (route) =>
+      route.fulfill({
+        json: {
+          skill: {
+            namespace: "engineering",
+            slug: "demo",
+            displayName: "Demo",
+            summary: "Demo skill",
+            visibility: "PUBLIC",
+            status: "PUBLISHED",
+          },
+          versions: [{ version: "2.0.0", status: "PUBLISHED", downloadAvailable: true }],
+        },
+      }),
+    );
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    let installs = 0;
+    await page.route("**/platformclaw/api/skill-hub/install", async (route) => {
+      installs += 1;
+      if (installs === 1) {
+        await route.fulfill({
+          status: 409,
+          json: {
+            error: "Confirm replacement",
+            details: {
+              code: "existing-skill-replacement-required",
+              currentVersion: "1.0.0",
+              currentRevision: "fixture-revision",
+              requestedVersion: "2.0.0",
+              direction: "upgrade",
+            },
+          },
+        });
+      } else {
+        await pending;
+        await route.fulfill({
+          json: { ok: true, slug: "demo", version: "2.0.0", target: "platform_server" },
+        });
+      }
+    });
+    await page.goto(`${server.baseUrl}platformclaw/app/skills/hub`);
+    await page.locator(".skill-hub-card").click();
+    await page.getByRole("button", { name: "Install to Basic Workspace", exact: true }).click();
+    const dialog = page.locator(".skill-hub-version-change");
+    await dialog.getByRole("button", { name: "Replace installed version" }).click();
+    await expect.poll(() => installs).toBe(2);
+    try {
+      await page.keyboard.press("Escape");
+      await page.mouse.click(5, 5);
+      expect(await dialog.isVisible()).toBe(true);
+      await page.screenshot({
+        path: path.join(proofDir, "10-version-pending-after-dismiss-attempt.png"),
+      });
+    } finally {
+      finish();
+    }
+    await expect.poll(() => dialog.count()).toBe(0);
+    expect(await page.locator(".skill-hub-detail").textContent()).toContain("Installed demo@2.0.0");
+  });
 });

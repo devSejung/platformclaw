@@ -4,7 +4,11 @@ import { render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import { loadPlatformClawLocale } from "../../platformclaw/i18n.ts";
-import { renderSkillHubUpload, renderSkillHubWorkspacePublish } from "./dialogs.ts";
+import {
+  renderSkillHubUpload,
+  renderSkillHubVersionChange,
+  renderSkillHubWorkspacePublish,
+} from "./dialogs.ts";
 
 function workspacePublishProps(
   overrides: Partial<Parameters<typeof renderSkillHubWorkspacePublish>[0]> = {},
@@ -78,6 +82,43 @@ describe("Skill Hub ZIP upload dialog", () => {
     publish?.click();
     expect(onPublish).not.toHaveBeenCalled();
   });
+
+  it("keeps a busy upload open and disables every draft control", () => {
+    const container = document.createElement("div");
+    const onClose = vi.fn();
+    render(
+      renderSkillHubUpload({
+        open: true,
+        config: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+        file: new File(["zip"], "skill.zip", { type: "application/zip" }),
+        slug: "release-notes",
+        namespace: "engineering",
+        version: "1.0.0",
+        visibility: "NAMESPACE_ONLY",
+        busy: true,
+        onClose,
+        onFile: vi.fn(),
+        onSlug: vi.fn(),
+        onNamespace: vi.fn(),
+        onVersion: vi.fn(),
+        onVisibility: vi.fn(),
+        onPublish: vi.fn(),
+      }),
+      container,
+    );
+
+    const cancel = new Event("modal-cancel", { cancelable: true });
+    container.querySelector("openclaw-modal-dialog")!.dispatchEvent(cancel);
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(
+      [
+        ...container.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
+          "input, select, button",
+        ),
+      ].every((control) => control.disabled),
+    ).toBe(true);
+  });
 });
 
 describe("Skill Hub workspace publish dialog", () => {
@@ -117,6 +158,37 @@ describe("Skill Hub workspace publish dialog", () => {
     expect(onPublish).toHaveBeenCalledOnce();
   });
 
+  it.each(["publish", "version"])(
+    "keeps the busy %s dialog open on Escape or backdrop dismissal",
+    (kind) => {
+      const container = document.createElement("div");
+      const onClose = vi.fn();
+      const view = (busy: boolean) =>
+        kind === "publish"
+          ? renderSkillHubWorkspacePublish(workspacePublishProps({ busy, onClose }))
+          : renderSkillHubVersionChange({
+              open: true,
+              currentVersion: "1.0.0",
+              requestedVersion: "2.0.0",
+              direction: "upgrade",
+              busy,
+              onClose,
+              onConfirm: vi.fn(),
+            });
+      render(view(true), container);
+      const blocked = new Event("modal-cancel", { cancelable: true });
+      container.querySelector("openclaw-modal-dialog")!.dispatchEvent(blocked);
+      expect(blocked.defaultPrevented).toBe(true);
+      expect(onClose).not.toHaveBeenCalled();
+
+      render(view(false), container);
+      const allowed = new Event("modal-cancel", { cancelable: true });
+      container.querySelector("openclaw-modal-dialog")!.dispatchEvent(allowed);
+      expect(allowed.defaultPrevented).toBe(false);
+      expect(onClose).toHaveBeenCalledOnce();
+    },
+  );
+
   it("disables unavailable VM sources and prevents publishing an empty workspace", () => {
     const container = document.createElement("div");
     render(
@@ -145,6 +217,22 @@ describe("Skill Hub workspace publish dialog", () => {
       button.textContent?.includes("Scan and publish skill"),
     );
     expect(publish?.disabled).toBe(true);
+  });
+
+  it("allows retry after a publish error while still blocking an empty failed workspace load", () => {
+    const container = document.createElement("div");
+    const onPublish = vi.fn();
+    const props = workspacePublishProps({ error: "Temporary publish failure", onPublish });
+    render(renderSkillHubWorkspacePublish(props), container);
+    const publish = () =>
+      [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+        button.textContent?.includes("Scan and publish skill"),
+      )!;
+    expect(publish().disabled).toBe(false);
+    publish().click();
+    expect(onPublish).toHaveBeenCalledOnce();
+    render(renderSkillHubWorkspacePublish({ ...props, skills: [], skill: "" }), container);
+    expect(publish().disabled).toBe(true);
   });
 
   it("renders workspace publishing in Korean using the PlatformClaw locale overlay", async () => {

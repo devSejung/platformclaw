@@ -112,45 +112,55 @@ afterEach(() => {
 });
 
 describe("SkillWorkshopPage lifecycle", () => {
-  it("renders revisions in the shared modal and handles modal cancellation", async () => {
-    const proposal = {
-      key: "proposal-modal",
-      slug: "proposal-modal",
-      name: "Modal proposal",
-      oneLine: "Shared modal coverage",
-      body: "## Workflow\n- test",
-      status: "pending",
-      version: 1,
-      revisionHash: null,
-      createdAt: 0,
-      recencyGroup: "today",
-      ageLabel: "now",
-      supportFiles: [],
-      isNew: false,
-    } satisfies SkillWorkshopProposal;
-    const loadedState = createSkillWorkshopState();
-    loadedState.skillWorkshopLoaded = true;
-    loadedState.skillWorkshopProposals = [proposal];
-    loadedState.skillWorkshopSelectedKey = proposal.key;
-    loadedState.skillWorkshopRevisionKey = proposal.key;
-    loadedState.skillWorkshopRevisionDraft = "Make it clearer";
-    const page = document.createElement(
-      "openclaw-skill-workshop-page",
-    ) as SkillWorkshopPageTestElement;
-    page.data = skillWorkshopRouteData(loadedState);
-    page.context = createContext(vi.fn(async () => ({})));
-    document.body.append(page);
-    await page.updateComplete;
+  it.each([false, true])(
+    "handles revision modal cancellation consistently with busy=%s",
+    async (busy) => {
+      const proposal = {
+        key: "proposal-modal",
+        slug: "proposal-modal",
+        name: "Modal proposal",
+        oneLine: "Shared modal coverage",
+        body: "## Workflow\n- test",
+        status: "pending",
+        version: 1,
+        revisionHash: null,
+        createdAt: 0,
+        recencyGroup: "today",
+        ageLabel: "now",
+        supportFiles: [],
+        isNew: false,
+      } satisfies SkillWorkshopProposal;
+      const loadedState = createSkillWorkshopState();
+      loadedState.skillWorkshopLoaded = true;
+      loadedState.skillWorkshopProposals = [proposal];
+      loadedState.skillWorkshopSelectedKey = proposal.key;
+      loadedState.skillWorkshopRevisionKey = proposal.key;
+      loadedState.skillWorkshopRevisionDraft = "Make it clearer";
+      loadedState.skillWorkshopActionBusy = busy ? { key: proposal.key, action: "revise" } : null;
+      const page = document.createElement(
+        "openclaw-skill-workshop-page",
+      ) as SkillWorkshopPageTestElement;
+      page.data = skillWorkshopRouteData(loadedState);
+      page.context = createContext(vi.fn(async () => ({})));
+      document.body.append(page);
+      await page.updateComplete;
 
-    const modal = page.querySelector("openclaw-modal-dialog");
-    expect(modal).not.toBeNull();
-    expect(page.querySelector(".sw-revision-backdrop")).toBeNull();
-    expect(page.querySelector(".sw-revision-dialog__input")).toBeInstanceOf(HTMLTextAreaElement);
+      const modal = page.querySelector("openclaw-modal-dialog");
+      expect(modal).not.toBeNull();
+      expect(page.querySelector(".sw-revision-backdrop")).toBeNull();
+      expect(page.querySelector(".sw-revision-dialog__input")).toBeInstanceOf(HTMLTextAreaElement);
 
-    modal?.dispatchEvent(new CustomEvent("modal-cancel", { bubbles: true, composed: true }));
-    await page.updateComplete;
-    expect(page.querySelector("openclaw-modal-dialog")).toBeNull();
-  });
+      const cancel = new CustomEvent("modal-cancel", {
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+      });
+      modal?.dispatchEvent(cancel);
+      await page.updateComplete;
+      expect(cancel.defaultPrevented).toBe(busy);
+      expect(page.querySelector("openclaw-modal-dialog") === null).toBe(!busy);
+    },
+  );
 
   it("renders truncated Today previews without dangling surrogates", async () => {
     const previewText = `${"a".repeat(118)}😀trailing`;

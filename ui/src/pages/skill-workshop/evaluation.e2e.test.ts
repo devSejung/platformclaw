@@ -107,6 +107,7 @@ describeBrowser("Skill Workshop proposal evaluation mocked Gateway E2E", () => {
         await mkdir(rawVideoDir, { recursive: true });
       }
       const context = await browser.newContext({
+        locale: "en-US",
         viewport,
         ...(rawVideoDir ? { recordVideo: { dir: rawVideoDir, size: viewport } } : {}),
       });
@@ -195,7 +196,10 @@ describeBrowser("Skill Workshop proposal evaluation mocked Gateway E2E", () => {
     if (!browser || !server) {
       throw new Error("Expected browser test fixtures");
     }
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { width: 1280, height: 900 },
+    });
     const page = await context.newPage();
     try {
       const vmRecord = {
@@ -283,6 +287,68 @@ describeBrowser("Skill Workshop proposal evaluation mocked Gateway E2E", () => {
           path: path.join(artifactDir, "vm-apply.png"),
         });
       }
+    } finally {
+      await context.close();
+    }
+  });
+
+  it("switches Board and Today views and cancels a revision without sending it", async () => {
+    if (!browser || !server) {
+      throw new Error("Expected browser test fixtures");
+    }
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { width: 1280, height: 900 },
+    });
+    const page = await context.newPage();
+    try {
+      const gateway = await installMockGateway(page, {
+        assistantAgentId: "research",
+        defaultAgentId: "research",
+        featureMethods: ["chat.metadata", "chat.startup", "skills.proposals.requestRevision"],
+        methodResponses: {
+          "skills.proposals.list": {
+            schema: "openclaw.skill-workshop.proposals-manifest.v1",
+            updatedAt: ISO_NOW,
+            proposals: [
+              {
+                id: "proposal-1",
+                kind: "create",
+                status: "pending",
+                title: "Inbox Cleaner",
+                description: "Clean inbox triage",
+                skillName: "Inbox Cleaner",
+                skillKey: "inbox-cleaner",
+                createdAt: ISO_NOW,
+                updatedAt: ISO_NOW,
+                scanState: "clean",
+              },
+            ],
+          },
+          "skills.proposals.inspect": inspectResult(false),
+        },
+      });
+      await page.goto(`${server.baseUrl}skills/workshop`);
+
+      await page.getByRole("tab", { name: "Board", exact: true }).click();
+      const revise = page.getByRole("button", { name: "Revise", exact: true });
+      await expect.poll(() => revise.isEnabled()).toBe(true);
+      await revise.click();
+      const dialog = page.locator(".sw-revision-dialog");
+      await expect.poll(() => dialog.isVisible()).toBe(true);
+      expect(await dialog.locator("h2").textContent()).toBe("inbox-cleaner");
+      await dialog.locator("textarea").fill("Keep the existing archive labels.");
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect.poll(() => dialog.count()).toBe(0);
+      expect(await gateway.getRequests("skills.proposals.requestRevision")).toEqual([]);
+
+      await page.getByRole("tab", { name: "Today", exact: true }).click();
+      await expect.poll(() => page.locator(".sw-today__hero").isVisible()).toBe(true);
+      expect(await page.locator(".sw-today__hero").textContent()).toContain("inbox-cleaner");
+      await page.getByRole("tab", { name: "Board", exact: true }).click();
+      await expect
+        .poll(() => page.getByRole("button", { name: "Next", exact: true }).isVisible())
+        .toBe(true);
     } finally {
       await context.close();
     }

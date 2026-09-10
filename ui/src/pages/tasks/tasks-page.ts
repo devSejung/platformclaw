@@ -69,6 +69,8 @@ class TasksPage extends OpenClawLightDomElement {
   @state() private tasks: TaskSummary[] = [];
   @state() private error: string | null = null;
   @state() private cancellingTaskIds = new Set<string>();
+  @state() private copyingTaskIds = new Set<string>();
+  @state() private copiedTaskIds = new Set<string>();
 
   private taskRefreshEvents: TaskRefreshEventBuffer | null = null;
   private readonly gateway = new GatewayPageController(this, {
@@ -209,6 +211,8 @@ class TasksPage extends OpenClawLightDomElement {
     this.taskRefreshEvents = null;
     void this.listTask.run([null, null, null]);
     this.cancellingTaskIds = new Set();
+    this.copyingTaskIds = new Set();
+    this.copiedTaskIds = new Set();
   }
 
   private refreshTasks(): Promise<void> {
@@ -219,6 +223,7 @@ class TasksPage extends OpenClawLightDomElement {
     }
     const scopeId = this.context.agentSelection.state.scopeId;
     this.error = null;
+    this.copiedTaskIds = new Set();
     return this.listTask.run([gateway, client, scopeId]);
   }
 
@@ -323,9 +328,14 @@ class TasksPage extends OpenClawLightDomElement {
   private async copyTaskResult(taskId: string) {
     const scope = this.gateway.capture();
     const gateway = this.gateway.gateway;
-    if (!scope || !gateway || this.context.gateway !== gateway) {
+    if (!scope || !gateway || this.context.gateway !== gateway || this.copyingTaskIds.has(taskId)) {
       return;
     }
+    this.copyingTaskIds = new Set([...this.copyingTaskIds, taskId]);
+    const copied = new Set(this.copiedTaskIds);
+    copied.delete(taskId);
+    this.copiedTaskIds = copied;
+    this.error = null;
     try {
       const detail = normalizeTasksGetResult(await scope.client.request("tasks.get", { taskId }));
       if (!this.gateway.isCurrent(scope)) {
@@ -333,13 +343,22 @@ class TasksPage extends OpenClawLightDomElement {
       }
       const result = detail?.result ?? detail?.progressSummary;
       if (!result) {
-        this.error = t("tasksPage.recoveryFailed");
+        this.error = t("common.copyFailed");
         return;
       }
       await navigator.clipboard.writeText(result);
+      if (this.gateway.isCurrent(scope)) {
+        this.copiedTaskIds = new Set([...this.copiedTaskIds, taskId]);
+      }
     } catch (error) {
       if (this.gateway.isCurrent(scope)) {
-        this.error = formatTaskError(error, t("tasksPage.recoveryFailed"));
+        this.error = formatTaskError(error, t("common.copyFailed"));
+      }
+    } finally {
+      if (this.gateway.isCurrent(scope)) {
+        const next = new Set(this.copyingTaskIds);
+        next.delete(taskId);
+        this.copyingTaskIds = next;
       }
     }
   }
@@ -382,6 +401,8 @@ class TasksPage extends OpenClawLightDomElement {
         error: this.error,
         tasks: this.tasks,
         cancellingTaskIds: this.cancellingTaskIds,
+        copyingTaskIds: this.copyingTaskIds,
+        copiedTaskIds: this.copiedTaskIds,
         sessionRow: (sessionKey) => findUiSessionRow(this.context, sessionKey),
         onCancel: (taskId) => void this.cancelTask(taskId),
         onRetry: (taskId) => void this.recoverTask(taskId, "retry"),

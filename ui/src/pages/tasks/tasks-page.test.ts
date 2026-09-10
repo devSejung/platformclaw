@@ -10,7 +10,10 @@ type TasksPageTestElement = HTMLElement & {
   tasks: TaskSummary[];
   error: string | null;
   cancellingTaskIds: Set<string>;
+  copyingTaskIds: Set<string>;
+  copiedTaskIds: Set<string>;
   cancelTask: (taskId: string) => Promise<void>;
+  copyTaskResult: (taskId: string) => Promise<void>;
   recoverTask: (taskId: string, action: "retry" | "dismiss") => Promise<void>;
   refreshTasks: () => Promise<void>;
 };
@@ -302,6 +305,30 @@ describe("TasksPage concurrent refresh events", () => {
 });
 
 describe("TasksPage cancellation lifecycle", () => {
+  it("disables cancellation by the opaque task request id", async () => {
+    const task = createTask("task-row", "running", { taskId: "opaque-cancel-request" });
+    const pendingCancel = deferred<{ cancelled: true; found: true; task: TaskSummary }>();
+    const request = vi.fn((method: string) =>
+      method === "tasks.cancel" ? pendingCancel.promise : Promise.resolve({ tasks: [task] }),
+    );
+    const source = createGateway({ request } as unknown as GatewayBrowserClient);
+    const page = document.createElement("openclaw-tasks-page") as TasksPageTestElement;
+    page.context = createContext(source.gateway);
+    document.body.append(page);
+    await vi.waitFor(() => expect(page.tasks).toHaveLength(1));
+
+    const cancellation = page.cancelTask(task.taskId);
+    await vi.waitFor(() =>
+      expect(
+        page.querySelector<HTMLButtonElement>("[data-task-id=task-row] button")?.disabled,
+      ).toBe(true),
+    );
+    expect(request).toHaveBeenCalledWith("tasks.cancel", { taskId: "opaque-cancel-request" });
+
+    pendingCancel.resolve({ cancelled: true, found: true, task: { ...task, status: "cancelled" } });
+    await cancellation;
+  });
+
   it("qualifies unscoped task session links with the selected agent", async () => {
     const request = vi.fn(async () => ({
       tasks: [
@@ -484,5 +511,73 @@ describe("TasksPage cancellation lifecycle", () => {
     expect(text).not.toContain("Retry delivery");
     expect(text).not.toContain("Dismiss delivery");
     expect(text).not.toContain("Retrying may duplicate a result");
+  });
+
+  it("disables a task result copy while pending and reports success", async () => {
+    const blocked = createTask("task-copy", "completed", {
+      taskId: "opaque-copy-request",
+      deliveryStatus: "dismissed",
+      terminalOutcome: "blocked",
+    });
+    const detail = deferred<{ task: TaskSummary }>();
+    const request = vi.fn((method: string) =>
+      method === "tasks.get" ? detail.promise : Promise.resolve({ tasks: [blocked] }),
+    );
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const source = createGateway({ request } as unknown as GatewayBrowserClient);
+    const page = document.createElement("openclaw-tasks-page") as TasksPageTestElement;
+    page.context = createContext(source.gateway);
+    document.body.append(page);
+    await vi.waitFor(() => expect(page.tasks).toHaveLength(1));
+
+    const copy = page.querySelector<HTMLButtonElement>("[data-task-id=task-copy] button")!;
+    copy.click();
+    copy.click();
+    await vi.waitFor(() => expect(page.copyingTaskIds.has(blocked.taskId)).toBe(true));
+    expect(request.mock.calls.filter(([method]) => method === "tasks.get")).toHaveLength(1);
+    expect(request).toHaveBeenCalledWith("tasks.get", { taskId: "opaque-copy-request" });
+    expect(copy.disabled).toBe(true);
+
+    detail.resolve({ task: { ...blocked, result: "Retained task result" } });
+    await vi.waitFor(() => expect(page.textContent).toContain("Copied!"));
+    expect(writeText).toHaveBeenCalledWith("Retained task result");
+    expect(page.copyingTaskIds.size).toBe(0);
+    expect(page.copiedTaskIds.has(blocked.taskId)).toBe(true);
+  });
+
+  it("shows an accessible copy failure and re-enables the task action", async () => {
+    const blocked = createTask("task-copy-failure", "completed", {
+      deliveryStatus: "dismissed",
+      terminalOutcome: "blocked",
+    });
+    const request = vi.fn((method: string) =>
+      Promise.resolve(
+        method === "tasks.get"
+          ? { task: { ...blocked, result: "Retained task result" } }
+          : { tasks: [blocked] },
+      ),
+    );
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("Copy failed")) },
+    });
+    const source = createGateway({ request } as unknown as GatewayBrowserClient);
+    const page = document.createElement("openclaw-tasks-page") as TasksPageTestElement;
+    page.context = createContext(source.gateway);
+    document.body.append(page);
+    await vi.waitFor(() => expect(page.tasks).toHaveLength(1));
+
+    page.querySelector<HTMLButtonElement>("[data-task-id=task-copy-failure] button")!.click();
+    await vi.waitFor(() =>
+      expect(page.querySelector("[role=alert]")?.textContent).toBe("Copy failed"),
+    );
+    expect(
+      page.querySelector<HTMLButtonElement>("[data-task-id=task-copy-failure] button")?.disabled,
+    ).toBe(false);
+    expect(page.copiedTaskIds.size).toBe(0);
   });
 });

@@ -24,6 +24,63 @@ function mount(fetchImpl: typeof fetch): AdminElement {
 }
 
 describe("PlatformClaw MCP administration", () => {
+  it("locks all actions during save and retains the complete editor draft after failure", async () => {
+    let finish!: (response: Response) => void;
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ servers: [] }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+    const element = mount(fetchImpl);
+    const root = element.shadowRoot!;
+    await vi.waitFor(() => expect(root.querySelector("[data-action='add']")).not.toBeNull());
+    root.querySelector<HTMLButtonElement>("[data-action='add']")!.click();
+    const set = (name: string, value: string) => {
+      const field = root.querySelector<HTMLInputElement | HTMLSelectElement>(`[name='${name}']`)!;
+      field.value = value;
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    set("name", "draft-server");
+    set("url", "https://draft.example/mcp");
+    set("transport", "sse");
+    set("credentialMode", "shared");
+    set("auth", "api_key");
+    set("headerName", "X-Draft-Key");
+    set("secret", "fixture-only-secret");
+    set("blockedTools", "delete, write");
+    root.querySelector<HTMLInputElement>("[name='enabled']")!.checked = false;
+    root.querySelector<HTMLFormElement>("form")!.requestSubmit();
+    for (const control of root.querySelectorAll<
+      HTMLButtonElement | HTMLInputElement | HTMLSelectElement
+    >("button, input, select, textarea")) {
+      expect(control.disabled).toBe(true);
+    }
+    finish(jsonResponse({ error: "Save failed. Try again." }, 503));
+    await vi.waitFor(() => expect(root.textContent).toContain("Save failed"));
+    for (const [name, value] of Object.entries({
+      name: "draft-server",
+      url: "https://draft.example/mcp",
+      transport: "sse",
+      credentialMode: "shared",
+      auth: "api_key",
+      headerName: "X-Draft-Key",
+      secret: "fixture-only-secret",
+      blockedTools: "delete, write",
+    })) {
+      expect(root.querySelector<HTMLInputElement>(`[name='${name}']`)?.value).toBe(value);
+    }
+    expect(root.querySelector<HTMLInputElement>("[name='enabled']")?.checked).toBe(false);
+    expect(root.querySelector<HTMLButtonElement>("[type='submit']")?.disabled).toBe(false);
+    root.querySelector<HTMLButtonElement>("[data-action='cancel']")!.click();
+    root.querySelector<HTMLButtonElement>("[data-action='add']")!.click();
+    expect(root.querySelector<HTMLInputElement>("[name='name']")?.value).toBe("");
+    expect(root.querySelector<HTMLInputElement>("[name='secret']")?.value).toBe("");
+  });
+
   afterEach(async () => {
     document
       .querySelectorAll("platformclaw-mcp-administration")

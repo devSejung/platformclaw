@@ -8,6 +8,48 @@ afterEach(async () => {
 });
 
 describe("platformclaw-voc-dialog", () => {
+  it("disables every dismissal button while submitting and restores them after failure", async () => {
+    let rejectSubmit!: (error: Error) => void;
+    const element = document.createElement("platformclaw-voc-dialog") as HTMLElement & {
+      fetchImpl: typeof fetch;
+      updateComplete: Promise<unknown>;
+    };
+    element.fetchImpl = vi.fn(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectSubmit = reject;
+        }),
+    );
+    document.body.append(element);
+    await element.updateComplete;
+    const root = element.shadowRoot!;
+    for (const [selector, value] of [
+      ["input", "Preview issue"],
+      ["textarea", "UI-only test"],
+    ]) {
+      const input = root.querySelector<HTMLInputElement>(selector)!;
+      input.value = value;
+      input.dispatchEvent(new InputEvent("input"));
+    }
+    await element.updateComplete;
+    root.querySelector<HTMLButtonElement>("footer .primary")!.click();
+    await element.updateComplete;
+    root.querySelector<HTMLButtonElement>("footer .primary")!.click();
+    await element.updateComplete;
+    expect(
+      [...root.querySelectorAll<HTMLButtonElement>("button")].every((button) => button.disabled),
+    ).toBe(true);
+    const cancel = new CustomEvent("modal-cancel", { cancelable: true });
+    root.querySelector("openclaw-modal-dialog")!.dispatchEvent(cancel);
+    expect(cancel.defaultPrevented).toBe(true);
+    rejectSubmit(new Error("Cannot submit right now"));
+    await vi.waitFor(() =>
+      expect(root.querySelector("[role=alert]")?.textContent).toContain("Cannot submit"),
+    );
+    expect(root.querySelector<HTMLButtonElement>(".close")!.disabled).toBe(false);
+    expect(root.querySelector<HTMLInputElement>("input")!.value).toBe("Preview issue");
+  });
+
   it("confirms before submitting and shows the Jira issue", async () => {
     const fetchImpl = vi.fn<typeof fetch>(
       async () =>

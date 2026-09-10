@@ -41,9 +41,9 @@ function renderBrowse(props: {
           props.onSearch(typeof query === "string" ? query : "");
         }}
       >
-        <label>
+        <label class="field">
           <span>${t("platformClaw.organization.join.browse.search")}</span>
-          <input name="query" maxlength="128" />
+          <input class="settings-input" name="query" maxlength="128" />
         </label>
         <button class="btn" type="submit" ?disabled=${props.busy}>
           ${t("platformClaw.organization.search")}

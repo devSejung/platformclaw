@@ -278,6 +278,19 @@ suite("PlatformClaw memory actions E2E", () => {
         .toContain("Delete this entire obsolete checklist");
       expect(await gateway.getRequests("memory.delete")).toHaveLength(0);
       await screenshot("02-delete-preview");
+      await gateway.deferNext("memory.delete");
+      const memoryUrl = page.url();
+      await deletion.getByRole("button", { name: "Delete memory file", exact: true }).click();
+      await gateway.waitForRequest("memory.delete");
+      await page.keyboard.press("Escape");
+      expect(page.url()).toBe(memoryUrl);
+      await expect.poll(() => deletion.isVisible()).toBe(true);
+      await gateway.rejectDeferred("memory.delete", {
+        message: "Memory changed. Refresh and retry.",
+      });
+      await expect
+        .poll(() => deletion.getByRole("alert").textContent())
+        .toContain("Memory changed");
       await deletion.getByRole("button", { name: "Delete memory file", exact: true }).click();
       const deleted = await gateway.waitForRequest("memory.delete");
       expect(deleted.params).toEqual({
@@ -339,6 +352,24 @@ suite("PlatformClaw memory actions E2E", () => {
         .toContain("Reviewers for Runtime");
       await screenshot("04-sharing-review");
       expect(await gateway.getRequests("platformclaw.memory.promotion.submit")).toHaveLength(0);
+      await gateway.deferNext("platformclaw.memory.promotion.submit");
+      await promotion.locator("button.primary").click();
+      await gateway.waitForRequest("platformclaw.memory.promotion.submit");
+      await page.keyboard.press("Escape");
+      const shareDialog = page.locator("openclaw-modal-dialog");
+      await expect.poll(() => shareDialog.isVisible()).toBe(true);
+      expect(
+        await shareDialog.getByRole("button", { name: "Close", exact: true }).isDisabled(),
+      ).toBe(true);
+      await gateway.rejectDeferred("platformclaw.memory.promotion.submit", {
+        message: "Sharing failed. Try again.",
+      });
+      await expect
+        .poll(() => promotion.getByRole("alert").textContent())
+        .toContain("Sharing failed");
+      expect(await promotion.locator(".memory-promotions__field input").inputValue()).toBe(
+        "Verified recovery process for the team",
+      );
       await promotion.locator("button.primary").click();
       const submitted = await gateway.waitForRequest("platformclaw.memory.promotion.submit");
       expect(submitted.params).toEqual(

@@ -130,6 +130,39 @@ describe("PlatformClaw MCP settings", () => {
     });
   });
 
+  it("disables every server action and refresh while a credential request is pending", async () => {
+    let finishSave!: (response: Response) => void;
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(SETTINGS))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishSave = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse(SETTINGS));
+    mountPlatformClawMcpSettings({ fetchImpl, onUnauthenticated: vi.fn() });
+    const root = mountedElement().shadowRoot!;
+    await vi.waitFor(() => expect(root.querySelector("[data-secret='docs']")).not.toBeNull());
+    const secret = root.querySelector<HTMLInputElement>("[data-secret='docs']")!;
+    secret.value = "test-credential";
+    secret.dispatchEvent(new Event("input"));
+    root.querySelector<HTMLElement>("[data-action='save'][data-server='docs']")!.click();
+    try {
+      for (const button of root.querySelectorAll<HTMLButtonElement>("button")) {
+        expect(button.disabled).toBe(true);
+      }
+      root.querySelector<HTMLElement>("[data-action='oauth']")!.click();
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      finishSave(jsonResponse({ serverName: "docs", revision: 1 }));
+    }
+    await vi.waitFor(() =>
+      expect(root.querySelector<HTMLButtonElement>("[data-action='oauth']")?.disabled).toBe(false),
+    );
+  });
+
   it("keeps a secret draft available when saving fails", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()

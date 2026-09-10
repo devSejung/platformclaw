@@ -4,6 +4,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "../../../packages/gateway-protocol/src/version.js";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
+import { CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE } from "../../../src/gateway/control-ui-contract.js";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import {
   canRunPlaywrightChromium,
@@ -49,6 +50,7 @@ async function newPage(
 async function installPlatformClawDocument(
   page: Page,
   descriptorValue = PLATFORMCLAW_WEB_DESCRIPTOR,
+  terminalEnabled?: boolean,
 ): Promise<void> {
   const response = await page.request.get(server.baseUrl);
   const source = await response.text();
@@ -57,7 +59,14 @@ async function installPlatformClawDocument(
   await page.route("**/platformclaw/app/**", async (route) => {
     const descriptor = `<meta name="platformclaw-web-descriptor" content='${JSON.stringify(descriptorValue)}'>`;
     await route.fulfill({
-      body: source.replace("</head>", `${descriptor}</head>`),
+      // Match the server document's initial terminal state before async config loads.
+      body: (terminalEnabled === undefined
+        ? source
+        : source.replace(
+            "<html",
+            `<html ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="${terminalEnabled}"`,
+          )
+      ).replace("</head>", `${descriptor}</head>`),
       headers,
       status,
     });
@@ -263,10 +272,11 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
 
   it("shows the first-run guide and keeps the compact quick actions available", async () => {
     const { page } = await newPage();
-    await installPlatformClawDocument(page, {
-      ...PLATFORMCLAW_WEB_DESCRIPTOR,
-      vocEnabled: true,
-    });
+    await installPlatformClawDocument(
+      page,
+      { ...PLATFORMCLAW_WEB_DESCRIPTOR, vocEnabled: true },
+      true,
+    );
     await page.route("**/platformclaw/api/auth/session", (route) =>
       route.fulfill({ json: activeSession(), status: 200 }),
     );
@@ -338,101 +348,69 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     }
 
     const sidebarGuideSteps = [
-      ["Home: start a conversation with your Agent", "05a-01-home-guide.png"],
-      ["Terminal: run commands while you chat", "05a-01b-terminal-guide.png"],
-      ["Usage: understand tokens and cost", "05a-02-usage-guide.png"],
-      ["Tasks: follow assigned work", "05a-03-tasks-guide.png"],
-      ["Threads: continue an earlier conversation", "05a-04-threads-guide.png"],
-      ["Activity: inspect what the Agent did", "05a-05-activity-guide.png"],
-      ["Automations: schedule recurring work", "05a-06-automations-guide.png"],
+      ["Home: start a conversation with your Agent", ".nav-item--home"],
+      ["Usage: understand tokens and cost", '[data-sidebar-entry="route:usage"] > .nav-item'],
+      ["Tasks: follow assigned work", '[data-sidebar-entry="route:tasks"] > .nav-item'],
+      [
+        "Threads: continue an earlier conversation",
+        '[data-sidebar-entry="route:sessions"] > .nav-item',
+      ],
+      ["Activity: inspect what the Agent did", '[data-sidebar-entry="route:activity"] > .nav-item'],
+      ["Automations: schedule recurring work", '[data-sidebar-entry="route:cron"] > .nav-item'],
+      [
+        "Skills: instructions your Agent can reuse",
+        '[data-sidebar-entry="route:skills"] > .nav-item',
+      ],
+      [
+        "Workshop: review skill changes safely",
+        '[data-sidebar-entry="route:skill-workshop"] > .nav-item',
+      ],
+      [
+        "Skill Hub: install and share company skills",
+        '[data-sidebar-entry="route:skill-hub"] > .nav-item',
+      ],
     ] as const;
-    for (const [heading, screenshot] of sidebarGuideSteps) {
+    let previousTargetTop = -1;
+    const homePath = "/platformclaw/app/chat/person_one";
+    for (const [index, [heading, selector]] of sidebarGuideSteps.entries()) {
       await page.getByRole("button", { name: "Next" }).click();
       await expect.poll(() => page.getByRole("heading", { name: heading }).isVisible()).toBe(true);
-      await expect.poll(() => page.locator(".tour-highlight").isVisible()).toBe(true);
-      await expect
-        .poll(() => page.locator(".tour-highlight").evaluate((element) => element.clientHeight))
-        .toBeGreaterThanOrEqual(40);
-      if (heading.startsWith("Terminal:")) {
-        await expect.poll(() => page.locator(".chat-terminal-toggle").isVisible()).toBe(true);
-      }
-      if (heading.startsWith("Usage:")) {
-        await expect
-          .poll(() =>
-            page
-              .getByText("input tokens, output tokens, and cost trends", { exact: false })
-              .isVisible(),
-          )
-          .toBe(true);
-      }
+      const target = page.locator("openclaw-app-sidebar").locator(selector);
+      await expect.poll(() => target.isVisible()).toBe(true);
+      await expect.poll(() => page.locator(".tour-next").isEnabled()).toBe(true);
+      const targetBox = await target.boundingBox();
+      const highlightBox = await page.locator(".tour-highlight").boundingBox();
+      expect(targetBox).not.toBeNull();
+      expect(highlightBox).not.toBeNull();
+      // Use actual rendered target positions, not just matching a sequence of titles.
+      expect(targetBox!.y).toBeGreaterThanOrEqual(previousTargetTop);
+      expect(Math.abs(highlightBox!.y - targetBox!.y)).toBeLessThanOrEqual(8);
+      previousTargetTop = targetBox!.y;
+      await expect.poll(() => new URL(page.url()).pathname).toBe(homePath);
       if (captureUiProofEnabled) {
         await page.screenshot({
           fullPage: true,
-          path: path.join(proofDir, screenshot),
+          path: path.join(proofDir, "05a-sidebar-" + String(index + 1).padStart(2, "0") + ".png"),
         });
       }
     }
-
-    await page.getByRole("button", { name: "Next" }).click();
-    await expect
-      .poll(() =>
-        page
-          .getByRole("heading", { name: "Skills: instructions your Agent can reuse" })
-          .isVisible(),
-      )
-      .toBe(true);
-    await expect.poll(() => page.url().endsWith("/skills")).toBe(true);
-    await expect.poll(() => page.locator(".plugins-hub-tabs-row").count()).toBe(0);
-    if (captureUiProofEnabled) {
-      await page.screenshot({
-        fullPage: true,
-        path: path.join(proofDir, "05a-07-skills-guide.png"),
-      });
-    }
-
-    await page.getByRole("button", { name: "Next" }).click();
-    await expect
-      .poll(() =>
-        page.getByRole("heading", { name: "Workshop: review skill changes safely" }).isVisible(),
-      )
-      .toBe(true);
-    if (captureUiProofEnabled) {
-      await page.screenshot({
-        fullPage: true,
-        path: path.join(proofDir, "05a-08-workshop-guide.png"),
-      });
-    }
-
-    await page.getByRole("button", { name: "Next" }).click();
-    await expect
-      .poll(() =>
-        page
-          .getByRole("heading", { name: "Skill Hub: install and share company skills" })
-          .isVisible(),
-      )
-      .toBe(true);
-    await expect.poll(() => page.url().endsWith("/skills/hub")).toBe(true);
-    await expect.poll(() => page.locator(".plugins-hub-tabs-row").count()).toBe(0);
-    await expect
-      .poll(() => page.getByText("No Skill Hub results", { exact: true }).isVisible())
-      .toBe(true);
-    if (captureUiProofEnabled) {
-      await page.screenshot({
-        fullPage: true,
-        path: path.join(proofDir, "05a-09-skill-hub-guide.png"),
-      });
-    }
-
     await page.getByRole("button", { name: "Next" }).click();
     await expect
       .poll(() => page.getByRole("heading", { name: "Choose where work runs" }).isVisible())
       .toBe(true);
-    if (captureUiProofEnabled) {
-      await page.screenshot({
-        fullPage: true,
-        path: path.join(proofDir, "05a-10-work-location-guide.png"),
-      });
-    }
+    const workLocationBox = await quickActions
+      .locator("platformclaw-execution-settings")
+      .boundingBox();
+    expect(workLocationBox!.y).toBeGreaterThanOrEqual(previousTargetTop);
+    await expect.poll(() => new URL(page.url()).pathname).toBe(homePath);
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect
+      .poll(() =>
+        page.getByRole("heading", { name: "Terminal: run commands while you chat" }).isVisible(),
+      )
+      .toBe(true);
+    await expect.poll(() => page.locator(".chat-terminal-toggle").isVisible()).toBe(true);
+    await expect.poll(() => new URL(page.url()).pathname).toBe(homePath);
 
     await runPlatformClawSettingsAndMemoryGuide({
       captureUiProofEnabled,
@@ -440,6 +418,105 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       proofDir,
       quickActions,
     });
+  });
+
+  it("keeps a pending VOC visible through failure and retry", async () => {
+    const { page } = await newPage();
+    await installPlatformClawDocument(page, {
+      ...PLATFORMCLAW_WEB_DESCRIPTOR,
+      vocEnabled: true,
+    });
+    await page.addInitScript(() => {
+      localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
+    });
+    await page.route("**/platformclaw/api/auth/session", (route) =>
+      route.fulfill({ json: activeSession(), status: 200 }),
+    );
+    await page.route("**/platformclaw/api/execution", (route) =>
+      route.fulfill({
+        json: {
+          accountId: "person.one",
+          activeTarget: "platform_server",
+          assignment: null,
+          availableVms: [],
+          credentialStatus: "missing",
+          targetRevision: 0,
+        },
+        status: 200,
+      }),
+    );
+    let releaseFailure!: () => void;
+    const failureGate = new Promise<void>((resolve) => {
+      releaseFailure = resolve;
+    });
+    let submissions = 0;
+    await page.route("**/platformclaw/api/voc", async (route) => {
+      submissions += 1;
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().postDataJSON()).toEqual({
+        title: "Improve onboarding",
+        description: "Keep the first-run checklist visible.",
+      });
+      if (submissions === 1) {
+        await failureGate;
+        await route.fulfill({ json: { error: "Jira temporarily unavailable" }, status: 503 });
+        return;
+      }
+      await route.fulfill({
+        json: {
+          ok: true,
+          issueKey: "VOC-42",
+          issueUrl: "https://jira.company.example/browse/VOC-42",
+        },
+        status: 201,
+      });
+    });
+    await installMockGateway(page, {
+      basePath: "/platformclaw/app",
+      defaultAgentId: "person_one",
+      operatorScopes: ["operator.read", "operator.write"],
+      sessionKey: "agent:person_one:main",
+    });
+
+    await page.goto(`${server.baseUrl}platformclaw/app/chat`);
+    const quickActions = page.locator("platformclaw-quick-actions");
+    await quickActions.getByRole("button", { name: "VOC" }).click();
+    let dialog = page.locator("platformclaw-voc-dialog");
+    await expect.poll(() => dialog.locator(".panel").isVisible()).toBe(true);
+    await expect
+      .poll(() => dialog.getByRole("button", { name: "Register" }).isDisabled())
+      .toBe(true);
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect.poll(() => dialog.count()).toBe(0);
+
+    await quickActions.getByRole("button", { name: "VOC" }).click();
+    dialog = page.locator("platformclaw-voc-dialog");
+    await dialog.getByPlaceholder("Please enter a title").fill("Improve onboarding");
+    await dialog.getByPlaceholder(/Pain points/).fill("Keep the first-run checklist visible.");
+    await dialog.getByRole("button", { name: "Register" }).click();
+    await expect.poll(() => dialog.getByText("Register this VOC in Jira?").isVisible()).toBe(true);
+    await dialog.getByRole("button", { name: "Confirm" }).click();
+    await expect.poll(() => submissions).toBe(1);
+    await page.keyboard.press("Escape");
+    await expect.poll(() => dialog.locator(".panel").isVisible()).toBe(true);
+    await expect.poll(() => dialog.getByRole("button", { name: "Close" }).isDisabled()).toBe(true);
+    await expect.poll(() => dialog.getByRole("button", { name: "Cancel" }).isDisabled()).toBe(true);
+
+    releaseFailure();
+    await expect
+      .poll(() => dialog.getByRole("alert").textContent())
+      .toContain("temporarily unavailable");
+    await expect
+      .poll(() => dialog.getByPlaceholder("Please enter a title").inputValue())
+      .toBe("Improve onboarding");
+    await expect
+      .poll(() => dialog.getByPlaceholder(/Pain points/).inputValue())
+      .toBe("Keep the first-run checklist visible.");
+    await dialog.getByRole("button", { name: "Confirm" }).click();
+    await expect.poll(() => dialog.getByRole("link", { name: "VOC-42" }).isVisible()).toBe(true);
+    expect(submissions).toBe(2);
+    await dialog.getByRole("button", { name: "Done" }).click();
+    await expect.poll(() => dialog.count()).toBe(0);
   });
 
   it("renders standalone plugin destinations for members and administrators", async () => {

@@ -46,7 +46,10 @@ describeControlUiE2e("Control UI session-list event scope", () => {
   it("refetches instead of showing a row excluded by configured-agent filtering", async () => {
     const visibleLabel = "Visible configured session";
     const hiddenLabel = "Hidden unconfigured session";
-    const context = await browser.newContext({ viewport: { height: 800, width: 1200 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 800, width: 1200 },
+    });
     const currentPage = await context.newPage();
     page = currentPage;
     const gateway = await installMockGateway(currentPage, {
@@ -131,7 +134,10 @@ describeControlUiE2e("Control UI session-list event scope", () => {
       ],
       ts: 1,
     };
-    const context = await browser.newContext({ viewport: { height: 800, width: 1200 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 800, width: 1200 },
+    });
     const currentPage = await context.newPage();
     page = currentPage;
     const gateway = await installMockGateway(currentPage, {
@@ -211,7 +217,10 @@ describeControlUiE2e("Control UI session-list event scope", () => {
   });
 
   it("omits noncanonical numeric filters from sessions.list requests", async () => {
-    const context = await browser.newContext({ viewport: { height: 800, width: 1200 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 800, width: 1200 },
+    });
     const currentPage = await context.newPage();
     page = currentPage;
     const gateway = await installMockGateway(currentPage, {

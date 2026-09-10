@@ -61,7 +61,16 @@ export function renderOrganizationActionDialog(options: {
       class="exec-approval-card"
       @submit=${(event: SubmitEvent) => {
         event.preventDefault();
-        const data = new FormData(event.currentTarget as HTMLFormElement);
+        const form = event.currentTarget as HTMLFormElement;
+        for (const input of form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+          "[required]",
+        )) {
+          input.value = input.value.trim();
+        }
+        if (!form.reportValidity()) {
+          return;
+        }
+        const data = new FormData(form);
         const reason = formText(data, "reason");
         const name = formText(data, "name");
         if (reason) {

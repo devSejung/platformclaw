@@ -33,6 +33,8 @@ export abstract class SkillHubAdminController extends OpenClawLightDomElement {
   @state() protected pendingAdminAction: SkillHubAdminAction | null = null;
 
   protected async openAdmin() {
+    this.error = null;
+    this.message = null;
     this.adminOpen = true;
     this.adminLoading = true;
     try {
@@ -55,6 +57,7 @@ export abstract class SkillHubAdminController extends OpenClawLightDomElement {
       return;
     }
     this.adminBusy = true;
+    this.message = null;
     try {
       const current = this.namespaceBindings.find(
         (binding) => binding.namespace === this.adminDraft.namespace.trim().toLowerCase(),
@@ -94,6 +97,7 @@ export abstract class SkillHubAdminController extends OpenClawLightDomElement {
         expectedUpdatedAt: binding.updatedAt,
         reason,
       });
+      this.pendingAdminAction = null;
       await this.openAdmin();
       this.message = { kind: "success", text: t("skillHubPage.bindingSaved") };
     } catch (error) {
@@ -119,6 +123,7 @@ export abstract class SkillHubAdminController extends OpenClawLightDomElement {
         expectedUpdatedAt: binding.updatedAt,
         reason,
       });
+      this.pendingAdminAction = null;
       await this.openAdmin();
       this.message = { kind: "success", text: t("skillHubPage.bindingRemoved") };
     } catch (error) {
@@ -136,7 +141,6 @@ export abstract class SkillHubAdminController extends OpenClawLightDomElement {
     if (!pending?.reason.trim()) {
       return;
     }
-    this.pendingAdminAction = null;
     if (pending.action === "remove") {
       await this.removeNamespaceBinding(pending.binding, pending.reason);
       return;

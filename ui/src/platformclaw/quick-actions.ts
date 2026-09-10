@@ -1,7 +1,11 @@
+import { consume } from "@lit/context";
 import { css, html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
+import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { icons } from "../components/icons.ts";
+import { isTerminalAvailable } from "../lib/terminal-availability.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
+import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import "./execution-settings.ts";
 import {
   loadPlatformClawLocale,
@@ -25,6 +29,8 @@ import "./voc-dialog.ts";
 
 export const PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY = "platformclaw.product-tour.v1.completed";
 let activeTourStepId: string | null = null;
+// Settings replaces the sidebar. Keep optional steps stable for the whole walkthrough.
+let activeTourStepIds: string[] | null = null;
 
 type TourLaunch = "automatic" | "manual";
 function browserStorage(): Storage | null {
@@ -40,6 +46,9 @@ function isChatRoute(): boolean {
 }
 
 export class PlatformClawQuickActionsElement extends OpenClawLitElement {
+  @consume({ context: applicationContext, subscribe: true })
+  private context?: ApplicationContext;
+
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   @property({ attribute: false }) onUnauthenticated: () => void = () => undefined;
   @property({ type: Boolean }) admin = false;
@@ -54,6 +63,11 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   @state() private tourShadeStyles: string[] = [];
 
   private automaticLaunchAttempted = false;
+  private initialized = false;
+  private readonly subscriptions = new SubscriptionsController(this).watch(
+    () => this.context?.gateway,
+    (gateway, notify) => gateway.subscribe(notify),
+  );
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -262,6 +276,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   ];
 
   override disconnectedCallback(): void {
+    this.subscriptions.clear();
     this.removeTourListeners();
     super.disconnectedCallback();
   }
@@ -271,12 +286,20 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     globalThis.requestAnimationFrame(() => void this.initialize());
   }
 
+  protected override updated(): void {
+    if (this.initialized && !this.guideLoading && activeTourStepId === null) {
+      void this.launchTour("automatic");
+    }
+  }
+
   private async initialize(): Promise<void> {
     await loadPlatformClawLocale();
     if (!this.isConnected) {
       return;
     }
-    if (await this.restoreActiveTourStep()) {
+    const restored = await this.restoreActiveTourStep();
+    this.initialized = true;
+    if (restored) {
       return;
     }
     this.requestUpdate();
@@ -288,6 +311,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     if (!this.isConnected || stepId === null) {
       return false;
     }
+    this.automaticLaunchAttempted = true;
     await loadPlatformClawLocale();
     const stepIndex = this.tourSteps().findIndex((step) => step.id === stepId);
     if (stepIndex < 0) {
@@ -315,6 +339,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     }
     this.addTourListeners();
     this.updateTourPosition();
+    this.focusTour();
     return true;
   }
 
@@ -335,35 +360,38 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   }
 
   private tourSteps(): TourStep[] {
-    return buildPlatformClawTourSteps({
-      tourElement: (selector, shadowSelector) => this.tourElement(selector, shadowSelector),
-      findSettingsRoute,
-      openHomeToTerminal: () => this.openHomeToTerminal(),
-      openPluginsHub: () => this.openPluginsHub(),
-      activatePluginHubTab: (tab) => this.activatePluginHubTab(tab),
-      openSettings: () => this.openSettings(),
-      openMemory: () => this.openMemory(),
-      activateMemoryTab: (tab) => this.activateMemoryTab(tab),
-      openHome: () => this.openHome(),
-    });
-  }
-
-  private async openPluginsHub(): Promise<boolean> {
-    const link = findSidebarRoute("skills");
-    if (!(link instanceof HTMLElement)) {
-      return false;
-    }
-    link.click();
-    return Boolean(
-      await waitForElement(() =>
-        globalThis.location.pathname.endsWith("/skills")
-          ? findPluginHubElement(".plugins-content-header")
-          : null,
-      ),
+    return buildPlatformClawTourSteps(
+      {
+        tourElement: (selector, shadowSelector) => this.tourElement(selector, shadowSelector),
+        findSettingsRoute,
+        openHomeToTerminal: () => this.openHomeToTerminal(),
+        openSidebar: () => this.openSidebar(),
+        activatePluginHubTab: (tab) => this.activatePluginHubTab(tab),
+        openSettings: () => this.openSettings(),
+        openMemory: () => this.openMemory(),
+        activateMemoryTab: (tab) => this.activateMemoryTab(tab),
+        openHome: () => this.openHome(),
+      },
+      activeTourStepIds,
+      this.context
+        ? isTerminalAvailable(
+            this.context.gateway.snapshot,
+            this.context.config.current.terminalEnabled,
+          )
+        : undefined,
     );
   }
 
+  private async openSidebar(): Promise<boolean> {
+    return document.querySelector(".settings-sidebar")
+      ? this.openHome()
+      : Boolean(findSidebarHome());
+  }
+
   private async openSettings(): Promise<boolean> {
+    if (document.querySelector(".settings-sidebar")) {
+      return true;
+    }
     const button = findSidebarSettings();
     if (!(button instanceof HTMLElement)) {
       return false;
@@ -373,6 +401,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   }
 
   private async openMemory(): Promise<boolean> {
+    await this.openSettings();
     const link = findSettingsRoute("settings/memory");
     if (!(link instanceof HTMLElement)) {
       return false;
@@ -384,6 +413,9 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   }
 
   private async openHome(): Promise<boolean> {
+    if (isChatRoute() && findSidebarHome()) {
+      return true;
+    }
     const settingsBack = document.querySelector<HTMLElement>(".settings-sidebar__back");
     if (!settingsBack && !findSidebarHome()) {
       return false;
@@ -417,28 +449,15 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   }
 
   private async activatePluginHubTab(tab: string): Promise<boolean> {
-    const standaloneRoute =
-      tab === "skills" ? "skills" : tab === "workshop" ? "skills/workshop" : "skills/hub";
-    if (tab === "skills" || tab === "workshop" || tab === "skill-hub") {
-      const link = findSidebarRoute(standaloneRoute);
+    let target = findPluginHubElement(`#plugins-tab-${tab}`);
+    if (!target) {
+      await this.openSidebar();
+      const link = findSidebarRoute("settings/plugins");
       if (!(link instanceof HTMLElement)) {
         return false;
       }
       link.click();
-      const expectedPath =
-        tab === "skills" ? "/skills" : tab === "workshop" ? "/skills/workshop" : "/skills/hub";
-      return Boolean(
-        await waitForElement(() =>
-          globalThis.location.pathname.endsWith(expectedPath)
-            ? findPluginHubElement(".plugins-content-header")
-            : null,
-        ),
-      );
-    }
-    let target = findPluginHubElement(`#plugins-tab-${tab}`);
-    if (!target) {
-      await this.openPluginsHub();
-      target = findPluginHubElement(`#plugins-tab-${tab}`);
+      target = await waitForElement(() => findPluginHubElement(`#plugins-tab-${tab}`));
     }
     if (!target) {
       return false;
@@ -449,7 +468,12 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
 
   private async launchTour(launch: TourLaunch): Promise<void> {
     if (launch === "automatic") {
-      if (!isChatRoute()) {
+      // Freeze optional steps only after hello supplies capabilities, not during cold startup.
+      if (
+        !this.isConnected ||
+        !isChatRoute() ||
+        (this.context && this.context.gateway.snapshot.phase !== "connected")
+      ) {
         return;
       }
       if (this.automaticLaunchAttempted) {
@@ -463,15 +487,22 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     if (this.guideLoading) {
       return;
     }
+    this.automaticLaunchAttempted = true;
     this.guideLoading = true;
     this.guideError = "";
     try {
       await loadPlatformClawLocale();
+      activeTourStepIds = null;
+      activeTourStepIds = this.tourSteps().map((step) => step.id);
       this.tourIndex = 0;
       activeTourStepId = this.tourSteps()[0]?.id ?? null;
       await this.updateComplete;
+      if (!this.isConnected || activeTourStepId === null) {
+        return;
+      }
       this.addTourListeners();
       this.updateTourPosition();
+      this.focusTour();
     } catch {
       this.guideError = guideT("platformClaw.guide.unavailable");
     } finally {
@@ -531,26 +562,56 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
 
   private readonly onTourKeydown = (event: KeyboardEvent): void => {
     if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
       this.closeTour();
+    } else if (event.key === "Tab") {
+      const buttons = [
+        ...this.renderRoot.querySelectorAll<HTMLButtonElement>(
+          ".tour-popover button:not(:disabled)",
+        ),
+      ];
+      const first = buttons[0];
+      const last = buttons.at(-1);
+      const focused = this.shadowRoot?.activeElement;
+      if (
+        !buttons.some((button) => button === focused) ||
+        (event.shiftKey ? focused === first : focused === last)
+      ) {
+        event.preventDefault();
+        (event.shiftKey ? last : first)?.focus();
+      }
     }
   };
+
+  private focusTour(): void {
+    (
+      this.renderRoot.querySelector<HTMLElement>(".tour-next:not(:disabled)") ??
+      this.renderRoot.querySelector<HTMLElement>(".tour-close")
+    )?.focus({ preventScroll: true });
+  }
 
   private addTourListeners(): void {
     globalThis.addEventListener("resize", this.updateTourPosition);
     globalThis.addEventListener("scroll", this.updateTourPosition, true);
-    globalThis.addEventListener("keydown", this.onTourKeydown);
+    // Consume modal keys before the settings shell's document-level Escape shortcut.
+    globalThis.addEventListener("keydown", this.onTourKeydown, true);
   }
 
   private removeTourListeners(): void {
     globalThis.removeEventListener("resize", this.updateTourPosition);
     globalThis.removeEventListener("scroll", this.updateTourPosition, true);
-    globalThis.removeEventListener("keydown", this.onTourKeydown);
+    globalThis.removeEventListener("keydown", this.onTourKeydown, true);
   }
 
   private closeTour(): void {
     this.tourIndex = null;
     activeTourStepId = null;
+    activeTourStepIds = null;
     this.removeTourListeners();
+    this.renderRoot
+      .querySelector<HTMLElement>('[data-tour="guide"]')
+      ?.focus({ preventScroll: true });
   }
 
   private async moveTour(direction: -1 | 1): Promise<void> {
@@ -567,9 +628,16 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     this.guideMoving = true;
     try {
       const nextStep = this.tourSteps()[nextIndex];
+      // Hide the old target while routing, without flashing the popover through the center.
+      this.tourHighlightStyle = "display:none";
+      this.tourShadeStyles = ["inset:0"];
       this.tourIndex = nextIndex;
       activeTourStepId = nextStep?.id ?? null;
       await this.updateComplete;
+      const popover = this.renderRoot.querySelector(".tour-popover");
+      if (popover) {
+        popover.scrollTop = 0;
+      }
       const activated = await nextStep?.activate?.();
       if (!this.isConnected) {
         return;
@@ -595,6 +663,10 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       this.positionTourStep(nextStep);
     } finally {
       this.guideMoving = false;
+      await this.updateComplete;
+      if (this.isConnected && this.tourIndex !== null) {
+        this.focusTour();
+      }
     }
   }
 

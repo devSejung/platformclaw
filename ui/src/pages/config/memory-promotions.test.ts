@@ -84,6 +84,53 @@ afterEach(async () => {
 });
 
 describe("MemoryPromotionsElement", () => {
+  it.each(["Approve", "Reject"])(
+    "keeps %s errors and pending state inside the confirmation",
+    async (label) => {
+      let rejectDecision!: (error: Error) => void;
+      const request = vi.fn((method: string) =>
+        method === "platformclaw.memory.lifecycle"
+          ? Promise.resolve(snapshot)
+          : new Promise((_resolve, reject) => {
+              rejectDecision = reject;
+            }),
+      );
+      const element = createElement(request);
+      await waitForFast(() => expect(element.textContent).toContain("Drain jobs"));
+      [...element.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.trim() === label)!
+        .click();
+      await element.updateComplete;
+      const dialog = element.querySelector("openclaw-modal-dialog")!;
+      const form = dialog.querySelector("form")!;
+      const reason = form.querySelector<HTMLTextAreaElement>("textarea")!;
+      reason.value = "   ";
+      form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      expect(reason.validity.valueMissing).toBe(true);
+      expect(
+        request.mock.calls.some(([method]) => method === "platformclaw.memory.promotion.decide"),
+      ).toBe(false);
+      reason.value = "Verified review reason";
+      form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      await element.updateComplete;
+      const cancel = new CustomEvent("modal-cancel", { cancelable: true });
+      dialog.dispatchEvent(cancel);
+      expect(cancel.defaultPrevented).toBe(true);
+      expect(reason.disabled).toBe(true);
+      rejectDecision(new Error("Decision failed. Try again."));
+      await waitForFast(() =>
+        expect(form.querySelector("[role=alert]")?.textContent).toContain("Decision failed"),
+      );
+      expect(reason.value).toBe("Verified review reason");
+      expect(reason.disabled).toBe(false);
+      expect(element.querySelectorAll("[role=alert]")).toHaveLength(1);
+      dialog.dispatchEvent(new CustomEvent("modal-cancel", { cancelable: true }));
+      await element.updateComplete;
+      expect(element.querySelector("openclaw-modal-dialog")).toBeNull();
+      expect(element.querySelector("[role=alert]")).toBeNull();
+    },
+  );
+
   it("prefills a fresh source in the modal without submitting and invalidates a failed replacement", async () => {
     const request = vi.fn(async (method: string, params: unknown) => {
       if (method === "platformclaw.memory.lifecycle") {

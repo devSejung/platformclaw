@@ -145,4 +145,86 @@ describeControlUiE2e("Control UI alternative skill binary requirements", () => {
       await context.close();
     }
   });
+
+  it("filters every skill state, searches within it, collapses groups, and dismisses details", async () => {
+    const context = await browser.newContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 900, width: 1280 },
+    });
+    const page = await context.newPage();
+    const ready = codingAgentSkill([]);
+    const needsSetup = {
+      ...codingAgentSkill(["claude", "codex", "opencode"]),
+      name: "Needs Setup Agent",
+      skillKey: "needs-setup-agent",
+    };
+    const disabled = {
+      ...codingAgentSkill([]),
+      name: "Disabled Agent",
+      skillKey: "disabled-agent",
+      disabled: true,
+      eligible: false,
+      modelVisible: false,
+      commandVisible: false,
+    };
+    await installMockGateway(page, {
+      methodResponses: {
+        "skills.status": {
+          workspaceDir: "/tmp/openclaw-e2e/workspace",
+          managedSkillsDir: "/tmp/openclaw-e2e/skills",
+          skills: [ready, needsSetup, disabled],
+        },
+      },
+    });
+
+    try {
+      const response = await page.goto(`${server.baseUrl}skills`);
+      expect(response?.status()).toBe(200);
+      await expect
+        .poll(() => page.getByText("Coding Agent", { exact: true }).isVisible())
+        .toBe(true);
+
+      await page.locator('wa-radio[value="needs-setup"]').click();
+      await expect
+        .poll(() => page.getByText("Needs Setup Agent", { exact: true }).isVisible())
+        .toBe(true);
+      expect(await page.getByText("Coding Agent", { exact: true }).count()).toBe(0);
+
+      const search = page.locator('input[name="skills-filter"]');
+      await search.fill("missing result");
+      await expect
+        .poll(() => page.getByText("No skills found.", { exact: true }).isVisible())
+        .toBe(true);
+      await search.fill("needs setup");
+      await expect
+        .poll(() => page.getByText("Needs Setup Agent", { exact: true }).isVisible())
+        .toBe(true);
+
+      const group = page.locator("details.skills-group");
+      expect(await group.getAttribute("open")).not.toBeNull();
+      await group.locator("summary").click();
+      expect(await group.getAttribute("open")).toBeNull();
+      await group.locator("summary").click();
+
+      await page.getByRole("button", { name: "Open Needs Setup Agent details" }).click();
+      const dialog = page.locator("openclaw-modal-dialog", { hasText: "Needs Setup Agent" });
+      await expect.poll(() => dialog.isVisible()).toBe(true);
+      expect(await dialog.textContent()).toContain("bin:any of (claude, codex, opencode)");
+      await page.keyboard.press("Escape");
+      await expect.poll(() => dialog.count()).toBe(0);
+
+      await search.fill("");
+      await page.locator('wa-radio[value="disabled"]').click();
+      await expect
+        .poll(() => page.getByText("Disabled Agent", { exact: true }).isVisible())
+        .toBe(true);
+      await page.locator('wa-radio[value="ready"]').click();
+      await expect
+        .poll(() => page.getByText("Coding Agent", { exact: true }).isVisible())
+        .toBe(true);
+    } finally {
+      await context.close();
+    }
+  });
 });

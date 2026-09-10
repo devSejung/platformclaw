@@ -38,16 +38,16 @@ async function newProofPage(): Promise<{ context: BrowserContext; page: Page }> 
   return { context, page: await context.newPage() };
 }
 
-async function installComponent(page: Page): Promise<void> {
+async function installComponent(page: Page, kind = "mcp-settings"): Promise<void> {
   await page.setContent("<!doctype html><html><body></body></html>");
   await page.addScriptTag({
     type: "module",
-    url: `${server.baseUrl}src/platformclaw/mcp-settings.ts`,
+    url: `${server.baseUrl}src/platformclaw/${kind}.ts`,
   });
-  await page.evaluate(async () => {
-    await customElements.whenDefined("platformclaw-mcp-settings");
-    document.body.replaceChildren(document.createElement("platformclaw-mcp-settings"));
-  });
+  await page.evaluate(async (tag) => {
+    await customElements.whenDefined(tag);
+    document.body.replaceChildren(document.createElement(tag));
+  }, `platformclaw-${kind}`);
 }
 
 async function screenshot(page: Page, name: string): Promise<void> {
@@ -80,6 +80,95 @@ describeControlUiE2e("PlatformClaw personal MCP browser settings", () => {
   afterAll(async () => {
     await browser?.close();
     await server?.close();
+  });
+
+  it("exercises every administrator editor field, failure recovery, cancel, edit, toggle and removal", async () => {
+    const { context, page } = await newProofPage();
+    const entry = {
+      name: "draft",
+      enabled: false,
+      transport: "sse",
+      target: "https://draft.example/mcp",
+      editable: true,
+      credentialMode: "none",
+      toolPolicy: "blocked",
+      blockedTools: ["delete"],
+    };
+    let servers: (typeof entry)[] = [];
+    let release!: () => void;
+    let mutations = 0;
+    await page.route("**/platformclaw/api/admin/mcp", async (route) => {
+      if (route.request().method() === "POST") {
+        mutations += 1;
+        if (mutations === 1) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          await route.fulfill({ status: 503, json: { error: "Save failed. Try again." } });
+          return;
+        }
+        const body = route.request().postDataJSON();
+        if (body.action === "remove-server") servers = [];
+        else servers = [{ ...entry, enabled: body.enabled }];
+      }
+      await route.fulfill({ json: { servers } });
+    });
+    try {
+      await page.goto(new URL("sw.js", server.baseUrl).href);
+      await installComponent(page, "mcp-administration");
+      const component = page.locator("platformclaw-mcp-administration");
+      const add = component.locator("[data-action='add']");
+      await add.click();
+      await component.locator("[name='name']").fill("discard");
+      await component.locator("[data-action='cancel']").click();
+      await add.click();
+      expect(await component.locator("[name='name']").inputValue()).toBe("");
+      await component.locator("[type='submit']").click();
+      expect(mutations).toBe(0);
+      await component.locator("[name='name']").fill("draft");
+      await component.locator("[name='url']").fill("https://draft.example/mcp");
+      await component.locator("[name='transport']").selectOption("sse");
+      await component.locator("[name='credentialMode']").selectOption("personal");
+      await component.locator("[name='auth']").selectOption("oauth");
+      await component.locator("[name='scope']").fill("read:docs");
+      await component.locator("[name='credentialMode']").selectOption("shared");
+      expect(await component.locator("[name='auth']").inputValue()).toBe("bearer");
+      await component.locator("[name='auth']").selectOption("api_key");
+      await component.locator("[name='headerName']").fill("X-Fixture-Key");
+      await component.locator("[name='secret']").fill("fixture-only");
+      await component.locator("[name='blockedTools']").fill("delete");
+      await component.locator("[name='enabled']").uncheck();
+      await component.locator("[type='submit']").click();
+      await expect.poll(() => mutations).toBe(1);
+      expect(
+        await component
+          .locator("button:enabled, input:enabled, select:enabled, textarea:enabled")
+          .count(),
+      ).toBe(0);
+      release();
+      await expect.poll(() => component.getByRole("status").textContent()).toContain("Save failed");
+      expect(await component.locator("[name='name']").inputValue()).toBe("draft");
+      expect(await component.locator("[name='secret']").inputValue()).toBe("fixture-only");
+      expect(await component.locator("[name='enabled']").isChecked()).toBe(false);
+      await screenshot(page, "07-admin-failed-draft.png");
+      await component.locator("[name='credentialMode']").selectOption("none");
+      await component.locator("[type='submit']").click();
+      await component.locator("[data-action='edit']").click();
+      expect(await component.locator("[name='name']").getAttribute("readonly")).not.toBeNull();
+      await component.locator("[data-action='cancel']").click();
+      await component.locator("[data-action='toggle']").click();
+      await expect.poll(() => component.locator(".status").textContent()).toBe("Enabled");
+      page.once("dialog", (dialog) => dialog.dismiss());
+      await component.locator("[data-action='remove']").click();
+      expect(mutations).toBe(3);
+      page.once("dialog", (dialog) => dialog.accept());
+      await component.locator("[data-action='remove']").click();
+      await expect.poll(() => component.locator(".card").count()).toBe(0);
+      await screenshot(page, "08-admin-removed-empty.png");
+    } finally {
+      release?.();
+      await closeProofPage(context, page, "admin-controls.webm");
+    }
   });
 
   it("lets an employee save and remove only an administrator-approved API key", async () => {

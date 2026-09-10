@@ -383,7 +383,8 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.done": "완료",
   "platformClaw.guide.unavailable": "가이드를 열지 못했습니다. 새로고침한 뒤 다시 시도하세요.",
   "platformClaw.guide.welcomeTitle": "PlatformClaw에 오신 것을 환영합니다",
-  "platformClaw.guide.welcomeBody": "자주 사용하는 기능을 빠르게 살펴보세요.",
+  "platformClaw.guide.welcomeBody":
+    "왼쪽 메뉴를 위에서 아래로 차례대로 살펴본 뒤, 작업 공간과 터미널을 확인합니다. 설정에서는 메모리 탭을 왼쪽부터 둘러보고 조직 메뉴로 이어집니다. 다음을 누르면 이어서 안내하고, 이전을 누르면 앞 단계로 돌아갑니다.",
   "platformClaw.guide.chatTitle": "Home: Agent와 대화 시작하기",
   "platformClaw.guide.chatBody": "새 요청을 입력하고 Agent와 대화를 시작하는 기본 화면입니다.",
   "platformClaw.guide.chatDetails":
@@ -426,7 +427,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.settingsBody":
     "가이드가 설정 화면을 열었습니다. 전용 왼쪽 메뉴에서 분류별 항목을 확인할 수 있습니다.",
   "platformClaw.guide.settingsDetails":
-    "기본에는 프로필, 화면 모양, 알림이 있습니다.|연결에는 Gateway 연결, 채널, 커뮤니케이션, Talk, 노드가 있습니다.|Agent 및 도구에는 Agents, Labs, 모델 제공자, MCP, 메모리, 조직, 자동화가 있습니다. MCP 서버 등록은 관리자 기능이며, 일반 사용자는 관리자가 요구한 경우에만 본인 자격 증명을 연결합니다.|개인정보 및 보안에는 보안과 승인이 있고, 시스템에는 인프라, 고급 설정, 디버그, 로그, 정보가 있습니다.|원하는 항목을 알고 있다면 설정 상단 검색창에서 바로 찾을 수 있습니다.",
+    "프로필, 화면 모양, 알림, 자격 증명을 관리합니다.|MCP는 외부 도구를 연결합니다. 서버는 관리자가 등록하고, 필요한 경우 사용자가 본인 자격 증명을 연결합니다.|메모리에서는 개인 지식과 공유를, 조직에서는 소속과 권한을 관리합니다.|설정 상단 검색창에서 원하는 항목을 찾을 수 있습니다. 내 계정에서 사용할 수 있는 항목만 표시됩니다.",
   "platformClaw.guide.organizationNavTitle": "조직: 소속과 권한 확인하기",
   "platformClaw.guide.organizationNavBody":
     "조직에서는 내 Team·Group·Part 소속과 기본 조직 범위를 확인하고 가입을 요청할 수 있습니다.",

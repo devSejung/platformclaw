@@ -242,7 +242,8 @@ class PlatformClawMcpSettingsElement extends HTMLElement {
   }
 
   private renderServer(server: McpServerSetting): string {
-    const busy = this.busyServer === server.serverName;
+    // Requests share one lock; every card must show that its actions are unavailable.
+    const busy = Boolean(this.busyServer);
     const detail =
       server.auth === "oauth"
         ? server.scope
@@ -262,7 +263,7 @@ class PlatformClawMcpSettingsElement extends HTMLElement {
     const servers = this.settings?.servers ?? [];
     this.root.innerHTML = `<style>
       :host{display:block;color:var(--text);font:14px/1.5 var(--font-sans,system-ui,sans-serif)}*{box-sizing:border-box}section{display:grid;gap:14px}.heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}h2{margin:0;font-size:18px}p{margin:4px 0;color:var(--muted)}.grid{display:grid;gap:12px}.card{padding:16px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card)}.card-title,.controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.card-title{justify-content:space-between}.status{color:var(--muted)}.status.ok{color:var(--ok)}label{display:grid;flex:1;min-width:230px;gap:5px;color:var(--muted)}button,input{font:inherit}input{width:100%;padding:9px 11px;border:1px solid var(--border-strong);border-radius:var(--radius-md);background:var(--bg);color:var(--text)}button{padding:8px 12px;border:1px solid var(--border-strong);border-radius:var(--radius-md);background:var(--bg-elevated);color:var(--text);cursor:pointer}.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-foreground)}button:disabled{opacity:.5;cursor:not-allowed}.message,.empty{padding:13px;border-radius:var(--radius-md);background:var(--accent-subtle)}
-    </style><section aria-labelledby="personal-mcp-title"><div class="heading"><div><h2 id="personal-mcp-title">${escapeHtml(t("platformClaw.mcp.personalTitle"))}</h2><p>${escapeHtml(t("platformClaw.mcp.personalIntro"))}</p></div><button data-action="refresh">${escapeHtml(t("platformClaw.mcp.refresh"))}</button></div>${this.message ? `<div class="message" role="status" aria-live="polite">${escapeHtml(this.message)}</div>` : ""}${this.loading ? `<p>${escapeHtml(t("common.loading"))}</p>` : servers.length ? `<div class="grid">${servers.map((server) => this.renderServer(server)).join("")}</div>` : `<div class="empty">${escapeHtml(t("platformClaw.mcp.empty"))}<br>${escapeHtml(t("platformClaw.mcp.automatic"))}</div>`}</section>`;
+    </style><section aria-labelledby="personal-mcp-title"><div class="heading"><div><h2 id="personal-mcp-title">${escapeHtml(t("platformClaw.mcp.personalTitle"))}</h2><p>${escapeHtml(t("platformClaw.mcp.personalIntro"))}</p></div><button data-action="refresh" ${this.loading || this.busyServer ? "disabled" : ""}>${escapeHtml(t("platformClaw.mcp.refresh"))}</button></div>${this.message ? `<div class="message" role="status" aria-live="polite">${escapeHtml(this.message)}</div>` : ""}${this.loading ? `<p>${escapeHtml(t("common.loading"))}</p>` : servers.length ? `<div class="grid">${servers.map((server) => this.renderServer(server)).join("")}</div>` : `<div class="empty">${escapeHtml(t("platformClaw.mcp.empty"))}<br>${escapeHtml(t("platformClaw.mcp.automatic"))}</div>`}</section>`;
     this.bindEvents();
   }
 }

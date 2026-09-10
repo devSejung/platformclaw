@@ -190,9 +190,9 @@ export class PlatformClawLoginController {
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok || !isAuthenticated(payload)) {
         this.elements.secretInput.value = "";
-        this.elements.secretInput.focus();
         this.phase = "ready";
         this.render(loginFailureMessage(response.status, payload));
+        this.elements.secretInput.focus();
         return;
       }
       this.navigate(this.returnTo);

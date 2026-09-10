@@ -206,9 +206,9 @@ class PlatformClawOrganizationAuditPanel extends OpenClawLightDomElement {
             this.reload();
           }}
         >
-          <label>
+          <label class="field">
             <span>${t("platformClaw.organization.audit.category")}</span>
-            <select name="category" ?disabled=${this.busy}>
+            <select class="settings-select" name="category" ?disabled=${this.busy}>
               <option value="">${t("platformClaw.organization.audit.filter.all")}</option>
               ${(["scope", "membership", "primary", "join", "other"] as const).map(
                 (category) => html`<option
@@ -220,9 +220,9 @@ class PlatformClawOrganizationAuditPanel extends OpenClawLightDomElement {
               )}
             </select>
           </label>
-          <label>
+          <label class="field">
             <span>${t("platformClaw.organization.audit.outcome")}</span>
-            <select name="outcome" ?disabled=${this.busy}>
+            <select class="settings-select" name="outcome" ?disabled=${this.busy}>
               <option value="">${t("platformClaw.organization.audit.filter.all")}</option>
               <option value="succeeded" ?selected=${this.filters.outcome === "succeeded"}>
                 ${t("platformClaw.organization.audit.outcome.succeeded")}

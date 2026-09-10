@@ -40,14 +40,20 @@ export function renderOrganizationJoinDialog(props: {
       class="organization-action-form"
       @submit=${(event: SubmitEvent) => {
         event.preventDefault();
-        const reason = formText(event.currentTarget as HTMLFormElement, "reason");
+        const form = event.currentTarget as HTMLFormElement;
+        const input = form.elements.namedItem("reason") as HTMLTextAreaElement;
+        input.value = input.value.trim();
+        if (!form.reportValidity()) {
+          return;
+        }
+        const reason = formText(form, "reason");
         if (reason) {
           props.onSubmit(reason);
         }
       }}
     >
       <p><strong>${action.target}</strong></p>
-      <label>
+      <label class="field">
         <span>${t("platformClaw.organization.action.reason")}</span>
         <textarea name="reason" maxlength="500" required></textarea>
       </label>

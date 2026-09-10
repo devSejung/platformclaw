@@ -13,7 +13,7 @@ type TourActions = {
   tourElement: (selector: string, shadowSelector?: string) => Element;
   findSettingsRoute: (route: string) => Element | null;
   openHomeToTerminal: () => Promise<boolean>;
-  openPluginsHub: () => Promise<boolean>;
+  openSidebar: () => Promise<boolean>;
   activatePluginHubTab: (tab: string) => Promise<boolean>;
   openSettings: () => Promise<boolean>;
   openMemory: () => Promise<boolean>;
@@ -140,9 +140,19 @@ function isTerminalTourAvailable(): boolean {
   return findChatTerminal() !== null || sidebar?.terminalAvailable === true;
 }
 
-export function buildPlatformClawTourSteps(actions: TourActions): TourStep[] {
-  const catalogTabsAvailable = Boolean(findSidebarRoute("settings/plugins"));
-  const terminalSteps: TourStep[] = isTerminalTourAvailable()
+export function buildPlatformClawTourSteps(
+  actions: TourActions,
+  activeStepIds?: readonly string[] | null,
+  terminalAvailable?: boolean,
+): TourStep[] {
+  const catalogTabsAvailable = activeStepIds
+    ? activeStepIds.includes("installed-plugins")
+    : Boolean(findSidebarRoute("settings/plugins"));
+  const terminalSteps: TourStep[] = (
+    activeStepIds
+      ? activeStepIds.includes("terminal")
+      : (terminalAvailable ?? isTerminalTourAvailable())
+  )
     ? [
         {
           id: "terminal",
@@ -186,14 +196,15 @@ export function buildPlatformClawTourSteps(actions: TourActions): TourStep[] {
       body: guideT("platformClaw.guide.chatBody"),
       details: guideT("platformClaw.guide.chatDetails").split("|"),
       element: findSidebarHome,
+      activate: actions.openHome,
     },
-    ...terminalSteps,
     {
       id: "usage",
       title: guideT("platformClaw.guide.usageTitle"),
       body: guideT("platformClaw.guide.usageBody"),
       details: guideT("platformClaw.guide.usageDetails").split("|"),
       element: () => findSidebarRoute("usage"),
+      activate: actions.openSidebar,
     },
     {
       id: "tasks",
@@ -201,6 +212,7 @@ export function buildPlatformClawTourSteps(actions: TourActions): TourStep[] {
       body: guideT("platformClaw.guide.tasksBody"),
       details: guideT("platformClaw.guide.tasksDetails").split("|"),
       element: () => findSidebarRoute("tasks"),
+      activate: actions.openSidebar,
     },
     {
       id: "sessions",
@@ -208,6 +220,7 @@ export function buildPlatformClawTourSteps(actions: TourActions): TourStep[] {
       body: guideT("platformClaw.guide.sessionsBody"),
       details: guideT("platformClaw.guide.sessionsDetails").split("|"),
       element: () => findSidebarRoute("sessions"),
+      activate: actions.openSidebar,
     },
     {
       id: "activity",
@@ -215,6 +228,7 @@ export function buildPlatformClawTourSteps(actions: TourActions): TourStep[] {
       body: guideT("platformClaw.guide.activityBody"),
       details: guideT("platformClaw.guide.activityDetails").split("|"),
       element: () => findSidebarRoute("activity"),
+      activate: actions.openSidebar,
     },
     {
       id: "automations",
@@ -222,44 +236,48 @@ export function buildPlatformClawTourSteps(actions: TourActions): TourStep[] {
       body: guideT("platformClaw.guide.automationsBody"),
       details: guideT("platformClaw.guide.automationsDetails").split("|"),
       element: () => findSidebarRoute("automations", "cron"),
+      activate: actions.openSidebar,
     },
     {
       id: "skills",
       title: guideT("platformClaw.guide.skillsTitle"),
       body: guideT("platformClaw.guide.skillsBody"),
       details: guideT("platformClaw.guide.skillsDetails").split("|"),
-      element: () => findPluginHubElement(".plugins-content-header"),
-      activate: () => actions.activatePluginHubTab("skills"),
+      element: () => findSidebarRoute("skills"),
+      activate: actions.openSidebar,
     },
     {
       id: "workshop",
       title: guideT("platformClaw.guide.workshopTitle"),
       body: guideT("platformClaw.guide.workshopBody"),
       details: guideT("platformClaw.guide.workshopDetails").split("|"),
-      element: () => findPluginHubElement(".plugins-content-header"),
-      activate: () => actions.activatePluginHubTab("workshop"),
+      element: () => findSidebarRoute("skills/workshop"),
+      activate: actions.openSidebar,
     },
     {
       id: "skill-hub",
       title: guideT("platformClaw.guide.skillHubTitle"),
       body: guideT("platformClaw.guide.skillHubBody"),
       details: guideT("platformClaw.guide.skillHubDetails").split("|"),
-      element: () => findPluginHubElement(".plugins-content-header"),
-      activate: () => actions.activatePluginHubTab("skill-hub"),
+      element: () => findSidebarRoute("skills/hub"),
+      activate: actions.openSidebar,
     },
+    ...pluginCatalogSteps,
     {
       id: "work-location",
       title: guideT("platformClaw.guide.workLocationTitle"),
       body: guideT("platformClaw.guide.workLocationBody"),
       element: () => actions.tourElement("platformclaw-execution-settings", '[data-action="open"]'),
+      activate: actions.openSidebar,
     },
-    ...pluginCatalogSteps,
+    ...terminalSteps,
     {
       id: "settings-nav",
       title: guideT("platformClaw.guide.settingsNavTitle"),
       body: guideT("platformClaw.guide.settingsNavBody"),
       details: guideT("platformClaw.guide.settingsNavDetails").split("|"),
       element: findSidebarSettings,
+      activate: actions.openSidebar,
     },
     {
       id: "settings-overview",
@@ -270,25 +288,19 @@ export function buildPlatformClawTourSteps(actions: TourActions): TourStep[] {
       activate: actions.openSettings,
     },
     {
-      id: "organization-nav",
-      title: guideT("platformClaw.guide.organizationNavTitle"),
-      body: guideT("platformClaw.guide.organizationNavBody"),
-      details: guideT("platformClaw.guide.organizationNavDetails").split("|"),
-      element: () => actions.findSettingsRoute("settings/organization"),
-    },
-    {
       id: "memory-nav",
       title: guideT("platformClaw.guide.memoryNavTitle"),
       body: guideT("platformClaw.guide.memoryNavBody"),
       details: guideT("platformClaw.guide.memoryNavDetails").split("|"),
       element: () => actions.findSettingsRoute("settings/memory"),
+      activate: actions.openSettings,
     },
     {
       id: "memory-overview",
       title: guideT("platformClaw.guide.memoryOverviewTitle"),
       body: guideT("platformClaw.guide.memoryOverviewBody"),
       details: guideT("platformClaw.guide.memoryOverviewDetails").split("|"),
-      element: () => findSettingsElement(".platformclaw-memory-page__tabs"),
+      element: () => findSettingsElement("#platformclaw-memory-tab-overview"),
       activate: actions.openMemory,
     },
     {
@@ -322,6 +334,14 @@ export function buildPlatformClawTourSteps(actions: TourActions): TourStep[] {
       details: guideT("platformClaw.guide.dreamingDetails").split("|"),
       element: () => findSettingsElement("#platformclaw-memory-tab-dreaming"),
       activate: () => actions.activateMemoryTab("dreaming"),
+    },
+    {
+      id: "organization-nav",
+      title: guideT("platformClaw.guide.organizationNavTitle"),
+      body: guideT("platformClaw.guide.organizationNavBody"),
+      details: guideT("platformClaw.guide.organizationNavDetails").split("|"),
+      element: () => actions.findSettingsRoute("settings/organization"),
+      activate: actions.openSettings,
     },
     {
       id: "reopen-guide",

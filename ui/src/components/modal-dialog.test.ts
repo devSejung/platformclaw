@@ -7,7 +7,7 @@ import {
   installDialogPolyfill,
   nextFrame,
 } from "../test-helpers/modal-dialog.ts";
-import { OpenClawModalDialog } from "./modal-dialog.ts";
+import { hasOpenModalDialog, OpenClawModalDialog } from "./modal-dialog.ts";
 
 let container: HTMLDivElement;
 let restoreDialogPolyfill: () => void;
@@ -101,6 +101,33 @@ describe("openclaw-modal-dialog", () => {
     expect(webAwesomeDialog.lightDismiss).toBe(true);
     expect(webAwesomeDialog.withoutHeader).toBe(true);
     expect(dialog.open).toBe(true);
+  });
+
+  it("tracks the open lifecycle through prevented and completed hides", async () => {
+    const { modal, webAwesomeDialog } = await renderModal();
+    modal.addEventListener("modal-cancel", (event) => event.preventDefault());
+    expect(hasOpenModalDialog()).toBe(true);
+
+    const preventedHide = new Event("wa-hide", { cancelable: true });
+    webAwesomeDialog.dispatchEvent(preventedHide);
+    expect(preventedHide.defaultPrevented).toBe(true);
+    expect(hasOpenModalDialog()).toBe(true);
+
+    webAwesomeDialog.dispatchEvent(new Event("wa-after-hide"));
+    expect(hasOpenModalDialog()).toBe(false);
+  });
+
+  it("reads the registered constructor registry after a module reload", async () => {
+    const registeredConstructor = customElements.get("openclaw-modal-dialog");
+    vi.resetModules();
+    const reloadedModule = await import("./modal-dialog.ts");
+    const { modal } = await renderModal();
+
+    expect(reloadedModule.OpenClawModalDialog).not.toBe(registeredConstructor);
+    expect(reloadedModule.hasOpenModalDialog()).toBe(true);
+
+    modal.remove();
+    expect(reloadedModule.hasOpenModalDialog()).toBe(false);
   });
 
   it("keeps the navigation drawer sidebar in a full-height, shrinkable flex column", () => {

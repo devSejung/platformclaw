@@ -10,6 +10,7 @@ export async function runPlatformClawSettingsAndMemoryGuide(options: {
   quickActions: Locator;
 }): Promise<void> {
   const { captureUiProofEnabled, page, proofDir, quickActions } = options;
+  await page.setViewportSize({ width: 1280, height: 640 });
 
   await page.getByRole("button", { name: "Next" }).click();
   await expect
@@ -19,7 +20,7 @@ export async function runPlatformClawSettingsAndMemoryGuide(options: {
         .isVisible(),
     )
     .toBe(true);
-  await expect.poll(() => page.url().endsWith("/skills/hub")).toBe(true);
+  await expect.poll(() => page.url().includes("/chat/")).toBe(true);
   await expect.poll(() => page.locator('[data-tour="settings"]').isVisible()).toBe(true);
 
   await page.getByRole("button", { name: "Next" }).click();
@@ -47,20 +48,12 @@ export async function runPlatformClawSettingsAndMemoryGuide(options: {
     .poll(() => page.getByText("Administrators register MCP servers", { exact: false }).isVisible())
     .toBe(true);
 
-  await page.getByRole("button", { name: "Next" }).click();
-  await expect
-    .poll(() =>
-      page.getByRole("heading", { name: "Organization: review membership and access" }).isVisible(),
-    )
-    .toBe(true);
-  await expect
-    .poll(() =>
-      settingsSidebar.getByRole("link", { name: "Organization", exact: true }).isVisible(),
-    )
-    .toBe(true);
-  await expect
-    .poll(() => new URL(page.url()).pathname)
-    .toBe("/platformclaw/app/settings/appearance");
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await expect.poll(() => page.locator('[data-tour="settings"]').isVisible()).toBe(true);
+  await expect.poll(() => page.locator(".tour-highlight").isVisible()).toBe(true);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect.poll(() => page.locator(".settings-sidebar").isVisible()).toBe(true);
+  await expect.poll(() => page.locator(".tour-progress").textContent()).toContain("14 of 22");
 
   await page.getByRole("button", { name: "Next" }).click();
   await expect
@@ -96,7 +89,8 @@ export async function runPlatformClawSettingsAndMemoryGuide(options: {
       "/platformclaw/app/settings/memory/dreams",
     ],
   ] as const;
-  for (const [heading, screenshot, pathname] of memoryGuideSteps) {
+  let previousTabLeft = -1;
+  for (const [index, [heading, screenshot, pathname]] of memoryGuideSteps.entries()) {
     const nextButton = page.getByRole("button", { name: "Next" });
     await expect
       .poll(async () => (await nextButton.isVisible()) && (await nextButton.isEnabled()))
@@ -105,6 +99,12 @@ export async function runPlatformClawSettingsAndMemoryGuide(options: {
     await expect.poll(() => page.getByRole("heading", { name: heading }).isVisible()).toBe(true);
     await expect.poll(() => new URL(page.url()).pathname).toBe(pathname);
     await expect.poll(() => page.locator(".tour-highlight").isVisible()).toBe(true);
+    await expect.poll(() => page.locator(".tour-next").isEnabled()).toBe(true);
+    const tab = page.locator(".platformclaw-memory-page__tabs [role=tab]").nth(index);
+    const tabBox = await tab.boundingBox();
+    expect(tabBox).not.toBeNull();
+    expect(tabBox!.x).toBeGreaterThan(previousTabLeft);
+    previousTabLeft = tabBox!.x;
     if (heading.startsWith("Dreaming:")) {
       await expect
         .poll(() =>
@@ -134,12 +134,53 @@ export async function runPlatformClawSettingsAndMemoryGuide(options: {
 
   await page.getByRole("button", { name: "Next" }).click();
   await expect
+    .poll(() =>
+      page.getByRole("heading", { name: "Organization: review membership and access" }).isVisible(),
+    )
+    .toBe(true);
+  const organizationLink = settingsSidebar.getByRole("link", { name: "Organization", exact: true });
+  await expect.poll(() => organizationLink.isVisible()).toBe(true);
+  expect(
+    await organizationLink.evaluate((element) => {
+      const memory = document.querySelector('.settings-sidebar__item[href$="/settings/memory"]');
+      return Boolean(
+        memory && memory.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }),
+  ).toBe(true);
+  expect(new URL(page.url()).pathname).toBe("/platformclaw/app/settings/memory/dreams");
+
+  await page.getByRole("button", { name: "Next" }).click();
+  await expect
     .poll(() => page.getByRole("heading", { name: "You are back Home" }).isVisible())
     .toBe(true);
   await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/chat/person_one");
   await expect
     .poll(() => quickActions.getByRole("button", { name: "Guide" }).isVisible())
     .toBe(true);
+
+  // Going back restores the settings item first, then the final Memory tab.
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.getByRole("heading", { name: "Organization: review membership and access" }).isVisible(),
+    )
+    .toBe(true);
+  await expect.poll(() => page.locator(".tour-progress").textContent()).toContain("21 of 22");
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await expect
+    .poll(() => new URL(page.url()).pathname)
+    .toBe("/platformclaw/app/settings/memory/dreams");
+  await expect.poll(() => page.locator(".tour-highlight").isVisible()).toBe(true);
+  await expect.poll(() => page.locator(".tour-progress").textContent()).toContain("20 of 22");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.getByRole("heading", { name: "Organization: review membership and access" }).isVisible(),
+    )
+    .toBe(true);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/chat/person_one");
 
   await page.getByRole("button", { name: "Done" }).click();
   await expect.poll(() => page.locator(".tour-popover").count()).toBe(0);
@@ -153,4 +194,19 @@ export async function runPlatformClawSettingsAndMemoryGuide(options: {
   await expect.poll(() => page.locator(".tour-popover").count()).toBe(0);
   await quickActions.getByRole("button", { name: "Guide" }).click();
   await expect.poll(() => page.locator(".tour-popover").isVisible()).toBe(true);
+  await page.keyboard.press("Escape");
+  await page.goto(new URL("/platformclaw/app/settings/appearance", page.url()).href);
+  await quickActions.getByRole("button", { name: "Guide" }).click();
+  await expect.poll(() => page.locator(".tour-popover").isVisible()).toBe(true);
+  await page.keyboard.press("Tab");
+  expect(await page.locator(".tour-close").evaluate((button) => button.matches(":focus"))).toBe(
+    true,
+  );
+  await page.keyboard.press("Shift+Tab");
+  expect(await page.locator(".tour-next").evaluate((button) => button.matches(":focus"))).toBe(
+    true,
+  );
+  await page.keyboard.press("Escape");
+  await expect.poll(() => page.locator(".tour-popover").count()).toBe(0);
+  expect(new URL(page.url()).pathname).toBe("/platformclaw/app/settings/appearance");
 }

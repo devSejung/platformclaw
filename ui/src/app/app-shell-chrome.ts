@@ -9,7 +9,7 @@ import {
   type CommandPaletteTargetDetail,
   type ShellNavDrawerToggleDetail,
 } from "../components/command-palette-contract.ts";
-import type { OpenClawModalDialog } from "../components/modal-dialog.ts";
+import { hasOpenModalDialog, type OpenClawModalDialog } from "../components/modal-dialog.ts";
 import {
   BROWSER_PANEL_TOGGLE_EVENT,
   CUSTODIAN_PANEL_TOGGLE_EVENT,
@@ -387,17 +387,18 @@ export class ShellChromeOwner {
       host.commandPalette?.isOpen ||
       overlaySnapshot?.devicePairSetupOpen ||
       (overlaySnapshot?.approvalQueue.length ?? 0) > 0 ||
+      hasOpenModalDialog() ||
       document.querySelector("dialog[open]")
     ) {
       return true;
     }
-    const target = event.target;
-    return (
-      target instanceof Element &&
-      target.closest(
-        "input, textarea, select, [contenteditable], dialog, [role='dialog'], [role='menu'], [role='listbox']",
-      ) !== null
-    );
+    const ownerSelector =
+      "input, textarea, select, [contenteditable], dialog, [role='dialog'], [role='menu'], [role='listbox']";
+    // Event targets cannot express ancestry across slots and shadow roots. The
+    // composed path retains the native dialog or editable overlay that owns Escape.
+    return event
+      .composedPath()
+      .some((target) => target instanceof Element && target.matches(ownerSelector));
   }
 
   runWithCommandPalette(action: (palette: CommandPaletteElement) => void): void {
