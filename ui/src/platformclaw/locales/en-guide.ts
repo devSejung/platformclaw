@@ -1,4 +1,10 @@
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.execution.managedAgentHelp":
+    "Ask in chat to use {agent} after switching to your VM. Your administrator installs its adapter; no executable path setting is needed.",
+  "platformClaw.execution.managedAgentLogin":
+    "Sign in from the VM terminal with your own Linux account. This check verifies installation only, not model access or login.",
+  "platformClaw.execution.checkAgentInstallation": "Check VM installation",
+  "platformClaw.execution.agentInstalled": "Installed: {version}",
   "platformClaw.skillHub.publish.action": "Publish workspace skill",
   "platformClaw.skillHub.publish.title": "Publish a workspace skill",
   "platformClaw.skillHub.publish.description":
