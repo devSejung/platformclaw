@@ -257,6 +257,11 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
                   tabindex="0"
                   aria-label=${node.title}
                   data-wiki-node=${node.id}
+                  @contextmenu=${
+                    props.wikiActions
+                      ? (event: MouseEvent) => props.wikiActions!.open(node.id, event)
+                      : nothing
+                  }
                   data-svg-graph-node=${node.id}
                   @pointerdown=${(event: PointerEvent) =>
                     startSvgGraphPointer(event, interaction, node.id)}

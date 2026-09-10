@@ -1,4 +1,31 @@
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.memory.graph.unverified": "Approval and source revision metadata unavailable",
+  "platformClaw.memory.actions": "Memory actions",
+  "platformClaw.memory.share": "Request organization sharing…",
+  "platformClaw.memory.delete": "Delete memory file",
+  "platformClaw.memory.deleteDescription":
+    "Delete the entire file shown below, including all its entries. This cannot be undone.",
+  "platformClaw.memory.deleteRetention":
+    "Search and imported Wiki sources will be refreshed. Existing conversations, independent Wiki notes, and approved organization knowledge are retained and may contain the same information.",
+  "platformClaw.memory.deleteUnavailable":
+    "This file cannot be deleted from this preview. Refresh it and try again.",
+  "platformClaw.memory.deleted": "Memory file deleted. Search and imported Wiki sources refreshed.",
+  "platformClaw.memory.deletedRefreshPending":
+    "Memory file deleted, but some search or Wiki updates failed. Refresh Memory and Personal Wiki to check their current state.",
+  "memoryPage.promotions.directVisibility": "The content below will be shared with {scope}.",
+  "memoryPage.promotions.requestVisibility":
+    "Reviewers for {scope} can see this request. If approved, the content below will be shared with {scope}.",
+  "memoryPage.promotions.publishedSuccess": "Shared with {scope}.",
+  "memoryPage.promotions.submittedSuccess": "Sharing request submitted to {scope}.",
+  "memoryPage.promotions.sourceNotFound": "This Wiki page is unavailable. Select another source.",
+  "platformClaw.memory.graph.description":
+    "Only active memory you can read is shown. Links connect related pages; they do not verify facts. Refresh to update membership and retirement changes.",
+  "platformClaw.memory.graph.approved": "Approved",
+  "platformClaw.memory.graph.current": "Source revision current",
+  "platformClaw.memory.graph.changed": "Source changed since approval",
+  "platformClaw.memory.graph.unavailable": "Source unavailable in your current scope",
+  "platformClaw.memory.graph.revision": "Revision {revision}",
+  "platformClaw.memory.graph.sourceRevision": "Approved source revision {revision}",
   "platformClaw.skillHub.publish.action": "Publish workspace skill",
   "platformClaw.skillHub.publish.title": "Publish a workspace skill",
   "platformClaw.skillHub.publish.description":

@@ -35,6 +35,12 @@ function graph(kind: "part" | "group", title = `${kind} knowledge`) {
         title,
         scopeName: kind === "part" ? "Runtime" : "Platform",
         updatedAt: 1,
+        verification: {
+          approvalStatus: "approved" as const,
+          revision: 3,
+          sourceRevision: 2,
+          sourceStatus: "current" as const,
+        },
       },
     ],
     edges: [],
@@ -105,6 +111,8 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
       }),
     );
     await waitForFast(() => expect(element.textContent).toContain("# Shared guidance"));
+    expect(element.querySelector("[data-memory-verification]")?.textContent).toContain("3");
+    expect(element.querySelector("[data-memory-verification]")?.textContent).toContain("2");
   });
 
   it("zooms and drags nodes without opening the preview", async () => {

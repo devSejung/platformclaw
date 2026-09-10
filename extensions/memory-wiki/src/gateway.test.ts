@@ -139,6 +139,7 @@ describe("memory-wiki gateway methods", () => {
       updatedCount: 0,
       skippedCount: 0,
       removedCount: 0,
+      pendingRemovalCount: 0,
       artifactCount: 0,
       workspaces: 0,
       pagePaths: [],
@@ -642,6 +643,7 @@ describe("memory-wiki gateway methods", () => {
     expect(syncMemoryWikiImportedSources).toHaveBeenCalledWith({ config, appConfig: undefined });
     expect(listMemoryWikiOverview).toHaveBeenCalledWith(config);
     expect(readRespondPayload(respond)).toEqual({
+      sourceSyncComplete: true,
       totalItems: 1,
       totalPages: 3,
       pageCounts: {
@@ -677,6 +679,51 @@ describe("memory-wiki gateway methods", () => {
           ],
         },
       ],
+    });
+  });
+
+  it.each([1, undefined])(
+    "does not claim source cleanup when pending removals are %s",
+    async (pendingRemovalCount) => {
+      const { config } = await createVault({ prefix: "memory-wiki-gateway-" });
+      const { api, registerGatewayMethod } = createPluginApi();
+      vi.mocked(syncMemoryWikiImportedSources).mockResolvedValueOnce({
+        importedCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+        removedCount: 0,
+        ...(pendingRemovalCount === undefined ? {} : { pendingRemovalCount }),
+        artifactCount: 0,
+        workspaces: 0,
+        pagePaths: [],
+        indexesRefreshed: false,
+        indexUpdatedFiles: [],
+        indexRefreshReason: "no-import-changes",
+      });
+      registerMemoryWikiGatewayMethods({ api, config });
+      const handler = findGatewayHandler(registerGatewayMethod, "wiki.overview");
+      if (!handler) {
+        throw new Error("wiki.overview handler missing");
+      }
+      const respond = vi.fn();
+      await handler({ params: {}, respond });
+      expect(readRespondPayload(respond)).toMatchObject({ sourceSyncComplete: false });
+    },
+  );
+
+  it("requests a fresh source observation for a post-mutation overview", async () => {
+    const { config } = await createVault({ prefix: "memory-wiki-gateway-" });
+    const { api, registerGatewayMethod } = createPluginApi();
+    registerMemoryWikiGatewayMethods({ api, config });
+    const handler = findGatewayHandler(registerGatewayMethod, "wiki.overview");
+    if (!handler) {
+      throw new Error("wiki.overview handler missing");
+    }
+    await handler({ params: { forceSync: true }, respond: vi.fn() });
+    expect(syncMemoryWikiImportedSources).toHaveBeenCalledWith({
+      config,
+      appConfig: undefined,
+      forceSync: true,
     });
   });
 

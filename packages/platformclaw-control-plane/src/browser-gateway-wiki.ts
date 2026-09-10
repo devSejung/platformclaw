@@ -493,6 +493,9 @@ export function projectBrowserWikiResult(params: {
     const payload = failObject(params.result, "wiki overview", params.fail);
     const pageCounts = failObject(payload.pageCounts, "wiki page counts", params.fail);
     return {
+      ...(typeof payload.sourceSyncComplete === "boolean"
+        ? { sourceSyncComplete: payload.sourceSyncComplete }
+        : {}),
       totalItems: count(payload.totalItems, "wiki totalItems", params.fail),
       totalPages: count(payload.totalPages, "wiki totalPages", params.fail),
       pageCounts: Object.fromEntries(

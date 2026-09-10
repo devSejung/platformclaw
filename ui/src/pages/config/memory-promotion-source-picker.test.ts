@@ -12,10 +12,76 @@ type SourcePickerTestElement = HTMLElement & {
   searchAdvertised: boolean;
   getAdvertised: boolean;
   agentId: string | null;
+  initialPersonalLookup: string | null;
   updateComplete: Promise<unknown>;
 };
 
 describe("MemoryPromotionSourcePickerElement", () => {
+  it("fetches an initial source again for the current identity and discards stale selections", async () => {
+    let resolveOld: ((page: unknown) => void) | undefined;
+    const request = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOld = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({ path: "current.md", content: "Current source" });
+    const element = document.createElement(
+      "openclaw-memory-promotion-source-picker",
+    ) as SourcePickerTestElement;
+    element.client = { request } as unknown as GatewayBrowserClient;
+    element.connected = true;
+    element.getAdvertised = true;
+    element.agentId = "old-agent";
+    element.initialPersonalLookup = "source-id";
+    const selected = vi.fn();
+    element.addEventListener("source-selected", selected);
+    document.body.append(element);
+    await waitForFast(() => expect(request).toHaveBeenCalledOnce());
+    element.agentId = "new-agent";
+    await waitForFast(() => expect(selected).toHaveBeenCalledOnce());
+    resolveOld?.({ path: "old.md", content: "Stale source" });
+    await Promise.resolve();
+    await element.updateComplete;
+    expect(request).toHaveBeenLastCalledWith("wiki.get", {
+      agentId: "new-agent",
+      lookup: "source-id",
+      fromLine: 1,
+      lineCount: 5_000,
+    });
+    expect(selected).toHaveBeenCalledOnce();
+    expect(element.querySelector("pre")?.textContent).toBe("Current source");
+    element.remove();
+  });
+
+  it("clears the previous source before a failed initial lookup", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ path: "first.md", content: "First source" })
+      .mockRejectedValueOnce(new Error("Page unavailable"));
+    const element = document.createElement(
+      "openclaw-memory-promotion-source-picker",
+    ) as SourcePickerTestElement;
+    element.client = { request } as unknown as GatewayBrowserClient;
+    element.connected = true;
+    element.getAdvertised = true;
+    element.agentId = "personal-agent";
+    element.initialPersonalLookup = "first.md";
+    document.body.append(element);
+    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    const cleared = vi.fn();
+    element.addEventListener("source-cleared", cleared);
+    element.initialPersonalLookup = "missing.md";
+    await waitForFast(() =>
+      expect(element.querySelector("[role=alert]")?.textContent).toContain("Page unavailable"),
+    );
+    expect(cleared).toHaveBeenCalled();
+    expect(element.querySelector("pre")).toBeNull();
+    element.remove();
+  });
+
   it("shows a useful unavailable state and disables search when Wiki RPCs are hidden", async () => {
     const request = vi.fn();
     const element = document.createElement(

@@ -12,6 +12,13 @@ describe("BrowserGatewayProxy organization memory graph", () => {
           title: "Release policy",
           scopeName: "Runtime",
           updatedAt: 1_000,
+          verification: {
+            approvalStatus: "approved" as const,
+            revision: 2,
+            sourceRevision: 1,
+            sourceStatus: "unavailable" as const,
+            sourceClaimId: "private-source",
+          },
           absolutePath: "C:/private/control.sqlite",
           scopeId: "private-scope-id",
         },
@@ -43,6 +50,12 @@ describe("BrowserGatewayProxy organization memory graph", () => {
           title: "Release policy",
           scopeName: "Runtime",
           updatedAt: 1_000,
+          verification: {
+            approvalStatus: "approved",
+            revision: 2,
+            sourceRevision: 1,
+            sourceStatus: "unavailable",
+          },
         },
       ],
       edges: [],
@@ -56,6 +69,7 @@ describe("BrowserGatewayProxy organization memory graph", () => {
     });
     expect(JSON.stringify(result)).not.toContain("private-scope-id");
     expect(JSON.stringify(result)).not.toContain("C:/private");
+    expect(JSON.stringify(result)).not.toContain("private-source");
     expect(request).not.toHaveBeenCalled();
   });
 

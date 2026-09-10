@@ -245,7 +245,26 @@ export class BrowserGatewayProxy {
       searchOrganizationMemory: this.options.searchOrganizationMemory?.bind(this.options),
     });
     try {
-      return this.filterResult(access, method, prepared, result, executionTarget) as T;
+      const projected = this.filterResult(access, method, prepared, result, executionTarget);
+      if (method === "memory.delete") {
+        let wikiRefreshed = false;
+        try {
+          // The Wiki owner reconciles missing bridge sources and recompiles its indexes.
+          // Run it after a validated deletion result, scoped to the same personal Agent.
+          const wikiRequest = { agentId: access.binding.agentId, forceSync: true };
+          const wiki = this.filterResult(
+            access,
+            "wiki.overview",
+            wikiRequest,
+            await this.options.gateway.request("wiki.overview", wikiRequest),
+          );
+          wikiRefreshed = asObject(wiki, "wiki overview").sourceSyncComplete === true;
+        } catch {
+          // The source deletion has committed; a refresh failure is a visible partial outcome.
+        }
+        return { ...asObject(projected, "memory deletion result"), wikiRefreshed } as T;
+      }
+      return projected as T;
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
         await this.auditDeniedRequest(access, method, error.code);

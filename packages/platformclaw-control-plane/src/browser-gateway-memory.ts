@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
 import type { OrganizationMemorySearchHit } from "./contracts.js";
@@ -200,6 +201,7 @@ export function prepareBrowserMemoryRequest(params: {
 }): JsonObject | undefined {
   if (
     params.method !== "memory.search" &&
+    params.method !== "memory.delete" &&
     params.method !== "agents.workspace.get" &&
     params.method !== "agents.workspace.list" &&
     params.method !== "platformclaw.memory.get"
@@ -207,6 +209,19 @@ export function prepareBrowserMemoryRequest(params: {
     return undefined;
   }
   params.assertOptionalAgentId(params.request.agentId, params.method);
+  if (params.method === "memory.delete") {
+    const path = canonicalMemoryFilePath(params.request.path);
+    const expectedContentHash = params.request.expectedContentHash;
+    if (
+      !path ||
+      /[\x00-\x1f:]/u.test(path) ||
+      typeof expectedContentHash !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(expectedContentHash)
+    ) {
+      return params.fail("Reload a personal memory Markdown file before deleting it");
+    }
+    return { agentId: params.agentId, path, expectedContentHash };
+  }
   if (params.method === "memory.search") {
     const query = typeof params.request.query === "string" ? params.request.query.trim() : "";
     if (!query || query.length > MAX_QUERY_CHARS) {
@@ -328,6 +343,7 @@ export function projectBrowserMemoryResult(params: {
 }): JsonObject | undefined {
   if (
     params.method !== "memory.search" &&
+    params.method !== "memory.delete" &&
     params.method !== "agents.workspace.get" &&
     params.method !== "agents.workspace.list"
   ) {
@@ -336,6 +352,21 @@ export function projectBrowserMemoryResult(params: {
   const payload = requireObject(params.result, `${params.method} result`, params.fail);
   if (payload.agentId !== params.agentId) {
     return params.fail("Gateway returned memory outside the browser binding");
+  }
+  if (params.method === "memory.delete") {
+    if (
+      payload.path !== params.request.path ||
+      payload.deleted !== true ||
+      typeof payload.indexesRefreshed !== "boolean"
+    ) {
+      return params.fail("Gateway returned an invalid memory deletion result");
+    }
+    return {
+      agentId: params.agentId,
+      path: params.request.path,
+      deleted: true,
+      indexesRefreshed: payload.indexesRefreshed,
+    };
   }
   if (params.method === "memory.search") {
     if (
@@ -458,6 +489,7 @@ export function projectBrowserMemoryResult(params: {
       mimeType: "text/plain",
       encoding: "utf8",
       content: file.content,
+      ...(!missing ? { contentHash: createHash("sha256").update(file.content).digest("hex") } : {}),
       ...(missing ? { missing: true } : {}),
     },
   };

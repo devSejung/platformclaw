@@ -1,5 +1,6 @@
+import "../styles/config.css";
 import { consume } from "@lit/context";
-import { html, type PropertyValues } from "lit";
+import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import {
   INTERNAL_MEMORY_PATH_PARAM,
@@ -16,6 +17,10 @@ import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import "../pages/agents/memory/memory-panel.ts";
 import "../pages/config/memory-memories.ts";
 import "./memory-organization.ts";
+import "../pages/config/memory-promotions.ts";
+import { isExpandableResult, type SearchResult } from "../pages/config/memory-memories-view.ts";
+import "./memory-item-menu.ts";
+import "./memory-delete-dialog.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 
 type PersonalMemoryTab = "overview" | "memory" | "wiki" | "organization" | "dreaming";
@@ -47,6 +52,17 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
   @property() agentId: string | null = null;
   @property() initialTab: PersonalMemoryTab = "overview";
   @state() private activeTab: PersonalMemoryTab = "overview";
+  @state() private menu: {
+    lookup: string;
+    kind: "memory" | "wiki";
+    x: number;
+    y: number;
+    trigger: HTMLElement | null;
+  } | null = null;
+  @state() private promotionLookup = "";
+  @state() private deletePath = "";
+  @state() private actionMessage = "";
+  @state() private refreshRevision = 0;
   private readonly subscriptions = new SubscriptionsController(this).watch(
     () => this.context?.gateway,
     (gateway, notify) => gateway.subscribe(notify),
@@ -64,6 +80,12 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
   }
 
   protected override updated(changed: PropertyValues<this>) {
+    if (changed.has("agentId") || this.context.gateway.snapshot.phase !== "connected") {
+      this.menu = null;
+      this.promotionLookup = "";
+      this.deletePath = "";
+      this.actionMessage = "";
+    }
     if (changed.has("initialTab") && this.activeTab !== this.initialTab) {
       this.activeTab = this.initialTab;
     }
@@ -75,6 +97,102 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     this.context.navigate("memory", {
       pathname: pathForMemoryTab(routeTab, this.context.basePath),
     });
+  }
+
+  private canAct(kind: "memory" | "wiki") {
+    const gateway = this.context.gateway.snapshot;
+    const methods =
+      kind === "memory"
+        ? ["memory.delete", "agents.workspace.get"]
+        : ["platformclaw.memory.promotion.submit", "platformclaw.memory.lifecycle", "wiki.get"];
+    return (
+      gateway.phase === "connected" &&
+      methods.every((method) => isGatewayMethodAdvertised(gateway, method) === true)
+    );
+  }
+
+  private openActions(kind: "memory" | "wiki", lookup: string, event: MouseEvent) {
+    if (!this.canAct(kind)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget;
+    const bounds = target instanceof Element ? target.getBoundingClientRect() : null;
+    this.menu = {
+      kind,
+      lookup,
+      x: event.type === "contextmenu" ? event.clientX : (bounds?.left ?? 0),
+      y: event.type === "contextmenu" ? event.clientY : (bounds?.bottom ?? 0),
+      trigger: target instanceof HTMLElement ? target : null,
+    };
+  }
+
+  private renderActions() {
+    const gateway = this.context.gateway.snapshot;
+    const menu = this.menu;
+    return html`
+      ${menu
+        ? html`<platformclaw-memory-item-menu
+            .x=${menu.x}
+            .y=${menu.y}
+            .trigger=${menu.trigger}
+            .action=${menu.kind === "memory" ? "delete" : "share"}
+            .onClose=${() => (this.menu = null)}
+            .onAction=${() => {
+              if (!this.canAct(menu.kind)) return;
+              this.actionMessage = "";
+              if (menu.kind === "memory") this.deletePath = menu.lookup;
+              else this.promotionLookup = menu.lookup;
+            }}
+          ></platformclaw-memory-item-menu>`
+        : nothing}
+      ${this.promotionLookup
+        ? html`<openclaw-modal-dialog
+            label=${t("platformClaw.memory.share")}
+            style="--openclaw-modal-width: 800px"
+            @modal-cancel=${() => (this.promotionLookup = "")}
+            ><div class="settings-page platformclaw-memory-action-dialog">
+              <button class="btn" @click=${() => (this.promotionLookup = "")}>
+                ${t("common.close")}
+              </button>
+              <openclaw-memory-promotions
+                .client=${gateway.client}
+                .connected=${gateway.phase === "connected"}
+                .methodAdvertised=${isGatewayMethodAdvertised(
+                  gateway,
+                  "platformclaw.memory.lifecycle",
+                ) === true}
+                .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search") === true}
+                .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.get") === true}
+                .agentId=${this.agentId}
+                .initialPersonalLookup=${this.promotionLookup}
+                .formOnly=${true}
+                @promotion-submitted=${(event: CustomEvent<{ message: string }>) => {
+                  this.promotionLookup = "";
+                  this.actionMessage = event.detail.message;
+                }}
+              ></openclaw-memory-promotions></div
+          ></openclaw-modal-dialog>`
+        : nothing}
+      ${this.deletePath
+        ? html`<platformclaw-memory-delete-dialog
+            .client=${gateway.client}
+            .agentId=${this.agentId ?? ""}
+            .path=${this.deletePath}
+            @delete-cancel=${() => (this.deletePath = "")}
+            @memory-deleted=${(
+              event: CustomEvent<{ indexesRefreshed: boolean; wikiRefreshed: boolean }>,
+            ) => {
+              this.deletePath = "";
+              this.refreshRevision++;
+              this.actionMessage = t(
+                event.detail.indexesRefreshed && event.detail.wikiRefreshed
+                  ? "platformClaw.memory.deleted"
+                  : "platformClaw.memory.deletedRefreshPending",
+              );
+            }}
+          ></platformclaw-memory-delete-dialog>`
+        : nothing}
+    `;
   }
 
   private renderOverview() {
@@ -146,12 +264,29 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
             "platformclaw.memory.get",
           )}
           .translator=${t}
+          .refreshRevision=${this.refreshRevision}
+          .itemActions=${{
+            label: t("platformClaw.memory.actions"),
+            available: (result: SearchResult) =>
+              isExpandableResult(result) &&
+              (result.source === "memory" || result.source === "wiki") &&
+              this.canAct(result.source),
+            open: (result: SearchResult, event: MouseEvent) =>
+              this.openActions(result.source as "memory" | "wiki", result.path, event),
+          }}
           .agentId=${this.agentId}
         ></openclaw-memory-memories>`;
       case "wiki":
         return html`<openclaw-agent-memory-panel
           .agentId=${this.agentId ?? ""}
           surface="wiki"
+          .wikiActions=${this.canAct("wiki")
+            ? {
+                label: t("platformClaw.memory.actions"),
+                open: (lookup: string, event: MouseEvent) =>
+                  this.openActions("wiki", lookup, event),
+              }
+            : undefined}
         ></openclaw-agent-memory-panel>`;
       case "organization":
         return html`<platformclaw-memory-organization
@@ -192,6 +327,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     }
     return html`
       <main class="settings-page platformclaw-memory-page">
+        ${this.actionMessage ? html`<p role="status">${this.actionMessage}</p>` : nothing}
         <nav class="platformclaw-memory-page__tabs">
           ${renderHubTabs<PersonalMemoryTab>({
             id: "platformclaw-memory",
@@ -216,6 +352,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
         >
           ${this.renderPanel()}
         </section>
+        ${this.renderActions()}
       </main>
     `;
   }

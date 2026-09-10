@@ -7,10 +7,11 @@ import { resolveMemoryWikiConfig } from "./config.js";
 import { withMemoryWikiVaultMutation } from "./mutation-coordinator.js";
 import { syncMemoryWikiImportedSources } from "./source-sync.js";
 
-const { syncBridgeMock, syncUnsafeLocalMock, refreshIndexesMock } = vi.hoisted(() => ({
+const { syncBridgeMock, syncUnsafeLocalMock, refreshIndexesMock, compileMock } = vi.hoisted(() => ({
   syncBridgeMock: vi.fn(),
   syncUnsafeLocalMock: vi.fn(),
   refreshIndexesMock: vi.fn(),
+  compileMock: vi.fn(),
 }));
 
 vi.mock("./bridge.js", () => ({
@@ -22,6 +23,7 @@ vi.mock("./unsafe-local.js", () => ({
 }));
 
 vi.mock("./compile.js", () => ({
+  compileMemoryWikiVault: compileMock,
   refreshMemoryWikiIndexesAfterImport: refreshIndexesMock,
 }));
 
@@ -67,6 +69,8 @@ describe("syncMemoryWikiImportedSources", () => {
     syncBridgeMock.mockReset();
     syncUnsafeLocalMock.mockReset();
     refreshIndexesMock.mockReset();
+    compileMock.mockReset();
+    compileMock.mockResolvedValue({ updatedFiles: ["index.md"] });
     syncBridgeMock.mockResolvedValue(bridgeResult);
     syncUnsafeLocalMock.mockResolvedValue({
       ...bridgeResult,
@@ -109,6 +113,60 @@ describe("syncMemoryWikiImportedSources", () => {
 
     expect(refreshIndexesMock).toHaveBeenCalledTimes(1);
     expect(results.every((result) => result === results[0])).toBe(true);
+  });
+
+  it("queues post-delete source sync after an older snapshot instead of coalescing", async () => {
+    const config = createConfig();
+    const oldSnapshotGate = deferred<void>();
+    let sourceExists = true;
+    syncBridgeMock.mockImplementation(async () => {
+      const capturedSource = sourceExists;
+      if (capturedSource) {
+        await oldSnapshotGate.promise;
+      }
+      return {
+        ...bridgeResult,
+        pagePaths: capturedSource ? ["sources/deleted.md"] : [],
+        removedCount: capturedSource ? 0 : 1,
+      };
+    });
+    const older = syncMemoryWikiImportedSources({ config, appConfig });
+    await vi.waitFor(() => expect(syncBridgeMock).toHaveBeenCalledTimes(1));
+    sourceExists = false;
+    const afterDelete = syncMemoryWikiImportedSources({ config, appConfig, forceSync: true });
+    await Promise.resolve();
+    expect(syncBridgeMock).toHaveBeenCalledTimes(1);
+    oldSnapshotGate.resolve(undefined);
+    await older;
+    await expect(afterDelete).resolves.toMatchObject({ pagePaths: [], removedCount: 1 });
+    expect(syncBridgeMock).toHaveBeenCalledTimes(2);
+    expect(refreshIndexesMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rebuilds on forced retry when pruning committed before an earlier compile failed", async () => {
+    const config = createConfig();
+    syncBridgeMock.mockResolvedValueOnce({ ...bridgeResult, removedCount: 1 });
+    syncBridgeMock.mockResolvedValueOnce({
+      ...bridgeResult,
+      importedCount: 0,
+      updatedCount: 0,
+      removedCount: 0,
+    });
+    refreshIndexesMock.mockRejectedValueOnce(new Error("compile failed after pruning"));
+    refreshIndexesMock.mockResolvedValueOnce({ refreshed: false, reason: "no-import-changes" });
+    await expect(
+      syncMemoryWikiImportedSources({ config, appConfig, forceSync: true }),
+    ).rejects.toThrow("compile failed after pruning");
+    expect(compileMock).not.toHaveBeenCalled();
+    await expect(
+      syncMemoryWikiImportedSources({ config, appConfig, forceSync: true }),
+    ).resolves.toMatchObject({
+      removedCount: 0,
+      indexesRefreshed: true,
+      indexRefreshReason: "forced",
+      indexUpdatedFiles: ["index.md"],
+    });
+    expect(compileMock).toHaveBeenCalledExactlyOnceWith(config);
   });
 
   it("coalesces separately resolved equivalent configs for one vault", async () => {

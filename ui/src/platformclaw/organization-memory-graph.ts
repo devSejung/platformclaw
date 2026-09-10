@@ -66,6 +66,7 @@ function positionNodes(graph: OrganizationMemoryGraph): PositionedNode[] {
         title: node.title,
         scopeName: node.scopeName,
         updatedAt: node.updatedAt,
+        ...(node.verification ? { verification: node.verification } : {}),
         x: centerX + Math.cos(angle) * radius,
         y: centerY + Math.sin(angle) * radius,
         degree: degree.get(node.id) ?? 0,
@@ -192,6 +193,11 @@ class PlatformClawOrganizationMemoryGraph extends OpenClawLightDomElement {
     if (!this.previewPath) {
       return nothing;
     }
+    const graphState = this.states.get(this.kind);
+    const verification =
+      graphState?.status === "ready"
+        ? graphState.graph.nodes.find((node) => node.path === this.previewPath)?.verification
+        : undefined;
     return html`<openclaw-modal-dialog
       .label=${this.preview?.title ?? t("platformClaw.memory.organization.graphPreview")}
       style="--openclaw-modal-width: 1120px"
@@ -205,6 +211,19 @@ class PlatformClawOrganizationMemoryGraph extends OpenClawLightDomElement {
             : html`<div class="organization-memory-graph__preview-meta">
                   ${this.preview?.scopeName} · ${this.preview?.path}
                 </div>
+                ${verification
+                  ? html`<p data-memory-verification>
+                      ${t("platformClaw.memory.graph.approved")} ·
+                      ${t("platformClaw.memory.graph.revision", {
+                        revision: String(verification.revision),
+                      })}
+                      ·
+                      ${t("platformClaw.memory.graph.sourceRevision", {
+                        revision: String(verification.sourceRevision),
+                      })}
+                      · ${t(`platformClaw.memory.graph.${verification.sourceStatus}`)}
+                    </p>`
+                  : html`<p>${t("platformClaw.memory.graph.unverified")}</p>`}
                 <pre tabindex="0">${this.preview?.content ?? ""}</pre>`}
       </div>
     </openclaw-modal-dialog>`;
@@ -354,6 +373,7 @@ class PlatformClawOrganizationMemoryGraph extends OpenClawLightDomElement {
         <div>
           <h2>${t("platformClaw.memory.organization.graph")}</h2>
           <p>${t("platformClaw.memory.organization.graphDescription")}</p>
+          <p>${t("platformClaw.memory.graph.description")}</p>
         </div>
         <button
           class="btn btn--subtle btn--sm"

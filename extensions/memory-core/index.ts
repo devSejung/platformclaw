@@ -19,6 +19,7 @@ import type {
   PluginStateLeaseRunner,
 } from "openclaw/plugin-sdk/plugin-state-runtime";
 import type { TSchema } from "typebox";
+import { registerMemoryDeleteGatewayMethod } from "./src/delete-gateway.js";
 import { configureMemoryCoreDreamingState } from "./src/dreaming-state.js";
 import { registerShortTermPromotionDreaming } from "./src/dreaming.js";
 import { buildMemoryFlushPlan } from "./src/flush-plan.js";
@@ -326,6 +327,7 @@ export default definePluginEntry({
     const host = { acquireLocalService, openKeyedStore, withLease } satisfies MemoryCoreRuntimeHost;
     configureMemoryCoreDreamingState(openKeyedStore);
     const memoryRuntime = createLazyMemoryRuntime(host);
+    registerMemoryDeleteGatewayMethod(api, memoryRuntime);
     registerShortTermPromotionDreaming(api);
     registerSessionBackfillGatewayMethods(api);
     api.registerMemoryCapability({

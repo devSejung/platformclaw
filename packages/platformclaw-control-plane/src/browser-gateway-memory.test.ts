@@ -1,7 +1,93 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { setupBrowserGatewayProxyTest as setup } from "./browser-gateway-proxy.test-harness.js";
 
 describe("BrowserGatewayProxy personal memory", () => {
+  it.each([true, false])(
+    "pins deletion and reports Wiki refresh outcome %s",
+    async (wikiAvailable) => {
+      const { binding, proxy, request, token } = await setup();
+      const expectedContentHash = "a".repeat(64);
+      request.mockResolvedValueOnce({
+        agentId: binding.agentId,
+        path: "MEMORY.md",
+        deleted: true,
+        indexesRefreshed: true,
+      });
+      if (wikiAvailable) {
+        request.mockResolvedValueOnce({
+          sourceSyncComplete: true,
+          totalItems: 0,
+          totalPages: 0,
+          pageCounts: { entity: 0, concept: 0, source: 0, synthesis: 0, report: 0 },
+          totalClaims: 0,
+          totalQuestions: 0,
+          totalContradictions: 0,
+          clusters: [],
+        });
+      } else {
+        request.mockRejectedValueOnce(new Error("Wiki unavailable"));
+      }
+      await expect(
+        proxy.request(token, "memory.delete", { path: "MEMORY.md", expectedContentHash }),
+      ).resolves.toEqual({
+        agentId: binding.agentId,
+        path: "MEMORY.md",
+        deleted: true,
+        indexesRefreshed: true,
+        wikiRefreshed: wikiAvailable,
+      });
+      expect(request.mock.calls).toEqual([
+        ["memory.delete", { agentId: binding.agentId, path: "MEMORY.md", expectedContentHash }],
+        ["wiki.overview", { agentId: binding.agentId, forceSync: true }],
+      ]);
+    },
+  );
+
+  it("denies cross-Agent and unsafe deletes before dispatch", async () => {
+    const { proxy, request, token } = await setup();
+    const expectedContentHash = "a".repeat(64);
+    await expect(
+      proxy.request(token, "memory.delete", {
+        agentId: "other",
+        path: "MEMORY.md",
+        expectedContentHash,
+      }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+    for (const path of ["AGENTS.md", "memory/../secret.md", "memory/a.md:stream"]) {
+      await expect(
+        proxy.request(token, "memory.delete", { path, expectedContentHash }),
+      ).rejects.toMatchObject({ code: "method-not-allowed" });
+    }
+    await expect(
+      proxy.request(token, "memory.delete", { path: "MEMORY.md" }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, "memory.delete", {
+        path: "MEMORY.md",
+        expectedContentHash,
+        force: true,
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("rejects foreign deletion results without refreshing Wiki", async () => {
+    const { proxy, request, token } = await setup();
+    request.mockResolvedValueOnce({
+      agentId: "other",
+      path: "MEMORY.md",
+      deleted: true,
+      indexesRefreshed: true,
+    });
+    await expect(
+      proxy.request(token, "memory.delete", {
+        path: "MEMORY.md",
+        expectedContentHash: "a".repeat(64),
+      }),
+    ).rejects.toMatchObject({ code: "upstream-result-denied" });
+    expect(request).toHaveBeenCalledOnce();
+  });
   it("adds safe organization hits for the pinned agent without exposing storage paths", async () => {
     const searchOrganizationMemory = vi.fn(async () => [
       {
@@ -236,6 +322,7 @@ describe("BrowserGatewayProxy personal memory", () => {
         mimeType: "text/plain",
         encoding: "utf8",
         content: "# Ada\nPrefers careful reviews.",
+        contentHash: createHash("sha256").update("# Ada\nPrefers careful reviews.").digest("hex"),
       },
     });
     expect(request).toHaveBeenCalledWith("agents.workspace.get", {

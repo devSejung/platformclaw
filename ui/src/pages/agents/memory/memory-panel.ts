@@ -11,6 +11,7 @@ import {
   showConfirmDialog,
   type ConfirmDialogOptions,
 } from "../../../components/confirm-dialog.ts";
+import type { MemoryItemActions } from "../../../components/memory-item-actions.ts";
 import { renderSettingsDefaultState, renderSettingsRow } from "../../../components/settings-ui.ts";
 import { t } from "../../../i18n/index.ts";
 import { currentConfigObject } from "../../../lib/config/index.ts";
@@ -73,6 +74,7 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   @property({ attribute: false }) agentId = "";
   @property({ type: Boolean }) summaryOnly = false;
   @property() surface: "dreaming" | "wiki" = "dreaming";
+  @property({ attribute: false }) wikiActions?: MemoryItemActions;
 
   @state() private dreaming = createDreamingState();
   @state() private toggleConfirmOpen = false;
@@ -656,6 +658,7 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
         onSelectWikiGraph: () => void this.loadWikiGraphView(),
         onOpenConfig: () => void this.context.runtimeConfig.openFile(),
         onOpenWikiPage: (lookup) => this.openWikiPage(lookup),
+        wikiActions: this.wikiActions,
         onBackfillDiary: () => void this.runDreamingTask(backfillDreamDiary),
         onCopyDreamingArchivePath: () => void this.runDreamingTask(copyDreamingArchivePath),
         onDedupeDreamDiary: () =>

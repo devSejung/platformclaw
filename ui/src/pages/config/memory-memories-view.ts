@@ -1,9 +1,24 @@
 import { html, nothing } from "lit";
 import type { MemorySearchResponse } from "../../../../src/gateway/server-methods/memory-search.ts";
 import { icons } from "../../components/icons.ts";
+import { renderMemoryItemActions } from "../../components/memory-item-actions.ts";
 import { renderSettingsRow } from "../../components/settings-ui.ts";
 
 export type Translate = (key: string, params?: Record<string, string>) => string;
+export type MemoryResultActions = {
+  label: string;
+  available: (result: SearchResult) => boolean;
+  open: (result: SearchResult, event: MouseEvent) => void;
+};
+
+function resultActions(result: SearchResult, actions?: MemoryResultActions) {
+  return actions?.available(result)
+    ? {
+        label: actions.label,
+        open: (_lookup: string, event: MouseEvent) => actions.open(result, event),
+      }
+    : undefined;
+}
 export type SearchResult = Omit<MemorySearchResponse["results"][number], "source"> & {
   source: string;
   title?: string;
@@ -99,6 +114,7 @@ function renderDetail(view: DetailView) {
 }
 
 export function renderMemoryBrowseFile(options: {
+  actions?: MemoryResultActions;
   canLoadResult: (result: SearchResult) => boolean;
   content?: string;
   description?: string;
@@ -126,7 +142,11 @@ export function renderMemoryBrowseFile(options: {
   }
   const panelId =
     options.index === -1 ? "memory-long-term-detail" : `memory-browse-detail-${-options.index}`;
-  return html`<article class="memory-memories__result">
+  const actions = resultActions(result, options.actions);
+  return html`<article
+    class="memory-memories__result"
+    @contextmenu=${actions ? (event: MouseEvent) => actions.open(result.path, event) : nothing}
+  >
     <button
       type="button"
       class="settings-row settings-row--nav"
@@ -146,6 +166,7 @@ export function renderMemoryBrowseFile(options: {
         >
       </span>
     </button>
+    ${renderMemoryItemActions(result.path, actions)}
     ${renderDetail({
       details: options.details,
       key,
@@ -159,6 +180,7 @@ export function renderMemoryBrowseFile(options: {
 }
 
 export function renderMemorySearchResults(options: {
+  actions?: MemoryResultActions;
   canLoadResult: (result: SearchResult) => boolean;
   details: ReadonlyMap<string, DetailState>;
   onRetry: (key: string, result: SearchResult) => void;
@@ -259,7 +281,13 @@ export function renderMemorySearchResults(options: {
                 >
               </span>
             `;
-            return html`<article class="memory-memories__result">
+            const actions = resultActions(result, options.actions);
+            return html`<article
+              class="memory-memories__result"
+              @contextmenu=${actions
+                ? (event: MouseEvent) => actions.open(result.path, event)
+                : nothing}
+            >
               ${expandable
                 ? html`<button
                     type="button"
@@ -271,6 +299,7 @@ export function renderMemorySearchResults(options: {
                     ${summary}
                   </button>`
                 : html`<div class="settings-row">${summary}</div>`}
+              ${renderMemoryItemActions(result.path, actions)}
               ${expandable
                 ? renderDetail({
                     details: options.details,
