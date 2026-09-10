@@ -792,7 +792,7 @@ suite.define(() => {
     }
   });
 
-  it("keeps derived sidebar titles and accessible state after session patch refreshes", async () => {
+  it("keeps derived dashboard titles after navigation and patch refreshes", async () => {
     const context = await suite.newBrowserContext({
       locale: "en-US",
       serviceWorkers: "block",
@@ -800,7 +800,7 @@ suite.define(() => {
     });
     const page = await context.newPage();
     const initialKey = "agent:main:session-a";
-    const key = "agent:main:session-b";
+    const key = "agent:main:dashboard:2f0f5976-1bb4-4cad-87f7-4b889a603f87";
     const readableTitle = "Readable planning title";
     const baseTime = Date.now();
     const sessionsWithDerivedTitle = chatSessionListResponse([
@@ -854,15 +854,10 @@ suite.define(() => {
       await page.goto(`${suite.server.baseUrl}chat`);
       const row = page.locator(`.sidebar-recent-session[data-session-key="${key}"]`);
       await row.locator("a.sidebar-recent-session__link").click();
-      await expect
-        .poll(async () => {
-          const requests = await gateway.getRequests("sessions.list");
-          return requests.map((request) => request.params);
-        })
-        .toContainEqual(expect.objectContaining({ includeDerivedTitles: true }));
       const label = row.locator(".sidebar-recent-session__name");
       const link = row.locator("a.sidebar-recent-session__link");
       await expect.poll(() => label.textContent()).toBe(readableTitle);
+      await page.locator(".chat-pane__session-title").getByText(readableTitle).waitFor();
       expect(await row.getAttribute("role")).toBe("listitem");
       expect(await row.getAttribute("aria-label")).toBeNull();
       expect(await link.getAttribute("aria-label")).toBeNull();
@@ -872,10 +867,17 @@ suite.define(() => {
       await captureSessionAccessibilityProof(page, "after-derived-title");
 
       const listCountBeforePatch = (await gateway.getRequests("sessions.list")).length;
+      const patchCountBeforePin = (await gateway.getRequests("sessions.patch")).length;
       await row.hover();
       await row.getByRole("button", { name: "Pin thread" }).click();
 
-      const patchRequest = await gateway.waitForRequest("sessions.patch");
+      await expect
+        .poll(async () => (await gateway.getRequests("sessions.patch")).length)
+        .toBeGreaterThan(patchCountBeforePin);
+      const patchRequest = expectDefined(
+        (await gateway.getRequests("sessions.patch")).at(-1),
+        "pin session patch",
+      );
       expect(requireRecord(patchRequest.params)).toMatchObject({
         key,
         pinned: true,

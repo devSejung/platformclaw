@@ -21,6 +21,7 @@ import type {
   PlatformClawExecutionTargetSnapshot,
 } from "./backend.js";
 import { validateAssignedVmClaudeCode } from "./claude-code-validation.js";
+import { validateAssignedVmCodingAgent } from "./coding-agent-validation.js";
 import {
   isSshpassAuthenticationFailure,
   PlatformClawVmAuthenticationError,
@@ -455,6 +456,10 @@ export async function createExecutionDependenciesFromEnvironment(
         executablePath: string;
         reportedVersion: string;
       }>;
+      validateCodingAgent(params: {
+        agentId: string;
+        agent: "codex" | "opencode";
+      }): ReturnType<typeof validateAssignedVmCodingAgent>;
       dispose(): Promise<void>;
     }
 > {
@@ -557,6 +562,17 @@ export async function createExecutionDependenciesFromEnvironment(
       return await validateAssignedVmClaudeCode({
         target,
         executablePath,
+        createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
+      });
+    },
+    validateCodingAgent: async ({ agentId, agent }) => {
+      const target = await resolveTarget({ agentId, target: "assigned_vm" });
+      if (target.kind !== "assigned_vm") {
+        throw new Error("assigned development VM is unavailable");
+      }
+      return await validateAssignedVmCodingAgent({
+        target,
+        agent,
         createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
       });
     },

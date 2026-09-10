@@ -1,5 +1,6 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { PlatformClawExecutionTargetSnapshot } from "./backend.js";
+import type { validateAssignedVmCodingAgent } from "./coding-agent-validation.js";
 import { classifyVmConnectionFailure } from "./connection-errors.js";
 import {
   registerPlatformClawSkillExportGateway,
@@ -40,6 +41,10 @@ type PlatformClawExecutionGatewayRuntime = PlatformClawSkillExportRuntime & {
     reportedVersion: string;
   }>;
   dispose(): Promise<void>;
+  validateCodingAgent(params: {
+    agentId: string;
+    agent: "codex" | "opencode";
+  }): ReturnType<typeof validateAssignedVmCodingAgent>;
 };
 
 export function registerPlatformClawExecutionGateway(
@@ -172,6 +177,32 @@ export function registerPlatformClawExecutionGateway(
         respond(false, undefined, {
           code: "UNAVAILABLE",
           message: error instanceof Error ? error.message : "Claude Code validation failed",
+        });
+      }
+    },
+    { scope: "operator.admin" },
+  );
+  api.registerGatewayMethod(
+    "platformclaw-execution.validateCodingAgent",
+    async ({ params, respond }) => {
+      const input = params as Record<string, unknown>;
+      const agentId = typeof input.agentId === "string" ? input.agentId.trim() : "";
+      const agent = input.agent;
+      if (!agentId || (agent !== "codex" && agent !== "opencode")) {
+        respond(false, undefined, {
+          code: "INVALID_REQUEST",
+          message: "coding agent request is invalid",
+        });
+        return;
+      }
+      try {
+        respond(true, await (await runtimePromise).validateCodingAgent({ agentId, agent }));
+      } catch {
+        // Remote command errors can contain account environment or diagnostic output.
+        respond(false, undefined, {
+          code: "UNAVAILABLE",
+          message:
+            "Coding agent check failed. Ask your administrator to check its installation and VM connection.",
         });
       }
     },
