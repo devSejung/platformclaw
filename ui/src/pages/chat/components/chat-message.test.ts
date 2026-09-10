@@ -637,7 +637,13 @@ describe("grouped chat rendering", () => {
         attribute: "href",
       },
     ].flatMap((fixture) =>
-      ["user", "assistant", "tool", "toolResult"].map((role) => ({ ...fixture, role })),
+      ["user", "assistant", "tool", "toolResult"].map((role) => ({
+        extension: fixture.extension,
+        contentType: fixture.contentType,
+        selector: fixture.selector,
+        attribute: fixture.attribute,
+        role,
+      })),
     ),
   )("uses the media owner for reopened $role $extension attachments", async (fixture) => {
     const source = `media://inbound/${crypto.randomUUID()}.${fixture.extension}`;
