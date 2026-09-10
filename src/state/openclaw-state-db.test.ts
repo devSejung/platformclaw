@@ -2931,6 +2931,47 @@ INSERT INTO macos_port_guardian_records VALUES (4242, 18789, '/usr/bin/ssh', 're
     ).toEqual({ installed_at_ms: 1234, updated_at_ms: 1234 });
   });
 
+  it("adds ACP execution owners to existing state databases without backfilling them", () => {
+    const stateDir = createTempStateDir();
+    const databasePath = materializeCurrentStateDatabase(stateDir);
+    const { DatabaseSync } = requireNodeSqlite();
+    const legacyDb = new DatabaseSync(databasePath);
+    legacyDb.exec("ALTER TABLE acp_sessions DROP COLUMN execution_owner_agent_id");
+    legacyDb
+      .prepare(
+        `INSERT INTO acp_sessions (
+          session_key, session_id, backend, agent, runtime_session_name, mode,
+          state, last_activity_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "agent:claude:acp:legacy",
+        "revision-legacy",
+        "acpx",
+        "claude",
+        "claude-legacy",
+        "persistent",
+        "idle",
+        100,
+        100,
+      );
+    legacyDb.close();
+
+    const reopened = openOpenClawStateDatabase({
+      env: { OPENCLAW_STATE_DIR: stateDir },
+    });
+    const columns = reopened.db.prepare("PRAGMA table_info(acp_sessions)").all() as Array<{
+      name?: string;
+    }>;
+
+    expect(columns.map((column) => column.name)).toContain("execution_owner_agent_id");
+    expect(
+      reopened.db
+        .prepare("SELECT execution_owner_agent_id FROM acp_sessions WHERE session_key = ?")
+        .get("agent:claude:acp:legacy"),
+    ).toEqual({ execution_owner_agent_id: null });
+  });
+
   it("adds worker bootstrap lifecycle columns to existing state databases", () => {
     const stateDir = createTempStateDir();
     const databasePath = materializeCurrentStateDatabase(stateDir);

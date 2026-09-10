@@ -35,6 +35,7 @@ export interface AcpSessions {
   agent: string;
   backend: string;
   cwd: string | null;
+  execution_owner_agent_id: string | null;
   identity_json: string | null;
   last_activity_at: number;
   last_error: string | null;

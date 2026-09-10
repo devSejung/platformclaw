@@ -120,6 +120,9 @@ export async function reconcileManagerRuntimeSessionIdentifiers(params: {
   const nextMeta: SessionAcpMeta = {
     backend: params.meta.backend,
     agent: params.meta.agent,
+    ...(params.meta.executionOwnerAgentId
+      ? { executionOwnerAgentId: params.meta.executionOwnerAgentId }
+      : {}),
     runtimeSessionName: params.meta.runtimeSessionName,
     ...(nextIdentity ? { identity: nextIdentity } : {}),
     mode: params.meta.mode,
@@ -157,6 +160,9 @@ export async function reconcileManagerRuntimeSessionIdentifiers(params: {
       return {
         backend: base.backend,
         agent: base.agent,
+        ...(base.executionOwnerAgentId
+          ? { executionOwnerAgentId: base.executionOwnerAgentId }
+          : {}),
         runtimeSessionName: base.runtimeSessionName,
         ...(nextIdentity ? { identity: nextIdentity } : {}),
         mode: base.mode,

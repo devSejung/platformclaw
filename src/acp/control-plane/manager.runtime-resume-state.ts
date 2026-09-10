@@ -128,6 +128,9 @@ async function clearPersistedRuntimeResumeState(params: {
       return {
         backend: base.backend,
         agent: base.agent,
+        ...(base.executionOwnerAgentId
+          ? { executionOwnerAgentId: base.executionOwnerAgentId }
+          : {}),
         runtimeSessionName: base.runtimeSessionName,
         identity: nextIdentity,
         mode: base.mode,
@@ -178,6 +181,9 @@ export async function discardPersistedManagerRuntimeState(params: {
       return {
         backend: base.backend,
         agent: base.agent,
+        ...(base.executionOwnerAgentId
+          ? { executionOwnerAgentId: base.executionOwnerAgentId }
+          : {}),
         runtimeSessionName: base.runtimeSessionName,
         ...(nextIdentity ? { identity: nextIdentity } : {}),
         mode: base.mode,

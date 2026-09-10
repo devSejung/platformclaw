@@ -109,10 +109,14 @@ function resolvedAcpMeta(params: {
   runtimeSessionName?: string;
   mode?: SessionAcpMeta["mode"];
   runtimeOptions?: SessionAcpMeta["runtimeOptions"];
+  executionOwnerAgentId?: string;
 }): SessionAcpMeta {
   const meta: SessionAcpMeta = {
     backend: "acpx",
     agent: "codex",
+    ...(params.executionOwnerAgentId
+      ? { executionOwnerAgentId: params.executionOwnerAgentId }
+      : {}),
     runtimeSessionName: params.runtimeSessionName ?? "runtime:reset",
     identity: {
       state: "resolved",
@@ -478,6 +482,7 @@ test("sessions.reset closes ACP runtime handles for ACP sessions", async () => {
         runtimeMode: "auto",
         timeoutSeconds: 30,
       },
+      executionOwnerAgentId: "person_one",
     }),
   });
   const reset = await directSessionReq<{
@@ -490,6 +495,9 @@ test("sessions.reset closes ACP runtime handles for ACP sessions", async () => {
   expect(reset.ok).toBe(true);
   expect(reset.payload?.entry).not.toHaveProperty("acp");
   expectResetAcpState(readAcpSessionMeta({ sessionKey: "agent:main:main" }));
+  expect(readAcpSessionMeta({ sessionKey: "agent:main:main" })?.executionOwnerAgentId).toBe(
+    "person_one",
+  );
   expect(acpManagerMocks.closeSession).toHaveBeenCalledTimes(1);
   const closeSessionCall = acpManagerMocks.closeSession.mock.calls.at(0) as unknown as
     | [

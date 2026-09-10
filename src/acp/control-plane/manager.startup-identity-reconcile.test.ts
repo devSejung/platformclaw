@@ -29,6 +29,7 @@ describe("AcpSessionManager startup identity reconcile", () => {
 
     let currentMeta: SessionAcpMeta = {
       ...readySessionMeta(),
+      executionOwnerAgentId: "person_one",
       identity: {
         state: "pending",
         source: "ensure",
@@ -85,6 +86,7 @@ describe("AcpSessionManager startup identity reconcile", () => {
     expect(currentMeta.identity?.acpxRecordId).toBe("acpx-record-1");
     expect(currentMeta.identity?.acpxSessionId).toBe("acpx-session-1");
     expect(currentMeta.identity?.agentSessionId).toBe("agent-session-1");
+    expect(currentMeta.executionOwnerAgentId).toBe("person_one");
   });
 
   it("skips startup reconcile for pending identities without stable runtime ids", async () => {

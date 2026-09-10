@@ -989,7 +989,7 @@ describe("AcpSessionManager turn results", () => {
     });
     const sessionKey = "agent:claude:acp:binding:discord:default:retry-no-session";
     let currentMeta: SessionAcpMeta = {
-      ...readySessionMeta({ agent: "claude" }),
+      ...readySessionMeta({ agent: "claude", executionOwnerAgentId: "person_one" }),
       runtimeSessionName: sessionKey,
       identity: {
         state: "resolved",
@@ -1063,6 +1063,7 @@ describe("AcpSessionManager turn results", () => {
     expect(mockCallArg(scenario.runtimeState.ensureSession, 1).resumeSessionId).toBeUndefined();
     expect(scenario.getMeta().identity?.acpxSessionId).toBe("acpx-sid-fresh");
     expect(scenario.getMeta().identity?.state).toBe("resolved");
+    expect(scenario.getMeta().executionOwnerAgentId).toBe("person_one");
     const states = extractStatesFromUpserts();
     expect(states).toContain("running");
     expect(states).toContain("idle");
