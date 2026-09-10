@@ -82,6 +82,10 @@ describe("config view", () => {
     textScaleOverridden: false,
     setTextScale: vi.fn(),
     resetTextScale: vi.fn(),
+    terminalTextScale: 100,
+    terminalTextScaleOverridden: false,
+    setTerminalTextScale: vi.fn(),
+    resetTerminalTextScale: vi.fn(),
     sidebarLiveActivity: true,
     setSidebarLiveActivity: vi.fn(),
     hiddenSessionCatalogIds: new Set<string>(),
@@ -1521,6 +1525,30 @@ describe("config view", () => {
         .find((button) => button.textContent?.includes("100%"))
         ?.getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+
+  it("renders an independent terminal text-size control below text size", () => {
+    const { container, props } = renderConfigView({
+      activeSection: "__appearance__",
+      includeSections: ["__appearance__"],
+      textScale: 110,
+      terminalTextScale: 125,
+    });
+
+    const textSection = container.querySelector("#settings-appearance-text-size");
+    const terminalSection = container.querySelector("#settings-appearance-terminal-text-size");
+    expect(textSection).not.toBeNull();
+    expect(terminalSection).not.toBeNull();
+    expect(
+      terminalSection?.querySelector<HTMLButtonElement>(".settings-text-scale__btn.active")
+        ?.textContent,
+    ).toContain("125%");
+
+    [...(terminalSection?.querySelectorAll<HTMLButtonElement>(".settings-text-scale__btn") ?? [])]
+      .find((button) => button.textContent?.includes("140%"))
+      ?.click();
+    expect(props.setTerminalTextScale).toHaveBeenCalledWith(140);
+    expect(props.setTextScale).not.toHaveBeenCalled();
   });
 
   it("renders browser-local language selection without a sync claim", () => {

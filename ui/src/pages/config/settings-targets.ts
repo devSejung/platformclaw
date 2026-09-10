@@ -12,6 +12,7 @@ export const APPEARANCE_SETTINGS_TARGET_IDS = {
   language: "settings-language",
   theme: "settings-appearance-theme",
   textSize: "settings-appearance-text-size",
+  terminalTextSize: "settings-appearance-terminal-text-size",
   sidebar: "settings-appearance-sidebar",
   chat: "settings-appearance-chat",
   connection: "settings-appearance-connection",

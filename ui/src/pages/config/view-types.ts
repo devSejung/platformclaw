@@ -126,6 +126,10 @@ export type ConfigProps = {
   textScaleOverridden: boolean;
   setTextScale: (value: number) => void;
   resetTextScale: () => void;
+  terminalTextScale: number;
+  terminalTextScaleOverridden: boolean;
+  setTerminalTextScale: (value: number) => void;
+  resetTerminalTextScale: () => void;
   sidebarLiveActivity: boolean;
   setSidebarLiveActivity: (enabled: boolean) => void;
   hiddenSessionCatalogIds: ReadonlySet<string>;

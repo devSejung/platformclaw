@@ -16,6 +16,7 @@ import {
   renderSettingsValue,
 } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
+import { platformClawT } from "../../platformclaw/i18n.ts";
 import { APPEARANCE_SETTINGS_TARGET_IDS } from "./settings-targets.ts";
 import {
   renderChatPreferencesSection,
@@ -35,6 +36,28 @@ const TEXT_SCALE_LABELS: Record<TextScaleStop, string> = {
   125: "configView.textSizes.xl",
   140: "configView.textSizes.xxl",
 };
+
+function renderTextScaleOptions(value: number, onChange: (value: TextScaleStop) => void) {
+  return html`
+    <div class="settings-text-scale">
+      <div class="settings-text-scale__options">
+        ${TEXT_SCALE_STOPS.map(
+          (stop) => html`
+            <button
+              type="button"
+              class="settings-text-scale__btn ${stop === value ? "active" : ""}"
+              aria-pressed=${String(stop === value)}
+              @click=${() => onChange(stop)}
+            >
+              <span class="settings-text-scale__sample">${t(TEXT_SCALE_LABELS[stop])}</span>
+              <span class="settings-text-scale__label">${stop}%</span>
+            </button>
+          `,
+        )}
+      </div>
+    </div>
+  `;
+}
 
 type ThemeOption = {
   id: ThemeName;
@@ -162,6 +185,11 @@ export function renderAppearanceSection(
     value: `${UI_APPEARANCE_DEFAULTS.textScale}%`,
     overridden: props.textScaleOverridden,
     onReset: props.resetTextScale,
+  });
+  const terminalTextScaleDefaultState = renderSettingsDefaultState({
+    value: `${UI_APPEARANCE_DEFAULTS.terminalTextScale}%`,
+    overridden: props.terminalTextScaleOverridden,
+    onReset: props.resetTerminalTextScale,
   });
   return html`
     <div class="settings-page">
@@ -323,23 +351,24 @@ export function renderAppearanceSection(
         </p>
         <div class="settings-group">
           <div class="settings-row settings-row--stacked">
-            <div class="settings-text-scale">
-              <div class="settings-text-scale__options">
-                ${TEXT_SCALE_STOPS.map(
-                  (stop) => html`
-                    <button
-                      type="button"
-                      class="settings-text-scale__btn ${stop === props.textScale ? "active" : ""}"
-                      aria-pressed=${String(stop === props.textScale)}
-                      @click=${() => props.setTextScale(stop)}
-                    >
-                      <span class="settings-text-scale__sample">${t(TEXT_SCALE_LABELS[stop])}</span>
-                      <span class="settings-text-scale__label">${stop}%</span>
-                    </button>
-                  `,
-                )}
-              </div>
-            </div>
+            ${renderTextScaleOptions(props.textScale, props.setTextScale)}
+          </div>
+        </div>
+      </section>
+
+      <section id=${APPEARANCE_SETTINGS_TARGET_IDS.terminalTextSize} class="settings-section">
+        <div class="settings-section__header">
+          <h2 class="settings-section__heading">
+            ${platformClawT("configView.appearance.terminalTextSize")}
+          </h2>
+          <div class="settings-section__actions">${terminalTextScaleDefaultState.action}</div>
+        </div>
+        <p class="settings-section__desc">
+          ${terminalTextScaleDefaultState.description} ${t("quickSettings.personal.browserOnly")}
+        </p>
+        <div class="settings-group">
+          <div class="settings-row settings-row--stacked">
+            ${renderTextScaleOptions(props.terminalTextScale, props.setTerminalTextScale)}
           </div>
         </div>
       </section>

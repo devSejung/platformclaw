@@ -30,6 +30,7 @@ import {
   prepareTerminalSessionHostVisibility,
   reattachTerminalSessionHosts,
   updateTerminalSessionTheme,
+  updateTerminalSessionTextScale,
 } from "./terminal-panel-session-rendering.ts";
 import type { TerminalPanelSessionTab } from "./terminal-panel-session-types.ts";
 import { terminalPanelStyles } from "./terminal-panel-styles.ts";
@@ -63,6 +64,8 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
   @property({ type: Boolean }) suppressed = false;
   /** Active Control UI color mode, mirrored into the terminal theme. */
   @property({ attribute: false }) themeMode: "dark" | "light" = "dark";
+  /** Browser-local terminal text scale percentage. */
+  @property({ type: Number }) terminalTextScale = 100;
   /**
    * Terminal-only document mode (`?view=terminal`), used by the mobile apps'
    * WebViews: fills the viewport, always open while available, no dock chrome.
@@ -154,6 +157,9 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
     }
     if (changed.has("themeMode")) {
       updateTerminalSessionTheme(this.terminalSessions.tabs, this.themeMode);
+    }
+    if (changed.has("terminalTextScale")) {
+      updateTerminalSessionTextScale(this.terminalSessions.tabs, this.terminalTextScale);
     }
     if (this.dockLayout.open) {
       reattachTerminalSessionHosts(

@@ -1,5 +1,6 @@
 import {
   forceTerminalRender,
+  TERMINAL_FONT_SIZE,
   type TerminalPanelSessionTab,
 } from "./terminal-panel-session-types.ts";
 import { terminalTheme } from "./terminal-theme.ts";
@@ -19,6 +20,16 @@ export function updateTerminalSessionTheme(
       term.renderer.setTheme(theme);
       forceTerminalRender(tab.controller);
     }
+  }
+}
+
+export function updateTerminalSessionTextScale(
+  tabs: readonly TerminalPanelSessionTab[],
+  scale: number,
+): void {
+  for (const tab of tabs) {
+    tab.controller.terminal.options.fontSize = TERMINAL_FONT_SIZE * (scale / 100);
+    tab.controller.fit();
   }
 }
 

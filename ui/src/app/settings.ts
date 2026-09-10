@@ -171,6 +171,7 @@ export const UI_APPEARANCE_DEFAULTS = {
   theme: "platformclaw",
   themeMode: "light",
   textScale: 100,
+  terminalTextScale: 100,
   sidebarLiveActivity: true,
   chatMessageMaxWidth: "48rem",
   chatSendShortcut: "enter",
@@ -211,6 +212,7 @@ export type UiSettings = {
   showAdvancedSettings?: boolean; // Expand advanced schema settings (default false)
   pinnedAgentIds?: string[]; // Agents surfaced first in the agent-chip quick switcher
   textScale?: TextScaleStop; // Browser-local text scale percentage
+  terminalTextScale?: TextScaleStop; // Browser-local terminal text scale percentage
   customTheme?: ImportedCustomTheme;
   locale?: string;
   lobsterPetVisits?: boolean; // Whether the sidebar lobster pet drops by (default true)
@@ -554,6 +556,11 @@ export function loadSettings(): UiSettings {
         normalizeTextScale(parsed.textScale) !== UI_APPEARANCE_DEFAULTS.textScale
           ? normalizeTextScale(parsed.textScale)
           : undefined,
+      terminalTextScale:
+        typeof parsed.terminalTextScale === "number" &&
+        normalizeTextScale(parsed.terminalTextScale) !== UI_APPEARANCE_DEFAULTS.terminalTextScale
+          ? normalizeTextScale(parsed.terminalTextScale)
+          : undefined,
       customTheme: customTheme ?? undefined,
       locale: isSupportedLocale(parsed.locale) ? parsed.locale : undefined,
       ...(parsed.lobsterPetVisits === false ? { lobsterPetVisits: false } : {}),
@@ -693,6 +700,9 @@ function persistSettings(next: UiSettings, options: { selectGateway?: boolean } 
       ? { pinnedAgentIds: next.pinnedAgentIds }
       : {}),
     ...(next.textScale !== undefined ? { textScale: normalizeTextScale(next.textScale) } : {}),
+    ...(next.terminalTextScale !== undefined
+      ? { terminalTextScale: normalizeTextScale(next.terminalTextScale) }
+      : {}),
     ...(next.customTheme ? { customTheme: next.customTheme } : {}),
     sessionsByGateway,
     ...(next.locale ? { locale: next.locale } : {}),
