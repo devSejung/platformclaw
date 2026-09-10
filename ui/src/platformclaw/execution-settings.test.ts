@@ -161,4 +161,62 @@ describe("PlatformClaw execution settings", () => {
 
     expect(element.shadowRoot?.querySelector("openclaw-modal-dialog")).toBeNull();
   });
+
+  it.each(["codex", "opencode"])(
+    "checks %s on the current employee VM without changing settings",
+    async (agent) => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse(SETTINGS))
+        .mockResolvedValueOnce(jsonResponse({ agent, reportedVersion: "1.2.3" }))
+        .mockResolvedValueOnce(jsonResponse(SETTINGS));
+      mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
+      const element = document.querySelector("platformclaw-execution-settings")!;
+      await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Basic workspace"));
+      element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+      element.shadowRoot?.querySelector<HTMLElement>(`[data-check-agent='${agent}']`)?.click();
+      await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Installed: 1.2.3"));
+      expect(fetchImpl.mock.calls[1]?.[0]).toBe("/platformclaw/api/execution/coding-agent");
+      const body = fetchImpl.mock.calls[1]?.[1]?.body;
+      if (typeof body !== "string") {
+        throw new Error("expected a JSON request body");
+      }
+      expect(JSON.parse(body)).toEqual({
+        agent,
+        expectedRevision: 3,
+      });
+      expect(element.shadowRoot?.textContent).toContain("not model access or login");
+      element.shadowRoot?.querySelector<HTMLElement>("[data-action='refresh']")?.click();
+      await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3));
+      expect(element.shadowRoot?.textContent).not.toContain("Installed: 1.2.3");
+    },
+  );
+
+  it("shows a failed installation check and disables checks when the VM is not ready", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(SETTINGS))
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "Coding agent is not installed on this VM" }, 503),
+      )
+      .mockResolvedValueOnce(jsonResponse({ ...SETTINGS, credentialStatus: "missing" }));
+    mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
+    const element = document.querySelector("platformclaw-execution-settings")!;
+    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Basic workspace"));
+    element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
+    element.shadowRoot?.querySelector<HTMLElement>("[data-check-agent='opencode']")?.click();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.textContent).toContain("Coding agent is not installed"),
+    );
+    expect(element.shadowRoot?.textContent).not.toContain("Installed:");
+    element.shadowRoot?.querySelector<HTMLElement>("[data-action='refresh']")?.click();
+    await vi.waitFor(() => {
+      for (const agent of ["codex", "opencode"]) {
+        expect(
+          element.shadowRoot?.querySelector<HTMLButtonElement>(`[data-check-agent='${agent}']`)
+            ?.disabled,
+        ).toBe(true);
+      }
+    });
+  });
 });

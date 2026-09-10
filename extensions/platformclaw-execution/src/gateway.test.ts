@@ -15,6 +15,7 @@ function createHarness(runtime: {
   testConnection: ReturnType<typeof vi.fn>;
   testCandidateConnection: ReturnType<typeof vi.fn>;
   changeTarget: ReturnType<typeof vi.fn>;
+  validateCodingAgent?: ReturnType<typeof vi.fn>;
 }) {
   const methods = new Map<string, GatewayHandler>();
   let beforeRun: BeforeRunHandler | undefined;
@@ -54,6 +55,30 @@ describe("SafeConnect authentication failure classification", () => {
 });
 
 describe("PlatformClaw execution Gateway methods", () => {
+  it("routes only supported coding agent checks and redacts remote failures", async () => {
+    const runtime = {
+      testConnection: vi.fn(),
+      testCandidateConnection: vi.fn(),
+      changeTarget: vi.fn(),
+      validateCodingAgent: vi.fn().mockRejectedValue(new Error("secret remote output")),
+    };
+    const harness = createHarness(runtime);
+    const respond = vi.fn();
+    const handler = harness.methods.get("platformclaw-execution.validateCodingAgent")!;
+    await handler({ params: { agentId: "person_one", agent: "other" }, respond } as never);
+    expect(runtime.validateCodingAgent).not.toHaveBeenCalled();
+    await handler({ params: { agentId: "person_one", agent: "codex" }, respond } as never);
+    expect(runtime.validateCodingAgent).toHaveBeenCalledWith({
+      agentId: "person_one",
+      agent: "codex",
+    });
+    expect(respond).toHaveBeenLastCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ code: "UNAVAILABLE" }),
+    );
+    expect(JSON.stringify(respond.mock.calls)).not.toContain("secret remote output");
+  });
   it("classifies only an SSH authentication rejection for the BFF", async () => {
     const runtime = {
       testConnection: vi.fn(async () => {

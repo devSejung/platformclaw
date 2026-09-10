@@ -2,8 +2,13 @@ import type { AcpProcessTransportLaunch } from "openclaw/plugin-sdk/acp-runtime-
 import { buildExecRemoteCommand, buildRemoteCommand } from "openclaw/plugin-sdk/sandbox";
 import { buildAssignedVmProcessEnvironment, type AssignedVmTargetSnapshot } from "./backend.js";
 
-const CLAUDE_ADAPTER = "/opt/platformclaw/libexec/claude-agent-acp/bin/claude-agent-acp";
-const OPENCODE_ADAPTER = "/opt/platformclaw/libexec/opencode-acp/bin/opencode";
+const VM_ACP_COMMANDS = new Map<string, string[]>([
+  ["claude", ["/opt/platformclaw/libexec/claude-agent-acp/bin/claude-agent-acp"]],
+  ["codex", ["/opt/platformclaw/libexec/codex-acp/bin/codex-acp"]],
+  ["opencode", ["/opt/platformclaw/libexec/opencode-acp/bin/opencode", "acp"]],
+]);
+
+export const PLATFORMCLAW_VM_ACP_AGENTS = new Set(VM_ACP_COMMANDS.keys());
 
 const REMOTE_LAUNCH_SCRIPT = [
   "set -eu",
@@ -25,14 +30,11 @@ const REMOTE_LAUNCH_SCRIPT = [
 ].join("\n");
 
 function remoteAgentArgv(agent: string): string[] {
-  switch (agent.trim().toLowerCase()) {
-    case "claude":
-      return [CLAUDE_ADAPTER];
-    case "opencode":
-      return [OPENCODE_ADAPTER, "acp"];
-    default:
-      throw new Error(`Assigned VM ACP agent is unsupported: ${agent}`);
+  const argv = VM_ACP_COMMANDS.get(agent.trim().toLowerCase());
+  if (!argv) {
+    throw new Error(`Assigned VM ACP agent is unsupported: ${agent}`);
   }
+  return argv;
 }
 
 export function buildAssignedVmAcpRemoteCommand(
@@ -68,6 +70,17 @@ export function buildAssignedVmAcpDiagnosticCommand(
       agent.trim().toLowerCase(),
       "check",
     ]),
+    workdir: target.remoteWorkspaceDir,
+    env: buildAssignedVmProcessEnvironment(target),
+  });
+}
+
+export function buildAssignedVmCodingAgentVersionCommand(
+  agent: "codex" | "opencode",
+  target: Readonly<AssignedVmTargetSnapshot>,
+): string {
+  return buildExecRemoteCommand({
+    command: `exec ${buildRemoteCommand([remoteAgentArgv(agent)[0]!, "--version"])}`,
     workdir: target.remoteWorkspaceDir,
     env: buildAssignedVmProcessEnvironment(target),
   });

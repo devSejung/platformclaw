@@ -113,6 +113,79 @@ function createHarness() {
 }
 
 describe("EmployeeExecutionService", () => {
+  it.each(["codex", "opencode"] as const)(
+    "checks %s without storing installation or authentication state",
+    async (agent) => {
+      const harness = createHarness();
+      harness.adminRpcCall.mockResolvedValueOnce({
+        agent,
+        allocationId: "allocation-one",
+        targetRevision: 2,
+        reportedVersion: "1.0.0",
+      });
+      await expect(
+        harness.service.validateCodingAgent({
+          userId: "user-one",
+          agentId: "person_one",
+          agent,
+          expectedRevision: 2,
+        }),
+      ).resolves.toEqual({ agent, reportedVersion: "1.0.0" });
+      expect(harness.adminRpcCall).toHaveBeenCalledWith(
+        "platformclaw-execution.validateCodingAgent",
+        { agentId: "person_one", agent },
+      );
+      expect(harness.store.getPersonalExecutionSettings).toHaveBeenCalledTimes(2);
+      expect(harness.store.setPersonalClaudeCode).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["ownership", "revision", "readiness", "allocation", "result"])(
+    "rejects coding agent validation when %s changes",
+    async (change) => {
+      const harness = createHarness();
+      harness.adminRpcCall.mockResolvedValueOnce({
+        agent: "codex",
+        allocationId: change === "result" ? "other" : "allocation-one",
+        targetRevision: 2,
+        reportedVersion: "1.0.0",
+      });
+      harness.store.getPersonalExecutionSettings
+        .mockResolvedValueOnce(SETTINGS)
+        .mockResolvedValueOnce({
+          ...SETTINGS,
+          userId: change === "ownership" ? "other-user" : SETTINGS.userId,
+          targetRevision: change === "revision" ? 3 : 2,
+          allocation: {
+            ...SETTINGS.allocation,
+            id: change === "allocation" ? "other" : SETTINGS.allocation.id,
+            status: change === "readiness" ? "connection_required" : "ready",
+          },
+        });
+      await expect(
+        harness.service.validateCodingAgent({
+          userId: "user-one",
+          agentId: "person_one",
+          agent: "codex",
+          expectedRevision: 2,
+        }),
+      ).rejects.toMatchObject({ statusCode: 409 });
+    },
+  );
+
+  it("rejects stale coding agent checks before contacting the VM", async () => {
+    const harness = createHarness();
+    await expect(
+      harness.service.validateCodingAgent({
+        userId: "user-one",
+        agentId: "person_one",
+        agent: "codex",
+        expectedRevision: 1,
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(harness.adminRpcCall).not.toHaveBeenCalled();
+  });
+
   it("tests a transient password before replacing the durable credential", async () => {
     const harness = createHarness();
 
@@ -363,6 +436,56 @@ describe("EmployeeExecutionService", () => {
 });
 
 describe("employee execution HTTP errors", () => {
+  it.each([
+    { agent: "opencode", expectedRevision: 2, status: 200 },
+    { agent: "other", expectedRevision: 2, status: 400 },
+    { agent: "codex", expectedRevision: -1, status: 400 },
+  ])(
+    "validates the coding agent route input ($agent, $expectedRevision)",
+    async ({ agent, expectedRevision, status }) => {
+      const validateCodingAgent = vi.fn(async () => ({ agent, reportedVersion: "1.0.0" }));
+      const response = {
+        statusCode: 0,
+        setHeader: vi.fn(),
+        end: vi.fn(),
+      } as unknown as ServerResponse;
+      const handled = await handlePlatformClawEmployeeExecutionRequest(
+        {
+          url: "/platformclaw/api/execution/coding-agent",
+          method: "POST",
+          headers: { cookie: "platformclaw_session=test-token" },
+        } as IncomingMessage,
+        response,
+        {
+          service: {
+            authenticate: async () => ({
+              user: { id: "user-one" },
+              binding: { agentId: "person_one" },
+            }),
+            validateCodingAgent,
+          } as unknown as EmployeeExecutionService,
+          isMutationOriginAllowed: () => true,
+          readJsonBody: async () => ({
+            ok: true,
+            value: { agent, expectedRevision, agentId: "other-person" },
+          }),
+        },
+      );
+      expect(handled).toBe(true);
+      expect(response.statusCode).toBe(status);
+      if (status === 200) {
+        expect(validateCodingAgent).toHaveBeenCalledWith({
+          userId: "user-one",
+          agentId: "person_one",
+          agent,
+          expectedRevision,
+        });
+      } else {
+        expect(validateCodingAgent).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it("returns 409 when a connection result races with a target change", async () => {
     let responseBody = "";
     const response = {

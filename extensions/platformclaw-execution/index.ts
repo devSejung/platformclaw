@@ -5,7 +5,7 @@ import {
 } from "openclaw/plugin-sdk/acp-runtime-backend";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { registerSandboxBackend } from "openclaw/plugin-sdk/sandbox";
-import { PLATFORMCLAW_VM_ACP_AGENTS } from "./src/acp-process-transport.js";
+import { PLATFORMCLAW_VM_ACP_AGENTS } from "./src/acp-process-command.js";
 import {
   createPlatformClawExecutionBackendFactory,
   createPlatformClawExecutionSkillProvider,

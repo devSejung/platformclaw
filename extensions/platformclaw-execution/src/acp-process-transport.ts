@@ -19,7 +19,6 @@ import {
 import type { AssignedVmTargetSnapshot } from "./backend.js";
 import { classifyVmConnectionFailure } from "./connection-errors.js";
 
-export const PLATFORMCLAW_VM_ACP_AGENTS = new Set(["claude", "opencode"]);
 const ACP_DIAGNOSTIC_TIMEOUT_MS = 10_000;
 
 function transportError(
