@@ -377,12 +377,13 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
           finish = resolve;
         });
         await route.fulfill({ status: 503, json: { error: "Binding save unavailable" } });
-      } else
+      } else {
         await route.fulfill(
           loadFails
             ? { status: 503, json: { error: "Namespace list unavailable" } }
             : { json: { bindings: [], scopes: [] } },
         );
+      }
     });
     await page.goto(`${server.baseUrl}platformclaw/app/skills/hub`);
     await page.getByRole("button", { name: "Skill Hub admin", exact: true }).click();

@@ -204,8 +204,11 @@ class PlatformClawMemoryDeleteDialog extends OpenClawLightDomElement {
     return html`<openclaw-modal-dialog
       label=${t(this.deleteKey("delete"))}
       @modal-cancel=${(event: Event) => {
-        if (this.deleting) event.preventDefault();
-        else this.cancel();
+        if (this.deleting) {
+          event.preventDefault();
+        } else {
+          this.cancel();
+        }
       }}
     >
       <div class="settings-page platformclaw-memory-action-dialog">

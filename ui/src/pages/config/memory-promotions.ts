@@ -277,8 +277,9 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       label=${label}
       description=${pending.request.targetScopeName}
       @modal-cancel=${(event: Event) => {
-        if (this.loading) event.preventDefault();
-        else {
+        if (this.loading) {
+          event.preventDefault();
+        } else {
           this.pendingDecision = null;
           this.error = null;
         }
@@ -291,7 +292,9 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
           const form = event.currentTarget as HTMLFormElement;
           const input = form.elements.namedItem("reason") as HTMLTextAreaElement;
           input.value = input.value.trim();
-          if (!form.reportValidity()) return;
+          if (!form.reportValidity()) {
+            return;
+          }
           const value = new FormData(form).get("reason");
           const reason = typeof value === "string" ? value.trim() : "";
           if (reason) {

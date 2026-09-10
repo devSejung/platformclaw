@@ -608,14 +608,18 @@ describeE2e("PlatformClaw Organization settings", () => {
 
       await page.goto(`${server.baseUrl}platformclaw/app/chat`);
       const dismissGuide = page.getByRole("button", { name: "다시 보지 않기", exact: true });
-      await dismissGuide.waitFor();
-      await dismissGuide.click();
+      if (name === "PC") {
+        await dismissGuide.waitFor();
+        await dismissGuide.click();
+      } else {
+        expect(await dismissGuide.count()).toBe(0);
+      }
       await expect.poll(() => page.getByText("조직에 가입하세요").isVisible()).toBe(true);
       await page.getByRole("button", { name: "나중에" }).click();
       await expect.poll(() => page.getByText("조직에 가입하세요").count()).toBe(0);
       await page.evaluate(() => sessionStorage.clear());
       await page.reload();
-      if (await dismissGuide.isVisible()) {
+      if (name === "PC" && (await dismissGuide.isVisible())) {
         await dismissGuide.click();
       }
       await expect.poll(() => page.getByText("조직에 가입하세요").isVisible()).toBe(true);

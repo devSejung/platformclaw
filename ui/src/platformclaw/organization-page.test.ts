@@ -248,7 +248,11 @@ describe("PlatformClaw Organization settings", () => {
     dialog.querySelector("form")!.dispatchEvent(new SubmitEvent("submit", { bubbles: true }));
     await vi.waitFor(() =>
       expect(
-        fetchImpl.mock.calls.filter(([input]) => String(input).endsWith("/context")),
+        fetchImpl.mock.calls.filter(([input]) => {
+          const url =
+            typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+          return url.endsWith("/context");
+        }),
       ).toHaveLength(2),
     );
     expect(element.querySelector("openclaw-modal-dialog")).toBe(dialog);

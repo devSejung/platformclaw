@@ -6,6 +6,12 @@ import type { SkillWorkshopProposal } from "../../lib/skill-workshop/index.ts";
 import { notifyPlatformClawExecutionTargetChanged } from "../../platformclaw/execution-target-events.ts";
 import { createSkillWorkshopState, skillWorkshopRouteData } from "./proposals.ts";
 import type { SkillWorkshopRouteData, SkillWorkshopState } from "./proposals.ts";
+import {
+  callsFor,
+  createRuntimeConfigStub,
+  deferred,
+  waitForSkillWorkshop,
+} from "./skill-workshop-page.test-support.ts";
 import "./skill-workshop-page.ts";
 
 type SkillWorkshopPageTestElement = HTMLElement & {
@@ -20,41 +26,6 @@ type SkillWorkshopPageTestElement = HTMLElement & {
   updateComplete: Promise<boolean>;
   requestUpdate: () => void;
 };
-
-function waitForSkillWorkshop(assertion: () => void) {
-  return vi.waitFor(assertion, { interval: 1 });
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((next) => {
-    resolve = next;
-  });
-  return { promise, resolve };
-}
-
-function callsFor(request: ReturnType<typeof vi.fn>, method: string) {
-  return request.mock.calls.filter(([calledMethod]) => calledMethod === method);
-}
-
-function createRuntimeConfigStub(options?: {
-  sourceConfig?: Record<string, unknown>;
-  patch?: ReturnType<typeof vi.fn>;
-}) {
-  return {
-    state: {
-      configSnapshot: options?.sourceConfig
-        ? { hash: "hash-1", sourceConfig: options.sourceConfig }
-        : null,
-      configLoading: false,
-      lastError: null as string | null,
-    },
-    ensureLoaded: vi.fn(async () => undefined),
-    refresh: vi.fn(async () => undefined),
-    patch: options?.patch ?? vi.fn(async () => true),
-    subscribe: () => () => undefined,
-  };
-}
 
 function createContext(
   request: ReturnType<typeof vi.fn>,

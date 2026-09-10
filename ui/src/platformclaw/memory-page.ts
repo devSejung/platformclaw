@@ -171,8 +171,11 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
             label=${t("platformClaw.memory.share")}
             style="--openclaw-modal-width: 800px"
             @modal-cancel=${(event: Event) => {
-              if (this.promotionBusy) event.preventDefault();
-              else this.promotionLookup = "";
+              if (this.promotionBusy) {
+                event.preventDefault();
+              } else {
+                this.promotionLookup = "";
+              }
             }}
             ><div class="settings-page platformclaw-memory-action-dialog">
               <button

@@ -18,12 +18,14 @@ describe("SkillHubPage", () => {
     async (operation) => {
       let fail = true;
       const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.endsWith("/config"))
+        const url = input instanceof Request ? input.url : input.toString();
+        if (url.endsWith("/config")) {
           return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 });
+        }
         if (url.includes("/notifications")) {
-          if (fail && (operation === "load" || url.endsWith("/read")))
+          if (fail && (operation === "load" || url.endsWith("/read"))) {
             return jsonResponse({ error: "Inbox unavailable" }, 503);
+          }
           return jsonResponse({ items: [], unreadCount: 0, ok: true, updated: 0 });
         }
         return jsonResponse({ total: 0, items: [] });

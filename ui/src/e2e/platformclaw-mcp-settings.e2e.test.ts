@@ -108,8 +108,11 @@ describeControlUiE2e("PlatformClaw personal MCP browser settings", () => {
           return;
         }
         const body = route.request().postDataJSON();
-        if (body.action === "remove-server") servers = [];
-        else servers = [{ ...entry, enabled: body.enabled }];
+        if (body.action === "remove-server") {
+          servers = [];
+        } else {
+          servers = [{ ...entry, enabled: body.enabled }];
+        }
       }
       await route.fulfill({ json: { servers } });
     });

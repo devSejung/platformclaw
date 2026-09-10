@@ -23,10 +23,11 @@ describe("platformclaw-voc-dialog", () => {
     document.body.append(element);
     await element.updateComplete;
     const root = element.shadowRoot!;
-    for (const [selector, value] of [
+    const fields: ReadonlyArray<readonly [string, string]> = [
       ["input", "Preview issue"],
       ["textarea", "UI-only test"],
-    ]) {
+    ];
+    for (const [selector, value] of fields) {
       const input = root.querySelector<HTMLInputElement>(selector)!;
       input.value = value;
       input.dispatchEvent(new InputEvent("input"));

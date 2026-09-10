@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../app/context.ts";
 import { i18n } from "../i18n/index.ts";
@@ -24,6 +24,31 @@ const BASIC_EXECUTION_SETTINGS = {
   accountId: "person.one",
   availableVms: [],
 };
+
+function installMobileNavMediaQuery(matches: boolean) {
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  const mediaQuery = {
+    matches,
+    addEventListener: (_type: "change", listener: (event: MediaQueryListEvent) => void) => {
+      listeners.add(listener);
+    },
+    removeEventListener: (_type: "change", listener: (event: MediaQueryListEvent) => void) => {
+      listeners.delete(listener);
+    },
+    setMatches(nextMatches: boolean) {
+      this.matches = nextMatches;
+      const event = { matches: nextMatches } as MediaQueryListEvent;
+      for (const listener of listeners) {
+        listener(event);
+      }
+    },
+  };
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => mediaQuery),
+  );
+  return mediaQuery;
+}
 
 async function mount(
   options: { admin?: boolean; fetchImpl?: typeof fetch; vocEnabled?: boolean } = {},
@@ -165,6 +190,10 @@ describe("platformclaw-quick-actions", () => {
     await i18n.setLocale("en");
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the compact role-aware grid and server-owned VOC action", async () => {
     localStorage.setItem(PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY, "true");
     const admin = await mount({ admin: true, vocEnabled: true });
@@ -275,6 +304,25 @@ describe("platformclaw-quick-actions", () => {
     );
   });
 
+  it("does not advertise the PC-only guide in mobile navigation", async () => {
+    const mediaQuery = installMobileNavMediaQuery(false);
+    const element = await mount();
+    expect(element.shadowRoot?.querySelector('[data-tour="guide"]')).not.toBeNull();
+
+    mediaQuery.setMatches(true);
+    await element.updateComplete;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+
+    expect(element.shadowRoot?.querySelector(".tour-popover")).toBeNull();
+    expect(element.shadowRoot?.querySelector('[data-tour="guide"]')).toBeNull();
+
+    mediaQuery.setMatches(false);
+    await element.updateComplete;
+    expect(element.shadowRoot?.querySelector('[data-tour="guide"]')).not.toBeNull();
+  });
+
   it("waits for a manual launch outside the chat route", async () => {
     globalThis.history.replaceState(null, "", "/platformclaw/app/settings/appearance");
     const element = await mount();
@@ -313,7 +361,9 @@ describe("platformclaw-quick-actions", () => {
     document.body.append(provider);
     provider.append(element);
     await element.updateComplete;
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
     expect(element.shadowRoot?.querySelector(".tour-popover")).toBeNull();
 
     snapshot = {
