@@ -3,6 +3,9 @@
 /** HTTP path for the Control UI bootstrap config payload. */
 export const CONTROL_UI_BOOTSTRAP_CONFIG_PATH = "/control-ui-config.json";
 
+/** Authenticated attachment metadata and bytes, also used by external chat UIs. */
+export const CONTROL_UI_ASSISTANT_MEDIA_PREFIX = "/__openclaw__/assistant-media";
+
 /** Fragment marker selecting the host-authorized browser-owner bootstrap profile. */
 export const CONTROL_UI_BOOTSTRAP_PROFILE_FRAGMENT_PARAM = "bootstrapProfile";
 export const CONTROL_UI_OWNER_BOOTSTRAP_PROFILE_HINT = "owner";

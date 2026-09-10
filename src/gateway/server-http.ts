@@ -29,6 +29,7 @@ import {
   type ResolvedGatewayAuth,
 } from "./auth.js";
 import {
+  CONTROL_UI_ASSISTANT_MEDIA_PREFIX,
   CONTROL_UI_CATALOG_ICON_PATH_PREFIX,
   CONTROL_UI_PLUGIN_ICON_PATH_PREFIX,
 } from "./control-ui-contract.js";
@@ -710,11 +711,16 @@ export function createGatewayHttpServer(opts: {
             controlUiRouteOptions,
           ),
       );
-      addRequestStage("control-ui-assistant-media", controlUiEnabled, async () =>
-        (await getControlUiModule()).handleControlUiAssistantMediaRequest(req, res, {
-          ...controlUiRouteOptions,
-          agentId: resolveAssistantIdentity({ cfg: configSnapshot }).agentId,
-        }),
+      // External chat UIs disable bundled UI hosting but still need authenticated
+      // attachment access. Keep the handler's auth and file-root checks independent.
+      addRequestStage(
+        "control-ui-assistant-media",
+        scopedRequestPath === `${controlUiRouteBasePath}${CONTROL_UI_ASSISTANT_MEDIA_PREFIX}`,
+        async () =>
+          (await getControlUiModule()).handleControlUiAssistantMediaRequest(req, res, {
+            ...controlUiRouteOptions,
+            agentId: resolveAssistantIdentity({ cfg: configSnapshot }).agentId,
+          }),
       );
       addRequestStage("control-ui-avatar", controlUiEnabled, async () =>
         (await getControlUiModule()).handleControlUiAvatarRequest(req, res, controlUiRouteOptions),
