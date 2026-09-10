@@ -537,6 +537,12 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.execution.password": "AD 비밀번호",
   "platformClaw.execution.saveAndTest": "연결 확인 후 저장",
   "platformClaw.execution.codingAgents": "코딩 Agent",
+  "platformClaw.execution.managedAgentHelp":
+    "작업 위치를 VM으로 바꾼 뒤 채팅에서 {agent} 사용을 요청하세요. 어댑터는 관리자가 설치하며 실행 파일 경로를 따로 설정하지 않습니다.",
+  "platformClaw.execution.managedAgentLogin":
+    "VM 터미널에서 본인 Linux 계정으로 로그인하세요. 아래 확인은 설치 여부만 검사하며 모델 접근이나 로그인 상태는 확인하지 않습니다.",
+  "platformClaw.execution.checkAgentInstallation": "VM 설치 확인",
+  "platformClaw.execution.agentInstalled": "설치 확인: {version}",
   "platformClaw.execution.claudePath": "Claude Code 실행 파일",
   "platformClaw.execution.claudeNotConfigured": "Claude Code 위치를 아직 확인하지 않았습니다.",
   "platformClaw.execution.detectClaude": "VM에서 자동 찾기",

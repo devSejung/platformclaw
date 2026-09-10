@@ -175,6 +175,12 @@ export const en: TranslationMap = {
       password: "AD password",
       saveAndTest: "Save after connection test",
       codingAgents: "Coding agents",
+      managedAgentHelp:
+        "Ask in chat to use {agent} after switching to your VM. Your administrator installs its adapter; no executable path setting is needed.",
+      managedAgentLogin:
+        "Sign in from the VM terminal with your own Linux account. This check verifies installation only, not model access or login.",
+      checkAgentInstallation: "Check VM installation",
+      agentInstalled: "Installed: {version}",
       claudePath: "Claude Code executable",
       claudeNotConfigured: "Claude Code has not been detected for this Linux account.",
       detectClaude: "Detect from VM",

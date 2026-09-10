@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildAssignedVmAcpDiagnosticCommand,
   buildAssignedVmAcpRemoteCommand,
+  PLATFORMCLAW_VM_ACP_AGENTS,
 } from "./acp-process-command.js";
 import {
   diagnoseAssignedVmAcpProcess,
@@ -49,24 +50,31 @@ describe("assigned VM ACP process transport", () => {
     disposeSshSandboxSessionMock.mockClear();
   });
 
-  it("uses only the root-managed Claude adapter and typed per-user executable", () => {
+  it.each([
+    ["claude", "/opt/platformclaw/libexec/claude-agent-acp/bin/claude-agent-acp"],
+    ["codex", "/opt/platformclaw/libexec/codex-acp/bin/codex-acp"],
+    ["opencode", "/opt/platformclaw/libexec/opencode-acp/bin/opencode"],
+  ])("launches %s only in the assigned employee account", (agent, executable) => {
     const command = buildAssignedVmAcpRemoteCommand(
       {
         executionOwnerAgentId: "person_one",
-        agent: "claude",
+        agent: ` ${agent.toUpperCase()} `,
         sessionKey: "session-one",
         command: "/tmp/attacker-adapter",
         args: ["--attacker"],
         cwd: "/tmp/attacker-workdir",
-        env: { LD_PRELOAD: "/tmp/attacker.so" },
+        env: { LD_PRELOAD: "/tmp/attacker.so", CODEX_HOME: "/tmp/attacker-home" },
       },
       TARGET,
     );
 
-    expect(command).toContain("/opt/platformclaw/libexec/claude-agent-acp/bin/claude-agent-acp");
+    expect(PLATFORMCLAW_VM_ACP_AGENTS.has(agent)).toBe(true);
+    expect(command).toContain(executable);
     expect(command).toContain("CLAUDE_CODE_EXECUTABLE");
     expect(command).toContain("/home/person.one/.local/bin/claude");
     expect(command).toContain("/home/person.one/workspace");
+    expect(command).toContain("HOME");
+    expect(command).toContain("/home/person.one");
     expect(command).not.toContain("attacker");
     expect(command).not.toContain("LD_PRELOAD");
   });
@@ -90,7 +98,7 @@ describe("assigned VM ACP process transport", () => {
       buildAssignedVmAcpRemoteCommand(
         {
           executionOwnerAgentId: "person_one",
-          agent: "codex",
+          agent: "unsupported-agent",
           sessionKey: "session-one",
           command: "ignored",
           args: [],
@@ -102,7 +110,7 @@ describe("assigned VM ACP process transport", () => {
     ).toThrow("unsupported");
   });
 
-  it.each(["claude", "opencode"])(
+  it.each(["claude", "codex", "opencode"])(
     "builds a bounded %s diagnostic without logical launcher input",
     (agent) => {
       const command = buildAssignedVmAcpDiagnosticCommand(agent, TARGET);

@@ -5,6 +5,7 @@ import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import { PLATFORMCLAW_EXECUTION_API_PATH } from "./web-contract.ts";
 
 type ExecutionTarget = "platform_server" | "assigned_vm";
+type ManagedCodingAgent = "codex" | "opencode";
 
 type ExecutionSettings = {
   activeTarget: ExecutionTarget;
@@ -75,6 +76,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
   private message = "";
   private pendingTarget: ExecutionTarget | null = null;
   private pendingRelease = false;
+  private codingAgentVersions: Partial<Record<ManagedCodingAgent, string>> = {};
   private unsubscribeLocale = () => {};
 
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
@@ -105,7 +107,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     }
   }
 
-  private async request(path: string, init?: RequestInit): Promise<ExecutionSettings> {
+  private async request<T = ExecutionSettings>(path: string, init?: RequestInit): Promise<T> {
     const response = await this.fetchImpl(path, {
       credentials: "same-origin",
       headers: {
@@ -122,10 +124,11 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     if (!response.ok) {
       throw new Error(localizedRequestError(body.error, "platformClaw.execution.requestFailed"));
     }
-    return body as ExecutionSettings;
+    return body as T;
   }
 
   private async refresh(): Promise<void> {
+    this.codingAgentVersions = {};
     this.loading = true;
     this.render();
     try {
@@ -145,6 +148,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       return;
     }
     this.busy = true;
+    this.codingAgentVersions = {};
     this.message = "";
     this.render();
     try {
@@ -159,6 +163,32 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       if (previousRevision !== undefined && this.settings.targetRevision !== previousRevision) {
         notifyPlatformClawExecutionTargetChanged();
       }
+    } catch (error) {
+      this.message =
+        error instanceof Error ? error.message : t("platformClaw.execution.requestFailed");
+    } finally {
+      this.busy = false;
+      this.render();
+    }
+  }
+
+  private async checkCodingAgent(agent: ManagedCodingAgent): Promise<void> {
+    if (this.busy || !this.settings) {
+      return;
+    }
+    this.busy = true;
+    this.message = "";
+    delete this.codingAgentVersions[agent];
+    this.render();
+    try {
+      const result = await this.request<{ agent: ManagedCodingAgent; reportedVersion: string }>(
+        `${PLATFORMCLAW_EXECUTION_API_PATH}/coding-agent`,
+        {
+          method: "POST",
+          body: JSON.stringify({ agent, expectedRevision: this.settings.targetRevision }),
+        },
+      );
+      this.codingAgentVersions[agent] = result.reportedVersion;
     } catch (error) {
       this.message =
         error instanceof Error ? error.message : t("platformClaw.execution.requestFailed");
@@ -218,6 +248,11 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
           });
         }
       });
+    for (const agent of ["codex", "opencode"] as const) {
+      this.root
+        .querySelector<HTMLElement>(`[data-check-agent='${agent}']`)
+        ?.addEventListener("click", () => void this.checkCodingAgent(agent));
+    }
     this.root
       .querySelector<HTMLFormElement>("[data-action='select-vm']")
       ?.addEventListener("submit", (event) => {
@@ -288,6 +323,13 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       : t("platformClaw.execution.workLocation");
     const assignment = settings?.assignment;
     const canUseVm = assignment?.status === "ready" && settings?.credentialStatus === "current";
+    const managedCodingAgents = (["codex", "opencode"] as const)
+      .map((agent) => {
+        const label = agent === "codex" ? "Codex" : "OpenCode";
+        const version = this.codingAgentVersions[agent];
+        return `<section class="card" data-coding-agent="${agent}"><h3>${label}</h3><p class="muted">${escapeHtml(t("platformClaw.execution.managedAgentHelp", { agent: label }))}</p><p class="muted">${escapeHtml(t("platformClaw.execution.managedAgentLogin"))}</p>${version ? `<p role="status">${escapeHtml(t("platformClaw.execution.agentInstalled", { version }))}</p>` : ""}<button class="button" data-check-agent="${agent}" ${!canUseVm || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.checkAgentInstallation"))}</button></section>`;
+      })
+      .join("");
     const targetLabel =
       this.pendingTarget === "assigned_vm"
         ? t("platformClaw.execution.vm")
@@ -340,6 +382,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
           ${settings ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.current"))}</h3><strong>${escapeHtml(badgeLabel)}</strong><p class="muted">${escapeHtml(t("platformClaw.execution.boundary"))}</p><div class="row"><button class="button" data-target="platform_server" ${settings.activeTarget === "platform_server" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.useBasic"))}</button><button class="button primary" data-target="assigned_vm" ${settings.activeTarget === "assigned_vm" || !canUseVm || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.useVm"))}</button></div></section>` : ""}
           ${assignment ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.assignedVm"))}</h3><strong>${escapeHtml(assignment.vmLabel)}</strong><p class="muted">${escapeHtml(assignment.linuxAccount)} · ${escapeHtml(assignment.remoteWorkspaceDir ?? t("platformClaw.execution.workspacePending"))}</p><p class="muted">${escapeHtml(t("platformClaw.execution.lastCheck"))}: ${escapeHtml(formatCheckTime(assignment.lastConnectionSucceededAt))}</p><label>${escapeHtml(t("platformClaw.execution.password"))}<input data-password type="password" autocomplete="current-password" maxlength="4096" /></label><div class="row"><button class="button primary" data-action="credential" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.saveAndTest"))}</button><button class="button" data-action="test" ${settings?.credentialStatus !== "current" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.test"))}</button><button class="button" data-action="release" ${settings.activeTarget !== "platform_server" || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.release"))}</button></div></section>` : ""}
           ${assignment ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.codingAgents"))}</h3><label>${escapeHtml(t("platformClaw.execution.claudePath"))}<input data-claude-path value="${escapeHtml(settings?.claudeCode?.executablePath ?? "")}" placeholder="/home/${escapeHtml(assignment.linuxAccount)}/.local/bin/claude" maxlength="4096" /></label>${settings?.claudeCode ? `<p class="muted">${escapeHtml(settings.claudeCode.reportedVersion)} · ${escapeHtml(formatCheckTime(settings.claudeCode.validatedAt))}</p>` : `<p class="muted">${escapeHtml(t("platformClaw.execution.claudeNotConfigured"))}</p>`}<div class="row"><button class="button" data-action="claude-detect" ${!canUseVm || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.detectClaude"))}</button><button class="button primary" data-action="claude-save" ${!canUseVm || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.saveClaude"))}</button></div></section>` : ""}
+          ${assignment ? managedCodingAgents : ""}
           ${settings ? (settings.activeTarget === "platform_server" ? `<section class="card"><h3>${escapeHtml(t("platformClaw.execution.selectVm"))}</h3>${settings.availableVms.length ? `<form data-action="select-vm"><label>${escapeHtml(t("platformClaw.execution.vmChoice"))}<select name="vmHostId" required>${vmOptions}</select></label><label>${escapeHtml(t("platformClaw.execution.linuxAccount"))}<input name="linuxAccount" value="${escapeHtml(assignment?.linuxAccount ?? settings.accountId)}" required></label><label>${escapeHtml(t("platformClaw.execution.password"))}<input name="password" type="password" autocomplete="current-password" maxlength="4096" required></label><p class="muted">${escapeHtml(t("platformClaw.execution.selectionHelp"))}</p><button class="button primary" ${this.busy ? "disabled" : ""}>${escapeHtml(assignment ? t("platformClaw.execution.changeVm") : t("platformClaw.execution.connectVm"))}</button></form>` : `<p class="muted">${escapeHtml(t("platformClaw.execution.noAvailableVm"))}</p>`}</section>` : `<section class="card"><p class="muted">${escapeHtml(t("platformClaw.execution.switchBasicToChange"))}</p></section>`) : ""}
         </main>
         <footer data-confirmation-footer aria-live="polite">

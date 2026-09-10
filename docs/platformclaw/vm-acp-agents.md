@@ -1,22 +1,22 @@
 ---
-summary: "Run Claude Code and OpenCode ACP sessions inside each employee's assigned development VM account"
+summary: "Run Claude Code, Codex, and OpenCode ACP sessions inside each employee's assigned development VM account"
 read_when:
   - Installing the PlatformClaw ACP adapters on an enterprise development VM
-  - Enabling Claude Code or OpenCode for personal agents
+  - Enabling Claude Code, Codex, or OpenCode for personal agents
   - Troubleshooting assigned-VM ACP sessions or per-user Claude paths
 title: "Assigned VM coding agents"
 ---
 
 # Run coding agents in assigned VMs
 
-PlatformClaw can start Claude Code and OpenCode ACP sessions in the employee's
+PlatformClaw can start Claude Code, Codex, and OpenCode ACP sessions in the employee's
 assigned Linux account over the existing SafeConnect SSH connection. The
 Gateway and ACPX session manager remain on the PlatformClaw server; the adapter,
 coding-agent process, working directory, credentials, and filesystem access stay
 inside the assigned VM account.
 
-Install each adapter once on the shared VM. Employees keep their own Claude Code
-or OpenCode authentication under their Linux home directory. They do not install
+Install each adapter once on the shared VM. Employees keep their own coding-agent
+authentication under their Linux home directory. They do not install
 their own ACP adapter.
 
 ## Before you begin
@@ -28,10 +28,10 @@ You need:
 - outbound access to GitHub Releases, or an approved way to transfer the assets;
 - Claude Code installed and authenticated separately for each employee who uses
   Claude;
-- OpenCode authentication initialized separately for each employee who uses
-  OpenCode.
+- Codex or OpenCode authentication initialized separately for each employee who
+  uses that agent.
 
-The adapter assets are pinned to the
+The existing Claude Code and OpenCode adapter assets are pinned to the
 `platformclaw-vm-preview-20260903` release. Do not replace them with an
 unverified `npx` download on a production VM.
 
@@ -92,10 +92,44 @@ PlatformClaw invokes only these stable entry points:
 
 ```text
 /opt/platformclaw/libexec/claude-agent-acp/bin/claude-agent-acp
+/opt/platformclaw/libexec/codex-acp/bin/codex-acp
 /opt/platformclaw/libexec/opencode-acp/bin/opencode acp
 ```
 
-Users must not be able to modify either directory or symlink.
+Users must not be able to modify adapter directories or symlinks.
+
+### Add the Codex adapter
+
+The earlier release above does not contain the Codex adapter. On a Linux x64
+build host with an official Node distribution and npm (including Node's prefix-level
+`LICENSE`, as in the PlatformClaw Linux image), build the transfer archive from this checkout:
+
+```bash
+bash scripts/platformclaw-package-vm-acp.sh /tmp/vm-acp-artifacts codex
+```
+
+The builder pins `@agentclientprotocol/codex-acp` to `1.1.7` and its Codex
+runtime to `0.146.1`, matching the repository dependency contract. It bundles
+Node, checks the executable and ACP initialization, and emits the archive,
+SHA-256 file, and resolved dependency lock. Retain the lock beside the archive;
+subsequent builds in that output directory use it. The first build resolves
+transitive dependencies from the registry. `claude` and `opencode` are also
+accepted to rebuild their pinned adapters.
+
+Transfer the archive and checksum to the VM through the approved transfer path.
+Verify against the build checksum before installing as root:
+
+```bash
+sha256sum -c platformclaw-codex-acp-1.1.7-linux-x64.tar.gz.sha256
+test ! -e /opt/platformclaw/libexec/versions/codex-acp-1.1.7
+install -d -m 0755 /opt/platformclaw/libexec/versions/codex-acp-1.1.7
+tar -xzf platformclaw-codex-acp-1.1.7-linux-x64.tar.gz \
+  -C /opt/platformclaw/libexec/versions/codex-acp-1.1.7
+chown -R root:root /opt/platformclaw/libexec/versions/codex-acp-1.1.7
+chmod -R go-w /opt/platformclaw/libexec/versions/codex-acp-1.1.7
+ln -sfnT /opt/platformclaw/libexec/versions/codex-acp-1.1.7 \
+  /opt/platformclaw/libexec/codex-acp
+```
 
 ## Enable ACP on the PlatformClaw server
 
@@ -105,9 +139,9 @@ install`, `npm install -g acpx`, or `npx acpx` in the Gateway container; those
 runtime changes disappear when the container is recreated and a global `acpx`
 CLI is not an OpenClaw plugin installation.
 
-Enable the bundled plugin and allow only the two VM adapters in
+Enable the bundled plugin and allow the installed VM adapters in
 `openclaw.json`. If `plugins.allow` is already a non-empty allowlist, add
-`"acpx"` to it as shown here:
+`"acpx"` and `"platformclaw-execution"` to it as shown here:
 
 ```json5
 {
@@ -115,10 +149,10 @@ Enable the bundled plugin and allow only the two VM adapters in
     enabled: true,
     backend: "acpx",
     defaultAgent: "claude",
-    allowedAgents: ["claude", "opencode"],
+    allowedAgents: ["claude", "codex", "opencode"],
   },
   plugins: {
-    allow: ["acpx"], // Merge with existing entries; do not replace them.
+    allow: ["acpx", "platformclaw-execution"], // Merge with existing entries.
     entries: {
       acpx: {
         enabled: true,
@@ -166,13 +200,27 @@ back to the Gateway host or Basic workspace.
 
 The Claude adapter receives the selected path as `CLAUDE_CODE_EXECUTABLE`. It
 runs with the employee's `HOME`, `PATH`, workspace, and authenticated Claude
-state. OpenCode uses the same employee home and workspace but does not need a
-separate executable-path setting.
+state. Codex and OpenCode use the same employee home and workspace and do not
+need a separate executable-path setting. Their cards provide **Check VM
+installation**, which runs the managed executable version check in the assigned
+account. This does not verify provider authentication or model access.
+
+Open the VM terminal as the employee and authenticate the selected agent:
+
+```bash
+/opt/platformclaw/libexec/codex-acp/bin/codex-acp cli login --device-auth
+/opt/platformclaw/libexec/opencode-acp/bin/opencode auth login
+```
+
+Use Codex's `cli` passthrough so login uses the same bundled Codex runtime as
+ACP. Keep each employee's authentication in their VM home, never in shared
+Gateway configuration. Select the VM work location, then ask in chat to use
+Claude Code, Codex, or OpenCode for the task.
 
 ## Test the setup
 
-From the employee's personal browser chat, run `/acp doctor claude` and `/acp
-doctor opencode`. The transport diagnostic checks that employee's assigned VM,
+From the employee's personal browser chat, run `/acp doctor claude`, `/acp doctor
+codex`, and `/acp doctor opencode`. The transport diagnostic checks that employee's assigned VM,
 SSH route, fixed adapter path, and (for Claude) configured executable. It never
 probes or installs an adapter on the Gateway host. A `ready` result covers launch
 prerequisites; coding-agent authentication and ACP initialization are validated
@@ -181,8 +229,8 @@ configured, otherwise it asks for an agent name instead of guessing.
 
 From a chat owned by that employee's personal agent, ask it to start one ACP run
 with `runtime: "acp"` and `agentId: "claude"`, then repeat with `agentId:
-"opencode"`. Ask each coding agent to report `pwd` and create a harmless file.
-Both should report the assigned VM workspace, and the file should appear only in
+"codex"` and `agentId: "opencode"`. Ask each coding agent to report `pwd` and create a harmless file.
+Each should report the assigned VM workspace, and the file should appear only in
 that employee's VM account.
 
 ## Troubleshoot failures
@@ -193,7 +241,7 @@ that employee's VM account.
   the employee account, then detect it again.
 - **Assigned VM ACP target changed:** close the old ACP session and start a new
   one. PlatformClaw intentionally pins allocation and credential revisions.
-- **Adapter file not found:** verify the two stable `/opt/platformclaw/libexec`
+- **Adapter file not found:** verify the selected stable `/opt/platformclaw/libexec`
   links and root ownership on the VM.
 - **`plugins.entries.acpx: plugin not installed`:** upgrade to a PlatformClaw
   image that bundles `acpx`, run the image-only inspection above, and recreate
@@ -208,8 +256,8 @@ that employee's VM account.
 
 - Keep adapter directories root-owned and non-writable by employees.
 - Promote new adapter versions by checksum and atomic symlink change.
-- Never put Claude, OpenCode, or AD credentials in `openclaw.json`.
-- Validate both agents with a non-privileged employee account after VM image or
+- Never put Claude, Codex, OpenCode, or AD credentials in `openclaw.json`.
+- Validate each enabled agent with a non-privileged employee account after VM image or
   SafeConnect changes.
 - Treat adapter or employee executable replacement as a new runtime revision;
   existing sessions must be restarted.

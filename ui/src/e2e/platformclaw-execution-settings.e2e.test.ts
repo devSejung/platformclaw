@@ -66,6 +66,16 @@ describeControlUiE2e("PlatformClaw employee execution settings", () => {
     };
     const basicSettings = { ...vmSettings, activeTarget: "platform_server", targetRevision: 4 };
     await page.route("**/platformclaw/api/execution**", async (route) => {
+      if (new URL(route.request().url()).pathname.endsWith("/coding-agent")) {
+        const body = route.request().postDataJSON();
+        expect(["codex", "opencode"]).toContain(body.agent);
+        expect(body).toEqual({ agent: body.agent, expectedRevision: 3 });
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({ agent: body.agent, reportedVersion: "1.2.3" }),
+        });
+        return;
+      }
       if (route.request().method() === "POST") {
         expect(route.request().postDataJSON()).toEqual({
           expectedRevision: 3,
@@ -105,6 +115,12 @@ describeControlUiE2e("PlatformClaw employee execution settings", () => {
     await expect
       .poll(async () => await component.getByRole("dialog", { name: "Work location" }).isVisible())
       .toBe(true);
+    for (const agent of ["codex", "opencode"]) {
+      const card = component.locator(`[data-coding-agent='${agent}']`);
+      await card.getByRole("button", { name: "Check VM installation" }).click();
+      await expect.poll(() => card.textContent()).toContain("Installed: 1.2.3");
+      await screenshot(page, `coding-agent-${agent}-installed.png`);
+    }
     await component.getByRole("button", { name: "Use Basic workspace" }).click();
     await expect
       .poll(async () => component.getByText("Change work location?", { exact: true }).isVisible())

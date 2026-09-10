@@ -19,6 +19,7 @@ export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/api/execution/t
 const PLATFORMCLAW_EXECUTION_SELECTION_PATH = "/platformclaw/api/execution/selection";
 const PLATFORMCLAW_EXECUTION_RELEASE_PATH = "/platformclaw/api/execution/release";
 const PLATFORMCLAW_EXECUTION_CLAUDE_CODE_PATH = "/platformclaw/api/execution/claude-code";
+const PLATFORMCLAW_EXECUTION_CODING_AGENT_PATH = "/platformclaw/api/execution/coding-agent";
 
 const EXECUTION_BODY_LIMIT_BYTES = 8 * 1024;
 const CONNECTION_ATTEMPT_WINDOW_MS = 5 * 60_000;
@@ -435,6 +436,56 @@ export class EmployeeExecutionService {
     return await this.getSettings(params.userId, params.agentId);
   }
 
+  async validateCodingAgent(params: {
+    userId: string;
+    agentId: string;
+    agent: "codex" | "opencode";
+    expectedRevision: number;
+  }) {
+    const settings = await this.requireOwnedSettings(params.userId, params.agentId);
+    if (
+      settings.allocation?.status !== "ready" ||
+      settings.targetRevision !== params.expectedRevision
+    ) {
+      throw new EmployeeExecutionHttpError(
+        409,
+        "development VM is not ready or changed; reload and retry",
+      );
+    }
+    const result = objectBody(
+      await this.options.adminRpc.call("platformclaw-execution.validateCodingAgent", {
+        agentId: params.agentId,
+        agent: params.agent,
+      }),
+    );
+    if (
+      !result ||
+      result.agent !== params.agent ||
+      typeof result.reportedVersion !== "string" ||
+      !result.reportedVersion.trim() ||
+      result.reportedVersion.length > 512 ||
+      /\p{Cc}/u.test(result.reportedVersion)
+    ) {
+      throw new Error("development VM returned an invalid coding agent result");
+    }
+    // Recheck ownership and allocation after the remote call so a replaced or
+    // revoked VM cannot be presented as the employee's current result.
+    const current = await this.requireOwnedSettings(params.userId, params.agentId);
+    if (
+      result.allocationId !== settings.allocation.id ||
+      result.targetRevision !== params.expectedRevision ||
+      current.targetRevision !== params.expectedRevision ||
+      current.allocation?.id !== settings.allocation.id ||
+      current.allocation.status !== "ready"
+    ) {
+      throw new EmployeeExecutionHttpError(
+        409,
+        "development VM changed during validation; reload and retry",
+      );
+    }
+    return { agent: params.agent, reportedVersion: result.reportedVersion };
+  }
+
   private async requireOwnedSettings(
     userId: string,
     agentId: string,
@@ -511,7 +562,8 @@ export async function handlePlatformClawEmployeeExecutionRequest(
     pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH &&
     pathname !== PLATFORMCLAW_EXECUTION_SELECTION_PATH &&
     pathname !== PLATFORMCLAW_EXECUTION_RELEASE_PATH &&
-    pathname !== PLATFORMCLAW_EXECUTION_CLAUDE_CODE_PATH
+    pathname !== PLATFORMCLAW_EXECUTION_CLAUDE_CODE_PATH &&
+    pathname !== PLATFORMCLAW_EXECUTION_CODING_AGENT_PATH
   ) {
     return false;
   }
@@ -580,6 +632,29 @@ export async function handlePlatformClawEmployeeExecutionRequest(
           vmHostId: typeof body.vmHostId === "string" ? body.vmHostId : "",
           linuxAccount: typeof body.linuxAccount === "string" ? body.linuxAccount : "",
           password: typeof body.password === "string" ? body.password : "",
+        }),
+      );
+      return true;
+    }
+    if (pathname === PLATFORMCLAW_EXECUTION_CODING_AGENT_PATH) {
+      const { agent, expectedRevision } = body;
+      if (
+        (agent !== "codex" && agent !== "opencode") ||
+        typeof expectedRevision !== "number" ||
+        !Number.isSafeInteger(expectedRevision) ||
+        expectedRevision < 0
+      ) {
+        sendJson(res, 400, { error: "invalid coding agent check" });
+        return true;
+      }
+      sendJson(
+        res,
+        200,
+        await options.service.validateCodingAgent({
+          userId: auth.user.id,
+          agentId: auth.binding.agentId,
+          agent,
+          expectedRevision,
         }),
       );
       return true;
