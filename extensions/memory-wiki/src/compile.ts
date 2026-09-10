@@ -365,6 +365,15 @@ const DASHBOARD_PAGES: DashboardPageDefinition[] = [
   },
 ];
 
+/** Compiler-owned navigation and dashboards are regenerated from their underlying pages. */
+export function isGeneratedMemoryWikiPage(relativePath: string): boolean {
+  return (
+    relativePath === "index.md" ||
+    COMPILE_PAGE_GROUPS.some((group) => relativePath === `${group.dir}/index.md`) ||
+    DASHBOARD_PAGES.some((page) => page.relativePath === relativePath)
+  );
+}
+
 export type CompileMemoryWikiResult = {
   vaultRoot: string;
   pageCounts: Record<WikiPageKind, number>;
@@ -1243,7 +1252,9 @@ async function compileMemoryWikiVaultUnlocked(
   }
   const sourceSyncState = await readMemoryWikiSourceSyncState(rootDir);
   const managedImportedSourcePagePaths = new Set(
-    Object.values(sourceSyncState.entries).map((entry) => entry.pagePath.split(path.sep).join("/")),
+    Object.values(sourceSyncState.entries)
+      .filter((entry) => !entry.deleted)
+      .map((entry) => entry.pagePath.split(path.sep).join("/")),
   );
   let scan = await readPageSummaries(rootDir);
   let pages = scan.pages;

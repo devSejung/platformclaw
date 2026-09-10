@@ -2,6 +2,7 @@
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyMemoryWikiMutation, normalizeMemoryWikiMutationInput } from "./apply.js";
+import { deleteMemoryWikiPage } from "./delete.js";
 import { registerMemoryWikiGatewayMethods } from "./gateway.js";
 import { listMemoryWikiImportInsights } from "./import-insights.js";
 import { listMemoryWikiImportRuns } from "./import-runs.js";
@@ -18,6 +19,11 @@ type ApplyMemoryWikiMutation = ReturnType<typeof normalizeMemoryWikiMutationInpu
 vi.mock("./apply.js", () => ({
   applyMemoryWikiMutation: vi.fn(),
   normalizeMemoryWikiMutationInput: vi.fn(),
+}));
+
+vi.mock("./delete.js", async (original) => ({
+  ...(await original<typeof import("./delete.js")>()),
+  deleteMemoryWikiPage: vi.fn(),
 }));
 
 vi.mock("./compile.js", () => ({
@@ -110,6 +116,7 @@ function readRespondError(respond: { mock: { calls: Array<Array<unknown>> } }): 
 }
 
 const VAULT_BACKED_GATEWAY_CASES = [
+  ["wiki.delete", { path: "concepts/a.md", expectedContentHash: "a".repeat(64) }],
   ["wiki.status", {}],
   ["wiki.importRuns", {}],
   ["wiki.importInsights", {}],
@@ -132,6 +139,79 @@ const VAULT_BACKED_GATEWAY_CASES = [
 ] as const satisfies ReadonlyArray<readonly [string, Record<string, unknown>]>;
 
 describe("memory-wiki gateway methods", () => {
+  it("does not expose operational deletion errors to the browser", async () => {
+    const { config } = await createVault({ config: { vault: { scope: "agent" } } });
+    const { api, registerGatewayMethod } = createPluginApi();
+    registerMemoryWikiGatewayMethods({
+      api,
+      config,
+      appConfig: { agents: { list: [{ id: "main" }] } },
+    });
+    vi.mocked(deleteMemoryWikiPage).mockRejectedValueOnce(
+      new Error("EACCES /private/runtime/vault"),
+    );
+    const respond = vi.fn();
+    await findGatewayHandler(registerGatewayMethod, "wiki.delete")!({
+      params: { agentId: "main", path: "concepts/a.md", expectedContentHash: "a".repeat(64) },
+      respond,
+    });
+    expect(respond).toHaveBeenCalledWith(false, undefined, {
+      code: "UNAVAILABLE",
+      message: "Wiki deletion could not be completed. Reload the page and try again.",
+    });
+  });
+
+  it("pins deletion to a personal vault and rejects shared vault mutation", async () => {
+    const { config } = await createVault({ config: { vault: { scope: "agent" } } });
+    const { api, registerGatewayMethod } = createPluginApi();
+    registerMemoryWikiGatewayMethods({
+      api,
+      config,
+      appConfig: { agents: { list: [{ id: "main" }] } },
+    });
+    vi.mocked(deleteMemoryWikiPage).mockResolvedValue({
+      path: "concepts/a.md",
+      deleted: true,
+      indexesRefreshed: true,
+    });
+    const handler = findGatewayHandler(registerGatewayMethod, "wiki.delete");
+    const respond = vi.fn();
+    await handler!({
+      params: { agentId: "main", path: "concepts/a.md", expectedContentHash: "a".repeat(64) },
+      respond,
+    });
+    expect(deleteMemoryWikiPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          agentId: "main",
+          vault: expect.objectContaining({ path: path.join(config.vault.path, "main") }),
+        }),
+      }),
+    );
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ agentId: "main", deleted: true }),
+    );
+    expect(readGatewayMethodOptions(registerGatewayMethod, "wiki.delete")).toEqual({
+      scope: "operator.write",
+    });
+    const shared = createPluginApi();
+    registerMemoryWikiGatewayMethods({
+      api: shared.api,
+      config: { ...config, vault: { ...config.vault, scope: "global" } },
+    });
+    await findGatewayHandler(shared.registerGatewayMethod, "wiki.delete")!({
+      params: { agentId: "main", path: "concepts/a.md", expectedContentHash: "a".repeat(64) },
+      respond,
+    });
+    expect(deleteMemoryWikiPage).toHaveBeenCalledOnce();
+    expect(respond).toHaveBeenLastCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ message: expect.stringContaining("personal agent-scoped") }),
+    );
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(syncMemoryWikiImportedSources).mockResolvedValue({

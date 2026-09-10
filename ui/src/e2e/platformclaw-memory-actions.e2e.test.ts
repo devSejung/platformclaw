@@ -103,6 +103,9 @@ suite("PlatformClaw memory actions E2E", () => {
           "memory.delete",
           "wiki.search",
           "wiki.get",
+          "wiki.delete",
+          "wiki.overview",
+          "wiki.graph",
           "platformclaw.memory.lifecycle",
           "platformclaw.memory.graph",
           "platformclaw.memory.get",
@@ -148,7 +151,57 @@ suite("PlatformClaw memory actions E2E", () => {
               endLine: 2,
             },
           ],
+          "wiki.delete": {
+            agentId,
+            path: "runbooks/recovery.md",
+            deleted: true,
+            indexesRefreshed: true,
+          },
+          "wiki.overview": {
+            totalItems: 1,
+            totalPages: 1,
+            pageCounts: { entity: 0, concept: 1, source: 0, synthesis: 0, report: 0 },
+            totalClaims: 0,
+            totalQuestions: 0,
+            totalContradictions: 0,
+            clusters: [
+              {
+                key: "concept",
+                label: "Concepts",
+                itemCount: 1,
+                claimCount: 0,
+                questionCount: 0,
+                contradictionCount: 0,
+                items: [
+                  {
+                    pagePath: "runbooks/recovery.md",
+                    title: "Recovery runbook",
+                    kind: "concept",
+                    claimCount: 0,
+                    questionCount: 0,
+                    contradictionCount: 0,
+                    claims: [],
+                    questions: [],
+                    contradictions: [],
+                    snippet: "Record the recovery owner.",
+                  },
+                ],
+              },
+            ],
+          },
+          "wiki.graph": {
+            nodes: [{ id: "runbooks/recovery.md", title: "Recovery runbook", kind: "concept" }],
+            edges: [],
+            stats: {
+              totalPages: 1,
+              totalNodes: 1,
+              totalEdges: 0,
+              unresolvedLinks: 0,
+              truncated: false,
+            },
+          },
           "wiki.get": {
+            contentHash: "b".repeat(64),
             path: "runbooks/recovery.md",
             title: "Recovery runbook",
             content: "# Recovery\nRecord the recovery owner and verify the backup.",
@@ -301,6 +354,68 @@ suite("PlatformClaw memory actions E2E", () => {
         .poll(() => page.locator("platformclaw-memory-page").textContent())
         .toContain("Sharing request submitted to Runtime.");
       await screenshot("05-sharing-submitted");
+
+      await page.getByRole("tab", { name: "Personal Wiki", exact: true }).click();
+      const personalWiki = page.locator("openclaw-agent-memory-panel");
+      await expect.poll(() => personalWiki.textContent()).toContain("Recovery runbook");
+      await personalWiki.locator(".memory-wiki-view-switch button").nth(1).click();
+      const node = personalWiki.locator('[data-wiki-node="runbooks/recovery.md"]');
+      await expect.poll(() => node.count()).toBe(1);
+      await node.locator("circle").click({ button: "right" });
+      await expect
+        .poll(() => page.locator("platformclaw-memory-item-menu wa-dropdown-item").count())
+        .toBe(2);
+      await screenshot("07-wiki-delete-menu");
+      await page.locator('platformclaw-memory-item-menu wa-dropdown-item[value="delete"]').click();
+      await expect.poll(() => deletion.locator("pre").textContent()).toContain("verify the backup");
+      expect(await gateway.getRequests("wiki.delete")).toHaveLength(0);
+      await deletion.getByRole("button", { name: "Cancel", exact: true }).click();
+      expect(await gateway.getRequests("wiki.delete")).toHaveLength(0);
+      await node.locator("circle").click({ button: "right" });
+      await page.locator('platformclaw-memory-item-menu wa-dropdown-item[value="delete"]').click();
+      await expect.poll(() => deletion.locator("pre").textContent()).toContain("verify the backup");
+      await expect
+        .poll(() => deletion.textContent())
+        .toContain("Raw memory, conversations, and approved organization knowledge are retained");
+      await screenshot("08-wiki-delete-confirmation");
+      const graphsBefore = (await gateway.getRequests("wiki.graph")).length;
+      await gateway.setMethodResponse("wiki.graph", {
+        nodes: [],
+        edges: [],
+        stats: {
+          totalPages: 0,
+          totalNodes: 0,
+          totalEdges: 0,
+          unresolvedLinks: 0,
+          truncated: false,
+        },
+      });
+      await gateway.setMethodResponse("wiki.overview", {
+        totalItems: 0,
+        totalPages: 0,
+        pageCounts: { entity: 0, concept: 0, source: 0, synthesis: 0, report: 0 },
+        totalClaims: 0,
+        totalQuestions: 0,
+        totalContradictions: 0,
+        clusters: [],
+      });
+      await deletion
+        .getByRole("button", { name: "Delete Personal Wiki page", exact: true })
+        .click();
+      const wikiDeleted = await gateway.waitForRequest("wiki.delete");
+      expect(wikiDeleted.params).toEqual({
+        agentId,
+        path: "runbooks/recovery.md",
+        expectedContentHash: "b".repeat(64),
+      });
+      await expect
+        .poll(async () => (await gateway.getRequests("wiki.graph")).length)
+        .toBeGreaterThan(graphsBefore);
+      await expect.poll(() => node.count()).toBe(0);
+      await personalWiki.locator(".memory-wiki-view-switch button").first().click();
+      await expect.poll(() => personalWiki.textContent()).not.toContain("Recovery runbook");
+      expect(await gateway.getRequests("memory.delete")).toHaveLength(1);
+      await screenshot("09-wiki-deleted");
 
       await page.getByRole("tab", { name: "Organization", exact: true }).click();
       await page.getByRole("tab", { name: "Organization Graph", exact: true }).click();

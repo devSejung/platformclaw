@@ -1,4 +1,22 @@
 export const memoryWikiTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.wiki.deleteGeneratedUnavailable":
+    "자동 생성된 보고서 또는 탐색 페이지입니다. 원본 Wiki 페이지를 삭제하세요.",
+  "platformClaw.wiki.deleteSharedUnavailable":
+    "공유 보관함 페이지는 개인 작업 공간에서 삭제할 수 없습니다.",
+  "platformClaw.wiki.deleteLargeUnavailable":
+    "이 페이지는 삭제 한도인 256 KiB를 초과합니다. 관리자에게 검토를 요청하세요.",
+  "platformClaw.wiki.delete": "Personal Wiki 페이지 삭제",
+  "platformClaw.wiki.deleteDescription":
+    "선택한 Wiki 페이지 전체를 삭제합니다. 되돌릴 수 없습니다.",
+  "platformClaw.wiki.deleteRetention":
+    "원본 메모리, 대화, 승인된 조직 지식은 유지됩니다. 삭제한 가져온 페이지는 자동으로 다시 가져오지 않으며, 명시적인 가져오기 복구로 되살릴 수 있습니다.",
+  "platformClaw.wiki.deleteUnavailable":
+    "이 미리보기에서는 페이지를 삭제할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
+  "platformClaw.wiki.deletePartialPreview":
+    "페이지의 일부만 표시됩니다. 삭제를 확인하면 전체 파일의 현재 버전을 확인한 뒤 페이지 전체를 삭제합니다.",
+  "platformClaw.wiki.deleted": "Personal Wiki 페이지를 삭제했습니다. Wiki 화면을 갱신합니다.",
+  "platformClaw.wiki.deletedRefreshPending":
+    "Personal Wiki 페이지는 삭제했지만 색인 갱신에 실패했습니다. Personal Wiki를 새로고침해 현재 상태를 확인하세요.",
   "platformClaw.memory.actions": "메모리 작업",
   "platformClaw.memory.share": "조직에 공유 신청…",
   "platformClaw.memory.delete": "메모리 파일 삭제",

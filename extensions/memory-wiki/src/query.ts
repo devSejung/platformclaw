@@ -1,4 +1,5 @@
 // Memory Wiki plugin module implements query behavior.
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { filterMemorySearchHitsBySessionVisibility } from "@openclaw/memory-core/api.js";
@@ -14,6 +15,7 @@ import pMap, { pMapSkip } from "p-map";
 import type { OpenClawConfig } from "../api.js";
 import { walkMemoryWikiDirectory } from "./bounded-walk.js";
 import { assessClaimFreshness, isClaimContestedStatus } from "./claim-health.js";
+import { isGeneratedMemoryWikiPage } from "./compile.js";
 import {
   loadMemoryWikiCompiledCache,
   type MemoryWikiCompiledClaim,
@@ -137,6 +139,9 @@ type WikiSearchResult = {
 };
 
 type WikiGetResult = {
+  /** Revision of the entire raw Wiki artifact, including frontmatter, not the body excerpt. */
+  contentHash?: string;
+  deletionUnavailableReason?: "shared-vault" | "page-too-large" | "generated-page";
   corpus: "wiki" | "memory";
   path: string;
   title: string;
@@ -1401,6 +1406,13 @@ export async function getMemoryWikiPage(input: {
         title: page.title,
         kind: page.kind,
         content: slice,
+        ...(effectiveConfig.vault.scope !== "agent" || !effectiveConfig.agentId
+          ? { deletionUnavailableReason: "shared-vault" as const }
+          : isGeneratedMemoryWikiPage(page.relativePath)
+            ? { deletionUnavailableReason: "generated-page" as const }
+            : Buffer.byteLength(page.raw, "utf8") > 256 * 1024
+              ? { deletionUnavailableReason: "page-too-large" as const }
+              : { contentHash: createHash("sha256").update(page.raw).digest("hex") }),
         fromLine,
         lineCount,
         totalLines,

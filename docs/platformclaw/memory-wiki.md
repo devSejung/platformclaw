@@ -333,6 +333,24 @@ before submitting. Opening the menu or selecting the source does not submit
 anything. The UI confirms submission to the selected organization; an
 administrator's direct publication is identified separately.
 
+### Delete a Personal Wiki page
+
+Right-click a Personal Wiki card or graph node, or open **…**, and choose
+**Delete Personal Wiki page**. Review the current page and confirm deletion.
+A partial preview is labeled explicitly; confirmation removes the whole page,
+using the server's full-file content hash to reject changes since the preview.
+The Wiki overview and graph refresh after deletion.
+
+Deletion is available for personal Agent-scoped pages up to 256 KiB. Shared
+vault pages and generated reports or navigation pages show an explanation
+instead of an enabled confirmation button.
+
+Raw memory, conversations, and approved organization knowledge are retained.
+Deleted imported pages are excluded from automatic source synchronization,
+including when the source later changes. A deliberate import repair can restore
+them. Sharing and deletion have separate capability checks; an unavailable
+sharing action does not remove an otherwise available deletion action.
+
 ### Organization graph provenance
 
 Organization Graph previews include the approval state, claim revision, and

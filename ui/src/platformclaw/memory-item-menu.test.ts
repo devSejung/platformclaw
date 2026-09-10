@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import "./memory-item-menu.ts";
 
 type MemoryMenu = HTMLElement & {
-  action: "share" | "delete";
-  onAction: () => void;
+  actions: ("share" | "delete")[];
+  onAction: (action: "share" | "delete") => void;
   onClose: () => void;
   trigger: HTMLElement | null;
   updateComplete: Promise<unknown>;
@@ -28,21 +28,21 @@ describe("memory item action menu", () => {
   });
   it.each(["share", "delete"] as const)("waits for explicit selection of %s", async (action) => {
     const element = document.createElement("platformclaw-memory-item-menu") as MemoryMenu;
-    element.action = action;
+    element.actions = ["share", "delete"];
     element.onAction = vi.fn();
     element.onClose = vi.fn();
     document.body.append(element);
     await element.updateComplete;
-    expect(element.querySelector("wa-dropdown-item")?.getAttribute("value")).toBe(action);
+    expect(element.querySelectorAll("wa-dropdown-item")).toHaveLength(2);
     expect(element.onAction).not.toHaveBeenCalled();
     element.querySelector("wa-dropdown")!.dispatchEvent(
       new CustomEvent("wa-select", {
         bubbles: true,
         cancelable: true,
-        detail: { item: element.querySelector("wa-dropdown-item") },
+        detail: { item: element.querySelector(`wa-dropdown-item[value="${action}"]`) },
       }),
     );
-    expect(element.onAction).toHaveBeenCalledOnce();
+    expect(element.onAction).toHaveBeenCalledExactlyOnceWith(action);
     expect(element.onClose).toHaveBeenCalled();
   });
 

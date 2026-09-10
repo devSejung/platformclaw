@@ -172,6 +172,22 @@ describe("memory wiki source sync state", () => {
     });
   });
 
+  it("retains deletion suppression after reopening plugin state", async () => {
+    const stateDir = await makeTempDir();
+    const vaultRoot = path.join(stateDir, "vault");
+    const env = { ...process.env, OPENCLAW_STATE_DIR: stateDir };
+    const state = createImportedSourceState("sources/deleted.md");
+    setImportedSourceEntry({
+      state,
+      syncKey: "sync-key",
+      entry: { ...state.entries["sync-key"], deleted: true },
+    });
+    await writeMemoryWikiSourceSyncState(vaultRoot, state, openStore(env));
+    resetPluginStateStoreForTests();
+    const reloaded = await readMemoryWikiSourceSyncState(vaultRoot, openStore(env));
+    expect(reloaded.entries["sync-key"]).toEqual({ ...state.entries["sync-key"], deleted: true });
+  });
+
   it("persists only changed rows in a 1,914-entry state snapshot", async () => {
     const vaultRoot = path.join(await makeTempDir(), "vault");
     const counting = createCountingStore();

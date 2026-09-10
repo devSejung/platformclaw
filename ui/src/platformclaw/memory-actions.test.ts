@@ -5,19 +5,21 @@ import { i18n } from "../i18n/index.ts";
 import { createApplicationContextProvider } from "../test-helpers/application-context.ts";
 import { waitForFast } from "../test-helpers/wait-for.ts";
 import "./memory-page.ts";
+import { loadPlatformClawLocale } from "./i18n.ts";
 
 type UpdatingElement = HTMLElement & { updateComplete: Promise<unknown> };
 type MemoryPage = UpdatingElement & { agentId: string; initialTab: string };
 
 beforeEach(async () => {
   await i18n.setLocale("en");
+  await loadPlatformClawLocale();
 });
 afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
 });
 
-function createPage() {
+function createPage(omitMethods: string[] = []) {
   let deleted = false;
   const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
     switch (method) {
@@ -86,9 +88,10 @@ function createPage() {
               "agents.workspace.get",
               "wiki.search",
               "wiki.get",
+              "wiki.delete",
               "platformclaw.memory.lifecycle",
               "platformclaw.memory.promotion.submit",
-            ],
+            ].filter((method) => !omitMethods.includes(method)),
           },
         },
       },
@@ -104,16 +107,53 @@ function createPage() {
   return { page, request };
 }
 
-async function chooseMenuAction(page: Element) {
+async function chooseMenuAction(page: Element, action = "share") {
   await waitForFast(() =>
     expect(page.querySelector("platformclaw-memory-item-menu wa-dropdown")).not.toBeNull(),
   );
-  page
-    .querySelector("platformclaw-memory-item-menu wa-dropdown")!
-    .dispatchEvent(new CustomEvent("wa-select", { bubbles: true, cancelable: true }));
+  page.querySelector("platformclaw-memory-item-menu wa-dropdown")!.dispatchEvent(
+    new CustomEvent("wa-select", {
+      bubbles: true,
+      cancelable: true,
+      detail: { item: page.querySelector(`wa-dropdown-item[value="${action}"]`) },
+    }),
+  );
 }
 
 describe("personal memory action integration", () => {
+  it.each([
+    { omitted: ["platformclaw.memory.promotion.submit"], expected: ["delete"] },
+    { omitted: ["wiki.delete"], expected: ["share"] },
+    { omitted: [], expected: ["share", "delete"] },
+  ])("gates Wiki sharing and deletion independently ($expected)", async ({ omitted, expected }) => {
+    const { page, request } = createPage(omitted);
+    await waitForFast(() => expect(page.querySelector("#memory-search-input")).not.toBeNull());
+    const input = page.querySelector<HTMLInputElement>("#memory-search-input")!;
+    input.value = "runbook";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await (page.querySelector("openclaw-memory-memories") as UpdatingElement).updateComplete;
+    page
+      .querySelector("form")!
+      .dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+    await waitForFast(() => expect(page.textContent).toContain("My runbook"));
+    const row = Array.from(page.querySelectorAll("article")).find((entry) =>
+      entry.textContent?.includes("My runbook"),
+    )!;
+    row.querySelector<HTMLButtonElement>(".memory-item-actions")!.click();
+    await waitForFast(() =>
+      expect(
+        Array.from(page.querySelectorAll("wa-dropdown-item")).map((item) =>
+          item.getAttribute("value"),
+        ),
+      ).toEqual(expected),
+    );
+    expect(
+      request.mock.calls.some(
+        ([method]) => method.endsWith(".delete") || method.includes("promotion.submit"),
+      ),
+    ).toBe(false);
+  });
+
   it.each(["contextmenu", "ellipsis"])(
     "opens a prefilled application from %s without submitting",
     async (action) => {
@@ -171,7 +211,7 @@ describe("personal memory action integration", () => {
       expect(page.querySelector("article .memory-item-actions")).not.toBeNull(),
     );
     page.querySelector<HTMLButtonElement>("article .memory-item-actions")!.click();
-    await chooseMenuAction(page);
+    await chooseMenuAction(page, "delete");
     await waitForFast(() =>
       expect(page.querySelector("platformclaw-memory-delete-dialog pre")?.textContent).toBe(
         "Private memory",
