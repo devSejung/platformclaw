@@ -622,6 +622,74 @@ afterEach(() => {
 });
 
 describe("grouped chat rendering", () => {
+  it.each(
+    [
+      {
+        extension: "png",
+        contentType: "image/png",
+        selector: ".chat-message-image",
+        attribute: "src",
+      },
+      {
+        extension: "xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        selector: ".chat-assistant-attachment-card__link",
+        attribute: "href",
+      },
+    ].flatMap((fixture) =>
+      ["user", "assistant", "tool", "toolResult"].map((role) => ({
+        extension: fixture.extension,
+        contentType: fixture.contentType,
+        selector: fixture.selector,
+        attribute: fixture.attribute,
+        role,
+      })),
+    ),
+  )("uses the media owner for reopened $role $extension attachments", async (fixture) => {
+    const source = `media://inbound/${crypto.randomUUID()}.${fixture.extension}`;
+    const sessionKey = "agent:employee-one:main";
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true,
+      json: async () => mediaTicketPayload("ticket-reopened"),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const container = document.createElement("div");
+    const renderMessage = (messageId: string) =>
+      renderGroupedMessage(
+        container,
+        {
+          id: "provider-local-id",
+          messageId: "projected-local-id",
+          role: fixture.role,
+          content: "Uploaded spreadsheet",
+          __openclaw: {
+            id: messageId,
+            media: [{ url: source, contentType: fixture.contentType }],
+          },
+        },
+        fixture.role,
+        { sessionKey, basePath: "/platformclaw/app", isToolMessageExpanded: () => true },
+      );
+
+    const ownsMedia = fixture.role === "user" || fixture.role === "assistant";
+    for (const messageId of ["persisted-old-message", "persisted-other-message"]) {
+      renderMessage(messageId);
+      await flushAssistantAttachmentAvailabilityChecks();
+      renderMessage(messageId);
+      const requestUrl = new URL(String(fetchMock.mock.lastCall?.[0]), "https://example.com");
+      expect(requestUrl.searchParams.get("source")).toBe(source);
+      expect(requestUrl.searchParams.get("sessionKey")).toBe(sessionKey);
+      expect(requestUrl.searchParams.get("messageId")).toBe(ownsMedia ? messageId : null);
+      const downloadUrl = container
+        .querySelector(fixture.selector)
+        ?.getAttribute(fixture.attribute);
+      expect(downloadUrl).toContain("mediaTicket=ticket-reopened");
+      expect(downloadUrl).not.toContain("messageId");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(ownsMedia ? 2 : 1);
+    render(html``, container);
+  });
+
   it("preserves paragraph breaks around assistant attachments in rendered markdown", () => {
     const container = document.createElement("div");
 
