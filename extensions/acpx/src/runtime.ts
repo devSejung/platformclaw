@@ -31,9 +31,6 @@ import { redactSensitiveText } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeStringEntries } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { sliceUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import {
-  ACP_AGENT_ENV,
-  ACP_EXECUTION_OWNER_ENV,
-  ACP_SESSION_KEY_ENV,
   AcpProcessTransportError,
   launchWithAcpProcessTransport,
   prepareAcpProcessTransport,
@@ -101,11 +98,10 @@ function bindAcpxProcessTransport(params: {
       ...launch,
       // The isolated delegate owns this route. Reassert it at the launcher boundary so
       // ACPX option persistence or reconnect cannot silently fall back to Gateway-local spawn.
-      env: {
-        ...launch.env,
-        [ACP_EXECUTION_OWNER_ENV]: params.executionOwnerAgentId,
-        [ACP_AGENT_ENV]: params.agent,
-        [ACP_SESSION_KEY_ENV]: params.sessionKey,
+      route: {
+        executionOwnerAgentId: params.executionOwnerAgentId,
+        agent: params.agent,
+        sessionKey: params.sessionKey,
       },
     });
 }
@@ -701,23 +697,7 @@ function normalizeClaudeAcpModelOverride(rawModel: string | undefined): string |
 function withAcpxSessionOptions(input: OpenClawRuntimeEnsureInput): AcpxDelegateEnsureInput {
   const existingOptions = (input as { sessionOptions?: SessionAgentOptions }).sessionOptions;
   const model = input.model?.trim() || existingOptions?.model;
-  const executionOwnerAgentId = input.executionOwnerAgentId?.trim();
-  const sessionEnv = executionOwnerAgentId
-    ? {
-        ...existingOptions?.env,
-        [ACP_EXECUTION_OWNER_ENV]: executionOwnerAgentId,
-        [ACP_AGENT_ENV]: input.agent,
-        [ACP_SESSION_KEY_ENV]: input.sessionKey,
-      }
-    : existingOptions?.env;
-  const sessionOptions =
-    model || sessionEnv
-      ? {
-          ...existingOptions,
-          ...(model ? { model } : {}),
-          ...(sessionEnv ? { env: sessionEnv } : {}),
-        }
-      : existingOptions;
+  const sessionOptions = model ? { ...existingOptions, model } : existingOptions;
   const {
     modelExplicit: _modelExplicit,
     executionOwnerAgentId: _executionOwnerAgentId,

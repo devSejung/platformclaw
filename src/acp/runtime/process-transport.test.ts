@@ -2,9 +2,6 @@ import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  ACP_AGENT_ENV,
-  ACP_EXECUTION_OWNER_ENV,
-  ACP_SESSION_KEY_ENV,
   canUseAcpProcessTransport,
   diagnoseAcpProcessTransport,
   launchWithAcpProcessTransport,
@@ -21,7 +18,7 @@ describe("ACP process transport registry", () => {
     }
   });
 
-  it("pins preparation and launch to the same provider and strips routing markers", async () => {
+  it("pins preparation and launch to the same provider with an explicit route", async () => {
     const child = {} as ChildProcessByStdio<Writable, Readable, Readable>;
     const launch = vi.fn(async () => child);
     const release = vi.fn(async () => undefined);
@@ -49,15 +46,16 @@ describe("ACP process transport registry", () => {
 
     await expect(
       launchWithAcpProcessTransport({
+        route: { executionOwnerAgentId: "alice", agent: "claude", sessionKey: "session-1" },
         agentCommand: "ignored-local-command",
         command: "ignored-local-command",
         args: ["--ignored"],
         cwd: "/home/alice/workspace",
         env: {
           SAFE: "kept",
-          [ACP_EXECUTION_OWNER_ENV]: "alice",
-          [ACP_AGENT_ENV]: "claude",
-          [ACP_SESSION_KEY_ENV]: "session-1",
+          OPENCLAW_ACP_EXECUTION_OWNER_AGENT_ID: "mallory",
+          OPENCLAW_ACP_AGENT_ID: "spoofed-agent",
+          OPENCLAW_ACP_SESSION_KEY: "spoofed-session",
         },
       }),
     ).resolves.toBe(child);
@@ -92,15 +90,12 @@ describe("ACP process transport registry", () => {
 
     await expect(
       launchWithAcpProcessTransport({
+        route: { executionOwnerAgentId: "alice", agent: "claude", sessionKey: "session-1" },
         agentCommand: "claude",
         command: "claude",
         args: [],
         cwd: "/workspace",
-        env: {
-          [ACP_EXECUTION_OWNER_ENV]: "alice",
-          [ACP_AGENT_ENV]: "claude",
-          [ACP_SESSION_KEY_ENV]: "session-1",
-        },
+        env: {},
       }),
     ).rejects.toThrow("No isolated ACP process transport");
   });
@@ -150,15 +145,12 @@ describe("ACP process transport registry", () => {
 
     await expect(
       launchWithAcpProcessTransport({
+        route: { executionOwnerAgentId: "alice", agent: "claude", sessionKey: "not-prepared" },
         agentCommand: "claude",
         command: "claude",
         args: [],
         cwd: "/workspace",
-        env: {
-          [ACP_EXECUTION_OWNER_ENV]: "alice",
-          [ACP_AGENT_ENV]: "claude",
-          [ACP_SESSION_KEY_ENV]: "not-prepared",
-        },
+        env: {},
       }),
     ).rejects.toThrow("No isolated ACP process transport");
     await expect(
