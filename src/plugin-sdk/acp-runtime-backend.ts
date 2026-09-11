@@ -36,6 +36,9 @@ export type {
   AcpSessionUpdateTag,
 } from "@openclaw/acp-core/runtime/types";
 export {
+  ACP_AGENT_ENV,
+  ACP_EXECUTION_OWNER_ENV,
+  ACP_SESSION_KEY_ENV,
   canUseAcpProcessTransport,
   diagnoseAcpProcessTransport,
   hasIsolatedAcpProcessTransport,

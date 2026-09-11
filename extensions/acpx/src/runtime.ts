@@ -77,9 +77,14 @@ type AcpxDelegateEnsureInput = Parameters<BaseAcpxRuntime["ensureSession"]>[0];
 
 export async function launchAcpxWithProcessTransport(
   launch: Parameters<AcpAgentProcessLauncher>[0],
+  route?: {
+    executionOwnerAgentId: string;
+    agent: string;
+    sessionKey: string;
+  },
 ) {
   try {
-    return await launchWithAcpProcessTransport(launch);
+    return await launchWithAcpProcessTransport(launch, route);
   } catch (error) {
     if (error instanceof AcpProcessTransportError) {
       throw new AcpProcessLauncherError(error.message, error);
@@ -94,16 +99,16 @@ function bindAcpxProcessTransport(params: {
   sessionKey: string;
 }): AcpAgentProcessLauncher {
   return async (launch) =>
-    await launchAcpxWithProcessTransport({
-      ...launch,
+    await launchAcpxWithProcessTransport(
+      launch,
       // The isolated delegate owns this route. Reassert it at the launcher boundary so
       // ACPX option persistence or reconnect cannot silently fall back to Gateway-local spawn.
-      route: {
+      {
         executionOwnerAgentId: params.executionOwnerAgentId,
         agent: params.agent,
         sessionKey: params.sessionKey,
       },
-    });
+    );
 }
 type AcpxMcpServer = NonNullable<AcpRuntimeOptions["mcpServers"]>[number];
 

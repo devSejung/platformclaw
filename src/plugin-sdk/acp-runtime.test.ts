@@ -2,6 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildTestCtx } from "../auto-reply/reply/test-ctx.js";
 import type { FinalizedMsgContext } from "../auto-reply/templating.js";
+import {
+  ACP_AGENT_ENV,
+  ACP_EXECUTION_OWNER_ENV,
+  ACP_SESSION_KEY_ENV,
+} from "./acp-runtime-backend.js";
 
 const { bypassMock, dispatchMock } = vi.hoisted(() => ({
   bypassMock: vi.fn(),
@@ -56,6 +61,14 @@ const ctx = {
   recordProcessed: vi.fn(),
   markIdle: vi.fn(),
 };
+
+describe("ACP process transport SDK compatibility", () => {
+  it("keeps the shipped legacy route constants available", () => {
+    expect(ACP_EXECUTION_OWNER_ENV).toBe("OPENCLAW_ACP_EXECUTION_OWNER_AGENT_ID");
+    expect(ACP_AGENT_ENV).toBe("OPENCLAW_ACP_AGENT_ID");
+    expect(ACP_SESSION_KEY_ENV).toBe("OPENCLAW_ACP_SESSION_KEY");
+  });
+});
 
 function expectDispatchPayloadFields(expected: Record<string, unknown>): void {
   expect(dispatchMock).toHaveBeenCalledTimes(1);

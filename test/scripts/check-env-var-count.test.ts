@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   collectEnvVarNames,
+  isCountedEnvVarName,
   isCountedSourcePath,
   main,
   parseBudget,
@@ -25,6 +26,18 @@ describe("check-env-var-count", () => {
     expect(isCountedSourcePath("extensions/demo/src/index.ts")).toBe(true);
     expect(isCountedSourcePath("src/config/paths.test.ts")).toBe(false);
     expect(isCountedSourcePath("extensions/qa-lab/src/index.ts")).toBe(false);
+  });
+
+  it.each([
+    "OPENCLAW_ACP_AGENT_ID",
+    "OPENCLAW_ACP_EXECUTION_OWNER_AGENT_ID",
+    "OPENCLAW_ACP_SESSION_KEY",
+  ])("excludes shipped non-operator ACP transport marker %s", (name) => {
+    expect(isCountedEnvVarName(name)).toBe(false);
+  });
+
+  it("continues to count operator-facing variables", () => {
+    expect(isCountedEnvVarName("OPENCLAW_NEW_OPERATOR_SETTING")).toBe(true);
   });
 
   it("collects each distinct name once", () => {
