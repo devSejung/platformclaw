@@ -1,4 +1,10 @@
 import { dreamingEntryPath, wikiPath } from "./browser-gateway-content-paths.js";
+import {
+  MAX_WIKI_CONTENT_CHARS,
+  personalWikiPagePath,
+  projectWikiDocumentResult,
+  WIKI_CONTENT_HASH,
+} from "./browser-gateway-wiki-document.js";
 import { projectWikiGraph } from "./browser-gateway-wiki-graph.js";
 import {
   count,
@@ -22,6 +28,8 @@ const WIKI_METHODS = new Set([
   "doctor.memory.resetGroundedShortTerm",
   "doctor.memory.status",
   "wiki.delete",
+  "wiki.document.get",
+  "wiki.document.save",
   "wiki.get",
   "wiki.graph",
   "wiki.importInsights",
@@ -46,20 +54,9 @@ const DREAM_ACTIONS_BY_METHOD: Readonly<Record<string, string>> = {
 const MAX_QUERY_CHARS = 1_000;
 const MAX_RESULTS = 50;
 const MAX_PAGE_LINES = 5_000;
-const MAX_CONTENT_CHARS = 1024 * 1024;
+const MAX_CONTENT_CHARS = MAX_WIKI_CONTENT_CHARS;
 const MAX_ITEMS = 500;
-const CONTENT_HASH = /^[a-f0-9]{64}$/u;
-
-function deletionPath(value: unknown, fail: ProjectionFailure): string {
-  const path = wikiPath(value, "wiki deletion path", fail);
-  if (
-    path !== value ||
-    path.split("").some((character) => character.charCodeAt(0) < 32 || character === ":")
-  ) {
-    return fail("Wiki deletion requires a canonical personal Wiki page path");
-  }
-  return path;
-}
+const CONTENT_HASH = WIKI_CONTENT_HASH;
 
 function projectDreamingEntry(value: unknown, fail: ProjectionFailure): JsonObject {
   const entry = failObject(value, "dreaming entry", fail);
@@ -341,7 +338,7 @@ export function prepareBrowserWikiRequest(params: {
   params.assertOptionalAgentId(params.request.agentId, params.method);
   const prepared: JsonObject = { agentId: params.agentId };
   if (params.method === "wiki.delete") {
-    prepared.path = deletionPath(params.request.path, params.fail);
+    prepared.path = personalWikiPagePath(params.request.path, params.fail);
     if (
       typeof params.request.expectedContentHash !== "string" ||
       !CONTENT_HASH.test(params.request.expectedContentHash)
@@ -349,6 +346,29 @@ export function prepareBrowserWikiRequest(params: {
       return params.fail("Reload the complete Wiki page before deleting it");
     }
     prepared.expectedContentHash = params.request.expectedContentHash;
+  } else if (params.method === "wiki.document.save") {
+    prepared.path = personalWikiPagePath(params.request.path, params.fail);
+    const editMode = optionalEnum(
+      params.request.editMode,
+      ["body", "notes"],
+      "wiki edit mode",
+      params.fail,
+    );
+    if (!editMode || typeof params.request.content !== "string") {
+      return params.fail("Wiki save requires an editable field and Markdown content");
+    }
+    if (params.request.content.length > MAX_CONTENT_CHARS) {
+      return params.fail("Wiki Markdown content is too large");
+    }
+    if (
+      typeof params.request.expectedRevision !== "string" ||
+      !CONTENT_HASH.test(params.request.expectedRevision)
+    ) {
+      return params.fail("Reload the complete Wiki document before saving");
+    }
+    prepared.editMode = editMode;
+    prepared.content = params.request.content;
+    prepared.expectedRevision = params.request.expectedRevision;
   } else if (params.method === "doctor.memory.status" && params.request.probe !== undefined) {
     if (typeof params.request.probe !== "boolean") {
       return params.fail("memory status probe must be a boolean");
@@ -382,19 +402,21 @@ export function prepareBrowserWikiRequest(params: {
     if (mode) {
       prepared.mode = mode;
     }
-  } else if (params.method === "wiki.get") {
+  } else if (params.method === "wiki.get" || params.method === "wiki.document.get") {
     const lookup = typeof params.request.lookup === "string" ? params.request.lookup.trim() : "";
     if (!lookup || lookup.length > MAX_QUERY_CHARS) {
       return params.fail(`wiki lookup must contain 1-${MAX_QUERY_CHARS} characters`);
     }
     prepared.lookup = lookup;
-    for (const [key, max] of [
-      ["fromLine", Number.MAX_SAFE_INTEGER],
-      ["lineCount", MAX_PAGE_LINES],
-    ] as const) {
-      const value = positiveInteger(params.request[key], key, max, params.fail);
-      if (value !== undefined) {
-        prepared[key] = value;
+    if (params.method === "wiki.get") {
+      for (const [key, max] of [
+        ["fromLine", Number.MAX_SAFE_INTEGER],
+        ["lineCount", MAX_PAGE_LINES],
+      ] as const) {
+        const value = positiveInteger(params.request[key], key, max, params.fail);
+        if (value !== undefined) {
+          prepared[key] = value;
+        }
       }
     }
   }
@@ -411,22 +433,9 @@ export function projectBrowserWikiResult(params: {
   if (!WIKI_METHODS.has(params.method)) {
     return undefined;
   }
-  if (params.method === "wiki.delete") {
-    const payload = failObject(params.result, "wiki deletion", params.fail);
-    if (
-      payload.agentId !== params.agentId ||
-      deletionPath(payload.path, params.fail) !== params.request.path ||
-      payload.deleted !== true ||
-      typeof payload.indexesRefreshed !== "boolean"
-    ) {
-      return params.fail("Gateway returned invalid personal Wiki deletion result");
-    }
-    return {
-      agentId: params.agentId,
-      path: payload.path,
-      deleted: true,
-      indexesRefreshed: payload.indexesRefreshed,
-    };
+  const documentResult = projectWikiDocumentResult(params);
+  if (documentResult !== undefined) {
+    return documentResult;
   }
   if (DREAM_ACTION_METHODS.has(params.method)) {
     const payload = failObject(params.result, "dreaming action", params.fail);

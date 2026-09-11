@@ -651,7 +651,7 @@ describe("MemoryMemoriesElement", () => {
           },
         ]);
       }
-      if (method === "wiki.get") {
+      if (method === "wiki.document.get") {
         return Promise.resolve({
           content: "# Personal\nMy release checklist.",
           fromLine: 1,
@@ -693,19 +693,23 @@ describe("MemoryMemoriesElement", () => {
         article.textContent?.includes("Personal release notes"),
       );
       wiki?.querySelector<HTMLButtonElement>("button")?.click();
-      await waitForFast(() => expect(element.textContent).toContain("# Personal"));
+      await waitForFast(() =>
+        expect(element.querySelector(".wiki-document__reader h1")?.textContent).toBe("Personal"),
+      );
       const organization = articles.find((article) =>
         article.textContent?.includes("Group release policy"),
       );
       organization?.querySelector<HTMLButtonElement>("button")?.click();
-      await waitForFast(() => expect(element.textContent).toContain("# Group"));
+      await waitForFast(() =>
+        expect(element.querySelector(".wiki-document__reader h1")?.textContent).toBe("Group"),
+      );
 
       expect(request).toHaveBeenCalledWith("wiki.search", {
         query: "release",
         agentId: "main",
         maxResults: 50,
       });
-      expect(request).toHaveBeenCalledWith("wiki.get", {
+      expect(request).toHaveBeenCalledWith("wiki.document.get", {
         agentId: "main",
         lookup: "concepts/release-policy.md",
       });
@@ -727,7 +731,7 @@ describe("MemoryMemoriesElement", () => {
       },
       {
         label: "Wiki detail",
-        method: "wiki.get",
+        method: "wiki.document.get",
         options: { personalDetail: false, wikiGet: true, organizationGet: false },
       },
       {
@@ -788,7 +792,7 @@ describe("MemoryMemoriesElement", () => {
           expect(request.mock.calls.some(([method]) => method === testCase.method)).toBe(true),
         );
         const getCalls = request.mock.calls.filter(([method]) =>
-          ["agents.workspace.get", "wiki.get", "platformclaw.memory.get"].includes(method),
+          ["agents.workspace.get", "wiki.document.get", "platformclaw.memory.get"].includes(method),
         );
         expect(getCalls.map(([method]) => method)).toEqual([testCase.method]);
       } finally {

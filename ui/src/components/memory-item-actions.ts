@@ -2,7 +2,7 @@ import { html, nothing } from "lit";
 
 export type MemoryItemActions = {
   label: string;
-  open: (lookup: string, event: MouseEvent) => void;
+  open: (lookup: string, event: Event) => void;
 };
 
 export function renderMemoryItemActions(lookup: string, actions?: MemoryItemActions) {

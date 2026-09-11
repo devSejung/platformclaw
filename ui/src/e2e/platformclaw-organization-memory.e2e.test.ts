@@ -308,7 +308,11 @@ suite("PlatformClaw organization memory Settings E2E", () => {
           .locator('[data-organization-node="organization/group/platform-policy"] circle')
           .click();
         await expect
-          .poll(() => page.locator(".organization-memory-graph__preview pre").textContent())
+          .poll(() =>
+            page
+              .locator(".organization-memory-graph__preview .wiki-document__reader")
+              .textContent(),
+          )
           .toContain(scenario.snippet);
         expect(await gateway.getRequests("platformclaw.memory.get")).toEqual([
           expect.objectContaining({

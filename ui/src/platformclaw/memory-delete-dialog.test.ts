@@ -71,7 +71,11 @@ describe("memory deletion confirmation", () => {
       const element = createDialog(request, "wiki");
       const deleted = vi.fn();
       element.addEventListener("memory-deleted", deleted);
-      await waitForFast(() => expect(element.querySelector("pre")?.textContent).toBe("Wiki body"));
+      await waitForFast(() =>
+        expect(element.querySelector(".wiki-document__reader")?.textContent?.trim()).toBe(
+          "Wiki body",
+        ),
+      );
       if (truncated) {
         expect(element.textContent).toContain("Only part of the page is shown");
       }
@@ -95,7 +99,7 @@ describe("memory deletion confirmation", () => {
   it("invalidates a memory preview immediately when its target changes to Wiki", async () => {
     const request = vi.fn().mockResolvedValue(preview());
     const element = createDialog(request);
-    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    await waitForFast(() => expect(element.querySelector(".wiki-document__reader")).not.toBeNull());
     element.kind = "wiki";
     element.querySelector<HTMLButtonElement>("button.danger")!.click();
     expect(request.mock.calls.some(([method]) => method.endsWith(".delete"))).toBe(false);
@@ -120,7 +124,9 @@ describe("memory deletion confirmation", () => {
     const deleted = vi.fn();
     element.addEventListener("memory-deleted", deleted);
     await waitForFast(() =>
-      expect(element.querySelector("pre")?.textContent).toBe("Current memory"),
+      expect(element.querySelector(".wiki-document__reader")?.textContent?.trim()).toBe(
+        "Current memory",
+      ),
     );
     expect(request).toHaveBeenCalledExactlyOnceWith("agents.workspace.get", {
       agentId: "personal-agent",
@@ -150,11 +156,15 @@ describe("memory deletion confirmation", () => {
     const element = createDialog(request);
     await waitForFast(() => expect(request).toHaveBeenCalledOnce());
     element.agentId = "new-agent";
-    await waitForFast(() => expect(element.querySelector("pre")?.textContent).toBe("New memory"));
+    await waitForFast(() =>
+      expect(element.querySelector(".wiki-document__reader")?.textContent?.trim()).toBe(
+        "New memory",
+      ),
+    );
     resolveOld?.(preview("Old memory", "old-hash"));
     await Promise.resolve();
     await element.updateComplete;
-    expect(element.querySelector("pre")?.textContent).toBe("New memory");
+    expect(element.querySelector(".wiki-document__reader")?.textContent?.trim()).toBe("New memory");
     expect(request).toHaveBeenLastCalledWith("agents.workspace.get", {
       agentId: "new-agent",
       path: "memory/runbook.md",
@@ -175,7 +185,7 @@ describe("memory deletion confirmation", () => {
     const element = createDialog(request);
     const deleted = vi.fn();
     element.addEventListener("memory-deleted", deleted);
-    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    await waitForFast(() => expect(element.querySelector(".wiki-document__reader")).not.toBeNull());
     element.querySelector<HTMLButtonElement>("button.danger")!.click();
     element.remove();
     resolveDelete?.({ deleted: true, indexesRefreshed: true });
@@ -186,7 +196,7 @@ describe("memory deletion confirmation", () => {
   it("does not delete with a preview from an identity changed before the next render", async () => {
     const request = vi.fn().mockResolvedValue(preview());
     const element = createDialog(request);
-    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    await waitForFast(() => expect(element.querySelector(".wiki-document__reader")).not.toBeNull());
     element.agentId = "new-agent";
     element.querySelector<HTMLButtonElement>("button.danger")!.click();
     expect(request.mock.calls.some(([method]) => method === "memory.delete")).toBe(false);
@@ -208,10 +218,14 @@ describe("memory deletion confirmation", () => {
     const element = createDialog(request);
     const deleted = vi.fn();
     element.addEventListener("memory-deleted", deleted);
-    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    await waitForFast(() => expect(element.querySelector(".wiki-document__reader")).not.toBeNull());
     element.querySelector<HTMLButtonElement>("button.danger")!.click();
     element.agentId = "new-agent";
-    await waitForFast(() => expect(element.querySelector("pre")?.textContent).toBe("New memory"));
+    await waitForFast(() =>
+      expect(element.querySelector(".wiki-document__reader")?.textContent?.trim()).toBe(
+        "New memory",
+      ),
+    );
     expect(element.querySelector<HTMLButtonElement>("button.danger")?.disabled).toBe(false);
     resolveDelete?.({ deleted: true, indexesRefreshed: true });
     await Promise.resolve();
@@ -226,7 +240,7 @@ describe("memory deletion confirmation", () => {
     const element = createDialog(request);
     const deleted = vi.fn();
     element.addEventListener("memory-deleted", deleted);
-    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    await waitForFast(() => expect(element.querySelector(".wiki-document__reader")).not.toBeNull());
     element.querySelector<HTMLButtonElement>("button.danger")!.click();
     await waitForFast(() =>
       expect(element.querySelector("[role=alert]")?.textContent).toContain("Memory changed"),
@@ -247,7 +261,7 @@ describe("memory deletion confirmation", () => {
           }),
       );
     const element = createDialog(request);
-    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    await waitForFast(() => expect(element.querySelector(".wiki-document__reader")).not.toBeNull());
     element.querySelector<HTMLButtonElement>("button.danger")!.click();
     await element.updateComplete;
     const modal = element.querySelector("openclaw-modal-dialog")!;

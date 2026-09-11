@@ -94,7 +94,8 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
         "wiki.importInsights",
         "wiki.graph",
         "wiki.overview",
-        "wiki.get",
+        "wiki.document.get",
+        "wiki.document.save",
       ],
       methodResponses: {
         "agents.list": personalRoster,
@@ -259,25 +260,41 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
             },
           ],
         },
-        "wiki.get": {
-          cases: [
+        "wiki.document.get": {
+          sequence: [
             {
-              match: {
-                agentId: assignedAgentId,
-                lookup: "syntheses/assigned-platform.md",
-                fromLine: 1,
-                lineCount: 5000,
-              },
-              response: {
-                title: "Assigned platform knowledge",
-                path: "syntheses/assigned-platform.md",
-                content:
-                  "# Assigned platform knowledge\n\nEmployee browser access stays agent scoped.",
-                totalLines: 3,
-                truncated: false,
-              },
+              title: "Assigned platform knowledge",
+              path: "syntheses/assigned-platform.md",
+              kind: "synthesis",
+              displayContent:
+                "# Assigned platform knowledge\n\nEmployee browser access stays agent scoped.\n\n| Scope | Access |\n| - | - |\n| Personal | Owner |",
+              sourceContent:
+                "# Assigned platform knowledge\n\nEmployee browser access stays agent scoped.",
+              editMode: "body",
+              editableContent:
+                "# Assigned platform knowledge\n\nEmployee browser access stays agent scoped.",
+              revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
+            {
+              title: "Assigned platform knowledge",
+              path: "syntheses/assigned-platform.md",
+              kind: "synthesis",
+              displayContent:
+                "# Assigned platform knowledge\n\nEmployee browser access stays **strictly agent scoped**.",
+              sourceContent:
+                "# Assigned platform knowledge\n\nEmployee browser access stays **strictly agent scoped**.",
+              editMode: "body",
+              editableContent:
+                "# Assigned platform knowledge\n\nEmployee browser access stays **strictly agent scoped**.",
+              revision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             },
           ],
+        },
+        "wiki.document.save": {
+          path: "syntheses/assigned-platform.md",
+          saved: true,
+          indexesRefreshed: true,
+          revision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         },
       },
     });
@@ -328,11 +345,30 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
       await expectRequestsPinned(gateway, "wiki.overview");
       expect(await gateway.getRequests("wiki.graph")).toHaveLength(0);
       await wiki.getByRole("button", { name: "Open wiki page" }).click();
-      await expectRequestsPinned(gateway, "wiki.get");
+      await expectRequestsPinned(gateway, "wiki.document.get");
       await expect
-        .poll(() => page.locator(".dreams-diary__preview-pre").textContent())
+        .poll(() => page.locator(".wiki-document__reader").textContent())
         .toContain("Employee browser access stays agent scoped.");
       await screenshot(page, "03-memory-wiki-preview.png");
+      await page.locator(".wiki-document__menu [slot=trigger]").click();
+      await screenshot(page, "04-memory-wiki-menu.png");
+      await page.locator('.wiki-document__menu wa-dropdown-item[value="edit"]').click();
+      const editor = page.locator(".wiki-document__editor");
+      await editor.fill(
+        "# Assigned platform knowledge\n\nEmployee browser access stays **strictly agent scoped**.",
+      );
+      await screenshot(page, "05-memory-wiki-edit-write.png");
+      await page.locator("#wiki-document-editor-tab-preview").click();
+      await expect
+        .poll(() => page.locator(".wiki-document__reader strong").textContent())
+        .toBe("strictly agent scoped");
+      await screenshot(page, "06-memory-wiki-edit-preview.png");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expectRequestsPinned(gateway, "wiki.document.save");
+      await expect
+        .poll(() => page.locator(".wiki-document__reader strong").textContent())
+        .toBe("strictly agent scoped");
+      await screenshot(page, "07-memory-wiki-saved.png");
       await page.getByRole("button", { name: "Close" }).click();
 
       await wiki.getByRole("button", { name: "Graph", exact: true }).click();
@@ -348,12 +384,12 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
       await expect.poll(() => wiki.locator(".memory-wiki-graph__edges line").count()).toBe(0);
       await expect.poll(() => wiki.locator("[data-wiki-node]").count()).toBe(1);
       await concepts.check();
-      await screenshot(page, "04-memory-wiki-graph.png");
+      await screenshot(page, "08-memory-wiki-graph.png");
       await wiki.locator('[data-wiki-node="syntheses/assigned-platform.md"] circle').click();
       await expect
-        .poll(() => page.locator(".dreams-diary__preview-pre").textContent())
-        .toContain("Employee browser access stays agent scoped.");
-      await screenshot(page, "05-memory-wiki-graph-preview.png");
+        .poll(() => page.locator(".wiki-document__reader").textContent())
+        .toContain("Employee browser access stays strictly agent scoped.");
+      await screenshot(page, "09-memory-wiki-graph-preview.png");
 
       expect(await page.getByText(foreignAgentId, { exact: false }).count()).toBe(0);
       expect(await gateway.getRequests("config.get")).toHaveLength(initialConfigGetCount);

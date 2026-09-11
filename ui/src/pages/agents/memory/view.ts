@@ -1,5 +1,6 @@
 // Control UI view renders dreaming screen content.
 import "../../../styles/lobster-pet.css";
+import "../../../styles/sidebar-markdown.css";
 import { expectDefined } from "@openclaw/normalization-core";
 import { html, nothing } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
@@ -11,6 +12,7 @@ import {
 } from "../../../components/lobster-pet.ts";
 import { toSanitizedMarkdownHtml } from "../../../components/markdown.ts";
 import "../../../components/modal-dialog.ts";
+import "../../../components/web-awesome.ts";
 import {
   renderMemoryItemActions,
   type MemoryItemActions,
@@ -104,6 +106,7 @@ type DreamingProps = {
     canResetDiary: boolean;
     canResetGroundedShortTerm: boolean;
     canRepairDreamingArtifacts: boolean;
+    canEditWiki: boolean;
   };
   viewState: DreamingViewState;
   active: boolean;
@@ -153,7 +156,32 @@ type DreamingProps = {
     totalLines?: number;
     truncated?: boolean;
     updatedAt?: string;
+    displayContent?: string;
+    sourceContent?: string;
+    editMode?: "body" | "notes" | null;
+    editableContent?: string;
+    revision?: string;
+    readOnlyReason?: "generated-report" | "source-managed" | "page-too-large" | "shared-vault";
   } | null>;
+  onSaveWikiPage: (params: {
+    path: string;
+    editMode: "body" | "notes";
+    content: string;
+    expectedRevision: string;
+  }) => Promise<{
+    title: string;
+    path: string;
+    content: string;
+    displayContent: string;
+    sourceContent: string;
+    editMode: "body" | "notes" | null;
+    editableContent?: string;
+    revision?: string;
+    updatedAt?: string;
+    saved?: boolean;
+    indexesRefreshed?: boolean;
+  } | null>;
+  onConfirmWikiDiscard: () => Promise<boolean>;
   onBackfillDiary: () => void;
   onCopyDreamingArchivePath: () => void;
   onDedupeDreamDiary: () => void;
@@ -225,6 +253,22 @@ export type DreamingViewState = {
   wikiPreviewTotalLines: number | null;
   wikiPreviewTruncated: boolean;
   wikiPreviewError: string | null;
+  wikiPreviewDisplayContent: string;
+  wikiPreviewSourceContent: string;
+  wikiPreviewEditMode: "body" | "notes" | null;
+  wikiPreviewRevision: string | null;
+  wikiPreviewReadOnlyReason:
+    | "generated-report"
+    | "source-managed"
+    | "page-too-large"
+    | "shared-vault"
+    | null;
+  wikiPreviewMode: "preview" | "source" | "edit";
+  wikiEditTab: "write" | "preview";
+  wikiEditOriginal: string;
+  wikiEditDraft: string;
+  wikiEditSaving: boolean;
+  wikiEditMessage: string | null;
 };
 
 export function createDreamingViewState(): DreamingViewState {
@@ -248,6 +292,17 @@ export function createDreamingViewState(): DreamingViewState {
     wikiPreviewTotalLines: null,
     wikiPreviewTruncated: false,
     wikiPreviewError: null,
+    wikiPreviewDisplayContent: "",
+    wikiPreviewSourceContent: "",
+    wikiPreviewEditMode: null,
+    wikiPreviewRevision: null,
+    wikiPreviewReadOnlyReason: null,
+    wikiPreviewMode: "preview",
+    wikiEditTab: "write",
+    wikiEditOriginal: "",
+    wikiEditDraft: "",
+    wikiEditSaving: false,
+    wikiEditMessage: null,
   };
 }
 
@@ -605,6 +660,17 @@ async function openWikiPreview(lookup: string, props: DreamingProps): Promise<vo
   state.wikiPreviewTotalLines = null;
   state.wikiPreviewTruncated = false;
   state.wikiPreviewError = null;
+  state.wikiPreviewDisplayContent = "";
+  state.wikiPreviewSourceContent = "";
+  state.wikiPreviewEditMode = null;
+  state.wikiPreviewRevision = null;
+  state.wikiPreviewReadOnlyReason = null;
+  state.wikiPreviewMode = "preview";
+  state.wikiEditTab = "write";
+  state.wikiEditOriginal = "";
+  state.wikiEditDraft = "";
+  state.wikiEditSaving = false;
+  state.wikiEditMessage = null;
   props.onViewStateChange();
   try {
     const preview = await props.onOpenWikiPage(lookup);
@@ -619,6 +685,13 @@ async function openWikiPreview(lookup: string, props: DreamingProps): Promise<vo
     state.wikiPreviewPath = preview.path;
     state.wikiPreviewUpdatedAt = preview.updatedAt ?? null;
     state.wikiPreviewContent = preview.content;
+    state.wikiPreviewDisplayContent = preview.displayContent ?? preview.content;
+    state.wikiPreviewSourceContent = preview.sourceContent ?? preview.content;
+    state.wikiPreviewEditMode = preview.editMode ?? null;
+    state.wikiPreviewRevision = preview.revision ?? null;
+    state.wikiPreviewReadOnlyReason = preview.readOnlyReason ?? null;
+    state.wikiEditOriginal = preview.editableContent ?? "";
+    state.wikiEditDraft = preview.editableContent ?? "";
     state.wikiPreviewTotalLines =
       typeof preview.totalLines === "number" ? preview.totalLines : null;
     state.wikiPreviewTruncated = preview.truncated === true;
@@ -645,11 +718,149 @@ export function resetWikiPreview(state: DreamingViewState): void {
   state.wikiPreviewTotalLines = null;
   state.wikiPreviewTruncated = false;
   state.wikiPreviewError = null;
+  state.wikiPreviewDisplayContent = "";
+  state.wikiPreviewSourceContent = "";
+  state.wikiPreviewEditMode = null;
+  state.wikiPreviewRevision = null;
+  state.wikiPreviewReadOnlyReason = null;
+  state.wikiPreviewMode = "preview";
+  state.wikiEditTab = "write";
+  state.wikiEditOriginal = "";
+  state.wikiEditDraft = "";
+  state.wikiEditSaving = false;
+  state.wikiEditMessage = null;
 }
 
-function closeWikiPreview(props: DreamingProps): void {
+export function wikiDraftDirty(state: DreamingViewState): boolean {
+  return state.wikiEditDraft !== state.wikiEditOriginal;
+}
+
+async function closeWikiPreview(props: DreamingProps): Promise<void> {
+  if (wikiDraftDirty(props.viewState) && !(await props.onConfirmWikiDiscard())) {
+    return;
+  }
   resetWikiPreview(props.viewState);
   props.onViewStateChange();
+}
+
+async function cancelWikiEdit(props: DreamingProps): Promise<void> {
+  const state = props.viewState;
+  if (wikiDraftDirty(state) && !(await props.onConfirmWikiDiscard())) {
+    return;
+  }
+  state.wikiPreviewMode = "preview";
+  state.wikiEditDraft = state.wikiEditOriginal;
+  state.wikiEditMessage = null;
+  props.onViewStateChange();
+}
+
+async function openWikiDocumentLink(event: MouseEvent, props: DreamingProps): Promise<void> {
+  const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a");
+  if (!anchor) {
+    return;
+  }
+  const wikiLookup = anchor.dataset.wikiLookup;
+  const rawHref = anchor.getAttribute("href")?.trim() ?? "";
+  if (
+    !wikiLookup &&
+    (!rawHref ||
+      rawHref.startsWith("#") ||
+      /^[a-z][a-z0-9+.-]*:/iu.test(rawHref) ||
+      rawHref.startsWith("//"))
+  ) {
+    return;
+  }
+  let lookup = wikiLookup ?? rawHref.split(/[?#]/u, 1)[0] ?? "";
+  try {
+    lookup = decodeURIComponent(lookup);
+  } catch {
+    return;
+  }
+  if (!lookup || lookup.startsWith("/") || lookup.includes("\\")) {
+    return;
+  }
+  if (!wikiLookup) {
+    const segments = props.viewState.wikiPreviewPath.split("/").slice(0, -1);
+    for (const segment of lookup.split("/")) {
+      if (!segment || segment === ".") {
+        continue;
+      }
+      if (segment === "..") {
+        if (segments.length === 0) {
+          return;
+        }
+        segments.pop();
+      } else {
+        segments.push(segment);
+      }
+    }
+    lookup = segments.join("/");
+  }
+  event.preventDefault();
+  if (wikiDraftDirty(props.viewState) && !(await props.onConfirmWikiDiscard())) {
+    return;
+  }
+  await openWikiPreview(lookup, props);
+}
+
+async function saveWikiEdit(props: DreamingProps): Promise<void> {
+  const state = props.viewState;
+  if (
+    state.wikiEditSaving ||
+    !wikiDraftDirty(state) ||
+    !state.wikiPreviewEditMode ||
+    !state.wikiPreviewRevision
+  ) {
+    return;
+  }
+  state.wikiEditSaving = true;
+  state.wikiEditMessage = null;
+  const requestId = state.wikiPreviewRequestId;
+  const path = state.wikiPreviewPath;
+  props.onViewStateChange();
+  try {
+    const refreshed = await props.onSaveWikiPage({
+      path,
+      editMode: state.wikiPreviewEditMode,
+      content: state.wikiEditDraft,
+      expectedRevision: state.wikiPreviewRevision,
+    });
+    if (
+      state.wikiPreviewRequestId !== requestId ||
+      state.wikiPreviewPath !== path ||
+      !state.wikiPreviewOpen
+    ) {
+      return;
+    }
+    if (!refreshed || refreshed.path !== path) {
+      throw new Error(t("dreaming.wiki.saveReloadFailed"));
+    }
+    state.wikiPreviewTitle = refreshed.title;
+    state.wikiPreviewContent = refreshed.content;
+    state.wikiPreviewDisplayContent = refreshed.displayContent;
+    state.wikiPreviewSourceContent = refreshed.sourceContent;
+    state.wikiPreviewEditMode = refreshed.editMode;
+    state.wikiPreviewRevision = refreshed.revision ?? null;
+    state.wikiPreviewUpdatedAt = refreshed.updatedAt ?? null;
+    state.wikiEditOriginal = refreshed.editableContent ?? "";
+    state.wikiEditDraft = refreshed.editableContent ?? "";
+    state.wikiPreviewMode = "preview";
+    state.wikiEditMessage = t(
+      refreshed.indexesRefreshed === false
+        ? "dreaming.wiki.savedIndexPending"
+        : "dreaming.wiki.saved",
+    );
+  } catch (error) {
+    if (state.wikiPreviewRequestId !== requestId || state.wikiPreviewPath !== path) {
+      return;
+    }
+    state.wikiEditMessage = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (state.wikiPreviewRequestId === requestId && state.wikiPreviewPath === path) {
+      state.wikiEditSaving = false;
+      props.onViewStateChange();
+    }
+  }
 }
 
 function renderWikiPreviewOverlay(props: DreamingProps) {
@@ -661,7 +872,7 @@ function renderWikiPreviewOverlay(props: DreamingProps) {
     <openclaw-modal-dialog
       .label=${state.wikiPreviewTitle || t("dreaming.wiki.previewFallbackTitle")}
       style="--openclaw-modal-width: 1120px"
-      @modal-cancel=${() => closeWikiPreview(props)}
+      @modal-cancel=${() => void closeWikiPreview(props)}
     >
       <div class="dreams-diary__preview-panel">
         <div class="dreams-diary__preview-header">
@@ -675,35 +886,178 @@ function renderWikiPreviewOverlay(props: DreamingProps) {
             </div>
           </div>
           ${!state.wikiPreviewLoading && !state.wikiPreviewError
-            ? renderMemoryItemActions(state.wikiPreviewPath, props.wikiActions)
+            ? html`<wa-dropdown
+                class="wiki-document__menu"
+                placement="bottom-end"
+                @wa-select=${(event: CustomEvent<{ item: { value?: string } }>) => {
+                  const action = event.detail.item.value;
+                  if (action === "edit") {
+                    state.wikiPreviewMode = "edit";
+                    state.wikiEditTab = "write";
+                    state.wikiEditMessage = null;
+                    props.onViewStateChange();
+                  } else if (action === "source") {
+                    state.wikiPreviewMode = "source";
+                    props.onViewStateChange();
+                  } else if (action === "more") {
+                    props.wikiActions?.open(state.wikiPreviewPath, event);
+                  }
+                }}
+              >
+                <button
+                  slot="trigger"
+                  type="button"
+                  class="btn btn--subtle btn--sm"
+                  aria-label=${t("dreaming.wiki.documentActions")}
+                >
+                  ⋯
+                </button>
+                ${props.access.canEditWiki && state.wikiPreviewEditMode && state.wikiPreviewRevision
+                  ? html`<wa-dropdown-item value="edit">
+                      ${state.wikiPreviewEditMode === "notes"
+                        ? t("dreaming.wiki.editNotes")
+                        : t("dreaming.wiki.edit")}
+                    </wa-dropdown-item>`
+                  : nothing}
+                <wa-dropdown-item value="source">${t("dreaming.wiki.viewSource")}</wa-dropdown-item>
+                ${props.wikiActions
+                  ? html`<wa-dropdown-item value="more"
+                      >${props.wikiActions.label}</wa-dropdown-item
+                    >`
+                  : nothing}
+              </wa-dropdown>`
             : nothing}
           <button
             type="button"
             class="btn btn--subtle btn--sm"
-            @click=${() => closeWikiPreview(props)}
+            @click=${() => void closeWikiPreview(props)}
           >
             ${t("dreaming.wiki.close")}
           </button>
         </div>
         <div class="dreams-diary__preview-body">
+          ${state.wikiPreviewTruncated
+            ? html`<div class="dreams-diary__preview-hint">
+                ${state.wikiPreviewTotalLines === null
+                  ? t("dreaming.wiki.previewTruncated")
+                  : t("dreaming.wiki.previewTruncatedWithTotal", {
+                      count: String(state.wikiPreviewTotalLines),
+                    })}
+              </div>`
+            : nothing}
           ${state.wikiPreviewLoading
             ? html`<div class="dreams-diary__empty-text">${t("dreaming.wiki.loadingPage")}</div>`
             : state.wikiPreviewError
               ? html`<div class="dreams-diary__error">${state.wikiPreviewError}</div>`
-              : html`
-                  ${state.wikiPreviewTruncated
-                    ? html`
-                        <div class="dreams-diary__preview-hint">
-                          ${state.wikiPreviewTotalLines !== null
-                            ? t("dreaming.wiki.previewTruncatedWithTotal", {
-                                count: String(state.wikiPreviewTotalLines),
-                              })
-                            : t("dreaming.wiki.previewTruncated")}
-                        </div>
-                      `
-                    : nothing}
-                  <pre class="dreams-diary__preview-pre">${state.wikiPreviewContent}</pre>
-                `}
+              : state.wikiPreviewMode === "edit"
+                ? html`
+                    ${state.wikiPreviewEditMode === "notes"
+                      ? html`<div class="dreams-diary__preview-hint">
+                          ${t("dreaming.wiki.sourceManaged")}
+                        </div>`
+                      : nothing}
+                    ${renderHubTabs({
+                      id: "wiki-document-editor",
+                      active: state.wikiEditTab,
+                      tabs: [
+                        { value: "write", label: t("dreaming.wiki.write") },
+                        { value: "preview", label: t("dreaming.wiki.preview") },
+                      ],
+                      ariaLabel: t("dreaming.wiki.documentActions"),
+                      panelId: "wiki-document-editor-panel",
+                      variant: "sub",
+                      onSelect: (tab) => {
+                        state.wikiEditTab = tab;
+                        props.onViewStateChange();
+                      },
+                    })}
+                    <div id="wiki-document-editor-panel">
+                      ${state.wikiEditTab === "write"
+                        ? html`<textarea
+                            class="wiki-document__editor"
+                            .value=${state.wikiEditDraft}
+                            @input=${(event: InputEvent) => {
+                              state.wikiEditDraft = (
+                                event.currentTarget as HTMLTextAreaElement
+                              ).value;
+                              props.onViewStateChange();
+                            }}
+                          ></textarea>`
+                        : html`<article
+                            class="md-preview-dialog__reader sidebar-markdown wiki-document__reader"
+                            @click=${(event: MouseEvent) => void openWikiDocumentLink(event, props)}
+                          >
+                            ${unsafeHTML(
+                              toSanitizedMarkdownHtml(state.wikiEditDraft, {
+                                codeBlockChrome: "none",
+                                fileLinks: false,
+                                interactiveImages: false,
+                                wikiLinks: true,
+                              }),
+                            )}
+                          </article>`}
+                    </div>
+                    ${state.wikiEditMessage
+                      ? html`<p role="status">${state.wikiEditMessage}</p>`
+                      : nothing}
+                    <div class="wiki-document__footer">
+                      <button
+                        type="button"
+                        class="btn"
+                        ?disabled=${state.wikiEditSaving}
+                        @click=${() => void cancelWikiEdit(props)}
+                      >
+                        ${t("common.cancel")}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn primary"
+                        ?disabled=${state.wikiEditSaving || !wikiDraftDirty(state)}
+                        @click=${() => void saveWikiEdit(props)}
+                      >
+                        ${state.wikiEditSaving ? t("common.saving") : t("common.save")}
+                      </button>
+                    </div>
+                  `
+                : state.wikiPreviewMode === "source"
+                  ? html`<button
+                        type="button"
+                        class="btn btn--subtle btn--sm"
+                        @click=${() => {
+                          state.wikiPreviewMode = "preview";
+                          props.onViewStateChange();
+                        }}
+                      >
+                        ${t("dreaming.wiki.backToPreview")}
+                      </button>
+                      <pre class="dreams-diary__preview-pre" tabindex="0">
+${state.wikiPreviewSourceContent}</pre>`
+                  : html`${state.wikiPreviewReadOnlyReason
+                        ? html`<div class="dreams-diary__preview-hint">
+                            ${t(
+                              state.wikiPreviewReadOnlyReason === "generated-report"
+                                ? "dreaming.wiki.generatedReadOnly"
+                                : state.wikiPreviewReadOnlyReason === "page-too-large"
+                                  ? "dreaming.wiki.pageTooLargeReadOnly"
+                                  : state.wikiPreviewReadOnlyReason === "shared-vault"
+                                    ? "dreaming.wiki.sharedVaultReadOnly"
+                                    : "dreaming.wiki.sourceManaged",
+                            )}
+                          </div>`
+                        : nothing}
+                      <article
+                        class="md-preview-dialog__reader sidebar-markdown wiki-document__reader"
+                        @click=${(event: MouseEvent) => void openWikiDocumentLink(event, props)}
+                      >
+                        ${unsafeHTML(
+                          toSanitizedMarkdownHtml(state.wikiPreviewDisplayContent, {
+                            codeBlockChrome: "none",
+                            fileLinks: false,
+                            interactiveImages: false,
+                            wikiLinks: true,
+                          }),
+                        )}
+                      </article>`}
         </div>
       </div>
     </openclaw-modal-dialog>

@@ -102,6 +102,7 @@ suite("PlatformClaw memory actions E2E", () => {
           "memory.search",
           "memory.delete",
           "wiki.search",
+          "wiki.document.get",
           "wiki.get",
           "wiki.delete",
           "wiki.overview",
@@ -200,6 +201,21 @@ suite("PlatformClaw memory actions E2E", () => {
               truncated: false,
             },
           },
+          "wiki.document.get": {
+            contentHash: "b".repeat(64),
+            path: "runbooks/recovery.md",
+            title: "Recovery runbook",
+            content: "# Recovery\nRecord the recovery owner and verify the backup.",
+            displayContent: "# Recovery\nRecord the recovery owner and verify the backup.",
+            sourceContent: "# Recovery\nRecord the recovery owner and verify the backup.",
+            editMode: "body",
+            editableContent: "# Recovery\nRecord the recovery owner and verify the backup.",
+            revision: "b".repeat(64),
+            fromLine: 1,
+            lineCount: 2,
+            totalLines: 2,
+            truncated: false,
+          },
           "wiki.get": {
             contentHash: "b".repeat(64),
             path: "runbooks/recovery.md",
@@ -274,7 +290,7 @@ suite("PlatformClaw memory actions E2E", () => {
           .evaluate((dialog) => getComputedStyle(dialog).overflowY),
       ).toBe("auto");
       await expect
-        .poll(() => deletion.locator("pre").textContent())
+        .poll(() => deletion.locator(".wiki-document__reader").textContent())
         .toContain("Delete this entire obsolete checklist");
       expect(await gateway.getRequests("memory.delete")).toHaveLength(0);
       await screenshot("02-delete-preview");
@@ -416,13 +432,17 @@ suite("PlatformClaw memory actions E2E", () => {
         .toBe(2);
       await screenshot("07-wiki-delete-menu");
       await page.locator('platformclaw-memory-item-menu wa-dropdown-item[value="delete"]').click();
-      await expect.poll(() => deletion.locator("pre").textContent()).toContain("verify the backup");
+      await expect
+        .poll(() => deletion.locator(".wiki-document__reader").textContent())
+        .toContain("verify the backup");
       expect(await gateway.getRequests("wiki.delete")).toHaveLength(0);
       await deletion.getByRole("button", { name: "Cancel", exact: true }).click();
       expect(await gateway.getRequests("wiki.delete")).toHaveLength(0);
       await node.locator("circle").click({ button: "right" });
       await page.locator('platformclaw-memory-item-menu wa-dropdown-item[value="delete"]').click();
-      await expect.poll(() => deletion.locator("pre").textContent()).toContain("verify the backup");
+      await expect
+        .poll(() => deletion.locator(".wiki-document__reader").textContent())
+        .toContain("verify the backup");
       await expect
         .poll(() => deletion.textContent())
         .toContain("Raw memory, conversations, and approved organization knowledge are retained");

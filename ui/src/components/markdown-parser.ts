@@ -342,6 +342,31 @@ export function createMarkdownParser(): MarkdownIt {
     }
   });
 
+  markdownParser.inline.ruler.before("link", "wiki-link", (state, silent) => {
+    const env = state.env as Partial<MarkdownRenderEnv> | undefined;
+    if (env?.wikiLinks !== true || !state.src.startsWith("[[", state.pos)) {
+      return false;
+    }
+    const end = state.src.indexOf("]]", state.pos + 2);
+    const body = end < 0 ? "" : state.src.slice(state.pos + 2, end);
+    const separator = body.indexOf("|");
+    const target = (separator < 0 ? body : body.slice(0, separator)).trim();
+    if (!target) {
+      return false;
+    }
+    if (!silent) {
+      const open = state.push("link_open", "a", 1);
+      open.markup = "wiki-link";
+      open.attrSet("href", target);
+      open.attrSet("data-wiki-lookup", target);
+      const label = state.push("text", "", 0);
+      label.content = (separator < 0 ? target : body.slice(separator + 1).trim()) || target;
+      state.push("link_close", "a", -1).markup = "wiki-link";
+    }
+    state.pos = end + 2;
+    return true;
+  });
+
   // Enable GFM task list checkboxes (- [x] / - [ ]).
   // enabled: false keeps checkboxes read-only (disabled="") — task lists in
   // chat messages are display-only, not interactive forms.

@@ -27,7 +27,7 @@ describe("MemoryPromotionSourcePickerElement", () => {
             resolveOld = resolve;
           }),
       )
-      .mockResolvedValueOnce({ path: "current.md", content: "Current source" });
+      .mockResolvedValueOnce({ path: "current.md", displayContent: "Current source" });
     const element = document.createElement(
       "openclaw-memory-promotion-source-picker",
     ) as SourcePickerTestElement;
@@ -45,21 +45,21 @@ describe("MemoryPromotionSourcePickerElement", () => {
     resolveOld?.({ path: "old.md", content: "Stale source" });
     await Promise.resolve();
     await element.updateComplete;
-    expect(request).toHaveBeenLastCalledWith("wiki.get", {
+    expect(request).toHaveBeenLastCalledWith("wiki.document.get", {
       agentId: "new-agent",
       lookup: "source-id",
-      fromLine: 1,
-      lineCount: 5_000,
     });
     expect(selected).toHaveBeenCalledOnce();
-    expect(element.querySelector("pre")?.textContent).toBe("Current source");
+    expect(element.querySelector(".wiki-document__reader")?.textContent?.trim()).toBe(
+      "Current source",
+    );
     element.remove();
   });
 
   it("clears the previous source before a failed initial lookup", async () => {
     const request = vi
       .fn()
-      .mockResolvedValueOnce({ path: "first.md", content: "First source" })
+      .mockResolvedValueOnce({ path: "first.md", displayContent: "First source" })
       .mockRejectedValueOnce(new Error("Page unavailable"));
     const element = document.createElement(
       "openclaw-memory-promotion-source-picker",
@@ -70,7 +70,7 @@ describe("MemoryPromotionSourcePickerElement", () => {
     element.agentId = "personal-agent";
     element.initialPersonalLookup = "first.md";
     document.body.append(element);
-    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    await waitForFast(() => expect(element.querySelector(".wiki-document__reader")).not.toBeNull());
     const cleared = vi.fn();
     element.addEventListener("source-cleared", cleared);
     element.initialPersonalLookup = "missing.md";
@@ -78,7 +78,7 @@ describe("MemoryPromotionSourcePickerElement", () => {
       expect(element.querySelector("[role=alert]")?.textContent).toContain("Page unavailable"),
     );
     expect(cleared).toHaveBeenCalled();
-    expect(element.querySelector("pre")).toBeNull();
+    expect(element.querySelector(".wiki-document__reader")).toBeNull();
     element.remove();
   });
 
@@ -114,7 +114,7 @@ describe("MemoryPromotionSourcePickerElement", () => {
         : {
             path: "runbooks/recovery.md",
             title: "Recovery",
-            content: "# Recovery\nDrain jobs before restart",
+            displayContent: "# Recovery\nDrain jobs before restart",
           },
     );
     const element = document.createElement(
@@ -145,11 +145,9 @@ describe("MemoryPromotionSourcePickerElement", () => {
     });
     element.querySelector<HTMLButtonElement>(".memory-source-picker__result")!.click();
     await waitForFast(() => expect(selected).not.toBeNull());
-    expect(request).toHaveBeenLastCalledWith("wiki.get", {
+    expect(request).toHaveBeenLastCalledWith("wiki.document.get", {
       agentId: "personal-agent",
       lookup: "runbooks/recovery.md",
-      fromLine: 1,
-      lineCount: 5_000,
     });
     expect(selected).toEqual({
       lookup: "runbooks/recovery.md",
@@ -157,7 +155,9 @@ describe("MemoryPromotionSourcePickerElement", () => {
       content: "# Recovery\nDrain jobs before restart",
       path: "runbooks/recovery.md",
     });
-    expect(element.querySelector("pre")?.textContent).toContain("Drain jobs before restart");
+    expect(element.querySelector(".wiki-document__reader")?.textContent).toContain(
+      "Drain jobs before restart",
+    );
     element.remove();
   });
 

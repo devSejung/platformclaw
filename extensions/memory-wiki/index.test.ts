@@ -63,6 +63,8 @@ describe("memory-wiki plugin", () => {
     );
     expect(registerGatewayMethod.mock.calls.map((call) => call[0])).toEqual([
       "wiki.delete",
+      "wiki.document.get",
+      "wiki.document.save",
       "wiki.status",
       "wiki.importRuns",
       "wiki.importInsights",

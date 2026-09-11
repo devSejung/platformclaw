@@ -12,6 +12,12 @@ import {
   type ResolvedMemoryWikiConfig,
 } from "./config.js";
 import { deleteMemoryWikiPage, MemoryWikiDeleteValidationError } from "./delete.js";
+import {
+  getMemoryWikiDocument,
+  MemoryWikiEditConflictError,
+  MemoryWikiEditValidationError,
+  saveMemoryWikiDocument,
+} from "./document-edit.js";
 import { listMemoryWikiImportInsights } from "./import-insights.js";
 import { listMemoryWikiImportRuns } from "./import-runs.js";
 import { ingestMemoryWikiSource } from "./ingest.js";
@@ -169,6 +175,81 @@ export function registerMemoryWikiGatewayMethods(params: {
             error instanceof MemoryWikiDeleteValidationError
               ? error.message
               : "Wiki deletion could not be completed. Reload the page and try again.",
+        });
+      }
+    },
+    { scope: WRITE_SCOPE },
+  );
+
+  api.registerGatewayMethod(
+    "wiki.document.get",
+    async ({ params: requestParams, respond }) => {
+      try {
+        if (Object.keys(requestParams).some((key) => !["agentId", "lookup"].includes(key))) {
+          throw new MemoryWikiEditValidationError("wiki.document.get requires lookup only.");
+        }
+        const { appConfig, config } = resolveRequestContext(requestParams);
+        await syncImportedSourcesIfNeeded(config, appConfig);
+        const lookup = readStringParam(requestParams, "lookup", { required: true });
+        respond(true, await getMemoryWikiDocument({ config, lookup }));
+      } catch (error) {
+        respond(false, undefined, {
+          code: error instanceof MemoryWikiEditValidationError ? "INVALID_REQUEST" : "UNAVAILABLE",
+          message:
+            error instanceof MemoryWikiEditValidationError
+              ? error.message
+              : "Wiki document could not be loaded.",
+        });
+      }
+    },
+    { scope: READ_SCOPE },
+  );
+
+  api.registerGatewayMethod(
+    "wiki.document.save",
+    async ({ params: requestParams, respond }) => {
+      try {
+        if (
+          Object.keys(requestParams).some(
+            (key) => !["agentId", "path", "editMode", "content", "expectedRevision"].includes(key),
+          )
+        ) {
+          throw new MemoryWikiEditValidationError(
+            "wiki.document.save contains unsupported fields.",
+          );
+        }
+        const { config } = resolveRequestContext(requestParams);
+        const editMode = readEnumParam(requestParams, "editMode", ["body", "notes"] as const);
+        if (!editMode || typeof requestParams.content !== "string") {
+          throw new MemoryWikiEditValidationError(
+            "wiki.document.save requires editMode and content.",
+          );
+        }
+        respond(
+          true,
+          await saveMemoryWikiDocument({
+            config,
+            path: readStringParam(requestParams, "path", { required: true }),
+            editMode,
+            content: requestParams.content,
+            expectedRevision: readStringParam(requestParams, "expectedRevision", {
+              required: true,
+            }),
+          }),
+        );
+      } catch (error) {
+        respond(false, undefined, {
+          code:
+            error instanceof MemoryWikiEditConflictError
+              ? "CONFLICT"
+              : error instanceof MemoryWikiEditValidationError
+                ? "INVALID_REQUEST"
+                : "UNAVAILABLE",
+          message:
+            error instanceof MemoryWikiEditConflictError ||
+            error instanceof MemoryWikiEditValidationError
+              ? error.message
+              : "Wiki document could not be saved. Your draft was not changed.",
         });
       }
     },

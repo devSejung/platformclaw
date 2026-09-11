@@ -1,16 +1,20 @@
 import { formatErrorMessage } from "@openclaw/normalization-core";
 import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type {
   OrganizationMemoryLifecycleSnapshot,
   OrganizationMemoryPromotionRequest,
   OrganizationMemoryPromotionSourceKind,
 } from "../../../../packages/platformclaw-control-plane/src/contracts.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import { renderHubTabs } from "../../components/hub-tabs.ts";
+import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "../../platformclaw/i18n.ts";
 import type { PersonalWikiSourceSelected } from "./memory-promotion-source-picker.ts";
+import "../../styles/sidebar-markdown.css";
 import "../../components/modal-dialog.ts";
 import "./memory-promotion-source-picker.ts";
 
@@ -32,6 +36,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   @state() private sourceRevision = "1";
   @state() private targetScopeId = "";
   @state() private proposedText = "";
+  @state() private proposedTextTab: "write" | "preview" = "write";
   @state() private evidence = "";
   @state() private reason = "";
   @state() private success: string | null = null;
@@ -146,6 +151,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     this.sourceRevision = "1";
     this.targetScopeId = "";
     this.proposedText = "";
+    this.proposedTextTab = "write";
     this.evidence = "";
     this.reason = "";
   }
@@ -378,7 +384,15 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   private renderRequest(request: OrganizationMemoryPromotionRequest, review = false) {
     return html`<div class="settings-row">
       <span class="settings-row__text">
-        <span class="settings-row__title">${request.proposedText}</span>
+        <article class="settings-row__title sidebar-markdown memory-promotions__document">
+          ${unsafeHTML(
+            toSanitizedMarkdownHtml(request.proposedText, {
+              codeBlockChrome: "none",
+              fileLinks: false,
+              interactiveImages: false,
+            }),
+          )}
+        </article>
         <span class="settings-row__desc"
           >${this.sourceLabel(request.sourceKind)}${request.sourceClaimId
             ? ` · ${request.sourceClaimId}`
@@ -547,16 +561,41 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
                 )}
               </p>`
             : nothing}
-          <label class="memory-promotions__field">
+          <div class="memory-promotions__field">
             <span>${t("memoryPage.promotions.proposedText")}</span>
-            <textarea
-              class="settings-textarea"
-              placeholder=${t("memoryPage.promotions.textPlaceholder")}
-              .value=${this.proposedText}
-              @input=${(event: InputEvent) =>
-                (this.proposedText = (event.currentTarget as HTMLTextAreaElement).value)}
-            ></textarea>
-          </label>
+            ${renderHubTabs({
+              id: "memory-promotion-document",
+              active: this.proposedTextTab,
+              tabs: [
+                { value: "write", label: t("memoryPage.promotions.write") },
+                { value: "preview", label: t("memoryPage.promotions.preview") },
+              ],
+              ariaLabel: t("memoryPage.promotions.proposedText"),
+              panelId: "memory-promotion-document-panel",
+              variant: "sub",
+              onSelect: (tab) => (this.proposedTextTab = tab),
+            })}
+            <div id="memory-promotion-document-panel">
+              ${this.proposedTextTab === "write"
+                ? html`<textarea
+                    aria-label=${t("memoryPage.promotions.proposedText")}
+                    class="settings-textarea"
+                    placeholder=${t("memoryPage.promotions.textPlaceholder")}
+                    .value=${this.proposedText}
+                    @input=${(event: InputEvent) =>
+                      (this.proposedText = (event.currentTarget as HTMLTextAreaElement).value)}
+                  ></textarea>`
+                : html`<article class="sidebar-markdown memory-promotions__document">
+                    ${unsafeHTML(
+                      toSanitizedMarkdownHtml(this.proposedText, {
+                        codeBlockChrome: "none",
+                        fileLinks: false,
+                        interactiveImages: false,
+                      }),
+                    )}
+                  </article>`}
+            </div>
+          </div>
           <label class="memory-promotions__field">
             <span>${t("memoryPage.promotions.evidenceLabel")}</span>
             <textarea

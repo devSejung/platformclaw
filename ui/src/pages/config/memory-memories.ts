@@ -35,7 +35,12 @@ type WikiSearchResult = {
   startLine?: number;
   endLine?: number;
 };
-type WikiGetResult = { content: string; fromLine: number; lineCount: number };
+type WikiGetResult = {
+  content?: string;
+  displayContent?: string;
+  fromLine?: number;
+  lineCount?: number;
+};
 type BrowseEntry = {
   path: string;
   name: string;
@@ -427,7 +432,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     try {
       const response =
         result.source === "wiki"
-          ? await client.request<WikiGetResult>("wiki.get", {
+          ? await client.request<WikiGetResult>("wiki.document.get", {
               agentId,
               lookup: result.path,
             })
@@ -450,7 +455,10 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
             ? response.file.encoding === "utf8"
               ? { kind: "ready", content: response.file.content }
               : { kind: "error", message: this.text("memoryPage.memories.fileUnsupported") }
-            : { kind: "ready", content: response.content };
+            : {
+                kind: "ready",
+                content: response.displayContent ?? response.content ?? "",
+              };
       this.details = new Map(this.details).set(key, detail);
     } catch (error) {
       if (this.detailRequests.get(key) !== request || !this.isCurrentRequest(request)) {

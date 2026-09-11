@@ -5,6 +5,7 @@ export type MarkdownRenderOptions = {
   codeBlockChrome?: MarkdownCodeBlockChrome;
   fileLinks?: boolean;
   interactiveImages?: boolean;
+  wikiLinks?: boolean;
 };
 
 export type MarkdownRenderEnv = Required<MarkdownRenderOptions>;
@@ -17,5 +18,6 @@ export function normalizeMarkdownRenderOptions(
     codeBlockChrome: options.codeBlockChrome ?? "copy",
     fileLinks: options.fileLinks ?? false,
     interactiveImages: options.interactiveImages ?? false,
+    wikiLinks: options.wikiLinks ?? false,
   };
 }

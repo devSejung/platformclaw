@@ -126,9 +126,18 @@ const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 const OBSIDIAN_LINK_PATTERN = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 const MARKDOWN_LINK_PATTERN = /\[[^\]]+\]\(([^)]+)\)/g;
 const RELATED_BLOCK_PATTERN = new RegExp(
-  `${WIKI_RELATED_START_MARKER}[\\s\\S]*?${WIKI_RELATED_END_MARKER}`,
+  `(?:^|\\r?\\n)## Related[\\t ]*\\r?\\n(?:[\\t ]*\\r?\\n)*${WIKI_RELATED_START_MARKER}[\\s\\S]*?${WIKI_RELATED_END_MARKER}`,
   "g",
 );
+const MANAGED_MARKER_LINE_PATTERN =
+  /^[\t ]*<!--[\t ]*openclaw:(?:wiki:[a-z0-9:-]+|human:(?:start|end))[\t ]*-->[\t ]*(?:\r?\n|$)/gimu;
+
+export function stripManagedWikiMarkdown(markdown: string): string {
+  return markdown
+    .replace(RELATED_BLOCK_PATTERN, "")
+    .replace(MANAGED_MARKER_LINE_PATTERN, "")
+    .trim();
+}
 const MAX_WIKI_SEGMENT_BYTES = 240;
 const MAX_WIKI_FILENAME_COMPONENT_BYTES = 255;
 const FS_SAFE_PINNED_WRITE_TEMP_SUFFIX = ".00000000-0000-4000-8000-000000000000.fallback.tmp";
@@ -542,6 +551,59 @@ export function extractHumanNotesBlock(page: string): string | null {
     block.end - HUMAN_END_MARKER.length,
   );
   return notes.trim() ? page.slice(block.start, block.end) : null;
+}
+
+export function hasHumanNotesRegion(page: string): boolean {
+  return findNotesHumanBlock(page) !== null;
+}
+
+export function extractHumanNotes(page: string): string {
+  const block = findNotesHumanBlock(page);
+  if (!block) {
+    return "";
+  }
+  return page
+    .slice(block.start + HUMAN_START_MARKER.length, block.end - HUMAN_END_MARKER.length)
+    .trim();
+}
+
+export function replaceHumanNotes(page: string, notes: string): string {
+  const block = findNotesHumanBlock(page);
+  if (!block) {
+    throw new Error("This generated Wiki page does not have an editable Notes region");
+  }
+  const normalized = notes.replace(/\r\n?/g, "\n").trim();
+  const replacement = `${HUMAN_START_MARKER}${normalized ? `\n${normalized}\n` : "\n"}${HUMAN_END_MARKER}`;
+  return page.slice(0, block.start) + replacement + page.slice(block.end);
+}
+
+/** Extract only the fenced source payload after an already-verified generated wrapper. */
+export function extractGeneratedSourceContent(
+  body: string,
+  generatedSourceBody: GeneratedSourceBody,
+): { content: string; language: string } | null {
+  if (generatedSourceBody === "chatgpt-export") {
+    return null;
+  }
+  const heading = SOURCE_CONTENT_HEADING.exec(body);
+  if (!heading) {
+    return null;
+  }
+  const fenceStart = heading.index + heading[0].length;
+  const opening = /^(`{3,})([^\r\n]*)\r?\n/u.exec(body.slice(fenceStart));
+  if (!opening?.[1]) {
+    return null;
+  }
+  const contentStart = fenceStart + opening[0].length;
+  const closePattern = new RegExp(`(?:^|\\r?\\n)${opening[1]}(?=\\r?\\n|$)`, "u");
+  const close = closePattern.exec(body.slice(contentStart));
+  if (!close) {
+    return null;
+  }
+  return {
+    content: body.slice(contentStart, contentStart + close.index).replace(/\r\n?/g, "\n"),
+    language: opening[2]?.trim().toLowerCase() ?? "",
+  };
 }
 
 export function preserveHumanNotesBlock(rendered: string, existing: string): string {

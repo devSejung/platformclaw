@@ -134,6 +134,20 @@ afterEach(() => {
 });
 
 describe("AgentMemoryPanel gateway lifecycle", () => {
+  it("prevents unload after a modified Wiki draft switches to source view", async () => {
+    const page = createPage(contextWithGateway({} as GatewayBrowserClient, true));
+    document.body.append(page);
+    await page.updateComplete;
+    page.viewState.wikiEditOriginal = "Original";
+    page.viewState.wikiEditDraft = "Modified";
+    page.viewState.wikiPreviewMode = "source";
+
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it("clears an obsolete preview and reloads after a confirmed external deletion", async () => {
     const page = createPage(contextWithGateway({} as GatewayBrowserClient, true));
     document.body.append(page);
@@ -286,10 +300,8 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
 
     await page.openWikiPage("support.md");
 
-    expect(request).toHaveBeenCalledWith("wiki.get", {
+    expect(request).toHaveBeenCalledWith("wiki.document.get", {
       lookup: "support.md",
-      fromLine: 1,
-      lineCount: 5000,
       agentId: "support",
     });
   });

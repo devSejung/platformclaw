@@ -1,21 +1,24 @@
 import { html, nothing } from "lit";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type { MemorySearchResponse } from "../../../../src/gateway/server-methods/memory-search.ts";
 import { icons } from "../../components/icons.ts";
+import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { renderMemoryItemActions } from "../../components/memory-item-actions.ts";
 import { renderSettingsRow } from "../../components/settings-ui.ts";
+import "../../styles/sidebar-markdown.css";
 
 export type Translate = (key: string, params?: Record<string, string>) => string;
 export type MemoryResultActions = {
   label: string;
   available: (result: SearchResult) => boolean;
-  open: (result: SearchResult, event: MouseEvent) => void;
+  open: (result: SearchResult, event: Event) => void;
 };
 
 function resultActions(result: SearchResult, actions?: MemoryResultActions) {
   return actions?.available(result)
     ? {
         label: actions.label,
-        open: (_lookup: string, event: MouseEvent) => actions.open(result, event),
+        open: (_lookup: string, event: Event) => actions.open(result, event),
       }
     : undefined;
 }
@@ -69,19 +72,23 @@ export function isExpandableResult(result: SearchResult): boolean {
 }
 
 function renderFileContent(content: string, result?: SearchResult) {
-  if (!result) {
-    return html`<pre class="memory-memories__file" tabindex="0">${content}</pre>`;
-  }
   const lines = content.split(/\r?\n/);
-  const start = Math.max(0, result.startLine - 1);
-  const end = Math.min(lines.length, result.endLine);
-  const before = lines.slice(0, start);
-  const matched = lines.slice(start, end);
-  const after = lines.slice(end);
-  return html`<pre class="memory-memories__file" tabindex="0"><span
-      >${before.join("\n")}${before.length ? "\n" : ""}</span
-    ><mark data-memory-match="true">${matched.join("\n")}</mark
-    ><span>${after.length ? `\n${after.join("\n")}` : ""}</span></pre>`;
+  const start = result ? Math.max(0, result.startLine - 1) : 0;
+  const end = result ? Math.min(lines.length, result.endLine) : 0;
+  return html`${result
+      ? html`<div class="memory-memories__match-context">
+          <mark data-memory-match="true">${lines.slice(start, end).join("\n")}</mark>
+        </div>`
+      : nothing}
+    <article class="sidebar-markdown wiki-document__reader">
+      ${unsafeHTML(
+        toSanitizedMarkdownHtml(content, {
+          codeBlockChrome: "none",
+          fileLinks: false,
+          interactiveImages: false,
+        }),
+      )}
+    </article>`;
 }
 
 type DetailView = {

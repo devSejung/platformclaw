@@ -214,6 +214,8 @@ describe("projectPlatformClawBrowserHello", () => {
       "agents.workspace.get",
       "agents.workspace.list",
       "wiki.get",
+      "wiki.document.get",
+      "wiki.document.save",
       "wiki.graph",
       "wiki.overview",
     );
@@ -231,6 +233,8 @@ describe("projectPlatformClawBrowserHello", () => {
         "agents.workspace.get",
         "agents.workspace.list",
         "wiki.get",
+        "wiki.document.get",
+        "wiki.document.save",
         "wiki.graph",
         "wiki.overview",
       ]),

@@ -10,9 +10,26 @@ import {
   renderWikiMarkdown,
   scanWikiPageSummary,
   slugifyWikiSegment,
+  stripManagedWikiMarkdown,
   toWikiPageSummary,
   WIKI_RAW_SOURCE_MARKER,
 } from "./markdown.js";
+
+describe("stripManagedWikiMarkdown", () => {
+  it("hides dashboard markers while preserving their generated content", () => {
+    const markdown = [
+      "# Dashboard",
+      "",
+      "<!-- openclaw:wiki:index:start -->",
+      "[Alpha](concepts/alpha.md)",
+      "<!-- openclaw:wiki:index:end -->",
+    ].join("\n");
+
+    expect(stripManagedWikiMarkdown(markdown)).toBe(
+      ["# Dashboard", "", "[Alpha](concepts/alpha.md)"].join("\n"),
+    );
+  });
+});
 
 function scanWikiLinkTargets(markdown: string, relativePath: string): string[] {
   const result = scanWikiPageSummary({

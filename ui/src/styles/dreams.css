@@ -1302,3 +1302,37 @@
     flex-direction: column;
   }
 }
+.wiki-document__reader {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.wiki-document__reader :is(pre, table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.wiki-document__menu {
+  margin-left: auto;
+}
+
+.wiki-document__editor {
+  width: 100%;
+  min-height: min(56vh, 640px);
+  padding: 14px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.6 var(--font-mono);
+}
+
+.wiki-document__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}

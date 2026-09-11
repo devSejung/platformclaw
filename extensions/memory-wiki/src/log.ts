@@ -6,7 +6,7 @@ import { appendRegularFile } from "openclaw/plugin-sdk/security-runtime";
 import { walkMemoryWikiDirectory } from "./bounded-walk.js";
 
 type MemoryWikiLogEntry = {
-  type: "init" | "vault-generation" | "ingest" | "okf-import" | "compile" | "lint";
+  type: "init" | "vault-generation" | "ingest" | "okf-import" | "compile" | "lint" | "edit";
   timestamp: string;
   details?: Record<string, unknown>;
 };

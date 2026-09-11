@@ -100,6 +100,19 @@
   color: inherit;
 }
 
+.memory-memories__match-context {
+  padding: var(--space-2) var(--space-3);
+  overflow: auto;
+  border-left: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  white-space: pre-wrap;
+}
+
+.memory-memories__match-context mark {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: inherit;
+}
+
 .memory-promotions {
   margin-inline: auto;
 }
@@ -196,6 +209,12 @@
   white-space: pre-wrap;
 }
 
+.memory-source-picker__preview .wiki-document__reader {
+  max-height: 260px;
+  overflow: auto;
+  border-left: 2px solid var(--accent);
+}
+
 .memory-promotions__empty {
   padding: var(--space-3) var(--space-4);
   color: var(--muted);
@@ -214,6 +233,18 @@
   border-color: var(--border-strong);
   background-color: var(--bg-elevated);
   color: var(--text);
+}
+
+.memory-promotions__document {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.memory-promotions__document pre,
+.memory-promotions__document .table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .memory-promotions .settings-textarea {

@@ -117,6 +117,16 @@ function readRespondError(respond: { mock: { calls: Array<Array<unknown>> } }): 
 
 const VAULT_BACKED_GATEWAY_CASES = [
   ["wiki.delete", { path: "concepts/a.md", expectedContentHash: "a".repeat(64) }],
+  ["wiki.document.get", { lookup: "concepts/a.md" }],
+  [
+    "wiki.document.save",
+    {
+      path: "concepts/a.md",
+      editMode: "body",
+      content: "# A",
+      expectedRevision: "a".repeat(64),
+    },
+  ],
   ["wiki.status", {}],
   ["wiki.importRuns", {}],
   ["wiki.importInsights", {}],

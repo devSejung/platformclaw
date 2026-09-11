@@ -1,4 +1,25 @@
 export const translations: Readonly<Record<string, string>> = {
+  "dreaming.wiki.documentActions": "Document actions",
+  "dreaming.wiki.edit": "Edit",
+  "dreaming.wiki.editNotes": "Edit notes",
+  "dreaming.wiki.viewSource": "View source",
+  "dreaming.wiki.backToPreview": "Back to preview",
+  "dreaming.wiki.write": "Write",
+  "dreaming.wiki.preview": "Preview",
+  "dreaming.wiki.saved": "Saved. Showing the latest server version.",
+  "dreaming.wiki.savedIndexPending":
+    "Saved. Search and graph refresh are pending; refresh to retry indexing.",
+  "dreaming.wiki.saveReloadFailed":
+    "The document was saved, but the latest version could not be reloaded.",
+  "dreaming.wiki.sourceManaged":
+    "The source content is managed by synchronization. Only Notes are editable.",
+  "dreaming.wiki.generatedReadOnly":
+    "This generated report is read-only and will be replaced by the next compile.",
+  "dreaming.wiki.pageTooLargeReadOnly": "This page is too large for safe browser editing.",
+  "dreaming.wiki.sharedVaultReadOnly": "This shared Wiki is read-only here.",
+  "dreaming.wiki.discardTitle": "Discard Wiki changes?",
+  "dreaming.wiki.discardDescription": "Your unsaved Markdown changes will be lost.",
+  "dreaming.wiki.discard": "Discard changes",
   "platformClaw.wiki.deleteGeneratedUnavailable":
     "This is a generated report or navigation page. Delete the underlying pages instead.",
   "platformClaw.wiki.deleteSharedUnavailable":
@@ -316,6 +337,8 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.promotions.approvedClaimEvidence": "Approved organization claim",
   "memoryPage.promotions.defaultReason": "Share this reviewed knowledge with the organization.",
   "memoryPage.promotions.proposedText": "Shared knowledge",
+  "memoryPage.promotions.write": "Write",
+  "memoryPage.promotions.preview": "Preview",
   "memoryPage.promotions.revision": "revision {revision}",
   "memoryPage.promotions.statusPending": "Pending",
   "memoryPage.promotions.statusApproved": "Approved",

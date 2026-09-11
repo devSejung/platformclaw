@@ -333,6 +333,96 @@ describe("BrowserGatewayProxy personal memory wiki", () => {
     ]);
   });
 
+  it("pins editable Wiki document reads and strips unapproved result fields", async () => {
+    const { binding, proxy, request, token } = await setup();
+    request.mockResolvedValueOnce({
+      agentId: binding.agentId,
+      path: "concepts/safe.md",
+      title: "Safe",
+      kind: "concept",
+      displayContent: "# Safe",
+      sourceContent: "# Safe",
+      editableContent: "# Safe",
+      editMode: "body",
+      revision: "a".repeat(64),
+      sourceType: "native",
+      updatedAt: "2026-09-10T00:00:00.000Z",
+      absolutePath: "/srv/private/wiki/concepts/safe.md",
+      sourcePath: "/srv/private/source.md",
+      frontmatter: { sourceIds: ["private"] },
+    });
+
+    await expect(
+      proxy.request(token, "wiki.document.get", { lookup: "concepts/safe.md" }),
+    ).resolves.toEqual({
+      path: "concepts/safe.md",
+      title: "Safe",
+      kind: "concept",
+      displayContent: "# Safe",
+      sourceContent: "# Safe",
+      editableContent: "# Safe",
+      editMode: "body",
+      revision: "a".repeat(64),
+      sourceType: "native",
+      updatedAt: "2026-09-10T00:00:00.000Z",
+    });
+    expect(request).toHaveBeenCalledWith("wiki.document.get", {
+      agentId: binding.agentId,
+      lookup: "concepts/safe.md",
+    });
+    await expect(
+      proxy.request(token, "wiki.document.get", { agentId: "other", lookup: "concepts/safe.md" }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+  });
+
+  it("pins Wiki saves and requires a path, editable field, and full revision", async () => {
+    const { binding, proxy, request, token } = await setup();
+    request.mockResolvedValueOnce({
+      path: "concepts/safe.md",
+      saved: true,
+      indexesRefreshed: false,
+      revision: "b".repeat(64),
+      ignored: "/srv/private/wiki",
+    });
+
+    await expect(
+      proxy.request(token, "wiki.document.save", {
+        path: "concepts/safe.md",
+        editMode: "body",
+        content: "# Updated",
+        expectedRevision: "a".repeat(64),
+      }),
+    ).resolves.toEqual({
+      path: "concepts/safe.md",
+      saved: true,
+      indexesRefreshed: false,
+      revision: "b".repeat(64),
+    });
+    expect(request).toHaveBeenCalledWith("wiki.document.save", {
+      agentId: binding.agentId,
+      path: "concepts/safe.md",
+      editMode: "body",
+      content: "# Updated",
+      expectedRevision: "a".repeat(64),
+    });
+    await expect(
+      proxy.request(token, "wiki.document.save", {
+        path: "../other.md",
+        editMode: "body",
+        content: "unsafe",
+        expectedRevision: "a".repeat(64),
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, "wiki.document.save", {
+        path: "concepts/safe.md",
+        editMode: "body",
+        content: "unsafe",
+        expectedRevision: "short",
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+  });
+
   it("projects only managed agent-scoped bridge status", async () => {
     const { binding, proxy, request, token } = await setup();
     request.mockResolvedValueOnce({

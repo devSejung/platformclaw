@@ -47,12 +47,13 @@ function createPage(omitMethods: string[] = []) {
             snippet: "Approved source candidate",
           },
         ];
-      case "wiki.get":
+      case "wiki.document.get":
         return {
           path: "concepts/runbook.md",
           title: "My runbook",
-          content: "# My runbook\nCheck the service first.",
-          truncated: false,
+          displayContent: "# My runbook\nCheck the service first.",
+          sourceContent: "# My runbook\nCheck the service first.",
+          editMode: "body",
         };
       case "platformclaw.memory.lifecycle":
         return {
@@ -88,6 +89,7 @@ function createPage(omitMethods: string[] = []) {
               "agents.workspace.get",
               "wiki.search",
               "wiki.get",
+              "wiki.document.get",
               "wiki.delete",
               "platformclaw.memory.lifecycle",
               "platformclaw.memory.promotion.submit",
@@ -193,7 +195,7 @@ describe("personal memory action integration", () => {
         ).toContain("# My runbook\nCheck the service first.");
       });
       expect(request).toHaveBeenCalledWith(
-        "wiki.get",
+        "wiki.document.get",
         expect.objectContaining({ agentId: "personal", lookup: "concepts/runbook.md" }),
       );
       expect(
@@ -213,9 +215,11 @@ describe("personal memory action integration", () => {
     page.querySelector<HTMLButtonElement>("article .memory-item-actions")!.click();
     await chooseMenuAction(page, "delete");
     await waitForFast(() =>
-      expect(page.querySelector("platformclaw-memory-delete-dialog pre")?.textContent).toBe(
-        "Private memory",
-      ),
+      expect(
+        page
+          .querySelector("platformclaw-memory-delete-dialog .wiki-document__reader")
+          ?.textContent?.trim(),
+      ).toBe("Private memory"),
     );
     expect(request.mock.calls.some(([method]) => method === "memory.delete")).toBe(false);
     const before = request.mock.calls.filter(
