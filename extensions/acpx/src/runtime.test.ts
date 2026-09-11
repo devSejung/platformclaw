@@ -11,9 +11,6 @@ import { registerAcpProcessTransport } from "openclaw/plugin-sdk/acp-runtime-bac
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AcpRuntimeError,
-  ACP_AGENT_ENV,
-  ACP_EXECUTION_OWNER_ENV,
-  ACP_SESSION_KEY_ENV,
   type AcpRuntime,
   type AcpRuntimeCapabilities,
   type AcpRuntimeEvent,
@@ -250,9 +247,9 @@ describe("AcpxRuntime fresh reset wrapper", () => {
                 ? { SAFE: "kept" }
                 : {
                     SAFE: "kept",
-                    [ACP_EXECUTION_OWNER_ENV]: "mallory",
-                    [ACP_AGENT_ENV]: "spoofed-agent",
-                    [ACP_SESSION_KEY_ENV]: "spoofed-session",
+                    OPENCLAW_ACP_EXECUTION_OWNER_AGENT_ID: "mallory",
+                    OPENCLAW_ACP_AGENT_ID: "spoofed-agent",
+                    OPENCLAW_ACP_SESSION_KEY: "spoofed-session",
                   },
           });
           return {

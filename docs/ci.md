@@ -229,9 +229,12 @@ ratchet-down when cleanup lowers the real count.
 
 - `config/env-var-count-budget.txt` caps the number of distinct `OPENCLAW_*`
   names in production source under `src/`, `packages/`, and `extensions/`
-  (tests and QA Lab excluded). Checked by `node scripts/check-env-var-count.mjs`.
-  Removing env vars: lower the number in the same PR. Adding one is a
-  config-surface decision — justify it in the PR body.
+  (tests and QA Lab excluded). Named, removal-bounded internal compatibility
+  markers that are not operator configuration may be explicitly excluded; all
+  operator-facing and new names remain ratcheted. Checked by
+  `node scripts/check-env-var-count.mjs`. Removing env vars: lower the number in
+  the same PR. Adding one is a config-surface decision — justify it in the PR
+  body.
 - `docs/.generated/config-baseline.counts.json` caps the per-kind
   (core/channel/plugin) `openclaw.json` schema entry counts. Checked by
   `pnpm config:docs:check`; regenerate with `pnpm config:docs:gen` after any

@@ -3,8 +3,11 @@ import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 
+/** @deprecated Shipped in VM previews 20260907-10; use `route.executionOwnerAgentId`. Remove next major. */
 export const ACP_EXECUTION_OWNER_ENV = "OPENCLAW_ACP_EXECUTION_OWNER_AGENT_ID";
+/** @deprecated Shipped in VM previews 20260907-10; use `route.agent`. Remove next major. */
 export const ACP_AGENT_ENV = "OPENCLAW_ACP_AGENT_ID";
+/** @deprecated Shipped in VM previews 20260907-10; use `route.sessionKey`. Remove next major. */
 export const ACP_SESSION_KEY_ENV = "OPENCLAW_ACP_SESSION_KEY";
 
 export type AcpProcessTransportLaunch = {
@@ -83,6 +86,8 @@ function resolveRegistryState(): RegistryState {
 
 const STATE = resolveRegistryState();
 
+const LEGACY_ROUTE_ENV_KEYS = [ACP_EXECUTION_OWNER_ENV, ACP_AGENT_ENV, ACP_SESSION_KEY_ENV];
+
 export function registerAcpProcessTransport(provider: AcpProcessTransportProvider): () => void {
   const id = provider.id.trim().toLowerCase();
   if (!id) {
@@ -159,19 +164,28 @@ export async function releaseAcpProcessTransport(input: {
   await provider?.release?.(input);
 }
 
-export async function launchWithAcpProcessTransport(input: {
-  agentCommand: string;
-  command: string;
-  args: string[];
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-}): Promise<ChildProcessByStdio<Writable, Readable, Readable> | undefined> {
-  const executionOwnerAgentId = input.env[ACP_EXECUTION_OWNER_ENV]?.trim();
+export async function launchWithAcpProcessTransport(
+  input: {
+    agentCommand: string;
+    command: string;
+    args: string[];
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+  },
+  route?: Pick<AcpProcessTransportLaunch, "executionOwnerAgentId" | "agent" | "sessionKey">,
+): Promise<ChildProcessByStdio<Writable, Readable, Readable> | undefined> {
+  // VM previews 20260907-10 shipped the env-only SDK contract. Explicit route
+  // data is authoritative; retain env fallback only until the next major release.
+  const executionOwnerAgentId = route
+    ? route.executionOwnerAgentId.trim()
+    : input.env[ACP_EXECUTION_OWNER_ENV]?.trim();
   if (!executionOwnerAgentId) {
     return undefined;
   }
-  const agent = input.env[ACP_AGENT_ENV]?.trim() || input.agentCommand.trim();
-  const sessionKey = input.env[ACP_SESSION_KEY_ENV]?.trim();
+  const agent = route
+    ? route.agent.trim() || input.agentCommand.trim()
+    : input.env[ACP_AGENT_ENV]?.trim() || input.agentCommand.trim();
+  const sessionKey = route ? route.sessionKey.trim() : input.env[ACP_SESSION_KEY_ENV]?.trim();
   if (!sessionKey) {
     throw new Error("Isolated ACP process transport is missing its session key.");
   }
@@ -188,10 +202,12 @@ export async function launchWithAcpProcessTransport(input: {
     STATE.preparedProviders.delete(preparedKey(executionOwnerAgentId, sessionKey));
     throw new Error("The prepared isolated ACP process transport changed; close and retry.");
   }
+  // Old persisted ACPX session options can still contain the retired route carrier.
+  // Never expose those internal markers to the child or let a reconnect revive them.
   const env = { ...input.env };
-  delete env[ACP_EXECUTION_OWNER_ENV];
-  delete env[ACP_AGENT_ENV];
-  delete env[ACP_SESSION_KEY_ENV];
+  for (const key of LEGACY_ROUTE_ENV_KEYS) {
+    delete env[key];
+  }
   return await provider.launch({
     executionOwnerAgentId,
     agent,

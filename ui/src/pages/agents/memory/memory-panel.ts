@@ -15,7 +15,6 @@ import type { MemoryItemActions } from "../../../components/memory-item-actions.
 import { renderSettingsDefaultState, renderSettingsRow } from "../../../components/settings-ui.ts";
 import { t } from "../../../i18n/index.ts";
 import { currentConfigObject } from "../../../lib/config/index.ts";
-import { formatTimeMs } from "../../../lib/format.ts";
 import { isGatewayMethodAdvertised } from "../../../lib/gateway-methods.ts";
 import { OpenClawLightDomElement } from "../../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../../lit/subscriptions-controller.ts";
@@ -38,35 +37,23 @@ import {
   updateDreamingEnabled,
   type DreamingState,
 } from "./dreaming.ts";
+import {
+  createMemoryPanelGatewayState,
+  preventDirtyWikiUnload,
+  resolveDreamingNextCycle,
+  type DreamingTaskScope,
+} from "./memory-panel-helpers.ts";
 import { renderDreamingToggleConfirmation } from "./toggle-confirmation.ts";
 import {
   createDreamingViewState,
   renderDreaming,
   renderWikiKnowledge,
   resetWikiPreview,
-  wikiDraftDirty,
   type DreamingViewState,
   type WikiGraphRenderer,
 } from "./view.ts";
-import { readWikiPagePreview, type WikiPagePreview } from "./wiki-page-preview.ts";
-
-type DreamingTaskScope = {
-  gateway: ApplicationGateway;
-  epoch: number;
-  state: DreamingState;
-};
-
-function formatDreamNextCycle(nextRunAtMs: number | undefined): string | null {
-  return formatTimeMs(nextRunAtMs, { hour: "numeric", minute: "2-digit" }, "") || null;
-}
-
-function resolveDreamingNextCycle(status: DreamingState["dreamingStatus"]): string | null {
-  const nextRunAtMs = Object.values(status?.phases ?? {})
-    .filter((phase) => phase.enabled && typeof phase.nextRunAtMs === "number")
-    .map((phase) => phase.nextRunAtMs as number)
-    .toSorted((a, b) => a - b)[0];
-  return nextRunAtMs === undefined ? null : formatDreamNextCycle(nextRunAtMs);
-}
+import { requestWikiPage, saveWikiPage } from "./wiki-document-client.ts";
+import type { WikiPagePreview } from "./wiki-page-preview.ts";
 
 class AgentMemoryPanel extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })
@@ -90,13 +77,8 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   private gatewayBindingEpoch = 0;
   private gatewayEpoch = 0;
   private hasBoundGatewaySource = false;
-  private readonly preventDirtyWikiUnload = (event: BeforeUnloadEvent) => {
-    if (!wikiDraftDirty(this.viewState)) {
-      return;
-    }
-    event.preventDefault();
-    event.returnValue = "";
-  };
+  private readonly preventDirtyWikiUnload = (event: BeforeUnloadEvent) =>
+    preventDirtyWikiUnload(event, this.viewState);
   private readonly subscriptions = new SubscriptionsController(this)
     .effect(
       () => this.context?.gateway,
@@ -190,14 +172,7 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   }
 
   private createGatewayState(snapshot = this.context.gateway.snapshot): DreamingState {
-    return createDreamingState({
-      client: snapshot.client,
-      connected: snapshot.phase === "connected",
-      hello: snapshot.hello,
-      configSnapshot: this.context.runtimeConfig.state.configSnapshot,
-      applySessionKey: snapshot.sessionKey,
-      selectedAgentId: this.agentId.trim() || null,
-    });
+    return createMemoryPanelGatewayState(this.context, this.agentId, snapshot);
   }
 
   private applyGatewaySnapshot(
@@ -485,17 +460,13 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
       return null;
     }
     const agentId = scope.state.selectedAgentId?.trim() || null;
-    const payload = await client.request("wiki.document.get", {
+    return await requestWikiPage({
+      client,
       lookup,
-      ...(agentId ? { agentId } : {}),
+      agentId,
+      isCurrent: () =>
+        this.isTaskScopeCurrent(scope) && (scope.state.selectedAgentId?.trim() || null) === agentId,
     });
-    if (
-      !this.isTaskScopeCurrent(scope) ||
-      (scope.state.selectedAgentId?.trim() || null) !== agentId
-    ) {
-      return null;
-    }
-    return readWikiPagePreview(payload, lookup);
   }
 
   private async saveWikiPage(params: {
@@ -510,34 +481,21 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
       return null;
     }
     const agentId = scope.state.selectedAgentId?.trim() || null;
-    const saveResult = await client.request<{
-      saved: boolean;
-      indexesRefreshed: boolean;
-    }>("wiki.document.save", {
-      ...params,
-      ...(agentId ? { agentId } : {}),
+    const saved = await saveWikiPage({
+      client,
+      document: params,
+      agentId,
+      isCurrent: () =>
+        this.isTaskScopeCurrent(scope) && (scope.state.selectedAgentId?.trim() || null) === agentId,
     });
-    if (
-      !this.isTaskScopeCurrent(scope) ||
-      (scope.state.selectedAgentId?.trim() || null) !== agentId
-    ) {
-      return null;
-    }
-    const payload = await client.request("wiki.document.get", {
-      lookup: params.path,
-      ...(agentId ? { agentId } : {}),
-    });
-    if (
-      !this.isTaskScopeCurrent(scope) ||
-      (scope.state.selectedAgentId?.trim() || null) !== agentId
-    ) {
+    if (!saved) {
       return null;
     }
     void this.refreshWikiData(loadWikiOverview);
     if (this.surface === "wiki" && this.viewState.wikiLayout === "graph") {
       void this.loadWikiGraphView();
     }
-    return { ...readWikiPagePreview(payload, params.path), ...saveResult };
+    return saved;
   }
 
   private async refreshWikiData(task: (state: DreamingState) => Promise<void>) {

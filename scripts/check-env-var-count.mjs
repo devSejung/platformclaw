@@ -7,6 +7,17 @@ const BUDGET_PATH = "config/env-var-count-budget.txt";
 const SOURCE_ROOTS = ["src", "packages", "extensions"];
 const SOURCE_EXTENSIONS = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"]);
 const ENV_VAR_PATTERN = /OPENCLAW_[A-Z0-9_]+/gu;
+// Shipped ACP SDK transport markers are deprecated compatibility constants, not operator config.
+// Keep this exact tombstone until their next-major removal; all other OPENCLAW_* growth is ratcheted.
+const NON_OPERATOR_COMPAT_ENV_NAMES = new Set([
+  "OPENCLAW_ACP_AGENT_ID",
+  "OPENCLAW_ACP_EXECUTION_OWNER_AGENT_ID",
+  "OPENCLAW_ACP_SESSION_KEY",
+]);
+
+export function isCountedEnvVarName(name) {
+  return !NON_OPERATOR_COMPAT_ENV_NAMES.has(name);
+}
 
 export function isCountedSourcePath(filePath) {
   const normalized = filePath.replaceAll("\\", "/");
@@ -52,7 +63,9 @@ export function collectEnvVarNames(root = process.cwd(), options = {}) {
       ? execFileSync("git", ["show", `:${file}`], { cwd: root, encoding: "utf8" })
       : fs.readFileSync(path.join(root, file), "utf8");
     for (const match of source.matchAll(ENV_VAR_PATTERN)) {
-      names.add(match[0]);
+      if (isCountedEnvVarName(match[0])) {
+        names.add(match[0]);
+      }
     }
   }
   return [...names].toSorted((left, right) => (left < right ? -1 : left > right ? 1 : 0));
