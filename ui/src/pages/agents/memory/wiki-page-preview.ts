@@ -12,7 +12,7 @@ export type WikiPagePreview = {
   editMode: "body" | "notes" | null;
   editableContent?: string;
   revision?: string;
-  readOnlyReason?: "generated-report" | "source-managed" | "page-too-large";
+  readOnlyReason?: "generated-report" | "source-managed" | "page-too-large" | "shared-vault";
   sourceType?: string;
   saved?: boolean;
   indexesRefreshed?: boolean;
@@ -75,7 +75,8 @@ export function readWikiPagePreview(value: unknown, lookup: string): WikiPagePre
     ...(typeof payload?.revision === "string" ? { revision: payload.revision } : {}),
     ...(payload?.readOnlyReason === "generated-report" ||
     payload?.readOnlyReason === "source-managed" ||
-    payload?.readOnlyReason === "page-too-large"
+    payload?.readOnlyReason === "page-too-large" ||
+    payload?.readOnlyReason === "shared-vault"
       ? { readOnlyReason: payload.readOnlyReason }
       : {}),
     ...(typeof payload?.sourceType === "string" ? { sourceType: payload.sourceType } : {}),

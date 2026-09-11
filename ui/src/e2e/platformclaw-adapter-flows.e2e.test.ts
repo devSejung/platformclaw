@@ -131,7 +131,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         "platformclaw.memory.lifecycle",
         "wiki.search",
         "wiki.overview",
-        "wiki.get",
+        "wiki.document.get",
       ],
       methodResponses: {
         "agents.list": {
@@ -220,10 +220,15 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
             },
           ],
         },
-        "wiki.get": {
+        "wiki.document.get": {
           title: "Person One knowledge",
           path: "syntheses/person-one.md",
           content: "# Person One knowledge\n\nEmployee browser access stays agent scoped.",
+          displayContent: "# Person One knowledge\n\nEmployee browser access stays agent scoped.",
+          sourceContent: "# Person One knowledge\n\nEmployee browser access stays agent scoped.",
+          editMode: "body",
+          editableContent: "# Person One knowledge\n\nEmployee browser access stays agent scoped.",
+          revision: "a".repeat(64),
           totalLines: 3,
           truncated: false,
         },
@@ -281,12 +286,12 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect.poll(() => wiki.textContent()).toContain("Person One knowledge");
     await wiki.getByRole("button", { name: "Open wiki page" }).click();
     await expect
-      .poll(() => page.locator(".dreams-diary__preview-pre").textContent())
+      .poll(() => page.locator(".dreams-diary__preview-body .wiki-document__reader").textContent())
       .toContain("Employee browser access stays agent scoped.");
 
     expect(await gateway.getRequests("config.get")).toHaveLength(0);
     expect(await page.getByText("foreign-agent", { exact: false }).count()).toBe(0);
-    for (const method of ["doctor.memory.dreamDiary", "wiki.overview", "wiki.get"]) {
+    for (const method of ["doctor.memory.dreamDiary", "wiki.overview", "wiki.document.get"]) {
       const requests = await gateway.getRequests(method);
       expect(requests.length).toBeGreaterThan(0);
       for (const request of requests) {

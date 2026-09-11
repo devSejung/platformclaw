@@ -22,7 +22,7 @@ import { writeGuardedVaultPage } from "./vault-page-write.js";
 const MAX_EDIT_BYTES = 256 * 1024;
 const HASH = /^[a-f0-9]{64}$/u;
 
-export type MemoryWikiEditMode = "body" | "notes";
+type MemoryWikiEditMode = "body" | "notes";
 
 export class MemoryWikiEditValidationError extends Error {}
 export class MemoryWikiEditConflictError extends Error {}
@@ -37,10 +37,16 @@ function assertPersonalVault(config: ResolvedMemoryWikiConfig): void {
   }
 }
 
-function classifyEditMode(page: Awaited<ReturnType<typeof readQueryableWikiPages>>[number]): {
+function classifyEditMode(
+  page: Awaited<ReturnType<typeof readQueryableWikiPages>>[number],
+  editableVault: boolean,
+): {
   editMode: MemoryWikiEditMode | null;
-  readOnlyReason?: "generated-report" | "source-managed" | "page-too-large";
+  readOnlyReason?: "generated-report" | "source-managed" | "page-too-large" | "shared-vault";
 } {
+  if (!editableVault) {
+    return { editMode: null, readOnlyReason: "shared-vault" };
+  }
   if (Buffer.byteLength(page.raw, "utf8") > MAX_EDIT_BYTES) {
     return { editMode: null, readOnlyReason: "page-too-large" };
   }
@@ -94,7 +100,6 @@ export async function getMemoryWikiDocument(params: {
   config: ResolvedMemoryWikiConfig;
   lookup: string;
 }) {
-  assertPersonalVault(params.config);
   const page = resolveQueryableWikiPageByLookup(
     await readQueryableWikiPages(params.config.vault.path),
     params.lookup,
@@ -103,7 +108,10 @@ export async function getMemoryWikiDocument(params: {
     return null;
   }
   const parsed = parseWikiMarkdown(page.raw);
-  const classification = classifyEditMode(page);
+  const classification = classifyEditMode(
+    page,
+    params.config.vault.scope === "agent" && Boolean(params.config.agentId),
+  );
   return {
     path: page.relativePath,
     title: page.title,
@@ -148,7 +156,7 @@ export async function saveMemoryWikiDocument(params: {
     if (!page || page.relativePath !== params.path) {
       throw new MemoryWikiEditValidationError("Wiki document not found.");
     }
-    const classification = classifyEditMode(page);
+    const classification = classifyEditMode(page, true);
     if (classification.editMode !== params.editMode) {
       throw new MemoryWikiEditValidationError("This Wiki document is not editable in that mode.");
     }

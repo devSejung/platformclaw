@@ -6,11 +6,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { i18n } from "../../../i18n/index.ts";
 import type { TranslationMap } from "../../../i18n/lib/types.ts";
 import { en } from "../../../i18n/locales/en.ts";
+import { loadPlatformClawLocale } from "../../../platformclaw/i18n.ts";
 import { buildDreamingViewProps, type DreamingProps } from "./view.test-helpers.ts";
 import {
   createDreamingViewState,
   renderDreaming,
   renderWikiKnowledge,
+  wikiDraftDirty,
   type DreamingViewState,
 } from "./view.ts";
 
@@ -20,7 +22,8 @@ let restoreTranslations = () => {};
 const asTranslationMap = (value: string | TranslationMap | undefined): TranslationMap =>
   value && typeof value === "object" ? value : {};
 
-beforeAll(() => {
+beforeAll(async () => {
+  await loadPlatformClawLocale();
   const dreaming = asTranslationMap(en.dreaming);
   const wiki = asTranslationMap(dreaming.wiki);
   i18n.registerTranslation("en", {
@@ -124,6 +127,12 @@ function expectElement(container: Element, selector: string): Element {
 
 function compactText(node: Element | null): string | undefined {
   return node?.textContent?.trim().replace(/\s+/g, " ");
+}
+
+function selectWikiDocumentAction(container: Element, value: string) {
+  expectElement(container, ".wiki-document__menu").dispatchEvent(
+    new CustomEvent("wa-select", { detail: { item: { value } } }),
+  );
 }
 
 function textItems(container: Element, selector: string): Array<string | undefined> {
@@ -465,26 +474,21 @@ describe("dreaming view", () => {
     expect(container.querySelector(".wiki-document__reader table")).not.toBeNull();
     expect(container.querySelector(".wiki-document__reader script")).toBeNull();
 
-    [...container.querySelectorAll<HTMLButtonElement>(".wiki-document__menu button")]
-      .find((button) => button.textContent?.trim() === "View source")
-      ?.click();
+    selectWikiDocumentAction(container, "source");
     expect(container.querySelector(".dreams-diary__preview-pre")?.textContent).toBe("# Alpha");
     expect(container.querySelector(".wiki-document__editor")).toBeNull();
     [...container.querySelectorAll<HTMLButtonElement>(".dreams-diary__preview-body button")]
       .find((button) => button.textContent?.trim() === "Back to preview")
       ?.click();
 
-    const edit = [
-      ...container.querySelectorAll<HTMLButtonElement>(".wiki-document__menu button"),
-    ].find((button) => button.textContent?.trim() === "Edit");
-    edit?.click();
+    selectWikiDocumentAction(container, "edit");
     const textarea = container.querySelector<HTMLTextAreaElement>(".wiki-document__editor");
     expect(textarea).not.toBeNull();
     textarea!.value = "# Alpha\n\nSaved **body**";
     textarea!.dispatchEvent(new InputEvent("input", { bubbles: true }));
-    [...container.querySelectorAll<HTMLButtonElement>("[role='tab']")]
-      .find((button) => button.textContent?.trim() === "Preview")
-      ?.click();
+    [...container.querySelectorAll<HTMLElement>("wa-tab")]
+      .find((tab) => tab.textContent?.trim() === "Preview")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     expect(container.querySelector(".wiki-document__reader strong")?.textContent).toBe("body");
     [...container.querySelectorAll<HTMLButtonElement>(".wiki-document__footer button")]
       .find((button) => button.textContent?.trim() === "Save")
@@ -530,7 +534,7 @@ describe("dreaming view", () => {
     await vi.waitFor(() =>
       expect(container.querySelector(".wiki-document__menu button")).not.toBeNull(),
     );
-    (container.querySelector(".wiki-document__menu button") as HTMLButtonElement).click();
+    selectWikiDocumentAction(container, "edit");
     let textarea = container.querySelector<HTMLTextAreaElement>(".wiki-document__editor")!;
     textarea.value = "Unsaved draft";
     textarea.dispatchEvent(new InputEvent("input", { bubbles: true }));
@@ -547,6 +551,68 @@ describe("dreaming view", () => {
     expect(container.querySelector<HTMLTextAreaElement>(".wiki-document__editor")?.value).toBe(
       "Unsaved draft",
     );
+  });
+
+  it("keeps source-mode drafts dirty and confirms before closing", async () => {
+    setDreamDiarySubTab("wiki");
+    viewState.wikiLayout = "graph";
+    const onConfirmWikiDiscard = vi.fn().mockResolvedValue(false);
+    const container = document.createElement("div");
+    const rerender = () => render(renderWikiKnowledge(props), container);
+    const props = buildProps({
+      onOpenWikiPage: vi.fn().mockResolvedValue({
+        title: "Alpha",
+        path: "concepts/alpha.md",
+        displayContent: "Old",
+        sourceContent: "Old",
+        editMode: "body",
+        editableContent: "Old",
+        revision: "a".repeat(64),
+      }),
+      onConfirmWikiDiscard,
+      onViewStateChange: rerender,
+    });
+    rerender();
+    container
+      .querySelector("[data-wiki-node='concepts/alpha.md']")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await vi.waitFor(() => expect(container.querySelector(".wiki-document__menu")).not.toBeNull());
+    selectWikiDocumentAction(container, "edit");
+    const textarea = expectElement(container, ".wiki-document__editor") as HTMLTextAreaElement;
+    textarea.value = "Unsaved draft";
+    textarea.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    selectWikiDocumentAction(container, "source");
+    expect(wikiDraftDirty(viewState)).toBe(true);
+    const modal = expectElement(container, "openclaw-modal-dialog");
+    modal.dispatchEvent(new CustomEvent("modal-cancel", { bubbles: true }));
+    await vi.waitFor(() => expect(onConfirmWikiDiscard).toHaveBeenCalledOnce());
+    expect(container.querySelector("openclaw-modal-dialog")).not.toBeNull();
+  });
+
+  it("resolves rendered relative Wiki links from the current document", async () => {
+    setDreamDiarySubTab("wiki");
+    viewState.wikiLayout = "graph";
+    const onOpenWikiPage = vi.fn().mockResolvedValue({
+      title: "Report",
+      path: "reports/status.md",
+      displayContent: "[Related](../concepts/related.md)",
+      sourceContent: "[Related](../concepts/related.md)",
+      editMode: null,
+    });
+    const container = document.createElement("div");
+    const rerender = () => render(renderWikiKnowledge(props), container);
+    const props = buildProps({ onOpenWikiPage, onViewStateChange: rerender });
+    rerender();
+    container
+      .querySelector("[data-wiki-node='concepts/alpha.md']")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(container.querySelector(".wiki-document__reader a")).not.toBeNull(),
+    );
+    container
+      .querySelector(".wiki-document__reader a")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(onOpenWikiPage).toHaveBeenLastCalledWith("concepts/related.md"));
   });
 
   it("filters the Personal Wiki graph by safe top-level directory with induced edges", () => {

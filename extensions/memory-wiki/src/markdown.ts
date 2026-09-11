@@ -17,7 +17,7 @@ export const WIKI_RELATED_END_MARKER = "<!-- openclaw:wiki:related:end -->";
 export const WIKI_RAW_SOURCE_MARKER = "<!-- openclaw:wiki:raw-source -->";
 
 export type WikiPageKind = (typeof WIKI_PAGE_KINDS)[number];
-export type GeneratedSourceBody = "bridge" | "unsafe-local" | "local-file" | "chatgpt-export";
+type GeneratedSourceBody = "bridge" | "unsafe-local" | "local-file" | "chatgpt-export";
 
 type ParsedWikiMarkdown = {
   hasFrontmatter: boolean;
@@ -129,9 +129,14 @@ const RELATED_BLOCK_PATTERN = new RegExp(
   `(?:^|\\r?\\n)## Related[\\t ]*\\r?\\n(?:[\\t ]*\\r?\\n)*${WIKI_RELATED_START_MARKER}[\\s\\S]*?${WIKI_RELATED_END_MARKER}`,
   "g",
 );
+const MANAGED_MARKER_LINE_PATTERN =
+  /^[\t ]*<!--[\t ]*openclaw:(?:wiki:[a-z0-9:-]+|human:(?:start|end))[\t ]*-->[\t ]*(?:\r?\n|$)/gimu;
 
 export function stripManagedWikiMarkdown(markdown: string): string {
-  return markdown.replace(RELATED_BLOCK_PATTERN, "").replaceAll(WIKI_RAW_SOURCE_MARKER, "").trim();
+  return markdown
+    .replace(RELATED_BLOCK_PATTERN, "")
+    .replace(MANAGED_MARKER_LINE_PATTERN, "")
+    .trim();
 }
 const MAX_WIKI_SEGMENT_BYTES = 240;
 const MAX_WIKI_FILENAME_COMPONENT_BYTES = 255;

@@ -30,6 +30,7 @@ describe.skipIf(!hasBrowserLayout)("dream diary browser layout", () => {
         canResetDiary: true,
         canResetGroundedShortTerm: true,
         canRepairDreamingArtifacts: true,
+        canEditWiki: true,
       },
       viewState,
       active: true,

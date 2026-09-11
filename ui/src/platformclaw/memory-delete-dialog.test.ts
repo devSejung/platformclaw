@@ -261,7 +261,7 @@ describe("memory deletion confirmation", () => {
           }),
       );
     const element = createDialog(request);
-    await waitForFast(() => expect(element.querySelector("pre")).not.toBeNull());
+    await waitForFast(() => expect(element.querySelector(".wiki-document__reader")).not.toBeNull());
     element.querySelector<HTMLButtonElement>("button.danger")!.click();
     await element.updateComplete;
     const modal = element.querySelector("openclaw-modal-dialog")!;

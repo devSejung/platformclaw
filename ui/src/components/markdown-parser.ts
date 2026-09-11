@@ -342,69 +342,29 @@ export function createMarkdownParser(): MarkdownIt {
     }
   });
 
-  markdownParser.core.ruler.after("linkify", "wiki-links", (state) => {
+  markdownParser.inline.ruler.before("link", "wiki-link", (state, silent) => {
     const env = state.env as Partial<MarkdownRenderEnv> | undefined;
-    if (env?.wikiLinks !== true) {
-      return;
+    if (env?.wikiLinks !== true || !state.src.startsWith("[[", state.pos)) {
+      return false;
     }
-    for (const blockToken of state.tokens) {
-      if (blockToken.type !== "inline" || !blockToken.children) {
-        continue;
-      }
-      const children = blockToken.children;
-      let linkDepth = 0;
-      for (let index = 0; index < children.length; index++) {
-        const token = children[index];
-        if (!token) {
-          continue;
-        }
-        if (token.type === "link_open") {
-          linkDepth += 1;
-          continue;
-        }
-        if (token.type === "link_close") {
-          linkDepth = Math.max(0, linkDepth - 1);
-          continue;
-        }
-        if (linkDepth > 0 || token.type !== "text") {
-          continue;
-        }
-        const replacements: typeof children = [];
-        let cursor = 0;
-        for (const match of token.content.matchAll(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/gu)) {
-          const matched = match[0];
-          const target = match[1]?.trim();
-          if (!target || match.index === undefined) {
-            continue;
-          }
-          if (match.index > cursor) {
-            const leading = new state.Token("text", "", 0);
-            leading.content = token.content.slice(cursor, match.index);
-            replacements.push(leading);
-          }
-          const open = new state.Token("link_open", "a", 1);
-          open.markup = "wiki-link";
-          open.attrSet("href", target);
-          open.attrSet("data-wiki-lookup", target);
-          const label = new state.Token("text", "", 0);
-          label.content = match[2]?.trim() || target;
-          const close = new state.Token("link_close", "a", -1);
-          close.markup = "wiki-link";
-          replacements.push(open, label, close);
-          cursor = match.index + matched.length;
-        }
-        if (replacements.length === 0) {
-          continue;
-        }
-        if (cursor < token.content.length) {
-          const trailing = new state.Token("text", "", 0);
-          trailing.content = token.content.slice(cursor);
-          replacements.push(trailing);
-        }
-        children.splice(index, 1, ...replacements);
-        index += replacements.length - 1;
-      }
+    const end = state.src.indexOf("]]", state.pos + 2);
+    const body = end < 0 ? "" : state.src.slice(state.pos + 2, end);
+    const separator = body.indexOf("|");
+    const target = (separator < 0 ? body : body.slice(0, separator)).trim();
+    if (!target) {
+      return false;
     }
+    if (!silent) {
+      const open = state.push("link_open", "a", 1);
+      open.markup = "wiki-link";
+      open.attrSet("href", target);
+      open.attrSet("data-wiki-lookup", target);
+      const label = state.push("text", "", 0);
+      label.content = (separator < 0 ? target : body.slice(separator + 1).trim()) || target;
+      state.push("link_close", "a", -1).markup = "wiki-link";
+    }
+    state.pos = end + 2;
+    return true;
   });
 
   // Enable GFM task list checkboxes (- [x] / - [ ]).

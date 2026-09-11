@@ -142,9 +142,9 @@ describe("MemoryPromotionsElement", () => {
     )!;
     textarea.value = "# Draft\n\n**Share me**\n\n<script>window.pwned = true</script>";
     textarea.dispatchEvent(new InputEvent("input", { bubbles: true }));
-    [...element.querySelectorAll<HTMLButtonElement>("[role='tab']")]
-      .find((button) => button.textContent?.trim() === "Preview")
-      ?.click();
+    [...element.querySelectorAll<HTMLElement>("wa-tab")]
+      .find((tab) => tab.textContent?.trim() === "Preview")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     await element.updateComplete;
     expect(element.querySelector(".memory-promotions__field h1")?.textContent).toBe("Draft");
     expect(element.querySelector(".memory-promotions__field strong")?.textContent).toBe("Share me");

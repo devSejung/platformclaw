@@ -8,6 +8,7 @@ import type {
   OrganizationMemoryPromotionSourceKind,
 } from "../../../../packages/platformclaw-control-plane/src/contracts.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import { renderHubTabs } from "../../components/hub-tabs.ts";
 import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
@@ -562,42 +563,38 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
             : nothing}
           <div class="memory-promotions__field">
             <span>${t("memoryPage.promotions.proposedText")}</span>
-            <div class="wiki-document__tabs" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected=${this.proposedTextTab === "write"}
-                @click=${() => (this.proposedTextTab = "write")}
-              >
-                ${t("memoryPage.promotions.write")}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected=${this.proposedTextTab === "preview"}
-                @click=${() => (this.proposedTextTab = "preview")}
-              >
-                ${t("memoryPage.promotions.preview")}
-              </button>
+            ${renderHubTabs({
+              id: "memory-promotion-document",
+              active: this.proposedTextTab,
+              tabs: [
+                { value: "write", label: t("memoryPage.promotions.write") },
+                { value: "preview", label: t("memoryPage.promotions.preview") },
+              ],
+              ariaLabel: t("memoryPage.promotions.proposedText"),
+              panelId: "memory-promotion-document-panel",
+              variant: "sub",
+              onSelect: (tab) => (this.proposedTextTab = tab),
+            })}
+            <div id="memory-promotion-document-panel">
+              ${this.proposedTextTab === "write"
+                ? html`<textarea
+                    aria-label=${t("memoryPage.promotions.proposedText")}
+                    class="settings-textarea"
+                    placeholder=${t("memoryPage.promotions.textPlaceholder")}
+                    .value=${this.proposedText}
+                    @input=${(event: InputEvent) =>
+                      (this.proposedText = (event.currentTarget as HTMLTextAreaElement).value)}
+                  ></textarea>`
+                : html`<article class="sidebar-markdown memory-promotions__document">
+                    ${unsafeHTML(
+                      toSanitizedMarkdownHtml(this.proposedText, {
+                        codeBlockChrome: "none",
+                        fileLinks: false,
+                        interactiveImages: false,
+                      }),
+                    )}
+                  </article>`}
             </div>
-            ${this.proposedTextTab === "write"
-              ? html`<textarea
-                  aria-label=${t("memoryPage.promotions.proposedText")}
-                  class="settings-textarea"
-                  placeholder=${t("memoryPage.promotions.textPlaceholder")}
-                  .value=${this.proposedText}
-                  @input=${(event: InputEvent) =>
-                    (this.proposedText = (event.currentTarget as HTMLTextAreaElement).value)}
-                ></textarea>`
-              : html`<article class="sidebar-markdown memory-promotions__document">
-                  ${unsafeHTML(
-                    toSanitizedMarkdownHtml(this.proposedText, {
-                      codeBlockChrome: "none",
-                      fileLinks: false,
-                      interactiveImages: false,
-                    }),
-                  )}
-                </article>`}
           </div>
           <label class="memory-promotions__field">
             <span>${t("memoryPage.promotions.evidenceLabel")}</span>

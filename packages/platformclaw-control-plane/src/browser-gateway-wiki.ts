@@ -1,4 +1,10 @@
 import { dreamingEntryPath, wikiPath } from "./browser-gateway-content-paths.js";
+import {
+  MAX_WIKI_CONTENT_CHARS,
+  personalWikiPagePath,
+  projectWikiDocumentResult,
+  WIKI_CONTENT_HASH,
+} from "./browser-gateway-wiki-document.js";
 import { projectWikiGraph } from "./browser-gateway-wiki-graph.js";
 import {
   count,
@@ -48,20 +54,9 @@ const DREAM_ACTIONS_BY_METHOD: Readonly<Record<string, string>> = {
 const MAX_QUERY_CHARS = 1_000;
 const MAX_RESULTS = 50;
 const MAX_PAGE_LINES = 5_000;
-const MAX_CONTENT_CHARS = 1024 * 1024;
+const MAX_CONTENT_CHARS = MAX_WIKI_CONTENT_CHARS;
 const MAX_ITEMS = 500;
-const CONTENT_HASH = /^[a-f0-9]{64}$/u;
-
-function deletionPath(value: unknown, fail: ProjectionFailure): string {
-  const path = wikiPath(value, "wiki deletion path", fail);
-  if (
-    path !== value ||
-    path.split("").some((character) => character.charCodeAt(0) < 32 || character === ":")
-  ) {
-    return fail("Wiki deletion requires a canonical personal Wiki page path");
-  }
-  return path;
-}
+const CONTENT_HASH = WIKI_CONTENT_HASH;
 
 function projectDreamingEntry(value: unknown, fail: ProjectionFailure): JsonObject {
   const entry = failObject(value, "dreaming entry", fail);
@@ -343,7 +338,7 @@ export function prepareBrowserWikiRequest(params: {
   params.assertOptionalAgentId(params.request.agentId, params.method);
   const prepared: JsonObject = { agentId: params.agentId };
   if (params.method === "wiki.delete") {
-    prepared.path = deletionPath(params.request.path, params.fail);
+    prepared.path = personalWikiPagePath(params.request.path, params.fail);
     if (
       typeof params.request.expectedContentHash !== "string" ||
       !CONTENT_HASH.test(params.request.expectedContentHash)
@@ -352,7 +347,7 @@ export function prepareBrowserWikiRequest(params: {
     }
     prepared.expectedContentHash = params.request.expectedContentHash;
   } else if (params.method === "wiki.document.save") {
-    prepared.path = deletionPath(params.request.path, params.fail);
+    prepared.path = personalWikiPagePath(params.request.path, params.fail);
     const editMode = optionalEnum(
       params.request.editMode,
       ["body", "notes"],
@@ -438,94 +433,9 @@ export function projectBrowserWikiResult(params: {
   if (!WIKI_METHODS.has(params.method)) {
     return undefined;
   }
-  if (params.method === "wiki.delete") {
-    const payload = failObject(params.result, "wiki deletion", params.fail);
-    if (
-      payload.agentId !== params.agentId ||
-      deletionPath(payload.path, params.fail) !== params.request.path ||
-      payload.deleted !== true ||
-      typeof payload.indexesRefreshed !== "boolean"
-    ) {
-      return params.fail("Gateway returned invalid personal Wiki deletion result");
-    }
-    return {
-      agentId: params.agentId,
-      path: payload.path,
-      deleted: true,
-      indexesRefreshed: payload.indexesRefreshed,
-    };
-  }
-  if (params.method === "wiki.document.save") {
-    const payload = failObject(params.result, "wiki document save", params.fail);
-    if (
-      deletionPath(payload.path, params.fail) !== params.request.path ||
-      typeof payload.saved !== "boolean" ||
-      typeof payload.indexesRefreshed !== "boolean" ||
-      typeof payload.revision !== "string" ||
-      !CONTENT_HASH.test(payload.revision)
-    ) {
-      return params.fail("Gateway returned invalid Wiki save result");
-    }
-    return {
-      path: payload.path,
-      saved: payload.saved,
-      indexesRefreshed: payload.indexesRefreshed,
-      revision: payload.revision,
-    };
-  }
-  if (params.method === "wiki.document.get") {
-    if (params.result === null) {
-      return null;
-    }
-    const item = failObject(params.result, "wiki document", params.fail);
-    const editMode =
-      item.editMode === null
-        ? undefined
-        : optionalEnum(item.editMode, ["body", "notes"], "wiki edit mode", params.fail);
-    const readOnlyReason = optionalEnum(
-      item.readOnlyReason,
-      ["generated-report", "source-managed", "page-too-large"],
-      "wiki read-only reason",
-      params.fail,
-    );
-    const result: JsonObject = {
-      path: wikiPath(item.path, "wiki document path", params.fail),
-      title: text(item.title, "wiki document title", params.fail),
-      kind: text(item.kind, "wiki document kind", params.fail, 256),
-      displayContent: text(
-        item.displayContent,
-        "wiki display content",
-        params.fail,
-        MAX_CONTENT_CHARS,
-      ),
-      sourceContent: text(
-        item.sourceContent,
-        "wiki source content",
-        params.fail,
-        MAX_CONTENT_CHARS,
-      ),
-      editMode: editMode ?? null,
-      ...(readOnlyReason ? { readOnlyReason } : {}),
-    };
-    if (editMode) {
-      result.editableContent = text(
-        item.editableContent,
-        "wiki editable content",
-        params.fail,
-        MAX_CONTENT_CHARS,
-      );
-      result.revision =
-        typeof item.revision === "string" && CONTENT_HASH.test(item.revision)
-          ? item.revision
-          : params.fail("Gateway returned Wiki edit data without a valid revision");
-    }
-    const sourceType = optionalText(item.sourceType, "wiki source type", params.fail, 256);
-    const updatedAt = optionalText(item.updatedAt, "wiki updatedAt", params.fail, 256);
-    return {
-      ...result,
-      ...(sourceType ? { sourceType } : {}),
-      ...(updatedAt ? { updatedAt } : {}),
-    };
+  const documentResult = projectWikiDocumentResult(params);
+  if (documentResult !== undefined) {
+    return documentResult;
   }
   if (DREAM_ACTION_METHODS.has(params.method)) {
     const payload = failObject(params.result, "dreaming action", params.fail);

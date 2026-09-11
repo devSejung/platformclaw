@@ -11,14 +11,14 @@ export type Translate = (key: string, params?: Record<string, string>) => string
 export type MemoryResultActions = {
   label: string;
   available: (result: SearchResult) => boolean;
-  open: (result: SearchResult, event: MouseEvent) => void;
+  open: (result: SearchResult, event: Event) => void;
 };
 
 function resultActions(result: SearchResult, actions?: MemoryResultActions) {
   return actions?.available(result)
     ? {
         label: actions.label,
-        open: (_lookup: string, event: MouseEvent) => actions.open(result, event),
+        open: (_lookup: string, event: Event) => actions.open(result, event),
       }
     : undefined;
 }

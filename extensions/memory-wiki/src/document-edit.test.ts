@@ -18,10 +18,25 @@ import { createMemoryWikiTestHarness } from "./test-helpers.js";
 const { createVault } = createMemoryWikiTestHarness();
 
 describe("personal Wiki document editing", () => {
-  it("rejects non-personal vaults before loading or saving content", async () => {
-    const { config } = await createVault({ initialize: true });
+  it("loads shared vault documents read-only and rejects saves", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    await fs.writeFile(path.join(rootDir, "concepts/alpha.md"), "# Shared alpha\n");
+    const document = await getMemoryWikiDocument({ config, lookup: "concepts/alpha.md" });
+    expect(document).toMatchObject({
+      displayContent: "# Shared alpha",
+      editMode: null,
+      readOnlyReason: "shared-vault",
+    });
+    expect(document).not.toHaveProperty("editableContent");
+    expect(document).not.toHaveProperty("revision");
     await expect(
-      getMemoryWikiDocument({ config, lookup: "concepts/alpha.md" }),
+      saveMemoryWikiDocument({
+        config,
+        path: "concepts/alpha.md",
+        editMode: "body",
+        content: "changed",
+        expectedRevision: "a".repeat(64),
+      }),
     ).rejects.toBeInstanceOf(MemoryWikiEditValidationError);
   });
 
@@ -211,5 +226,58 @@ describe("personal Wiki document editing", () => {
     await expect(
       getMemoryWikiDocument({ config: personal, lookup: "reports/with-notes.md" }),
     ).resolves.toMatchObject({ editMode: "notes", editableContent: "" });
+  });
+
+  it.each([
+    {
+      path: "reports/custom.md",
+      pageType: "report",
+      visible: "Generated insight",
+      body: [
+        "# Report",
+        "",
+        "<!-- openclaw:wiki:generated:start -->",
+        "Generated insight",
+        "<!-- openclaw:wiki:generated:end -->",
+      ].join("\n"),
+    },
+    {
+      path: "reports/with-notes.md",
+      pageType: "report",
+      visible: "Keep this note",
+      body: [
+        "# Report with notes",
+        "",
+        "<!-- openclaw:wiki:lint:start -->",
+        "Generated lint result",
+        "<!-- openclaw:wiki:lint:end -->",
+        "",
+        "## Notes",
+        "<!-- openclaw:human:start -->",
+        "Keep this note",
+        "<!-- openclaw:human:end -->",
+      ].join("\n"),
+    },
+  ])("hides managed markers from the $path preview and source projection", async (fixture) => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    const personal = {
+      ...config,
+      agentId: "main",
+      vault: { ...config.vault, scope: "agent" as const },
+    };
+    await fs.mkdir(path.dirname(path.join(rootDir, fixture.path)), { recursive: true });
+    await fs.writeFile(
+      path.join(rootDir, fixture.path),
+      renderWikiMarkdown({
+        frontmatter: { pageType: fixture.pageType, title: fixture.path },
+        body: fixture.body,
+      }),
+    );
+
+    const document = await getMemoryWikiDocument({ config: personal, lookup: fixture.path });
+    expect(document?.displayContent).not.toContain("<!-- openclaw:");
+    expect(document?.sourceContent).not.toContain("<!-- openclaw:");
+    expect(document?.displayContent).toContain(fixture.visible);
+    expect(await fs.readFile(path.join(rootDir, fixture.path), "utf8")).toContain("<!-- openclaw:");
   });
 });

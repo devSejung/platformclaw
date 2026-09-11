@@ -13,6 +13,7 @@ export const memoryWikiTranslations: Readonly<Record<string, string>> = {
   "dreaming.wiki.sourceManaged": "원본 내용은 동기화로 관리됩니다. Notes만 편집할 수 있습니다.",
   "dreaming.wiki.generatedReadOnly": "자동 생성 보고서는 읽기 전용이며 다음 컴파일에서 교체됩니다.",
   "dreaming.wiki.pageTooLargeReadOnly": "안전한 브라우저 편집 범위를 넘는 큰 문서입니다.",
+  "dreaming.wiki.sharedVaultReadOnly": "이 공유 Wiki는 여기에서 읽기 전용입니다.",
   "dreaming.wiki.discardTitle": "Wiki 변경 사항을 버릴까요?",
   "dreaming.wiki.discardDescription": "저장하지 않은 Markdown 변경 사항이 사라집니다.",
   "dreaming.wiki.discard": "변경 사항 버리기",

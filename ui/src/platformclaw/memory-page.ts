@@ -112,7 +112,11 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     const actions: MemoryMenuAction[] = [];
     if (
       kind === "wiki" &&
-      has(["platformclaw.memory.promotion.submit", "platformclaw.memory.lifecycle", "wiki.get"])
+      has([
+        "platformclaw.memory.promotion.submit",
+        "platformclaw.memory.lifecycle",
+        "wiki.document.get",
+      ])
     ) {
       actions.push("share");
     }
@@ -124,7 +128,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     return actions;
   }
 
-  private openActions(kind: "memory" | "wiki", lookup: string, event: MouseEvent) {
+  private openActions(kind: "memory" | "wiki", lookup: string, event: Event) {
     if (this.availableActions(kind).length === 0) {
       return;
     }
@@ -135,8 +139,14 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     this.menu = {
       kind,
       lookup,
-      x: event.type === "contextmenu" ? event.clientX : (bounds?.left ?? 0),
-      y: event.type === "contextmenu" ? event.clientY : (bounds?.bottom ?? 0),
+      x:
+        event instanceof MouseEvent && event.type === "contextmenu"
+          ? event.clientX
+          : (bounds?.left ?? 0),
+      y:
+        event instanceof MouseEvent && event.type === "contextmenu"
+          ? event.clientY
+          : (bounds?.bottom ?? 0),
       trigger: target instanceof HTMLElement ? target : null,
     };
   }
@@ -316,7 +326,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
               isExpandableResult(result) &&
               (result.source === "memory" || result.source === "wiki") &&
               this.availableActions(result.source).length > 0,
-            open: (result: SearchResult, event: MouseEvent) =>
+            open: (result: SearchResult, event: Event) =>
               this.openActions(result.source as "memory" | "wiki", result.path, event),
           }}
           .agentId=${this.agentId}
@@ -329,8 +339,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           .wikiActions=${this.availableActions("wiki").length > 0
             ? {
                 label: t("platformClaw.memory.actions"),
-                open: (lookup: string, event: MouseEvent) =>
-                  this.openActions("wiki", lookup, event),
+                open: (lookup: string, event: Event) => this.openActions("wiki", lookup, event),
               }
             : undefined}
         ></openclaw-agent-memory-panel>`;
