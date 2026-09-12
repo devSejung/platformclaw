@@ -294,6 +294,13 @@ export type LlmCompleteResult = {
   };
 };
 
+/** Agent-free service completion with an explicitly configured provider credential owner. */
+export type LlmProviderConfigCompleteParams = Pick<
+  LlmDirectCompleteParams,
+  "messages" | "systemPrompt" | "maxTokens" | "temperature" | "signal" | "purpose"
+> & { model: string };
+export type LlmProviderConfigCompleteResult = Omit<LlmCompleteResult, "agentId">;
+
 type RuntimeRunEmbeddedAgent = (
   params: import("../../agents/embedded-agent-runner/run/params.js").RunEmbeddedAgentParams,
 ) => Promise<import("../../agents/embedded-agent-runner/types.js").EmbeddedAgentRunResult>;
@@ -501,6 +508,9 @@ export type PluginRuntimeCore = {
   };
   llm: {
     complete: (params: LlmCompleteParams) => Promise<LlmCompleteResult>;
+    completeWithProviderConfig: (
+      params: LlmProviderConfigCompleteParams,
+    ) => Promise<LlmProviderConfigCompleteResult>;
     acquireLocalService: (
       target: {
         providerId: string;

@@ -645,6 +645,10 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
               withPluginRuntimePluginIdScope(pluginId, () => llm.acquireLocalService(...args)),
             complete: (params) =>
               withPluginRuntimePluginIdScope(pluginId, () => llm.complete(params)),
+            completeWithProviderConfig: (params) =>
+              withPluginRuntimePluginIdScope(pluginId, () =>
+                llm.completeWithProviderConfig(params),
+              ),
           } satisfies PluginRuntime["llm"];
         }
         if (prop === "gateway") {

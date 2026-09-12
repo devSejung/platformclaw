@@ -7,12 +7,14 @@ import { createRuntimeLlm } from "./runtime-llm.runtime.js";
 import type { RuntimeLogger } from "./types-core.js";
 
 const hoisted = vi.hoisted(() => ({
+  prepareProviderConfigCompletionModel: vi.fn(),
   prepareSimpleCompletionModelForAgent: vi.fn(),
   completeWithPreparedSimpleCompletionModel: vi.fn(),
   resolveSimpleCompletionSelectionForAgent: vi.fn(),
 }));
 
 vi.mock("../../agents/simple-completion-runtime.js", () => ({
+  prepareProviderConfigCompletionModel: hoisted.prepareProviderConfigCompletionModel,
   prepareSimpleCompletionModelForAgent: hoisted.prepareSimpleCompletionModelForAgent,
   completeWithPreparedSimpleCompletionModel: hoisted.completeWithPreparedSimpleCompletionModel,
   resolveSimpleCompletionSelectionForAgent: hoisted.resolveSimpleCompletionSelectionForAgent,
@@ -142,10 +144,48 @@ function primeCompletionMocks() {
 
 describe("runtime.llm.complete", () => {
   beforeEach(() => {
+    hoisted.prepareProviderConfigCompletionModel.mockReset();
     hoisted.prepareSimpleCompletionModelForAgent.mockReset();
     hoisted.completeWithPreparedSimpleCompletionModel.mockReset();
     hoisted.resolveSimpleCompletionSelectionForAgent.mockReset();
     primeCompletionMocks();
+  });
+
+  it("provider-config completion never resolves an employee agent or profile owner", async () => {
+    const company = {
+      agents: { defaults: { model: "company/dt-fixture" } },
+    } satisfies OpenClawConfig;
+    const prepared = createPreparedModel("dt-fixture");
+    prepared.model.provider = "company";
+    hoisted.prepareProviderConfigCompletionModel.mockReturnValue(prepared);
+    hoisted.prepareSimpleCompletionModelForAgent.mockImplementation(() => {
+      throw new Error("employee auth accessed");
+    });
+    hoisted.resolveSimpleCompletionSelectionForAgent.mockImplementation(() => {
+      throw new Error("employee model accessed");
+    });
+    hoisted.completeWithPreparedSimpleCompletionModel.mockResolvedValue({
+      provider: "company",
+      model: "dt-fixture",
+      stopReason: "stop",
+      content: [{ type: "text", text: "fixed fixture" }],
+      usage: {},
+    });
+    const llm = createRuntimeLlm({ getConfig: () => company });
+    const result = await llm.completeWithProviderConfig({
+      model: "company/dt-fixture",
+      messages: [{ role: "user", content: "data" }],
+    });
+    expect(result).toMatchObject({
+      provider: "company",
+      model: "dt-fixture",
+      execution: { mode: "direct-provider" },
+    });
+    expect(result).not.toHaveProperty("agentId");
+    expect(hoisted.prepareSimpleCompletionModelForAgent).not.toHaveBeenCalled();
+    expect(hoisted.resolveSimpleCompletionSelectionForAgent).not.toHaveBeenCalled();
+    const untrustedRequest = { model: "company/dt-fixture", agentId: "employee", messages: [] };
+    await expect(llm.completeWithProviderConfig(untrustedRequest)).rejects.toThrow("employee");
   });
 
   it("binds context-engine completions to the active session agent", async () => {

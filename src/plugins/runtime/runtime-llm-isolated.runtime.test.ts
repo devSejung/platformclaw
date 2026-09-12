@@ -16,6 +16,7 @@ vi.mock("../../agents/isolated-completion.js", () => ({
 }));
 
 vi.mock("../../agents/simple-completion-runtime.js", () => ({
+  prepareProviderConfigCompletionModel: vi.fn(),
   prepareSimpleCompletionModelForAgent: hoisted.prepareSimpleCompletionModelForAgent,
   completeWithPreparedSimpleCompletionModel: hoisted.completeWithPreparedSimpleCompletionModel,
   resolveSimpleCompletionSelectionForAgent: hoisted.resolveSimpleCompletionSelectionForAgent,
