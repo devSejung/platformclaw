@@ -155,12 +155,13 @@ suite("PlatformClaw organization memory Settings E2E", () => {
           "wiki.search": [],
           "platformclaw.memory.lifecycle": {
             scopes: [
-              { kind: "global", name: "Global", canAdminister: false },
+              { kind: "global", name: "Global", canRead: true, canAdminister: false },
               {
                 kind: "part",
                 id: "part-runtime",
                 parentScopeId: "group-platform",
                 name: "Runtime",
+                canRead: true,
                 canAdminister: false,
               },
             ],

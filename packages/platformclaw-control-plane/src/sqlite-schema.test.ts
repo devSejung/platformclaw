@@ -177,6 +177,22 @@ describe("PlatformClaw control schema migrations", () => {
       created_at: 52,
       updated_at: 53,
     });
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'organization_memory_v3_%'",
+        )
+        .all(),
+    ).toEqual([]);
+    for (const name of [
+      "organization_memory_claim_revisions",
+      "organization_memory_claim_supersedes",
+      "organization_memory_promotion_comparisons",
+    ]) {
+      expect(
+        db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(name),
+      ).toEqual({ name });
+    }
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     db.close();
     const backups = readdirSync(directory).filter((name) => name.includes(".pre-v3-"));

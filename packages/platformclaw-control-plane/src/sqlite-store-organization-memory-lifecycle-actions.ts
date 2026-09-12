@@ -3,11 +3,15 @@ import {
   ControlPlaneAuthorizationError,
   ControlPlaneNotFoundError,
   ControlPlaneStateError,
-  type OrganizationMemoryClaim,
   type OrganizationMemoryLifecycle,
   type OrganizationMemoryPromotionRequest,
 } from "./contracts.js";
-import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
+import {
+  executeSync,
+  runImmediateTransaction,
+  runReadTransaction,
+  takeFirstSync,
+} from "./kysely-sync.js";
 import {
   boundedText,
   claimIdentity,
@@ -15,14 +19,117 @@ import {
   MAX_REASON_CHARS,
   MAX_TEXT_CHARS,
   personalClaimLookup,
-  SqliteControlPlaneOrganizationMemoryLifecycleQueryStore,
   titleForClaim,
-} from "./sqlite-store-organization-memory-lifecycle.js";
+} from "./sqlite-store-organization-memory-inputs.js";
+import { SqliteControlPlaneOrganizationMemoryRetirementStore } from "./sqlite-store-organization-memory-retirement.js";
 
 export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
-  extends SqliteControlPlaneOrganizationMemoryLifecycleQueryStore
+  extends SqliteControlPlaneOrganizationMemoryRetirementStore
   implements OrganizationMemoryLifecycle
 {
+  async previewOrganizationMemoryPromotionReferences(
+    params: Parameters<
+      OrganizationMemoryLifecycle["previewOrganizationMemoryPromotionReferences"]
+    >[0],
+  ) {
+    this.ensureOrganizationMemorySchema();
+    this.requireOrganizationMemoryActor(params.agentId);
+    const text = boundedText(params.proposedText, "proposed text", MAX_TEXT_CHARS);
+    const lookup =
+      params.sourceKind === "personal"
+        ? personalClaimLookup(params.sourceClaimId)
+        : claimIdentity(params.sourceClaimId);
+    const personalSource =
+      params.sourceKind === "personal"
+        ? await this.resolvePersonalOrganizationMemorySource?.({
+            agentId: params.agentId,
+            lookup,
+            proposedText: text,
+          })
+        : null;
+    if (params.sourceKind === "personal" && !personalSource) {
+      throw new ControlPlaneStateError("personal Wiki source page is unavailable or incomplete");
+    }
+    return runReadTransaction(this.db, () => {
+      const actor = this.requireOrganizationMemoryActor(params.agentId);
+      const scopes = this.authorizedScopes(params.agentId);
+      const sourceId = personalSource?.claimId ?? lookup;
+      const revision = personalSource?.revision ?? params.expectedSourceRevision;
+      if (!Number.isSafeInteger(revision) || revision! < 1) {
+        throw new ControlPlaneStateError("expected source revision must be a positive integer");
+      }
+      const sourceClaim =
+        params.sourceKind === "personal"
+          ? null
+          : this.requireReadableSource({
+              actorScopes: scopes,
+              sourceKind: params.sourceKind,
+              sourceClaimId: sourceId,
+              sourceRevision: revision!,
+              sourceScopeId:
+                takeFirstSync(
+                  this.db,
+                  this.query
+                    .selectFrom("organization_memory_claims")
+                    .select("scope_id")
+                    .where("id", "=", sourceId),
+                )?.scope_id ?? undefined,
+            });
+      const sourceScope =
+        params.sourceKind === "personal"
+          ? null
+          : this.activeScope(params.sourceKind, sourceClaim?.scope_id ?? undefined);
+      const target = this.targetScope(params.targetKind, params.targetScopeId);
+      if (actor.globalRole === "admin") {
+        if (
+          sourceScope &&
+          !this.resolveOrganizationAuthorizationSnapshot(actor.userId, sourceScope.id)
+            .canManageMembers
+        ) {
+          throw new ControlPlaneAuthorizationError("source scope management authority required");
+        }
+        this.assertDirectPromotionTarget(params.sourceKind, sourceScope, params.targetKind, target);
+      } else {
+        this.assertPromotionEdge(params.sourceKind, sourceScope, params.targetKind, target);
+        if (
+          params.sourceKind === "personal" &&
+          target &&
+          !this.hasDirectMembership(actor.userId, target.id)
+        ) {
+          throw new ControlPlaneAuthorizationError(
+            "personal knowledge requires direct target membership",
+          );
+        }
+        if (!this.scopeAuthorized(scopes, params.targetKind, target?.id ?? null)) {
+          throw new ControlPlaneAuthorizationError(
+            "target scope is not available to this employee",
+          );
+        }
+      }
+      const prepared = this.preparePromotionReferenceInput({
+        text,
+        sourceKind: params.sourceKind,
+        sourceClaimId: sourceId,
+        sourceRevision: revision!,
+        actorUserId: actor.userId,
+        actorScopes: scopes,
+        personalSource: personalSource ?? null,
+        sourceClaim: sourceClaim ?? null,
+      });
+      const references = this.promotionReferencesPreview(
+        {
+          id: "reference-preview",
+          target_kind: params.targetKind,
+          target_scope_id: target?.id ?? null,
+          requested_by_user_id: actor.userId,
+          proposed_text: prepared.text,
+        },
+        actor.userId,
+        prepared.input,
+      );
+      return { proposedText: prepared.text, ...(references ? { references } : {}) };
+    });
+  }
   async submitOrganizationMemoryPromotion(
     params: Parameters<OrganizationMemoryLifecycle["submitOrganizationMemoryPromotion"]>[0],
   ): Promise<OrganizationMemoryPromotionRequest> {
@@ -47,6 +154,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
         ? await this.resolvePersonalOrganizationMemorySource?.({
             agentId: params.agentId,
             lookup: requestedSourceClaimId,
+            proposedText,
           })
         : null;
     if (params.sourceKind === "personal" && !personalSource) {
@@ -150,6 +258,9 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
           .where("source_scope_id", currentSourceScope ? "=" : "is", currentSourceScope?.id ?? null)
           .where("source_claim_id", "=", sourceClaimId)
           .where("source_revision", "=", sourceRevision)
+          .$if(params.sourceKind === "personal", (query) =>
+            query.where("requested_by_user_id", "=", currentActor.userId),
+          )
           .where("target_kind", "=", params.targetKind)
           .where("target_scope_id", currentTargetScope ? "=" : "is", currentTargetScope?.id ?? null)
           .where("organization_memory_promotion_decisions.request_id", "is", null),
@@ -158,6 +269,32 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
         throw new ControlPlaneStateError("an equivalent promotion request is already pending");
       }
       const id = `memory-request-${randomUUID()}`;
+      const prepared = this.preparePromotionReferenceInput({
+        text: proposedText,
+        sourceKind: params.sourceKind,
+        sourceClaimId,
+        sourceRevision,
+        actorUserId: currentActor.userId,
+        actorScopes: currentScopes,
+        personalSource: personalSource ?? null,
+        sourceClaim: sourceClaim ?? null,
+      });
+      const references = this.promotionReferencesPreview(
+        {
+          id,
+          target_kind: params.targetKind,
+          target_scope_id: currentTargetScope?.id ?? null,
+          requested_by_user_id: currentActor.userId,
+          proposed_text: prepared.text,
+        },
+        currentActor.userId,
+        prepared.input,
+      );
+      if (references && references.fingerprint !== params.expectedReferencesFingerprint) {
+        throw new ControlPlaneStateError(
+          "reference preview changed; refresh and review links before submission",
+        );
+      }
       executeSync(
         this.db,
         this.query.insertInto("organization_memory_promotion_requests").values({
@@ -168,13 +305,14 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
           source_revision: sourceRevision,
           target_kind: params.targetKind,
           target_scope_id: currentTargetScope?.id ?? null,
-          proposed_text: proposedText,
+          proposed_text: prepared.text,
           evidence_json: JSON.stringify(evidence),
           reason,
           requested_by_user_id: currentActor.userId,
           created_at: params.submittedAt,
         }),
       );
+      this.savePromotionReferenceInput(id, prepared.input);
       this.insertAudit(
         currentActor.userId,
         "organization-memory.promotion.requested",
@@ -216,6 +354,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
         ? await this.resolvePersonalOrganizationMemorySource?.({
             agentId: params.agentId,
             lookup: requestedSourceClaimId,
+            proposedText,
           })
         : null;
     if (params.sourceKind === "personal" && !personalSource) {
@@ -264,6 +403,32 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
       );
       const requestId = `memory-request-${randomUUID()}`;
       const claimId = `memory-claim-${randomUUID()}`;
+      const prepared = this.preparePromotionReferenceInput({
+        text: proposedText,
+        sourceKind: params.sourceKind,
+        sourceClaimId,
+        sourceRevision,
+        actorUserId: currentActor.userId,
+        actorScopes: scopes,
+        personalSource: personalSource ?? null,
+        sourceClaim,
+      });
+      const references = this.promotionReferencesPreview(
+        {
+          id: requestId,
+          target_kind: params.targetKind,
+          target_scope_id: targetScope?.id ?? null,
+          requested_by_user_id: currentActor.userId,
+          proposed_text: prepared.text,
+        },
+        currentActor.userId,
+        prepared.input,
+      );
+      if (references && references.fingerprint !== params.expectedReferencesFingerprint) {
+        throw new ControlPlaneStateError(
+          "reference preview changed; refresh and review links before publication",
+        );
+      }
       executeSync(
         this.db,
         this.query.insertInto("organization_memory_promotion_requests").values({
@@ -274,7 +439,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
           source_revision: sourceRevision,
           target_kind: params.targetKind,
           target_scope_id: targetScope?.id ?? null,
-          proposed_text: proposedText,
+          proposed_text: prepared.text,
           evidence_json: JSON.stringify(evidence),
           reason,
           requested_by_user_id: currentActor.userId,
@@ -287,8 +452,8 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
           id: claimId,
           scope_kind: params.targetKind,
           scope_id: targetScope?.id ?? null,
-          title: titleForClaim(proposedText),
-          claim_text: proposedText,
+          title: titleForClaim(prepared.text),
+          claim_text: prepared.text,
           evidence_json: JSON.stringify(evidence),
           source_kind: params.sourceKind,
           source_scope_id: sourceScope?.id ?? null,
@@ -318,6 +483,8 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
           decided_at: params.publishedAt,
         }),
       );
+      this.savePromotionReferenceInput(requestId, prepared.input);
+      this.saveApprovedReferences(claimId, 1, references);
       this.compileClaimPage(claimId);
       if (params.sourceKind !== "personal") {
         this.compileClaimPage(sourceClaimId);
@@ -388,6 +555,15 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
       if (row.decision) {
         throw new ControlPlaneStateError("promotion request already has an immutable decision");
       }
+      if (
+        params.decision === "approve" &&
+        params.expectedComparisonFingerprint !== undefined &&
+        this.promotionKnowledgeFingerprint(row) !== params.expectedComparisonFingerprint
+      ) {
+        throw new ControlPlaneStateError(
+          "approved target knowledge changed; compare related knowledge again before approval",
+        );
+      }
       let targetClaimId: string | null = null;
       if (params.decision === "approve") {
         if (
@@ -431,6 +607,13 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
           );
         }
         targetClaimId = `memory-claim-${randomUUID()}`;
+        // The stored public body is already neutralized; frozen identities own replanning.
+        const references = this.promotionReferencesPreview(row, currentActor.userId);
+        if (references && references.fingerprint !== params.expectedReferencesFingerprint) {
+          throw new ControlPlaneStateError(
+            "reference preview changed; refresh and review links before approval",
+          );
+        }
         executeSync(
           this.db,
           this.query.insertInto("organization_memory_claims").values({
@@ -456,6 +639,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
             retirement_reason: null,
           }),
         );
+        this.saveApprovedReferences(targetClaimId, 1, references);
       }
       const decision = params.decision === "approve" ? "approved" : "rejected";
       executeSync(
@@ -488,161 +672,6 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleStore
         },
       );
       return this.toRequest(this.requestRow(row.id)!, currentActor);
-    });
-  }
-
-  async retireOrganizationMemoryClaim(
-    params: Parameters<OrganizationMemoryLifecycle["retireOrganizationMemoryClaim"]>[0],
-  ): Promise<OrganizationMemoryClaim> {
-    this.ensureOrganizationMemorySchema();
-    const reason = boundedText(params.reason, "retirement reason", MAX_REASON_CHARS);
-    return runImmediateTransaction(this.db, () => {
-      const actor = this.requireOrganizationMemoryActor(params.agentId);
-      const claim = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("organization_memory_claims")
-          .selectAll()
-          .where("id", "=", params.claimId),
-      );
-      if (!claim) {
-        throw new ControlPlaneNotFoundError("organization-memory-claim", params.claimId);
-      }
-      const scope = claim.scope_kind === "global" ? null : this.requireScopeRow(claim.scope_id!);
-      if (
-        claim.scope_kind === "global"
-          ? actor.globalRole !== "admin"
-          : !scope ||
-            !this.resolveOrganizationAuthorizationSnapshot(actor.userId, scope.id).canManageMembers
-      ) {
-        throw new ControlPlaneNotFoundError("organization-memory-claim", params.claimId);
-      }
-      if (claim.status !== "active") {
-        throw new ControlPlaneStateError("only an active claim can be retired");
-      }
-      const pendingPromotion = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("organization_memory_promotion_requests")
-          .leftJoin(
-            "organization_memory_promotion_decisions",
-            "organization_memory_promotion_decisions.request_id",
-            "organization_memory_promotion_requests.id",
-          )
-          .select("organization_memory_promotion_requests.id")
-          .where("source_claim_id", "=", claim.id)
-          .where("organization_memory_promotion_decisions.request_id", "is", null)
-          .limit(1),
-      );
-      if (pendingPromotion) {
-        throw new ControlPlaneStateError(
-          "claim retirement requires its pending promotion requests to be decided first",
-        );
-      }
-      executeSync(
-        this.db,
-        this.query
-          .updateTable("organization_memory_claims")
-          .set({
-            status: "retired",
-            revision: claim.revision + 1,
-            updated_at: params.retiredAt,
-            retired_by_user_id: actor.userId,
-            retired_at: params.retiredAt,
-            retirement_reason: reason,
-          })
-          .where("id", "=", claim.id),
-      );
-      this.compileClaimPage(claim.id);
-      if (claim.source_kind !== "personal") {
-        this.compileClaimPage(claim.source_claim_id);
-      }
-      this.insertAudit(
-        actor.userId,
-        "organization-memory.claim.retired",
-        "memory-claim",
-        claim.id,
-        params.retiredAt,
-        { reason },
-      );
-      const updated = takeFirstSync(
-        this.db,
-        this.query.selectFrom("organization_memory_claims").selectAll().where("id", "=", claim.id),
-      )!;
-      return this.toClaim(updated, scope?.name ?? "Global");
-    });
-  }
-
-  async purgeOrganizationMemoryClaim(
-    params: Parameters<OrganizationMemoryLifecycle["purgeOrganizationMemoryClaim"]>[0],
-  ): Promise<OrganizationMemoryClaim> {
-    this.ensureOrganizationMemorySchema();
-    const reason = boundedText(params.reason, "purge reason", MAX_REASON_CHARS);
-    return runImmediateTransaction(this.db, () => {
-      const actor = this.requireOrganizationMemoryActor(params.agentId);
-      this.requireAdmin(actor.userId);
-      const claim = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("organization_memory_claims")
-          .selectAll()
-          .where("id", "=", params.claimId),
-      );
-      if (!claim) {
-        throw new ControlPlaneNotFoundError("organization-memory-claim", params.claimId);
-      }
-      if (claim.status !== "retired") {
-        throw new ControlPlaneStateError("claim must be retired before hard purge");
-      }
-      executeSync(
-        this.db,
-        this.query
-          .updateTable("organization_memory_claims")
-          .set({
-            title: "Purged claim",
-            claim_text: "",
-            evidence_json: "[]",
-            status: "purged",
-            revision: claim.revision + 1,
-            updated_at: params.purgedAt,
-            retired_by_user_id: actor.userId,
-            retired_at: params.purgedAt,
-            retirement_reason: reason,
-          })
-          .where("id", "=", claim.id),
-      );
-      // Hard purge erases payload while immutable lineage and decision retain the audit edge.
-      executeSync(
-        this.db,
-        this.query
-          .updateTable("organization_memory_promotion_requests")
-          .set({
-            proposed_text: "[purged]",
-            evidence_json: "[]",
-            reason: "Purged for privacy or security",
-          })
-          .where("id", "=", claim.promotion_request_id),
-      );
-      this.compileClaimPage(claim.id);
-      if (claim.source_kind !== "personal") {
-        this.compileClaimPage(claim.source_claim_id);
-      }
-      this.insertAudit(
-        actor.userId,
-        "organization-memory.claim.purged",
-        "memory-claim",
-        claim.id,
-        params.purgedAt,
-        { reason },
-      );
-      const updated = takeFirstSync(
-        this.db,
-        this.query.selectFrom("organization_memory_claims").selectAll().where("id", "=", claim.id),
-      )!;
-      return this.toClaim(
-        updated,
-        claim.scope_kind === "global" ? "Global" : this.requireScopeRow(claim.scope_id!).name,
-      );
     });
   }
 }
