@@ -324,7 +324,13 @@ describe("PlatformClawWebIngressServer", () => {
             "platformclaw.memory.get",
             "platformclaw.memory.graph",
             "platformclaw.memory.promotion.decide",
+            "platformclaw.memory.promotion.previewReferences",
             "platformclaw.memory.promotion.submit",
+            "platformclaw.memory.knowledge.snapshot",
+            "platformclaw.memory.knowledge.generate",
+            "platformclaw.memory.knowledge.decide",
+            "platformclaw.memory.knowledge.apply",
+            "platformclaw.memory.knowledge.comparePromotion",
           ],
         },
         snapshot: {

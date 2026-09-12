@@ -145,7 +145,9 @@ const populatedResponses: NonNullable<ControlUiMockGatewayScenario["methodRespon
     lineCount: 3,
   },
   "platformclaw.memory.lifecycle": {
-    scopes: [{ kind: "part", id: "part-runtime", name: "Runtime", canAdminister: false }],
+    scopes: [
+      { kind: "part", id: "part-runtime", name: "Runtime", canRead: true, canAdminister: false },
+    ],
     personalTargets: [
       { kind: "part", scopeId: "part-runtime", scopeName: "Runtime", mode: "request" },
     ],
@@ -723,7 +725,15 @@ suite("PlatformClaw browse-first Memory product experience", () => {
         mode: "light" as const,
         name: "09-organization-member-desktop-light.png",
         lifecycle: {
-          scopes: [{ kind: "part", id: "part-runtime", name: "Runtime", canAdminister: false }],
+          scopes: [
+            {
+              kind: "part",
+              id: "part-runtime",
+              name: "Runtime",
+              canRead: true,
+              canAdminister: false,
+            },
+          ],
           personalTargets: [
             { kind: "part", scopeId: "part-runtime", scopeName: "Runtime", mode: "request" },
           ],
@@ -738,7 +748,7 @@ suite("PlatformClaw browse-first Memory product experience", () => {
         mode: "dark" as const,
         name: "10-organization-admin-desktop-dark.png",
         lifecycle: {
-          scopes: [{ kind: "global", name: "Global", canAdminister: true }],
+          scopes: [{ kind: "global", name: "Global", canRead: true, canAdminister: true }],
           personalTargets: [{ kind: "global", scopeName: "Global", mode: "direct" }],
           claims: [
             {

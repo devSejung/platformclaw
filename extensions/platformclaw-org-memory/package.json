@@ -4,6 +4,10 @@
   "private": true,
   "description": "Private PlatformClaw organizational memory corpus adapter.",
   "type": "module",
+  "dependencies": {
+    "@openclaw/memory-host-sdk": "workspace:*",
+    "@platformclaw/control-plane": "workspace:*"
+  },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*"
   },

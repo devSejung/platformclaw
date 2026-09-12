@@ -72,11 +72,16 @@ function projectRequest(value: OrganizationMemoryPromotionRequest, includePerson
     ...(value.decisionReason === undefined ? {} : { decisionReason: value.decisionReason }),
     ...(value.targetClaimId === undefined ? {} : { targetClaimId: value.targetClaimId }),
     canReview: value.canReview,
+    ...(value.references ? { references: value.references } : {}),
+    ...(value.relatedKnowledgeComparison
+      ? { relatedKnowledgeComparison: value.relatedKnowledgeComparison }
+      : {}),
   };
 }
 
 function projectClaim(value: OrganizationMemoryClaim) {
   return {
+    ...(value.revisionApproval ? { revisionApproval: value.revisionApproval } : {}),
     id: value.id,
     scopeKind: value.scopeKind,
     scopeName: value.scopeName,
@@ -111,6 +116,7 @@ function projectSnapshot(value: OrganizationMemoryLifecycleSnapshot) {
       ...(scope.id === undefined ? {} : { id: scope.id }),
       ...(scope.parentScopeId === undefined ? {} : { parentScopeId: scope.parentScopeId }),
       canAdminister: scope.canAdminister,
+      canRead: scope.canRead,
     })),
     personalTargets: value.personalTargets.map((target) => ({
       kind: target.kind,
@@ -194,6 +200,30 @@ export async function requestBrowserOrganizationMemoryLifecycle(params: {
   }
   const owner = params.lifecycle;
   switch (params.method) {
+    case "platformclaw.memory.promotion.previewReferences":
+      return {
+        handled: true,
+        result: await lifecycleCall(() =>
+          owner.previewOrganizationMemoryPromotionReferences({
+            agentId: params.agentId,
+            sourceKind: sourceKind(params.request),
+            sourceClaimId: textParam(params.request, "sourceClaimId"),
+            ...(optionalIntegerParam(params.request, "expectedSourceRevision") === undefined
+              ? {}
+              : {
+                  expectedSourceRevision: optionalIntegerParam(
+                    params.request,
+                    "expectedSourceRevision",
+                  ),
+                }),
+            targetKind: targetKind(params.request),
+            ...(optionalTextParam(params.request, "targetScopeId")
+              ? { targetScopeId: optionalTextParam(params.request, "targetScopeId") }
+              : {}),
+            proposedText: textParam(params.request, "proposedText"),
+          }),
+        ),
+      };
     case "platformclaw.memory.lifecycle":
       return {
         handled: true,
@@ -219,6 +249,14 @@ export async function requestBrowserOrganizationMemoryLifecycle(params: {
         result: projectRequest(
           await lifecycleCall(() =>
             owner.submitOrganizationMemoryPromotion({
+              ...(params.request.expectedReferencesFingerprint === undefined
+                ? {}
+                : {
+                    expectedReferencesFingerprint: textParam(
+                      params.request,
+                      "expectedReferencesFingerprint",
+                    ),
+                  }),
               agentId: params.agentId,
               sourceKind: sourceKind(params.request),
               sourceClaimId: textParam(params.request, "sourceClaimId"),
@@ -248,6 +286,14 @@ export async function requestBrowserOrganizationMemoryLifecycle(params: {
         result: projectRequest(
           await lifecycleCall(() =>
             owner.publishOrganizationMemoryDirect({
+              ...(params.request.expectedReferencesFingerprint === undefined
+                ? {}
+                : {
+                    expectedReferencesFingerprint: textParam(
+                      params.request,
+                      "expectedReferencesFingerprint",
+                    ),
+                  }),
               agentId: params.agentId,
               sourceKind: sourceKind(params.request),
               sourceClaimId: textParam(params.request, "sourceClaimId"),
@@ -281,11 +327,27 @@ export async function requestBrowserOrganizationMemoryLifecycle(params: {
         result: projectRequest(
           await lifecycleCall(() =>
             owner.decideOrganizationMemoryPromotion({
+              ...(params.request.expectedReferencesFingerprint === undefined
+                ? {}
+                : {
+                    expectedReferencesFingerprint: textParam(
+                      params.request,
+                      "expectedReferencesFingerprint",
+                    ),
+                  }),
               agentId: params.agentId,
               requestId: textParam(params.request, "requestId"),
               decision,
               reason: textParam(params.request, "reason"),
               decidedAt: params.now,
+              ...(params.request.expectedComparisonFingerprint === undefined
+                ? {}
+                : {
+                    expectedComparisonFingerprint: textParam(
+                      params.request,
+                      "expectedComparisonFingerprint",
+                    ),
+                  }),
             }),
           ),
         ),

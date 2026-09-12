@@ -1,4 +1,4 @@
-export const ORGANIZATION_MEMORY_SCHEMA = `
+export const ORGANIZATION_MEMORY_LIFECYCLE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS organization_memory_promotion_requests (
   id TEXT PRIMARY KEY,
   source_kind TEXT NOT NULL CHECK (source_kind IN ('personal', 'part', 'group', 'team')),
@@ -124,6 +124,53 @@ CREATE TABLE IF NOT EXISTS organization_memory_pages (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS organization_memory_scope
   ON organization_memory_pages(status, scope_kind, scope_id, updated_at DESC);
+`;
+
+const ORGANIZATION_MEMORY_REVISION_SCHEMA = `
+CREATE TABLE IF NOT EXISTS organization_memory_claim_revisions (
+  claim_id TEXT NOT NULL REFERENCES organization_memory_claims(id),
+  revision INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  approved_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
+  approved_at INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  proposal_id TEXT,
+  PRIMARY KEY(claim_id, revision)
+) STRICT;
+CREATE TABLE IF NOT EXISTS organization_memory_claim_supersedes (
+  claim_id TEXT NOT NULL REFERENCES organization_memory_claims(id),
+  revision INTEGER NOT NULL,
+  source_claim_id TEXT NOT NULL REFERENCES organization_memory_claims(id),
+  source_revision INTEGER NOT NULL,
+  PRIMARY KEY(claim_id, revision, source_claim_id, source_revision)
+) STRICT;
+CREATE TABLE IF NOT EXISTS organization_memory_promotion_comparisons (
+  request_id TEXT PRIMARY KEY REFERENCES organization_memory_promotion_requests(id),
+  input_fingerprint TEXT NOT NULL,
+  input_json TEXT NOT NULL,
+  analysis_json TEXT NOT NULL,
+  compared_at INTEGER NOT NULL
+) STRICT;
+`;
+
+// Revision tables are additive; the v2-to-v3 owner rebuilds only lifecycle tables.
+export const ORGANIZATION_MEMORY_SCHEMA =
+  ORGANIZATION_MEMORY_LIFECYCLE_SCHEMA +
+  ORGANIZATION_MEMORY_REVISION_SCHEMA +
+  `
+CREATE TABLE IF NOT EXISTS organization_memory_promotion_reference_inputs (
+  request_id TEXT PRIMARY KEY REFERENCES organization_memory_promotion_requests(id),
+  input_json TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS organization_memory_claim_references (
+  claim_id TEXT NOT NULL REFERENCES organization_memory_claims(id),
+  revision INTEGER NOT NULL,
+  target_claim_id TEXT NOT NULL REFERENCES organization_memory_claims(id),
+  target_revision INTEGER NOT NULL,
+  PRIMARY KEY(claim_id, revision, target_claim_id)
+) STRICT;
+CREATE INDEX IF NOT EXISTS organization_memory_reference_target
+  ON organization_memory_claim_references(target_claim_id);
 `;
 
 export const SKILL_HUB_STATE_SCHEMA = `

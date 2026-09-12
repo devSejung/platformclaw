@@ -37,6 +37,34 @@ function wheel(currentTarget: EventTarget, deltaY: number) {
 }
 
 describe("SVG graph interaction", () => {
+  it("preserves parallel edge lanes when dragging while zero-offset edges stay centered", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const node = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    node.dataset.svgGraphNode = "one";
+    svg.append(node);
+    const edges = [-3, 0, 3].map((offset) => {
+      const edge = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      Object.assign(edge.dataset, {
+        svgGraphSource: "one",
+        svgGraphTarget: "two",
+        svgGraphOffset: String(offset),
+      });
+      svg.append(edge);
+      return edge;
+    });
+    const interaction = getSvgGraphInteraction(
+      {},
+      new Map([
+        ["one", { x: 10, y: 20 }],
+        ["two", { x: 100, y: 20 }],
+      ]),
+    );
+    startSvgGraphPointer(pointer(node, { clientX: 10, clientY: 20 }), interaction, "one");
+    moveSvgGraphPointer(pointer(svg, { clientX: 30, clientY: 40 }), interaction);
+    expect(edges[0]!.getAttribute("y1")).not.toBe(edges[2]!.getAttribute("y1"));
+    expect(edges[1]!.getAttribute("x1")).toBe("30");
+    expect(edges[1]!.getAttribute("y1")).toBe("40");
+  });
   it("clamps zoom and drags a node without activating it", () => {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     const viewport = document.createElementNS("http://www.w3.org/2000/svg", "g");

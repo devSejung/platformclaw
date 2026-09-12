@@ -344,7 +344,18 @@ export async function requestBrowserOrganizationMemoryGet(params: {
     finiteNumber(document.updatedAt) === null ||
     !positiveInteger(document.fromLine) ||
     !positiveInteger(document.lineCount) ||
-    document.lineCount > MAX_DOCUMENT_LINES
+    document.lineCount > MAX_DOCUMENT_LINES ||
+    (document.totalLines !== undefined &&
+      (!positiveInteger(document.totalLines) || document.totalLines < document.lineCount)) ||
+    (document.textTruncated !== undefined && typeof document.textTruncated !== "boolean") ||
+    (document.verification !== undefined &&
+      (!isRecord(document.verification) ||
+        document.verification.approvalStatus !== "approved" ||
+        !Number.isSafeInteger(document.verification.revision) ||
+        document.verification.revision < 1 ||
+        !Number.isSafeInteger(document.verification.sourceRevision) ||
+        document.verification.sourceRevision < 1 ||
+        !["current", "changed", "unavailable"].includes(document.verification.sourceStatus)))
   ) {
     throw new BrowserGatewayProxyError(
       "upstream-result-denied",
@@ -361,6 +372,18 @@ export async function requestBrowserOrganizationMemoryGet(params: {
       content: document.content,
       fromLine: document.fromLine,
       lineCount: document.lineCount,
+      ...(document.totalLines !== undefined ? { totalLines: document.totalLines } : {}),
+      ...(document.textTruncated !== undefined ? { textTruncated: document.textTruncated } : {}),
+      ...(document.verification
+        ? {
+            verification: {
+              approvalStatus: document.verification.approvalStatus,
+              revision: document.verification.revision,
+              sourceRevision: document.verification.sourceRevision,
+              sourceStatus: document.verification.sourceStatus,
+            },
+          }
+        : {}),
       updatedAt: new Date(document.updatedAt).toISOString(),
     },
   };

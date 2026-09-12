@@ -196,6 +196,16 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
                 ${t("common.close")}
               </button>
               <openclaw-memory-promotions
+                .getAdvertised=${isGatewayMethodAdvertised(gateway, "platformclaw.memory.get") ===
+                true}
+                .referencesAdvertised=${isGatewayMethodAdvertised(
+                  gateway,
+                  "platformclaw.memory.promotion.previewReferences",
+                ) === true}
+                .comparisonAdvertised=${isGatewayMethodAdvertised(
+                  gateway,
+                  "platformclaw.memory.knowledge.comparePromotion",
+                ) === true}
                 .client=${gateway.client}
                 .connected=${gateway.phase === "connected"}
                 .methodAdvertised=${isGatewayMethodAdvertised(
@@ -345,6 +355,30 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
         ></openclaw-agent-memory-panel>`;
       case "organization":
         return html`<platformclaw-memory-organization
+          .referencesAdvertised=${isGatewayMethodAdvertised(
+            gateway,
+            "platformclaw.memory.promotion.previewReferences",
+          ) === true}
+          .comparisonAdvertised=${isGatewayMethodAdvertised(
+            gateway,
+            "platformclaw.memory.knowledge.comparePromotion",
+          ) === true}
+          .knowledgeAdvertised=${isGatewayMethodAdvertised(
+            gateway,
+            "platformclaw.memory.knowledge.snapshot",
+          ) === true}
+          .knowledgeGenerateAdvertised=${isGatewayMethodAdvertised(
+            gateway,
+            "platformclaw.memory.knowledge.generate",
+          ) === true}
+          .knowledgeDecideAdvertised=${isGatewayMethodAdvertised(
+            gateway,
+            "platformclaw.memory.knowledge.decide",
+          ) === true}
+          .knowledgeApplyAdvertised=${isGatewayMethodAdvertised(
+            gateway,
+            "platformclaw.memory.knowledge.apply",
+          ) === true}
           .client=${gateway.client}
           .connected=${gateway.phase === "connected"}
           .lifecycleAdvertised=${isGatewayMethodAdvertised(

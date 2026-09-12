@@ -1,4 +1,7 @@
-import { createHash } from "node:crypto";
+import {
+  memoryWikiPromotionRevision,
+  parseMemoryWikiReferenceSpans,
+} from "@openclaw/memory-wiki/reference-api";
 import type { PersonalOrganizationMemorySource } from "./contracts.js";
 
 type GatewayRequester = {
@@ -14,20 +17,6 @@ type WikiGetResult = {
   truncated?: unknown;
   updatedAt?: unknown;
 };
-
-function stableRevision(page: WikiGetResult, claimId: string): number {
-  const digest = createHash("sha256")
-    .update(
-      JSON.stringify({
-        claimId,
-        content: page.content,
-        totalLines: page.totalLines,
-        updatedAt: page.updatedAt,
-      }),
-    )
-    .digest("hex");
-  return Number.parseInt(digest.slice(0, 12), 16) + 1;
-}
 
 function isSafeVirtualClaimId(value: string): boolean {
   return (
@@ -45,7 +34,45 @@ export async function resolvePersonalOrganizationMemorySource(params: {
   gateway: GatewayRequester;
   agentId: string;
   lookup: string;
+  proposedText?: string;
 }): Promise<PersonalOrganizationMemorySource | null> {
+  // Reference-free publication retains the existing complete wiki.get contract.
+  if (
+    params.proposedText !== undefined &&
+    parseMemoryWikiReferenceSpans(params.proposedText).length > 0
+  ) {
+    const resolved = await params.gateway.request<PersonalOrganizationMemorySource | null>(
+      "wiki.references.resolve",
+      { agentId: params.agentId, lookup: params.lookup, proposedText: params.proposedText },
+    );
+    if (
+      !resolved ||
+      typeof resolved.claimId !== "string" ||
+      !resolved.claimId ||
+      !isSafeVirtualClaimId(resolved.claimId) ||
+      !Number.isSafeInteger(resolved.revision) ||
+      resolved.revision < 1 ||
+      !Array.isArray(resolved.references) ||
+      resolved.references.length > 32 ||
+      typeof resolved.referencesTextHash !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(resolved.referencesTextHash)
+    ) {
+      return null;
+    }
+    return {
+      claimId: resolved.claimId,
+      revision: resolved.revision,
+      referencesTextHash: resolved.referencesTextHash,
+      references: resolved.references.map((reference) => ({
+        start: reference.start,
+        end: reference.end,
+        claimId: reference.claimId,
+        revision: reference.revision,
+        kind: reference.kind,
+        scopeId: reference.scopeId,
+      })),
+    };
+  }
   const page = await params.gateway.request<WikiGetResult | null>("wiki.get", {
     agentId: params.agentId,
     lookup: params.lookup,
@@ -65,5 +92,13 @@ export async function resolvePersonalOrganizationMemorySource(params: {
   if (!claimId || !isSafeVirtualClaimId(claimId)) {
     return null;
   }
-  return { claimId, revision: stableRevision(page, claimId) };
+  return {
+    claimId,
+    revision: memoryWikiPromotionRevision({
+      claimId,
+      content: page.content,
+      totalLines: page.totalLines,
+      updatedAt: page.updatedAt,
+    }),
+  };
 }

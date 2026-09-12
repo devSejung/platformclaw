@@ -13,10 +13,8 @@ import {
 import { executeSync, runReadTransaction, takeFirstSync } from "./kysely-sync.js";
 import { prepareOrganizationAuthorizationContext } from "./organization-policy.js";
 import { rowToMembership, rowToScope } from "./sqlite-store-core.js";
-import {
-  SqliteControlPlaneOrganizationMemoryStore,
-  type AuthorizedOrganizationMemoryScope,
-} from "./sqlite-store-organization-memory.js";
+import { SqliteControlPlaneOrganizationMemoryReferenceStore } from "./sqlite-store-organization-memory-references.js";
+import type { AuthorizedOrganizationMemoryScope } from "./sqlite-store-organization-memory.js";
 import type {
   ManagedScopeRow,
   OrganizationMemoryClaimRow,
@@ -24,73 +22,18 @@ import type {
   OrganizationMemoryPromotionRequestRow,
 } from "./sqlite-store-types.js";
 
-export const MAX_TEXT_CHARS = 64 * 1024;
-export const MAX_REASON_CHARS = 2_000;
-const MAX_EVIDENCE_ITEMS = 20;
-const MAX_EVIDENCE_CHARS = 1_000;
-const SHARED_CLAIM_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
-
-type RequestWithDecision = OrganizationMemoryPromotionRequestRow & {
+export type RequestWithDecision = OrganizationMemoryPromotionRequestRow & {
   decision: OrganizationMemoryPromotionDecisionRow["decision"] | null;
   decision_reason: string | null;
   decided_at: number | null;
   target_claim_id: string | null;
 };
 
-export function boundedText(value: string, label: string, max: number): string {
-  const normalized = value.trim();
-  if (!normalized || normalized.length > max) {
-    throw new ControlPlaneStateError(`${label} must contain 1-${max} characters`);
-  }
-  return normalized;
-}
-
-export function claimIdentity(value: string): string {
-  const normalized = value.trim();
-  if (!SHARED_CLAIM_ID.test(normalized)) {
-    throw new ControlPlaneStateError("source claim id is invalid");
-  }
-  return normalized;
-}
-
-export function personalClaimLookup(value: string): string {
-  const normalized = value.trim();
-  if (
-    !normalized ||
-    normalized.length > 1_000 ||
-    normalized.includes("\0") ||
-    normalized.includes("\\") ||
-    normalized.startsWith("/") ||
-    /^[a-zA-Z]:/u.test(normalized) ||
-    normalized.split("/").includes("..")
-  ) {
-    throw new ControlPlaneStateError("personal Wiki page lookup is invalid");
-  }
-  return normalized;
-}
-
-export function evidenceItems(values: string[]): string[] {
-  if (!Array.isArray(values) || values.length > MAX_EVIDENCE_ITEMS) {
-    throw new ControlPlaneStateError(`evidence is limited to ${MAX_EVIDENCE_ITEMS} items`);
-  }
-  return values.map((value) => boundedText(value, "evidence item", MAX_EVIDENCE_CHARS));
-}
-
-export function titleForClaim(text: string): string {
-  const line = text.split(/\r?\n/u).find((entry) => entry.trim()) ?? "Organization memory";
-  return (
-    line
-      .replace(/^#{1,6}\s+/u, "")
-      .trim()
-      .slice(0, 160) || "Organization memory"
-  );
-}
-
 function requestStatus(row: RequestWithDecision): "pending" | "approved" | "rejected" {
   return row.decision ?? "pending";
 }
 
-export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore extends SqliteControlPlaneOrganizationMemoryStore {
+export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore extends SqliteControlPlaneOrganizationMemoryReferenceStore {
   protected activeScope(kind: ManagedScopeKind, scopeId: string | undefined): ManagedScopeRow {
     if (!scopeId) {
       throw new ControlPlaneStateError(`${kind} scope id is required`);
@@ -331,6 +274,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
       ...(row.decision_reason === null ? {} : { decisionReason: row.decision_reason }),
       ...(row.target_claim_id === null ? {} : { targetClaimId: row.target_claim_id }),
       canReview: this.canReview(actor.userId, actor.globalRole, row),
+      ...(!row.decision ? { references: this.promotionReferencesPreview(row, actor.userId) } : {}),
     };
   }
 
@@ -393,6 +337,17 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
             .canManageMembers;
   }
 
+  protected currentRevisionApproval(row: OrganizationMemoryClaimRow) {
+    return takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("organization_memory_claim_revisions")
+        .select(["approved_by_user_id", "approved_at", "reason", "proposal_id"])
+        .where("claim_id", "=", row.id)
+        .where("revision", "=", row.revision),
+    );
+  }
+
   protected toClaim(
     row: OrganizationMemoryClaimRow,
     scopeName: string,
@@ -401,8 +356,19 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
     readable = true,
   ): OrganizationMemoryClaim {
     const canAdminister = actor ? this.canAdministerClaim(actor, row, managedScopeIds) : false;
+    const revisionApproval = this.currentRevisionApproval(row);
     return {
       id: row.id,
+      ...(revisionApproval && row.status !== "purged"
+        ? {
+            revisionApproval: {
+              approvedByUserId: revisionApproval.approved_by_user_id,
+              approvedAt: revisionApproval.approved_at,
+              reason: revisionApproval.reason,
+              ...(revisionApproval.proposal_id ? { proposalId: revisionApproval.proposal_id } : {}),
+            },
+          }
+        : {}),
       scopeKind: row.scope_kind,
       scopeName,
       ...(row.scope_id ? { scopeId: row.scope_id } : {}),
@@ -424,6 +390,17 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
   }
 
   protected compileClaimPage(claimId: string): void {
+    this.compileSingleClaimPage(claimId);
+    // Only direct dependants contain this target's generated link. Do not recurse:
+    // reference cycles must never turn one lifecycle write into an infinite compilation.
+    for (const sourceId of this.directlyReferencingClaimIds(claimId)) {
+      if (sourceId !== claimId) {
+        this.compileSingleClaimPage(sourceId);
+      }
+    }
+  }
+
+  private compileSingleClaimPage(claimId: string): void {
     const claim = takeFirstSync(
       this.db,
       this.query.selectFrom("organization_memory_claims").selectAll().where("id", "=", claimId),
@@ -444,12 +421,25 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
         .where("status", "=", "active")
         .orderBy("id"),
     ).rows.map((entry) => entry.id);
+    const revisionApproval = this.currentRevisionApproval(claim);
+    const references = claim.status === "active" ? this.compiledReferenceLinks(claim) : [];
+    const content = references.length
+      ? `${claim.claim_text}\n\n## 관련 문서\n\n${references.map((reference, index) => `- [관련 문서 ${index + 1}](${reference.path}) · revision ${reference.revision}`).join("\n")}\n`
+      : claim.claim_text;
     const relatedClaimIds = [
       ...(claim.source_kind === "personal" ? [] : [claim.source_claim_id]),
       ...promoted,
     ];
     const provenance = JSON.stringify({
       claimId: claim.id,
+      ...(revisionApproval
+        ? {
+            revisionApproval: {
+              approvedAt: revisionApproval.approved_at,
+              proposalId: revisionApproval.proposal_id,
+            },
+          }
+        : {}),
       promotionRequestId: claim.promotion_request_id,
       source: {
         kind: claim.source_kind,
@@ -457,6 +447,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
         revision: claim.source_revision,
       },
       backlinks: promoted,
+      references: references.map(({ id, revision }) => ({ id, revision })),
       relatedPages: relatedClaimIds,
       report: {
         activeBacklinks: promoted.length,
@@ -472,7 +463,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
           scope_kind: claim.scope_kind,
           scope_id: claim.scope_id,
           title: claim.title,
-          content: claim.claim_text,
+          content,
           provenance_json: provenance,
           revision: claim.revision,
           status: claim.status === "active" ? "active" : "retired",
@@ -482,7 +473,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
         .onConflict((conflict) =>
           conflict.column("id").doUpdateSet({
             title: claim.title,
-            content: claim.claim_text,
+            content,
             provenance_json: provenance,
             revision: claim.revision,
             status: claim.status === "active" ? "active" : "retired",
@@ -655,6 +646,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryLifecycleQueryStore ex
           const projected: OrganizationMemoryLifecycleScope = {
             kind: scope.kind,
             name: scope.name,
+            canRead: readScopeKeys.has(`${scope.kind}:${scope.id ?? ""}`),
             canAdminister:
               scope.kind === "global"
                 ? actor.globalRole === "admin"

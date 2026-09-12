@@ -57,7 +57,9 @@ function createPage(omitMethods: string[] = []) {
         };
       case "platformclaw.memory.lifecycle":
         return {
-          scopes: [{ kind: "group", id: "group", name: "Platform", canAdminister: false }],
+          scopes: [
+            { kind: "group", id: "group", name: "Platform", canRead: true, canAdminister: false },
+          ],
           personalTargets: [
             { kind: "group", scopeId: "group", scopeName: "Platform", mode: "request" },
           ],
