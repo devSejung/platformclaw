@@ -29,6 +29,7 @@ import {
   runObsidianOpen,
   runObsidianSearch,
 } from "./obsidian.js";
+import { resolveMemoryWikiPromotionReferences } from "./promotion-references.js";
 import { getMemoryWikiPage, searchMemoryWiki, WIKI_SEARCH_MODES } from "./query.js";
 import { syncMemoryWikiImportedSources } from "./source-sync.js";
 import { buildMemoryWikiDoctorReport, resolveMemoryWikiStatus } from "./status.js";
@@ -513,6 +514,46 @@ export function registerMemoryWikiGatewayMethods(params: {
       }
     },
     { scope: WRITE_SCOPE },
+  );
+
+  api.registerGatewayMethod(
+    "wiki.references.resolve",
+    async ({ params: requestParams, respond }) => {
+      try {
+        if (
+          Object.keys(requestParams).some(
+            (key) => !["agentId", "lookup", "proposedText"].includes(key),
+          )
+        ) {
+          throw new Error(
+            "Wiki reference resolution accepts only agentId, lookup, and proposedText.",
+          );
+        }
+        const { appConfig, config } = resolveRequestContext(requestParams);
+        const lookup = readStringParam(requestParams, "lookup", { required: true });
+        if (
+          requestParams.proposedText !== undefined &&
+          typeof requestParams.proposedText !== "string"
+        ) {
+          throw new Error("proposedText must be a string.");
+        }
+        await syncImportedSourcesIfNeeded(config, appConfig);
+        respond(
+          true,
+          await resolveMemoryWikiPromotionReferences({
+            config,
+            appConfig,
+            lookup,
+            ...(typeof requestParams.proposedText === "string"
+              ? { proposedText: requestParams.proposedText }
+              : {}),
+          }),
+        );
+      } catch (error) {
+        respondError(respond, error);
+      }
+    },
+    { scope: READ_SCOPE },
   );
 
   api.registerGatewayMethod(

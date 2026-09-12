@@ -35,6 +35,10 @@ function expectElement(container: Element, selector: string): Element {
 }
 
 function selectWikiDocumentAction(container: Element, value: string): void {
+  if (value === "edit") {
+    (expectElement(container, "[data-wiki-edit]") as HTMLButtonElement).click();
+    return;
+  }
   expectElement(container, ".wiki-document__menu").dispatchEvent(
     new CustomEvent("wa-select", { detail: { item: { value } } }),
   );
