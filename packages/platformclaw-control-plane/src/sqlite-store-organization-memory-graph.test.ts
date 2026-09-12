@@ -114,6 +114,22 @@ describe("organization memory graphs", () => {
       parentScopeId: groupB.id,
       createdAt: 34,
     });
+    const partC = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "part",
+      name: "Other readable Part",
+      parentScopeId: groupA.id,
+      createdAt: 35,
+    });
+    const groupLeader = await activeUser(store, "group-leader", 36);
+    await store.setManagedScopeMembership({
+      actorUserId: admin.user.id,
+      scopeId: groupA.id,
+      userId: groupLeader.user.id,
+      role: "leader",
+      reason: "Synthetic oversight",
+      changedAt: 39,
+    });
     await store.setManagedScopeMembership({
       actorUserId: admin.user.id,
       scopeId: partA.id,
@@ -157,7 +173,164 @@ describe("organization memory graphs", () => {
       scopeId: groupB.id,
       title: "Group private",
     });
+    for (let index = 0; index < 501; index++) {
+      insertPage(db, { id: `other-readable-${index}`, scopeKind: "part", scopeId: partC.id });
+    }
     db.close();
+
+    const selected = await store.getOrganizationMemoryGraph({
+      agentId: groupLeader.binding.agentId,
+      kind: "part",
+      scopeId: partA.id,
+    });
+    expect(selected.scopeId).toBe(partA.id);
+    expect(selected.nodes.map((node) => node.path)).toEqual([
+      "organization/part/a-source",
+      "organization/part/b-target",
+    ]);
+    expect(selected.stats).toEqual({
+      totalPages: 2,
+      totalNodes: 2,
+      totalEdges: 1,
+      truncated: false,
+      partial: false,
+    });
+    const overview = await store.getOrganizationMemoryGraph({
+      agentId: groupLeader.binding.agentId,
+      kind: "part",
+    });
+    expect(overview.stats).toMatchObject({ totalPages: 503, totalNodes: 500, truncated: true });
+    expect(overview.scopeId).toBeUndefined();
+    const inventory = await store.getOrganizationMemoryLifecycle(groupLeader.binding.agentId);
+    expect(
+      inventory.scopes.filter((scope) => scope.kind === "part").every((scope) => scope.canRead),
+    ).toBe(true);
+    const teamLeader = await activeUser(store, "team-leader", 41);
+    await store.setManagedScopeMembership({
+      actorUserId: admin.user.id,
+      scopeId: team.id,
+      userId: teamLeader.user.id,
+      role: "leader",
+      reason: "Synthetic delegated authority",
+      changedAt: 44,
+    });
+    const teamInventory = await store.getOrganizationMemoryLifecycle(teamLeader.binding.agentId);
+    expect(teamInventory.scopes.find((scope) => scope.id === partA.id)).toMatchObject({
+      canRead: false,
+      canAdminister: true,
+    });
+    await expect(
+      store.getOrganizationMemoryGraph({
+        agentId: teamLeader.binding.agentId,
+        kind: "part",
+        scopeId: partA.id,
+      }),
+    ).rejects.toThrow("selected graph scope is unavailable");
+    const groupMember = await activeUser(store, "group-member", 45);
+    await store.setManagedScopeMembership({
+      actorUserId: admin.user.id,
+      scopeId: groupA.id,
+      userId: groupMember.user.id,
+      role: "member",
+      reason: "Synthetic Group audience",
+      changedAt: 48,
+    });
+    const memberInventory = await store.getOrganizationMemoryLifecycle(groupMember.binding.agentId);
+    expect(memberInventory.scopes.map((scope) => [scope.kind, scope.canRead])).toEqual(
+      expect.arrayContaining([
+        ["global", true],
+        ["team", true],
+        ["group", true],
+      ]),
+    );
+    expect(memberInventory.scopes.some((scope) => scope.kind === "part")).toBe(false);
+    expect(
+      (
+        await store.getOrganizationMemoryGraph({
+          agentId: groupMember.binding.agentId,
+          kind: "group",
+          scopeId: groupA.id,
+        })
+      ).nodes.map((node) => node.path),
+    ).toEqual(["organization/group/group-visible"]);
+    const teamClaim = await store.publishOrganizationMemoryDirect({
+      agentId: admin.binding.agentId,
+      sourceKind: "personal",
+      sourceClaimId: "wiki/team-audience.md",
+      targetKind: "team",
+      targetScopeId: team.id,
+      proposedText: "Team audience",
+      evidence: [],
+      reason: "Synthetic audience",
+      publishedAt: 49,
+    });
+    const globalTarget = await store.publishOrganizationMemoryDirect({
+      agentId: admin.binding.agentId,
+      sourceKind: "personal",
+      sourceClaimId: "wiki/global-audience.md",
+      targetKind: "global",
+      proposedText: "Global audience",
+      evidence: [],
+      reason: "Synthetic audience",
+      publishedAt: 49,
+    });
+    const globalInput = {
+      agentId: admin.binding.agentId,
+      sourceKind: "team" as const,
+      sourceClaimId: teamClaim.targetClaimId!,
+      expectedSourceRevision: 1,
+      targetKind: "global" as const,
+      proposedText: `Public [[organization/global/${globalTarget.targetClaimId!}]]`,
+    };
+    const globalPreview = await store.previewOrganizationMemoryPromotionReferences(globalInput);
+    const globalSource = await store.publishOrganizationMemoryDirect({
+      ...globalInput,
+      expectedReferencesFingerprint: globalPreview.references!.fingerprint,
+      evidence: [],
+      reason: "Synthetic global reference",
+      publishedAt: 49,
+    });
+    const globalGraph = await store.getOrganizationMemoryGraph({
+      agentId: groupMember.binding.agentId,
+      kind: "global",
+    });
+    expect(globalGraph.stats.totalPages).toBe(2);
+    expect(globalGraph.edges).toContainEqual(
+      expect.objectContaining({
+        type: "reference",
+        source: `organization:global:${globalSource.targetClaimId!}`,
+        target: `organization:global:${globalTarget.targetClaimId!}`,
+      }),
+    );
+    expect(
+      (
+        await store.getOrganizationMemoryGraph({
+          agentId: groupMember.binding.agentId,
+          kind: "team",
+          scopeId: team.id,
+        })
+      ).nodes.map((node) => node.path),
+    ).toEqual([`organization/team/${teamClaim.targetClaimId!}`]);
+    expect(
+      inventory.scopes
+        .filter((scope) => scope.kind === "part")
+        .map(({ id }) => {
+          if (!id) {
+            throw new Error("Part fixture must have a scope ID");
+          }
+          return id;
+        })
+        .toSorted(),
+    ).toEqual([partA.id, partC.id].toSorted());
+    for (const scopeId of [partB.id, groupA.id, "missing-scope"]) {
+      await expect(
+        store.getOrganizationMemoryGraph({
+          agentId: groupLeader.binding.agentId,
+          kind: "part",
+          scopeId,
+        }),
+      ).rejects.toThrow("selected graph scope is unavailable");
+    }
 
     const partGraph = await store.getOrganizationMemoryGraph({
       agentId: member.binding.agentId,
@@ -246,6 +419,22 @@ describe("organization memory graphs", () => {
     expect(
       verified.nodes.find((node) => node.path.endsWith("group-visible"))?.verification,
     ).toBeUndefined();
+    const document = await store.getOrganizationMemory({
+      agentId: member.binding.agentId,
+      path: `organization/group/${approvedGroup.targetClaimId!}`,
+      lineCount: 200,
+    });
+    expect(document?.verification).toEqual(
+      verified.nodes.find((node) => node.path.endsWith(approvedGroup.targetClaimId!))?.verification,
+    );
+    expect(document?.totalLines).toBeGreaterThan(0);
+    expect(document?.textTruncated).toBe(false);
+    await expect(
+      store.getOrganizationMemory({
+        agentId: groupLeader.binding.agentId,
+        path: "organization/part/sibling-hidden",
+      }),
+    ).resolves.toBeNull();
     await store.removeManagedScopeMembership({
       actorUserId: admin.user.id,
       scopeId: partA.id,
@@ -256,6 +445,13 @@ describe("organization memory graphs", () => {
     await expect(
       store.getOrganizationMemoryGraph({ agentId: member.binding.agentId, kind: "part" }),
     ).resolves.toMatchObject({ nodes: [], edges: [], stats: { totalPages: 0 } });
+    await expect(
+      store.getOrganizationMemoryGraph({
+        agentId: member.binding.agentId,
+        kind: "part",
+        scopeId: partA.id,
+      }),
+    ).rejects.toThrow("selected graph scope is unavailable");
     await store.setManagedScopeMembership({
       actorUserId: admin.user.id,
       scopeId: groupA.id,
@@ -293,6 +489,13 @@ describe("organization memory graphs", () => {
       reason: "Archived group",
       archivedAt: 53,
     });
+    await expect(
+      store.getOrganizationMemoryGraph({
+        agentId: groupLeader.binding.agentId,
+        kind: "part",
+        scopeId: partA.id,
+      }),
+    ).rejects.toThrow("selected graph scope is unavailable");
     await expect(
       store.getOrganizationMemoryGraph({ agentId: member.binding.agentId, kind: "group" }),
     ).resolves.toMatchObject({ nodes: [], edges: [] });
@@ -333,6 +536,13 @@ describe("organization memory graphs", () => {
       parentScopeId: group.id,
       createdAt: 22,
     });
+    const emptyPart = await store.createManagedScope({
+      actorUserId: admin.user.id,
+      kind: "part",
+      name: "Empty Part",
+      parentScopeId: group.id,
+      createdAt: 23,
+    });
     await store.searchOrganizationMemory({ agentId: admin.binding.agentId, query: "seed" });
     const pageIds = Array.from(
       { length: 501 },
@@ -347,7 +557,47 @@ describe("organization memory graphs", () => {
         provenance: { backlinks: pageIds.slice(0, 10) },
       });
     }
+    db.prepare("UPDATE organization_memory_pages SET content = ? WHERE id = ?").run(
+      `${"x".repeat(70_000)}\nsecond line\nthird line`,
+      pageIds[0]!,
+    );
     db.close();
+
+    const excerpt = await store.getOrganizationMemory({
+      agentId: admin.binding.agentId,
+      path: `organization/part/${pageIds[0]!}`,
+      lineCount: 200,
+    });
+    expect(excerpt).toMatchObject({ totalLines: 3, lineCount: 3, textTruncated: true });
+    expect(excerpt?.content.length).toBe(64 * 1024);
+    await expect(
+      store.getOrganizationMemory({
+        agentId: admin.binding.agentId,
+        path: `organization/part/${pageIds[0]!}`,
+        fromLine: 2,
+        lineCount: 1,
+      }),
+    ).resolves.toMatchObject({
+      content: "second line",
+      totalLines: 3,
+      fromLine: 2,
+      lineCount: 1,
+      textTruncated: false,
+    });
+
+    await expect(
+      store.getOrganizationMemoryGraph({
+        agentId: admin.binding.agentId,
+        kind: "part",
+        scopeId: emptyPart.id,
+      }),
+    ).resolves.toEqual({
+      kind: "part",
+      scopeId: emptyPart.id,
+      nodes: [],
+      edges: [],
+      stats: { totalPages: 0, totalNodes: 0, totalEdges: 0, truncated: false, partial: false },
+    });
 
     const first = await store.getOrganizationMemoryGraph({
       agentId: admin.binding.agentId,

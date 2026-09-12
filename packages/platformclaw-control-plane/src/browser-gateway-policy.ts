@@ -51,7 +51,13 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "platformclaw.memory.graph",
   "platformclaw.memory.promotion.decide",
   "platformclaw.memory.promotion.publishDirect",
+  "platformclaw.memory.promotion.previewReferences",
   "platformclaw.memory.promotion.submit",
+  "platformclaw.memory.knowledge.snapshot",
+  "platformclaw.memory.knowledge.generate",
+  "platformclaw.memory.knowledge.decide",
+  "platformclaw.memory.knowledge.apply",
+  "platformclaw.memory.knowledge.comparePromotion",
   "question.get",
   "question.list",
   "question.resolve",
@@ -131,6 +137,11 @@ export type PlatformClawWebGatewayMethod = (typeof PLATFORMCLAW_WEB_GATEWAY_METH
 
 export const PLATFORMCLAW_WEB_ALLOWED_METHODS = new Set<string>(PLATFORMCLAW_WEB_GATEWAY_METHODS);
 export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
+  "platformclaw.memory.knowledge.comparePromotion",
+  "platformclaw.memory.knowledge.apply",
+  "platformclaw.memory.knowledge.snapshot",
+  "platformclaw.memory.knowledge.generate",
+  "platformclaw.memory.knowledge.decide",
   "commands.list",
   "platformclaw.memory.claim.purge",
   "platformclaw.memory.claim.retire",
@@ -139,9 +150,39 @@ export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
   "platformclaw.memory.graph",
   "platformclaw.memory.promotion.decide",
   "platformclaw.memory.promotion.publishDirect",
+  "platformclaw.memory.promotion.previewReferences",
   "platformclaw.memory.promotion.submit",
 ]);
 export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<string>>([
+  [
+    "platformclaw.memory.promotion.previewReferences",
+    new Set([
+      "sourceKind",
+      "sourceClaimId",
+      "expectedSourceRevision",
+      "targetKind",
+      "targetScopeId",
+      "proposedText",
+    ]),
+  ],
+  ["platformclaw.memory.knowledge.comparePromotion", new Set(["requestId"])],
+  [
+    "platformclaw.memory.knowledge.apply",
+    new Set([
+      "scopeId",
+      "proposalId",
+      "expectedRevision",
+      "survivorClaimId",
+      "proposedText",
+      "reason",
+    ]),
+  ],
+  ["platformclaw.memory.knowledge.snapshot", new Set(["scopeId"])],
+  ["platformclaw.memory.knowledge.generate", new Set(["scopeId", "requestId", "force"])],
+  [
+    "platformclaw.memory.knowledge.decide",
+    new Set(["scopeId", "proposalId", "expectedRevision", "decision", "reason"]),
+  ],
   ["agent.identity.get", new Set(["agentId", "sessionKey"])],
   ["agents.files.get", new Set(["agentId", "name"])],
   ["agents.files.list", new Set(["agentId"])],
@@ -270,11 +311,21 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["platformclaw.memory.claim.retire", new Set(["claimId", "reason"])],
   ["platformclaw.memory.lifecycle", new Set(["claims", "submitted", "reviewable"])],
   ["platformclaw.memory.get", new Set(["agentId", "path", "fromLine", "lineCount"])],
-  ["platformclaw.memory.graph", new Set(["kind"])],
-  ["platformclaw.memory.promotion.decide", new Set(["requestId", "decision", "reason"])],
+  ["platformclaw.memory.graph", new Set(["kind", "scopeId"])],
+  [
+    "platformclaw.memory.promotion.decide",
+    new Set([
+      "requestId",
+      "decision",
+      "reason",
+      "expectedComparisonFingerprint",
+      "expectedReferencesFingerprint",
+    ]),
+  ],
   [
     "platformclaw.memory.promotion.publishDirect",
     new Set([
+      "expectedReferencesFingerprint",
       "sourceKind",
       "sourceClaimId",
       "expectedSourceRevision",
@@ -288,6 +339,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   [
     "platformclaw.memory.promotion.submit",
     new Set([
+      "expectedReferencesFingerprint",
       "sourceKind",
       "sourceClaimId",
       "expectedSourceRevision",
@@ -503,6 +555,11 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
 ]);
 
 export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
+  "platformclaw.memory.knowledge.comparePromotion",
+  "platformclaw.memory.knowledge.apply",
+  "platformclaw.memory.knowledge.snapshot",
+  "platformclaw.memory.knowledge.generate",
+  "platformclaw.memory.knowledge.decide",
   "agent.identity.get",
   "agents.files.get",
   "agents.files.list",
@@ -521,6 +578,7 @@ export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
   "platformclaw.memory.graph",
   "platformclaw.memory.promotion.decide",
   "platformclaw.memory.promotion.publishDirect",
+  "platformclaw.memory.promotion.previewReferences",
   "platformclaw.memory.promotion.submit",
   "sessions.usage",
   "skills.install",

@@ -13,6 +13,8 @@ type MemoryPromotionsTestElement = HTMLElement & {
   methodAdvertised: boolean;
   wikiSearchAdvertised: boolean;
   wikiGetAdvertised: boolean;
+  comparisonAdvertised: boolean;
+  referencesAdvertised: boolean;
   agentId: string | null;
   initialPersonalLookup: string | null;
   formOnly: boolean;
@@ -35,11 +37,12 @@ function createElement(request: (method: string, params: unknown) => Promise<unk
 
 const snapshot = {
   scopes: [
-    { kind: "global", name: "Global", canAdminister: true },
+    { kind: "global", name: "Global", canRead: true, canAdminister: true },
     {
       kind: "group",
       id: "group-1",
       name: "Platform",
+      canRead: true,
       canAdminister: true,
     },
     {
@@ -47,6 +50,7 @@ const snapshot = {
       id: "part-1",
       parentScopeId: "group-1",
       name: "Runtime",
+      canRead: true,
       canAdminister: true,
     },
   ],
@@ -84,6 +88,192 @@ afterEach(async () => {
 });
 
 describe("MemoryPromotionsElement", () => {
+  it("requires public reference preview confirmation before submitting original content", async () => {
+    const references = {
+      resolved: [
+        { id: "safe", revision: 2, title: "Approved target", path: "organization/part/safe" },
+      ],
+      unresolvedCount: 1,
+      blockedCount: 0,
+      ambiguousCount: 0,
+      fingerprint: "refs-confirmed",
+    };
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "platformclaw.memory.promotion.previewReferences") {
+        expect(Object.keys(params ?? {}).toSorted()).toEqual([
+          "proposedText",
+          "sourceClaimId",
+          "sourceKind",
+          "targetKind",
+          "targetScopeId",
+        ]);
+      }
+      return method === "platformclaw.memory.lifecycle"
+        ? snapshot
+        : method === "platformclaw.memory.promotion.previewReferences"
+          ? { proposedText: "# Public\n\n[Approved target](organization/part/safe)", references }
+          : { status: "pending" };
+    });
+    const element = createElement(request);
+    element.referencesAdvertised = true;
+    await waitForFast(() => expect(element.querySelectorAll("select").length).toBeGreaterThan(1));
+    element.querySelector("openclaw-memory-promotion-source-picker")!.dispatchEvent(
+      new CustomEvent("source-selected", {
+        bubbles: true,
+        detail: {
+          lookup: "source.md",
+          content: "# Draft\n\n[[Private alias]]",
+          path: "source.md",
+        },
+      }),
+    );
+    const target = element.querySelectorAll<HTMLSelectElement>("select")[1]!;
+    target.value = "part-1";
+    target.dispatchEvent(new Event("change"));
+    const reason = element.querySelector<HTMLInputElement>(".memory-promotions__field input")!;
+    reason.value = "Review links";
+    reason.dispatchEvent(new InputEvent("input"));
+    await element.updateComplete;
+    element.querySelector<HTMLButtonElement>("button.primary")!.click();
+    await waitForFast(() => expect(element.querySelector("openclaw-modal-dialog")).not.toBeNull());
+    const dialog = element.querySelector("openclaw-modal-dialog")!;
+    expect(dialog.textContent).toContain("Approved target");
+    expect(dialog.textContent).not.toContain("Private alias");
+    dialog.querySelector<HTMLAnchorElement>("a[href]")!.click();
+    await waitForFast(() =>
+      expect(
+        element.querySelector(
+          "platformclaw-organization-memory-document-preview openclaw-modal-dialog",
+        ),
+      ).not.toBeNull(),
+    );
+    element
+      .querySelector("platformclaw-organization-memory-document-preview openclaw-modal-dialog")!
+      .dispatchEvent(new CustomEvent("modal-cancel", { bubbles: true }));
+    await element.updateComplete;
+    expect(dialog.isConnected).toBe(true);
+    expect(
+      request.mock.calls.some(([method]) => method === "platformclaw.memory.promotion.submit"),
+    ).toBe(false);
+    [...dialog.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Confirm and continue")!
+      .click();
+    await waitForFast(() =>
+      expect(request).toHaveBeenCalledWith(
+        "platformclaw.memory.promotion.submit",
+        expect.objectContaining({
+          proposedText: "# Draft\n\n[[Private alias]]",
+          expectedReferencesFingerprint: "refs-confirmed",
+        }),
+      ),
+    );
+  });
+  it("compares only explicitly and pins the approval to the displayed comparison", async () => {
+    const request = vi.fn(async (method: string) =>
+      method === "platformclaw.memory.lifecycle"
+        ? {
+            ...snapshot,
+            reviewable: [
+              {
+                ...snapshot.reviewable[0],
+                references: {
+                  resolved: [
+                    {
+                      id: "known-claim",
+                      revision: 3,
+                      title: "Known condition",
+                      path: "organization/part/known-claim",
+                    },
+                  ],
+                  unresolvedCount: 1,
+                  blockedCount: 2,
+                  ambiguousCount: 0,
+                  fingerprint: "references-v1",
+                },
+              },
+            ],
+          }
+        : method === "platformclaw.memory.knowledge.comparePromotion"
+          ? {
+              status: "available",
+              inputFingerprint: "target-corpus-v1",
+              analysis: {
+                summary: "Existing conditions differ",
+                comparisons: [],
+                coverage: {
+                  strategy: "candidate-pairs",
+                  policyVersion: "v1",
+                  candidatePairs: 1,
+                  comparedPairs: 1,
+                  hasUncomparedPairs: false,
+                },
+              },
+            }
+          : { status: "approved" },
+    );
+    const element = createElement(request);
+    element.comparisonAdvertised = true;
+    await waitForFast(() => expect(element.textContent).toContain("Drain jobs"));
+    expect(request).not.toHaveBeenCalledWith(
+      "platformclaw.memory.knowledge.comparePromotion",
+      expect.anything(),
+    );
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Compare with existing knowledge")!
+      .click();
+    await waitForFast(() =>
+      expect(element.querySelector("openclaw-modal-dialog")?.textContent).toContain(
+        "Compared 1 of 1 candidate pairs",
+      ),
+    );
+    const form = element.querySelector("openclaw-modal-dialog form") as HTMLFormElement;
+    const scrollBody = form.querySelector(".memory-promotions__decision-body")!;
+    expect(scrollBody.querySelector("[data-promotion-references]")?.textContent).toContain(
+      "Known condition",
+    );
+    expect(scrollBody.textContent).toContain("Access restricted: 2");
+    expect(scrollBody.getAttribute("tabindex")).toBe("0");
+    expect(scrollBody.querySelector("[data-promotion-knowledge-comparison]")).not.toBeNull();
+    expect(scrollBody.querySelector(".exec-approval-actions")).toBeNull();
+    expect(form.querySelector(":scope > .exec-approval-actions")).not.toBeNull();
+    (form.querySelector("textarea") as HTMLTextAreaElement).value = "Checked board conditions";
+    const referenceButton = scrollBody.querySelector<HTMLButtonElement>(
+      "[data-promotion-references] button",
+    )!;
+    expect(referenceButton.type).toBe("button");
+    referenceButton.click();
+    await waitForFast(() =>
+      expect(
+        element.querySelector(
+          "platformclaw-organization-memory-document-preview openclaw-modal-dialog",
+        ),
+      ).not.toBeNull(),
+    );
+    expect(
+      request.mock.calls.some(([method]) => method === "platformclaw.memory.promotion.decide"),
+    ).toBe(false);
+    element
+      .querySelector("platformclaw-organization-memory-document-preview openclaw-modal-dialog")!
+      .dispatchEvent(new CustomEvent("modal-cancel", { bubbles: true }));
+    await element.updateComplete;
+    expect(form.isConnected).toBe(true);
+    expect((form.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
+      "Checked board conditions",
+    );
+    form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+    await waitForFast(() =>
+      expect(request).toHaveBeenCalledWith("platformclaw.memory.promotion.decide", {
+        requestId: "request-1",
+        decision: "approve",
+        reason: "Checked board conditions",
+        expectedComparisonFingerprint: "target-corpus-v1",
+        expectedReferencesFingerprint: "references-v1",
+      }),
+    );
+    expect(
+      request.mock.calls.some(([method]) => method === "platformclaw.memory.knowledge.generate"),
+    ).toBe(false);
+  });
   it.each(["Approve", "Reject"])(
     "keeps %s errors and pending state inside the confirmation",
     async (label) => {

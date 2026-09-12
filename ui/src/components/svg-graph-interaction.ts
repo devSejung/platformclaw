@@ -2,6 +2,15 @@ import { html } from "lit";
 
 type SvgGraphPoint = { x: number; y: number };
 
+export function svgGraphEdgeCoordinates(source: SvgGraphPoint, target: SvgGraphPoint, offset = 0) {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const x = (-dy / length) * offset;
+  const y = (dx / length) * offset;
+  return { x1: source.x + x, y1: source.y + y, x2: target.x + x, y2: target.y + y };
+}
+
 type DragState = {
   pointerId: number;
   startClient: SvgGraphPoint;
@@ -78,10 +87,15 @@ function updateSvg(svg: SVGSVGElement, interaction: SvgGraphInteraction) {
     const source = interaction.positions.get(edge.dataset.svgGraphSource ?? "");
     const target = interaction.positions.get(edge.dataset.svgGraphTarget ?? "");
     if (source && target) {
-      edge.setAttribute("x1", String(source.x));
-      edge.setAttribute("y1", String(source.y));
-      edge.setAttribute("x2", String(target.x));
-      edge.setAttribute("y2", String(target.y));
+      // Typed parallel edges must retain their lane when endpoints move.
+      const coordinates = svgGraphEdgeCoordinates(
+        source,
+        target,
+        Number(edge.dataset.svgGraphOffset ?? 0),
+      );
+      for (const [name, value] of Object.entries(coordinates)) {
+        edge.setAttribute(name, String(value));
+      }
     }
   }
 }

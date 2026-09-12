@@ -1582,6 +1582,13 @@ importers:
         version: link:../../packages/plugin-sdk
 
   extensions/platformclaw-org-memory:
+    dependencies:
+      '@openclaw/memory-host-sdk':
+        specifier: workspace:*
+        version: link:../../packages/memory-host-sdk
+      '@platformclaw/control-plane':
+        specifier: workspace:*
+        version: link:../../packages/platformclaw-control-plane
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2362,6 +2369,9 @@ importers:
       '@openclaw/gateway-protocol':
         specifier: workspace:*
         version: link:../gateway-protocol
+      '@openclaw/memory-wiki':
+        specifier: workspace:*
+        version: link:../../extensions/memory-wiki
       '@openclaw/net-policy':
         specifier: workspace:*
         version: link:../net-policy

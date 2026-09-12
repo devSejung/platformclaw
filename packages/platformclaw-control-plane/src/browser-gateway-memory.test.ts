@@ -221,6 +221,14 @@ describe("BrowserGatewayProxy personal memory", () => {
       content: "# Release policy\nUse the reviewed checklist.",
       fromLine: 1,
       lineCount: 2,
+      totalLines: 2,
+      textTruncated: false,
+      verification: {
+        approvalStatus: "approved" as const,
+        revision: 3,
+        sourceRevision: 2,
+        sourceStatus: "current" as const,
+      },
     }));
     const { binding, proxy, request, token } = await setup({ getOrganizationMemory });
 
@@ -237,6 +245,14 @@ describe("BrowserGatewayProxy personal memory", () => {
       content: "# Release policy\nUse the reviewed checklist.",
       fromLine: 1,
       lineCount: 2,
+      totalLines: 2,
+      textTruncated: false,
+      verification: {
+        approvalStatus: "approved",
+        revision: 3,
+        sourceRevision: 2,
+        sourceStatus: "current",
+      },
       updatedAt: "1970-01-01T00:00:01.000Z",
     });
     expect(getOrganizationMemory).toHaveBeenCalledWith({

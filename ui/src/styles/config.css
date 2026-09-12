@@ -880,8 +880,90 @@
 .organization-memory-graph__edges line {
   stroke: color-mix(in srgb, var(--text) 52%, var(--panel));
   stroke-width: 1.6;
-  stroke-dasharray: 5 4;
   opacity: 0.9;
+}
+
+.organization-memory-graph__edges line[data-edge-type="comparison"] {
+  stroke-dasharray: 5 4;
+  stroke-width: 3;
+  cursor: pointer;
+}
+
+.organization-memory-graph__edges line[data-edge-type="reference"] {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  cursor: pointer;
+}
+
+.organization-memory-graph__reference-legend {
+  color: var(--accent);
+}
+
+.organization-memory-graph__edges line:focus {
+  stroke-width: 4;
+  outline: none;
+}
+
+.organization-memory-graph__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 12px;
+  margin-block: 12px;
+}
+
+.organization-memory-graph__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.organization-memory-graph__legend-item svg {
+  flex: 0 0 64px;
+}
+
+.organization-memory-graph__scope label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.organization-memory-graph__scope select {
+  max-width: 100%;
+}
+
+.organization-memory-graph__preview.dreams-diary__preview-panel {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  background: var(--panel);
+}
+
+.organization-memory-graph__reader-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.organization-memory-graph__preview .organization-memory-graph__preview-meta,
+.organization-memory-graph__preview [data-memory-verification] {
+  margin: 12px 20px;
+  overflow-wrap: anywhere;
+}
+
+.organization-memory-graph__preview .md-preview-dialog__reader pre {
+  filter: none;
+}
+
+.organization-memory-graph__edge-detail {
+  padding: 12px;
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
 }
 
 .organization-memory-graph__node {
@@ -912,7 +994,35 @@
 
 .organization-memory-graph__preview {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
+  max-height: calc(100dvh - 48px);
+  min-width: 0;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.22);
+}
+
+.organization-memory-graph__preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.organization-memory-graph__preview-header h3 {
+  margin: 0;
+}
+
+.organization-memory-graph__preview-body {
+  min-height: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
 }
 
 .platformclaw-memory-action-dialog {
