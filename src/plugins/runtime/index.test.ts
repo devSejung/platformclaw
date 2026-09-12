@@ -20,11 +20,30 @@ const runtimeModelAuthMocks = vi.hoisted(() => ({
 const sandboxContextMocks = vi.hoisted(() => ({
   resolveSandboxContext: vi.fn(),
 }));
+const providerConfigFacadeMocks = vi.hoisted(() => ({
+  completeWithProviderConfig: vi.fn(async () => ({ text: "synthetic facade result" })),
+}));
+vi.mock("./runtime-llm.runtime.js", () => ({
+  createRuntimeLlm: () => ({
+    complete: vi.fn(),
+    completeWithProviderConfig: providerConfigFacadeMocks.completeWithProviderConfig,
+  }),
+}));
 
 vi.mock("./runtime-model-auth.runtime.js", () => runtimeModelAuthMocks);
 vi.mock("../../agents/sandbox/context.js", () => sandboxContextMocks);
 
 import { createPluginRuntime } from "./index.js";
+
+it("delegates provider-config completion through the lazy public runtime facade", async () => {
+  const request = {
+    model: "company/dt-fixture",
+    messages: [{ role: "user" as const, content: "Synthetic approved input" }],
+  };
+  const result = await createPluginRuntime().llm.completeWithProviderConfig(request);
+  expect(providerConfigFacadeMocks.completeWithProviderConfig).toHaveBeenCalledWith(request);
+  expect(result.text).toBe("synthetic facade result");
+});
 
 function createCommandResult() {
   return {
@@ -360,6 +379,7 @@ describe("plugin runtime command execution", () => {
       assert: (runtime: ReturnType<typeof createPluginRuntime>) => {
         expectFunctionKeys(runtime.llm as Record<string, unknown>, [
           "complete",
+          "completeWithProviderConfig",
           "acquireLocalService",
         ]);
       },

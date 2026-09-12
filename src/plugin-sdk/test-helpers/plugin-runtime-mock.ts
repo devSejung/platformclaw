@@ -1014,6 +1014,14 @@ export function createPluginRuntimeMock(overrides: DeepPartial<PluginRuntime> = 
       removeIfLossless: vi.fn(),
     },
     llm: {
+      completeWithProviderConfig: vi.fn().mockResolvedValue({
+        text: "",
+        provider: "test-provider",
+        model: "test-model",
+        usage: {},
+        execution: { mode: "direct-provider", owner: { kind: "provider", id: "test-provider" } },
+        audit: { caller: { kind: "plugin", id: "test" } },
+      }),
       acquireLocalService: vi.fn(),
       complete: vi.fn().mockResolvedValue({
         text: "{}",
