@@ -36,6 +36,20 @@ async function writePage(params: {
 }
 
 describe("listMemoryWikiGraph", () => {
+  it("uses rendered first-definition references and excludes unused definition-only targets", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    await writePage({ rootDir, relativePath: "concepts/first.md", title: "First" });
+    await writePage({ rootDir, relativePath: "concepts/unused.md", title: "Unused" });
+    await writePage({
+      rootDir,
+      relativePath: "concepts/source.md",
+      title: "Source",
+      body: "[Confirmed][id]\n\n[id]: first.md\n[id]: unused.md\n[unused]: unused.md",
+    });
+    expect((await listMemoryWikiGraph(config)).edges).toEqual([
+      { source: "concepts/source.md", target: "concepts/first.md", type: "link" },
+    ]);
+  });
   it("deduplicates and sorts explicit links while counting unresolved targets", async () => {
     const { rootDir, config } = await createVault({
       prefix: "memory-wiki-graph-",

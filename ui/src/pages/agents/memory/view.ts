@@ -872,11 +872,16 @@ function renderWikiPreviewOverlay(props: DreamingProps) {
     <openclaw-modal-dialog
       .label=${state.wikiPreviewTitle || t("dreaming.wiki.previewFallbackTitle")}
       style="--openclaw-modal-width: 1120px"
-      @modal-cancel=${() => void closeWikiPreview(props)}
+      @modal-cancel=${(event: Event) => {
+        // Keep the native dialog open until the asynchronous draft-discard
+        // decision updates its owner; declining must leave the editor visible.
+        event.preventDefault();
+        void closeWikiPreview(props);
+      }}
     >
       <div class="dreams-diary__preview-panel">
-        <div class="dreams-diary__preview-header">
-          <div>
+        <div class="dreams-diary__preview-header wiki-document__header">
+          <div class="wiki-document__heading">
             <div class="dreams-diary__preview-title">
               ${state.wikiPreviewTitle || t("dreaming.wiki.previewFallbackTitle")}
             </div>
@@ -885,55 +890,69 @@ function renderWikiPreviewOverlay(props: DreamingProps) {
               ${state.wikiPreviewUpdatedAt ? ` · ${state.wikiPreviewUpdatedAt}` : ""}
             </div>
           </div>
-          ${!state.wikiPreviewLoading && !state.wikiPreviewError
-            ? html`<wa-dropdown
-                class="wiki-document__menu"
-                placement="bottom-end"
-                @wa-select=${(event: CustomEvent<{ item: { value?: string } }>) => {
-                  const action = event.detail.item.value;
-                  if (action === "edit") {
+          <div class="wiki-document__actions">
+            ${!state.wikiPreviewLoading &&
+            !state.wikiPreviewError &&
+            props.access.canEditWiki &&
+            state.wikiPreviewEditMode &&
+            state.wikiPreviewRevision &&
+            state.wikiPreviewMode !== "edit"
+              ? html`<button
+                  type="button"
+                  class="btn btn--sm"
+                  data-wiki-edit
+                  @click=${() => {
                     state.wikiPreviewMode = "edit";
                     state.wikiEditTab = "write";
                     state.wikiEditMessage = null;
                     props.onViewStateChange();
-                  } else if (action === "source") {
-                    state.wikiPreviewMode = "source";
-                    props.onViewStateChange();
-                  } else if (action === "more") {
-                    props.wikiActions?.open(state.wikiPreviewPath, event);
-                  }
-                }}
-              >
-                <button
-                  slot="trigger"
-                  type="button"
-                  class="btn btn--subtle btn--sm"
-                  aria-label=${t("dreaming.wiki.documentActions")}
+                  }}
                 >
-                  ⋯
-                </button>
-                ${props.access.canEditWiki && state.wikiPreviewEditMode && state.wikiPreviewRevision
-                  ? html`<wa-dropdown-item value="edit">
-                      ${state.wikiPreviewEditMode === "notes"
-                        ? t("dreaming.wiki.editNotes")
-                        : t("dreaming.wiki.edit")}
-                    </wa-dropdown-item>`
-                  : nothing}
-                <wa-dropdown-item value="source">${t("dreaming.wiki.viewSource")}</wa-dropdown-item>
-                ${props.wikiActions
-                  ? html`<wa-dropdown-item value="more"
-                      >${props.wikiActions.label}</wa-dropdown-item
-                    >`
-                  : nothing}
-              </wa-dropdown>`
-            : nothing}
-          <button
-            type="button"
-            class="btn btn--subtle btn--sm"
-            @click=${() => void closeWikiPreview(props)}
-          >
-            ${t("dreaming.wiki.close")}
-          </button>
+                  ${state.wikiPreviewEditMode === "notes"
+                    ? t("dreaming.wiki.editNotes")
+                    : t("dreaming.wiki.edit")}
+                </button>`
+              : nothing}
+            ${!state.wikiPreviewLoading && !state.wikiPreviewError
+              ? html`<wa-dropdown
+                  class="wiki-document__menu"
+                  placement="bottom-end"
+                  @wa-select=${(event: CustomEvent<{ item: { value?: string } }>) => {
+                    const action = event.detail.item.value;
+                    if (action === "source") {
+                      state.wikiPreviewMode = "source";
+                      props.onViewStateChange();
+                    } else if (action === "more") {
+                      props.wikiActions?.open(state.wikiPreviewPath, event);
+                    }
+                  }}
+                >
+                  <button
+                    slot="trigger"
+                    type="button"
+                    class="btn btn--subtle btn--sm"
+                    aria-label=${t("dreaming.wiki.documentActions")}
+                  >
+                    ⋯
+                  </button>
+                  <wa-dropdown-item value="source"
+                    >${t("dreaming.wiki.viewSource")}</wa-dropdown-item
+                  >
+                  ${props.wikiActions
+                    ? html`<wa-dropdown-item value="more"
+                        >${props.wikiActions.label}</wa-dropdown-item
+                      >`
+                    : nothing}
+                </wa-dropdown>`
+              : nothing}
+            <button
+              type="button"
+              class="btn btn--subtle btn--sm"
+              @click=${() => void closeWikiPreview(props)}
+            >
+              ${t("dreaming.wiki.close")}
+            </button>
+          </div>
         </div>
         <div class="dreams-diary__preview-body">
           ${state.wikiPreviewTruncated

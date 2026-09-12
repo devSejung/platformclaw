@@ -656,7 +656,8 @@ describe("scanWikiPageSummary linkTargets", () => {
       ].join("\n"),
       "entities/test.md",
     );
-    expect(links).toEqual(["Beta", "concepts/alpha.md"]);
+    // The shared span parser preserves occurrence order for publication and graph discovery.
+    expect(links).toEqual(["concepts/alpha.md", "Beta"]);
   });
 
   it("extracts real wikilinks from prose", () => {

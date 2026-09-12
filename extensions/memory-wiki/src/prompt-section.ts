@@ -171,6 +171,11 @@ function buildWikiToolGuidance(availableTools: Set<string>): string[] {
       "Use `wiki_apply` for narrow synthesis filing and metadata repair instead of rewriting managed markdown blocks by hand.",
     );
   }
+  if (hasWikiApply && hasWikiSearch && hasWikiGet) {
+    lines.push(
+      "Before filing a synthesis, search the Wiki corpus for related material and inspect candidate pages. Add [[exact-returned-path-or-id]] links only when their contents support the relationship; keep unrelated material separate and never invent a target or use a private alias as evidence.",
+    );
+  }
   if (hasWikiLint) {
     lines.push("After meaningful wiki updates, run `wiki_lint` before trusting the vault.");
   }
