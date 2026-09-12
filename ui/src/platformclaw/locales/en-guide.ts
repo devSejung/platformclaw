@@ -1,9 +1,58 @@
 import { executionTranslations } from "./en-execution.ts";
 import { wikiDocumentTranslations } from "../../pages/agents/memory/wiki-document-translations.ts";
+import { organizationMemoryKnowledgeTranslations } from "./en-organization-memory-knowledge.ts";
 
 export const translations: Readonly<Record<string, string>> = {
   ...executionTranslations,
-  ...wikiDocumentTranslations.en,  "platformClaw.wiki.deleteGeneratedUnavailable":
+  ...wikiDocumentTranslations.en,
+  "platformClaw.memory.organization.scopeSelect": "Select organization",
+  "platformClaw.memory.organization.noReadableScope": "No readable organization knowledge scope.",
+  "platformClaw.memory.organization.partAudience":
+    "Knowledge approved and shared within the selected Part.",
+  "platformClaw.memory.organization.groupAudience":
+    "Knowledge shared with members of the selected Group. Group leaders can select each of the Parts under their own Group in the Part view.",
+  "platformClaw.memory.organization.teamAudience":
+    "Knowledge shared with members of the selected Team.",
+  "platformClaw.memory.organization.globalAudience": "Knowledge shared with all employees.",
+  "platformClaw.memory.organization.teamGraph": "Team knowledge",
+  "platformClaw.memory.organization.globalGraph": "Global knowledge",
+  "platformClaw.memory.organization.legendTitle": "Connection legend",
+  "platformClaw.memory.organization.partSelect": "Select Part",
+  "platformClaw.memory.organization.readerReadOnly": "Read only",
+  "platformClaw.memory.organization.readerExcerpt": "Source excerpt · lines {from}–{to} of {total}",
+  "platformClaw.memory.organization.readerTextTruncated":
+    "This excerpt reached the display character limit.",
+  "platformClaw.memory.organization.readerPrevious": "Previous excerpt",
+  "platformClaw.memory.organization.readerNext": "Next excerpt",
+  "platformClaw.memory.organization.referenceLegend":
+    "Reference A→B: A refers to B as related knowledge.",
+  "platformClaw.memory.organization.provenanceLegend":
+    "Promotion A→B: approved sharing from A to B.",
+  "platformClaw.memory.organization.comparisonLegend":
+    "Dashed A—B: undirected AI comparison candidate, not a verified fact.",
+  ...organizationMemoryKnowledgeTranslations,
+  "dreaming.wiki.documentActions": "Document actions",
+  "dreaming.wiki.edit": "Edit",
+  "dreaming.wiki.editNotes": "Edit notes",
+  "dreaming.wiki.viewSource": "View source",
+  "dreaming.wiki.backToPreview": "Back to preview",
+  "dreaming.wiki.write": "Write",
+  "dreaming.wiki.preview": "Preview",
+  "dreaming.wiki.saved": "Saved. Showing the latest server version.",
+  "dreaming.wiki.savedIndexPending":
+    "Saved. Search and graph refresh are pending; refresh to retry indexing.",
+  "dreaming.wiki.saveReloadFailed":
+    "The document was saved, but the latest version could not be reloaded.",
+  "dreaming.wiki.sourceManaged":
+    "The source content is managed by synchronization. Only Notes are editable.",
+  "dreaming.wiki.generatedReadOnly":
+    "This generated report is read-only and will be replaced by the next compile.",
+  "dreaming.wiki.pageTooLargeReadOnly": "This page is too large for safe browser editing.",
+  "dreaming.wiki.sharedVaultReadOnly": "This shared Wiki is read-only here.",
+  "dreaming.wiki.discardTitle": "Discard Wiki changes?",
+  "dreaming.wiki.discardDescription": "Your unsaved Markdown changes will be lost.",
+  "dreaming.wiki.discard": "Discard changes",
+  "platformClaw.wiki.deleteGeneratedUnavailable":
     "This is a generated report or navigation page. Delete the underlying pages instead.",
   "platformClaw.wiki.deleteSharedUnavailable":
     "Shared-vault pages cannot be deleted from a personal workspace.",
@@ -262,7 +311,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.memory.organization.sharing": "Sharing & review",
   "platformClaw.memory.organization.graph": "Organization Graph",
   "platformClaw.memory.organization.graphDescription":
-    "Explore knowledge published to the Parts and Groups you can access.",
+    "Explore approved knowledge by its Part, Group, Team, or Global sharing audience.",
   "platformClaw.memory.organization.graphKinds": "Organization graph scopes",
   "platformClaw.memory.organization.partGraph": "Part Graph",
   "platformClaw.memory.organization.groupGraph": "Group Graph",
@@ -276,7 +325,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.memory.organization.graphEmptyHint":
     "Approved knowledge for your accessible scopes will appear here.",
   "platformClaw.memory.organization.graphNodes": "{count} pages",
-  "platformClaw.memory.organization.graphEdges": "{count} promotion links",
+  "platformClaw.memory.organization.graphEdges": "{count} connections",
   "platformClaw.memory.organization.graphTruncated": "Showing a bounded graph",
   "platformClaw.memory.organization.graphPartial": "Some relation data is unavailable",
   "platformClaw.memory.organization.graphControls": "Graph view controls",

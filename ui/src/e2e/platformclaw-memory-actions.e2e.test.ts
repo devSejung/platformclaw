@@ -228,7 +228,15 @@ suite("PlatformClaw memory actions E2E", () => {
           },
           "platformclaw.memory.promotion.submit": { id: "request-recovery", status: "pending" },
           "platformclaw.memory.lifecycle": {
-            scopes: [{ kind: "part", id: "part-runtime", name: "Runtime", canAdminister: false }],
+            scopes: [
+              {
+                kind: "part",
+                id: "part-runtime",
+                name: "Runtime",
+                canRead: true,
+                canAdminister: false,
+              },
+            ],
             personalTargets: [
               { kind: "part", scopeId: "part-runtime", scopeName: "Runtime", mode: "request" },
             ],

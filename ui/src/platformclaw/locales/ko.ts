@@ -1,8 +1,32 @@
 import { executionTranslations } from "./ko-execution.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
 import { organizationMemoryGraphTranslations } from "./ko-organization-memory-graph.ts";
+import { organizationMemoryKnowledgeTranslations } from "./ko-organization-memory-knowledge.ts";
 
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.memory.organization.scopeSelect": "조직 선택",
+  "platformClaw.memory.organization.noReadableScope": "읽을 수 있는 조직 지식 범위가 없습니다.",
+  "platformClaw.memory.organization.partAudience": "선택한 Part에 승인·공유된 지식입니다.",
+  "platformClaw.memory.organization.groupAudience":
+    "선택한 Group의 구성원에게 공유된 지식입니다. Group 리더는 Part 보기에서 자기 Group 산하 Part를 각각 열람할 수 있습니다.",
+  "platformClaw.memory.organization.teamAudience": "선택한 Team의 구성원에게 공유된 지식입니다.",
+  "platformClaw.memory.organization.globalAudience": "전체 구성원에게 공유된 지식입니다.",
+  "platformClaw.memory.organization.teamGraph": "Team 지식",
+  "platformClaw.memory.organization.globalGraph": "Global 지식",
+  "platformClaw.memory.organization.legendTitle": "연결 범례",
+  "platformClaw.memory.organization.partSelect": "Part 선택",
+  "platformClaw.memory.organization.readerReadOnly": "읽기 전용",
+  "platformClaw.memory.organization.readerExcerpt": "원문 발췌 · {from}–{to}행 / 전체 {total}행",
+  "platformClaw.memory.organization.readerTextTruncated":
+    "이 발췌는 표시 가능한 글자 수로 제한되었습니다.",
+  "platformClaw.memory.organization.readerPrevious": "이전 원문",
+  "platformClaw.memory.organization.readerNext": "다음 원문",
+  "platformClaw.memory.organization.referenceLegend": "참조 A→B: A가 B를 관련 지식으로 참조합니다.",
+  "platformClaw.memory.organization.provenanceLegend":
+    "승격 A→B: A에서 B로 승인·공유된 경로입니다.",
+  "platformClaw.memory.organization.comparisonLegend":
+    "점선 A—B: 방향이 없는 AI 비교 후보이며 사실 확정을 뜻하지 않습니다.",
+  ...organizationMemoryKnowledgeTranslations,
   "configView.appearance.terminalTextSize": "터미널 텍스트 크기",
   "platformClaw.skillHub.publish.action": "작업 공간 스킬 게시",
   "platformClaw.skillHub.publish.title": "작업 공간의 스킬 게시",

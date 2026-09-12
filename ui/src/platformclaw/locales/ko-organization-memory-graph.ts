@@ -10,7 +10,7 @@ export const organizationMemoryGraphTranslations: Readonly<Record<string, string
   "platformClaw.memory.graph.sourceRevision": "승인 시점 원본 버전 {revision}",
   "platformClaw.memory.organization.graph": "조직 그래프",
   "platformClaw.memory.organization.graphDescription":
-    "접근 가능한 Part와 Group에 게시된 지식을 살펴봅니다.",
+    "승인된 지식을 Part·Group·Team·Global 공개 범위별로 살펴봅니다.",
   "platformClaw.memory.organization.graphKinds": "조직 그래프 범위",
   "platformClaw.memory.organization.partGraph": "Part 그래프",
   "platformClaw.memory.organization.groupGraph": "Group 그래프",
@@ -24,7 +24,7 @@ export const organizationMemoryGraphTranslations: Readonly<Record<string, string
   "platformClaw.memory.organization.graphEmptyHint":
     "접근 가능한 범위에 승인된 지식이 생기면 여기에 표시됩니다.",
   "platformClaw.memory.organization.graphNodes": "페이지 {count}개",
-  "platformClaw.memory.organization.graphEdges": "승격 연결 {count}개",
+  "platformClaw.memory.organization.graphEdges": "연결 {count}개",
   "platformClaw.memory.organization.graphTruncated": "제한된 범위만 표시 중",
   "platformClaw.memory.organization.graphPartial": "일부 연결 정보를 사용할 수 없습니다",
   "platformClaw.memory.organization.graphControls": "그래프 보기 제어",

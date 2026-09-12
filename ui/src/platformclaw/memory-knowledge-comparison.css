@@ -1,0 +1,54 @@
+.knowledge-comparison {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.knowledge-comparison__sources {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.knowledge-comparison__source {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-width: 0;
+}
+
+.knowledge-comparison h4,
+.knowledge-comparison h5 {
+  margin: 0 0 8px;
+}
+
+.knowledge-comparison blockquote {
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.knowledge-comparison__judgment {
+  padding: 14px;
+  background: var(--bg-accent);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
+.knowledge-comparison__kind {
+  font-weight: 700;
+}
+
+.knowledge-comparison__missing {
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .knowledge-comparison__sources {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

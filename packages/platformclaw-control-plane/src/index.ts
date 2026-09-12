@@ -15,6 +15,7 @@ export * from "./web-ingress-server.js";
 export * from "./web-ingress-runtime.js";
 export * from "./web-assets.js";
 export * from "./contracts.js";
+export * from "./organization-memory-knowledge-contracts.js";
 export * from "./credential-broker-grants.js";
 export * from "./credential-broker-local.js";
 export * from "./employee-auth-client.js";

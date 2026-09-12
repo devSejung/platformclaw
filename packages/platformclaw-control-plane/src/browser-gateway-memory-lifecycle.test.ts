@@ -5,10 +5,22 @@ import type { OrganizationMemoryLifecycle } from "./contracts.js";
 
 function lifecycle(): OrganizationMemoryLifecycle {
   return {
+    previewOrganizationMemoryPromotionReferences: vi.fn<
+      OrganizationMemoryLifecycle["previewOrganizationMemoryPromotionReferences"]
+    >(async (params) => ({
+      proposedText: params.proposedText,
+      references: {
+        resolved: [],
+        unresolvedCount: 1,
+        blockedCount: 0,
+        ambiguousCount: 0,
+        fingerprint: "preview-fingerprint",
+      },
+    })),
     getOrganizationMemoryLifecycle: vi.fn<
       OrganizationMemoryLifecycle["getOrganizationMemoryLifecycle"]
     >(async () => ({
-      scopes: [{ kind: "global", name: "Global", canAdminister: false }],
+      scopes: [{ kind: "global", name: "Global", canAdminister: false, canRead: true }],
       personalTargets: [],
       claims: [],
       submitted: [],
@@ -100,6 +112,33 @@ function mockOf(owner: OrganizationMemoryLifecycle, method: keyof OrganizationMe
 }
 
 describe("browser organization memory lifecycle", () => {
+  it("admits reference preview read keys, pins identity and rejects authority injection", async () => {
+    const owner = lifecycle();
+    const { binding, proxy, token } = await setupBrowserGatewayProxyTest({
+      organizationMemoryLifecycle: owner,
+    });
+    const params = {
+      sourceKind: "personal",
+      sourceClaimId: "personal-note-1",
+      targetKind: "part",
+      targetScopeId: "scope-1",
+      proposedText: "[[related]]",
+    };
+    await expect(
+      proxy.request(token, "platformclaw.memory.promotion.previewReferences", params),
+    ).resolves.toMatchObject({ references: { fingerprint: "preview-fingerprint" } });
+    expect(mockOf(owner, "previewOrganizationMemoryPromotionReferences")).toHaveBeenCalledWith({
+      ...params,
+      agentId: binding.agentId,
+    });
+    await expect(
+      proxy.request(token, "platformclaw.memory.promotion.previewReferences", {
+        ...params,
+        references: [{ claimId: "injected" }],
+      }),
+    ).rejects.toThrow();
+    expect(mockOf(owner, "previewOrganizationMemoryPromotionReferences")).toHaveBeenCalledTimes(1);
+  });
   it("pins lifecycle reads and writes to the authenticated personal agent", async () => {
     const owner = lifecycle();
     const { binding, proxy, request, token } = await setupBrowserGatewayProxyTest({
@@ -214,6 +253,7 @@ describe("browser organization memory lifecycle", () => {
           kind: "global",
           name: "Global",
           canAdminister: false,
+          canRead: true,
           serverPath: "/srv/private",
         },
       ],

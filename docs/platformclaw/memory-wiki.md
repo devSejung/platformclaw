@@ -130,11 +130,11 @@ Personal files still open through `agents.workspace.get`, Wiki pages through
 
 Organization Graph is a Control Plane read projection, not another vault. It
 loads only after the user selects **Organization > Organization Graph**, then
-offers separate Part and Group views. `platformclaw.memory.graph` accepts only
-the view kind; the BFF supplies the authenticated personal Agent and the store
+offers separate Part, Group, Team, and Global views. Each managed view selects one readable scope; Global is visible to every active employee. Group leaders can select each Part in their own Group. Approval authority alone does not add read visibility. `platformclaw.memory.graph` accepts only
+the view kind and an optional authorized scope ID. Scope selection filters at the owner before counts and limits. The UI uses the canonical read flag rather than approval capabilities and does not combine different Parts. The BFF supplies the authenticated personal Agent and the store
 recomputes effective entitlements on every request. Results contain at most 500
-authorized pages and 2,000 promotion relations in deterministic order. The
-projection excludes scope IDs, absolute paths, sibling scopes, private Personal
+authorized pages and 2,000 relations in deterministic order. Solid directional edges show provenance or approved document references; dashed comparison edges show inferred relationships. Reads do not run a model. The
+projection echoes only an explicitly selected authorized scope ID and excludes absolute paths, unauthorized scopes, private Personal
 Wiki source IDs, and every edge whose endpoints are not both visible. Clicking
 a node reuses the Agent-pinned `platformclaw.memory.get` preview boundary.
 Both graph surfaces use the same dependency-free SVG controls for anchored
@@ -354,13 +354,21 @@ sharing action does not remove an otherwise available deletion action.
 ### Organization graph provenance
 
 Organization Graph previews include the approval state, claim revision, and
-approved source revision for managed claims. The source status compares the
+approved source revision for managed claims. Opening a document reads these facts again under current permissions. Bounded document pages report the total line count and whether the selected text was shortened. The source status compares the
 current readable source revision with the approved snapshot. A source outside
 the reader's scope, retired, personal, or unavailable cannot be inspected and
 its identity is omitted. Existing pages without a managed claim show that
 verification metadata is unavailable. These are provenance indicators, not
 factual verification of the content. Use the graph's Refresh action to apply
 current membership, archival, or retirement changes.
+
+The graph also shows labeled, non-directional inferred relations from the last
+successful knowledge report when both visible claims still match its cited
+revisions. Dashed comparison links remain separate from solid, directional
+promotion provenance. Their details show the model classification and human
+review status; keeping two claims does not confirm a duplicate classification.
+Rejected, stale, retired, and evidence-insufficient pairs do not create inferred
+links. Reading the graph never generates a report or changes approved claims.
 
 ### Shared organization architecture
 
@@ -374,7 +382,9 @@ domain-specific audit owner.
 
 - The hierarchy becomes `Global > Team > Group > Part`, with direct membership
   allowed at any managed level, multiple memberships, multiple leaders, an
-  optional primary scope, and upward-only effective read access.
+  optional primary scope, and upward-only effective organization read access.
+  Approved Memory knowledge additionally permits active Group leaders to read
+  their own active child Parts; this does not change member-management policy.
 - Users may remain unaffiliated. Join requests and their leader/administrator
   review workflow belong to the shared organization owner, not Memory.
 - Only PlatformClaw administrators appoint or remove leaders. Scope leaders
@@ -434,6 +444,91 @@ Gateway/web ingress. Existing shared search stays available while the lazy
 tables are created on first lifecycle use. There is no schema-version bump,
 backfill command, dual-write period, or per-VM configuration. Basic-server and
 assigned-VM chats use the same Gateway-owned organization memory.
+
+## Review Part and Group knowledge
+
+Open **Settings > Memory > Organization > Knowledge management** to review
+approved knowledge for a Part or Group that you currently lead directly. Group
+leaders can also read approved knowledge, reports, and proposal sources from
+Parts in their own Group. These child Part scopes are read-only in knowledge
+management. Administrator status and Team leadership alone do not grant report
+access. Archived lineages and inactive employees have no access.
+
+Direct leaders choose a scope and explicitly generate a report. Opening or refreshing this
+view only reads shared server state. It does not start analysis, create a
+personal chat, or schedule an automation. Leaders of the same scope see the
+same current job, last successful report, proposals, and decision history.
+An unchanged input can reuse its report; regeneration is an explicit action.
+If a job fails, its visible failure does not replace the last successful report.
+
+Reports compare bounded related candidates among approved claims. They show
+included and omitted inputs, candidate coverage, and whether input revisions
+have changed. Retrieval can miss related claims with different wording; an
+empty result does not prove that every claim was compared or that no conflict
+exists. Different board, version, and operating conditions remain distinct.
+Duplicate, enrichment, condition-difference, conflict, and insufficient-evidence
+recommendations cite pinned claim revisions and require human judgment. The
+review separates each stored source excerpt and its evidence from model
+analysis, and labels truncated or unavailable source material.
+
+Direct leaders approve, reject, or keep a proposal with a reason. Keep records
+that the existing claims should remain as they are and closes the proposal as kept.
+Rejected and kept proposals leave the current review list and remain in history.
+History provides a rejection filter and additional pages, with the stored reason,
+reviewer, time, comparison, and original source excerpts when still authorized.
+Existing defer audit entries remain preserved; those proposals return to pending
+review, and new defer decisions are unavailable. Approval records a decision;
+changing approved knowledge requires the separate Apply action, review of the
+resulting text and affected originals, and a reason. Changed claim revisions
+invalidate a proposal until a current report is generated. Reviewed proposals
+for the same pinned pair and policy are not repeatedly added to the pending list.
+Submitted sharing requests can also compare their proposed claim with bounded
+approved candidates; unavailable comparison does not automatically block
+submission or decide approval.
+
+Analysis uses the existing configured `company/<MODEL_ID>` default model and
+that provider entry's credential or explicit SecretRef. It receives approved
+claim data only, with no employee Agent credentials, private conversations,
+personal memory, or tools. There is no external provider fallback or new
+configuration variable. If analysis is unavailable, verify the existing company
+model, endpoint, and provider-entry credential, reconnect after a normal
+deployment restart, and explicitly retry the scope.
+
+Synthetic browser previews and injected model fixtures demonstrate the workflow
+and failure handling. They do not verify the real company DT model's comparison
+quality; that requires a separate live check with approved nonidentifying inputs.
+
+## Related documents during sharing
+
+An Agent can add related document links after confirming the exact personal Wiki
+document identity. Sharing previews only the links in the submitted public text.
+Before submitting or publishing, review the final public body and its resolved
+organization documents. Private link paths, labels, and aliases are replaced with
+neutral references; public external URLs remain intact. The preview shows counts
+for unresolved, blocked, and ambiguous links without disclosing their private names.
+
+The initial scope resolves an already approved counterpart in the exact destination
+organization, or a current approved document explicitly named in that destination.
+It does not select an ancestor organization's copy. A Group leader's ability to
+read a child Part does not make that Part document readable to the Group audience.
+Missing, ambiguous, or inaccessible targets are never shared automatically.
+Submissions support at most 32 references and 64 related authorized candidates;
+unrelated hidden documents do not affect that bound.
+
+Approval rechecks the reviewed public text, frozen source identities, destination
+permissions, and target revisions. A changed preview requires refreshed human
+review. Approved references become canonical facts in the same transaction as
+publication. The existing compiler generates document links without an LLM call,
+and the organization graph shows them as directional reference edges, separately
+from provenance and inferred comparisons. Retired or changed target revisions
+remove current links and refresh directly referring compiled pages.
+
+Applying a reviewed revision preserves the surviving document's current safe
+references. Adding new document links requires the sharing preview flow. Native
+`wiki.references.resolve` uses an exact Agent vault and submitted text; its result
+contains identities, revisions, offsets, and a text hash, with no linked private
+document body or title. Synthetic tool and compiler checks verify this workflow;
+they do not establish a live model's document selection quality.
 
 ## Non-goals
 
