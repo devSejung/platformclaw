@@ -4,18 +4,21 @@ import {
   type CodingAgentConfiguration,
   type CodingAgentId,
   type CodingAgentProbeResult,
-  type PersonalCodingAgentSettings,
 } from "@platformclaw/coding-agent-contract";
 /*
  * Keep the browser form on the same parser as BFF/RPC. A permissive local copy
  * would let URL, quote, or provider-variant behavior drift between boundaries.
  */
 import "../components/modal-dialog.ts";
+import "../components/web-awesome-tabs.ts";
 import { i18n } from "../i18n/index.ts";
 import {
   AGENT_LABELS,
+  CLAUDE_ENVIRONMENT,
   DEFAULT_EXECUTABLES,
   type ClaudeEnvironmentKey,
+  type ExecutionSettings,
+  type ExecutionTarget,
   escapeHtml,
   formatCheckTime,
   formText,
@@ -26,33 +29,7 @@ import { notifyPlatformClawExecutionTargetChanged } from "./execution-target-eve
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import { PLATFORMCLAW_EXECUTION_API_PATH } from "./web-contract.ts";
 
-type ExecutionTarget = "platform_server" | "assigned_vm";
-type ExecutionSettings = {
-  activeTarget: ExecutionTarget;
-  targetRevision: number;
-  credentialStatus: "missing" | "current" | "update_required";
-  accountId: string;
-  availableVms: Array<{ id: string; label: string }>;
-  assignment?: {
-    id: string;
-    vmHostId: string;
-    status: "assigned" | "ready" | "connection_required" | "revoked";
-    vmLabel: string;
-    safeConnectLabel: string;
-    linuxAccount: string;
-    remoteWorkspaceDir?: string;
-    lastConnectionSucceededAt?: number;
-  };
-  codingAgents: PersonalCodingAgentSettings[];
-};
-
 const AGENTS: CodingAgentId[] = ["claude", "codex", "opencode"];
-const CLAUDE_ENVIRONMENT: Array<{ key: ClaudeEnvironmentKey; labelKey: string }> = [
-  { key: "ANTHROPIC_BASE_URL", labelKey: "platformClaw.execution.anthropicBaseUrl" },
-  { key: "ADMIN_API_URL", labelKey: "platformClaw.execution.adminApiUrl" },
-  { key: "OIDC_ISSUER_URL", labelKey: "platformClaw.execution.oidcIssuerUrl" },
-  { key: "OIDC_CLIENT_ID", labelKey: "platformClaw.execution.oidcClientId" },
-];
 
 class PlatformClawExecutionSettingsElement extends HTMLElement {
   private readonly root = this.attachShadow({ mode: "open" });
@@ -422,14 +399,14 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       : t("platformClaw.execution.agentSummaryNotChecked");
   }
   private renderTabs(): string {
-    return `<div class="settings-tabs" role="tablist" aria-label="${escapeHtml(t("platformClaw.execution.settingsSections"))}">${(
+    return `<wa-tab-group class="settings-tabs" aria-label="${escapeHtml(t("platformClaw.execution.settingsSections"))}" active="${this.activeTab}" activation="manual" without-scroll-controls>${(
       ["location", "agents"] as const
     )
       .map((id) => {
         const selected = this.activeTab === id;
-        return `<button id="execution-tab-${id}" role="tab" data-settings-tab="${id}" aria-controls="execution-panel-${id}" aria-selected="${selected}" tabindex="${selected ? "0" : "-1"}">${escapeHtml(t(id === "location" ? "platformClaw.execution.locationTab" : "platformClaw.execution.agentsTab"))}</button>`;
+        return `<wa-tab id="execution-tab-${id}" slot="nav" panel="${id}" data-settings-tab="${id}" ${selected ? "active" : ""}>${escapeHtml(t(id === "location" ? "platformClaw.execution.locationTab" : "platformClaw.execution.agentsTab"))}</wa-tab>`;
       })
-      .join("")}</div>`;
+      .join("")}</wa-tab-group>`;
   }
 
   private renderCredentialSection(): string {
@@ -489,15 +466,6 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       tab.addEventListener("click", () => {
         this.activeTab = tab.dataset.settingsTab === "agents" ? "agents" : "location";
         this.render();
-      });
-      tab.addEventListener("keydown", (event) => {
-        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-          return;
-        }
-        event.preventDefault();
-        this.activeTab = this.activeTab === "location" ? "agents" : "location";
-        this.render();
-        this.root.querySelector<HTMLElement>(`[data-settings-tab='${this.activeTab}']`)?.focus();
       });
     }
     this.root
@@ -687,7 +655,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.root.innerHTML = `<style>
       [hidden]{display:none!important}
       .panel{grid-template-rows:auto auto minmax(0,1fr) auto!important}.agent-card .disable-note{display:none}
-      .settings-tabs{display:flex;gap:4px;padding:0 22px 10px;border-bottom:1px solid var(--border)}.settings-tabs button{flex:1;border:0;border-radius:var(--radius-md);padding:9px;background:transparent;color:var(--muted);cursor:pointer}.settings-tabs button[aria-selected=true]{background:var(--bg-hover);color:var(--text);font-weight:700}.settings-tabs button:focus-visible{outline:none;box-shadow:var(--focus-ring)}.tab-panel{display:grid;gap:14px}.current-pill{display:inline-flex;padding:7px 10px;border-radius:var(--radius-md);background:var(--accent-subtle);color:var(--accent);font-weight:700}.credentials-details{margin-top:10px;border-top:1px solid var(--border);padding-top:9px}.credentials-details summary{cursor:pointer;font-weight:700}.credentials-details[open] summary{margin-bottom:8px}.agent-context,.agent-shared-help{margin:0;color:var(--muted)}.agent-context{font-weight:700;color:var(--text)}.agent-card.is-collapsed>.agent-settings{display:none}.agent-settings{display:grid;gap:12px}.compact-check{margin-top:4px!important}.agent-quick-save{margin-top:7px;padding:5px 8px;font-size:12px}.agent-progress{margin:0;padding:8px 10px;border-radius:var(--radius-md);background:var(--accent-subtle);font-weight:700}.agent-expand{border:0;background:transparent;color:var(--accent);padding:5px;cursor:pointer}.agent-expand:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+      .settings-tabs{display:block;padding:0 22px 10px;border-bottom:1px solid var(--border)}.settings-tabs wa-tab{flex:1;border-radius:var(--radius-md)}.tab-panel{display:grid;gap:14px}.current-pill{display:inline-flex;padding:7px 10px;border-radius:var(--radius-md);background:var(--accent-subtle);color:var(--accent);font-weight:700}.credentials-details{margin-top:10px;border-top:1px solid var(--border);padding-top:9px}.credentials-details summary{cursor:pointer;font-weight:700}.credentials-details[open] summary{margin-bottom:8px}.agent-context,.agent-shared-help{margin:0;color:var(--muted)}.agent-context{font-weight:700;color:var(--text)}.agent-card.is-collapsed>.agent-settings{display:none}.agent-settings{display:grid;gap:12px}.compact-check{margin-top:4px!important}.agent-quick-save{margin-top:7px;padding:5px 8px;font-size:12px}.agent-progress{margin:0;padding:8px 10px;border-radius:var(--radius-md);background:var(--accent-subtle);font-weight:700}.agent-expand{border:0;background:transparent;color:var(--accent);padding:5px;cursor:pointer}.agent-expand:focus-visible{outline:none;box-shadow:var(--focus-ring)}
       .agent-status ul.is-stale{opacity:.5}.stale-status,.unsaved{margin:0 0 6px;color:var(--warn);font-size:12px}
       :host{display:block;color:var(--text);font:13px/1.45 var(--font-sans,system-ui,sans-serif)}button,input,select{font:inherit}*{box-sizing:border-box}.badge{display:flex;width:100%;min-height:34px;align-items:center;gap:8px;border:0;border-radius:var(--radius-md);padding:7px 9px;background:transparent;color:var(--text);cursor:pointer;text-align:left}.badge:hover,.badge:focus-visible{background:var(--bg-hover);outline:none}.dot{width:7px;height:7px;flex:none;border-radius:var(--radius-full);background:${assignment?.status === "connection_required" ? "var(--warn)" : "var(--ok)"}}
       .modal{--openclaw-modal-width:min(680px,calc(100vw - 32px));--openclaw-modal-max-height:min(820px,calc(100dvh - 24px))}.panel{display:grid;grid-template-rows:auto minmax(0,1fr) auto;width:min(680px,100%);max-height:min(820px,calc(100dvh - 24px));overflow:hidden;border-radius:var(--radius-xl);background:var(--bg-elevated);color:var(--text);box-shadow:var(--shadow-xl);border:1px solid var(--border)}header{display:flex;justify-content:space-between;align-items:center;padding:20px 22px 12px}h2{margin:0;font-size:20px}h3{margin:0;font-size:15px}.close{border:0;background:transparent;color:inherit;font-size:22px;cursor:pointer}main{min-height:0;overflow:auto;padding:8px 22px 22px;display:grid;gap:14px}footer{padding:14px 22px;border-top:1px solid var(--border);background:var(--bg-elevated)}footer h3,footer p{margin:0}footer p{margin-top:6px}footer .row{margin-top:12px}.card,.agent-card{padding:15px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card)}

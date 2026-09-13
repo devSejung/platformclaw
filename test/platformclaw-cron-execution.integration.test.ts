@@ -3,6 +3,7 @@ import {
   registerSandboxBackend,
   type SandboxBackendHandle,
 } from "openclaw/plugin-sdk/sandbox";
+import { emptyCodingAgentConfiguration } from "@platformclaw/coding-agent-contract";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPlatformClawExecutionBackendFactory,
@@ -80,6 +81,9 @@ const targets: PlatformClawExecutionTargetSnapshot[] = [
     hostKeyAlgorithm: "ssh-ed25519",
     hostKeyPublicKey: "AAAA-test",
     hostKeyFingerprint: "SHA256:test",
+    codingAgents: (["claude", "codex", "opencode"] as const).map((agent) =>
+      emptyCodingAgentConfiguration(agent),
+    ),
   },
 ];
 

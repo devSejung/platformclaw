@@ -142,7 +142,11 @@ const SURFACE_COMMANDS = {
   ],
 };
 
-const QUICK_SKIP_LABELS = new Set(["build control plane", "build UI"]);
+const QUICK_SKIP_LABELS = new Set([
+  "build coding agent contract",
+  "build control plane",
+  "build UI",
+]);
 
 export function createPlatformClawCheckCommands(surfaces, options = {}) {
   const selected = [...new Set(surfaces)];

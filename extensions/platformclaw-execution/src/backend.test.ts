@@ -112,7 +112,6 @@ function createDependencies(
 describe("PlatformClaw execution backend", () => {
   it("scopes each user's Claude gateway environment to only that user's Claude ACP launch", () => {
     const target = {
-      kind: "assigned_vm",
       remoteHomeDir: "/home/one",
       codingAgents: [
         {

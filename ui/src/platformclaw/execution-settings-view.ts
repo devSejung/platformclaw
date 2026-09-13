@@ -1,5 +1,28 @@
-import type { CodingAgentId } from "@platformclaw/coding-agent-contract";
+import type {
+  CodingAgentId,
+  PersonalCodingAgentSettings,
+} from "@platformclaw/coding-agent-contract";
 import { platformClawT as t } from "./i18n.ts";
+
+export type ExecutionTarget = "platform_server" | "assigned_vm";
+export type ExecutionSettings = {
+  activeTarget: ExecutionTarget;
+  targetRevision: number;
+  credentialStatus: "missing" | "current" | "update_required";
+  accountId: string;
+  availableVms: Array<{ id: string; label: string }>;
+  assignment?: {
+    id: string;
+    vmHostId: string;
+    status: "assigned" | "ready" | "connection_required" | "revoked";
+    vmLabel: string;
+    safeConnectLabel: string;
+    linuxAccount: string;
+    remoteWorkspaceDir?: string;
+    lastConnectionSucceededAt?: number;
+  };
+  codingAgents: PersonalCodingAgentSettings[];
+};
 
 export type ClaudeEnvironmentKey =
   | "ANTHROPIC_BASE_URL"
@@ -18,6 +41,13 @@ export const DEFAULT_EXECUTABLES: Record<CodingAgentId, string> = {
   codex: "/usr/local/bin/codex",
   opencode: "/usr/local/bin/opencode",
 };
+
+export const CLAUDE_ENVIRONMENT: Array<{ key: ClaudeEnvironmentKey; labelKey: string }> = [
+  { key: "ANTHROPIC_BASE_URL", labelKey: "platformClaw.execution.anthropicBaseUrl" },
+  { key: "ADMIN_API_URL", labelKey: "platformClaw.execution.adminApiUrl" },
+  { key: "OIDC_ISSUER_URL", labelKey: "platformClaw.execution.oidcIssuerUrl" },
+  { key: "OIDC_CLIENT_ID", labelKey: "platformClaw.execution.oidcClientId" },
+];
 
 export function localizedRequestError(value: unknown, fallbackKey: string): string {
   if (value === "AD password was not accepted") {
