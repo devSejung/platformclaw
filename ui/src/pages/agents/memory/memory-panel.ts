@@ -49,6 +49,7 @@ import {
   renderDreaming,
   renderWikiKnowledge,
   resetWikiPreview,
+  wikiDocumentT,
   type DreamingViewState,
   type WikiGraphRenderer,
 } from "./view.ts";
@@ -682,9 +683,9 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
         onSaveWikiPage: (params) => this.saveWikiPage(params),
         onConfirmWikiDiscard: () =>
           showConfirmDialog({
-            title: t("dreaming.wiki.discardTitle"),
-            message: t("dreaming.wiki.discardDescription"),
-            confirmLabel: t("dreaming.wiki.discard"),
+            title: wikiDocumentT("dreaming.wiki.discardTitle"),
+            message: wikiDocumentT("dreaming.wiki.discardDescription"),
+            confirmLabel: wikiDocumentT("dreaming.wiki.discard"),
             danger: true,
           }),
         wikiActions: this.wikiActions,

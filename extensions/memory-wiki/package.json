@@ -28,5 +28,9 @@
     "extensions": [
       "./index.ts"
     ]
+  },
+  "exports": {
+    "./reference-api": "./reference-api.ts",
+    "./document-api": "./document-api.ts"
   }
 }

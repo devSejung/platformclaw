@@ -1,21 +1,19 @@
 /* @vitest-environment jsdom */
 
 import { render } from "lit";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadPlatformClawLocale } from "../../../platformclaw/i18n.ts";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { i18n } from "../../../i18n/index.ts";
 import { buildDreamingViewProps, type DreamingProps } from "./view.test-helpers.ts";
 import {
   createDreamingViewState,
   renderWikiKnowledge,
   wikiDraftDirty,
+  wikiDocumentT,
   type DreamingViewState,
 } from "./view.ts";
+import { wikiDocumentTranslations } from "./wiki-document-translations.ts";
 
 let viewState = createDreamingViewState();
-
-beforeAll(async () => {
-  await loadPlatformClawLocale();
-});
 
 function buildProps(overrides?: Partial<DreamingProps>): DreamingProps {
   return buildDreamingViewProps(viewState, overrides);
@@ -35,12 +33,32 @@ function expectElement(container: Element, selector: string): Element {
 }
 
 function selectWikiDocumentAction(container: Element, value: string): void {
+  if (value === "edit") {
+    (expectElement(container, "[data-wiki-edit]") as HTMLButtonElement).click();
+    return;
+  }
   expectElement(container, ".wiki-document__menu").dispatchEvent(
     new CustomEvent("wa-select", { detail: { item: { value } } }),
   );
 }
 
 describe("Wiki document preview and editing", () => {
+  it("owns document labels without fetching overlays and responds to the active locale", () => {
+    const locale = vi.spyOn(i18n, "getLocale");
+    try {
+      for (const selected of ["en", "ko", "fr"] as const) {
+        locale.mockReturnValue(selected);
+        const labels = wikiDocumentTranslations[selected === "ko" ? "ko" : "en"];
+        for (const [key, label] of Object.entries(labels)) {
+          expect(wikiDocumentT(key)).toBe(label);
+          expect(label).not.toMatch(/\{\w+\}/u);
+        }
+      }
+    } finally {
+      locale.mockRestore();
+    }
+  });
+
   beforeEach(() => {
     viewState = createDreamingViewState();
     viewState.activeSubTab = "diary";

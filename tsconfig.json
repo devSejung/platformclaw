@@ -25,6 +25,7 @@
     "useDefineForClassFields": false,
     "verbatimModuleSyntax": true,
     "paths": {
+      "@openclaw/memory-wiki/reference-api": ["./extensions/memory-wiki/reference-api.ts"],
       "openclaw/plugin-sdk/*": ["./src/plugin-sdk/*.ts"],
       "@openclaw/ai": ["./packages/ai/src/index.ts"],
       "@openclaw/ai/diagnostics": ["./packages/ai/src/utils/diagnostics.ts"],

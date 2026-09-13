@@ -164,6 +164,11 @@ export const sharedVitestConfig = {
   resolve: {
     alias: [
       {
+        // Match the declared pure public export without reconciling linked-worktree dependencies.
+        find: "@openclaw/memory-wiki/reference-api",
+        replacement: path.join(repoRoot, "extensions", "memory-wiki", "reference-api.ts"),
+      },
+      {
         // Route bare `zod` through a runtime shim (same pattern as the
         // discord-api-types shims below): zod's own entry re-exports `z` as a
         // namespace binding, which Bun's linker drops under Vitest's loader

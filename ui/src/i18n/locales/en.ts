@@ -187,7 +187,6 @@ export const en: TranslationMap = {
       confirmBody:
         "Change to {target}. Conversation and Agent settings stay, but files and running processes remain in the previous location.",
       confirm: "Change location",
-      saved: "Work location settings updated.",
       passwordRejected: "The AD password was not accepted.",
       sessionExpired: "Your session expired. Sign in again.",
       requestFailed: "Work location request failed.",
@@ -324,7 +323,6 @@ export const en: TranslationMap = {
         "OpenSSH comments such as root@server are informational and are not part of the approved key.",
       approveAndSave: "Approve key and save",
       editAndVerify: "Edit and verify again",
-      edit: "Edit",
       saveChanges: "Save changes",
       endpoint: "Endpoint",
       algorithm: "Host-key algorithm",
@@ -1288,7 +1286,6 @@ export const en: TranslationMap = {
       minRead: "{count} min read",
       markdownPreview: "Markdown Preview",
       extensionPreview: "{ext} Preview",
-      preview: "Preview",
       expandPreview: "Expand preview",
       collapsePreview: "Collapse preview",
       editFile: "Edit file",
@@ -4261,6 +4258,9 @@ export const en: TranslationMap = {
     wiki: {
       previewFallbackTitle: "Wiki page",
       close: "Close",
+      edit: "Edit",
+      preview: "Preview",
+      saved: "Saved. The Wiki indexes are up to date.",
       loadingPage: "Loading wiki page…",
       dreamsTab: "Dreams",
       insightsTab: "Imported Insights",
