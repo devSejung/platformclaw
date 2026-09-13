@@ -17,10 +17,21 @@ import {
   renderMemoryItemActions,
   type MemoryItemActions,
 } from "../../../components/memory-item-actions.ts";
+import { i18n } from "../../../i18n/index.ts";
 import { resolvePlatformClawBranding } from "../../../platformclaw/branding.ts";
-import { platformClawT as t } from "../../../platformclaw/i18n.ts";
+import { platformClawT } from "../../../platformclaw/i18n.ts";
 import "../../../styles/dreams.css";
 import type { DreamingEntry, WikiGraph, WikiImportInsights, WikiOverview } from "./dreaming.ts";
+import { wikiDocumentTranslations } from "./wiki-document-translations.ts";
+
+export function wikiDocumentT(key: string, params?: Record<string, string>): string {
+  // The existing manager only replaces whole locale dictionaries. Keep these parameter-free
+  // document labels in the lazy view so native entry and locale switches need no overlay fetch.
+  const labels = wikiDocumentTranslations[i18n.getLocale() === "ko" ? "ko" : "en"];
+  return labels[key] ?? platformClawT(key, params);
+}
+
+const t = wikiDocumentT;
 
 // ── Diary entry parser ─────────────────────────────────────────────────
 

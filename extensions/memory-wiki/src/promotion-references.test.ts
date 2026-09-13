@@ -44,7 +44,7 @@ describe("native personal promotion references", () => {
         title: "가상 확인 절차",
         sourceIds: [inspected!.id!],
         body: `확인한 진단 순서를 따른다. [[${hit.path}|가상 연결 진단]]`,
-        claims: [{ text: "상태와 조건을 기록한다.", sourceIds: [inspected!.id!] }],
+        claims: [{ text: "상태와 조건을 기록한다.", evidence: [{ sourceId: inspected!.id! }] }],
       },
     });
     expect(filed.changed).toBe(true);
@@ -65,7 +65,10 @@ describe("native personal promotion references", () => {
       lookup: filed.pagePath,
       proposedText: `확인한 진단 [[${hit.path}]]`,
     });
-    expect(refs!.references![0]).toMatchObject({ claimId: "concept.connection", kind: "personal" });
+    if (!refs || !("references" in refs)) {
+      throw new Error("Submitted Wiki text must return reference evidence.");
+    }
+    expect(refs.references[0]).toMatchObject({ claimId: "concept.connection", kind: "personal" });
   });
   it("resolves only submitted links and preserves exact existing source and target revisions", async () => {
     const { config, rootDir } = await createVault({ initialize: true });
@@ -105,18 +108,31 @@ describe("native personal promotion references", () => {
       searchCorpus: "wiki",
       searchBackend: "local",
     });
+    if (!resolved || !("references" in resolved) || !source || !target) {
+      throw new Error("Native source, target, and submitted reference evidence must be available.");
+    }
     expect(resolved).toMatchObject({
       claimId: "source.stable",
-      revision: memoryWikiPromotionRevision({ claimId: "source.stable", ...source! }),
+      revision: memoryWikiPromotionRevision({
+        claimId: "source.stable",
+        content: source.content,
+        totalLines: source.totalLines,
+        updatedAt: source.updatedAt,
+      }),
       referencesTextHash: memoryWikiReferenceTextHash(text),
     });
-    expect(resolved!.references).toHaveLength(2);
-    expect(resolved!.references![0]).toMatchObject({
+    expect(resolved.references).toHaveLength(2);
+    expect(resolved.references[0]).toMatchObject({
       claimId: "target.stable",
       kind: "personal",
-      revision: memoryWikiPromotionRevision({ claimId: "target.stable", ...target! }),
+      revision: memoryWikiPromotionRevision({
+        claimId: "target.stable",
+        content: target.content,
+        totalLines: target.totalLines,
+        updatedAt: target.updatedAt,
+      }),
     });
-    expect(resolved!.references![1]).toEqual({
+    expect(resolved.references[1]).toEqual({
       start: text.indexOf("[[missing"),
       end: text.indexOf(" [웹]"),
     });
