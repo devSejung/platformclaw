@@ -4,6 +4,7 @@ import {
   type CodingAgentConfiguration,
   type CodingAgentId,
   type CodingAgentProbeResult,
+  type PersonalCodingAgentSettings,
 } from "@platformclaw/coding-agent-contract";
 /*
  * Keep the browser form on the same parser as BFF/RPC. A permissive local copy

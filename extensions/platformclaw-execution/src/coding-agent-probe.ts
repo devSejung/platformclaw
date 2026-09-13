@@ -305,7 +305,11 @@ export async function checkAssignedVmCodingAgent(params: {
         cwd: target.remoteWorkspaceDir,
         mcpServers: [],
         ...(agent === "claude"
-          ? { _meta: { claudeCode: { options: { settingSources: ["user", "project", "local"] } } } }
+          ? {
+              _meta: {
+                claudeCode: { options: { settingSources: ["user", "project", "local"] } },
+              },
+            }
           : {}),
       });
       sessionId = created.sessionId;

@@ -18,10 +18,7 @@ const repoRoot = path.resolve(here, "..");
 const workspaceSourceAliases = [
   {
     find: "@platformclaw/coding-agent-contract",
-    replacement: path.resolve(
-      repoRoot,
-      "packages/platformclaw-coding-agent-contract/src/index.ts",
-    ),
+    replacement: path.resolve(repoRoot, "packages/platformclaw-coding-agent-contract/src/index.ts"),
   },
   {
     find: "@openclaw/gateway-client/browser",

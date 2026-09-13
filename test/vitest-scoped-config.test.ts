@@ -191,10 +191,7 @@ describe("resolveVitestIsolation", () => {
       replacement: path.join(process.cwd(), "packages", "retry", "src", "index.ts"),
     });
     expect(
-      findAlias(
-        sharedVitestConfig.resolve.alias,
-        "@platformclaw/coding-agent-contract",
-      ),
+      findAlias(sharedVitestConfig.resolve.alias, "@platformclaw/coding-agent-contract"),
     ).toEqual({
       find: "@platformclaw/coding-agent-contract",
       replacement: path.join(

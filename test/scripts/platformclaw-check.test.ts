@@ -50,9 +50,9 @@ describe("PlatformClaw shared checks", () => {
     ]);
 
     expect(surfacesForPlan(plan)).toEqual(["control-plane"]);
-    expect(createPlatformClawCheckCommands(["control-plane"]).map((entry) => entry.label)).toContain(
-      "build coding agent contract",
-    );
+    expect(
+      createPlatformClawCheckCommands(["control-plane"]).map((entry) => entry.label),
+    ).toContain("build coding agent contract");
   });
 
   it("selects Knox channel checks", () => {

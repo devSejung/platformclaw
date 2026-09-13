@@ -184,6 +184,7 @@ suite("PlatformClaw coding agent settings", () => {
     const locationTab = component.locator("[data-settings-tab='location']");
     await locationTab.focus();
     await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
     await expect
       .poll(() => component.locator("[data-settings-tab='agents']").getAttribute("aria-selected"))
       .toBe("true");

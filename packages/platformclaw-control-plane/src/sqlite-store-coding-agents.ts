@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { Kysely } from "kysely";
 import {
   CODING_AGENT_IDS,
   emptyCodingAgentConfiguration,
@@ -9,6 +8,7 @@ import {
   type CodingAgentConfiguration,
   type PersonalCodingAgentSettings,
 } from "@platformclaw/coding-agent-contract";
+import type { Kysely } from "kysely";
 import { ControlPlaneConflictError } from "./contracts.js";
 import type { PersonalExecutionSettings } from "./execution-contracts.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
