@@ -176,6 +176,43 @@ describe("plugin registry runtime config scope", () => {
     expect(acquireScope).toMatchObject({ pluginId: "memory-provider" });
   });
 
+  it("delegates provider-config completion with the owning plugin scope", async () => {
+    const runtime = createPluginRuntime();
+    let completeScope = getPluginRuntimeGatewayRequestScope();
+    const result = {
+      text: "synthetic result",
+      provider: "company",
+      model: "dt-fixture",
+      usage: {},
+      execution: {
+        mode: "direct-provider" as const,
+        owner: { kind: "provider" as const, id: "company" },
+      },
+      audit: { caller: { kind: "plugin" as const, id: "knowledge-plugin" } },
+    };
+    runtime.llm.completeWithProviderConfig = vi.fn(async () => {
+      completeScope = getPluginRuntimeGatewayRequestScope();
+      return result;
+    });
+    const pluginRegistry = createTestRegistry(runtime);
+    const record = createPluginRecord({
+      id: "knowledge-plugin",
+      name: "Knowledge Plugin",
+      source: "/plugins/knowledge-plugin/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    const api = pluginRegistry.createApi(record, { config: {} as OpenClawConfig });
+    const request = {
+      model: "company/dt-fixture",
+      messages: [{ role: "user" as const, content: "Synthetic approved input" }],
+    };
+    expect(await api.runtime.llm.completeWithProviderConfig(request)).toBe(result);
+    expect(runtime.llm.completeWithProviderConfig).toHaveBeenCalledWith(request);
+    expect(completeScope).toMatchObject({ pluginId: "knowledge-plugin" });
+  });
+
   it("runs node helpers with the owning plugin scope", async () => {
     let listScope = getPluginRuntimeGatewayRequestScope();
     let invokeScope = getPluginRuntimeGatewayRequestScope();
