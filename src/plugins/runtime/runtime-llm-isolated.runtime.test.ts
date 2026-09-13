@@ -15,8 +15,12 @@ vi.mock("../../agents/isolated-completion.js", () => ({
   runIsolatedCompletion: hoisted.runIsolatedCompletion,
 }));
 
+// Legacy isolated completions must not load the separately owned provider-only preparation.
+vi.mock("../../agents/provider-config-completion-runtime.js", () => {
+  throw new Error("provider-only preparation loaded by legacy completion");
+});
+
 vi.mock("../../agents/simple-completion-runtime.js", () => ({
-  prepareProviderConfigCompletionModel: vi.fn(),
   prepareSimpleCompletionModelForAgent: hoisted.prepareSimpleCompletionModelForAgent,
   completeWithPreparedSimpleCompletionModel: hoisted.completeWithPreparedSimpleCompletionModel,
   resolveSimpleCompletionSelectionForAgent: hoisted.resolveSimpleCompletionSelectionForAgent,
@@ -68,6 +72,18 @@ describe("runtime.llm.complete isolated agent runtime", () => {
     hoisted.resolveSimpleCompletionSelectionForAgent.mockReset();
     hoisted.runIsolatedCompletion.mockReset();
     primeCompletionMocks();
+  });
+
+  it("denies agent-bound provider-only requests before loading their preparation", async () => {
+    const llm = createRuntimeLlm({ getConfig: () => cfg, authority: { agentId: "ada" } });
+    await expect(
+      llm.completeWithProviderConfig({
+        model: "openai/gpt-5.5",
+        messages: [{ role: "user", content: "data" }],
+      }),
+    ).rejects.toThrow("employee agent or session binding");
+    expect(hoisted.prepareSimpleCompletionModelForAgent).not.toHaveBeenCalled();
+    expect(hoisted.completeWithPreparedSimpleCompletionModel).not.toHaveBeenCalled();
   });
 
   it("routes authorized isolated completion through the configured agent runtime", async () => {
