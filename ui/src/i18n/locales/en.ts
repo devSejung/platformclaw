@@ -912,6 +912,8 @@ export const en: TranslationMap = {
   },
   sessionsView: {
     subagentPrefix: "Subagent:",
+    subagentType: "Sub-agent",
+    dashboardTaskType: "Dashboard task",
     automationPrefix: "Automation:",
     actionRequiresConnection: "Connect to the Gateway to change threads.",
     actionUnavailable: "This Gateway does not support this thread action.",

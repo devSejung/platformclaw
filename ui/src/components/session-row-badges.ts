@@ -5,6 +5,7 @@ import { isCloudWorkerPlacementState } from "../../../packages/gateway-protocol/
 import type { SessionCatalogPullRequestSummary } from "../../../packages/gateway-protocol/src/schema/sessions-catalog.js";
 import type { GatewaySessionRow } from "../api/types.ts";
 import { t } from "../i18n/index.ts";
+import { isSubagentSessionKey, parseAgentSessionKey } from "../lib/sessions/session-key.ts";
 import { icons } from "./icons.ts";
 
 export type SessionPlacementState = NonNullable<GatewaySessionRow["placement"]>["state"];
@@ -60,6 +61,9 @@ function renderSessionRowBadge(
 }
 
 export function renderSessionRowBadges(params: {
+  key?: string;
+  spawnedBy?: string;
+  spawnDepth?: number;
   isChild?: boolean;
   incognito?: boolean;
   hasAutomation: boolean;
@@ -69,6 +73,16 @@ export function renderSessionRowBadges(params: {
   placementState?: SessionPlacementState;
   workspaceConflictCount?: number;
 }) {
+  // isChild is tree placement, not session type: promoted rows keep their badge.
+  const hasSubagentType = isSubagentSessionKey(params.key);
+  // Dashboard is a surface, not a runtime alternative to subagent/ACP.
+  // parentSessionKey alone also describes operator forks and ordinary threading.
+  const hasDashboardTaskType =
+    parseAgentSessionKey(params.key)?.rest.startsWith("dashboard:") === true &&
+    typeof params.spawnDepth === "number" &&
+    Number.isInteger(params.spawnDepth) &&
+    params.spawnDepth >= 1 &&
+    Boolean(params.spawnedBy?.trim());
   const hasAutomation = !params.isChild && params.hasAutomation;
   const pullRequestLabel = params.pullRequest
     ? formatSessionPullRequestSummary(params.pullRequest)
@@ -91,6 +105,8 @@ export function renderSessionRowBadges(params: {
         })
       : "";
   if (
+    !hasSubagentType &&
+    !hasDashboardTaskType &&
     !params.incognito &&
     !hasAutomation &&
     !pullRequestLabel &&
@@ -122,6 +138,20 @@ export function renderSessionRowBadges(params: {
       ? t("sessionsView.cloudWorkerPlacement", { state: displayedPlacementState })
       : "";
   return html`<span class="session-row-badges">
+    ${hasSubagentType
+      ? renderSessionRowBadge(
+          t("sessionsView.subagentType"),
+          icons.bot,
+          "session-row-badge--subagent",
+        )
+      : nothing}
+    ${hasDashboardTaskType
+      ? renderSessionRowBadge(
+          t("sessionsView.dashboardTaskType"),
+          icons.layoutDashboard,
+          "session-row-badge--dashboard-task",
+        )
+      : nothing}
     ${params.incognito
       ? renderSessionRowBadge(
           t("sessionsView.incognito"),
