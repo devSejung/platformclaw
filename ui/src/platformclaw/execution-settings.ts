@@ -463,6 +463,13 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.root
       .querySelector<HTMLElement>("[data-action='refresh']")
       ?.addEventListener("click", () => void this.refresh());
+    this.root.querySelector("wa-tab-group")?.addEventListener("wa-tab-show", (event) => {
+      const tab = (event as CustomEvent<{ name: string }>).detail.name;
+      if ((tab === "location" || tab === "agents") && tab !== this.activeTab) {
+        this.activeTab = tab;
+        this.render();
+      }
+    });
     for (const tab of this.root.querySelectorAll<HTMLElement>("[data-settings-tab]")) {
       tab.addEventListener("click", () => {
         this.activeTab = tab.dataset.settingsTab === "agents" ? "agents" : "location";
