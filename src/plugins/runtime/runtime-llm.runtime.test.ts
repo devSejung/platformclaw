@@ -13,8 +13,11 @@ const hoisted = vi.hoisted(() => ({
   resolveSimpleCompletionSelectionForAgent: vi.fn(),
 }));
 
-vi.mock("../../agents/simple-completion-runtime.js", () => ({
+vi.mock("../../agents/provider-config-completion-runtime.js", () => ({
   prepareProviderConfigCompletionModel: hoisted.prepareProviderConfigCompletionModel,
+}));
+
+vi.mock("../../agents/simple-completion-runtime.js", () => ({
   prepareSimpleCompletionModelForAgent: hoisted.prepareSimpleCompletionModelForAgent,
   completeWithPreparedSimpleCompletionModel: hoisted.completeWithPreparedSimpleCompletionModel,
   resolveSimpleCompletionSelectionForAgent: hoisted.resolveSimpleCompletionSelectionForAgent,
