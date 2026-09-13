@@ -2,15 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { resolvePersonalOrganizationMemorySource } from "./organization-memory-personal-source.js";
 
 describe("resolvePersonalOrganizationMemorySource", () => {
-  it("returns a canonical stable revision for a complete native Wiki page", async () => {
+  it("uses the Wiki-owned canonical source identity for a reference-free promotion", async () => {
     const request = vi.fn().mockResolvedValue({
-      corpus: "wiki",
-      id: "claim-recovery",
-      path: "runbooks/recovery.md",
-      content: "# Recovery\nDrain jobs.",
-      totalLines: 2,
-      truncated: false,
-      updatedAt: 123,
+      claimId: "claim-recovery",
+      revision: 42,
     });
     const first = await resolvePersonalOrganizationMemorySource({
       gateway: { request },
@@ -23,27 +18,107 @@ describe("resolvePersonalOrganizationMemorySource", () => {
       lookup: "runbooks/recovery.md",
     });
     expect(first).toEqual(second);
-    expect(first).toMatchObject({ claimId: "claim-recovery" });
-    expect(first?.revision).toBeGreaterThan(0);
-    expect(request).toHaveBeenCalledWith("wiki.get", {
+    expect(first).toEqual({ claimId: "claim-recovery", revision: 42 });
+    expect(request).toHaveBeenCalledWith("wiki.references.resolve", {
       agentId: "personal-a",
       lookup: "runbooks/recovery.md",
-      fromLine: 1,
-      lineCount: 10_000,
+    });
+  });
+
+  it("preserves the reference-free result shape when submitted text has no Wiki references", async () => {
+    const request = vi.fn().mockResolvedValue({
+      claimId: "claim-recovery",
+      revision: 42,
+      referencesTextHash: "a".repeat(64),
+      references: [],
+    });
+    await expect(
+      resolvePersonalOrganizationMemorySource({
+        gateway: { request },
+        agentId: "personal-a",
+        lookup: "runbooks/recovery.md",
+        proposedText: "Drain jobs before restart.",
+      }),
+    ).resolves.toEqual({ claimId: "claim-recovery", revision: 42 });
+    expect(request).toHaveBeenCalledWith("wiki.references.resolve", {
+      agentId: "personal-a",
+      lookup: "runbooks/recovery.md",
+      proposedText: "Drain jobs before restart.",
+    });
+  });
+
+  it("delegates proposed-text reference grammar and revision ownership to the Wiki Gateway", async () => {
+    const request = vi.fn().mockResolvedValue({
+      claimId: "claim-recovery",
+      revision: 43,
+      referencesTextHash: "a".repeat(64),
+      references: [
+        {
+          start: 12,
+          end: 30,
+          claimId: "claim-drain",
+          revision: 7,
+          kind: "personal",
+        },
+      ],
+    });
+    await expect(
+      resolvePersonalOrganizationMemorySource({
+        gateway: { request },
+        agentId: "personal-a",
+        lookup: "runbooks/recovery.md",
+        proposedText: "See [[runbooks/drain]].",
+      }),
+    ).resolves.toEqual({
+      claimId: "claim-recovery",
+      revision: 43,
+      referencesTextHash: "a".repeat(64),
+      references: [
+        {
+          start: 12,
+          end: 30,
+          claimId: "claim-drain",
+          revision: 7,
+          kind: "personal",
+          scopeId: undefined,
+        },
+      ],
+    });
+    expect(request).toHaveBeenCalledWith("wiki.references.resolve", {
+      agentId: "personal-a",
+      lookup: "runbooks/recovery.md",
+      proposedText: "See [[runbooks/drain]].",
     });
   });
 
   it.each([
     null,
-    { corpus: "memory", path: "MEMORY.md", content: "raw" },
-    { corpus: "wiki", path: "large.md", content: "partial", truncated: true },
-    { corpus: "wiki", path: "C:\\Users\\employee\\secret.md", content: "secret" },
-  ])("fails closed for a non-claim or incomplete source", async (page) => {
+    { claimId: "", revision: 1 },
+    { claimId: "../secret", revision: 1 },
+    { claimId: "claim-recovery", revision: 0 },
+  ])("fails closed for an invalid canonical source identity", async (source) => {
     await expect(
       resolvePersonalOrganizationMemorySource({
-        gateway: { request: vi.fn().mockResolvedValue(page) },
+        gateway: { request: vi.fn().mockResolvedValue(source) },
         agentId: "personal-a",
         lookup: "source",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("fails closed when proposed-text reference metadata is incomplete", async () => {
+    await expect(
+      resolvePersonalOrganizationMemorySource({
+        gateway: {
+          request: vi.fn().mockResolvedValue({
+            claimId: "claim-recovery",
+            revision: 42,
+            references: [],
+          }),
+        },
+        agentId: "personal-a",
+        lookup: "source",
+        proposedText: "No private references.",
       }),
     ).resolves.toBeNull();
   });
