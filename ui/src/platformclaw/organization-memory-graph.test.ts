@@ -67,6 +67,14 @@ function graph(kind: "part" | "group" | "team" | "global", title = `${kind} know
   };
 }
 
+function firstNode(value: ReturnType<typeof graph>) {
+  const node = value.nodes[0];
+  if (!node) {
+    throw new Error("graph fixture requires one node");
+  }
+  return node;
+}
+
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -155,21 +163,22 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
   });
   it("renders explicit reference arrows separately from inferred comparisons", async () => {
     const base = graph("part");
+    const baseNode = firstNode(base);
     const referenceGraph = {
       ...base,
       nodes: [
         ...base.nodes,
         {
-          ...base.nodes[0],
+          ...baseNode,
           id: "reference-target",
           path: "organization/part/reference-target",
           title: "Referenced knowledge",
         },
       ],
       edges: [
-        { source: "reference-target", target: base.nodes[0].id, type: "promotion" },
+        { source: "reference-target", target: baseNode.id, type: "promotion" },
         {
-          source: base.nodes[0].id,
+          source: baseNode.id,
           target: "reference-target",
           type: "reference",
           sourceRevision: 3,
@@ -199,12 +208,13 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
   });
   it("distinguishes inferred undirected comparison edges and opens their keyboard details", async () => {
     const base = graph("part");
+    const baseNode = firstNode(base);
     const comparisonGraph = {
       ...base,
       nodes: [
         ...base.nodes,
         {
-          ...base.nodes[0],
+          ...baseNode,
           id: "organization:part:claim-2",
           path: "organization/part/claim-2",
           title: "Version two",
@@ -229,10 +239,10 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
       ],
       stats: { ...base.stats, totalNodes: 2, totalEdges: 1 },
     };
-    const request = vi.fn(
-      async (_method: string, params: { kind: "part" | "group" | "team" | "global" }) =>
-        params.kind === "part" ? comparisonGraph : graph("group"),
-    );
+    const request = vi.fn(async (_method: string, params: unknown) => {
+      const kind = (params as { kind: "part" | "group" | "team" | "global" }).kind;
+      return kind === "part" ? comparisonGraph : graph("group");
+    });
     const element = createGraph(request);
     await waitForFast(() =>
       expect(element.querySelector('line[data-edge-type="comparison"]')).not.toBeNull(),

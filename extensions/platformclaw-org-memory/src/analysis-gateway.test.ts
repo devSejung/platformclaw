@@ -33,7 +33,9 @@ function harness() {
   registerOrganizationKnowledgeAnalysis(api);
   const invoke = async (client: unknown, params: unknown) => {
     const respond = vi.fn();
-    if (!handler) throw new Error("missing analysis handler");
+    if (!handler) {
+      throw new Error("missing analysis handler");
+    }
     await handler({ client, params, respond } as Parameters<Handler>[0]);
     return respond;
   };
@@ -48,34 +50,45 @@ const backend = {
   },
   isDeviceTokenAuth: false,
 };
-const snapshot = {
-  scopeId: "part-fixture",
-  inputFingerprint: "fixture",
-  claims: [
-    {
-      id: "a",
-      revision: 1,
-      text: "Board-A v1 cache reset repairs startup",
-      evidence: ["fixture-a"],
-    },
-    {
-      id: "b",
-      revision: 1,
-      text: "Board-B v2 cache reset repairs startup",
-      evidence: ["fixture-b"],
-    },
-  ],
-};
+const claims = [
+  {
+    id: "a",
+    revision: 1,
+    text: "Board-A v1 cache reset repairs startup",
+    evidence: ["fixture-a"],
+  },
+  {
+    id: "b",
+    revision: 1,
+    text: "Board-B v2 cache reset repairs startup",
+    evidence: ["fixture-b"],
+  },
+];
 
 describe("organization knowledge analysis operator Gateway boundary", () => {
   it("uses data-only provider config completion for a paired operator backend", async () => {
     const test = harness();
-    const respond = await test.invoke(backend, snapshot);
-    expect(test.register.mock.calls[0][2]).toEqual({ scope: "operator.admin" });
-    expect(respond.mock.calls[0][0]).toBe(true);
+    const respond = await test.invoke(backend, { claims });
+    expect(test.register.mock.calls[0]?.[0]).toBe("platformclaw.organization.knowledge.completePair");
+    expect(test.register.mock.calls[0]?.[2]).toEqual({ scope: "operator.admin" });
+    expect(respond.mock.calls[0]?.[0]).toBe(true);
     expect(test.complete).toHaveBeenCalledOnce();
-    expect(test.complete.mock.calls[0][0]).not.toHaveProperty("agentId");
-    expect(test.complete.mock.calls[0][0]).not.toHaveProperty("execution");
+    const request = test.complete.mock.calls[0]?.[0];
+    expect(request).toBeDefined();
+    expect(Object.keys(request ?? {})).toEqual([
+      "messages",
+      "systemPrompt",
+      "model",
+      "maxTokens",
+      "signal",
+      "purpose",
+    ]);
+    expect(request).not.toHaveProperty("agentId");
+    expect(request).not.toHaveProperty("execution");
+    expect(request).not.toHaveProperty("tools");
+    expect(request?.systemPrompt).toContain("untrusted");
+    expect(request?.messages).toHaveLength(1);
+    expect(request?.messages[0]?.content).toBe(JSON.stringify({ claims }));
   });
 
   it.each([
@@ -87,24 +100,24 @@ describe("organization knowledge analysis operator Gateway boundary", () => {
     { ...backend, connect: { ...backend.connect, role: "node" } },
   ])("rejects untrusted caller %j before completion", async (client) => {
     const test = harness();
-    expect((await test.invoke(client, snapshot)).mock.calls[0][0]).toBe(false);
+    expect((await test.invoke(client, { claims })).mock.calls[0]?.[0]).toBe(false);
     expect(test.complete).not.toHaveBeenCalled();
   });
 
-  it("rejects caller-supplied scope expansion fields and redacts provider errors", async () => {
+  it("rejects caller-supplied authority fields and redacts provider errors", async () => {
     const test = harness();
     expect(
       (
         await test.invoke(backend, {
-          ...snapshot,
+          claims,
           agentId: "employee-private",
           model: "outside/paid",
         })
-      ).mock.calls[0][0],
+      ).mock.calls[0]?.[0],
     ).toBe(false);
     expect(test.complete).not.toHaveBeenCalled();
     test.complete.mockRejectedValue(new Error("private endpoint credential diagnostic"));
-    const respond = await test.invoke(backend, snapshot);
+    const respond = await test.invoke(backend, { claims });
     expect(JSON.stringify(respond.mock.calls)).not.toContain("private endpoint");
   });
 });
