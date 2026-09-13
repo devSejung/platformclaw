@@ -9,11 +9,28 @@ import {
   createPlatformClawExecutionSkillInstallProvider,
   createPlatformClawExecutionSkillProvider,
   createPlatformClawExecutionTerminalProvider,
+  buildAssignedVmProcessEnvironment,
   PLATFORMCLAW_EXECUTION_BACKEND_ID,
   type PlatformClawExecutionDependencies,
   type PlatformClawExecutionTargetSnapshot,
 } from "./backend.js";
 import { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordinator.js";
+
+const CODING_AGENTS = [
+  {
+    agent: "claude",
+    enabled: false,
+    executablePath: "",
+    environment: {
+      ANTHROPIC_BASE_URL: "",
+      ADMIN_API_URL: "",
+      OIDC_ISSUER_URL: "",
+      OIDC_CLIENT_ID: "",
+    },
+  },
+  { agent: "codex", enabled: false, executablePath: "" },
+  { agent: "opencode", enabled: false, executablePath: "" },
+] as const;
 
 function createParams(
   agentId?: string,
@@ -93,6 +110,53 @@ function createDependencies(
 }
 
 describe("PlatformClaw execution backend", () => {
+  it("scopes each user's Claude gateway environment to only that user's Claude ACP launch", () => {
+    const target = {
+      kind: "assigned_vm",
+      remoteHomeDir: "/home/one",
+      codingAgents: [
+        {
+          agent: "claude",
+          enabled: true,
+          executablePath: "/home/one/bin/claude",
+          environment: {
+            ANTHROPIC_BASE_URL: "https://one.example",
+            ADMIN_API_URL: "https://one-admin.example",
+            OIDC_ISSUER_URL: "https://one-issuer.example",
+            OIDC_CLIENT_ID: "one",
+          },
+        },
+        { agent: "codex", enabled: true, executablePath: "/home/one/bin/codex" },
+        { agent: "opencode", enabled: true, executablePath: "/home/one/bin/opencode" },
+      ],
+    } as PlatformClawExecutionTargetSnapshot & { kind: "assigned_vm" };
+    expect(buildAssignedVmProcessEnvironment(target)).not.toHaveProperty("ANTHROPIC_BASE_URL");
+    expect(buildAssignedVmProcessEnvironment(target, "codex")).toMatchObject({
+      CODEX_PATH: "/home/one/bin/codex",
+      HOME: "/home/one",
+    });
+    expect(buildAssignedVmProcessEnvironment(target, "codex")).not.toHaveProperty("OIDC_CLIENT_ID");
+    expect(buildAssignedVmProcessEnvironment(target, "opencode")).not.toHaveProperty(
+      "ANTHROPIC_BASE_URL",
+    );
+    expect(buildAssignedVmProcessEnvironment(target, "claude")).toMatchObject({
+      ANTHROPIC_BASE_URL: "https://one.example",
+      OIDC_CLIENT_ID: "one",
+    });
+    const other = structuredClone(target);
+    other.remoteHomeDir = "/home/two";
+    const otherClaude = other.codingAgents.find((entry) => entry.agent === "claude");
+    if (otherClaude?.agent === "claude") {
+      otherClaude.environment.ANTHROPIC_BASE_URL = "https://two.example";
+      otherClaude.environment.OIDC_CLIENT_ID = "two";
+    }
+    expect(buildAssignedVmProcessEnvironment(other, "claude")).toMatchObject({
+      HOME: "/home/two",
+      ANTHROPIC_BASE_URL: "https://two.example",
+      OIDC_CLIENT_ID: "two",
+    });
+  });
+
   it("passes Basic credentials through Docker client env without argv values", async () => {
     const dependencies = createDependencies(async ({ agentId }) => ({
       kind: "platform_server",
@@ -144,6 +208,7 @@ describe("PlatformClaw execution backend", () => {
       hostKeyAlgorithm: "ssh-ed25519",
       hostKeyPublicKey: "key",
       hostKeyFingerprint: "fingerprint",
+      codingAgents: CODING_AGENTS,
     }));
     dependencies.resolveExecCredentials = vi.fn(async () => ({ API_TOKEN: "private-value" }));
     dependencies.createAssignedVmHandle = vi.fn(
@@ -209,6 +274,7 @@ describe("PlatformClaw execution backend", () => {
             hostKeyAlgorithm: "ssh-ed25519",
             hostKeyPublicKey: "AAAA-test",
             hostKeyFingerprint: "SHA256:test",
+            codingAgents: CODING_AGENTS,
             executionEnvironment: {
               pathPrepend: ["/opt/clang/bin", "/opt/gcc/bin"],
               variables: {
@@ -365,6 +431,7 @@ describe("PlatformClaw execution backend", () => {
       hostKeyAlgorithm: "ssh-ed25519",
       hostKeyPublicKey: "AAAA-test",
       hostKeyFingerprint: "SHA256:test",
+      codingAgents: CODING_AGENTS,
     };
     const dependencies = createDependencies(async () => vmTarget);
     const catalog = { revision: "vm-one:4", files: [] };
@@ -447,6 +514,7 @@ describe("PlatformClaw execution backend", () => {
       hostKeyAlgorithm: "ssh-ed25519",
       hostKeyPublicKey: "AAAA-test",
       hostKeyFingerprint: "SHA256:test",
+      codingAgents: CODING_AGENTS,
     }));
     vi.mocked(dependencies.createAssignedVmHandle).mockRejectedValueOnce(
       new Error("VM connection unavailable"),
@@ -496,6 +564,7 @@ describe("PlatformClaw execution backend", () => {
       hostKeyAlgorithm: "ssh-ed25519",
       hostKeyPublicKey: "AAAA-test",
       hostKeyFingerprint: "SHA256:test",
+      codingAgents: CODING_AGENTS,
     }));
     vi.mocked(dependencies.listTargetSkills).mockRejectedValueOnce(
       new Error("VM skill catalog is invalid"),
@@ -528,6 +597,7 @@ describe("PlatformClaw execution backend", () => {
       hostKeyAlgorithm: "ssh-ed25519",
       hostKeyPublicKey: "AAAA-test",
       hostKeyFingerprint: "SHA256:test",
+      codingAgents: CODING_AGENTS,
     }));
     const provider = createPlatformClawExecutionSkillInstallProvider(
       dependencies,
@@ -581,6 +651,7 @@ describe("PlatformClaw execution backend", () => {
       hostKeyAlgorithm: "ssh-ed25519",
       hostKeyPublicKey: "AAAA-test",
       hostKeyFingerprint: "SHA256:test",
+      codingAgents: CODING_AGENTS,
     };
     const operation = vi.fn(async () => undefined);
 
@@ -667,6 +738,7 @@ describe("PlatformClaw execution backend", () => {
               hostKeyAlgorithm: "ssh-ed25519",
               hostKeyPublicKey: "AAAA-test",
               hostKeyFingerprint: "SHA256:test",
+              codingAgents: CODING_AGENTS,
             }
           : {}),
       }),
@@ -715,6 +787,7 @@ describe("PlatformClaw execution backend", () => {
       hostKeyAlgorithm: "ssh-ed25519",
       hostKeyPublicKey: "AAAA-test",
       hostKeyFingerprint: "SHA256:test",
+      codingAgents: CODING_AGENTS,
     };
     const dependencies = createDependencies(async () => target);
     const provider = createPlatformClawExecutionTerminalProvider(

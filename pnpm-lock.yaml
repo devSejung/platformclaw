@@ -257,6 +257,9 @@ importers:
       '@mdx-js/mdx':
         specifier: 3.1.1
         version: 3.1.1(supports-color@10.2.2)
+      '@platformclaw/control-plane':
+        specifier: workspace:*
+        version: link:packages/platformclaw-control-plane
       '@shikijs/core':
         specifier: 4.3.1
         version: 4.3.1
@@ -1576,6 +1579,13 @@ importers:
         version: link:../..
 
   extensions/platformclaw-execution:
+    dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 1.3.0
+        version: 1.3.0(zod@4.4.3)
+      '@platformclaw/control-plane':
+        specifier: workspace:*
+        version: link:../../packages/platformclaw-control-plane
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*

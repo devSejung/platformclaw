@@ -60,6 +60,59 @@ describe("PlatformClaw execution plugin", () => {
     await Promise.all(stopHandlers.map(async (handler) => await handler()));
   });
 
+  it("blocks a disabled coding agent before preparing a new ACP session", async () => {
+    const previousBroker = process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS;
+    const previousToken = process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
+    process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = "/run/platformclaw/base.sock";
+    process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = "/run/secrets/execution-token";
+    const stopHandlers: Array<() => Promise<void>> = [];
+    createExecutionDependenciesFromEnvironmentMock.mockResolvedValue({
+      resolveTarget: vi.fn(async () => ({
+        kind: "assigned_vm",
+        agentId: "person_one",
+        targetId: "vm-one",
+        revision: 1,
+        allocationId: "allocation-one",
+        credentialRevision: 1,
+        remoteWorkspaceDir: "/home/person/workspace",
+        codingAgents: [{ agent: "claude", enabled: false }],
+      })),
+      dispose: vi.fn(async () => undefined),
+    });
+    try {
+      plugin.register({
+        registrationMode: "full",
+        logger: { info: vi.fn() },
+        registerGatewayMethod: vi.fn(() => () => undefined),
+        on: vi.fn((event: string, handler: () => Promise<void>) => {
+          if (event === "gateway_stop") {
+            stopHandlers.push(handler);
+          }
+        }),
+      } as unknown as OpenClawPluginApi);
+
+      await expect(
+        prepareAcpProcessTransport({
+          executionOwnerAgentId: "person_one",
+          agent: "claude",
+          sessionKey: "agent:claude:acp:disabled",
+        }),
+      ).rejects.toMatchObject({ code: "agent_disabled" });
+    } finally {
+      await Promise.all(stopHandlers.map(async (handler) => await handler()));
+      if (previousBroker === undefined) {
+        delete process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS;
+      } else {
+        process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = previousBroker;
+      }
+      if (previousToken === undefined) {
+        delete process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
+      } else {
+        process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = previousToken;
+      }
+    }
+  });
+
   it("diagnoses only the attributed owner and rejects a target revision race", async () => {
     const previousBroker = process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS;
     const previousToken = process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
@@ -73,6 +126,7 @@ describe("PlatformClaw execution plugin", () => {
       allocationId: "allocation-one",
       credentialRevision: 1,
       remoteWorkspaceDir: "/home/person/workspace",
+      codingAgents: [{ agent: "claude", enabled: true }],
     };
     const resolveTarget = vi
       .fn()

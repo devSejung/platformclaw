@@ -41,7 +41,21 @@ const TARGET: AssignedVmTargetSnapshot = {
   hostKeyAlgorithm: "ssh-ed25519",
   hostKeyPublicKey: "AAAA-approved-key",
   hostKeyFingerprint: "SHA256:approved",
-  claudeCodeExecutablePath: "/home/person.one/.local/bin/claude",
+  codingAgents: [
+    {
+      agent: "claude",
+      enabled: true,
+      executablePath: "/home/person.one/.local/bin/claude",
+      environment: {
+        ANTHROPIC_BASE_URL: "https://gateway.example",
+        ADMIN_API_URL: "https://admin.example",
+        OIDC_ISSUER_URL: "https://issuer.example",
+        OIDC_CLIENT_ID: "client",
+      },
+    },
+    { agent: "codex", enabled: true, executablePath: "/home/person.one/.local/bin/codex" },
+    { agent: "opencode", enabled: true, executablePath: "/home/person.one/.local/bin/opencode" },
+  ],
 };
 
 describe("assigned VM ACP process transport", () => {
@@ -51,33 +65,48 @@ describe("assigned VM ACP process transport", () => {
   });
 
   it.each([
-    ["claude", "/opt/platformclaw/libexec/claude-agent-acp/bin/claude-agent-acp"],
-    ["codex", "/opt/platformclaw/libexec/codex-acp/bin/codex-acp"],
-    ["opencode", "/opt/platformclaw/libexec/opencode-acp/bin/opencode"],
-  ])("launches %s only in the assigned employee account", (agent, executable) => {
-    const command = buildAssignedVmAcpRemoteCommand(
-      {
-        executionOwnerAgentId: "person_one",
-        agent: ` ${agent.toUpperCase()} `,
-        sessionKey: "session-one",
-        command: "/tmp/attacker-adapter",
-        args: ["--attacker"],
-        cwd: "/tmp/attacker-workdir",
-        env: { LD_PRELOAD: "/tmp/attacker.so", CODEX_HOME: "/tmp/attacker-home" },
-      },
-      TARGET,
-    );
+    [
+      "claude",
+      "/opt/platformclaw/libexec/claude-agent-acp/bin/claude-agent-acp",
+      "/home/person.one/.local/bin/claude",
+    ],
+    [
+      "codex",
+      "/opt/platformclaw/libexec/codex-acp/bin/codex-acp",
+      "/home/person.one/.local/bin/codex",
+    ],
+    ["opencode", "/home/person.one/.local/bin/opencode", "/home/person.one/.local/bin/opencode"],
+  ])(
+    "launches %s only in the assigned employee account",
+    (agent, executable, selectedExecutable) => {
+      const command = buildAssignedVmAcpRemoteCommand(
+        {
+          executionOwnerAgentId: "person_one",
+          agent: ` ${agent.toUpperCase()} `,
+          sessionKey: "session-one",
+          command: "/tmp/attacker-adapter",
+          args: ["--attacker"],
+          cwd: "/tmp/attacker-workdir",
+          env: { LD_PRELOAD: "/tmp/attacker.so", CODEX_HOME: "/tmp/attacker-home" },
+        },
+        TARGET,
+      );
 
-    expect(PLATFORMCLAW_VM_ACP_AGENTS.has(agent)).toBe(true);
-    expect(command).toContain(executable);
-    expect(command).toContain("CLAUDE_CODE_EXECUTABLE");
-    expect(command).toContain("/home/person.one/.local/bin/claude");
-    expect(command).toContain("/home/person.one/workspace");
-    expect(command).toContain("HOME");
-    expect(command).toContain("/home/person.one");
-    expect(command).not.toContain("attacker");
-    expect(command).not.toContain("LD_PRELOAD");
-  });
+      expect(PLATFORMCLAW_VM_ACP_AGENTS.has(agent)).toBe(true);
+      expect(command).toContain(executable);
+      expect(command).toContain("CLAUDE_CODE_EXECUTABLE");
+      expect(command).toContain(selectedExecutable);
+      expect(command).toContain("/home/person.one/workspace");
+      expect(command).toContain("HOME");
+      expect(command).toContain("/home/person.one");
+      expect(command).not.toContain("attacker");
+      expect(command).not.toContain("LD_PRELOAD");
+      if (agent !== "claude") {
+        expect(command).not.toContain("gateway.example");
+        expect(command).not.toContain("admin.example");
+      }
+    },
+  );
 
   it("uses the pinned OpenCode adapter contract", () => {
     const command = buildAssignedVmAcpRemoteCommand(
@@ -92,7 +121,7 @@ describe("assigned VM ACP process transport", () => {
       },
       TARGET,
     );
-    expect(command).toContain("/opt/platformclaw/libexec/opencode-acp/bin/opencode");
+    expect(command).toContain("/home/person.one/.local/bin/opencode");
     expect(command).toContain('exec "$adapter" acp');
     expect(() =>
       buildAssignedVmAcpRemoteCommand(

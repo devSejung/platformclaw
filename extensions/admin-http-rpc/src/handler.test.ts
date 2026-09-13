@@ -185,7 +185,18 @@ describe("admin-http-rpc plugin handler", () => {
   );
 
   it.each([
-    ["platformclaw-execution.validateClaudeCode", { agentId: "person-one" }],
+    [
+      "platformclaw-execution.detectCodingAgent",
+      { agentId: "person-one", agent: "claude", expectedRevision: 3 },
+    ],
+    [
+      "platformclaw-execution.checkCodingAgent",
+      {
+        agentId: "person-one",
+        expectedRevision: 3,
+        configuration: { agent: "codex", enabled: true, executablePath: "/usr/bin/codex" },
+      },
+    ],
     ["platformclaw-execution.invalidateAgent", { agentId: "person-one" }],
     ["skills.status", { agentId: "person-one", refresh: true, backendTarget: "assigned_vm" }],
     ["skills.uninstall", { agentId: "person-one", slug: "demo-skill" }],

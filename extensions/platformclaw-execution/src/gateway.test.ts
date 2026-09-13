@@ -15,7 +15,8 @@ function createHarness(runtime: {
   testConnection: ReturnType<typeof vi.fn>;
   testCandidateConnection: ReturnType<typeof vi.fn>;
   changeTarget: ReturnType<typeof vi.fn>;
-  validateCodingAgent?: ReturnType<typeof vi.fn>;
+  detectCodingAgent?: ReturnType<typeof vi.fn>;
+  checkCodingAgent?: ReturnType<typeof vi.fn>;
 }) {
   const methods = new Map<string, GatewayHandler>();
   let beforeRun: BeforeRunHandler | undefined;
@@ -60,17 +61,28 @@ describe("PlatformClaw execution Gateway methods", () => {
       testConnection: vi.fn(),
       testCandidateConnection: vi.fn(),
       changeTarget: vi.fn(),
-      validateCodingAgent: vi.fn().mockRejectedValue(new Error("secret remote output")),
+      checkCodingAgent: vi.fn().mockRejectedValue(new Error("secret remote output")),
     };
     const harness = createHarness(runtime);
     const respond = vi.fn();
-    const handler = harness.methods.get("platformclaw-execution.validateCodingAgent")!;
-    await handler({ params: { agentId: "person_one", agent: "other" }, respond } as never);
-    expect(runtime.validateCodingAgent).not.toHaveBeenCalled();
-    await handler({ params: { agentId: "person_one", agent: "codex" }, respond } as never);
-    expect(runtime.validateCodingAgent).toHaveBeenCalledWith({
+    const handler = harness.methods.get("platformclaw-execution.checkCodingAgent")!;
+    await handler({
+      params: { agentId: "person_one", configuration: { agent: "other" }, expectedRevision: 9 },
+      respond,
+    } as never);
+    expect(runtime.checkCodingAgent).not.toHaveBeenCalled();
+    await handler({
+      params: {
+        agentId: "person_one",
+        configuration: { agent: "codex", enabled: true, executablePath: "/usr/bin/codex" },
+        expectedRevision: 9,
+      },
+      respond,
+    } as never);
+    expect(runtime.checkCodingAgent).toHaveBeenCalledWith({
       agentId: "person_one",
-      agent: "codex",
+      configuration: { agent: "codex", enabled: true, executablePath: "/usr/bin/codex" },
+      expectedRevision: 9,
     });
     expect(respond).toHaveBeenLastCalledWith(
       false,

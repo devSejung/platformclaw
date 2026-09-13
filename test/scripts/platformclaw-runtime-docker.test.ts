@@ -327,6 +327,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(gateway?.environment?.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE).toBe(
       "/run/secrets/platformclaw_execution_service_token",
     );
+    expect(gateway?.environment?.ACPX_CLAUDE_INCLUDE_USER_SETTINGS).toBe("1");
     expect(gateway?.environment?.DOCKER_HOST).toBe(
       "unix:///run/platformclaw-sandbox-docker/docker.sock",
     );
@@ -1124,6 +1125,19 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
 
     expect(buildConfig).toContain("alwaysBundle: [/^@openclaw\\//u]");
     expect(buildConfig).toContain("dts: { neverBundle: [/^@openclaw\\//u] }");
+  });
+
+  it("smokes the coding-agent contract subpath from the final runtime image", () => {
+    const build = readRepoFile("scripts/platformclaw-build.mjs");
+    const dockerfile = readRepoFile("Dockerfile.jammy");
+    expect(build).toContain(
+      "import('/app/packages/platformclaw-control-plane/dist/coding-agent-contracts.mjs')",
+    );
+    expect(build).toContain("cd /app/extensions/platformclaw-execution");
+    expect(build).toContain("import('@platformclaw/control-plane/coding-agent-contracts')");
+    expect(dockerfile).toContain(
+      'test "$(readlink /app/node_modules/@platformclaw/control-plane)" =',
+    );
   });
 
   it("keeps ephemeral secret mounts readable only through the private smoke directory", () => {

@@ -89,18 +89,3 @@ export function parseExecutionEnvironment(
   }
   return { pathPrepend, variables };
 }
-
-export function parseClaudeCodeExecutablePath(value: unknown): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const executablePath = requireString(value, "Claude Code executable path");
-  if (
-    !path.posix.isAbsolute(executablePath) ||
-    path.posix.normalize(executablePath) !== executablePath ||
-    executablePath.length > 4096
-  ) {
-    throw new Error("Claude Code executable path is invalid");
-  }
-  return executablePath;
-}

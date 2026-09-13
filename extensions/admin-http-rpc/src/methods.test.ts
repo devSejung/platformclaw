@@ -10,6 +10,9 @@ describe("admin HTTP RPC method allowlist", () => {
     expect(isAdminHttpRpcAllowedMethod("platformclaw-execution.testCandidateConnection")).toBe(
       true,
     );
+    expect(isAdminHttpRpcAllowedMethod("platformclaw-execution.detectCodingAgent")).toBe(true);
+    expect(isAdminHttpRpcAllowedMethod("platformclaw-execution.checkCodingAgent")).toBe(true);
+    expect(isAdminHttpRpcAllowedMethod("platformclaw-execution.validateClaudeCode")).toBe(false);
     expect(isAdminHttpRpcAllowedMethod("platformclaw-execution.changeTarget")).toBe(true);
     expect(isAdminHttpRpcAllowedMethod("platformclaw-user-mcp.catalog")).toBe(true);
     expect(isAdminHttpRpcAllowedMethod("platformclaw-user-mcp.invalidateAgent")).toBe(true);

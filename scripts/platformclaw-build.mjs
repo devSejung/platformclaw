@@ -557,6 +557,8 @@ try {
       "test -x /usr/local/bin/platformclaw-sshpass",
       "test -f /app/ui/dist/platformclaw-login.html",
       "node -e \"import('/app/packages/platformclaw-control-plane/dist/index.mjs')\"",
+      "node -e \"import('/app/packages/platformclaw-control-plane/dist/coding-agent-contracts.mjs')\"",
+      "cd /app/extensions/platformclaw-execution && node -e \"import('@platformclaw/control-plane/coding-agent-contracts')\"",
     ].join(" && "),
   ]);
   run("docker", [

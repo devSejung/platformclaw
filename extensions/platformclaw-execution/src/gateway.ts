@@ -1,6 +1,12 @@
+import {
+  isCodingAgentId,
+  parseCodingAgentConfiguration,
+  type CodingAgentConfiguration,
+  type CodingAgentId,
+  type CodingAgentVmProbeResult,
+} from "@platformclaw/control-plane/coding-agent-contracts";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { PlatformClawExecutionTargetSnapshot } from "./backend.js";
-import type { validateAssignedVmCodingAgent } from "./coding-agent-validation.js";
 import { classifyVmConnectionFailure } from "./connection-errors.js";
 import {
   registerPlatformClawSkillExportGateway,
@@ -34,17 +40,17 @@ type PlatformClawExecutionGatewayRuntime = PlatformClawSkillExportRuntime & {
     target: "platform_server" | "assigned_vm";
     expectedRevision: number;
   }): Promise<PlatformClawExecutionTargetSnapshot>;
-  validateClaudeCode(params: { agentId: string; executablePath?: string }): Promise<{
-    allocationId: string;
-    targetRevision: number;
-    executablePath: string;
-    reportedVersion: string;
-  }>;
-  dispose(): Promise<void>;
-  validateCodingAgent(params: {
+  detectCodingAgent(params: {
     agentId: string;
-    agent: "codex" | "opencode";
-  }): ReturnType<typeof validateAssignedVmCodingAgent>;
+    agent: CodingAgentId;
+    expectedRevision: number;
+  }): Promise<CodingAgentVmProbeResult>;
+  checkCodingAgent(params: {
+    agentId: string;
+    configuration: CodingAgentConfiguration;
+    expectedRevision: number;
+  }): Promise<CodingAgentVmProbeResult>;
+  dispose(): Promise<void>;
 };
 
 export function registerPlatformClawExecutionGateway(
@@ -152,43 +158,61 @@ export function registerPlatformClawExecutionGateway(
     { scope: "operator.admin" },
   );
   api.registerGatewayMethod(
-    "platformclaw-execution.validateClaudeCode",
+    "platformclaw-execution.detectCodingAgent",
     async ({ params, respond }) => {
       const input = params as Record<string, unknown>;
       const agentId = typeof input.agentId === "string" ? input.agentId.trim() : "";
-      const executablePath =
-        typeof input.executablePath === "string" ? input.executablePath.trim() : undefined;
+      const expectedRevision = input.expectedRevision;
       if (
         !agentId ||
-        (executablePath && (!executablePath.startsWith("/") || executablePath.length > 4096))
+        !isCodingAgentId(input.agent) ||
+        !Number.isSafeInteger(expectedRevision) ||
+        (expectedRevision as number) < 0
       ) {
         respond(false, undefined, {
           code: "INVALID_REQUEST",
-          message: "Claude Code path is invalid",
+          message: "coding agent detection request is invalid",
         });
         return;
       }
       try {
-        respond(true, await (await runtimePromise).validateClaudeCode({ agentId, executablePath }));
-      } catch (error) {
-        api.logger.warn?.(
-          `[platformclaw-execution] Claude Code validation failed agent=${agentId}`,
+        respond(
+          true,
+          await (
+            await runtimePromise
+          ).detectCodingAgent({
+            agentId,
+            agent: input.agent,
+            expectedRevision: expectedRevision as number,
+          }),
         );
+      } catch {
         respond(false, undefined, {
           code: "UNAVAILABLE",
-          message: error instanceof Error ? error.message : "Claude Code validation failed",
+          message:
+            "Coding agent detection failed. Reload the settings and verify the VM connection.",
         });
       }
     },
     { scope: "operator.admin" },
   );
   api.registerGatewayMethod(
-    "platformclaw-execution.validateCodingAgent",
+    "platformclaw-execution.checkCodingAgent",
     async ({ params, respond }) => {
       const input = params as Record<string, unknown>;
       const agentId = typeof input.agentId === "string" ? input.agentId.trim() : "";
-      const agent = input.agent;
-      if (!agentId || (agent !== "codex" && agent !== "opencode")) {
+      const expectedRevision = input.expectedRevision;
+      let configuration: CodingAgentConfiguration;
+      try {
+        configuration = parseCodingAgentConfiguration(input.configuration);
+      } catch {
+        respond(false, undefined, {
+          code: "INVALID_REQUEST",
+          message: "coding agent check request is invalid",
+        });
+        return;
+      }
+      if (!agentId || !Number.isSafeInteger(expectedRevision) || (expectedRevision as number) < 0) {
         respond(false, undefined, {
           code: "INVALID_REQUEST",
           message: "coding agent request is invalid",
@@ -196,7 +220,16 @@ export function registerPlatformClawExecutionGateway(
         return;
       }
       try {
-        respond(true, await (await runtimePromise).validateCodingAgent({ agentId, agent }));
+        respond(
+          true,
+          await (
+            await runtimePromise
+          ).checkCodingAgent({
+            agentId,
+            configuration,
+            expectedRevision: expectedRevision as number,
+          }),
+        );
       } catch {
         // Remote command errors can contain account environment or diagnostic output.
         respond(false, undefined, {

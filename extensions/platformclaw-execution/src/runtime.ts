@@ -1,6 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import path from "node:path";
+import type {
+  CodingAgentConfiguration,
+  CodingAgentId,
+  CodingAgentVmProbeResult,
+} from "@platformclaw/control-plane/coding-agent-contracts";
 import {
   createSshSandboxBackendWithSessionFactory,
   buildSshLoginShellArgv,
@@ -20,18 +25,14 @@ import type {
   PlatformClawExecutionDependencies,
   PlatformClawExecutionTargetSnapshot,
 } from "./backend.js";
-import { validateAssignedVmClaudeCode } from "./claude-code-validation.js";
-import { validateAssignedVmCodingAgent } from "./coding-agent-validation.js";
+import { checkAssignedVmCodingAgent, detectAssignedVmCodingAgent } from "./coding-agent-probe.js";
 import {
   isSshpassAuthenticationFailure,
   PlatformClawVmAuthenticationError,
 } from "./connection-errors.js";
-import {
-  parseClaudeCodeExecutablePath,
-  parseExecutionEnvironment,
-  requireSingleLine,
-  requireString,
-} from "./execution-target-validation.js";
+import { parseTarget } from "./execution-target-parser.js";
+import { requireSingleLine, requireString } from "./execution-target-validation.js";
+export { parseTarget } from "./execution-target-parser.js";
 import { VmRemoteSkillExportService } from "./remote-skill-export.js";
 import { VmRemoteSkillInstallerService } from "./remote-skill-install.js";
 import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
@@ -132,80 +133,6 @@ async function callExecutionHandoff(params: {
     req.once("error", fail);
     req.end(payload);
   });
-}
-
-export function parseTarget(
-  value: unknown,
-  options: { allowMissingCredentialRevision?: boolean } = {},
-): PlatformClawExecutionTargetSnapshot {
-  if (!value || typeof value !== "object") {
-    throw new Error("execution target is invalid");
-  }
-  const target = value as Record<string, unknown>;
-  const base = {
-    kind: target.kind,
-    agentId: requireString(target.agentId, "agent id"),
-    targetId: requireString(target.targetId, "target id"),
-    revision: Number(target.revision),
-  };
-  if (target.kind === "platform_server") {
-    return base as PlatformClawExecutionTargetSnapshot;
-  }
-  if (target.kind !== "assigned_vm") {
-    throw new Error("execution target kind is invalid");
-  }
-  const credentialRevision = Number(target.credentialRevision ?? 0);
-  if (
-    !Number.isSafeInteger(credentialRevision) ||
-    credentialRevision < (options.allowMissingCredentialRevision ? 0 : 1)
-  ) {
-    throw new Error("credential revision is invalid");
-  }
-  const remoteHomeDir = requireAbsoluteRemotePath(target.remoteHomeDir, "remote home");
-  const remoteWorkspaceDir = requireAbsoluteRemotePath(
-    target.remoteWorkspaceDir,
-    "remote workspace",
-  );
-  if (
-    remoteHomeDir !== "/" &&
-    remoteWorkspaceDir !== remoteHomeDir &&
-    !remoteWorkspaceDir.startsWith(`${remoteHomeDir}/`)
-  ) {
-    throw new Error("remote workspace is outside the remote home");
-  }
-  const claudeCodeExecutablePath = parseClaudeCodeExecutablePath(target.claudeCodeExecutablePath);
-  return {
-    ...base,
-    kind: "assigned_vm",
-    allocationId: requireString(target.allocationId, "allocation id"),
-    credentialRevision,
-    vmLabel: requireString(target.vmLabel, "VM label"),
-    safeConnectLabel: requireString(target.safeConnectLabel, "SafeConnect label"),
-    endpointHost: requireSshToken(target.endpointHost, "endpoint host"),
-    endpointPort: Number(target.endpointPort),
-    adDomain: requireSshToken(target.adDomain, "AD domain"),
-    adAccount: requireSshToken(target.adAccount, "AD account"),
-    targetAddress: requireSshToken(target.targetAddress, "VM address"),
-    linuxAccount: requireSshToken(target.linuxAccount, "Linux account"),
-    remoteHomeDir,
-    remoteWorkspaceDir,
-    hostKeyAlgorithm: requireSshToken(target.hostKeyAlgorithm, "host key algorithm"),
-    hostKeyPublicKey: requireSshToken(target.hostKeyPublicKey, "host public key"),
-    hostKeyFingerprint: requireString(target.hostKeyFingerprint, "host key fingerprint"),
-    ...(target.executionEnvironment === undefined
-      ? {}
-      : { executionEnvironment: parseExecutionEnvironment(target.executionEnvironment) }),
-    ...(claudeCodeExecutablePath ? { claudeCodeExecutablePath } : {}),
-  };
-}
-
-function requireAbsoluteRemotePath(value: unknown, label: string): string {
-  const raw = requireString(value, label);
-  const normalized = path.posix.normalize(raw);
-  if (!path.posix.isAbsolute(raw) || normalized !== raw) {
-    throw new Error(`${label} is invalid`);
-  }
-  return raw;
 }
 
 function safeConnectConfig(
@@ -450,16 +377,16 @@ export async function createExecutionDependenciesFromEnvironment(
         target: "platform_server" | "assigned_vm";
         expectedRevision: number;
       }): Promise<PlatformClawExecutionTargetSnapshot>;
-      validateClaudeCode(params: { agentId: string; executablePath?: string }): Promise<{
-        allocationId: string;
-        targetRevision: number;
-        executablePath: string;
-        reportedVersion: string;
-      }>;
-      validateCodingAgent(params: {
+      detectCodingAgent(params: {
         agentId: string;
-        agent: "codex" | "opencode";
-      }): ReturnType<typeof validateAssignedVmCodingAgent>;
+        agent: CodingAgentId;
+        expectedRevision: number;
+      }): Promise<CodingAgentVmProbeResult>;
+      checkCodingAgent(params: {
+        agentId: string;
+        configuration: CodingAgentConfiguration;
+        expectedRevision: number;
+      }): Promise<CodingAgentVmProbeResult>;
       dispose(): Promise<void>;
     }
 > {
@@ -554,27 +481,60 @@ export async function createExecutionDependenciesFromEnvironment(
         createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
         signal,
       }),
-    validateClaudeCode: async ({ agentId, executablePath }) => {
+    detectCodingAgent: async ({ agentId, agent, expectedRevision }) => {
       const target = await resolveTarget({ agentId, target: "assigned_vm" });
-      if (target.kind !== "assigned_vm") {
-        throw new Error("assigned development VM is unavailable");
+      if (target.kind !== "assigned_vm" || target.revision !== expectedRevision) {
+        throw new Error("assigned development VM changed; reload and retry");
       }
-      return await validateAssignedVmClaudeCode({
-        target,
-        executablePath,
-        createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
-      });
-    },
-    validateCodingAgent: async ({ agentId, agent }) => {
-      const target = await resolveTarget({ agentId, target: "assigned_vm" });
-      if (target.kind !== "assigned_vm") {
-        throw new Error("assigned development VM is unavailable");
-      }
-      return await validateAssignedVmCodingAgent({
+      const result = await detectAssignedVmCodingAgent({
         target,
         agent,
         createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
       });
+      return { ...result, allocationId: target.allocationId, targetRevision: target.revision };
+    },
+    checkCodingAgent: async ({ agentId, configuration, expectedRevision }) => {
+      const target = await resolveTarget({ agentId, target: "assigned_vm" });
+      if (target.kind !== "assigned_vm" || target.revision !== expectedRevision) {
+        throw new Error("assigned development VM changed; reload and retry");
+      }
+      if (configuration.agent === "claude" && env.ACPX_CLAUDE_INCLUDE_USER_SETTINGS !== "1") {
+        return {
+          agent: "claude",
+          executablePath: configuration.executablePath,
+          allocationId: target.allocationId,
+          targetRevision: target.revision,
+          diagnostics: [
+            {
+              stage: "executable",
+              status: "skipped",
+              message: "Claude was not started because Gateway user settings are disabled.",
+            },
+            {
+              stage: "helper",
+              status: "failed",
+              message:
+                "Recreate the Gateway container with ACPX_CLAUDE_INCLUDE_USER_SETTINGS=1, then retry.",
+            },
+            {
+              stage: "acp",
+              status: "skipped",
+              message: "ACP was not checked because Claude user settings are disabled.",
+            },
+          ],
+        };
+      }
+      const result = await checkAssignedVmCodingAgent({
+        target,
+        configuration,
+        launch: async (input, preparedTarget) =>
+          await launchAssignedVmAcpProcess({
+            input,
+            target: preparedTarget,
+            createSession: async (resolvedTarget) => await sshLeases.createSession(resolvedTarget),
+          }),
+      });
+      return { ...result, allocationId: target.allocationId, targetRevision: target.revision };
     },
     createPlatformServerHandle: async ({ createParams }) =>
       await requireSandboxBackendFactory("docker")(createParams),

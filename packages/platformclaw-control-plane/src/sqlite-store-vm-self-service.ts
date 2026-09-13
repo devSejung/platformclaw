@@ -1,3 +1,4 @@
+import { emptyCodingAgentConfigurations } from "./coding-agent-contracts.js";
 import { ControlPlaneConflictError, ControlPlaneStateError } from "./contracts.js";
 import type {
   AssignedVmConnectionTarget,
@@ -136,6 +137,7 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
       hostKeyAlgorithm: row.host_key_algorithm,
       hostKeyPublicKey: row.host_key_public_key,
       hostKeyFingerprint: row.host_key_fingerprint,
+      codingAgents: emptyCodingAgentConfigurations(),
       ...(executionEnvironment ? { executionEnvironment } : {}),
     };
   }

@@ -120,6 +120,11 @@ COPY --chown=root:root docker/platformclaw-runtime/platformclaw-gateway /usr/loc
 COPY --chown=root:root docker/platformclaw-runtime/platformclaw-runtime-entrypoint /usr/local/bin/platformclaw-runtime-entrypoint
 COPY --chown=root:root docker/platformclaw-runtime/migrate-workspaces /usr/local/bin/platformclaw-migrate-workspaces
 
+# The retained production workspace link resolves only after the private control
+# artifact is copied. Fail if upstream runtime pruning changes that package contract.
+RUN test "$(readlink /app/node_modules/@platformclaw/control-plane)" = \
+      ../../packages/platformclaw-control-plane
+
 # WORKDIR creates the app root before COPY --chown can set child ownership.
 # Fix only the parent directories; the final assertion below protects the full trees.
 RUN set -eux; \

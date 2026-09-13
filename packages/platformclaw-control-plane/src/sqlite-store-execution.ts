@@ -5,7 +5,6 @@ import type {
   ControlPlaneExecutionManagementStore,
   ControlPlaneExecutionTargetStore,
   PersonalExecutionTarget,
-  PersonalExecutionSettings,
   SafeConnectEndpoint,
   VmAllocation,
   VmAdministrationSnapshot,
@@ -21,9 +20,9 @@ import {
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
 import {
-  readPersonalExecutionSettings,
-  setPersonalClaudeCodeInStore,
-} from "./sqlite-store-claude-code.js";
+  readCodingAgentSettings,
+  SqliteControlPlaneCodingAgentStore,
+} from "./sqlite-store-coding-agents.js";
 import { required } from "./sqlite-store-core.js";
 import { readVmAdministrationSnapshot } from "./sqlite-store-execution-admin.js";
 import {
@@ -35,12 +34,11 @@ import {
   hasCompleteAssignedVmExecutionFields,
   isReadyAssignedVmExecutionRow,
 } from "./sqlite-store-execution-readiness.js";
-import { SqliteControlPlaneExecutionTargetStore } from "./sqlite-store-execution-target.js";
 import type { SafeConnectEndpointRow, VmAllocationRow } from "./sqlite-store-types.js";
 import { createVmHostInTransaction } from "./sqlite-store-vm-host-create.js";
 
 export abstract class SqliteControlPlaneExecutionStore
-  extends SqliteControlPlaneExecutionTargetStore
+  extends SqliteControlPlaneCodingAgentStore
   implements
     ControlPlaneExecutionManagementStore,
     ControlPlaneExecutionTargetStore,
@@ -138,6 +136,10 @@ export abstract class SqliteControlPlaneExecutionStore
       hostKeyAlgorithm: row.host_key_algorithm,
       hostKeyPublicKey: row.host_key_public_key,
       hostKeyFingerprint: row.host_key_fingerprint,
+      codingAgents: readCodingAgentSettings(
+        { db: this.db, query: this.query },
+        row.allocation_id,
+      ).map((settings) => settings.configuration),
       ...(executionEnvironment ? { executionEnvironment } : {}),
     };
   }
@@ -240,7 +242,6 @@ export abstract class SqliteControlPlaneExecutionStore
     agentId: string,
     requestedTarget?: "platform_server" | "assigned_vm",
   ): Promise<PersonalExecutionTarget> {
-    this.ensureVmAllocationClaudeCodeSchema();
     const owner = takeFirstSync(
       this.db,
       this.query
@@ -287,11 +288,6 @@ export abstract class SqliteControlPlaneExecutionStore
         "vm_host_execution_environments.vm_host_id",
         "vm_hosts.id",
       )
-      .leftJoin(
-        "vm_allocation_claude_code_settings",
-        "vm_allocation_claude_code_settings.allocation_id",
-        "vm_allocations.id",
-      )
       .innerJoin("safeconnect_endpoints", "safeconnect_endpoints.id", "vm_hosts.endpoint_id")
       .leftJoin("encrypted_user_ssh_credentials", (join) =>
         join.on("encrypted_user_ssh_credentials.user_id", "=", owner.user_id),
@@ -317,7 +313,6 @@ export abstract class SqliteControlPlaneExecutionStore
         "encrypted_user_ssh_credentials.revision as credential_revision",
         "encrypted_user_ssh_credentials.status as credential_status",
         "vm_host_execution_environments.config_json as execution_environment_json",
-        "vm_allocation_claude_code_settings.executable_path as claude_code_executable_path",
       ]);
     vmQuery = requestedTarget
       ? vmQuery
@@ -333,7 +328,13 @@ export abstract class SqliteControlPlaneExecutionStore
       userId: owner.user_id,
       accountId: owner.account_id,
       targetRevision: owner.target_revision,
-      row: vm,
+      row: {
+        ...vm,
+        codingAgents: readCodingAgentSettings(
+          { db: this.db, query: this.query },
+          vm.allocation_id,
+        ).map((settings) => settings.configuration),
+      },
     });
   }
 
@@ -586,35 +587,6 @@ export abstract class SqliteControlPlaneExecutionStore
         .where("vm_allocations.status", "!=", "revoked"),
     );
     return row ? rowToAllocation(row) : null;
-  }
-
-  async getPersonalExecutionSettings(agentId: string): Promise<PersonalExecutionSettings | null> {
-    this.ensureVmAllocationClaudeCodeSchema();
-    return readPersonalExecutionSettings({ db: this.db, query: this.query }, agentId);
-  }
-
-  async setPersonalClaudeCode(params: {
-    actorUserId: string;
-    agentId: string;
-    expectedRevision: number;
-    executablePath: string;
-    reportedVersion: string;
-    validatedAt: number;
-  }): Promise<void> {
-    this.ensureVmAllocationClaudeCodeSchema();
-    setPersonalClaudeCodeInStore({
-      store: { db: this.db, query: this.query },
-      ...params,
-      insertAudit: (allocationId) =>
-        this.insertAudit(
-          params.actorUserId,
-          "claude-code.executable.updated",
-          "vm-allocation",
-          allocationId,
-          params.validatedAt,
-          { reportedVersion: params.reportedVersion },
-        ),
-    });
   }
 
   async recordVmConnectionResult(params: {

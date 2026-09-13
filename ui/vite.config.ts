@@ -311,6 +311,16 @@ function sourcePackageAlias(packageId: string, subpath?: string): ControlUiViteA
 
 export function resolveSourcePackageAliasesForVite(): ControlUiViteAlias[] {
   return [
+    {
+      find: "@platformclaw/control-plane/coding-agent-contracts",
+      replacement: path.join(
+        repoRoot,
+        "packages",
+        "platformclaw-control-plane",
+        "src",
+        "coding-agent-contracts.ts",
+      ),
+    },
     sourcePackageAlias("normalization-core", "json-schema"),
     sourcePackageAlias("normalization-core", "number-coercion"),
     sourcePackageAlias("normalization-core", "phone-presentation"),

@@ -27,6 +27,7 @@ const TARGET: AssignedVmTargetSnapshot = {
   hostKeyAlgorithm: "ssh-ed25519",
   hostKeyPublicKey: "AAAA-approved-key",
   hostKeyFingerprint: "SHA256:approved",
+  codingAgents: [],
 };
 
 async function runLocalRemoteCommand(

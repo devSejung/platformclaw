@@ -3,6 +3,26 @@ export type VmHostStatus = "active" | "disabled";
 export type VmAllocationStatus = "assigned" | "ready" | "connection_required" | "revoked";
 export type { VmHostExecutionEnvironment } from "./execution-validation.js";
 import type { VmHostExecutionEnvironment } from "./execution-validation.js";
+export type {
+  ClaudeCodingAgentConfiguration,
+  ClaudeGatewayEnvironment,
+  ClaudeGatewayEnvironmentKey,
+  CodingAgentCheckSnapshot,
+  CodingAgentConfiguration,
+  CodingAgentDiagnostic,
+  CodingAgentDiagnosticStage,
+  CodingAgentDiagnosticStatus,
+  CodingAgentId,
+  CodingAgentProbeResult,
+  CodingAgentVmProbeResult,
+  PersonalCodingAgentSettings,
+  PlainCodingAgentConfiguration,
+} from "./coding-agent-contracts.js";
+import type {
+  CodingAgentCheckSnapshot,
+  CodingAgentConfiguration,
+  PersonalCodingAgentSettings,
+} from "./coding-agent-contracts.js";
 
 export type SafeConnectEndpoint = {
   id: string;
@@ -86,7 +106,7 @@ export type AssignedVmExecutionTarget = {
   hostKeyPublicKey: string;
   hostKeyFingerprint: string;
   executionEnvironment?: VmHostExecutionEnvironment;
-  claudeCodeExecutablePath?: string;
+  codingAgents: CodingAgentConfiguration[];
 };
 
 export type PersonalExecutionTarget = PlatformServerExecutionTarget | AssignedVmExecutionTarget;
@@ -108,11 +128,7 @@ export type PersonalExecutionSettings = {
   userId: string;
   activeTarget: "platform_server" | "assigned_vm";
   targetRevision: number;
-  claudeCode?: {
-    executablePath: string;
-    reportedVersion: string;
-    validatedAt: number;
-  };
+  codingAgents: PersonalCodingAgentSettings[];
   allocation?: {
     id: string;
     vmHostId: string;
@@ -181,13 +197,19 @@ export interface ControlPlaneExecutionTargetStore extends ControlPlaneExecutionR
 
 export interface ControlPlaneEmployeeExecutionStore {
   getPersonalExecutionSettings(agentId: string): Promise<PersonalExecutionSettings | null>;
-  setPersonalClaudeCode(params: {
+  setPersonalCodingAgent(params: {
     actorUserId: string;
     agentId: string;
     expectedRevision: number;
-    executablePath: string;
-    reportedVersion: string;
-    validatedAt: number;
+    configuration: CodingAgentConfiguration;
+    updatedAt: number;
+  }): Promise<void>;
+  recordPersonalCodingAgentCheck(params: {
+    actorUserId: string;
+    agentId: string;
+    expectedRevision: number;
+    configuration: CodingAgentConfiguration;
+    result: CodingAgentCheckSnapshot;
   }): Promise<void>;
   recordVmConnectionResult(params: {
     actorUserId: string;

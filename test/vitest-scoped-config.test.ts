@@ -190,6 +190,21 @@ describe("resolveVitestIsolation", () => {
       find: "@openclaw/retry",
       replacement: path.join(process.cwd(), "packages", "retry", "src", "index.ts"),
     });
+    expect(
+      findAlias(
+        sharedVitestConfig.resolve.alias,
+        "@platformclaw/control-plane/coding-agent-contracts",
+      ),
+    ).toEqual({
+      find: "@platformclaw/control-plane/coding-agent-contracts",
+      replacement: path.join(
+        process.cwd(),
+        "packages",
+        "platformclaw-control-plane",
+        "src",
+        "coding-agent-contracts.ts",
+      ),
+    });
   });
 
   it("defaults shared scoped configs to the non-isolated runner", () => {

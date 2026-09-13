@@ -9,11 +9,49 @@ import { ControlPlaneConflictError } from "./contracts.js";
 import type { PersonalExecutionSettings } from "./execution-contracts.js";
 import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 
+const CODEX_CONFIGURATION = {
+  agent: "codex" as const,
+  enabled: false,
+  executablePath: "",
+};
+const CLAUDE_CONFIGURATION = {
+  agent: "claude" as const,
+  enabled: true,
+  executablePath: "/home/person.one/.local/bin/claude",
+  environment: {
+    ANTHROPIC_BASE_URL: "https://gateway.example.test",
+    ADMIN_API_URL: "https://admin.example.test",
+    OIDC_ISSUER_URL: "https://identity.example.test",
+    OIDC_CLIENT_ID: "claude-code",
+  },
+};
+
 const SETTINGS = {
   agentId: "person_one",
   userId: "user-one",
   activeTarget: "platform_server" as const,
   targetRevision: 2,
+  codingAgents: [
+    {
+      hasSavedConfiguration: false,
+      configuration: {
+        agent: "claude" as const,
+        enabled: false,
+        executablePath: "",
+        environment: {
+          ANTHROPIC_BASE_URL: "",
+          ADMIN_API_URL: "",
+          OIDC_ISSUER_URL: "",
+          OIDC_CLIENT_ID: "",
+        },
+      },
+    },
+    { hasSavedConfiguration: false, configuration: CODEX_CONFIGURATION },
+    {
+      hasSavedConfiguration: false,
+      configuration: { agent: "opencode" as const, enabled: false, executablePath: "" },
+    },
+  ],
   allocation: {
     id: "allocation-one",
     vmHostId: "vm-one",
@@ -27,6 +65,10 @@ const SETTINGS = {
 
 function createHarness() {
   const store = {
+    getPersonalAgentBinding: vi.fn(async () => ({
+      agentId: "person_one",
+      state: "active" as const,
+    })),
     getPersonalExecutionSettings: vi.fn<() => Promise<PersonalExecutionSettings>>(
       async () => SETTINGS,
     ),
@@ -54,6 +96,7 @@ function createHarness() {
       hostKeyAlgorithm: "ssh-ed25519",
       hostKeyPublicKey: "key",
       hostKeyFingerprint: "SHA256:test",
+      codingAgents: SETTINGS.codingAgents.map((entry) => entry.configuration),
     })),
     replacePersonalVmAllocation: vi.fn(async () => SETTINGS.allocation),
     releasePersonalVmAllocation: vi.fn(async () => ({
@@ -65,7 +108,8 @@ function createHarness() {
       ...SETTINGS.allocation,
       status: "revoked" as const,
     })),
-    setPersonalClaudeCode: vi.fn(async () => undefined),
+    setPersonalCodingAgent: vi.fn(async () => undefined),
+    recordPersonalCodingAgentCheck: vi.fn(async () => undefined),
   };
   const vault = {
     getMetadata: vi.fn(async () => ({ status: "current" })),
@@ -101,7 +145,12 @@ function createHarness() {
   };
   const closeTerminalForAgent = vi.fn(async () => undefined);
   const service = new EmployeeExecutionService({
-    authService: {} as never,
+    authService: {
+      authenticateToken: vi.fn(async () => ({
+        status: "active" as const,
+        user: { id: "user-one" },
+      })),
+    } as never,
     store: store as never,
     credentialVault: vault as never,
     credentialBroker: broker as never,
@@ -114,29 +163,33 @@ function createHarness() {
 
 describe("EmployeeExecutionService", () => {
   it.each(["codex", "opencode"] as const)(
-    "checks %s without storing installation or authentication state",
+    "checks %s through the canonical VM probe",
     async (agent) => {
       const harness = createHarness();
+      const configuration = { agent, enabled: false, executablePath: "" };
       harness.adminRpcCall.mockResolvedValueOnce({
         agent,
         allocationId: "allocation-one",
         targetRevision: 2,
         reportedVersion: "1.0.0",
+        diagnostics: [
+          { stage: "executable", status: "passed", message: `${agent} executable is ready` },
+        ],
       });
       await expect(
-        harness.service.validateCodingAgent({
+        harness.service.checkCodingAgent({
           userId: "user-one",
           agentId: "person_one",
-          agent,
+          configuration,
           expectedRevision: 2,
         }),
-      ).resolves.toEqual({ agent, reportedVersion: "1.0.0" });
-      expect(harness.adminRpcCall).toHaveBeenCalledWith(
-        "platformclaw-execution.validateCodingAgent",
-        { agentId: "person_one", agent },
-      );
-      expect(harness.store.getPersonalExecutionSettings).toHaveBeenCalledTimes(2);
-      expect(harness.store.setPersonalClaudeCode).not.toHaveBeenCalled();
+      ).resolves.toMatchObject({ agent, reportedVersion: "1.0.0" });
+      expect(harness.adminRpcCall).toHaveBeenCalledWith("platformclaw-execution.checkCodingAgent", {
+        agentId: "person_one",
+        configuration,
+        expectedRevision: 2,
+      });
+      expect(harness.store.getPersonalExecutionSettings).toHaveBeenCalledTimes(3);
     },
   );
 
@@ -149,6 +202,9 @@ describe("EmployeeExecutionService", () => {
         allocationId: change === "result" ? "other" : "allocation-one",
         targetRevision: 2,
         reportedVersion: "1.0.0",
+        diagnostics: [
+          { stage: "executable", status: "passed", message: "Codex executable is ready" },
+        ],
       });
       harness.store.getPersonalExecutionSettings
         .mockResolvedValueOnce(SETTINGS)
@@ -163,10 +219,10 @@ describe("EmployeeExecutionService", () => {
           },
         });
       await expect(
-        harness.service.validateCodingAgent({
+        harness.service.checkCodingAgent({
           userId: "user-one",
           agentId: "person_one",
-          agent: "codex",
+          configuration: CODEX_CONFIGURATION,
           expectedRevision: 2,
         }),
       ).rejects.toMatchObject({ statusCode: 409 });
@@ -176,10 +232,10 @@ describe("EmployeeExecutionService", () => {
   it("rejects stale coding agent checks before contacting the VM", async () => {
     const harness = createHarness();
     await expect(
-      harness.service.validateCodingAgent({
+      harness.service.checkCodingAgent({
         userId: "user-one",
         agentId: "person_one",
-        agent: "codex",
+        configuration: CODEX_CONFIGURATION,
         expectedRevision: 1,
       }),
     ).rejects.toMatchObject({ statusCode: 409 });
@@ -261,6 +317,7 @@ describe("EmployeeExecutionService", () => {
       userId: SETTINGS.userId,
       activeTarget: SETTINGS.activeTarget,
       targetRevision: SETTINGS.targetRevision,
+      codingAgents: SETTINGS.codingAgents,
     });
     await expect(
       unassigned.service.testStoredCredential("user-one", "person_one"),
@@ -354,35 +411,47 @@ describe("EmployeeExecutionService", () => {
     });
   });
 
-  it("validates and stores a per-user Claude Code executable", async () => {
+  it("stores Claude settings without requiring a live authentication check", async () => {
     const harness = createHarness();
-    harness.adminRpcCall.mockResolvedValueOnce({
-      allocationId: "allocation-one",
-      targetRevision: 2,
-      executablePath: "/home/person.one/.local/bin/claude",
-      reportedVersion: "2.1.0 (Claude Code)",
-    });
 
-    await harness.service.configureClaudeCode({
+    await harness.service.saveCodingAgent({
       userId: "user-one",
       agentId: "person_one",
       expectedRevision: 2,
-      executablePath: "/home/person.one/.local/bin/claude",
+      configuration: CLAUDE_CONFIGURATION,
     });
 
-    expect(harness.adminRpcCall).toHaveBeenCalledWith("platformclaw-execution.validateClaudeCode", {
-      agentId: "person_one",
-      executablePath: "/home/person.one/.local/bin/claude",
-    });
-    expect(harness.store.setPersonalClaudeCode).toHaveBeenCalledWith({
+    expect(harness.adminRpcCall).not.toHaveBeenCalled();
+    expect(harness.store.setPersonalCodingAgent).toHaveBeenCalledWith({
       actorUserId: "user-one",
       agentId: "person_one",
       expectedRevision: 2,
-      executablePath: "/home/person.one/.local/bin/claude",
-      reportedVersion: "2.1.0 (Claude Code)",
-      validatedAt: 1234,
+      configuration: CLAUDE_CONFIGURATION,
+      updatedAt: 1234,
     });
-    expect(harness.closeTerminalForAgent).toHaveBeenCalledWith("person_one", "claude_code_changed");
+    expect(harness.closeTerminalForAgent).not.toHaveBeenCalled();
+  });
+
+  it("allows an owned disconnected VM configuration to be disabled without ending active work", async () => {
+    const harness = createHarness();
+    harness.store.getPersonalExecutionSettings.mockResolvedValue({
+      ...SETTINGS,
+      allocation: { ...SETTINGS.allocation, status: "connection_required" },
+    });
+    const disabled = { ...CLAUDE_CONFIGURATION, enabled: false };
+
+    await harness.service.saveCodingAgent({
+      userId: "user-one",
+      agentId: "person_one",
+      expectedRevision: 2,
+      configuration: disabled,
+    });
+
+    expect(harness.store.setPersonalCodingAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ configuration: disabled }),
+    );
+    expect(harness.adminRpcCall).not.toHaveBeenCalled();
+    expect(harness.closeTerminalForAgent).not.toHaveBeenCalled();
   });
 
   it("tests a self-selected VM before atomically replacing the allocation", async () => {
@@ -436,14 +505,60 @@ describe("EmployeeExecutionService", () => {
 });
 
 describe("employee execution HTTP errors", () => {
+  it("routes an authenticated employee detection through the internal admin RPC", async () => {
+    const harness = createHarness();
+    harness.adminRpcCall.mockResolvedValueOnce({
+      agent: "claude",
+      allocationId: "allocation-one",
+      targetRevision: 2,
+      executablePath: "/home/person.one/.local/bin/claude",
+      environment: { OIDC_CLIENT_ID: "claude-code" },
+      diagnostics: [
+        { stage: "executable", status: "passed", message: "Claude Code executable found" },
+      ],
+    });
+    const response = {
+      statusCode: 0,
+      setHeader: vi.fn(),
+      end: vi.fn(),
+    } as unknown as ServerResponse;
+
+    await handlePlatformClawEmployeeExecutionRequest(
+      {
+        url: "/platformclaw/api/execution/coding-agent",
+        method: "POST",
+        headers: { cookie: "platformclaw_session=test-token" },
+      } as IncomingMessage,
+      response,
+      {
+        service: harness.service,
+        isMutationOriginAllowed: () => true,
+        readJsonBody: async () => ({
+          ok: true,
+          value: { action: "detect", agent: "claude", expectedRevision: 2 },
+        }),
+      },
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(harness.adminRpcCall).toHaveBeenCalledWith("platformclaw-execution.detectCodingAgent", {
+      agentId: "person_one",
+      agent: "claude",
+      expectedRevision: 2,
+    });
+  });
+
   it.each([
     { agent: "opencode", expectedRevision: 2, status: 200 },
     { agent: "other", expectedRevision: 2, status: 400 },
     { agent: "codex", expectedRevision: -1, status: 400 },
   ])(
-    "validates the coding agent route input ($agent, $expectedRevision)",
+    "validates the coding agent detection route input ($agent, $expectedRevision)",
     async ({ agent, expectedRevision, status }) => {
-      const validateCodingAgent = vi.fn(async () => ({ agent, reportedVersion: "1.0.0" }));
+      const detectCodingAgent = vi.fn(async () => ({
+        agent,
+        diagnostics: [{ stage: "executable", status: "passed", message: "ready" }],
+      }));
       const response = {
         statusCode: 0,
         setHeader: vi.fn(),
@@ -462,26 +577,26 @@ describe("employee execution HTTP errors", () => {
               user: { id: "user-one" },
               binding: { agentId: "person_one" },
             }),
-            validateCodingAgent,
+            detectCodingAgent,
           } as unknown as EmployeeExecutionService,
           isMutationOriginAllowed: () => true,
           readJsonBody: async () => ({
             ok: true,
-            value: { agent, expectedRevision, agentId: "other-person" },
+            value: { action: "detect", agent, expectedRevision, agentId: "other-person" },
           }),
         },
       );
       expect(handled).toBe(true);
       expect(response.statusCode).toBe(status);
       if (status === 200) {
-        expect(validateCodingAgent).toHaveBeenCalledWith({
+        expect(detectCodingAgent).toHaveBeenCalledWith({
           userId: "user-one",
           agentId: "person_one",
           agent,
           expectedRevision,
         });
       } else {
-        expect(validateCodingAgent).not.toHaveBeenCalled();
+        expect(detectCodingAgent).not.toHaveBeenCalled();
       }
     },
   );

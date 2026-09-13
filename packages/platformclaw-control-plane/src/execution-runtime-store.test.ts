@@ -181,25 +181,46 @@ describe("SQLite execution runtime target", () => {
       },
     });
 
-    await store.setPersonalClaudeCode({
+    await store.setPersonalCodingAgent({
       actorUserId: user.id,
       agentId: binding.agentId,
       expectedRevision: 1,
-      executablePath: "/users/linux-user/.local/bin/claude",
-      reportedVersion: "2.1.0 (Claude Code)",
-      validatedAt: 11,
+      configuration: {
+        agent: "claude",
+        enabled: true,
+        executablePath: "/users/linux-user/.local/bin/claude",
+        environment: {
+          ANTHROPIC_BASE_URL: "https://gateway.example.test",
+          ADMIN_API_URL: "https://admin.example.test",
+          OIDC_ISSUER_URL: "https://identity.example.test",
+          OIDC_CLIENT_ID: "claude-code",
+        },
+      },
+      updatedAt: 11,
     });
     await expect(store.resolvePersonalExecutionTarget(binding.agentId)).resolves.toMatchObject({
       revision: 2,
-      claudeCodeExecutablePath: "/users/linux-user/.local/bin/claude",
+      codingAgents: expect.arrayContaining([
+        expect.objectContaining({
+          agent: "claude",
+          enabled: true,
+          executablePath: "/users/linux-user/.local/bin/claude",
+        }),
+      ]),
     });
     await expect(store.getPersonalExecutionSettings(binding.agentId)).resolves.toMatchObject({
       targetRevision: 2,
-      claudeCode: {
-        executablePath: "/users/linux-user/.local/bin/claude",
-        reportedVersion: "2.1.0 (Claude Code)",
-        validatedAt: 11,
-      },
+      codingAgents: expect.arrayContaining([
+        {
+          hasSavedConfiguration: true,
+          configuration: {
+            agent: "claude",
+            enabled: true,
+            executablePath: "/users/linux-user/.local/bin/claude",
+            environment: expect.objectContaining({ OIDC_CLIENT_ID: "claude-code" }),
+          },
+        },
+      ]),
     });
 
     await store.updateVmHostExecutionEnvironment({

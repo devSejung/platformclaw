@@ -368,6 +368,66 @@ describe("Knox room execution target", () => {
 });
 
 describe("SQLite employee execution store", () => {
+  it("isolates personal Claude gateway settings for two accounts on one VM", async () => {
+    const store = createSqliteStore();
+    const { host } = await prepareVm(store);
+    const people = await Promise.all([
+      createActivePersonalAgent(store, "person.one"),
+      createActivePersonalAgent(store, "person.two"),
+    ]);
+    for (const [index, person] of people.entries()) {
+      await store.commitPersonalVmSelection({
+        actorUserId: person.user.id,
+        agentId: person.binding.agentId,
+        vmHostId: host.id,
+        linuxAccount: `person.${index + 1}`,
+        remoteHomeDir: `/home/person.${index + 1}`,
+        remoteWorkspaceDir: `/home/person.${index + 1}/workspace`,
+        credentialEnvelope: {
+          ciphertext: new Uint8Array([index + 1]),
+          nonce: new Uint8Array(12),
+          authTag: new Uint8Array(16),
+          keyId: `sha256:${String.fromCharCode(65 + index).repeat(43)}`,
+          formatVersion: 1,
+        },
+        committedAt: 5_000 + index,
+      });
+      const settings = await store.getPersonalExecutionSettings(person.binding.agentId);
+      await store.setPersonalCodingAgent({
+        actorUserId: person.user.id,
+        agentId: person.binding.agentId,
+        expectedRevision: settings?.targetRevision ?? -1,
+        configuration: {
+          agent: "claude",
+          enabled: true,
+          executablePath: `/home/person.${index + 1}/bin/claude`,
+          environment: {
+            ANTHROPIC_BASE_URL: `https://gateway-${index + 1}.example.test`,
+            ADMIN_API_URL: `https://admin-${index + 1}.example.test`,
+            OIDC_ISSUER_URL: `https://identity-${index + 1}.example.test`,
+            OIDC_CLIENT_ID: `claude-code-${index + 1}`,
+          },
+        },
+        updatedAt: 6_000 + index,
+      });
+    }
+
+    const saved = await Promise.all(
+      people.map((person) => store.getPersonalExecutionSettings(person.binding.agentId)),
+    );
+    expect(
+      saved.map((settings) => {
+        const claude = settings?.codingAgents.find(
+          (entry) => entry.configuration.agent === "claude",
+        );
+        return claude?.configuration.agent === "claude"
+          ? claude.configuration.environment.ANTHROPIC_BASE_URL
+          : undefined;
+      }),
+    ).toEqual(["https://gateway-1.example.test", "https://gateway-2.example.test"]);
+    store.close?.();
+  });
+
   it("supports self-service VM selection, replacement, release, and soft-disable lifecycle", async () => {
     const store = createSqliteStore();
     const { admin, endpoint, host } = await prepareVm(store);
@@ -393,6 +453,11 @@ describe("SQLite employee execution store", () => {
       adAccount: "person.one",
       linuxAccount: "custom-linux-user",
       targetAddress: "192.0.2.10",
+      codingAgents: [
+        { agent: "claude", enabled: false },
+        { agent: "codex", enabled: false },
+        { agent: "opencode", enabled: false },
+      ],
     });
     await expect(store.getVmAllocationForAgent(employee.binding.agentId)).resolves.toBeNull();
 
@@ -438,6 +503,11 @@ describe("SQLite employee execution store", () => {
         linuxAccount: "custom-linux-user",
         status: "ready",
       },
+      codingAgents: [
+        { hasSavedConfiguration: false, configuration: { agent: "claude", enabled: false } },
+        { hasSavedConfiguration: false, configuration: { agent: "codex", enabled: false } },
+        { hasSavedConfiguration: false, configuration: { agent: "opencode", enabled: false } },
+      ],
     });
     await expect(
       store.getUserSshCredentialMetadata({

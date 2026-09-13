@@ -192,6 +192,16 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: "@platformclaw/control-plane/coding-agent-contracts",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "platformclaw-control-plane",
+          "src",
+          "coding-agent-contracts.ts",
+        ),
+      },
+      {
         find: "@openclaw/qa-channel/api.js",
         replacement: path.join(repoRoot, "extensions", "qa-channel", "api.ts"),
       },
