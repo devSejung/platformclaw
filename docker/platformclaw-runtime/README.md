@@ -148,6 +148,12 @@ normal direct/provider path. Restart Gateway after changing them:
 ./platformclaw-compose --service-user platformclaw up -d --wait --force-recreate openclaw-gateway
 ```
 
+The packaged Gateway enables Claude user settings for ACP sessions so a personal
+`apiKeyHelper` and other Claude configuration are available to the VM process.
+This also includes that Linux account's configured Claude plugins. Recreate the
+Gateway container after updating the deployment bundle; restarting the existing
+container does not apply the Compose environment change.
+
 Public relay endpoints need no token. The client omits `x-token` when the
 matching `WEB_FETCH_RELAY_TOKEN` or `WEB_SEARCH_RELAY_TOKEN` process variable is
 absent. Do not put tokens in `deployment.env`; authenticated deployment must

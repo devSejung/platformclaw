@@ -398,9 +398,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => page.getByRole("heading", { name: "Choose where work runs" }).isVisible())
       .toBe(true);
-    const workLocationBox = await quickActions
-      .locator("platformclaw-execution-settings")
-      .boundingBox();
+    const workLocationBox = await quickActions.locator('[data-tour="work-location"]').boundingBox();
     expect(workLocationBox!.y).toBeGreaterThanOrEqual(previousTargetTop);
     await expect.poll(() => new URL(page.url()).pathname).toBe(homePath);
     await page.getByRole("button", { name: "Next" }).click();

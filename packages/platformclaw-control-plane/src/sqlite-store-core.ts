@@ -29,9 +29,9 @@ import {
   resolveEffectiveOrganizationAccess,
   resolveOrganizationAuthorization,
 } from "./organization-policy.js";
+import { migrateVmAllocationCodingAgentSchema } from "./sqlite-schema-coding-agents.js";
 import {
   ensureVmHostExecutionEnvironmentSchema,
-  ensureVmAllocationClaudeCodeSchema,
   initializeControlPlaneSchema,
 } from "./sqlite-schema.js";
 import type {
@@ -175,7 +175,6 @@ export abstract class SqliteControlPlaneStoreCore {
   protected readonly onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
   protected readonly resolvePersonalOrganizationMemorySource?: PersonalOrganizationMemorySourceResolver;
   private vmHostExecutionEnvironmentSchemaReady = false;
-  private vmAllocationClaudeCodeSchemaReady = false;
 
   constructor(options: SqliteControlPlaneStoreOptions) {
     const databaseDirectory = dirname(options.databasePath);
@@ -188,6 +187,7 @@ export abstract class SqliteControlPlaneStoreCore {
     }
     this.db = openNodeSqliteDatabase(options.databasePath);
     initializeControlPlaneSchema(this.db, options.databasePath);
+    migrateVmAllocationCodingAgentSchema(this.db);
     if (process.platform !== "win32") {
       for (const path of [
         options.databasePath,
@@ -233,14 +233,6 @@ export abstract class SqliteControlPlaneStoreCore {
     }
     ensureVmHostExecutionEnvironmentSchema(this.db);
     this.vmHostExecutionEnvironmentSchemaReady = true;
-  }
-
-  protected ensureVmAllocationClaudeCodeSchema(): void {
-    if (this.vmAllocationClaudeCodeSchemaReady) {
-      return;
-    }
-    ensureVmAllocationClaudeCodeSchema(this.db);
-    this.vmAllocationClaudeCodeSchemaReady = true;
   }
 
   close(): void {

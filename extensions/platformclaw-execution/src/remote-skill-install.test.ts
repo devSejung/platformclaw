@@ -42,6 +42,7 @@ const target: AssignedVmTargetSnapshot = {
   hostKeyAlgorithm: "ssh-ed25519",
   hostKeyPublicKey: "AAAA-test",
   hostKeyFingerprint: "SHA256:test",
+  codingAgents: [],
 };
 
 function fixture() {

@@ -24,8 +24,10 @@ suite.define(() => {
   it("expands child sessions inline and opens a child chat", async () => {
     const baseTime = Date.parse("2026-07-01T16:00:00.000Z");
     const parentKey = "agent:main:release-plan";
-    const childOneKey = "agent:main:research-sources";
-    const childTwoKey = "agent:main:verify-tests";
+    const childOneKey = "agent:main:subagent:11111111-1111-4111-8111-111111111111";
+    const childTwoKey = "agent:main:dashboard:22222222-2222-4222-8222-222222222222";
+    const dashboardLabel =
+      "Verify tests and review every release prerequisite across the complete validation matrix";
     const staleRunningChildKey = "agent:main:stale-running";
     const failedChildKey = "agent:main:failed-checks";
     const context = await suite.browser.newContext({
@@ -48,12 +50,15 @@ suite.define(() => {
                   startedAt: baseTime - 61_000,
                   status: "running",
                 }),
-                sessionRow(childTwoKey, "Verify tests", baseTime - 2_000, {
-                  endedAt: baseTime - 2_000,
-                  spawnedBy: parentKey,
-                  startedAt: baseTime - 62_000,
-                  status: "done",
-                }),
+                {
+                  ...sessionRow(childTwoKey, dashboardLabel, baseTime - 2_000, {
+                    endedAt: baseTime - 2_000,
+                    spawnedBy: parentKey,
+                    startedAt: baseTime - 62_000,
+                    status: "done",
+                  }),
+                  spawnDepth: 1,
+                },
                 {
                   ...sessionRow(staleRunningChildKey, "Stale activity", baseTime - 3_000, {
                     hasActiveRun: false,
@@ -100,7 +105,7 @@ suite.define(() => {
 
       await parent.getByRole("button", { name: "Show 4 child threads for Plan release" }).click();
       await page.getByText("Research sources", { exact: true }).waitFor({ state: "visible" });
-      await page.getByText("Verify tests", { exact: true }).waitFor({ state: "visible" });
+      await page.getByText(dashboardLabel, { exact: true }).waitFor({ state: "visible" });
       await page.getByText("Stale activity", { exact: true }).waitFor({ state: "visible" });
       await page.getByText("Failed checks", { exact: true }).waitFor({ state: "visible" });
       await expect
@@ -116,6 +121,35 @@ suite.define(() => {
       expect(await childRows.getByRole("button", { name: "Open thread menu" }).count()).toBe(0);
       await childRows.nth(0).getByRole("img", { name: "Active run" }).waitFor();
       await childRows.nth(1).getByRole("img", { name: "Done" }).waitFor();
+      const subagent = page.locator(`[data-session-key="${childOneKey}"]`);
+      const dashboardTask = page.locator(`[data-session-key="${childTwoKey}"]`);
+      const subagentBadge = subagent.getByRole("img", { name: "Sub-agent", exact: true });
+      const dashboardBadge = dashboardTask.getByRole("img", {
+        name: "Dashboard task",
+        exact: true,
+      });
+      for (const badge of [subagentBadge, dashboardBadge]) {
+        await badge.waitFor({ state: "visible" });
+        expect(await badge.getAttribute("tabindex")).toBeNull();
+        const size = await badge.locator("svg").evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return { width: rect.width, height: rect.height };
+        });
+        expect(size).toEqual({ width: 12, height: 12 });
+      }
+      expect(await subagentBadge.locator("svg rect").count()).toBe(1);
+      expect(await dashboardBadge.locator("svg rect").count()).toBe(4);
+      expect(await parent.locator(".session-row-badge--dashboard-task").count()).toBe(0);
+      for (const row of [subagent, dashboardTask]) {
+        expect(await row.evaluate((element) => element.getBoundingClientRect().height)).toBe(30);
+      }
+      const titleLayout = await dashboardTask
+        .locator(".sidebar-recent-session__name")
+        .evaluate((element) => ({
+          overflow: getComputedStyle(element).textOverflow,
+          clipped: element.scrollWidth > element.clientWidth,
+        }));
+      expect(titleLayout).toEqual({ overflow: "ellipsis", clipped: true });
 
       const staleRunningChild = page.locator(`[data-session-key="${staleRunningChildKey}"]`);
       const failedChild = page.locator(`[data-session-key="${failedChildKey}"]`);
@@ -135,7 +169,15 @@ suite.define(() => {
       await captureUiProof(page, "child-sessions-expanded.png");
       await captureUiProof(page, "child-sessions-run-state-precedence.png");
 
-      await childRows.nth(1).getByRole("link").click();
+      await childToggle.click();
+      await expect.poll(() => childRows.count()).toBe(0);
+      await childToggle.click();
+      await expect.poll(() => childRows.count()).toBe(4);
+
+      await subagentBadge.click();
+      await expect.poll(() => new URL(page.url()).pathname).toBe(controlUiSessionPath(childOneKey));
+      await dashboardTask.getByRole("link").focus();
+      await page.keyboard.press("Enter");
       await expect.poll(() => new URL(page.url()).pathname).toBe(controlUiSessionPath(childTwoKey));
     } finally {
       await context.close();

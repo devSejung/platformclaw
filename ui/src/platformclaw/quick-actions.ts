@@ -7,7 +7,6 @@ import { icons } from "../components/icons.ts";
 import { isTerminalAvailable } from "../lib/terminal-availability.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
-import "./execution-settings.ts";
 import {
   loadPlatformClawLocale,
   platformClawGuideT as guideT,
@@ -60,6 +59,8 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   @state() private guideLoading = false;
   @state() private guideMoving = false;
   @state() private mobileNavLayout = false;
+  @state() private executionSettingsLoaded = false;
+  @state() private executionTarget: "platform_server" | "assigned_vm" | null = null;
   @state() private vocOpen = false;
   @state() private tourIndex: number | null = null;
   @state() private tourHighlightStyle = "";
@@ -67,6 +68,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   @state() private tourShadeStyles: string[] = [];
 
   private automaticLaunchAttempted = false;
+  private executionSettingsSnapshot: unknown;
   private initialized = false;
   private mobileNavMediaQuery: MediaQueryList | null = null;
   private readonly subscriptions = new SubscriptionsController(this).watch(
@@ -140,6 +142,13 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         height: 16px;
         flex: none;
       }
+      .execution-dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: var(--radius-full);
+        background: var(--ok);
+      }
       .label {
         overflow: hidden;
         text-overflow: ellipsis;
@@ -182,6 +191,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     if (!this.isConnected) {
       return;
     }
+    await this.loadExecutionTarget();
     const restored = await this.restoreActiveTourStep();
     this.initialized = true;
     if (restored) {
@@ -189,6 +199,46 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     }
     this.requestUpdate();
     await this.launchTour("automatic");
+  }
+
+  private async loadExecutionTarget(): Promise<void> {
+    try {
+      const response = await this.fetchImpl("/platformclaw/api/execution", {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      if (response.status === 401) {
+        this.onUnauthenticated();
+        return;
+      }
+      if (!response.ok) {
+        return;
+      }
+      const settings = (await response.json()) as { activeTarget?: unknown };
+      if (settings.activeTarget === "platform_server" || settings.activeTarget === "assigned_vm") {
+        this.executionSettingsSnapshot = settings;
+        this.executionTarget = settings.activeTarget;
+      }
+    } catch {
+      // The launcher remains usable; the full view reports actionable errors when opened.
+    }
+  }
+
+  private async openExecutionSettings(): Promise<void> {
+    if (!this.executionSettingsLoaded) {
+      await import("./execution-settings.ts");
+      if (!this.isConnected) {
+        return;
+      }
+      this.executionSettingsLoaded = true;
+      await this.updateComplete;
+    }
+    const settings = this.renderRoot.querySelector<
+      HTMLElement & { initialSettings?: unknown; openSettings: () => void }
+    >("platformclaw-execution-settings");
+    if (settings) {
+      settings.openSettings();
+    }
   }
 
   private async restoreActiveTourStep(): Promise<boolean> {
@@ -615,12 +665,32 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
             >
               ${icons.book}<span class="label">${t("platformClaw.quickActions.guide")}</span>
             </button>`}
-        <platformclaw-execution-settings
-          class=${this.admin ? "" : "span-two"}
-          data-tour="work-location"
-          .fetchImpl=${this.fetchImpl}
-          .onUnauthenticated=${this.onUnauthenticated}
-        ></platformclaw-execution-settings>
+        ${this.executionSettingsLoaded
+          ? html`<platformclaw-execution-settings
+              class=${this.admin ? "" : "span-two"}
+              data-tour="work-location"
+              .fetchImpl=${this.fetchImpl}
+              .onUnauthenticated=${this.onUnauthenticated}
+              .initialSettings=${this.executionSettingsSnapshot}
+            ></platformclaw-execution-settings>`
+          : html`<button
+              class="action ${this.admin ? "" : "span-two"}"
+              type="button"
+              data-tour="work-location"
+              @click=${() => void this.openExecutionSettings()}
+              aria-label=${t("platformClaw.execution.openSettings")}
+            >
+              <span class="execution-dot" aria-hidden="true"></span>
+              <span class="label"
+                >${t(
+                  this.executionTarget === "assigned_vm"
+                    ? "platformClaw.execution.vm"
+                    : this.executionTarget === "platform_server"
+                      ? "platformClaw.execution.basic"
+                      : "platformClaw.execution.workLocation",
+                )}</span
+              >
+            </button>`}
         ${this.admin
           ? html`<platformclaw-vm-administration
               data-tour="vm-admin"

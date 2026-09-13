@@ -10,6 +10,7 @@ on:
       - docker/platformclaw-runtime/**
       - extensions/platformclaw-execution/**
       - extensions/platformclaw-user-mcp/**
+      - packages/platformclaw-coding-agent-contract/**
       - packages/platformclaw-control-plane/**
       - scripts/e2e/fixtures/platformclaw-login.json
       - scripts/e2e/platformclaw-runtime-docker.sh
@@ -25,6 +26,7 @@ on:
       - docker/platformclaw-runtime/**
       - extensions/platformclaw-execution/**
       - extensions/platformclaw-user-mcp/**
+      - packages/platformclaw-coding-agent-contract/**
       - packages/platformclaw-control-plane/**
       - scripts/e2e/fixtures/platformclaw-login.json
       - scripts/e2e/platformclaw-runtime-docker.sh

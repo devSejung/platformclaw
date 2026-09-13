@@ -80,6 +80,21 @@ const targets: PlatformClawExecutionTargetSnapshot[] = [
     hostKeyAlgorithm: "ssh-ed25519",
     hostKeyPublicKey: "AAAA-test",
     hostKeyFingerprint: "SHA256:test",
+    codingAgents: [
+      {
+        agent: "claude",
+        enabled: false,
+        executablePath: "",
+        environment: {
+          ANTHROPIC_BASE_URL: "",
+          ADMIN_API_URL: "",
+          OIDC_ISSUER_URL: "",
+          OIDC_CLIENT_ID: "",
+        },
+      },
+      { agent: "codex", enabled: false, executablePath: "" },
+      { agent: "opencode", enabled: false, executablePath: "" },
+    ],
   },
 ];
 

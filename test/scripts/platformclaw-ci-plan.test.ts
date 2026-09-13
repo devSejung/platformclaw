@@ -113,6 +113,16 @@ describe("classifyPlatformClawChanges", () => {
     expect(plan.needs_changed_surface_checks).toBe(true);
   });
 
+  it("classifies the shared coding-agent contract as an overlay package", () => {
+    const plan = classifyPlatformClawChanges([
+      "packages/platformclaw-coding-agent-contract/src/index.ts",
+    ]);
+
+    expect(plan.mode).toBe("platformclaw");
+    expect(plan.needs_package_checks).toBe(true);
+    expect(plan.needs_changed_surface_checks).toBe(false);
+  });
+
   it("keeps focused and upstream checks for mixed changes", () => {
     const plan = classifyPlatformClawChanges([
       "packages/platformclaw-control-plane/src/index.ts",

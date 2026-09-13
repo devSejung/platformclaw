@@ -183,27 +183,59 @@ configuration.
 
 ## Configure each employee account
 
-Sign in as the employee, open **Settings > Work location**, and select a ready
-development VM. Under **Coding agents**:
+Sign in as the employee, open **Settings**, then open **Work environment
+settings** from the current work-location badge. Select a ready development VM,
+open the **Coding agents** tab, and expand an agent's **Settings** card:
 
-1. Choose **Detect Claude Code** to use `claude` from that Linux account's
-   `PATH`.
-2. If detection does not find it, enter its absolute path, such as
-   `/home/alice/.local/bin/claude`, and save.
-3. Confirm that the detected version appears in the UI.
+1. In that VM account, complete `gateway-cli` login and export
+   `ANTHROPIC_BASE_URL`, `ADMIN_API_URL`, `OIDC_ISSUER_URL`, and
+   `OIDC_CLIENT_ID` from the account's shell startup file. Use the values issued
+   by your administrator; PlatformClaw does not supply or guess the URLs.
+2. Choose **Detect** on each agent card. Detection reads the account's login,
+   interactive shell and returns an editable draft; it does not save or change
+   the shell configuration.
+3. If detection does not find an executable, enter its stable absolute path,
+   such as `/home/alice/.local/bin/claude`.
+4. Set the agent toggle to the intended enabled state, choose **Save**, then
+   choose **Check**. The check starts the real ACP adapter and sends a small
+   validation prompt, so it uses provider tokens.
 
-PlatformClaw resolves symlinks on the VM, verifies that the file is executable,
-runs `--version`, and stores the canonical path against that employee's current
-VM allocation. Changing the allocation, credential, work location, or Claude
-path invalidates existing ACP SSH processes. A stale ACP session never falls
-back to the Gateway host or Basic workspace.
+PlatformClaw preserves the detected command path rather than replacing a
+symlink with its versioned target. Enabling and disabling Claude, Codex, and
+OpenCode is independent. A disabled agent rejects new ACP sessions; saved
+configuration remains, and an already-running ACP process is not terminated.
+The setting governs newly admitted execution; it does not promise that a later
+follow-up requiring new admission will survive a configuration revision.
 
 The Claude adapter receives the selected path as `CLAUDE_CODE_EXECUTABLE`. It
 runs with the employee's `HOME`, `PATH`, workspace, and authenticated Claude
-state. Codex and OpenCode use the same employee home and workspace and do not
-need a separate executable-path setting. Their cards provide **Check VM
-installation**, which runs the managed executable version check in the assigned
-account. This does not verify provider authentication or model access.
+state. Only Claude receives the four gateway environment values. Codex uses its
+configured executable through the adapter's `CODEX_PATH` contract; OpenCode
+runs its configured executable with `acp`. Neither receives Claude gateway or
+OIDC environment values. All three checks use the same Linux account, `HOME`,
+workspace, executable, and environment as a real ACP launch and require the
+expected ACP validation response.
+
+The packaged Gateway sets `ACPX_CLAUDE_INCLUDE_USER_SETTINGS=1`. This includes
+the account's global Claude settings, including configured plugins, in ACP
+sessions. After updating an older deployment bundle, recreate the Gateway
+container; a restart alone does not apply the Compose environment change.
+
+For an upgrade, install the updated deployment bundle and recreate
+`openclaw-gateway`; the existing root-owned shared adapter bundle remains a
+prerequisite and does not require a new per-user installation. Existing complete
+Claude registrations and disabled incomplete drafts are retained. Remove older
+VM-wide test values only when the operator has confirmed they are no longer used
+by another workflow. The helper configuration and cached login stay in the
+employee's VM home. If that credential expires, sign in again as that employee;
+PlatformClaw never runs the company login command or edits Claude settings.
+
+Review all four detected values as literal values before saving: shell assignment
+quotes are not part of the value and must not be copied into the form. A skipped helper stage means
+the adapter did not expose separate evidence of `apiKeyHelper` invocation; it is
+not itself a failure when the authenticated ACP validation succeeds. That
+one-shot success proves the request/response path only. It does not establish
+persistent sessions, browser streaming, resume, or later turns.
 
 Open the VM terminal as the employee and authenticate the selected agent:
 
@@ -223,8 +255,8 @@ From the employee's personal browser chat, run `/acp doctor claude`, `/acp docto
 codex`, and `/acp doctor opencode`. The transport diagnostic checks that employee's assigned VM,
 SSH route, fixed adapter path, and (for Claude) configured executable. It never
 probes or installs an adapter on the Gateway host. A `ready` result covers launch
-prerequisites; coding-agent authentication and ACP initialization are validated
-when the employee starts a session. `/acp doctor` uses `acp.defaultAgent` when
+prerequisites. Use the Coding agents **Check** action for the authenticated ACP
+request/response test. `/acp doctor` uses `acp.defaultAgent` when
 configured, otherwise it asks for an agent name instead of guessing.
 
 From a chat owned by that employee's personal agent, ask it to start one ACP run
@@ -235,7 +267,7 @@ that employee's VM account.
 
 ## Troubleshoot failures
 
-- **Claude Code was not found:** save its canonical absolute executable path in
+- **Claude Code was not found:** save its stable absolute executable path in
   **Coding agents**. Shell aliases and functions are not executable paths.
 - **Claude Code is not executable:** fix file ownership or execute permission in
   the employee account, then detect it again.

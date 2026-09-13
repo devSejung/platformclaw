@@ -112,6 +112,7 @@ COPY --from=openclaw-runtime --chown=1000:1000 /app/skills ./skills
 COPY --from=openclaw-runtime --chown=1000:1000 /app/docs ./docs
 COPY --from=openclaw-runtime --chown=1000:1000 /app/qa ./qa
 COPY --from=platformclaw-control-assets --chown=1000:1000 /app/packages/platformclaw-control-plane ./packages/platformclaw-control-plane
+COPY --from=platformclaw-control-assets --chown=1000:1000 /app/packages/platformclaw-coding-agent-contract ./packages/platformclaw-coding-agent-contract
 COPY --from=platformclaw-control-assets --chown=1000:1000 /app/ui/dist ./ui/dist
 COPY --chown=root:root docker/platformclaw-runtime/openclaw.initial.json /etc/platformclaw/openclaw.initial.json
 COPY --chown=root:root docker/platformclaw-runtime/reconcile-managed-config.mjs /etc/platformclaw/reconcile-managed-config.mjs
@@ -119,6 +120,16 @@ COPY --chown=root:root docker/platformclaw-runtime/validate-managed-config.mjs /
 COPY --chown=root:root docker/platformclaw-runtime/platformclaw-gateway /usr/local/bin/platformclaw-gateway
 COPY --chown=root:root docker/platformclaw-runtime/platformclaw-runtime-entrypoint /usr/local/bin/platformclaw-runtime-entrypoint
 COPY --chown=root:root docker/platformclaw-runtime/migrate-workspaces /usr/local/bin/platformclaw-migrate-workspaces
+
+# Runtime pruning removes plugin-local workspace links. Recreate the one private
+# package edge only after its standalone artifact is present in the final image.
+RUN test ! -e /app/node_modules/@platformclaw/coding-agent-contract && \
+    test ! -L /app/node_modules/@platformclaw/coding-agent-contract && \
+    test -f /app/packages/platformclaw-coding-agent-contract/dist/index.mjs && \
+    install -d -m 0755 -o node -g node /app/node_modules/@platformclaw && \
+    ln -s ../../packages/platformclaw-coding-agent-contract \
+      /app/node_modules/@platformclaw/coding-agent-contract && \
+    chown -h node:node /app/node_modules/@platformclaw/coding-agent-contract
 
 # WORKDIR creates the app root before COPY --chown can set child ownership.
 # Fix only the parent directories; the final assertion below protects the full trees.

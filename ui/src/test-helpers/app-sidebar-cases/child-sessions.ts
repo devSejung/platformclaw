@@ -13,6 +13,8 @@ import "../../components/app-sidebar.ts";
 
 describe("AppSidebar agent chip", () => {
   it("loads and expands child sessions inline without root session controls", async () => {
+    const subagentKey = "agent:main:subagent:11111111-1111-4111-8111-111111111111";
+    const dashboardKey = "agent:main:dashboard:22222222-2222-4222-8222-222222222222";
     const gateway = createGateway({} as GatewayBrowserClient);
     const harness = createSessionsHarness("main", ["agent:main:parent"]);
     harness.list.mockResolvedValue({
@@ -22,7 +24,7 @@ describe("AppSidebar agent chip", () => {
       defaults: { modelProvider: null, model: null, contextTokens: null },
       sessions: [
         {
-          key: "agent:main:child-one",
+          key: subagentKey,
           spawnedBy: "agent:main:parent",
           kind: "direct",
           label: "Research sources",
@@ -33,7 +35,8 @@ describe("AppSidebar agent chip", () => {
           runtimeMs: 30_000,
         },
         {
-          key: "agent:main:child-two",
+          key: dashboardKey,
+          spawnDepth: 1,
           spawnedBy: "agent:main:parent",
           kind: "direct",
           label: "Check tests",
@@ -57,7 +60,7 @@ describe("AppSidebar agent chip", () => {
             kind: "direct",
             label: "Plan release",
             updatedAt: 1,
-            childSessions: ["agent:main:child-one", "agent:main:child-two"],
+            childSessions: [subagentKey, dashboardKey],
           },
         ],
       },
@@ -88,14 +91,17 @@ describe("AppSidebar agent chip", () => {
       expect.stringContaining("Check tests"),
     ]);
     expect(childRows.every((row) => row.getAttribute("draggable") === "false")).toBe(true);
-    expect(childRows.every((row) => row.querySelector(".session-row-actions") === null)).toBe(true);
-    expect(childRows.every((row) => row.querySelector(".session-row-state") === null)).toBe(true);
+    expect(childRows.every((row) => !row.querySelector(".session-row-actions"))).toBe(true);
+    expect(childRows.every((row) => !row.querySelector(".session-row-state"))).toBe(true);
     expect(childRows.every((row) => row.querySelector(".sidebar-session-indicator") !== null)).toBe(
       true,
     );
     expect(sidebar.querySelector('[aria-label="Done"]')).not.toBeNull();
+    expect(
+      childRows.map((row) => row.querySelector(".session-row-badge")?.getAttribute("aria-label")),
+    ).toEqual(["Sub-agent", "Dashboard task"]);
     const runtimeStartMs = (
-      sidebar.querySelector('[data-session-key="agent:main:child-one"] openclaw-elapsed-time') as
+      sidebar.querySelector(`[data-session-key="${subagentKey}"] openclaw-elapsed-time`) as
         | (HTMLElement & { startMs: number })
         | null
     )?.startMs;
@@ -112,7 +118,7 @@ describe("AppSidebar agent chip", () => {
       defaults: { modelProvider: null, model: null, contextTokens: null },
       sessions: [
         {
-          key: "agent:main:child-one",
+          key: subagentKey,
           spawnedBy: "agent:main:parent",
           kind: "direct",
           label: "Research sources",
@@ -123,7 +129,8 @@ describe("AppSidebar agent chip", () => {
           runtimeMs: 60_000,
         },
         {
-          key: "agent:main:child-two",
+          key: dashboardKey,
+          spawnDepth: 1,
           spawnedBy: "agent:main:parent",
           kind: "direct",
           label: "Check tests",
@@ -147,7 +154,7 @@ describe("AppSidebar agent chip", () => {
             kind: "direct",
             label: "Plan release",
             updatedAt: 4,
-            childSessions: ["agent:main:child-one"],
+            childSessions: [subagentKey],
           },
         ],
       },
@@ -155,7 +162,7 @@ describe("AppSidebar agent chip", () => {
     await waitForFast(() => expect(harness.list).toHaveBeenCalledTimes(2));
     await waitForFast(() =>
       expect(
-        sidebar.querySelector('[data-session-key="agent:main:child-one"] [aria-label="Done"]'),
+        sidebar.querySelector(`[data-session-key="${subagentKey}"] [aria-label="Done"]`),
       ).not.toBeNull(),
     );
   });

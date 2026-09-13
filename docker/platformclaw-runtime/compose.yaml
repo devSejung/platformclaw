@@ -27,6 +27,7 @@ services:
       platformclaw-state-init:
         condition: service_completed_successfully
     environment:
+      ACPX_CLAUDE_INCLUDE_USER_SETTINGS: "1"
       DOCKER_HOST: unix:///run/platformclaw-sandbox-docker/docker.sock
       HOME: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home
       OPENCLAW_STATE_DIR: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/gateway-home/.openclaw

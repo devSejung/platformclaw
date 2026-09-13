@@ -16,6 +16,7 @@ const node = process.execPath;
 const oxfmt = resolve(repoRoot, "node_modules", "oxfmt", "bin", "oxfmt");
 
 const FORMAT_PATHS = [
+  "packages/platformclaw-coding-agent-contract",
   "packages/platformclaw-control-plane",
   "extensions/admin-http-rpc",
   "extensions/knox",
@@ -59,6 +60,7 @@ const SURFACE_COMMANDS = {
       "scripts/run-oxlint.mjs",
       "--tsconfig",
       "config/tsconfig/oxlint.core.json",
+      "packages/platformclaw-coding-agent-contract/src",
       "packages/platformclaw-control-plane/src",
     ]),
     command("typecheck control plane", node, [
@@ -69,7 +71,14 @@ const SURFACE_COMMANDS = {
     ]),
     command("test control plane", node, [
       "scripts/run-vitest.mjs",
+      "packages/platformclaw-coding-agent-contract/src",
       "packages/platformclaw-control-plane/src",
+    ]),
+    command("build coding agent contract", "corepack", [
+      "pnpm",
+      "--dir",
+      "packages/platformclaw-coding-agent-contract",
+      "build",
     ]),
     command("build control plane", "corepack", [
       "pnpm",
@@ -133,7 +142,11 @@ const SURFACE_COMMANDS = {
   ],
 };
 
-const QUICK_SKIP_LABELS = new Set(["build control plane", "build UI"]);
+const QUICK_SKIP_LABELS = new Set([
+  "build coding agent contract",
+  "build control plane",
+  "build UI",
+]);
 
 export function createPlatformClawCheckCommands(surfaces, options = {}) {
   const selected = [...new Set(surfaces)];

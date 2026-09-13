@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import * as agentScope from "./agent-scope-config.js";
 import * as authProfiles from "./auth-profiles/store.js";
-import { prepareProviderConfigCompletionModel } from "./simple-completion-runtime.js";
+import { prepareProviderConfigCompletionModel } from "./provider-config-completion-runtime.js";
 
 const config = (): OpenClawConfig => ({
   agents: { entries: { employee: { default: true } }, defaults: { model: "company/dt-fixture" } },
@@ -58,9 +58,16 @@ describe("provider-config completion credential boundary", () => {
     "fails closed for %s",
     (fault) => {
       const cfg = config();
-      const provider = cfg.models!.providers!.company;
-      if (fault === "missing") delete provider.apiKey;
-      if (fault === "implicit-env") provider.apiKey = "OPENAI_API_KEY";
+      const provider = cfg.models?.providers?.company;
+      if (!provider) {
+        throw new Error("fixture provider is missing");
+      }
+      if (fault === "missing") {
+        delete provider.apiKey;
+      }
+      if (fault === "implicit-env") {
+        provider.apiKey = "OPENAI_API_KEY";
+      }
       if (fault === "profile-reference") {
         provider.apiKey = "employee-profile";
         cfg.auth = { profiles: { "employee-profile": { provider: "company", mode: "api_key" } } };

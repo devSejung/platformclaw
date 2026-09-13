@@ -30,6 +30,7 @@ describe("PlatformClaw shared checks", () => {
     expect(labels).toContain("typecheck control plane");
     expect(labels).toContain("test control plane");
     expect(labels).toContain("typecheck UI");
+    expect(labels).not.toContain("build coding agent contract");
     expect(labels).not.toContain("build control plane");
     expect(labels).not.toContain("build UI");
   });
@@ -41,6 +42,17 @@ describe("PlatformClaw shared checks", () => {
     ]);
 
     expect(surfacesForPlan(plan)).toEqual(["control-plane", "admin-http-rpc"]);
+  });
+
+  it("routes the shared coding-agent contract through control-plane checks", () => {
+    const plan = classifyPlatformClawChanges([
+      "packages/platformclaw-coding-agent-contract/src/index.ts",
+    ]);
+
+    expect(surfacesForPlan(plan)).toEqual(["control-plane"]);
+    expect(
+      createPlatformClawCheckCommands(["control-plane"]).map((entry) => entry.label),
+    ).toContain("build coding agent contract");
   });
 
   it("selects Knox channel checks", () => {
