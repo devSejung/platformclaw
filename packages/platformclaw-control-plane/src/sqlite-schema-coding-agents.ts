@@ -4,7 +4,7 @@ import {
   emptyCodingAgentConfiguration,
   parseCodingAgentConfiguration,
   type ClaudeGatewayEnvironment,
-} from "./coding-agent-contracts.js";
+} from "@platformclaw/coding-agent-contract";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS control_plane_feature_migrations (
@@ -88,7 +88,7 @@ function migratedEnvironment(row: LegacyRow): ClaudeGatewayEnvironment {
 
 function migratedConfiguration(
   row: LegacyRow,
-): import("./coding-agent-contracts.js").ClaudeCodingAgentConfiguration {
+): import("@platformclaw/coding-agent-contract").ClaudeCodingAgentConfiguration {
   const environment = migratedEnvironment(row);
   try {
     const configuration = parseCodingAgentConfiguration({

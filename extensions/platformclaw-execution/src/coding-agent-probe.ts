@@ -13,7 +13,7 @@ import {
   type CodingAgentConfiguration,
   type CodingAgentId,
   type CodingAgentProbeResult,
-} from "@platformclaw/control-plane/coding-agent-contracts";
+} from "@platformclaw/coding-agent-contract";
 import type { AcpProcessTransportLaunch } from "openclaw/plugin-sdk/acp-runtime-backend";
 import {
   buildRemoteCommand,
@@ -287,7 +287,11 @@ export async function checkAssignedVmCodingAgent(params: {
       }),
       ndJsonStream(
         Writable.toWeb(child.stdin),
-        Readable.toWeb(boundReadable(child.stdout, 1024 * 1024)),
+        // Node and DOM publish distinct structural stream declarations even though
+        // this adapter produces the byte stream required by ACP.
+        Readable.toWeb(boundReadable(child.stdout, 1024 * 1024)) as unknown as ReadableStream<
+          Uint8Array
+        >,
       ),
     );
     const expectedResponse = `ACP_OK_${randomBytes(12).toString("hex")}`;

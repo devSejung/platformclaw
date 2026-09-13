@@ -4,7 +4,7 @@ import {
   type CodingAgentConfiguration,
   type CodingAgentId,
   type CodingAgentVmProbeResult,
-} from "@platformclaw/control-plane/coding-agent-contracts";
+} from "@platformclaw/coding-agent-contract";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { PlatformClawExecutionTargetSnapshot } from "./backend.js";
 import { classifyVmConnectionFailure } from "./connection-errors.js";

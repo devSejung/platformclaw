@@ -129,7 +129,7 @@ describe("PlatformClaw execution backend", () => {
         { agent: "codex", enabled: true, executablePath: "/home/one/bin/codex" },
         { agent: "opencode", enabled: true, executablePath: "/home/one/bin/opencode" },
       ],
-    } as PlatformClawExecutionTargetSnapshot & { kind: "assigned_vm" };
+    } satisfies Parameters<typeof buildAssignedVmProcessEnvironment>[0];
     expect(buildAssignedVmProcessEnvironment(target)).not.toHaveProperty("ANTHROPIC_BASE_URL");
     expect(buildAssignedVmProcessEnvironment(target, "codex")).toMatchObject({
       CODEX_PATH: "/home/one/bin/codex",

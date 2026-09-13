@@ -3,7 +3,6 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
   entry: [
     "src/index.ts",
-    "src/coding-agent-contracts.ts",
     "src/admin-main.ts",
     "src/server-main.ts",
     "src/sshpass-main.ts",

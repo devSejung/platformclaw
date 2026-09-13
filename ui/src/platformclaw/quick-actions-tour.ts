@@ -267,7 +267,7 @@ export function buildPlatformClawTourSteps(
       id: "work-location",
       title: guideT("platformClaw.guide.workLocationTitle"),
       body: guideT("platformClaw.guide.workLocationBody"),
-      element: () => actions.tourElement("platformclaw-execution-settings", '[data-action="open"]'),
+      element: () => actions.tourElement('[data-tour="work-location"]', '[data-action="open"]'),
       activate: actions.openSidebar,
     },
     ...terminalSteps,

@@ -1,4 +1,4 @@
-import type { CodingAgentId } from "@platformclaw/control-plane/coding-agent-contracts";
+import type { CodingAgentId } from "@platformclaw/coding-agent-contract";
 import { platformClawT as t } from "./i18n.ts";
 
 export type ClaudeEnvironmentKey =

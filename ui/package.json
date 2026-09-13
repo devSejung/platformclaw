@@ -29,6 +29,7 @@
     "@openclaw/session-url-contract": "workspace:*",
     "@openclaw/uirouter": "0.1.0",
     "@openclaw/workboard-contract": "workspace:*",
+    "@platformclaw/coding-agent-contract": "workspace:*",
     "@tanstack/lit-virtual": "3.13.35",
     "@tanstack/virtual-core": "3.17.6",
     "dompurify": "3.4.12",

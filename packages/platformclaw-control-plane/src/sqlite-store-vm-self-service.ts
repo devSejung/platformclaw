@@ -1,4 +1,4 @@
-import { emptyCodingAgentConfigurations } from "./coding-agent-contracts.js";
+import { emptyCodingAgentConfigurations } from "@platformclaw/coding-agent-contract";
 import { ControlPlaneConflictError, ControlPlaneStateError } from "./contracts.js";
 import type {
   AssignedVmConnectionTarget,

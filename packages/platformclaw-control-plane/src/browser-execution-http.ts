@@ -7,7 +7,7 @@ import {
   type CodingAgentConfiguration,
   type CodingAgentId,
   type CodingAgentProbeResult,
-} from "./coding-agent-contracts.js";
+} from "@platformclaw/coding-agent-contract";
 import { ControlPlaneConflictError, type ControlPlaneStore } from "./contracts.js";
 import type {
   ControlPlaneAtomicVmCredentialStore,

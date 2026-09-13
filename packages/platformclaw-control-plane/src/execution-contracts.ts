@@ -17,12 +17,12 @@ export type {
   CodingAgentVmProbeResult,
   PersonalCodingAgentSettings,
   PlainCodingAgentConfiguration,
-} from "./coding-agent-contracts.js";
+} from "@platformclaw/coding-agent-contract";
 import type {
   CodingAgentCheckSnapshot,
   CodingAgentConfiguration,
   PersonalCodingAgentSettings,
-} from "./coding-agent-contracts.js";
+} from "@platformclaw/coding-agent-contract";
 
 export type SafeConnectEndpoint = {
   id: string;

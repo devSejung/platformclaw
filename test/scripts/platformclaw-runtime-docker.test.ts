@@ -1127,16 +1127,27 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(buildConfig).toContain("dts: { neverBundle: [/^@openclaw\\//u] }");
   });
 
-  it("smokes the coding-agent contract subpath from the final runtime image", () => {
+  it("builds and loads the coding-agent contract from the final runtime image", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
+    const assetsDockerfile = readRepoFile("docker/platformclaw-runtime/Dockerfile.assets");
     const dockerfile = readRepoFile("Dockerfile.jammy");
     expect(build).toContain(
-      "import('/app/packages/platformclaw-control-plane/dist/coding-agent-contracts.mjs')",
+      "import('/app/packages/platformclaw-coding-agent-contract/dist/index.mjs')",
     );
     expect(build).toContain("cd /app/extensions/platformclaw-execution");
-    expect(build).toContain("import('@platformclaw/control-plane/coding-agent-contracts')");
+    expect(build).toContain("import('@platformclaw/coding-agent-contract')");
+    expect(build).toContain("plugins inspect platformclaw-execution --runtime --json");
+    expect(assetsDockerfile).toContain(
+      "pnpm --dir packages/platformclaw-coding-agent-contract build",
+    );
+    expect(assetsDockerfile.indexOf("platformclaw-coding-agent-contract build")).toBeLessThan(
+      assetsDockerfile.indexOf("platformclaw-control-plane build"),
+    );
+    expect(assetsDockerfile).toContain("/app/packages/platformclaw-coding-agent-contract/dist");
+    expect(dockerfile).toContain("test ! -L /app/node_modules/@platformclaw/coding-agent-contract");
+    expect(dockerfile).toContain("ln -s ../../packages/platformclaw-coding-agent-contract");
     expect(dockerfile).toContain(
-      'test "$(readlink /app/node_modules/@platformclaw/control-plane)" =',
+      "test -f /app/packages/platformclaw-coding-agent-contract/dist/index.mjs",
     );
   });
 

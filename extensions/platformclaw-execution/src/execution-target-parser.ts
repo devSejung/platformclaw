@@ -1,5 +1,5 @@
 import path from "node:path";
-import { parseCodingAgentConfiguration } from "@platformclaw/control-plane/coding-agent-contracts";
+import { parseCodingAgentConfiguration } from "@platformclaw/coding-agent-contract";
 import type { PlatformClawExecutionTargetSnapshot } from "./backend.js";
 import { parseExecutionEnvironment, requireString } from "./execution-target-validation.js";
 

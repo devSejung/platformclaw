@@ -5,7 +5,7 @@ import type {
   CodingAgentConfiguration,
   CodingAgentId,
   CodingAgentVmProbeResult,
-} from "@platformclaw/control-plane/coding-agent-contracts";
+} from "@platformclaw/coding-agent-contract";
 import {
   createSshSandboxBackendWithSessionFactory,
   buildSshLoginShellArgv,

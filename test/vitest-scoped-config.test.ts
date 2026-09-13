@@ -193,16 +193,16 @@ describe("resolveVitestIsolation", () => {
     expect(
       findAlias(
         sharedVitestConfig.resolve.alias,
-        "@platformclaw/control-plane/coding-agent-contracts",
+        "@platformclaw/coding-agent-contract",
       ),
     ).toEqual({
-      find: "@platformclaw/control-plane/coding-agent-contracts",
+      find: "@platformclaw/coding-agent-contract",
       replacement: path.join(
         process.cwd(),
         "packages",
-        "platformclaw-control-plane",
+        "platformclaw-coding-agent-contract",
         "src",
-        "coding-agent-contracts.ts",
+        "index.ts",
       ),
     });
   });

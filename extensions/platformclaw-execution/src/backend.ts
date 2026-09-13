@@ -1,6 +1,6 @@
 import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
-import type { CodingAgentConfiguration } from "@platformclaw/control-plane/coding-agent-contracts";
+import type { CodingAgentConfiguration } from "@platformclaw/coding-agent-contract";
 import type {
   AcpProcessTransportDiagnostic,
   AcpProcessTransportLaunch,
@@ -277,8 +277,13 @@ function buildRuntimePromptContext(
 
 const VM_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
+type AssignedVmProcessEnvironmentTarget = Pick<
+  AssignedVmTargetSnapshot,
+  "codingAgents" | "executionEnvironment" | "remoteHomeDir"
+>;
+
 export function buildAssignedVmProcessEnvironment(
-  target: Readonly<AssignedVmTargetSnapshot>,
+  target: Readonly<AssignedVmProcessEnvironmentTarget>,
   agent?: string,
 ): Record<string, string> {
   const configured = target.executionEnvironment;

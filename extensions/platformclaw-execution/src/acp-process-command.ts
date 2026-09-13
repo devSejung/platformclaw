@@ -87,14 +87,3 @@ export function buildAssignedVmAcpDiagnosticCommand(
     env: buildAssignedVmProcessEnvironment(target, agent),
   });
 }
-
-export function buildAssignedVmCodingAgentVersionCommand(
-  agent: "codex" | "opencode",
-  target: Readonly<AssignedVmTargetSnapshot>,
-): string {
-  return buildExecRemoteCommand({
-    command: `exec ${buildRemoteCommand([remoteAgentArgv(agent, target)[0]!, "--version"])}`,
-    workdir: target.remoteWorkspaceDir,
-    env: buildAssignedVmProcessEnvironment(target, agent),
-  });
-}

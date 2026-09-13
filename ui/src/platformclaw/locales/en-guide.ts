@@ -1,4 +1,7 @@
+import { executionTranslations } from "./en-execution.ts";
+
 export const translations: Readonly<Record<string, string>> = {
+  ...executionTranslations,
   "dreaming.wiki.documentActions": "Document actions",
   "dreaming.wiki.edit": "Edit",
   "dreaming.wiki.editNotes": "Edit notes",

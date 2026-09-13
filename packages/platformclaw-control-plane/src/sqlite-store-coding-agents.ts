@@ -8,7 +8,7 @@ import {
   type CodingAgentCheckSnapshot,
   type CodingAgentConfiguration,
   type PersonalCodingAgentSettings,
-} from "./coding-agent-contracts.js";
+} from "@platformclaw/coding-agent-contract";
 import { ControlPlaneConflictError } from "./contracts.js";
 import type { PersonalExecutionSettings } from "./execution-contracts.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
@@ -37,7 +37,7 @@ function parseStoredJson(value: string, label: string): unknown {
   }
 }
 
-export function codingAgentSettingsFromRows(
+function codingAgentSettingsFromRows(
   rows: readonly CodingAgentSettingRow[],
 ): PersonalCodingAgentSettings[] {
   const byAgent = new Map(rows.map((row) => [row.agent, row]));
@@ -94,7 +94,7 @@ export function readCodingAgentSettings(
   );
 }
 
-export function readPersonalExecutionSettings(
+function readPersonalExecutionSettings(
   store: StoreAccess,
   agentId: string,
 ): PersonalExecutionSettings | null {
@@ -189,7 +189,7 @@ function environmentJson(configuration: CodingAgentConfiguration): string | null
   return configuration.agent === "claude" ? JSON.stringify(configuration.environment) : null;
 }
 
-export function setPersonalCodingAgentInStore(params: {
+function setPersonalCodingAgentInStore(params: {
   store: StoreAccess;
   actorUserId: string;
   agentId: string;
@@ -238,7 +238,7 @@ export function setPersonalCodingAgentInStore(params: {
   });
 }
 
-export function recordPersonalCodingAgentCheckInStore(params: {
+function recordPersonalCodingAgentCheckInStore(params: {
   store: StoreAccess;
   actorUserId: string;
   agentId: string;

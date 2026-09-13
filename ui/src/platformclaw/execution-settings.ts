@@ -5,7 +5,7 @@ import {
   type CodingAgentId,
   type CodingAgentProbeResult,
   type PersonalCodingAgentSettings,
-} from "@platformclaw/control-plane/coding-agent-contracts";
+} from "@platformclaw/coding-agent-contract";
 /*
  * Keep the browser form on the same parser as BFF/RPC. A permissive local copy
  * would let URL, quote, or provider-variant behavior drift between boundaries.
@@ -80,6 +80,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
 
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   onUnauthenticated: () => void = () => {};
+  initialSettings?: ExecutionSettings;
 
   connectedCallback(): void {
     this.unsubscribeLocale = i18n.subscribe(() => void this.renderLocale());
@@ -93,8 +94,19 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     if (!this.isConnected) {
       return;
     }
+    if (this.initialSettings) {
+      this.settings = this.initialSettings;
+      this.syncCodingAgentDrafts(this.initialSettings);
+      this.loading = false;
+      this.render();
+      return;
+    }
     this.render();
     await this.refresh();
+  }
+  openSettings(): void {
+    this.opened = true;
+    this.render();
   }
   private async renderLocale(): Promise<void> {
     await loadPlatformClawLocale();

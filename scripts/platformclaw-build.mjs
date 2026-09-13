@@ -552,13 +552,14 @@ try {
       "nano-pdf --help >/dev/null",
       "openclaw --version",
       'OPENCLAW_SKIP_ACPX_RUNTIME=1 openclaw plugins inspect acpx --runtime --json | jq -e \'.plugin.id == "acpx" and .plugin.origin == "bundled" and .plugin.status == "loaded"\' >/dev/null',
+      'OPENCLAW_SKIP_ACPX_RUNTIME=1 openclaw plugins inspect platformclaw-execution --runtime --json | jq -e \'.plugin.id == "platformclaw-execution" and .plugin.origin == "bundled" and .plugin.status == "loaded"\' >/dev/null',
       "test -x /usr/local/bin/platformclaw-admin",
       "test -x /usr/local/bin/platformclaw-control",
       "test -x /usr/local/bin/platformclaw-sshpass",
       "test -f /app/ui/dist/platformclaw-login.html",
       "node -e \"import('/app/packages/platformclaw-control-plane/dist/index.mjs')\"",
-      "node -e \"import('/app/packages/platformclaw-control-plane/dist/coding-agent-contracts.mjs')\"",
-      "cd /app/extensions/platformclaw-execution && node -e \"import('@platformclaw/control-plane/coding-agent-contracts')\"",
+      "node -e \"import('/app/packages/platformclaw-coding-agent-contract/dist/index.mjs')\"",
+      "cd /app/extensions/platformclaw-execution && node -e \"import('@platformclaw/coding-agent-contract')\"",
     ].join(" && "),
   ]);
   run("docker", [

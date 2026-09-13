@@ -1,4 +1,4 @@
-import type { PersonalCodingAgentSettings } from "./coding-agent-contracts.js";
+import type { PersonalCodingAgentSettings } from "@platformclaw/coding-agent-contract";
 import type {
   AssignedVmExecutionTarget,
   PersonalExecutionSettings,
@@ -26,7 +26,7 @@ type AssignedVmExecutionTargetRow = {
   host_key_public_key: string;
   host_key_fingerprint: string;
   execution_environment_json: string | null;
-  codingAgents: import("./coding-agent-contracts.js").CodingAgentConfiguration[];
+  codingAgents: import("@platformclaw/coding-agent-contract").CodingAgentConfiguration[];
 };
 
 export function rowToAssignedVmExecutionTarget(params: {

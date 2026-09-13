@@ -3,7 +3,7 @@ import {
   parseCodingAgentConfiguration,
   type CodingAgentConfiguration,
   type CodingAgentId,
-} from "./coding-agent-contracts.js";
+} from "@platformclaw/coding-agent-contract";
 
 type CodingAgentRouteService = {
   detectCodingAgent(params: {

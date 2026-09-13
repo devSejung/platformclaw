@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseCodingAgentConfiguration,
   parseCodingAgentProbeResult,
-} from "./coding-agent-contracts.js";
+} from "./index.js";
 
 const CLAUDE_ENVIRONMENT = {
   ANTHROPIC_BASE_URL: "https://gateway.example.test",
