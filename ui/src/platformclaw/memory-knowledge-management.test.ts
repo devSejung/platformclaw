@@ -100,6 +100,22 @@ function snapshot(): OrganizationKnowledgeSnapshot {
   };
 }
 
+function firstProposal(value: OrganizationKnowledgeSnapshot) {
+  const proposal = value.proposals[0];
+  if (!proposal) {
+    throw new Error("knowledge fixture requires one proposal");
+  }
+  return proposal;
+}
+
+function firstSourceClaim(value: OrganizationKnowledgeSnapshot) {
+  const claim = firstProposal(value).sourceClaims[0];
+  if (!claim) {
+    throw new Error("knowledge fixture requires one source claim");
+  }
+  return claim;
+}
+
 function mount(request: ReturnType<typeof vi.fn>) {
   const element = document.createElement(
     "platformclaw-memory-knowledge-management",
@@ -141,7 +157,7 @@ describe("organization knowledge management", () => {
       canReviewProposals: false,
       canApplyProposals: false,
     };
-    selected.proposals[0].sourceClaims[0].textTruncated = true;
+    firstSourceClaim(selected).textTruncated = true;
     const request = vi
       .fn()
       .mockResolvedValue({ scopes: [selected.scope], selected, scopesHasMore: false });
@@ -154,12 +170,12 @@ describe("organization knowledge management", () => {
       "Recorded board v1 test",
     );
     expect(element.querySelector(".knowledge-comparison__source blockquote")?.textContent).toBe(
-      selected.proposals[0].sourceClaims[0].text,
+      firstSourceClaim(selected).text,
     );
     expect(element.querySelector(".knowledge-comparison__evidence")?.textContent).toBe(
       "Recorded board v1 test",
     );
-    expect(element.querySelectorAll(".knowledge-comparison__source")[1].textContent).toContain(
+    expect(element.querySelectorAll(".knowledge-comparison__source").item(1).textContent).toContain(
       "No evidence is registered",
     );
     expect(element.querySelector(".knowledge-comparison__judgment")?.textContent).toContain(
@@ -280,7 +296,7 @@ describe("organization knowledge management", () => {
         ? { scopes: [selected.scope], selected, scopesHasMore: false }
         : {
             ...selected,
-            proposals: [{ ...selected.proposals[0], revision: 2, status: "approved" }],
+            proposals: [{ ...firstProposal(selected), revision: 2, status: "approved" }],
             history: [
               {
                 id: "review-1",
@@ -321,7 +337,7 @@ describe("organization knowledge management", () => {
 
   it("moves rejected proposals into server-filtered history with frozen comparison", async () => {
     const selected = snapshot();
-    const rejected = { ...selected.proposals[0], status: "rejected" as const, revision: 2 };
+    const rejected = { ...firstProposal(selected), status: "rejected" as const, revision: 2 };
     selected.proposals = [rejected];
     selected.history = [
       {
@@ -424,8 +440,9 @@ describe("organization knowledge management", () => {
     "records %s separately without applying knowledge",
     async (decision) => {
       const selected = snapshot();
-      selected.proposals[0].status = "deferred";
-      selected.proposals[0].revision = 2;
+      const selectedProposal = firstProposal(selected);
+      selectedProposal.status = "deferred";
+      selectedProposal.revision = 2;
       const request = vi.fn(async (name: string) =>
         name === `${method}snapshot`
           ? { scopes: [selected.scope], selected, scopesHasMore: false }
@@ -433,7 +450,7 @@ describe("organization knowledge management", () => {
               ...selected,
               proposals: [
                 {
-                  ...selected.proposals[0],
+                  ...selectedProposal,
                   revision: 3,
                   status: "kept",
                 },
@@ -487,7 +504,7 @@ describe("organization knowledge management", () => {
     const selected = snapshot();
     selected.scope.capabilities.canApplyProposals = true;
     selected.proposals[0] = {
-      ...selected.proposals[0],
+      ...firstProposal(selected),
       status: "approved",
       kind: "enrichment",
       revision: 2,
@@ -497,7 +514,7 @@ describe("organization knowledge management", () => {
         ? { scopes: [selected.scope], selected, scopesHasMore: false }
         : {
             ...selected,
-            proposals: [{ ...selected.proposals[0], status: "applied", revision: 3 }],
+            proposals: [{ ...firstProposal(selected), status: "applied", revision: 3 }],
             history: [
               {
                 id: "apply-review",

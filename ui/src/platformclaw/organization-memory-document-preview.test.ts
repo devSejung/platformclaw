@@ -92,13 +92,15 @@ it("replaces bounded source pages without submitting the enclosing review form",
   expect(element.querySelector("[data-memory-verification]")?.textContent).toContain("7");
   expect(element.querySelector(".wiki-document__actions")?.textContent).not.toContain("Edit");
   const buttons = element.querySelectorAll<HTMLButtonElement>("footer button");
-  expect(buttons[0].disabled).toBe(true);
-  buttons[1].click();
+  const previous = buttons.item(0);
+  const next = buttons.item(1);
+  expect(previous.disabled).toBe(true);
+  next.click();
   await waitForFast(() =>
     expect(element.querySelector("article h1")?.textContent).toBe("Last page"),
   );
   expect(element.textContent).not.toContain("First page");
-  expect(element.querySelectorAll<HTMLButtonElement>("footer button")[1].disabled).toBe(true);
+  expect(element.querySelectorAll<HTMLButtonElement>("footer button").item(1).disabled).toBe(true);
   expect(submit).not.toHaveBeenCalled();
   expect(request).toHaveBeenLastCalledWith("platformclaw.memory.get", {
     agentId: "leader",

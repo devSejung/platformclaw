@@ -31,6 +31,7 @@ import {
   type PlatformClawGatewayRuntimeClientOptions,
 } from "./gateway-runtime-client.js";
 import { KnoxRoutingService, type KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
+import { createOrganizationKnowledgeAnalyzer } from "./organization-knowledge-analysis.js";
 import { OrganizationKnowledgeService } from "./organization-knowledge-service.js";
 import { resolvePersonalOrganizationMemorySource } from "./organization-memory-personal-source.js";
 import { OrganizationService } from "./organization-service.js";
@@ -274,15 +275,21 @@ export function createPlatformClawWebIngressRuntime(
   });
   const organizationKnowledge = new OrganizationKnowledgeService(
     auth.store,
-    async (input, signal) => {
-      if (signal.aborted) {
-        throw new Error("organization knowledge analysis cancelled");
-      }
-      return await gateway.request("platformclaw.organization.knowledge.analyze", input, {
-        signal,
-        timeoutMs: 240_000,
-      });
-    },
+    createOrganizationKnowledgeAnalyzer({
+      completePair: async (claims, signal) => {
+        if (signal.aborted) {
+          throw new Error("organization knowledge analysis cancelled");
+        }
+        return await gateway.request(
+          "platformclaw.organization.knowledge.completePair",
+          { claims },
+          {
+            signal,
+            timeoutMs: 240_000,
+          },
+        );
+      },
+    }),
     options.employeeAuth?.now ?? Date.now,
   );
   // Browser connections share this proxy; the session token resolves agent-scoped access per call.

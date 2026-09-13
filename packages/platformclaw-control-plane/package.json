@@ -14,10 +14,6 @@
     "platformclaw-sshpass": "./dist/sshpass-main.mjs"
   },
   "exports": {
-    "./organization-knowledge-analysis": {
-      "types": "./dist/organization-knowledge-analysis.d.mts",
-      "import": "./dist/organization-knowledge-analysis.mjs"
-    },
     ".": {
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs",

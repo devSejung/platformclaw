@@ -98,9 +98,9 @@ describe("MemoryPromotionsElement", () => {
       ambiguousCount: 0,
       fingerprint: "refs-confirmed",
     };
-    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+    const request = vi.fn(async (method: string, params?: unknown) => {
       if (method === "platformclaw.memory.promotion.previewReferences") {
-        expect(Object.keys(params ?? {}).toSorted()).toEqual([
+        expect(Object.keys((params ?? {}) as Record<string, unknown>).toSorted()).toEqual([
           "proposedText",
           "sourceClaimId",
           "sourceKind",

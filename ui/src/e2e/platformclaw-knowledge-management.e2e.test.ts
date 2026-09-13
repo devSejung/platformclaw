@@ -75,8 +75,12 @@ let server: ControlUiE2eServer;
 
 suite("PlatformClaw knowledge management browser flow", () => {
   beforeAll(async () => {
-    if (!available) throw new Error(`Playwright Chromium is not available at ${executablePath}`);
-    if (capture) await mkdir(proofDir, { recursive: true });
+    if (!available) {
+      throw new Error(`Playwright Chromium is not available at ${executablePath}`);
+    }
+    if (capture) {
+      await mkdir(proofDir, { recursive: true });
+    }
     server = await startControlUiE2eServer();
     browser = await chromium.launch({ executablePath });
   });
@@ -178,11 +182,12 @@ suite("PlatformClaw knowledge management browser flow", () => {
       expect(await pane.locator("time").first().getAttribute("datetime")).toBe(
         new Date(completedAt).toISOString(),
       );
-      if (capture)
+      if (capture) {
         await page.screenshot({
           path: path.join(proofDir, `leader-${index}-initial.png`),
           fullPage: true,
         });
+      }
       await pane
         .getByRole("button", {
           name: locale === "ko-KR" ? "지식 리포트 가져오기" : "Get knowledge report",
@@ -190,7 +195,9 @@ suite("PlatformClaw knowledge management browser flow", () => {
         })
         .click();
       await expect.poll(() => gateway.getRequests(`${method}generate`)).toHaveLength(1);
-      expect((await gateway.getRequests(`${method}generate`))[0].params).toEqual({
+      const firstGenerate = (await gateway.getRequests(`${method}generate`))[0];
+      expect(firstGenerate).toBeDefined();
+      expect(firstGenerate!.params).toEqual({
         scopeId: "part-runtime",
         force: false,
         requestId: expect.any(String),
@@ -206,16 +213,19 @@ suite("PlatformClaw knowledge management browser flow", () => {
         })
         .click();
       await expect.poll(() => gateway.getRequests(`${method}generate`)).toHaveLength(2);
-      expect((await gateway.getRequests(`${method}generate`))[1].params).toEqual({
+      const secondGenerate = (await gateway.getRequests(`${method}generate`))[1];
+      expect(secondGenerate).toBeDefined();
+      expect(secondGenerate!.params).toEqual({
         scopeId: "part-runtime",
         force: true,
         requestId: expect.any(String),
       });
-      if (capture)
+      if (capture) {
         await page.screenshot({
           path: path.join(proofDir, `leader-${index}-failed.png`),
           fullPage: true,
         });
+      }
       await context.close();
     }
   });
