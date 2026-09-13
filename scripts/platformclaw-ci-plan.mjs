@@ -24,6 +24,7 @@ const OVERLAY_PREFIXES = [
   "docs/platformclaw/",
   "extensions/admin-http-rpc/",
   "extensions/knox/",
+  "packages/platformclaw-coding-agent-contract/",
   "packages/platformclaw-control-plane/",
   "ui/src/platformclaw/",
 ];
@@ -53,8 +54,10 @@ export function classifyPlatformClawChanges(inputFiles) {
   const hasDocsChanges = files.some(
     (file) => file === "PLATFORMCLAW.md" || file.startsWith("docs/platformclaw/"),
   );
-  const hasPackageChanges = files.some((file) =>
-    file.startsWith("packages/platformclaw-control-plane/"),
+  const hasPackageChanges = files.some(
+    (file) =>
+      file.startsWith("packages/platformclaw-coding-agent-contract/") ||
+      file.startsWith("packages/platformclaw-control-plane/"),
   );
   const hasAdminHttpRpcChanges = files.some((file) =>
     file.startsWith("extensions/admin-http-rpc/"),

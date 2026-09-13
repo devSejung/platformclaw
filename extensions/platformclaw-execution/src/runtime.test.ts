@@ -30,6 +30,21 @@ const TARGET: AssignedVmTargetSnapshot = {
   hostKeyAlgorithm: "ssh-ed25519",
   hostKeyPublicKey: "AAAA-approved-key",
   hostKeyFingerprint: "SHA256:approved",
+  codingAgents: [
+    {
+      agent: "claude",
+      enabled: false,
+      executablePath: "",
+      environment: {
+        ANTHROPIC_BASE_URL: "",
+        ADMIN_API_URL: "",
+        OIDC_ISSUER_URL: "",
+        OIDC_CLIENT_ID: "",
+      },
+    },
+    { agent: "codex", enabled: false, executablePath: "" },
+    { agent: "opencode", enabled: false, executablePath: "" },
+  ],
 };
 
 describe("PlatformClaw SafeConnect session", () => {
@@ -72,16 +87,11 @@ describe("PlatformClaw SafeConnect session", () => {
     ).toThrow("LD_PRELOAD");
   });
 
-  it("accepts only canonical absolute Claude Code executable paths", () => {
-    expect(
-      parseTarget({ ...TARGET, claudeCodeExecutablePath: "/home/person.one/.local/bin/claude" }),
-    ).toMatchObject({ claudeCodeExecutablePath: "/home/person.one/.local/bin/claude" });
-    expect(() => parseTarget({ ...TARGET, claudeCodeExecutablePath: "bin/claude" })).toThrow(
-      "executable path is invalid",
+  it("requires one canonical configuration for each coding agent", () => {
+    expect(parseTarget(TARGET)).toMatchObject({ codingAgents: TARGET.codingAgents });
+    expect(() => parseTarget({ ...TARGET, codingAgents: TARGET.codingAgents.slice(0, 2) })).toThrow(
+      "incomplete",
     );
-    expect(() =>
-      parseTarget({ ...TARGET, claudeCodeExecutablePath: "/tmp/../bin/claude" }),
-    ).toThrow("executable path is invalid");
   });
 
   it("quotes whitespace and OpenSSH percent tokens in generated paths", () => {

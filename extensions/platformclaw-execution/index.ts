@@ -58,6 +58,19 @@ export default definePluginEntry({
       new AcpProcessTransportError(diagnostic, {
         cause: cause instanceof Error ? cause : undefined,
       });
+    const requireEnabledAgent = (target: AssignedVmTargetSnapshot, agent: string) => {
+      const configuration = target.codingAgents.find((entry) => entry.agent === agent);
+      if (!configuration?.enabled) {
+        throw stageError(
+          {
+            stage: "routing",
+            code: "agent_disabled",
+            message: `${agent} is disabled for this personal coding agent. Enable it in Coding agents settings and retry.`,
+          },
+          undefined,
+        );
+      }
+    };
     const invalidateAcpProcesses = (agentId: string) => {
       const owner = normalizeAgentId(agentId);
       const children = activeAcpChildren.get(owner);
@@ -79,7 +92,7 @@ export default definePluginEntry({
       id: "platformclaw-assigned-vm",
       isolatesSandboxedRequesters: true,
       supports: ({ agent }) => PLATFORMCLAW_VM_ACP_AGENTS.has(agent.trim().toLowerCase()),
-      async prepare({ executionOwnerAgentId, sessionKey }) {
+      async prepare({ executionOwnerAgentId, sessionKey, agent }) {
         if (!executionRuntimePromise) {
           throw stageError(
             {
@@ -121,6 +134,7 @@ export default definePluginEntry({
             undefined,
           );
         }
+        requireEnabledAgent(target, agent.trim().toLowerCase());
         const key = acpTargetKey(executionOwnerAgentId, sessionKey);
         const existing = preparedAcpTargets.get(key);
         if (
@@ -176,6 +190,14 @@ export default definePluginEntry({
             stage: "target",
             code: "target_not_assigned_vm",
             message: "ACP requires an assigned development VM.",
+          };
+        }
+        if (!target.codingAgents.find((entry) => entry.agent === agent)?.enabled) {
+          return {
+            ok: false,
+            stage: "routing",
+            code: "agent_disabled",
+            message: `${agent} is disabled for this personal coding agent. Enable it in Coding agents settings and retry.`,
           };
         }
         const report = await executionRuntime.diagnoseAcpProcess(agent, target, signal);
@@ -263,6 +285,7 @@ export default definePluginEntry({
             undefined,
           );
         }
+        requireEnabledAgent(current, input.agent.trim().toLowerCase());
         const owner = normalizeAgentId(input.executionOwnerAgentId);
         const active = activeAcpChildren.get(owner) ?? new Set();
         if (active.size >= 3) {

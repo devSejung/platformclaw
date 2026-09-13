@@ -1,6 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import {
+  parseCodingAgentVmProbeResult,
+  type CodingAgentConfiguration,
+  type CodingAgentId,
+  type CodingAgentProbeResult,
+} from "@platformclaw/coding-agent-contract";
 import { readPlatformClawSessionCookie, type JsonBodyReader } from "./browser-auth-http.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
+import { handleCodingAgentRouteOperation } from "./browser-execution-coding-agent-route.js";
 import { ControlPlaneConflictError, type ControlPlaneStore } from "./contracts.js";
 import type {
   ControlPlaneAtomicVmCredentialStore,
@@ -18,10 +25,9 @@ const PLATFORMCLAW_EXECUTION_TEST_PATH = "/platformclaw/api/execution/test";
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/api/execution/target";
 const PLATFORMCLAW_EXECUTION_SELECTION_PATH = "/platformclaw/api/execution/selection";
 const PLATFORMCLAW_EXECUTION_RELEASE_PATH = "/platformclaw/api/execution/release";
-const PLATFORMCLAW_EXECUTION_CLAUDE_CODE_PATH = "/platformclaw/api/execution/claude-code";
 const PLATFORMCLAW_EXECUTION_CODING_AGENT_PATH = "/platformclaw/api/execution/coding-agent";
 
-const EXECUTION_BODY_LIMIT_BYTES = 8 * 1024;
+const EXECUTION_BODY_LIMIT_BYTES = 24 * 1024;
 const CONNECTION_ATTEMPT_WINDOW_MS = 5 * 60_000;
 const CONNECTION_ATTEMPT_LIMIT = 5;
 
@@ -60,34 +66,6 @@ type ConnectionTestResult = {
   remoteWorkspaceDir: string;
 };
 
-type ClaudeCodeValidationResult = {
-  allocationId: string;
-  targetRevision: number;
-  executablePath: string;
-  reportedVersion: string;
-};
-
-function claudeCodeValidationResult(value: unknown): ClaudeCodeValidationResult {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("development VM returned an invalid Claude Code result");
-  }
-  const result = value as Record<string, unknown>;
-  if (
-    typeof result.allocationId !== "string" ||
-    typeof result.targetRevision !== "number" ||
-    !Number.isSafeInteger(result.targetRevision) ||
-    typeof result.executablePath !== "string" ||
-    !result.executablePath.startsWith("/") ||
-    result.executablePath.length > 4096 ||
-    typeof result.reportedVersion !== "string" ||
-    !result.reportedVersion.trim() ||
-    result.reportedVersion.length > 512
-  ) {
-    throw new Error("development VM returned an invalid Claude Code result");
-  }
-  return result as ClaudeCodeValidationResult;
-}
-
 function connectionTestResult(value: unknown): ConnectionTestResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("development VM returned an invalid connection result");
@@ -111,6 +89,18 @@ function connectionTestResult(value: unknown): ConnectionTestResult {
     targetRevision: result.targetRevision,
     remoteHomeDir: result.remoteHomeDir,
     remoteWorkspaceDir: result.remoteWorkspaceDir,
+  };
+}
+
+function publicCodingAgentProbe(
+  result: ReturnType<typeof parseCodingAgentVmProbeResult>,
+): CodingAgentProbeResult {
+  return {
+    agent: result.agent,
+    ...(result.executablePath ? { executablePath: result.executablePath } : {}),
+    ...(result.reportedVersion ? { reportedVersion: result.reportedVersion } : {}),
+    ...(result.environment ? { environment: result.environment } : {}),
+    diagnostics: result.diagnostics,
   };
 }
 
@@ -393,55 +383,35 @@ export class EmployeeExecutionService {
     return await this.getSettings(params.userId, params.agentId);
   }
 
-  async configureClaudeCode(params: {
+  async saveCodingAgent(params: {
     userId: string;
     agentId: string;
     expectedRevision: number;
-    executablePath?: string;
+    configuration: CodingAgentConfiguration;
   }) {
     const settings = await this.requireOwnedSettings(params.userId, params.agentId);
-    if (!settings.allocation || settings.allocation.status !== "ready") {
-      throw new EmployeeExecutionHttpError(409, "development VM is not ready");
+    if (!settings.allocation || settings.targetRevision !== params.expectedRevision) {
+      throw new EmployeeExecutionHttpError(
+        409,
+        "development VM is not ready or changed; reload and retry",
+      );
     }
-    const requestedPath = params.executablePath?.trim();
-    if (
-      requestedPath &&
-      (!requestedPath.startsWith("/") ||
-        requestedPath.includes("\0") ||
-        requestedPath.length > 4096)
-    ) {
-      throw new EmployeeExecutionHttpError(400, "Claude Code executable path is invalid");
-    }
-    const validated = claudeCodeValidationResult(
-      await this.options.adminRpc.call("platformclaw-execution.validateClaudeCode", {
-        agentId: params.agentId,
-        ...(requestedPath ? { executablePath: requestedPath } : {}),
-      }),
-    );
-    if (
-      validated.allocationId !== settings.allocation.id ||
-      validated.targetRevision !== params.expectedRevision
-    ) {
-      throw new EmployeeExecutionHttpError(409, "development VM changed during validation");
-    }
-    await this.options.store.setPersonalClaudeCode({
+    await this.options.store.setPersonalCodingAgent({
       actorUserId: params.userId,
       agentId: params.agentId,
       expectedRevision: params.expectedRevision,
-      executablePath: validated.executablePath,
-      reportedVersion: validated.reportedVersion,
-      validatedAt: this.now(),
+      configuration: params.configuration,
+      updatedAt: this.now(),
     });
-    await this.options.closeTerminalForAgent?.(params.agentId, "claude_code_changed");
     return await this.getSettings(params.userId, params.agentId);
   }
 
-  async validateCodingAgent(params: {
+  async detectCodingAgent(params: {
     userId: string;
     agentId: string;
-    agent: "codex" | "opencode";
+    agent: CodingAgentId;
     expectedRevision: number;
-  }) {
+  }): Promise<CodingAgentProbeResult> {
     const settings = await this.requireOwnedSettings(params.userId, params.agentId);
     if (
       settings.allocation?.status !== "ready" ||
@@ -452,38 +422,86 @@ export class EmployeeExecutionService {
         "development VM is not ready or changed; reload and retry",
       );
     }
-    const result = objectBody(
-      await this.options.adminRpc.call("platformclaw-execution.validateCodingAgent", {
+    const result = parseCodingAgentVmProbeResult(
+      await this.options.adminRpc.call("platformclaw-execution.detectCodingAgent", {
         agentId: params.agentId,
         agent: params.agent,
+        expectedRevision: params.expectedRevision,
       }),
+      params.agent,
+    );
+    await this.assertCurrentProbeTarget(params, settings, result);
+    return publicCodingAgentProbe(result);
+  }
+
+  async checkCodingAgent(params: {
+    userId: string;
+    agentId: string;
+    configuration: CodingAgentConfiguration;
+    expectedRevision: number;
+  }): Promise<CodingAgentProbeResult> {
+    const settings = await this.requireOwnedSettings(params.userId, params.agentId);
+    if (
+      settings.allocation?.status !== "ready" ||
+      settings.targetRevision !== params.expectedRevision
+    ) {
+      throw new EmployeeExecutionHttpError(
+        409,
+        "development VM is not ready or changed; reload and retry",
+      );
+    }
+    const result = parseCodingAgentVmProbeResult(
+      await this.options.adminRpc.call("platformclaw-execution.checkCodingAgent", {
+        agentId: params.agentId,
+        configuration: params.configuration,
+        expectedRevision: params.expectedRevision,
+      }),
+      params.configuration.agent,
+    );
+    await this.assertCurrentProbeTarget(params, settings, result);
+    const current = await this.requireOwnedSettings(params.userId, params.agentId);
+    const saved = current.codingAgents.find(
+      (entry) => entry.configuration.agent === params.configuration.agent,
     );
     if (
-      !result ||
-      result.agent !== params.agent ||
-      typeof result.reportedVersion !== "string" ||
-      !result.reportedVersion.trim() ||
-      result.reportedVersion.length > 512 ||
-      /\p{Cc}/u.test(result.reportedVersion)
+      saved?.hasSavedConfiguration &&
+      JSON.stringify(saved.configuration) === JSON.stringify(params.configuration)
     ) {
-      throw new Error("development VM returned an invalid coding agent result");
+      await this.options.store.recordPersonalCodingAgentCheck({
+        actorUserId: params.userId,
+        agentId: params.agentId,
+        expectedRevision: params.expectedRevision,
+        configuration: params.configuration,
+        result: {
+          agent: result.agent,
+          checkedAt: this.now(),
+          ...(result.executablePath ? { executablePath: result.executablePath } : {}),
+          ...(result.reportedVersion ? { reportedVersion: result.reportedVersion } : {}),
+          diagnostics: result.diagnostics,
+        },
+      });
     }
-    // Recheck ownership and allocation after the remote call so a replaced or
-    // revoked VM cannot be presented as the employee's current result.
+    return publicCodingAgentProbe(result);
+  }
+
+  private async assertCurrentProbeTarget(
+    params: { userId: string; agentId: string; expectedRevision: number },
+    settings: PersonalExecutionSettings,
+    result: { allocationId: string; targetRevision: number },
+  ): Promise<void> {
     const current = await this.requireOwnedSettings(params.userId, params.agentId);
     if (
-      result.allocationId !== settings.allocation.id ||
+      result.allocationId !== settings.allocation?.id ||
       result.targetRevision !== params.expectedRevision ||
       current.targetRevision !== params.expectedRevision ||
-      current.allocation?.id !== settings.allocation.id ||
+      current.allocation?.id !== settings.allocation?.id ||
       current.allocation.status !== "ready"
     ) {
       throw new EmployeeExecutionHttpError(
         409,
-        "development VM changed during validation; reload and retry",
+        "development VM changed during coding agent operation; reload and retry",
       );
     }
-    return { agent: params.agent, reportedVersion: result.reportedVersion };
   }
 
   private async requireOwnedSettings(
@@ -540,7 +558,7 @@ export class EmployeeExecutionService {
       accountId: catalog.accountId,
       availableVms: catalog.hosts,
       ...(settings.allocation ? { assignment: settings.allocation } : {}),
-      ...(settings.claudeCode ? { claudeCode: settings.claudeCode } : {}),
+      codingAgents: settings.codingAgents,
     };
   }
 }
@@ -562,7 +580,6 @@ export async function handlePlatformClawEmployeeExecutionRequest(
     pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH &&
     pathname !== PLATFORMCLAW_EXECUTION_SELECTION_PATH &&
     pathname !== PLATFORMCLAW_EXECUTION_RELEASE_PATH &&
-    pathname !== PLATFORMCLAW_EXECUTION_CLAUDE_CODE_PATH &&
     pathname !== PLATFORMCLAW_EXECUTION_CODING_AGENT_PATH
   ) {
     return false;
@@ -637,50 +654,13 @@ export async function handlePlatformClawEmployeeExecutionRequest(
       return true;
     }
     if (pathname === PLATFORMCLAW_EXECUTION_CODING_AGENT_PATH) {
-      const { agent, expectedRevision } = body;
-      if (
-        (agent !== "codex" && agent !== "opencode") ||
-        typeof expectedRevision !== "number" ||
-        !Number.isSafeInteger(expectedRevision) ||
-        expectedRevision < 0
-      ) {
-        sendJson(res, 400, { error: "invalid coding agent check" });
-        return true;
-      }
-      sendJson(
-        res,
-        200,
-        await options.service.validateCodingAgent({
-          userId: auth.user.id,
-          agentId: auth.binding.agentId,
-          agent,
-          expectedRevision,
-        }),
-      );
-      return true;
-    }
-    if (pathname === PLATFORMCLAW_EXECUTION_CLAUDE_CODE_PATH) {
-      const expectedRevision = body.expectedRevision;
-      if (
-        typeof expectedRevision !== "number" ||
-        !Number.isSafeInteger(expectedRevision) ||
-        expectedRevision < 0
-      ) {
-        sendJson(res, 400, { error: "invalid Claude Code settings revision" });
-        return true;
-      }
-      sendJson(
-        res,
-        200,
-        await options.service.configureClaudeCode({
-          userId: auth.user.id,
-          agentId: auth.binding.agentId,
-          expectedRevision,
-          ...(typeof body.executablePath === "string"
-            ? { executablePath: body.executablePath }
-            : {}),
-        }),
-      );
+      const result = await handleCodingAgentRouteOperation({
+        service: options.service,
+        body,
+        userId: auth.user.id,
+        agentId: auth.binding.agentId,
+      });
+      sendJson(res, result.status, result.body);
       return true;
     }
     const target = body.target;

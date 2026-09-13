@@ -1,5 +1,6 @@
 import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
+import type { CodingAgentConfiguration } from "@platformclaw/coding-agent-contract";
 import type {
   AcpProcessTransportDiagnostic,
   AcpProcessTransportLaunch,
@@ -53,7 +54,7 @@ export type AssignedVmTargetSnapshot = ExecutionTargetBase & {
     pathPrepend: readonly string[];
     variables: Readonly<Record<string, string>>;
   };
-  claudeCodeExecutablePath?: string;
+  codingAgents: readonly CodingAgentConfiguration[];
 };
 
 export type PlatformClawExecutionTargetSnapshot =
@@ -254,6 +255,13 @@ function buildRuntimePromptContext(
           linuxHome: target.remoteHomeDir,
           activeWorkspace: target.remoteWorkspaceDir,
           targetRevision: target.revision,
+          externalCodingAgents: target.codingAgents.map(({ agent, enabled, executablePath }) => ({
+            agent,
+            enabled,
+            configured: Boolean(executablePath),
+          })),
+          externalCodingAgentsNote:
+            "These are external coding agents on the assigned VM, not registered OpenClaw agents.",
           workspaceBoundary:
             "Basic workspace and My development VM keep independent files and processes.",
           filesystemAccess:
@@ -269,15 +277,24 @@ function buildRuntimePromptContext(
 
 const VM_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
+type AssignedVmProcessEnvironmentTarget = Pick<
+  AssignedVmTargetSnapshot,
+  "codingAgents" | "executionEnvironment" | "remoteHomeDir"
+>;
+
 export function buildAssignedVmProcessEnvironment(
-  target: Readonly<AssignedVmTargetSnapshot>,
+  target: Readonly<AssignedVmProcessEnvironmentTarget>,
+  agent?: string,
 ): Record<string, string> {
   const configured = target.executionEnvironment;
+  const codingAgent = target.codingAgents.find((entry) => entry.agent === agent);
   return {
     ...configured?.variables,
-    ...(target.claudeCodeExecutablePath
-      ? { CLAUDE_CODE_EXECUTABLE: target.claudeCodeExecutablePath }
-      : {}),
+    ...(codingAgent?.agent === "claude"
+      ? { CLAUDE_CODE_EXECUTABLE: codingAgent.executablePath, ...codingAgent.environment }
+      : codingAgent?.agent === "codex"
+        ? { CODEX_PATH: codingAgent.executablePath }
+        : {}),
     HOME: target.remoteHomeDir,
     PATH:
       configured && configured.pathPrepend.length > 0
@@ -296,9 +313,6 @@ function buildAssignedVmEnvironment(
   const environment: Record<string, string> = {
     ...handle.env,
     ...configured?.variables,
-    ...(target.claudeCodeExecutablePath
-      ? { CLAUDE_CODE_EXECUTABLE: target.claudeCodeExecutablePath }
-      : {}),
     HOME: target.remoteHomeDir,
   };
   if (configured && configured.pathPrepend.length > 0) {
@@ -593,8 +607,18 @@ function pinTargetSnapshot(
           variables: Object.freeze({ ...candidate.executionEnvironment.variables }),
         })
       : undefined;
+    const codingAgents = Object.freeze(
+      candidate.codingAgents.map((configuration) =>
+        Object.freeze(
+          configuration.agent === "claude"
+            ? { ...configuration, environment: Object.freeze({ ...configuration.environment }) }
+            : { ...configuration },
+        ),
+      ),
+    );
     return Object.freeze({
       ...candidate,
+      codingAgents,
       ...(executionEnvironment ? { executionEnvironment } : {}),
     });
   }

@@ -343,7 +343,7 @@ describe("PlatformClawControlUiAdapter", () => {
     const adminQuickActions = document.querySelector("platformclaw-quick-actions")!;
     await (adminQuickActions as HTMLElement & { updateComplete: Promise<unknown> }).updateComplete;
     expect(
-      adminQuickActions.shadowRoot?.querySelectorAll("platformclaw-execution-settings"),
+      adminQuickActions.shadowRoot?.querySelectorAll('[data-tour="work-location"]'),
     ).toHaveLength(1);
     expect(
       adminQuickActions.shadowRoot?.querySelectorAll("platformclaw-vm-administration"),
@@ -400,7 +400,7 @@ describe("PlatformClawControlUiAdapter", () => {
     const memberQuickActions = document.querySelector("platformclaw-quick-actions")!;
     await (memberQuickActions as HTMLElement & { updateComplete: Promise<unknown> }).updateComplete;
     expect(
-      memberQuickActions.shadowRoot?.querySelectorAll("platformclaw-execution-settings"),
+      memberQuickActions.shadowRoot?.querySelectorAll('[data-tour="work-location"]'),
     ).toHaveLength(1);
     expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(0);
     expect(

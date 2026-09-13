@@ -29,6 +29,7 @@ const TARGET: AssignedVmTargetSnapshot = {
   hostKeyAlgorithm: "ssh-ed25519",
   hostKeyPublicKey: "AAAA-approved-key",
   hostKeyFingerprint: "SHA256:approved",
+  codingAgents: [],
 };
 
 function encodedLine(source: string, filePath: string, content: string): Buffer {

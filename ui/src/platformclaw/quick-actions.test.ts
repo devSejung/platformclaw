@@ -198,7 +198,7 @@ describe("platformclaw-quick-actions", () => {
     localStorage.setItem(PLATFORMCLAW_PRODUCT_TOUR_STORAGE_KEY, "true");
     const admin = await mount({ admin: true, vocEnabled: true });
 
-    expect(admin.shadowRoot?.querySelector("platformclaw-execution-settings")).not.toBeNull();
+    expect(admin.shadowRoot?.querySelector("platformclaw-execution-settings")).toBeNull();
     expect(admin.shadowRoot?.querySelector("platformclaw-vm-administration")).not.toBeNull();
     admin.shadowRoot?.querySelector<HTMLButtonElement>('[data-tour="voc"]')?.click();
     await admin.updateComplete;
@@ -207,20 +207,20 @@ describe("platformclaw-quick-actions", () => {
     expect(adminItems.map((item) => item.localName)).toEqual([
       "button",
       "button",
-      "platformclaw-execution-settings",
+      "button",
       "platformclaw-vm-administration",
     ]);
 
     admin.remove();
     const member = await mount({ vocEnabled: true });
     expect(member.shadowRoot?.querySelector("platformclaw-vm-administration")).toBeNull();
-    const memberExecution = member.shadowRoot?.querySelector("platformclaw-execution-settings");
+    const memberExecution = member.shadowRoot?.querySelector('[data-tour="work-location"]');
     expect(memberExecution?.classList.contains("span-two")).toBe(true);
     expect(
       [...(member.shadowRoot?.querySelector(".grid")?.children ?? [])].map(
         (item) => item.localName,
       ),
-    ).toEqual(["button", "button", "platformclaw-execution-settings"]);
+    ).toEqual(["button", "button", "button"]);
   });
 
   it("uses the PlatformClaw-owned Korean quick actions and tour copy", async () => {
@@ -229,6 +229,7 @@ describe("platformclaw-quick-actions", () => {
     const member = await mount({ fetchImpl, vocEnabled: true });
 
     await vi.waitFor(() => expect(member.shadowRoot?.textContent).toContain("가이드"));
+    member.shadowRoot?.querySelector<HTMLButtonElement>('[data-tour="work-location"]')?.click();
     await vi.waitFor(() =>
       expect(
         member.shadowRoot?.querySelector("platformclaw-execution-settings")?.shadowRoot
@@ -263,6 +264,11 @@ describe("platformclaw-quick-actions", () => {
       .mockResolvedValueOnce(jsonResponse(vmSettings))
       .mockResolvedValueOnce(jsonResponse(BASIC_EXECUTION_SETTINGS));
     const member = await mount({ fetchImpl });
+    await vi.waitFor(() => expect(member.shadowRoot?.textContent).toContain("My development VM"));
+    member.shadowRoot?.querySelector<HTMLButtonElement>('[data-tour="work-location"]')?.click();
+    await vi.waitFor(() =>
+      expect(member.shadowRoot?.querySelector("platformclaw-execution-settings")).not.toBeNull(),
+    );
     const settings = member.shadowRoot?.querySelector("platformclaw-execution-settings");
 
     await vi.waitFor(() =>

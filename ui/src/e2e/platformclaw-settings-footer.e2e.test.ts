@@ -166,9 +166,9 @@ describeControlUiE2e("PlatformClaw settings footer quick actions", () => {
       expect(buildRowBox!.width).toBeGreaterThanOrEqual(accessoryBox!.width - 1);
       expect(buildLinkBox!.y).toBeGreaterThanOrEqual(accessoryBox!.y + accessoryBox!.height - 1);
 
-      const workLocationButton = quickActions
-        .locator("platformclaw-execution-settings")
-        .getByRole("button", { name: "Open work location settings" });
+      const workLocationButton = quickActions.getByRole("button", {
+        name: "Open work location settings",
+      });
       await expect.poll(() => workLocationButton.isVisible()).toBe(true);
       await expect.poll(() => workLocationButton.textContent()).toContain("My development VM");
       const workLabelLineCount = await workLocationButton

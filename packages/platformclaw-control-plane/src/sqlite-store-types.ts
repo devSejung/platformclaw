@@ -208,6 +208,17 @@ type VmAllocationClaudeCodeSettingRow = {
   updated_at: number;
 };
 
+type VmAllocationCodingAgentSettingRow = {
+  allocation_id: string;
+  agent: "claude" | "codex" | "opencode";
+  enabled: number;
+  executable_path: string;
+  environment_json: string | null;
+  last_check_json: string | null;
+  updated_by_user_id: string;
+  updated_at: number;
+};
+
 export type VmAllocationRow = {
   id: string;
   agent_binding_id: string;
@@ -365,6 +376,7 @@ export type ControlPlaneDatabase = {
   vm_hosts: VmHostRow;
   vm_host_execution_environments: VmHostExecutionEnvironmentRow;
   vm_allocation_claude_code_settings: VmAllocationClaudeCodeSettingRow;
+  vm_allocation_coding_agent_settings: VmAllocationCodingAgentSettingRow;
   vm_allocations: VmAllocationRow;
   personal_execution_profiles: PersonalExecutionProfileRow;
   encrypted_user_ssh_credentials: EncryptedUserSshCredentialRow;
