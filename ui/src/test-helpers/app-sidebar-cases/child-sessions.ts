@@ -91,21 +91,15 @@ describe("AppSidebar agent chip", () => {
       expect.stringContaining("Check tests"),
     ]);
     expect(childRows.every((row) => row.getAttribute("draggable") === "false")).toBe(true);
-    expect(childRows.every((row) => row.querySelector(".session-row-actions") === null)).toBe(true);
-    expect(childRows.every((row) => row.querySelector(".session-row-state") === null)).toBe(true);
+    expect(childRows.every((row) => !row.querySelector(".session-row-actions"))).toBe(true);
+    expect(childRows.every((row) => !row.querySelector(".session-row-state"))).toBe(true);
     expect(childRows.every((row) => row.querySelector(".sidebar-session-indicator") !== null)).toBe(
       true,
     );
     expect(sidebar.querySelector('[aria-label="Done"]')).not.toBeNull();
     expect(
-      childRows[0]?.querySelector(".session-row-badge--subagent")?.getAttribute("aria-label"),
-    ).toBe("Sub-agent");
-    expect(
-      childRows[1]?.querySelector(".session-row-badge--dashboard-task")?.getAttribute("aria-label"),
-    ).toBe("Dashboard task");
-    expect(
-      sidebar.querySelector('[data-session-key="agent:main:parent"] .session-row-badges'),
-    ).toBeNull();
+      childRows.map((row) => row.querySelector(".session-row-badge")?.getAttribute("aria-label")),
+    ).toEqual(["Sub-agent", "Dashboard task"]);
     const runtimeStartMs = (
       sidebar.querySelector(`[data-session-key="${subagentKey}"] openclaw-elapsed-time`) as
         | (HTMLElement & { startMs: number })

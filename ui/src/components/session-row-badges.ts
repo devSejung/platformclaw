@@ -85,7 +85,7 @@ export function renderSessionRowBadges(params: {
     : parseAgentSessionKey(params.key)?.rest.startsWith("dashboard:") &&
         Number.isInteger(params.spawnDepth) &&
         params.spawnDepth! > 0 &&
-        !!params.spawnedBy?.trim()
+        params.spawnedBy?.trim()
       ? renderSessionRowBadge(
           t("sessionsView.dashboardTaskType"),
           icons.layoutDashboard,
