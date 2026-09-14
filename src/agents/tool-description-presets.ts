@@ -103,12 +103,16 @@ export function describeSessionsSpawnTool(options?: {
   const completionGuidance = options?.threadAvailable
     ? sessionCompletionGuidance
     : "After spawn, do non-overlap work while run result returns.";
+  const agentIdDescription =
+    options?.acpAvailable === false
+      ? "`agentId` targets a configured agent (see agents_list); `model` overrides its model; `cleanup` delete|keep hidden child session; `sandbox` inherit|require."
+      : "`agentId` selects a configured subagent or an allowed ACP coding agent; `model` overrides its model; `cleanup` delete|keep hidden child session; `sandbox` inherit|require.";
   return [
     runtimeDescription,
     options?.threadAvailable || options?.acpAvailable !== false
       ? '`mode="run"` one-shot; `mode="session"` persistent with a supported thread or personal isolated ACP target.'
       : '`mode="run"` one-shot background.',
-    "`agentId` selects a configured subagent or an allowed ACP coding agent; `model` overrides its model; `cleanup` delete|keep hidden child session; `sandbox` inherit|require.",
+    agentIdDescription,
     options?.acpAvailable === false
       ? '`visible=true`: persistent sidebar dashboard session; use when the user asks to create/open a thread; native subagent only; omit `mode` (no `mode="run"`), `thread`, `thinking`, `lightContext`, `attachments`, `attachAs`; inherits the caller tool-policy ceiling; may check out a git worktree via `worktree`/`worktreeName`/`worktreeBaseRef`.'
       : '`visible=true`: persistent sidebar dashboard session; native subagent or available personal/configured ACP agent. For ACP use explicit `runtime="acp"` plus its coding-agent `agentId`; `mode="run"` is the initial task envelope (the conversation stays persistent). Send follow-ups to the returned childSessionKey. Omit `thread`, `thinking`, `lightContext`, `attachments`, `attachAs`, `resumeSessionId`, `streamTo`; ACP worktrees are unavailable. Inherits the caller tool-policy ceiling.',

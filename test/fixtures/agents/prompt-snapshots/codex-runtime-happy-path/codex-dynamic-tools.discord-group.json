@@ -2,7 +2,7 @@
   "base": "codex-dynamic-tools.telegram-direct.json",
   "replace": {
     "sessions_spawn": {
-      "description": "Spawn clean child; default `runtime=\"subagent\"`. `mode=\"run\"` one-shot; `mode=\"session\"` persistent/thread-bound only on supporting requester channel. `agentId` targets a configured agent (see agents_list); `model` overrides its model; `cleanup` delete|keep hidden child session; `sandbox` inherit|require. `visible=true`: persistent sidebar dashboard session; use when the user asks to create/open a thread; native subagent only; omit `mode` (no `mode=\"run\"`), `thread`, `thinking`, `lightContext`, `attachments`, `attachAs`; inherits the caller tool-policy ceiling; may check out a git worktree via `worktree`/`worktreeName`/`worktreeBaseRef`. Session listing/addressing obeys `tools.sessions.visibility` (tree: current session + own spawn subtree; reads also cover any watched same-agent group sessions). Inherits parent workspace. Native task arrives as first `[Subagent Task]`. Native transcript needed: `context=\"fork\"`; else omit/isolated. Use fresh child for sidecar/parallel batch reads, multi-step search, data collection; avoid quick lookup/single read unless policy prefers. After spawn, do non-overlap work. Run result returns; session output stays thread.",
+      "description": "Spawn clean child; default `runtime=\"subagent\"`. `mode=\"run\"` one-shot; `mode=\"session\"` persistent with a supported thread or personal isolated ACP target. `agentId` targets a configured agent (see agents_list); `model` overrides its model; `cleanup` delete|keep hidden child session; `sandbox` inherit|require. `visible=true`: persistent sidebar dashboard session; use when the user asks to create/open a thread; native subagent only; omit `mode` (no `mode=\"run\"`), `thread`, `thinking`, `lightContext`, `attachments`, `attachAs`; inherits the caller tool-policy ceiling; may check out a git worktree via `worktree`/`worktreeName`/`worktreeBaseRef`. Session listing/addressing obeys `tools.sessions.visibility` (tree: current session + own spawn subtree; reads also cover any watched same-agent group sessions). Inherits parent workspace. Native task arrives as first `[Subagent Task]`. Native transcript needed: `context=\"fork\"`; else omit/isolated. Use fresh child for sidecar/parallel batch reads, multi-step search, data collection; avoid quick lookup/single read unless policy prefers. After spawn, do non-overlap work. Run result returns; session output stays thread.",
       "inputSchema": {
         "properties": {
           "agentId": {
@@ -63,7 +63,7 @@
             "type": "boolean"
           },
           "mode": {
-            "description": "\"run\" one-shot; \"session\" persistent/thread-bound. Omit with visible=true.",
+            "description": "\"run\" one-shot; \"session\" persistent with a thread or personal ACP execution target. Omit with visible=true (persistent).",
             "enum": ["run", "session"],
             "type": "string"
           },
@@ -71,7 +71,7 @@
             "type": "string"
           },
           "runtime": {
-            "description": "Runtime; visible=true supports subagent or a configured ACP agent when ACP is available.",
+            "description": "Runtime; visible=true supports subagent or an available personal/configured ACP agent.",
             "enum": ["subagent"],
             "type": "string"
           },
@@ -101,7 +101,7 @@
             "type": "boolean"
           },
           "visible": {
-            "description": "Persistent sidebar UI session; supports native subagents and, when ACP is available, configured ACP agents. For ACP use runtime=\"acp\", explicit configured agentId, and optional mode=\"run\"; omit thread/thinking/lightContext/attachments/attachAs.",
+            "description": "Persistent sidebar session; supports native subagents and available personal/configured ACP agents. For ACP set runtime=\"acp\", agentId to the coding agent, and optional mode=\"run\"; omit thread/thinking/lightContext/attachments/attachAs.",
             "type": "boolean"
           },
           "worktree": {

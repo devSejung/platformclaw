@@ -207,7 +207,7 @@
           "type": "string"
         },
         "runtime": {
-          "description": "Runtime; visible=true supports subagent or a configured ACP agent when ACP is available.",
+          "description": "Runtime; visible=true supports subagent or an available personal/configured ACP agent.",
           "enum": ["subagent"],
           "type": "string"
         },
@@ -233,7 +233,7 @@
           "type": "string"
         },
         "visible": {
-          "description": "Persistent sidebar UI session; supports native subagents and, when ACP is available, configured ACP agents. For ACP use runtime=\"acp\", explicit configured agentId, and optional mode=\"run\"; omit thread/thinking/lightContext/attachments/attachAs.",
+          "description": "Persistent sidebar session; supports native subagents and available personal/configured ACP agents. For ACP set runtime=\"acp\", agentId to the coding agent, and optional mode=\"run\"; omit thread/thinking/lightContext/attachments/attachAs.",
           "type": "boolean"
         },
         "worktree": {

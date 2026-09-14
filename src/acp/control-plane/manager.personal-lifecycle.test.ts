@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { replaceSessionEntry } from "../../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { resolveDeletedAgentIdFromSessionKey } from "../../gateway/session-utils-store.js";
+import { createDeferred } from "../../shared/deferred.js";
 import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import { withTempDir } from "../../test-helpers/temp-dir.js";
@@ -147,8 +148,8 @@ describe("personal ACP durable lifecycle", () => {
           // Current-conversation IDs are reused: the old close must finish
           // unbinding before a replacement initializes and rebinds the same ID.
           let binding = "same-conversation:old";
-          const cleanupEntered = Promise.withResolvers<void>();
-          const releaseCleanup = Promise.withResolvers<void>();
+          const cleanupEntered = createDeferred<void>();
+          const releaseCleanup = createDeferred<void>();
           const retirement = restarted.closeSession({
             cfg,
             sessionKey,

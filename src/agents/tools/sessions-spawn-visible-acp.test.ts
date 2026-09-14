@@ -259,7 +259,7 @@ describe("visible persistent ACP spawn", () => {
               acp: { enabled: true, backend: "acpx", allowedAgents: ["codex"] },
               agents: { entries: { [owner]: {} } },
             },
-            callGateway,
+            callGateway: callGateway as unknown as InProcessGatewayCaller,
             countActiveRuns: () => 0,
             registerRun: vi.fn(),
           },

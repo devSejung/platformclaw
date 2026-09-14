@@ -422,7 +422,7 @@ describe("sessions_spawn tool", () => {
     };
 
     expect(schema.properties?.visible?.description).toBe(
-      'Persistent sidebar UI session; supports native subagents and, when ACP is available, configured ACP agents. For ACP use runtime="acp", explicit configured agentId, and optional mode="run"; omit thread/thinking/lightContext/attachments/attachAs.',
+      'Persistent sidebar session; supports native subagents and available personal/configured ACP agents. For ACP set runtime="acp", agentId to the coding agent, and optional mode="run"; omit thread/thinking/lightContext/attachments/attachAs.',
     );
     expect(tool.description).toContain("`visible=true`: persistent sidebar dashboard session");
     expect(tool.description).toContain("when the user asks to create/open a thread");
@@ -1139,7 +1139,9 @@ describe("sessions_spawn tool", () => {
     const thread = requireSchemaProperty(schema.properties, "thread");
     expect(thread.type).toBe("boolean");
     expect(schema.properties?.mode?.enum).toEqual(["run", "session"]);
-    expect(tool.description).toContain("thread-bound");
+    expect(tool.description).toContain(
+      "persistent with a supported thread or personal isolated ACP target",
+    );
   });
 
   it("uses subagent runtime by default", async () => {
