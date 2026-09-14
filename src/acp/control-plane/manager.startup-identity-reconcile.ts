@@ -42,7 +42,7 @@ export async function runManagerStartupIdentityReconcile(params: {
     if (!session.acp || !session.sessionKey) {
       continue;
     }
-    if (session.acp.mode === "oneshot") {
+    if (session.acp.mode === "oneshot" || session.acp.state === "closed") {
       continue;
     }
     const currentIdentity = resolveSessionIdentityFromMeta(session.acp);
@@ -60,7 +60,7 @@ export async function runManagerStartupIdentityReconcile(params: {
           cfg: params.cfg,
           sessionKey: session.sessionKey,
         });
-        if (resolution.kind !== "ready") {
+        if (resolution.kind !== "ready" || resolution.meta.state === "closed") {
           return false;
         }
         const { runtime, handle, meta } = await params.ensureRuntimeHandle({

@@ -37,6 +37,20 @@ export async function runManagerGetSessionStatus(params: {
     sessionKey: params.sessionKey,
   });
   const resolvedMeta = requireReadySessionMeta(resolution);
+  if (resolvedMeta.state === "closed") {
+    return {
+      sessionKey: params.sessionKey,
+      backend: resolvedMeta.backend,
+      agent: resolvedMeta.agent,
+      identity: resolveSessionIdentityFromMeta(resolvedMeta),
+      state: "closed",
+      mode: resolvedMeta.mode,
+      runtimeOptions: resolveRuntimeOptionsFromMeta(resolvedMeta),
+      capabilities: { controls: [] },
+      lastActivityAt: resolvedMeta.lastActivityAt,
+      lastError: resolvedMeta.lastError,
+    };
+  }
   const {
     runtime,
     handle: ensuredHandle,

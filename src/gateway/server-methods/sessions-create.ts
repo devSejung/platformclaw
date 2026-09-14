@@ -181,7 +181,56 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
     let sessionCwd = requestedExecNode ? undefined : requestedCwd;
     let generatedDisplayName: string | undefined;
     let provisionedSessionWorktree = false;
-    if (requestedCwd && !requestedExecNode && p.worktree !== true) {
+    const sessionCreation = resolveOperatorSessionCreation(client, { allowTrustedHint: true });
+    const spawnActorSessionKey =
+      sessionCreation.via === "spawn" && sessionCreation.actor?.type === "agent"
+        ? normalizeOptionalString(sessionCreation.actor.id)
+        : undefined;
+    if (
+      sessionCreation.inheritedToolPolicy &&
+      spawnActorSessionKey &&
+      normalizeOptionalString(p.parentSessionKey) !== spawnActorSessionKey
+    ) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "spawn parent must match the trusted agent caller"),
+      );
+      return;
+    }
+    const visibleAcpInitialization = sessionCreation.acpInitialization;
+    if (visibleAcpInitialization) {
+      const requestedAgentId = normalizeAgentId(
+        normalizeOptionalString(sessionAgentId) ?? resolveDefaultAgentId(cfg),
+      );
+      if (
+        sessionCreation.via !== "spawn" ||
+        !spawnActorSessionKey ||
+        !sessionCreation.inheritedToolPolicy ||
+        visibleAcpInitialization.logicalAgentId !== requestedAgentId ||
+        (visibleAcpInitialization.executionOwnerAgentId !== undefined &&
+          visibleAcpInitialization.executionOwnerAgentId !==
+            parseAgentSessionKey(spawnActorSessionKey)?.agentId) ||
+        p.worktree === true ||
+        p.fork === true ||
+        !hasInitialTurn
+      ) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, "invalid trusted visible ACP session creation"),
+        );
+        return;
+      }
+    }
+    // An owner-verified isolated ACP cwd belongs to the remote target. The
+    // transport validates it; Gateway workspace containment is for local runs.
+    if (
+      requestedCwd &&
+      !requestedExecNode &&
+      p.worktree !== true &&
+      !visibleAcpInitialization?.executionOwnerAgentId
+    ) {
       const targetAgentId = normalizeAgentId(
         sessionAgentId ??
           parseAgentSessionKey(sessionKey ?? "")?.agentId ??
@@ -240,45 +289,6 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
     let runMeta: Record<string, unknown> | undefined;
     let messageSeq: number | undefined;
     const clientScopes = Array.isArray(client?.connect?.scopes) ? client.connect.scopes : [];
-    const sessionCreation = resolveOperatorSessionCreation(client, { allowTrustedHint: true });
-    const spawnActorSessionKey =
-      sessionCreation.via === "spawn" && sessionCreation.actor?.type === "agent"
-        ? normalizeOptionalString(sessionCreation.actor.id)
-        : undefined;
-    if (
-      sessionCreation.inheritedToolPolicy &&
-      spawnActorSessionKey &&
-      normalizeOptionalString(p.parentSessionKey) !== spawnActorSessionKey
-    ) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.INVALID_REQUEST, "spawn parent must match the trusted agent caller"),
-      );
-      return;
-    }
-    const visibleAcpInitialization = sessionCreation.acpInitialization;
-    if (visibleAcpInitialization) {
-      const requestedAgentId = normalizeAgentId(
-        normalizeOptionalString(sessionAgentId) ?? resolveDefaultAgentId(cfg),
-      );
-      if (
-        sessionCreation.via !== "spawn" ||
-        !spawnActorSessionKey ||
-        !sessionCreation.inheritedToolPolicy ||
-        visibleAcpInitialization.logicalAgentId !== requestedAgentId ||
-        p.worktree === true ||
-        p.fork === true ||
-        !hasInitialTurn
-      ) {
-        respond(
-          false,
-          undefined,
-          errorShape(ErrorCodes.INVALID_REQUEST, "invalid trusted visible ACP session creation"),
-        );
-        return;
-      }
-    }
     const allowExistingModelSelection = authorizeOperatorScopesForRequiredScope(
       ADMIN_SCOPE,
       clientScopes,

@@ -202,6 +202,7 @@ function sessionEntryIsOwnedByRequester(params: {
 export function validateAcpResumeSessionOwnership(params: {
   cfg: OpenClawConfig;
   targetAgentId: string;
+  sessionAgentId?: string;
   requesterSessionKey?: string;
   resumeSessionId?: string;
 }): { ok: true } | { ok: false; error: string } {
@@ -217,10 +218,15 @@ export function validateAcpResumeSessionOwnership(params: {
     };
   }
 
-  const storePath = resolveStorePath(params.cfg.session?.store, { agentId: params.targetAgentId });
+  const storePath = resolveStorePath(params.cfg.session?.store, {
+    agentId: params.sessionAgentId ?? params.targetAgentId,
+  });
   for (const { sessionKey, entry } of listSessionEntriesReadOnly({ storePath, clone: false })) {
     const acp = readAcpSessionMeta({ sessionKey, cfg: params.cfg });
-    if (!sessionEntryMatchesAcpResumeSessionId(acp, resumeSessionId)) {
+    if (
+      acp?.agent !== params.targetAgentId ||
+      !sessionEntryMatchesAcpResumeSessionId(acp, resumeSessionId)
+    ) {
       continue;
     }
     if (

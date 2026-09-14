@@ -187,9 +187,9 @@ export function isSpawnAcpAcceptedResult(result: SpawnAcpResult): result is Spaw
 }
 
 const ACP_SPAWN_ACCEPTED_NOTE =
-  "initial ACP task queued in isolated session; follow-ups continue in the bound thread.";
+  'One-shot ACP task queued. For a reusable conversation, spawn with mode="session" or visible=true.';
 const ACP_SPAWN_SESSION_ACCEPTED_NOTE =
-  "thread-bound ACP session stays active after this task; continue in-thread for follow-ups.";
+  "Persistent ACP session stays available after this task; send follow-ups to childSessionKey or its bound thread.";
 
 function createAcpSpawnFailure(params: {
   status: "forbidden" | "error";
@@ -269,16 +269,6 @@ export async function spawnAcpDirect(
     requestedMode: params.mode,
     threadRequested: requestThreadBinding,
   });
-  if (spawnMode === "session" && !requestThreadBinding) {
-    return createAcpSpawnFailure({
-      status: "error",
-      errorCode: "thread_required",
-      error:
-        'sessions_spawn(runtime="acp", mode="session") requires thread=true so the ACP session can stay bound to a channel thread. ' +
-        'Retry with { mode: "session", thread: true } on a channel that exposes threads (e.g. Discord, Slack, Telegram topics), or use mode="run" for one-shot work.',
-    });
-  }
-
   const targetAgentResult = resolveTargetAcpAgentId({
     requestedAgentId: params.agentId,
     cfg,
@@ -309,6 +299,17 @@ export async function spawnAcpDirect(
       error: runtimePlan.error,
     });
   }
+  if (spawnMode === "session" && !requestThreadBinding && !runtimePlan.executionOwnerAgentId) {
+    return createAcpSpawnFailure({
+      status: "error",
+      errorCode: "thread_required",
+      error:
+        'Persistent ACP requires thread=true or a personal isolated execution target. Use visible=true for a dashboard conversation, or mode="run" for one-shot work.',
+    });
+  }
+  // The harness selects the runtime, not the platform storage/authorization namespace.
+  // Personal execution children must remain owned by the same platform agent as their VM.
+  const sessionAgentId = runtimePlan.executionOwnerAgentId ?? targetAgentId;
   const agentPolicyError = resolveAcpAgentPolicyError(cfg, targetAgentId);
   if (agentPolicyError) {
     return createAcpSpawnFailure({
@@ -355,6 +356,7 @@ export async function spawnAcpDirect(
   const resumeAuthorization = validateAcpResumeSessionOwnership({
     cfg,
     targetAgentId,
+    sessionAgentId,
     requesterSessionKey: requesterInternalKey,
     resumeSessionId: params.resumeSessionId,
   });
@@ -387,7 +389,7 @@ export async function spawnAcpDirect(
     requester: requesterState,
   });
 
-  const sessionKey = mintSpawnSessionKey({ targetAgentId, backend: "acp" });
+  const sessionKey = mintSpawnSessionKey({ targetAgentId: sessionAgentId, backend: "acp" });
   const runtimeMode = resolveAcpSessionMode(spawnMode);
   const resolvedCwd = resolveSpawnedWorkspaceInheritance({
     config: cfg,
@@ -483,7 +485,7 @@ export async function spawnAcpDirect(
         via: "spawn",
         actor: { type: "agent", id: requesterInternalKey },
       });
-      const storePath = resolveStorePath(cfg.session?.store, { agentId: targetAgentId });
+      const storePath = resolveStorePath(cfg.session?.store, { agentId: sessionAgentId });
       const childSessionPatch = admission.childSessionPatch
         ? {
             spawnDepth: admission.childSessionPatch.spawnDepth,
@@ -550,7 +552,7 @@ export async function spawnAcpDirect(
       if (childCreationEntry) {
         recordSessionCreated({
           sessionKey,
-          agentId: targetAgentId,
+          agentId: sessionAgentId,
           entry: childCreationEntry,
         });
       }
@@ -558,7 +560,7 @@ export async function spawnAcpDirect(
         childSessionKey: sessionKey,
         childRunId: childIdem,
         requesterSessionKey: requesterInternalKey,
-        agentId: targetAgentId,
+        agentId: sessionAgentId,
       });
       if (effectiveStreamToParent && parentSessionKey) {
         state.parentRelay = startAcpSpawnParentStreamRelay({
@@ -566,7 +568,7 @@ export async function spawnAcpDirect(
           parentSessionKey,
           childSessionKey: sessionKey,
           childSessionId: state.initializedSession.sessionId,
-          agentId: targetAgentId,
+          agentId: sessionAgentId,
           env: parentRelayStateEnv,
           mainKey: cfg.session?.mainKey,
           sessionScope: cfg.session?.scope,
@@ -603,7 +605,7 @@ export async function spawnAcpDirect(
           parentSessionKey,
           childSessionKey: sessionKey,
           childSessionId: state.initializedSession.sessionId,
-          agentId: targetAgentId,
+          agentId: sessionAgentId,
           env: parentRelayStateEnv,
           mainKey: cfg.session?.mainKey,
           sessionScope: cfg.session?.scope,
@@ -657,7 +659,7 @@ export async function spawnAcpDirect(
         requesterDisplayKey: ownership.completionRequesterDisplayKey,
         task: params.task,
         taskName: params.taskName,
-        agentId: targetAgentId,
+        agentId: sessionAgentId,
         requesterAgentId,
         cleanup: spawnMode === "session" ? "keep" : params.cleanup === "delete" ? "delete" : "keep",
         label: params.label,

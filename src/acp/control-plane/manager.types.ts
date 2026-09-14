@@ -99,6 +99,11 @@ export type AcpCloseSessionInput = {
   reason: string;
   discardPersistentState?: boolean;
   clearMeta?: boolean;
+  /** Retire the conversation without erasing its runtime identity (maintenance, not reset). */
+  retainClosedMeta?: boolean;
+  expectedLifecycleRevision?: string;
+  /** Release retirement-owned routes under the actor lock; must not reenter this manager. */
+  onRetired?: () => Promise<void>;
   allowBackendUnavailable?: boolean;
   requireAcpSession?: boolean;
   /** Retire only the process-local cached runtime; never resolve/ensure a cold runtime. */

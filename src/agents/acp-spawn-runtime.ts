@@ -23,6 +23,7 @@ import {
   getSessionBindingService,
   type SessionBindingRecord,
 } from "../infra/outbound/session-binding-service.js";
+import { resolveAgentIdFromSessionKey } from "../routing/session-key.js";
 import { persistAcpSpawnSessionFileBestEffort } from "./acp-spawn-requester.js";
 import { resolveAgentConfig } from "./agent-scope.js";
 import {
@@ -156,7 +157,8 @@ export async function initializeAcpSpawnRuntime(params: {
   modelExplicit?: boolean;
   cwd?: string;
 }): Promise<AcpSpawnInitializedRuntime> {
-  const storePath = resolveStorePath(params.cfg.session?.store, { agentId: params.targetAgentId });
+  const sessionAgentId = resolveAgentIdFromSessionKey(params.sessionKey);
+  const storePath = resolveStorePath(params.cfg.session?.store, { agentId: sessionAgentId });
   let sessionEntry = loadSessionEntry({
     storePath,
     sessionKey: params.sessionKey,
@@ -169,7 +171,7 @@ export async function initializeAcpSpawnRuntime(params: {
       sessionKey: params.sessionKey,
       storePath,
       sessionEntry,
-      agentId: params.targetAgentId,
+      agentId: sessionAgentId,
       stage: "spawn",
     });
   }
@@ -270,7 +272,7 @@ export async function bindPreparedAcpThread(params: {
         sessionKey: params.sessionKey,
         storePath: params.initializedRuntime.storePath,
         sessionEntry,
-        agentId: params.targetAgentId,
+        agentId: resolveAgentIdFromSessionKey(params.sessionKey),
         threadId: boundThreadId,
         stage: "thread-bind",
       });

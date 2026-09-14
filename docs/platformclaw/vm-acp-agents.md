@@ -265,6 +265,76 @@ with `runtime: "acp"` and `agentId: "claude"`, then repeat with `agentId:
 Each should report the assigned VM workspace, and the file should appear only in
 that employee's VM account.
 
+## Continue a coding conversation
+
+Use a visible ACP session when you want to inspect the conversation and return to
+it from the browser sidebar. Ask your personal agent to make this tool call;
+these are agent tool calls, not commands to paste into a VM shell:
+
+```javascript
+sessions_spawn({
+  runtime: "acp",
+  agentId: "codex",
+  visible: true,
+  task: "Remember the word apple. Reply exactly FIRST_OK.",
+});
+```
+
+Use `claude` or `opencode` instead of `codex` for another enabled coding agent.
+The returned `childSessionKey` identifies the conversation. Wait for the actual
+`FIRST_OK` response; `status: "accepted"` means only that the initial task was
+queued, not that it succeeded.
+
+Open that conversation in the sidebar to read its streamed replies and send
+another message directly. Your personal agent can also continue it using the
+exact returned key:
+
+```javascript
+sessions_send({
+  sessionKey: "<childSessionKey from the accepted result>",
+  message: "What word did I ask you to remember? Reply with only that word.",
+  timeoutSeconds: 120,
+});
+```
+
+The expected reply is `apple`. A new `runId` is normal for the second request;
+the `sessionKey` must stay the same. Do not spawn a replacement to test reuse.
+
+Choose the session shape deliberately:
+
+| Request                                                     | Conversation lifetime                                                                                                                                |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `visible: true`                                             | Persistent browser conversation. Omit `mode` and `thread`; its initial task envelope reports `mode: "run"`, but the conversation remains persistent. |
+| `mode: "session"` with a personal isolated execution target | Persistent ACP conversation without requiring a channel thread. Continue through the returned `childSessionKey`.                                     |
+| `mode: "run"` without `visible: true`                       | One-shot task. It closes after the turn and cannot accept follow-ups.                                                                                |
+
+For a persistent session without the visible dashboard conversation, use:
+
+```javascript
+sessions_spawn({
+  runtime: "acp",
+  agentId: "codex",
+  mode: "session",
+  task: "Remember the word apple. Reply exactly FIRST_OK.",
+});
+```
+
+Threadless `mode: "session"` requires the personal isolated execution route.
+Other ACP targets still require supported thread binding for that mode.
+Persistent does not mean immortal: deleting the conversation, changing its
+execution target, or losing provider authentication can prevent later turns.
+
+Personal ACP keys use the employee's PlatformClaw agent namespace, not the
+external harness name. A key beginning `agent:<personal-agent>:...` with a
+**Codex** badge is expected; the badge identifies the external coding agent.
+This keeps the conversation within the employee's browser authorization scope.
+
+After upgrading, create fresh sessions for this verification. The update does
+not reconstruct ACP metadata that an older deployment already deleted. A closed
+one-shot session retains its ACP identity and reports `closed` instead of being
+mistaken for a removed native agent. Start a persistent conversation when you
+need another turn.
+
 ## Troubleshoot failures
 
 - **Claude Code was not found:** save its stable absolute executable path in
@@ -283,6 +353,14 @@ that employee's VM account.
 - **Session limit reached:** close an existing ACP session. PlatformClaw reserves
   one of the four SafeConnect channels for normal execution or the browser
   terminal and allows at most three concurrent ACP processes per employee.
+- **First task succeeded but follow-up says the session is closed:** it was a
+  one-shot run. Start with `visible: true` or personal `mode: "session"` and use
+  the returned key for later messages.
+- **Completion says unknown or has no output:** keep both the spawn result and
+  final completion result, including their `runId` and `childSessionKey`.
+  Compare the child conversation with the parent completion. Successful task
+  execution and successful result delivery are separate checks; an accepted
+  spawn or a successful session listing proves neither final delivery nor reuse.
 
 ## Production checks
 

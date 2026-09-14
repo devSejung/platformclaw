@@ -48,7 +48,10 @@ export function rowToAcpSessionMeta(row: AcpSessionRow): SessionAcpMeta {
     mode: row.mode === "oneshot" ? "oneshot" : "persistent",
     ...(runtimeOptions ? { runtimeOptions } : {}),
     ...(row.cwd != null ? { cwd: row.cwd } : {}),
-    state: row.state === "running" || row.state === "error" ? row.state : "idle",
+    state:
+      row.state === "running" || row.state === "error" || row.state === "closed"
+        ? row.state
+        : "idle",
     lastActivityAt: row.last_activity_at,
     ...(row.last_error != null ? { lastError: row.last_error } : {}),
   };

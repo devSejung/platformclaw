@@ -104,7 +104,10 @@ export function resolveAcpSpawnBootstrapDeliveryPlan(params: {
   // the parent task lifecycle notifier instead of letting the child ACP
   // session write raw output directly into the originating channel.
   const useInlineDelivery =
-    hasDeliveryTarget && !params.effectiveStreamToParent && params.spawnMode === "session";
+    hasDeliveryTarget &&
+    !params.effectiveStreamToParent &&
+    params.spawnMode === "session" &&
+    params.requestThreadBinding;
 
   return {
     useInlineDelivery,

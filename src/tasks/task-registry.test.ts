@@ -173,6 +173,7 @@ function configureTaskRegistryMaintenanceRuntimeForTest(params: {
     cfg: AcpSessionStoreEntry["cfg"];
     sessionKey: string;
     reason: string;
+    onRetired: () => Promise<void>;
   }) => Promise<void>;
   unbindSessionBindings?: (params: {
     targetSessionKey?: string;
@@ -279,13 +280,18 @@ function createAcpSessionStoreEntry(params: {
   sessionKey: string;
   parentSessionKey: string;
   mode: "persistent" | "oneshot";
+  executionOwnerAgentId?: string;
+  state?: "idle" | "closed";
 }): AcpSessionStoreEntry {
   const acp = {
     backend: "acpx",
     agent: "claude",
     runtimeSessionName: `${params.sessionKey}:runtime`,
     mode: params.mode,
-    state: "idle",
+    state: params.state ?? "idle",
+    ...(params.executionOwnerAgentId
+      ? { executionOwnerAgentId: params.executionOwnerAgentId }
+      : {}),
     lastActivityAt: Date.now(),
   } as const;
   return {
@@ -2876,6 +2882,57 @@ describe("task-registry", () => {
       checksSummary: true,
     },
     {
+      name: "keeps persistent dashboard ACP after task completion without a channel binding",
+      mode: "persistent" as const,
+      childSessionKey: "agent:main:dashboard:acp-child",
+      runId: "run-dashboard-acp",
+      task: "Dashboard conversation",
+      status: "succeeded" as const,
+      deliveryStatus: "delivered" as const,
+      bound: false,
+      closes: false,
+      checksSummary: false,
+    },
+    {
+      name: "keeps personal persistent ACP after task completion without a channel binding",
+      mode: "persistent" as const,
+      childSessionKey: "agent:main:acp:personal-child",
+      executionOwnerAgentId: "main",
+      runId: "run-personal-acp",
+      task: "Personal conversation",
+      status: "succeeded" as const,
+      deliveryStatus: "delivered" as const,
+      bound: false,
+      closes: false,
+      checksSummary: false,
+    },
+    {
+      name: "does not reclose a retired one-shot ACP session",
+      mode: "oneshot" as const,
+      childSessionKey: "agent:main:acp:closed-child",
+      state: "closed" as const,
+      runId: "run-closed-acp",
+      task: "Retired task",
+      status: "succeeded" as const,
+      deliveryStatus: "delivered" as const,
+      bound: false,
+      closes: false,
+      checksSummary: false,
+    },
+    {
+      name: "cleans up an active binding for a closed one-shot ACP session",
+      mode: "oneshot" as const,
+      childSessionKey: "agent:claude:acp:closed-bound-child",
+      state: "closed" as const,
+      runId: "run-closed-bound-acp",
+      task: "Retired bound task",
+      status: "succeeded" as const,
+      deliveryStatus: "delivered" as const,
+      bound: true,
+      closes: true,
+      checksSummary: false,
+    },
+    {
       name: "closes stale terminal persistent ACP sessions only when no binding remains",
       mode: "persistent" as const,
       childSessionKey: "agent:claude:acp:stale-persistent",
@@ -2911,6 +2968,8 @@ describe("task-registry", () => {
       bound,
       closes,
       checksSummary,
+      executionOwnerAgentId,
+      state,
     }) => {
       await withTaskRegistryTempDir(async () => {
         resetTaskRegistryMemoryForTest();
@@ -2934,7 +2993,9 @@ describe("task-registry", () => {
           lastEventAt: now - 60_000,
         });
         const current = getTaskById(task.taskId)!;
-        const closeAcpSession = vi.fn().mockResolvedValue(undefined);
+        const closeAcpSession = vi.fn(async (input: { onRetired: () => Promise<void> }) => {
+          await input.onRetired();
+        });
         const unbindSessionBindings = vi.fn().mockResolvedValue([]);
 
         configureTaskRegistryMaintenanceRuntimeForTest({
@@ -2944,6 +3005,8 @@ describe("task-registry", () => {
             sessionKey: childSessionKey,
             parentSessionKey,
             mode,
+            executionOwnerAgentId,
+            state,
           }),
           sessionBindings: bound
             ? [createSessionBindingRecord({ targetSessionKey: childSessionKey })]
@@ -2965,6 +3028,7 @@ describe("task-registry", () => {
           cfg: {},
           sessionKey: childSessionKey,
           reason: "terminal-task-cleanup",
+          onRetired: expect.any(Function),
         });
         expect(unbindSessionBindings).toHaveBeenCalledWith({
           targetSessionKey: childSessionKey,
@@ -3070,6 +3134,21 @@ describe("task-registry", () => {
       closes: true,
     },
     {
+      name: "keeps persistent dashboard ACP after task records are gone",
+      mode: "persistent" as const,
+      childSessionKey: "agent:main:dashboard:orphan-conversation",
+      bound: false,
+      closes: false,
+    },
+    {
+      name: "keeps personal persistent ACP after task records are gone",
+      mode: "persistent" as const,
+      childSessionKey: "agent:main:acp:orphan-conversation",
+      executionOwnerAgentId: "main",
+      bound: false,
+      closes: false,
+    },
+    {
       name: "keeps orphaned parent-owned persistent ACP sessions while a binding is active",
       mode: "persistent" as const,
       childSessionKey: "agent:claude:acp:bound-orphaned-persistent",
@@ -3083,18 +3162,25 @@ describe("task-registry", () => {
       bound: false,
       closes: true,
     },
-  ])("$name", async ({ mode, childSessionKey, bound, closes }) => {
+  ])("$name", async ({ mode, childSessionKey, bound, closes, executionOwnerAgentId }) => {
     await withTaskRegistryTempDir(async () => {
       resetTaskRegistryMemoryForTest();
       const parentSessionKey = "agent:main:telegram:direct:owner";
-      const closeAcpSession = vi.fn().mockResolvedValue(undefined);
+      const closeAcpSession = vi.fn(async (input: { onRetired: () => Promise<void> }) => {
+        await input.onRetired();
+      });
       const unbindSessionBindings = vi.fn().mockResolvedValue([]);
 
       configureTaskRegistryMaintenanceRuntimeForTest({
         currentTasks: new Map(),
         snapshotTasks: [],
         acpEntries: [
-          createAcpSessionStoreEntry({ sessionKey: childSessionKey, parentSessionKey, mode }),
+          createAcpSessionStoreEntry({
+            sessionKey: childSessionKey,
+            parentSessionKey,
+            mode,
+            executionOwnerAgentId,
+          }),
         ],
         sessionBindings: bound
           ? [createSessionBindingRecord({ targetSessionKey: childSessionKey })]
@@ -3113,6 +3199,7 @@ describe("task-registry", () => {
         cfg: {},
         sessionKey: childSessionKey,
         reason: "orphaned-parent-task-cleanup",
+        onRetired: expect.any(Function),
       });
       expect(unbindSessionBindings).toHaveBeenCalledWith({
         targetSessionKey: childSessionKey,

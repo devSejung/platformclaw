@@ -999,53 +999,69 @@ describe("spawnAcpDirect", () => {
     expect(transcriptCalls[1]?.threadId).toBe("child-thread");
   });
 
-  it("carries the browser requester into isolated ACP runtime initialization", async () => {
-    replaceSpawnConfig({
-      ...createDefaultSpawnConfig(),
-      acp: {
-        enabled: true,
-        backend: "acpx",
-        allowedAgents: ["claude"],
-      },
-    });
-    const supports = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
-    registerAcpRuntimeBackend({
-      id: "acpx",
-      runtime: {} as never,
-      isolatesSandboxedRequesters: () => true,
-    });
-    const unregister = registerAcpProcessTransport({
-      id: "assigned-vm",
-      isolatesSandboxedRequesters: true,
-      supports,
-      prepare: async () => ({ cwd: "/home/person_one/workspace" }),
-      launch: vi.fn(),
-    });
-
-    try {
-      const result = await spawnAcpDirect(
-        { task: "Reply exactly ACP_OK", agentId: "claude", mode: "run" },
-        {
-          agentSessionKey: "agent:person_one:dashboard:browser-session",
-          requesterAgentIdOverride: "person_one",
-          agentChannel: "dashboard",
-          sandboxed: true,
+  it.each(["run", "session"] as const)(
+    "keeps isolated ACP %s under the browser owner namespace",
+    async (mode) => {
+      replaceSpawnConfig({
+        ...createDefaultSpawnConfig(),
+        acp: {
+          enabled: true,
+          backend: "acpx",
+          allowedAgents: ["claude"],
         },
-      );
+      });
+      const supports = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+      registerAcpRuntimeBackend({
+        id: "acpx",
+        runtime: {} as never,
+        isolatesSandboxedRequesters: () => true,
+      });
+      const unregister = registerAcpProcessTransport({
+        id: "assigned-vm",
+        isolatesSandboxedRequesters: true,
+        supports,
+        prepare: async () => ({ cwd: "/home/person_one/workspace" }),
+        launch: vi.fn(),
+      });
 
-      expectAcceptedSpawn(result);
-      expect(hoisted.initializeSessionMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          agent: "claude",
-          executionOwnerAgentId: "person_one",
-        }),
-      );
-      expect(supports).toHaveBeenCalledOnce();
-    } finally {
-      unregister();
-      unregisterAcpRuntimeBackend("acpx");
-    }
-  });
+      try {
+        const result = await spawnAcpDirect(
+          { task: "Reply exactly ACP_OK", agentId: "claude", mode },
+          {
+            agentSessionKey: "agent:person_one:dashboard:browser-session",
+            requesterAgentIdOverride: "person_one",
+            agentChannel: "dashboard",
+            sandboxed: true,
+          },
+        );
+
+        expectAcceptedSpawn(result);
+        expect(result.childSessionKey).toMatch(/^agent:person_one:acp:/);
+        expect(hoisted.initializeSessionMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            agent: "claude",
+            executionOwnerAgentId: "person_one",
+            sessionKey: result.childSessionKey,
+            mode: mode === "session" ? "persistent" : "oneshot",
+          }),
+        );
+        expect(hoisted.resolveStorePathMock).toHaveBeenCalledWith(
+          undefined,
+          expect.objectContaining({ agentId: "person_one" }),
+        );
+        expect(hoisted.registerSubagentRunMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            agentId: "person_one",
+            childSessionKey: result.childSessionKey,
+          }),
+        );
+        expect(supports).toHaveBeenCalledOnce();
+      } finally {
+        unregister();
+        unregisterAcpRuntimeBackend("acpx");
+      }
+    },
+  );
 
   it("allows ACP resume IDs recorded for the requester session", async () => {
     const resumeSessionId = "codex-inner-resume";

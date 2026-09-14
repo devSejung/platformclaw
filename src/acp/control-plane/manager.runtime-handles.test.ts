@@ -51,6 +51,41 @@ describe("AcpSessionManager runtime handles", () => {
     expect(runtimeState.runTurn).toHaveBeenCalledTimes(2);
   });
 
+  it("reports a retired ACP session without relaunching it or accepting another turn", async () => {
+    const runtimeState = createRuntime();
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
+      id: "acpx",
+      runtime: runtimeState.runtime,
+    });
+    const sessionKey = "agent:personal:acp:closed";
+    hoisted.readAcpSessionEntryMock.mockReturnValue({
+      sessionKey,
+      storeSessionKey: sessionKey,
+      acp: readySessionMeta({
+        mode: "oneshot",
+        state: "closed",
+        executionOwnerAgentId: "personal",
+      }),
+    });
+    const manager = new AcpSessionManager();
+    expect(await manager.getSessionStatus({ cfg: baseCfg, sessionKey })).toMatchObject({
+      state: "closed",
+      agent: "codex",
+    });
+    await expect(
+      manager.runTurn({
+        cfg: baseCfg,
+        sessionKey,
+        text: "again",
+        provenance: "system",
+        mode: "prompt",
+        requestId: "repeat",
+      }),
+    ).rejects.toThrow("session is closed");
+    expect(runtimeState.ensureSession).not.toHaveBeenCalled();
+    expect(runtimeState.runTurn).not.toHaveBeenCalled();
+  });
+
   it("re-ensures cached runtime handles when the runtime config changes", async () => {
     const runtimeState = createRuntime();
     hoisted.requireAcpRuntimeBackendMock.mockReturnValue({

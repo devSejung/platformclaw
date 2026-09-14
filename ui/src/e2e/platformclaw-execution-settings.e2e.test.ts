@@ -180,6 +180,44 @@ suite("PlatformClaw coding agent settings", () => {
     expect(panelBox).not.toBeNull();
     expect(panelBox!.x).toBeGreaterThanOrEqual(0);
     expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(viewport.width);
+    const settingsTabs = component.locator(".settings-tabs");
+    const tabBoxes = await Promise.all(
+      ["location", "agents"].map((id) =>
+        component.locator(`[data-settings-tab='${id}']`).boundingBox(),
+      ),
+    );
+    expect(tabBoxes[0]).not.toBeNull();
+    expect(tabBoxes[1]).not.toBeNull();
+    expect(Math.abs(tabBoxes[0]!.width - tabBoxes[1]!.width)).toBeLessThan(1);
+    await expect
+      .poll(() =>
+        settingsTabs.evaluate((element) => {
+          const group = element as HTMLElement;
+          return Boolean(
+            group.shadowRoot?.querySelector('[part="tabs"]') &&
+            group
+              .querySelector<HTMLElement>("[data-settings-tab='location']")
+              ?.shadowRoot?.querySelector('[part="base"]'),
+          );
+        }),
+      )
+      .toBe(true);
+    const tabSurface = await settingsTabs.evaluate((element) => {
+      const group = element as HTMLElement & { shadowRoot: ShadowRoot | null };
+      const activeTab = group.querySelector<HTMLElement>("[data-settings-tab='location']");
+      const tabsPart = group.shadowRoot?.querySelector<HTMLElement>('[part="tabs"]');
+      const activeBase = activeTab?.shadowRoot?.querySelector<HTMLElement>('[part="base"]');
+      return {
+        trackWidth: getComputedStyle(group).getPropertyValue("--track-width").trim(),
+        trackColor: getComputedStyle(group).getPropertyValue("--track-color").trim(),
+        tabsDisplay: tabsPart ? getComputedStyle(tabsPart).display : "",
+        activeBackground: activeBase ? getComputedStyle(activeBase).backgroundColor : "",
+      };
+    });
+    expect(tabSurface.trackWidth).toBe("0");
+    expect(tabSurface.trackColor).toBe("transparent");
+    expect(tabSurface.tabsDisplay).toBe("flex");
+    expect(tabSurface.activeBackground).not.toBe("rgba(0, 0, 0, 0)");
     await screenshot(page, `01-${name}-work-location.png`);
     const locationTab = component.locator("[data-settings-tab='location']");
     await locationTab.focus();

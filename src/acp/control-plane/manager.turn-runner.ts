@@ -42,7 +42,11 @@ import type {
   SessionAcpMeta,
   WriteManagerSessionMeta,
 } from "./manager.types.js";
-import { normalizeActorKey, requireReadySessionMeta } from "./manager.utils.js";
+import {
+  normalizeActorKey,
+  requireReadySessionMeta,
+  resolveClosedAcpSessionError,
+} from "./manager.utils.js";
 
 const ACP_TURN_TIMEOUT_GRACE_MS = 1_000;
 
@@ -74,6 +78,11 @@ export async function runManagerTurn(params: {
   const { input, sessionKey } = params;
   const turnStartedAt = Date.now();
   const actorKey = normalizeActorKey(sessionKey);
+  const initialResolution = params.resolveSession({ cfg: input.cfg, sessionKey });
+  const initialMeta = requireReadySessionMeta(initialResolution);
+  if (initialMeta.state === "closed") {
+    throw resolveClosedAcpSessionError();
+  }
   const taskContext =
     input.mode === "prompt"
       ? resolveBackgroundTaskContext({
@@ -88,11 +97,6 @@ export async function runManagerTurn(params: {
     createBackgroundTaskRecord(taskContext, turnStartedAt);
   }
   let taskProgressSummary = "";
-  const initialResolution = params.resolveSession({
-    cfg: input.cfg,
-    sessionKey,
-  });
-  const initialMeta = requireReadySessionMeta(initialResolution);
   recordSessionHumanDirectMessage({
     sessionKey,
     entry: initialResolution.kind === "ready" ? initialResolution.entry : undefined,
@@ -434,8 +438,16 @@ export async function runManagerTurn(params: {
       }
     }
   } finally {
-    if (acpTurnMarkedActive) {
-      clearAcpTurnActive(sessionKey);
+    // A turn ending closes the one-shot conversation, not its durable runtime identity.
+    // Keeping that identity prevents later sends from becoming native agent turns.
+    try {
+      if (initialMeta.mode === "oneshot") {
+        await params.setSessionState({ cfg: input.cfg, sessionKey, state: "closed" });
+      }
+    } finally {
+      if (acpTurnMarkedActive) {
+        clearAcpTurnActive(sessionKey);
+      }
     }
   }
 }

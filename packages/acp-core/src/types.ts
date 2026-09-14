@@ -92,7 +92,8 @@ export type SessionAcpMeta = {
   mode: "persistent" | "oneshot";
   runtimeOptions?: AcpSessionRuntimeOptions;
   cwd?: string;
-  state: "idle" | "running" | "error";
+  /** Closed sessions retain their runtime identity but cannot accept another turn. */
+  state: "idle" | "running" | "error" | "closed";
   lastActivityAt: number;
   lastError?: string;
 };

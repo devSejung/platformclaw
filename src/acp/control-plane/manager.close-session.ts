@@ -31,6 +31,12 @@ export async function runManagerCloseSession(params: {
   writeSessionMeta: WriteManagerSessionMeta;
 }): Promise<AcpCloseSessionResult> {
   const { input, sessionKey } = params;
+  if (input.onRetired && !input.retainClosedMeta) {
+    throw new Error("retirement cleanup requires retained ACP identity");
+  }
+  if (input.retainClosedMeta && (input.clearMeta || input.cacheOnly)) {
+    throw new Error("retained ACP retirement cannot clear metadata or be cache-only");
+  }
   if (input.cacheOnly === true) {
     if (input.clearMeta === true) {
       throw new Error("cache-only ACP retirement cannot clear persisted session metadata");
@@ -63,22 +69,32 @@ export async function runManagerCloseSession(params: {
     };
   }
   const meta = requireReadySessionMeta(resolution);
+  if (
+    input.expectedLifecycleRevision &&
+    resolution.kind === "ready" &&
+    resolution.entry?.lifecycleRevision !== input.expectedLifecycleRevision
+  ) {
+    return { runtimeClosed: false, metaCleared: false };
+  }
   const currentIdentity = resolveSessionIdentityFromMeta(meta);
   const shouldSkipRuntimeClose =
-    input.discardPersistentState &&
-    currentIdentity != null &&
-    !identityHasStableSessionId(currentIdentity);
+    meta.state === "closed" ||
+    (input.discardPersistentState &&
+      currentIdentity != null &&
+      !identityHasStableSessionId(currentIdentity));
 
   let runtimeClosed = false;
   let runtimeNotice: string | undefined;
   if (shouldSkipRuntimeClose) {
-    await tryPrepareFreshManagerRuntimeSession({
-      deps: params.deps,
-      cfg: input.cfg,
-      meta,
-      sessionKey,
-      logPrefix: "acp close fast-reset",
-    });
+    if (input.discardPersistentState) {
+      await tryPrepareFreshManagerRuntimeSession({
+        deps: params.deps,
+        cfg: input.cfg,
+        meta,
+        sessionKey,
+        logPrefix: "acp close fast-reset",
+      });
+    }
     params.runtimeHandles.clear(sessionKey);
   } else {
     try {
@@ -134,12 +150,31 @@ export async function runManagerCloseSession(params: {
   }
 
   let metaCleared = false;
-  if (input.discardPersistentState && !input.clearMeta) {
+  if (
+    input.discardPersistentState &&
+    !input.clearMeta &&
+    !input.retainClosedMeta &&
+    meta.state !== "closed"
+  ) {
     await discardPersistedManagerRuntimeState({
       cfg: input.cfg,
       sessionKey,
       writeSessionMeta: params.writeSessionMeta,
     });
+  }
+
+  if (input.retainClosedMeta) {
+    // The actor lock owns both process retirement and its durable classification.
+    // A separate maintenance write could otherwise close a replacement lifecycle.
+    await params.writeSessionMeta({
+      cfg: input.cfg,
+      sessionKey,
+      mutate: (current) => (current ? { ...current, state: "closed" } : undefined),
+      failOnError: true,
+    });
+    // Binding IDs may be reused by a replacement conversation. Finish route
+    // cleanup before releasing the actor to the next initialize operation.
+    await input.onRetired?.();
   }
 
   if (input.clearMeta) {

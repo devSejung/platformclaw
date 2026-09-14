@@ -15,7 +15,10 @@ import {
   resolveAcpSpawnRuntimeOptions,
   resolveRuntimeCwdForAcpSpawn,
 } from "../acp-spawn-runtime.js";
-import { resolveTargetAcpAgentId } from "../acp-spawn-target.js";
+import {
+  resolveConfiguredAcpSubagentTargetIds,
+  resolveTargetAcpAgentId,
+} from "../acp-spawn-target.js";
 import { listAgentIds, resolveAgentConfig } from "../agent-scope.js";
 import { reserveChildAdmissionSlot } from "../child-admission.js";
 import {
@@ -184,20 +187,11 @@ export async function spawnVisibleAcpSession(params: {
     return {
       status: "error",
       error:
-        'sessions_spawn(runtime="acp", visible=true) requires agentId for a configured logical ACP agent.',
+        'sessions_spawn(runtime="acp", visible=true) requires a coding-agent or configured ACP agentId.',
     };
   }
-  const logicalAgentId = normalizeAgentId(requestedLogicalAgentId);
-  const logicalAgent = resolveAgentConfig(cfg, logicalAgentId);
-  if (logicalAgent?.runtime?.type !== "acp") {
-    return {
-      status: "error",
-      error:
-        `Visible ACP agentId "${logicalAgentId}" must name a configured agent with ` +
-        'runtime.type="acp"; raw ACP harness ids are supported only by non-visible ACP spawns.',
-    };
-  }
-  const target = resolveTargetAcpAgentId({ requestedAgentId: logicalAgentId, cfg });
+  const requestedTargetId = normalizeAgentId(requestedLogicalAgentId);
+  const target = resolveTargetAcpAgentId({ requestedAgentId: requestedTargetId, cfg });
   if (!target.ok) {
     return { status: "error", error: target.error };
   }
@@ -225,18 +219,6 @@ export async function spawnVisibleAcpSession(params: {
   const requesterAgentId = normalizeAgentId(
     params.options?.requesterAgentIdOverride ?? parseAgentSessionKey(requesterKey)?.agentId,
   );
-  const targetPolicy = resolveSubagentTargetPolicy({
-    requesterAgentId,
-    targetAgentId: logicalAgentId,
-    requestedAgentId: params.requestedAgentId,
-    allowAgents:
-      resolveAgentConfig(cfg, requesterAgentId)?.subagents?.allowAgents ??
-      cfg.agents?.defaults?.subagents?.allowAgents,
-    configuredAgentIds: listAgentIds(cfg),
-  });
-  if (!targetPolicy.ok) {
-    return { status: "forbidden", error: targetPolicy.error };
-  }
   const callerDepth = getSubagentDepthFromSessionStore(requesterKey, { cfg });
   const maxDepth =
     cfg.agents?.defaults?.subagents?.maxSpawnDepth ?? DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH;
@@ -257,6 +239,32 @@ export async function spawnVisibleAcpSession(params: {
   if (!runtimePlan.ok) {
     return { status: "forbidden", error: runtimePlan.error };
   }
+  // A personal harness executes as the requester, not as another configured
+  // agent. Its harness admission is owned by ACP policy and the transport.
+  const policyTargetId =
+    !target.configAgentId && runtimePlan.executionOwnerAgentId
+      ? runtimePlan.executionOwnerAgentId
+      : requestedTargetId;
+  const targetPolicy = resolveSubagentTargetPolicy({
+    requesterAgentId,
+    targetAgentId: policyTargetId,
+    requestedAgentId: params.requestedAgentId,
+    allowAgents:
+      resolveAgentConfig(cfg, requesterAgentId)?.subagents?.allowAgents ??
+      cfg.agents?.defaults?.subagents?.allowAgents,
+    configuredAgentIds: resolveConfiguredAcpSubagentTargetIds(cfg),
+  });
+  if (!targetPolicy.ok) {
+    return { status: "forbidden", error: targetPolicy.error };
+  }
+  const logicalAgentId = runtimePlan.executionOwnerAgentId ?? target.configAgentId;
+  if (!logicalAgentId || !listAgentIds(cfg).includes(logicalAgentId)) {
+    return {
+      status: "error",
+      error:
+        'Visible ACP must name a configured agent with runtime.type="acp" or an available personal isolated coding agent.',
+    };
+  }
   const runTimeoutSeconds = resolveConfiguredSubagentRunTimeoutSeconds({
     cfg,
     runTimeoutSeconds: params.runTimeoutSeconds,
@@ -264,7 +272,7 @@ export async function spawnVisibleAcpSession(params: {
   const runtimeOptions = resolveAcpSpawnRuntimeOptions({
     cfg,
     targetAgentId: target.agentId,
-    configAgentId: logicalAgentId,
+    configAgentId: target.configAgentId,
     model: params.modelOverride,
     runTimeoutSeconds,
   });
@@ -325,6 +333,7 @@ export async function spawnVisibleAcpSession(params: {
           },
           acpInitialization: {
             logicalAgentId,
+            ...(target.configAgentId ? { configAgentId: target.configAgentId } : {}),
             runtimeAgentId: target.agentId,
             ...(runtimePlan.executionOwnerAgentId
               ? { executionOwnerAgentId: runtimePlan.executionOwnerAgentId }
@@ -457,6 +466,7 @@ export async function spawnVisibleAcpSession(params: {
       runId,
       mode: "run",
       cleanup: "keep",
+      note: "Persistent ACP conversation created. Send follow-ups to childSessionKey; the dashboard displays its live conversation.",
     };
   } finally {
     reservation.release();
