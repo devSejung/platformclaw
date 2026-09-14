@@ -11,5 +11,6 @@ export * from "./render-aware-chunking.js";
 export * from "./render-attributed.js";
 export * from "./render-plain.js";
 export * from "./render.js";
+export * from "./reference-spans.js";
 export * from "./tables.js";
 export * from "./types.js";

@@ -69,7 +69,9 @@ describe("organization knowledge analysis operator Gateway boundary", () => {
   it("uses data-only provider config completion for a paired operator backend", async () => {
     const test = harness();
     const respond = await test.invoke(backend, { claims });
-    expect(test.register.mock.calls[0]?.[0]).toBe("platformclaw.organization.knowledge.completePair");
+    expect(test.register.mock.calls[0]?.[0]).toBe(
+      "platformclaw.organization.knowledge.completePair",
+    );
     expect(test.register.mock.calls[0]?.[2]).toEqual({ scope: "operator.admin" });
     expect(respond.mock.calls[0]?.[0]).toBe(true);
     expect(test.complete).toHaveBeenCalledOnce();

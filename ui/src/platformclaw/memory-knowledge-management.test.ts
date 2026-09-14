@@ -546,7 +546,7 @@ describe("organization knowledge management", () => {
     for (const [name, value] of [
       ["title", "Updated rule"],
       ["body", "New rule with checked conditions"],
-    ]) {
+    ] as const) {
       const input = form.querySelector(`[name="${name}"]`) as HTMLInputElement;
       input.value = value;
       input.dispatchEvent(new Event("input", { bubbles: true }));

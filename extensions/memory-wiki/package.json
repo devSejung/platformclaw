@@ -5,6 +5,7 @@
   "description": "OpenClaw persistent wiki plugin",
   "type": "module",
   "dependencies": {
+    "@openclaw/markdown-core": "workspace:*",
     "mdast-util-from-markdown": "2.0.3",
     "p-map": "7.0.6",
     "typebox": "1.3.6",
