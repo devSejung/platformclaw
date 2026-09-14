@@ -52,7 +52,7 @@ function renderSessionRowBadge(
       class=${`session-row-badge${modifier ? ` ${modifier}` : ""}`}
       data-pull-request-state=${pullRequestState ?? nothing}
       data-placement-state=${placementState ?? nothing}
-      data-workspace-conflicts=${workspaceConflictCount ? String(workspaceConflictCount) : nothing}
+      data-workspace-conflicts=${workspaceConflictCount || nothing}
       role="img"
       aria-label=${label}
       >${icon}${count ? html`<span aria-hidden="true">${count}</span>` : nothing}</span
@@ -74,50 +74,50 @@ export function renderSessionRowBadges(params: {
   workspaceConflictCount?: number;
 }) {
   // isChild is tree placement, not session type: promoted rows keep their badge.
-  const hasSubagentType = isSubagentSessionKey(params.key);
   // Dashboard is a surface, not a runtime alternative to subagent/ACP.
   // parentSessionKey alone also describes operator forks and ordinary threading.
-  const hasDashboardTaskType =
-    parseAgentSessionKey(params.key)?.rest.startsWith("dashboard:") === true &&
-    typeof params.spawnDepth === "number" &&
-    Number.isInteger(params.spawnDepth) &&
-    params.spawnDepth >= 1 &&
-    Boolean(params.spawnedBy?.trim());
+  const typeBadge = isSubagentSessionKey(params.key)
+    ? renderSessionRowBadge(
+        t("sessionsView.subagentType"),
+        icons.bot,
+        "session-row-badge--subagent",
+      )
+    : parseAgentSessionKey(params.key)?.rest.startsWith("dashboard:") &&
+        Number.isInteger(params.spawnDepth) &&
+        params.spawnDepth! > 0 &&
+        !!params.spawnedBy?.trim()
+      ? renderSessionRowBadge(
+          t("sessionsView.dashboardTaskType"),
+          icons.layoutDashboard,
+          "session-row-badge--dashboard-task",
+        )
+      : null;
   const hasAutomation = !params.isChild && params.hasAutomation;
   const pullRequestLabel = params.pullRequest
     ? formatSessionPullRequestSummary(params.pullRequest)
     : undefined;
   const pullRequestState = params.pullRequest?.state;
-  const placementState = params.isChild ? undefined : params.placementState;
-  const cloudPlacementState = isCloudWorkerPlacementState(placementState)
-    ? placementState
-    : undefined;
   const workspaceConflictCount = Math.max(0, Math.floor(params.workspaceConflictCount ?? 0));
   // Child rows suppress ordinary placement chrome, but a retained conflict must stay discoverable.
-  const conflictPlacementState = workspaceConflictCount > 0 ? params.placementState : undefined;
-  const displayedPlacementState = cloudPlacementState ?? conflictPlacementState;
-  const hasWorkspaceConflict = workspaceConflictCount > 0;
+  const displayedPlacementState =
+    (!params.isChild && isCloudWorkerPlacementState(params.placementState)) ||
+    workspaceConflictCount
+      ? params.placementState
+      : undefined;
   const outboxCount = Math.max(0, Math.floor(params.outboxCount ?? 0));
-  const outboxLabel =
-    outboxCount > 0
-      ? t(outboxCount === 1 ? "sessionsView.queuedMessage" : "sessionsView.queuedMessages", {
-          count: String(outboxCount),
-        })
-      : "";
   if (
-    !hasSubagentType &&
-    !hasDashboardTaskType &&
+    !typeBadge &&
     !params.incognito &&
     !hasAutomation &&
     !pullRequestLabel &&
     !params.hasApproval &&
-    outboxCount === 0 &&
+    !outboxCount &&
     !displayedPlacementState &&
-    !hasWorkspaceConflict
+    !workspaceConflictCount
   ) {
     return nothing;
   }
-  const cloudLabel = hasWorkspaceConflict
+  const cloudLabel = workspaceConflictCount
     ? displayedPlacementState
       ? t(
           workspaceConflictCount === 1
@@ -138,20 +138,7 @@ export function renderSessionRowBadges(params: {
       ? t("sessionsView.cloudWorkerPlacement", { state: displayedPlacementState })
       : "";
   return html`<span class="session-row-badges">
-    ${hasSubagentType
-      ? renderSessionRowBadge(
-          t("sessionsView.subagentType"),
-          icons.bot,
-          "session-row-badge--subagent",
-        )
-      : nothing}
-    ${hasDashboardTaskType
-      ? renderSessionRowBadge(
-          t("sessionsView.dashboardTaskType"),
-          icons.layoutDashboard,
-          "session-row-badge--dashboard-task",
-        )
-      : nothing}
+    ${typeBadge}
     ${params.incognito
       ? renderSessionRowBadge(
           t("sessionsView.incognito"),
@@ -178,10 +165,17 @@ export function renderSessionRowBadges(params: {
           "session-row-badge--approval",
         )
       : nothing}
-    ${outboxCount > 0
-      ? renderSessionRowBadge(outboxLabel, icons.clock, "session-row-badge--queued", outboxCount)
+    ${outboxCount
+      ? renderSessionRowBadge(
+          t(outboxCount === 1 ? "sessionsView.queuedMessage" : "sessionsView.queuedMessages", {
+            count: String(outboxCount),
+          }),
+          icons.clock,
+          "session-row-badge--queued",
+          outboxCount,
+        )
       : nothing}
-    ${displayedPlacementState || hasWorkspaceConflict
+    ${displayedPlacementState || workspaceConflictCount
       ? renderSessionRowBadge(
           cloudLabel,
           icons.globe,
@@ -189,7 +183,7 @@ export function renderSessionRowBadges(params: {
           0,
           undefined,
           displayedPlacementState,
-          hasWorkspaceConflict ? workspaceConflictCount : 0,
+          workspaceConflictCount,
         )
       : nothing}
   </span>`;
