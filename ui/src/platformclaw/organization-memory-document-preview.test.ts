@@ -1,9 +1,14 @@
 /* @vitest-environment jsdom */
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { waitForFast } from "../test-helpers/wait-for.ts";
+import { loadPlatformClawLocale } from "./i18n.ts";
 import { isOrganizationMemoryPath } from "./organization-memory-document-preview.ts";
 
 afterEach(() => document.body.replaceChildren());
+beforeEach(async () => {
+  await loadPlatformClawLocale();
+});
+
 it("opens compiler Markdown links through authorized organization reads", async () => {
   const request = vi.fn(async (_method, params) => ({
     title: params.path,
