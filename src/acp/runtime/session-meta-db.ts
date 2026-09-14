@@ -2,11 +2,11 @@ import type { DatabaseSync } from "node:sqlite";
 import { safeParseJson } from "@openclaw/normalization-core";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import type { Insertable, Selectable } from "kysely";
-import {
-  type AcpSessionRuntimeOptions,
-  type SessionAcpIdentity,
-  type SessionAcpMeta,
-  type SessionEntry,
+import type {
+  AcpSessionRuntimeOptions,
+  SessionAcpIdentity,
+  SessionAcpMeta,
+  SessionEntry,
 } from "../../config/sessions/types.js";
 import {
   executeSqliteQuerySync,

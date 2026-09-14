@@ -120,7 +120,9 @@ export async function initializeVisibleAcpCreatedSession(params: {
   const configuredAcpOptions = configuredAcp?.type === "acp" ? configuredAcp.acp : undefined;
   const cwd = params.intent.cwdExplicit
     ? params.intent.cwd
-    : (normalizeOptionalString(configuredAcpOptions?.cwd) ?? params.intent.cwd);
+    : (normalizeOptionalString(configuredAcpOptions?.cwd) ??
+      params.intent.cwd ??
+      normalizeOptionalString(params.entry.spawnedCwd));
   const backendId =
     normalizeOptionalString(configuredAcpOptions?.backend) ??
     normalizeOptionalString(params.cfg.acp?.backend);

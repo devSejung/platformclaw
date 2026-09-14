@@ -15,17 +15,17 @@
 {
   "channel": "telegram",
   "chatType": "direct",
-  "codexModelInstructionsFixture": "test/fixtures/agents/prompt-snapshots/codex-model-catalog/gpt-5.5.pragmatic.instructions.md",
+  "codexModelInstructionsFixture": "test\\fixtures\\agents\\prompt-snapshots\\codex-model-catalog\\gpt-5.5.pragmatic.instructions.md",
   "harness": "codex",
   "model": "gpt-5.5",
   "modelProvider": "openai",
   "runtime": "codex_app_server",
-  "simulatedHeartbeatWorkspaceFile": "/tmp/openclaw-happy-path/workspace/HEARTBEAT.md",
-  "simulatedWorkspaceBootstrapFiles": ["/tmp/openclaw-happy-path/workspace/MEMORY.md"],
+  "simulatedHeartbeatWorkspaceFile": "\\tmp\\openclaw-happy-path\\workspace\\HEARTBEAT.md",
+  "simulatedWorkspaceBootstrapFiles": ["\\tmp\\openclaw-happy-path\\workspace\\MEMORY.md"],
   "simulatedWorkspaceTurnScopedDeveloperInstructionFiles": [
-    "/tmp/openclaw-happy-path/workspace/IDENTITY.md",
-    "/tmp/openclaw-happy-path/workspace/SOUL.md",
-    "/tmp/openclaw-happy-path/workspace/USER.md"
+    "\\tmp\\openclaw-happy-path\\workspace\\IDENTITY.md",
+    "\\tmp\\openclaw-happy-path\\workspace\\SOUL.md",
+    "\\tmp\\openclaw-happy-path\\workspace\\USER.md"
   ],
   "sourceReplyDeliveryMode": "message_tool_only",
   "toolSnapshot": "codex-dynamic-tools.telegram-direct.json",
@@ -137,7 +137,7 @@
   "collaborationMode": {
     "mode": "default",
     "settings": {
-      "developer_instructions": "# Collaboration Mode: Default\n\nYou are now in Default mode. Any previous instructions for other modes (e.g. Plan mode) are no longer active.\n\nYour active mode changes only when new developer instructions with a different `<collaboration_mode>...</collaboration_mode>` change it; user requests or tool descriptions do not change mode by themselves. Known mode names are Default and Plan.\n\n## request_user_input availability\n\nUse the `request_user_input` tool only when it is listed in the available tools for this turn.\n\nIn Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.\n\n## OpenClaw Agent Soul\n\nOpenClaw loaded these workspace instruction files from the active agent workspace. They are the canonical definitions of who you are, how you think and work, and the human you work alongside. Internalize and follow them accordingly.\n\n### /tmp/openclaw-happy-path/workspace/IDENTITY.md\n\n<IDENTITY.md contents will be here>\n\n### /tmp/openclaw-happy-path/workspace/SOUL.md\n\n<SOUL.md contents will be here>\n\n### /tmp/openclaw-happy-path/workspace/USER.md\n\n<USER.md contents will be here>",
+      "developer_instructions": "# Collaboration Mode: Default\n\nYou are now in Default mode. Any previous instructions for other modes (e.g. Plan mode) are no longer active.\n\nYour active mode changes only when new developer instructions with a different `<collaboration_mode>...</collaboration_mode>` change it; user requests or tool descriptions do not change mode by themselves. Known mode names are Default and Plan.\n\n## request_user_input availability\n\nUse the `request_user_input` tool only when it is listed in the available tools for this turn.\n\nIn Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.\n\n## OpenClaw Agent Soul\n\nOpenClaw loaded these workspace instruction files from the active agent workspace. They are the canonical definitions of who you are, how you think and work, and the human you work alongside. Internalize and follow them accordingly.\n\n### \\tmp\\openclaw-happy-path\\workspace\\IDENTITY.md\n\n<IDENTITY.md contents will be here>\n\n### \\tmp\\openclaw-happy-path\\workspace\\SOUL.md\n\n<SOUL.md contents will be here>\n\n### \\tmp\\openclaw-happy-path\\workspace\\USER.md\n\n<USER.md contents will be here>",
       "model": "gpt-5.5",
       "reasoning_effort": "medium"
     }
@@ -169,7 +169,7 @@ This is the deterministic model-bound layer stack OpenClaw can snapshot for the 
 ```json
 {
   "codexModelInstructions": {
-    "fixture": "test/fixtures/agents/prompt-snapshots/codex-model-catalog/gpt-5.5.pragmatic.instructions.md",
+    "fixture": "test\\fixtures\\agents\\prompt-snapshots\\codex-model-catalog\\gpt-5.5.pragmatic.instructions.md",
     "source": {
       "model": "gpt-5.5",
       "personality": "pragmatic",
@@ -221,8 +221,8 @@ This is the deterministic model-bound layer stack OpenClaw can snapshot for the 
     "roughTokens": 0
   },
   "dynamicToolsJson": {
-    "chars": 61788,
-    "roughTokens": 15447
+    "chars": 61745,
+    "roughTokens": 15437
   },
   "openClawDeveloperInstructions": {
     "chars": 2702,
@@ -233,8 +233,8 @@ This is the deterministic model-bound layer stack OpenClaw can snapshot for the 
     "roughTokens": 6679
   },
   "totalWithDynamicToolsJson": {
-    "chars": 88504,
-    "roughTokens": 22126
+    "chars": 88461,
+    "roughTokens": 22116
   },
   "userInputText": {
     "chars": 929,
@@ -469,15 +469,15 @@ In Default mode, strongly prefer making reasonable assumptions and executing the
 
 OpenClaw loaded these workspace instruction files from the active agent workspace. They are the canonical definitions of who you are, how you think and work, and the human you work alongside. Internalize and follow them accordingly.
 
-### /tmp/openclaw-happy-path/workspace/IDENTITY.md
+### \tmp\openclaw-happy-path\workspace\IDENTITY.md
 
 <IDENTITY.md contents will be here>
 
-### /tmp/openclaw-happy-path/workspace/SOUL.md
+### \tmp\openclaw-happy-path\workspace\SOUL.md
 
 <SOUL.md contents will be here>
 
-### /tmp/openclaw-happy-path/workspace/USER.md
+### \tmp\openclaw-happy-path\workspace\USER.md
 
 <USER.md contents will be here>
 ```
@@ -496,7 +496,7 @@ OpenClaw loaded these user-editable workspace files for the current turn. Codex 
 
 The following project context files have been loaded:
 
-## /tmp/openclaw-happy-path/workspace/MEMORY.md
+## \tmp\openclaw-happy-path\workspace\MEMORY.md
 
 <MEMORY.md contents will be here>
 

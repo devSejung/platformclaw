@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as acpRuntimeRegistry from "../../acp/runtime/registry.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import type { InProcessGatewayCaller } from "./in-process-gateway.js";
 import { spawnVisibleAcpSession } from "./sessions-spawn-visible-acp.js";
 
 function visibleAcpConfig(): OpenClawConfig {
@@ -60,7 +61,7 @@ describe("visible persistent ACP spawn", () => {
         agentSessionKey: "agent:main:main",
         completionOwnerKey: "agent:main:main",
         config: visibleAcpConfig(),
-        callGateway,
+        callGateway: callGateway as unknown as InProcessGatewayCaller,
         registerRun,
         countActiveRuns: () => 0,
       },
@@ -143,7 +144,7 @@ describe("visible persistent ACP spawn", () => {
       options: {
         agentSessionKey: "agent:main:main",
         config: visibleAcpConfig(),
-        callGateway,
+        callGateway: callGateway as unknown as InProcessGatewayCaller,
         countActiveRuns: () => 0,
       },
     });
@@ -184,7 +185,7 @@ describe("visible persistent ACP spawn", () => {
       options: {
         agentSessionKey: "agent:main:main",
         config: visibleAcpConfig(),
-        callGateway,
+        callGateway: callGateway as unknown as InProcessGatewayCaller,
         countActiveRuns: () => 0,
       },
     });

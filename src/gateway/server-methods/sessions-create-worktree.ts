@@ -35,6 +35,7 @@ type PreparedSessionWorktree = {
   sessionWorktree: SessionWorktree;
   sessionCwd: string;
   sessionSourceRoot: string;
+  generatedDisplayName?: string;
   provisionedSessionWorktree: boolean;
 };
 
@@ -118,6 +119,7 @@ export async function prepareSessionWorktree(params: {
 
   let sessionWorktree: SessionWorktree;
   let sessionSourceRoot: string;
+  let generatedDisplayName: string | undefined;
   let provisionedSessionWorktree = false;
   try {
     const requestedRepository = await managedWorktrees.resolveRepositoryPaths(workspace);
@@ -162,7 +164,6 @@ export async function prepareSessionWorktree(params: {
       sessionWorktree = existing;
     } else {
       const scopes = Array.isArray(client?.connect.scopes) ? client.connect.scopes : [];
-      let generatedDisplayName: string | undefined;
       if (!requestedWorktreeName && !normalizeOptionalString(p.label) && initialMessage) {
         try {
           const requestedTitleModel =
@@ -245,6 +246,7 @@ export async function prepareSessionWorktree(params: {
     sessionWorktree,
     sessionCwd,
     sessionSourceRoot,
+    generatedDisplayName,
     provisionedSessionWorktree,
   };
 }

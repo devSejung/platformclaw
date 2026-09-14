@@ -20,7 +20,6 @@ import { isPathInside } from "../../infra/path-guards.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import { ensureSessionDiffBaseline } from "../../sessions/session-diff-baseline.js";
 import { resolveUserPath } from "../../utils.js";
-import { stripInlineDirectiveTagsForDisplay } from "../../utils/directive-tags.js";
 import { ADMIN_SCOPE, authorizeOperatorScopesForRequiredScope } from "../method-scopes.js";
 import { createGatewaySession } from "../session-create-service.js";
 import { resolveRequestedSessionAgentId as resolveRequestedGlobalAgentId } from "../session-request-agent.js";
@@ -180,9 +179,8 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
     let sessionWorktree: Awaited<ReturnType<typeof managedWorktrees.create>> | undefined;
     const sessionExecCwd = requestedExecNode ? requestedCwd : undefined;
     let sessionCwd = requestedExecNode ? undefined : requestedCwd;
-    let sessionSourceRoot: string | undefined;
-    let provisionedSessionWorktree = false;
     let generatedDisplayName: string | undefined;
+    let provisionedSessionWorktree = false;
     if (requestedCwd && !requestedExecNode && p.worktree !== true) {
       const targetAgentId = normalizeAgentId(
         sessionAgentId ??
@@ -234,7 +232,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       sessionAgentId = preparedWorktree.sessionAgentId;
       sessionWorktree = preparedWorktree.sessionWorktree;
       sessionCwd = preparedWorktree.sessionCwd;
-      sessionSourceRoot = preparedWorktree.sessionSourceRoot;
+      generatedDisplayName = preparedWorktree.generatedDisplayName;
       provisionedSessionWorktree = preparedWorktree.provisionedSessionWorktree;
     }
     let runPayload: Record<string, unknown> | undefined;

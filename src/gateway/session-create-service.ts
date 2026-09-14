@@ -1194,10 +1194,12 @@ export async function createGatewaySession(params: {
           },
         });
         if (!rollback.deleted) {
-          throw new AggregateError(
+          const rollbackError = new AggregateError(
             [error],
             `trusted initializer failed and exact lifecycle rollback did not delete ${target.canonicalKey}`,
+            { cause: error },
           );
+          throw rollbackError;
         }
         throw error;
       }
