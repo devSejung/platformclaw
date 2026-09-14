@@ -17,6 +17,7 @@ import type {
   SessionEntry,
   WriteManagerSessionMeta,
 } from "./manager.types.js";
+import { AcpInitializationCleanupError } from "./manager.types.js";
 import {
   normalizeRuntimeOptions,
   normalizeText,
@@ -112,14 +113,35 @@ export async function runManagerInitializeSession(params: {
     lastActivityAt: Date.now(),
   };
 
-  const persisted = await persistInitializedSessionMeta({
-    cfg: input.cfg,
-    sessionKey,
-    meta,
-    runtime,
-    handle,
-    writeSessionMeta: params.writeSessionMeta,
-  });
+  let persisted: SessionEntry | null;
+  try {
+    persisted = await persistInitializedSessionMeta({
+      cfg: input.cfg,
+      sessionKey,
+      meta,
+      runtime,
+      handle,
+      writeSessionMeta: params.writeSessionMeta,
+    });
+  } catch (error) {
+    if (error instanceof AcpInitializationCleanupError) {
+      // The process is still live. Keep its exact handle manager-owned so a
+      // lifecycle retry can retire it without launching another runtime.
+      params.runtimeHandles.set(sessionKey, {
+        runtime,
+        handle,
+        backend: handle.backend || backend.id,
+        agent,
+        ...(meta.executionOwnerAgentId
+          ? { executionOwnerAgentId: meta.executionOwnerAgentId }
+          : {}),
+        mode: input.mode,
+        cwd: effectiveCwd,
+        configSignature: resolveRuntimeConfigCacheKey(input.cfg),
+      });
+    }
+    throw error;
+  }
   if (!persisted?.acp) {
     throw new AcpRuntimeError(
       "ACP_SESSION_INIT_FAILED",
@@ -173,27 +195,34 @@ async function persistInitializedSessionMeta(params: {
       return persisted;
     }
   } catch (error) {
-    await closeRuntimeAfterInitMetaFailure(params);
+    await closeRuntimeAfterInitMetaFailure(params, error);
     throw error;
   }
 
-  await closeRuntimeAfterInitMetaFailure(params);
+  await closeRuntimeAfterInitMetaFailure(
+    params,
+    new Error(`ACP metadata writer returned no persisted metadata for ${params.sessionKey}`),
+  );
   return null;
 }
 
-async function closeRuntimeAfterInitMetaFailure(params: {
-  sessionKey: string;
-  runtime: AcpRuntime;
-  handle: AcpRuntimeHandle;
-}): Promise<void> {
-  await params.runtime
-    .close({
+async function closeRuntimeAfterInitMetaFailure(
+  params: {
+    sessionKey: string;
+    runtime: AcpRuntime;
+    handle: AcpRuntimeHandle;
+  },
+  initializationError: unknown,
+): Promise<void> {
+  try {
+    await params.runtime.close({
       handle: params.handle,
       reason: "init-meta-failed",
-    })
-    .catch((closeError: unknown) => {
-      logVerbose(
-        `acp-manager: cleanup close failed after metadata write error for ${params.sessionKey}: ${String(closeError)}`,
-      );
     });
+  } catch (closeError) {
+    logVerbose(
+      `acp-manager: cleanup close failed after metadata write error for ${params.sessionKey}: ${String(closeError)}`,
+    );
+    throw new AcpInitializationCleanupError(initializationError, closeError);
+  }
 }

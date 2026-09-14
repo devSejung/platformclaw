@@ -350,7 +350,12 @@ export class AcpSessionManager {
     if (!sessionKey) {
       throw new AcpRuntimeError("ACP_SESSION_INIT_FAILED", "ACP session key is required.");
     }
-    await this.evictIdleRuntimeHandles();
+    // Cache-only lifecycle retirement must not run global idle maintenance first:
+    // it owns exactly the currently cached handle and must close it under this
+    // session's actor queue, without an out-of-band idle close/eviction race.
+    if (input.cacheOnly !== true) {
+      await this.evictIdleRuntimeHandles();
+    }
     return await this.withSessionActor(
       sessionKey,
       async () =>

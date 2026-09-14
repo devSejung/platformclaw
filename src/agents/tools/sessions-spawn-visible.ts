@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { isAcpRuntimeSpawnAvailable } from "../../acp/runtime/availability.js";
 import {
   DEFAULT_SUBAGENT_MAX_CHILDREN_PER_AGENT,
   DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH,
@@ -30,12 +31,13 @@ import {
   callInProcessGatewayToolWithCreation,
   type InProcessGatewayCaller,
 } from "./in-process-gateway.js";
+import { spawnVisibleAcpSession } from "./sessions-spawn-visible-acp.js";
 
 export const VISIBLE_SESSIONS_SPAWN_SCHEMA = {
   visible: Type.Optional(
     Type.Boolean({
       description:
-        "Persistent sidebar UI session; use when the user asks to create or open a thread; subagent only; omit mode/thread/thinking/lightContext/attachments/attachAs.",
+        'Persistent sidebar UI session; supports native subagents and, when ACP is available, configured ACP agents. For ACP use runtime="acp", explicit configured agentId, and optional mode="run"; omit thread/thinking/lightContext/attachments/attachAs.',
     }),
   ),
   worktree: Type.Optional(Type.Boolean({ description: "Visible session worktree" })),
@@ -115,7 +117,27 @@ export async function maybeSpawnVisibleSession(params: {
     }
     return undefined;
   }
+  const cfg = params.options?.config ?? getRuntimeConfig();
   const modelOverride = normalizeToolModelOverride(readStringParam(params.raw, "model"));
+  // Preserve the legacy visible-subagent validation contract for stale callers
+  // when ACP is not actually available. The tool schema does not advertise ACP
+  // in that state. Once a backend is available, route to the persistent ACP path.
+  if (
+    params.runtime === "acp" &&
+    isAcpRuntimeSpawnAvailable({ config: cfg, sandboxed: params.options?.sandboxed })
+  ) {
+    return await spawnVisibleAcpSession({
+      raw: params.raw,
+      task: params.task,
+      taskName: params.taskName,
+      label: params.label,
+      requestedAgentId: params.requestedAgentId,
+      runTimeoutSeconds: params.runTimeoutSeconds,
+      sandbox: params.sandbox,
+      modelOverride,
+      options: params.options,
+    });
+  }
   const requestedCwd = readStringParam(params.raw, "cwd");
   const spawnedCwd = requestedCwd ? resolveUserPath(requestedCwd) : undefined;
   const unsupported = [
@@ -160,7 +182,6 @@ export async function maybeSpawnVisibleSession(params: {
     );
   }
 
-  const cfg = params.options?.config ?? getRuntimeConfig();
   const ownership = resolveSubagentSpawnOwnership({
     cfg,
     agentSessionKey: params.options?.agentSessionKey,
@@ -325,9 +346,6 @@ export async function maybeSpawnVisibleSession(params: {
       return { status: "error", error: runError, childSessionKey };
     }
     if (!runId) {
-      // A started run with no run id is untrackable: it cannot be registered,
-      // announced, or cancelled, so never leave it as a visible orphan. Abort
-      // by key to stop whatever is running, then delete the session.
       try {
         await gatewayCall("sessions.abort", { key: childSessionKey, agentId: targetAgentId });
       } catch {

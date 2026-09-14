@@ -3,6 +3,7 @@ import type {
   SessionCreatedVia,
 } from "../../config/sessions/session-entry-provenance.js";
 import type { AgentRuntimeIdentity } from "../agent-runtime-identity-token.js";
+import type { TrustedVisibleAcpInitialization } from "../visible-acp-session-initialization.js";
 
 export type TrustedSessionCreation = {
   via: SessionCreatedVia;
@@ -15,6 +16,8 @@ export type TrustedSessionCreation = {
     allow: string[];
     deny: string[];
   };
+  /** Trusted, non-wire initialization intent for one visible persistent ACP session. */
+  acpInitialization?: TrustedVisibleAcpInitialization;
 };
 
 /**
@@ -49,6 +52,9 @@ export function resolveOperatorSessionCreation(
           }
         : {}),
       inheritedToolPolicy: agentRuntimeIdentity.sessionSpawnContext.inheritedToolPolicy,
+      ...(agentRuntimeIdentity.sessionSpawnContext.acpInitialization
+        ? { acpInitialization: agentRuntimeIdentity.sessionSpawnContext.acpInitialization }
+        : {}),
     };
   }
   const profileId = client?.authenticatedUserProfile?.profileId;

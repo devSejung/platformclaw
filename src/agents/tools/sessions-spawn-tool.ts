@@ -148,7 +148,10 @@ function createSessionsSpawnToolSchema(params: {
     ),
     runtime: optionalStringEnum(
       params.acpAvailable ? SESSIONS_SPAWN_RUNTIMES : (["subagent"] as const),
-      { description: 'Runtime; visible=true requires "subagent".' },
+      {
+        description:
+          "Runtime; visible=true supports subagent or a configured ACP agent when ACP is available.",
+      },
     ),
     agentId: Type.Optional(Type.String()),
     model: Type.Optional(Type.String()),

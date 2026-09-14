@@ -34,6 +34,7 @@ import { resolveSessionStoreAgentId } from "../session-store-key.js";
 import { readSessionMessageCountAsync } from "../session-transcript-readers.js";
 import { loadSessionEntryReadOnly, resolveGatewaySessionStoreTarget } from "../session-utils.js";
 import { resolveSessionPatchModelSelection } from "../sessions-patch.js";
+import { VISIBLE_ACP_INITIALIZATION_OWNER } from "../visible-acp-session-initialization.js";
 import { chatHandlers } from "./chat.js";
 import { resolveSessionCatalogCreateTarget } from "./session-catalog.js";
 import { emitSessionsChanged } from "./session-change-event.js";
@@ -45,6 +46,7 @@ import { resolveOperatorSessionCreation } from "./session-creation-provenance.js
 import { sessionLog } from "./sessions-shared.js";
 import type { GatewayRequestHandlers } from "./types.js";
 import { assertValidParams } from "./validation.js";
+import { initializeVisibleAcpCreatedSession } from "./visible-acp-session-create.js";
 
 async function prepareOperatorSessionDiffBaseline(params: {
   agentId: string;
@@ -422,6 +424,28 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       );
       return;
     }
+    const visibleAcpInitialization = sessionCreation.acpInitialization;
+    if (visibleAcpInitialization) {
+      const requestedAgentId = normalizeAgentId(
+        normalizeOptionalString(sessionAgentId) ?? resolveDefaultAgentId(cfg),
+      );
+      if (
+        sessionCreation.via !== "spawn" ||
+        !spawnActorSessionKey ||
+        !sessionCreation.inheritedToolPolicy ||
+        visibleAcpInitialization.logicalAgentId !== requestedAgentId ||
+        p.worktree === true ||
+        p.fork === true ||
+        !hasInitialTurn
+      ) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, "invalid trusted visible ACP session creation"),
+        );
+        return;
+      }
+    }
     const allowExistingModelSelection = authorizeOperatorScopesForRequiredScope(
       ADMIN_SCOPE,
       clientScopes,
@@ -454,89 +478,141 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
         );
       }
     };
-    const created = await createGatewaySession({
-      cfg,
-      key: sessionKey,
-      agentId: sessionAgentId,
-      label: p.label,
-      generatedDisplayName,
-      ...(catalogTarget ? { catalogTarget: catalogTarget.target } : { model: p.model }),
-      thinkingLevel: p.thinkingLevel,
-      incognito: p.incognito,
-      ...(client?.connect ? { requestingOperatorScopes: clientScopes } : {}),
-      visibility: p.visibility,
-      allowExistingModelSelection,
-      parentSessionKey: p.parentSessionKey,
-      spawnDepth: p.spawnDepth,
-      spawnToolPolicy:
-        sessionCreation.via === "spawn" && sessionCreation.inheritedToolPolicy
+    let created: Awaited<ReturnType<typeof createGatewaySession>>;
+    try {
+      created = await createGatewaySession({
+        cfg,
+        key: sessionKey,
+        agentId: sessionAgentId,
+        label: p.label,
+        generatedDisplayName,
+        ...(catalogTarget ? { catalogTarget: catalogTarget.target } : { model: p.model }),
+        thinkingLevel: p.thinkingLevel,
+        incognito: p.incognito,
+        ...(client?.connect ? { requestingOperatorScopes: clientScopes } : {}),
+        visibility: p.visibility,
+        allowExistingModelSelection,
+        parentSessionKey: p.parentSessionKey,
+        spawnDepth: p.spawnDepth,
+        spawnToolPolicy:
+          sessionCreation.via === "spawn" && sessionCreation.inheritedToolPolicy
+            ? {
+                ...sessionCreation.inheritedToolPolicy,
+                ...(sessionCreation.completionOwnerSessionKey
+                  ? { completionOwnerSessionKey: sessionCreation.completionOwnerSessionKey }
+                  : {}),
+              }
+            : undefined,
+        spawnedCwd: sessionCwd,
+        worktree: sessionWorktree
           ? {
-              ...sessionCreation.inheritedToolPolicy,
-              ...(sessionCreation.completionOwnerSessionKey
-                ? { completionOwnerSessionKey: sessionCreation.completionOwnerSessionKey }
-                : {}),
+              id: sessionWorktree.id,
+              branch: sessionWorktree.branch,
+              repoRoot: sessionWorktree.repoRoot,
             }
           : undefined,
-      spawnedCwd: sessionCwd,
-      worktree: sessionWorktree
-        ? {
-            id: sessionWorktree.id,
-            branch: sessionWorktree.branch,
-            repoRoot: sessionWorktree.repoRoot,
+        execNode: requestedExecNode,
+        execCwd: sessionExecCwd,
+        clearExecBinding: !requestedExecNode,
+        // A plain New Chat with no cwd must not inherit the prior session cwd.
+        clearSpawnedCwd: !sessionCwd,
+        fork: p.fork,
+        succeedsParent: p.succeedsParent,
+        emitCommandHooks: p.emitCommandHooks,
+        resetMainWhenUnspecified: !hasInitialTurn,
+        commandSource: "webchat",
+        creation: sessionCreation,
+        ...(visibleAcpInitialization
+          ? {
+              initialEntry: {
+                agentHarnessId: visibleAcpInitialization.runtimeAgentId,
+                initializationPending: true as const,
+                initializationOwner: VISIBLE_ACP_INITIALIZATION_OWNER,
+              },
+              trustedInitializer: {
+                owner: VISIBLE_ACP_INITIALIZATION_OWNER,
+                initialize: async ({ key, agentId, entry, storePath }) =>
+                  await initializeVisibleAcpCreatedSession({
+                    // Re-resolve at initialization so stale signed intent cannot
+                    // bypass a concurrent ACP disable, allowlist change, or remap.
+                    cfg: context.getRuntimeConfig(),
+                    sessionKey: key,
+                    agentId,
+                    entry,
+                    storePath,
+                    intent: visibleAcpInitialization,
+                  }),
+              },
+            }
+          : {}),
+        authorizedPluginId: normalizeOptionalString(client?.internal?.pluginRuntimeOwnerId),
+        loadGatewayModelCatalog: () =>
+          context.loadGatewayModelCatalog({ agentId: modelCatalogAgentId }),
+        afterCreate: async ({ key, agentId, entry, storePath }) => {
+          await captureCreatedSessionBaseline({ key, agentId, entry, storePath });
+          if (hasInitialTurn) {
+            messageSeq =
+              (await readSessionMessageCountAsync({
+                agentId,
+                sessionEntry: entry,
+                sessionId: entry.sessionId,
+                sessionKey: key,
+                storePath,
+              })) + 1;
+            await expectDefined(
+              chatHandlers["chat.send"],
+              "chat.send handler",
+            )({
+              req,
+              params: {
+                sessionKey: key,
+                ...(key === "global" ? { agentId } : {}),
+                message: initialMessage ?? "",
+                idempotencyKey: randomUUID(),
+                ...(initialAttachments ? { attachments: initialAttachments } : {}),
+              },
+              respond: (ok, payload, error, meta) => {
+                if (ok && payload && typeof payload === "object") {
+                  runPayload = payload as Record<string, unknown>;
+                } else {
+                  runError = error;
+                }
+                runMeta = meta;
+              },
+              context,
+              client,
+              isWebchatConnect,
+            });
           }
-        : undefined,
-      execNode: requestedExecNode,
-      execCwd: sessionExecCwd,
-      clearExecBinding: !requestedExecNode,
-      // A plain New Chat with no cwd must not inherit the prior session cwd.
-      clearSpawnedCwd: !sessionCwd,
-      fork: p.fork,
-      succeedsParent: p.succeedsParent,
-      emitCommandHooks: p.emitCommandHooks,
-      resetMainWhenUnspecified: !hasInitialTurn,
-      commandSource: "webchat",
-      creation: sessionCreation,
-      authorizedPluginId: normalizeOptionalString(client?.internal?.pluginRuntimeOwnerId),
-      loadGatewayModelCatalog: () =>
-        context.loadGatewayModelCatalog({ agentId: modelCatalogAgentId }),
-      afterCreate: async ({ key, agentId, entry, storePath }) => {
-        await captureCreatedSessionBaseline({ key, agentId, entry, storePath });
-        if (hasInitialTurn) {
-          messageSeq =
-            (await readSessionMessageCountAsync({
-              agentId,
-              sessionEntry: entry,
-              sessionId: entry.sessionId,
-              sessionKey: key,
-              storePath,
-            })) + 1;
-          await expectDefined(
-            chatHandlers["chat.send"],
-            "chat.send handler",
-          )({
-            req,
-            params: {
-              sessionKey: key,
-              ...(key === "global" ? { agentId } : {}),
-              message: initialMessage ?? "",
-              idempotencyKey: randomUUID(),
-              ...(initialAttachments ? { attachments: initialAttachments } : {}),
-            },
-            respond: (ok, payload, error, meta) => {
-              if (ok && payload && typeof payload === "object") {
-                runPayload = payload as Record<string, unknown>;
-              } else {
-                runError = error;
-              }
-              runMeta = meta;
-            },
-            context,
-            client,
-            isWebchatConnect,
+        },
+      });
+    } catch (error) {
+      if (!visibleAcpInitialization) {
+        throw error;
+      }
+      if (sessionWorktree && provisionedSessionWorktree) {
+        try {
+          await managedWorktrees.remove({
+            id: sessionWorktree.id,
+            reason: "session-create-failed",
+            force: true,
           });
+        } catch (cleanupError) {
+          sessionLog.warn(
+            `failed to clean up worktree after visible ACP creation failed: ${formatErrorMessage(cleanupError)}`,
+          );
         }
-      },
-    });
+      }
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.UNAVAILABLE,
+          `Visible ACP session initialization failed: ${formatErrorMessage(error)}`,
+        ),
+      );
+      return;
+    }
     if (!created.ok) {
       if (sessionWorktree && provisionedSessionWorktree) {
         try {
@@ -597,6 +673,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
           ok: true,
           key: created.key,
           sessionId: created.entry.sessionId,
+          lifecycleRevision: created.entry.lifecycleRevision,
           entry: responseEntry,
           resolved: created.resolved,
           runStarted: false,
@@ -625,6 +702,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
         ok: true,
         key: created.key,
         sessionId: created.entry.sessionId,
+        lifecycleRevision: created.entry.lifecycleRevision,
         entry: responseEntry,
         runStarted,
         ...(runPayload ? runPayload : {}),

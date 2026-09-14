@@ -11,6 +11,7 @@ import {
   mockCallArg,
   readySessionMeta,
 } from "./manager.test-helpers.js";
+import { AcpInitializationCleanupError } from "./manager.types.js";
 
 describe("AcpSessionManager initializeSession", () => {
   installAcpSessionManagerTestLifecycle();
@@ -155,5 +156,35 @@ describe("AcpSessionManager initializeSession", () => {
     expectRecordFields(closeInput.handle, {
       sessionKey: "agent:codex:acp:session-1",
     });
+  });
+
+  it("keeps an unclosed initialized runtime manager-owned for exact retry", async () => {
+    const runtimeState = createRuntime();
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
+      id: "acpx",
+      runtime: runtimeState.runtime,
+    });
+    hoisted.upsertAcpSessionMetaMock.mockRejectedValueOnce(new Error("disk full"));
+    runtimeState.close.mockRejectedValueOnce(new Error("close failed"));
+
+    const manager = new AcpSessionManager();
+    await expect(
+      manager.initializeSession({
+        cfg: baseCfg,
+        sessionKey: "agent:claude:dashboard:pending",
+        agent: "claude",
+        mode: "persistent",
+      }),
+    ).rejects.toBeInstanceOf(AcpInitializationCleanupError);
+
+    runtimeState.close.mockResolvedValueOnce(undefined);
+    await expect(
+      manager.closeSession({
+        cfg: baseCfg,
+        sessionKey: "agent:claude:dashboard:pending",
+        reason: "retry-cleanup",
+        cacheOnly: true,
+      }),
+    ).resolves.toEqual({ runtimeClosed: true, metaCleared: false });
   });
 });

@@ -22,6 +22,8 @@ export function resolveModelAgentRuntimeMetadata(params: {
    * non-default ACP backends are classified correctly.
    */
   acpBackend?: string;
+  /** Persisted external ACP harness/agent identity for UI/runtime projection. */
+  acpAgent?: string;
 }): AgentRuntimeMetadata {
   const persistedRuntimeId = resolvePersistedSessionRuntimeId(params.sessionEntry);
   if (persistedRuntimeId && !isDefaultAgentRuntimeId(persistedRuntimeId)) {
@@ -30,6 +32,7 @@ export function resolveModelAgentRuntimeMetadata(params: {
       params.sessionKey,
       params.acpRuntime,
       params.acpBackend,
+      params.acpAgent,
     );
   }
   const resolved =
@@ -47,5 +50,11 @@ export function resolveModelAgentRuntimeMetadata(params: {
     id: policy.runtime,
     source: policy.runtimeSource ?? "implicit",
   };
-  return applyAcpRuntimeOverlay(meta, params.sessionKey, params.acpRuntime, params.acpBackend);
+  return applyAcpRuntimeOverlay(
+    meta,
+    params.sessionKey,
+    params.acpRuntime,
+    params.acpBackend,
+    params.acpAgent,
+  );
 }

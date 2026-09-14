@@ -66,7 +66,7 @@ describe("gateway tool runtime identity", () => {
     },
   );
 
-  it("scopes signed session-spawn authority to its Gateway call", async () => {
+  it("scopes signed session-spawn and visible ACP initialization authority to its Gateway call", async () => {
     mocks.callGateway.mockResolvedValueOnce({ key: "agent:ops:dashboard:child" });
 
     await withGatewayToolCallerIdentity(
@@ -76,6 +76,13 @@ describe("gateway tool runtime identity", () => {
           {
             completionOwnerSessionKey: "agent:ops:discord:direct:alice",
             inheritedToolPolicy: { version: 1, allow: ["read"], deny: ["exec"] },
+            acpInitialization: {
+              logicalAgentId: "claude-worker",
+              runtimeAgentId: "claude",
+              executionOwnerAgentId: "ops",
+              runtimeOptions: { model: "claude-sonnet-4-6", timeoutSeconds: 120 },
+              modelExplicit: true,
+            },
           },
           () =>
             callGatewayTool(
@@ -93,6 +100,13 @@ describe("gateway tool runtime identity", () => {
       sessionSpawnContext: {
         completionOwnerSessionKey: "agent:ops:discord:direct:alice",
         inheritedToolPolicy: { version: 1, allow: ["read"], deny: ["exec"] },
+        acpInitialization: {
+          logicalAgentId: "claude-worker",
+          runtimeAgentId: "claude",
+          executionOwnerAgentId: "ops",
+          runtimeOptions: { model: "claude-sonnet-4-6", timeoutSeconds: 120 },
+          modelExplicit: true,
+        },
       },
     });
   });

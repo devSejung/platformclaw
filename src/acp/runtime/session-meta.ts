@@ -119,6 +119,58 @@ function selectAcpSessionRow(db: DatabaseSync, sessionKey: string): AcpSessionRo
   );
 }
 
+/** Delete ACP metadata only when it still belongs to the exact session lifecycle. */
+export function deleteAcpSessionMetaExactLifecycle(params: {
+  sessionKey: string;
+  lifecycleRevision: string;
+  env?: NodeJS.ProcessEnv;
+  databasePath?: string;
+}): boolean {
+  const sessionKey = params.sessionKey.trim();
+  const lifecycleRevision = params.lifecycleRevision.trim();
+  if (!sessionKey || !lifecycleRevision) {
+    return false;
+  }
+  let deleted = false;
+  runOpenClawStateWriteTransaction(
+    (database) => {
+      const current = selectAcpSessionRow(database.db, sessionKey);
+      if (current?.session_id !== lifecycleRevision) {
+        return;
+      }
+      const result = executeSqliteQuerySync(
+        database.db,
+        getAcpSessionKysely(database.db)
+          .deleteFrom("acp_sessions")
+          .where("session_key", "=", sessionKey)
+          .where("session_id", "=", lifecycleRevision),
+      );
+      deleted = Number(result.numAffectedRows ?? 0) > 0;
+    },
+    { env: params.env, path: params.databasePath },
+  );
+  return deleted;
+}
+
+/** Read-only test seam for checking whether an exact lifecycle sidecar exists. */
+export function hasAcpSessionMetaExactLifecycle(params: {
+  sessionKey: string;
+  lifecycleRevision: string;
+  env?: NodeJS.ProcessEnv;
+  databasePath?: string;
+}): boolean {
+  const sessionKey = params.sessionKey.trim();
+  const lifecycleRevision = params.lifecycleRevision.trim();
+  if (!sessionKey || !lifecycleRevision) {
+    return false;
+  }
+  const database = openOpenClawStateDatabase({
+    env: params.env,
+    path: params.databasePath,
+  });
+  return selectAcpSessionRow(database.db, sessionKey)?.session_id === lifecycleRevision;
+}
+
 function acpSessionRowMatchesEntry(
   row: AcpSessionRow,
   entry: AcpSessionEntryBinding | undefined,

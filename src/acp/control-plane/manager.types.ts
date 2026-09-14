@@ -23,6 +23,19 @@ import {
   upsertAcpSessionMeta,
 } from "../runtime/session-meta.js";
 
+/** Runtime initialization failed and the newly-created process could not be closed. */
+export class AcpInitializationCleanupError extends Error {
+  readonly initializationError: unknown;
+  readonly cleanupError: unknown;
+
+  constructor(initializationError: unknown, cleanupError: unknown) {
+    super("ACP initialization failed and runtime cleanup was not confirmed");
+    this.name = "AcpInitializationCleanupError";
+    this.initializationError = initializationError;
+    this.cleanupError = cleanupError;
+  }
+}
+
 /** Result of resolving persisted ACP metadata for a session key. */
 export type AcpSessionResolution =
   | {
@@ -88,6 +101,10 @@ export type AcpCloseSessionInput = {
   clearMeta?: boolean;
   allowBackendUnavailable?: boolean;
   requireAcpSession?: boolean;
+  /** Retire only the process-local cached runtime; never resolve/ensure a cold runtime. */
+  cacheOnly?: boolean;
+  /** Optional exact initialized handle guard for lifecycle-safe rollback. */
+  expectedHandle?: AcpRuntimeHandle;
 };
 
 export type AcpCloseSessionResult = {

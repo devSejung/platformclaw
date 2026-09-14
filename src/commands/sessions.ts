@@ -411,6 +411,7 @@ export async function sessionsCommand(
           sessionKey: acpSessionKey,
           acpRuntime,
           acpBackend: acpMeta?.backend,
+          acpAgent: acpMeta?.agent,
         });
         return Object.assign({}, row, {
           agentId,

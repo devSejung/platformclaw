@@ -17,25 +17,28 @@ import {
 } from "../runtime/session-meta.js";
 import { AcpSessionManager } from "./manager.core.js";
 
+const STABLE_AGENT_SESSION_ID = "claude-agent-session-owner-persistence";
+
 describe("ACP manager execution owner persistence", () => {
   afterEach(() => {
     closeOpenClawAgentDatabasesForTest();
     closeOpenClawStateDatabaseForTest();
   });
 
-  it("reuses the isolated owner after initialize, SQLite reload, and first turn", async () => {
+  it("reuses the isolated owner and persisted ACP resume id after SQLite reload", async () => {
     await withTempDir({ prefix: "openclaw-acp-owner-" }, async (dir) => {
       const previousStateDir = process.env.OPENCLAW_STATE_DIR;
       process.env.OPENCLAW_STATE_DIR = dir;
       try {
-        const sessionKey = "agent:claude:acp:owner-persistence";
+        const logicalAgentId = "claude-worker";
+        const sessionKey = `agent:${logicalAgentId}:dashboard:owner-persistence`;
         const storePath = path.join(dir, "sessions.json");
         const cfg = {
           acp: { enabled: true, backend: "acpx" },
           session: { store: storePath },
         } as OpenClawConfig;
         await replaceSessionEntry(
-          { agentId: "claude", storePath, sessionKey },
+          { agentId: logicalAgentId, storePath, sessionKey },
           {
             sessionId: "session-owner-persistence",
             lifecycleRevision: "revision-owner-persistence",
@@ -48,6 +51,7 @@ describe("ACP manager execution owner persistence", () => {
             sessionKey: input.sessionKey,
             backend: "acpx",
             runtimeSessionName: "claude-owner-persistence",
+            agentSessionId: STABLE_AGENT_SESSION_ID,
           }));
           const runTurn = vi.fn<AcpRuntime["runTurn"]>(async function* () {
             yield { type: "done" as const };
@@ -86,7 +90,12 @@ describe("ACP manager execution owner persistence", () => {
         ).toEqual({ execution_owner_agent_id: "person_one" });
         expect(readAcpSessionEntry({ cfg, sessionKey })).toEqual(
           expect.objectContaining({
-            acp: expect.objectContaining({ executionOwnerAgentId: "person_one" }),
+            acp: expect.objectContaining({
+              agent: "claude",
+              executionOwnerAgentId: "person_one",
+              mode: "persistent",
+              identity: expect.objectContaining({ agentSessionId: STABLE_AGENT_SESSION_ID }),
+            }),
           }),
         );
 
@@ -105,11 +114,21 @@ describe("ACP manager execution owner persistence", () => {
         expect(initial.ensureSession).toHaveBeenCalledTimes(1);
         expect(reconnected.ensureSession).toHaveBeenCalledTimes(1);
         expect(reconnected.ensureSession).toHaveBeenCalledWith(
-          expect.objectContaining({ executionOwnerAgentId: "person_one" }),
+          expect.objectContaining({
+            sessionKey,
+            agent: "claude",
+            executionOwnerAgentId: "person_one",
+            resumeSessionId: STABLE_AGENT_SESSION_ID,
+          }),
         );
         expect(reconnected.close).not.toHaveBeenCalled();
-        expect(readAcpSessionEntry({ cfg, sessionKey })?.acp?.executionOwnerAgentId).toBe(
-          "person_one",
+        expect(readAcpSessionEntry({ cfg, sessionKey })?.acp).toEqual(
+          expect.objectContaining({
+            agent: "claude",
+            executionOwnerAgentId: "person_one",
+            mode: "persistent",
+            identity: expect.objectContaining({ agentSessionId: STABLE_AGENT_SESSION_ID }),
+          }),
         );
       } finally {
         closeOpenClawAgentDatabasesForTest();

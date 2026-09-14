@@ -4,6 +4,8 @@ import { isAcpSessionKey } from "../routing/session-key.js";
 export type AgentRuntimeMetadata = {
   id: string;
   kind?: "acp";
+  /** Persisted external ACP harness/agent identity (for example codex, claude, opencode). */
+  agent?: string;
   source: "implicit" | "model" | "provider" | "session" | "session-key";
 };
 
@@ -12,6 +14,7 @@ export function applyAcpRuntimeOverlay(
   sessionKey: string | undefined | null,
   acpRuntime: boolean | undefined,
   acpBackend?: string,
+  acpAgent?: string,
 ): AgentRuntimeMetadata {
   if (acpRuntime !== true) {
     return meta;
@@ -20,5 +23,10 @@ export function applyAcpRuntimeOverlay(
   // ACP metadata is authoritative. Key shape only preserves the legacy source
   // label for existing ACP-keyed rows; it never identifies an ACP runtime.
   const source = isAcpSessionKey(sessionKey) ? "session-key" : "session";
-  return { id, kind: "acp", source };
+  return {
+    id,
+    kind: "acp",
+    source,
+    ...(acpAgent && acpAgent.length > 0 ? { agent: acpAgent } : {}),
+  };
 }

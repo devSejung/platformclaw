@@ -31,6 +31,23 @@ export async function runManagerCloseSession(params: {
   writeSessionMeta: WriteManagerSessionMeta;
 }): Promise<AcpCloseSessionResult> {
   const { input, sessionKey } = params;
+  if (input.cacheOnly === true) {
+    if (input.clearMeta === true) {
+      throw new Error("cache-only ACP retirement cannot clear persisted session metadata");
+    }
+    const runtimeClosed = await params.runtimeHandles.close({
+      sessionKey,
+      reason: input.reason,
+      ...(input.discardPersistentState ? { discardPersistentState: true } : {}),
+      ...(input.expectedHandle ? { expectedHandle: input.expectedHandle } : {}),
+      throwOnError: true,
+    });
+    return {
+      runtimeClosed,
+      metaCleared: false,
+    };
+  }
+
   const resolution = params.resolveSession({
     cfg: input.cfg,
     sessionKey,
