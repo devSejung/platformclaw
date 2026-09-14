@@ -181,14 +181,6 @@ suite("PlatformClaw coding agent settings", () => {
     expect(panelBox!.x).toBeGreaterThanOrEqual(0);
     expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(viewport.width);
     const settingsTabs = component.locator(".settings-tabs");
-    const tabBoxes = await Promise.all(
-      ["location", "agents"].map((id) =>
-        component.locator(`[data-settings-tab='${id}']`).boundingBox(),
-      ),
-    );
-    expect(tabBoxes[0]).not.toBeNull();
-    expect(tabBoxes[1]).not.toBeNull();
-    expect(Math.abs(tabBoxes[0]!.width - tabBoxes[1]!.width)).toBeLessThan(1);
     await expect
       .poll(() =>
         settingsTabs.evaluate((element) => {
@@ -202,6 +194,14 @@ suite("PlatformClaw coding agent settings", () => {
         }),
       )
       .toBe(true);
+    const tabBoxes = await Promise.all(
+      ["location", "agents"].map((id) =>
+        component.locator(`[data-settings-tab='${id}']`).boundingBox(),
+      ),
+    );
+    expect(tabBoxes[0]).not.toBeNull();
+    expect(tabBoxes[1]).not.toBeNull();
+    expect(Math.abs(tabBoxes[0]!.width - tabBoxes[1]!.width)).toBeLessThan(1);
     const tabSurface = await settingsTabs.evaluate((element) => {
       const group = element as HTMLElement & { shadowRoot: ShadowRoot | null };
       const activeTab = group.querySelector<HTMLElement>("[data-settings-tab='location']");
