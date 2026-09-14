@@ -42,7 +42,9 @@ function validateClaim(value: unknown): OrganizationKnowledgeClaim {
   };
 }
 
-function validatePairParams(params: unknown): [OrganizationKnowledgeClaim, OrganizationKnowledgeClaim] {
+function validatePairParams(
+  params: unknown,
+): [OrganizationKnowledgeClaim, OrganizationKnowledgeClaim] {
   if (!params || typeof params !== "object" || Array.isArray(params)) {
     throw new Error("organization knowledge completion requires one frozen claim pair");
   }

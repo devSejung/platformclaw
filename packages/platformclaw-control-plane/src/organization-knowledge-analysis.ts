@@ -21,10 +21,7 @@ export const ORGANIZATION_KNOWLEDGE_ANALYSIS_LIMITS = {
 } as const;
 
 type Pair = [OrganizationKnowledgeClaim, OrganizationKnowledgeClaim];
-export type OrganizationKnowledgePairCompletion = (
-  claims: Pair,
-  signal: AbortSignal,
-) => Promise<unknown>;
+type OrganizationKnowledgePairCompletion = (claims: Pair, signal: AbortSignal) => Promise<unknown>;
 
 const kinds = new Set<OrganizationKnowledgeProposalKind>([
   "duplicate",
@@ -42,7 +39,7 @@ function boundedText(value: unknown, max: number): string {
 }
 
 /** Validate against the frozen pair, never against model-supplied scope or identifiers. */
-export function validateOrganizationKnowledgeComparison(
+function validateOrganizationKnowledgeComparison(
   value: unknown,
   claims: Pair,
 ): OrganizationKnowledgeComparison {
@@ -119,7 +116,7 @@ function validateClaims(claims: OrganizationKnowledgeClaim[]) {
   }
 }
 
-export function validateOrganizationKnowledgeAnalysisInput(
+function validateOrganizationKnowledgeAnalysisInput(
   value: unknown,
 ): OrganizationKnowledgeAnalysisInput {
   if (

@@ -44,6 +44,11 @@
       "import": "./dist/render-aware-chunking.mjs",
       "default": "./dist/render-aware-chunking.mjs"
     },
+    "./reference-spans": {
+      "types": "./dist/reference-spans.d.mts",
+      "import": "./dist/reference-spans.mjs",
+      "default": "./dist/reference-spans.mjs"
+    },
     "./tables": {
       "types": "./dist/tables.d.mts",
       "import": "./dist/tables.mjs",
