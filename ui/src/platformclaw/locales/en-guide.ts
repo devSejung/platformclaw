@@ -1,5 +1,5 @@
-import { executionTranslations } from "./en-execution.ts";
 import { wikiDocumentTranslations } from "../../pages/agents/memory/wiki-document-translations.ts";
+import { executionTranslations } from "./en-execution.ts";
 import { organizationMemoryKnowledgeTranslations } from "./en-organization-memory-knowledge.ts";
 
 export const translations: Readonly<Record<string, string>> = {
