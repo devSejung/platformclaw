@@ -228,7 +228,15 @@ suite("PlatformClaw memory actions E2E", () => {
           },
           "platformclaw.memory.promotion.submit": { id: "request-recovery", status: "pending" },
           "platformclaw.memory.lifecycle": {
-            scopes: [{ kind: "part", id: "part-runtime", name: "Runtime", canAdminister: false }],
+            scopes: [
+              {
+                kind: "part",
+                id: "part-runtime",
+                name: "Runtime",
+                canRead: true,
+                canAdminister: false,
+              },
+            ],
             personalTargets: [
               { kind: "part", scopeId: "part-runtime", scopeName: "Runtime", mode: "request" },
             ],
@@ -246,6 +254,12 @@ suite("PlatformClaw memory actions E2E", () => {
             content: "Record the recovery owner.",
             fromLine: 1,
             lineCount: 1,
+            verification: {
+              revision: 2,
+              approvalStatus: "approved",
+              sourceRevision: 1,
+              sourceStatus: "changed",
+            },
           },
           "platformclaw.memory.graph": {
             kind: "part",

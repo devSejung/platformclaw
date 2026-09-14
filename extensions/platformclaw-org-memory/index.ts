@@ -1,4 +1,5 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import { registerOrganizationKnowledgeAnalysis } from "./src/analysis-gateway.js";
 import { createOrganizationMemoryClient } from "./src/client.js";
 import { createOrganizationMemorySupplement } from "./src/supplement.js";
 
@@ -10,6 +11,7 @@ export default definePluginEntry({
     if (api.registrationMode !== "full") {
       return;
     }
+    registerOrganizationKnowledgeAnalysis(api);
     const client = createOrganizationMemoryClient(process.env);
     if (!client) {
       return;

@@ -3,9 +3,14 @@ import { chmodSync, unlinkSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import {
   ORGANIZATION_MEMORY_SCHEMA,
+  ORGANIZATION_MEMORY_LIFECYCLE_SCHEMA,
   SKILL_HUB_STATE_SCHEMA,
 } from "./sqlite-schema-feature-state.js";
 import { SCHEMA_V2 } from "./sqlite-schema-v2.js";
+export {
+  ORGANIZATION_KNOWLEDGE_SCHEMA,
+  ensureOrganizationKnowledgeSchema,
+} from "./sqlite-schema-organization-knowledge.js";
 
 export const PLATFORMCLAW_CONTROL_SCHEMA_VERSION = 3;
 
@@ -483,7 +488,7 @@ function migrateOrganizationMemoryToV3(db: DatabaseSync): void {
   if (!hasTable(db, "organization_memory_promotion_requests")) {
     return;
   }
-  const v3Schema = ORGANIZATION_MEMORY_SCHEMA.replaceAll(
+  const v3Schema = ORGANIZATION_MEMORY_LIFECYCLE_SCHEMA.replaceAll(
     "organization_memory_",
     "organization_memory_v3_",
   );

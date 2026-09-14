@@ -1,0 +1,54 @@
+.knowledge-management {
+  display: grid;
+  gap: 16px;
+  padding-block: 16px;
+  min-width: 0;
+}
+
+.knowledge-management > h2,
+.knowledge-management > h3,
+.knowledge-management > p {
+  margin: 0;
+}
+
+.knowledge-management__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.knowledge-management pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-management__dialog {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  padding: 20px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow-wrap: anywhere;
+}
+
+.knowledge-management__dialog > *,
+.knowledge-management__dialog input,
+.knowledge-management__dialog select,
+.knowledge-management__dialog textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.knowledge-management__dialog pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-management__dialog textarea[name="body"] {
+  min-height: 160px;
+}

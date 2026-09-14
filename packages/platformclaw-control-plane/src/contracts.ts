@@ -1,3 +1,18 @@
+import type {
+  OrganizationMemoryClaim,
+  OrganizationMemoryDocument,
+  OrganizationMemoryGraph,
+  OrganizationMemoryGraphKind,
+  OrganizationMemoryLifecycleSnapshot,
+  OrganizationMemoryPromotionReferenceParameters,
+  OrganizationMemoryPromotionRequest,
+  OrganizationMemoryPromotionSourceKind,
+  OrganizationMemoryReferencesPreview,
+  OrganizationMemoryScopeKind,
+  OrganizationMemorySearchHit,
+} from "./organization-memory-contracts.js";
+export type * from "./organization-memory-contracts.js";
+
 export const BROWSER_SESSION_POLICY = {
   idleTimeoutMs: 12 * 60 * 60 * 1000,
   absoluteTimeoutMs: 7 * 24 * 60 * 60 * 1000,
@@ -22,131 +37,6 @@ export type PlatformUserGlobalRole = "member" | "admin";
 export type ManagedScopeKind = "team" | "group" | "part";
 export type ManagedScopeStatus = "active" | "archived";
 export type ManagedScopeRole = "member" | "leader";
-export type OrganizationMemoryScopeKind = "global" | ManagedScopeKind;
-export type OrganizationMemoryPromotionSourceKind = "personal" | ManagedScopeKind;
-export type OrganizationMemoryClaimStatus = "active" | "retired" | "purged";
-export type OrganizationMemoryPromotionStatus = "pending" | "approved" | "rejected";
-
-export type OrganizationMemorySearchHit = {
-  id: string;
-  path: string;
-  scopeKind: OrganizationMemoryScopeKind;
-  scopeId?: string;
-  scopeName: string;
-  title: string;
-  snippet: string;
-  score: number;
-  updatedAt: number;
-};
-
-export type OrganizationMemoryDocument = OrganizationMemorySearchHit & {
-  content: string;
-  fromLine: number;
-  lineCount: number;
-};
-
-export type OrganizationMemoryGraphKind = "part" | "group";
-
-export type OrganizationMemoryGraph = {
-  kind: OrganizationMemoryGraphKind;
-  nodes: Array<{
-    id: string;
-    path: string;
-    title: string;
-    scopeName: string;
-    updatedAt: number;
-    verification?: {
-      approvalStatus: "approved";
-      revision: number;
-      sourceRevision: number;
-      sourceStatus: "current" | "changed" | "unavailable";
-    };
-  }>;
-  edges: Array<{ source: string; target: string; type: "promotion" }>;
-  stats: {
-    totalPages: number;
-    totalNodes: number;
-    totalEdges: number;
-    truncated: boolean;
-    partial: boolean;
-  };
-};
-
-export type OrganizationMemoryClaim = {
-  id: string;
-  scopeKind: OrganizationMemoryScopeKind;
-  scopeName: string;
-  scopeId?: string;
-  title: string;
-  text: string;
-  revision: number;
-  status: OrganizationMemoryClaimStatus;
-  createdAt: number;
-  updatedAt: number;
-  sourceClaimId?: string;
-  promotionTargets?: OrganizationMemoryPromotionTarget[];
-  canRetire?: boolean;
-  canPurge?: boolean;
-};
-
-export type OrganizationMemoryPromotionTarget = {
-  kind: OrganizationMemoryScopeKind;
-  scopeId?: string;
-  scopeName: string;
-  mode: "request" | "direct";
-};
-
-export type OrganizationMemoryLifecycleScope = {
-  kind: OrganizationMemoryScopeKind;
-  name: string;
-  id?: string;
-  parentScopeId?: string;
-  canAdminister: boolean;
-};
-
-export type OrganizationMemoryPromotionRequest = {
-  id: string;
-  sourceKind: OrganizationMemoryPromotionSourceKind;
-  sourceClaimId?: string;
-  sourceRevision: number;
-  targetKind: OrganizationMemoryScopeKind;
-  targetScopeName: string;
-  proposedText: string;
-  evidence: string[];
-  reason: string;
-  status: OrganizationMemoryPromotionStatus;
-  createdAt: number;
-  decidedAt?: number;
-  decisionReason?: string;
-  targetClaimId?: string;
-  canReview: boolean;
-};
-
-export type OrganizationMemoryLifecycleSnapshot = {
-  scopes: OrganizationMemoryLifecycleScope[];
-  personalTargets: OrganizationMemoryPromotionTarget[];
-  claims: OrganizationMemoryClaim[];
-  submitted: OrganizationMemoryPromotionRequest[];
-  reviewable: OrganizationMemoryPromotionRequest[];
-  canApproveGlobal: boolean;
-  next?: {
-    claims?: number;
-    submitted?: number;
-    reviewable?: number;
-  };
-};
-
-/** Trusted resolution of a personal Wiki page before shared-memory promotion. */
-export type PersonalOrganizationMemorySource = {
-  claimId: string;
-  revision: number;
-};
-
-export type PersonalOrganizationMemorySourceResolver = (params: {
-  agentId: string;
-  lookup: string;
-}) => Promise<PersonalOrganizationMemorySource | null>;
-
 export type PlatformUser = {
   id: string;
   accountId: string;
@@ -484,16 +374,21 @@ export interface OrganizationMemoryReader {
   getOrganizationMemoryGraph(params: {
     agentId: string;
     kind: OrganizationMemoryGraphKind;
+    scopeId?: string;
   }): Promise<OrganizationMemoryGraph>;
 }
 
 /** Authenticated claim-level promotion owner. Browser callers are always Agent-pinned. */
 export interface OrganizationMemoryLifecycle {
+  previewOrganizationMemoryPromotionReferences(
+    params: OrganizationMemoryPromotionReferenceParameters,
+  ): Promise<{ proposedText: string; references?: OrganizationMemoryReferencesPreview }>;
   getOrganizationMemoryLifecycle(
     agentId: string,
     page?: { claims?: number; submitted?: number; reviewable?: number },
   ): Promise<OrganizationMemoryLifecycleSnapshot>;
   submitOrganizationMemoryPromotion(params: {
+    expectedReferencesFingerprint?: string;
     agentId: string;
     sourceKind: OrganizationMemoryPromotionSourceKind;
     sourceClaimId: string;
@@ -506,6 +401,7 @@ export interface OrganizationMemoryLifecycle {
     submittedAt: number;
   }): Promise<OrganizationMemoryPromotionRequest>;
   publishOrganizationMemoryDirect(params: {
+    expectedReferencesFingerprint?: string;
     agentId: string;
     sourceKind: OrganizationMemoryPromotionSourceKind;
     sourceClaimId: string;
@@ -518,6 +414,8 @@ export interface OrganizationMemoryLifecycle {
     publishedAt: number;
   }): Promise<OrganizationMemoryPromotionRequest>;
   decideOrganizationMemoryPromotion(params: {
+    expectedReferencesFingerprint?: string;
+    expectedComparisonFingerprint?: string;
     agentId: string;
     requestId: string;
     decision: "approve" | "reject";
