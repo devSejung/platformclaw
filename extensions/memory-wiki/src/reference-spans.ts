@@ -5,4 +5,4 @@ export {
   memoryWikiPromotionRevision,
   memoryWikiReferenceTextHash,
   type MemoryWikiReferenceSpan,
-} from "@openclaw/markdown-core/reference-spans";
+} from "@openclaw/markdown-core";

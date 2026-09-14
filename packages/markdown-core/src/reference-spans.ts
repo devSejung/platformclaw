@@ -55,9 +55,12 @@ export function parseMemoryWikiReferenceSpans(
     if (references.length >= maxReferences) {
       throw new Error(`Wiki references exceed the ${maxReferences} reference limit.`);
     }
-    const start =
-      match.index! > 0 && searchable[match.index! - 1] === "!" ? match.index! - 1 : match.index!;
-    references.push({ start, end: match.index! + match[0].length, target });
+    const index = match.index;
+    if (index === undefined) {
+      return;
+    }
+    const start = index > 0 && searchable[index - 1] === "!" ? index - 1 : index;
+    references.push({ start, end: index + match[0].length, target });
   };
   for (const match of searchable.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)) {
     const target = match[1]?.trim();
