@@ -25,6 +25,7 @@
     "useDefineForClassFields": false,
     "verbatimModuleSyntax": true,
     "paths": {
+      "@openclaw/memory-wiki/reference-api": ["./extensions/memory-wiki/reference-api.ts"],
       "@platformclaw/coding-agent-contract": [
         "./packages/platformclaw-coding-agent-contract/src/index.ts"
       ],

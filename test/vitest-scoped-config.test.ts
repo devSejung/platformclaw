@@ -176,6 +176,10 @@ describe("resolveVitestIsolation", () => {
   });
 
   it("aliases private core packages to source for clean checkout tests", () => {
+    expect(findAlias(sharedVitestConfig.resolve.alias, "@openclaw/markdown-core")).toEqual({
+      find: "@openclaw/markdown-core",
+      replacement: path.join(process.cwd(), "packages", "markdown-core", "src", "index.ts"),
+    });
     expect(findAlias(sharedVitestConfig.resolve.alias, "@openclaw/media-core/mime")).toEqual({
       find: "@openclaw/media-core/mime",
       replacement: path.join(process.cwd(), "packages", "media-core", "src", "mime.ts"),

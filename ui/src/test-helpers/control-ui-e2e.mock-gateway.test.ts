@@ -24,6 +24,61 @@ function waitForMockCycle(): Promise<void> {
 }
 
 describe("mock gateway stateful config", () => {
+  it("does not let a closed socket consume a deferred reconnect request", async () => {
+    const script = createControlUiMockGatewayInitScript({
+      deferredMethods: ["sessions.list"],
+      methodResponses: {
+        "sessions.list": { count: 1, defaults: {}, path: "", sessions: [], ts: 0 },
+      },
+    });
+    window.sessionStorage.clear();
+    // oxlint-disable-next-line typescript/no-implied-eval -- Executes the generated init script standalone, proving its socket state contract.
+    new Function(script)();
+
+    const staleSocket = new WebSocket("ws://mock-gateway");
+    await flushMockTimers();
+    staleSocket.close();
+    staleSocket.send(
+      JSON.stringify({ type: "req", id: "closed-list", method: "sessions.list", params: {} }),
+    );
+
+    const socket = new WebSocket("ws://mock-gateway");
+    const frames: ResponseFrame[] = [];
+    socket.addEventListener("message", (event) => {
+      frames.push(JSON.parse(String((event as MessageEvent).data)) as ResponseFrame);
+    });
+    await flushMockTimers();
+    socket.send(
+      JSON.stringify({ type: "req", id: "reconnect-list", method: "sessions.list", params: {} }),
+    );
+
+    const gateway = (
+      window as unknown as {
+        openclawControlUiE2eGateway?: {
+          findRequests: (method?: string) => unknown[];
+          resolveDeferred: (method: string, payload?: unknown) => void;
+        };
+      }
+    ).openclawControlUiE2eGateway;
+    if (!gateway) {
+      throw new Error("Mock Gateway was not installed");
+    }
+    expect(gateway.findRequests("sessions.list")).toHaveLength(1);
+    gateway.resolveDeferred("sessions.list", {
+      count: 1,
+      defaults: {},
+      path: "",
+      sessions: [],
+      ts: 1,
+    });
+    await flushMockTimers();
+    expect(frames.find((frame) => frame.id === "reconnect-list")?.payload).toMatchObject({
+      count: 1,
+      ts: 1,
+    });
+    socket.close();
+  });
+
   it("can advertise the canonical full Gateway feature catalog explicitly", async () => {
     const script = createControlUiMockGatewayInitScript({
       gatewayFeatureProfile: "full-gateway",

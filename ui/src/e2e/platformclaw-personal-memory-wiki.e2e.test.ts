@@ -352,7 +352,8 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
       await screenshot(page, "03-memory-wiki-preview.png");
       await page.locator(".wiki-document__menu [slot=trigger]").click();
       await screenshot(page, "04-memory-wiki-menu.png");
-      await page.locator('.wiki-document__menu wa-dropdown-item[value="edit"]').click();
+      await page.locator(".wiki-document__menu [slot=trigger]").click();
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
       const editor = page.locator(".wiki-document__editor");
       await editor.fill(
         "# Assigned platform knowledge\n\nEmployee browser access stays **strictly agent scoped**.",

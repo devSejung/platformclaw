@@ -31,6 +31,8 @@ import {
   type PlatformClawGatewayRuntimeClientOptions,
 } from "./gateway-runtime-client.js";
 import { KnoxRoutingService, type KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
+import { createOrganizationKnowledgeAnalyzer } from "./organization-knowledge-analysis.js";
+import { OrganizationKnowledgeService } from "./organization-knowledge-service.js";
 import { resolvePersonalOrganizationMemorySource } from "./organization-memory-personal-source.js";
 import { OrganizationService } from "./organization-service.js";
 import {
@@ -121,8 +123,13 @@ export function createPlatformClawWebIngressRuntime(
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
     provisioner: options.provisioner,
     initialAdminAccountIds: options.initialAdminAccountIds,
-    resolvePersonalOrganizationMemorySource: async ({ agentId, lookup }) =>
-      await resolvePersonalOrganizationMemorySource({ gateway, agentId, lookup }),
+    resolvePersonalOrganizationMemorySource: async ({ agentId, lookup, proposedText }) =>
+      await resolvePersonalOrganizationMemorySource({
+        gateway,
+        agentId,
+        lookup,
+        ...(proposedText === undefined ? {} : { proposedText }),
+      }),
     onLogoutAgent: async (agentId) => {
       await Promise.allSettled([
         options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId }),
@@ -266,6 +273,25 @@ export function createPlatformClawWebIngressRuntime(
     personalAgentProbe: options.restartRecoveryProbe,
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
+  const organizationKnowledge = new OrganizationKnowledgeService(
+    auth.store,
+    createOrganizationKnowledgeAnalyzer({
+      completePair: async (claims, signal) => {
+        if (signal.aborted) {
+          throw new Error("organization knowledge analysis cancelled");
+        }
+        return await gateway.request(
+          "platformclaw.organization.knowledge.completePair",
+          { claims },
+          {
+            signal,
+            timeoutMs: 240_000,
+          },
+        );
+      },
+    }),
+    options.employeeAuth?.now ?? Date.now,
+  );
   // Browser connections share this proxy; the session token resolves agent-scoped access per call.
   const gatewayProxy = new BrowserGatewayProxy({
     authService: auth.service,
@@ -278,6 +304,8 @@ export function createPlatformClawWebIngressRuntime(
     getOrganizationMemory: (params) => auth.store.getOrganizationMemory(params),
     getOrganizationMemoryGraph: (params) => auth.store.getOrganizationMemoryGraph(params),
     organizationMemoryLifecycle: auth.store,
+    organizationKnowledgeStore: auth.store,
+    organizationKnowledgeService: organizationKnowledge,
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
   closeTerminalForAgent = async (agentId, reason) => {
@@ -341,6 +369,7 @@ export function createPlatformClawWebIngressRuntime(
   const prepare = (): Promise<RestartReconciliationSummary> => {
     preparing ??= restartReconciler.reconcile().then(async (summary) => {
       await skillHub?.processGovernanceQueue();
+      organizationKnowledge.kick();
       return summary;
     });
     return preparing;
@@ -380,6 +409,7 @@ export function createPlatformClawWebIngressRuntime(
             await credentialBroker?.close();
           } finally {
             skillHub?.close();
+            await organizationKnowledge.close();
             auth.close();
           }
         }

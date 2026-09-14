@@ -1,33 +1,8 @@
-import { createHash } from "node:crypto";
 import type { PersonalOrganizationMemorySource } from "./contracts.js";
 
 type GatewayRequester = {
   request<T = unknown>(method: string, params?: unknown): Promise<T>;
 };
-
-type WikiGetResult = {
-  corpus?: unknown;
-  path?: unknown;
-  id?: unknown;
-  content?: unknown;
-  totalLines?: unknown;
-  truncated?: unknown;
-  updatedAt?: unknown;
-};
-
-function stableRevision(page: WikiGetResult, claimId: string): number {
-  const digest = createHash("sha256")
-    .update(
-      JSON.stringify({
-        claimId,
-        content: page.content,
-        totalLines: page.totalLines,
-        updatedAt: page.updatedAt,
-      }),
-    )
-    .digest("hex");
-  return Number.parseInt(digest.slice(0, 12), 16) + 1;
-}
 
 function isSafeVirtualClaimId(value: string): boolean {
   return (
@@ -40,30 +15,61 @@ function isSafeVirtualClaimId(value: string): boolean {
   );
 }
 
-/** Resolve only a complete native personal Wiki page; raw memory files are not promotion claims. */
+/** Resolve a complete native personal Wiki claim through the Wiki-owned Gateway contract. */
 export async function resolvePersonalOrganizationMemorySource(params: {
   gateway: GatewayRequester;
   agentId: string;
   lookup: string;
+  proposedText?: string;
 }): Promise<PersonalOrganizationMemorySource | null> {
-  const page = await params.gateway.request<WikiGetResult | null>("wiki.get", {
-    agentId: params.agentId,
-    lookup: params.lookup,
-    fromLine: 1,
-    lineCount: 10_000,
-  });
+  const resolved = await params.gateway.request<PersonalOrganizationMemorySource | null>(
+    "wiki.references.resolve",
+    {
+      agentId: params.agentId,
+      lookup: params.lookup,
+      ...(params.proposedText === undefined ? {} : { proposedText: params.proposedText }),
+    },
+  );
   if (
-    !page ||
-    page.corpus !== "wiki" ||
-    page.truncated === true ||
-    typeof page.path !== "string" ||
-    typeof page.content !== "string"
+    !resolved ||
+    typeof resolved.claimId !== "string" ||
+    !resolved.claimId ||
+    !isSafeVirtualClaimId(resolved.claimId) ||
+    !Number.isSafeInteger(resolved.revision) ||
+    resolved.revision < 1
   ) {
     return null;
   }
-  const claimId = typeof page.id === "string" && page.id.trim() ? page.id.trim() : page.path.trim();
-  if (!claimId || !isSafeVirtualClaimId(claimId)) {
+  const identity = {
+    claimId: resolved.claimId,
+    revision: resolved.revision,
+  };
+  if (params.proposedText === undefined) {
+    return identity;
+  }
+  if (
+    !Array.isArray(resolved.references) ||
+    resolved.references.length > 32 ||
+    typeof resolved.referencesTextHash !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(resolved.referencesTextHash)
+  ) {
     return null;
   }
-  return { claimId, revision: stableRevision(page, claimId) };
+  // Preserve the existing reference-free promotion shape while moving grammar ownership
+  // behind the Wiki Gateway boundary.
+  if (resolved.references.length === 0) {
+    return identity;
+  }
+  return {
+    ...identity,
+    referencesTextHash: resolved.referencesTextHash,
+    references: resolved.references.map((reference) => ({
+      start: reference.start,
+      end: reference.end,
+      claimId: reference.claimId,
+      revision: reference.revision,
+      kind: reference.kind,
+      scopeId: reference.scopeId,
+    })),
+  };
 }

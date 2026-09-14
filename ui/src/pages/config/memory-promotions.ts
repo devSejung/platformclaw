@@ -7,16 +7,28 @@ import type {
   OrganizationMemoryPromotionRequest,
   OrganizationMemoryPromotionSourceKind,
 } from "../../../../packages/platformclaw-control-plane/src/contracts.js";
+import type { OrganizationPromotionKnowledgeComparison } from "../../../../packages/platformclaw-control-plane/src/organization-memory-knowledge-contracts.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { renderHubTabs } from "../../components/hub-tabs.ts";
 import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "../../platformclaw/i18n.ts";
-import type { PersonalWikiSourceSelected } from "./memory-promotion-source-picker.ts";
+import { renderOrganizationMemoryDocumentPreview } from "../../platformclaw/organization-memory-document-preview.ts";
+import {
+  retirePromotionClaim,
+  renderPromotionDecisionDialog,
+  renderPromotionReferencesConfirmation,
+  renderPromotionRequest,
+  promotionStatusLabel,
+  promotionSourceClaims,
+  promotionTargetScopes,
+  type PromotionReferencesPreview,
+  type PromotionReferenceConfirmation,
+} from "./memory-promotion-review.ts";
 import "../../styles/sidebar-markdown.css";
-import "../../components/modal-dialog.ts";
 import "./memory-promotion-source-picker.ts";
+import type { PersonalWikiSourceSelected } from "./memory-promotion-source-picker.ts";
 
 class MemoryPromotionsElement extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
@@ -24,6 +36,10 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   @property({ type: Boolean }) methodAdvertised = false;
   @property({ type: Boolean }) wikiSearchAdvertised = false;
   @property({ type: Boolean }) wikiGetAdvertised = false;
+  @property({ type: Boolean }) comparisonAdvertised = false;
+  @property({ type: Boolean }) referencesAdvertised = false;
+  @property({ type: Boolean }) getAdvertised = false;
+  @state() private referencePath: string | null = null;
   @property() agentId: string | null = null;
   @property() initialPersonalLookup: string | null = null;
   @property({ type: Boolean }) formOnly = false;
@@ -40,9 +56,11 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   @state() private evidence = "";
   @state() private reason = "";
   @state() private success: string | null = null;
+  @state() private referencesPreview: PromotionReferenceConfirmation | null = null;
   @state() private pendingDecision: {
     request: OrganizationMemoryPromotionRequest;
     decision: "approve" | "reject";
+    comparison: OrganizationPromotionKnowledgeComparison | null;
   } | null = null;
   private loadRequest: object | null = null;
 
@@ -60,6 +78,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     ) {
       this.resetForSourceKind("personal");
       this.pendingDecision = null;
+      this.referencePath = null;
       if (changed.has("client") || changed.has("connected") || changed.has("agentId")) {
         this.snapshot = null;
       }
@@ -126,25 +145,8 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     }
   }
 
-  private sourceClaims() {
-    return (this.snapshot?.claims ?? []).filter(
-      (claim) =>
-        claim.status === "active" &&
-        claim.scopeKind === this.sourceKind &&
-        (claim.promotionTargets?.length ?? 0) > 0,
-    );
-  }
-
-  private targetScopes() {
-    if (this.sourceKind === "personal") {
-      return this.snapshot?.personalTargets ?? [];
-    }
-    return (
-      this.sourceClaims().find((claim) => claim.id === this.sourceClaimId)?.promotionTargets ?? []
-    );
-  }
-
   private resetForSourceKind(kind: OrganizationMemoryPromotionSourceKind) {
+    this.referencesPreview = null;
     this.success = null;
     this.sourceKind = kind;
     this.sourceClaimId = "";
@@ -156,10 +158,10 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
     this.reason = "";
   }
 
-  private async submit() {
+  private async submit(confirmed = false) {
     const client = this.client;
     const agentId = this.agentId;
-    const target = this.targetScopes().find(
+    const target = promotionTargetScopes(this.snapshot, this.sourceKind, this.sourceClaimId).find(
       (scope) => (scope.scopeId ?? "global") === this.targetScopeId,
     );
     if (
@@ -187,24 +189,53 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
           .filter(Boolean),
         reason: this.reason,
       };
+      const original =
+        confirmed && this.referencesPreview
+          ? this.referencesPreview.original
+          : {
+              ...content,
+              sourceKind: this.sourceKind,
+              ...(this.sourceKind === "personal"
+                ? {}
+                : { expectedSourceRevision: Number(this.sourceRevision) }),
+              targetKind: target.kind,
+              ...(target.scopeId ? { targetScopeId: target.scopeId } : {}),
+            };
+      if (!confirmed && this.referencesAdvertised) {
+        const { evidence: _evidence, reason: _reason, ...previewInput } = original;
+        const preview = await client.request<PromotionReferencesPreview>(
+          "platformclaw.memory.promotion.previewReferences",
+          previewInput,
+        );
+        if (this.client !== client || this.agentId !== agentId || !this.connected) {
+          return;
+        }
+        if (preview.references) {
+          this.referencesPreview = {
+            proposedText: preview.proposedText,
+            references: preview.references,
+            original,
+          };
+          this.loading = false;
+          return;
+        }
+      }
       await client.request(
         target.mode === "direct"
           ? "platformclaw.memory.promotion.publishDirect"
           : "platformclaw.memory.promotion.submit",
         {
-          ...content,
-          sourceKind: this.sourceKind,
-          ...(this.sourceKind === "personal"
-            ? {}
-            : { expectedSourceRevision: Number(this.sourceRevision) }),
-          targetKind: target.kind,
-          ...(target.scopeId ? { targetScopeId: target.scopeId } : {}),
+          ...original,
+          ...(confirmed && this.referencesPreview
+            ? { expectedReferencesFingerprint: this.referencesPreview.references.fingerprint }
+            : {}),
         },
       );
       if (this.client !== client || this.agentId !== agentId || !this.connected) {
         return;
       }
       this.proposedText = "";
+      this.referencesPreview = null;
       this.evidence = "";
       this.reason = "";
       this.success = t(
@@ -226,6 +257,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
         return;
       }
       this.error = formatErrorMessage(error, { redact: redactToolDetail });
+      this.referencesPreview = null;
       this.loading = false;
     } finally {
       this.dispatchEvent(
@@ -245,12 +277,60 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
 
   private decide(request: OrganizationMemoryPromotionRequest, decision: "approve" | "reject") {
     this.error = null;
-    this.pendingDecision = { request, decision };
+    this.pendingDecision = {
+      request,
+      decision,
+      comparison: request.relatedKnowledgeComparison ?? null,
+    };
+  }
+
+  private async comparePending() {
+    const pending = this.pendingDecision;
+    const client = this.client;
+    const agentId = this.agentId;
+    if (!pending || !client || !this.connected || !this.comparisonAdvertised || this.loading) {
+      return;
+    }
+    this.loading = true;
+    this.error = null;
+    try {
+      const comparison = await client.request<OrganizationPromotionKnowledgeComparison>(
+        "platformclaw.memory.knowledge.comparePromotion",
+        { requestId: pending.request.id },
+      );
+      if (
+        this.client === client &&
+        this.agentId === agentId &&
+        this.pendingDecision === pending &&
+        this.connected
+      ) {
+        this.pendingDecision = { ...pending, comparison };
+      }
+    } catch (error) {
+      if (
+        this.client === client &&
+        this.agentId === agentId &&
+        this.pendingDecision === pending &&
+        this.connected
+      ) {
+        this.error = formatErrorMessage(error, { redact: redactToolDetail });
+        this.pendingDecision = { ...pending, comparison: { status: "unavailable" } };
+      }
+    } finally {
+      if (this.client === client && this.agentId === agentId && this.connected) {
+        this.loading = false;
+      }
+    }
   }
 
   private async submitDecision(reason: string) {
     const pending = this.pendingDecision;
-    if (!pending || !reason || !this.client) {
+    if (
+      !pending ||
+      !reason ||
+      !this.client ||
+      (pending.decision === "approve" && pending.comparison?.status === "stale")
+    ) {
       return;
     }
     this.loading = true;
@@ -260,179 +340,75 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
         requestId: pending.request.id,
         decision: pending.decision,
         reason,
+        ...(pending.decision === "approve" && pending.request.references
+          ? { expectedReferencesFingerprint: pending.request.references.fingerprint }
+          : {}),
+        ...(pending.decision === "approve" &&
+        pending.comparison?.status === "available" &&
+        pending.comparison.inputFingerprint
+          ? { expectedComparisonFingerprint: pending.comparison.inputFingerprint }
+          : {}),
       });
       this.pendingDecision = null;
       await this.load();
     } catch (error) {
+      if (this.pendingDecision === pending && pending.request.references) {
+        await this.load();
+        const fresh = this.snapshot?.reviewable.find(
+          (request) => request.id === pending.request.id,
+        );
+        this.pendingDecision = fresh
+          ? { ...pending, request: fresh, comparison: fresh.relatedKnowledgeComparison ?? null }
+          : null;
+      } else if (this.pendingDecision === pending && pending.comparison?.status === "available") {
+        this.pendingDecision = {
+          ...pending,
+          comparison: { ...pending.comparison, status: "stale" },
+        };
+      }
       this.error = formatErrorMessage(error, { redact: redactToolDetail });
       this.loading = false;
     }
   }
 
   private renderDecisionDialog() {
-    const pending = this.pendingDecision;
-    if (!pending) {
-      return nothing;
-    }
-    const label = t(
-      pending.decision === "approve"
-        ? "memoryPage.promotions.approve"
-        : "memoryPage.promotions.reject",
-    );
-    return html`<openclaw-modal-dialog
-      label=${label}
-      description=${pending.request.targetScopeName}
-      @modal-cancel=${(event: Event) => {
-        if (this.loading) {
-          event.preventDefault();
-        } else {
-          this.pendingDecision = null;
-          this.error = null;
-        }
-      }}
-    >
-      <form
-        class="exec-approval-card"
-        @submit=${(event: SubmitEvent) => {
-          event.preventDefault();
-          const form = event.currentTarget as HTMLFormElement;
-          const input = form.elements.namedItem("reason") as HTMLTextAreaElement;
-          input.value = input.value.trim();
-          if (!form.reportValidity()) {
-            return;
-          }
-          const value = new FormData(form).get("reason");
-          const reason = typeof value === "string" ? value.trim() : "";
-          if (reason) {
-            void this.submitDecision(reason);
-          }
-        }}
-      >
-        <div class="exec-approval-header">
-          <div>
-            <div class="exec-approval-title">${label}</div>
-            <div class="exec-approval-sub">${pending.request.targetScopeName}</div>
-          </div>
-        </div>
-        <label class="field">
-          <span>${t("memoryPage.promotions.decisionReason")}</span>
-          <textarea name="reason" maxlength="500" required ?disabled=${this.loading}></textarea>
-        </label>
-        ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
-        <div class="exec-approval-actions">
-          <button class="btn primary" type="submit" ?disabled=${this.loading}>${label}</button>
-          <button
-            class="btn"
-            type="button"
-            ?disabled=${this.loading}
-            @click=${() => {
-              this.pendingDecision = null;
-              this.error = null;
-            }}
-          >
-            ${t("common.cancel")}
-          </button>
-        </div>
-      </form>
-    </openclaw-modal-dialog>`;
+    return renderPromotionDecisionDialog({
+      pending: this.pendingDecision,
+      loading: this.loading,
+      error: this.error,
+      comparisonAdvertised: this.comparisonAdvertised,
+      onCancel: () => {
+        this.pendingDecision = null;
+        this.error = null;
+      },
+      onSubmit: (reason) => void this.submitDecision(reason),
+      onCompare: () => void this.comparePending(),
+    });
   }
 
   private async retire(claimId: string, purge: boolean) {
-    const reason = window.prompt(
-      t(purge ? "memoryPage.promotions.purgeReason" : "memoryPage.promotions.retireReason"),
+    await retirePromotionClaim(
+      {
+        client: this.client,
+        onBusy: (busy) => (this.loading = busy),
+        onReload: () => this.load(),
+        onError: (error) => (this.error = formatErrorMessage(error, { redact: redactToolDetail })),
+      },
+      claimId,
+      purge,
     );
-    if (!reason || !this.client) {
-      return;
-    }
-    this.loading = true;
-    try {
-      await this.client.request(
-        purge ? "platformclaw.memory.claim.purge" : "platformclaw.memory.claim.retire",
-        { claimId, reason },
-      );
-      await this.load();
-    } catch (error) {
-      this.error = formatErrorMessage(error, { redact: redactToolDetail });
-      this.loading = false;
-    }
   }
-
-  private statusLabel(
-    status: "pending" | "approved" | "rejected" | "active" | "retired" | "purged",
-  ): string {
-    const key = {
-      pending: "memoryPage.promotions.statusPending",
-      approved: "memoryPage.promotions.statusApproved",
-      rejected: "memoryPage.promotions.statusRejected",
-      active: "memoryPage.promotions.statusActive",
-      retired: "memoryPage.promotions.statusRetired",
-      purged: "memoryPage.promotions.statusPurged",
-    }[status];
-    return t(key);
-  }
-
-  private sourceLabel(kind: OrganizationMemoryPromotionSourceKind) {
-    return kind === "personal"
-      ? t("memoryPage.promotions.personal")
-      : kind === "part"
-        ? t("memoryPage.promotions.part")
-        : kind === "group"
-          ? t("memoryPage.promotions.group")
-          : t("memoryPage.promotions.team");
-  }
-
   private renderRequest(request: OrganizationMemoryPromotionRequest, review = false) {
-    return html`<div class="settings-row">
-      <span class="settings-row__text">
-        <article class="settings-row__title sidebar-markdown memory-promotions__document">
-          ${unsafeHTML(
-            toSanitizedMarkdownHtml(request.proposedText, {
-              codeBlockChrome: "none",
-              fileLinks: false,
-              interactiveImages: false,
-            }),
-          )}
-        </article>
-        <span class="settings-row__desc"
-          >${this.sourceLabel(request.sourceKind)}${request.sourceClaimId
-            ? ` · ${request.sourceClaimId}`
-            : ""}
-          · ${t("memoryPage.promotions.revision", { revision: String(request.sourceRevision) })} →
-          ${request.targetScopeName} · ${this.statusLabel(request.status)}</span
-        >
-        <span class="settings-row__desc"
-          >${t("memoryPage.promotions.reasonLabel")}: ${request.reason}</span
-        >
-        ${request.evidence.length > 0
-          ? html`<span class="settings-row__desc"
-              >${t("memoryPage.promotions.evidenceLabel")}: ${request.evidence.join(" · ")}</span
-            >`
-          : nothing}
-        ${request.decisionReason
-          ? html`<span class="settings-row__desc"
-              >${t("memoryPage.promotions.decisionLabel")}: ${request.decisionReason}</span
-            >`
-          : nothing}
-      </span>
-      ${review && request.canReview
-        ? html`<span class="settings-row__control">
-            <button
-              class="btn btn--sm primary"
-              ?disabled=${this.loading}
-              @click=${() => this.decide(request, "approve")}
-            >
-              ${t("memoryPage.promotions.approve")}
-            </button>
-            <button
-              class="btn btn--sm"
-              ?disabled=${this.loading}
-              @click=${() => this.decide(request, "reject")}
-            >
-              ${t("memoryPage.promotions.reject")}
-            </button>
-          </span>`
-        : nothing}
-    </div>`;
+    return renderPromotionRequest(request, {
+      review,
+      loading: this.loading,
+      comparisonAdvertised: this.comparisonAdvertised,
+      onDecide: (candidate, decision) => this.decide(candidate, decision),
+      onCompare: (candidate) => {
+        this.decide(candidate, "approve");
+        void this.comparePending();
+      },
+    });
   }
 
   override render() {
@@ -457,12 +433,20 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
             </p>`}
       </div>`;
     }
-    const sourceClaims = this.sourceClaims();
-    const targets = this.targetScopes();
+    const sourceClaims = promotionSourceClaims(this.snapshot, this.sourceKind);
+    const targets = promotionTargetScopes(this.snapshot, this.sourceKind, this.sourceClaimId);
     const selectedTarget = targets.find(
       (target) => (target.scopeId ?? "global") === this.targetScopeId,
     );
-    return html`<div class="settings-page memory-promotions">
+    return html`<div
+      class="settings-page memory-promotions"
+      @organization-reference-open=${(event: CustomEvent<string>) => {
+        this.referencePath = event.detail;
+      }}
+    >
+      ${renderOrganizationMemoryDocumentPreview(this, this.referencePath, () => {
+        this.referencePath = null;
+      })}
       <section class="settings-section">
         <header class="settings-section__header">
           <div>
@@ -481,6 +465,20 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
         </header>
         ${this.error && !this.pendingDecision ? html`<p role="alert">${this.error}</p>` : nothing}
         ${this.success ? html`<p role="status">${this.success}</p>` : nothing}
+        ${this.referencesPreview
+          ? renderPromotionReferencesConfirmation({
+              preview: this.referencesPreview,
+              loading: this.loading,
+              error: this.error,
+              onCancel: () => {
+                this.referencesPreview = null;
+                this.error = null;
+              },
+              onConfirm: () => {
+                void this.submit(true);
+              },
+            })
+          : nothing}
         <fieldset class="settings-group" style="margin:0;padding:0" ?disabled=${this.loading}>
           <label class="settings-row memory-promotions__source-row">
             <span class="settings-row__text"
@@ -669,7 +667,7 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
                         <span class="settings-row__text">
                           <span class="settings-row__title">${claim.title}</span>
                           <span class="settings-row__desc"
-                            >${claim.scopeName} · ${this.statusLabel(claim.status)}</span
+                            >${claim.scopeName} · ${promotionStatusLabel(claim.status)}</span
                           >
                         </span>
                         <span class="settings-row__control">

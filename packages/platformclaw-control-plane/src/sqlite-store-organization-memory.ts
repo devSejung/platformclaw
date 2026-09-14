@@ -2,7 +2,9 @@ import { sql } from "kysely";
 import {
   ControlPlaneAuthorizationError,
   type OrganizationMemoryDocument,
+  type OrganizationMemoryVerification,
   type OrganizationMemoryGraph,
+  type OrganizationMemoryGraphEdge,
   type OrganizationMemoryGraphKind,
   type OrganizationMemoryReader,
   type OrganizationMemoryScopeKind,
@@ -111,7 +113,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
     if (user.status !== "active") {
       throw new ControlPlaneAuthorizationError("active employee required");
     }
-    return [
+    const scopes: AuthorizedOrganizationMemoryScope[] = [
       { kind: "global", name: "Global" },
       ...this.resolveEffectiveOrganizationAccessSnapshot(userId).map(({ scope }) => {
         const result: AuthorizedOrganizationMemoryScope = {
@@ -124,7 +126,54 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
         }
         return result;
       }),
+      ...this.descendantPartKnowledgeScopes(userId),
     ];
+    return [...new Map(scopes.map((scope) => [`${scope.kind}:${scope.id ?? ""}`, scope])).values()];
+  }
+
+  protected descendantPartKnowledgeScopes(userId: string): AuthorizedOrganizationMemoryScope[] {
+    // The canonical hierarchy is Team -> Group -> Part. Group oversight adds
+    // approved-knowledge reads only; generic member-management authority is unchanged.
+    return executeSync(
+      this.db,
+      this.query
+        .selectFrom("managed_scopes as part")
+        .innerJoin("managed_scopes as parent", "parent.id", "part.parent_scope_id")
+        .innerJoin("managed_scopes as team", "team.id", "parent.parent_scope_id")
+        .innerJoin("managed_scope_memberships as membership", "membership.scope_id", "parent.id")
+        .select(["part.id", "part.name", "part.parent_scope_id"])
+        .where("membership.user_id", "=", userId)
+        .where("membership.role", "=", "leader")
+        .where("part.kind", "=", "part")
+        .where("parent.kind", "=", "group")
+        .where("team.kind", "=", "team")
+        .where("part.status", "=", "active")
+        .where("parent.status", "=", "active")
+        .where("team.status", "=", "active")
+        .where("team.parent_scope_id", "is", null)
+        .orderBy("part.id"),
+    ).rows.map((scope) => ({
+      kind: "part",
+      id: scope.id,
+      name: scope.name,
+      parentScopeId: scope.parent_scope_id!,
+    }));
+  }
+
+  protected organizationKnowledgeGraphEdges(_params: {
+    agentId: string;
+    kind: OrganizationMemoryGraphKind;
+    scopeIds: string[];
+    visibleClaims: ReadonlyMap<string, number>;
+  }): OrganizationMemoryGraphEdge[] {
+    return [];
+  }
+
+  protected organizationMemoryReferenceGraphEdges(_params: {
+    kind: OrganizationMemoryGraphKind;
+    visibleClaims: ReadonlyMap<string, number>;
+  }): OrganizationMemoryGraphEdge[] {
+    return [];
   }
 
   private toHit(
@@ -199,6 +248,54 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
     });
   }
 
+  private organizationMemoryVerification(
+    ids: string[],
+    scopes: AuthorizedOrganizationMemoryScope[],
+  ): Map<string, OrganizationMemoryVerification> {
+    if (ids.length === 0) {
+      return new Map();
+    }
+    const readable = new Set(scopes.map((scope) => `${scope.kind}:${scope.id ?? ""}`));
+    // Claim rows own approval facts; source freshness uses the same read snapshot
+    // for documents and graphs and never reads private employee Wiki state.
+    const claims = executeSync(
+      this.db,
+      this.query
+        .selectFrom("organization_memory_claims as claim")
+        .leftJoin("organization_memory_claims as source", "source.id", "claim.source_claim_id")
+        .select([
+          "claim.id",
+          "claim.revision",
+          "claim.source_revision",
+          "claim.source_kind",
+          "source.scope_kind as source_scope_kind",
+          "source.scope_id as source_scope_id",
+          "source.revision as current_source_revision",
+          "source.status as source_status",
+        ])
+        .where("claim.id", "in", ids)
+        .where("claim.status", "=", "active"),
+    ).rows;
+    return new Map(
+      claims.map((claim) => [
+        claim.id,
+        {
+          approvalStatus: "approved" as const,
+          revision: claim.revision,
+          sourceRevision: claim.source_revision,
+          sourceStatus:
+            claim.source_kind !== "personal" &&
+            claim.source_status === "active" &&
+            readable.has(`${claim.source_scope_kind}:${claim.source_scope_id ?? ""}`)
+              ? claim.current_source_revision === claim.source_revision
+                ? "current"
+                : "changed"
+              : "unavailable",
+        },
+      ]),
+    );
+  }
+
   async getOrganizationMemory(params: {
     agentId: string;
     path: string;
@@ -237,11 +334,16 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
         Math.min(MAX_DOCUMENT_LINES, Math.trunc(params.lineCount ?? 50)),
       );
       const selected = lines.slice(fromLine - 1, fromLine - 1 + requestedLines);
+      const selectedText = selected.join("\n");
+      const verification = this.organizationMemoryVerification([row.id], scopes).get(row.id);
       return {
         ...this.toHit(row, scope, row.title),
-        content: selected.join("\n").slice(0, MAX_DOCUMENT_CHARS),
+        content: selectedText.slice(0, MAX_DOCUMENT_CHARS),
         fromLine,
         lineCount: selected.length,
+        totalLines: lines.length,
+        textTruncated: selectedText.length > MAX_DOCUMENT_CHARS,
+        ...(verification ? { verification } : {}),
       };
     });
   }
@@ -249,11 +351,21 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
   async getOrganizationMemoryGraph(params: {
     agentId: string;
     kind: OrganizationMemoryGraphKind;
+    scopeId?: string;
   }): Promise<OrganizationMemoryGraph> {
     this.ensureOrganizationMemorySchema();
     return runReadTransaction(this.db, () => {
       const readableScopes = this.authorizedScopes(params.agentId);
-      const scopes = readableScopes.filter((scope) => scope.kind === params.kind);
+      // Select within the current approved-memory read snapshot before any count,
+      // cap or relation query; another permitted Part must not affect this graph.
+      const scopes = readableScopes.filter(
+        (scope) =>
+          scope.kind === params.kind &&
+          (params.scopeId === undefined || scope.id === params.scopeId),
+      );
+      if (params.scopeId !== undefined && scopes.length === 0) {
+        throw new ControlPlaneAuthorizationError("selected graph scope is unavailable");
+      }
       if (scopes.length === 0) {
         return {
           kind: params.kind,
@@ -268,8 +380,8 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
           },
         };
       }
-      const scopeById = new Map(scopes.map((scope) => [scope.id!, scope]));
-      const scopeIds = [...scopeById.keys()].toSorted();
+      const scopeById = new Map(scopes.map((scope) => [scope.id ?? "", scope]));
+      const scopeIds = scopes.flatMap((scope) => (scope.id ? [scope.id] : [])).toSorted();
       const totalPages =
         takeFirstSync(
           this.db,
@@ -278,7 +390,11 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
             .select(({ fn }) => fn.countAll<number>().as("count"))
             .where("status", "=", "active")
             .where("scope_kind", "=", params.kind)
-            .where("scope_id", "in", scopeIds),
+            .where((eb) =>
+              params.kind === "global"
+                ? eb("scope_id", "is", null)
+                : eb("scope_id", "in", scopeIds),
+            ),
         )?.count ?? 0;
       const rows = executeSync(
         this.db,
@@ -287,68 +403,22 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
           .selectAll()
           .where("status", "=", "active")
           .where("scope_kind", "=", params.kind)
-          .where("scope_id", "in", scopeIds)
+          .where((eb) =>
+            params.kind === "global" ? eb("scope_id", "is", null) : eb("scope_id", "in", scopeIds),
+          )
           .orderBy("scope_id")
           .orderBy("id")
           .limit(MAX_GRAPH_NODES),
       ).rows;
-      const readScopeKeys = new Set(
-        readableScopes.map((scope) => `${scope.kind}:${scope.id ?? ""}`),
-      );
-      // Claim rows own approval and revision facts. Never infer verification from
-      // a graph edge or disclose a source outside the same read-policy snapshot.
-      const claims =
-        rows.length === 0
-          ? []
-          : executeSync(
-              this.db,
-              this.query
-                .selectFrom("organization_memory_claims as claim")
-                .leftJoin(
-                  "organization_memory_claims as source",
-                  "source.id",
-                  "claim.source_claim_id",
-                )
-                .select([
-                  "claim.id",
-                  "claim.revision",
-                  "claim.source_revision",
-                  "claim.source_kind",
-                  "source.scope_kind as source_scope_kind",
-                  "source.scope_id as source_scope_id",
-                  "source.revision as current_source_revision",
-                  "source.status as source_status",
-                ])
-                .where(
-                  "claim.id",
-                  "in",
-                  rows.map((row) => row.id),
-                )
-                .where("claim.status", "=", "active"),
-            ).rows;
-      const verificationById = new Map(
-        claims.map((claim) => [
-          claim.id,
-          {
-            approvalStatus: "approved" as const,
-            revision: claim.revision,
-            sourceRevision: claim.source_revision,
-            sourceStatus:
-              claim.source_kind !== "personal" &&
-              claim.source_status === "active" &&
-              readScopeKeys.has(`${claim.source_scope_kind}:${claim.source_scope_id ?? ""}`)
-                ? claim.current_source_revision === claim.source_revision
-                  ? ("current" as const)
-                  : ("changed" as const)
-                : ("unavailable" as const),
-          },
-        ]),
+      const verificationById = this.organizationMemoryVerification(
+        rows.map((row) => row.id),
+        readableScopes,
       );
       const nodes = rows.map((row) => ({
         id: `organization:${params.kind}:${row.id}`,
         path: `organization/${params.kind}/${row.id}`,
         title: row.title,
-        scopeName: scopeById.get(row.scope_id!)!.name,
+        scopeName: scopeById.get(row.scope_id ?? "")!.name,
         updatedAt: row.updated_at,
         ...(verificationById.has(row.id) ? { verification: verificationById.get(row.id)! } : {}),
       }));
@@ -393,16 +463,36 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
           (left, right) =>
             compareText(left.source, right.source) || compareText(left.target, right.target),
         );
-      const edges = allEdges.slice(0, MAX_GRAPH_EDGES);
+      const provenancePairs = new Set(
+        allEdges.map((edge) => [edge.source, edge.target].toSorted().join("\0")),
+      );
+      // Projection runs inside the same authorized read snapshot; it never starts analysis.
+      const inferred = this.organizationKnowledgeGraphEdges({
+        agentId: params.agentId,
+        kind: params.kind,
+        scopeIds,
+        visibleClaims: new Map(
+          [...verificationById].map(([id, verification]) => [id, verification.revision]),
+        ),
+      }).filter((edge) => !provenancePairs.has([edge.source, edge.target].toSorted().join("\0")));
+      const references = this.organizationMemoryReferenceGraphEdges({
+        kind: params.kind,
+        visibleClaims: new Map(
+          [...verificationById].map(([id, verification]) => [id, verification.revision]),
+        ),
+      });
+      const combined: OrganizationMemoryGraphEdge[] = [...allEdges, ...references, ...inferred];
+      const edges = combined.slice(0, MAX_GRAPH_EDGES);
       return {
         kind: params.kind,
+        ...(params.scopeId === undefined ? {} : { scopeId: params.scopeId }),
         nodes,
         edges,
         stats: {
           totalPages,
           totalNodes: nodes.length,
           totalEdges: edges.length,
-          truncated: totalPages > nodes.length || allEdges.length > edges.length,
+          truncated: totalPages > nodes.length || combined.length > edges.length,
           partial,
         },
       };

@@ -1314,8 +1314,37 @@
   overflow-x: auto;
 }
 
+.wiki-document__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.wiki-document__heading {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wiki-document__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The dropdown defaults to display:contents, which cannot align its trigger
+   with sibling controls. The document owner provides its layout box. */
 .wiki-document__menu {
-  margin-left: auto;
+  display: inline-flex;
+}
+
+@media (max-width: 640px) {
+  .wiki-document__header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .wiki-document__actions {
+    justify-content: flex-end;
+  }
 }
 
 .wiki-document__editor {

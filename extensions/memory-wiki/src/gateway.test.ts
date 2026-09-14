@@ -7,6 +7,7 @@ import { registerMemoryWikiGatewayMethods } from "./gateway.js";
 import { listMemoryWikiImportInsights } from "./import-insights.js";
 import { listMemoryWikiImportRuns } from "./import-runs.js";
 import { ingestMemoryWikiSource } from "./ingest.js";
+import { resolveMemoryWikiPromotionReferences } from "./promotion-references.js";
 import { searchMemoryWiki } from "./query.js";
 import { syncMemoryWikiImportedSources } from "./source-sync.js";
 import { resolveMemoryWikiStatus } from "./status.js";
@@ -71,6 +72,8 @@ vi.mock("./query.js", () => ({
 vi.mock("./source-sync.js", () => ({
   syncMemoryWikiImportedSources: vi.fn(),
 }));
+
+vi.mock("./promotion-references.js", () => ({ resolveMemoryWikiPromotionReferences: vi.fn() }));
 
 vi.mock("./status.js", () => ({
   buildMemoryWikiDoctorReport: vi.fn(),
@@ -141,6 +144,7 @@ const VAULT_BACKED_GATEWAY_CASES = [
   ["wiki.unsafeLocal.import", {}],
   ["wiki.search", { query: "alpha" }],
   ["wiki.apply", { op: "create_synthesis" }],
+  ["wiki.references.resolve", { lookup: "alpha", proposedText: "[[related]]" }],
   ["wiki.get", { lookup: "alpha" }],
   ["wiki.obsidian.search", { query: "alpha" }],
   ["wiki.obsidian.open", { path: "syntheses/alpha.md" }],
@@ -149,6 +153,54 @@ const VAULT_BACKED_GATEWAY_CASES = [
 ] as const satisfies ReadonlyArray<readonly [string, Record<string, unknown>]>;
 
 describe("memory-wiki gateway methods", () => {
+  it("routes exact personal reference inputs under current read scope without returning private pages", async () => {
+    const { config } = await createVault({ config: { vault: { scope: "agent" } } });
+    const { api, registerGatewayMethod } = createPluginApi();
+    registerMemoryWikiGatewayMethods({
+      api,
+      config,
+      appConfig: { agents: { list: [{ id: "main" }] } },
+    });
+    vi.mocked(resolveMemoryWikiPromotionReferences).mockResolvedValue({
+      claimId: "source.stable",
+      revision: 12,
+      references: [{ start: 0, end: 11 }],
+      referencesTextHash: "a".repeat(64),
+    });
+    const respond = vi.fn();
+    const handler = findGatewayHandler(registerGatewayMethod, "wiki.references.resolve")!;
+    await handler({
+      params: { agentId: "main", lookup: "source.stable", proposedText: "[[missing]]" },
+      respond,
+    });
+    expect(readGatewayMethodOptions(registerGatewayMethod, "wiki.references.resolve")).toEqual({
+      scope: "operator.read",
+    });
+    expect(resolveMemoryWikiPromotionReferences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lookup: "source.stable",
+        proposedText: "[[missing]]",
+        config: expect.objectContaining({ agentId: "main" }),
+      }),
+    );
+    expect(readRespondPayload(respond)).toMatchObject({
+      claimId: "source.stable",
+      references: [{ start: 0, end: 11 }],
+    });
+    const rejected = vi.fn();
+    await handler({
+      params: {
+        agentId: "main",
+        lookup: "source.stable",
+        proposedText: "[[missing]]",
+        privatePath: "forbidden",
+      },
+      respond: rejected,
+    });
+    expect(readRespondError(rejected)).toMatchObject({
+      message: expect.stringContaining("accepts only"),
+    });
+  });
   it("does not expose operational deletion errors to the browser", async () => {
     const { config } = await createVault({ config: { vault: { scope: "agent" } } });
     const { api, registerGatewayMethod } = createPluginApi();

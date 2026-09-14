@@ -27,6 +27,7 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "@openclaw/gateway-client": "workspace:*",
     "@openclaw/gateway-protocol": "workspace:*",
+    "@openclaw/markdown-core": "workspace:*",
     "@openclaw/net-policy": "workspace:*",
     "@openclaw/normalization-core": "workspace:*",
     "@platformclaw/coding-agent-contract": "workspace:*",

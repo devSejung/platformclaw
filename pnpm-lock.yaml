@@ -1277,9 +1277,9 @@ importers:
 
   extensions/memory-wiki:
     dependencies:
-      mdast-util-from-markdown:
-        specifier: 2.0.3
-        version: 2.0.3(supports-color@10.2.2)
+      '@openclaw/markdown-core':
+        specifier: workspace:*
+        version: link:../../packages/markdown-core
       p-map:
         specifier: 7.0.6
         version: 7.0.6
@@ -2375,6 +2375,9 @@ importers:
       '@openclaw/gateway-protocol':
         specifier: workspace:*
         version: link:../gateway-protocol
+      '@openclaw/markdown-core':
+        specifier: workspace:*
+        version: link:../markdown-core
       '@openclaw/net-policy':
         specifier: workspace:*
         version: link:../net-policy

@@ -42,7 +42,11 @@ export type PlatformClawGatewayBackend = BrowserGatewayRpc & {
 type GatewayClientLike = {
   start(): void;
   stop(): void;
-  request(method: string, params?: unknown): Promise<unknown>;
+  request(
+    method: string,
+    params?: unknown,
+    options?: Parameters<GatewayClient["request"]>[2],
+  ): Promise<unknown>;
 };
 
 export type PlatformClawGatewayRuntimeClientOptions = {
@@ -189,11 +193,17 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
     return () => this.disconnectListeners.delete(listener);
   }
 
-  async request<T = unknown>(method: string, params?: unknown): Promise<T> {
+  async request<T = unknown>(
+    method: string,
+    params?: unknown,
+    options?: Parameters<GatewayClient["request"]>[2],
+  ): Promise<T> {
     if (!this.hello) {
       throw new Error("private Gateway connection is unavailable");
     }
-    return (await this.client.request(method, params)) as T;
+    return (await (options
+      ? this.client.request(method, params, options)
+      : this.client.request(method, params))) as T;
   }
 
   private async activateSessionEvents(

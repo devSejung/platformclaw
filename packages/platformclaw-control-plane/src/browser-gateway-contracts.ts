@@ -86,5 +86,7 @@ export type BrowserGatewayProxyOptions = {
     kind: OrganizationMemoryGraphKind;
   }): Promise<OrganizationMemoryGraph>;
   organizationMemoryLifecycle?: OrganizationMemoryLifecycle;
+  organizationKnowledgeStore?: import("./sqlite-store.js").SqliteControlPlaneStore;
+  organizationKnowledgeService?: import("./organization-knowledge-service.js").OrganizationKnowledgeService;
   now?: () => number;
 };

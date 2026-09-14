@@ -1,7 +1,6 @@
 // Memory Wiki plugin module implements markdown behavior.
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { fromMarkdown } from "mdast-util-from-markdown";
 import {
   asFiniteNumber,
   asNullableRecord,
@@ -10,6 +9,7 @@ import {
   normalizeSingleOrTrimmedStringList,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import YAML from "yaml";
+import { parseMemoryWikiReferenceSpans } from "./reference-spans.js";
 
 const WIKI_PAGE_KINDS = ["entity", "concept", "source", "synthesis", "report"] as const;
 export const WIKI_RELATED_START_MARKER = "<!-- openclaw:wiki:related:start -->";
@@ -123,8 +123,6 @@ type WikiPageSummaryScanResult =
   | { status: "ignored" };
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-const OBSIDIAN_LINK_PATTERN = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
-const MARKDOWN_LINK_PATTERN = /\[[^\]]+\]\(([^)]+)\)/g;
 const RELATED_BLOCK_PATTERN = new RegExp(
   `(?:^|\\r?\\n)## Related[\\t ]*\\r?\\n(?:[\\t ]*\\r?\\n)*${WIKI_RELATED_START_MARKER}[\\s\\S]*?${WIKI_RELATED_END_MARKER}`,
   "g",
@@ -403,63 +401,11 @@ function normalizeWikiRelationships(value: unknown): WikiRelationship[] {
   });
 }
 
-function normalizeMarkdownLinkTarget(sourceRelativePath: string, target: string): string {
-  return path.posix.normalize(path.posix.join(path.posix.dirname(sourceRelativePath), target));
-}
-
-type MarkdownAstNode = {
-  type?: string;
-  position?: {
-    start?: { offset?: number };
-    end?: { offset?: number };
-  };
-  children?: MarkdownAstNode[];
-};
-
-function maskMarkdownCode(markdown: string): string {
-  const masked = markdown.split("");
-  const visit = (node: MarkdownAstNode): void => {
-    if (node.type === "code" || node.type === "inlineCode") {
-      const start = node.position?.start?.offset;
-      const end = node.position?.end?.offset;
-      if (start !== undefined && end !== undefined) {
-        for (let index = start; index < end; index++) {
-          if (masked[index] !== "\n" && masked[index] !== "\r") {
-            masked[index] = " ";
-          }
-        }
-      }
-      return;
-    }
-    for (const child of node.children ?? []) {
-      visit(child);
-    }
-  };
-  visit(fromMarkdown(markdown) as MarkdownAstNode);
-  return masked.join("");
-}
-
 function extractWikiLinks(markdown: string, sourceRelativePath: string): string[] {
-  const withoutRelatedBlock = markdown.replace(RELATED_BLOCK_PATTERN, "");
-  const searchable = maskMarkdownCode(withoutRelatedBlock);
-  const links: string[] = [];
-  for (const match of searchable.matchAll(OBSIDIAN_LINK_PATTERN)) {
-    const target = match[1]?.trim();
-    if (target) {
-      links.push(target);
-    }
-  }
-  for (const match of searchable.matchAll(MARKDOWN_LINK_PATTERN)) {
-    const rawTarget = match[1]?.trim();
-    if (!rawTarget || rawTarget.startsWith("#") || /^[a-z]+:/i.test(rawTarget)) {
-      continue;
-    }
-    const target = rawTarget.split("#")[0]?.split("?")[0]?.replace(/\\/g, "/").trim();
-    if (target) {
-      links.push(normalizeMarkdownLinkTarget(sourceRelativePath, target));
-    }
-  }
-  return links;
+  // Graph discovery is corpus-bounded, while submitted reference extraction has a hard 32-link cap.
+  return parseMemoryWikiReferenceSpans(markdown, sourceRelativePath, Number.POSITIVE_INFINITY, {
+    purpose: "graph",
+  }).map((reference) => reference.target);
 }
 
 function normalizeMarkdownLines(markdown: string): string[] {

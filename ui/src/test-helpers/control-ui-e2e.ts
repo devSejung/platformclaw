@@ -1693,6 +1693,12 @@ function installControlUiMockGateway(
     }
 
     send(raw: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+      if (this.readyState === MockWebSocket.CONNECTING) {
+        throw new DOMException("WebSocket is not open", "InvalidStateError");
+      }
+      if (this.readyState !== MockWebSocket.OPEN) {
+        return;
+      }
       const frame = parseFrame(raw);
       if (!frame || frame.type !== "req") {
         return;

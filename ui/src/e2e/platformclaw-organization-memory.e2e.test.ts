@@ -155,12 +155,20 @@ suite("PlatformClaw organization memory Settings E2E", () => {
           "wiki.search": [],
           "platformclaw.memory.lifecycle": {
             scopes: [
-              { kind: "global", name: "Global", canAdminister: false },
+              { kind: "global", name: "Global", canRead: true, canAdminister: false },
+              {
+                kind: "group",
+                id: "group-platform",
+                name: "Platform",
+                canRead: true,
+                canAdminister: false,
+              },
               {
                 kind: "part",
                 id: "part-runtime",
                 parentScopeId: "group-platform",
                 name: "Runtime",
+                canRead: true,
                 canAdminister: false,
               },
             ],
@@ -188,7 +196,7 @@ suite("PlatformClaw organization memory Settings E2E", () => {
           "platformclaw.memory.graph": {
             cases: [
               {
-                match: { kind: "part" },
+                match: { kind: "part", scopeId: "part-runtime" },
                 response: {
                   kind: "part",
                   nodes: [
@@ -211,7 +219,7 @@ suite("PlatformClaw organization memory Settings E2E", () => {
                 },
               },
               {
-                match: { kind: "group" },
+                match: { kind: "group", scopeId: "group-platform" },
                 response: {
                   kind: "group",
                   nodes: [
@@ -236,14 +244,14 @@ suite("PlatformClaw organization memory Settings E2E", () => {
             ],
           },
           "platformclaw.memory.get": {
-            id: "platform-policy",
+            id: "claim-1",
             path: "organization/group/platform-policy",
-            scopeKind: "group",
-            scopeName: "Platform",
+            kind: "group",
+            provenanceLabel: "Platform",
             title: "Platform policy",
             snippet: scenario.snippet,
             score: 1,
-            updatedAt: 2,
+            updatedAt: new Date(2).toISOString(),
             content: `# Platform policy\n\n${scenario.snippet}`,
             fromLine: 1,
             lineCount: 3,
@@ -288,13 +296,20 @@ suite("PlatformClaw organization memory Settings E2E", () => {
         await page.getByRole("tab", { name: "Organization Graph", exact: true }).click();
         await expect
           .poll(() => gateway.getRequests("platformclaw.memory.graph"))
-          .toEqual([expect.objectContaining({ params: { kind: "part" } })]);
+          .toEqual([
+            expect.objectContaining({ params: { kind: "part", scopeId: "part-runtime" } }),
+          ]);
         await expect
           .poll(() =>
             page.locator('[data-organization-node="organization/part/runtime-policy"]').count(),
           )
           .toBe(1);
         await page.getByRole("tab", { name: "Group Graph", exact: true }).click();
+        await expect
+          .poll(() => gateway.getRequests("platformclaw.memory.graph"))
+          .toContainEqual(
+            expect.objectContaining({ params: { kind: "group", scopeId: "group-platform" } }),
+          );
         await expect
           .poll(() =>
             page.locator('[data-organization-node="organization/group/platform-policy"]').count(),

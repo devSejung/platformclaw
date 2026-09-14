@@ -241,6 +241,35 @@
   overflow-wrap: anywhere;
 }
 
+/* The modal adapter leaves slotted content overflow to its owner. Keep review
+   controls outside the bounded scroll region as comparison results grow. */
+.memory-promotions__decision-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  min-width: 0;
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+}
+
+.memory-promotions__decision-body {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+
+.memory-promotions__decision-dialog .exec-approval-actions {
+  margin-top: 0;
+}
+
+@media (max-width: 640px) {
+  .memory-promotions__decision-dialog {
+    max-height: 90dvh;
+  }
+}
+
 .memory-promotions__document pre,
 .memory-promotions__document .table-wrapper {
   max-width: 100%;
