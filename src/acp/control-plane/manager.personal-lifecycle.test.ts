@@ -148,8 +148,8 @@ describe("personal ACP durable lifecycle", () => {
           // Current-conversation IDs are reused: the old close must finish
           // unbinding before a replacement initializes and rebinds the same ID.
           let binding = "same-conversation:old";
-          const cleanupEntered = createDeferred<void>();
-          const releaseCleanup = createDeferred<void>();
+          const cleanupEntered = createDeferred();
+          const releaseCleanup = createDeferred();
           const retirement = restarted.closeSession({
             cfg,
             sessionKey,
