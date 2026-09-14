@@ -41,11 +41,11 @@ function formatSessionPullRequestSummary(summary: SessionCatalogPullRequestSumma
 function renderSessionRowBadge(
   label: string,
   icon: TemplateResult,
-  modifier = "",
-  count = 0,
+  modifier?: string,
+  count?: number,
   pullRequestState?: SessionCatalogPullRequestSummary["state"],
   placementState?: SessionPlacementState,
-  workspaceConflictCount = 0,
+  workspaceConflictCount?: number,
 ) {
   return html`<openclaw-tooltip .content=${label}>
     <span
@@ -96,7 +96,6 @@ export function renderSessionRowBadges(params: {
   const pullRequestLabel = params.pullRequest
     ? formatSessionPullRequestSummary(params.pullRequest)
     : undefined;
-  const pullRequestState = params.pullRequest?.state;
   const workspaceConflictCount = Math.max(0, Math.floor(params.workspaceConflictCount ?? 0));
   // Child rows suppress ordinary placement chrome, but a retained conflict must stay discoverable.
   const displayedPlacementState =
@@ -155,7 +154,7 @@ export function renderSessionRowBadges(params: {
           icons.gitPullRequest,
           "session-row-badge--pull-request",
           0,
-          pullRequestState,
+          params.pullRequest?.state,
         )
       : nothing}
     ${params.hasApproval
