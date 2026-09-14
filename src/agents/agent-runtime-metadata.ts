@@ -14,17 +14,12 @@ export function resolveModelAgentRuntimeMetadata(params: {
   model?: string;
   sessionKey?: string;
   sessionEntry?: Parameters<typeof resolvePersistedSessionRuntimeId>[0];
-  /**
-   * True when the loaded session entry has persisted ACP metadata. ACP-shaped
-   * keys without this marker can be bridge sessions that use the configured
-   * model/runtime.
-   */
+  /** True when persisted ACP metadata owns this session's runtime. */
   acpRuntime?: boolean;
   /**
-   * The ACP backend identifier stored on the session entry (`entry.acp.backend`).
-   * When provided for an ACP-keyed session, the overlay reports this value as the
-   * runtime id instead of the generic fallback "acpx", so sessions backed by a
-   * non-default registered ACP backend are classified correctly.
+   * ACP backend identifier from persisted session metadata. The overlay reports
+   * it as the runtime id instead of the generic fallback "acpx" so registered
+   * non-default ACP backends are classified correctly.
    */
   acpBackend?: string;
 }): AgentRuntimeMetadata {
