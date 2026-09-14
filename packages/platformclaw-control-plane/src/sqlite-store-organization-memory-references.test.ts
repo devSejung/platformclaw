@@ -1,7 +1,7 @@
 import {
   memoryWikiReferenceTextHash,
   parseMemoryWikiReferenceSpans,
-} from "@openclaw/markdown-core/reference-spans";
+} from "@openclaw/markdown-core";
 import { describe, expect, it } from "vitest";
 import { runImmediateTransaction } from "./kysely-sync.js";
 import { ORGANIZATION_KNOWLEDGE_POLICY_VERSION } from "./organization-knowledge-analysis.js";

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { parseMemoryWikiReferenceSpans } from "@openclaw/markdown-core/reference-spans";
+import { parseMemoryWikiReferenceSpans } from "@openclaw/markdown-core";
 import {
   ControlPlaneStateError,
   type OrganizationMemoryReferencesPreview,
