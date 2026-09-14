@@ -15,17 +15,17 @@
 {
   "channel": "telegram",
   "chatType": "direct",
-  "codexModelInstructionsFixture": "test\\fixtures\\agents\\prompt-snapshots\\codex-model-catalog\\gpt-5.5.pragmatic.instructions.md",
+  "codexModelInstructionsFixture": "test/fixtures/agents/prompt-snapshots/codex-model-catalog/gpt-5.5.pragmatic.instructions.md",
   "harness": "codex",
   "model": "gpt-5.5",
   "modelProvider": "openai",
   "runtime": "codex_app_server",
-  "simulatedHeartbeatWorkspaceFile": "\\tmp\\openclaw-happy-path\\workspace\\HEARTBEAT.md",
-  "simulatedWorkspaceBootstrapFiles": ["\\tmp\\openclaw-happy-path\\workspace\\MEMORY.md"],
+  "simulatedHeartbeatWorkspaceFile": "/tmp/openclaw-happy-path/workspace/HEARTBEAT.md",
+  "simulatedWorkspaceBootstrapFiles": ["/tmp/openclaw-happy-path/workspace/MEMORY.md"],
   "simulatedWorkspaceTurnScopedDeveloperInstructionFiles": [
-    "\\tmp\\openclaw-happy-path\\workspace\\IDENTITY.md",
-    "\\tmp\\openclaw-happy-path\\workspace\\SOUL.md",
-    "\\tmp\\openclaw-happy-path\\workspace\\USER.md"
+    "/tmp/openclaw-happy-path/workspace/IDENTITY.md",
+    "/tmp/openclaw-happy-path/workspace/SOUL.md",
+    "/tmp/openclaw-happy-path/workspace/USER.md"
   ],
   "sourceReplyDeliveryMode": "message_tool_only",
   "toolSnapshot": "codex-dynamic-tools.heartbeat-turn.json",
@@ -138,7 +138,7 @@
   "collaborationMode": {
     "mode": "default",
     "settings": {
-      "developer_instructions": "This is an OpenClaw heartbeat turn. Apply these instructions only to this heartbeat wake; ordinary chat turns should stay in Codex Default mode.\n\nWhen you are ready to end the heartbeat, prefer the structured `heartbeat_respond` tool so OpenClaw can record the wake outcome and notification decision. If `heartbeat_respond` is not already available and `tool_search` is available, search for `heartbeat_respond`, load it, then call it. Use `notify=false` when nothing should visibly interrupt the user.\n\n### Heartbeats\n\nHeartbeat = useful proactive progress, not chatter. Wake, orient, use the provided monitor scratch, act.\nAssigned/ongoing work: pursue spirit with judgment. Quiet check counts only if real blocker/urgent interruption.\nNo rote loops; orientation != accomplishment. Prefer action/silent progress.\nNever repetitive \"same/no change/still\" updates.\nInterrupt only for meaningful development/result/blocker/decision/time risk. Unchanged: work, change approach, dig deeper, or silence.\n\n## OpenClaw Agent Soul\n\nOpenClaw loaded these workspace instruction files from the active agent workspace. They are the canonical definitions of who you are, how you think and work, and the human you work alongside. Internalize and follow them accordingly.\n\n### \\tmp\\openclaw-happy-path\\workspace\\IDENTITY.md\n\n<IDENTITY.md contents will be here>\n\n### \\tmp\\openclaw-happy-path\\workspace\\SOUL.md\n\n<SOUL.md contents will be here>\n\n### \\tmp\\openclaw-happy-path\\workspace\\USER.md\n\n<USER.md contents will be here>",
+      "developer_instructions": "This is an OpenClaw heartbeat turn. Apply these instructions only to this heartbeat wake; ordinary chat turns should stay in Codex Default mode.\n\nWhen you are ready to end the heartbeat, prefer the structured `heartbeat_respond` tool so OpenClaw can record the wake outcome and notification decision. If `heartbeat_respond` is not already available and `tool_search` is available, search for `heartbeat_respond`, load it, then call it. Use `notify=false` when nothing should visibly interrupt the user.\n\n### Heartbeats\n\nHeartbeat = useful proactive progress, not chatter. Wake, orient, use the provided monitor scratch, act.\nAssigned/ongoing work: pursue spirit with judgment. Quiet check counts only if real blocker/urgent interruption.\nNo rote loops; orientation != accomplishment. Prefer action/silent progress.\nNever repetitive \"same/no change/still\" updates.\nInterrupt only for meaningful development/result/blocker/decision/time risk. Unchanged: work, change approach, dig deeper, or silence.\n\n## OpenClaw Agent Soul\n\nOpenClaw loaded these workspace instruction files from the active agent workspace. They are the canonical definitions of who you are, how you think and work, and the human you work alongside. Internalize and follow them accordingly.\n\n### /tmp/openclaw-happy-path/workspace/IDENTITY.md\n\n<IDENTITY.md contents will be here>\n\n### /tmp/openclaw-happy-path/workspace/SOUL.md\n\n<SOUL.md contents will be here>\n\n### /tmp/openclaw-happy-path/workspace/USER.md\n\n<USER.md contents will be here>",
       "model": "gpt-5.5",
       "reasoning_effort": "medium"
     }
@@ -170,7 +170,7 @@ This is the deterministic model-bound layer stack OpenClaw can snapshot for the 
 ```json
 {
   "codexModelInstructions": {
-    "fixture": "test\\fixtures\\agents\\prompt-snapshots\\codex-model-catalog\\gpt-5.5.pragmatic.instructions.md",
+    "fixture": "test/fixtures/agents/prompt-snapshots/codex-model-catalog/gpt-5.5.pragmatic.instructions.md",
     "source": {
       "model": "gpt-5.5",
       "personality": "pragmatic",
@@ -470,15 +470,15 @@ Interrupt only for meaningful development/result/blocker/decision/time risk. Unc
 
 OpenClaw loaded these workspace instruction files from the active agent workspace. They are the canonical definitions of who you are, how you think and work, and the human you work alongside. Internalize and follow them accordingly.
 
-### \tmp\openclaw-happy-path\workspace\IDENTITY.md
+### /tmp/openclaw-happy-path/workspace/IDENTITY.md
 
 <IDENTITY.md contents will be here>
 
-### \tmp\openclaw-happy-path\workspace\SOUL.md
+### /tmp/openclaw-happy-path/workspace/SOUL.md
 
 <SOUL.md contents will be here>
 
-### \tmp\openclaw-happy-path\workspace\USER.md
+### /tmp/openclaw-happy-path/workspace/USER.md
 
 <USER.md contents will be here>
 ```
@@ -497,7 +497,7 @@ OpenClaw loaded these user-editable workspace files for the current turn. Codex 
 
 The following project context files have been loaded:
 
-## \tmp\openclaw-happy-path\workspace\MEMORY.md
+## /tmp/openclaw-happy-path/workspace/MEMORY.md
 
 <MEMORY.md contents will be here>
 
