@@ -16,6 +16,10 @@ type GatewayAgentModel = {
 /** Runtime selection metadata for an agent row. */
 export type GatewayAgentRuntime = {
   id: string;
+  /** Runtime family when the projected session has a durable external runtime owner. */
+  kind?: "acp";
+  /** Persisted ACP harness/agent identity (for example codex, claude, opencode). */
+  agent?: string;
   fallback?: "openclaw" | "none";
   source:
     | "env"

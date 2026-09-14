@@ -217,6 +217,7 @@ function resolveSessionRuntimeLabel(params: {
     sessionKey: acpSessionKey,
     acpRuntime: acpMeta != null,
     acpBackend: acpMeta?.backend,
+    acpAgent: acpMeta?.agent,
   });
   const id = normalizeOptionalLowercaseString(runtime.id);
   // OpenClaw/auto are generic labels; concrete harness ids give better operator signal.

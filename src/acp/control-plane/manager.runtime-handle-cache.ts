@@ -52,23 +52,47 @@ export class ManagerRuntimeHandleCache {
     };
   }
 
-  /** Closes and removes one cached runtime handle when present. */
-  async close(params: { sessionKey: string; reason: string }): Promise<void> {
+  /**
+   * Closes one cached runtime without resolving or launching a cold session.
+   * An exact-handle guard keeps lifecycle rollback from closing a replacement.
+   */
+  async close(params: {
+    sessionKey: string;
+    reason: string;
+    discardPersistentState?: boolean;
+    expectedHandle?: AcpRuntimeHandle;
+    throwOnError?: boolean;
+  }): Promise<boolean> {
     const cached = this.get(params.sessionKey);
     if (!cached) {
-      return;
+      return false;
     }
+    if (params.expectedHandle && !this.runtimeHandlesMatch(cached.handle, params.expectedHandle)) {
+      return false;
+    }
+    let closed = false;
     try {
       await cached.runtime.close({
         handle: cached.handle,
         reason: params.reason,
+        ...(params.discardPersistentState ? { discardPersistentState: true } : {}),
       });
+      closed = true;
+      return true;
     } catch (error) {
       logVerbose(
         `acp-manager: cached runtime close failed for ${params.sessionKey}: ${String(error)}`,
       );
+      if (params.throwOnError) {
+        throw error;
+      }
+      return false;
     } finally {
-      this.clear(params.sessionKey);
+      // Lifecycle callers keep a failed exact handle for deterministic recovery;
+      // existing best-effort callers retain their historical eviction behavior.
+      if (closed || !params.throwOnError) {
+        this.clearIfHandleMatches({ sessionKey: params.sessionKey, handle: cached.handle });
+      }
     }
   }
 

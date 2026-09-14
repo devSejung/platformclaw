@@ -84,7 +84,7 @@ type SessionChangedEventInfo = {
 type ThinkingMetadataCarrier = {
   modelProvider?: string | null;
   model?: string | null;
-  agentRuntime?: { id: string } | null;
+  agentRuntime?: Pick<NonNullable<GatewaySessionRow["agentRuntime"]>, "id"> | null;
   thinkingLevels?: Array<{ id: string; label: string }>;
   thinkingOptions?: string[];
   thinkingDefault?: string;
@@ -125,6 +125,28 @@ function thinkingMetadataIdentityMatches(
   );
 }
 
+function preserveAgentRuntimeMetadata<T extends ThinkingMetadataCarrier>(
+  incoming: T,
+  existing: ThinkingMetadataCarrier | undefined,
+): T {
+  const existingRuntime = existing?.agentRuntime;
+  const incomingRuntime = incoming.agentRuntime;
+  if (!existingRuntime || incomingRuntime === null || incomingRuntime === undefined) {
+    return incomingRuntime === undefined && existingRuntime
+      ? ({ ...incoming, agentRuntime: existingRuntime } as T)
+      : incoming;
+  }
+  if (incomingRuntime.id.trim() !== existingRuntime.id.trim()) {
+    return incoming;
+  }
+  // Session events and lightweight list rows can carry only the runtime id;
+  // keep the ACP discriminator/harness identity until an authoritative change.
+  return {
+    ...incoming,
+    agentRuntime: { ...existingRuntime, ...incomingRuntime },
+  } as T;
+}
+
 function preserveRicherThinkingMetadata<T extends ThinkingMetadataCarrier>(
   incoming: T,
   existing: ThinkingMetadataCarrier | undefined,
@@ -132,12 +154,13 @@ function preserveRicherThinkingMetadata<T extends ThinkingMetadataCarrier>(
   if (existing && !thinkingMetadataIdentityMatches(incoming, existing)) {
     return incoming;
   }
+  const runtimePreserved = preserveAgentRuntimeMetadata(incoming, existing);
   const existingLevels = existing?.thinkingLevels;
   if (!existingLevels?.length || (incoming.thinkingLevels?.length ?? 0) >= existingLevels.length) {
-    return incoming;
+    return runtimePreserved;
   }
   return {
-    ...incoming,
+    ...runtimePreserved,
     thinkingLevels: existingLevels,
     ...(existing?.thinkingOptions ? { thinkingOptions: existing.thinkingOptions } : {}),
     ...(incoming.thinkingDefault === undefined && existing?.thinkingDefault !== undefined

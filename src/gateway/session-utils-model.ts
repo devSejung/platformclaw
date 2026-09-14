@@ -186,6 +186,7 @@ export function resolveGatewaySessionThinkingProjectionInternal(
     sessionKey: params.sessionKey,
     acpRuntime: acpMeta != null,
     acpBackend: acpMeta?.backend,
+    acpAgent: acpMeta?.agent,
   });
   const persistedAgentRuntime = resolveSessionRuntimeOverrideForProvider({
     provider: params.provider,

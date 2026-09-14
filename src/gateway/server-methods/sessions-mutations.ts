@@ -7,6 +7,7 @@ import {
   validateSessionsPluginPatchParams,
   validateSessionsResetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
+import { closeAcpRuntimeForArchive } from "../../acp/control-plane/session-lifecycle.js";
 import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { persistStickyModelSelectionBestEffort } from "../../agents/sticky-model-selection.js";
 import { replyRunRegistry } from "../../auto-reply/reply/reply-run-registry.js";
@@ -207,6 +208,17 @@ export const sessionMutationHandlers: GatewayRequestHandlers = {
             undefined,
             errorShape(ErrorCodes.INVALID_REQUEST, SESSION_ARCHIVE_ACTIVE_RUN_ERROR),
           );
+          return null;
+        }
+        // Archive retires only the process-local ACP handle. Persistent ACP
+        // identity/resume metadata remains bound to this dashboard key so an
+        // unarchive can continue the same external harness conversation.
+        const acpArchiveError = await closeAcpRuntimeForArchive({
+          cfg,
+          sessionKey: canonicalKey,
+        });
+        if (acpArchiveError) {
+          respond(false, undefined, acpArchiveError);
           return null;
         }
       }

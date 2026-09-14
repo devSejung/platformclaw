@@ -37,6 +37,7 @@ import { resolveAgentMainSessionKey } from "../config/sessions/main-session.js";
 import { resolveStorePath } from "../config/sessions/paths.js";
 import {
   createSessionEntryWithTranscript,
+  deleteSessionEntryLifecycle,
   listSessionEntriesReadOnly,
   resolveSessionEntryAccessTarget,
 } from "../config/sessions/session-accessor.js";
@@ -82,6 +83,10 @@ import { isSessionVisibilityAllowed, resolveSessionVisibility } from "./session-
 import { resolveSessionStoreKey } from "./session-store-key.js";
 import { loadSessionEntryReadOnly, resolveGatewaySessionStoreTarget } from "./session-utils.js";
 import { applySessionsPatchToStore, resolveSessionPatchModelSelection } from "./sessions-patch.js";
+import {
+  VISIBLE_ACP_INITIALIZATION_OWNER,
+  VisibleAcpInitializationCleanupError,
+} from "./visible-acp-session-initialization.js";
 
 type TrustedCatalogSessionTarget = {
   model: string;
@@ -206,8 +211,14 @@ type TrustedInitialSessionEntry = {
   modelOverrideRouteResolution?: "resolved";
   cliSessionBindings?: SessionEntry["cliSessionBindings"];
   initializationPending?: true;
+  initializationOwner?: typeof VISIBLE_ACP_INITIALIZATION_OWNER;
   modelSelectionLocked?: true;
   pluginExtensions?: SessionEntry["pluginExtensions"];
+};
+
+type TrustedCreatedSessionInitializer = {
+  owner: typeof VISIBLE_ACP_INITIALIZATION_OWNER;
+  initialize: (created: CreatedGatewaySession) => Promise<SessionEntry>;
 };
 
 type CreateGatewaySessionResult =
@@ -270,6 +281,8 @@ export async function createGatewaySession(params: {
   loadGatewayModelCatalog?: () => Promise<ModelCatalogEntry[]>;
   /** Trusted in-process initializer; never populated from public Gateway params. */
   initialEntry?: TrustedInitialSessionEntry;
+  /** Trusted initializer runs under the same lifecycle mutation as durable row creation. */
+  trustedInitializer?: TrustedCreatedSessionInitializer;
   /** Public callers need admin before reconfiguring an adopted keyed session. */
   allowExistingModelSelection?: boolean;
   /** Admitted operator scopes; omitted only by trusted in-process callers. */
@@ -295,6 +308,28 @@ export async function createGatewaySession(params: {
     return {
       ok: false,
       error: errorShape(ErrorCodes.INVALID_REQUEST, "invalid catalog session target"),
+    };
+  }
+  if (params.trustedInitializer) {
+    if (
+      params.initialEntry?.initializationPending !== true ||
+      params.initialEntry.initializationOwner !== params.trustedInitializer.owner
+    ) {
+      return {
+        ok: false,
+        error: errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "trusted session initializer requires its owned initialization fence",
+        ),
+      };
+    }
+  } else if (params.initialEntry?.initializationOwner !== undefined) {
+    return {
+      ok: false,
+      error: errorShape(
+        ErrorCodes.INVALID_REQUEST,
+        "initialization owner requires a trusted session initializer",
+      ),
     };
   }
   if (params.succeedsParent !== undefined) {
@@ -1005,6 +1040,9 @@ export async function createGatewaySession(params: {
           ...(params.initialEntry?.initializationPending === true
             ? { initializationPending: true }
             : {}),
+          ...(params.initialEntry?.initializationOwner
+            ? { initializationOwner: params.initialEntry.initializationOwner }
+            : {}),
           ...(params.initialEntry?.modelSelectionLocked === true
             ? { modelSelectionLocked: true }
             : {}),
@@ -1131,6 +1169,42 @@ export async function createGatewaySession(params: {
       storePath: target.storePath,
     };
 
+    let finalizedEntry = created.entry;
+    if (createdNewEntry && params.trustedInitializer) {
+      try {
+        finalizedEntry = await params.trustedInitializer.initialize(createdContext);
+        createdContext = { ...createdContext, entry: finalizedEntry };
+      } catch (error) {
+        if (error instanceof VisibleAcpInitializationCleanupError) {
+          // Exact runtime retirement failed. Preserve the owned pending row and
+          // sidecar as a recovery anchor; deleting it would orphan a live handle.
+          throw error;
+        }
+        const rollback = await deleteSessionEntryLifecycle({
+          agentId: target.agentId,
+          archiveTranscript: false,
+          deleteTranscriptWithoutArchive: true,
+          expectedEntry: created.entry,
+          expectedLifecycleRevision: created.entry.lifecycleRevision,
+          expectedSessionId: created.entry.sessionId,
+          storePath: target.storePath,
+          target: {
+            canonicalKey: target.canonicalKey,
+            storeKeys: [target.canonicalKey],
+          },
+        });
+        if (!rollback.deleted) {
+          const rollbackError = new AggregateError(
+            [error],
+            `trusted initializer failed and exact lifecycle rollback did not delete ${target.canonicalKey}`,
+            { cause: error },
+          );
+          throw rollbackError;
+        }
+        throw error;
+      }
+    }
+
     if (canonicalParentSessionKey && parentSessionTarget && params.emitCommandHooks === true) {
       const parentEntry = currentParentSessionEntry;
       const { emitGatewaySessionEndPluginHook, emitGatewaySessionStartPluginHook } =
@@ -1146,14 +1220,14 @@ export async function createGatewaySession(params: {
           sessionFile: canonicalParentSessionKey,
           agentId: parentSessionTarget.agentId,
           reason: "new",
-          nextSessionId: created.entry.sessionId,
+          nextSessionId: finalizedEntry.sessionId,
           nextSessionKey: target.canonicalKey,
         });
       }
       emitGatewaySessionStartPluginHook({
         cfg: params.cfg,
         sessionKey: target.canonicalKey,
-        sessionId: created.entry.sessionId,
+        sessionId: finalizedEntry.sessionId,
         resumedFrom: parentEntry?.sessionId,
         storePath: target.storePath,
         sessionFile: target.canonicalKey,
@@ -1161,13 +1235,13 @@ export async function createGatewaySession(params: {
       });
     }
 
-    const selectedModel = resolveSessionModelRef(params.cfg, created.entry, target.agentId);
+    const selectedModel = resolveSessionModelRef(params.cfg, finalizedEntry, target.agentId);
 
     return {
       ok: true,
       key: target.canonicalKey,
       agentId: target.agentId,
-      entry: created.entry,
+      entry: finalizedEntry,
       resolved: {
         modelProvider: selectedModel.provider,
         model: selectedModel.model,

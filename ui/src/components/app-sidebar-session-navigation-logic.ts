@@ -27,7 +27,6 @@ import {
 import {
   areUiSessionKeysEquivalent,
   buildAgentMainSessionKey,
-  isAcpSessionKey,
   isUiGlobalScopeConfigured,
   normalizeAgentId,
   resolveUiCanonicalMainSessionKey,
@@ -154,7 +153,8 @@ export function buildSidebarSessionNavigationState(input: {
       workSession:
         Boolean(row.worktree || row.execNode) ||
         context?.sessions.isPreparedWorkSession(row.key) === true,
-      acpSession: isAcpSessionKey(row.key),
+      acpSession: row.agentRuntime?.kind === "acp",
+      agentRuntime: row.agentRuntime,
       worktreeId: row.worktree?.id,
       placementState: row.placement?.state,
       workspaceConflictCount:

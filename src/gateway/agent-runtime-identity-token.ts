@@ -10,6 +10,10 @@ import { normalizeOptionalAccountId } from "../routing/account-id.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { safeEqualSecret } from "../security/secret-equal.js";
 import type { AgentRuntimeMessageActionContext } from "./message-action-turn-capability.js";
+import {
+  decodeTrustedVisibleAcpInitialization,
+  type TrustedVisibleAcpInitialization,
+} from "./visible-acp-session-initialization.js";
 
 const AGENT_RUNTIME_IDENTITY_TOKEN_CONTEXT = "openclaw:gateway-agent-runtime-identity-token:v1";
 const AGENT_RUNTIME_IDENTITY_TOKEN_KIND = "agent-runtime";
@@ -38,6 +42,7 @@ export type AgentRuntimeSessionSpawnContext = {
     allow: string[];
     deny: string[];
   };
+  acpInitialization?: TrustedVisibleAcpInitialization;
 };
 
 type AgentRuntimeIdentityTokenPayload = {
@@ -71,9 +76,17 @@ function decodeSessionSpawnContext(value: unknown): AgentRuntimeSessionSpawnCont
   if (value.completionOwnerSessionKey !== undefined && !completionOwnerSessionKey) {
     return undefined;
   }
+  const acpInitialization =
+    value.acpInitialization === undefined
+      ? undefined
+      : decodeTrustedVisibleAcpInitialization(value.acpInitialization);
+  if (value.acpInitialization !== undefined && !acpInitialization) {
+    return undefined;
+  }
   return {
     ...(completionOwnerSessionKey ? { completionOwnerSessionKey } : {}),
     inheritedToolPolicy: { version: 1, allow, deny },
+    ...(acpInitialization ? { acpInitialization } : {}),
   };
 }
 

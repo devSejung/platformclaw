@@ -3,10 +3,11 @@ import { html, nothing, type TemplateResult } from "lit";
 // schema, which must stay out of the Control UI startup bundle.
 import { isCloudWorkerPlacementState } from "../../../packages/gateway-protocol/src/schema/session-placement-state.js";
 import type { SessionCatalogPullRequestSummary } from "../../../packages/gateway-protocol/src/schema/sessions-catalog.js";
-import type { GatewaySessionRow } from "../api/types.ts";
+import type { GatewayAgentRuntime, GatewaySessionRow } from "../api/types.ts";
 import { t } from "../i18n/index.ts";
 import { isSubagentSessionKey, parseAgentSessionKey } from "../lib/sessions/session-key.ts";
 import { icons } from "./icons.ts";
+import { renderProviderBrandIconAsset } from "./provider-brand-icon-asset.ts";
 
 export type SessionPlacementState = NonNullable<GatewaySessionRow["placement"]>["state"];
 
@@ -38,6 +39,22 @@ function formatSessionPullRequestSummary(summary: SessionCatalogPullRequestSumma
   return `${numbers} · ${pullRequestStateLabel(summary.state)}`;
 }
 
+const ACP_HARNESS_LABELS = {
+  claude: "Claude",
+  codex: "Codex",
+  opencode: "OpenCode",
+} as const;
+
+type AcpHarnessAgent = keyof typeof ACP_HARNESS_LABELS;
+
+function resolveAcpHarnessAgent(runtime: GatewayAgentRuntime | undefined): AcpHarnessAgent | null {
+  if (runtime?.kind !== "acp") {
+    return null;
+  }
+  const agent = runtime.agent?.trim().toLowerCase();
+  return agent && agent in ACP_HARNESS_LABELS ? (agent as AcpHarnessAgent) : null;
+}
+
 function renderSessionRowBadge(
   label: string,
   icon: TemplateResult,
@@ -46,6 +63,7 @@ function renderSessionRowBadge(
   pullRequestState?: SessionCatalogPullRequestSummary["state"],
   placementState?: SessionPlacementState,
   workspaceConflictCount?: number,
+  acpAgent?: string,
 ) {
   return html`<openclaw-tooltip .content=${label}>
     <span
@@ -53,6 +71,7 @@ function renderSessionRowBadge(
       data-pull-request-state=${pullRequestState ?? nothing}
       data-placement-state=${placementState ?? nothing}
       data-workspace-conflicts=${workspaceConflictCount || nothing}
+      data-acp-agent=${acpAgent ?? nothing}
       role="img"
       aria-label=${label}
       >${icon}${count ? html`<span aria-hidden="true">${count}</span>` : nothing}</span
@@ -62,6 +81,7 @@ function renderSessionRowBadge(
 
 export function renderSessionRowBadges(params: {
   key?: string;
+  agentRuntime?: GatewayAgentRuntime;
   spawnedBy?: string;
   spawnDepth?: number;
   isChild?: boolean;
@@ -92,6 +112,21 @@ export function renderSessionRowBadges(params: {
           "session-row-badge--dashboard-task",
         )
       : null;
+  const acpHarnessAgent = resolveAcpHarnessAgent(params.agentRuntime);
+  const acpHarnessBadge = acpHarnessAgent
+    ? renderSessionRowBadge(
+        ACP_HARNESS_LABELS[acpHarnessAgent],
+        renderProviderBrandIconAsset(acpHarnessAgent, {
+          className: "session-row-badge__provider-icon",
+        }),
+        `session-row-badge--acp session-row-badge--acp-${acpHarnessAgent}`,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        acpHarnessAgent,
+      )
+    : null;
   const hasAutomation = !params.isChild && params.hasAutomation;
   const pullRequestLabel = params.pullRequest
     ? formatSessionPullRequestSummary(params.pullRequest)
@@ -106,6 +141,7 @@ export function renderSessionRowBadges(params: {
   const outboxCount = Math.max(0, Math.floor(params.outboxCount ?? 0));
   if (
     !typeBadge &&
+    !acpHarnessBadge &&
     !params.incognito &&
     !hasAutomation &&
     !pullRequestLabel &&
@@ -137,7 +173,7 @@ export function renderSessionRowBadges(params: {
       ? t("sessionsView.cloudWorkerPlacement", { state: displayedPlacementState })
       : "";
   return html`<span class="session-row-badges">
-    ${typeBadge}
+    ${typeBadge} ${acpHarnessBadge}
     ${params.incognito
       ? renderSessionRowBadge(
           t("sessionsView.incognito"),

@@ -368,6 +368,9 @@ const config = {
     // are intentionally test-only in the production graph.
     "src/boards/board-notices.ts": ["exports"],
     "src/boards/board-store.ts": ["exports"],
+    // Exact-lifecycle presence is a focused test seam; runtime callers use the
+    // delete helper and normal metadata readers instead.
+    "src/acp/runtime/session-meta.ts": ["exports"],
     // Test and E2E callers reach these hooks through runtime.test-support.ts;
     // the full-tree companion config still audits their actual consumers.
     "src/commitments/runtime.ts": ["exports"],

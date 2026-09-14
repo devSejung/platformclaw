@@ -3,8 +3,8 @@
 // Icon assets live in ui/public/provider-icons/ProviderIcon-<name>.svg;
 // shared styles live under .provider-brand-icon in styles/components.css.
 import { html } from "lit";
-import { inferControlUiPublicAssetPath } from "../app/public-assets.ts";
 import { takeGraphemes } from "../lib/graphemes.ts";
+import { renderProviderBrandIconAsset } from "./provider-brand-icon-asset.ts";
 
 const PROVIDER_ICON_NAMES = new Set([
   "abacus",
@@ -133,10 +133,6 @@ export function hasProviderBrandIcon(provider: string): boolean {
   return resolveProviderIconName(provider) !== null;
 }
 
-function providerIconAssetPath(icon: string): string {
-  return inferControlUiPublicAssetPath(`provider-icons/ProviderIcon-${icon}.svg`);
-}
-
 /** Lettered badge for surfaces that must not infer a provider identity. */
 export function renderProviderFallbackIcon(label: string, options?: { className?: string }) {
   const surfaceClass = options?.className ? ` ${options.className}` : "";
@@ -156,17 +152,9 @@ export function renderProviderFallbackIcon(label: string, options?: { className?
  * brand mark ships. `className` lets surfaces attach their sizing class.
  */
 export function renderProviderBrandIcon(provider: string, options?: { className?: string }) {
-  const surfaceClass = options?.className ? ` ${options.className}` : "";
   const icon = resolveProviderIconName(provider);
   if (!icon) {
     return renderProviderFallbackIcon(provider, options);
   }
-  return html`
-    <span
-      class="provider-brand-icon${surfaceClass}"
-      data-provider-icon=${icon}
-      style=${`--provider-icon-url: url("${providerIconAssetPath(icon)}")`}
-      aria-hidden="true"
-    ></span>
-  `;
+  return renderProviderBrandIconAsset(icon, options);
 }

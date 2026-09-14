@@ -1,30 +1,30 @@
 /** SQLite-backed ACP session metadata storage keyed through session-store entries. */
-import type { DatabaseSync } from "node:sqlite";
-import { safeParseJson } from "@openclaw/normalization-core";
-import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-import type { Insertable, Selectable } from "kysely";
 import { getRuntimeConfig } from "../../config/config.js";
 import { patchSessionEntryWithKey } from "../../config/sessions/session-accessor.js";
 import {
   mergeSessionEntry,
-  type AcpSessionRuntimeOptions,
-  type SessionAcpIdentity,
   type SessionAcpMeta,
   type SessionEntry,
 } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import {
-  executeSqliteQuerySync,
-  executeSqliteQueryTakeFirstSync,
-  getNodeSqliteKysely,
-} from "../../infra/kysely-sync.js";
-import type { DB as OpenClawStateKyselyDatabase } from "../../state/openclaw-state-db.generated.js";
+import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import {
   openOpenClawStateDatabase,
-  type OpenClawStateDatabaseOptions,
   runOpenClawStateWriteTransaction,
 } from "../../state/openclaw-state-db.js";
+import {
+  acpSessionRowMatchesEntry,
+  bindAcpSessionMeta,
+  getAcpSessionKysely,
+  resolveReadableAcpSessionRow,
+  rowToAcpSessionMeta,
+  selectAcpSessionRow,
+  selectAcpSessionRows,
+  upsertAcpSessionMetaRow,
+  type AcpSessionEntryBinding,
+  type AcpSessionRow,
+} from "./session-meta-db.js";
 import {
   readSessionEntryFromStore,
   resolveSessionStorePathForAcp,
@@ -45,134 +45,56 @@ export type AcpSessionStoreEntry = {
   storeReadFailed?: boolean;
 };
 
-// ACP metadata lives in SQLite but is keyed through the legacy JSON session store.
-type AcpSessionsTable = OpenClawStateKyselyDatabase["acp_sessions"];
-type AcpSessionMetaDatabase = Pick<OpenClawStateKyselyDatabase, "acp_sessions">;
-type AcpSessionRow = Selectable<AcpSessionsTable>;
-type AcpSessionEntryBinding = Pick<SessionEntry, "lifecycleRevision"> &
-  Partial<Pick<SessionEntry, "sessionId" | "sessionStartedAt">>;
-
-function getAcpSessionKysely(db: DatabaseSync) {
-  return getNodeSqliteKysely<AcpSessionMetaDatabase>(db);
-}
-
-function rowToAcpSessionMeta(row: AcpSessionRow): SessionAcpMeta {
-  const identity = asOptionalRecord(safeParseJson(row.identity_json ?? "")) as
-    | SessionAcpIdentity
-    | undefined;
-  const runtimeOptions = asOptionalRecord(safeParseJson(row.runtime_options_json ?? "")) as
-    | AcpSessionRuntimeOptions
-    | undefined;
-  return {
-    backend: row.backend,
-    agent: row.agent,
-    ...(row.execution_owner_agent_id != null
-      ? { executionOwnerAgentId: row.execution_owner_agent_id }
-      : {}),
-    runtimeSessionName: row.runtime_session_name,
-    ...(identity ? { identity } : {}),
-    mode: row.mode === "oneshot" ? "oneshot" : "persistent",
-    ...(runtimeOptions ? { runtimeOptions } : {}),
-    ...(row.cwd != null ? { cwd: row.cwd } : {}),
-    state: row.state === "running" || row.state === "error" ? row.state : "idle",
-    lastActivityAt: row.last_activity_at,
-    ...(row.last_error != null ? { lastError: row.last_error } : {}),
-  };
-}
-
-function bindAcpSessionMeta(params: {
+/** Delete ACP metadata only when it still belongs to the exact session lifecycle. */
+export function deleteAcpSessionMetaExactLifecycle(params: {
   sessionKey: string;
-  sessionId?: string;
-  lifecycleRevision?: string;
-  meta: SessionAcpMeta;
-  updatedAt: number;
-}): Insertable<AcpSessionsTable> {
-  return {
-    session_key: params.sessionKey,
-    // Kept in the existing column for schema neutrality. New rows prefer the
-    // lifecycle revision; pre-revision entries retain the session-id fence.
-    session_id: params.lifecycleRevision ?? params.sessionId ?? null,
-    backend: params.meta.backend,
-    agent: params.meta.agent,
-    execution_owner_agent_id: params.meta.executionOwnerAgentId ?? null,
-    runtime_session_name: params.meta.runtimeSessionName,
-    identity_json: params.meta.identity ? JSON.stringify(params.meta.identity) : null,
-    mode: params.meta.mode,
-    runtime_options_json: params.meta.runtimeOptions
-      ? JSON.stringify(params.meta.runtimeOptions)
-      : null,
-    cwd: params.meta.cwd ?? null,
-    state: params.meta.state,
-    last_activity_at: params.meta.lastActivityAt,
-    last_error: params.meta.lastError ?? null,
-    updated_at: params.updatedAt,
-  };
-}
-
-function selectAcpSessionRow(db: DatabaseSync, sessionKey: string): AcpSessionRow | undefined {
-  return executeSqliteQueryTakeFirstSync(
-    db,
-    getAcpSessionKysely(db)
-      .selectFrom("acp_sessions")
-      .selectAll()
-      .where("session_key", "=", sessionKey),
-  );
-}
-
-function acpSessionRowMatchesEntry(
-  row: AcpSessionRow,
-  entry: AcpSessionEntryBinding | undefined,
-): boolean {
-  return (
-    row.session_id == null ||
-    row.session_id === entry?.lifecycleRevision ||
-    // Pre-boundary rows stored sessionId here; the next read rebinds them to the revision.
-    (row.session_id === entry?.sessionId &&
-      (entry?.sessionStartedAt === undefined || row.updated_at >= entry.sessionStartedAt))
-  );
-}
-
-function resolveReadableAcpSessionRow(params: {
-  row: AcpSessionRow | undefined;
-  entry: AcpSessionEntryBinding | undefined;
+  lifecycleRevision: string;
   env?: NodeJS.ProcessEnv;
   databasePath?: string;
-}): AcpSessionRow | undefined {
-  const { row, entry } = params;
-  if (!row || !acpSessionRowMatchesEntry(row, entry)) {
-    return undefined;
+}): boolean {
+  const sessionKey = params.sessionKey.trim();
+  const lifecycleRevision = params.lifecycleRevision.trim();
+  if (!sessionKey || !lifecycleRevision) {
+    return false;
   }
-  const legacySessionId = entry?.sessionId;
-  const lifecycleRevision = entry?.lifecycleRevision;
-  if (
-    !legacySessionId ||
-    !lifecycleRevision ||
-    row.session_id !== legacySessionId ||
-    row.session_id === lifecycleRevision
-  ) {
-    return row;
-  }
-  return runOpenClawStateWriteTransaction(
+  let deleted = false;
+  runOpenClawStateWriteTransaction(
     (database) => {
-      const current = selectAcpSessionRow(database.db, row.session_key);
-      if (!current || current.session_id === lifecycleRevision || current.session_id == null) {
-        return current;
+      const current = selectAcpSessionRow(database.db, sessionKey);
+      if (current?.session_id !== lifecycleRevision) {
+        return;
       }
-      if (current.session_id !== legacySessionId) {
-        return undefined;
-      }
-      executeSqliteQuerySync(
+      const result = executeSqliteQuerySync(
         database.db,
         getAcpSessionKysely(database.db)
-          .updateTable("acp_sessions")
-          .set({ session_id: lifecycleRevision })
-          .where("session_key", "=", row.session_key)
-          .where("session_id", "=", legacySessionId),
+          .deleteFrom("acp_sessions")
+          .where("session_key", "=", sessionKey)
+          .where("session_id", "=", lifecycleRevision),
       );
-      return { ...current, session_id: lifecycleRevision };
+      deleted = Number(result.numAffectedRows ?? 0) > 0;
     },
     { env: params.env, path: params.databasePath },
   );
+  return deleted;
+}
+
+/** Read-only test seam for checking whether an exact lifecycle sidecar exists. */
+export function hasAcpSessionMetaExactLifecycle(params: {
+  sessionKey: string;
+  lifecycleRevision: string;
+  env?: NodeJS.ProcessEnv;
+  databasePath?: string;
+}): boolean {
+  const sessionKey = params.sessionKey.trim();
+  const lifecycleRevision = params.lifecycleRevision.trim();
+  if (!sessionKey || !lifecycleRevision) {
+    return false;
+  }
+  const database = openOpenClawStateDatabase({
+    env: params.env,
+    path: params.databasePath,
+  });
+  return selectAcpSessionRow(database.db, sessionKey)?.session_id === lifecycleRevision;
 }
 
 export function readAcpSessionMeta(params: {
@@ -294,18 +216,6 @@ export function readAcpSessionMetaBatch(params: {
   return result;
 }
 
-function selectAcpSessionRows(options: OpenClawStateDatabaseOptions = {}): AcpSessionRow[] {
-  const database = openOpenClawStateDatabase(options);
-  return executeSqliteQuerySync(
-    database.db,
-    getAcpSessionKysely(database.db)
-      .selectFrom("acp_sessions")
-      .selectAll()
-      .orderBy("last_activity_at", "desc")
-      .orderBy("session_key", "asc"),
-  ).rows;
-}
-
 export function writeAcpSessionMetaForMigration(params: {
   sessionKey: string;
   sessionId?: string;
@@ -409,32 +319,6 @@ export function repairAcpSessionMetaKeyForMigration(params: {
     { env: params.env, path: params.databasePath },
   );
   return repaired;
-}
-
-function upsertAcpSessionMetaRow(db: DatabaseSync, row: Insertable<AcpSessionsTable>): void {
-  executeSqliteQuerySync(
-    db,
-    getAcpSessionKysely(db)
-      .insertInto("acp_sessions")
-      .values(row)
-      .onConflict((conflict) =>
-        conflict.column("session_key").doUpdateSet({
-          session_id: (eb) => eb.ref("excluded.session_id"),
-          backend: (eb) => eb.ref("excluded.backend"),
-          agent: (eb) => eb.ref("excluded.agent"),
-          execution_owner_agent_id: (eb) => eb.ref("excluded.execution_owner_agent_id"),
-          runtime_session_name: (eb) => eb.ref("excluded.runtime_session_name"),
-          identity_json: (eb) => eb.ref("excluded.identity_json"),
-          mode: (eb) => eb.ref("excluded.mode"),
-          runtime_options_json: (eb) => eb.ref("excluded.runtime_options_json"),
-          cwd: (eb) => eb.ref("excluded.cwd"),
-          state: (eb) => eb.ref("excluded.state"),
-          last_activity_at: (eb) => eb.ref("excluded.last_activity_at"),
-          last_error: (eb) => eb.ref("excluded.last_error"),
-          updated_at: (eb) => eb.ref("excluded.updated_at"),
-        }),
-      ),
-  );
 }
 
 export function readAcpSessionEntry(params: {

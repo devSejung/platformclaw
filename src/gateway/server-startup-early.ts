@@ -98,6 +98,19 @@ export async function startGatewayEarlyRuntime(params: {
       const { ensureTaskRuntimeStateReady } = await import("../tasks/runtime-internal.js");
       ensureTaskRuntimeStateReady();
     });
+    await measureStartup(params.startupTrace, "runtime.early.visible-acp-pending", async () => {
+      const { reconcileVisibleAcpPendingSessions } =
+        await import("./visible-acp-pending-reconcile.js");
+      const result = await reconcileVisibleAcpPendingSessions({
+        cfg: params.cfgAtStart,
+        log: params.log,
+      });
+      if (result.removed > 0) {
+        params.log.info(
+          `reconciled ${result.removed} crash-orphaned visible ACP session${result.removed === 1 ? "" : "s"}`,
+        );
+      }
+    });
   }
   const bonjourStop = await measureStartup(params.startupTrace, "runtime.early.discovery", () =>
     startGatewayPluginDiscovery(params),

@@ -127,6 +127,8 @@ const config = {
   // This fixture deliberately mixes used, aliased, and unused exports so the
   // topology analyzer can prove each classification.
   ignoreIssues: {
+    // These narrow helpers are intentionally exported only for focused lifecycle tests.
+    "src/acp/runtime/session-meta.ts": ["exports"],
     // The memory-state compatibility facade must retain its pre-registry-bundle type export.
     "src/plugins/memory-state.ts": ["types"],
     // Cache-busting dynamic imports are real consumers, but Knip cannot map

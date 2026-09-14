@@ -5656,6 +5656,16 @@ td.data-table-key-col {
   color: var(--muted);
 }
 
+.session-row-badge__provider-icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+}
+
+.session-row-badge__provider-icon.provider-brand-icon--fallback {
+  font-size: 8px;
+}
+
 .session-row-badge--queued {
   gap: 2px;
   font-size: 10px;
