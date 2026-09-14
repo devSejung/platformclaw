@@ -4,7 +4,7 @@ import type { SessionObserverDigest } from "../../../packages/gateway-protocol/s
 import type { SessionCreatedActor } from "../../../packages/gateway-protocol/src/schema/sessions.js";
 import type { SessionAgentAttentionIconId } from "../../../packages/gateway-protocol/src/session-icon.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
-import type { SessionRunStatus } from "../api/types.ts";
+import type { GatewayAgentRuntime, SessionRunStatus } from "../api/types.ts";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import type { BoardFace } from "../lib/board/settings.ts";
@@ -80,6 +80,8 @@ export type SidebarRecentSession = {
   workSession?: boolean;
   /** ACP-backed harness session; lands in the Coding zone with work sessions. */
   acpSession?: boolean;
+  /** Full gateway runtime metadata; ACP harness identity is used for row badges. */
+  agentRuntime?: GatewayAgentRuntime;
   worktreeId?: string;
   placementState?: SessionPlacementState;
   workspaceConflictCount?: number;

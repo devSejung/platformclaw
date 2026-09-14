@@ -21,6 +21,9 @@ function visibleAcpConfig(params: {
   mappedRuntimeAgentId?: string;
   allowedRuntimeAgentIds?: string[];
   includeLogicalAgent?: boolean;
+  omitMappedRuntimeAgent?: boolean;
+  agentBackend?: string;
+  agentCwd?: string;
 }): OpenClawConfig {
   return {
     acp: {
@@ -37,7 +40,13 @@ function visibleAcpConfig(params: {
                 id: params.logicalAgentId,
                 runtime: {
                   type: "acp",
-                  acp: { agent: params.mappedRuntimeAgentId ?? params.runtimeAgentId },
+                  acp: {
+                    ...(params.omitMappedRuntimeAgent
+                      ? {}
+                      : { agent: params.mappedRuntimeAgentId ?? params.runtimeAgentId }),
+                    ...(params.agentBackend ? { backend: params.agentBackend } : {}),
+                    ...(params.agentCwd ? { cwd: params.agentCwd } : {}),
+                  },
                 },
               },
             ],
@@ -144,6 +153,79 @@ describe("visible ACP trusted initializer", () => {
           }),
         );
         expect(closeSession).not.toHaveBeenCalled();
+      } finally {
+        if (previousStateDir === undefined) {
+          delete process.env.OPENCLAW_STATE_DIR;
+        } else {
+          process.env.OPENCLAW_STATE_DIR = previousStateDir;
+        }
+      }
+    });
+  });
+
+  it("uses the logical agent fallback and current per-agent backend/cwd defaults", async () => {
+    await withTempDir({ prefix: "openclaw-visible-acp-agent-defaults-" }, async (dir) => {
+      const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+      process.env.OPENCLAW_STATE_DIR = dir;
+      try {
+        const agentId = "claude";
+        const sessionKey = `agent:${agentId}:dashboard:defaults`;
+        const storePath = path.join(dir, "sessions.json");
+        const configuredCwd = path.join(dir, "configured-cwd");
+        const cfg = visibleAcpConfig({
+          storePath,
+          logicalAgentId: agentId,
+          runtimeAgentId: agentId,
+          omitMappedRuntimeAgent: true,
+          agentBackend: "agent-acpx",
+          agentCwd: configuredCwd,
+        });
+        const entry = pendingEntry(agentId);
+        await replaceSessionEntry({ agentId, sessionKey, storePath }, entry);
+        const handle = {
+          sessionKey,
+          backend: "agent-acpx",
+          runtimeSessionName: "claude-defaults",
+        };
+        const initializeSession = vi.fn(async () => {
+          await upsertAcpSessionMeta({
+            cfg,
+            sessionKey,
+            mutate: () => ({
+              backend: "agent-acpx",
+              agent: agentId,
+              runtimeSessionName: handle.runtimeSessionName,
+              mode: "persistent",
+              cwd: configuredCwd,
+              state: "idle",
+              lastActivityAt: 2,
+            }),
+          });
+          return { handle };
+        });
+        managerTesting.setAcpSessionManagerForTests({ initializeSession, closeSession: vi.fn() });
+
+        await initializeVisibleAcpCreatedSession({
+          cfg,
+          agentId,
+          sessionKey,
+          storePath,
+          entry,
+          intent: {
+            logicalAgentId: agentId,
+            runtimeAgentId: agentId,
+            cwd: path.join(dir, "inherited-cwd"),
+            cwdExplicit: false,
+          },
+        });
+
+        expect(initializeSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            agent: agentId,
+            backendId: "agent-acpx",
+            cwd: configuredCwd,
+          }),
+        );
       } finally {
         if (previousStateDir === undefined) {
           delete process.env.OPENCLAW_STATE_DIR;
