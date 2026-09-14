@@ -3,6 +3,7 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import { getAcpSessionManager } from "../../acp/control-plane/manager.js";
 import { AcpInitializationCleanupError } from "../../acp/control-plane/manager.types.js";
 import { isAcpEnabledByPolicy, resolveAcpAgentPolicyError } from "../../acp/policy.js";
+import { canUseAcpProcessTransport } from "../../acp/runtime/process-transport.js";
 import {
   deleteAcpSessionMetaExactLifecycle,
   readAcpSessionMeta,
@@ -32,15 +33,29 @@ function assertCurrentVisibleAcpConfiguration(params: {
   if (!isAcpEnabledByPolicy(params.cfg)) {
     throw new Error("ACP was disabled before visible session initialization completed");
   }
-  const configuredAgent = resolveAgentConfig(params.cfg, params.intent.logicalAgentId);
-  if (configuredAgent?.runtime?.type !== "acp") {
+  const configAgentId = params.intent.configAgentId ?? params.intent.logicalAgentId;
+  const configuredAgent = resolveAgentConfig(params.cfg, configAgentId);
+  const personalTarget = params.intent.executionOwnerAgentId === params.intent.logicalAgentId;
+  if (personalTarget) {
+    if (
+      !resolveAgentConfig(params.cfg, params.intent.logicalAgentId) ||
+      !canUseAcpProcessTransport({
+        executionOwnerAgentId: params.intent.logicalAgentId,
+        agent: params.intent.runtimeAgentId,
+      })
+    ) {
+      throw new Error("Personal ACP execution target is no longer available");
+    }
+  } else if (configuredAgent?.runtime?.type !== "acp") {
     throw new Error(
       `Configured agent "${params.intent.logicalAgentId}" is no longer an ACP runtime target`,
     );
   }
   const trustedRuntimeAgentId = normalizeOptionalAgentId(params.intent.runtimeAgentId);
   const currentTarget = resolveTargetAcpAgentId({
-    requestedAgentId: params.intent.logicalAgentId,
+    requestedAgentId:
+      params.intent.configAgentId ??
+      (personalTarget ? params.intent.runtimeAgentId : params.intent.logicalAgentId),
     cfg: params.cfg,
   });
   if (
@@ -116,7 +131,10 @@ export async function initializeVisibleAcpCreatedSession(params: {
   assertCurrentVisibleAcpConfiguration({ cfg: params.cfg, intent: params.intent });
 
   const manager = getAcpSessionManager();
-  const configuredAcp = resolveAgentConfig(params.cfg, params.intent.logicalAgentId)?.runtime;
+  const configuredAcp = resolveAgentConfig(
+    params.cfg,
+    params.intent.configAgentId ?? params.intent.logicalAgentId,
+  )?.runtime;
   const configuredAcpOptions = configuredAcp?.type === "acp" ? configuredAcp.acp : undefined;
   const cwd = params.intent.cwdExplicit
     ? params.intent.cwd

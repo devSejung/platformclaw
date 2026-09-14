@@ -132,7 +132,8 @@ function createSessionsSpawnToolSchema(params: {
   threadAvailable: boolean;
   swarmEnabled: boolean;
 }) {
-  const spawnModes = params.threadAvailable ? SUBAGENT_SPAWN_MODES : (["run"] as const);
+  const spawnModes =
+    params.threadAvailable || params.acpAvailable ? SUBAGENT_SPAWN_MODES : (["run"] as const);
   const schema = {
     task: Type.String(),
     taskName: Type.Optional(
@@ -150,7 +151,7 @@ function createSessionsSpawnToolSchema(params: {
       params.acpAvailable ? SESSIONS_SPAWN_RUNTIMES : (["subagent"] as const),
       {
         description:
-          "Runtime; visible=true supports subagent or a configured ACP agent when ACP is available.",
+          "Runtime; visible=true supports subagent or an available personal/configured ACP agent.",
       },
     ),
     agentId: Type.Optional(Type.String()),
@@ -177,9 +178,10 @@ function createSessionsSpawnToolSchema(params: {
         }
       : {}),
     mode: optionalStringEnum(spawnModes, {
-      description: params.threadAvailable
-        ? '"run" one-shot; "session" persistent/thread-bound. Omit with visible=true.'
-        : '"run" one-shot. Omit with visible=true; visible sessions are persistent.',
+      description:
+        params.threadAvailable || params.acpAvailable
+          ? '"run" one-shot; "session" persistent with a thread or personal ACP execution target. Omit with visible=true (persistent).'
+          : '"run" one-shot. Omit with visible=true; visible sessions are persistent.',
     }),
     cleanup: optionalStringEnum(["delete", "keep"] as const, {
       description: "Hidden session cleanup; visible=true always keeps the session.",

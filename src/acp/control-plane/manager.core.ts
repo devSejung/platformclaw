@@ -466,6 +466,7 @@ export class AcpSessionManager {
       sessionKey: params.sessionKey,
       skipMaintenance: true,
       takeCacheOwnership: true,
+      failOnError: params.state === "closed",
       mutate: (current, entry) => {
         if (!entry) {
           return null;

@@ -337,12 +337,15 @@ export async function runSubagentAnnounceFlow(params: {
         : undefined;
     childSessionLifecycleRevision = normalizeOptionalString(childSessionEntry?.lifecycleRevision);
     const settleTimeoutMs = Math.min(Math.max(params.timeoutMs, 1), 120_000);
-    let reply =
+    const frozenReply =
       params.terminalReply?.disposition === "visible"
         ? params.terminalReply.text
         : params.terminalReply?.disposition === "silent"
           ? SILENT_REPLY_TOKEN
-          : params.roundOneReply;
+          : params.terminalReply
+            ? undefined
+            : params.roundOneReply;
+    let reply = frozenReply;
     let outcome: SubagentRunOutcome | undefined = params.outcome;
     if (childSessionId && isEmbeddedAgentRunActive(childSessionId)) {
       const settled = await waitForEmbeddedAgentRunEnd(childSessionId, settleTimeoutMs);
@@ -368,9 +371,7 @@ export async function runSubagentAnnounceFlow(params: {
       params.endedAt = applied.endedAt;
     }
 
-    if (!outcome) {
-      outcome = { status: "unknown" };
-    }
+    outcome ??= { status: "unknown" };
     const failedTerminalOutcome = outcome.status === "error";
     const allowFailedOutputCapture =
       !failedTerminalOutcome || (!params.roundOneReply && !params.fallbackReply);
@@ -566,13 +567,13 @@ export async function runSubagentAnnounceFlow(params: {
       }
     }
 
-    if (!outcome) {
-      outcome = { status: "unknown" };
-    }
+    outcome ??= { status: "unknown" };
 
     if (!childSessionEffectsAllowed()) {
       childCompletionFindings = undefined;
-      reply = params.roundOneReply ?? params.fallbackReply;
+      // Losing the session owner forbids transcript recovery, not the run's
+      // already-recorded terminal reply. Never replace it with stale fallback text.
+      reply = params.terminalReply ? frozenReply : (params.roundOneReply ?? params.fallbackReply);
       outcome = params.outcome ?? { status: "unknown" };
     }
 

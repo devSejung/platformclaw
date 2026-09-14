@@ -29,6 +29,13 @@ export function resolveMissingMetaError(sessionKey: string): AcpRuntimeError {
   );
 }
 
+export function resolveClosedAcpSessionError(): AcpRuntimeError {
+  return new AcpRuntimeError(
+    "ACP_SESSION_INIT_FAILED",
+    'This ACP session is closed. One-shot tasks cannot accept follow-ups; start a new conversation with mode="session" or visible=true.',
+  );
+}
+
 /** Converts a session resolution union into the runtime error callers should throw. */
 export function resolveAcpSessionResolutionError(
   resolution: AcpSessionResolution,

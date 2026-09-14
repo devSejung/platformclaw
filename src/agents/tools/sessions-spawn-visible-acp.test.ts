@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { registerAcpProcessTransport } from "../../acp/runtime/process-transport.js";
 import * as acpRuntimeRegistry from "../../acp/runtime/registry.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { InProcessGatewayCaller } from "./in-process-gateway.js";
@@ -224,4 +225,53 @@ describe("visible persistent ACP spawn", () => {
     });
     expect(callGateway).not.toHaveBeenCalled();
   });
+
+  it.each(["person-one", "person-two"])(
+    "creates personal Codex dashboard sessions under %s, not the harness",
+    async (owner) => {
+      const unregister = registerAcpProcessTransport({
+        id: "personal-test",
+        isolatesSandboxedRequesters: true,
+        supports: (input) => input.executionOwnerAgentId === owner && input.agent === "codex",
+        prepare: async () => ({ cwd: "/workspace" }),
+        launch: vi.fn(),
+      });
+      const callGateway = vi.fn(
+        async <T>() =>
+          ({
+            key: `agent:${owner}:dashboard:child`,
+            sessionId: "s",
+            lifecycleRevision: "r",
+            runStarted: true,
+            runId: "run-personal",
+          }) as T,
+      );
+      try {
+        const result = await spawnVisibleAcpSession({
+          raw: { runtime: "acp", visible: true },
+          task: "hello",
+          label: "Codex task",
+          requestedAgentId: "codex",
+          sandbox: "inherit",
+          options: {
+            agentSessionKey: `agent:${owner}:dashboard:parent`,
+            config: {
+              acp: { enabled: true, backend: "acpx", allowedAgents: ["codex"] },
+              agents: { entries: { [owner]: {} } },
+            },
+            callGateway: callGateway as unknown as InProcessGatewayCaller,
+            countActiveRuns: () => 0,
+            registerRun: vi.fn(),
+          },
+        });
+        expect(result.status).toBe("accepted");
+        expect(callGateway).toHaveBeenCalledWith(
+          "sessions.create",
+          expect.objectContaining({ agentId: owner }),
+        );
+      } finally {
+        unregister();
+      }
+    },
+  );
 });

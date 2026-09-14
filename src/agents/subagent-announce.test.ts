@@ -398,6 +398,38 @@ describe("subagent announce seam flow", () => {
     expect(sessionsDeleteSpy).not.toHaveBeenCalled();
   });
 
+  it.each(["agent:main:subagent:retired", "agent:codex:acp:retired"])(
+    "preserves producer terminal output after %s loses its session owner",
+    async (childSessionKey) => {
+      const didAnnounce = await runSubagentAnnounceFlow({
+        childSessionKey,
+        childRunId: "run-retired-output",
+        requesterSessionKey: "agent:main:main",
+        requesterDisplayKey: "main",
+        task: "recover completed work",
+        timeoutMs: 10,
+        cleanup: "delete",
+        waitForCompletion: false,
+        outcome: { status: "ok" },
+        terminalReply: { disposition: "visible", text: "authoritative completed result" },
+        suppressChildSessionEffects: true,
+        isChildSessionEffectsAllowed: () => false,
+        isCompletionDeliveryAllowed: () => true,
+      });
+
+      expect(didAnnounce).toBe(true);
+      expect(requireAgentCall().params?.message).toContain("authoritative completed result");
+      expect(requireAgentCall().params?.message).not.toContain("(no output)");
+      expect(requireAgentCall().params?.message).not.toContain("unknown status");
+      expect(
+        callGatewayMock.mock.calls.some(([request]) =>
+          ["agent.wait", "chat.history"].includes((request as AgentCallRequest).method ?? ""),
+        ),
+      ).toBe(false);
+      expect(sessionsDeleteSpy).not.toHaveBeenCalled();
+    },
+  );
+
   it("drops requester delivery after the cleanup owner changes", async () => {
     const didAnnounce = await runSubagentAnnounceFlow({
       childSessionKey: "agent:main:subagent:retired",
@@ -417,6 +449,33 @@ describe("subagent announce seam flow", () => {
     expect(didAnnounce).toBe(true);
     expect(agentSpy).not.toHaveBeenCalled();
   });
+
+  it.each(["empty", "silent"] as const)(
+    "does not revive fallback output for a frozen %s terminal reply",
+    async (disposition) => {
+      await runSubagentAnnounceFlow({
+        childSessionKey: "agent:codex:acp:retired",
+        childRunId: "run-retired-empty",
+        requesterSessionKey: "agent:main:main",
+        requesterDisplayKey: "main",
+        task: "recover completed work",
+        timeoutMs: 10,
+        cleanup: "keep",
+        waitForCompletion: false,
+        outcome: { status: "ok" },
+        terminalReply: { disposition },
+        roundOneReply: "stale round one",
+        fallbackReply: "stale fallback",
+        suppressChildSessionEffects: true,
+      });
+      if (disposition === "silent") {
+        expect(agentSpy).not.toHaveBeenCalled();
+      } else {
+        expect(requireAgentCall().params?.message).toContain("(no output)");
+        expect(requireAgentCall().params?.message).not.toContain("stale");
+      }
+    },
+  );
 
   it("warns when ANNOUNCE_SKIP suppresses a cron job completion", async () => {
     const logSpy = vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});

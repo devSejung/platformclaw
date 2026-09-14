@@ -47,6 +47,8 @@ export function isVisibleAcpPendingSessionEntry(
  */
 export type TrustedVisibleAcpInitialization = {
   logicalAgentId: string;
+  /** Configuration mapping source when storage belongs to a personal execution owner. */
+  configAgentId?: string;
   runtimeAgentId: string;
   executionOwnerAgentId?: string;
   runtimeOptions?: Partial<AcpSessionRuntimeOptions>;
@@ -94,12 +96,14 @@ export function decodeTrustedVisibleAcpInitialization(
   const logicalAgentId = normalizeOptionalString(value.logicalAgentId);
   const runtimeAgentId = normalizeOptionalString(value.runtimeAgentId);
   const executionOwnerAgentId = normalizeOptionalString(value.executionOwnerAgentId);
+  const configAgentId = normalizeOptionalString(value.configAgentId);
   const cwd = normalizeOptionalString(value.cwd);
   const runtimeOptions = decodeRuntimeOptions(value.runtimeOptions);
   if (
     !logicalAgentId ||
     !runtimeAgentId ||
     (value.executionOwnerAgentId !== undefined && !executionOwnerAgentId) ||
+    (value.configAgentId !== undefined && !configAgentId) ||
     (value.cwd !== undefined && !cwd) ||
     runtimeOptions === null ||
     (value.modelExplicit !== undefined && typeof value.modelExplicit !== "boolean") ||
@@ -110,6 +114,7 @@ export function decodeTrustedVisibleAcpInitialization(
   return {
     logicalAgentId,
     runtimeAgentId,
+    ...(configAgentId ? { configAgentId } : {}),
     ...(executionOwnerAgentId ? { executionOwnerAgentId } : {}),
     ...(runtimeOptions ? { runtimeOptions } : {}),
     ...(typeof value.modelExplicit === "boolean" ? { modelExplicit: value.modelExplicit } : {}),

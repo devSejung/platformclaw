@@ -1,6 +1,7 @@
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testing as managerTesting } from "../../acp/control-plane/manager.js";
+import { registerAcpProcessTransport } from "../../acp/runtime/process-transport.js";
 import { readAcpSessionMeta, upsertAcpSessionMeta } from "../../acp/runtime/session-meta.js";
 import {
   loadSessionEntryReadOnly,
@@ -235,6 +236,87 @@ describe("visible ACP trusted initializer", () => {
         } else {
           process.env.OPENCLAW_STATE_DIR = previousStateDir;
         }
+      }
+    });
+  });
+
+  it("keeps configured backend/cwd provenance when personal storage uses the requester", async () => {
+    await withTempDir({ prefix: "visible-personal-provenance-" }, async (dir) => {
+      vi.stubEnv("OPENCLAW_STATE_DIR", dir);
+      const unregister = registerAcpProcessTransport({
+        id: "personal-provenance",
+        isolatesSandboxedRequesters: true,
+        supports: ({ executionOwnerAgentId, agent }) =>
+          executionOwnerAgentId === "person" && agent === "codex",
+        prepare: async () => ({ cwd: "/users/person/project" }),
+        launch: vi.fn(),
+      });
+      try {
+        const sessionKey = "agent:person:dashboard:configured-codex";
+        const storePath = path.join(dir, "sessions.json");
+        const cfg: OpenClawConfig = {
+          acp: { enabled: true, backend: "default-backend", allowedAgents: ["codex"] },
+          agents: {
+            entries: {
+              person: {},
+              reviewer: {
+                runtime: {
+                  type: "acp",
+                  acp: { agent: "codex", backend: "review-backend", cwd: "/users/person/project" },
+                },
+              },
+            },
+          },
+          session: { store: storePath },
+        };
+        const entry = pendingEntry("codex");
+        await replaceSessionEntry({ agentId: "person", sessionKey, storePath }, entry);
+        const initializeSession = vi.fn(async () => {
+          await upsertAcpSessionMeta({
+            cfg,
+            sessionKey,
+            mutate: () => ({
+              backend: "review-backend",
+              agent: "codex",
+              executionOwnerAgentId: "person",
+              runtimeSessionName: "review",
+              mode: "persistent",
+              state: "idle",
+              lastActivityAt: 1,
+            }),
+          });
+          return {
+            handle: { sessionKey, backend: "review-backend", runtimeSessionName: "review" },
+          };
+        });
+        managerTesting.setAcpSessionManagerForTests({
+          initializeSession,
+          closeSession: vi.fn(async () => ({ runtimeClosed: true, metaCleared: false })),
+        });
+        await initializeVisibleAcpCreatedSession({
+          cfg,
+          agentId: "person",
+          sessionKey,
+          storePath,
+          entry,
+          intent: {
+            logicalAgentId: "person",
+            configAgentId: "reviewer",
+            runtimeAgentId: "codex",
+            executionOwnerAgentId: "person",
+          },
+        });
+        expect(initializeSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            agent: "codex",
+            executionOwnerAgentId: "person",
+            backendId: "review-backend",
+            cwd: "/users/person/project",
+          }),
+        );
+      } finally {
+        unregister();
+        vi.unstubAllEnvs();
       }
     });
   });
