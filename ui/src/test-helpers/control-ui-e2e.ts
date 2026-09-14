@@ -268,7 +268,6 @@ export function setSharedControlUiE2eServerBaseUrl(baseUrl: string | null): void
 
 export type MockGatewayControls = {
   closeLatest: (code?: number, reason?: string) => Promise<void>;
-  deferNextThenCloseLatest: (method: string, code?: number, reason?: string) => Promise<void>;
   deliverLatest: (frame: unknown) => Promise<void>;
   deferNext: (method: string) => Promise<void>;
   emitChatFinal: (params: { runId: string; sessionKey?: string; text: string }) => Promise<void>;
@@ -732,7 +731,6 @@ function installControlUiMockGateway(
   };
   type ExposedGateway = {
     closeLatest: (code?: number, reason?: string) => void;
-    deferNextThenCloseLatest: (method: string, code?: number, reason?: string) => void;
     deliverLatest: (frame: unknown) => void;
     deferNext: (method: string) => void;
     emit: (event: string, payload?: unknown) => void;
@@ -1695,6 +1693,12 @@ function installControlUiMockGateway(
     }
 
     send(raw: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+      if (this.readyState === MockWebSocket.CONNECTING) {
+        throw new DOMException("WebSocket is not open", "InvalidStateError");
+      }
+      if (this.readyState !== MockWebSocket.OPEN) {
+        return;
+      }
       const frame = parseFrame(raw);
       if (!frame || frame.type !== "req") {
         return;
@@ -1756,10 +1760,6 @@ function installControlUiMockGateway(
 
   const exposed: ExposedGateway = {
     closeLatest(code, reason) {
-      MockWebSocket.latest?.close(code ?? 1006, reason ?? "mock close");
-    },
-    deferNextThenCloseLatest(method, code, reason) {
-      deferredMethods.push(method);
       MockWebSocket.latest?.close(code ?? 1006, reason ?? "mock close");
     },
     deliverLatest(frame) {
@@ -1973,24 +1973,6 @@ function createMockGatewayControls(page: Page, defaultSessionKey: string): MockG
           gateway.closeLatest(closeCode, closeReason);
         },
         { closeCode: code, closeReason: reason },
-      );
-    },
-    async deferNextThenCloseLatest(method, code, reason) {
-      await page.evaluate(
-        ({ targetMethod, closeCode, closeReason }) => {
-          const gateway = (
-            window as Window & {
-              openclawControlUiE2eGateway?: {
-                deferNextThenCloseLatest: (method: string, code?: number, reason?: string) => void;
-              };
-            }
-          ).openclawControlUiE2eGateway;
-          if (!gateway) {
-            throw new Error("Mock Gateway is not installed");
-          }
-          gateway.deferNextThenCloseLatest(targetMethod, closeCode, closeReason);
-        },
-        { targetMethod: method, closeCode: code, closeReason: reason },
       );
     },
     deliverLatest,
