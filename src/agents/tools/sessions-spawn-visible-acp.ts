@@ -37,7 +37,7 @@ import {
   type InProcessGatewayCaller,
 } from "./in-process-gateway.js";
 
-export type VisibleAcpSpawnOptions = {
+type VisibleAcpSpawnOptions = {
   agentSessionKey?: string;
   completionOwnerKey?: string;
   agentChannel?: GatewayMessageChannel;

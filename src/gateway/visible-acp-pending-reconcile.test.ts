@@ -11,11 +11,12 @@ import { runExclusiveSessionLifecycleMutation } from "../sessions/session-lifecy
 import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { withTempDir } from "../test-helpers/temp-dir.js";
-import {
-  reconcileVisibleAcpPendingSessions,
-  type VisibleAcpPendingReconcileResult,
-} from "./visible-acp-pending-reconcile.js";
+import { reconcileVisibleAcpPendingSessions } from "./visible-acp-pending-reconcile.js";
 import { VISIBLE_ACP_INITIALIZATION_OWNER } from "./visible-acp-session-initialization.js";
+
+type VisibleAcpPendingReconcileResult = Awaited<
+  ReturnType<typeof reconcileVisibleAcpPendingSessions>
+>;
 
 function deferred() {
   let resolve!: () => void;

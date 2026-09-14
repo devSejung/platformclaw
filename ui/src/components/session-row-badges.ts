@@ -7,7 +7,7 @@ import type { GatewayAgentRuntime, GatewaySessionRow } from "../api/types.ts";
 import { t } from "../i18n/index.ts";
 import { isSubagentSessionKey, parseAgentSessionKey } from "../lib/sessions/session-key.ts";
 import { icons } from "./icons.ts";
-import { renderProviderBrandIcon } from "./provider-icon.ts";
+import { renderProviderBrandIconAsset } from "./provider-brand-icon-asset.ts";
 
 export type SessionPlacementState = NonNullable<GatewaySessionRow["placement"]>["state"];
 
@@ -116,7 +116,7 @@ export function renderSessionRowBadges(params: {
   const acpHarnessBadge = acpHarnessAgent
     ? renderSessionRowBadge(
         ACP_HARNESS_LABELS[acpHarnessAgent],
-        renderProviderBrandIcon(acpHarnessAgent, {
+        renderProviderBrandIconAsset(acpHarnessAgent, {
           className: "session-row-badge__provider-icon",
         }),
         `session-row-badge--acp session-row-badge--acp-${acpHarnessAgent}`,

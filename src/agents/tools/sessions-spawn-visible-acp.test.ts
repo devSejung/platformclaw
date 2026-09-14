@@ -34,13 +34,19 @@ describe("visible persistent ACP spawn", () => {
   });
 
   it("accepts mode=run as the task envelope while creating one persistent logical dashboard key", async () => {
-    const callGateway = vi.fn(async () => ({
-      key: "agent:claude-worker:dashboard:child",
-      sessionId: "visible-session",
-      lifecycleRevision: "visible-revision",
-      runStarted: true,
-      runId: "run-visible-acp",
-    }));
+    const callGateway = vi.fn(
+      async <T = Record<string, unknown>>(
+        _method: string,
+        _params: Record<string, unknown>,
+      ): Promise<T> =>
+        ({
+          key: "agent:claude-worker:dashboard:child",
+          sessionId: "visible-session",
+          lifecycleRevision: "visible-revision",
+          runStarted: true,
+          runId: "run-visible-acp",
+        }) as T,
+    );
     const registerRun = vi.fn();
 
     const result = await spawnVisibleAcpSession({
@@ -107,21 +113,26 @@ describe("visible persistent ACP spawn", () => {
   });
 
   it("uses exact create lifecycle ids for failure cleanup so a replacement row is never key-deleted", async () => {
-    const callGateway = vi.fn(async (method: string) => {
-      if (method === "sessions.create") {
-        return {
-          key: "agent:claude-worker:dashboard:child",
-          sessionId: "created-session",
-          lifecycleRevision: "created-revision",
-          runStarted: false,
-          runError: "first turn rejected",
-        };
-      }
-      if (method === "sessions.delete") {
-        return { ok: true, deleted: true };
-      }
-      return {};
-    });
+    const callGateway = vi.fn(
+      async <T = Record<string, unknown>>(
+        method: string,
+        _params: Record<string, unknown>,
+      ): Promise<T> => {
+        if (method === "sessions.create") {
+          return {
+            key: "agent:claude-worker:dashboard:child",
+            sessionId: "created-session",
+            lifecycleRevision: "created-revision",
+            runStarted: false,
+            runError: "first turn rejected",
+          } as T;
+        }
+        if (method === "sessions.delete") {
+          return { ok: true, deleted: true } as T;
+        }
+        return {} as T;
+      },
+    );
 
     const result = await spawnVisibleAcpSession({
       raw: { runtime: "acp", visible: true },
@@ -148,16 +159,21 @@ describe("visible persistent ACP spawn", () => {
   });
 
   it("keeps the row instead of performing unsafe key-only cleanup when lifecycle ids are absent", async () => {
-    const callGateway = vi.fn(async (method: string) => {
-      if (method === "sessions.create") {
-        return {
-          key: "agent:claude-worker:dashboard:child",
-          runStarted: false,
-          runError: "legacy response",
-        };
-      }
-      return {};
-    });
+    const callGateway = vi.fn(
+      async <T = Record<string, unknown>>(
+        method: string,
+        _params: Record<string, unknown>,
+      ): Promise<T> => {
+        if (method === "sessions.create") {
+          return {
+            key: "agent:claude-worker:dashboard:child",
+            runStarted: false,
+            runError: "legacy response",
+          } as T;
+        }
+        return {} as T;
+      },
+    );
 
     const result = await spawnVisibleAcpSession({
       raw: { runtime: "acp", visible: true },

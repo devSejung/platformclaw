@@ -15,7 +15,7 @@ import { handleSessionStateSessionDeleted } from "../sessions/session-state-even
 import { listGatewayAgentsBasic } from "./agent-list.js";
 import { isVisibleAcpPendingSessionEntry } from "./visible-acp-session-initialization.js";
 
-export type VisibleAcpPendingReconcileResult = {
+type VisibleAcpPendingReconcileResult = {
   checked: number;
   removed: number;
   skipped: number;
@@ -39,7 +39,7 @@ function listReconciliationAgentIds(cfg: OpenClawConfig): string[] {
   } catch {
     // No persisted per-agent state yet.
   }
-  return [...ids].filter(Boolean).sort((left, right) => left.localeCompare(right));
+  return [...ids].filter(Boolean).toSorted((left, right) => left.localeCompare(right));
 }
 
 /**

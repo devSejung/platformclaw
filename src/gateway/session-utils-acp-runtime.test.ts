@@ -67,11 +67,13 @@ describe("sessions.list ACP runtime projection", () => {
         expect(byKey.get(dashboardKey)?.agentRuntime).toEqual({
           id: "acpx",
           kind: "acp",
+          agent: "claude",
           source: "session",
         });
         expect(byKey.get(acpKey)?.agentRuntime).toEqual({
           id: "acpx",
           kind: "acp",
+          agent: "claude",
           source: "session-key",
         });
         expect(byKey.get(acpLookingWithoutMetadataKey)?.agentRuntime).toMatchObject({

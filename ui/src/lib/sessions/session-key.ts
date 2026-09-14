@@ -416,7 +416,7 @@ export function isSubagentSessionKey(sessionKey: string | undefined | null): boo
 }
 
 /** ACP-backed sessions (`agent:<id>:acp:<uuid>`) belong to the Coding zone, not chat threads. */
-export function isAcpSessionKey(sessionKey: string | undefined | null): boolean {
+function isAcpSessionKey(sessionKey: string | undefined | null): boolean {
   const raw = normalizeOptionalString(sessionKey) ?? "";
   if (!raw) {
     return false;

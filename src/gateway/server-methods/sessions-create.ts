@@ -1,6 +1,5 @@
 // Session creation, initial turns, and managed-worktree provisioning.
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
@@ -10,13 +9,9 @@ import {
   validateSessionsCreateParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
-import { resolveDefaultModelForAgent } from "../../agents/model-selection.js";
 import { resolveSandboxRuntimeStatus } from "../../agents/sandbox/runtime-status.js";
 import { ensureAgentWorkspace } from "../../agents/workspace.js";
-import { insideGitCheckout } from "../../agents/worktrees/git.js";
-import { slugifyWorktreeTitle } from "../../agents/worktrees/name.js";
-import { managedWorktrees, WorktreeRepositoryError } from "../../agents/worktrees/service.js";
-import { resolveAgentMainSessionKey } from "../../config/sessions/main-session.js";
+import { managedWorktrees } from "../../agents/worktrees/service.js";
 import { sessionEntryForkedFromParent } from "../../config/sessions/session-entry-lineage.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -26,14 +21,11 @@ import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-ke
 import { ensureSessionDiffBaseline } from "../../sessions/session-diff-baseline.js";
 import { resolveUserPath } from "../../utils.js";
 import { stripInlineDirectiveTagsForDisplay } from "../../utils/directive-tags.js";
-import { generateDashboardSessionTitle } from "../dashboard-session-title.js";
 import { ADMIN_SCOPE, authorizeOperatorScopesForRequiredScope } from "../method-scopes.js";
-import { buildDashboardSessionKey, createGatewaySession } from "../session-create-service.js";
+import { createGatewaySession } from "../session-create-service.js";
 import { resolveRequestedSessionAgentId as resolveRequestedGlobalAgentId } from "../session-request-agent.js";
-import { resolveSessionStoreAgentId } from "../session-store-key.js";
 import { readSessionMessageCountAsync } from "../session-transcript-readers.js";
-import { loadSessionEntryReadOnly, resolveGatewaySessionStoreTarget } from "../session-utils.js";
-import { resolveSessionPatchModelSelection } from "../sessions-patch.js";
+import { resolveGatewaySessionStoreTarget } from "../session-utils.js";
 import { VISIBLE_ACP_INITIALIZATION_OWNER } from "../visible-acp-session-initialization.js";
 import { chatHandlers } from "./chat.js";
 import { resolveSessionCatalogCreateTarget } from "./session-catalog.js";
@@ -43,6 +35,7 @@ import {
   shouldAttachPendingMessageSeq,
 } from "./session-create-initial-turn.js";
 import { resolveOperatorSessionCreation } from "./session-creation-provenance.js";
+import { prepareSessionWorktree } from "./sessions-create-worktree.js";
 import { sessionLog } from "./sessions-shared.js";
 import type { GatewayRequestHandlers } from "./types.js";
 import { assertValidParams } from "./validation.js";
@@ -222,185 +215,27 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       }
     }
     if (p.worktree === true) {
-      // The normal path stays at operator.write and checks out the configured agent workspace.
-      // An explicit cwd can target another host checkout, so method-scopes requires admin.
-      const explicitKey = normalizeOptionalString(p.key);
-      const requestedKey = explicitKey ?? "global";
-      const requestedAgent = resolveRequestedGlobalAgentId(cfg, requestedKey, p.agentId);
-      if (!requestedAgent.ok) {
-        respond(false, undefined, requestedAgent.error);
+      const preparedWorktree = await prepareSessionWorktree({
+        cfg,
+        client,
+        context,
+        hasInitialTurn,
+        initialMessage,
+        p,
+        catalogTarget: catalogTarget?.target ? { target: catalogTarget.target } : undefined,
+        sessionAgentId,
+        sessionKey,
+        respond,
+      });
+      if (!preparedWorktree) {
         return;
       }
-      const agentId = normalizeAgentId(
-        requestedAgent.agentId ??
-          normalizeOptionalString(p.agentId) ??
-          parseAgentSessionKey(requestedKey)?.agentId ??
-          resolveDefaultAgentId(cfg),
-      );
-      let targetKey = explicitKey;
-      let preservesUnspecifiedKey = false;
-      const parentSessionKey = normalizeOptionalString(p.parentSessionKey);
-      if (
-        !targetKey &&
-        parentSessionKey &&
-        p.emitCommandHooks === true &&
-        !hasInitialTurn &&
-        cfg.session?.dmScope === "main"
-      ) {
-        const parent = loadSessionEntryReadOnly(
-          parentSessionKey,
-          requestedAgent.agentId ? { agentId: requestedAgent.agentId } : undefined,
-        );
-        const parentAgentId = normalizeAgentId(
-          requestedAgent.agentId ?? resolveSessionStoreAgentId(cfg, parent.canonicalKey),
-        );
-        if (
-          parent.entry?.sessionId &&
-          parent.canonicalKey === resolveAgentMainSessionKey({ cfg, agentId: parentAgentId })
-        ) {
-          targetKey = parent.canonicalKey;
-          preservesUnspecifiedKey = true;
-        }
-      }
-      targetKey ??= buildDashboardSessionKey(agentId);
-      const target = resolveGatewaySessionStoreTarget({ cfg, key: targetKey, agentId });
-      sessionKey = preservesUnspecifiedKey ? undefined : targetKey;
-      sessionAgentId = target.agentId;
-      const workspace = requestedCwd ?? resolveAgentWorkspaceDir(cfg, target.agentId);
-      // Subdirectory workspaces are valid: the worktree service resolves the repo root
-      // via git discovery, so the preflight must accept ancestor .git entries too.
-      if (!insideGitCheckout(workspace)) {
-        respond(
-          false,
-          undefined,
-          errorShape(ErrorCodes.INVALID_REQUEST, "agent workspace is not a git checkout"),
-        );
-        return;
-      }
-      try {
-        const requestedRepository = await managedWorktrees.resolveRepositoryPaths(workspace);
-        sessionSourceRoot = requestedRepository.sourceRoot;
-        const existing = managedWorktrees.findLiveByOwner("session", target.canonicalKey);
-        let existingDirectory = false;
-        if (existing) {
-          try {
-            existingDirectory = fs.lstatSync(existing.path).isDirectory();
-          } catch {
-            // Missing registry targets are replaced; periodic GC retires their stale rows.
-          }
-        }
-        if (existing && existingDirectory) {
-          if (existing.repoRoot !== requestedRepository.canonicalRoot) {
-            respond(
-              false,
-              undefined,
-              errorShape(
-                ErrorCodes.INVALID_REQUEST,
-                "session worktree belongs to a different repository",
-              ),
-            );
-            return;
-          }
-          // Adopting an existing checkout cannot honor a different name or a
-          // new base; fail loudly instead of silently ignoring the request.
-          if (
-            (requestedWorktreeName && existing.name !== requestedWorktreeName) ||
-            requestedWorktreeBaseRef
-          ) {
-            respond(
-              false,
-              undefined,
-              errorShape(
-                ErrorCodes.INVALID_REQUEST,
-                `session is already bound to worktree ${existing.name} (${existing.branch})`,
-              ),
-            );
-            return;
-          }
-          sessionWorktree = existing;
-        } else {
-          const scopes = Array.isArray(client?.connect.scopes) ? client.connect.scopes : [];
-          if (!requestedWorktreeName && !normalizeOptionalString(p.label) && initialMessage) {
-            try {
-              const requestedTitleModel =
-                catalogTarget?.target.model ?? normalizeOptionalString(p.model);
-              let titleModelEntry:
-                | Pick<SessionEntry, "authProfileOverride" | "modelOverride" | "providerOverride">
-                | undefined;
-              if (requestedTitleModel) {
-                const defaultModel = resolveDefaultModelForAgent({
-                  cfg,
-                  agentId: target.agentId,
-                });
-                const selection = resolveSessionPatchModelSelection({
-                  cfg,
-                  catalog: await context.loadGatewayModelCatalog({ agentId: target.agentId }),
-                  raw: requestedTitleModel,
-                  defaultProvider: defaultModel.provider,
-                  defaultModel: defaultModel.model,
-                });
-                if (selection.ok) {
-                  titleModelEntry = {
-                    providerOverride: selection.provider,
-                    modelOverride: selection.model,
-                    ...(selection.profile ? { authProfileOverride: selection.profile } : {}),
-                  };
-                }
-              }
-              generatedDisplayName =
-                (await generateDashboardSessionTitle({
-                  cfg,
-                  agentId: target.agentId,
-                  entry: titleModelEntry,
-                  userMessage: stripInlineDirectiveTagsForDisplay(initialMessage).text,
-                })) ?? undefined;
-            } catch (error) {
-              sessionLog.warn(`worktree title generation failed: ${formatErrorMessage(error)}`);
-            }
-          }
-          sessionWorktree = await managedWorktrees.create({
-            repoRoot: workspace,
-            ownerKind: "session",
-            ownerId: target.canonicalKey,
-            name: requestedWorktreeName,
-            suggestedName: slugifyWorktreeTitle(
-              normalizeOptionalString(p.label) ?? generatedDisplayName ?? "",
-            ),
-            baseRef: requestedWorktreeBaseRef,
-            // Checkout hooks and .openclaw/worktree-setup.sh run repo code; keep them
-            // admin-only so this write-scoped path cannot execute gated repo scripts.
-            runSetupScript: scopes.includes(ADMIN_SCOPE),
-          });
-          provisionedSessionWorktree = true;
-        }
-      } catch (error) {
-        if (error instanceof WorktreeRepositoryError) {
-          respond(
-            false,
-            undefined,
-            errorShape(ErrorCodes.INVALID_REQUEST, "agent workspace is not a git checkout"),
-          );
-          return;
-        }
-        respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatErrorMessage(error)));
-        return;
-      }
-      // Nested workspaces run from the matching subdirectory inside the worktree, mirroring
-      // how the session would have run in the source checkout; the worktree root would
-      // silently change tool/file scope for subdirectory-configured agents.
-      sessionCwd = sessionWorktree.path;
-      try {
-        const relative = path.relative(
-          sessionSourceRoot ?? fs.realpathSync(sessionWorktree.repoRoot),
-          fs.realpathSync(workspace),
-        );
-        if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
-          sessionCwd = path.join(sessionWorktree.path, relative);
-          fs.mkdirSync(sessionCwd, { recursive: true });
-        }
-      } catch {
-        sessionCwd = sessionWorktree.path;
-      }
+      sessionKey = preparedWorktree.sessionKey;
+      sessionAgentId = preparedWorktree.sessionAgentId;
+      sessionWorktree = preparedWorktree.sessionWorktree;
+      sessionCwd = preparedWorktree.sessionCwd;
+      sessionSourceRoot = preparedWorktree.sessionSourceRoot;
+      provisionedSessionWorktree = preparedWorktree.provisionedSessionWorktree;
     }
     let runPayload: Record<string, unknown> | undefined;
     let runError: unknown;

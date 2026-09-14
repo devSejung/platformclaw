@@ -422,7 +422,7 @@ describe("sessions_spawn tool", () => {
     };
 
     expect(schema.properties?.visible?.description).toBe(
-      "Persistent sidebar UI session; use when the user asks to create or open a thread; subagent only; omit mode/thread/thinking/lightContext/attachments/attachAs.",
+      'Persistent sidebar UI session; supports native subagents and, when ACP is available, configured ACP agents. For ACP use runtime="acp", explicit configured agentId, and optional mode="run"; omit thread/thinking/lightContext/attachments/attachAs.',
     );
     expect(tool.description).toContain("`visible=true`: persistent sidebar dashboard session");
     expect(tool.description).toContain("when the user asks to create/open a thread");

@@ -84,7 +84,7 @@ type SessionChangedEventInfo = {
 type ThinkingMetadataCarrier = {
   modelProvider?: string | null;
   model?: string | null;
-  agentRuntime?: GatewaySessionRow["agentRuntime"] | null;
+  agentRuntime?: Pick<NonNullable<GatewaySessionRow["agentRuntime"]>, "id"> | null;
   thinkingLevels?: Array<{ id: string; label: string }>;
   thinkingOptions?: string[];
   thinkingDefault?: string;

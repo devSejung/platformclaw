@@ -36,7 +36,11 @@ describe("GatewayAgentRuntimeSchema ACP discriminator", () => {
 
   test("remains closed after adding the ACP agent field", () => {
     const value = agentsListWithRuntime("acp", "codex");
-    (value.agents[0].agentRuntime as Record<string, unknown>).unexpected = "nope";
+    const agentRuntime = value.agents[0]?.agentRuntime;
+    if (!agentRuntime) {
+      throw new Error("test fixture must include agent runtime");
+    }
+    (agentRuntime as Record<string, unknown>).unexpected = "nope";
     expect(Value.Check(AgentsListResultSchema, value)).toBe(false);
   });
 });

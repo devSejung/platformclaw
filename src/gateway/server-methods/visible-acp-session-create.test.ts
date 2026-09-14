@@ -110,7 +110,7 @@ describe("visible ACP trusted initializer", () => {
           });
           return { handle };
         });
-        const closeSession = vi.fn();
+        const closeSession = vi.fn(async () => ({ runtimeClosed: true, metaCleared: false }));
         managerTesting.setAcpSessionManagerForTests({ initializeSession, closeSession });
 
         const initialized = await initializeVisibleAcpCreatedSession({
@@ -203,7 +203,10 @@ describe("visible ACP trusted initializer", () => {
           });
           return { handle };
         });
-        managerTesting.setAcpSessionManagerForTests({ initializeSession, closeSession: vi.fn() });
+        managerTesting.setAcpSessionManagerForTests({
+          initializeSession,
+          closeSession: vi.fn(async () => ({ runtimeClosed: true, metaCleared: false })),
+        });
 
         await initializeVisibleAcpCreatedSession({
           cfg,

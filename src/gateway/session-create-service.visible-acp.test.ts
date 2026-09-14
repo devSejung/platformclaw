@@ -79,13 +79,14 @@ describe("createGatewaySession trusted initializer lifecycle", () => {
                   ) {
                     return null;
                   }
-                  const next = { ...current } as typeof current & {
-                    initializationOwner?: string;
+                  const clearedFence: Partial<typeof current> & {
+                    initializationOwner?: undefined;
+                  } = {
+                    initializationPending: undefined,
+                    initializationOwner: undefined,
+                    agentHarnessId: undefined,
                   };
-                  delete next.initializationPending;
-                  delete next.initializationOwner;
-                  delete next.agentHarnessId;
-                  return next;
+                  return clearedFence;
                 },
               );
               if (!updated) {

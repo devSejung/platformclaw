@@ -167,11 +167,14 @@ export async function initializeVisibleAcpCreatedSession(params: {
         ) {
           return null;
         }
-        const next = { ...current } as VisibleAcpPendingSessionEntry;
-        delete next.initializationPending;
-        delete next.initializationOwner;
-        delete next.agentHarnessId;
-        return next;
+        // updateSessionEntry is an additive patch: omitting a field preserves
+        // its current value, while an explicit undefined clears the fence.
+        const clearedFence: Partial<VisibleAcpPendingSessionEntry> = {
+          initializationPending: undefined,
+          initializationOwner: undefined,
+          agentHarnessId: undefined,
+        };
+        return clearedFence;
       },
     );
     if (!updated || !sameLifecycle(updated, params.entry)) {
