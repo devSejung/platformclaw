@@ -31,12 +31,24 @@ function harness() {
     registerGatewayMethod: register,
   } as unknown as OpenClawPluginApi;
   registerOrganizationKnowledgeAnalysis(api);
-  const invoke = async (client: unknown, params: unknown) => {
+  const invoke = async (client: unknown, params: Record<string, unknown>) => {
     const respond = vi.fn();
     if (!handler) {
       throw new Error("missing analysis handler");
     }
-    await handler({ client, params, respond } as Parameters<Handler>[0]);
+    await handler({
+      req: {
+        type: "req",
+        id: "organization-knowledge-analysis-test",
+        method: "platformclaw.organization.knowledge.completePair",
+        params,
+      },
+      client: client as Parameters<Handler>[0]["client"],
+      params,
+      isWebchatConnect: () => false,
+      respond,
+      context: {} as Parameters<Handler>[0]["context"],
+    });
     return respond;
   };
   return { complete, register, invoke };
