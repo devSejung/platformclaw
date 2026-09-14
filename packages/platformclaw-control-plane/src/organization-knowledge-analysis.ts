@@ -116,32 +116,6 @@ function validateClaims(claims: OrganizationKnowledgeClaim[]) {
   }
 }
 
-function validateOrganizationKnowledgeAnalysisInput(
-  value: unknown,
-): OrganizationKnowledgeAnalysisInput {
-  if (
-    !isRecord(value) ||
-    !Array.isArray(value.claims) ||
-    Object.keys(value).some((key) => !["scopeId", "inputFingerprint", "claims"].includes(key))
-  ) {
-    throw new Error("organization knowledge analysis requires a bounded scope snapshot");
-  }
-  const scopeId = boundedText(value.scopeId, 128);
-  const inputFingerprint = boundedText(value.inputFingerprint, 128);
-  const claims = value.claims as OrganizationKnowledgeClaim[];
-  validateClaims(claims);
-  return {
-    scopeId,
-    inputFingerprint,
-    claims: claims.map(({ id, revision, text, evidence }) => ({
-      id,
-      revision,
-      text,
-      evidence: [...evidence],
-    })),
-  };
-}
-
 function extractCandidateTerms(text: string): string[] {
   return (text.toLocaleLowerCase("en-US").match(/[\p{L}\p{N}_]+/gu) ?? []).filter(
     (token) => token.length > 1 && !/^\d+$/u.test(token),
