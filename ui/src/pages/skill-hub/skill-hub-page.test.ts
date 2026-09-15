@@ -671,15 +671,34 @@ describe("SkillHubPage", () => {
     expect(page.textContent).toContain("No Skill Hub results");
     expect(page.textContent).not.toContain("Demo Skill");
 
-    const deleteCall = fetchMock.mock.calls.find(
-      ([input, init]) =>
-        String(input).endsWith("/skills/engineering/demo-skill") && init?.method === "DELETE",
-    );
+    const deleteCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input instanceof Request
+              ? input.url
+              : "";
+      return url.endsWith("/skills/engineering/demo-skill") && init?.method === "DELETE";
+    });
     expect(deleteCall?.[1]).toMatchObject({
       method: "DELETE",
       body: JSON.stringify({ expectedOwnerUpdatedAt: 42 }),
     });
-    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("uninstall"))).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(([input]) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input instanceof Request
+                ? input.url
+                : "";
+        return url.includes("uninstall");
+      }),
+    ).toBe(false);
   });
 
   it("does not offer registry deletion when the detail has no PlatformClaw ownership revision", async () => {

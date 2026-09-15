@@ -4,7 +4,6 @@ import "../../components/modal-dialog.ts";
 import { titleForRoute } from "../../app-navigation.ts";
 import { t } from "../../i18n/index.ts";
 import {
-  deletePlatformClawSkillHubSkill,
   installPlatformClawHubSkill,
   forcePublishPlatformClawHubSkill,
   grantPlatformClawSkillHubAccess,
@@ -30,8 +29,8 @@ import "../../styles/skill-hub.css";
 import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
 import { SkillHubAdminController } from "./admin-controller.ts";
 import { renderSkillHubAdmin } from "./admin.ts";
+import { SkillHubDeleteController } from "./delete-controller.ts";
 import {
-  renderSkillHubDelete,
   renderSkillHubNotifications,
   renderSkillHubUpload,
   renderSkillHubVersionChange,
@@ -45,13 +44,6 @@ import {
 import { renderSkillHubManagement } from "./management.ts";
 import * as pageSupport from "./page-support.ts";
 import { SkillHubWorkspacePublishController } from "./workspace-publish-controller.ts";
-
-type PendingSkillDelete = {
-  namespace: string;
-  slug: string;
-  expectedOwnerUpdatedAt: number;
-  error?: string;
-};
 
 class SkillHubPage extends SkillHubAdminController {
   @state() private config: PlatformClawSkillHubConfig | null = null;
@@ -85,10 +77,13 @@ class SkillHubPage extends SkillHubAdminController {
   @state() private forceReason = "";
   @state() private forceAcknowledged = false;
   @state() private pendingVersionChange: pageSupport.PendingVersionChange | null = null;
-  @state() private pendingSkillDelete: PendingSkillDelete | null = null;
-  @state() private deletingSkill = false;
   private readonly workspacePublish = new SkillHubWorkspacePublishController(this, {
     refresh: () => this.search(),
+    setMessage: (message) => (this.message = message),
+  });
+  private readonly skillDelete = new SkillHubDeleteController(this, {
+    refresh: () => this.search(),
+    closeDetail: () => this.closeDetail(),
     setMessage: (message) => (this.message = message),
   });
 
@@ -271,59 +266,8 @@ class SkillHubPage extends SkillHubAdminController {
 
   private closeDetail() {
     this.detailRef = null;
-    this.pendingSkillDelete = null;
+    this.skillDelete.clear();
     this.resetManagementSelection();
-  }
-
-  private requestSkillDelete() {
-    const revision = this.detail?.owner?.revision;
-    if (
-      !this.detailRef ||
-      !this.detail?.canManage ||
-      typeof revision !== "number" ||
-      this.deletingSkill
-    ) {
-      return;
-    }
-    this.message = null;
-    this.pendingSkillDelete = {
-      ...this.detailRef,
-      expectedOwnerUpdatedAt: revision,
-    };
-  }
-
-  private async confirmSkillDelete() {
-    if (!this.pendingSkillDelete || this.deletingSkill) {
-      return;
-    }
-    const target = {
-      namespace: this.pendingSkillDelete.namespace,
-      slug: this.pendingSkillDelete.slug,
-      expectedOwnerUpdatedAt: this.pendingSkillDelete.expectedOwnerUpdatedAt,
-    };
-    this.deletingSkill = true;
-    this.pendingSkillDelete = target;
-    try {
-      await deletePlatformClawSkillHubSkill(
-        target.namespace,
-        target.slug,
-        target.expectedOwnerUpdatedAt,
-      );
-      this.pendingSkillDelete = null;
-      this.closeDetail();
-      await this.search();
-      this.message = {
-        kind: "success",
-        text: t("skillHubPage.deletedSkill", { skill: `${target.namespace}/${target.slug}` }),
-      };
-    } catch (error) {
-      this.pendingSkillDelete = {
-        ...target,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      this.deletingSkill = false;
-    }
   }
 
   private async install(
@@ -408,18 +352,6 @@ class SkillHubPage extends SkillHubAdminController {
     } finally {
       this.managementBusy = false;
     }
-  }
-
-  private renderCard(item: PlatformClawSkillHubSearchItem) {
-    return html`<button class="skill-hub-card" type="button" @click=${() => this.openDetail(item)}>
-      <span class="skill-hub-card__namespace">${item.namespace}</span>
-      <strong class="skill-hub-card__name">${item.slug}</strong>
-      <span class="skill-hub-card__summary">${item.summary}</span>
-      <span class="skill-hub-card__meta">
-        <span>${pageSupport.skillHubVersionLabel(item.latestVersion)}</span>
-        <span>${t("skillHubPage.viewDetails")}</span>
-      </span>
-    </button>`;
   }
 
   private renderDetail() {
@@ -518,7 +450,7 @@ class SkillHubPage extends SkillHubAdminController {
                 selectedAccessUserId: this.accessUserId,
                 forceReason: this.forceReason,
                 forceAcknowledged: this.forceAcknowledged,
-                busy: this.managementBusy || this.deletingSkill,
+                busy: this.managementBusy || this.skillDelete.busy,
                 onOwnerQuery: (value) => {
                   this.ownerQuery = value;
                   this.ownerUserId = "";
@@ -596,7 +528,7 @@ class SkillHubPage extends SkillHubAdminController {
                         : { kind: "success", text: t("skillHubPage.forcePublished") },
                   );
                 },
-                onDeleteSkill: () => this.requestSkillDelete(),
+                onDeleteSkill: () => this.skillDelete.request(this.detailRef, this.detail),
               })}
               ${this.message
                 ? html`<div
@@ -707,26 +639,14 @@ class SkillHubPage extends SkillHubAdminController {
               ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
               : this.results?.length
                 ? html`<div class="skill-hub-grid">
-                    ${this.results.map((item) => this.renderCard(item))}
+                    ${this.results.map((item) =>
+                      pageSupport.renderSkillHubCard(item, (ref) => void this.openDetail(ref)),
+                    )}
                   </div>`
                 : html`<div class="skill-hub-state">${t("skillsPage.skillHub.noResults")}</div>`}
           </section>
         </main>
-        ${this.renderDetail()}
-        ${renderSkillHubDelete({
-          open: this.pendingSkillDelete !== null,
-          skill: this.pendingSkillDelete
-            ? `${this.pendingSkillDelete.namespace}/${this.pendingSkillDelete.slug}`
-            : "",
-          busy: this.deletingSkill,
-          error: this.pendingSkillDelete?.error ?? null,
-          onClose: () => {
-            if (!this.deletingSkill) {
-              this.pendingSkillDelete = null;
-            }
-          },
-          onConfirm: () => void this.confirmSkillDelete(),
-        })}
+        ${this.renderDetail()} ${this.skillDelete.renderDialog()}
         ${renderSkillHubNotifications({
           open: this.notificationsOpen,
           loading: this.notificationsLoading,
