@@ -1567,6 +1567,9 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(deploy).toContain("No registry pull was attempted");
     expect(deploy).toContain("create_gateway_state_backup");
     expect(deploy).toContain("restore_gateway_state_backup");
+    expect(deploy).toContain("bootstrap_skillhub true");
+    expect(deploy).toContain("skillhub_state_backup.token");
+    expect(deploy).toContain('install -m 0400 "$backup.token" "$secret_root/skillhub-token"');
     expect(deploy).toContain('gateway_home="$deploy_root/data/gateway-home"');
     expect(deploy).toContain('"$deploy_root/data" "$gateway_home" "$gateway_state"');
     expect(deploy).toContain("require_gateway_restore_access");

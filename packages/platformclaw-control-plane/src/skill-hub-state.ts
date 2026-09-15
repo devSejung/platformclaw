@@ -76,6 +76,12 @@ export interface SkillHubStateStore {
     version: string;
     changedAt: number;
   }): Promise<SkillHubOwnership>;
+  removeSkillHubSkillState(params: {
+    namespace: string;
+    slug: string;
+    actorUserId: string;
+    changedAt: number;
+  }): Promise<boolean>;
   transferSkillHubOwner(params: {
     namespace: string;
     slug: string;

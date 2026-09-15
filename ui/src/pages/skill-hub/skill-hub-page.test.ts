@@ -584,6 +584,170 @@ describe("SkillHubPage", () => {
     expect(transfer?.disabled).toBe(true);
   });
 
+  it("deletes a managed registry skill without touching installed workspaces and keeps failures retryable", async () => {
+    let deleteAttempts = 0;
+    let deleted = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith("/config")) {
+        return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 });
+      }
+      if (url.endsWith("/skills/engineering/demo-skill") && init?.method === "DELETE") {
+        deleteAttempts += 1;
+        if (deleteAttempts === 1) {
+          return jsonResponse({ error: "Registry delete unavailable. Try again." }, 503);
+        }
+        deleted = true;
+        return jsonResponse({
+          ok: true,
+          deleted: true,
+          namespace: "engineering",
+          slug: "demo-skill",
+        });
+      }
+      if (url.endsWith("/skills/engineering/demo-skill")) {
+        return jsonResponse({
+          skill: {
+            namespace: "engineering",
+            slug: "demo-skill",
+            displayName: "Demo Skill",
+            summary: "Managed skill",
+            visibility: "NAMESPACE_ONLY",
+            status: "PUBLISHED",
+          },
+          versions: [{ version: "1.0.0", status: "PUBLISHED", downloadAvailable: true }],
+          owner: { assigned: true, isMine: true, unassigned: false, revision: 42 },
+          canManage: true,
+          access: [],
+        });
+      }
+      return jsonResponse({
+        total: deleted ? 0 : 1,
+        items: deleted
+          ? []
+          : [
+              {
+                namespace: "engineering",
+                slug: "demo-skill",
+                latestVersion: "1.0.0",
+                summary: "Managed skill",
+              },
+            ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+    const button = (label: string) =>
+      [...page.querySelectorAll<HTMLButtonElement>("button")].find(
+        (item) => item.textContent?.trim() === label,
+      )!;
+
+    await waitForFast(() => expect(page.textContent).toContain("demo-skill"));
+    page.querySelector<HTMLButtonElement>(".skill-hub-card")!.click();
+    await waitForFast(() => expect(page.textContent).toContain("Demo Skill"));
+    button("Delete skill").click();
+    await waitForFast(() =>
+      expect(page.textContent).toContain("Existing workspace installations are not removed"),
+    );
+    button("Cancel").click();
+    await waitForFast(() =>
+      expect(page.textContent).not.toContain("Delete engineering/demo-skill?"),
+    );
+    expect(deleteAttempts).toBe(0);
+
+    button("Delete skill").click();
+    await waitForFast(() => expect(button("Delete from Skill Hub")).toBeDefined());
+    button("Delete from Skill Hub").click();
+    await waitForFast(() =>
+      expect(page.querySelector('[role="alert"]')?.textContent).toContain(
+        "Registry delete unavailable",
+      ),
+    );
+    expect(deleteAttempts).toBe(1);
+    button("Delete from Skill Hub").click();
+    await waitForFast(() => expect(deleteAttempts).toBe(2));
+    await waitForFast(() => expect(page.textContent).toContain("Deleted engineering/demo-skill"));
+    expect(page.textContent).toContain("No Skill Hub results");
+    expect(page.textContent).not.toContain("Demo Skill");
+
+    const deleteCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input instanceof Request
+              ? input.url
+              : "";
+      return url.endsWith("/skills/engineering/demo-skill") && init?.method === "DELETE";
+    });
+    expect(deleteCall?.[1]).toMatchObject({
+      method: "DELETE",
+      body: JSON.stringify({ expectedOwnerUpdatedAt: 42 }),
+    });
+    expect(
+      fetchMock.mock.calls.some(([input]) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input instanceof Request
+                ? input.url
+                : "";
+        return url.includes("uninstall");
+      }),
+    ).toBe(false);
+  });
+
+  it("does not offer registry deletion when the detail has no PlatformClaw ownership revision", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith("/config")) {
+        return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 });
+      }
+      if (url.endsWith("/skills/engineering/untracked")) {
+        return jsonResponse({
+          skill: {
+            namespace: "engineering",
+            slug: "untracked",
+            displayName: "Untracked",
+            summary: "Registry-only skill",
+            visibility: "PRIVATE",
+            status: "PUBLISHED",
+          },
+          versions: [{ version: "1.0.0", status: "PUBLISHED", downloadAvailable: true }],
+          canManage: true,
+          access: [],
+        });
+      }
+      return jsonResponse({
+        total: 1,
+        items: [
+          {
+            namespace: "engineering",
+            slug: "untracked",
+            latestVersion: "1.0.0",
+            summary: "Registry-only skill",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+
+    await waitForFast(() => expect(page.textContent).toContain("untracked"));
+    page.querySelector<HTMLButtonElement>(".skill-hub-card")!.click();
+    await waitForFast(() => expect(page.textContent).toContain("Untracked"));
+    expect(
+      [...page.querySelectorAll<HTMLButtonElement>("button")].some(
+        (button) => button.textContent?.trim() === "Delete skill",
+      ),
+    ).toBe(false);
+  });
+
   it("warns when a ZIP reaches the registry but needs ownership review", async () => {
     const fetchMock = vi
       .fn()

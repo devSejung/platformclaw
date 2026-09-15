@@ -28,6 +28,7 @@ registry runtime.
 | Scanner-gated automatic publication and current risk badges                 | Current |
 | Owner and administrator force publication with reason and audit             | Current |
 | Eligible ownership transfer and inactive/ineligible-owner review queue      | Current |
+| Owner and administrator hard-delete of PlatformClaw-managed registry skills | Current |
 | Persistent in-app lifecycle notifications                                   | Current |
 | 500 MiB compressed package ceiling with independent expanded-content limits | Current |
 
@@ -43,6 +44,13 @@ one Group. See
 The owner can transfer ownership immediately to another eligible active employee.
 Transfer does not wait for a registry review, but it must be recorded in the audit
 log and notify the old and new owners.
+
+The owner or a PlatformClaw administrator can permanently delete a skill only while
+PlatformClaw still has the accountable ownership record for that exact
+`namespace/slug`. Deletion is revision-pinned and removes the registry entry plus
+its PlatformClaw ACL and pending governance state. It does not uninstall copies
+already present in employee workspaces. An untracked registry coordinate is not an
+administrator escape hatch and fails closed.
 
 Inactive or newly scope-ineligible owners enter an **unassigned owner queue** for explicit
 administrator resolution. The skill remains visible according to its ACL, but

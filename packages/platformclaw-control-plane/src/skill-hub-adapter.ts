@@ -44,6 +44,12 @@ export type SkillHubSecurityAudit = {
 
 export type SkillHubPublishArchive = Buffer | { path: string; size: number };
 
+export type SkillHubDeleteResult = {
+  ok: boolean;
+  namespace: string;
+  slug: string;
+};
+
 function isSkillHubArchiveFile(
   archive: SkillHubPublishArchive,
 ): archive is Exclude<SkillHubPublishArchive, Buffer> {
@@ -61,6 +67,7 @@ export interface SkillHubAdapter {
     filename: string;
     visibility: SkillHubVisibility;
   }): Promise<{ namespace: string; slug: string; version: string; visibility: SkillHubVisibility }>;
+  deleteSkill(namespace: string, slug: string): Promise<SkillHubDeleteResult>;
   download(namespace: string, slug: string, version: string): Promise<Buffer>;
 }
 
@@ -384,6 +391,30 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
       version: stringValue(data.version, "published version"),
       visibility: visibilityValue(data.visibility, "published visibility"),
     };
+  }
+
+  async deleteSkill(namespace: string, slug: string): Promise<SkillHubDeleteResult> {
+    const data = record(
+      apiData(
+        await this.jsonRequest(
+          this.url(`api/cli/v1/skills/${encodePath(namespace)}/${encodePath(slug)}`),
+          { method: "DELETE" },
+        ),
+      ),
+      "delete result",
+    );
+    if (typeof data.ok !== "boolean") {
+      throw new SkillHubAdapterError("Skill Hub returned an invalid delete result");
+    }
+    if (data.scope !== "remote" || data.action !== "delete") {
+      throw new SkillHubAdapterError("Skill Hub returned an invalid delete result");
+    }
+    const resultNamespace = stringValue(data.namespace, "deleted namespace");
+    const resultSlug = stringValue(data.slug, "deleted slug");
+    if (resultNamespace !== namespace || resultSlug !== slug) {
+      throw new SkillHubAdapterError("Skill Hub returned a mismatched delete result");
+    }
+    return { ok: data.ok, namespace: resultNamespace, slug: resultSlug };
   }
 
   async download(namespace: string, slug: string, version: string): Promise<Buffer> {

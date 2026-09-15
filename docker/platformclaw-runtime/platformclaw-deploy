@@ -285,6 +285,9 @@ bootstrap_skillhub() {
   local token_file="$secret_root/skillhub-token"
   local token_source="${PLATFORMCLAW_SKILL_HUB_TOKEN_SOURCE:-}"
   local create_token="false"
+  local rotate_token="${1:-false}"
+  local token_preexisted="false"
+  local token_output_file="$token_file"
   local network_name
   local project_name="${PLATFORMCLAW_COMPOSE_PROJECT:-platformclaw}"
   local runtime_image
@@ -298,6 +301,16 @@ bootstrap_skillhub() {
     umask 077
     : >"$token_file"
     chmod 0600 "$token_file"
+  else
+    token_preexisted="true"
+  fi
+  if [[ "$rotate_token" == "true" ]]; then
+    echo "Rotate the private SkillHub API token for the current control-plane scopes"
+    create_token="true"
+  fi
+  if [[ "$create_token" == "true" ]]; then
+    token_output_file="$(mktemp "$secret_root/.skillhub-token.XXXXXX")"
+    chmod 0600 "$token_output_file"
   fi
   # Compose validates every file-backed secret before starting a selected service.
   # Keep an owner-only output target available for first boot and failed retries.
@@ -320,10 +333,11 @@ bootstrap_skillhub() {
     --env SKILLHUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/bootstrap-password \
     --env SKILLHUB_TOKEN_OUTPUT_FILE=/run/secrets/control-token \
     --volume "$secret_root/skillhub-bootstrap-password:/run/secrets/bootstrap-password:ro" \
-    --volume "$token_file:/run/secrets/control-token" \
+    --volume "$token_output_file:/run/secrets/control-token" \
     --volume "$script_dir/bootstrap-skillhub.mjs:/opt/platformclaw/bootstrap-skillhub.mjs:ro" \
     --entrypoint node "$runtime_image" /opt/platformclaw/bootstrap-skillhub.mjs; then
-    if [[ "$create_token" == "true" ]]; then
+    [[ "$token_output_file" == "$token_file" ]] || rm -f "$token_output_file"
+    if [[ "$create_token" == "true" && "$token_preexisted" != "true" ]]; then
       : >"$token_file"
       chmod 0600 "$token_file"
     fi
@@ -331,14 +345,18 @@ bootstrap_skillhub() {
     exit 1
   fi
   if [[ "$create_token" == "true" ]]; then
-    IFS= read -r token <"$token_file" || true
+    IFS= read -r token <"$token_output_file" || true
     if [[ "$token" != sk_* ]]; then
-      : >"$token_file"
-      chmod 0600 "$token_file"
+      rm -f "$token_output_file"
+      if [[ "$token_preexisted" != "true" ]]; then
+        : >"$token_file"
+        chmod 0600 "$token_file"
+      fi
       echo "SkillHub returned no bootstrap token." >&2
       exit 1
     fi
-    chmod 0400 "$token_file"
+    chmod 0400 "$token_output_file"
+    mv -f "$token_output_file" "$token_file"
   fi
   touch "$skillhub_state_marker"
   chmod 0600 "$skillhub_state_marker"
@@ -735,6 +753,9 @@ create_skillhub_state_backup() {
       return 1
     }
   skillhub_state_backup="$skillhub_state_backup_root/$archive"
+  if [[ -s "$secret_root/skillhub-token" ]]; then
+    install -m 0400 "$secret_root/skillhub-token" "$skillhub_state_backup.token"
+  fi
   printf '%s\n' "$skillhub_state_backup" >"$previous_skillhub_state_file"
   chmod 0600 "$previous_skillhub_state_file"
   echo "SkillHub state backup: $skillhub_state_backup"
@@ -762,6 +783,9 @@ restore_skillhub_state_backup() {
     --volume "$backup:/backup.tar:ro" \
     --entrypoint bash "$runtime_image" -ceu \
     'find /target -mindepth 1 -xdev -depth -delete && tar -C /target -xpf /backup.tar'
+  if [[ -f "$backup.token" ]]; then
+    install -m 0400 "$backup.token" "$secret_root/skillhub-token"
+  fi
   echo "SkillHub state restored: $backup"
 }
 
@@ -958,7 +982,7 @@ apply_images() {
     create_gateway_state_backup && \
     create_skillhub_state_backup && \
     run_upgrade_doctor && \
-    bootstrap_skillhub && \
+    bootstrap_skillhub true && \
     "${compose[@]}" up -d --wait && \
     { [[ "$current_sandbox" == "$sandbox_image" ]] || recreate_sandboxes; }; then
     echo "PlatformClaw updated: $main_image / $sandbox_image"

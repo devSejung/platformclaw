@@ -3168,6 +3168,15 @@ export const en: TranslationMap = {
     forcePublished: "Force publication approved and recorded.",
     forcePublishedNeedsOwnershipReview:
       "The registry approval completed, but organization access changed. The skill is private until an administrator assigns an eligible owner; administrators were notified.",
+    deleteSkill: "Delete skill",
+    deleteSkillHelp:
+      "Permanently remove this skill from the Skill Hub registry. Existing workspace installations are kept.",
+    deleteSkillTitle: "Delete {skill}?",
+    deleteSkillDescription:
+      "This permanently deletes the Skill Hub registry entry, all registry versions, and uploaded package files. Existing workspace installations are not removed. This cannot be undone.",
+    confirmDeleteSkill: "Delete from Skill Hub",
+    deletingSkill: "Deleting…",
+    deletedSkill: "Deleted {skill} from Skill Hub.",
     admin: "Skill Hub admin",
     adminHelp: "Manage namespace access and skills waiting for an owner.",
     namespaceBindings: "Namespace access",

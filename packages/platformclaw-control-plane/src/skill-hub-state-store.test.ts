@@ -425,4 +425,84 @@ describe("SQLite Skill Hub state", () => {
     });
     db.close();
   });
+
+  it("removes a retired registry skill root and cascades its ACL and governance state", async () => {
+    const db = store();
+    const admin = (await db.upsertPrincipal(principal("admin.user"), 1)).user;
+    const owner = (await db.upsertPrincipal(principal("owner.user"), 2)).user;
+    const recipient = (await db.upsertPrincipal(principal("recipient.user"), 3)).user;
+    const team = await db.createManagedScope({
+      actorUserId: admin.id,
+      kind: "team",
+      name: "Engineering",
+      createdAt: 4,
+    });
+    await db.setManagedScopeMembership({
+      actorUserId: admin.id,
+      scopeId: team.id,
+      userId: owner.id,
+      role: "member",
+      reason: "publication owner",
+      changedAt: 5,
+    });
+    const binding = await db.setSkillHubNamespaceBinding({
+      namespace: "engineering",
+      scopeKind: "team",
+      scopeId: team.id,
+      accessState: "active",
+      visibilityCeiling: "PUBLIC",
+      expectedUpdatedAt: null,
+      reason: "bind engineering catalog",
+      actorUserId: admin.id,
+      changedAt: 6,
+    });
+    await db.recordSkillHubPublication({
+      namespace: "engineering",
+      slug: "demo-skill",
+      ownerUserId: owner.id,
+      expectedOwnerUserId: null,
+      expectedOwnerUpdatedAt: null,
+      expectedBindingUpdatedAt: binding.updatedAt,
+      visibility: "NAMESPACE_ONLY",
+      version: "1.0.0",
+      changedAt: 7,
+    });
+    await db.setSkillHubAccess({
+      namespace: "engineering",
+      slug: "demo-skill",
+      userId: recipient.id,
+      grantedByUserId: owner.id,
+      inheritVersions: true,
+      changedAt: 8,
+    });
+    await db.enqueueSkillHubGovernanceJob({
+      namespace: "engineering",
+      slug: "demo-skill",
+      version: "1.0.0",
+      ownerUserId: owner.id,
+      createdAt: 8,
+    });
+
+    await expect(
+      db.removeSkillHubSkillState({
+        namespace: "engineering",
+        slug: "demo-skill",
+        actorUserId: owner.id,
+        changedAt: 9,
+      }),
+    ).resolves.toBe(true);
+    await expect(db.getSkillHubOwnership("engineering", "demo-skill")).resolves.toBeNull();
+    await expect(db.listSkillHubAccess("engineering", "demo-skill", 9)).resolves.toEqual([]);
+    await expect(db.listDueSkillHubGovernanceJobs(9, 10)).resolves.toEqual([]);
+    await expect(
+      db.removeSkillHubNamespaceBinding({
+        namespace: "engineering",
+        expectedUpdatedAt: binding.updatedAt,
+        reason: "registry skill retired",
+        actorUserId: admin.id,
+        changedAt: 10,
+      }),
+    ).resolves.toBe(true);
+    db.close();
+  });
 });

@@ -951,7 +951,6 @@ describe("SkillHubService", () => {
     };
     vi.spyOn(store, "getSkillHubOwnership")
       .mockResolvedValueOnce(current)
-      .mockResolvedValueOnce(current)
       .mockResolvedValueOnce(null);
     await expect(
       service.acknowledgeForcePublish(actor.user, "engineering", "demo-skill", {
