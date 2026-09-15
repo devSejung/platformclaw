@@ -51,7 +51,7 @@ export class ManagerRuntimeHandleCache {
     this.idleTimer = setTimeout(() => {
       this.idleTimer = undefined;
       this.maintenanceTask = this.maintenance?.()
-        .catch((error) => {
+        .catch((error: unknown) => {
           logVerbose(`acp-manager: idle maintenance failed: ${String(error)}`);
         })
         .finally(() => {

@@ -103,6 +103,7 @@ describe("persistent ACP sessions_spawn follow-up integration", () => {
           runtime: {
             ensureSession,
             runTurn,
+            setConfigOption: vi.fn(async () => {}),
             cancel: vi.fn(async () => {}),
             close: vi.fn(async () => {}),
           },

@@ -1183,6 +1183,7 @@ describe("spawnAcpDirect", () => {
       runtimeOptions: {
         model: "openai/gpt-5.4",
         thinking: "high",
+        timeoutSeconds: 20 * 60,
       },
     });
     expect(initInput.sessionKey).toMatch(/^agent:codex:acp:/);
@@ -1223,6 +1224,7 @@ describe("spawnAcpDirect", () => {
       runtimeOptions: {
         model: "openai/gpt-5.4",
         thinking: "high",
+        timeoutSeconds: 20 * 60,
       },
     });
   });
@@ -1269,6 +1271,7 @@ describe("spawnAcpDirect", () => {
       runtimeOptions: {
         model: "openai/gpt-5.5",
         thinking: "low",
+        timeoutSeconds: 20 * 60,
       },
     });
   });
@@ -1312,6 +1315,7 @@ describe("spawnAcpDirect", () => {
       runtimeOptions: {
         model: "anthropic/claude-sonnet-4-6",
         thinking: "adaptive",
+        timeoutSeconds: 20 * 60,
       },
     });
   });

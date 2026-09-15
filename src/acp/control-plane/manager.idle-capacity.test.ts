@@ -20,8 +20,8 @@ describe("ACP idle and owner capacity", () => {
   installAcpSessionManagerTestLifecycle();
   const managers: InstanceType<typeof AcpSessionManager>[] = [];
   const unregister: Array<() => void> = [];
-  afterEach(() => {
-    managers.splice(0).forEach((manager) => manager.stopIdleMaintenance());
+  afterEach(async () => {
+    await Promise.all(managers.splice(0).map((manager) => manager.stopIdleMaintenance()));
     unregister.splice(0).forEach((remove) => remove());
     vi.useRealTimers();
   });
@@ -205,7 +205,7 @@ describe("ACP idle and owner capacity", () => {
     await vi.advanceTimersByTimeAsync(DEFAULT_ACP_RUNTIME_IDLE_TTL_MS);
     const identity = f.rows.get(key)?.identity;
     f.memory.clear();
-    f.manager.stopIdleMaintenance();
+    await f.manager.stopIdleMaintenance();
     const restarted = new AcpSessionManager();
     managers.push(restarted);
     await expect(
@@ -269,7 +269,7 @@ describe("ACP idle and owner capacity", () => {
     const f = fixture();
     await f.spawn("stop");
     expect(vi.getTimerCount()).toBe(1);
-    f.manager.stopIdleMaintenance();
+    await f.manager.stopIdleMaintenance();
     expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(2 * DEFAULT_ACP_RUNTIME_IDLE_TTL_MS);
     expect(f.state.close).not.toHaveBeenCalled();

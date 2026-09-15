@@ -632,6 +632,6 @@ describe("AcpSessionManager runtime handles", () => {
     expect(runtimeState.runTurn).not.toHaveBeenCalled();
     expect(currentMeta.identity?.acpxSessionId).toBe("acpx-sid-stale");
     expect(currentMeta.identity?.agentSessionId).toBe("agent-sid-stale");
-    manager.stopIdleMaintenance();
+    await manager.stopIdleMaintenance();
   });
 });
