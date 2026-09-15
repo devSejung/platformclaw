@@ -28,6 +28,30 @@ openclaw-chat-page {
   box-shadow: none !important;
 }
 
+.agent-chat__search-bar {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Shared icons have no intrinsic size; constrain the search glyph so opening
+   Ctrl+F cannot expand it to the transcript width and push content out. */
+.agent-chat__search-bar > svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.agent-chat__search-bar > input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+}
+
 /* Chat pane error alert. The pane strips its own padding, so the alert
    carries its own inset as a centered card instead of stretching into a
    full-bleed bar; visual language mirrors the connection pill (status dot
