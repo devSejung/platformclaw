@@ -8,7 +8,6 @@ import type {
 } from "@platformclaw/coding-agent-contract";
 import {
   createSshSandboxBackendWithSessionFactory,
-  buildSshLoginShellArgv,
   createSshSandboxSessionFromConfigText,
   disposeSshSandboxSession,
   requireSandboxBackendFactory,
@@ -39,6 +38,7 @@ import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 import type { PlatformClawSkillExportRuntime } from "./skill-export-gateway.js";
 import { SafeConnectSshLeaseManager } from "./ssh-lease-manager.js";
+import { createTmuxSshTransport, VmTmuxTerminalManager } from "./tmux-terminal-manager.js";
 
 const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
 const EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
@@ -408,6 +408,9 @@ export async function createExecutionDependenciesFromEnvironment(
     disposeSession: disposeSshSandboxSession,
     logTiming: timing.logTiming,
   });
+  const terminals = new VmTmuxTerminalManager(
+    createTmuxSshTransport(async (target) => await sshLeases.createSession(target)),
+  );
   // Runtime is the composition root: remote discovery must not import it back.
   const remoteSkills = new VmRemoteSkillCatalogService(
     {
@@ -446,6 +449,7 @@ export async function createExecutionDependenciesFromEnvironment(
         body: { agentId, ...(requestedTarget ? { target: requestedTarget } : {}) },
       }),
     );
+    await terminals.observeTarget(agentId, target.kind === "assigned_vm" ? target : undefined);
     sshLeases.observeTarget(agentId, target.kind === "assigned_vm" ? target : undefined);
     return target;
   };
@@ -564,16 +568,7 @@ export async function createExecutionDependenciesFromEnvironment(
             refreshCatalog: async () => await remoteSkills.list(target, true),
           })
         : undefined,
-    createTerminalProcess: async (target) => {
-      const session = await sshLeases.createSession(target);
-      const argv = buildSshLoginShellArgv(session);
-      return {
-        file: argv[0]!,
-        args: argv.slice(1),
-        cwd: process.cwd(),
-        dispose: async () => await disposeSshSandboxSession(session),
-      };
-    },
+    createTerminalStream: async (target, params) => await terminals.open(target, params),
     testConnection: async ({ agentId, credentialBrokerAddress, credentialGrantToken }) => {
       // This endpoint consumes the probe-only connection snapshot. It discovers
       // canonical HOME before any executable backend snapshot can be created.
@@ -621,6 +616,7 @@ export async function createExecutionDependenciesFromEnvironment(
           body: { agentId, target, expectedRevision },
         }),
       );
+      await terminals.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
       sshLeases.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
       return changed;
     },
@@ -642,6 +638,9 @@ export async function createExecutionDependenciesFromEnvironment(
       }
       return await remoteSkillExporter.export({ target, slug, version, signal });
     },
-    dispose: async () => await sshLeases.dispose(),
+    dispose: async () => {
+      await terminals.dispose();
+      await sshLeases.dispose();
+    },
   };
 }

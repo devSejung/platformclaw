@@ -16,6 +16,13 @@ export async function createSandboxTerminalBackend(params: {
   env: Record<string, string>;
   spawn?: LocalTerminalBackendSpawner;
 }): Promise<TerminalBackend> {
+  if (params.plan.createStream) {
+    return await params.plan.createStream({
+      cols: params.cols,
+      rows: params.rows,
+      env: params.env,
+    });
+  }
   const process = await params.plan.createProcess();
   const env = { ...params.env };
   for (const [key, value] of Object.entries(process.env ?? {})) {

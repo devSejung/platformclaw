@@ -343,9 +343,10 @@ export function renderTerminalPanelActions(params: {
             ${UPLOAD_GLYPH}
           </button>`
       : nothing}
+    ${params.sessionPicker}
     ${params.fullscreen
       ? nothing
-      : html`${params.sessionPicker}<button
+      : html`<button
             class="tp-icon ${params.dock === "bottom" ? "is-active" : ""}"
             type="button"
             title=${t("terminal.dockBottom")}

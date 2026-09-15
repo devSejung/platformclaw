@@ -48,6 +48,8 @@ export type TerminalSessionInfo = {
   cwd: string;
   confined: boolean;
   attached: boolean;
+  /** Personal ingress distinguishes peer-browser ownership from a detached session. */
+  available?: boolean;
   owner?: "conn" | `agent:${string}`;
   createdAtMs: number;
 };

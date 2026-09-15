@@ -14,7 +14,8 @@ import type {
   SandboxBackendSkillInstallProvider,
   SandboxBackendSkillProvider,
   SandboxBackendSkillWorkshopProvider,
-  SandboxBackendTerminalProcess,
+  SandboxBackendTerminalStream,
+  SandboxBackendTerminalStreamParams,
   SandboxBackendTerminalProvider,
   SkillWorkshopTargetAccess,
   SkillArchiveInstallTargetAccess,
@@ -86,9 +87,10 @@ export type PlatformClawExecutionDependencies = {
   createSkillInstallTarget: (params: {
     target: Readonly<PlatformClawExecutionTargetSnapshot>;
   }) => Promise<SkillArchiveInstallTargetAccess | undefined>;
-  createTerminalProcess: (
+  createTerminalStream: (
     target: Readonly<AssignedVmTargetSnapshot>,
-  ) => Promise<SandboxBackendTerminalProcess>;
+    params: SandboxBackendTerminalStreamParams,
+  ) => Promise<SandboxBackendTerminalStream>;
   resolveExecCredentials: (agentId: string) => Promise<Record<string, string>>;
   launchAcpProcess: (
     input: AcpProcessTransportLaunch,
@@ -448,7 +450,7 @@ export function createPlatformClawExecutionTerminalProvider(
       shell: `${target.linuxAccount} login shell`,
       cwd: target.remoteHomeDir,
       title: target.vmLabel,
-      createProcess: async () => {
+      createStream: async (params) => {
         const release = mutations.tryAcquire(agentId, "terminal-open");
         if (!release) {
           throw new Error("PlatformClaw work location mutation is already in progress.");
@@ -464,7 +466,7 @@ export function createPlatformClawExecutionTerminalProvider(
           ) {
             throw new Error("PlatformClaw execution target changed; reload and retry.");
           }
-          return await dependencies.createTerminalProcess(target);
+          return await dependencies.createTerminalStream(target, params);
         } finally {
           release();
         }
@@ -569,7 +571,7 @@ export function createUnavailableExecutionDependencies(): PlatformClawExecutionD
     listTargetSkills: unavailable,
     createSkillWorkshopTarget: unavailable,
     createSkillInstallTarget: unavailable,
-    createTerminalProcess: unavailable,
+    createTerminalStream: unavailable,
     resolveExecCredentials: unavailable,
     launchAcpProcess: unavailable,
     diagnoseAcpProcess: unavailable,

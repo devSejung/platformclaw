@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { resolveBrowserCommandSuppression } from "./browser-command-policy.js";
+import { resolveBrowserGatewayCommandSuppression } from "./browser-command-policy.js";
 import {
   createBrowserSenderAttribution,
   resolveBrowserGatewayAccess,
@@ -121,6 +121,12 @@ export class BrowserGatewayProxy {
     context?: BrowserGatewayRequestContext,
   ): Promise<T> {
     const access = await this.resolveAccess(token);
+    if (context?.isConnected?.() === false) {
+      throw new BrowserGatewayProxyError(
+        "unauthenticated",
+        "Browser connection is no longer active.",
+      );
+    }
     if (context?.connectionId) {
       this.terminals.refreshConnection(context.connectionId, access);
     }
@@ -149,7 +155,11 @@ export class BrowserGatewayProxy {
         )) as T;
       }
       if (method === "chat.send" || method === "sessions.create") {
-        initialCommandSuppressed = await this.resolveCommandSuppression(access, prepared.message);
+        initialCommandSuppressed = await resolveBrowserGatewayCommandSuppression({
+          gateway: this.options.gateway,
+          agentId: access.binding.agentId,
+          message: prepared.message,
+        });
         if (method === "chat.send") {
           prepared = { ...prepared, suppressCommandInterpretation: initialCommandSuppressed };
         }
@@ -260,24 +270,6 @@ export class BrowserGatewayProxy {
     }
   }
 
-  private async resolveCommandSuppression(
-    access: BrowserGatewayAccess,
-    message: unknown,
-  ): Promise<boolean> {
-    const policy = await resolveBrowserCommandSuppression({
-      gateway: this.options.gateway,
-      agentId: access.binding.agentId,
-      message,
-    });
-    if (policy === "block") {
-      throw new BrowserGatewayProxyError(
-        "method-not-allowed",
-        "Gateway administration commands are not available to browser users",
-      );
-    }
-    return policy === "suppress";
-  }
-
   async filterEvent(
     token: string,
     event: BrowserGatewayEvent,
@@ -315,6 +307,13 @@ export class BrowserGatewayProxy {
     context?: BrowserGatewayRequestContext,
   ): BrowserGatewayEvent | null | undefined {
     return this.terminals.filterConnectionEvent(event, context);
+  }
+
+  subscribeConnectionEvents(
+    connectionId: string,
+    listener: (event: BrowserGatewayEvent) => void,
+  ): () => void {
+    return this.terminals.subscribeConnectionEvents(connectionId, listener);
   }
 
   registerBrowserConnection(connectionId: string, access?: BrowserGatewayAccess): void {

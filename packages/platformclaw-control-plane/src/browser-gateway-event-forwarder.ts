@@ -15,6 +15,22 @@ type BrowserGatewayEventProxy = {
   ): BrowserGatewayEvent | null | undefined;
 };
 
+/** Upstream and browser-local events share one ordered browser sequence. */
+export function createBrowserGatewayEventSender(
+  send: (frame: EventFrame) => void,
+): (event: BrowserGatewayEvent) => void {
+  let sequence = 0;
+  return (event) => {
+    sequence += 1;
+    send({
+      type: "event",
+      event: event.event,
+      ...(event.payload === undefined ? {} : { payload: event.payload }),
+      seq: sequence,
+    });
+  };
+}
+
 export function createBrowserGatewayEventForwarder(params: {
   connectionId: string;
   token: string;

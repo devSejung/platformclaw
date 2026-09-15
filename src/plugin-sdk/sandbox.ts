@@ -30,6 +30,8 @@ export type {
   SandboxBackendSkillWorkshopProvider,
   SandboxBackendTerminalPlan,
   SandboxBackendTerminalProcess,
+  SandboxBackendTerminalStream,
+  SandboxBackendTerminalStreamParams,
   SandboxBackendTerminalProvider,
   SandboxBackendWorkdirValidation,
   SandboxBackendWorkdirResolver,

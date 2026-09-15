@@ -50,6 +50,7 @@ export interface TerminalPanelSessionControllerHost extends ReactiveControllerHo
   readonly terminalTextScale: number;
   readonly fullscreen: boolean;
   readonly singleSession: boolean;
+  readonly maxSessions: number;
   readonly terminalPanelOpen: boolean;
   readonly catalogReadyTimeoutMs: number;
   terminalPanelErrorText: string | null;

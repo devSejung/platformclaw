@@ -13,7 +13,7 @@ import { t } from "../i18n/index.ts";
 import { isGatewayMethodAdvertised } from "../lib/gateway-methods.ts";
 import { readSessionMethodAccess } from "../lib/session-method-access.ts";
 import { normalizeAgentId } from "../lib/sessions/session-key.ts";
-import { isTerminalAvailable } from "../lib/terminal-availability.ts";
+import { isPersonalVmTerminalSession, isTerminalAvailable } from "../lib/terminal-availability.ts";
 import { findSettingsSearchBlocks } from "../pages/config/settings-search.ts";
 import type { NewSessionTarget } from "../pages/new-session/location.ts";
 import { renderDevicePairSetup } from "../pages/nodes/view-pairing.ts";
@@ -114,6 +114,8 @@ export function renderApplicationShell(host: ShellViewHost) {
     gatewaySnapshot,
     context.config.current.terminalEnabled ?? false,
   );
+  const personalVmTerminal =
+    context.accessMode === "personal-agent" || isPersonalVmTerminalSession(gatewaySnapshot);
   const browserPanelAvailable = isBrowserPanelAvailable(gatewaySnapshot);
   const custodianPanelAvailable =
     gatewayConnected && isGatewayMethodAdvertised(gatewaySnapshot, "openclaw.chat") === true;
@@ -462,8 +464,8 @@ export function renderApplicationShell(host: ShellViewHost) {
         .themeMode=${resolveTerminalThemeMode()}
         .terminalTextScale=${uiSettings.terminalTextScale ??
         UI_APPEARANCE_DEFAULTS.terminalTextScale}
-        .singleSession=${context.accessMode === "personal-agent"}
-        .uploadsEnabled=${context.accessMode !== "personal-agent"}
+        .maxSessions=${personalVmTerminal ? 8 : Infinity}
+        .uploadsEnabled=${!personalVmTerminal}
       ></openclaw-terminal-panel>
       <openclaw-browser-panel
         .client=${gatewayConnected ? gatewaySnapshot.client : null}
