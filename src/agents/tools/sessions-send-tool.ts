@@ -80,7 +80,12 @@ import { buildAgentToAgentMessageContext, resolvePingPongTurns } from "./session
 import { runSessionsSendA2AFlow } from "./sessions-send-tool.a2a.js";
 
 const SessionsSendToolSchema = Type.Object({
-  sessionKey: Type.Optional(Type.String()),
+  sessionKey: Type.Optional(
+    Type.String({
+      description:
+        "Opaque exact returned identifier: copy childSessionKey/sessionKey unchanged; never reconstruct it from a VM username or agent display name.",
+    }),
+  ),
   label: Type.Optional(Type.String({ minLength: 1, maxLength: SESSION_LABEL_MAX_LENGTH })),
   agentId: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
   message: Type.String(),
@@ -509,14 +514,15 @@ export function createSessionsSendTool(opts?: {
               runId: crypto.randomUUID(),
               status: "forbidden",
               error:
-                "Agent-to-agent messaging is disabled. Set tools.agentToAgent.enabled=true to allow cross-agent sends.",
+                "First verify the intended target; for follow-ups use the original returned childSessionKey unchanged. Agent-to-agent messaging is disabled. Only for intentional cross-agent sends, set tools.agentToAgent.enabled=true.",
             });
           }
           if (!a2aPolicy.isAllowed(requesterAgentId, requestedAgentId)) {
             return jsonResult({
               runId: crypto.randomUUID(),
               status: "forbidden",
-              error: "Agent-to-agent messaging denied by tools.agentToAgent.allow.",
+              error:
+                "First verify the intended target; for follow-ups use the original returned childSessionKey unchanged. Agent-to-agent messaging denied by tools.agentToAgent.allow; intentional cross-agent sends require an allowed agent pair.",
             });
           }
         }

@@ -261,7 +261,7 @@ function a2aDisabledMessage(action: SessionAccessAction): string {
     return "Agent-to-agent history is disabled. Set tools.agentToAgent.enabled=true to allow cross-agent access.";
   }
   if (action === "send") {
-    return "Agent-to-agent messaging is disabled. Set tools.agentToAgent.enabled=true to allow cross-agent sends.";
+    return "First verify the intended target; for follow-ups use the original returned childSessionKey unchanged. Agent-to-agent messaging is disabled. Only for intentional cross-agent sends, set tools.agentToAgent.enabled=true.";
   }
   if (action === "status") {
     return "Agent-to-agent status is disabled. Set tools.agentToAgent.enabled=true to allow cross-agent access.";
@@ -274,7 +274,7 @@ function a2aDeniedMessage(action: SessionAccessAction): string {
     return "Agent-to-agent history denied by tools.agentToAgent.allow.";
   }
   if (action === "send") {
-    return "Agent-to-agent messaging denied by tools.agentToAgent.allow.";
+    return "First verify the intended target; for follow-ups use the original returned childSessionKey unchanged. Agent-to-agent messaging denied by tools.agentToAgent.allow; intentional cross-agent sends require an allowed agent pair.";
   }
   if (action === "status") {
     return "Agent-to-agent status denied by tools.agentToAgent.allow.";
@@ -289,7 +289,7 @@ function crossVisibilityMessage(action: SessionAccessAction): string {
     return `Session history visibility is restricted. ${suffix}`;
   }
   if (action === "send") {
-    return `Session send visibility is restricted. ${suffix}`;
+    return `First verify the intended target; for follow-ups use the original returned childSessionKey unchanged. Session send visibility is restricted. For intentional cross-agent access only: ${suffix}`;
   }
   if (action === "status") {
     return `Session status visibility is restricted. ${suffix}`;

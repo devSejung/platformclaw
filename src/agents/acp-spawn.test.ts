@@ -1037,6 +1037,12 @@ describe("spawnAcpDirect", () => {
 
         expectAcceptedSpawn(result);
         expect(result.childSessionKey).toMatch(/^agent:person_one:acp:/);
+        expect(result.note).toContain(JSON.stringify(result.childSessionKey));
+        expect(result.note).toContain("exact");
+        expect(result.note).not.toContain("agent:person.one:");
+        if (mode === "session") {
+          expect(result.note).toContain("sessionKey=");
+        }
         expect(hoisted.initializeSessionMock).toHaveBeenCalledWith(
           expect.objectContaining({
             agent: "claude",

@@ -996,6 +996,41 @@ describe("sessions tools", () => {
     expect(details.error).toMatch(/Session not found|No session found/);
   });
 
+  it("sessions_send describes opaque keys and verifies follow-up targets before enabling cross-agent sends", async () => {
+    const originalKey = "agent:person_one:acp:child";
+    const rewrittenKey = "agent:person.one:acp:child";
+    callGatewayMock.mockImplementation(async (request: { method?: string }) => {
+      if (request.method === "sessions.resolve") {
+        return { key: rewrittenKey };
+      }
+      if (request.method === "sessions.list") {
+        return { sessions: [{ key: originalKey }] };
+      }
+      return {};
+    });
+    const tool = createSessionsSendTool({
+      agentSessionKey: "agent:person_one:dashboard:parent",
+      config: { tools: { sessions: { visibility: "all" } } },
+    });
+    expect(tool.description).toContain("opaque");
+    expect(tool.description).toContain("never reconstruct");
+    const schema = tool.parameters as { properties: { sessionKey: { description?: string } } };
+    expect(schema.properties.sessionKey.description).toContain("exact returned identifier");
+
+    for (const target of [
+      { sessionKey: rewrittenKey },
+      { label: "Codex task", agentId: "person.one" },
+    ]) {
+      const result = await tool.execute("opaque-key", { ...target, message: "follow-up" });
+      const details = sessionsSendDetails(result.details);
+      expect(details.status).toBe("forbidden");
+      expect(details.error).toMatch(/^First verify/);
+      expect(details.error).toContain("original returned childSessionKey");
+      expect(details.error).toContain("tools.agentToAgent.enabled=true");
+    }
+    expect(callGatewayMock.mock.calls.some(([request]) => request.method === "agent")).toBe(false);
+  });
+
   it("sessions_send supports fire-and-forget and wait", async () => {
     const calls: Array<{ method?: string; params?: unknown }> = [];
     let agentCallCount = 0;

@@ -466,7 +466,7 @@ export async function spawnVisibleAcpSession(params: {
       runId,
       mode: "session",
       cleanup: "keep",
-      note: `Persistent ACP conversation created. Continue with sessions_send({ sessionKey: "${childSessionKey}", message: "..." }); reuse exactly this key for every follow-up.`,
+      note: `Persistent ACP conversation created. Send follow-ups with sessionKey=${JSON.stringify(childSessionKey)}; reuse this exact returned key, never reconstruct it from a VM username or display name.`,
     };
   } finally {
     reservation.release();
