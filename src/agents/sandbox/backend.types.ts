@@ -89,12 +89,35 @@ export type SandboxBackendTerminalProcess = {
 };
 
 /** Immutable terminal target selected by a sandbox backend before PTY creation. */
+export type SandboxBackendTerminalStream = {
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  pause(): void;
+  resume(): void;
+  kill(): void;
+  onData(callback: (data: string) => void): void;
+  onExit(callback: (exit: { exitCode?: number; signal?: number; error?: string }) => void): void;
+};
+
+export type SandboxBackendTerminalStreamParams = {
+  cols: number;
+  rows: number;
+  env: Record<string, string>;
+};
+
 export type SandboxBackendTerminalPlan = {
   shell: string;
   cwd: string;
   title?: string;
-  createProcess(): Promise<SandboxBackendTerminalProcess>;
-};
+} & (
+  | { createProcess(): Promise<SandboxBackendTerminalProcess>; createStream?: never }
+  | {
+      createStream(
+        params: SandboxBackendTerminalStreamParams,
+      ): Promise<SandboxBackendTerminalStream>;
+      createProcess?: never;
+    }
+);
 
 /** Resolves one terminal target without accepting browser-selected host details. */
 export type SandboxBackendTerminalProvider = (params: {

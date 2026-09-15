@@ -73,6 +73,7 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
   @property({ type: Boolean }) fullscreen = false;
   /** Restricts the personal-agent surface to its one BFF-owned VM terminal. */
   @property({ type: Boolean }) singleSession = false;
+  @property({ type: Number }) maxSessions = Infinity;
   /** Host-local upload staging is unavailable for remote personal VM terminals. */
   @property({ type: Boolean }) uploadsEnabled = true;
 
@@ -354,6 +355,7 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
           sessions: this.pickerSessions,
           currentSessionIds: new Set(
             this.terminalSessions.tabs
+              .filter((tab) => tab.status !== "exited")
               .map((tab) => tab.gatewaySessionId)
               .filter(
                 (sessionId): sessionId is string =>
@@ -381,7 +383,7 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
         ${renderTerminalPanelHeader(
           this.terminalSessions.tabs,
           this.terminalSessions.activeId,
-          this.terminalSessions.booting,
+          this.terminalSessions.booting || this.terminalSessions.capacityUsed >= this.maxSessions,
           toolbar,
           (id) => this.terminalSessions.switchTo(id),
           (id) => this.terminalSessions.closeTab(id),

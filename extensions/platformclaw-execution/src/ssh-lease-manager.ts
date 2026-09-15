@@ -49,7 +49,7 @@ type ChannelWaiter = {
   queuedAt: number;
 };
 
-function leaseIdentity(target: AssignedVmTargetSnapshot): string {
+export function leaseIdentity(target: AssignedVmTargetSnapshot): string {
   return JSON.stringify([
     target.agentId,
     target.allocationId,
@@ -313,6 +313,10 @@ class SafeConnectSshLease {
   private async acquireChannel(): Promise<() => void> {
     if (this.retired || this.closed) {
       throw new Error("SafeConnect SSH lease is unavailable");
+    }
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
     }
     if (this.activeChannels < this.options.maxChannels) {
       this.activeChannels += 1;

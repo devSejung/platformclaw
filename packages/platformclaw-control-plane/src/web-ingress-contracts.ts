@@ -22,7 +22,7 @@ export type PlatformClawBrowserGatewayPolicy = {
     token: string,
     method: string,
     params?: unknown,
-    context?: { connectionId: string },
+    context?: { connectionId: string; isConnected?: () => boolean },
   ): Promise<unknown>;
   filterEvent(
     token: string,
@@ -35,6 +35,10 @@ export type PlatformClawBrowserGatewayPolicy = {
     context?: { connectionId: string },
   ): BrowserGatewayEvent | null | undefined;
   handleGatewayDisconnect?(): void;
+  subscribeConnectionEvents?(
+    connectionId: string,
+    listener: (event: BrowserGatewayEvent) => void,
+  ): () => void;
   releaseBrowserConnection?(connectionId: string): Promise<void>;
 };
 

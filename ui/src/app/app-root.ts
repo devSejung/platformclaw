@@ -9,7 +9,7 @@ import "../components/login-gate.ts";
 import "../components/openclaw-mascot.ts";
 import "../components/tooltip.ts";
 import { t } from "../i18n/index.ts";
-import { isTerminalAvailable } from "../lib/terminal-availability.ts";
+import { isPersonalVmTerminalSession, isTerminalAvailable } from "../lib/terminal-availability.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import {
@@ -272,6 +272,8 @@ export class OpenClawApp extends OpenClawLightDomElement {
     // Embedded mobile terminals own the whole document. Keep the generic login
     // gate out of this path or a connecting native session exposes Web UI chrome.
     if (this.terminalOnly) {
+      const personalVmTerminal =
+        context.accessMode === "personal-agent" || isPersonalVmTerminalSession(gatewaySnapshot);
       const terminalAvailable = isTerminalAvailable(
         gatewaySnapshot,
         context.config.current.terminalEnabled ?? false,
@@ -284,8 +286,8 @@ export class OpenClawApp extends OpenClawLightDomElement {
           .themeMode=${resolveTerminalThemeMode()}
           .terminalTextScale=${loadSettings().terminalTextScale ??
           UI_APPEARANCE_DEFAULTS.terminalTextScale}
-          .singleSession=${this.context?.accessMode === "personal-agent"}
-          .uploadsEnabled=${this.context?.accessMode !== "personal-agent"}
+          .maxSessions=${personalVmTerminal ? 8 : Infinity}
+          .uploadsEnabled=${!personalVmTerminal}
           fullscreen
         ></openclaw-terminal-panel>
         ${!isOptionalElementDefined(TERMINAL_PANEL_ELEMENT) && terminalAvailable

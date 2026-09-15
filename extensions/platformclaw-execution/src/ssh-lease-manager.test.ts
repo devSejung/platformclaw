@@ -191,4 +191,21 @@ describe("SafeConnectSshLeaseManager", () => {
       vi.useRealTimers();
     }
   });
+  it("cancels a previous idle timer while a persistent terminal channel is active", async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = createHarness();
+      const first = await harness.manager.createSession(TARGET);
+      await first.onDispose?.();
+      await vi.advanceTimersByTimeAsync(59_000);
+      const terminal = await harness.manager.createSession(TARGET);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(harness.handles[0]?.stopped).toBe(false);
+      expect(harness.startMaster).toHaveBeenCalledOnce();
+      await terminal.onDispose?.();
+      await harness.manager.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

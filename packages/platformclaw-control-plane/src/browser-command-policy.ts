@@ -1,3 +1,5 @@
+import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
+
 type JsonObject = Record<string, unknown>;
 
 type GatewayRequest = {
@@ -135,4 +137,19 @@ export function projectBrowserCommands(value: unknown): JsonObject[] {
       !Array.isArray(entry) &&
       isBrowserSafeCommand(entry as JsonObject),
   );
+}
+
+export async function resolveBrowserGatewayCommandSuppression(params: {
+  gateway: GatewayRequest;
+  agentId: string;
+  message: unknown;
+}): Promise<boolean> {
+  const policy = await resolveBrowserCommandSuppression(params);
+  if (policy === "block") {
+    throw new BrowserGatewayProxyError(
+      "method-not-allowed",
+      "Gateway administration commands are not available to browser users",
+    );
+  }
+  return policy === "suppress";
 }

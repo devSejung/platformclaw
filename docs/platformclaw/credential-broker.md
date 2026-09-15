@@ -43,6 +43,17 @@ conservative cap follows enterprise evidence that admission became variable
 above eight channels. An idle lease expires after 24 hours; use renews the idle
 window. Gateway shutdown closes every master and removes its temporary files.
 
+The native VM terminal reserves one of those six channels for one tmux 3.2a or
+newer control-mode controller per assigned-VM snapshot. Up to eight tabs for a
+personal Agent share that controller; each tab maps to its own tmux window and
+pane. The other five channels remain available to execution and ACP, but ACP
+may consume them, so terminal admission cannot assume that one is free. The VM
+does not run an additional web listener. Closing a tab kills its pane; closing
+the last tab stops the controller and releases the lease channel. Loss of the
+SSH control transport or Gateway closes the controller and its sessions, with no
+restart durability promise. Allocation, target, credential, or user
+revocation closes all affected terminal sessions.
+
 If a master dies before a later command acquires a session, one shared
 connection attempt authenticates a replacement. PlatformClaw never blindly
 replays a command after transport loss because the remote command may already
