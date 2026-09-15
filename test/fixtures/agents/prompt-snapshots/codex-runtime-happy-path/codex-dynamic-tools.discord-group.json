@@ -25,10 +25,7 @@
                   "type": "string"
                 },
                 "encoding": {
-                  "enum": [
-                    "utf8",
-                    "base64"
-                  ],
+                  "enum": ["utf8", "base64"],
                   "type": "string"
                 },
                 "mimeType": {
@@ -38,10 +35,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "name",
-                "content"
-              ],
+              "required": ["name", "content"],
               "type": "object"
             },
             "maxItems": 50,
@@ -49,18 +43,12 @@
           },
           "cleanup": {
             "description": "Hidden session cleanup; visible=true always keeps the session.",
-            "enum": [
-              "delete",
-              "keep"
-            ],
+            "enum": ["delete", "keep"],
             "type": "string"
           },
           "context": {
             "description": "Native: omit/isolated clean; fork only needing requester transcript; visible fork requires same agent.",
-            "enum": [
-              "isolated",
-              "fork"
-            ],
+            "enum": ["isolated", "fork"],
             "type": "string"
           },
           "cwd": {
@@ -76,10 +64,7 @@
           },
           "mode": {
             "description": "\"run\" one-shot; \"session\" persistent with a thread, personal ACP target, or visible ACP session. Native visible sessions omit mode; visible ACP should use \"session\" (legacy \"run\" accepted).",
-            "enum": [
-              "run",
-              "session"
-            ],
+            "enum": ["run", "session"],
             "type": "string"
           },
           "model": {
@@ -87,9 +72,7 @@
           },
           "runtime": {
             "description": "Runtime; visible=true supports subagent or an available personal/configured ACP agent.",
-            "enum": [
-              "subagent"
-            ],
+            "enum": ["subagent"],
             "type": "string"
           },
           "runTimeoutSeconds": {
@@ -99,10 +82,7 @@
           },
           "sandbox": {
             "description": "\"inherit\" parent sandbox policy; \"require\" fails unless child is sandboxed.",
-            "enum": [
-              "inherit",
-              "require"
-            ],
+            "enum": ["inherit", "require"],
             "type": "string"
           },
           "task": {
@@ -137,9 +117,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "task"
-        ],
+        "required": ["task"],
         "type": "object"
       },
       "name": "sessions_spawn",
