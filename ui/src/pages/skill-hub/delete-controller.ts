@@ -1,4 +1,4 @@
-import type { ReactiveController, ReactiveControllerHost } from "lit";
+import type { ReactiveControllerHost } from "lit";
 import { t } from "../../i18n/index.ts";
 import {
   deletePlatformClawSkillHubSkill,
@@ -15,7 +15,7 @@ type PendingSkillDelete = {
   error?: string;
 };
 
-export class SkillHubDeleteController implements ReactiveController {
+export class SkillHubDeleteController {
   private pending: PendingSkillDelete | null = null;
   private deleting = false;
 
@@ -26,9 +26,7 @@ export class SkillHubDeleteController implements ReactiveController {
       closeDetail: () => void;
       setMessage: (message: PlatformClawSkillHubMessage | null) => void;
     },
-  ) {
-    host.addController(this);
-  }
+  ) {}
 
   get busy(): boolean {
     return this.deleting;
