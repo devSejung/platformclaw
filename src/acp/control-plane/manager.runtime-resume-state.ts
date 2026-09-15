@@ -1,5 +1,8 @@
 /** Recovery helpers for stale ACP persistent session ids and early runtime exits. */
-import { resolveSessionIdentityFromMeta } from "@openclaw/acp-core/runtime/session-identity";
+import {
+  identityHasStableSessionId,
+  resolveSessionIdentityFromMeta,
+} from "@openclaw/acp-core/runtime/session-identity";
 import type { AcpRuntime } from "@openclaw/acp-core/runtime/types";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
@@ -67,6 +70,7 @@ export async function prepareFreshManagerRuntimeHandleRetry(params: {
     !params.runtime ||
     !params.meta ||
     params.meta.mode !== "persistent" ||
+    identityHasStableSessionId(resolveSessionIdentityFromMeta(params.meta)) ||
     !isRecoverableMissingManagerPersistentSessionError(params.error)
   ) {
     return false;

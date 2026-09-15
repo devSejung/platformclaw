@@ -333,6 +333,20 @@ external harness name. A key beginning `agent:<personal-agent>:...` with a
 **Codex** badge is expected; the badge identifies the external coding agent.
 This keeps the conversation within the employee's browser authorization scope.
 
+Persistent ACP runtime processes are released after 10 minutes without work.
+The conversation row, sidebar entry, and resume identity remain intact. Send to
+the exact original `childSessionKey` to reopen the same backend conversation.
+If that backend identity can no longer resume, the turn reports failure instead
+of silently starting a new conversation; retry resume or explicitly spawn a new one.
+
+Each personal PlatformClaw agent owner can execute up to five ACP processes across
+its coding agents, not five per harness or per shared VM. Capacity pressure first
+releases the oldest resumable idle process. Running, queued, and approval-waiting
+turns are never reclaimed. If all five are busy, the new spawn reports a capacity
+failure; wait for work to finish and retry. The SSH lease defaults to six channels,
+leaving one for normal execution or terminal work. An explicitly lower lease limit
+or the SSH server's `MaxSessions` policy can constrain actual concurrency.
+
 After upgrading, create fresh sessions for this verification. The update does
 not reconstruct ACP metadata that an older deployment already deleted. A closed
 one-shot session retains its ACP identity and reports `closed` instead of being
@@ -354,9 +368,9 @@ need another turn.
   the Gateway container. Do not install the plugin into the running container.
 - **Authentication prompt or failure:** open a shell as the same Linux user and
   complete that coding agent's login. Authentication is per employee home.
-- **Session limit reached:** close an existing ACP session. PlatformClaw reserves
-  one of the four SafeConnect channels for normal execution or the browser
-  terminal and allows at most three concurrent ACP processes per employee.
+- **ACP capacity reached:** wait for a running turn to finish and retry.
+  Idle resumable processes are reclaimed automatically; active conversations
+  do not need to be deleted to free their runtime process.
 - **First task succeeded but follow-up says the session is closed:** it was a
   one-shot run. Start with `visible: true` or personal `mode: "session"` and use
   the returned key for later messages.

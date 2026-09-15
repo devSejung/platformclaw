@@ -211,10 +211,34 @@ describe("subagent spawn model + thinking plan", () => {
       expected: 2,
     },
     {
-      name: "falls back to 0 when config omits the timeout",
+      name: "falls back to 20 minutes when config omits the timeout",
       configured: undefined,
       explicit: undefined,
+      expected: 1200,
+    },
+    {
+      name: "configured zero disables the default timeout",
+      configured: 0,
+      explicit: undefined,
       expected: 0,
+    },
+    {
+      name: "configured 600 seconds overrides the built-in default",
+      configured: 600,
+      explicit: undefined,
+      expected: 600,
+    },
+    {
+      name: "explicit zero overrides the configured timeout",
+      configured: 1200,
+      explicit: 0,
+      expected: 0,
+    },
+    {
+      name: "explicit 600 seconds overrides the configured timeout",
+      configured: 1200,
+      explicit: 600,
+      expected: 600,
     },
   ])("$name", ({ configured, explicit, expected }) => {
     expect(

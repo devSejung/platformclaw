@@ -33,12 +33,12 @@ user-controlled agent ID is never sufficient authority.
 Gateway owns at most one process-local OpenSSH master for each prepared
 personal Agent and assigned-VM snapshot. The identity includes the allocation,
 target revision, credential revision, endpoint, accounts, target address, and
-approved host key. Any changed identity retires the old master; active commands
-may finish, but new commands use the new snapshot.
+approved host key. Any changed identity retires the old master and immediately
+closes its channels; new commands use the new snapshot.
 
 The first command authenticates through the one-shot broker and
 `sshpass -d 3`. Later commands use only the owner-private OpenSSH control socket.
-The lease admits four active channels and queues additional callers. This
+The lease admits six active channels and queues additional callers. This
 conservative cap follows enterprise evidence that admission became variable
 above eight channels. An idle lease expires after 24 hours; use renews the idle
 window. Gateway shutdown closes every master and removes its temporary files.

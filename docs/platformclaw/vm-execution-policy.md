@@ -165,7 +165,7 @@ terminal method and event projection after binding the browser identity to its
 personal Agent and assigned-VM snapshot.
 
 Each personal Agent may own one live browser terminal. Opening it consumes one
-channel from that assigned target's existing four-channel SafeConnect master;
+channel from that assigned target's existing six-channel SafeConnect master;
 the remaining channels stay available to Agent execution and queue under the
 existing lease policy when capacity is full. The terminal uses a direct SSH PTY
 and requires no broker, daemon, binary, or `tmux` installation on the VM.
@@ -597,7 +597,7 @@ The live probe established these vendor-boundary facts:
 - Three fresh commands took 4.7-5.3 seconds. One authenticated control
   connection then served 20 sequential commands in 60-96 milliseconds each.
 - One, two, four, and eight concurrent control sessions passed. Admission was
-  variable above eight, so production caps one master at four active channels
+  variable above eight, so production caps one master at six active channels
   and queues excess work.
 - An overlapping long and short command passed. A 16 MiB upload/download round
   trip produced the same SHA-256 value locally, remotely, and after download.
@@ -619,7 +619,7 @@ failure.
 
 The implemented lease re-resolves target and credential revisions before reuse,
 uses one single-flight authentication when a dead master must be replaced,
-queues above four active channels, and expires after 24 idle hours. It never
+queues above six active channels, and expires after 24 idle hours. It never
 blindly replays a command after connection loss.
 
 ## See also

@@ -977,10 +977,7 @@ describe("AcpSessionManager turn results", () => {
     }
   });
 
-  // Drives a thread-bound persistent ACP session whose first turn fails because
-  // the backend can no longer resume the stale session id, then a clean second
-  // turn. Returns observers so each case can assert whether the manager
-  // discarded the stale identity and retried fresh (#87830).
+  // A missing backend conversation must remain a visible failure, not erase its identity.
   function setupStaleResumeScenario(firstTurn: () => AsyncIterable<AcpRuntimeEvent>) {
     const runtimeState = createRuntime();
     hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
@@ -1030,7 +1027,7 @@ describe("AcpSessionManager turn results", () => {
     });
     runtimeState.getStatus.mockResolvedValue({
       summary: "status=alive",
-      backendSessionId: "acpx-sid-fresh",
+      backendSessionId: "acpx-sid-stale",
       details: { status: "alive" },
     });
     runtimeState.runTurn
@@ -1051,49 +1048,39 @@ describe("AcpSessionManager turn results", () => {
     return { runtimeState, sessionKey, runTurn, getMeta: () => currentMeta };
   }
 
-  function expectFreshRetry(scenario: ReturnType<typeof setupStaleResumeScenario>) {
-    expect(scenario.runtimeState.prepareFreshSession).toHaveBeenCalledWith({
-      sessionKey: scenario.sessionKey,
-    });
-    expect(scenario.runtimeState.ensureSession).toHaveBeenCalledTimes(2);
+  function expectRetainedIdentity(scenario: ReturnType<typeof setupStaleResumeScenario>) {
+    expect(scenario.runtimeState.prepareFreshSession).not.toHaveBeenCalled();
+    expect(scenario.runtimeState.ensureSession).toHaveBeenCalledTimes(1);
     expectRecordFields(mockCallArg(scenario.runtimeState.ensureSession), {
       sessionKey: scenario.sessionKey,
       resumeSessionId: "acpx-sid-stale",
     });
-    expect(mockCallArg(scenario.runtimeState.ensureSession, 1).resumeSessionId).toBeUndefined();
-    expect(scenario.getMeta().identity?.acpxSessionId).toBe("acpx-sid-fresh");
+    expect(scenario.getMeta().identity?.acpxSessionId).toBe("acpx-sid-stale");
     expect(scenario.getMeta().identity?.state).toBe("resolved");
     expect(scenario.getMeta().executionOwnerAgentId).toBe("person_one");
     const states = extractStatesFromUpserts();
     expect(states).toContain("running");
-    expect(states).toContain("idle");
-    expect(states).not.toContain("error");
+    expect(states).toContain("error");
   }
 
-  // The structured SESSION_RESUME_REQUIRED detail code drives recovery
-  // regardless of the backend's human-readable reason. Claude reports
-  // "Resource not found"; Kiro reports "Internal error" (RequestError -32603) —
-  // both must discard the stale persistent id and retry fresh (#87830).
+  // Backend wording and wrapped causes must not enable a silent new conversation.
   it.each([
     ["Resource not found", "Resource not found: acpx-sid-stale"],
     ["Internal error (Kiro RequestError -32603)", "Internal error"],
-  ])(
-    "retries with a fresh persistent session on a resume-required error: %s",
-    async (_label, reason) => {
-      const scenario = setupStaleResumeScenario(async function* () {
-        yield {
-          type: "error" as const,
-          code: "NO_SESSION",
-          detailCode: "SESSION_RESUME_REQUIRED",
-          message: `Persistent ACP session acpx-sid-stale could not be resumed: ${reason}`,
-        };
-      });
-      await expect(scenario.runTurn()).resolves.toBeUndefined();
-      expectFreshRetry(scenario);
-    },
-  );
+  ])("retains persistent identity on a resume-required error: %s", async (_label, reason) => {
+    const scenario = setupStaleResumeScenario(async function* () {
+      yield {
+        type: "error" as const,
+        code: "NO_SESSION",
+        detailCode: "SESSION_RESUME_REQUIRED",
+        message: `Persistent ACP session acpx-sid-stale could not be resumed: ${reason}`,
+      };
+    });
+    await expect(scenario.runTurn()).rejects.toThrow("could not be resumed");
+    expectRetainedIdentity(scenario);
+  });
 
-  it("recovers when the resume-required error is wrapped as a thrown cause", async () => {
+  it("retains identity when the resume-required error is wrapped as a thrown cause", async () => {
     const scenario = setupStaleResumeScenario(
       // eslint-disable-next-line require-yield -- an async generator that only throws is a valid empty stream.
       async function* () {
@@ -1104,8 +1091,8 @@ describe("AcpSessionManager turn results", () => {
         throw error;
       },
     );
-    await expect(scenario.runTurn()).resolves.toBeUndefined();
-    expectFreshRetry(scenario);
+    await expect(scenario.runTurn()).rejects.toThrow("could not be resumed");
+    expectRetainedIdentity(scenario);
   });
 
   it("does not retry a generic Internal error that is not a resume-required failure", async () => {

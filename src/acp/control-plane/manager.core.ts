@@ -61,8 +61,6 @@ import {
 } from "./runtime-options.js";
 import { SessionActorQueue } from "./session-actor-queue.js";
 
-const DEFAULT_ACP_MAX_CONCURRENT_SESSIONS = Number.POSITIVE_INFINITY;
-
 /** Coordinates ACP session metadata, runtime handles, per-session queues, and turn execution. */
 export class AcpSessionManager {
   private readonly actorQueue = new SessionActorQueue();
@@ -79,6 +77,11 @@ export class AcpSessionManager {
 
   constructor(deps: AcpSessionManagerDeps = DEFAULT_DEPS) {
     this.deps = deps;
+    this.runtimeHandles.startMaintenance(() => this.evictIdleRuntimeHandles());
+  }
+
+  stopIdleMaintenance(): Promise<void> {
+    return this.runtimeHandles.stopMaintenance();
   }
 
   resolveSession(params: { cfg: OpenClawConfig; sessionKey: string }): AcpSessionResolution {
@@ -163,14 +166,23 @@ export class AcpSessionManager {
     }
     await this.evictIdleRuntimeHandles();
     return await this.withSessionActor(sessionKey, async () => {
-      return await runManagerInitializeSession({
-        input,
-        sessionKey,
-        deps: this.deps,
-        runtimeHandles: this.runtimeHandles,
-        enforceConcurrentSessionLimit: this.enforceConcurrentSessionLimit.bind(this),
-        writeSessionMeta: this.writeSessionMeta.bind(this),
-      });
+      return await this.runtimeHandles.withCapacity(
+        {
+          sessionKey,
+          agent: input.agent,
+          executionOwnerAgentId: input.executionOwnerAgentId,
+          actorQueue: this.actorQueue,
+          activeTurnBySession: this.activeTurnBySession,
+        },
+        async () =>
+          await runManagerInitializeSession({
+            input,
+            sessionKey,
+            deps: this.deps,
+            runtimeHandles: this.runtimeHandles,
+            writeSessionMeta: this.writeSessionMeta.bind(this),
+          }),
+      );
     });
   }
 
@@ -376,14 +388,22 @@ export class AcpSessionManager {
     sessionKey: string;
     meta: SessionAcpMeta;
   }): Promise<{ runtime: AcpRuntime; handle: AcpRuntimeHandle; meta: SessionAcpMeta }> {
-    return await ensureManagerRuntimeHandle({
-      ...params,
-      deps: this.deps,
-      runtimeHandles: this.runtimeHandles,
-      enforceConcurrentSessionLimit: (limitParams) =>
-        this.enforceConcurrentSessionLimit(limitParams),
-      writeSessionMeta: async (writeParams) => await this.writeSessionMeta(writeParams),
-    });
+    return await this.runtimeHandles.withCapacity(
+      {
+        sessionKey: params.sessionKey,
+        agent: params.meta.agent,
+        executionOwnerAgentId: params.meta.executionOwnerAgentId,
+        actorQueue: this.actorQueue,
+        activeTurnBySession: this.activeTurnBySession,
+      },
+      async () =>
+        await ensureManagerRuntimeHandle({
+          ...params,
+          deps: this.deps,
+          runtimeHandles: this.runtimeHandles,
+          writeSessionMeta: async (writeParams) => await this.writeSessionMeta(writeParams),
+        }),
+    );
   }
 
   private runtimeOptionCommandServices(): RuntimeOptionCommandServices {
@@ -394,20 +414,6 @@ export class AcpSessionManager {
       resolveRuntimeCapabilities: this.resolveRuntimeCapabilities.bind(this),
       writeSessionMeta: this.writeSessionMeta.bind(this),
     };
-  }
-
-  private enforceConcurrentSessionLimit(params: { cfg: OpenClawConfig; sessionKey: string }): void {
-    const limit = DEFAULT_ACP_MAX_CONCURRENT_SESSIONS;
-    if (this.runtimeHandles.has(params.sessionKey)) {
-      return;
-    }
-    const activeCount = this.runtimeHandles.size();
-    if (activeCount >= limit) {
-      throw new AcpRuntimeError(
-        "ACP_SESSION_INIT_FAILED",
-        `ACP max concurrent sessions reached (${activeCount}/${limit}).`,
-      );
-    }
   }
 
   private recordTurnCompletion(params: { startedAt: number; errorCode?: AcpRuntimeError["code"] }) {
@@ -568,7 +574,12 @@ export class AcpSessionManager {
     const queued = this.actorQueue.run(actorKey, async () => {
       actorStarted = true;
       this.throwIfAborted(signal);
-      return await op();
+      try {
+        return await op();
+      } finally {
+        // Idle starts after all operation cleanup, not when a long-running turn began.
+        this.runtimeHandles.get(sessionKey);
+      }
     });
     if (!signal) {
       return await queued;

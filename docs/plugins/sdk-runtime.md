@@ -28,6 +28,14 @@ register(api) {
 
 `api.runtime.version` is the current OpenClaw product version, sourced from the shared version resolver so plugins see the same value the CLI reports.
 
+ACP stdio providers registered through `openclaw/plugin-sdk/acp-runtime-backend`
+may advertise `AcpProcessTransportProvider.maxConcurrentSessions`, a positive
+integer capacity shared by an execution owner across the provider's supported
+harnesses. Omit it to retain unrestricted generic admission. The manager serializes
+owner admission and releases resumable idle handles before reporting capacity
+failure; the provider must still reserve physical launch capacity before awaiting
+process creation. Runtime release retains persistent conversation metadata and IDs.
+
 ## Config loading and writes
 
 Prefer config that was already passed into the active call path, for example `api.config` during registration or a `cfg` argument on channel/provider callbacks. This keeps one process snapshot flowing through the work instead of reparsing config on hot paths.

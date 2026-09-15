@@ -10,6 +10,9 @@ import type {
 } from "@openclaw/acp-core/runtime/types";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { logVerbose } from "../../globals.js";
+import { KeyedAsyncQueue } from "../../plugin-sdk/keyed-async-queue.js";
+import { AcpRuntimeError } from "../runtime/errors.js";
+import { getAcpProcessTransportSessionLimit } from "../runtime/process-transport.js";
 import type { ActiveTurnState, SessionAcpMeta } from "./manager.types.js";
 import { DEFAULT_ACP_RUNTIME_IDLE_TTL_MS, normalizeActorKey } from "./manager.utils.js";
 import { RuntimeCache, type CachedRuntimeState } from "./runtime-cache.js";
@@ -21,6 +24,43 @@ export class ManagerRuntimeHandleCache {
   private readonly runtimeCache = new RuntimeCache();
   private evictedRuntimeCount = 0;
   private lastEvictedAt: number | undefined;
+  private readonly admissionQueue = new KeyedAsyncQueue();
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  private maintenance: (() => Promise<void>) | undefined;
+  private maintenanceTask: Promise<void> | undefined;
+
+  startMaintenance(maintenance: () => Promise<void>): void {
+    this.maintenance = maintenance;
+    this.armMaintenance();
+  }
+
+  stopMaintenance(): Promise<void> {
+    clearTimeout(this.idleTimer);
+    this.idleTimer = undefined;
+    this.maintenance = undefined;
+    return this.maintenanceTask ?? Promise.resolve();
+  }
+
+  private armMaintenance(): void {
+    if (this.idleTimer || !this.maintenance || this.size() === 0) {
+      return;
+    }
+    const oldest = Math.min(...this.runtimeCache.snapshot().map((entry) => entry.lastTouchedAt));
+    // Expired busy entries are revisited without a hot timer loop; completion touches their clock.
+    const delay = Math.max(60_000, oldest + DEFAULT_ACP_RUNTIME_IDLE_TTL_MS - Date.now());
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = undefined;
+      this.maintenanceTask = this.maintenance?.()
+        .catch((error: unknown) => {
+          logVerbose(`acp-manager: idle maintenance failed: ${String(error)}`);
+        })
+        .finally(() => {
+          this.maintenanceTask = undefined;
+          this.armMaintenance();
+        });
+    }, delay);
+    this.idleTimer.unref?.();
+  }
 
   size(): number {
     return this.runtimeCache.size();
@@ -36,10 +76,111 @@ export class ManagerRuntimeHandleCache {
 
   set(sessionKey: string, state: CachedRuntimeState): void {
     this.runtimeCache.set(normalizeActorKey(sessionKey), state);
+    this.armMaintenance();
   }
 
   clear(sessionKey: string): void {
     this.runtimeCache.clear(normalizeActorKey(sessionKey));
+    if (this.size() === 0) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
+    }
+  }
+
+  /** Admission is serialized across harnesses; victim locks are never acquired behind user work. */
+  async withCapacity<T>(
+    params: {
+      sessionKey: string;
+      agent: string;
+      executionOwnerAgentId?: string;
+      actorQueue: SessionActorQueue;
+      activeTurnBySession: Map<string, ActiveTurnState>;
+    },
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (!params.executionOwnerAgentId) {
+      return await operation();
+    }
+    const owner = params.executionOwnerAgentId.trim().toLowerCase();
+    const limit = getAcpProcessTransportSessionLimit({
+      executionOwnerAgentId: owner,
+      agent: params.agent,
+    });
+    if (limit === undefined) {
+      return await operation();
+    }
+    return await this.admissionQueue.enqueue(owner, async () => {
+      if (!this.has(params.sessionKey)) {
+        const ownerEntries = () =>
+          this.runtimeCache
+            .snapshot()
+            .filter((entry) => entry.state.executionOwnerAgentId === owner);
+        for (const candidate of ownerEntries().toSorted(
+          (a, b) => a.lastTouchedAt - b.lastTouchedAt || a.actorKey.localeCompare(b.actorKey),
+        )) {
+          if (ownerEntries().length < limit) {
+            break;
+          }
+          await this.reclaim(candidate.actorKey, params, "capacity-reclaimed", 0);
+        }
+        if (ownerEntries().length >= limit) {
+          throw new AcpRuntimeError(
+            "ACP_SESSION_INIT_FAILED",
+            `ACP capacity reached (${limit}). No reclaimable idle runtime is available; wait for work to finish or explicitly close an unused session and retry.`,
+          );
+        }
+      }
+      return await operation();
+    });
+  }
+
+  private async reclaim(
+    actorKey: string,
+    params: {
+      actorQueue: SessionActorQueue;
+      activeTurnBySession: Map<string, ActiveTurnState>;
+    },
+    reason: string,
+    minimumIdleMs: number,
+  ): Promise<void> {
+    if (
+      params.activeTurnBySession.has(actorKey) ||
+      params.actorQueue.getPendingCount(actorKey) > 0
+    ) {
+      return;
+    }
+    await params.actorQueue.run(actorKey, async () => {
+      // Count includes this maintenance operation. A newly queued user operation wins over eviction.
+      if (
+        params.activeTurnBySession.has(actorKey) ||
+        params.actorQueue.getPendingCount(actorKey) > 1
+      ) {
+        return;
+      }
+      const cached = this.runtimeCache.peek(actorKey);
+      const touchedAt = this.runtimeCache.getLastTouchedAt(actorKey);
+      if (
+        !cached ||
+        touchedAt === null ||
+        Date.now() - touchedAt < minimumIdleMs ||
+        cached.mode !== "persistent" ||
+        !(cached.handle.backendSessionId || cached.handle.agentSessionId)
+      ) {
+        return;
+      }
+      // Keep failed closes manager-owned; only a successful release frees admission capacity.
+      if (
+        await this.close({
+          sessionKey: actorKey,
+          reason,
+          expectedHandle: cached.handle,
+          throwOnError: true,
+        }).catch(() => false)
+      ) {
+        this.evictedRuntimeCount += 1;
+        this.lastEvictedAt = Date.now();
+      }
+    });
   }
 
   /** Returns cache counters used by ACP manager observability snapshots. */
@@ -124,33 +265,7 @@ export class ManagerRuntimeHandleCache {
     }
 
     for (const candidate of candidates) {
-      // Evict under the same actor queue so turns cannot race with runtime close.
-      await params.actorQueue.run(candidate.actorKey, async () => {
-        if (params.activeTurnBySession.has(candidate.actorKey)) {
-          return;
-        }
-        const lastTouchedAt = this.runtimeCache.getLastTouchedAt(candidate.actorKey);
-        if (lastTouchedAt == null || now - lastTouchedAt < idleTtlMs) {
-          return;
-        }
-        const cached = this.runtimeCache.peek(candidate.actorKey);
-        if (!cached) {
-          return;
-        }
-        this.runtimeCache.clear(candidate.actorKey);
-        this.evictedRuntimeCount += 1;
-        this.lastEvictedAt = Date.now();
-        try {
-          await cached.runtime.close({
-            handle: cached.handle,
-            reason: "idle-evicted",
-          });
-        } catch (error) {
-          logVerbose(
-            `acp-manager: idle eviction close failed for ${candidate.state.handle.sessionKey}: ${String(error)}`,
-          );
-        }
-      });
+      await this.reclaim(candidate.actorKey, params, "idle-evicted", idleTtlMs);
     }
   }
 

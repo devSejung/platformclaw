@@ -1,3 +1,4 @@
+import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 /** Public singleton facade for the ACP session manager control plane. */
 import { AcpSessionManager } from "./manager.core.js";
 
@@ -14,21 +15,30 @@ export type {
   AcpStartupIdentityReconcileResult,
 } from "./manager.types.js";
 
-let ACP_SESSION_MANAGER_SINGLETON: AcpSessionManager | null = null;
+const managerState = resolveGlobalSingleton<{ manager: AcpSessionManager | null }>(
+  Symbol.for("openclaw.acp.sessionManager"),
+  () => ({ manager: null }),
+  async (state) => {
+    await state.manager?.stopIdleMaintenance?.();
+    state.manager = null;
+  },
+);
 
 /** Returns the process-wide ACP session manager singleton. */
 export function getAcpSessionManager(): AcpSessionManager {
-  if (!ACP_SESSION_MANAGER_SINGLETON) {
-    ACP_SESSION_MANAGER_SINGLETON = new AcpSessionManager();
+  if (!managerState.manager) {
+    managerState.manager = new AcpSessionManager();
   }
-  return ACP_SESSION_MANAGER_SINGLETON;
+  return managerState.manager;
 }
 
 export const testing = {
   resetAcpSessionManagerForTests() {
-    ACP_SESSION_MANAGER_SINGLETON = null;
+    void managerState.manager?.stopIdleMaintenance?.();
+    managerState.manager = null;
   },
   setAcpSessionManagerForTests(manager: unknown) {
-    ACP_SESSION_MANAGER_SINGLETON = manager as AcpSessionManager | null;
+    void managerState.manager?.stopIdleMaintenance?.();
+    managerState.manager = manager as AcpSessionManager | null;
   },
 };

@@ -30,7 +30,6 @@ export async function runManagerInitializeSession(params: {
   sessionKey: string;
   deps: Pick<AcpSessionManagerDeps, "requireRuntimeBackend">;
   runtimeHandles: ManagerRuntimeHandleCache;
-  enforceConcurrentSessionLimit: (params: { cfg: OpenClawConfig; sessionKey: string }) => void;
   writeSessionMeta: WriteManagerSessionMeta;
 }): Promise<{
   runtime: AcpRuntime;
@@ -48,10 +47,6 @@ export async function runManagerInitializeSession(params: {
   const requestedCwd = initialRuntimeOptions.cwd;
   const requestedModel = initialRuntimeOptions.model;
   const requestedThinking = initialRuntimeOptions.thinking;
-  params.enforceConcurrentSessionLimit({
-    cfg: input.cfg,
-    sessionKey,
-  });
   const handle = await withAcpRuntimeErrorBoundary({
     run: async () =>
       await runtime.ensureSession({

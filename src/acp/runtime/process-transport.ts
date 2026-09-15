@@ -45,6 +45,8 @@ export class AcpProcessTransportError extends Error {
 export type AcpProcessTransportProvider = {
   id: string;
   isolatesSandboxedRequesters: boolean;
+  /** Owner-scoped live process capacity across supported harnesses. */
+  maxConcurrentSessions?: number;
   supports(input: Pick<AcpProcessTransportLaunch, "executionOwnerAgentId" | "agent">): boolean;
   prepare(
     input: Pick<AcpProcessTransportLaunch, "executionOwnerAgentId" | "agent" | "sessionKey">,
@@ -93,6 +95,12 @@ export function registerAcpProcessTransport(provider: AcpProcessTransportProvide
   if (!id) {
     throw new Error("ACP process transport id is required");
   }
+  if (
+    provider.maxConcurrentSessions !== undefined &&
+    (!Number.isSafeInteger(provider.maxConcurrentSessions) || provider.maxConcurrentSessions < 1)
+  ) {
+    throw new Error("ACP process transport max concurrent sessions must be a positive integer");
+  }
   const registered = { ...provider, id };
   STATE.providers.set(id, registered);
   return () => {
@@ -132,6 +140,14 @@ export async function diagnoseAcpProcessTransport(input: {
 }): Promise<AcpProcessTransportDiagnostic | undefined> {
   const provider = findProvider(input);
   return await provider?.diagnose?.(input);
+}
+
+/** Omitted plugin capacity leaves generic owner admission unrestricted. */
+export function getAcpProcessTransportSessionLimit(input: {
+  executionOwnerAgentId: string;
+  agent: string;
+}): number | undefined {
+  return findProvider(input)?.maxConcurrentSessions;
 }
 
 function preparedKey(executionOwnerAgentId: string, sessionKey: string): string {
