@@ -475,7 +475,14 @@ suite.define(() => {
       const sidebarRows = page.locator(".sidebar-recent-session");
       await expect.poll(() => sidebarRows.count()).toBe(3);
       const initialListCount = (await gateway.getRequests("sessions.list")).length;
+      const refreshedResponse = sessionsListResponse([
+        sessionRow(sessionKey, "Reconnect refreshed", Date.parse("2026-07-01T16:01:00.000Z")),
+        sessionRow(otherSessionKeys[0], "Other A", Date.parse("2026-07-01T15:59:00.000Z")),
+        sessionRow(otherSessionKeys[1], "Other B", Date.parse("2026-07-01T15:58:00.000Z")),
+      ]);
 
+      expect(await sidebarRow.textContent()).toContain("Disconnect proof");
+      await gateway.setMethodResponse("sessions.list", refreshedResponse);
       await gateway.deferNextThenCloseLatest("sessions.list", 1006, "disconnect proof");
       await sidebarRow.waitFor({ state: "visible" });
       await captureUiProof(page, "sidebar-sessions-during-reconnect.png");
@@ -493,11 +500,6 @@ suite.define(() => {
       }
 
       const firstReconnectListCount = (await gateway.getRequests("sessions.list")).length;
-      const refreshedResponse = sessionsListResponse([
-        sessionRow(sessionKey, "Reconnect refreshed", Date.parse("2026-07-01T16:01:00.000Z")),
-        sessionRow(otherSessionKeys[0], "Other A", Date.parse("2026-07-01T15:59:00.000Z")),
-        sessionRow(otherSessionKeys[1], "Other B", Date.parse("2026-07-01T15:58:00.000Z")),
-      ]);
       await gateway.resolveDeferred("sessions.list", refreshedResponse);
       await expect.poll(() => sidebarRow.textContent()).toContain("Reconnect refreshed");
       await expect.poll(() => sidebarRows.count()).toBe(3);
