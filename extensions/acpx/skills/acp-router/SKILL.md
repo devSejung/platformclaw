@@ -80,6 +80,12 @@ Required behavior:
 5. Set `agentId` explicitly unless ACP default agent is known.
 6. Do not ask user to run slash commands or CLI when this path works directly.
 
+For a visible sidebar/dashboard ACP conversation, use `visible: true` and
+`mode: "session"`, omit `thread`, and keep the returned `childSessionKey`.
+Send every later prompt with `sessions_send` to that same key. `mode: "run"`
+is accepted only for compatibility on this visible path; do not choose it for
+new persistent requests.
+
 Example:
 
 User: "spawn a test codex ACP session in thread and tell it to say hi"

@@ -37,7 +37,7 @@ export const VISIBLE_SESSIONS_SPAWN_SCHEMA = {
   visible: Type.Optional(
     Type.Boolean({
       description:
-        'Persistent sidebar session; supports native subagents and available personal/configured ACP agents. For ACP set runtime="acp", agentId to the coding agent, and optional mode="run"; omit thread/thinking/lightContext/attachments/attachAs.',
+        'Persistent sidebar session; supports native subagents and available personal/configured ACP agents. For ACP set runtime="acp", agentId to the coding agent, and mode="session"; legacy mode="run" is accepted. Native visible sessions omit mode. Omit thread/thinking/lightContext/attachments/attachAs.',
     }),
   ),
   worktree: Type.Optional(Type.Boolean({ description: "Visible session worktree" })),

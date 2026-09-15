@@ -987,7 +987,13 @@ describe("session accessor seam", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
     expect(inserted?.sessionId).not.toBe(scope.sessionKey);
-    expect(loadSessionEntry(scope)?.sessionId).toBe(inserted?.sessionId);
+    expect(inserted?.lifecycleRevision).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(loadSessionEntry(scope)).toMatchObject({
+      sessionId: inserted?.sessionId,
+      lifecycleRevision: inserted?.lifecycleRevision,
+    });
   });
 
   it("creates entries with initialized SQLite transcripts and scoped session metadata", async () => {
@@ -1014,6 +1020,10 @@ describe("session accessor seam", () => {
     }
     expect(created.sessionFile).toBe(scope.sessionKey);
     expect(created.entry).not.toHaveProperty("sessionFile");
+    expect(created.entry.lifecycleRevision).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(loadSessionEntry(scope)?.lifecycleRevision).toBe(created.entry.lifecycleRevision);
     await expect(
       loadTranscriptEvents({
         agentId: "main",
@@ -1022,6 +1032,37 @@ describe("session accessor seam", () => {
         storePath,
       }),
     ).resolves.toEqual([expect.objectContaining({ id: "session-1", type: "session" })]);
+  });
+
+  it("preserves lifecycle ownership when adopting an existing session", async () => {
+    const scope = {
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      storePath,
+    };
+    await upsertSessionEntry(scope, {
+      sessionId: "session-1",
+      lifecycleRevision: "revision-1",
+      updatedAt: 10,
+    });
+
+    const created = await createSessionEntryWithTranscript(scope, ({ existingEntry }) => ({
+      ok: true,
+      entry: {
+        ...expectDefined(existingEntry),
+        updatedAt: 20,
+      },
+    }));
+
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      throw new Error("expected replacement session creation to succeed");
+    }
+    expect(created.entry.lifecycleRevision).toBe("revision-1");
+    expect(loadSessionEntry(scope)).toMatchObject({
+      sessionId: "session-1",
+      lifecycleRevision: "revision-1",
+    });
   });
 
   it("resolves the default-store SQLite identity before appending", async () => {

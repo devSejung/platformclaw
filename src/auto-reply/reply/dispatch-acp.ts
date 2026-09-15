@@ -1,5 +1,8 @@
 // Dispatches reply turns through ACP runtimes and projects their events.
-import { formatAcpRuntimeErrorText } from "@openclaw/acp-core/runtime/error-text";
+import {
+  type AcpRuntimeErrorTextContext,
+  formatAcpRuntimeErrorText,
+} from "@openclaw/acp-core/runtime/error-text";
 import { resolveAcpThreadSessionDetailLines } from "@openclaw/acp-core/runtime/session-identifiers";
 import {
   isSessionIdentityPending,
@@ -197,6 +200,22 @@ async function hasBoundConversationForSession(params: {
       conversationId.length > 0
     );
   });
+}
+
+async function resolveAcpErrorTextContext(params: {
+  error: AcpRuntimeError;
+  cfg: OpenClawConfig;
+  sessionKey: string;
+  channelRaw: string | undefined;
+  accountIdRaw: string | undefined;
+}): Promise<AcpRuntimeErrorTextContext | undefined> {
+  if (params.error.code !== "ACP_SESSION_INIT_FAILED") {
+    return undefined;
+  }
+  const hasConversationBinding = await hasBoundConversationForSession(params);
+  return {
+    recoveryTarget: hasConversationBinding ? "bound-conversation" : "session-key",
+  };
 }
 
 export type AcpDispatchAttemptResult = {
@@ -636,12 +655,19 @@ export async function tryDispatchAcpReply(params: {
     }
     if (acpResolution.kind === "stale") {
       emitAuditError(acpResolution.error);
+      const errorTextContext = await resolveAcpErrorTextContext({
+        error: acpResolution.error,
+        cfg: params.cfg,
+        sessionKey: canonicalSessionKey,
+        channelRaw: params.ctx.OriginatingChannel ?? params.ctx.Surface ?? params.ctx.Provider,
+        accountIdRaw: params.ctx.AccountId,
+      });
       await maybeUnbindStaleBoundConversations({
         targetSessionKey: canonicalSessionKey,
         error: acpResolution.error,
       });
       const delivered = await delivery.deliver("final", {
-        text: formatAcpRuntimeErrorText(acpResolution.error),
+        text: formatAcpRuntimeErrorText(acpResolution.error, errorTextContext),
         isError: true,
       });
       return finishAttempt({
@@ -815,11 +841,18 @@ export async function tryDispatchAcpReply(params: {
     });
     emitAuditError(acpError);
     await projector.flush(true);
+    const errorTextContext = await resolveAcpErrorTextContext({
+      error: acpError,
+      cfg: params.cfg,
+      sessionKey: canonicalSessionKey,
+      channelRaw: params.ctx.OriginatingChannel ?? params.ctx.Surface ?? params.ctx.Provider,
+      accountIdRaw: params.ctx.AccountId,
+    });
     await maybeUnbindStaleBoundConversations({
       targetSessionKey: canonicalSessionKey,
       error: acpError,
     });
-    const errorText = formatAcpRuntimeErrorText(acpError);
+    const errorText = formatAcpRuntimeErrorText(acpError, errorTextContext);
     // Snapshot streamed output before delivering the error: delivery accumulates
     // what it sends, so reading after would fold the error text in twice.
     const partialText = delivery.getAccumulatedTranscriptText();

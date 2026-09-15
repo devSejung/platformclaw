@@ -180,8 +180,8 @@ function createSessionsSpawnToolSchema(params: {
     mode: optionalStringEnum(spawnModes, {
       description:
         params.threadAvailable || params.acpAvailable
-          ? '"run" one-shot; "session" persistent with a thread or personal ACP execution target. Omit with visible=true (persistent).'
-          : '"run" one-shot. Omit with visible=true; visible sessions are persistent.',
+          ? '"run" one-shot; "session" persistent with a thread, personal ACP target, or visible ACP session. Native visible sessions omit mode; visible ACP should use "session" (legacy "run" accepted).'
+          : '"run" one-shot. Native visible sessions omit mode and are persistent.',
     }),
     cleanup: optionalStringEnum(["delete", "keep"] as const, {
       description: "Hidden session cleanup; visible=true always keeps the session.",

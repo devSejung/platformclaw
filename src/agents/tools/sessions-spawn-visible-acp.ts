@@ -114,8 +114,8 @@ function assertVisibleAcpParameters(raw: Record<string, unknown>): void {
     ["thread", raw.thread === true ? true : undefined, "visible sessions route to the dashboard"],
     [
       "mode",
-      mode === undefined || mode === "run" ? undefined : mode,
-      'visible ACP accepts only the spawned-task envelope mode="run"; the dashboard ACP session remains persistent',
+      mode === undefined || mode === "run" || mode === "session" ? undefined : mode,
+      'visible ACP accepts mode="session"; mode="run" remains accepted for compatibility',
     ],
     [
       "context",
@@ -464,9 +464,9 @@ export async function spawnVisibleAcpSession(params: {
       status: "accepted",
       childSessionKey,
       runId,
-      mode: "run",
+      mode: "session",
       cleanup: "keep",
-      note: "Persistent ACP conversation created. Send follow-ups to childSessionKey; the dashboard displays its live conversation.",
+      note: `Persistent ACP conversation created. Continue with sessions_send({ sessionKey: "${childSessionKey}", message: "..." }); reuse exactly this key for every follow-up.`,
     };
   } finally {
     reservation.release();

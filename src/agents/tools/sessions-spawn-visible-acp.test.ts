@@ -35,71 +35,77 @@ describe("visible persistent ACP spawn", () => {
     });
   });
 
-  it("accepts mode=run as the task envelope while creating one persistent logical dashboard key", async () => {
-    const callGateway = vi.fn(
-      async <T = Record<string, unknown>>(
-        _method: string,
-        _params: Record<string, unknown>,
-      ): Promise<T> =>
-        ({
-          key: "agent:claude-worker:dashboard:child",
-          sessionId: "visible-session",
-          lifecycleRevision: "visible-revision",
-          runStarted: true,
-          runId: "run-visible-acp",
-        }) as T,
-    );
-    const registerRun = vi.fn();
+  it.each([undefined, "session", "run"] as const)(
+    "reports a reusable session for visible ACP mode=%s while keeping first-turn lifecycle internal",
+    async (mode) => {
+      const callGateway = vi.fn(
+        async <T = Record<string, unknown>>(
+          _method: string,
+          _params: Record<string, unknown>,
+        ): Promise<T> =>
+          ({
+            key: "agent:claude-worker:dashboard:child",
+            sessionId: "visible-session",
+            lifecycleRevision: "visible-revision",
+            runStarted: true,
+            runId: "run-visible-acp",
+          }) as T,
+      );
+      const registerRun = vi.fn();
 
-    const result = await spawnVisibleAcpSession({
-      raw: { runtime: "acp", visible: true, mode: "run" },
-      task: "review the change",
-      taskName: "review-change",
-      label: "Review change",
-      requestedAgentId: "claude-worker",
-      sandbox: "inherit",
-      options: {
-        agentSessionKey: "agent:main:main",
-        completionOwnerKey: "agent:main:main",
-        config: visibleAcpConfig(),
-        callGateway: callGateway as unknown as InProcessGatewayCaller,
-        registerRun,
-        countActiveRuns: () => 0,
-      },
-    });
-
-    expect(result).toMatchObject({
-      status: "accepted",
-      childSessionKey: "agent:claude-worker:dashboard:child",
-      runId: "run-visible-acp",
-      mode: "run",
-      cleanup: "keep",
-    });
-    expect(callGateway).toHaveBeenCalledWith(
-      "sessions.create",
-      expect.objectContaining({
-        agentId: "claude-worker",
-        label: "Review change",
+      const result = await spawnVisibleAcpSession({
+        raw: { runtime: "acp", visible: true, ...(mode ? { mode } : {}) },
         task: "review the change",
-        parentSessionKey: "agent:main:main",
-        spawnDepth: 1,
-      }),
-    );
-    expect(registerRun).toHaveBeenCalledWith(
-      expect.objectContaining({
+        taskName: "review-change",
+        label: "Review change",
+        requestedAgentId: "claude-worker",
+        sandbox: "inherit",
+        options: {
+          agentSessionKey: "agent:main:main",
+          completionOwnerKey: "agent:main:main",
+          config: visibleAcpConfig(),
+          callGateway: callGateway as unknown as InProcessGatewayCaller,
+          registerRun,
+          countActiveRuns: () => 0,
+        },
+      });
+
+      expect(result).toMatchObject({
+        status: "accepted",
         childSessionKey: "agent:claude-worker:dashboard:child",
         runId: "run-visible-acp",
-        agentId: "claude-worker",
+        mode: "session",
         cleanup: "keep",
-        spawnMode: "run",
-      }),
-    );
-  });
+        note: expect.stringContaining(
+          'sessions_send({ sessionKey: "agent:claude-worker:dashboard:child"',
+        ),
+      });
+      expect(callGateway).toHaveBeenCalledWith(
+        "sessions.create",
+        expect.objectContaining({
+          agentId: "claude-worker",
+          label: "Review change",
+          task: "review the change",
+          parentSessionKey: "agent:main:main",
+          spawnDepth: 1,
+        }),
+      );
+      expect(registerRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          childSessionKey: "agent:claude-worker:dashboard:child",
+          runId: "run-visible-acp",
+          agentId: "claude-worker",
+          cleanup: "keep",
+          spawnMode: "run",
+        }),
+      );
+    },
+  );
 
-  it("rejects conflicting visible ACP mode values", async () => {
+  it("rejects unknown visible ACP mode values", async () => {
     await expect(
       spawnVisibleAcpSession({
-        raw: { runtime: "acp", visible: true, mode: "session" },
+        raw: { runtime: "acp", visible: true, mode: "other" },
         task: "review",
         label: "",
         requestedAgentId: "claude-worker",
@@ -111,7 +117,7 @@ describe("visible persistent ACP spawn", () => {
           countActiveRuns: () => 0,
         },
       }),
-    ).rejects.toThrow('accepts only the spawned-task envelope mode="run"');
+    ).rejects.toThrow('visible ACP accepts mode="session"');
   });
 
   it("uses exact create lifecycle ids for failure cleanup so a replacement row is never key-deleted", async () => {

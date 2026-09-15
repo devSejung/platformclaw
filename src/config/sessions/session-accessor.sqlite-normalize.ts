@@ -7,6 +7,9 @@ export function createFallbackSessionEntry(patch: Partial<SessionEntry>): Sessio
     sessionId: patch.sessionId ?? randomUUID(),
     updatedAt: patch.updatedAt ?? now,
     ...patch,
+    // Missing-row upserts create a durable identity and must own a revision at
+    // that boundary; consumers use it to reject stale lifecycle work.
+    lifecycleRevision: patch.lifecycleRevision?.trim() || randomUUID(),
   };
 }
 

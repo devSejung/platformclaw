@@ -224,9 +224,11 @@ Per-agent override: `agents.entries.*.subagents.delegationMode`.
   When `true`, requests channel thread binding for this sub-agent session.
 </ParamField>
 <ParamField path="mode" type='"run" | "session"' default="run">
-  If `thread: true` and `mode` is omitted, default becomes `session`. `mode: "session"` requires `thread: true`.
-  If thread binding is unavailable for the requester channel, use `mode: "run"` instead.
-  With `visible: true`, omit `mode`; visible sessions are persistent and do not support `mode: "run"`.
+  For thread-bound spawns, omitting `mode` defaults to `session`; without a
+  usable thread binding, use `mode: "run"` instead.
+  With `visible: true` and `runtime: "acp"`, use `mode: "session"`; the
+  returned session remains reusable through `sessions_send`. Legacy callers
+  may still pass `mode: "run"`. Native visible sessions omit `mode`.
 </ParamField>
 <ParamField path="cleanup" type='"delete" | "keep"' default="keep">
   `"delete"` archives the session immediately after announce (still keeps the transcript via rename).
@@ -238,7 +240,7 @@ Per-agent override: `agents.entries.*.subagents.delegationMode`.
   `fork` branches the requester's current transcript into the child session. Native sub-agents only. Thread-bound spawns default to `fork`; non-thread spawns default to `isolated`. A visible fork must target the same agent as the requester.
 </ParamField>
 <ParamField path="visible" type="boolean" default="false">
-  Create a persistent dashboard session that the user can open in the Control UI. Visible spawns support only `runtime: "subagent"` and always keep the created session.
+  Create a persistent dashboard session that the user can open in the Control UI. Visible spawns support native sub-agents and available personal or configured ACP agents, and always keep the created session.
 </ParamField>
 <ParamField path="worktree" type="boolean" default="false">
   Provision a managed git worktree for the new dashboard session. Requires `visible: true`.
@@ -257,7 +259,7 @@ their latest assistant turn back to the requester; external delivery stays with
 the parent/requester agent.
 </Warning>
 
-With `visible: true`, `model`, `cwd`, and a same-agent `context: "fork"` are supported. Use this mode when the user asks to create or open a thread that should appear in the sidebar. A sandboxed target restricts `cwd` to that agent's workspace. Thread binding, `mode`, thinking overrides, `lightContext`, `attachments`, and `attachAs` are unavailable on this path because visible sessions are persistent dashboard sessions created through `sessions.create`. The new dashboard child inherits the requester's effective tool-policy ceiling before its first turn. Session listing and addressing obey `tools.sessions.visibility`; the default `tree` scope covers the current session and its own spawn subtree. See [Managed worktrees](/concepts/managed-worktrees) for checkout naming, setup, cleanup, and restore behavior.
+With `visible: true`, `model` and `cwd` are supported. Native sub-agents also support a same-agent `context: "fork"` and optional managed worktree. Visible ACP sessions use `runtime: "acp"`, the coding-agent `agentId`, and `mode: "session"`; omit `thread`, then send every follow-up to the returned `childSessionKey` with `sessions_send`. `mode: "run"` remains accepted on visible ACP spawns for compatibility, but the result reports the persistent `mode: "session"`. Thread binding, thinking overrides, `lightContext`, `attachments`, and `attachAs` are unavailable on the visible path; ACP visible sessions also reject transcript forks, resume ids, parent streaming, and worktrees. A sandboxed native target restricts `cwd` to that agent's workspace. The new dashboard child inherits the requester's effective tool-policy ceiling before its first turn. Session listing and addressing obey `tools.sessions.visibility`; the default `tree` scope covers the current session and its own spawn subtree. See [Managed worktrees](/concepts/managed-worktrees) for checkout naming, setup, cleanup, and restore behavior.
 
 ### Task names and targeting
 
