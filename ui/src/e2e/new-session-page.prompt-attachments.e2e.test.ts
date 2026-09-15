@@ -121,6 +121,48 @@ suite.define(() => {
     });
   });
 
+  it("pastes a spreadsheet table as text instead of its image fallback", async () => {
+    await withNewSessionPage(async (page) => {
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+      await installMockGateway(page);
+      await page.goto(`${suite.server.baseUrl}new`);
+      const message = page.locator(".new-session-page__message");
+      await message.waitFor();
+      const text = "Name\tCount\nLobster\t2";
+      await page.evaluate(
+        async ({ html, text }) => {
+          const canvas = document.createElement("canvas");
+          canvas.width = 1;
+          canvas.height = 1;
+          const png = await new Promise<Blob>((resolve, reject) =>
+            canvas.toBlob(
+              (blob) =>
+                blob ? resolve(blob) : reject(new Error("Failed to create clipboard PNG")),
+              "image/png",
+            ),
+          );
+          await navigator.clipboard.write([
+            new ClipboardItem({
+              "image/png": png,
+              "text/html": new Blob([html], { type: "text/html" }),
+              "text/plain": new Blob([text], { type: "text/plain" }),
+            }),
+          ]);
+        },
+        {
+          html: "<table><tr><td>Name</td><td>Count</td></tr></table>",
+          text,
+        },
+      );
+      await message.focus();
+      await message.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
+
+      await expect.poll(() => message.inputValue()).toBe(text);
+      await expect.poll(() => page.locator(".chat-attachment-thumb").count()).toBe(0);
+      await captureUiProof(page, "new-session-spreadsheet-table-paste.png");
+    });
+  });
+
   it("shows the initial prompt while the newly created session is still running", async () => {
     await withNewSessionPage(async (page) => {
       const sessionKey = "agent:main:visible-initial-prompt";
