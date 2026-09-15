@@ -6,6 +6,38 @@ import {
 } from "./session-visibility.js";
 
 describe("scoped session access providers", () => {
+  it.each([
+    { visibility: "tree" as const, policy: {}, configHint: "tools.sessions.visibility=all" },
+    { visibility: "all" as const, policy: {}, configHint: "tools.agentToAgent.enabled=true" },
+    {
+      visibility: "all" as const,
+      policy: { tools: { agentToAgent: { enabled: true, allow: ["person_one"] } } },
+      configHint: "tools.agentToAgent.allow",
+    },
+  ])(
+    "keeps underscore and dot owners distinct under $configHint",
+    ({ visibility, policy, configHint }) => {
+      const originalKey = "agent:person_one:acp:child";
+      const rewrittenKey = "agent:person.one:acp:child";
+      const checker = createSessionVisibilityChecker({
+        action: "send",
+        requesterSessionKey: "agent:person_one:dashboard:parent",
+        visibility,
+        a2aPolicy: createAgentToAgentPolicy(policy),
+        spawnedKeys: new Set([originalKey]),
+      });
+
+      expect(checker.check(originalKey)).toEqual({ allowed: true });
+      const denied = checker.check(rewrittenKey);
+      expect(denied).toMatchObject({ allowed: false, status: "forbidden" });
+      if (!denied.allowed) {
+        expect(denied.error).toMatch(/^First verify/);
+        expect(denied.error).toContain("original returned childSessionKey");
+        expect(denied.error).toContain(configHint);
+      }
+    },
+  );
+
   it("does not assign an unscoped default-agent row to a non-default requester", () => {
     const checker = createSessionVisibilityChecker({
       action: "history",
@@ -88,7 +120,7 @@ describe("scoped session access providers", () => {
       allowed: false,
       status: "forbidden",
       error:
-        "Session send visibility is restricted. Set tools.sessions.visibility=all and tools.agentToAgent.enabled=true to allow cross-agent access; use tools.agentToAgent.allow to restrict permitted agent pairs.",
+        "First verify the intended target; for follow-ups use the original returned childSessionKey unchanged. Session send visibility is restricted. For intentional cross-agent access only: Set tools.sessions.visibility=all and tools.agentToAgent.enabled=true to allow cross-agent access; use tools.agentToAgent.allow to restrict permitted agent pairs.",
     });
   });
 

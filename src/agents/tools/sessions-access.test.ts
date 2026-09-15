@@ -519,7 +519,7 @@ describe("createSessionVisibilityGuard", () => {
       allowed: false,
       status: "forbidden",
       error:
-        "Agent-to-agent messaging is disabled. Set tools.agentToAgent.enabled=true to allow cross-agent sends.",
+        "First verify the intended target; for follow-ups use the original returned childSessionKey unchanged. Agent-to-agent messaging is disabled. Only for intentional cross-agent sends, set tools.agentToAgent.enabled=true.",
     });
   });
 

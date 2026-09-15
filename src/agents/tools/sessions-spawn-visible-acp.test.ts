@@ -76,9 +76,7 @@ describe("visible persistent ACP spawn", () => {
         runId: "run-visible-acp",
         mode: "session",
         cleanup: "keep",
-        note: expect.stringContaining(
-          'sessions_send({ sessionKey: "agent:claude-worker:dashboard:child"',
-        ),
+        note: expect.stringContaining('sessionKey="agent:claude-worker:dashboard:child"'),
       });
       expect(callGateway).toHaveBeenCalledWith(
         "sessions.create",
@@ -232,7 +230,7 @@ describe("visible persistent ACP spawn", () => {
     expect(callGateway).not.toHaveBeenCalled();
   });
 
-  it.each(["person-one", "person-two"])(
+  it.each(["person_one", "person-two"])(
     "creates personal Codex dashboard sessions under %s, not the harness",
     async (owner) => {
       const unregister = registerAcpProcessTransport({
@@ -245,7 +243,7 @@ describe("visible persistent ACP spawn", () => {
       const callGateway = vi.fn(
         async <T>() =>
           ({
-            key: `agent:${owner}:dashboard:child`,
+            key: `agent:${owner}:dashboard:child"\\suffix`,
             sessionId: "s",
             lifecycleRevision: "r",
             runStarted: true,
@@ -271,6 +269,9 @@ describe("visible persistent ACP spawn", () => {
           },
         });
         expect(result.status).toBe("accepted");
+        expect(result.note).toContain(`sessionKey=${JSON.stringify(result.childSessionKey)}`);
+        expect(result.note).toContain("exact");
+        expect(result.note).not.toContain("agent:person.one:");
         expect(callGateway).toHaveBeenCalledWith(
           "sessions.create",
           expect.objectContaining({ agentId: owner }),

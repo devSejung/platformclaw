@@ -186,11 +186,6 @@ export function isSpawnAcpAcceptedResult(result: SpawnAcpResult): result is Spaw
   return result.status === "accepted";
 }
 
-const ACP_SPAWN_ACCEPTED_NOTE =
-  'One-shot ACP task queued. For a reusable conversation, spawn with mode="session" or visible=true.';
-const ACP_SPAWN_SESSION_ACCEPTED_NOTE =
-  "Persistent ACP session stays available after this task; send follow-ups to childSessionKey or its bound thread.";
-
 function createAcpSpawnFailure(params: {
   status: "forbidden" | "error";
   errorCode: SpawnAcpErrorCode;
@@ -709,6 +704,9 @@ export async function spawnAcpDirect(
     mode: spawnMode,
     runTimeoutSeconds,
     ...(deliveryPlan?.useInlineDelivery ? { inlineDelivery: true } : {}),
-    note: spawnMode === "session" ? ACP_SPAWN_SESSION_ACCEPTED_NOTE : ACP_SPAWN_ACCEPTED_NOTE,
+    note:
+      spawnMode === "session"
+        ? `Persistent ACP session stays available after this task. Send follow-ups with sessionKey=${JSON.stringify(sessionKey)}; reuse this exact returned key, or its bound thread.`
+        : `One-shot ACP task queued. Preserve childSessionKey=${JSON.stringify(sessionKey)} exactly. For a reusable conversation, spawn with mode="session" or visible=true.`,
   };
 }
