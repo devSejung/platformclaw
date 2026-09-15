@@ -99,7 +99,7 @@ describe("PlatformClaw SkillHub bootstrap", () => {
     const token = requests.find((request) => request.path === "/api/v1/tokens");
     expect(JSON.parse(token?.body ?? "{}")).toEqual({
       name: "platformclaw-control",
-      scopes: ["skill:read", "skill:publish"],
+      scopes: ["skill:read", "skill:publish", "skill:delete"],
     });
     expect(`${result.stdout}${result.stderr}`).not.toContain("never-log-this-password");
   });

@@ -377,3 +377,44 @@ export function renderSkillHubVersionChange(props: {
     </section>
   </openclaw-modal-dialog>`;
 }
+
+export function renderSkillHubDelete(props: {
+  open: boolean;
+  skill: string;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  if (!props.open) {
+    return nothing;
+  }
+  return html`<openclaw-modal-dialog
+    label=${t("skillHubPage.deleteSkillTitle", { skill: props.skill })}
+    @modal-cancel=${(event: Event) => {
+      if (props.busy) {
+        event.preventDefault();
+      } else {
+        props.onClose();
+      }
+    }}
+  >
+    <section class="skill-hub-dialog">
+      <header class="skill-hub-dialog__header">
+        <div>
+          <h2>${t("skillHubPage.deleteSkillTitle", { skill: props.skill })}</h2>
+          <p>${t("skillHubPage.deleteSkillDescription")}</p>
+        </div>
+      </header>
+      ${props.error ? html`<div class="callout danger" role="alert">${props.error}</div>` : nothing}
+      <div class="skill-hub-install-actions">
+        <button class="btn" ?disabled=${props.busy} @click=${props.onClose}>
+          ${t("common.cancel")}
+        </button>
+        <button class="btn danger" ?disabled=${props.busy} @click=${props.onConfirm}>
+          ${props.busy ? t("skillHubPage.deletingSkill") : t("skillHubPage.confirmDeleteSkill")}
+        </button>
+      </div>
+    </section>
+  </openclaw-modal-dialog>`;
+}

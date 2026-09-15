@@ -74,7 +74,7 @@ if (process.env.SKILLHUB_CREATE_TOKEN === "true") {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       name: "platformclaw-control",
-      scopes: ["skill:read", "skill:publish"],
+      scopes: ["skill:read", "skill:publish", "skill:delete"],
     }),
   });
   const token = created?.data?.token;

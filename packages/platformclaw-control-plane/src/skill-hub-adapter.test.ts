@@ -144,6 +144,63 @@ describe("IflytekSkillHubAdapter", () => {
     ).rejects.not.toThrow("server-secret-token");
   });
 
+  it("uses the pinned remote-delete contract and preserves an unresolved ok=false result", async () => {
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      expect(init?.method).toBe("DELETE");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer server-secret-token");
+      return json({
+        code: 0,
+        data: {
+          ok: false,
+          scope: "remote",
+          action: "delete",
+          namespace: "engineering",
+          slug: "demo-skill",
+        },
+      });
+    });
+    const adapter = new IflytekSkillHubAdapter({
+      baseUrl: "https://skillhub.example.test/root/",
+      token: "server-secret-token",
+      maxArchiveBytes: 1024,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    await expect(adapter.deleteSkill("engineering", "demo-skill")).resolves.toEqual({
+      ok: false,
+      namespace: "engineering",
+      slug: "demo-skill",
+    });
+    expect(requestUrl(fetchImpl.mock.calls[0]![0]).pathname).toBe(
+      "/root/api/cli/v1/skills/engineering/demo-skill",
+    );
+  });
+
+  it("rejects a delete response that drifts from the pinned remote hard-delete contract", async () => {
+    const fetchImpl = vi.fn(async () =>
+      json({
+        code: 0,
+        data: {
+          ok: true,
+          scope: "local",
+          action: "delete",
+          namespace: "engineering",
+          slug: "demo-skill",
+        },
+      }),
+    );
+    const adapter = new IflytekSkillHubAdapter({
+      baseUrl: "https://skillhub.example.test/root/",
+      token: "server-secret-token",
+      maxArchiveBytes: 1024,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    await expect(adapter.deleteSkill("engineering", "demo-skill")).rejects.toThrow(
+      "invalid delete result",
+    );
+  });
+
   it("gives bounded archive transfers enough time for the 500 MiB contract", async () => {
     const timeout = vi
       .spyOn(AbortSignal, "timeout")
