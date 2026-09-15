@@ -4,6 +4,7 @@ import "../../components/modal-dialog.ts";
 import { titleForRoute } from "../../app-navigation.ts";
 import { t } from "../../i18n/index.ts";
 import {
+  deletePlatformClawSkillHubSkill,
   installPlatformClawHubSkill,
   forcePublishPlatformClawHubSkill,
   grantPlatformClawSkillHubAccess,
@@ -30,6 +31,7 @@ import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
 import { SkillHubAdminController } from "./admin-controller.ts";
 import { renderSkillHubAdmin } from "./admin.ts";
 import {
+  renderSkillHubDelete,
   renderSkillHubNotifications,
   renderSkillHubUpload,
   renderSkillHubVersionChange,
@@ -43,6 +45,13 @@ import {
 import { renderSkillHubManagement } from "./management.ts";
 import * as pageSupport from "./page-support.ts";
 import { SkillHubWorkspacePublishController } from "./workspace-publish-controller.ts";
+
+type PendingSkillDelete = {
+  namespace: string;
+  slug: string;
+  expectedOwnerUpdatedAt: number;
+  error?: string;
+};
 
 class SkillHubPage extends SkillHubAdminController {
   @state() private config: PlatformClawSkillHubConfig | null = null;
@@ -76,6 +85,8 @@ class SkillHubPage extends SkillHubAdminController {
   @state() private forceReason = "";
   @state() private forceAcknowledged = false;
   @state() private pendingVersionChange: pageSupport.PendingVersionChange | null = null;
+  @state() private pendingSkillDelete: PendingSkillDelete | null = null;
+  @state() private deletingSkill = false;
   private readonly workspacePublish = new SkillHubWorkspacePublishController(this, {
     refresh: () => this.search(),
     setMessage: (message) => (this.message = message),
@@ -260,7 +271,59 @@ class SkillHubPage extends SkillHubAdminController {
 
   private closeDetail() {
     this.detailRef = null;
+    this.pendingSkillDelete = null;
     this.resetManagementSelection();
+  }
+
+  private requestSkillDelete() {
+    const revision = this.detail?.owner?.revision;
+    if (
+      !this.detailRef ||
+      !this.detail?.canManage ||
+      typeof revision !== "number" ||
+      this.deletingSkill
+    ) {
+      return;
+    }
+    this.message = null;
+    this.pendingSkillDelete = {
+      ...this.detailRef,
+      expectedOwnerUpdatedAt: revision,
+    };
+  }
+
+  private async confirmSkillDelete() {
+    if (!this.pendingSkillDelete || this.deletingSkill) {
+      return;
+    }
+    const target = {
+      namespace: this.pendingSkillDelete.namespace,
+      slug: this.pendingSkillDelete.slug,
+      expectedOwnerUpdatedAt: this.pendingSkillDelete.expectedOwnerUpdatedAt,
+    };
+    this.deletingSkill = true;
+    this.pendingSkillDelete = target;
+    try {
+      await deletePlatformClawSkillHubSkill(
+        target.namespace,
+        target.slug,
+        target.expectedOwnerUpdatedAt,
+      );
+      this.pendingSkillDelete = null;
+      this.closeDetail();
+      await this.search();
+      this.message = {
+        kind: "success",
+        text: t("skillHubPage.deletedSkill", { skill: `${target.namespace}/${target.slug}` }),
+      };
+    } catch (error) {
+      this.pendingSkillDelete = {
+        ...target,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      this.deletingSkill = false;
+    }
   }
 
   private async install(
@@ -455,7 +518,7 @@ class SkillHubPage extends SkillHubAdminController {
                 selectedAccessUserId: this.accessUserId,
                 forceReason: this.forceReason,
                 forceAcknowledged: this.forceAcknowledged,
-                busy: this.managementBusy,
+                busy: this.managementBusy || this.deletingSkill,
                 onOwnerQuery: (value) => {
                   this.ownerQuery = value;
                   this.ownerUserId = "";
@@ -533,6 +596,7 @@ class SkillHubPage extends SkillHubAdminController {
                         : { kind: "success", text: t("skillHubPage.forcePublished") },
                   );
                 },
+                onDeleteSkill: () => this.requestSkillDelete(),
               })}
               ${this.message
                 ? html`<div
@@ -649,6 +713,20 @@ class SkillHubPage extends SkillHubAdminController {
           </section>
         </main>
         ${this.renderDetail()}
+        ${renderSkillHubDelete({
+          open: this.pendingSkillDelete !== null,
+          skill: this.pendingSkillDelete
+            ? `${this.pendingSkillDelete.namespace}/${this.pendingSkillDelete.slug}`
+            : "",
+          busy: this.deletingSkill,
+          error: this.pendingSkillDelete?.error ?? null,
+          onClose: () => {
+            if (!this.deletingSkill) {
+              this.pendingSkillDelete = null;
+            }
+          },
+          onConfirm: () => void this.confirmSkillDelete(),
+        })}
         ${renderSkillHubNotifications({
           open: this.notificationsOpen,
           loading: this.notificationsLoading,

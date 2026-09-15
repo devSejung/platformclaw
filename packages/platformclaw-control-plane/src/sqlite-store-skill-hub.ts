@@ -175,6 +175,50 @@ export abstract class SqliteControlPlaneSkillHubStore
     });
   }
 
+  async removeSkillHubSkillState(
+    params: Parameters<SkillHubStateStore["removeSkillHubSkillState"]>[0],
+  ): Promise<boolean> {
+    this.ensureSkillHubStateSchema();
+    return runImmediateTransaction(this.db, () => {
+      const current = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("skill_hub_skill_ownership")
+          .selectAll()
+          .where("namespace", "=", params.namespace)
+          .where("slug", "=", params.slug),
+      );
+      const removed =
+        Number(
+          executeSync(
+            this.db,
+            this.query
+              .deleteFrom("skill_hub_skill_ownership")
+              .where("namespace", "=", params.namespace)
+              .where("slug", "=", params.slug),
+          ).numAffectedRows,
+        ) > 0;
+      this.insertAudit(
+        params.actorUserId,
+        "skill-hub.registry.deleted",
+        "skill-hub-skill",
+        `${params.namespace}/${params.slug}`,
+        params.changedAt,
+        {
+          localStateRemoved: removed,
+          ...(current
+            ? {
+                previousOwnerUserId: current.owner_user_id,
+                previousVersion: current.current_version,
+                previousVisibility: current.visibility,
+              }
+            : {}),
+        },
+      );
+      return removed;
+    });
+  }
+
   async transferSkillHubOwner(
     params: Parameters<SkillHubStateStore["transferSkillHubOwner"]>[0],
   ): Promise<SkillHubOwnership> {

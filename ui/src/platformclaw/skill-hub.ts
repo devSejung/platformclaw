@@ -310,6 +310,17 @@ export function removePlatformClawSkillHubAccess(
   );
 }
 
+export function deletePlatformClawSkillHubSkill(
+  namespace: string,
+  slug: string,
+  expectedOwnerUpdatedAt: number,
+): Promise<{ ok: true; deleted: true; namespace: string; slug: string }> {
+  return request(`/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ expectedOwnerUpdatedAt }),
+  });
+}
+
 export function forcePublishPlatformClawHubSkill(
   namespace: string,
   slug: string,

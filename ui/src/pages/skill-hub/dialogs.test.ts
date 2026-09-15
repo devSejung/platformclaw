@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import { loadPlatformClawLocale } from "../../platformclaw/i18n.ts";
 import {
+  renderSkillHubDelete,
   renderSkillHubUpload,
   renderSkillHubVersionChange,
   renderSkillHubWorkspacePublish,
@@ -246,5 +247,39 @@ describe("Skill Hub workspace publish dialog", () => {
     expect(container.textContent).toContain("내 VM 작업 공간");
     expect(container.textContent).toContain("검사 후 스킬 게시");
     expect(container.querySelectorAll<HTMLSelectElement>("select")[1]?.value).toBe("release-notes");
+  });
+});
+
+describe("Skill Hub delete dialog", () => {
+  beforeEach(async () => {
+    await i18n.setLocale("en");
+  });
+
+  it("makes the destructive scope explicit and cannot be dismissed while deletion is in flight", () => {
+    const container = document.createElement("div");
+    const onClose = vi.fn();
+    render(
+      renderSkillHubDelete({
+        open: true,
+        skill: "engineering/demo-skill",
+        busy: true,
+        error: null,
+        onClose,
+        onConfirm: vi.fn(),
+      }),
+      container,
+    );
+
+    expect(container.textContent).toContain("Existing workspace installations are not removed");
+    expect(container.textContent).toContain("Deleting…");
+    const cancel = new Event("modal-cancel", { cancelable: true });
+    container.querySelector("openclaw-modal-dialog")!.dispatchEvent(cancel);
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(
+      [...container.querySelectorAll<HTMLButtonElement>("button")].every(
+        (button) => button.disabled,
+      ),
+    ).toBe(true);
   });
 });

@@ -113,6 +113,11 @@ export async function createSkillHubServiceFixture(
       };
       return ownership;
     }),
+    removeSkillHubSkillState: vi.fn(async () => {
+      const removed = ownership !== null;
+      ownership = null;
+      return removed;
+    }),
     reconcileInactiveSkillHubOwners: vi.fn(async () => ({ reassigned: 0, unassigned: 0 })),
     hasSkillHubAccess: vi.fn(async () => false),
     listSkillHubAccess: vi.fn(async () => []),
@@ -193,6 +198,7 @@ export async function createSkillHubServiceFixture(
       version: "1.2.3",
       visibility: params.visibility,
     })),
+    deleteSkill: vi.fn(async (namespace: string, slug: string) => ({ ok: true, namespace, slug })),
     download: vi.fn(),
   };
   const adapter = adapterMocks as SkillHubAdapter;

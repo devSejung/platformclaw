@@ -82,6 +82,14 @@ function optionalInteger(body: Record<string, unknown>, name: string): number | 
   return value as number;
 }
 
+function integerField(body: Record<string, unknown>, name: string): number {
+  const value = body[name];
+  if (!Number.isSafeInteger(value)) {
+    throw new SkillHubServiceError(`${name} must be an integer`, 400);
+  }
+  return value as number;
+}
+
 function sendSkillHubError(res: ServerResponse, error: unknown): void {
   const status =
     error instanceof SkillHubServiceError
@@ -460,6 +468,29 @@ export async function handlePlatformClawSkillHubRequest(
     if (method === "DELETE") {
       if (!options.isMutationOriginAllowed(req)) {
         sendBrowserJson(res, 403, { error: "origin not allowed" });
+        return true;
+      }
+      const skillMatch = new RegExp(
+        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)$`,
+        "u",
+      ).exec(url.pathname);
+      if (skillMatch) {
+        const read = await options.readJsonBody(req, BODY_LIMIT_BYTES);
+        if (!read.ok) {
+          sendBrowserJson(res, 400, { error: read.error });
+          return true;
+        }
+        const body = objectBody(read.value);
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.deletePublishedSkill(
+            actor.user,
+            decodeSegment(skillMatch[1]!),
+            decodeSegment(skillMatch[2]!),
+            integerField(body, "expectedOwnerUpdatedAt"),
+          ),
+        );
         return true;
       }
       const accessMatch = new RegExp(

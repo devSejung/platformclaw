@@ -153,6 +153,26 @@ not claim the namespace of an existing install without durable provenance. The B
 and VM installers use sibling staging and backup directories to replace
 atomically and restore the old tree if validation or commit fails.
 
+## Delete a published skill
+
+Owners and PlatformClaw administrators can permanently delete a PlatformClaw-managed
+skill from the Skill Hub registry from its detail view. The confirmation names the
+exact `namespace/slug`, pins the current PlatformClaw ownership revision, and warns
+that the operation cannot be undone. A stale ownership revision fails visibly and
+must be retried from a refreshed detail view.
+
+Registry deletion hard-deletes the registry entry, its published versions, and
+uploaded package files. It also retires PlatformClaw's management state for that
+skill, including its explicit access grants and pending governance jobs. Audit and
+notification history remain historical records. A registry skill without a
+PlatformClaw ownership record cannot be deleted through this path, including by an
+administrator.
+
+Deleting from the registry **does not uninstall copies that employees already
+installed** in Basic or assigned-VM workspaces. Workspace removal remains a separate
+operation; Knox `/skillhub delete <slug> --confirm` continues to remove only the
+revision-pinned copy from the active workspace target.
+
 ## Knox commands
 
 Authenticated employees can manage the active execution target from Knox Teams.
@@ -229,7 +249,8 @@ The current managed integration adds:
 
 The Skill Hub page exposes current risk badges, the persistent notification
 inbox, ZIP publication, owner transfer, explicit employee grants, forced
-publication, and administrator namespace/unassigned-owner views. Server-side
+publication, managed-skill registry deletion, and administrator
+namespace/unassigned-owner views. Server-side
 policy remains authoritative even if a browser calls the BFF directly.
 
 Skill Hub consumes the shared organization authorization boundary for
@@ -248,6 +269,7 @@ The pinned adapter uses these SkillHub `v0.2.16` endpoints:
 | Detail         | `GET /api/v1/skills/{namespace}/{slug}`                                 |
 | Versions       | `GET /api/v1/skills/{namespace}/{slug}/versions`                        |
 | Publish        | `POST /api/cli/v1/skills/{namespace}/publish`                           |
+| Delete skill   | `DELETE /api/cli/v1/skills/{namespace}/{slug}`                          |
 | Exact download | `GET /api/cli/v1/skills/{namespace}/{slug}/versions/{version}/download` |
 
 The browser calls only same-origin `/platformclaw/api/skill-hub/*` endpoints with

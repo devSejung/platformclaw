@@ -26,6 +26,7 @@ export function renderSkillHubManagement(props: {
   onForceReason: (value: string) => void;
   onForceAcknowledged: (value: boolean) => void;
   onForcePublish: () => void;
+  onDeleteSkill: () => void;
 }) {
   if (!props.detail?.canManage) {
     return nothing;
@@ -149,6 +150,17 @@ export function renderSkillHubManagement(props: {
             @click=${props.onForcePublish}
           >
             ${t("skillHubPage.forcePublish")}
+          </button>
+        </div>`
+      : nothing}
+    ${typeof props.detail.owner?.revision === "number"
+      ? html`<div class="skill-hub-management__group">
+          <div>
+            <strong>${t("skillHubPage.deleteSkill")}</strong>
+            <p>${t("skillHubPage.deleteSkillHelp")}</p>
+          </div>
+          <button class="btn danger" ?disabled=${props.busy} @click=${props.onDeleteSkill}>
+            ${t("skillHubPage.deleteSkill")}
           </button>
         </div>`
       : nothing}

@@ -37,6 +37,7 @@ type SkillHubInstallResult = {
 export abstract class SkillHubPublicationService extends SkillHubServiceBase {
   private readonly installLocks = new Map<string, Promise<void>>();
   private readonly installsInFlight = new Map<string, Promise<SkillHubInstallResult>>();
+  private readonly registryMutationLocks = new Map<string, Promise<void>>();
 
   private async withInstallLock<T>(
     agentId: string,
@@ -58,6 +59,30 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       release();
       if (this.installLocks.get(key) === tail) {
         this.installLocks.delete(key);
+      }
+    }
+  }
+
+  protected async withRegistryMutationLock<T>(
+    namespace: string,
+    slug: string,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${namespace}\0${slug}`;
+    const previous = this.registryMutationLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => gate);
+    this.registryMutationLocks.set(key, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.registryMutationLocks.get(key) === tail) {
+        this.registryMutationLocks.delete(key);
       }
     }
   }
@@ -387,50 +412,52 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       }
     }
     const archive = await this.packageWorkspaceSkill(actor.workspaceDir, skill, version);
-    await this.authorizePublishNamespace(actor.user, namespace);
-    const finalCapabilities = await this.resolveNamespaceCapabilities(actor.user, namespace);
-    const currentOwnership = await this.authorizeExistingSkillMutation(
-      actor.user,
-      namespace,
-      skill,
-    );
-    const result = await this.adapterCall(() =>
-      this.options.adapter.publish({
+    return await this.withRegistryMutationLock(namespace, skill, async () => {
+      await this.authorizePublishNamespace(actor.user, namespace);
+      const finalCapabilities = await this.resolveNamespaceCapabilities(actor.user, namespace);
+      const currentOwnership = await this.authorizeExistingSkillMutation(
+        actor.user,
         namespace,
-        archive,
-        filename: `${skill}-${version}.zip`,
+        skill,
+      );
+      const result = await this.adapterCall(() =>
+        this.options.adapter.publish({
+          namespace,
+          archive,
+          filename: `${skill}-${version}.zip`,
+          visibility,
+        }),
+      );
+      if (
+        result.namespace !== namespace ||
+        result.slug !== skill ||
+        result.version !== version ||
+        result.visibility !== visibility
+      ) {
+        throw new SkillHubServiceError("Skill Hub returned a mismatched publish result", 502);
+      }
+      const recorded = await this.options.store.recordSkillHubPublication({
+        namespace,
+        slug: skill,
+        ownerUserId: actor.user.id,
+        expectedOwnerUserId: currentOwnership?.ownerUserId ?? null,
+        expectedOwnerUpdatedAt: currentOwnership?.updatedAt ?? null,
+        expectedBindingUpdatedAt: finalCapabilities.binding!.updatedAt,
         visibility,
-      }),
-    );
-    if (
-      result.namespace !== namespace ||
-      result.slug !== skill ||
-      result.version !== version ||
-      result.visibility !== visibility
-    ) {
-      throw new SkillHubServiceError("Skill Hub returned a mismatched publish result", 502);
-    }
-    const recorded = await this.options.store.recordSkillHubPublication({
-      namespace,
-      slug: skill,
-      ownerUserId: actor.user.id,
-      expectedOwnerUserId: currentOwnership?.ownerUserId ?? null,
-      expectedOwnerUpdatedAt: currentOwnership?.updatedAt ?? null,
-      expectedBindingUpdatedAt: finalCapabilities.binding!.updatedAt,
-      visibility,
-      version,
-      changedAt: this.now(),
+        version,
+        changedAt: this.now(),
+      });
+      await this.reconcileOwners();
+      await this.enqueueGovernance(recorded.ownerUserId, namespace, skill, version, visibility);
+      await this.audit(actor.user.id, "skill-hub.publish", `${namespace}/${skill}@${version}`, {
+        visibility,
+        archiveBytes: archive.byteLength,
+        source,
+      });
+      return recorded.reconciliationRequired
+        ? { ...result, ownershipReviewRequired: true as const }
+        : result;
     });
-    await this.reconcileOwners();
-    await this.enqueueGovernance(recorded.ownerUserId, namespace, skill, version, visibility);
-    await this.audit(actor.user.id, "skill-hub.publish", `${namespace}/${skill}@${version}`, {
-      visibility,
-      archiveBytes: archive.byteLength,
-      source,
-    });
-    return recorded.reconciliationRequired
-      ? { ...result, ownershipReviewRequired: true as const }
-      : result;
   }
 
   async publishArchive(
@@ -465,51 +492,57 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     if (metadata.version !== version) {
       throw new SkillHubServiceError("SKILL.md version does not match the requested version", 400);
     }
-    await this.authorizePublishNamespace(actor.user, namespace);
-    const finalCapabilities = await this.resolveNamespaceCapabilities(actor.user, namespace);
-    const currentOwnership = await this.authorizeExistingSkillMutation(actor.user, namespace, slug);
-    const result = await this.adapterCall(() =>
-      this.options.adapter.publish({
+    return await this.withRegistryMutationLock(namespace, slug, async () => {
+      await this.authorizePublishNamespace(actor.user, namespace);
+      const finalCapabilities = await this.resolveNamespaceCapabilities(actor.user, namespace);
+      const currentOwnership = await this.authorizeExistingSkillMutation(
+        actor.user,
         namespace,
-        archive,
-        filename: `${slug}-${version}.zip`,
+        slug,
+      );
+      const result = await this.adapterCall(() =>
+        this.options.adapter.publish({
+          namespace,
+          archive,
+          filename: `${slug}-${version}.zip`,
+          visibility,
+        }),
+      );
+      if (
+        result.namespace !== namespace ||
+        result.slug !== slug ||
+        result.version !== version ||
+        result.visibility !== visibility
+      ) {
+        throw new SkillHubServiceError("Skill Hub returned a mismatched publish result", 502);
+      }
+      const recorded = await this.options.store.recordSkillHubPublication({
+        namespace,
+        slug,
+        ownerUserId: actor.user.id,
+        expectedOwnerUserId: currentOwnership?.ownerUserId ?? null,
+        expectedOwnerUpdatedAt: currentOwnership?.updatedAt ?? null,
+        expectedBindingUpdatedAt: finalCapabilities.binding!.updatedAt,
         visibility,
-      }),
-    );
-    if (
-      result.namespace !== namespace ||
-      result.slug !== slug ||
-      result.version !== version ||
-      result.visibility !== visibility
-    ) {
-      throw new SkillHubServiceError("Skill Hub returned a mismatched publish result", 502);
-    }
-    const recorded = await this.options.store.recordSkillHubPublication({
-      namespace,
-      slug,
-      ownerUserId: actor.user.id,
-      expectedOwnerUserId: currentOwnership?.ownerUserId ?? null,
-      expectedOwnerUpdatedAt: currentOwnership?.updatedAt ?? null,
-      expectedBindingUpdatedAt: finalCapabilities.binding!.updatedAt,
-      visibility,
-      version,
-      changedAt: this.now(),
+        version,
+        changedAt: this.now(),
+      });
+      await this.reconcileOwners();
+      await this.enqueueGovernance(recorded.ownerUserId, namespace, slug, version, visibility);
+      await this.audit(
+        actor.user.id,
+        options.source ? "skill-hub.publish" : "skill-hub.publish-upload",
+        `${namespace}/${slug}@${version}`,
+        {
+          visibility,
+          archiveBytes: archive.size,
+          ...(options.source ? { source: options.source } : {}),
+        },
+      );
+      return recorded.reconciliationRequired
+        ? { ...result, ownershipReviewRequired: true as const }
+        : result;
     });
-    await this.reconcileOwners();
-    await this.enqueueGovernance(recorded.ownerUserId, namespace, slug, version, visibility);
-    await this.audit(
-      actor.user.id,
-      options.source ? "skill-hub.publish" : "skill-hub.publish-upload",
-      `${namespace}/${slug}@${version}`,
-      {
-        visibility,
-        archiveBytes: archive.size,
-        ...(options.source ? { source: options.source } : {}),
-      },
-    );
-    return recorded.reconciliationRequired
-      ? { ...result, ownershipReviewRequired: true as const }
-      : result;
   }
 
   async install(

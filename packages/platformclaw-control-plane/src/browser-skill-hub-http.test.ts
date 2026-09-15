@@ -194,6 +194,63 @@ describe("Skill Hub browser HTTP", () => {
     expect(readJsonBody).not.toHaveBeenCalled();
   });
 
+  it("deletes a published skill with the authenticated actor and pinned owner revision", async () => {
+    const deletePublishedSkill = vi.fn(async () => ({
+      ok: true as const,
+      deleted: true as const,
+      namespace: "engineering",
+      slug: "demo",
+    }));
+    const service = {
+      authenticate: vi.fn(async () => actor),
+      deletePublishedSkill,
+    } as unknown as SkillHubService;
+    const harness = responseHarness();
+    await handlePlatformClawSkillHubRequest(
+      {
+        url: `${PLATFORMCLAW_SKILL_HUB_PATH}/skills/engineering/demo`,
+        method: "DELETE",
+        headers: { cookie: "platformclaw_session=session-token" },
+      } as IncomingMessage,
+      harness.response,
+      {
+        service,
+        readJsonBody: vi.fn(async () => ({
+          ok: true as const,
+          value: { expectedOwnerUpdatedAt: 42 },
+        })),
+        isMutationOriginAllowed: () => true,
+      },
+    );
+
+    expect(harness.response.statusCode).toBe(200);
+    expect(deletePublishedSkill).toHaveBeenCalledWith(actor.user, "engineering", "demo", 42);
+    expect(harness.json()).toEqual({
+      ok: true,
+      deleted: true,
+      namespace: "engineering",
+      slug: "demo",
+    });
+  });
+
+  it("rejects published-skill deletion from another origin before reading the body", async () => {
+    const service = { authenticate: vi.fn(async () => actor) } as unknown as SkillHubService;
+    const readJsonBody = vi.fn();
+    const harness = responseHarness();
+    await handlePlatformClawSkillHubRequest(
+      {
+        url: `${PLATFORMCLAW_SKILL_HUB_PATH}/skills/engineering/demo`,
+        method: "DELETE",
+        headers: { cookie: "platformclaw_session=session-token" },
+      } as IncomingMessage,
+      harness.response,
+      { service, readJsonBody, isMutationOriginAllowed: () => false },
+    );
+
+    expect(harness.response.statusCode).toBe(403);
+    expect(readJsonBody).not.toHaveBeenCalled();
+  });
+
   it("returns the structured replacement contract without leaking server state", async () => {
     const service = {
       authenticate: vi.fn(async () => actor),
