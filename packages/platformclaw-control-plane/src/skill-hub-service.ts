@@ -367,9 +367,7 @@ export class SkillHubService extends SkillHubPublicationService {
           }
         }
       } catch (error) {
-        if (error instanceof SkillHubServiceError && error.statusCode === 404) {
-          remoteAbsent = true;
-        } else {
+        if (!(error instanceof SkillHubServiceError && error.statusCode === 404)) {
           throw error;
         }
       }

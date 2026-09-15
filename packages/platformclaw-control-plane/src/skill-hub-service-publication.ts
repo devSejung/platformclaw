@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { PlatformUser } from "./contracts.js";
+import { SkillHubRegistryMutationLock } from "./skill-hub-registry-mutation-lock.js";
 import { SkillHubServiceBase } from "./skill-hub-service-base.js";
 import {
   compareSemVer,
@@ -37,7 +38,7 @@ type SkillHubInstallResult = {
 export abstract class SkillHubPublicationService extends SkillHubServiceBase {
   private readonly installLocks = new Map<string, Promise<void>>();
   private readonly installsInFlight = new Map<string, Promise<SkillHubInstallResult>>();
-  private readonly registryMutationLocks = new Map<string, Promise<void>>();
+  private readonly registryMutationLock = new SkillHubRegistryMutationLock();
 
   private async withInstallLock<T>(
     agentId: string,
@@ -68,23 +69,7 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     slug: string,
     task: () => Promise<T>,
   ): Promise<T> {
-    const key = `${namespace}\0${slug}`;
-    const previous = this.registryMutationLocks.get(key) ?? Promise.resolve();
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const tail = previous.catch(() => undefined).then(() => gate);
-    this.registryMutationLocks.set(key, tail);
-    await previous.catch(() => undefined);
-    try {
-      return await task();
-    } finally {
-      release();
-      if (this.registryMutationLocks.get(key) === tail) {
-        this.registryMutationLocks.delete(key);
-      }
-    }
+    return await this.registryMutationLock.run(namespace, slug, task);
   }
 
   async authenticate(token: string): Promise<AuthenticatedWorkspace | null> {
