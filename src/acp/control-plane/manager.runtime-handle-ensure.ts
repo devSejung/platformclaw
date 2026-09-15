@@ -11,8 +11,11 @@ import {
 import type { AcpRuntime, AcpRuntimeHandle } from "@openclaw/acp-core/runtime/types";
 import { resolveRuntimeConfigCacheKey } from "../../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { logVerbose } from "../../globals.js";
-import { toAcpRuntimeError, withAcpRuntimeErrorBoundary } from "../runtime/errors.js";
+import {
+  AcpRuntimeError,
+  toAcpRuntimeError,
+  withAcpRuntimeErrorBoundary,
+} from "../runtime/errors.js";
 import type { ManagerRuntimeHandleCache } from "./manager.runtime-handle-cache.js";
 import type {
   AcpSessionManagerDeps,
@@ -38,7 +41,6 @@ export async function ensureManagerRuntimeHandle(params: {
   meta: SessionAcpMeta;
   deps: Pick<AcpSessionManagerDeps, "requireRuntimeBackend">;
   runtimeHandles: ManagerRuntimeHandleCache;
-  enforceConcurrentSessionLimit: (params: { cfg: OpenClawConfig; sessionKey: string }) => void;
   writeSessionMeta: WriteManagerSessionMeta;
 }): Promise<{ runtime: AcpRuntime; handle: AcpRuntimeHandle; meta: SessionAcpMeta }> {
   if (params.meta.state === "closed") {
@@ -92,16 +94,11 @@ export async function ensureManagerRuntimeHandle(params: {
     });
   }
 
-  params.enforceConcurrentSessionLimit({
-    cfg: params.cfg,
-    sessionKey: params.sessionKey,
-  });
-
   const backend = params.deps.requireRuntimeBackend(configuredBackend || undefined);
   const runtime = backend.runtime;
   const previousMeta = params.meta;
   const previousIdentity = resolveSessionIdentityFromMeta(previousMeta);
-  let identityForEnsure = previousIdentity;
+  const identityForEnsure = previousIdentity;
   const persistedResumeSessionId =
     mode === "persistent" ? resolveRuntimeResumeSessionId(previousIdentity) : undefined;
   const shouldPrepareFreshPersistentSession =
@@ -141,26 +138,13 @@ export async function ensureManagerRuntimeHandle(params: {
         fallbackCode: "ACP_SESSION_INIT_FAILED",
         fallbackMessage: "Could not initialize ACP session runtime.",
       });
-      if (acpError.code !== "ACP_SESSION_INIT_FAILED") {
-        throw acpError;
-      }
-      logVerbose(
-        `acp-manager: resume init failed for ${params.sessionKey}; retrying without persisted ACP session id: ${acpError.message}`,
+      // Persisted identity is authoritative, including after process restart. Dropping it
+      // would make automatic runtime reclamation silently replace the conversation.
+      throw new AcpRuntimeError(
+        acpError.code,
+        `Could not resume the ACP conversation. Its session key and metadata are retained; retry resume or explicitly start a new conversation. ${acpError.message}`,
+        { cause: acpError },
       );
-      if (identityForEnsure) {
-        const {
-          acpxSessionId: _staleAcpxSessionId,
-          agentSessionId: _staleAgentSessionId,
-          ...retryIdentity
-        } = identityForEnsure;
-        // The persisted resume identifiers already failed, so do not merge them back into the
-        // fresh named-session handle returned by the retry path.
-        identityForEnsure = {
-          ...retryIdentity,
-          state: "pending",
-        };
-      }
-      ensured = await ensureSession();
     }
   } else {
     ensured = await ensureSession();

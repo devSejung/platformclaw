@@ -93,6 +93,16 @@ function createHarness(options: { maxChannels?: number } = {}) {
 }
 
 describe("SafeConnectSshLeaseManager", () => {
+  it("admits five persistent ACP channels plus one normal execution channel by default", async () => {
+    const harness = createHarness();
+    const acp = await Promise.all(
+      Array.from({ length: 5 }, () => harness.manager.createSession(TARGET)),
+    );
+    const normal = await harness.manager.createSession(TARGET);
+    expect(harness.createMultiplexedSession).toHaveBeenCalledTimes(6);
+    await Promise.all([...acp, normal].map(async (value) => await value.onDispose?.()));
+    await harness.manager.dispose();
+  });
   it("reuses one authenticated master across sequential sessions", async () => {
     const harness = createHarness();
 
@@ -144,7 +154,7 @@ describe("SafeConnectSshLeaseManager", () => {
 
     const second = await harness.manager.createSession(revised);
     expect(harness.startMaster).toHaveBeenCalledTimes(2);
-    expect(harness.handles[0]?.stopped).toBe(false);
+    expect(harness.handles[0]?.stopped).toBe(true);
 
     await first.onDispose?.();
     await vi.waitFor(() => expect(harness.handles[0]?.stopped).toBe(true));

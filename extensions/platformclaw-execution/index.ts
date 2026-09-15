@@ -51,6 +51,8 @@ export default definePluginEntry({
     const targetMutations = new PlatformClawTargetMutationCoordinator();
     const preparedAcpTargets = new Map<string, Readonly<AssignedVmTargetSnapshot>>();
     const activeAcpChildren = new Map<string, Set<import("node:child_process").ChildProcess>>();
+    const pendingAcpLaunches = new Map<string, number>();
+    let stopping = false;
     const normalizeAgentId = (agentId: string) => agentId.trim().toLowerCase();
     const acpTargetKey = (agentId: string, sessionKey: string) =>
       `${normalizeAgentId(agentId)}\0${sessionKey.trim()}`;
@@ -91,6 +93,7 @@ export default definePluginEntry({
     const unregisterAcpTransport = registerAcpProcessTransport({
       id: "platformclaw-assigned-vm",
       isolatesSandboxedRequesters: true,
+      maxConcurrentSessions: 5,
       supports: ({ agent }) => PLATFORMCLAW_VM_ACP_AGENTS.has(agent.trim().toLowerCase()),
       async prepare({ executionOwnerAgentId, sessionKey, agent }) {
         if (!executionRuntimePromise) {
@@ -288,18 +291,40 @@ export default definePluginEntry({
         requireEnabledAgent(current, input.agent.trim().toLowerCase());
         const owner = normalizeAgentId(input.executionOwnerAgentId);
         const active = activeAcpChildren.get(owner) ?? new Set();
-        if (active.size >= 3) {
+        const pending = pendingAcpLaunches.get(owner) ?? 0;
+        if (active.size + pending >= 5) {
           throw stageError(
             {
               stage: "routing",
               code: "session_limit_reached",
-              message: "Assigned VM ACP session limit reached (3). Close a session and retry.",
+              message:
+                "Assigned VM ACP capacity reached (5). Wait for work to finish or explicitly close an unused session and retry.",
               retryable: true,
             },
             undefined,
           );
         }
-        const child = await executionRuntime.launchAcpProcess(input, prepared);
+        // Reserve synchronously so concurrent harness launches cannot oversubscribe an owner.
+        activeAcpChildren.set(owner, active);
+        pendingAcpLaunches.set(owner, pending + 1);
+        let child: Awaited<ReturnType<typeof executionRuntime.launchAcpProcess>>;
+        try {
+          child = await executionRuntime.launchAcpProcess(input, prepared);
+        } finally {
+          const remaining = (pendingAcpLaunches.get(owner) ?? 1) - 1;
+          if (remaining > 0) {
+            pendingAcpLaunches.set(owner, remaining);
+          } else {
+            pendingAcpLaunches.delete(owner);
+            if (active.size === 0 && activeAcpChildren.get(owner) === active) {
+              activeAcpChildren.delete(owner);
+            }
+          }
+        }
+        if (stopping) {
+          child.kill("SIGTERM");
+          throw new Error("Assigned VM ACP transport stopped during process launch.");
+        }
         active.add(child);
         activeAcpChildren.set(owner, active);
         child.once("close", () => {
@@ -344,6 +369,7 @@ export default definePluginEntry({
         )
       : undefined;
     api.on("gateway_stop", async () => {
+      stopping = true;
       unregisterAcpTransport();
       for (const agentId of activeAcpChildren.keys()) {
         invalidateAcpProcesses(agentId);

@@ -542,7 +542,7 @@ describe("AcpSessionManager runtime handles", () => {
     expect(ensureInput?.resumeSessionId).toBeUndefined();
   });
 
-  it("falls back to a fresh ensure without reusing stale agent session ids", async () => {
+  it("retains authoritative resume identity and fails honestly after restart", async () => {
     const runtimeState = createRuntime();
     runtimeState.ensureSession.mockImplementation(async (inputUnknown: unknown) => {
       const input = inputUnknown as {
@@ -612,29 +612,26 @@ describe("AcpSessionManager runtime handles", () => {
     });
 
     const manager = new AcpSessionManager();
-    await manager.runTurn({
-      provenance: "system",
-      cfg: baseCfg,
-      sessionKey,
-      text: "after restart",
-      mode: "prompt",
-      requestId: "r-binding-retry-fresh",
-    });
+    await expect(
+      manager.runTurn({
+        provenance: "system",
+        cfg: baseCfg,
+        sessionKey,
+        text: "after restart",
+        mode: "prompt",
+        requestId: "r-binding-retry-fresh",
+      }),
+    ).rejects.toThrow("Could not resume the ACP conversation");
 
-    expect(runtimeState.ensureSession).toHaveBeenCalledTimes(2);
+    expect(runtimeState.ensureSession).toHaveBeenCalledTimes(1);
     expectRecordFields(mockCallArg(runtimeState.ensureSession), {
       sessionKey,
       agent: "codex",
       resumeSessionId: "agent-sid-stale",
     });
-    const retryInput = mockCallArg(runtimeState.ensureSession, 1);
-    expect(retryInput.resumeSessionId).toBeUndefined();
-    const runTurnInput = mockCallArg(runtimeState.runTurn);
-    const handle = expectRecordFields(runTurnInput.handle, {
-      backendSessionId: "acpx-sid-fresh",
-    });
-    expect(handle.agentSessionId).toBeUndefined();
-    expect(currentMeta.identity?.acpxSessionId).toBe("acpx-sid-fresh");
-    expect(currentMeta.identity?.agentSessionId).toBeUndefined();
+    expect(runtimeState.runTurn).not.toHaveBeenCalled();
+    expect(currentMeta.identity?.acpxSessionId).toBe("acpx-sid-stale");
+    expect(currentMeta.identity?.agentSessionId).toBe("agent-sid-stale");
+    manager.stopIdleMaintenance();
   });
 });

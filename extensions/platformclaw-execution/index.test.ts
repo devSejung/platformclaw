@@ -1,8 +1,10 @@
+import { EventEmitter } from "node:events";
 import {
   canUseAcpProcessTransport,
   diagnoseAcpProcessTransport,
   prepareAcpProcessTransport,
 } from "openclaw/plugin-sdk/acp-runtime-backend";
+import { launchWithAcpProcessTransport } from "openclaw/plugin-sdk/acp-runtime-backend";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { CreateSandboxBackendParams } from "openclaw/plugin-sdk/sandbox";
 import { getSandboxBackendFactory } from "openclaw/plugin-sdk/sandbox";
@@ -20,6 +22,92 @@ vi.mock("./src/runtime.js", async (importOriginal) => ({
 }));
 
 describe("PlatformClaw execution plugin", () => {
+  it("reserves five owner slots before asynchronous launches and frees a closed slot", async () => {
+    const previousBroker = process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS;
+    const previousToken = process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
+    process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = "/run/platformclaw/base.sock";
+    process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = "/run/secrets/execution-token";
+    const target = {
+      kind: "assigned_vm",
+      agentId: "person_one",
+      targetId: "vm-one",
+      revision: 1,
+      allocationId: "allocation-one",
+      credentialRevision: 1,
+      remoteWorkspaceDir: "/workspace",
+      codingAgents: [
+        { agent: "claude", enabled: true },
+        { agent: "codex", enabled: true },
+      ],
+    };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const children: Array<EventEmitter & { kill: ReturnType<typeof vi.fn> }> = [];
+    const launchAcpProcess = vi.fn(async () => {
+      await gate;
+      const child = Object.assign(new EventEmitter(), { kill: vi.fn(() => true) });
+      children.push(child);
+      return child;
+    });
+    createExecutionDependenciesFromEnvironmentMock.mockResolvedValue({
+      resolveTarget: vi.fn(async () => target),
+      launchAcpProcess,
+      dispose: vi.fn(async () => undefined),
+    });
+    const stops: Array<() => Promise<void>> = [];
+    try {
+      plugin.register({
+        registrationMode: "full",
+        logger: { info: vi.fn() },
+        registerGatewayMethod: vi.fn(() => () => undefined),
+        on: vi.fn((event, handler) => {
+          if (event === "gateway_stop") {
+            stops.push(handler);
+          }
+        }),
+      } as unknown as OpenClawPluginApi);
+      const routes = Array.from({ length: 6 }, (_, index) => ({
+        executionOwnerAgentId: "person_one",
+        agent: index % 2 ? "codex" : "claude",
+        sessionKey: `agent:person_one:acp:${index}`,
+      }));
+      await Promise.all(routes.map((route) => prepareAcpProcessTransport(route)));
+      const launch = (index: number) =>
+        launchWithAcpProcessTransport(
+          {
+            agentCommand: routes[index]!.agent,
+            command: "adapter",
+            args: [],
+            cwd: "/workspace",
+            env: {},
+          },
+          routes[index],
+        );
+      const firstFive = Array.from({ length: 5 }, (_, index) => launch(index));
+      await vi.waitFor(() => expect(launchAcpProcess).toHaveBeenCalledTimes(5));
+      await expect(launch(5)).rejects.toMatchObject({ code: "session_limit_reached" });
+      release();
+      await Promise.all(firstFive);
+      children[0]!.emit("close");
+      await expect(launch(5)).resolves.toBeDefined();
+      expect(launchAcpProcess).toHaveBeenCalledTimes(6);
+    } finally {
+      release();
+      await Promise.all(stops.map((stop) => stop()));
+      if (previousBroker === undefined) {
+        delete process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS;
+      } else {
+        process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = previousBroker;
+      }
+      if (previousToken === undefined) {
+        delete process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
+      } else {
+        process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = previousToken;
+      }
+    }
+  });
   it("registers one fail-closed static backend during full activation", async () => {
     const stopHandlers: Array<() => Promise<void>> = [];
     plugin.register({

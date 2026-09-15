@@ -6,6 +6,10 @@ export class SessionActorQueue {
   private readonly queue = new KeyedAsyncQueue();
   private readonly pendingBySession = new Map<string, number>();
 
+  getPendingCount(actorKey: string): number {
+    return this.pendingBySession.get(actorKey) ?? 0;
+  }
+
   getTotalPendingCount(): number {
     let total = 0;
     for (const count of this.pendingBySession.values()) {

@@ -5,7 +5,8 @@ import { sanitizeEnvVars, type SshSandboxSession } from "openclaw/plugin-sdk/san
 import type { AssignedVmTargetSnapshot } from "./backend.js";
 import { PlatformClawVmAuthenticationError } from "./connection-errors.js";
 
-const DEFAULT_MAX_CHANNELS = 4;
+// Five long-lived ACP processes must leave one channel for normal execution/terminal work.
+const DEFAULT_MAX_CHANNELS = 6;
 const DEFAULT_MAX_QUEUED_CHANNELS = 256;
 const DEFAULT_IDLE_TTL_MS = 24 * 60 * 60 * 1_000;
 const MASTER_READY_TIMEOUT_MS = 15_000;
