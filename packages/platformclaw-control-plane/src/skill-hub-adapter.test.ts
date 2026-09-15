@@ -1,3 +1,5 @@
+import { statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { IflytekSkillHubAdapter } from "./skill-hub-adapter.js";
 
@@ -142,6 +144,157 @@ describe("IflytekSkillHubAdapter", () => {
         visibility: "PRIVATE",
       }),
     ).rejects.not.toThrow("server-secret-token");
+  });
+
+  it("retries extension-only publish warnings through the confirmable portal contract", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      expect(init?.body).toBeInstanceOf(FormData);
+      const form = init?.body as FormData;
+      expect(form.get("visibility")).toBe("PRIVATE");
+      expect(form.get("file")).toBeInstanceOf(Blob);
+      if (url.pathname.endsWith("/api/cli/v1/skills/engineering/publish")) {
+        expect(url.searchParams.get("confirmWarnings")).toBeNull();
+        return json(
+          {
+            code: 400,
+            msg: [
+              "Pre-publish warnings require confirmation before publishing:",
+              "- Disallowed file extension: data/events.jsonl",
+              "- Disallowed file extension: models/index.bin",
+            ].join("\n"),
+          },
+          400,
+        );
+      }
+      expect(url.pathname).toBe("/api/v1/skills/engineering/publish");
+      expect(url.searchParams.get("confirmWarnings")).toBe("true");
+      return json({
+        code: 0,
+        data: {
+          skillId: 10,
+          namespace: "engineering",
+          slug: "demo-skill",
+          version: "1.0.0",
+          status: "PENDING_REVIEW",
+          fileCount: 3,
+          totalSize: 123,
+        },
+      });
+    });
+    const adapter = new IflytekSkillHubAdapter({
+      baseUrl: "https://skillhub.example.test",
+      token: "server-secret-token",
+      maxArchiveBytes: 1024,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    await expect(
+      adapter.publish({
+        namespace: "engineering",
+        archive: Buffer.from("zip"),
+        filename: "demo.zip",
+        visibility: "PRIVATE",
+      }),
+    ).resolves.toEqual({
+      namespace: "engineering",
+      slug: "demo-skill",
+      version: "1.0.0",
+      visibility: "PRIVATE",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("rebuilds file-backed publish streams when confirming extension-only warnings", async () => {
+    const archivePath = fileURLToPath(import.meta.url);
+    const contentTypes: string[] = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      const contentType = new Headers(init?.headers).get("Content-Type");
+      expect(contentType).toContain("multipart/form-data; boundary=platformclaw-");
+      contentTypes.push(contentType!);
+      const body = init?.body;
+      if (!(body instanceof ReadableStream)) {
+        throw new Error("expected a streamed multipart body");
+      }
+      await new Response(body).arrayBuffer();
+      if (url.pathname.endsWith("/api/cli/v1/skills/engineering/publish")) {
+        return json(
+          {
+            code: 400,
+            msg: [
+              "Pre-publish warnings require confirmation before publishing:",
+              "- Disallowed file extension: models/index.bin",
+            ].join("\n"),
+          },
+          400,
+        );
+      }
+      expect(url.pathname).toBe("/api/v1/skills/engineering/publish");
+      expect(url.searchParams.get("confirmWarnings")).toBe("true");
+      return json({
+        code: 0,
+        data: {
+          namespace: "engineering",
+          slug: "demo-skill",
+          version: "1.0.0",
+        },
+      });
+    });
+    const adapter = new IflytekSkillHubAdapter({
+      baseUrl: "https://skillhub.example.test",
+      token: "server-secret-token",
+      maxArchiveBytes: 1024,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    await expect(
+      adapter.publish({
+        namespace: "engineering",
+        archive: { path: archivePath, size: statSync(archivePath).size },
+        filename: "demo.zip",
+        visibility: "PRIVATE",
+      }),
+    ).resolves.toEqual({
+      namespace: "engineering",
+      slug: "demo-skill",
+      version: "1.0.0",
+      visibility: "PRIVATE",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(contentTypes[0]).not.toBe(contentTypes[1]);
+  });
+
+  it("does not auto-confirm extension warnings when another publish warning is present", async () => {
+    const fetchImpl = vi.fn(async () =>
+      json(
+        {
+          code: 400,
+          msg: [
+            "Pre-publish warnings require confirmation before publishing:",
+            "- Disallowed file extension: models/index.bin",
+            "- SKILL.md line 5 contains a value that looks like a secret or token.",
+          ].join("\n"),
+        },
+        400,
+      ),
+    );
+    const adapter = new IflytekSkillHubAdapter({
+      baseUrl: "https://skillhub.example.test",
+      token: "server-secret-token",
+      maxArchiveBytes: 1024,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    await expect(
+      adapter.publish({
+        namespace: "engineering",
+        archive: Buffer.from("zip"),
+        filename: "demo.zip",
+        visibility: "PRIVATE",
+      }),
+    ).rejects.toThrow("looks like a secret or token");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("uses the pinned remote-delete contract and preserves an unresolved ok=false result", async () => {
