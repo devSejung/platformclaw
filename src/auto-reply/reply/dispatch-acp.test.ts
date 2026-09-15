@@ -2423,20 +2423,20 @@ describe("tryDispatchAcpReply", () => {
       sessionKey: canonicalSessionKey,
       error: new AcpRuntimeError("ACP_SESSION_INIT_FAILED", "ACP metadata is missing."),
     });
-    bindingServiceMocks.unbind.mockResolvedValueOnce([
-      {
-        bindingId: "discord:default:thread-1",
-        targetSessionKey: canonicalSessionKey,
-        targetKind: "session",
-        conversation: {
-          channel: "discord",
-          accountId: "default",
-          conversationId: "thread-1",
-        },
-        status: "active",
-        boundAt: 0,
+    const binding = {
+      bindingId: "discord:default:thread-1",
+      targetSessionKey: canonicalSessionKey,
+      targetKind: "session",
+      conversation: {
+        channel: "discord",
+        accountId: "default",
+        conversationId: "thread-1",
       },
-    ]);
+      status: "active",
+      boundAt: 0,
+    } satisfies SessionBindingRecord;
+    bindingServiceMocks.listBySession.mockReturnValue([binding]);
+    bindingServiceMocks.unbind.mockResolvedValueOnce([binding]);
     const { dispatcher } = createDispatcher();
 
     await runDispatch({
@@ -2453,6 +2453,7 @@ describe("tryDispatchAcpReply", () => {
     });
     expect(dispatcherCall(dispatcher.sendFinalReply).isError).toBe(true);
     expect(dispatcherCall(dispatcher.sendFinalReply).text).toContain("ACP metadata is missing.");
+    expect(dispatcherCall(dispatcher.sendFinalReply).text).toContain("rebind this conversation");
   });
 
   it("does not unbind valid bindings on generic ACP runTurn init failure", async () => {
@@ -2473,6 +2474,10 @@ describe("tryDispatchAcpReply", () => {
     expect(dispatcherCall(dispatcher.sendFinalReply).text).toContain(
       "Could not initialize ACP session runtime.",
     );
+    expect(dispatcherCall(dispatcher.sendFinalReply).text).toContain(
+      "retry using the new session key",
+    );
+    expect(dispatcherCall(dispatcher.sendFinalReply).text).not.toContain("rebind");
   });
 
   it("unbinds stale bindings on ACP runTurn missing-metadata failures", async () => {
@@ -2486,23 +2491,23 @@ describe("tryDispatchAcpReply", () => {
     managerMocks.runTurn.mockRejectedValueOnce(
       new AcpRuntimeError(
         "ACP_SESSION_INIT_FAILED",
-        `ACP metadata is missing for ${canonicalSessionKey}. Recreate this ACP session with /acp spawn and rebind the thread.`,
+        `ACP metadata is missing for ${canonicalSessionKey}.`,
       ),
     );
-    bindingServiceMocks.unbind.mockResolvedValueOnce([
-      {
-        bindingId: "discord:default:thread-1",
-        targetSessionKey: canonicalSessionKey,
-        targetKind: "session",
-        conversation: {
-          channel: "discord",
-          accountId: "default",
-          conversationId: "thread-1",
-        },
-        status: "active",
-        boundAt: 0,
+    const binding = {
+      bindingId: "discord:default:thread-1",
+      targetSessionKey: canonicalSessionKey,
+      targetKind: "session",
+      conversation: {
+        channel: "discord",
+        accountId: "default",
+        conversationId: "thread-1",
       },
-    ]);
+      status: "active",
+      boundAt: 0,
+    } satisfies SessionBindingRecord;
+    bindingServiceMocks.listBySession.mockReturnValue([binding]);
+    bindingServiceMocks.unbind.mockResolvedValueOnce([binding]);
     const { dispatcher } = createDispatcher();
 
     await runDispatch({
@@ -2518,6 +2523,7 @@ describe("tryDispatchAcpReply", () => {
     });
     expect(dispatcherCall(dispatcher.sendFinalReply).isError).toBe(true);
     expect(dispatcherCall(dispatcher.sendFinalReply).text).toContain("ACP metadata is missing");
+    expect(dispatcherCall(dispatcher.sendFinalReply).text).toContain("rebind this conversation");
   });
 
   it("uses canonical session keys for bound-session identity notices", async () => {

@@ -63,7 +63,7 @@
             "type": "boolean"
           },
           "mode": {
-            "description": "\"run\" one-shot; \"session\" persistent with a thread or personal ACP execution target. Omit with visible=true (persistent).",
+            "description": "\"run\" one-shot; \"session\" persistent with a thread, personal ACP target, or visible ACP session. Native visible sessions omit mode; visible ACP should use \"session\" (legacy \"run\" accepted).",
             "enum": ["run", "session"],
             "type": "string"
           },
@@ -101,7 +101,7 @@
             "type": "boolean"
           },
           "visible": {
-            "description": "Persistent sidebar session; supports native subagents and available personal/configured ACP agents. For ACP set runtime=\"acp\", agentId to the coding agent, and optional mode=\"run\"; omit thread/thinking/lightContext/attachments/attachAs.",
+            "description": "Persistent sidebar session; supports native subagents and available personal/configured ACP agents. For ACP set runtime=\"acp\", agentId to the coding agent, and mode=\"session\"; legacy mode=\"run\" is accepted. Native visible sessions omit mode. Omit thread/thinking/lightContext/attachments/attachAs.",
             "type": "boolean"
           },
           "worktree": {

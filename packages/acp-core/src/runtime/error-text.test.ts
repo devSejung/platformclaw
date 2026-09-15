@@ -20,6 +20,23 @@ describe("formatAcpRuntimeErrorText", () => {
     );
   });
 
+  it("uses session-key recovery guidance when no conversation binding is known", () => {
+    const text = formatAcpRuntimeErrorText(
+      new AcpRuntimeError("ACP_SESSION_INIT_FAILED", "session metadata missing"),
+      { recoveryTarget: "session-key" },
+    );
+    expect(text).toContain("retry using the new session key");
+    expect(text).not.toContain("rebind");
+  });
+
+  it("keeps rebind guidance for an actual bound conversation", () => {
+    const text = formatAcpRuntimeErrorText(
+      new AcpRuntimeError("ACP_SESSION_INIT_FAILED", "session metadata missing"),
+      { recoveryTarget: "bound-conversation" },
+    );
+    expect(text).toContain("rebind this conversation");
+  });
+
   it("surfaces redacted numeric RequestError details in runtime failure text", () => {
     const token = "sk-abcdefghijklmnopqrstuvwxyz123456";
     const requestError = Object.assign(new Error("Internal error"), {

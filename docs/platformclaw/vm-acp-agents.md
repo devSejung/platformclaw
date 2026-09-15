@@ -302,11 +302,15 @@ the `sessionKey` must stay the same. Do not spawn a replacement to test reuse.
 
 Choose the session shape deliberately:
 
-| Request                                                     | Conversation lifetime                                                                                                                                |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `visible: true`                                             | Persistent browser conversation. Omit `mode` and `thread`; its initial task envelope reports `mode: "run"`, but the conversation remains persistent. |
-| `mode: "session"` with a personal isolated execution target | Persistent ACP conversation without requiring a channel thread. Continue through the returned `childSessionKey`.                                     |
-| `mode: "run"` without `visible: true`                       | One-shot task. It closes after the turn and cannot accept follow-ups.                                                                                |
+| Request                                                     | Conversation lifetime                                                                                                                                                                                                        |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `visible: true`                                             | Persistent browser conversation. Use `mode: "session"`, omit `thread`, and continue with `sessions_send` to the returned `childSessionKey`. Legacy `mode: "run"` is accepted but the result still reports `mode: "session"`. |
+| `mode: "session"` with a personal isolated execution target | Persistent ACP conversation without requiring a channel thread. Continue through the returned `childSessionKey`.                                                                                                             |
+| `mode: "run"` without `visible: true`                       | One-shot task. It closes after the turn and cannot accept follow-ups.                                                                                                                                                        |
+
+After upgrading, recreate an ACP conversation that already reports missing or
+stale session metadata. Newly created sessions record canonical lifecycle
+identity and remain reusable through their returned session key.
 
 For a persistent session without the visible dashboard conversation, use:
 

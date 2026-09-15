@@ -484,8 +484,10 @@ Two ways to start an ACP session:
     <Note>
     `runtime` defaults to `subagent`, so set `runtime: "acp"` explicitly for
     ACP sessions. If `agentId` is omitted, OpenClaw uses `acp.defaultAgent`
-    when configured. `mode: "session"` requires `thread: true` to keep a
-    persistent bound conversation.
+    when configured. For a persistent bound channel conversation,
+    `mode: "session"` requires `thread: true`. For a persistent Control UI
+    conversation, use `visible: true` with `mode: "session"`, omit `thread`,
+    and continue through the returned `childSessionKey` with `sessions_send`.
     </Note>
 
   </Tab>
@@ -529,8 +531,23 @@ Two ways to start an ACP session:
 <ParamField path="mode" type='"run" | "session"' default="run">
   `"run"` is one-shot; `"session"` is persistent. If `thread: true` and
   `mode` is omitted, OpenClaw may default to persistent behaviour per
-  runtime path. `mode: "session"` requires `thread: true`.
+  runtime path. `mode: "session"` requires `thread: true` unless
+  `visible: true` or a personal isolated execution target owns the persistent
+  session. A visible ACP spawn also accepts legacy `mode: "run"`, but reports
+  `mode: "session"` because the dashboard conversation remains reusable.
 </ParamField>
+<ParamField path="visible" type="boolean" default="false">
+  Create a persistent ACP conversation in the Control UI. Use
+  `mode: "session"`, omit `thread`, and send later messages with
+  `sessions_send` to the returned `childSessionKey`.
+</ParamField>
+
+<Note>
+After upgrading, recreate an ACP conversation that already reports missing or
+stale session metadata. Newly created sessions record canonical lifecycle
+identity and remain reusable by key.
+</Note>
+
 <ParamField path="cwd" type="string">
   Requested runtime working directory (validated by backend/runtime policy).
   If omitted, ACP spawn inherits the target agent workspace when configured;

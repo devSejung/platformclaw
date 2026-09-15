@@ -180,6 +180,8 @@ describe("sessions_spawn tool", () => {
 
     expect(tool.displaySummary).toBe("Spawn subagent or ACP session.");
     expect(tool.description).toContain('runtime="acp"');
+    expect(tool.description).toContain('`mode="session"`');
+    expect(tool.description).toContain("Send every follow-up with `sessions_send`");
     expect(tool.description).toContain('unless ACP `streamTo="parent"`');
     expect(schema.properties?.runtime?.enum).toEqual(["subagent", "acp"]);
     const resumeSessionId = requireSchemaProperty(schema.properties, "resumeSessionId");
@@ -422,7 +424,7 @@ describe("sessions_spawn tool", () => {
     };
 
     expect(schema.properties?.visible?.description).toBe(
-      'Persistent sidebar session; supports native subagents and available personal/configured ACP agents. For ACP set runtime="acp", agentId to the coding agent, and optional mode="run"; omit thread/thinking/lightContext/attachments/attachAs.',
+      'Persistent sidebar session; supports native subagents and available personal/configured ACP agents. For ACP set runtime="acp", agentId to the coding agent, and mode="session"; legacy mode="run" is accepted. Native visible sessions omit mode. Omit thread/thinking/lightContext/attachments/attachAs.',
     );
     expect(tool.description).toContain("`visible=true`: persistent sidebar dashboard session");
     expect(tool.description).toContain("when the user asks to create/open a thread");
@@ -430,7 +432,7 @@ describe("sessions_spawn tool", () => {
     expect(tool.description).toContain("inherits the caller tool-policy ceiling");
     expect(tool.description).toContain("`tools.sessions.visibility`");
     expect(schema.properties?.runtime?.description).toContain("visible=true");
-    expect(schema.properties?.mode?.description).toContain("Omit with visible=true");
+    expect(schema.properties?.mode?.description).toContain("Native visible sessions omit mode");
     expect(schema.properties?.lightContext?.description).toContain("unavailable with visible=true");
     expect(schema.properties?.attachments?.description).toContain("unavailable with visible=true");
     expect(schema.properties?.attachAs?.description).toContain("unavailable with visible=true");

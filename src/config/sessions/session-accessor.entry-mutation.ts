@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { MsgContext } from "../../auto-reply/templating.js";
 import { formatErrorMessage } from "../../infra/errors.js";
@@ -114,15 +115,22 @@ export async function createSessionEntryWithTranscript<TError = string>(
     return { ok: false, error: created.error, phase: "entry" };
   }
 
+  const entry = {
+    ...created.entry,
+    // Creation returns the same lifecycle identity that persistence records so
+    // exact-match initializers can safely finalize work performed after this write.
+    lifecycleRevision: created.entry.lifecycleRevision?.trim() || randomUUID(),
+  };
+
   try {
     await appendSqliteTranscriptEvent(
       {
         agentId,
-        sessionId: created.entry.sessionId,
+        sessionId: entry.sessionId,
         sessionKey: resolved.normalizedKey,
         storePath,
       },
-      createSessionTranscriptHeader({ cwd: options.cwd, sessionId: created.entry.sessionId }),
+      createSessionTranscriptHeader({ cwd: options.cwd, sessionId: entry.sessionId }),
     );
   } catch (err) {
     return {
@@ -132,7 +140,6 @@ export async function createSessionEntryWithTranscript<TError = string>(
     };
   }
 
-  const entry = created.entry;
   await applySessionEntryLifecycleMutation({
     agentId,
     storePath,

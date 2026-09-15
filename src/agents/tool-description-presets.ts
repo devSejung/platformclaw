@@ -115,7 +115,7 @@ export function describeSessionsSpawnTool(options?: {
     agentIdDescription,
     options?.acpAvailable === false
       ? '`visible=true`: persistent sidebar dashboard session; use when the user asks to create/open a thread; native subagent only; omit `mode` (no `mode="run"`), `thread`, `thinking`, `lightContext`, `attachments`, `attachAs`; inherits the caller tool-policy ceiling; may check out a git worktree via `worktree`/`worktreeName`/`worktreeBaseRef`.'
-      : '`visible=true`: persistent sidebar dashboard session; native subagent or available personal/configured ACP agent. For ACP use explicit `runtime="acp"` plus its coding-agent `agentId`; `mode="run"` is the initial task envelope (the conversation stays persistent). Send follow-ups to the returned childSessionKey. Omit `thread`, `thinking`, `lightContext`, `attachments`, `attachAs`, `resumeSessionId`, `streamTo`; ACP worktrees are unavailable. Inherits the caller tool-policy ceiling.',
+      : '`visible=true`: persistent sidebar dashboard session; native subagent or available personal/configured ACP agent. For ACP use explicit `runtime="acp"`, its coding-agent `agentId`, and `mode="session"`; legacy `mode="run"` is accepted. Send every follow-up with `sessions_send` to the returned `childSessionKey`. Native visible sessions omit `mode`. Omit `thread`, `thinking`, `lightContext`, `attachments`, `attachAs`, `resumeSessionId`, `streamTo`; ACP worktrees are unavailable. Inherits the caller tool-policy ceiling.',
     visibilityLine,
     ...(options?.swarmEnabled
       ? [
