@@ -126,7 +126,7 @@ describe("SkillHubService registry deletion", () => {
 
     await expect(
       service.deletePublishedSkill(actor.user, "engineering", "demo-skill", ownership!.updatedAt),
-    ).rejects.toMatchObject({ statusCode: 503 });
+    ).rejects.toMatchObject({ statusCode: 502 });
     await expect(store.getSkillHubOwnership("engineering", "demo-skill")).resolves.not.toBeNull();
   });
 
