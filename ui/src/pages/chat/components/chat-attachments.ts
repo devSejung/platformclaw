@@ -315,8 +315,16 @@ async function appendAttachmentFiles(files: readonly File[], props: ChatAttachme
 }
 
 export function handleChatAttachmentPaste(e: ClipboardEvent, props: ChatAttachmentControlsProps) {
-  const items = e.clipboardData?.items;
+  const clipboard = e.clipboardData;
+  const items = clipboard?.items;
   if (!items || !props.onAttachmentsChange) {
+    return;
+  }
+  const text = clipboard.getData("text/plain");
+  const clipboardHtml = clipboard.getData("text/html");
+  const pasted = text ? dataImageClipboardFile(text) : null;
+  if (!pasted && text.trim() && /<table(?:\s|>)/iu.test(clipboardHtml)) {
+    handleLargeTextPaste(e, props);
     return;
   }
   const imageFiles = Array.from(items)
@@ -324,8 +332,6 @@ export function handleChatAttachmentPaste(e: ClipboardEvent, props: ChatAttachme
     .map((item) => item.getAsFile())
     .filter((file): file is File => file !== null);
   if (imageFiles.length === 0) {
-    const text = e.clipboardData?.getData("text/plain");
-    const pasted = text ? dataImageClipboardFile(text) : null;
     if (!pasted) {
       handleLargeTextPaste(e, props);
       return;

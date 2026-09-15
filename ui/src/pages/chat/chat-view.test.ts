@@ -4535,6 +4535,65 @@ describe("chat attachment picker", () => {
     expect(requireFirstAttachmentsChange(onAttachmentsChange)).toHaveLength(1);
   });
 
+  it("keeps spreadsheet table clipboard text instead of attaching its image fallback", () => {
+    const readers: FileReader[] = [];
+    vi.spyOn(FileReader.prototype, "readAsDataURL").mockImplementation(function (this: FileReader) {
+      readers.push(this);
+    });
+    const onAttachmentsChange = vi.fn();
+    const container = renderChatView({ onAttachmentsChange });
+    const textarea = getComposerTextarea(container);
+    const image = new File(["table preview"], "table.png", { type: "image/png" });
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: {
+        items: [
+          { type: "text/plain", getAsFile: () => null },
+          { type: "text/html", getAsFile: () => null },
+          { type: image.type, getAsFile: () => image },
+        ],
+        getData: (type: string) =>
+          type === "text/plain"
+            ? "Name\tCount\nLobster\t2"
+            : type === "text/html"
+              ? "<table><tr><td>Name</td><td>Count</td></tr></table>"
+              : "",
+      },
+    });
+
+    expect(textarea.dispatchEvent(paste)).toBe(true);
+    expect(readers).toHaveLength(0);
+    expect(onAttachmentsChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps large spreadsheet table text in the existing large-paste flow", () => {
+    const onAttachmentsChange = vi.fn();
+    const container = renderChatView({ onAttachmentsChange });
+    const textarea = getComposerTextarea(container);
+    const image = new File(["table preview"], "table.png", { type: "image/png" });
+    const pastedText = `Name\tNotes\nLobster\t${"x".repeat(1100)}`;
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: {
+        items: [{ type: image.type, getAsFile: () => image }],
+        getData: (type: string) =>
+          type === "text/plain"
+            ? pastedText
+            : type === "text/html"
+              ? "<table><tr><td>Name</td><td>Notes</td></tr></table>"
+              : "",
+      },
+    });
+
+    expect(textarea.dispatchEvent(paste)).toBe(false);
+    const attachments = requireFirstAttachmentsChange(onAttachmentsChange);
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]?.mimeType).toBe("text/plain");
+    expect(getChatAttachmentDataUrl(itemAt(attachments, 0, "pasted attachment"))).toBe(
+      `data:text/plain;base64,${btoa(pastedText)}`,
+    );
+  });
+
   it("registers a large paste before an immediate send", () => {
     let attachments: ChatAttachment[] = [];
     const onSend = vi.fn(() => {
@@ -4775,7 +4834,11 @@ describe("chat attachment picker", () => {
     const textarea = getComposerTextarea(container);
     const base64 = btoa("png");
     const dataUrl = ` data:image/PNG;base64,${base64.slice(0, 2)}\n${base64.slice(2)} `;
-    const allowed = textarea.dispatchEvent(createPasteEvent(dataUrl, []));
+    const allowed = textarea.dispatchEvent(
+      createPasteEvent(dataUrl, ["text/plain", "text/html"], {
+        "text/html": "<table><tr><td>image fallback</td></tr></table>",
+      }),
+    );
 
     expect(allowed).toBe(false);
     const attachments = requireFirstAttachmentsChange(onAttachmentsChange);
