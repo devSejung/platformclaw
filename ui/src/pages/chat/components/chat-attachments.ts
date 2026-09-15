@@ -321,9 +321,9 @@ export function handleChatAttachmentPaste(e: ClipboardEvent, props: ChatAttachme
     return;
   }
   const text = clipboard.getData("text/plain");
-  const html = clipboard.getData("text/html");
+  const clipboardHtml = clipboard.getData("text/html");
   const pasted = text ? dataImageClipboardFile(text) : null;
-  if (!pasted && text.trim() && /<table(?:\s|>)/iu.test(html)) {
+  if (!pasted && text.trim() && /<table(?:\s|>)/iu.test(clipboardHtml)) {
     handleLargeTextPaste(e, props);
     return;
   }

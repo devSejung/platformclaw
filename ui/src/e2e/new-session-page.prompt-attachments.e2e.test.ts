@@ -130,28 +130,28 @@ suite.define(() => {
       await message.waitFor();
       const text = "Name\tCount\nLobster\t2";
       await page.evaluate(
-        async ({ html, text }) => {
+        async ({ html, clipboardText }) => {
           const canvas = document.createElement("canvas");
           canvas.width = 1;
           canvas.height = 1;
-          const png = await new Promise<Blob>((resolve, reject) =>
+          const png = await new Promise<Blob>((resolve, reject) => {
             canvas.toBlob(
               (blob) =>
                 blob ? resolve(blob) : reject(new Error("Failed to create clipboard PNG")),
               "image/png",
-            ),
-          );
+            );
+          });
           await navigator.clipboard.write([
             new ClipboardItem({
               "image/png": png,
               "text/html": new Blob([html], { type: "text/html" }),
-              "text/plain": new Blob([text], { type: "text/plain" }),
+              "text/plain": new Blob([clipboardText], { type: "text/plain" }),
             }),
           ]);
         },
         {
           html: "<table><tr><td>Name</td><td>Count</td></tr></table>",
-          text,
+          clipboardText: text,
         },
       );
       await message.focus();
