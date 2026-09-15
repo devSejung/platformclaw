@@ -24,7 +24,7 @@ const TMUX_REQUIRED =
 type Exit = Parameters<SandboxBackendTerminalStream["onExit"]>[0] extends (exit: infer T) => void
   ? T
   : never;
-export type TmuxTransport = {
+type TmuxTransport = {
   child: ChildProcessByStdio<Writable, Readable, Readable>;
   dispose(): Promise<void>;
 };

@@ -7,7 +7,7 @@ export type TmuxControlEvent =
   | { kind: "notification"; line: string };
 
 /** tmux 3.2a control.c escapes bytes below space and backslash as three octal digits. */
-export function decodeTmuxOutput(value: Buffer): Buffer {
+function decodeTmuxOutput(value: Buffer): Buffer {
   const output = Buffer.allocUnsafe(value.length);
   let size = 0;
   for (let i = 0; i < value.length; i++) {

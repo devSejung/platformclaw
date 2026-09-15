@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decodeTmuxOutput,
-  TmuxControlParser,
-  type TmuxControlEvent,
-} from "./tmux-control-protocol.js";
+import { TmuxControlParser, type TmuxControlEvent } from "./tmux-control-protocol.js";
 
 describe("tmux 3.2a control framing", () => {
   it("preserves escaped bytes and UTF-8 across arbitrary SSH chunks", () => {
@@ -16,7 +12,11 @@ describe("tmux 3.2a control framing", () => {
     expect(events).toEqual([
       { kind: "output", paneId: "%12", data: Buffer.from("한글\r\n\x1b[31m\\") },
     ]);
-    expect(decodeTmuxOutput(Buffer.from("\\000\\377"))).toEqual(Buffer.from([0, 255]));
+    const escaped: TmuxControlEvent[] = [];
+    new TmuxControlParser((event) => escaped.push(event)).push(
+      Buffer.from("%output %1 \\000\\377\n"),
+    );
+    expect(escaped).toEqual([{ kind: "output", paneId: "%1", data: Buffer.from([0, 255]) }]);
   });
   it("correlates full command guards and keeps response text distinct from pane output", () => {
     const events: TmuxControlEvent[] = [];
@@ -35,7 +35,9 @@ describe("tmux 3.2a control framing", () => {
     ]);
   });
   it("rejects malformed escapes, mismatched guards and oversized frames", () => {
-    expect(() => decodeTmuxOutput(Buffer.from("\\12"))).toThrow("escape");
+    expect(() => new TmuxControlParser(() => {}).push(Buffer.from("%output %1 \\12\n"))).toThrow(
+      "escape",
+    );
     expect(() =>
       new TmuxControlParser(() => {}).push(Buffer.from("%begin 1 2 1\n%end 1 3 1\n")),
     ).toThrow("Mismatched");

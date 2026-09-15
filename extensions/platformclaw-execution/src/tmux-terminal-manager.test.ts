@@ -2,11 +2,11 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi, type Mock } from "vitest";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
-import {
-  buildTmuxTerminalCommand,
-  VmTmuxTerminalManager,
-  type TmuxTransport,
-} from "./tmux-terminal-manager.js";
+import { buildTmuxTerminalCommand, VmTmuxTerminalManager } from "./tmux-terminal-manager.js";
+
+type TestTmuxTransport = Awaited<
+  ReturnType<ConstructorParameters<typeof VmTmuxTerminalManager>[0]>
+>;
 
 const TARGET: AssignedVmTargetSnapshot = {
   kind: "assigned_vm",
@@ -35,7 +35,7 @@ const SIZE = { cols: 100, rows: 30, env: {} };
 function harness(options: { startupExit?: number } = {}) {
   let exitNextWindow = false;
   const transports: Array<
-    Omit<TmuxTransport, "dispose"> & {
+    Omit<TestTmuxTransport, "dispose"> & {
       dispose: Mock<() => Promise<void>>;
       output: PassThrough;
       commands: string[];
@@ -92,7 +92,7 @@ function harness(options: { startupExit?: number } = {}) {
       }),
     });
     const transport = {
-      child: child as unknown as TmuxTransport["child"],
+      child: child as unknown as TestTmuxTransport["child"],
       dispose: vi.fn(async () => undefined),
       output: stdout,
       commands,

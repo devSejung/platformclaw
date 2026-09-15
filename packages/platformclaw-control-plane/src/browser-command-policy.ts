@@ -107,7 +107,7 @@ function resolveBrowserCommandPolicy(
     : "block";
 }
 
-export async function resolveBrowserCommandSuppression(params: {
+async function resolveBrowserCommandSuppression(params: {
   gateway: GatewayRequest;
   agentId: string;
   message: unknown;
