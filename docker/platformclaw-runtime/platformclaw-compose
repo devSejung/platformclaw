@@ -71,6 +71,7 @@ skillhub_enabled="$(sed -n 's/^PLATFORMCLAW_SKILL_HUB_ENABLED=//p' "$PLATFORMCLA
 # must not silently override an image update, rollback, origin, or secret path.
 unset PLATFORMCLAW_IMAGE PLATFORMCLAW_SANDBOX_IMAGE \
   PLATFORMCLAW_PUBLIC_ORIGIN PLATFORMCLAW_PUBLIC_PORT \
+  PLATFORMCLAW_JIRA_VOC_CONFIG_FILE PLATFORMCLAW_JIRA_VOC_CONFIG_HOST_FILE \
   PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL PLATFORMCLAW_TZ \
   PLATFORMCLAW_KNOX_CDEP_URL \
   PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE \
@@ -91,4 +92,11 @@ compose_args=(docker compose --project-name "$compose_project" --env-file "$PLAT
 if [[ "$skillhub_enabled" == "true" ]]; then
   compose_args+=(--profile skillhub)
 fi
-exec "${compose_args[@]}" -f "$script_dir/compose.yaml" "$@"
+compose_args+=(-f "$script_dir/compose.yaml")
+# Resolve optional paths with Compose's dotenv parser, including quoted empty values.
+# Keep the file mount absent for deployments that have not enabled Jira intake.
+compose_environment="$("${compose_args[@]}" config --environment)"
+if grep -Eq '^PLATFORMCLAW_JIRA_VOC_CONFIG_(HOST_)?FILE=.+$' <<<"$compose_environment"; then
+  compose_args+=(-f "$script_dir/compose.jira-voc.yaml")
+fi
+exec "${compose_args[@]}" "$@"

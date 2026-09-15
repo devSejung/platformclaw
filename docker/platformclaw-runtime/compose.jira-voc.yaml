@@ -1,0 +1,11 @@
+services:
+  platformclaw-control:
+    environment:
+      PLATFORMCLAW_JIRA_VOC_CONFIG_FILE: ${PLATFORMCLAW_JIRA_VOC_CONFIG_FILE:-/run/secrets/jira-voc.json}
+    volumes:
+      - type: bind
+        source: ${PLATFORMCLAW_JIRA_VOC_CONFIG_HOST_FILE:-${PLATFORMCLAW_DEPLOY_HOST_ROOT}/secrets/jira-voc.json}
+        target: ${PLATFORMCLAW_JIRA_VOC_CONFIG_FILE:-/run/secrets/jira-voc.json}
+        read_only: true
+        bind:
+          create_host_path: false

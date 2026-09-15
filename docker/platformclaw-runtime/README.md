@@ -128,6 +128,30 @@ does not generate this shared secret. The Control container receives it as a
 read-only Docker secret and exposes neither the value nor its host path to the
 browser.
 
+### Optional Jira intake
+
+Set these paths in `deployment.env` to enable the VoC form:
+
+```dotenv
+PLATFORMCLAW_JIRA_VOC_CONFIG_FILE=/run/secrets/jira-voc.json
+PLATFORMCLAW_JIRA_VOC_CONFIG_HOST_FILE=/home/<service-user>/platformclaw/secrets/jira-voc.json
+```
+
+The first path is inside the Control container; the second is the existing
+host JSON secret file. Setting either path enables intake. The container path
+defaults to `/run/secrets/jira-voc.json`, and the host path defaults to
+`<deploy-root>/secrets/jira-voc.json`. The wrapper automatically merges
+`compose.jira-voc.yaml` and mounts only that file read-only. The file must exist
+and be readable by the service user; it is never generated or included in the
+release bundle. Leaving both paths empty keeps intake disabled without a mount.
+See `docs/platformclaw/web-ingress-runtime.md` for the JSON fields.
+
+After replacing the deployment bundle, apply the new mount and environment:
+
+```bash
+./platformclaw-compose --service-user platformclaw up -d --wait --force-recreate platformclaw-control
+```
+
 ### Optional web relay
 
 The bundled `platformclaw-web-relay` plugin preserves normal OpenClaw web tool

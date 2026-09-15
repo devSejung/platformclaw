@@ -125,6 +125,28 @@ CA가 필요하면 승인된 PEM bundle로 이 파일을 교체한다. Gateway�
 ./platformclaw-deploy ca apply
 ```
 
+#### 선택: Jira VoC 접수
+
+기존 Jira JSON 설정 파일을 연결하려면 `deployment.env`에 경로를 지정한다.
+
+```dotenv
+PLATFORMCLAW_JIRA_VOC_CONFIG_FILE=/run/secrets/jira-voc.json
+PLATFORMCLAW_JIRA_VOC_CONFIG_HOST_FILE=/home/<service-user>/platformclaw/secrets/jira-voc.json
+```
+
+`CONFIG_FILE`은 Control 컨테이너 내부 경로, `HOST_FILE`은 호스트의 기존 JSON 파일
+경로다. 하나만 지정하면 나머지는 `/run/secrets/jira-voc.json`과
+`<deploy-root>/secrets/jira-voc.json`을 기본값으로 사용한다. wrapper가
+`compose.jira-voc.yaml`을 자동 적용하고 해당 파일만 읽기 전용으로 마운트한다.
+파일은 service-user가 읽을 수 있어야 하며 Release에는 포함하지 않는다.
+두 경로를 모두 비우면 VoC 접수를 비활성화한다.
+
+새 deployment bundle 적용 후 Control 컨테이너를 재생성한다.
+
+```bash
+./platformclaw-compose --service-user platformclaw up -d --wait --force-recreate platformclaw-control
+```
+
 ### 1.4 이미지 로드
 
 Release의 단일 transfer tar에는 메인·sandbox 이미지와 고정된 SkillHub v0.2.16

@@ -349,6 +349,118 @@ describe("PlatformClaw Docker runtime", () => {
     ]);
   });
 
+  it.runIf(
+    process.platform !== "win32" &&
+      spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0,
+  )("connects optional Jira intake through the production Compose wrapper", () => {
+    const root = tempDirs.make("platformclaw-jira-compose-");
+    const envFile = path.join(root, "deployment.env");
+    const wrapper = path.resolve("docker/platformclaw-runtime/platformclaw-compose");
+    const baseEnvironment = [
+      "PLATFORMCLAW_PUBLIC_ORIGIN=https://platformclaw.example.test",
+      "PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL=https://auth.example.test/login",
+      "PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL=https://auth.example.test/adsso",
+      "PLATFORMCLAW_KNOX_CDEP_URL=https://cdep.example.test/outbound",
+      ...[
+        "EMPLOYEE_AUTH_CA_FILE",
+        "EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE",
+        "GATEWAY_TOKEN_SECRET_FILE",
+        "GATEWAY_SERVICE_IDENTITY_SECRET_FILE",
+        "EXECUTION_SERVICE_TOKEN_SECRET_FILE",
+        "INITIAL_ADMIN_IDS_SECRET_FILE",
+        "KNOX_WEBHOOK_SECRET_SECRET_FILE",
+        "KNOX_SERVICE_TOKEN_SECRET_FILE",
+        "SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE",
+      ].map((key) => `PLATFORMCLAW_${key}=${root}/secret`),
+    ];
+    const script = String.raw`
+getent() { printf 'platformclaw:x:1000:1000::%s:/bin/bash\n' "$PLATFORMCLAW_TEST_HOME"; }
+id() { printf '1000\n'; }
+export -f getent id
+exec bash "$1" config --format json
+`;
+    const cases = [
+      { settings: [], source: null, target: "" },
+      {
+        settings: [
+          'PLATFORMCLAW_JIRA_VOC_CONFIG_FILE=""',
+          "PLATFORMCLAW_JIRA_VOC_CONFIG_HOST_FILE=''",
+        ],
+        source: null,
+        target: "",
+      },
+      {
+        settings: ["PLATFORMCLAW_JIRA_VOC_CONFIG_FILE=/run/secrets/jira-voc.json"],
+        source: `${root}/secrets/jira-voc.json`,
+        target: "/run/secrets/jira-voc.json",
+      },
+      {
+        settings: [`PLATFORMCLAW_JIRA_VOC_CONFIG_HOST_FILE="${root}/custom jira.json"`],
+        source: `${root}/custom jira.json`,
+        target: "/run/secrets/jira-voc.json",
+      },
+      {
+        settings: [
+          "PLATFORMCLAW_JIRA_VOC_CONFIG_FILE=/run/secrets/custom-jira.json",
+          `PLATFORMCLAW_JIRA_VOC_CONFIG_HOST_FILE=${root}/custom.json`,
+        ],
+        source: `${root}/custom.json`,
+        target: "/run/secrets/custom-jira.json",
+      },
+    ];
+    for (const entry of cases) {
+      writeFileSync(envFile, [...baseEnvironment, ...entry.settings, ""].join("\n"), "utf8");
+      const result = spawnSync("bash", ["-ceu", script, "--", wrapper], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PLATFORMCLAW_TEST_HOME: root,
+          PLATFORMCLAW_DEPLOY_ROOT: root,
+          PLATFORMCLAW_ENV_FILE: envFile,
+          // The deployment file owns these paths even when the caller exports others.
+          PLATFORMCLAW_JIRA_VOC_CONFIG_FILE: "/run/secrets/ambient.json",
+          PLATFORMCLAW_JIRA_VOC_CONFIG_HOST_FILE: "/ambient/jira.json",
+        },
+      });
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      const config = JSON.parse(result.stdout) as {
+        services: Record<
+          string,
+          {
+            environment: Record<string, string>;
+            volumes?: Array<{
+              source: string;
+              target: string;
+              read_only: boolean;
+              bind?: { create_host_path?: boolean };
+            }>;
+          }
+        >;
+      };
+      const control = config.services["platformclaw-control"]!;
+      expect(control.environment.PLATFORMCLAW_JIRA_VOC_CONFIG_FILE).toBe(entry.target);
+      const mount = control.volumes?.find((volume) => volume.source === entry.source);
+      if (entry.source) {
+        expect(mount).toMatchObject({
+          source: entry.source,
+          target: entry.target,
+          read_only: true,
+        });
+        // Compose's normalized JSON omits false booleans; true would create a directory.
+        expect(mount?.bind?.create_host_path ?? false).toBe(false);
+      } else {
+        expect(control.volumes?.some((volume) => volume.target.startsWith("/run/secrets/"))).toBe(
+          false,
+        );
+      }
+      expect(
+        config.services["openclaw-gateway"]?.volumes?.some(
+          (volume) => volume.source === entry.source,
+        ),
+      ).toBe(false);
+    }
+  });
+
   it("embeds SkillHub v0.2.16 as an internal, persistent, health-gated profile", () => {
     const compose = parse(
       readRepoFile("docker/platformclaw-runtime/compose.yaml"),

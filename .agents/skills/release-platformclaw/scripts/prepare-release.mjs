@@ -32,8 +32,12 @@ function run(command, args, options = {}) {
     encoding: "utf8",
     stdio: options.capture ? "pipe" : "inherit",
   });
-  if (result.error) throw result.error;
-  if (result.status !== 0) fail(`${command} exited with status ${result.status}`);
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    fail(`${command} exited with status ${result.status}`);
+  }
   return options.capture ? result.stdout.trim() : "";
 }
 
@@ -43,7 +47,9 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (["--date", "--image-tar", "--output-dir"].includes(arg)) {
       const value = argv[index + 1];
-      if (!value || value.startsWith("--")) fail(`${arg} requires a value`);
+      if (!value || value.startsWith("--")) {
+        fail(`${arg} requires a value`);
+      }
       options[arg.slice(2).replace(/-([a-z])/gu, (_, valuePart) => valuePart.toUpperCase())] =
         value;
       index += 1;
@@ -56,8 +62,12 @@ function parseArgs(argv) {
       fail(`Unknown argument: ${arg}`);
     }
   }
-  if (!options.imageTar || !options.outputDir || !options.date) fail("Missing required options");
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(options.date)) fail("--date must use YYYY-MM-DD");
+  if (!options.imageTar || !options.outputDir || !options.date) {
+    fail("Missing required options");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(options.date)) {
+    fail("--date must use YYYY-MM-DD");
+  }
   const [year, month, day] = options.date.split("-").map(Number);
   const parsedDate = new Date(Date.UTC(year, month - 1, day));
   if (
@@ -86,10 +96,14 @@ function sha256(path) {
 }
 
 const options = parseArgs(process.argv.slice(2));
-if (!existsSync(options.imageTar)) fail(`Image archive does not exist: ${options.imageTar}`);
+if (!existsSync(options.imageTar)) {
+  fail(`Image archive does not exist: ${options.imageTar}`);
+}
 
 const dirty = run("git", ["status", "--porcelain"], { capture: true });
-if (dirty) fail("Refusing to prepare a release from a dirty working tree");
+if (dirty) {
+  fail("Refusing to prepare a release from a dirty working tree");
+}
 const fullSha = run("git", ["rev-parse", "HEAD"], { capture: true });
 const shortSha = fullSha.slice(0, 12);
 const version = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8")).version;
@@ -106,6 +120,7 @@ writeFileSync(imageChecksum, `${imageDigest}  ${basename(options.imageTar)}\n`, 
 const staging = mkdtempSync(resolve(options.outputDir, ".deployment-bundle-"));
 const bundleFiles = [
   ["compose.yaml", false],
+  ["compose.jira-voc.yaml", false],
   ["platformclaw-compose", true],
   ["platformclaw-deploy", true],
   ["deployment.env.example", false],
@@ -118,10 +133,12 @@ const bundleFiles = [
   ["OPERATIONS.ko.md", false, "platformclaw-company-install-ko.md"],
 ];
 try {
-  for (const [sourceName, executable, targetName = sourceName] of bundleFiles) {
+  for (const [sourceName, , targetName = sourceName] of bundleFiles) {
     const source = resolve(repoRoot, "docker/platformclaw-runtime", sourceName);
     const target = resolve(staging, targetName);
-    if (!existsSync(source)) fail(`Deployment asset does not exist: ${source}`);
+    if (!existsSync(source)) {
+      fail(`Deployment asset does not exist: ${source}`);
+    }
     copyFileSync(source, target);
   }
 
