@@ -93,11 +93,14 @@ function createDependencies(
     ),
     createSkillWorkshopTarget: vi.fn(async () => undefined),
     createSkillInstallTarget: vi.fn(async () => undefined),
-    createTerminalProcess: vi.fn(async () => ({
-      file: "ssh",
-      args: ["vm"],
-      cwd: "/gateway",
-      dispose: vi.fn(async () => undefined),
+    createTerminalStream: vi.fn(async () => ({
+      write: vi.fn(),
+      resize: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      kill: vi.fn(),
+      onData: vi.fn(),
+      onExit: vi.fn(),
     })),
     launchAcpProcess: vi.fn(async () => {
       throw new Error("ACP process launch is not expected in this test");
@@ -800,9 +803,10 @@ describe("PlatformClaw execution backend", () => {
       cwd: "/home/person_one",
       title: "Development VM",
     });
-    await expect(plan.createProcess()).resolves.toMatchObject({ file: "ssh", args: ["vm"] });
+    const size = { cols: 100, rows: 30, env: {} };
+    await expect(plan.createStream!(size)).resolves.toMatchObject({ write: expect.any(Function) });
     expect(dependencies.resolveTarget).toHaveBeenCalledTimes(2);
-    expect(dependencies.createTerminalProcess).toHaveBeenCalledWith(target);
+    expect(dependencies.createTerminalStream).toHaveBeenCalledWith(target, size);
   });
 
   it("rejects a Basic workspace terminal", async () => {
@@ -820,6 +824,6 @@ describe("PlatformClaw execution backend", () => {
     await expect(provider({ agentId: "person_one", config: {} as never })).rejects.toThrow(
       "only while My development VM is selected",
     );
-    expect(dependencies.createTerminalProcess).not.toHaveBeenCalled();
+    expect(dependencies.createTerminalStream).not.toHaveBeenCalled();
   });
 });

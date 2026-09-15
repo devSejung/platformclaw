@@ -2,6 +2,33 @@ import { describe, expect, it, vi } from "vitest";
 import { createSandboxTerminalBackend } from "./sandbox-backend.js";
 
 describe("createSandboxTerminalBackend", () => {
+  it("uses a backend-owned terminal stream without spawning a local PTY", async () => {
+    const stream = {
+      write: vi.fn(),
+      resize: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      kill: vi.fn(),
+      onData: vi.fn(),
+      onExit: vi.fn(),
+    };
+    const createStream = vi.fn(async () => stream);
+    const spawn = vi.fn();
+    const backend = await createSandboxTerminalBackend({
+      plan: { shell: "login shell", cwd: "/home/person", createStream },
+      cols: 100,
+      rows: 30,
+      env: { TERM: "xterm-256color" },
+      spawn,
+    });
+    expect(backend).toBe(stream);
+    expect(createStream).toHaveBeenCalledWith({
+      cols: 100,
+      rows: 30,
+      env: { TERM: "xterm-256color" },
+    });
+    expect(spawn).not.toHaveBeenCalled();
+  });
   it("spawns the backend process and releases it exactly once on exit and kill", async () => {
     const dispose = vi.fn(async () => undefined);
     let exit: ((event: { exitCode: number; signal?: number }) => void) | undefined;

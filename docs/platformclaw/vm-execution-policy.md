@@ -164,11 +164,15 @@ grant employee browsers `operator.admin`; it exposes only an employee-owned
 terminal method and event projection after binding the browser identity to its
 personal Agent and assigned-VM snapshot.
 
-Each personal Agent may own one live browser terminal. Opening it consumes one
-channel from that assigned target's existing six-channel SafeConnect master;
-the remaining channels stay available to Agent execution and queue under the
-existing lease policy when capacity is full. The terminal uses a direct SSH PTY
-and requires no broker, daemon, binary, or `tmux` installation on the VM.
+Each personal Agent may own up to eight native web terminal tabs. Each tab owns
+one tmux window and pane under one terminal controller for that Agent and the
+exact assigned-VM snapshot. The first tab reserves one channel from the
+assigned target's existing six-channel SafeConnect master and runs tmux 3.2a or
+newer in control mode over that one SSH lease channel. The other five channels
+remain in the shared lease pool, but ACP activity may consume them, so a free
+channel is not guaranteed. The VM login shell must provide the approved tmux
+version; PlatformClaw does not install tmux or expose an additional web
+listener in the VM.
 
 The SSH session opens the Linux account's configured login shell in its
 connection-verified home directory. The browser cannot choose a shell, working
@@ -177,21 +181,21 @@ their normal assigned-account meaning; the user may change to
 `~/.platformclaw/workspace` when needed.
 
 A terminal has no maximum lifetime while a browser remains attached. A browser
-disconnect or page reload detaches it without moving or restarting the shell.
-The same authenticated user and personal Agent may automatically reattach for
-300 seconds with bounded output replay. If no browser reattaches before that
-deadline, PlatformClaw closes the remote PTY/login session and its local SSH
-process, then releases the SSH channel. Detached remote daemons are outside
-this terminal lifecycle. Explicit close does the same immediately. Gateway
-restart does not promise terminal survival.
+disconnect or page reload detaches the tab view without ending the tmux
+controller or SSH control transport. The same authenticated user and personal
+Agent may automatically reattach for 300 seconds with bounded output replay.
+If no browser reattaches before that deadline, PlatformClaw kills that tab's
+tmux pane. Explicit tab close does the same immediately. Closing the last tab
+kills the tmux controller and releases its reserved SSH channel. SSH control
+transport or Gateway loss invokes tmux `destroy-unattached` cleanup and closes
+the sessions; Gateway restart does not promise terminal durability.
 
-Changing the active work location does not close or reroute an open terminal.
-The terminal remains pinned to the exact assigned-VM target, allocation,
-target revision, and credential revision selected when it opened, and its tab
-continues to display that VM identity while the active location is Basic. New
-terminals remain unavailable in Basic. Allocation replacement, release,
-administrator revocation, user disablement, or credential-revision change
-closes the pinned terminal before retiring its authority. There is never a
+Changing the active work location retires the assigned-VM lease and closes open
+VM terminal sessions. A switch to Basic never reroutes an existing terminal
+into the Basic workspace, and new VM terminals remain unavailable until an
+assigned VM is active again. Allocation replacement, release, administrator
+revocation, user disablement, or credential-revision change closes all affected
+terminal sessions before retiring their authority. There is never a
 Basic-workspace fallback.
 
 Terminal authorization applies to every open, list, attach, input, resize,
@@ -206,10 +210,13 @@ Deferred terminal work:
 - TODO(browser-terminal-basic): evaluate a Basic-workspace terminal only after
   demonstrated demand. It must execute inside the user's Docker sandbox; a
   Gateway-host shell remains forbidden.
-- TODO(browser-terminal-multiplex): evaluate a remote PTY broker only if the
-  one-terminal limit proves insufficient. Any design must define VM deployment,
-  versioning, authentication, framing, backpressure, reconnect, revocation, and
-  orphan cleanup before replacing direct SSH PTYs.
+- TODO(browser-terminal-persistence): evaluate restart-durable terminal
+  persistence separately. The first release closes sessions when the SSH
+  control transport or Gateway is lost and makes no restart-durability promise.
+- TODO(browser-terminal-work-location): define whether a terminal may remain
+  pinned across a work-location change. Preserving that terminal requires an
+  authority and lease-ownership refactor; the current contract closes it when
+  the assigned-VM lease is retired.
 - TODO(browser-terminal-transfer): evaluate VM-bound drag-and-drop upload and
   authenticated download separately; no transfer may stage on or expose the
   Gateway host.
@@ -567,9 +574,10 @@ After the upstream gate passes:
 7. Add VM remote-skill discovery and explicit refresh.
 8. Add employee-profile refresh and runtime-context projection.
 9. Add employee and administrator execution UI.
-10. Add the one-session assigned-VM browser terminal with Browser Gateway
-    ownership projection, direct login-shell PTY, target pinning, 300-second
-    reconnect, revocation cleanup, and no Basic or host fallback.
+10. Add the assigned-VM browser terminal with up to eight native web tabs,
+    tmux 3.2a control mode over one SafeConnect lease channel, Browser Gateway
+    ownership projection, target pinning, 300-second reconnect, revocation
+    cleanup, and no Basic or host fallback.
 11. Run a Docker fake-SafeConnect E2E covering isolation, failure, restart, and
     Knox-group routing.
 12. Validate against a real approved enterprise VM without recording secrets or
@@ -580,8 +588,11 @@ the composite AD/Linux/target username, keyboard-interactive `Password:`
 challenge, Ed25519 host key, command streams, and distinct Linux homes. It runs
 the production OpenSSH and `sshpass -d` path. The fixture never claims to model
 proprietary SafeConnect internals, never records a password, and is not shipped
-in the production image. Real enterprise-VM validation remains the release
-gate for network and vendor behavior.
+in the production image. Home Docker validation proves only this recorded SSH
+contract; it does not prove proprietary SafeConnect behavior or enterprise
+network reachability, and provides no current company SafeConnect proof. Real
+enterprise-VM validation remains the release gate for network and vendor
+behavior.
 
 ### Redacted enterprise SSH evidence
 

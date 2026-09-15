@@ -20,7 +20,10 @@ import {
 } from "./browser-auth-http.js";
 import { handlePlatformClawExecCredentialRequest } from "./browser-exec-credentials-http.js";
 import { handlePlatformClawEmployeeExecutionRequest } from "./browser-execution-http.js";
-import { createBrowserGatewayEventForwarder } from "./browser-gateway-event-forwarder.js";
+import {
+  createBrowserGatewayEventForwarder,
+  createBrowserGatewayEventSender,
+} from "./browser-gateway-event-forwarder.js";
 import { projectPlatformClawBrowserHello } from "./browser-gateway-hello.js";
 import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-ordering.js";
@@ -478,8 +481,8 @@ export class PlatformClawWebIngressServer {
     this.options.gatewayProxy.registerBrowserConnection?.(connectionId, access);
     let connected = false;
     let connectionClosed = false;
-    let eventSeq = 0;
     let unsubscribe = () => {};
+    let unsubscribeLocal = () => {};
     let handshakeChain = Promise.resolve();
     let handshakePendingCount = 0;
     let pendingRequestCount = 0;
@@ -515,21 +518,14 @@ export class PlatformClawWebIngressServer {
       payload: { nonce: randomUUID(), ts: Date.now() },
     } satisfies EventFrame);
 
+    const sendEvent = createBrowserGatewayEventSender(send);
     const forwardEvent = createBrowserGatewayEventForwarder({
       connectionId,
       token,
       proxy: this.options.gatewayProxy,
       isConnected: () => connected,
       closeUnauthorized,
-      sendEvent: (event) => {
-        eventSeq += 1;
-        send({
-          type: "event",
-          event: event.event,
-          ...(event.payload === undefined ? {} : { payload: event.payload }),
-          seq: eventSeq,
-        } satisfies EventFrame);
-      },
+      sendEvent,
     });
 
     const handleConnect = async (frame: RequestFrame): Promise<void> => {
@@ -585,6 +581,13 @@ export class PlatformClawWebIngressServer {
             .catch(() => websocket.close(1011, "event filtering failed"));
         });
         connected = true;
+        unsubscribeLocal =
+          this.options.gatewayProxy.subscribeConnectionEvents?.(connectionId, (event) => {
+            if (!connected || connectionClosed) {
+              return;
+            }
+            sendEvent(event);
+          }) ?? (() => {});
         clearTimeout(handshakeTimer);
         send(responseOk(frame.id, hello));
       } catch (error) {
@@ -615,6 +618,7 @@ export class PlatformClawWebIngressServer {
         }
         const payload = await this.options.gatewayProxy.request(token, frame.method, frame.params, {
           connectionId,
+          isConnected: () => connected && !connectionClosed,
         });
         send(responseOk(frame.id, payload));
       } catch (error) {
@@ -728,6 +732,7 @@ export class PlatformClawWebIngressServer {
       discardQueuedRequests();
       clearTimeout(handshakeTimer);
       unsubscribe();
+      unsubscribeLocal();
       void this.options.gatewayProxy.releaseBrowserConnection?.(connectionId);
     });
   }

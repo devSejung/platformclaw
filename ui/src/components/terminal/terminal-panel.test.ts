@@ -1,12 +1,12 @@
 /* @vitest-environment jsdom */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
-import { createStorageMock } from "../../test-helpers/storage.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import type { TerminalGatewayClient } from "./terminal-connection.ts";
 import {
   createTerminalController,
+  installTerminalPanelTestLifecycle,
   defineTestTerminalPanelElement,
   terminalOpenResult,
   type CreateGhosttyTerminalMock,
@@ -56,21 +56,7 @@ async function startPanelWithPendingOpen() {
 }
 
 describe("OpenClawTerminalPanel", () => {
-  beforeEach(async () => {
-    vi.stubGlobal("localStorage", createStorageMock());
-    vi.stubGlobal("sessionStorage", createStorageMock());
-    await i18n.setLocale("en");
-  });
-
-  afterEach(async () => {
-    document.body.replaceChildren();
-    localStorage.clear();
-    sessionStorage.clear();
-    createGhosttyTerminalMock.mockReset();
-    vi.unstubAllGlobals();
-    await i18n.setLocale("en");
-  });
-
+  installTerminalPanelTestLifecycle(createGhosttyTerminalMock);
   it("restores persisted open state when a mounted tag upgrades lazily", async () => {
     localStorage.setItem(
       "openclaw.terminal.panel.v1",
@@ -149,53 +135,6 @@ describe("OpenClawTerminalPanel", () => {
         params: { sessionId: "session-1", cols: 120, rows: 40 },
       });
     });
-  });
-
-  it("reattaches the sole personal VM terminal and hides multi-session and upload controls", async () => {
-    createGhosttyTerminalMock.mockResolvedValue(createTerminalController());
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const session = {
-      sessionId: "vm-terminal-1",
-      agentId: "person_one",
-      shell: "person_one login shell",
-      cwd: "/home/person_one",
-      confined: true,
-    };
-    const client: TerminalGatewayClient = {
-      forceReconnect: () => {},
-      request: async <T>(method: string, params?: unknown) => {
-        requests.push({ method, params });
-        if (method === "terminal.list") {
-          return {
-            sessions: [{ ...session, attached: false, owner: "conn", createdAtMs: 1 }],
-          } as T;
-        }
-        if (method === "terminal.attach") {
-          return { ...session, buffer: "welcome", seq: 7 } as T;
-        }
-        return {} as T;
-      },
-      addEventListener: () => () => {},
-    };
-    const panel = document.createElement(TERMINAL_PANEL_ELEMENT_NAME) as OpenClawTerminalPanel;
-    panel.client = client;
-    panel.agentId = "person_one";
-    panel.available = true;
-    panel.singleSession = true;
-    panel.uploadsEnabled = false;
-    document.body.append(panel);
-
-    panel.toggle();
-    await waitForFast(() =>
-      expect(requests).toContainEqual({
-        method: "terminal.attach",
-        params: { sessionId: "vm-terminal-1" },
-      }),
-    );
-    expect(requests.some(({ method }) => method === "terminal.open")).toBe(false);
-    expect(panel.renderRoot.querySelector(".tp-upload")).toBeNull();
-    expect(panel.renderRoot.querySelector(".terminal-session-picker")).toBeNull();
-    expect(panel.renderRoot.querySelector(".tabstrip-new")).toBeNull();
   });
 
   it("forces a full render after hiding and showing the panel", async () => {
@@ -818,7 +757,8 @@ describe("OpenClawTerminalPanel", () => {
     expect(section?.classList.contains("tp--fullscreen")).toBe(true);
     expect(panel.renderRoot.querySelector(".tp-resizer")).toBeNull();
     expect(panel.renderRoot.querySelector(".tp-upload")).not.toBeNull();
-    expect(panel.renderRoot.querySelectorAll(".tp-actions button")).toHaveLength(1);
+    expect(panel.renderRoot.querySelectorAll(".tp-actions > button")).toHaveLength(1);
+    expect(panel.renderRoot.querySelector(".tp-session-picker")).not.toBeNull();
 
     // Closing the last tab must keep the panel (with its "+" button) rendered —
     // a fullscreen document has no toggle to bring a closed panel back.

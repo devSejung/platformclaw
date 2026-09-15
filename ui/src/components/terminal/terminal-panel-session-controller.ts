@@ -33,6 +33,14 @@ export class TerminalPanelSessionController
   tabs: TerminalPanelSessionTab[] = [];
   activeId: string | null = null;
   booting = false;
+  private ownedSessionCount = 0;
+
+  get capacityUsed(): number {
+    return Math.max(
+      this.ownedSessionCount,
+      this.tabs.filter((tab) => tab.status !== "exited").length,
+    );
+  }
 
   private connection: TerminalConnection | null = null;
   private activeClient: TerminalGatewayClient | null = null;
@@ -151,7 +159,11 @@ export class TerminalPanelSessionController
       return;
     }
     const persisted = loadPersistedTerminalSessionIds();
-    if (persisted.length === 0 && !this.host.singleSession) {
+    if (
+      persisted.length === 0 &&
+      !this.host.singleSession &&
+      !Number.isFinite(this.host.maxSessions)
+    ) {
       return;
     }
     this.updateControllerState("booting", true);
@@ -161,12 +173,18 @@ export class TerminalPanelSessionController
       if (!this.isTerminalOperationCurrent(operation)) {
         return;
       }
+      this.ownedSessionCount = Number.isFinite(this.host.maxSessions) ? listed.length : 0;
       const known = new Map(listed.map((session) => [session.sessionId, session]));
-      // Personal-agent ingress owns exactly one session. Discover it from the
-      // server so reloads and new browser tabs reattach without shared storage.
+      // Personal ingress lists owner sessions, but restoring a panel must not
+      // seize sessions that another browser is actively using.
       const restoreIds = this.host.singleSession
         ? listed.slice(0, 1).map((session) => session.sessionId)
-        : persisted;
+        : Number.isFinite(this.host.maxSessions)
+          ? listed
+              .filter((session) => session.available === true)
+              .slice(0, this.host.maxSessions)
+              .map((session) => session.sessionId)
+          : persisted;
       for (const sessionId of restoreIds) {
         const session = known.get(sessionId);
         if (!session) {
@@ -214,6 +232,10 @@ export class TerminalPanelSessionController
     }
     try {
       const sessions = await this.connectionFor(operation).list();
+      if (this.isTerminalOperationCurrent(operation) && Number.isFinite(this.host.maxSessions)) {
+        this.ownedSessionCount = sessions.length;
+        this.host.requestUpdate();
+      }
       return this.isTerminalOperationCurrent(operation) ? sessions : null;
     } catch {
       return this.isTerminalOperationCurrent(operation) ? [] : null;
@@ -227,9 +249,12 @@ export class TerminalPanelSessionController
   private async enqueueAttachSession(sessionId: string, agentOwned: boolean): Promise<void> {
     await this.bootQueue.enqueue(async () => {
       const existing = this.tabs.find((tab) => tab.gatewaySessionId === sessionId);
-      if (existing) {
+      if (existing && existing.status !== "exited") {
         this.switchTo(existing.id);
         return;
+      }
+      if (existing) {
+        this.dropFailedTab(existing);
       }
       const operation = this.captureTerminalOperation();
       if (!operation) {
@@ -301,8 +326,18 @@ export class TerminalPanelSessionController
         },
         signal: operation.signal,
         // The browser controller owns these subscriptions and their teardown.
-        onData: startupInput.onData,
-        onResize: startupInput.onResize,
+        onData: (data) => {
+          const tab = tabReference.current;
+          if (!tab?.cancelled && tab?.status !== "exited") {
+            startupInput.onData(data);
+          }
+        },
+        onResize: (size) => {
+          const tab = tabReference.current;
+          if (!tab?.cancelled && tab?.status !== "exited") {
+            startupInput.onResize(size);
+          }
+        },
       });
     } catch (error) {
       host.remove();
@@ -421,6 +456,9 @@ export class TerminalPanelSessionController
   }
 
   private async openSessionNow(catalog?: TerminalPanelCatalogReference): Promise<void> {
+    if (this.capacityUsed >= this.host.maxSessions) {
+      return;
+    }
     if (this.host.singleSession && (this.tabs.length > 0 || this.booting)) {
       return;
     }
@@ -453,6 +491,9 @@ export class TerminalPanelSessionController
         return;
       }
       this.adoptSession(boot.tab, result);
+      if (boot.tab.status !== "exited") {
+        this.ownedSessionCount += 1;
+      }
       boot.tab.controller.terminal.focus();
     } catch (error) {
       // A failed open (e.g. terminal disabled or a sandboxed agent is refused)
@@ -572,6 +613,9 @@ export class TerminalPanelSessionController
     tab.status = "exited";
     tab.exitReason = info.reason;
     tab.exitCode = info.exitCode;
+    if (info.reason !== "detached") {
+      this.ownedSessionCount = Math.max(0, this.ownedSessionCount - 1);
+    }
     if (info.error?.trim()) {
       this.host.terminalPanelErrorText = info.error.trim();
     }
@@ -588,6 +632,7 @@ export class TerminalPanelSessionController
     }
     this.host.terminalPanelUploadController.cancelForTab(tab);
     if (tab.gatewaySessionId && tab.status !== "exited") {
+      this.ownedSessionCount = Math.max(0, this.ownedSessionCount - 1);
       void this.connection?.close(tab.gatewaySessionId);
     } else if (!tab.gatewaySessionId && tab.status !== "exited") {
       // Open still in flight: no session id to close yet. Flag it so the open
@@ -690,6 +735,7 @@ export class TerminalPanelSessionController
       this.disposeTab(tab);
     }
     this.updateControllerState("tabs", []);
+    this.ownedSessionCount = 0;
     this.updateControllerState("activeId", null);
     this.host.resetTerminalSessionPicker();
     // Drop the gateway subscription with the tabs so the listener never outlives

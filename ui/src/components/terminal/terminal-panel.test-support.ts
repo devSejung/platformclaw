@@ -1,4 +1,6 @@
-import { vi, type Mock } from "vitest";
+import { afterEach, beforeEach, vi, type Mock } from "vitest";
+import { i18n } from "../../i18n/index.ts";
+import { createStorageMock } from "../../test-helpers/storage.ts";
 import { OpenClawTerminalPanel } from "./terminal-panel.ts";
 
 export type CreateOptions = {
@@ -69,4 +71,23 @@ export function defineTestTerminalPanelElement(
 
   customElements.define(tagName, TestTerminalPanel);
   return tagName;
+}
+
+export function installTerminalPanelTestLifecycle(
+  createGhosttyTerminalMock: CreateGhosttyTerminalMock,
+): void {
+  beforeEach(async () => {
+    vi.stubGlobal("localStorage", createStorageMock());
+    vi.stubGlobal("sessionStorage", createStorageMock());
+    await i18n.setLocale("en");
+  });
+
+  afterEach(async () => {
+    document.body.replaceChildren();
+    localStorage.clear();
+    sessionStorage.clear();
+    createGhosttyTerminalMock.mockReset();
+    vi.unstubAllGlobals();
+    await i18n.setLocale("en");
+  });
 }

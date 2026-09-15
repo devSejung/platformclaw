@@ -137,5 +137,5 @@ export async function setupBrowserGatewayProxyTest(
       : {}),
     now: () => NOW,
   });
-  return { auditEvents, binding, created, proxy, request, store, token, user };
+  return { auditEvents, auditWriter, binding, created, proxy, request, store, token, user };
 }

@@ -7,6 +7,7 @@ import type {
 import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
 
 const TERMINAL_DETACH_GRACE_MS = 300_000;
+const MAX_PERSONAL_TERMINALS = 8;
 const TERMINAL_METHODS = new Set([
   "terminal.open",
   "terminal.input",
@@ -27,6 +28,8 @@ type TerminalRecord = {
   attachedConnectionId: string | null;
   createdAt: number;
   reaper: ReturnType<typeof setTimeout> | null;
+  operations: Promise<void>;
+  opening: boolean;
 };
 
 type ConnectionAccess = {
@@ -47,12 +50,15 @@ function ownerKey(userId: string, agentId: string): string {
   return `${userId}\u0000${agentId}`;
 }
 
-/** Owns the one personal VM terminal projected across the shared Gateway connection. */
+/** Owns personal VM terminals projected across the shared Gateway connection. */
 export class BrowserGatewayTerminalController {
-  private readonly byOwner = new Map<string, TerminalRecord>();
+  private readonly byOwner = new Map<string, Map<string, TerminalRecord>>();
   private readonly bySession = new Map<string, TerminalRecord>();
-  private readonly pendingOwners = new Set<string>();
+  private readonly pendingOwners = new Map<string, number>();
+  private readonly listeners = new Map<string, Set<(event: BrowserGatewayEvent) => void>>();
   private readonly connections = new Map<string, ConnectionAccess>();
+  private readonly agentEpochs = new Map<string, number>();
+  private gatewayEpoch = 0;
   private readonly now: () => number;
 
   constructor(private readonly options: BrowserGatewayProxyOptions) {
@@ -61,6 +67,21 @@ export class BrowserGatewayTerminalController {
 
   handles(method: string): boolean {
     return TERMINAL_METHODS.has(method);
+  }
+
+  subscribeConnectionEvents(
+    connectionId: string,
+    listener: (event: BrowserGatewayEvent) => void,
+  ): () => void {
+    const listeners = this.listeners.get(connectionId) ?? new Set();
+    this.listeners.set(connectionId, listeners);
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        this.listeners.delete(connectionId);
+      }
+    };
   }
 
   registerConnection(connectionId: string, access: BrowserGatewayAccess): void {
@@ -109,26 +130,45 @@ export class BrowserGatewayTerminalController {
         `${params.method} requires a browser connection`,
       );
     }
+    if (params.context?.isConnected?.() === false) {
+      throw new BrowserGatewayProxyError(
+        "unauthenticated",
+        "Browser terminal connection is no longer active.",
+      );
+    }
     this.refreshConnection(connectionId, params.access);
+    this.assertConnection(connectionId);
     const key = ownerKey(params.access.user.id, params.access.binding.agentId);
     if (params.method === "terminal.open") {
-      if (this.byOwner.has(key) || this.pendingOwners.has(key)) {
+      const pending = this.pendingOwners.get(key) ?? 0;
+      if (
+        [...(this.byOwner.get(key)?.values() ?? [])].filter((record) => !record.opening).length +
+          pending >=
+        MAX_PERSONAL_TERMINALS
+      ) {
         throw new BrowserGatewayProxyError(
           "method-not-allowed",
-          "This Agent already has an open terminal.",
+          "This Agent has eight open terminals. Close a terminal before opening another.",
         );
       }
-      const profile = await this.options.store.getPersonalExecutionProfile(
-        params.access.binding.agentId,
-      );
-      if (profile?.activeTarget !== "assigned_vm" || !profile.activeAllocationId) {
-        throw new BrowserGatewayProxyError(
-          "method-not-allowed",
-          "Switch this Agent to My development VM before opening a terminal.",
-        );
-      }
-      this.pendingOwners.add(key);
+      // Reserve before any await so simultaneous browsers cannot exceed the owner cap.
+      this.pendingOwners.set(key, pending + 1);
+      const agentEpoch = this.agentEpochs.get(params.access.binding.agentId) ?? 0;
+      const gatewayEpoch = this.gatewayEpoch;
       try {
+        const profile = await this.options.store.getPersonalExecutionProfile(
+          params.access.binding.agentId,
+        );
+        if (
+          profile?.activeTarget !== "assigned_vm" ||
+          !profile.activeAllocationId ||
+          profile.agentBindingId !== params.access.binding.id
+        ) {
+          throw new BrowserGatewayProxyError(
+            "method-not-allowed",
+            "Switch this Agent to My development VM before opening a terminal.",
+          );
+        }
         const raw = object(
           await this.options.gateway.request("terminal.open", {
             agentId: params.access.binding.agentId,
@@ -144,7 +184,7 @@ export class BrowserGatewayTerminalController {
           raw.confined !== true ||
           this.bySession.has(sessionId)
         ) {
-          if (sessionId) {
+          if (sessionId && !this.bySession.has(sessionId)) {
             await this.options.gateway
               .request("terminal.close", { sessionId })
               .catch(() => undefined);
@@ -165,8 +205,12 @@ export class BrowserGatewayTerminalController {
           attachedConnectionId: connectionId,
           createdAt: this.now(),
           reaper: null,
+          operations: Promise.resolve(),
+          opening: true,
         };
-        this.byOwner.set(key, record);
+        const owned = this.byOwner.get(key) ?? new Map<string, TerminalRecord>();
+        this.byOwner.set(key, owned);
+        owned.set(sessionId, record);
         this.bySession.set(sessionId, record);
         try {
           const attached = object(
@@ -174,6 +218,7 @@ export class BrowserGatewayTerminalController {
             "terminal.attach result",
           );
           if (
+            attached.sessionId !== record.sessionId ||
             attached.agentId !== record.agentId ||
             attached.confined !== true ||
             typeof attached.buffer !== "string"
@@ -184,27 +229,49 @@ export class BrowserGatewayTerminalController {
             );
           }
           await this.audit(record, "browser.terminal.opened", "opened");
+          this.assertConnection(connectionId);
+          this.assertCurrentRecord(record);
+          if (
+            gatewayEpoch !== this.gatewayEpoch ||
+            agentEpoch !== (this.agentEpochs.get(record.agentId) ?? 0)
+          ) {
+            throw new BrowserGatewayProxyError(
+              "method-not-allowed",
+              "Terminal assignment is no longer active.",
+            );
+          }
+          record.opening = false;
           return {
             ...raw,
             buffer: attached.buffer,
             ...(typeof attached.seq === "number" ? { seq: attached.seq } : {}),
           };
         } catch (error) {
-          this.bySession.delete(record.sessionId);
-          this.byOwner.delete(key);
-          await this.options.gateway
-            .request("terminal.close", { sessionId: record.sessionId })
-            .catch(() => undefined);
+          await this.closeRecord(record, "open_failed");
           throw error;
         }
       } finally {
-        this.pendingOwners.delete(key);
+        const remaining = (this.pendingOwners.get(key) ?? 1) - 1;
+        if (remaining > 0) {
+          this.pendingOwners.set(key, remaining);
+        } else {
+          this.pendingOwners.delete(key);
+        }
+        if (
+          ![...this.pendingOwners.keys()].some((owner) =>
+            owner.endsWith(`\u0000${params.access.binding.agentId}`),
+          )
+        ) {
+          this.agentEpochs.delete(params.access.binding.agentId);
+        }
       }
     }
 
     if (params.method === "terminal.list") {
-      const record = this.byOwner.get(key);
-      if (!record) {
+      const records = [...(this.byOwner.get(key)?.values() ?? [])].filter(
+        (record) => !record.opening,
+      );
+      if (records.length === 0) {
         return { sessions: [] };
       }
       const raw = object(
@@ -212,61 +279,92 @@ export class BrowserGatewayTerminalController {
         "terminal.list result",
       );
       const sessions = Array.isArray(raw.sessions) ? raw.sessions : [];
-      const owned = sessions.find(
-        (candidate) =>
-          candidate &&
-          typeof candidate === "object" &&
-          !Array.isArray(candidate) &&
-          (candidate as Record<string, unknown>).sessionId === record.sessionId &&
-          (candidate as Record<string, unknown>).agentId === record.agentId,
-      );
-      if (!owned) {
-        await this.remove(record, "missing");
-        return { sessions: [] };
+      const projected: Record<string, unknown>[] = [];
+      for (const record of records) {
+        if (this.bySession.get(record.sessionId) !== record) {
+          continue;
+        }
+        const owned = sessions.find(
+          (candidate) =>
+            candidate &&
+            typeof candidate === "object" &&
+            !Array.isArray(candidate) &&
+            (candidate as Record<string, unknown>).sessionId === record.sessionId &&
+            (candidate as Record<string, unknown>).agentId === record.agentId,
+        );
+        if (!owned) {
+          await this.remove(record, "missing");
+          continue;
+        }
+        projected.push({
+          ...(owned as Record<string, unknown>),
+          owner: "conn",
+          attached: record.attachedConnectionId === connectionId,
+          available:
+            record.attachedConnectionId === null || record.attachedConnectionId === connectionId,
+        });
       }
-      return {
-        sessions: [
-          {
-            ...(owned as Record<string, unknown>),
-            owner: "conn",
-            attached: record.attachedConnectionId === connectionId,
-          },
-        ],
-      };
+      return { sessions: projected };
     }
 
     const sessionId =
       typeof params.request.sessionId === "string" ? params.request.sessionId.trim() : "";
     const record = sessionId ? this.bySession.get(sessionId) : undefined;
-    if (!record || ownerKey(record.userId, record.agentId) !== key) {
+    if (
+      !record ||
+      record.opening ||
+      ownerKey(record.userId, record.agentId) !== key ||
+      record.accountId !== params.access.user.accountId ||
+      record.bindingId !== params.access.binding.id
+    ) {
       throw new BrowserGatewayProxyError("cross-agent-denied", "Terminal session is not owned.");
     }
-    if (params.method === "terminal.attach") {
-      const result = object(
-        await this.options.gateway.request("terminal.attach", { sessionId }),
-        "terminal.attach result",
-      );
-      if (result.agentId !== record.agentId || result.confined !== true) {
+    // A session has one mutation owner across all browsers, including takeover.
+    const previous = record.operations;
+    let release!: () => void;
+    record.operations = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      this.assertCurrentRecord(record);
+      this.assertConnection(connectionId);
+      if (params.method === "terminal.attach") {
+        const result = object(
+          await this.options.gateway.request("terminal.attach", { sessionId }),
+          "terminal.attach result",
+        );
+        if (
+          result.sessionId !== record.sessionId ||
+          result.agentId !== record.agentId ||
+          result.confined !== true ||
+          typeof result.buffer !== "string"
+        ) {
+          throw new BrowserGatewayProxyError(
+            "upstream-result-denied",
+            "Gateway returned an invalid personal VM terminal attachment.",
+          );
+        }
+        this.assertCurrentRecord(record);
+        this.assertConnection(connectionId);
+        this.attach(record, connectionId);
+        return result;
+      }
+      if (record.attachedConnectionId !== connectionId) {
         throw new BrowserGatewayProxyError(
-          "upstream-result-denied",
-          "Gateway returned an invalid personal VM terminal attachment.",
+          "method-not-allowed",
+          "Reattach this terminal before interacting with it.",
         );
       }
-      this.attach(record, connectionId);
-      return result;
+      if (params.method === "terminal.close") {
+        const result = await this.options.gateway.request("terminal.close", { sessionId });
+        await this.remove(record, "closed");
+        return result;
+      }
+      return await this.options.gateway.request(params.method, params.request);
+    } finally {
+      release();
     }
-    if (params.method === "terminal.close") {
-      const result = await this.options.gateway.request("terminal.close", { sessionId });
-      await this.remove(record, "closed");
-      return result;
-    }
-    if (record.attachedConnectionId !== connectionId) {
-      throw new BrowserGatewayProxyError(
-        "method-not-allowed",
-        "Reattach this terminal before interacting with it.",
-      );
-    }
-    return await this.options.gateway.request(params.method, params.request);
   }
 
   /** Returns undefined for non-terminal events, null for denied terminal events. */
@@ -294,7 +392,13 @@ export class BrowserGatewayTerminalController {
       record.agentId !== access.agentId ||
       record.attachedConnectionId !== connectionId
     ) {
-      if (record && access?.expiresAt !== undefined && access.expiresAt <= this.now()) {
+      if (
+        record &&
+        connectionId &&
+        record.attachedConnectionId === connectionId &&
+        access?.expiresAt !== undefined &&
+        access.expiresAt <= this.now()
+      ) {
         void this.closeRecord(record, "expired");
       }
       return null;
@@ -306,6 +410,7 @@ export class BrowserGatewayTerminalController {
   }
 
   releaseConnection(connectionId: string): void {
+    this.listeners.delete(connectionId);
     const access = this.connections.get(connectionId);
     if (access?.expiryReaper) {
       clearTimeout(access.expiryReaper);
@@ -325,6 +430,9 @@ export class BrowserGatewayTerminalController {
   }
 
   async closeForAgent(agentId: string, reason: string): Promise<void> {
+    if ([...this.pendingOwners.keys()].some((owner) => owner.endsWith(`\u0000${agentId}`))) {
+      this.agentEpochs.set(agentId, (this.agentEpochs.get(agentId) ?? 0) + 1);
+    }
     await Promise.all(
       [...this.bySession.values()]
         .filter((record) => record.agentId === agentId)
@@ -333,6 +441,7 @@ export class BrowserGatewayTerminalController {
   }
 
   handleGatewayDisconnect(): void {
+    this.gatewayEpoch += 1;
     for (const record of this.bySession.values()) {
       if (record.reaper) {
         clearTimeout(record.reaper);
@@ -340,7 +449,6 @@ export class BrowserGatewayTerminalController {
     }
     this.byOwner.clear();
     this.bySession.clear();
-    this.pendingOwners.clear();
   }
 
   private attach(record: TerminalRecord, connectionId: string): void {
@@ -348,14 +456,51 @@ export class BrowserGatewayTerminalController {
       clearTimeout(record.reaper);
       record.reaper = null;
     }
+    const previous = record.attachedConnectionId;
     record.attachedConnectionId = connectionId;
+    // The private Gateway sees one connection; browser takeover belongs to this owner boundary.
+    if (previous && previous !== connectionId) {
+      for (const listener of this.listeners.get(previous) ?? []) {
+        listener({
+          event: "terminal.exit",
+          payload: { sessionId: record.sessionId, reason: "detached", exitCode: null },
+        });
+      }
+    }
+  }
+
+  private assertCurrentRecord(record: TerminalRecord): void {
+    // VM/credential retirement revokes this record through closeForAgent.
+    // BFF authority comes from that owner revocation, not a mutable work-location profile.
+    if (this.bySession.get(record.sessionId) !== record) {
+      throw new BrowserGatewayProxyError(
+        "method-not-allowed",
+        "This terminal's VM assignment changed. Open a new terminal.",
+      );
+    }
+  }
+
+  private assertConnection(connectionId: string): void {
+    const connection = this.connections.get(connectionId);
+    if (!connection || connection.expiresAt <= this.now()) {
+      throw new BrowserGatewayProxyError(
+        "unauthenticated",
+        "Browser terminal connection is no longer active.",
+      );
+    }
   }
 
   private async closeRecord(record: TerminalRecord, reason: string): Promise<void> {
+    if (this.bySession.get(record.sessionId) !== record) {
+      return;
+    }
+    // Revoke projection ownership before upstream I/O so an in-flight attach
+    // cannot revive a terminal whose assignment or grace period expired.
+    const removed = this.remove(record, reason);
     await this.options.gateway
       .request("terminal.close", { sessionId: record.sessionId })
       .catch(() => undefined);
-    await this.remove(record, reason);
+    await removed;
   }
 
   private async remove(record: TerminalRecord, reason: string): Promise<void> {
@@ -367,25 +512,39 @@ export class BrowserGatewayTerminalController {
       record.reaper = null;
     }
     this.bySession.delete(record.sessionId);
-    this.byOwner.delete(ownerKey(record.userId, record.agentId));
-    await this.audit(record, "browser.terminal.closed", reason);
+    const key = ownerKey(record.userId, record.agentId);
+    const owned = this.byOwner.get(key);
+    owned?.delete(record.sessionId);
+    if (owned?.size === 0) {
+      this.byOwner.delete(key);
+    }
+    // Local ownership and remote cleanup cannot depend on durable audit availability.
+    // audit() logs a redacted operator diagnostic before this cleanup handles its rejection.
+    await this.audit(record, "browser.terminal.closed", reason).catch(() => undefined);
   }
 
   private async audit(record: TerminalRecord, eventType: string, outcome: string): Promise<void> {
-    await this.options.auditWriter.recordAuditEvent({
-      actorUserId: record.userId,
-      eventType,
-      targetType: "vm-allocation",
-      targetId: record.allocationId,
-      details: {
-        accountId: record.accountId,
-        agentId: record.agentId,
-        bindingId: record.bindingId,
-        sessionId: record.sessionId,
-        targetRevision: record.targetRevision,
-        outcome,
-      },
-      createdAt: this.now(),
-    });
+    await this.options.auditWriter
+      .recordAuditEvent({
+        actorUserId: record.userId,
+        eventType,
+        targetType: "vm-allocation",
+        targetId: record.allocationId,
+        details: {
+          accountId: record.accountId,
+          agentId: record.agentId,
+          bindingId: record.bindingId,
+          sessionId: record.sessionId,
+          targetRevision: record.targetRevision,
+          outcome,
+        },
+        createdAt: this.now(),
+      })
+      .catch((error: unknown) => {
+        // Database errors can include private paths or values; process logs identify
+        // the failed boundary without exposing the raw error or terminal contents.
+        console.error("PlatformClaw terminal audit failed", { eventType, outcome });
+        throw error;
+      });
   }
 }

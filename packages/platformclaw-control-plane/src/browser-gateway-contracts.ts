@@ -25,6 +25,7 @@ export type BrowserGatewayRpc = {
 
 export type BrowserGatewayRequestContext = {
   connectionId: string;
+  isConnected?: () => boolean;
 };
 
 export type BrowserGatewayAccess = {

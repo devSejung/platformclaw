@@ -71,7 +71,7 @@ export function renderTerminalSessionPicker(props: TerminalSessionPickerProps) {
                     const current = props.currentSessionIds.has(session.sessionId);
                     const state = current
                       ? t("terminal.currentSession")
-                      : session.attached
+                      : session.available === false || session.attached
                         ? t("terminal.sessionAttached")
                         : t("terminal.detached");
                     return html`<button

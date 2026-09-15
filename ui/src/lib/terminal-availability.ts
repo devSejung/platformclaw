@@ -4,6 +4,12 @@ import { isGatewayCapabilityAdvertised, isGatewayMethodAdvertised } from "./gate
 
 const PLATFORMCLAW_PERSONAL_VM_TERMINAL_CAPABILITY = "platformclaw.personal-vm-terminal";
 
+export function isPersonalVmTerminalSession(snapshot: ApplicationGatewaySnapshot): boolean {
+  return (
+    isGatewayCapabilityAdvertised(snapshot, PLATFORMCLAW_PERSONAL_VM_TERMINAL_CAPABILITY) === true
+  );
+}
+
 export function isTerminalAvailable(
   snapshot: ApplicationGatewaySnapshot,
   terminalEnabled: boolean,
@@ -12,8 +18,7 @@ export function isTerminalAvailable(
     snapshot.phase === "connected" &&
     terminalEnabled &&
     (hasOperatorAdminAccess(snapshot.hello?.auth ?? null) ||
-      isGatewayCapabilityAdvertised(snapshot, PLATFORMCLAW_PERSONAL_VM_TERMINAL_CAPABILITY) ===
-        true) &&
+      isPersonalVmTerminalSession(snapshot)) &&
     (isGatewayMethodAdvertised(snapshot, "terminal.open") ?? false)
   );
 }
