@@ -165,8 +165,11 @@ describe("persistent ACP sessions_spawn follow-up integration", () => {
               const send = createSessionsSendTool({
                 agentSessionKey: parentSessionKey,
                 config: cfg,
-                callGateway: async <T>(request) =>
-                  await callInProcessGatewayTool<T>(request.method, request.params ?? {}),
+                callGateway: async <T>(request: { method: string; params?: unknown }) =>
+                  await callInProcessGatewayTool<T>(
+                    request.method,
+                    (request.params ?? {}) as Record<string, unknown>,
+                  ),
               });
               const followUp = await send.execute("send-persistent-acp", {
                 sessionKey: details.childSessionKey,

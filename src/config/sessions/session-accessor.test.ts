@@ -1049,7 +1049,7 @@ describe("session accessor seam", () => {
     const created = await createSessionEntryWithTranscript(scope, ({ existingEntry }) => ({
       ok: true,
       entry: {
-        ...expectDefined(existingEntry),
+        ...expectDefined(existingEntry, "existing session entry"),
         updatedAt: 20,
       },
     }));

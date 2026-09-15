@@ -55,6 +55,7 @@ describe("sessions tool self-archive", () => {
           key: sessionKey,
           archived: true,
           expectedSessionId: sessionId,
+          expectedLifecycleRevision: expect.any(String),
         });
       });
     });
@@ -94,6 +95,7 @@ describe("sessions tool self-archive", () => {
             key: sessionKey,
             label: "Finished research",
             expectedSessionId: sessionId,
+            expectedLifecycleRevision: expect.any(String),
           });
         });
       } finally {
@@ -104,9 +106,22 @@ describe("sessions tool self-archive", () => {
         expect(callGateway.mock.calls).toEqual([
           [
             "sessions.patch",
-            { key: sessionKey, label: "Finished research", expectedSessionId: sessionId },
+            {
+              key: sessionKey,
+              label: "Finished research",
+              expectedSessionId: sessionId,
+              expectedLifecycleRevision: expect.any(String),
+            },
           ],
-          ["sessions.patch", { key: sessionKey, archived: true, expectedSessionId: sessionId }],
+          [
+            "sessions.patch",
+            {
+              key: sessionKey,
+              archived: true,
+              expectedSessionId: sessionId,
+              expectedLifecycleRevision: expect.any(String),
+            },
+          ],
         ]);
       });
     });
@@ -220,6 +235,7 @@ describe("sessions tool self-archive", () => {
           key: sessionKey,
           archived: true,
           expectedSessionId: sessionId,
+          expectedLifecycleRevision: expect.any(String),
         });
       });
     });
@@ -283,6 +299,7 @@ describe("sessions tool self-archive", () => {
           key: sessionKey,
           archived: true,
           expectedSessionId: sessionId,
+          expectedLifecycleRevision: expect.any(String),
         });
       });
     });
@@ -341,6 +358,7 @@ describe("sessions tool self-archive", () => {
           key: sessionKey,
           archived: true,
           expectedSessionId: sessionId,
+          expectedLifecycleRevision: expect.any(String),
         });
       });
     });
@@ -388,6 +406,7 @@ describe("sessions tool self-archive", () => {
           key: sessionKey,
           archived: true,
           expectedSessionId: sessionId,
+          expectedLifecycleRevision: expect.any(String),
         });
       });
     });
@@ -442,6 +461,7 @@ describe("sessions tool self-archive", () => {
           key: sessionKey,
           archived: true,
           expectedSessionId: sessionId,
+          expectedLifecycleRevision: expect.any(String),
         });
       });
     } finally {
