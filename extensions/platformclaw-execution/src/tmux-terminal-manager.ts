@@ -53,7 +53,7 @@ function dimensions(cols: number, rows: number): void {
 }
 
 /** Dedicated server and no user tmux config keep control framing and lifecycle owner-controlled. */
-export function buildTmuxTerminalCommand(
+function buildTmuxTerminalCommand(
   target: AssignedVmTargetSnapshot,
   name: string,
   cols: number,

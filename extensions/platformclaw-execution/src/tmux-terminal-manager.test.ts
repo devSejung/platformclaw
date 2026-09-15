@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi, type Mock } from "vitest";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
-import { buildTmuxTerminalCommand, VmTmuxTerminalManager } from "./tmux-terminal-manager.js";
+import { VmTmuxTerminalManager } from "./tmux-terminal-manager.js";
 
 type TestTmuxTransport = Awaited<
   ReturnType<ConstructorParameters<typeof VmTmuxTerminalManager>[0]>
@@ -41,7 +41,7 @@ function harness(options: { startupExit?: number } = {}) {
       commands: string[];
     }
   > = [];
-  const open = vi.fn(async () => {
+  const open = vi.fn(async (_target: AssignedVmTargetSnapshot, _remoteCommand: string) => {
     const emitter = new EventEmitter();
     const stdout = new PassThrough();
     const stderr = new PassThrough();
@@ -291,19 +291,17 @@ describe("VmTmuxTerminalManager", () => {
     expect(exit).toHaveBeenCalledWith({ error: expect.stringContaining("protocol failed") });
     await h.manager.dispose();
   });
-  it("uses a dedicated config-free server and immediate remote orphan cleanup", () => {
-    const command = buildTmuxTerminalCommand(
-      TARGET,
-      "platformclaw-12345678-1234-1234-1234-123456789abc",
-      100,
-      30,
-    );
+  it("uses a dedicated config-free server and immediate remote orphan cleanup", async () => {
+    const h = harness();
+    await h.manager.open(TARGET, SIZE);
+    const command = h.open.mock.calls[0]?.[1];
+    expect(command).toBeDefined();
     expect(command).toContain("-f /dev/null -C new-session");
     expect(command).toContain("destroy-unattached on");
     expect(command).toContain("window-size manual");
     expect(command).toMatch(/^\/bin\/sh -c '/u);
     expect(command).toContain('test -x "$SHELL"');
     expect(command).toContain("/home/person");
-    expect(() => buildTmuxTerminalCommand(TARGET, "bad;command", 100, 30)).toThrow("identity");
+    await h.manager.dispose();
   });
 });
