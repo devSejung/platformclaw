@@ -99,7 +99,8 @@ async function installUsageLifecycleTrace(page: Page) {
     const gateway = usagePage?.gateway;
     const options = gateway?.options;
     const parent = usagePage?.parentElement;
-    if (!usagePage || !gateway || !options || !parent) {
+    const queryInput = usagePage?.querySelector(".usage-query-input");
+    if (!usagePage || !gateway || !options || !parent || !queryInput) {
       throw new Error("Usage lifecycle trace could not access the Usage page controller");
     }
     if (
@@ -135,6 +136,61 @@ async function installUsageLifecycleTrace(page: Page) {
       routeDataInitialized: Boolean(usagePage.routeDataInitialized),
       routeResult: Boolean(usagePage.routeData?.result),
       routeTotals: Boolean(usagePage.routeData?.result?.totals),
+      location: {
+        hash: window.location.hash,
+        pathname: window.location.pathname,
+        search: window.location.search,
+      },
+      router: (() => {
+        const app = document.querySelector("openclaw-app") as
+          | (HTMLElement & {
+              runtime?: {
+                router?: {
+                  getState?: () => {
+                    matches?: Array<{ routeId?: string; status?: string }>;
+                    pendingMatches?: Array<{ routeId?: string; status?: string }>;
+                    resolvedLocation?: { pathname?: string } | null;
+                    status?: string;
+                  };
+                };
+              };
+            })
+          | null;
+        const state = app?.runtime?.router?.getState?.();
+        return {
+          activeRoute: state?.matches?.[0]?.routeId ?? null,
+          activeStatus: state?.matches?.[0]?.status ?? null,
+          pendingRoute: state?.pendingMatches?.[0]?.routeId ?? null,
+          resolvedPathname: state?.resolvedLocation?.pathname ?? null,
+          status: state?.status ?? null,
+        };
+      })(),
+      outlet: (() => {
+        const outlet = document.querySelector("openclaw-router-outlet") as
+          | (HTMLElement & {
+              outlet?: {
+                snapshot?: {
+                  active?: { routeId?: string; status?: string };
+                  pending?: { routeId?: string; status?: string };
+                };
+              };
+            })
+          | null;
+        const outletSnapshot = outlet?.outlet?.snapshot;
+        return {
+          activeRoute: outletSnapshot?.active?.routeId ?? null,
+          activeStatus: outletSnapshot?.active?.status ?? null,
+          pendingRoute: outletSnapshot?.pending?.routeId ?? null,
+          pendingStatus: outletSnapshot?.pending?.status ?? null,
+        };
+      })(),
+      chrome: {
+        appSidebar: Boolean(document.querySelector("openclaw-app-sidebar")),
+        settingsSidebar: Boolean(document.querySelector(".settings-sidebar")),
+        settingsTakeoverChrome:
+          Boolean(document.querySelector(".settings-sidebar")) &&
+          !Boolean(document.querySelector("openclaw-app-sidebar")),
+      },
     });
     const entries: Array<Record<string, unknown>> = [];
     const record = (event: string, extra: Record<string, unknown> = {}) => {
@@ -177,9 +233,17 @@ async function installUsageLifecycleTrace(page: Page) {
       record("usage-disconnected");
       return originalDisconnected.apply(this, args);
     };
+    const onQueryInput = () => record("query-input");
+    const onQueryKeydown = (event: KeyboardEvent) => {
+      if (event.key === "Enter") record("query-enter");
+    };
+    let removalRecorded = false;
     const observer = new MutationObserver(() => {
       const state = snapshot();
-      if (!state.hostConnected || !state.inputConnected) record("parent-mutation");
+      if ((!state.hostConnected || !state.inputConnected) && !removalRecorded) {
+        removalRecorded = true;
+        record("parent-mutation");
+      }
     });
     options.onSnapshot = onSnapshot;
     options.invalidateRequests = invalidateRequests;
@@ -188,10 +252,14 @@ async function installUsageLifecycleTrace(page: Page) {
       configurable: true,
       value: disconnected,
     });
+    queryInput.addEventListener("input", onQueryInput);
+    queryInput.addEventListener("keydown", onQueryKeydown);
     observer.observe(parent, { childList: true, subtree: true });
     (globalThis as typeof globalThis & Record<string, unknown>)[traceKey] = {
       dispose: () => {
         observer.disconnect();
+        queryInput.removeEventListener("input", onQueryInput);
+        queryInput.removeEventListener("keydown", onQueryKeydown);
         if (options.onSnapshot === onSnapshot) options.onSnapshot = originalSnapshot;
         if (options.invalidateRequests === invalidateRequests)
           options.invalidateRequests = originalInvalidate;
@@ -203,9 +271,27 @@ async function installUsageLifecycleTrace(page: Page) {
         delete (globalThis as typeof globalThis & Record<string, unknown>)[traceKey];
       },
       entries,
+      mark: (phase: string) => record("action", { phase }),
       snapshot,
     };
   }, usageLifecycleTraceKey);
+}
+
+async function markUsageLifecycleTrace(page: Page, phase: string) {
+  await page.evaluate(
+    ({ traceKey, tracePhase }) => {
+      const probe = (
+        globalThis as typeof globalThis & {
+          [key: string]: { mark?: (phase: string) => void } | undefined;
+        }
+      )[traceKey];
+      if (!probe?.mark) {
+        throw new Error("Usage lifecycle trace is not installed");
+      }
+      probe.mark(tracePhase);
+    },
+    { traceKey: usageLifecycleTraceKey, tracePhase: phase },
+  );
 }
 
 async function disposeUsageLifecycleTrace(page: Page, includeTrace = false) {
@@ -557,6 +643,7 @@ describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => 
       await installUsageLifecycleTrace(page);
       usageLifecycleTraceInstalled = true;
       const agentScope = page.locator(".agent-scope-control openclaw-agent-select");
+      await markUsageLifecycleTrace(page, "before-agent-scope");
       await agentScope.locator(".agent-select__trigger").click();
       await agentScope
         .locator("wa-dropdown-item[data-agent-option]")
@@ -565,11 +652,14 @@ describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => 
       await expect
         .poll(async () => (await gateway.getRequests("usage.cost")).at(-1)?.params)
         .toMatchObject({ agentScope: "all" });
+      await markUsageLifecycleTrace(page, "after-agent-scope");
       const costRequestsBeforeRangeChange = (await gateway.getRequests("usage.cost")).length;
+      await markUsageLifecycleTrace(page, "before-range");
       await page.getByRole("button", { name: "90d", exact: true }).click();
       await expect
         .poll(async () => (await gateway.getRequests("usage.cost")).length)
         .toBeGreaterThan(costRequestsBeforeRangeChange);
+      await markUsageLifecycleTrace(page, "after-range");
       await page.getByRole("button", { name: "Cost", exact: true }).click();
 
       const windowCards = page.locator(".cost-window-card");
@@ -631,6 +721,7 @@ describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => 
         .toContain("claude-opus-4-8");
 
       try {
+        await markUsageLifecycleTrace(page, "before-fill");
         await page.locator(".usage-query-input").fill("missing-session");
         await page.locator(".usage-query-input").press("Enter");
       } catch (error) {
