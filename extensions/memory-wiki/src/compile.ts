@@ -1066,7 +1066,14 @@ function buildRootIndexBody(params: {
   ];
 
   for (const group of COMPILE_PAGE_GROUPS) {
-    lines.push("", `### ${group.heading}`);
+    lines.push(
+      "",
+      `### ${formatWikiLink({
+        renderMode: params.config.vault.renderMode,
+        relativePath: `${group.dir}/index.md`,
+        title: group.heading,
+      })}`,
+    );
     lines.push(
       renderSectionList({
         config: params.config,

@@ -220,6 +220,12 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
             >`
           : nothing}
       </div>
+      <div class="memory-wiki-graph__legend">
+        <span data-edge-type="membership">${t("dreaming.wiki.graphMembership")}</span>
+        <span data-edge-type="reference">${t("dreaming.wiki.graphReference")}</span>
+        <span data-edge-type="related">${t("dreaming.wiki.graphRelated")}</span>
+        <span data-edge-type="candidate">${t("dreaming.wiki.graphCandidate")}</span>
+      </div>
       <div class="memory-wiki-graph__canvas">
         <svg
           viewBox="0 0 ${WIDTH} ${HEIGHT}"
@@ -243,7 +249,7 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
                 const source = renderedPositions.get(edge.source);
                 const target = renderedPositions.get(edge.target);
                 return source && target
-                  ? svg`<line data-svg-graph-source=${edge.source} data-svg-graph-target=${edge.target} x1=${source.x} y1=${source.y} x2=${target.x} y2=${target.y}></line>`
+                  ? svg`<line data-edge-type=${edge.type} data-edge-kind=${edge.kind ?? ""} data-svg-graph-source=${edge.source} data-svg-graph-target=${edge.target} x1=${source.x} y1=${source.y} x2=${target.x} y2=${target.y}></line>`
                   : nothing;
               })}
             </g>

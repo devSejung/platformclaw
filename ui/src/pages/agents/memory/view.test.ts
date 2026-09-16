@@ -443,8 +443,8 @@ describe("dreaming view", () => {
           { id: "syntheses/summary.md", title: "Summary", kind: "synthesis" },
         ],
         edges: [
-          { source: "home.md", target: "raw/source.md", type: "link" },
-          { source: "raw/source.md", target: "syntheses/summary.md", type: "link" },
+          { source: "home.md", target: "raw/source.md", type: "reference" },
+          { source: "raw/source.md", target: "syntheses/summary.md", type: "reference" },
         ],
         stats: {
           totalPages: 3,

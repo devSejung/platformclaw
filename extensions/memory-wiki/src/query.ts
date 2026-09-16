@@ -145,7 +145,7 @@ type WikiGetResult = {
   corpus: "wiki" | "memory";
   path: string;
   title: string;
-  kind: WikiPageSummary["kind"] | "memory";
+  kind: WikiPageSummary["kind"] | "index" | "memory";
   content: string;
   fromLine: number;
   lineCount: number;
@@ -904,6 +904,69 @@ function buildLookupCandidates(lookup: string): string[] {
   return uniqueStrings([normalized, withExtension]);
 }
 
+function resolveWikiIndexPath(lookup: string): string | null {
+  const normalized = normalizeLookupKey(lookup);
+  const candidate = normalized.endsWith(".md") ? normalized : `${normalized}.md`;
+  if (candidate === "index.md") {
+    return candidate;
+  }
+  return QUERY_DIRS.some((directory) => candidate === `${directory}/index.md`) ? candidate : null;
+}
+
+export async function readMemoryWikiIndexDocument(params: {
+  rootDir: string;
+  lookup: string;
+}): Promise<{ path: string; title: string; content: string } | null> {
+  const relativePath = resolveWikiIndexPath(params.lookup);
+  if (!relativePath) {
+    return null;
+  }
+  try {
+    const raw = await fs.readFile(path.join(params.rootDir, relativePath), "utf8");
+    const parsed = parseWikiMarkdown(raw);
+    return {
+      path: relativePath,
+      title:
+        /^#\s+(.+)$/mu.exec(parsed.body)?.[1]?.trim() ??
+        (relativePath === "index.md" ? "Wiki Index" : path.basename(path.dirname(relativePath))),
+      content: parsed.body,
+    };
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function readWikiIndexPage(params: {
+  rootDir: string;
+  lookup: string;
+  fromLine: number;
+  lineCount: number;
+}): Promise<WikiGetResult | null> {
+  const document = await readMemoryWikiIndexDocument(params);
+  if (!document) {
+    return null;
+  }
+  const lines = document.content.split(/\r?\n/);
+  const content = lines
+    .slice(params.fromLine - 1, params.fromLine - 1 + params.lineCount)
+    .join("\n");
+  return {
+    corpus: "wiki",
+    path: document.path,
+    title: document.title,
+    kind: "index",
+    content,
+    deletionUnavailableReason: "generated-page",
+    fromLine: params.fromLine,
+    lineCount: params.lineCount,
+    totalLines: lines.length,
+    truncated: params.fromLine - 1 + params.lineCount < lines.length,
+  };
+}
+
 function shouldEnforceSessionVisibility(params: {
   agentId?: string;
   agentSessionKey?: string;
@@ -1381,6 +1444,15 @@ export async function getMemoryWikiPage(input: {
   const lineCount = normalizePositiveInteger(params.lineCount, 200);
 
   if (shouldSearchWiki(effectiveConfig)) {
+    const indexPage = await readWikiIndexPage({
+      rootDir: effectiveConfig.vault.path,
+      lookup: params.lookup,
+      fromLine,
+      lineCount,
+    });
+    if (indexPage) {
+      return indexPage;
+    }
     const canReadPage = createWikiPageVisibilityFilter(params);
     const digest = await readQueryDigestBundle(effectiveConfig);
     const digestClaimPagePath = digest ? resolveDigestClaimLookup(digest, params.lookup) : null;

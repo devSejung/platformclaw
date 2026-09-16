@@ -2,6 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import { createOrganizationMemorySupplement } from "./supplement.js";
 
 describe("PlatformClaw organization memory supplement", () => {
+  it("declares default participation and reports missing managed wiring", async () => {
+    const supplement = createOrganizationMemorySupplement(null, { warn: vi.fn() });
+
+    expect(supplement.includeByDefault).toBe(true);
+    expect(supplement.status()).toEqual({ available: false, reason: "not-configured" });
+    await expect(supplement.search({ query: "release", agentId: "person_one" })).rejects.toThrow(
+      "not configured",
+    );
+  });
+
   it("maps bounded virtual results and forwards the pinned agent", async () => {
     const search = vi.fn(async () => [
       {

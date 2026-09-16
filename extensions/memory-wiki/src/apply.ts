@@ -1,4 +1,5 @@
 // Memory Wiki plugin module implements apply behavior.
+import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   replaceManagedMarkdownBlock,
@@ -8,7 +9,9 @@ import { readFiniteNumberParam } from "openclaw/plugin-sdk/param-readers";
 import { FsSafeError, root as fsRoot } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeStringEntries, uniqueStrings } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { compileMemoryWikiVault, type CompileMemoryWikiResult } from "./compile.js";
+import { invalidateMemoryWikiCompiledCache } from "./compiled-cache.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
+import { createWikiLinkTargetIndex, resolveWikiLinkTarget } from "./link-resolution.js";
 import {
   parseWikiMarkdown,
   renderWikiMarkdown,
@@ -17,6 +20,7 @@ import {
   normalizeSourceIds,
   normalizeWikiClaims,
   type WikiClaim,
+  type WikiRelationship,
 } from "./markdown.js";
 import { withMemoryWikiVaultMutation } from "./mutation-coordinator.js";
 import {
@@ -31,6 +35,15 @@ const GENERATED_END = "<!-- openclaw:wiki:generated:end -->";
 const HUMAN_START = "<!-- openclaw:human:start -->";
 const HUMAN_END = "<!-- openclaw:human:end -->";
 
+type ProposedWikiRelationship = {
+  lookup: string;
+  kind: "reference" | "enrichment" | "condition-difference" | "duplicate" | "conflict";
+  status: "confirmed" | "candidate";
+  expectedRevision: string;
+  confidence?: number;
+  note?: string;
+};
+
 type CreateSynthesisMemoryWikiMutation = {
   op: "create_synthesis";
   title: string;
@@ -41,6 +54,7 @@ type CreateSynthesisMemoryWikiMutation = {
   questions?: string[];
   confidence?: number;
   status?: string;
+  relationships?: ProposedWikiRelationship[];
 };
 
 type UpdateMetadataMemoryWikiMutation = {
@@ -52,6 +66,7 @@ type UpdateMetadataMemoryWikiMutation = {
   questions?: string[];
   confidence?: number | null;
   status?: string;
+  relationships?: ProposedWikiRelationship[];
 };
 
 type ApplyMemoryWikiMutation = CreateSynthesisMemoryWikiMutation | UpdateMetadataMemoryWikiMutation;
@@ -63,8 +78,51 @@ type ApplyMemoryWikiMutationResult = {
   operation: ApplyMemoryWikiMutation["op"];
   pagePath: string;
   pageId?: string;
-  compile: CompileMemoryWikiResult;
+  indexesRefreshed: boolean;
+  compile?: CompileMemoryWikiResult;
 };
+
+function normalizeProposedRelationships(value: unknown): ProposedWikiRelationship[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("relationships must be an array.");
+  }
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("each relationship must be an object.");
+    }
+    const record = entry as Record<string, unknown>;
+    const lookup = typeof record.lookup === "string" ? record.lookup.trim() : "";
+    const kind = record.kind;
+    const status = record.status;
+    const expectedRevision =
+      typeof record.expectedRevision === "string" ? record.expectedRevision.trim() : "";
+    if (
+      !lookup ||
+      !["reference", "enrichment", "condition-difference", "duplicate", "conflict"].includes(
+        String(kind),
+      ) ||
+      (status !== "confirmed" && status !== "candidate") ||
+      !/^[a-f0-9]{64}$/u.test(expectedRevision)
+    ) {
+      throw new Error(
+        "relationships require lookup, kind, status, and the current wiki_get revision.",
+      );
+    }
+    const confidence = readFiniteNumberParam(record, "confidence", { min: 0, max: 1 });
+    const note = typeof record.note === "string" ? record.note.trim() : undefined;
+    return {
+      lookup,
+      kind: kind as ProposedWikiRelationship["kind"],
+      status,
+      expectedRevision,
+      ...(typeof confidence === "number" ? { confidence } : {}),
+      ...(note ? { note } : {}),
+    };
+  });
+}
 
 function normalizeMutationConfidence(
   params: Record<string, unknown>,
@@ -111,6 +169,7 @@ export function normalizeMemoryWikiMutationInput(rawParams: unknown): ApplyMemor
     questions?: string[];
     confidence?: number | null;
     status?: string;
+    relationships?: unknown;
   };
   const op = normalizeMemoryWikiMutationOp(params.op);
   if (op === "create_synthesis") {
@@ -136,6 +195,9 @@ export function normalizeMemoryWikiMutationInput(rawParams: unknown): ApplyMemor
       ...(params.questions ? { questions: params.questions } : {}),
       ...(typeof confidence === "number" ? { confidence } : {}),
       ...(params.status ? { status: params.status } : {}),
+      ...(params.relationships !== undefined
+        ? { relationships: normalizeProposedRelationships(params.relationships) }
+        : {}),
     };
   }
   if (!params.lookup?.trim()) {
@@ -153,7 +215,58 @@ export function normalizeMemoryWikiMutationInput(rawParams: unknown): ApplyMemor
     ...(params.questions ? { questions: params.questions } : {}),
     ...(confidence !== undefined ? { confidence } : {}),
     ...(params.status ? { status: params.status } : {}),
+    ...(params.relationships !== undefined
+      ? { relationships: normalizeProposedRelationships(params.relationships) }
+      : {}),
   };
+}
+
+function resolveRelationshipTarget(
+  pages: readonly QueryableWikiPage[],
+  lookup: string,
+): QueryableWikiPage {
+  const matches = resolveWikiLinkTarget(createWikiLinkTargetIndex(pages), lookup);
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `Wiki relationship target not found: ${lookup}`
+        : `Wiki relationship target is ambiguous: ${lookup}`,
+    );
+  }
+  return matches[0]!;
+}
+
+async function resolveVerifiedRelationships(params: {
+  config: ResolvedMemoryWikiConfig;
+  proposed?: ProposedWikiRelationship[];
+  sourcePath: string;
+}): Promise<WikiRelationship[] | undefined> {
+  if (params.proposed === undefined) {
+    return undefined;
+  }
+  const pages = await readQueryableWikiPages(params.config.vault.path);
+  const now = new Date().toISOString();
+  return params.proposed.map((relationship) => {
+    const target = resolveRelationshipTarget(pages, relationship.lookup);
+    if (target.relativePath === params.sourcePath) {
+      throw new Error("Wiki relationships cannot target the page being written.");
+    }
+    if (createHash("sha256").update(target.raw).digest("hex") !== relationship.expectedRevision) {
+      throw new Error(`Wiki relationship target changed; read it again: ${relationship.lookup}`);
+    }
+    return {
+      ...(target.id ? { targetId: target.id } : {}),
+      targetPath: target.relativePath,
+      targetTitle: target.title,
+      kind: relationship.kind,
+      status: relationship.status,
+      evidenceKind:
+        relationship.status === "confirmed" ? "content-reviewed" : "ai-comparison-candidate",
+      ...(relationship.confidence !== undefined ? { confidence: relationship.confidence } : {}),
+      ...(relationship.note ? { note: relationship.note } : {}),
+      updatedAt: now,
+    };
+  });
 }
 
 function normalizeUniqueStrings(values: string[] | undefined): string[] | undefined {
@@ -253,6 +366,11 @@ async function applyCreateSynthesisMutation(params: {
   const pageId =
     (typeof parsed.frontmatter.id === "string" && parsed.frontmatter.id.trim()) ||
     `synthesis.${slug}`;
+  const relationships = await resolveVerifiedRelationships({
+    config: params.config,
+    proposed: params.mutation.relationships,
+    sourcePath: pagePath,
+  });
   const changed = await writeWikiPage({
     rootDir: params.config.vault.path,
     relativePath: pagePath,
@@ -272,6 +390,7 @@ async function applyCreateSynthesisMutation(params: {
       ...(typeof params.mutation.confidence === "number"
         ? { confidence: params.mutation.confidence }
         : {}),
+      ...(relationships && relationships.length > 0 ? { relationships } : {}),
       status: params.mutation.status?.trim() || "active",
       updatedAt: new Date().toISOString(),
     },
@@ -287,6 +406,7 @@ async function applyCreateSynthesisMutation(params: {
 function buildUpdatedFrontmatter(params: {
   original: Record<string, unknown>;
   mutation: UpdateMetadataMemoryWikiMutation;
+  relationships?: WikiRelationship[];
 }): Record<string, unknown> {
   const frontmatter: Record<string, unknown> = {
     ...params.original,
@@ -327,6 +447,11 @@ function buildUpdatedFrontmatter(params: {
   if (params.mutation.status?.trim()) {
     frontmatter.status = params.mutation.status.trim();
   }
+  if (params.relationships && params.relationships.length > 0) {
+    frontmatter.relationships = params.relationships;
+  } else if (params.mutation.relationships !== undefined) {
+    delete frontmatter.relationships;
+  }
   return frontmatter;
 }
 
@@ -342,12 +467,18 @@ async function applyUpdateMetadataMutation(params: {
     throw new Error(`Wiki page not found: ${params.mutation.lookup}`);
   }
   const parsed = parseWikiMarkdown(page.raw);
+  const relationships = await resolveVerifiedRelationships({
+    config: params.config,
+    proposed: params.mutation.relationships,
+    sourcePath: page.relativePath,
+  });
   const changed = await writeWikiPage({
     rootDir: params.config.vault.path,
     relativePath: page.relativePath,
     frontmatter: buildUpdatedFrontmatter({
       original: parsed.frontmatter,
       mutation: params.mutation,
+      relationships,
     }),
     body: parsed.body,
   });
@@ -373,14 +504,28 @@ async function applyMemoryWikiMutationUnlocked(params: {
           config: params.config,
           mutation: params.mutation,
         });
-  const compile = await compileMemoryWikiVault(params.config);
-  return {
-    changed: result.changed,
-    operation: params.mutation.op,
-    pagePath: result.pagePath,
-    ...(result.pageId ? { pageId: result.pageId } : {}),
-    compile,
-  };
+  await invalidateMemoryWikiCompiledCache(params.config);
+  try {
+    const compile = await compileMemoryWikiVault(params.config);
+    return {
+      changed: result.changed,
+      operation: params.mutation.op,
+      pagePath: result.pagePath,
+      ...(result.pageId ? { pageId: result.pageId } : {}),
+      indexesRefreshed: true,
+      compile,
+    };
+  } catch {
+    // The source page is authoritative. Report the derived projection failure so the
+    // caller can preserve its draft and retry compilation without rewriting content.
+    return {
+      changed: result.changed,
+      operation: params.mutation.op,
+      pagePath: result.pagePath,
+      ...(result.pageId ? { pageId: result.pageId } : {}),
+      indexesRefreshed: false,
+    };
+  }
 }
 
 export async function applyMemoryWikiMutation(params: {

@@ -15,14 +15,33 @@ import {
   replaceHumanNotes,
   stripManagedWikiMarkdown,
 } from "./markdown.js";
+import type { WikiPageKind } from "./markdown.js";
 import { withMemoryWikiVaultMutation } from "./mutation-coordinator.js";
-import { readQueryableWikiPages, resolveQueryableWikiPageByLookup } from "./query.js";
+import {
+  readMemoryWikiIndexDocument,
+  readQueryableWikiPages,
+  resolveQueryableWikiPageByLookup,
+} from "./query.js";
 import { writeGuardedVaultPage } from "./vault-page-write.js";
 
 const MAX_EDIT_BYTES = 256 * 1024;
 const HASH = /^[a-f0-9]{64}$/u;
 
 type MemoryWikiEditMode = "body" | "notes";
+
+type MemoryWikiDocument = {
+  path: string;
+  title: string;
+  kind: WikiPageKind | "index";
+  displayContent: string;
+  sourceContent: string;
+  editMode: MemoryWikiEditMode | null;
+  readOnlyReason?: "generated-report" | "source-managed" | "page-too-large" | "shared-vault";
+  editableContent?: string;
+  revision?: string;
+  sourceType?: string;
+  updatedAt?: string;
+};
 
 export class MemoryWikiEditValidationError extends Error {}
 export class MemoryWikiEditConflictError extends Error {}
@@ -99,7 +118,22 @@ function displayMarkdown(page: Awaited<ReturnType<typeof readQueryableWikiPages>
 export async function getMemoryWikiDocument(params: {
   config: ResolvedMemoryWikiConfig;
   lookup: string;
-}) {
+}): Promise<MemoryWikiDocument | null> {
+  const index = await readMemoryWikiIndexDocument({
+    rootDir: params.config.vault.path,
+    lookup: params.lookup,
+  });
+  if (index) {
+    return {
+      path: index.path,
+      title: index.title,
+      kind: "index" as const,
+      displayContent: index.content,
+      sourceContent: index.content,
+      editMode: null,
+      readOnlyReason: "generated-report" as const,
+    };
+  }
   const page = resolveQueryableWikiPageByLookup(
     await readQueryableWikiPages(params.config.vault.path),
     params.lookup,

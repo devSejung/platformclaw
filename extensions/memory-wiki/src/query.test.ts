@@ -178,6 +178,35 @@ function createMemoryManager(overrides?: {
 }
 
 describe("getMemoryWikiPage", () => {
+  it("reads generated root and category indexes without adding them to search", async () => {
+    const { rootDir, config } = await createQueryVault({ initialize: true });
+    await fs.writeFile(
+      path.join(rootDir, "concepts", "dram.md"),
+      renderWikiMarkdown({
+        frontmatter: { pageType: "concept", id: "concept.dram", title: "DRAM" },
+        body: "# DRAM\n\nApproved personal notes.",
+      }),
+      "utf8",
+    );
+    await compileMemoryWikiVault(config);
+
+    await expect(getMemoryWikiPage({ config, lookup: "index.md" })).resolves.toMatchObject({
+      corpus: "wiki",
+      path: "index.md",
+      kind: "index",
+      content: expect.stringContaining("concepts/index.md"),
+      deletionUnavailableReason: "generated-page",
+    });
+    await expect(getMemoryWikiPage({ config, lookup: "concepts/index.md" })).resolves.toMatchObject(
+      {
+        path: "concepts/index.md",
+        kind: "index",
+        content: expect.stringContaining("[DRAM](dram.md)"),
+      },
+    );
+    await expect(searchMemoryWiki({ config, query: "Wiki Index" })).resolves.toEqual([]);
+  });
+
   it("enforces visibility for all current session storage layouts", async () => {
     const { config } = await createQueryVault({
       initialize: true,

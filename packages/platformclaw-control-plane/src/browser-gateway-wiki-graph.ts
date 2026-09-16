@@ -31,7 +31,7 @@ export function projectWikiGraph(
     const node = failObject(value, "wiki graph node", fail);
     const kind = optionalEnum(
       node.kind,
-      ["entity", "concept", "source", "synthesis", "report"],
+      ["entity", "concept", "source", "synthesis", "report", "index"],
       "wiki graph node kind",
       fail,
     );
@@ -57,10 +57,16 @@ export function projectWikiGraph(
     if (!nodeIds.has(source) || !nodeIds.has(target)) {
       return fail("Gateway returned wiki graph edge outside the projected nodes");
     }
-    if (edge.type !== "link") {
+    if (
+      edge.type !== "membership" &&
+      edge.type !== "reference" &&
+      edge.type !== "related" &&
+      edge.type !== "candidate"
+    ) {
       return fail("Gateway returned invalid wiki graph edge type");
     }
-    return { source, target, type: "link" };
+    const kind = optionalText(edge.kind, "wiki graph edge kind", fail, 128);
+    return { source, target, type: edge.type, ...(kind ? { kind } : {}) };
   });
   const stats = failObject(payload.stats, "wiki graph stats", fail);
   const projectedStats = {

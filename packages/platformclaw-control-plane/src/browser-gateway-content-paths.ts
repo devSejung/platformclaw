@@ -22,6 +22,12 @@ function relativePath(value: unknown, label: string, fail: ProjectionFailure): s
 
 export function wikiPath(value: unknown, label: string, fail: ProjectionFailure): string {
   const candidate = relativePath(value, label, fail);
+  if (
+    candidate === "index.md" ||
+    [...WIKI_ROOTS].some((root) => candidate === `${root}/index.md`)
+  ) {
+    return candidate;
+  }
   const [root] = candidate.split("/");
   return root && WIKI_ROOTS.has(root) && candidate.endsWith(".md")
     ? candidate

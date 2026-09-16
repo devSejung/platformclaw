@@ -195,7 +195,13 @@ export function buildDreamingViewProps(
         { id: "concepts/alpha.md", title: "Alpha", kind: "concept" },
         { id: "syntheses/travel-system.md", title: "Travel system", kind: "synthesis" },
       ],
-      edges: [{ source: "concepts/alpha.md", target: "syntheses/travel-system.md", type: "link" }],
+      edges: [
+        {
+          source: "concepts/alpha.md",
+          target: "syntheses/travel-system.md",
+          type: "reference",
+        },
+      ],
       stats: {
         totalPages: 2,
         totalNodes: 2,

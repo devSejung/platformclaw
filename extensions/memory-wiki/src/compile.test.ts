@@ -100,6 +100,9 @@ describe("compileMemoryWikiVault", () => {
       "[Alpha](sources/alpha.md)",
     );
     await expect(fs.readFile(path.join(rootDir, "index.md"), "utf8")).resolves.toContain(
+      "[Sources](sources/index.md)",
+    );
+    await expect(fs.readFile(path.join(rootDir, "index.md"), "utf8")).resolves.toContain(
       "- Claims: 1",
     );
     await expect(fs.readFile(path.join(rootDir, "sources", "index.md"), "utf8")).resolves.toContain(

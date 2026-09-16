@@ -128,6 +128,26 @@ Personal files still open through `agents.workspace.get`, Wiki pages through
 `wiki.get`, and organization pages through the local, Agent-pinned
 `platformclaw.memory.get` BFF method.
 
+The compiler remains the sole index owner. `index.md` links the five category
+indexes, and every compiled page appears in its category index. Generated
+indexes are exact-get navigation artifacts: `wiki_get` and the Personal Wiki
+preview can read only the root and five known category indexes, while
+`wiki_search`, ranking, digest, and ordinary page scans continue to exclude
+them. A committed page whose compile fails remains preserved and returns
+`indexesRefreshed:false`; `wiki_apply op=refresh` repairs derived indexes and
+Graph without rewriting the page.
+
+Navigation and semantic relationships are separate. Index membership is
+compiler-generated. Authored Markdown links are document references. A
+structured relationship is accepted only after `wiki_get` supplied the exact
+target revision and the write owner re-resolved that target in the same
+personal vault. Confirmed relationships and AI comparison candidates retain
+separate status and semantic kinds such as enrichment, condition difference,
+duplicate, or conflict. `sourceIds` remain provenance. The Personal Wiki Graph
+renders index membership, authored references, confirmed relationships, and
+candidate comparisons as distinct edge types; generated Related blocks remain
+presentation-only and do not create graph edges or backlinks.
+
 Organization Graph is a Control Plane read projection, not another vault. It
 loads only after the user selects **Organization > Organization Graph**, then
 offers separate Part, Group, Team, and Global views. Each managed view selects one readable scope; Global is visible to every active employee. Group leaders can select each Part in their own Group. Approval authority alone does not add read visibility. `platformclaw.memory.graph` accepts only
@@ -210,15 +230,22 @@ Authorization is evaluated for every search and page read:
 - Global pages are readable by every active employee;
 - direct Team, Group, or Part membership grants read access to that active
   scope and its active ancestors;
-- leadership grants review and curation for the led scope and descendants, but
-  does not grant descendant `memory_search` access;
+- a direct Group leader additionally receives read-only search access to each
+  active child Part in that Group; this does not grant child-Part analysis,
+  review, or apply authority;
 - archived lineages, retired pages, Knox/unknown Agents, descendants, and
   sibling scopes fail closed for ordinary reads.
 
 The private `platformclaw-org-memory` plugin adapts the Control Plane read model
 to the generic memory corpus registry. It runs with the Gateway on the Basic
 server, so Basic and assigned-VM execution targets see the same authorized
-results. Models use `memory_search` with `corpus=all` or `corpus=wiki`.
+results. Ordinary `memory_search` calls include registered Personal Wiki and
+organization corpora by default. Explicit `corpus=memory` and
+`corpus=sessions` calls remain narrow; `corpus=wiki` and `corpus=all` remain
+available for explicit broad supplement searches. Results distinguish a
+successful empty corpus from an unavailable or failed corpus. Candidate slots
+are balanced across supplement owners and then against personal memory because
+their scores use different scales.
 Employee browsers use **Settings > Memory > Memory**; the BFF pins the Agent,
 combines personal, Personal Wiki, and organization results, and returns only virtual
 `organization/<scope>/<page-id>` paths plus a display scope. Host paths,
@@ -229,7 +256,9 @@ membership before returning bounded text; it never reads a workspace path.
 Deployment owns the plugin enablement. Operators need no new environment
 variable: the plugin reuses the existing owner-only Control Plane handoff token
 and socket. Redeploy/restart the PlatformClaw Gateway and web ingress after
-upgrade. Before PR3, an empty organization result set is expected.
+upgrade. If the broker or service-token file is missing, the plugin stays
+registered as unavailable and logs the missing managed connection without
+exposing credential values.
 
 These are the current schema v3 rules. Team is a managed organization corpus,
 and every read reuses the canonical organization authorization snapshot. See

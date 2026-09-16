@@ -5,6 +5,7 @@ import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry
 import { Type } from "typebox";
 import type { AnyAgentTool, OpenClawConfig } from "../api.js";
 import { applyMemoryWikiMutation, normalizeMemoryWikiMutationInput } from "./apply.js";
+import { compileMemoryWikiVault } from "./compile.js";
 import {
   WIKI_SEARCH_BACKENDS,
   WIKI_SEARCH_CORPORA,
@@ -81,6 +82,23 @@ const WikiClaimSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+const WikiRelationshipSchema = Type.Object(
+  {
+    lookup: Type.String({ minLength: 1 }),
+    kind: Type.Union([
+      Type.Literal("reference"),
+      Type.Literal("enrichment"),
+      Type.Literal("condition-difference"),
+      Type.Literal("duplicate"),
+      Type.Literal("conflict"),
+    ]),
+    status: Type.Union([Type.Literal("confirmed"), Type.Literal("candidate")]),
+    expectedRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+    confidence: Type.Optional(optionalFiniteNumberSchema({ minimum: 0, maximum: 1 })),
+    note: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false },
+);
 const WikiApplySchema = Type.Object(
   {
     op: Type.Union([
@@ -88,6 +106,7 @@ const WikiApplySchema = Type.Object(
       Type.Literal("update_metadata"),
       Type.Literal("synthesis"),
       Type.Literal("metadata"),
+      Type.Literal("refresh"),
     ]),
     title: Type.Optional(Type.String({ minLength: 1 })),
     body: Type.Optional(Type.String({ minLength: 1 })),
@@ -98,6 +117,7 @@ const WikiApplySchema = Type.Object(
     questions: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
     confidence: Type.Optional(Type.Union([Type.Number({ minimum: 0, maximum: 1 }), Type.Null()])),
     status: Type.Optional(Type.String({ minLength: 1 })),
+    relationships: Type.Optional(Type.Array(WikiRelationshipSchema)),
   },
   { additionalProperties: false },
 );
@@ -150,7 +170,7 @@ export function createWikiSearchTool(
     name: "wiki_search",
     label: "Wiki Search",
     description:
-      "Search wiki pages and, when shared search is enabled, the active memory corpus by title, path, id, or body text.",
+      "Search the configured personal Wiki pages by title, path, id, or body text. This tool does not search organization knowledge; use ordinary memory_search for workplace knowledge. Generated indexes stay out of ranking and are browsed with wiki_get.",
     parameters: WikiSearchSchema,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as {
@@ -241,15 +261,28 @@ export function createWikiApplyTool(
     name: "wiki_apply",
     label: "Wiki Apply",
     description:
-      "Apply narrow wiki mutations for syntheses and page metadata without freeform markdown surgery.",
+      "Apply narrow personal Wiki mutations. Before a substantive create or update, use wiki_search and wiki_get to compare only relevant candidates, then pass each target's current contentHash as expectedRevision. Targets are re-resolved in this vault: use status=confirmed only for a supported reference and status=candidate for an uncertain duplicate, conflict, enrichment, or condition difference. sourceIds remain provenance, not related-page links. No relationship is required when none is supported.",
     parameters: WikiApplySchema,
     execute: async (_toolCallId, rawParams) => {
-      const mutation = normalizeMemoryWikiMutationInput(rawParams);
       await syncImportedSourcesIfNeeded(config, appConfig);
+      if ((rawParams as { op?: unknown }).op === "refresh") {
+        const compile = await compileMemoryWikiVault(config);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Refreshed Personal Wiki indexes and Graph (${compile.updatedFiles.length} changed files).`,
+            },
+          ],
+          details: { operation: "refresh", indexesRefreshed: true, compile },
+        };
+      }
+      const mutation = normalizeMemoryWikiMutationInput(rawParams);
       const result = await applyMemoryWikiMutation({ config, mutation });
       const action = result.changed ? "Updated" : "No changes for";
-      const compileSummary =
-        result.compile.updatedFiles.length > 0
+      const compileSummary = !result.indexesRefreshed
+        ? "The page was saved, but indexes and Graph were not refreshed. Preserve the draft and call wiki_apply with op=refresh."
+        : result.compile && result.compile.updatedFiles.length > 0
           ? `Refreshed ${result.compile.updatedFiles.length} index file${result.compile.updatedFiles.length === 1 ? "" : "s"}.`
           : "Indexes unchanged.";
       return {
@@ -274,7 +307,7 @@ export function createWikiGetTool(
     name: "wiki_get",
     label: "Wiki Get",
     description:
-      "Read a wiki page by id or relative path, or fall back to the active memory corpus when shared search is enabled.",
+      "Read a configured personal Wiki page or generated index by id or relative path. Start with index.md to browse the whole Wiki, then follow exact returned paths. This tool does not read organization knowledge.",
     parameters: WikiGetSchema,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as {

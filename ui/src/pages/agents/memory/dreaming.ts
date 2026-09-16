@@ -90,12 +90,10 @@ type WikiOverviewCluster = {
   items: WikiOverviewItem[];
 };
 
-type WikiOverviewPageCounts = Record<WikiOverviewItem["kind"], number>;
-
 export type WikiOverview = {
   totalItems: number;
   totalPages: number;
-  pageCounts: WikiOverviewPageCounts;
+  pageCounts: Record<WikiOverviewItem["kind"], number>;
   totalClaims: number;
   totalQuestions: number;
   totalContradictions: number;
@@ -106,13 +104,14 @@ export type WikiGraph = {
   nodes: Array<{
     id: string;
     title: string;
-    kind: WikiOverviewItem["kind"];
+    kind: WikiOverviewItem["kind"] | "index";
     updatedAt?: string;
   }>;
   edges: Array<{
     source: string;
     target: string;
-    type: "link";
+    type: "membership" | "reference" | "related" | "candidate";
+    kind?: string;
   }>;
   stats: {
     totalPages: number;
