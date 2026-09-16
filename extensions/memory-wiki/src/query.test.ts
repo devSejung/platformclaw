@@ -2431,6 +2431,31 @@ describe("wiki corpus bridge page agent scoping", () => {
     expect(unowned).toBeNull();
   });
 
+  it("filters generated indexes through the same sandboxed page visibility boundary", async () => {
+    const { config } = await createBridgeVisibilityVault();
+    await compileMemoryWikiVault(config);
+    const caller = {
+      config,
+      appConfig: createAgentSessionVisibilityAppConfig(),
+      agentId: "main",
+      sandboxed: true,
+    };
+
+    const rootIndex = await getMemoryWikiPage({ ...caller, lookup: "index.md" });
+    const sourceIndex = await getMemoryWikiPage({ ...caller, lookup: "sources/index.md" });
+
+    expect(rootIndex?.content).toContain("- Total pages: 11");
+    expect(rootIndex?.content).toContain("- Sources: 2");
+    expect(rootIndex?.content).toContain("Main Daily Note");
+    expect(rootIndex?.content).toContain("Shared Note");
+    expect(rootIndex?.content).not.toContain("Secondary Daily Note");
+    expect(rootIndex?.content).not.toContain("Unowned Daily Note");
+    expect(sourceIndex?.content).toContain("Main Daily Note");
+    expect(sourceIndex?.content).toContain("Shared Note");
+    expect(sourceIndex?.content).not.toContain("Secondary Daily Note");
+    expect(sourceIndex?.content).not.toContain("Unowned Daily Note");
+  });
+
   it("preserves global bridge reads for non-sandboxed callers", async () => {
     const { config } = await createBridgeVisibilityVault();
     const caller = {
