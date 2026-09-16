@@ -2,7 +2,10 @@
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { WikiPageSummary } from "./markdown.js";
 
-export type WikiLinkTargetIndex = ReadonlyMap<string, readonly WikiPageSummary[]>;
+export type WikiLinkTargetIndex<T extends WikiPageSummary = WikiPageSummary> = ReadonlyMap<
+  string,
+  readonly T[]
+>;
 
 export function normalizeComparableWikiTarget(value: string): string {
   return normalizeLowercaseStringOrEmpty(
@@ -26,8 +29,10 @@ function buildWikiPageLookupKeys(page: WikiPageSummary): Set<string> {
   return keys;
 }
 
-export function createWikiLinkTargetIndex(pages: readonly WikiPageSummary[]): WikiLinkTargetIndex {
-  const mutable = new Map<string, WikiPageSummary[]>();
+export function createWikiLinkTargetIndex<T extends WikiPageSummary>(
+  pages: readonly T[],
+): WikiLinkTargetIndex<T> {
+  const mutable = new Map<string, T[]>();
   for (const page of pages.toSorted((left, right) =>
     left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0,
   )) {
@@ -43,9 +48,9 @@ export function createWikiLinkTargetIndex(pages: readonly WikiPageSummary[]): Wi
   return mutable;
 }
 
-export function resolveWikiLinkTarget(
-  index: WikiLinkTargetIndex,
+export function resolveWikiLinkTarget<T extends WikiPageSummary>(
+  index: WikiLinkTargetIndex<T>,
   target: string,
-): readonly WikiPageSummary[] {
+): readonly T[] {
   return index.get(normalizeComparableWikiTarget(target)) ?? [];
 }

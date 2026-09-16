@@ -36,6 +36,64 @@ async function writePage(params: {
 }
 
 describe("listMemoryWikiGraph", () => {
+  it("separates index membership, authored references, confirmed relations, and candidates", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    await writePage({ rootDir, relativePath: "concepts/target.md", title: "Target" });
+    const sourcePath = path.join(rootDir, "syntheses", "source.md");
+    await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+    await fs.writeFile(
+      sourcePath,
+      renderWikiMarkdown({
+        frontmatter: {
+          pageType: "synthesis",
+          title: "Source",
+          relationships: [
+            {
+              targetPath: "concepts/target.md",
+              kind: "enrichment",
+              status: "confirmed",
+            },
+            {
+              targetPath: "concepts/target.md",
+              kind: "conflict",
+              status: "candidate",
+            },
+          ],
+        },
+        body: "# Source\n\nAuthored [[concepts/target.md]].",
+      }),
+      "utf8",
+    );
+
+    const graph = await listMemoryWikiGraph(config);
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        {
+          source: "syntheses/index.md",
+          target: "syntheses/source.md",
+          type: "membership",
+        },
+        {
+          source: "syntheses/source.md",
+          target: "concepts/target.md",
+          type: "reference",
+        },
+        {
+          source: "syntheses/source.md",
+          target: "concepts/target.md",
+          type: "related",
+          kind: "enrichment",
+        },
+        {
+          source: "syntheses/source.md",
+          target: "concepts/target.md",
+          type: "candidate",
+          kind: "conflict",
+        },
+      ]),
+    );
+  });
+
   it("uses rendered first-definition references and excludes unused definition-only targets", async () => {
     const { rootDir, config } = await createVault({ initialize: true });
     await writePage({ rootDir, relativePath: "concepts/first.md", title: "First" });
@@ -46,9 +104,9 @@ describe("listMemoryWikiGraph", () => {
       title: "Source",
       body: "[Confirmed][id]\n\n[id]: first.md\n[id]: unused.md\n[unused]: unused.md",
     });
-    expect((await listMemoryWikiGraph(config)).edges).toEqual([
-      { source: "concepts/source.md", target: "concepts/first.md", type: "link" },
-    ]);
+    expect(
+      (await listMemoryWikiGraph(config)).edges.filter((edge) => edge.type === "reference"),
+    ).toEqual([{ source: "concepts/source.md", target: "concepts/first.md", type: "reference" }]);
   });
   it("deduplicates and sorts explicit links while counting unresolved targets", async () => {
     const { rootDir, config } = await createVault({
@@ -89,7 +147,7 @@ describe("listMemoryWikiGraph", () => {
     const second = await listMemoryWikiGraph(config);
 
     expect(second).toEqual(first);
-    expect(first.nodes).toEqual([
+    expect(first.nodes.filter((node) => node.kind !== "index")).toEqual([
       {
         id: "concepts/alpha.md",
         title: "Alpha",
@@ -99,15 +157,15 @@ describe("listMemoryWikiGraph", () => {
       { id: "concepts/beta.md", title: "Beta", kind: "concept" },
       { id: "entities/gamma.md", title: "Gamma", kind: "entity" },
     ]);
-    expect(first.edges).toEqual([
-      { source: "concepts/alpha.md", target: "concepts/beta.md", type: "link" },
-      { source: "concepts/alpha.md", target: "entities/gamma.md", type: "link" },
-      { source: "concepts/beta.md", target: "concepts/alpha.md", type: "link" },
+    expect(first.edges.filter((edge) => edge.type === "reference")).toEqual([
+      { source: "concepts/alpha.md", target: "concepts/beta.md", type: "reference" },
+      { source: "concepts/alpha.md", target: "entities/gamma.md", type: "reference" },
+      { source: "concepts/beta.md", target: "concepts/alpha.md", type: "reference" },
     ]);
     expect(first.stats).toEqual({
-      totalPages: 3,
-      totalNodes: 3,
-      totalEdges: 3,
+      totalPages: 9,
+      totalNodes: 9,
+      totalEdges: 11,
       unresolvedLinks: 1,
       truncated: false,
     });
@@ -131,10 +189,11 @@ describe("listMemoryWikiGraph", () => {
     const graph = await listMemoryWikiGraph(config);
 
     expect(graph.nodes).toHaveLength(500);
-    expect(graph.nodes.at(0)?.id).toBe("concepts/page-000.md");
-    expect(graph.nodes.at(-1)?.id).toBe("concepts/page-499.md");
+    const documents = graph.nodes.filter((node) => node.kind !== "index");
+    expect(documents.at(0)?.id).toBe("concepts/page-000.md");
+    expect(documents.at(-1)?.id).toBe("concepts/page-493.md");
     expect(graph.stats).toMatchObject({
-      totalPages: 501,
+      totalPages: 507,
       totalNodes: 500,
       truncated: true,
     });
@@ -166,19 +225,11 @@ describe("listMemoryWikiGraph", () => {
 
     expect(second).toEqual(first);
     expect(first.edges).toHaveLength(2_000);
-    expect(first.edges.at(0)).toEqual({
-      source: "concepts/page-00.md",
-      target: "concepts/page-00.md",
-      type: "link",
-    });
-    expect(first.edges.at(-1)).toEqual({
-      source: "concepts/page-43.md",
-      target: "concepts/page-21.md",
-      type: "link",
-    });
+    expect(first.edges.some((edge) => edge.type === "membership")).toBe(true);
+    expect(first.edges.some((edge) => edge.type === "reference")).toBe(true);
     expect(first.stats).toEqual({
-      totalPages: 46,
-      totalNodes: 46,
+      totalPages: 52,
+      totalNodes: 52,
       totalEdges: 2_000,
       unresolvedLinks: 0,
       truncated: true,

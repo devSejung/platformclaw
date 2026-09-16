@@ -72,6 +72,7 @@ export type WikiRelationship = {
   evidenceKind?: string;
   privacyTier?: string;
   note?: string;
+  status?: "confirmed" | "candidate";
   updatedAt?: string;
 };
 
@@ -391,6 +392,9 @@ function normalizeWikiRelationships(value: unknown): WikiRelationship[] {
         : {}),
       ...(normalizeOptionalString(record.note)
         ? { note: normalizeOptionalString(record.note) }
+        : {}),
+      ...(record.status === "confirmed" || record.status === "candidate"
+        ? { status: record.status }
         : {}),
       ...(normalizeOptionalString(record.updatedAt)
         ? { updatedAt: normalizeOptionalString(record.updatedAt) }

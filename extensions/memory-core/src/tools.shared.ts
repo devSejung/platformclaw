@@ -10,6 +10,7 @@ import {
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import type { PluginStateLeaseRunner } from "openclaw/plugin-sdk/plugin-state-runtime";
+import { withTimeout } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type } from "typebox";
 import type { MemoryCoreAcquireLocalService } from "./memory/embedding-local-service.js";
@@ -26,6 +27,8 @@ type MemoryToolOptions = {
   acquireLocalService?: MemoryCoreAcquireLocalService;
   withLease?: PluginStateLeaseRunner;
 };
+
+const MEMORY_CORPUS_SUPPLEMENT_TIMEOUT_MS = 10_000;
 
 export const loadMemoryToolRuntime = createLazyRuntimeModule(() => import("./tools.runtime.js"));
 
@@ -167,39 +170,88 @@ export async function searchMemoryCorpusSupplements(params: {
   agentSessionKey?: string;
   sandboxed?: boolean;
   corpus?: "memory" | "wiki" | "all" | "sessions";
-  onSupplementError?: (pluginId: string) => void;
+  onSupplementStatus?: (
+    pluginId: string,
+    status: "ok" | "empty" | "unavailable" | "failed",
+  ) => void;
 }): Promise<MemoryCorpusSearchResult[]> {
   if (params.corpus === "memory" || params.corpus === "sessions") {
     return [];
   }
-  const supplements = listMemoryCorpusSupplements();
+  const supplements = listMemoryCorpusSupplements().filter(
+    ({ supplement }) => params.corpus !== undefined || supplement.includeByDefault === true,
+  );
   if (supplements.length === 0) {
     return [];
   }
   // Supplements are independent corpora. One optional owner being unavailable must
   // not erase successful personal or organization memory from sibling owners.
-  const { onSupplementError, ...searchParams } = params;
+  const { onSupplementStatus, ...searchParams } = params;
   const settled = await Promise.allSettled(
-    supplements.map(async (registration) => await registration.supplement.search(searchParams)),
+    supplements.map(async (registration) => {
+      const status = registration.supplement.status?.();
+      if (status?.available === false) {
+        return { results: [], status: "unavailable" as const };
+      }
+      // A supplement cannot cancel another owner's useful results by hanging until
+      // memory_search's outer deadline. The late task is ignored after this bound.
+      const results = await withTimeout(
+        registration.supplement.search(searchParams),
+        MEMORY_CORPUS_SUPPLEMENT_TIMEOUT_MS,
+        `memory corpus supplement ${registration.pluginId}`,
+      );
+      return { results, status: results.length === 0 ? ("empty" as const) : ("ok" as const) };
+    }),
   );
-  const results = settled.flatMap((result, index) => {
+  settled.forEach((result, index) => {
     if (result.status === "fulfilled") {
-      return result.value;
+      const pluginId = supplements[index]?.pluginId;
+      if (pluginId) {
+        onSupplementStatus?.(pluginId, result.value.status);
+      }
+      return;
     }
     const pluginId = supplements[index]?.pluginId;
     if (pluginId) {
-      onSupplementError?.(pluginId);
+      onSupplementStatus?.(pluginId, "failed");
     }
-    return [];
   });
-  return results
-    .toSorted((left, right) => {
-      if (left.score !== right.score) {
-        return right.score - left.score;
+  const compareResults = (left: MemoryCorpusSearchResult, right: MemoryCorpusSearchResult) => {
+    if (left.score !== right.score) {
+      return right.score - left.score;
+    }
+    return left.path.localeCompare(right.path);
+  };
+  const maxResults = Math.max(1, params.maxResults ?? 10);
+  const successfulCorpora = settled.flatMap((result) =>
+    result.status === "fulfilled" && result.value.results.length > 0
+      ? [result.value.results.toSorted(compareResults)]
+      : [],
+  );
+  const selected: MemoryCorpusSearchResult[] = [];
+  const selectedKeys = new Set<string>();
+  for (let rank = 0; selected.length < maxResults; rank += 1) {
+    let added = false;
+    for (const corpus of successfulCorpora) {
+      const result = corpus[rank];
+      if (!result) {
+        continue;
       }
-      return left.path.localeCompare(right.path);
-    })
-    .slice(0, Math.max(1, params.maxResults ?? 10));
+      const key = `${result.corpus}\u0000${result.path}\u0000${result.id ?? ""}`;
+      if (!selectedKeys.has(key)) {
+        selectedKeys.add(key);
+        selected.push(result);
+        added = true;
+      }
+      if (selected.length >= maxResults) {
+        break;
+      }
+    }
+    if (!added) {
+      break;
+    }
+  }
+  return selected;
 }
 
 export async function getMemoryCorpusSupplementResult(params: {

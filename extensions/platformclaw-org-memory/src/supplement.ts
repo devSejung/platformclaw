@@ -11,12 +11,20 @@ function agentId(value?: string): string {
 }
 
 export function createOrganizationMemorySupplement(
-  client: OrganizationMemoryClient,
+  client: OrganizationMemoryClient | null,
   logger: { warn(message: string): void },
 ) {
   return {
+    includeByDefault: true,
+    status: () =>
+      client
+        ? ({ available: true } as const)
+        : ({ available: false, reason: "not-configured" } as const),
     search: async (params: { query: string; maxResults?: number; agentId?: string }) => {
       try {
+        if (!client) {
+          throw new Error("organization memory is not configured");
+        }
         const value = await client.search({
           agentId: agentId(params.agentId),
           query: params.query,
@@ -65,6 +73,9 @@ export function createOrganizationMemorySupplement(
       lineCount?: number;
       agentId?: string;
     }) => {
+      if (!client) {
+        throw new Error("organization memory is not configured");
+      }
       if (!PATH.test(params.lookup)) {
         return null;
       }

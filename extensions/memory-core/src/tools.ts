@@ -9,6 +9,7 @@ import {
 import {
   asToolParamsRecord,
   jsonResult,
+  listMemoryCorpusSupplements,
   readFiniteNumberParam,
   readPositiveIntegerParam,
   readStringParam,
@@ -61,6 +62,9 @@ type MemorySearchToolResult =
   | MemoryCorpusSearchResult;
 type MemoryManagerContext = Awaited<ReturnType<typeof getMemoryManagerContextWithPurpose>>;
 type ActiveMemoryManagerContext = Extract<MemoryManagerContext, { manager: unknown }>;
+type ResolvedMemoryBackendConfig = ReturnType<
+  (typeof import("./tools.runtime.js"))["resolveMemoryBackendConfig"]
+>;
 type MemoryManagerSearchOptions = NonNullable<
   Parameters<ActiveMemoryManagerContext["manager"]["search"]>[1]
 > &
@@ -538,9 +542,48 @@ export function createMemorySearchTool(options: {
           });
         const runMemorySearchTool = async () => {
           const toolStartedAt = Date.now();
-          const shouldQuerySupplements = requestedCorpus === "wiki" || requestedCorpus === "all";
+          const shouldQuerySupplements =
+            requestedCorpus == null || requestedCorpus === "wiki" || requestedCorpus === "all";
+          const canFallbackToSupplements =
+            shouldQuerySupplements &&
+            listMemoryCorpusSupplements().some(
+              ({ supplement }) =>
+                requestedCorpus !== undefined || supplement.includeByDefault === true,
+            );
           const shouldQueryMemory = requestedCorpus !== "wiki" && !cooldown;
-          if (cooldown && !shouldQuerySupplements) {
+          const supplementWarnings: string[] = [];
+          const supplementStatus: Array<{
+            pluginId: string;
+            status: "ok" | "empty" | "unavailable" | "failed";
+          }> = [];
+          const recordMemoryFailure = (status: "unavailable" | "failed") => {
+            if (supplementStatus.some((entry) => entry.pluginId === "memory-core")) {
+              return;
+            }
+            supplementStatus.push({ pluginId: "memory-core", status });
+            supplementWarnings.push(
+              `Personal memory corpus is ${
+                status === "unavailable" ? "not configured" : "temporarily unavailable"
+              }.`,
+            );
+          };
+          const runMemoryPhase = async <T>(task: () => Promise<T>, fallback: T): Promise<T> => {
+            try {
+              return await runUnavailablePhase("memory", task);
+            } catch (error) {
+              if (!canFallbackToSupplements) {
+                throw error;
+              }
+              const message = formatErrorMessage(error);
+              recordMemorySearchToolCooldown(cooldownKey, message);
+              recordMemoryFailure("failed");
+              return fallback;
+            }
+          };
+          if (cooldown && canFallbackToSupplements) {
+            recordMemoryFailure("unavailable");
+          }
+          if (cooldown && !canFallbackToSupplements) {
             return jsonResult(buildMemorySearchUnavailableResult(cooldown.error));
           }
           const memoryManagerPurpose = options.oneShotCliRun ? "cli" : undefined;
@@ -559,9 +602,12 @@ export function createMemorySearchTool(options: {
             return context;
           };
           try {
+            type MemorySetup = {
+              context: MemoryManagerContext;
+              resolvedMemoryBackend: ResolvedMemoryBackendConfig;
+            };
             const memorySetup = shouldQueryMemory
-              ? await runUnavailablePhase(
-                  "memory",
+              ? await runMemoryPhase<MemorySetup | null>(
                   async () =>
                     await runWithDefaultDeadline(async () => {
                       const { resolveMemoryBackendConfig } = await loadMemoryToolRuntime();
@@ -577,15 +623,23 @@ export function createMemorySearchTool(options: {
                       );
                       return { context, resolvedMemoryBackend };
                     }),
+                  null,
                 )
               : null;
             const memory = memorySetup?.context ?? null;
-            if (shouldQueryMemory && memory && "error" in memory && !shouldQuerySupplements) {
+            if (shouldQueryMemory && memory && "error" in memory && !canFallbackToSupplements) {
               recordMemorySearchToolCooldown(
                 cooldownKey,
                 memory.error ?? "memory search unavailable",
               );
               return jsonResult(buildMemorySearchUnavailableResult(memory.error));
+            }
+            if (shouldQueryMemory && memory && "error" in memory) {
+              recordMemorySearchToolCooldown(
+                cooldownKey,
+                memory.error ?? "memory search unavailable",
+              );
+              recordMemoryFailure("unavailable");
             }
 
             const citationsMode = resolveMemoryCitationsMode(cfg);
@@ -632,7 +686,7 @@ export function createMemorySearchTool(options: {
                 }
               | undefined;
             if (shouldQueryMemory && memorySetup && memory && !("error" in memory)) {
-              await runUnavailablePhase("memory", async () => {
+              const memorySearchSucceeded = await runMemoryPhase(async () => {
                 let activeMemory = memory;
                 const runtimeDebug: MemorySearchRuntimeDebug[] = [];
                 const qmdSearchModeOverride = resolveActiveMemoryQmdSearchModeOverride(
@@ -717,7 +771,7 @@ export function createMemorySearchTool(options: {
                 pausedIndexIdentityReason =
                   resolvePausedMemoryIndexIdentityReason(statusBeforeRetry);
                 if (pausedIndexIdentityReason) {
-                  return;
+                  return false;
                 }
                 // One-shot CLI managers have no background lifecycle, so keep their bootstrap
                 // retry. Long-lived QMD managers must not run update work in the tool hot path.
@@ -737,7 +791,7 @@ export function createMemorySearchTool(options: {
                     activeMemory.manager.status(),
                   );
                   if (pausedIndexIdentityReason) {
-                    return;
+                    return false;
                   }
                 }
                 rawResults = await runWithDefaultDeadline(
@@ -810,14 +864,18 @@ export function createMemorySearchTool(options: {
                   qmd: qmdDebug,
                   hits: rawResults.length,
                 };
-              });
+                return true;
+              }, false);
+              if (!memorySearchSucceeded) {
+                surfacedMemoryResults = [];
+                searchDebug = undefined;
+              }
               if (pausedIndexIdentityReason) {
                 return jsonResult(
                   buildPausedMemoryIndexUnavailableResult(pausedIndexIdentityReason),
                 );
               }
             }
-            const supplementWarnings: string[] = [];
             const supplementResults = shouldQuerySupplements
               ? await runUnavailablePhase(
                   "supplement",
@@ -831,10 +889,17 @@ export function createMemorySearchTool(options: {
                           agentSessionKey: options.agentSessionKey,
                           sandboxed: options.sandboxed,
                           corpus: requestedCorpus,
-                          onSupplementError: (pluginId) => {
-                            supplementWarnings.push(
-                              `Memory corpus from plugin "${pluginId}" is temporarily unavailable.`,
-                            );
+                          onSupplementStatus: (pluginId, status) => {
+                            supplementStatus.push({ pluginId, status });
+                            if (status === "unavailable" || status === "failed") {
+                              supplementWarnings.push(
+                                `Memory corpus from plugin "${pluginId}" is ${
+                                  status === "unavailable"
+                                    ? "not configured"
+                                    : "temporarily unavailable"
+                                }.`,
+                              );
+                            }
                           },
                         }),
                     ),
@@ -847,7 +912,7 @@ export function createMemorySearchTool(options: {
               memoryResults: surfacedMemoryResults,
               supplementResults,
               maxResults: effectiveMax,
-              balanceCorpora: requestedCorpus === "all",
+              balanceCorpora: requestedCorpus == null || requestedCorpus === "all",
             });
             if (searchDebug) {
               const finalToolMs = Math.max(0, Date.now() - toolStartedAt);
@@ -866,6 +931,7 @@ export function createMemorySearchTool(options: {
               mode: searchMode,
               ...staleness,
               ...(supplementWarnings.length > 0 ? { warnings: supplementWarnings } : {}),
+              ...(supplementStatus.length > 0 ? { corpusStatus: supplementStatus } : {}),
               debug: searchDebug,
             });
           } finally {

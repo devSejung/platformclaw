@@ -41,6 +41,7 @@ describe("personal Wiki deletion boundary", () => {
     "concepts\\a.md",
     "concepts/a.md:stream",
     "index.md",
+    "concepts/index.md",
     "attachments/a.md",
     ...[0, 9, 10, 31].map((code) => `concepts/a${String.fromCharCode(code)}.md`),
   ])("rejects unsafe or non-Wiki path %s before dispatch", async (unsafePath) => {
@@ -50,6 +51,48 @@ describe("personal Wiki deletion boundary", () => {
     ).rejects.toThrow();
     expect(request).not.toHaveBeenCalled();
   });
+
+  it.each(["index.md", "concepts/index.md"])(
+    "keeps generated index %s readable but rejects browser mutations",
+    async (indexPath) => {
+      const { binding, proxy, request, token } = await setup();
+      request.mockResolvedValueOnce({
+        corpus: "wiki",
+        path: indexPath,
+        title: "Generated index",
+        kind: "index",
+        content: "# Generated index",
+        fromLine: 1,
+        lineCount: 1,
+        totalLines: 1,
+        deletionUnavailableReason: "generated-page",
+      });
+
+      await expect(proxy.request(token, "wiki.get", { lookup: indexPath })).resolves.toMatchObject({
+        path: indexPath,
+        content: "# Generated index",
+        deletionUnavailableReason: "generated-page",
+      });
+      expect(request).toHaveBeenCalledExactlyOnceWith("wiki.get", {
+        agentId: binding.agentId,
+        lookup: indexPath,
+      });
+      request.mockClear();
+
+      await expect(
+        proxy.request(token, "wiki.delete", { path: indexPath, expectedContentHash }),
+      ).rejects.toThrow();
+      await expect(
+        proxy.request(token, "wiki.document.save", {
+          path: indexPath,
+          editMode: "body",
+          content: "# Replacement",
+          expectedRevision: expectedContentHash,
+        }),
+      ).rejects.toThrow();
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects foreign Agent, missing hash, and extra parameters before dispatch", async () => {
     const { proxy, request, token } = await setup();

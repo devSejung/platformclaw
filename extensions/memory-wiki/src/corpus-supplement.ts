@@ -8,6 +8,8 @@ export function createWikiCorpusSupplement(params: {
   getAppConfig: () => OpenClawConfig | undefined;
 }) {
   return {
+    includeByDefault: true,
+    status: () => ({ available: true as const }),
     search: async (input: {
       query: string;
       maxResults?: number;

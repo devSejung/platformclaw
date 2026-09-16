@@ -14,13 +14,15 @@ export default definePluginEntry({
     registerOrganizationKnowledgeAnalysis(api);
     const client = createOrganizationMemoryClient(process.env);
     if (!client) {
-      return;
+      api.logger.warn(
+        "platformclaw-org-memory: organization search is not configured; managed memory_search will report it unavailable",
+      );
     }
     api.registerMemoryCorpusSupplement(createOrganizationMemorySupplement(client, api.logger));
     api.registerMemoryPromptSupplement(({ availableTools }) =>
-      availableTools.has("memory_search")
+      client && availableTools.has("memory_search")
         ? [
-            "Authorized PlatformClaw organizational memory is available with memory_search corpus=all or corpus=wiki. Global results are company-wide; Team, Group, and Part results are membership-scoped.",
+            "Authorized PlatformClaw organizational memory participates in ordinary memory_search calls. Use corpus=memory or corpus=sessions only for an explicitly private or session-only search. Global results are company-wide; Team, Group, and Part results are membership-scoped.",
           ]
         : [],
     );

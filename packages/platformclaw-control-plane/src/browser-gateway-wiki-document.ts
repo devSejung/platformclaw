@@ -1,4 +1,4 @@
-import { wikiPath } from "./browser-gateway-content-paths.js";
+import { isGeneratedWikiIndexPath, wikiPath } from "./browser-gateway-content-paths.js";
 import {
   failObject,
   optionalEnum,
@@ -14,6 +14,8 @@ export const MAX_WIKI_CONTENT_CHARS = 1024 * 1024;
 export function personalWikiPagePath(value: unknown, fail: ProjectionFailure): string {
   const path = wikiPath(value, "personal Wiki page path", fail);
   if (
+    // Compiled indexes are navigable artifacts, but their compiler remains the only writer.
+    isGeneratedWikiIndexPath(path) ||
     path !== value ||
     path.split("").some((character) => character.charCodeAt(0) < 32 || character === ":")
   ) {

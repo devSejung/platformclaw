@@ -5,6 +5,12 @@ const WIKI_ROOTS = new Set(["entities", "concepts", "sources", "syntheses", "rep
 const DREAMING_SESSION_CORPUS_TEXT_PATH_RE =
   /^memory\/\.dreams\/session-corpus\/(\d{4})-(\d{2})-(\d{2})\.txt$/u;
 
+export function isGeneratedWikiIndexPath(candidate: string): boolean {
+  return (
+    candidate === "index.md" || [...WIKI_ROOTS].some((root) => candidate === `${root}/index.md`)
+  );
+}
+
 function relativePath(value: unknown, label: string, fail: ProjectionFailure): string {
   if (typeof value !== "string" || value.length > MAX_PATH_CHARS) {
     return fail(`Gateway returned invalid ${label}`);
@@ -22,6 +28,9 @@ function relativePath(value: unknown, label: string, fail: ProjectionFailure): s
 
 export function wikiPath(value: unknown, label: string, fail: ProjectionFailure): string {
   const candidate = relativePath(value, label, fail);
+  if (isGeneratedWikiIndexPath(candidate)) {
+    return candidate;
+  }
   const [root] = candidate.split("/");
   return root && WIKI_ROOTS.has(root) && candidate.endsWith(".md")
     ? candidate

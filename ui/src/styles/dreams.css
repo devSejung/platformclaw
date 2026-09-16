@@ -1092,6 +1092,49 @@
   opacity: 0.88;
 }
 
+.memory-wiki-graph__edges line[data-edge-type="membership"] {
+  stroke: var(--muted);
+  stroke-dasharray: 2 5;
+  opacity: 0.55;
+}
+
+.memory-wiki-graph__edges line[data-edge-type="related"] {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.memory-wiki-graph__edges line[data-edge-type="candidate"] {
+  stroke: var(--warn);
+  stroke-dasharray: 7 5;
+}
+
+.memory-wiki-graph__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.memory-wiki-graph__legend span::before {
+  display: inline-block;
+  width: 18px;
+  margin-right: 6px;
+  border-top: 2px solid currentColor;
+  content: "";
+  vertical-align: middle;
+}
+
+.memory-wiki-graph__legend span[data-edge-type="membership"]::before,
+.memory-wiki-graph__legend span[data-edge-type="candidate"]::before {
+  border-top-style: dashed;
+}
+
+.memory-wiki-graph__node--index circle {
+  fill: var(--card);
+  stroke: var(--accent);
+}
+
 .memory-wiki-graph__node {
   cursor: grab;
   color: var(--text);

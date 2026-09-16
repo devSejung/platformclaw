@@ -133,7 +133,7 @@ describe("BrowserGatewayProxy personal memory wiki", () => {
         {
           source: "concepts/alpha.md",
           target: "entities/beta.md",
-          type: "link",
+          type: "reference",
           absolutePath: "/srv/private/edge",
         },
       ],
@@ -160,7 +160,7 @@ describe("BrowserGatewayProxy personal memory wiki", () => {
         },
         { id: "entities/beta.md", title: "Beta", kind: "entity" },
       ],
-      edges: [{ source: "concepts/alpha.md", target: "entities/beta.md", type: "link" }],
+      edges: [{ source: "concepts/alpha.md", target: "entities/beta.md", type: "reference" }],
       stats: {
         totalPages: 2,
         totalNodes: 2,
@@ -199,7 +199,7 @@ describe("BrowserGatewayProxy personal memory wiki", () => {
               {
                 source: field === "source" ? unsafePath : nodeId,
                 target: field === "target" ? unsafePath : nodeId,
-                type: "link",
+                type: "reference",
               },
             ],
       stats: {

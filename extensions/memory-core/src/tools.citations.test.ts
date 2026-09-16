@@ -401,6 +401,7 @@ describe("memory tools", () => {
         },
       ],
       citations: "auto",
+      corpusStatus: [{ pluginId: "memory-wiki", status: "ok" }],
       debug: undefined,
       fallback: undefined,
       mode: undefined,
@@ -653,7 +654,106 @@ describe("memory tools", () => {
     ]);
   });
 
-  it("does not cooldown primary memory when a corpus=all wiki supplement stalls", async () => {
+  it("includes only default supplements when corpus is omitted and reports each outcome", async () => {
+    registerMemoryCorpusSupplement("memory-wiki", {
+      includeByDefault: true,
+      search: async () => [],
+      get: async () => null,
+    });
+    registerMemoryCorpusSupplement("organization", {
+      includeByDefault: true,
+      status: () => ({ available: false, reason: "not-configured" }),
+      search: async () => {
+        throw new Error("must not call an unavailable corpus");
+      },
+      get: async () => null,
+    });
+    registerMemoryCorpusSupplement("opt-in", {
+      search: async () => [
+        {
+          corpus: "opt-in",
+          path: "hidden.md",
+          score: 1,
+          snippet: "explicit only",
+        },
+      ],
+      get: async () => null,
+    });
+
+    const tool = createMemorySearchToolOrThrow();
+    const result = await tool.execute("call_default_corpora", { query: "alpha" });
+    const details = result.details as {
+      results: Array<{ corpus: string; path: string }>;
+      warnings: string[];
+      corpusStatus: Array<{ pluginId: string; status: string }>;
+    };
+
+    expect(details.results.map((entry) => [entry.corpus, entry.path])).toEqual([
+      ["memory", "MEMORY.md"],
+    ]);
+    expect(details.corpusStatus).toEqual([
+      { pluginId: "memory-wiki", status: "empty" },
+      { pluginId: "organization", status: "unavailable" },
+    ]);
+    expect(details.warnings).toEqual([
+      'Memory corpus from plugin "organization" is not configured.',
+    ]);
+  });
+
+  it("keeps explicit personal-memory searches narrow", async () => {
+    const search = vi.fn(async () => []);
+    registerMemoryCorpusSupplement("organization", {
+      includeByDefault: true,
+      search,
+      get: async () => null,
+    });
+
+    const tool = createMemorySearchToolOrThrow();
+    const result = await tool.execute("call_private_memory", {
+      query: "alpha",
+      corpus: "memory",
+    });
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.details).not.toHaveProperty("corpusStatus");
+  });
+
+  it("keeps default supplement results when personal memory search fails", async () => {
+    setMemorySearchImpl(async () => {
+      throw new Error("personal memory offline");
+    });
+    registerMemoryCorpusSupplement("organization", {
+      includeByDefault: true,
+      search: async () => [
+        {
+          corpus: "platformclaw-organization",
+          path: "organization/team/dram-policy",
+          score: 0.9,
+          snippet: "Approved DRAM guidance",
+        },
+      ],
+      get: async () => null,
+    });
+
+    const tool = createMemorySearchToolOrThrow();
+    const result = await tool.execute("call_default_memory_failed", { query: "DRAM" });
+
+    expect(result.details).toMatchObject({
+      results: [
+        {
+          corpus: "platformclaw-organization",
+          path: "organization/team/dram-policy",
+        },
+      ],
+      corpusStatus: [
+        { pluginId: "memory-core", status: "failed" },
+        { pluginId: "organization", status: "ok" },
+      ],
+      warnings: ["Personal memory corpus is temporarily unavailable."],
+    });
+  });
+
+  it("keeps completed memory and sibling results when a corpus=all supplement stalls", async () => {
     vi.useFakeTimers();
     try {
       let searchCalls = 0;
@@ -674,18 +774,35 @@ describe("memory tools", () => {
         search: async () => await new Promise(() => {}),
         get: async () => null,
       });
+      registerMemoryCorpusSupplement("organization", {
+        search: async () => [
+          {
+            corpus: "platformclaw-organization",
+            path: "organization/team/alpha",
+            score: 0.8,
+            snippet: "Approved organization guidance",
+          },
+        ],
+        get: async () => null,
+      });
 
       const tool = createMemorySearchToolOrThrow();
       const stalledAllResultPromise = tool.execute("call_all_stalled_wiki", {
         query: "alpha",
         corpus: "all",
       });
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(10_000);
       const stalledAllResult = await stalledAllResultPromise;
-      expectUnavailableMemorySearchDetails(stalledAllResult.details, {
-        error: "memory_search timed out after 15s",
-        warning: "Memory search is unavailable due to an embedding/provider error.",
-        action: "Check embedding provider configuration and retry memory_search.",
+      expect(stalledAllResult.details).toMatchObject({
+        results: [
+          { corpus: "memory", path: "MEMORY.md" },
+          { corpus: "platformclaw-organization", path: "organization/team/alpha" },
+        ],
+        corpusStatus: [
+          { pluginId: "memory-wiki", status: "failed" },
+          { pluginId: "organization", status: "ok" },
+        ],
+        warnings: ['Memory corpus from plugin "memory-wiki" is temporarily unavailable.'],
       });
 
       const memoryResult = await tool.execute("call_memory_after_stalled_wiki", {
@@ -730,10 +847,13 @@ describe("memory tools", () => {
       });
       await vi.advanceTimersByTimeAsync(15_000);
       const stalledAllResult = await stalledAllResultPromise;
-      expectUnavailableMemorySearchDetails(stalledAllResult.details, {
-        error: "memory_search timed out after 15s",
-        warning: "Memory search is unavailable due to an embedding/provider error.",
-        action: "Check embedding provider configuration and retry memory_search.",
+      expect(stalledAllResult.details).toMatchObject({
+        results: [{ corpus: "wiki", path: "entities/alpha.md" }],
+        corpusStatus: [
+          { pluginId: "memory-core", status: "failed" },
+          { pluginId: "memory-wiki", status: "ok" },
+        ],
+        warnings: ["Personal memory corpus is temporarily unavailable."],
       });
 
       const wikiOnlyResult = await tool.execute("call_all_after_stalled_memory", {
@@ -742,9 +862,14 @@ describe("memory tools", () => {
       });
       const details = wikiOnlyResult.details as {
         results: Array<{ corpus: string; path: string }>;
+        corpusStatus: Array<{ pluginId: string; status: string }>;
       };
       expect(details.results.map((entry) => [entry.corpus, entry.path])).toEqual([
         ["wiki", "entities/alpha.md"],
+      ]);
+      expect(details.corpusStatus).toEqual([
+        { pluginId: "memory-core", status: "unavailable" },
+        { pluginId: "memory-wiki", status: "ok" },
       ]);
       expect(searchCalls).toBe(1);
     } finally {

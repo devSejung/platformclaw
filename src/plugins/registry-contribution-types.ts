@@ -191,6 +191,11 @@ type MemoryCorpusGetResult = {
 };
 
 export type MemoryCorpusSupplement = {
+  /** Include this corpus when memory_search omits corpus. Explicit narrow corpora still win. */
+  includeByDefault?: boolean;
+  status?: () =>
+    | { available: true }
+    | { available: false; reason: "not-configured" | "temporarily-unavailable" };
   search(params: {
     query: string;
     maxResults?: number;

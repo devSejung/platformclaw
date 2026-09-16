@@ -1,4 +1,5 @@
 // Memory Wiki tests cover apply plugin behavior.
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -98,7 +99,7 @@ describe("applyMemoryWikiMutation", () => {
     expect(result.changed).toBe(true);
     expect(result.pagePath).toBe("syntheses/alpha-synthesis.md");
     expect(result.pageId).toBe("synthesis.alpha-synthesis");
-    expect(result.compile.pageCounts.synthesis).toBe(1);
+    expect(result.compile?.pageCounts.synthesis).toBe(1);
 
     const page = await fs.readFile(path.join(rootDir, result.pagePath), "utf8");
     const parsed = parseWikiMarkdown(page);
@@ -143,6 +144,114 @@ describe("applyMemoryWikiMutation", () => {
     );
   });
 
+  it("stores only current, resolvable relationship targets and keeps candidates distinct", async () => {
+    const { rootDir, config } = await createVault({ prefix: "memory-wiki-relationships-" });
+    const targetPath = path.join(rootDir, "concepts", "dram-policy.md");
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    const target = renderWikiMarkdown({
+      frontmatter: { pageType: "concept", id: "concept.dram-policy", title: "DRAM Policy" },
+      body: "# DRAM Policy\n\nApplies to board A only.",
+    });
+    await fs.writeFile(targetPath, target, "utf8");
+    const expectedRevision = createHash("sha256").update(target).digest("hex");
+
+    const result = await applyMemoryWikiMutation({
+      config,
+      mutation: {
+        op: "create_synthesis",
+        title: "DRAM Summary",
+        body: "Compare board-specific guidance.",
+        sourceIds: ["source.dram"],
+        relationships: [
+          {
+            lookup: "concept.dram-policy",
+            kind: "condition-difference",
+            status: "candidate",
+            expectedRevision,
+            note: "Board applicability needs confirmation.",
+          },
+        ],
+      },
+    });
+
+    expect(result.indexesRefreshed).toBe(true);
+    const page = parseWikiMarkdown(await fs.readFile(path.join(rootDir, result.pagePath), "utf8"));
+    expect(page.frontmatter.relationships).toEqual([
+      expect.objectContaining({
+        targetId: "concept.dram-policy",
+        targetPath: "concepts/dram-policy.md",
+        targetTitle: "DRAM Policy",
+        kind: "condition-difference",
+        status: "candidate",
+        evidenceKind: "ai-comparison-candidate",
+      }),
+    ]);
+
+    await expect(
+      applyMemoryWikiMutation({
+        config,
+        mutation: {
+          op: "update_metadata",
+          lookup: result.pagePath,
+          relationships: [
+            {
+              lookup: "concept.dram-policy",
+              kind: "reference",
+              status: "confirmed",
+              expectedRevision: "0".repeat(64),
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("target changed");
+
+    await expect(
+      applyMemoryWikiMutation({
+        config,
+        mutation: {
+          op: "update_metadata",
+          lookup: result.pagePath,
+          relationships: [
+            {
+              lookup: "concept.missing",
+              kind: "reference",
+              status: "confirmed",
+              expectedRevision,
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("target not found");
+  });
+
+  it("preserves the authoritative page and reports a failed index refresh", async () => {
+    const { rootDir, config } = await createVault({
+      prefix: "memory-wiki-apply-recovery-",
+      initialize: false,
+    });
+    await fs.mkdir(path.join(rootDir, "concepts", "index.md"), { recursive: true });
+
+    const result = await applyMemoryWikiMutation({
+      config,
+      mutation: {
+        op: "create_synthesis",
+        title: "Recoverable Draft",
+        body: "Keep this content even when the projection fails.",
+        sourceIds: ["source.recovery"],
+      },
+    });
+
+    expect(result).toMatchObject({
+      changed: true,
+      pagePath: "syntheses/recoverable-draft.md",
+      indexesRefreshed: false,
+    });
+    expect(result.compile).toBeUndefined();
+    await expect(
+      fs.readFile(path.join(rootDir, "syntheses", "recoverable-draft.md"), "utf8"),
+    ).resolves.toContain("Keep this content even when the projection fails.");
+  });
+
   it("applies a write when an unrelated vault page has malformed frontmatter (#96125)", async () => {
     const { rootDir, config } = await createVault({
       prefix: "memory-wiki-apply-unrelated-invalid-",
@@ -172,9 +281,9 @@ describe("applyMemoryWikiMutation", () => {
     });
 
     expect(result.changed).toBe(true);
-    expect(result.compile.pageCounts.source).toBe(0);
-    expect(result.compile.pageCounts.synthesis).toBe(1);
-    expect(result.compile.frontmatterErrors).toEqual([
+    expect(result.compile?.pageCounts.source).toBe(0);
+    expect(result.compile?.pageCounts.synthesis).toBe(1);
+    expect(result.compile?.frontmatterErrors).toEqual([
       expect.objectContaining({ relativePath: "sources/broken.md" }),
     ]);
     await expect(fs.readFile(brokenPath, "utf8")).resolves.toBe(brokenPage);
@@ -281,7 +390,7 @@ keep this note
 
     expect(result.changed).toBe(true);
     expect(result.pagePath).toBe("entities/alpha.md");
-    expect(result.compile.pageCounts.entity).toBe(1);
+    expect(result.compile?.pageCounts.entity).toBe(1);
 
     const updated = await fs.readFile(targetPath, "utf8");
     const parsed = parseWikiMarkdown(updated);

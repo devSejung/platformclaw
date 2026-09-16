@@ -178,6 +178,57 @@ function createMemoryManager(overrides?: {
 }
 
 describe("getMemoryWikiPage", () => {
+  it("reads generated root and category indexes without adding them to search", async () => {
+    const { rootDir, config } = await createQueryVault({ initialize: true });
+    await fs.writeFile(
+      path.join(rootDir, "concepts", "dram.md"),
+      renderWikiMarkdown({
+        frontmatter: { pageType: "concept", id: "concept.dram", title: "DRAM" },
+        body: "# DRAM\n\nApproved personal notes.",
+      }),
+      "utf8",
+    );
+    await compileMemoryWikiVault(config);
+
+    await expect(getMemoryWikiPage({ config, lookup: "index.md" })).resolves.toMatchObject({
+      corpus: "wiki",
+      path: "index.md",
+      kind: "index",
+      content: expect.stringContaining("concepts/index.md"),
+      deletionUnavailableReason: "generated-page",
+    });
+    await expect(getMemoryWikiPage({ config, lookup: "concepts/index.md" })).resolves.toMatchObject(
+      {
+        path: "concepts/index.md",
+        kind: "index",
+        content: expect.stringContaining("[DRAM](dram.md)"),
+      },
+    );
+    await expect(searchMemoryWiki({ config, query: "Wiki Index" })).resolves.toEqual([]);
+  });
+
+  it("refuses to read a generated index through a symlink", async () => {
+    const { rootDir, config } = await createQueryVault({ initialize: true });
+    let lookup = "index.md";
+    if (process.platform === "win32") {
+      const externalDir = path.join(path.dirname(rootDir), `external-index-${caseIndex}`);
+      await fs.mkdir(externalDir);
+      await fs.writeFile(path.join(externalDir, "index.md"), "# External\n\nsecret marker\n");
+      await fs.rm(path.join(rootDir, "concepts"), { recursive: true });
+      await fs.symlink(externalDir, path.join(rootDir, "concepts"), "junction");
+      lookup = "concepts/index.md";
+    } else {
+      const externalPath = path.join(path.dirname(rootDir), `external-index-${caseIndex}.md`);
+      await fs.writeFile(externalPath, "# External\n\nsecret marker\n", "utf8");
+      await fs.rm(path.join(rootDir, "index.md"));
+      await fs.symlink(externalPath, path.join(rootDir, "index.md"));
+    }
+
+    await expect(getMemoryWikiPage({ config, lookup })).rejects.toMatchObject({
+      code: expect.stringMatching(/^(?:outside-workspace|symlink)$/u),
+    });
+  });
+
   it("enforces visibility for all current session storage layouts", async () => {
     const { config } = await createQueryVault({
       initialize: true,
@@ -2400,6 +2451,31 @@ describe("wiki corpus bridge page agent scoping", () => {
     expect(shared?.content).toContain("wikiscope marker shared");
     expect(foreign).toBeNull();
     expect(unowned).toBeNull();
+  });
+
+  it("filters generated indexes through the same sandboxed page visibility boundary", async () => {
+    const { config } = await createBridgeVisibilityVault();
+    await compileMemoryWikiVault(config);
+    const caller = {
+      config,
+      appConfig: createAgentSessionVisibilityAppConfig(),
+      agentId: "main",
+      sandboxed: true,
+    };
+
+    const rootIndex = await getMemoryWikiPage({ ...caller, lookup: "index.md" });
+    const sourceIndex = await getMemoryWikiPage({ ...caller, lookup: "sources/index.md" });
+
+    expect(rootIndex?.content).toContain("- Total pages: 11");
+    expect(rootIndex?.content).toContain("- Sources: 2");
+    expect(rootIndex?.content).toContain("Main Daily Note");
+    expect(rootIndex?.content).toContain("Shared Note");
+    expect(rootIndex?.content).not.toContain("Secondary Daily Note");
+    expect(rootIndex?.content).not.toContain("Unowned Daily Note");
+    expect(sourceIndex?.content).toContain("Main Daily Note");
+    expect(sourceIndex?.content).toContain("Shared Note");
+    expect(sourceIndex?.content).not.toContain("Secondary Daily Note");
+    expect(sourceIndex?.content).not.toContain("Unowned Daily Note");
   });
 
   it("preserves global bridge reads for non-sandboxed callers", async () => {
