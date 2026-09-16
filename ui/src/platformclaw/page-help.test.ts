@@ -10,45 +10,61 @@ describe("PlatformClaw page help", () => {
     await loadPlatformClawLocale();
   });
 
-  it("keeps route-owned content untouched while opening the current guide", async () => {
+  it("keeps the trigger beside the exact heading and the modal outside route content", async () => {
     const heading = document.createElement("h1");
     heading.className = "page-title";
     heading.textContent = "Usage";
     const query = document.createElement("input");
     query.className = "usage-query-input";
-    document.body.append(heading, query);
+    const trigger = document.createElement("platformclaw-page-help-trigger");
+    trigger.routeId = "usage";
     const element = document.createElement("platformclaw-page-help") as PlatformClawPageHelpElement;
     element.routeId = "usage";
-    document.body.append(element);
+    document.body.append(heading, trigger, query, element);
+    await trigger.updateComplete;
     await element.updateComplete;
 
     expect(heading.textContent).toBe("Usage");
-    expect(heading.nextElementSibling).toBe(query);
+    expect(heading.nextElementSibling).toBe(trigger);
+    expect(trigger.nextElementSibling).toBe(query);
     expect(query.isConnected).toBe(true);
-    const trigger = element.shadowRoot?.querySelector<HTMLButtonElement>(".help-trigger");
-    expect(trigger?.ariaLabel).toBe("Help for Usage: understand tokens and cost");
-    trigger?.click();
+    expect(element.shadowRoot?.querySelector("openclaw-modal-dialog")).toBeNull();
+    const button = trigger.shadowRoot?.querySelector<HTMLButtonElement>("button");
+    expect(button?.ariaLabel).toBe("Help for Usage: understand tokens and cost");
+    button?.click();
     await element.updateComplete;
     expect(element.shadowRoot?.querySelector(".help-panel h2")?.textContent).toBe(
       "Usage: understand tokens and cost",
     );
     expect(element.shadowRoot?.querySelector(".tour-progress")).toBeNull();
     expect(element.shadowRoot?.querySelector(".tour-highlight")).toBeNull();
+    element.shadowRoot?.querySelector<HTMLButtonElement>(".help-close")?.click();
+    await element.updateComplete;
+    expect(element.shadowRoot?.querySelector("openclaw-modal-dialog")).toBeNull();
+    expect(query.isConnected).toBe(true);
+    button?.click();
+    await element.updateComplete;
+    element.routeId = "tasks";
+    await element.updateComplete;
+    expect(element.shadowRoot?.querySelector("openclaw-modal-dialog")).toBeNull();
+    expect(query.isConnected).toBe(true);
   });
 
-  it("uses route-specific copy without reading page headings", async () => {
-    const hiddenHeader = document.createElement("section");
-    hiddenHeader.hidden = true;
-    hiddenHeader.innerHTML = '<h1 class="page-title">Home</h1>';
-    document.body.append(hiddenHeader);
-    const element = document.createElement("platformclaw-page-help") as PlatformClawPageHelpElement;
-    element.routeId = "chat";
-    document.body.append(element);
-    await element.updateComplete;
+  it("refreshes localized trigger copy after the locale changes", async () => {
+    const trigger = document.createElement("platformclaw-page-help-trigger");
+    trigger.routeId = "chat";
+    document.body.append(trigger);
+    await trigger.updateComplete;
+    expect(trigger.shadowRoot?.querySelector("button")?.ariaLabel).toBe(
+      "Help for Home: start a conversation with your Agent",
+    );
 
-    const trigger = element.shadowRoot?.querySelector<HTMLButtonElement>(".help-trigger");
-    expect(hiddenHeader.nextElementSibling).toBe(element);
-    expect(trigger?.ariaLabel).toBe("Help for Home: start a conversation with your Agent");
+    await i18n.setLocale("ko");
+    await loadPlatformClawLocale();
+    await trigger.updateComplete;
+    expect(trigger.shadowRoot?.querySelector("button")?.ariaLabel).not.toContain(
+      "platformClaw.guide",
+    );
   });
 
   it.each([

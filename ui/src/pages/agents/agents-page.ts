@@ -902,6 +902,7 @@ class AgentsPage
       <section class="content-header">
         <div>
           <div class="page-title">${titleForRoute("agents")}</div>
+          ${this.context.renderPageHeaderAccessory?.("agents")}
           <div class="page-subtitle">
             ${subtitleForRoute("agents")} ${renderDocsLink(AGENTS_DOCS_URL, t("common.learnMore"))}
           </div>

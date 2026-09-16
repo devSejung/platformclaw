@@ -242,6 +242,8 @@ export type ApplicationShellSession = {
     routeId: RouteId,
     location: RouteLocation | undefined,
   ) => unknown;
+  /** Product-owned overlay layer rendered outside route-owned DOM. */
+  readonly renderPageOverlay?: (routeId: RouteId, location: RouteLocation | undefined) => unknown;
   readonly onLogout: () => Promise<void>;
 };
 
@@ -540,6 +542,14 @@ export function bootstrapApplication(
     webPush,
     skillWorkshopRevision,
     initialUserMessage,
+    renderPageHeaderAccessory: options.shellSession?.renderPageHeaderAccessory
+      ? (routeId) =>
+          options.shellSession?.renderPageHeaderAccessory?.(routeId, {
+            pathname: globalThis.location?.pathname ?? "",
+            search: globalThis.location?.search ?? "",
+            hash: globalThis.location?.hash ?? "",
+          })
+      : undefined,
     navigate: (routeId, navigationOptions) => {
       const { routeAllowed, allowedRouteId, location } = resolveAllowedNavigation(
         routeId,

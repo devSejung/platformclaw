@@ -392,6 +392,7 @@ export class ProfilePage extends OpenClawLightDomElement {
       <section class="content-header">
         <div>
           <div class="page-title">${titleForRoute("profile")}</div>
+          ${this.context.renderPageHeaderAccessory?.("profile")}
           <div class="page-subtitle">
             ${subtitleForRoute("profile")}
             ${renderDocsLink(PROFILE_DOCS_URL, t("common.learnMore"))}

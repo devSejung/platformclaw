@@ -67,6 +67,21 @@ describe("SkillHubPage", () => {
     document.body.replaceChildren();
   });
 
+  it("renders its header without an application context provider", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ namespaces: [], maxPackageBytes: 1024 }))
+        .mockResolvedValueOnce(jsonResponse({ total: 0, items: [] })),
+    );
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+
+    await waitForFast(() => expect(page.textContent).toContain("No Skill Hub results"));
+    expect(page.querySelector("h1.page-title")?.textContent).toBe("Skill Hub");
+  });
+
   it("searches, opens an exact version, and exposes separate Basic and VM installs", async () => {
     const fetchMock = vi
       .fn()

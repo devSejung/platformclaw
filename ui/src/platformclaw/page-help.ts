@@ -1,11 +1,16 @@
-import { css, html, nothing } from "lit";
+import { css, html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import { subtitleForRoute, titleForRoute } from "../app-navigation.ts";
 import { INTERNAL_MEMORY_PATH_PARAM, type RouteId } from "../app-route-paths.ts";
 import { icons } from "../components/icons.ts";
+import { i18n } from "../i18n/index.ts";
 import "../components/modal-dialog.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
-import { platformClawGuideT as guideT, platformClawT as t } from "./i18n.ts";
+import {
+  loadPlatformClawLocale,
+  platformClawGuideT as guideT,
+  platformClawT as t,
+} from "./i18n.ts";
 
 type PageHelp = {
   title: string;
@@ -71,21 +76,19 @@ export function pageHelpForRoute(routeId: RouteId, pathname = "", search = ""): 
   };
 }
 
-export class PlatformClawPageHelpElement extends OpenClawLitElement {
+class PlatformClawPageHelpTriggerElement extends OpenClawLitElement {
   @property() routeId: RouteId = "chat";
   @property() pathname = "";
   @property() search = "";
-  @state() private open = false;
+  private loadedLocale: string | null = null;
 
   static override styles = css`
     :host {
-      position: fixed;
-      z-index: 20;
-      top: max(12px, env(safe-area-inset-top));
-      right: max(14px, env(safe-area-inset-right));
-      display: block;
+      display: inline-flex;
+      margin-left: 8px;
+      vertical-align: 2px;
     }
-    .help-trigger {
+    button {
       display: grid;
       width: 26px;
       height: 26px;
@@ -97,15 +100,69 @@ export class PlatformClawPageHelpElement extends OpenClawLitElement {
       color: var(--muted-strong);
       cursor: pointer;
     }
-    .help-trigger:hover,
-    .help-trigger:focus-visible {
+    button:hover,
+    button:focus-visible {
       border-color: var(--accent);
       color: var(--accent);
       outline: none;
     }
-    .help-trigger svg {
+    svg {
       width: 16px;
       height: 16px;
+    }
+  `;
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    this.syncLocale();
+  }
+
+  protected override updated(): void {
+    this.syncLocale();
+  }
+
+  private syncLocale(): void {
+    const locale = i18n.getLocale();
+    if (this.loadedLocale === locale) {
+      return;
+    }
+    this.loadedLocale = locale;
+    void loadPlatformClawLocale().then(() => {
+      if (this.loadedLocale === locale) {
+        this.requestUpdate();
+      }
+    });
+  }
+
+  override render() {
+    const help = pageHelpForRoute(this.routeId, this.pathname, this.search);
+    const label = guideT("platformClaw.guide.openHelp", { title: help.title });
+    return html`<button
+      type="button"
+      aria-label=${label}
+      title=${label}
+      @click=${() =>
+        this.dispatchEvent(
+          new CustomEvent("platformclaw-page-help-open", { bubbles: true, composed: true }),
+        )}
+    >
+      ${icons.circleQuestionMark}
+    </button>`;
+  }
+}
+
+export class PlatformClawPageHelpElement extends OpenClawLitElement {
+  @property() routeId: RouteId = "chat";
+  @property() pathname = "";
+  @property() search = "";
+  @state() private open = false;
+  private readonly openHelp = () => {
+    this.open = true;
+  };
+
+  static override styles = css`
+    :host {
+      display: contents;
     }
     .help-panel {
       display: grid;
@@ -149,43 +206,52 @@ export class PlatformClawPageHelpElement extends OpenClawLitElement {
     }
   `;
 
+  override connectedCallback(): void {
+    super.connectedCallback();
+    document.addEventListener("platformclaw-page-help-open", this.openHelp);
+    void loadPlatformClawLocale().then(() => this.requestUpdate());
+  }
+
+  override disconnectedCallback(): void {
+    document.removeEventListener("platformclaw-page-help-open", this.openHelp);
+    super.disconnectedCallback();
+  }
+
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    if (this.open && (changed.has("routeId") || changed.has("pathname") || changed.has("search"))) {
+      this.open = false;
+    }
+  }
+
   override render() {
     const help = pageHelpForRoute(this.routeId, this.pathname, this.search);
+    if (!this.open) {
+      return nothing;
+    }
     return html`
-      <button
-        class="help-trigger"
-        type="button"
-        aria-label=${guideT("platformClaw.guide.openHelp", { title: help.title })}
-        title=${guideT("platformClaw.guide.openHelp", { title: help.title })}
-        @click=${() => (this.open = true)}
+      <openclaw-modal-dialog
+        .open=${this.open}
+        .label=${help.title}
+        @modal-cancel=${() => (this.open = false)}
       >
-        ${icons.circleQuestionMark}
-      </button>
-      ${this.open
-        ? html`<openclaw-modal-dialog
-            .open=${this.open}
-            .label=${help.title}
-            @modal-cancel=${() => (this.open = false)}
+        <section class="help-panel">
+          <button
+            class="help-close"
+            type="button"
+            aria-label=${t("platformClaw.voc.close")}
+            @click=${() => (this.open = false)}
           >
-            <section class="help-panel">
-              <button
-                class="help-close"
-                type="button"
-                aria-label=${t("platformClaw.voc.close")}
-                @click=${() => (this.open = false)}
-              >
-                ×
-              </button>
-              <h2>${help.title}</h2>
-              <p>${help.body}</p>
-              ${help.details.length
-                ? html`<ul>
-                    ${help.details.map((detail) => html`<li>${detail}</li>`)}
-                  </ul>`
-                : nothing}
-            </section>
-          </openclaw-modal-dialog>`
-        : nothing}
+            ×
+          </button>
+          <h2>${help.title}</h2>
+          <p>${help.body}</p>
+          ${help.details.length
+            ? html`<ul>
+                ${help.details.map((detail) => html`<li>${detail}</li>`)}
+              </ul>`
+            : nothing}
+        </section>
+      </openclaw-modal-dialog>
     `;
   }
 }
@@ -193,9 +259,13 @@ export class PlatformClawPageHelpElement extends OpenClawLitElement {
 if (!customElements.get("platformclaw-page-help")) {
   customElements.define("platformclaw-page-help", PlatformClawPageHelpElement);
 }
+if (!customElements.get("platformclaw-page-help-trigger")) {
+  customElements.define("platformclaw-page-help-trigger", PlatformClawPageHelpTriggerElement);
+}
 
 declare global {
   interface HTMLElementTagNameMap {
     "platformclaw-page-help": PlatformClawPageHelpElement;
+    "platformclaw-page-help-trigger": PlatformClawPageHelpTriggerElement;
   }
 }
