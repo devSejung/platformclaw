@@ -237,7 +237,7 @@ export type ApplicationShellSession = {
   readonly renderFooterAccessory?: () => unknown;
   /** Product-owned, nonblocking content rendered above the active route. */
   readonly renderMainBanner?: (routeId: RouteId, location: RouteLocation | undefined) => unknown;
-  /** Product-owned control mounted into the active route's page heading. */
+  /** Product-owned control rendered beside the active route without changing route-owned DOM. */
   readonly renderPageHeaderAccessory?: (
     routeId: RouteId,
     location: RouteLocation | undefined,

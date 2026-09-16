@@ -10,24 +10,24 @@ describe("PlatformClaw page help", () => {
     await loadPlatformClawLocale();
   });
 
-  it("uses the current route's guide without navigation controls", async () => {
+  it("keeps route-owned content untouched while opening the current guide", async () => {
     const heading = document.createElement("h1");
     heading.className = "page-title";
     heading.textContent = "Usage";
-    document.body.append(heading);
+    const query = document.createElement("input");
+    query.className = "usage-query-input";
+    document.body.append(heading, query);
     const element = document.createElement("platformclaw-page-help") as PlatformClawPageHelpElement;
     element.routeId = "usage";
     document.body.append(element);
     await element.updateComplete;
 
-    const trigger = document.querySelector("platformclaw-page-help-trigger");
     expect(heading.textContent).toBe("Usage");
-    expect(heading.querySelector("platformclaw-page-help-trigger")).toBeNull();
-    expect(heading.nextElementSibling).toBe(trigger);
-    expect(trigger?.shadowRoot?.querySelector<HTMLButtonElement>("button")?.ariaLabel).toBe(
-      "Help for Usage: understand tokens and cost",
-    );
-    trigger?.shadowRoot?.querySelector<HTMLButtonElement>("button")?.click();
+    expect(heading.nextElementSibling).toBe(query);
+    expect(query.isConnected).toBe(true);
+    const trigger = element.shadowRoot?.querySelector<HTMLButtonElement>(".help-trigger");
+    expect(trigger?.ariaLabel).toBe("Help for Usage: understand tokens and cost");
+    trigger?.click();
     await element.updateComplete;
     expect(element.shadowRoot?.querySelector(".help-panel h2")?.textContent).toBe(
       "Usage: understand tokens and cost",
@@ -36,23 +36,19 @@ describe("PlatformClaw page help", () => {
     expect(element.shadowRoot?.querySelector(".tour-highlight")).toBeNull();
   });
 
-  it("uses the visible chat session title instead of a hidden page header", async () => {
+  it("uses route-specific copy without reading page headings", async () => {
     const hiddenHeader = document.createElement("section");
     hiddenHeader.hidden = true;
     hiddenHeader.innerHTML = '<h1 class="page-title">Home</h1>';
-    const chatTitle = document.createElement("span");
-    chatTitle.className = "chat-pane__session-title";
-    chatTitle.textContent = "Main";
-    document.body.append(hiddenHeader, chatTitle);
+    document.body.append(hiddenHeader);
     const element = document.createElement("platformclaw-page-help") as PlatformClawPageHelpElement;
     element.routeId = "chat";
     document.body.append(element);
     await element.updateComplete;
 
-    const trigger = document.querySelector("platformclaw-page-help-trigger");
-    expect(hiddenHeader.querySelector("platformclaw-page-help-trigger")).toBeNull();
-    expect(chatTitle.textContent).toBe("Main");
-    expect(chatTitle.nextElementSibling).toBe(trigger);
+    const trigger = element.shadowRoot?.querySelector<HTMLButtonElement>(".help-trigger");
+    expect(hiddenHeader.nextElementSibling).toBe(element);
+    expect(trigger?.ariaLabel).toBe("Help for Home: start a conversation with your Agent");
   });
 
   it.each([

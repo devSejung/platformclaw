@@ -3919,10 +3919,6 @@ html:not(.openclaw-native-macos):not(.openclaw-native-nav):not(.openclaw-native-
   color: var(--accent);
 }
 
-.page-title.platformclaw-page-help-anchor {
-  display: inline-flex;
-}
-
 .page-subtitle {
   max-width: 52ch;
   margin-top: 2px;

@@ -340,11 +340,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       name: "Help for Home: start a conversation with your Agent",
     });
     await expect.poll(() => chatHelp.isVisible()).toBe(true);
-    await expect
-      .poll(() =>
-        page.locator(".chat-pane__session-title + platformclaw-page-help-trigger").count(),
-      )
-      .toBe(1);
+    await expect.poll(() => page.locator("platformclaw-page-help").count()).toBe(1);
     await chatHelp.click();
     await expect
       .poll(() =>
