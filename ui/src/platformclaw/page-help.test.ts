@@ -21,6 +21,9 @@ describe("PlatformClaw page help", () => {
     await element.updateComplete;
 
     const trigger = document.querySelector("platformclaw-page-help-trigger");
+    expect(heading.textContent).toBe("Usage");
+    expect(heading.querySelector("platformclaw-page-help-trigger")).toBeNull();
+    expect(heading.nextElementSibling).toBe(trigger);
     expect(trigger?.shadowRoot?.querySelector<HTMLButtonElement>("button")?.ariaLabel).toBe(
       "Help for Usage: understand tokens and cost",
     );
@@ -31,6 +34,25 @@ describe("PlatformClaw page help", () => {
     );
     expect(element.shadowRoot?.querySelector(".tour-progress")).toBeNull();
     expect(element.shadowRoot?.querySelector(".tour-highlight")).toBeNull();
+  });
+
+  it("uses the visible chat session title instead of a hidden page header", async () => {
+    const hiddenHeader = document.createElement("section");
+    hiddenHeader.hidden = true;
+    hiddenHeader.innerHTML = '<h1 class="page-title">Home</h1>';
+    const chatTitle = document.createElement("span");
+    chatTitle.className = "chat-pane__session-title";
+    chatTitle.textContent = "Main";
+    document.body.append(hiddenHeader, chatTitle);
+    const element = document.createElement("platformclaw-page-help") as PlatformClawPageHelpElement;
+    element.routeId = "chat";
+    document.body.append(element);
+    await element.updateComplete;
+
+    const trigger = document.querySelector("platformclaw-page-help-trigger");
+    expect(hiddenHeader.querySelector("platformclaw-page-help-trigger")).toBeNull();
+    expect(chatTitle.textContent).toBe("Main");
+    expect(chatTitle.nextElementSibling).toBe(trigger);
   });
 
   it.each([

@@ -137,6 +137,7 @@ const ALL_ROUTES: RouteId[] = Array.from(
     "skill-hub",
     // Hub tabs and settings subpages route without their own nav entry.
     "worktrees",
+    "memory",
     "memory-import",
     "ai-agents",
     "model-setup",
@@ -834,10 +835,9 @@ describe("SIDEBAR_NAV_ROUTES", () => {
       "communications",
       "talk",
       "nodes",
-      "sessions",
-      "memory",
       "usage",
       "tasks",
+      "sessions",
       "activity",
       "agents",
       "labs",
@@ -866,6 +866,12 @@ describe("SIDEBAR_NAV_ROUTES", () => {
       "credentials",
       "appearance",
       "notifications",
+    ]);
+    expect(SETTINGS_NAVIGATION_GROUPS[2]?.routes).toEqual([
+      "usage",
+      "tasks",
+      "sessions",
+      "activity",
     ]);
     for (const group of SETTINGS_NAVIGATION_GROUPS.slice(1)) {
       expect(group.labelKey).toBeTruthy();

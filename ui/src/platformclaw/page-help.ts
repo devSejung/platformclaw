@@ -129,6 +129,7 @@ export class PlatformClawPageHelpElement extends OpenClawLitElement {
   @property() search = "";
   @state() private open = false;
   private trigger: PlatformClawPageHelpTriggerElement | null = null;
+  private triggerAnchor: HTMLElement | null = null;
   private observer: MutationObserver | null = null;
   private readonly openHelp = () => {
     this.open = true;
@@ -193,6 +194,7 @@ export class PlatformClawPageHelpElement extends OpenClawLitElement {
     this.observer = null;
     this.trigger?.remove();
     this.trigger = null;
+    this.clearTriggerAnchor();
     super.disconnectedCallback();
   }
 
@@ -202,11 +204,16 @@ export class PlatformClawPageHelpElement extends OpenClawLitElement {
 
   private syncTrigger(): void {
     const root = this.closest("#control-ui-main") ?? document;
-    const heading = [...root.querySelectorAll<HTMLElement>(".page-title")].find(
-      (candidate) => !candidate.hidden,
-    );
-    if (!heading) {
+    const selectors = [".page-title"];
+    if (this.routeId === "chat" || this.routeId === "dashboard" || this.routeId === "new-session") {
+      selectors.unshift(".chat-pane__session-title");
+    }
+    const anchor = selectors
+      .flatMap((selector) => Array.from(root.querySelectorAll<HTMLElement>(selector)))
+      .find((candidate) => this.isVisible(candidate));
+    if (!anchor) {
       this.trigger?.remove();
+      this.clearTriggerAnchor();
       return;
     }
     if (!this.trigger) {
@@ -217,12 +224,34 @@ export class PlatformClawPageHelpElement extends OpenClawLitElement {
     }
     const help = pageHelpForRoute(this.routeId, this.pathname, this.search);
     this.trigger.label = guideT("platformClaw.guide.openHelp", { title: help.title });
-    if (this.trigger.parentElement !== heading) {
-      // Routed pages own their headings independently. Keep one product help
-      // trigger attached to the currently rendered heading instead of floating
-      // a global control over unrelated content.
-      heading.append(this.trigger);
+    if (this.triggerAnchor !== anchor) {
+      this.clearTriggerAnchor();
+      this.triggerAnchor = anchor;
+      anchor.classList.add("platformclaw-page-help-anchor");
     }
+    if (anchor.nextElementSibling !== this.trigger) {
+      // Keep the control next to, rather than inside, the title. Heading names
+      // must remain stable for assistive technology and exact-name automation.
+      anchor.after(this.trigger);
+    }
+  }
+
+  private clearTriggerAnchor(): void {
+    this.triggerAnchor?.classList.remove("platformclaw-page-help-anchor");
+    this.triggerAnchor = null;
+  }
+
+  private isVisible(candidate: HTMLElement): boolean {
+    for (let element: HTMLElement | null = candidate; element; element = element.parentElement) {
+      if (element.hidden || element.getAttribute("aria-hidden") === "true") {
+        return false;
+      }
+      const style = getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden") {
+        return false;
+      }
+    }
+    return true;
   }
 
   override render() {

@@ -262,9 +262,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/memory");
     await expect.poll(() => appSidebar.isVisible()).toBe(true);
     await expect.poll(() => page.locator(".settings-sidebar").count()).toBe(0);
-    await expect.poll(() => page.locator(".page-title").textContent()).toContain("Memory");
+    await expect.poll(() => page.locator(".page-title").textContent()).toBe("Memory");
     await expect
-      .poll(() => page.locator(".page-title platformclaw-page-help-trigger").count())
+      .poll(() => page.locator(".page-title + platformclaw-page-help-trigger").count())
       .toBe(1);
     if (captureUiProofEnabled) {
       await page.screenshot({
@@ -342,8 +342,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       0,
     );
     await expect
-      .poll(() => page.locator(".page-title platformclaw-page-help-trigger").count())
+      .poll(() => page.locator(".page-title + platformclaw-page-help-trigger").count())
       .toBe(1);
+    await expect.poll(() => page.locator(".page-title").textContent()).toBe("Usage");
     if (captureUiProofEnabled) {
       await page.screenshot({
         animations: "disabled",
