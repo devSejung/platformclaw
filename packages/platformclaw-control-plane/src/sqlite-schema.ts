@@ -11,6 +11,7 @@ export {
   ORGANIZATION_KNOWLEDGE_SCHEMA,
   ensureOrganizationKnowledgeSchema,
 } from "./sqlite-schema-organization-knowledge.js";
+export { BASEBALL_GAME_SCHEMA, ensureBaseballGameSchema } from "./sqlite-schema-baseball.js";
 
 export const PLATFORMCLAW_CONTROL_SCHEMA_VERSION = 3;
 

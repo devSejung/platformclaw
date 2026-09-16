@@ -1,78 +1,55 @@
-import { html, nothing } from "lit";
-import { state } from "lit/decorators.js";
-import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
+import { property, state } from "lit/decorators.js";
 import {
-  HIT_WINDOW_MS,
-  classifyTimingDelta,
-  classifyHitResult,
-  distanceForTiming,
-  formatHitResult,
-  formatTimingFeedback,
-  type HitResult,
-  type TimingOutcome,
-} from "./easter-egg-timing.ts";
+  BASEBALL_BATS,
+  BASEBALL_RPC,
+  type BaseballBatId,
+  type BaseballProgress,
+} from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import type { GatewayBrowserClient } from "../api/gateway.ts";
+import "../styles/platformclaw-easter-egg.css";
+import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
+import { PausableGameClock } from "./easter-egg-clock.ts";
+import {
+  BASEBALL_WORLD,
+  advanceBattedBall,
+  createBattedBall,
+  createPitch,
+  pitchPositionAt,
+  type BaseballPoint,
+  type BattedBallSimulation,
+  type Pitch,
+} from "./easter-egg-simulation.ts";
+import { classifyTimingDelta, formatTimingFeedback } from "./easter-egg-timing.ts";
+import { BASEBALL_TRAIL_POINTS, renderBaseballGame } from "./easter-egg-view.ts";
 import { PLATFORMCLAW_EASTER_EGG_EVENT } from "./easter-egg.ts";
 
-const PITCH_SPEED = 360;
-const PITCH_FLIGHT_GRAVITY = 8;
-const BATTED_GRAVITY = 440;
-const BATTED_MIN_SPEED = 460;
-const BATTED_MAX_SPEED = 640;
-const BATTED_MIN_LIFT = 360;
-const BATTED_MAX_LIFT = 540;
-const TRAIL_POINTS = 7;
 const BETWEEN_ROUNDS_MS = 650;
 const MIN_WINDUP_DELAY_MS = 520;
 const MAX_WINDUP_DELAY_MS = 820;
 const LEG_LIFT_MS = 190;
 const FOLLOW_THROUGH_MS = 250;
 const SWING_ANIMATION_MS = 190;
-const MAX_DISTANCE_M = 150;
-const MIN_DISTANCE_M = 70;
-const BASELINE_OFFSET_PX = 138;
-const PROJECTILE_RADIUS_PX = 3;
 const FEEDBACK_VISIBLE_MS = 1_100;
-const BEST_STORAGE_KEY = "platformclaw.easter-egg.stickman-duel.best";
+const BASELINE_OFFSET_PX = 138;
 
-type DuelAnimationState =
-  | "idle"
-  | "leg-lift"
-  | "throw"
-  | "follow-through"
-  | "swing"
-  | "swing-perfect";
-type DuelOutcome = TimingOutcome;
-type DuelPoint = { x: number; y: number };
-
-type DuelRound = {
-  potentialDistanceM: number;
-  targetX: number;
-  idealContactTime: number | null;
-  contactY: number;
-  pitchStarted: boolean;
-};
-
-type Projectile = {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  lastAt: number;
-  batted: boolean;
-  outcome?: DuelOutcome;
-  timingDeltaMs?: number;
-  distanceM?: number;
-  trail: DuelPoint[];
+type AnimationState = "idle" | "leg-lift" | "throw" | "follow-through" | "swing" | "swing-perfect";
+type GamePhase = "ready" | "pitch" | "in-play" | "result";
+type TimerKey = "pitch" | "follow" | "batter" | "result" | "feedback";
+type PendingMutation = {
+  method: string;
+  params: Record<string, unknown>;
+  label: string;
+  onSuccess?: () => void;
 };
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) {
-    return false;
-  }
-  return Boolean(
-    target.closest(
-      "input, textarea, select, button, a, [contenteditable], [role='button'], [role='link'], [role='menuitem'], [role='option'], [role='combobox']",
-    ),
+  return (
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        "input, textarea, select, button, a, [contenteditable], [role='button'], [role='link'], [role='menuitem'], [role='option'], [role='combobox'], [role='dialog']",
+      ),
+    )
   );
 }
 
@@ -80,61 +57,60 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function readBestDistance(): number {
-  try {
-    const value = Number.parseInt(localStorage.getItem(BEST_STORAGE_KEY) ?? "0", 10);
-    return Number.isFinite(value) ? clamp(value, 0, MAX_DISTANCE_M) : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function saveBestDistance(value: number): void {
-  try {
-    localStorage.setItem(BEST_STORAGE_KEY, String(value));
-  } catch {
-    // Private browsing may disable storage; the in-memory score still works.
-  }
+function createRequestId(random: () => number): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ?? `baseball-${Date.now()}-${random().toString(36).slice(2)}`
+  );
 }
 
 class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
+  @property({ attribute: false }) client: GatewayBrowserClient | null = null;
+  /** Test seams; production retains Math.random and performance.now. */
+  @property({ attribute: false }) random: () => number = Math.random;
+  @property({ attribute: false }) now: () => number = () => performance.now();
+
   @state() private active = false;
+  @state() private shopOpen = false;
+  @state() private phase: GamePhase = "ready";
   @state() private round = 0;
   @state() private hits = 0;
   @state() private homeRuns = 0;
   @state() private streak = 0;
-  @state() private best = 0;
   @state() private result = "";
   @state() private lastDistance: number | null = null;
-  @state() private lastHitResult: HitResult | null = null;
   @state() private feedbackVisible = false;
-  @state() private playerState: DuelAnimationState = "idle";
-  @state() private targetState: DuelAnimationState = "idle";
+  @state() private playerState: AnimationState = "idle";
+  @state() private pitcherState: AnimationState = "idle";
+  @state() private progress: BaseballProgress | null = null;
+  @state() private persistenceStatus = "";
+  @state() private persistenceBusy = false;
 
   private animationFrame = 0;
-  private pitchTimer: ReturnType<typeof setTimeout> | null = null;
-  private followThroughTimer: ReturnType<typeof setTimeout> | null = null;
-  private batterTimer: ReturnType<typeof setTimeout> | null = null;
-  private resultTimer: ReturnType<typeof setTimeout> | null = null;
-  private feedbackTimer: ReturnType<typeof setTimeout> | null = null;
   private playSequence = 0;
-  private currentRound: DuelRound | null = null;
-  private projectile: Projectile | null = null;
-  private arenaWidth = 640;
-  private arenaHeight = 800;
+  private clientEpoch = 0;
+  private pitch: Pitch | null = null;
+  private pitchElapsedMs = 0;
+  private battedBall: BattedBallSimulation | null = null;
+  private roundBatId: BaseballBatId = "wood";
+  private lastFrameAt = 0;
   private pointerId: number | null = null;
+  private pendingMutation: PendingMutation | null = null;
+  private readonly clock = new PausableGameClock<TimerKey>(() => this.now());
   private arenaElement: HTMLElement | null = null;
   private playerElement: HTMLElement | null = null;
-  private targetElement: HTMLElement | null = null;
+  private pitcherElement: HTMLElement | null = null;
+  private outfielderElement: HTMLElement | null = null;
+  private fenceElement: HTMLElement | null = null;
   private projectileElement: HTMLElement | null = null;
   private trailElements: HTMLElement[] = [];
+  private trail: BaseballPoint[] = [];
 
   private readonly handleTrigger = (): void => {
     if (this.active) {
       this.finishGame();
-      return;
+    } else {
+      void this.startGame();
     }
-    void this.startGame();
   };
 
   override connectedCallback(): void {
@@ -144,6 +120,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     window.addEventListener("pointerup", this.handleGlobalPointerUp, true);
     window.addEventListener("pointercancel", this.handleGlobalPointerCancel, true);
     window.addEventListener("resize", this.handleResize);
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
     window.addEventListener(PLATFORMCLAW_EASTER_EGG_EVENT, this.handleTrigger);
   }
 
@@ -153,334 +130,376 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     window.removeEventListener("pointerup", this.handleGlobalPointerUp, true);
     window.removeEventListener("pointercancel", this.handleGlobalPointerCancel, true);
     window.removeEventListener("resize", this.handleResize);
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener(PLATFORMCLAW_EASTER_EGG_EVENT, this.handleTrigger);
     this.finishGame();
     super.disconnectedCallback();
   }
 
-  override render() {
+  override updated(changed: Map<PropertyKey, unknown>): void {
+    if (changed.has("client")) {
+      this.clientEpoch += 1;
+      this.pendingMutation = null;
+      this.persistenceBusy = false;
+      this.progress = null;
+      if (this.active) {
+        this.persistenceStatus = this.client ? "진행도 다시 불러오는 중" : "진행 저장 불가";
+        void this.loadProgress(this.playSequence);
+      }
+    }
     if (!this.active) {
-      return nothing;
+      return;
     }
-    const pitchInFlight = Boolean(this.projectile && !this.projectile.batted);
-    const ballInPlay = Boolean(this.projectile?.batted);
-    return html`
-      <div
-        class="platformclaw-easter-egg"
-        role="application"
-        tabindex="-1"
-        aria-label="PlatformClaw Stickman Baseball"
-        style="--platformclaw-easter-egg-baseline: ${BASELINE_OFFSET_PX}px"
-        data-round=${this.round}
-        data-streak=${this.streak}
-        data-best=${this.best}
-        data-player-state=${this.playerState}
-        data-target-state=${this.targetState}
-        data-pitch-state=${ballInPlay ? "in-play" : pitchInFlight ? "in-flight" : "ready"}
-      >
-        <div class="platformclaw-easter-egg__hud" aria-live="polite">
-          <span>안타 ${this.hits}</span>
-          <span>홈런 ${this.homeRuns}</span>
-          <span>연속 ${this.streak}</span>
-          <span>최고 ${this.best}m</span>
-        </div>
-        <div
-          class="platformclaw-easter-egg__result platformclaw-easter-egg__feedback ${this
-            .feedbackVisible
-            ? ""
-            : "platformclaw-easter-egg__feedback--faded"}"
-          aria-live="assertive"
-        >
-          ${this.result}
-        </div>
-        ${this.lastDistance !== null
-          ? html`<div
-              class="platformclaw-easter-egg__distance platformclaw-easter-egg__feedback ${this
-                .feedbackVisible
-                ? ""
-                : "platformclaw-easter-egg__feedback--faded"}"
-            >
-              ${this.lastHitResult ? `${formatHitResult(this.lastHitResult)} · ` : ""}${this
-                .lastDistance}m
-            </div>`
-          : nothing}
-        <div class="platformclaw-easter-egg__arena">
-          <div class="platformclaw-easter-egg__trail" aria-hidden="true">
-            ${Array.from(
-              { length: TRAIL_POINTS },
-              (_, index) => html`<span
-                class="platformclaw-easter-egg__trail-dot"
-                data-trail-index=${index}
-              ></span>`,
-            )}
-          </div>
-          <div
-            class="platformclaw-easter-egg__player platformclaw-easter-egg__player--${this
-              .playerState}"
-            aria-hidden="true"
-          >
-            ${this.renderStickman()}
-            <span class="platformclaw-easter-egg__bat"></span>
-          </div>
-          <div
-            class="platformclaw-easter-egg__target platformclaw-easter-egg__target--${this
-              .targetState}"
-            aria-hidden="true"
-          >
-            ${this.renderStickman()}
-          </div>
-          <span
-            class="platformclaw-easter-egg__projectile"
-            aria-hidden="true"
-            style="opacity: ${this.projectile ? 1 : 0}"
-          ></span>
-        </div>
-      </div>
-    `;
+    this.cacheElements();
+    this.layoutStaticField();
+    this.renderProjectile();
   }
 
-  override updated(): void {
-    // Lit replaces the transient projectile/trail nodes on round updates;
-    // refresh the imperative handles before the next physics tick mutates them.
-    if (this.active) {
-      this.cacheElements();
-      this.setProjectileVisibility(Boolean(this.projectile));
-      this.setProjectileTrail(this.projectile?.trail ?? []);
-    }
-  }
-
-  private renderStickman() {
-    return html`
-      <svg viewBox="0 0 48 64" role="presentation" focusable="false">
-        <circle cx="24" cy="10" r="6" fill="currentColor" />
-        <path
-          d="M24 17v20m0-14L12 30m12-7 12 7M24 37 13 54m11-17 14 14"
-          fill="none"
-          stroke="currentColor"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="3.5"
-        />
-      </svg>
-    `;
+  override render() {
+    return renderBaseballGame({
+      active: this.active,
+      shopOpen: this.shopOpen,
+      phase: this.phase,
+      round: this.round,
+      hits: this.hits,
+      homeRuns: this.homeRuns,
+      streak: this.streak,
+      result: this.result,
+      lastDistance: this.lastDistance,
+      feedbackVisible: this.feedbackVisible,
+      playerState: this.playerState,
+      pitcherState: this.pitcherState,
+      progress: this.progress,
+      persistenceStatus: this.persistenceStatus,
+      persistenceBusy: this.persistenceBusy,
+      pendingMutationMethod: this.pendingMutation?.method ?? null,
+      roundBatId: this.roundBatId,
+      pitchSpeedKph: this.pitch?.speedKph ?? null,
+      onOpenShop: this.openShop,
+      onRetry: this.retryPendingMutation,
+      onCancel: this.dismissPendingMutation,
+      onRetryLoad: this.retryLoad,
+      onCloseShop: this.closeShop,
+      onSelectBat: (batId, owned) => void this.selectBat(batId, owned),
+      onStopEvent: this.stopEvent,
+    });
   }
 
   private async startGame(): Promise<void> {
     const sequence = ++this.playSequence;
-    this.stopAnimationLoop();
-    this.clearPitchTimer();
-    this.clearFollowThroughTimer();
-    this.clearBatterTimer();
-    this.clearFeedbackTimer();
-    this.clearResultTimer();
-    this.active = false;
+    this.resetRuntime();
+    this.active = true;
     this.round = 0;
     this.hits = 0;
     this.homeRuns = 0;
     this.streak = 0;
-    this.best = readBestDistance();
     this.result = "";
     this.lastDistance = null;
-    this.lastHitResult = null;
-    this.feedbackVisible = false;
-    this.playerState = "idle";
-    this.targetState = "idle";
-    this.currentRound = null;
-    this.projectile = null;
+    this.persistenceStatus = this.client ? "진행도 불러오는 중" : "진행 저장 불가";
     await this.updateComplete;
-    if (!this.isConnected || sequence !== this.playSequence) {
+    this.querySelector<HTMLElement>('[role="application"]')?.focus();
+    await this.loadProgress(sequence);
+  }
+
+  private async loadProgress(sequence: number): Promise<void> {
+    const client = this.client;
+    const epoch = this.clientEpoch;
+    if (!client || !this.active || sequence !== this.playSequence) {
       return;
     }
-    this.active = true;
-    await this.updateComplete;
-    this.cacheElements();
-    this.startRound(sequence);
-    this.animationFrame = requestAnimationFrame(this.tick);
-    this.querySelector<HTMLElement>('[role="application"]')?.focus();
+    this.persistenceBusy = true;
+    try {
+      const progress = await client.request<BaseballProgress>(BASEBALL_RPC.progress, {});
+      if (!this.isCurrentRequest(client, epoch, sequence)) {
+        return;
+      }
+      this.progress = progress;
+      this.persistenceStatus = "";
+      this.startRound(sequence);
+    } catch {
+      if (this.isCurrentRequest(client, epoch, sequence)) {
+        this.persistenceStatus = "진행 저장 불가";
+      }
+    } finally {
+      if (this.isCurrentRequest(client, epoch, sequence)) {
+        this.persistenceBusy = false;
+      }
+    }
   }
 
   private startRound(sequence: number): void {
-    if (!this.active || sequence !== this.playSequence) {
+    if (!this.active || sequence !== this.playSequence || !this.progress || this.pendingMutation) {
       return;
     }
-    this.clearPitchTimer();
-    this.clearFollowThroughTimer();
-    this.clearBatterTimer();
-    this.clearFeedbackTimer();
+    this.clearTimer("pitch");
+    this.clearTimer("follow");
+    this.clearTimer("batter");
+    this.clearTimer("feedback");
     this.round += 1;
+    this.phase = "ready";
     this.result = "";
     this.lastDistance = null;
-    this.lastHitResult = null;
     this.feedbackVisible = false;
     this.playerState = "idle";
-    this.targetState = "idle";
-    this.projectile = null;
-    this.setProjectileVisibility(false);
-    this.setProjectileTrail([]);
-    this.currentRound = {
-      potentialDistanceM: 120 + Math.floor(Math.random() * 31),
-      targetX: 0,
-      idealContactTime: null,
-      contactY: 0,
-      pitchStarted: false,
-    };
-    this.updateArenaLayout();
-    const windupDelay =
-      MIN_WINDUP_DELAY_MS + Math.random() * (MAX_WINDUP_DELAY_MS - MIN_WINDUP_DELAY_MS);
-    this.pitchTimer = setTimeout(() => {
-      this.pitchTimer = null;
-      if (!this.active || sequence !== this.playSequence) {
-        return;
-      }
-      this.targetState = "leg-lift";
-      this.pitchTimer = setTimeout(() => {
-        this.pitchTimer = null;
-        this.launchPitch(sequence);
-      }, LEG_LIFT_MS);
-    }, windupDelay);
+    this.pitcherState = "idle";
+    this.pitch = createPitch(this.random);
+    this.pitchElapsedMs = 0;
+    this.battedBall = null;
+    this.roundBatId = this.progress.equippedBatId;
+    this.trail = [];
+    this.scheduleTimer("pitch", this.windupDelay(), () => {
+      this.pitcherState = "leg-lift";
+      this.scheduleTimer("pitch", LEG_LIFT_MS, () => this.launchPitch(sequence));
+    });
+    this.ensureAnimationLoop();
+  }
+
+  private launchPitch(sequence: number): void {
+    if (!this.active || sequence !== this.playSequence || !this.pitch) {
+      return;
+    }
+    this.phase = "pitch";
+    this.pitchElapsedMs = 0;
+    this.pitcherState = "throw";
+    this.lastFrameAt = this.now();
+    this.trail = [pitchPositionAt(this.pitch, 0)];
+    this.renderProjectile();
+    this.scheduleTimer("follow", FOLLOW_THROUGH_MS, () => (this.pitcherState = "follow-through"));
   }
 
   private readonly tick = (now: number): void => {
-    if (!this.active) {
+    if (!this.active || this.isPaused()) {
       this.animationFrame = 0;
       return;
     }
-    if (this.projectile) {
-      this.updateProjectile(now);
+    const deltaMs = Math.max(0, now - this.lastFrameAt);
+    this.lastFrameAt = now;
+    if (this.phase === "pitch" && this.pitch) {
+      this.pitchElapsedMs += deltaMs;
+      this.pushTrail(pitchPositionAt(this.pitch, this.pitchElapsedMs));
+      if (this.pitchElapsedMs - this.pitch.idealContactTimeMs > 100) {
+        this.resolveAtBat("miss");
+      }
+    } else if (this.phase === "in-play" && this.battedBall) {
+      advanceBattedBall(this.battedBall, deltaMs);
+      this.pushTrail(this.battedBall.ball);
+      this.setWorldPosition(this.outfielderElement, this.battedBall.outfielder.x, 0);
+      if (this.battedBall.result) {
+        const { kind, distanceM } = this.battedBall.result;
+        this.resolveAtBat(
+          kind === "HOME_RUN" ? "home_run" : kind === "HIT" ? "hit" : "out",
+          Math.max(0, Math.round(distanceM)),
+        );
+      }
     }
-    this.animationFrame = requestAnimationFrame(this.tick);
+    this.renderProjectile();
+    if (this.active && !this.isPaused()) {
+      this.animationFrame = requestAnimationFrame(this.tick);
+    }
   };
 
-  private launchPitch(sequence: number): void {
-    if (!this.active || sequence !== this.playSequence || !this.currentRound || this.projectile) {
+  private swing(event: Event): void {
+    if (
+      !this.active ||
+      this.phase !== "pitch" ||
+      !this.pitch ||
+      isInteractiveTarget(event.target)
+    ) {
       return;
     }
-    const now = performance.now();
-    const launchX = this.currentRound.targetX - PROJECTILE_RADIUS_PX;
-    const hitZoneX = this.getHitZoneX() - PROJECTILE_RADIUS_PX;
-    const groundY = this.getGroundY();
-    const launchY = Math.max(8, groundY - 40);
-    // The bat is drawn about 20px above the visual baseline; keep the ball
-    // center aligned to that sweet spot instead of a frame-dependent guess.
-    const contactY = Math.max(8, groundY - 21);
-    const flightSeconds = Math.max(0.001, (launchX - hitZoneX) / PITCH_SPEED);
-    this.currentRound.pitchStarted = true;
-    this.currentRound.contactY = contactY;
-    this.currentRound.idealContactTime = now + flightSeconds * 1000;
-    this.targetState = "throw";
-    this.projectile = {
-      x: launchX,
-      y: launchY,
-      vx: -PITCH_SPEED,
-      vy: (contactY - launchY) / flightSeconds - 0.5 * PITCH_FLIGHT_GRAVITY * flightSeconds,
-      lastAt: now,
-      batted: false,
-      trail: [{ x: launchX, y: launchY }],
-    };
-    this.setProjectileVisibility(true);
-    this.setProjectilePosition(launchX, launchY);
-    this.setProjectileTrail(this.projectile.trail);
-    this.followThroughTimer = setTimeout(() => {
-      this.followThroughTimer = null;
-      if (this.active && sequence === this.playSequence) {
-        this.targetState = "follow-through";
+    if (event instanceof KeyboardEvent) {
+      event.preventDefault();
+    }
+    const timingDeltaMs = this.pitchElapsedMs - this.pitch.idealContactTimeMs;
+    const timing = classifyTimingDelta(timingDeltaMs);
+    this.result = formatTimingFeedback(timingDeltaMs, timing);
+    this.showFeedback();
+    if (timing === "MISS") {
+      this.resolveAtBat("miss");
+      return;
+    }
+    const bat = BASEBALL_BATS.find((entry) => entry.id === this.roundBatId) ?? BASEBALL_BATS[0];
+    this.battedBall = createBattedBall({ timingDeltaMs, batPower: bat.exitVelocityMultiplier });
+    this.phase = "in-play";
+    this.playerState = timing === "PERFECT" ? "swing-perfect" : "swing";
+    this.trail = [{ x: BASEBALL_WORLD.contactX, y: BASEBALL_WORLD.pitchY }];
+    this.scheduleTimer("batter", SWING_ANIMATION_MS, () => {
+      if (this.phase === "in-play") {
+        this.playerState = "follow-through";
       }
-    }, FOLLOW_THROUGH_MS);
+    });
   }
 
-  private updateProjectile(now: number): void {
-    const projectile = this.projectile;
-    const round = this.currentRound;
-    if (!projectile || !round) {
+  private resolveAtBat(outcome: "home_run" | "hit" | "out" | "miss", distanceM?: number): void {
+    if (this.phase === "result") {
       return;
     }
-    const deltaSeconds = Math.min(0.05, Math.max(0, (now - projectile.lastAt) / 1000));
-    projectile.lastAt = now;
-    projectile.vy += (projectile.batted ? BATTED_GRAVITY : PITCH_FLIGHT_GRAVITY) * deltaSeconds;
-    projectile.x += projectile.vx * deltaSeconds;
-    projectile.y += projectile.vy * deltaSeconds;
-    projectile.trail.push({ x: projectile.x, y: projectile.y });
-    if (projectile.trail.length > TRAIL_POINTS) {
-      projectile.trail.shift();
-    }
-    this.setProjectilePosition(projectile.x, projectile.y);
-    this.setProjectileTrail(projectile.trail);
-
-    if (!projectile.batted && round.idealContactTime !== null) {
-      const timingDeltaMs = now - round.idealContactTime;
-      if (timingDeltaMs > HIT_WINDOW_MS) {
-        this.resolveAtBat("MISS", timingDeltaMs);
-        return;
-      }
-    }
-    if (projectile.batted) {
-      const groundY = this.getGroundY();
-      if (projectile.y >= groundY || projectile.x > this.arenaWidth + 24) {
-        this.resolveAtBat(projectile.outcome ?? "MISS", projectile.timingDeltaMs);
-      }
-    }
-  }
-
-  private resolveAtBat(outcome: DuelOutcome, timingDeltaMs?: number): void {
-    const projectile = this.projectile;
-    const round = this.currentRound;
-    if (!projectile || !round) {
-      return;
-    }
-    this.projectile = null;
-    this.setProjectileVisibility(false);
-    this.setProjectileTrail([]);
-    this.clearBatterTimer();
-    this.result =
-      outcome === "MISS" && timingDeltaMs === undefined
-        ? "MISS"
-        : formatTimingFeedback(timingDeltaMs ?? 0, outcome);
-    this.playerState = outcome === "MISS" ? "idle" : "follow-through";
-    if (outcome === "MISS") {
+    this.phase = "result";
+    this.battedBall = null;
+    this.trail = [];
+    this.renderProjectile();
+    this.clearTimer("batter");
+    this.playerState = outcome === "miss" ? "idle" : "follow-through";
+    if (outcome === "home_run") {
+      this.result = "홈런";
+      this.homeRuns += 1;
+      this.streak += 1;
+      this.lastDistance = distanceM ?? null;
+    } else if (outcome === "hit") {
+      this.result = "안타";
+      this.hits += 1;
+      this.streak += 1;
+      this.lastDistance = distanceM ?? null;
+    } else if (outcome === "out") {
+      this.result = "아웃";
+      this.streak = 0;
+      this.lastDistance = distanceM ?? null;
+    } else {
+      this.result = "MISS";
       this.streak = 0;
       this.lastDistance = null;
-      this.lastHitResult = null;
-    } else {
-      const distanceM = projectile.distanceM ?? round.potentialDistanceM;
-      const hitResult = classifyHitResult(distanceM);
-      this.lastDistance = distanceM;
-      this.lastHitResult = hitResult;
-      if (hitResult === "HOME_RUN") {
-        this.homeRuns += 1;
-      } else {
-        this.hits += 1;
-      }
-      this.streak += 1;
-      this.best = Math.max(this.best, distanceM);
-      saveBestDistance(this.best);
     }
     this.showFeedback();
-    const sequence = this.playSequence;
-    this.resultTimer = setTimeout(() => {
-      this.resultTimer = null;
-      if (this.active && sequence === this.playSequence) {
-        this.startRound(sequence);
-      }
-    }, BETWEEN_ROUNDS_MS);
+    void this.runMutation({
+      method: BASEBALL_RPC.plateAppearance,
+      params: {
+        requestId: createRequestId(this.random),
+        outcome,
+        ...(outcome === "hit" || outcome === "home_run" ? { distanceM } : {}),
+      },
+      label: "타석 저장 실패",
+      onSuccess: () => this.scheduleNextRound(),
+    });
   }
 
+  private async selectBat(batId: BaseballBatId, owned: boolean): Promise<void> {
+    if (!this.progress || this.persistenceBusy || this.pendingMutation) {
+      return;
+    }
+    await this.runMutation({
+      method: owned ? BASEBALL_RPC.equipBat : BASEBALL_RPC.purchaseBat,
+      params: { requestId: createRequestId(this.random), batId },
+      label: owned ? "배트 장착 실패" : "배트 구매 실패",
+    });
+  }
+
+  private async runMutation(mutation: PendingMutation): Promise<void> {
+    const client = this.client;
+    const sequence = this.playSequence;
+    const epoch = this.clientEpoch;
+    if (!client) {
+      this.pendingMutation = mutation;
+      this.persistenceStatus = "진행 저장 불가";
+      return;
+    }
+    this.pendingMutation = mutation;
+    this.persistenceBusy = true;
+    this.persistenceStatus = "저장 중";
+    try {
+      const response = await client.request<{ progress: BaseballProgress }>(
+        mutation.method,
+        mutation.params,
+      );
+      if (!this.isCurrentRequest(client, epoch, sequence)) {
+        return;
+      }
+      if (!this.progress || response.progress.revision >= this.progress.revision) {
+        this.progress = response.progress;
+      }
+      this.pendingMutation = null;
+      this.persistenceStatus = "";
+      mutation.onSuccess?.();
+    } catch {
+      if (this.isCurrentRequest(client, epoch, sequence)) {
+        this.persistenceStatus = mutation.label;
+      }
+    } finally {
+      if (this.isCurrentRequest(client, epoch, sequence)) {
+        this.persistenceBusy = false;
+      }
+    }
+  }
+
+  private scheduleNextRound(): void {
+    const sequence = this.playSequence;
+    this.scheduleTimer("result", BETWEEN_ROUNDS_MS, () => this.startRound(sequence));
+  }
+
+  private readonly retryPendingMutation = (): void => {
+    if (this.pendingMutation && !this.persistenceBusy) {
+      void this.runMutation(this.pendingMutation);
+    }
+  };
+
+  private readonly dismissPendingMutation = (): void => {
+    const wasAtBat = this.pendingMutation?.method === BASEBALL_RPC.plateAppearance;
+    this.pendingMutation = null;
+    this.persistenceStatus = "";
+    if (wasAtBat) {
+      this.scheduleNextRound();
+    }
+  };
+
+  private readonly retryLoad = (): void => {
+    if (!this.persistenceBusy) {
+      this.persistenceStatus = "진행도 불러오는 중";
+      void this.loadProgress(this.playSequence);
+    }
+  };
+
+  private readonly openShop = (event: Event): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!this.shopOpen) {
+      this.shopOpen = true;
+      this.pauseGameTime();
+    }
+  };
+
+  private readonly closeShop = (event?: Event): void => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (this.shopOpen && !this.pendingMutation) {
+      this.shopOpen = false;
+      this.resumeGameTime();
+      void this.updateComplete.then(() =>
+        this.querySelector<HTMLElement>('[role="application"]')?.focus(),
+      );
+    }
+  };
+
+  private readonly stopEvent = (event: Event): void => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   private readonly handleGlobalKeydown = (event: KeyboardEvent): void => {
-    if (!this.active || isInteractiveTarget(event.target)) {
+    if (!this.active) {
+      return;
+    }
+    if (event.key === "Escape" && this.shopOpen) {
+      this.closeShop(event);
+      return;
+    }
+    if (isInteractiveTarget(event.target)) {
       return;
     }
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       this.finishGame();
-      return;
-    }
-    if (event.code === "Space" && !event.repeat && !event.defaultPrevented) {
+    } else if (event.code === "Space" && !event.repeat && !event.defaultPrevented) {
       this.swing(event);
     }
   };
 
   private readonly handleGlobalPointerDown = (event: PointerEvent): void => {
-    if (!this.active || isInteractiveTarget(event.target) || !this.isWithinSwingZone(event)) {
+    if (
+      !this.active ||
+      this.shopOpen ||
+      isInteractiveTarget(event.target) ||
+      !this.isSwingZone(event)
+    ) {
       return;
     }
     this.pointerId = event.pointerId;
@@ -491,10 +510,9 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       return;
     }
     this.pointerId = null;
-    if (!this.isWithinSwingZone(event)) {
-      return;
+    if (!this.shopOpen && this.isSwingZone(event)) {
+      this.swing(event);
     }
-    this.swing(event);
   };
 
   private readonly handleGlobalPointerCancel = (event: PointerEvent): void => {
@@ -503,130 +521,86 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     }
   };
 
-  private swing(event: Event): void {
-    const projectile = this.projectile;
-    const round = this.currentRound;
-    if (!this.active || !projectile || projectile.batted || !round?.pitchStarted) {
-      return;
-    }
-    if (isInteractiveTarget(event.target)) {
-      return;
-    }
-    if (event instanceof KeyboardEvent) {
-      event.preventDefault();
-    }
-    const idealContactTime = round.idealContactTime;
-    if (idealContactTime === null) {
-      return;
-    }
-    const timingDeltaMs = performance.now() - idealContactTime;
-    const outcome = classifyTimingDelta(timingDeltaMs);
-    this.result = formatTimingFeedback(timingDeltaMs, outcome);
-    this.showFeedback();
-    if (outcome === "MISS") {
-      this.resolveAtBat(outcome, timingDeltaMs);
-      return;
-    }
-    const distanceM = distanceForTiming(timingDeltaMs, round.potentialDistanceM, MIN_DISTANCE_M);
-    const distanceRatio = clamp(
-      (distanceM - MIN_DISTANCE_M) / Math.max(1, round.potentialDistanceM - MIN_DISTANCE_M),
-      0,
-      1,
-    );
-    projectile.batted = true;
-    projectile.outcome = outcome;
-    projectile.timingDeltaMs = timingDeltaMs;
-    projectile.distanceM = distanceM;
-    projectile.x = this.getHitZoneX() - PROJECTILE_RADIUS_PX;
-    projectile.y = round.contactY;
-    projectile.vx = BATTED_MIN_SPEED + distanceRatio * (BATTED_MAX_SPEED - BATTED_MIN_SPEED);
-    projectile.vy = -(BATTED_MIN_LIFT + distanceRatio * (BATTED_MAX_LIFT - BATTED_MIN_LIFT));
-    projectile.lastAt = performance.now();
-    projectile.trail = [{ x: projectile.x, y: projectile.y }];
-    this.playerState = outcome === "PERFECT" ? "swing-perfect" : "swing";
-    this.setProjectilePosition(projectile.x, projectile.y);
-    this.setProjectileTrail(projectile.trail);
-    this.clearBatterTimer();
-    this.batterTimer = setTimeout(() => {
-      this.batterTimer = null;
-      if (this.active && this.projectile?.batted) {
-        this.playerState = "follow-through";
-      }
-    }, SWING_ANIMATION_MS);
-  }
-
   private readonly handleResize = (): void => {
     if (this.active) {
-      this.updateArenaLayout();
+      this.layoutStaticField();
+      this.renderProjectile();
     }
   };
 
-  private isWithinSwingZone(event: PointerEvent): boolean {
+  private readonly handleVisibilityChange = (): void => {
+    if (!this.active) {
+      return;
+    }
+    if (document.hidden) {
+      this.pauseGameTime();
+    } else if (!this.shopOpen) {
+      this.resumeGameTime();
+    }
+  };
+
+  private isSwingZone(event: PointerEvent): boolean {
     if (event.clientY < window.innerHeight * 0.7) {
       return false;
     }
-    const playerRect = this.playerElement?.getBoundingClientRect();
-    if (!playerRect) {
-      return false;
-    }
-    return event.clientX >= playerRect.left - 96 && event.clientX <= playerRect.right + 96;
+    const rect = this.playerElement?.getBoundingClientRect();
+    return Boolean(rect && event.clientX >= rect.left - 96 && event.clientX <= rect.right + 96);
+  }
+
+  private isCurrentRequest(client: GatewayBrowserClient, epoch: number, sequence: number): boolean {
+    return this.client === client && this.clientEpoch === epoch && this.playSequence === sequence;
   }
 
   private showFeedback(): void {
     this.feedbackVisible = true;
-    this.clearFeedbackTimer();
-    this.feedbackTimer = setTimeout(() => {
-      this.feedbackTimer = null;
-      if (this.active) {
-        this.feedbackVisible = false;
-      }
-    }, FEEDBACK_VISIBLE_MS);
+    this.scheduleTimer("feedback", FEEDBACK_VISIBLE_MS, () => (this.feedbackVisible = false));
   }
 
-  private updateArenaLayout(): void {
-    if (!this.arenaElement) {
+  private windupDelay(): number {
+    return MIN_WINDUP_DELAY_MS + this.random() * (MAX_WINDUP_DELAY_MS - MIN_WINDUP_DELAY_MS);
+  }
+
+  private scheduleTimer(key: TimerKey, delayMs: number, callback: () => void): void {
+    this.clock.schedule(key, delayMs, callback, this.isPaused());
+  }
+
+  private clearTimer(key: TimerKey): void {
+    this.clock.clear(key);
+  }
+
+  private pauseGameTime(): void {
+    this.stopAnimationLoop();
+    this.clock.pause();
+  }
+
+  private resumeGameTime(): void {
+    if (this.isPaused()) {
       return;
     }
-    const rect = this.arenaElement.getBoundingClientRect();
-    this.arenaWidth = rect.width || window.innerWidth || 640;
-    this.arenaHeight = rect.height || window.innerHeight || 800;
-    if (!this.currentRound) {
-      return;
-    }
-    const shell = this.closest<HTMLElement>(".shell");
-    const configuredNavWidth = Number.parseFloat(
-      getComputedStyle(shell ?? this).getPropertyValue("--shell-nav-width"),
-    );
-    const navWidth = clamp(
-      Number.isFinite(configuredNavWidth) && configuredNavWidth > 0 ? configuredNavWidth : 258,
-      120,
-      this.arenaWidth,
-    );
-    const playerX = clamp(navWidth * 0.3, 38, 94);
-    this.currentRound.targetX = clamp(navWidth - 30, playerX + 70, this.arenaWidth - 22);
-    if (this.targetElement) {
-      this.targetElement.style.left = `${this.currentRound.targetX}px`;
-    }
-    if (this.playerElement) {
-      this.playerElement.style.left = `${playerX}px`;
-    }
+    this.clock.resume();
+    this.lastFrameAt = this.now();
+    this.ensureAnimationLoop();
   }
 
-  private getGroundY(): number {
-    return Math.max(24, this.arenaHeight - BASELINE_OFFSET_PX - 7);
+  private isPaused(): boolean {
+    return this.shopOpen || document.hidden;
   }
 
-  private getHitZoneX(): number {
-    const playerLeft = this.playerElement
-      ? Number.parseFloat(this.playerElement.style.left)
-      : this.arenaWidth * 0.06;
-    return clamp((Number.isFinite(playerLeft) ? playerLeft : 38) + 26, 22, this.arenaWidth - 22);
+  private ensureAnimationLoop(): void {
+    if (!this.animationFrame && this.active && !this.isPaused()) {
+      this.lastFrameAt = this.now();
+      this.animationFrame = requestAnimationFrame(this.tick);
+    }
   }
 
   private cacheElements(): void {
     this.arenaElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__arena");
     this.playerElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__player");
-    this.targetElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__target");
+    this.pitcherElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__target");
+    this.outfielderElement = this.querySelector<HTMLElement>(
+      ".platformclaw-easter-egg__outfielder",
+    );
+    this.fenceElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__fence");
     this.projectileElement = this.querySelector<HTMLElement>(
       ".platformclaw-easter-egg__projectile",
     );
@@ -635,90 +609,102 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     );
   }
 
-  private setProjectilePosition(x: number, y: number): void {
-    this.projectileElement?.style.setProperty("transform", `translate3d(${x}px, ${y}px, 0)`);
+  private fieldLayout(): { originX: number; groundY: number; scale: number } {
+    const width = this.arenaElement?.clientWidth || window.innerWidth || 640;
+    const height = this.arenaElement?.clientHeight || window.innerHeight || 800;
+    const shell = this.closest<HTMLElement>(".shell");
+    const configuredNav = Number.parseFloat(
+      getComputedStyle(shell ?? this).getPropertyValue("--shell-nav-width"),
+    );
+    const originX = clamp(Number.isFinite(configuredNav) ? configuredNav * 0.3 : 54, 34, 92);
+    return {
+      originX,
+      groundY: height - BASELINE_OFFSET_PX,
+      scale: Math.max(2.4, (width - originX - 24) / (BASEBALL_WORLD.fenceX + 4)),
+    };
   }
 
-  private setProjectileVisibility(visible: boolean): void {
-    if (this.projectileElement) {
-      this.projectileElement.style.opacity = visible ? "1" : "0";
+  private layoutStaticField(): void {
+    this.setWorldPosition(this.playerElement, BASEBALL_WORLD.contactX, 0);
+    this.setWorldPosition(this.pitcherElement, BASEBALL_WORLD.pitcherX, 0);
+    this.setWorldPosition(this.outfielderElement, this.battedBall?.outfielder.x ?? 55, 0);
+    const layout = this.fieldLayout();
+    if (this.fenceElement) {
+      this.fenceElement.style.left = `${layout.originX + BASEBALL_WORLD.fenceX * layout.scale}px`;
+      this.fenceElement.style.top = `${layout.groundY - BASEBALL_WORLD.fenceHeight * layout.scale}px`;
+      this.fenceElement.style.height = `${BASEBALL_WORLD.fenceHeight * layout.scale}px`;
     }
   }
 
-  private setProjectileTrail(points: DuelPoint[]): void {
-    const visiblePoints = points.slice(-TRAIL_POINTS);
+  private setWorldPosition(element: HTMLElement | null, x: number, y: number): void {
+    if (!element) {
+      return;
+    }
+    const layout = this.fieldLayout();
+    element.style.transform = `translate3d(${layout.originX + x * layout.scale}px, ${layout.groundY - y * layout.scale}px, 0)`;
+  }
+
+  private currentBallPoint(): BaseballPoint | null {
+    if (this.phase === "pitch" && this.pitch) {
+      return pitchPositionAt(this.pitch, this.pitchElapsedMs);
+    }
+    return this.phase === "in-play" && this.battedBall ? this.battedBall.ball : null;
+  }
+
+  private pushTrail(point: BaseballPoint): void {
+    this.trail.push({ x: point.x, y: point.y });
+    if (this.trail.length > BASEBALL_TRAIL_POINTS) {
+      this.trail.shift();
+    }
+  }
+
+  private renderProjectile(): void {
+    const point = this.currentBallPoint();
+    if (this.projectileElement) {
+      this.projectileElement.style.opacity = point ? "1" : "0";
+      if (point) {
+        this.setWorldPosition(this.projectileElement, point.x, point.y);
+      }
+    }
+    const points = this.trail.slice(-BASEBALL_TRAIL_POINTS);
     this.trailElements.forEach((element, index) => {
-      const point = visiblePoints[visiblePoints.length - 1 - index];
-      if (!point) {
+      const trailPoint = points[points.length - 1 - index];
+      if (!trailPoint) {
         element.style.opacity = "0";
         return;
       }
-      const age = index / Math.max(1, TRAIL_POINTS - 1);
-      const opacity = (1 - age) * 0.42;
-      const scale = 0.92 - age * 0.28;
-      element.style.opacity = String(opacity);
-      element.style.transform = `translate3d(${point.x}px, ${point.y}px, 0) scale(${scale})`;
+      const age = index / Math.max(1, BASEBALL_TRAIL_POINTS - 1);
+      element.style.opacity = String((1 - age) * 0.42);
+      this.setWorldPosition(element, trailPoint.x, trailPoint.y);
+      element.style.scale = String(0.92 - age * 0.28);
     });
   }
 
   private finishGame(): void {
-    this.stopAnimationLoop();
-    this.clearPitchTimer();
-    this.clearFollowThroughTimer();
-    this.clearBatterTimer();
-    this.clearResultTimer();
-    this.clearFeedbackTimer();
     this.playSequence += 1;
+    this.resetRuntime();
     this.active = false;
+    this.shopOpen = false;
+    this.progress = null;
+    this.persistenceStatus = "";
+  }
+
+  private resetRuntime(): void {
+    this.stopAnimationLoop();
+    this.clock.clearAll();
     this.pointerId = null;
-    this.projectile = null;
-    this.currentRound = null;
-    this.arenaElement = null;
-    this.playerElement = null;
-    this.targetElement = null;
-    this.projectileElement = null;
-    this.trailElements = [];
+    this.pendingMutation = null;
+    this.persistenceBusy = false;
+    this.pitch = null;
+    this.battedBall = null;
+    this.trail = [];
+    this.phase = "ready";
   }
 
   private stopAnimationLoop(): void {
-    if (this.animationFrame !== 0) {
+    if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
       this.animationFrame = 0;
-    }
-  }
-
-  private clearPitchTimer(): void {
-    if (this.pitchTimer !== null) {
-      clearTimeout(this.pitchTimer);
-      this.pitchTimer = null;
-    }
-  }
-
-  private clearFollowThroughTimer(): void {
-    if (this.followThroughTimer !== null) {
-      clearTimeout(this.followThroughTimer);
-      this.followThroughTimer = null;
-    }
-  }
-
-  private clearBatterTimer(): void {
-    if (this.batterTimer !== null) {
-      clearTimeout(this.batterTimer);
-      this.batterTimer = null;
-    }
-  }
-
-  private clearResultTimer(): void {
-    if (this.resultTimer !== null) {
-      clearTimeout(this.resultTimer);
-      this.resultTimer = null;
-    }
-  }
-
-  private clearFeedbackTimer(): void {
-    if (this.feedbackTimer !== null) {
-      clearTimeout(this.feedbackTimer);
-      this.feedbackTimer = null;
     }
   }
 }

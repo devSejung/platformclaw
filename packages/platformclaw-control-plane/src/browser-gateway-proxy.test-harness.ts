@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import type { BaseballGameStore } from "./baseball-contracts.js";
 import { BrowserAuthService, hashBrowserSessionToken } from "./browser-auth-service.js";
 import { BrowserGatewayProxy, type BrowserGatewayRpc } from "./browser-gateway-proxy.js";
 import type {
@@ -56,6 +57,8 @@ export async function setupBrowserGatewayProxyTest(
       kind: OrganizationMemoryGraphKind;
     }) => Promise<OrganizationMemoryGraph>;
     organizationMemoryLifecycle?: OrganizationMemoryLifecycle;
+    baseballStore?: BaseballGameStore;
+    now?: () => number;
   } = {},
 ) {
   let sequence = 0;
@@ -105,7 +108,7 @@ export async function setupBrowserGatewayProxyTest(
       },
     },
     provisioner: { provisionOrRefresh: vi.fn(async () => undefined) },
-    now: () => NOW,
+    now: options.now ?? (() => NOW),
   });
   const request = vi.fn<BrowserGatewayRpc["request"]>(async () => ({ ok: true }));
   const auditEvents: ControlAuditEvent[] = [];
@@ -119,6 +122,7 @@ export async function setupBrowserGatewayProxyTest(
   const proxy = new BrowserGatewayProxy({
     authService: service,
     store,
+    ...(options.baseballStore ? { baseballStore: options.baseballStore } : {}),
     auditWriter,
     gateway: { request },
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
@@ -135,7 +139,7 @@ export async function setupBrowserGatewayProxyTest(
     ...(options.organizationMemoryLifecycle
       ? { organizationMemoryLifecycle: options.organizationMemoryLifecycle }
       : {}),
-    now: () => NOW,
+    now: options.now ?? (() => NOW),
   });
   return { auditEvents, auditWriter, binding, created, proxy, request, store, token, user };
 }

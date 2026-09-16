@@ -1,50 +1,75 @@
 /* A quiet, transparent baseball scene layered over the existing PlatformClaw UI. */
-.platformclaw-easter-egg {
+platformclaw-easter-egg {
   position: fixed;
   inset: 0;
-  z-index: 2000;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
+  z-index: 3000;
+  pointer-events: none;
+}
+
+.platformclaw-easter-egg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
   pointer-events: none;
   touch-action: none;
   user-select: none;
 }
 
+.platformclaw-easter-egg--shop-open {
+  pointer-events: auto;
+}
+
 .platformclaw-easter-egg__hud,
 .platformclaw-easter-egg__result,
-.platformclaw-easter-egg__distance {
+.platformclaw-easter-egg__distance,
+.platformclaw-easter-egg__save-status {
   position: absolute;
   left: 8px;
-  z-index: 4;
+  z-index: 12;
   color: color-mix(in srgb, var(--muted) 86%, var(--text));
   font-size: 10px;
   font-weight: 650;
-  letter-spacing: 0.02em;
   line-height: 1.2;
-  white-space: nowrap;
 }
 
 .platformclaw-easter-egg__hud {
-  bottom: calc(var(--platformclaw-easter-egg-baseline, 138px) + 42px);
+  bottom: 180px;
   display: flex;
   gap: 8px;
   align-items: center;
-  opacity: 0.56;
+  opacity: 0.72;
+}
+
+.platformclaw-easter-egg__hud button,
+.platformclaw-easter-egg__save-status button {
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 999px;
+  color: inherit;
+  font: inherit;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .platformclaw-easter-egg__result {
-  bottom: calc(var(--platformclaw-easter-egg-baseline, 138px) + 25px);
+  bottom: 163px;
   color: var(--text);
-  font-size: 10px;
   font-weight: 750;
 }
 
 .platformclaw-easter-egg__distance {
-  bottom: calc(var(--platformclaw-easter-egg-baseline, 138px) + 10px);
-  color: var(--muted);
-  font-size: 9px;
+  bottom: 148px;
   opacity: 0.8;
+}
+
+.platformclaw-easter-egg__save-status {
+  bottom: 197px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--danger, #c2413b);
+  pointer-events: auto;
 }
 
 .platformclaw-easter-egg__feedback {
@@ -55,76 +80,213 @@
   opacity: 0;
 }
 
-.platformclaw-easter-egg__arena {
-  position: absolute;
-  inset: 0;
-  overflow: visible;
-  pointer-events: none;
-}
-
+.platformclaw-easter-egg__arena,
 .platformclaw-easter-egg__trail {
   position: absolute;
   inset: 0;
-  z-index: 1;
-  overflow: visible;
+  overflow: hidden;
   pointer-events: none;
 }
 
-.platformclaw-easter-egg__trail-dot {
+.platformclaw-easter-egg__trail-dot,
+.platformclaw-easter-egg__projectile {
   position: absolute;
   top: 0;
   left: 0;
   display: block;
-  width: 5px;
-  height: 5px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--text) 82%, var(--bg-primary));
+  background: color-mix(in srgb, var(--text) 82%, var(--bg));
   opacity: 0;
-  pointer-events: none;
   transform-origin: 50% 50%;
   will-change: transform, opacity;
 }
 
-.platformclaw-easter-egg__player,
-.platformclaw-easter-egg__target {
-  position: absolute;
-  bottom: var(--platformclaw-easter-egg-baseline, 138px);
-  z-index: 3;
-  color: color-mix(in srgb, var(--text) 88%, var(--bg-primary));
-  transform-origin: 50% 100%;
+.platformclaw-easter-egg__trail-dot {
+  z-index: 1;
+  width: 5px;
+  height: 5px;
 }
 
-.platformclaw-easter-egg__player {
-  left: 82px;
+.platformclaw-easter-egg__projectile {
+  z-index: 8;
+  width: 7px;
+  height: 7px;
+}
+
+.platformclaw-easter-egg__player,
+.platformclaw-easter-egg__target,
+.platformclaw-easter-egg__outfielder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
   width: 25px;
   height: 35px;
+  color: color-mix(in srgb, var(--text) 88%, var(--bg));
+  transform-origin: 50% 100%;
+  will-change: transform;
 }
 
-.platformclaw-easter-egg__target {
-  left: 220px;
+.platformclaw-easter-egg__target,
+.platformclaw-easter-egg__outfielder {
   width: 23px;
   height: 32px;
-  color: color-mix(in srgb, var(--text) 72%, var(--bg-primary));
-  transform: translateX(-50%) scale(0.92);
+  color: color-mix(in srgb, var(--text) 72%, var(--bg));
+}
+
+.platformclaw-easter-egg__outfielder {
+  z-index: 2;
+  opacity: 0.82;
 }
 
 .platformclaw-easter-egg__player svg,
-.platformclaw-easter-egg__target svg {
+.platformclaw-easter-egg__target svg,
+.platformclaw-easter-egg__outfielder svg {
   display: block;
   width: 100%;
   height: 100%;
+  transform: translate(-50%, -100%);
+}
+
+.platformclaw-easter-egg__fence {
+  position: absolute;
+  z-index: 1;
+  width: 2px;
+  border: 1px solid color-mix(in srgb, var(--muted) 62%, transparent);
+  border-bottom: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 3px,
+    color-mix(in srgb, var(--muted) 35%, transparent) 3px 4px
+  );
 }
 
 .platformclaw-easter-egg__bat {
   position: absolute;
-  top: 9px;
-  left: 14px;
-  width: 23px;
-  height: 2px;
-  border-radius: 999px;
-  background: currentcolor;
+  top: -27px;
+  left: 2px;
+  width: 25px;
+  height: 4px;
+  border: 1px solid color-mix(in srgb, currentcolor 72%, var(--bg));
+  border-radius: 999px 4px 4px 999px;
+  background: #9a693f;
   transform: rotate(-18deg);
   transform-origin: 3px 50%;
+}
+
+[data-bat-id="silver"] .platformclaw-easter-egg__bat,
+[data-bat="silver"] {
+  background: #bdc4cc;
+}
+
+[data-bat-id="gold"] .platformclaw-easter-egg__bat,
+[data-bat="gold"] {
+  background: #d6aa35;
+}
+
+[data-bat-id="platinum"] .platformclaw-easter-egg__bat,
+[data-bat="platinum"] {
+  background: #d7e0e8;
+  box-shadow: 0 0 0 1px #8d99a6;
+}
+
+[data-bat-id="titanium"] .platformclaw-easter-egg__bat,
+[data-bat="titanium"] {
+  background: #778697;
+}
+
+[data-bat-id="emerald"] .platformclaw-easter-egg__bat,
+[data-bat="emerald"] {
+  background: #2eaa70;
+}
+
+[data-bat-id="diamond"] .platformclaw-easter-egg__bat,
+[data-bat="diamond"] {
+  background: #7ddbea;
+  box-shadow: 0 0 0 1px #318aa0;
+}
+
+.platformclaw-easter-egg__shop-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  pointer-events: auto;
+}
+
+.platformclaw-easter-egg__shop {
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 32px));
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--bg);
+  box-shadow: 0 16px 48px color-mix(in srgb, #000 24%, transparent);
+}
+
+.platformclaw-easter-egg__shop header,
+.platformclaw-easter-egg__shop-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.platformclaw-easter-egg__shop header button,
+.platformclaw-easter-egg__shop-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: inherit;
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+
+.platformclaw-easter-egg__shop header button {
+  padding: 4px 8px;
+}
+
+.platformclaw-easter-egg__shop p {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.platformclaw-easter-egg__shop-list {
+  display: grid;
+  gap: 6px;
+}
+
+.platformclaw-easter-egg__shop-item {
+  width: 100%;
+  padding: 8px;
+  text-align: left;
+}
+
+.platformclaw-easter-egg__shop-item:disabled {
+  cursor: default;
+  opacity: 0.56;
+}
+
+.platformclaw-easter-egg__shop-item > span:nth-child(2) {
+  display: grid;
+  flex: 1;
+}
+
+.platformclaw-easter-egg__shop-item small {
+  color: var(--muted);
+}
+
+.platformclaw-easter-egg__shop-bat {
+  width: 30px;
+  height: 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 55%, transparent);
+  border-radius: 999px 4px 4px 999px;
+  background: #9a693f;
+  transform: rotate(-12deg);
 }
 
 .platformclaw-easter-egg__player--swing {
@@ -151,97 +313,73 @@
   animation: platformclaw-easter-egg-pitcher-follow 360ms ease-out;
 }
 
-.platformclaw-easter-egg__projectile {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 8;
-  display: block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text);
-  opacity: 0;
-  pointer-events: none;
-  transform: translate3d(0, 0, 0);
-}
-
 @keyframes platformclaw-easter-egg-batter-swing {
-  0% {
-    transform: rotate(0deg);
+  50% {
+    rotate: -8deg;
   }
-
-  48% {
-    transform: rotate(-4deg) translateY(-1px);
-  }
-
   100% {
-    transform: rotate(12deg);
+    rotate: 14deg;
   }
 }
 
 @keyframes platformclaw-easter-egg-batter-swing-perfect {
-  0% {
-    transform: rotate(0deg);
-  }
-
   50% {
-    transform: rotate(-6deg) translateY(-1px) scale(1.03);
+    rotate: -11deg;
+    scale: 1.03;
   }
-
   100% {
-    transform: rotate(16deg);
+    rotate: 18deg;
   }
 }
 
 @keyframes platformclaw-easter-egg-batter-follow {
   50% {
-    transform: rotate(6deg) translateY(-1px);
+    rotate: 8deg;
   }
 }
 
 @keyframes platformclaw-easter-egg-pitcher-leg-lift {
   50% {
-    transform: translateX(-50%) translateY(-4px) rotate(-6deg) scale(0.92);
+    rotate: -6deg;
+    scale: 0.92;
   }
 }
 
 @keyframes platformclaw-easter-egg-pitcher-throw {
   50% {
-    transform: translateX(-50%) translateY(-3px) rotate(7deg) scale(0.92);
+    rotate: 7deg;
+    scale: 0.92;
   }
 }
 
 @keyframes platformclaw-easter-egg-pitcher-follow {
   50% {
-    transform: translateX(-50%) translateY(1px) rotate(11deg) scale(0.92);
+    rotate: 11deg;
+    scale: 0.92;
   }
 }
 
 @media (max-width: 600px) {
   .platformclaw-easter-egg__hud,
   .platformclaw-easter-egg__result,
-  .platformclaw-easter-egg__distance {
+  .platformclaw-easter-egg__distance,
+  .platformclaw-easter-egg__save-status {
     left: 5px;
   }
 
   .platformclaw-easter-egg__hud {
-    gap: 5px;
-    font-size: 9px;
-  }
-
-  .platformclaw-easter-egg__result {
+    max-width: calc(100vw - 10px);
+    flex-wrap: wrap;
+    gap: 4px;
     font-size: 9px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .platformclaw-easter-egg__player--swing,
-  .platformclaw-easter-egg__player--swing-perfect,
-  .platformclaw-easter-egg__player--follow-through,
-  .platformclaw-easter-egg__target--leg-lift,
-  .platformclaw-easter-egg__target--throw,
-  .platformclaw-easter-egg__target--follow-through {
+  .platformclaw-easter-egg__player,
+  .platformclaw-easter-egg__target,
+  .platformclaw-easter-egg__feedback {
     animation: none;
+    transition: none;
   }
 }

@@ -296,6 +296,7 @@ export function createPlatformClawWebIngressRuntime(
   const gatewayProxy = new BrowserGatewayProxy({
     authService: auth.service,
     store: auth.store,
+    baseballStore: auth.store,
     auditWriter: auth.store,
     gateway,
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,

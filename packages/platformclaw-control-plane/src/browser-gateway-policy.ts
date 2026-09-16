@@ -1,3 +1,5 @@
+import { BASEBALL_RPC_METHODS } from "./baseball-contracts.js";
+
 export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "agent.identity.get",
   "agents.files.get",
@@ -58,6 +60,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "platformclaw.memory.knowledge.decide",
   "platformclaw.memory.knowledge.apply",
   "platformclaw.memory.knowledge.comparePromotion",
+  ...BASEBALL_RPC_METHODS,
   "question.get",
   "question.list",
   "question.resolve",
@@ -137,6 +140,7 @@ export type PlatformClawWebGatewayMethod = (typeof PLATFORMCLAW_WEB_GATEWAY_METH
 
 export const PLATFORMCLAW_WEB_ALLOWED_METHODS = new Set<string>(PLATFORMCLAW_WEB_GATEWAY_METHODS);
 export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
+  ...BASEBALL_RPC_METHODS,
   "platformclaw.memory.knowledge.comparePromotion",
   "platformclaw.memory.knowledge.apply",
   "platformclaw.memory.knowledge.snapshot",
@@ -154,6 +158,10 @@ export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
   "platformclaw.memory.promotion.submit",
 ]);
 export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<string>>([
+  [BASEBALL_RPC_METHODS[0], new Set()],
+  [BASEBALL_RPC_METHODS[1], new Set(["requestId", "outcome", "distanceM"])],
+  [BASEBALL_RPC_METHODS[2], new Set(["requestId", "batId"])],
+  [BASEBALL_RPC_METHODS[3], new Set(["requestId", "batId"])],
   [
     "platformclaw.memory.promotion.previewReferences",
     new Set([

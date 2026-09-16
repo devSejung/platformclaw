@@ -488,7 +488,9 @@ export function renderApplicationShell(host: ShellViewHost) {
         .suppressed=${activeRoute === "custodian"}
         .minimizeRequestId=${host.custodianMinimizeRequestId}
       ></openclaw-custodian-panel>
-      <platformclaw-easter-egg></platformclaw-easter-egg>
+      <platformclaw-easter-egg
+        .client=${gatewayConnected ? gatewaySnapshot.client : null}
+      ></platformclaw-easter-egg>
       ${isOptionalElementDefined(host.execApprovalElement)
         ? html`<openclaw-exec-approval
             .props=${{
