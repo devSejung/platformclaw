@@ -753,7 +753,7 @@ describe("memory tools", () => {
     });
   });
 
-  it("does not cooldown primary memory when a corpus=all wiki supplement stalls", async () => {
+  it("keeps completed memory and sibling results when a corpus=all supplement stalls", async () => {
     vi.useFakeTimers();
     try {
       let searchCalls = 0;
@@ -774,18 +774,35 @@ describe("memory tools", () => {
         search: async () => await new Promise(() => {}),
         get: async () => null,
       });
+      registerMemoryCorpusSupplement("organization", {
+        search: async () => [
+          {
+            corpus: "platformclaw-organization",
+            path: "organization/team/alpha",
+            score: 0.8,
+            snippet: "Approved organization guidance",
+          },
+        ],
+        get: async () => null,
+      });
 
       const tool = createMemorySearchToolOrThrow();
       const stalledAllResultPromise = tool.execute("call_all_stalled_wiki", {
         query: "alpha",
         corpus: "all",
       });
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(10_000);
       const stalledAllResult = await stalledAllResultPromise;
-      expectUnavailableMemorySearchDetails(stalledAllResult.details, {
-        error: "memory_search timed out after 15s",
-        warning: "Memory search is unavailable due to an embedding/provider error.",
-        action: "Check embedding provider configuration and retry memory_search.",
+      expect(stalledAllResult.details).toMatchObject({
+        results: [
+          { corpus: "memory", path: "MEMORY.md" },
+          { corpus: "platformclaw-organization", path: "organization/team/alpha" },
+        ],
+        corpusStatus: [
+          { pluginId: "memory-wiki", status: "failed" },
+          { pluginId: "organization", status: "ok" },
+        ],
+        warnings: ['Memory corpus from plugin "memory-wiki" is temporarily unavailable.'],
       });
 
       const memoryResult = await tool.execute("call_memory_after_stalled_wiki", {

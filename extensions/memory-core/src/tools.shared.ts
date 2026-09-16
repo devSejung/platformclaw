@@ -10,6 +10,7 @@ import {
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import type { PluginStateLeaseRunner } from "openclaw/plugin-sdk/plugin-state-runtime";
+import { withTimeout } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type } from "typebox";
 import type { MemoryCoreAcquireLocalService } from "./memory/embedding-local-service.js";
@@ -26,6 +27,8 @@ type MemoryToolOptions = {
   acquireLocalService?: MemoryCoreAcquireLocalService;
   withLease?: PluginStateLeaseRunner;
 };
+
+const MEMORY_CORPUS_SUPPLEMENT_TIMEOUT_MS = 10_000;
 
 export const loadMemoryToolRuntime = createLazyRuntimeModule(() => import("./tools.runtime.js"));
 
@@ -190,7 +193,13 @@ export async function searchMemoryCorpusSupplements(params: {
       if (status?.available === false) {
         return { results: [], status: "unavailable" as const };
       }
-      const results = await registration.supplement.search(searchParams);
+      // A supplement cannot cancel another owner's useful results by hanging until
+      // memory_search's outer deadline. The late task is ignored after this bound.
+      const results = await withTimeout(
+        registration.supplement.search(searchParams),
+        MEMORY_CORPUS_SUPPLEMENT_TIMEOUT_MS,
+        `memory corpus supplement ${registration.pluginId}`,
+      );
       return { results, status: results.length === 0 ? ("empty" as const) : ("ok" as const) };
     }),
   );

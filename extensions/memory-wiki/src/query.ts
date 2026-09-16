@@ -7,6 +7,7 @@ import type { MemorySearchResult } from "openclaw/plugin-sdk/memory-core-host-ru
 import { resolveDefaultAgentId, resolveSessionAgentId } from "openclaw/plugin-sdk/memory-host-core";
 import { getActiveMemorySearchManager } from "openclaw/plugin-sdk/memory-host-search";
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
+import { FsSafeError, root as fsRoot } from "openclaw/plugin-sdk/security-runtime";
 import {
   normalizeLowercaseStringOrEmpty,
   uniqueStrings,
@@ -923,7 +924,8 @@ export async function readMemoryWikiIndexDocument(params: {
     return null;
   }
   try {
-    const raw = await fs.readFile(path.join(params.rootDir, relativePath), "utf8");
+    const vault = await fsRoot(params.rootDir, { symlinks: "reject", hardlinks: "reject" });
+    const raw = await vault.readText(relativePath);
     const parsed = parseWikiMarkdown(raw);
     return {
       path: relativePath,
@@ -933,6 +935,9 @@ export async function readMemoryWikiIndexDocument(params: {
       content: parsed.body,
     };
   } catch (error) {
+    if (error instanceof FsSafeError && error.code === "not-found") {
+      return null;
+    }
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return null;
     }

@@ -207,6 +207,28 @@ describe("getMemoryWikiPage", () => {
     await expect(searchMemoryWiki({ config, query: "Wiki Index" })).resolves.toEqual([]);
   });
 
+  it("refuses to read a generated index through a symlink", async () => {
+    const { rootDir, config } = await createQueryVault({ initialize: true });
+    let lookup = "index.md";
+    if (process.platform === "win32") {
+      const externalDir = path.join(path.dirname(rootDir), `external-index-${caseIndex}`);
+      await fs.mkdir(externalDir);
+      await fs.writeFile(path.join(externalDir, "index.md"), "# External\n\nsecret marker\n");
+      await fs.rm(path.join(rootDir, "concepts"), { recursive: true });
+      await fs.symlink(externalDir, path.join(rootDir, "concepts"), "junction");
+      lookup = "concepts/index.md";
+    } else {
+      const externalPath = path.join(path.dirname(rootDir), `external-index-${caseIndex}.md`);
+      await fs.writeFile(externalPath, "# External\n\nsecret marker\n", "utf8");
+      await fs.rm(path.join(rootDir, "index.md"));
+      await fs.symlink(externalPath, path.join(rootDir, "index.md"));
+    }
+
+    await expect(getMemoryWikiPage({ config, lookup })).rejects.toMatchObject({
+      code: expect.stringMatching(/^(?:outside-workspace|symlink)$/u),
+    });
+  });
+
   it("enforces visibility for all current session storage layouts", async () => {
     const { config } = await createQueryVault({
       initialize: true,
