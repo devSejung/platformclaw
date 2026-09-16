@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { AgentsListResult } from "../../api/types.ts";
 import { sessionRefFromPath } from "../../app-session-route-paths.ts";
+import { t } from "../../i18n/index.ts";
 import {
   clearSessionBoardAvailability,
   recordSessionBoardAvailability,
@@ -97,7 +98,9 @@ describe("AppSidebar update card wiring", () => {
     const indicator = sidebar.querySelector("openclaw-settings-save-indicator");
     await (indicator as { updateComplete?: Promise<unknown> } | null)?.updateComplete;
     const status = indicator?.querySelector('[role="status"]');
-    expect(status?.getAttribute("aria-label")).toContain("Autosave failed");
+    expect(status?.getAttribute("aria-label")).toBe(
+      `${t("configView.autoSaveFailed")}: Save failed`,
+    );
     expect(status?.textContent).toContain("Save failed");
     expect(status?.textContent).toContain("Retry");
     const footerBar = sidebar.querySelector(".sidebar-footer-bar");
