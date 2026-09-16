@@ -4,6 +4,7 @@ import "../test-helpers/app-sidebar-suite.ts";
 import "../test-helpers/app-sidebar-cases/agent-menu.ts";
 import "../test-helpers/app-sidebar-cases/attention.ts";
 import "../test-helpers/app-sidebar-cases/basics.ts";
+import "../test-helpers/app-sidebar-cases/footer.ts";
 import "../test-helpers/app-sidebar-cases/catalog-compat.ts";
 import "../test-helpers/app-sidebar-cases/catalog-live-events.ts";
 import "../test-helpers/app-sidebar-cases/catalog-project-activity.ts";

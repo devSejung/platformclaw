@@ -20,6 +20,7 @@ import type {
 } from "../components/app-sidebar-workboard.ts";
 import type { SessionDataController } from "../components/session-data-controller.ts";
 import type { SessionOrganizerController } from "../components/session-organizer-controller.ts";
+import type { SettingsSaveIndicatorProps } from "../components/settings-save-indicator.ts";
 import type { AgentIdentityCapability } from "../lib/agents/identity.ts";
 import {
   createSessionCapability,
@@ -51,6 +52,7 @@ export type SidebarLifecycleState = HTMLElement & {
   accountPrimaryLabel: string;
   accountSecondaryLabel: string;
   renderAccountFooterAccessory?: () => unknown;
+  saveIndicator?: SettingsSaveIndicatorProps;
   onLogout?: () => Promise<void>;
   offline: boolean;
   outboxCountForSession: (sessionKey: string) => number;
