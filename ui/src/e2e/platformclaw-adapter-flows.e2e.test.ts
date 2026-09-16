@@ -296,7 +296,21 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     }
     const memoryTabs = page.locator(".platformclaw-memory-page__tabs");
     const memoryPanel = page.locator("#platformclaw-memory-panel");
+    const memoryHelpTrigger = page
+      .locator(".page-title + platformclaw-page-help-trigger")
+      .getByRole("button");
+    const expectMemoryHelp = async (title: string) => {
+      await expect
+        .poll(() => memoryHelpTrigger.getAttribute("aria-label"))
+        .toBe(`Help for ${title}`);
+      await memoryHelpTrigger.click();
+      const helpHeading = page.getByRole("heading", { name: title, exact: true });
+      await expect.poll(() => helpHeading.isVisible()).toBe(true);
+      await page.keyboard.press("Escape");
+      await expect.poll(() => helpHeading.count()).toBe(0);
+    };
     await expect.poll(() => memoryTabs.getByRole("tab").count()).toBe(5);
+    await expectMemoryHelp("Memory: five views for retained knowledge");
     await memoryTabs.getByRole("tab", { name: "Memory", exact: true }).click();
     await expect
       .poll(() => new URL(page.url()).pathname)
@@ -304,6 +318,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => memoryPanel.getAttribute("aria-labelledby"))
       .toBe("platformclaw-memory-tab-memory");
+    await expectMemoryHelp("Memory: search personal recall");
     await expect
       .poll(() => page.locator("openclaw-memory-memories").textContent())
       .toContain("2026-08-31.md");
@@ -314,6 +329,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => memoryPanel.getAttribute("aria-labelledby"))
       .toBe("platformclaw-memory-tab-dreaming");
+    await expectMemoryHelp("Dreaming: inspect memory consolidation");
     await page.getByRole("tab", { name: "Dream Diary", exact: true }).click();
     const diary = page.locator(".dreams-diary");
     await expect
@@ -326,12 +342,23 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => memoryPanel.getAttribute("aria-labelledby"))
       .toBe("platformclaw-memory-tab-wiki");
+    await expectMemoryHelp("Personal Wiki: review reusable source pages");
     const wiki = page.locator(".memory-wiki-page");
     await expect.poll(() => wiki.textContent()).toContain("Person One knowledge");
     await wiki.getByRole("button", { name: "Open wiki page" }).click();
     await expect
       .poll(() => page.locator(".dreams-diary__preview-body .wiki-document__reader").textContent())
       .toContain("Employee browser access stays agent scoped.");
+    await page.keyboard.press("Escape");
+    await expect.poll(() => page.locator(".dreams-diary__preview-body").count()).toBe(0);
+    await memoryTabs.getByRole("tab", { name: "Organization", exact: true }).click();
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe("/platformclaw/app/settings/memory/organization");
+    await expectMemoryHelp("Organization: promote personal knowledge to your Part");
+    await memoryTabs.getByRole("tab", { name: "Overview", exact: true }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/memory");
+    await expectMemoryHelp("Memory: five views for retained knowledge");
 
     expect(await gateway.getRequests("config.get")).toHaveLength(0);
     expect(await page.getByText("foreign-agent", { exact: false }).count()).toBe(0);

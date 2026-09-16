@@ -158,15 +158,15 @@ export class PlatformClawControlUiAdapter {
       )
       .catch(() => nothing);
     void Promise.all([import("./page-help.ts"), loadPlatformClawLocale()]).catch(() => undefined);
-    const browserLocation = new URL(this.location.href);
     const renderPageHelpTrigger = (
       routeId: RouteId,
       routeLocation?: { pathname: string; search: string },
     ) => {
+      const currentLocation = routeLocation ?? new URL(this.location.href);
       return html`<platformclaw-page-help-trigger
         .routeId=${routeId}
-        .pathname=${routeLocation?.pathname ?? browserLocation.pathname}
-        .search=${routeLocation?.search ?? browserLocation.search}
+        .pathname=${currentLocation.pathname}
+        .search=${currentLocation.search}
       ></platformclaw-page-help-trigger>`;
     };
     if (identity.globalRole === "admin") {
@@ -184,13 +184,14 @@ export class PlatformClawControlUiAdapter {
         ),
       renderMainBanner: () => until(joinPrompt, nothing),
       renderPageHeaderAccessory: renderPageHelpTrigger,
-      renderPageOverlay: (routeId, routeLocation) => html`
-        <platformclaw-page-help
+      renderPageOverlay: (routeId, routeLocation) => {
+        const currentLocation = routeLocation ?? new URL(this.location.href);
+        return html`<platformclaw-page-help
           .routeId=${routeId}
-          .pathname=${routeLocation?.pathname ?? browserLocation.pathname}
-          .search=${routeLocation?.search ?? browserLocation.search}
-        ></platformclaw-page-help>
-      `,
+          .pathname=${currentLocation.pathname}
+          .search=${currentLocation.search}
+        ></platformclaw-page-help>`;
+      },
       onLogout,
     };
     const enabledRouteIds = this.descriptor.enabledRoutes.filter(
