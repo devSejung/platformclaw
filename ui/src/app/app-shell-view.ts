@@ -450,7 +450,8 @@ export function renderApplicationShell(host: ShellViewHost) {
           updateRunning: overlaySnapshot.updateRunning,
           onUpdate: () => void context.overlays.runUpdate(),
         })}
-        ${runtime.shellSession?.renderMainBanner?.() ?? nothing}
+        ${runtime.shellSession?.renderMainBanner?.(activeRoute, host.routeState.location) ??
+        nothing}
         <openclaw-router-outlet
           .router=${runtime.router}
           .retryContext=${context}

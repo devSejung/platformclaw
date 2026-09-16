@@ -31,7 +31,7 @@ const APP_ROUTE_DEFINITIONS = {
   dashboards: { path: "/dashboards" },
   custodian: { path: "/custodian" },
   "new-session": { path: "/new" },
-  activity: { path: "/activity" },
+  activity: { path: "/settings/activity", aliases: ["/activity"] },
   apps: { path: "/apps" },
   agents: { path: "/settings/agents", aliases: ["/agents"] },
   channels: { path: "/settings/channels", aliases: ["/channels"] },
@@ -57,13 +57,13 @@ const APP_ROUTE_DEFINITIONS = {
   "ai-agents": { path: "/settings/ai-agents", aliases: ["/ai-agents"] },
   "model-setup": { path: "/settings/model-setup", aliases: ["/model-setup"] },
   "model-providers": { path: "/settings/model-providers", aliases: ["/model-providers"] },
-  // Memory import, sessions, and worktrees are workspace destinations; the
-  // /settings/* aliases keep pre-restructure bookmarks and deep links working.
+  // Memory import remains a workspace destination. Sessions and worktrees are
+  // settings destinations; their old workspace URLs remain valid aliases.
   "memory-import": { path: "/memory-import", aliases: ["/settings/memory-import"] },
   workboard: { path: "/workboard" },
-  worktrees: { path: "/worktrees", aliases: ["/settings/worktrees"] },
-  sessions: { path: "/sessions", aliases: ["/settings/sessions"] },
-  usage: { path: "/usage" },
+  worktrees: { path: "/settings/worktrees", aliases: ["/worktrees"] },
+  sessions: { path: "/settings/sessions", aliases: ["/sessions"] },
+  usage: { path: "/settings/usage", aliases: ["/usage"] },
   debug: { path: "/debug" },
   logs: { path: "/logs" },
   "skill-hub": { path: "/skills/hub" },
@@ -73,7 +73,7 @@ const APP_ROUTE_DEFINITIONS = {
   // Automations is the product name; /cron stays as a legacy alias for
   // pre-rename bookmarks and deep links.
   cron: { path: "/automations", aliases: ["/cron"] },
-  tasks: { path: "/tasks" },
+  tasks: { path: "/settings/tasks", aliases: ["/tasks"] },
   nodes: { path: "/settings/devices", aliases: ["/nodes"] },
   plugin: { path: "/plugin" },
 } as const;

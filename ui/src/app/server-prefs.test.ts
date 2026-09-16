@@ -96,7 +96,7 @@ describe("server pref extraction", () => {
           textScale: 125,
           sidebarLiveActivity: false,
           chatMessageMaxWidth: "82%",
-          sidebarEntries: ["route:usage", "session:agent:main:test", "route:usage", 7],
+          sidebarEntries: ["route:cron", "session:agent:main:test", "route:cron", 7],
           bogus: true,
         }),
         { onApplied },
@@ -108,7 +108,7 @@ describe("server pref extraction", () => {
       locale: "de",
       chatShowThinking: false,
       chatSendShortcut: "modifier-enter",
-      sidebarEntries: ["route:usage", "session:agent:main:test"],
+      sidebarEntries: ["route:cron", "session:agent:main:test"],
     });
   });
 
@@ -290,9 +290,9 @@ describe("applyServerUiPrefs", () => {
 
   it("preserves a local sidebar edit when only another server preference changes", () => {
     const onApplied = vi.fn();
-    const sidebarEntries = ["route:usage", "session:agent:main:test"];
+    const sidebarEntries = ["route:cron", "session:agent:main:test"];
     applyServerUiPrefs(configWithPrefs({ sidebarEntries, themeMode: "dark" }), { onApplied });
-    patchSettings({ sidebarEntries: ["route:usage"] });
+    patchSettings({ sidebarEntries: ["route:cron"] });
 
     expect(
       applyServerUiPrefs(
@@ -300,7 +300,7 @@ describe("applyServerUiPrefs", () => {
         { onApplied },
       ),
     ).toBe(true);
-    expect(loadSettings().sidebarEntries).toEqual(["route:usage"]);
+    expect(loadSettings().sidebarEntries).toEqual(["route:cron"]);
     expect(loadSettings().themeMode).toBe("light");
     expect(onApplied).toHaveBeenLastCalledWith({ themeMode: "light" });
   });
@@ -335,7 +335,7 @@ describe("changedServerUiPrefs", () => {
 
   it("syncs canonical sidebar entries without treating equal arrays as changes", () => {
     const previous = loadSettings();
-    const sidebarEntries = ["route:usage", "session:agent:main:test"];
+    const sidebarEntries = ["route:cron", "session:agent:main:test"];
     expect(changedServerUiPrefs(previous, { ...previous, sidebarEntries })).toEqual({
       sidebarEntries,
     });
@@ -1049,7 +1049,7 @@ describe("pushServerUiPrefs", () => {
 
   it("marks sidebar arrays for replacement", async () => {
     const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({}));
-    const sidebarEntries = ["route:usage"];
+    const sidebarEntries = ["route:cron"];
 
     pushServerUiPrefs(createClient(request), { sidebarEntries });
     await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());

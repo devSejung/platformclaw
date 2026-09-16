@@ -436,9 +436,10 @@ describe("settings sidebar search", () => {
     const input = container.querySelector<HTMLInputElement>(".settings-sidebar__search-input");
     expect(input?.getAttribute("aria-label")).toBe("Search settings");
     expect(input?.placeholder).toBe("Search settings…");
-    // Management surfaces moved back to the workspace sidebar.
-    expect(allLabels).not.toContain("Activity");
-    expect(allLabels).not.toContain("Sessions");
+    expect(allLabels).toContain("Activity");
+    expect(allLabels).toContain("Threads");
+    expect(allLabels).toContain("Memory");
+    expect(container.textContent).toContain("Chat & Sessions");
     expect(allLabels).toContain("Privacy & Security");
     expect(allLabels.indexOf("About")).toBe(allLabels.indexOf("Logs") + 1);
 

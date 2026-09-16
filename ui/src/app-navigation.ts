@@ -33,11 +33,7 @@ type NavigationItem = {
 export const SIDEBAR_NAV_ROUTES = [
   "workboard",
   "dashboards",
-  "usage",
   "cron",
-  "tasks",
-  "sessions",
-  "activity",
   "plugins",
   "skills",
   "skill-workshop",
@@ -197,8 +193,9 @@ export function settingsSearchTextMatches(value: string, query: string): boolean
 
 // Grouping feeds the full-page settings sidebar (settings-sidebar.ts). Ordered
 // by user attention: personal/look-and-feel first, system plumbing last.
-// Management surfaces (sessions, worktrees, activity, memory import) are
-// workspace destinations, not settings; model setup is a subpage of Models.
+// Worktrees and memory import remain nested destinations; model setup is a
+// subpage of Models. Chat and session history live together so operational
+// context is not split between the workspace sidebar and Settings.
 export const SETTINGS_NAVIGATION_GROUPS = [
   {
     labelKey: null,
@@ -209,8 +206,12 @@ export const SETTINGS_NAVIGATION_GROUPS = [
     routes: ["connection", "channels", "communications", "talk", "nodes"],
   },
   {
+    labelKey: "nav.settingsGroupChatSessions",
+    routes: ["sessions", "memory", "usage", "tasks", "activity"],
+  },
+  {
     labelKey: "nav.settingsGroupAgents",
-    routes: ["agents", "labs", "model-providers", "mcp", "memory", "organization", "automation"],
+    routes: ["agents", "labs", "model-providers", "mcp", "organization", "automation"],
   },
   {
     labelKey: "nav.settingsGroupSecurity",
@@ -229,6 +230,7 @@ const SETTINGS_SUBPAGE_ROUTES: readonly NavigationRouteId[] = [
   "ai-agents",
   "model-setup",
   "lobsterdex",
+  "worktrees",
 ];
 export const SETTINGS_SEARCHABLE_SUBPAGE_ROUTES: readonly NavigationRouteId[] = ["ai-agents"];
 const SETTINGS_SUBPAGE_OWNER_ROUTES: Partial<
@@ -236,6 +238,7 @@ const SETTINGS_SUBPAGE_OWNER_ROUTES: Partial<
 > = {
   "ai-agents": "agents",
   "model-setup": "model-providers",
+  worktrees: "sessions",
 };
 
 const SETTINGS_NAVIGATION_ROUTES: ReadonlySet<NavigationRouteId> = new Set([

@@ -266,13 +266,13 @@ describe("AppSidebar interleaved zone", () => {
         ),
       },
     });
-    sidebar.sidebarEntries = ["route:usage", "session:agent:main:alpha", "route:plugins"];
+    sidebar.sidebarEntries = ["route:cron", "session:agent:main:alpha", "route:plugins"];
     await sidebar.updateComplete;
 
     const labels = [...sidebar.querySelectorAll<HTMLElement>(".sidebar-zone-entry")].map((entry) =>
       entry.textContent?.trim(),
     );
-    expect(labels).toEqual(["Usage", "Alpha", "Plugins"]);
+    expect(labels).toEqual(["Automations", "Alpha", "Plugins"]);
     expect(sidebar.querySelector('[data-session-section="pinned"]')).toBeNull();
     expect(sidebar.querySelector(".nav-item--home")?.hasAttribute("draggable")).toBe(false);
   });
@@ -356,7 +356,7 @@ describe("AppSidebar interleaved zone", () => {
     const { sidebar } = await mountZone();
     sidebar.workboardBoards = [sidebarBoard("ops", { name: "Operations" })];
     sidebar.workboardBoardsReady = true;
-    sidebar.sidebarEntries = ["workboard:ops", "route:usage"];
+    sidebar.sidebarEntries = ["workboard:ops", "route:cron"];
     sidebar.enabledRouteIds = APP_ROUTE_IDS.filter((routeId) => routeId !== "workboard");
     await sidebar.updateComplete;
 
@@ -402,12 +402,12 @@ describe("AppSidebar interleaved zone", () => {
 
   it("writes reordered entries after a route drop", async () => {
     const { sidebar } = await mountZone();
-    sidebar.sidebarEntries = ["route:usage", "route:plugins", "route:tasks"];
+    sidebar.sidebarEntries = ["route:cron", "route:plugins", "route:apps"];
     const onUpdate = vi.fn();
     sidebar.onUpdateSidebarEntries = onUpdate;
     await sidebar.updateComplete;
-    const source = zoneEntry(sidebar, "route:tasks");
-    const target = zoneEntry(sidebar, "route:usage");
+    const source = zoneEntry(sidebar, "route:apps");
+    const target = zoneEntry(sidebar, "route:cron");
     vi.spyOn(target, "getBoundingClientRect").mockReturnValue({
       top: 10,
       height: 20,
@@ -418,12 +418,12 @@ describe("AppSidebar interleaved zone", () => {
     dispatchDragEvent(target, "dragover", dataTransfer, 11);
     dispatchDragEvent(target, "drop", dataTransfer, 11);
 
-    expect(onUpdate).toHaveBeenCalledWith(["route:tasks", "route:usage", "route:plugins"]);
+    expect(onUpdate).toHaveBeenCalledWith(["route:apps", "route:cron", "route:plugins"]);
   });
 
   it("pins and inserts a session dropped from Threads", async () => {
     const { sidebar, sessions } = await mountZone();
-    sidebar.sidebarEntries = ["route:usage", "route:plugins"];
+    sidebar.sidebarEntries = ["route:cron", "route:plugins"];
     const onUpdate = vi.fn();
     sidebar.onUpdateSidebarEntries = onUpdate;
     await sidebar.updateComplete;
@@ -452,7 +452,7 @@ describe("AppSidebar interleaved zone", () => {
     // The slot write waits for the pin patch to land.
     await waitForFast(() =>
       expect(onUpdate).toHaveBeenCalledWith([
-        "route:usage",
+        "route:cron",
         "session:agent:main:alpha",
         "route:plugins",
       ]),
@@ -461,11 +461,11 @@ describe("AppSidebar interleaved zone", () => {
 
   it("hides a route dropped into the session-list region", async () => {
     const { sidebar } = await mountZone();
-    sidebar.sidebarEntries = ["route:usage", "route:plugins"];
+    sidebar.sidebarEntries = ["route:cron", "route:plugins"];
     const onUpdate = vi.fn();
     sidebar.onUpdateSidebarEntries = onUpdate;
     await sidebar.updateComplete;
-    const source = zoneEntry(sidebar, "route:usage");
+    const source = zoneEntry(sidebar, "route:cron");
     const target = sidebar.querySelector('[data-session-section="ungrouped"]');
     if (!target) {
       throw new Error("expected session-list region");
@@ -483,7 +483,7 @@ describe("AppSidebar interleaved zone", () => {
     const { sidebar } = await mountZone();
     sidebar.workboardBoards = [sidebarBoard("ops", { name: "Operations" })];
     sidebar.workboardBoardsReady = true;
-    sidebar.sidebarEntries = ["workboard:ops", "route:usage"];
+    sidebar.sidebarEntries = ["workboard:ops", "route:cron"];
     const onUpdate = vi.fn();
     sidebar.onUpdateSidebarEntries = onUpdate;
     await sidebar.updateComplete;
@@ -498,7 +498,7 @@ describe("AppSidebar interleaved zone", () => {
     dispatchDragEvent(target, "dragover", dataTransfer);
     dispatchDragEvent(target, "drop", dataTransfer);
 
-    expect(onUpdate).toHaveBeenCalledWith(["route:usage"]);
+    expect(onUpdate).toHaveBeenCalledWith(["route:cron"]);
   });
 
   it("prunes only the unpinned session's entry and preserves unknown-agent slots", async () => {
@@ -515,7 +515,7 @@ describe("AppSidebar interleaved zone", () => {
         ),
       },
     });
-    sidebar.sidebarEntries = ["session:agent:b:remote", "session:agent:main:alpha", "route:usage"];
+    sidebar.sidebarEntries = ["session:agent:b:remote", "session:agent:main:alpha", "route:cron"];
     const onUpdate = vi.fn();
     sidebar.onUpdateSidebarEntries = onUpdate;
     await sidebar.updateComplete;
@@ -529,7 +529,7 @@ describe("AppSidebar interleaved zone", () => {
       )
       ?.click();
     await waitForFast(() =>
-      expect(onUpdate).toHaveBeenCalledWith(["session:agent:b:remote", "route:usage"]),
+      expect(onUpdate).toHaveBeenCalledWith(["session:agent:b:remote", "route:cron"]),
     );
   });
 
@@ -547,7 +547,7 @@ describe("AppSidebar interleaved zone", () => {
         ),
       },
     });
-    sidebar.sidebarEntries = ["session:agent:main:alpha", "route:usage"];
+    sidebar.sidebarEntries = ["session:agent:main:alpha", "route:cron"];
     await sidebar.updateComplete;
     const alpha = sidebar.querySelector(
       '[data-session-key="agent:main:alpha"] .sidebar-recent-session__link',

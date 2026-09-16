@@ -601,10 +601,6 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         },
       },
     });
-    await page.addInitScript(() => {
-      localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
-    });
-
     await page.goto(`${server.baseUrl}platformclaw/app/cron`);
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/cron");
     await expect.poll(() => page.getByText("Browsing only").count()).toBe(0);

@@ -149,9 +149,6 @@ async function newPage(locale: "en-US" | "ko-KR") {
   });
   contexts.add(context);
   const page = await context.newPage();
-  await page.addInitScript(() => {
-    localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
-  });
   await installPlatformClawDocument(page);
   const routes = await installWorkspaceRoutes(page);
   const gateway = await installMockGateway(page, {
@@ -347,7 +344,9 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
     });
     await page.goto(`${server.baseUrl}platformclaw/app/skills/hub`);
     await page.getByRole("button", { name: "Notifications", exact: true }).click();
-    const dialog = page.locator("openclaw-modal-dialog");
+    const dialog = page.locator("openclaw-modal-dialog").filter({
+      has: page.getByRole("heading", { name: "Notifications", exact: true }),
+    });
     await expect.poll(() => dialog.getByRole("alert").textContent()).toContain("Inbox unavailable");
     await page.screenshot({ path: path.join(proofDir, "11-inbox-load-error.png") });
     await dialog.getByRole("button", { name: "Close", exact: true }).click();

@@ -156,6 +156,7 @@ export class PlatformClawControlUiAdapter {
         ></platformclaw-organization-join-prompt>`,
       )
       .catch(() => nothing);
+    const pageHelp = Promise.all([import("./page-help.ts"), loadPlatformClawLocale()]);
     if (identity.globalRole === "admin") {
       void import("./vm-administration.ts").catch(() => {
         // A stale deployment chunk must not break the upstream Control UI session.
@@ -169,17 +170,25 @@ export class PlatformClawControlUiAdapter {
           quickActions,
           html`<p class="muted" role="status">${t("platformClaw.quickActions.loading")}</p>`,
         ),
-      renderMainBanner: () => until(joinPrompt, nothing),
+      renderMainBanner: (routeId, routeLocation) => html`
+        ${until(joinPrompt, nothing)}
+        ${until(
+          pageHelp.then(
+            () => html`<platformclaw-page-help
+              .routeId=${routeId}
+              .pathname=${routeLocation?.pathname ?? this.location.pathname}
+              .search=${routeLocation?.search ?? this.location.search}
+            ></platformclaw-page-help>`,
+          ),
+          nothing,
+        )}
+      `,
       onLogout,
     };
     const enabledRouteIds = this.descriptor.enabledRoutes.filter(
       (routeId) => routeId !== "plugins" || identity.globalRole === "admin",
     ) as readonly RouteId[];
     const sidebarEntries = [
-      "route:usage",
-      "route:tasks",
-      "route:sessions",
-      "route:activity",
       "route:cron",
       "route:skills",
       "route:skill-workshop",

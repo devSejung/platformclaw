@@ -65,12 +65,12 @@ describe("sidebar preference persistence", () => {
     const gwUrl = expectedGatewayUrl("");
     saveSettings(
       makeSettings(gwUrl, {
-        sidebarEntries: ["route:tasks", "route:cron"],
+        sidebarEntries: ["route:apps", "route:cron"],
         textScale: 100,
       }),
     );
 
-    expect(loadSettings().sidebarEntries).toEqual(["route:tasks", "route:cron"]);
+    expect(loadSettings().sidebarEntries).toEqual(["route:apps", "route:cron"]);
     expect(loadSettings().navWidth).toBe(258);
 
     // Corrupt the persisted list; load falls back to the default pinned set.
@@ -79,7 +79,7 @@ describe("sidebar preference persistence", () => {
       string,
       unknown
     >;
-    persisted.sidebarEntries = "route:tasks";
+    persisted.sidebarEntries = "route:apps";
     persisted.navWidth = 220;
     localStorage.setItem(scopedKey, JSON.stringify(persisted));
 
@@ -97,12 +97,12 @@ describe("sidebar preference persistence", () => {
     const scopedKey = `openclaw.control.settings.v1:${gwUrl}`;
     const legacy = makeSettings(gwUrl) as unknown as Record<string, unknown>;
     delete legacy.sidebarEntries;
-    legacy.sidebarPinnedRoutes = ["usage", "tasks", "usage", "worktrees", 7];
+    legacy.sidebarPinnedRoutes = ["apps", "plugins", "apps", "worktrees", 7];
     localStorage.setItem(scopedKey, JSON.stringify(legacy));
 
-    expect(loadSettings().sidebarEntries).toEqual(["route:usage", "route:tasks"]);
+    expect(loadSettings().sidebarEntries).toEqual(["route:apps", "route:plugins"]);
     const migrated = JSON.parse(localStorage.getItem(scopedKey) ?? "{}") as Record<string, unknown>;
-    expect(migrated.sidebarEntries).toEqual(["route:usage", "route:tasks"]);
+    expect(migrated.sidebarEntries).toEqual(["route:apps", "route:plugins"]);
     expect(migrated).not.toHaveProperty("sidebarPinnedRoutes");
   });
 });

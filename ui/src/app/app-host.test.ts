@@ -499,7 +499,7 @@ describe("OpenClaw shell server preferences", () => {
   it("refreshes live navigation when a sidebar preference arrives from the gateway", () => {
     vi.stubGlobal("localStorage", createStorageMock());
     resetServerUiPrefsSync();
-    const sidebarEntries = ["route:usage", "session:agent:main:test"];
+    const sidebarEntries = ["route:cron", "session:agent:main:test"];
     const updateNavigation = vi.fn();
     const refreshTheme = vi.fn();
     const runtimeConfig = {

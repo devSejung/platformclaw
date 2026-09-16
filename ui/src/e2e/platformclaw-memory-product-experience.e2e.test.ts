@@ -276,7 +276,6 @@ async function createContext(params: {
           }),
         );
       }
-      localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
     },
     {
       appGatewayUrl: appSettingsUrl,
