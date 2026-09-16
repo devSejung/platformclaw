@@ -122,6 +122,14 @@ with valid YAML frontmatter, a `name` equal to the skill directory, and a
 non-empty `description`. The chosen version is written only into the temporary
 package; the workspace `SKILL.md` is unchanged.
 
+PlatformClaw does not treat SkillHub v0.2.16's built-in file-extension allowlist
+as a publication restriction. If the pinned CLI publish endpoint rejects a
+package **only** with `Disallowed file extension` warnings, the server retries
+the same authenticated package through SkillHub's warning-confirmable publish
+endpoint. This allows ordinary skill files with arbitrary extensions, including
+`.jsonl` and `.bin`. Any additional pre-publish warning remains unconfirmed and
+still blocks publication.
+
 ## Search and install a version
 
 1. Search **Skill Hub** on the same Skills page.
@@ -231,6 +239,8 @@ credentials.
 remain subject to scanning and visibility policy, so publishers must not place
 deploy-time credentials in them. Private keys, certificates, credential files,
 VCS state, runtime metadata, and dependency trees remain excluded or rejected.
+Those reserved security exclusions are separate from the removed upstream
+extension allowlist behavior.
 
 ## Catalog lifecycle
 

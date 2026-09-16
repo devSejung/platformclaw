@@ -92,6 +92,22 @@ type AdapterOptions = {
 const MAX_JSON_BYTES = 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const ARCHIVE_TRANSFER_TIMEOUT_MS = 10 * 60_000;
+const DISALLOWED_EXTENSION_WARNING_PREFIX = "Disallowed file extension: ";
+
+function isExtensionOnlyPublishWarning(error: unknown): error is SkillHubAdapterError {
+  if (!(error instanceof SkillHubAdapterError) || error.statusCode !== 400) {
+    return false;
+  }
+  const lines = error.message
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const warnings = lines.slice(1);
+  return (
+    warnings.length > 0 &&
+    warnings.every((warning) => warning.startsWith(`- ${DISALLOWED_EXTENSION_WARNING_PREFIX}`))
+  );
+}
 
 function normalizeBaseUrl(raw: string): URL {
   const url = new URL(raw);
@@ -340,56 +356,44 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     filename: string;
     visibility: SkillHubVisibility;
   }) {
-    let init: RequestInit;
-    if (!isSkillHubArchiveFile(params.archive)) {
-      const form = new FormData();
-      const archiveBytes = new Uint8Array(params.archive.byteLength);
-      archiveBytes.set(params.archive);
-      form.set("file", new Blob([archiveBytes]), params.filename);
-      form.set("visibility", params.visibility);
-      init = { method: "POST", body: form };
-    } else {
-      const archive = params.archive;
-      const boundary = `platformclaw-${randomBytes(18).toString("hex")}`;
-      const prefix = Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="visibility"\r\n\r\n${params.visibility}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${params.filename}"\r\nContent-Type: application/zip\r\n\r\n`,
-        "utf8",
-      );
-      const suffix = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
-      const body = Readable.toWeb(
-        Readable.from(
-          (async function* () {
-            yield prefix;
-            yield* createReadStream(archive.path);
-            yield suffix;
-          })(),
+    let data: Record<string, unknown>;
+    let confirmedExtensionWarnings = false;
+    try {
+      data = record(
+        apiData(
+          await this.jsonRequest(
+            this.url(`api/cli/v1/skills/${encodePath(params.namespace)}/publish`),
+            this.createPublishRequestInit(params.archive, params.filename, params.visibility),
+            ARCHIVE_TRANSFER_TIMEOUT_MS,
+          ),
         ),
+        "publish result",
       );
-      init = {
-        method: "POST",
-        body,
-        headers: {
-          "Content-Type": `multipart/form-data; boundary=${boundary}`,
-          "Content-Length": String(prefix.byteLength + archive.size + suffix.byteLength),
-        },
-        duplex: "half",
-      } as RequestInit;
+    } catch (error) {
+      if (!isExtensionOnlyPublishWarning(error)) {
+        throw error;
+      }
+      confirmedExtensionWarnings = true;
+      const confirmUrl = this.url(`api/v1/skills/${encodePath(params.namespace)}/publish`);
+      confirmUrl.searchParams.set("confirmWarnings", "true");
+      data = record(
+        apiData(
+          await this.jsonRequest(
+            confirmUrl,
+            this.createPublishRequestInit(params.archive, params.filename, params.visibility),
+            ARCHIVE_TRANSFER_TIMEOUT_MS,
+          ),
+        ),
+        "publish result",
+      );
     }
-    const data = record(
-      apiData(
-        await this.jsonRequest(
-          this.url(`api/cli/v1/skills/${encodePath(params.namespace)}/publish`),
-          init,
-          ARCHIVE_TRANSFER_TIMEOUT_MS,
-        ),
-      ),
-      "publish result",
-    );
     return {
       namespace: stringValue(data.namespace, "published namespace"),
       slug: stringValue(data.slug, "published slug"),
       version: stringValue(data.version, "published version"),
-      visibility: visibilityValue(data.visibility, "published visibility"),
+      visibility: confirmedExtensionWarnings
+        ? params.visibility
+        : visibilityValue(data.visibility, "published visibility"),
     };
   }
 
@@ -452,6 +456,46 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     }
     await this.ensureOk(response);
     return await readBounded(response, this.maxArchiveBytes);
+  }
+
+  private createPublishRequestInit(
+    archive: SkillHubPublishArchive,
+    filename: string,
+    visibility: SkillHubVisibility,
+  ): RequestInit {
+    if (!isSkillHubArchiveFile(archive)) {
+      const form = new FormData();
+      const archiveBytes = new Uint8Array(archive.byteLength);
+      archiveBytes.set(archive);
+      form.set("file", new Blob([archiveBytes]), filename);
+      form.set("visibility", visibility);
+      return { method: "POST", body: form };
+    }
+
+    const boundary = `platformclaw-${randomBytes(18).toString("hex")}`;
+    const prefix = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="visibility"\r\n\r\n${visibility}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: application/zip\r\n\r\n`,
+      "utf8",
+    );
+    const suffix = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
+    const body = Readable.toWeb(
+      Readable.from(
+        (async function* () {
+          yield prefix;
+          yield* createReadStream(archive.path);
+          yield suffix;
+        })(),
+      ),
+    );
+    return {
+      method: "POST",
+      body,
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": String(prefix.byteLength + archive.size + suffix.byteLength),
+      },
+      duplex: "half",
+    } as RequestInit;
   }
 
   private url(pathname: string): URL {
