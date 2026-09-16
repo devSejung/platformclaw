@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   canRunPlaywrightChromium,
@@ -62,6 +62,112 @@ const daily = [
   dailyEntry(-6, 9, 900_000),
   dailyEntry(0, 11, 1_100_000),
 ];
+
+const usageIdentityTraceKey = "__openclawUsageIdentityTrace";
+
+async function installUsageIdentityTrace(page: Page) {
+  await page.evaluate((traceKey) => {
+    type GatewayChange = {
+      initial: boolean;
+      sourceChanged: boolean;
+      clientChanged: boolean;
+      connectionChanged: boolean;
+      snapshot: { phase: string };
+    };
+    type UsageGateway = {
+      currentClient?: object | null;
+      currentGateway?: object | null;
+      options?: { onIdentityChange?: (change: GatewayChange) => void };
+    };
+    type UsagePage = HTMLElement & { gateway?: UsageGateway };
+    type TraceEntry = {
+      atMs: number;
+      change: Omit<GatewayChange, "snapshot"> & { phase: string };
+      current: { client: number | null; gateway: number | null };
+      previous: { client: number | null; gateway: number | null };
+    };
+
+    const usagePage = document.querySelector("openclaw-usage-page") as UsagePage | null;
+    const gateway = usagePage?.gateway;
+    const options = gateway?.options;
+    if (!usagePage || !gateway || !options) {
+      throw new Error("Usage identity trace could not access the Usage Gateway controller");
+    }
+
+    const original = options.onIdentityChange;
+    if (!original) {
+      throw new Error("Usage identity trace could not access onIdentityChange");
+    }
+
+    const ids = new WeakMap<object, number>();
+    let nextId = 1;
+    const identify = (value: object | null | undefined) => {
+      if (!value) {
+        return null;
+      }
+      const existing = ids.get(value);
+      if (existing !== undefined) {
+        return existing;
+      }
+      const id = nextId;
+      nextId += 1;
+      ids.set(value, id);
+      return id;
+    };
+    const snapshot = () => ({
+      client: identify(gateway.currentClient),
+      gateway: identify(gateway.currentGateway),
+    });
+    const entries: TraceEntry[] = [];
+    let previous = snapshot();
+    const wrapped = function (this: unknown, change: GatewayChange) {
+      const current = snapshot();
+      entries.push({
+        atMs: Math.round(performance.now()),
+        change: {
+          clientChanged: change.clientChanged,
+          connectionChanged: change.connectionChanged,
+          initial: change.initial,
+          phase: change.snapshot.phase,
+          sourceChanged: change.sourceChanged,
+        },
+        current,
+        previous,
+      });
+      if (entries.length > 12) {
+        entries.splice(0, entries.length - 12);
+      }
+      previous = current;
+      return original.call(this, change);
+    };
+    options.onIdentityChange = wrapped;
+    (globalThis as typeof globalThis & Record<string, unknown>)[traceKey] = {
+      entries,
+      dispose: () => {
+        if (options.onIdentityChange === wrapped) {
+          options.onIdentityChange = original;
+        }
+        delete (globalThis as typeof globalThis & Record<string, unknown>)[traceKey];
+      },
+    };
+  }, usageIdentityTraceKey);
+}
+
+async function disposeUsageIdentityTrace(page: Page, includeEntries = false) {
+  return await page.evaluate(
+    ({ traceKey, include }) => {
+      const probe = (
+        globalThis as typeof globalThis & {
+          [key: string]: { dispose?: () => void; entries?: unknown[] } | undefined;
+        }
+      )[traceKey];
+      const entries = include ? (probe?.entries ?? []) : [];
+      probe?.dispose?.();
+      return entries;
+    },
+    { include: includeEntries, traceKey: usageIdentityTraceKey },
+  );
+}
 
 describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => {
   beforeAll(async () => {
@@ -386,9 +492,12 @@ describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => 
       },
     });
 
+    let usageIdentityTraceInstalled = false;
     try {
       await page.goto(`${server.baseUrl}usage`);
       await page.locator(".daily-chart-compact").waitFor({ state: "visible", timeout: 10_000 });
+      await installUsageIdentityTrace(page);
+      usageIdentityTraceInstalled = true;
       const agentScope = page.locator(".agent-scope-control openclaw-agent-select");
       await agentScope.locator(".agent-select__trigger").click();
       await agentScope
@@ -463,8 +572,16 @@ describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => 
         .poll(() => providerCards.filter({ hasText: "Anthropic" }).textContent())
         .toContain("claude-opus-4-8");
 
-      await page.locator(".usage-query-input").fill("missing-session");
-      await page.locator(".usage-query-input").press("Enter");
+      try {
+        await page.locator(".usage-query-input").fill("missing-session");
+        await page.locator(".usage-query-input").press("Enter");
+      } catch (error) {
+        const trace = await disposeUsageIdentityTrace(page, true);
+        usageIdentityTraceInstalled = false;
+        throw new Error(`Usage query input failed with lifecycle trace: ${JSON.stringify(trace)}`, {
+          cause: error,
+        });
+      }
       const topProviders = page.locator(".usage-insight-card", { hasText: "Top Providers" });
       await expect.poll(() => topProviders.textContent()).toContain("No provider data");
       await expect.poll(() => topProviders.textContent()).not.toContain("openai");
@@ -482,6 +599,9 @@ describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => 
         });
       }
     } finally {
+      if (usageIdentityTraceInstalled) {
+        await disposeUsageIdentityTrace(page);
+      }
       await context.close();
     }
   });
