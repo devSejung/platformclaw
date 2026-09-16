@@ -96,7 +96,10 @@ describe("AppSidebar update card wiring", () => {
 
     const indicator = sidebar.querySelector("openclaw-settings-save-indicator");
     await (indicator as { updateComplete?: Promise<unknown> } | null)?.updateComplete;
-    expect(indicator?.textContent).toContain("Autosave failed");
+    const status = indicator?.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-label")).toContain("Autosave failed");
+    expect(status?.textContent).toContain("Save failed");
+    expect(status?.textContent).toContain("Retry");
     const footerBar = sidebar.querySelector(".sidebar-footer-bar");
     expect(footerBar).not.toBeNull();
     expect(
