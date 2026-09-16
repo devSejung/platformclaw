@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { AgentsListResult } from "../../api/types.ts";
 import { sessionRefFromPath } from "../../app-session-route-paths.ts";
-import { t } from "../../i18n/index.ts";
 import {
   clearSessionBoardAvailability,
   recordSessionBoardAvailability,
