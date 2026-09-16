@@ -1276,6 +1276,7 @@ export class ConfigPage extends OpenClawLightDomElement {
             <section class="content-header">
               <div>
                 <div class="page-title">${configPageTitle(this.pageId)}</div>
+                ${this.context.renderPageHeaderAccessory?.(this.pageId)}
               </div>
             </section>
           `}

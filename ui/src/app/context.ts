@@ -114,6 +114,8 @@ export type ApplicationContext<TRouteId extends string = string> = {
   readonly webPush: WebPushCapability;
   readonly skillWorkshopRevision: ApplicationSkillWorkshopRevisionHandoff;
   readonly initialUserMessage: ApplicationInitialUserMessageHandoff;
+  /** Product-owned control rendered by the page that owns its visible heading. */
+  readonly renderPageHeaderAccessory?: (routeId: TRouteId) => unknown;
   readonly navigate: (routeId: TRouteId, options?: ApplicationNavigationOptions) => void;
   readonly replace: (routeId: TRouteId, options?: ApplicationNavigationOptions) => void;
   readonly revalidate: (routeId?: TRouteId) => Promise<void>;

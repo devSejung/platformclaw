@@ -369,6 +369,7 @@ class TasksPage extends OpenClawLightDomElement {
       <section class="content-header content-header--page">
         <div>
           <div class="page-title">${titleForRoute("tasks")}</div>
+          ${this.context.renderPageHeaderAccessory?.("tasks")}
         </div>
         <div class="page-header-actions">
           ${renderAgentScopeControl({

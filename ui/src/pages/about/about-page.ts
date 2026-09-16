@@ -91,6 +91,7 @@ class AboutPage extends OpenClawLightDomElement {
       <section class="content-header">
         <div>
           <div class="page-title">${titleForRoute("about")}</div>
+          ${this.context.renderPageHeaderAccessory?.("about")}
         </div>
       </section>
       ${renderSettingsWorkspace(body)}

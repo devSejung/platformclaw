@@ -4,6 +4,7 @@ import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import { loadAllPlatformClawLocales, loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
+import "./page-help.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -158,6 +159,16 @@ export class PlatformClawControlUiAdapter {
       .catch(() => nothing);
     void Promise.all([import("./page-help.ts"), loadPlatformClawLocale()]).catch(() => undefined);
     const browserLocation = new URL(this.location.href);
+    const renderPageHelpTrigger = (
+      routeId: RouteId,
+      routeLocation?: { pathname: string; search: string },
+    ) => {
+      return html`<platformclaw-page-help-trigger
+        .routeId=${routeId}
+        .pathname=${routeLocation?.pathname ?? browserLocation.pathname}
+        .search=${routeLocation?.search ?? browserLocation.search}
+      ></platformclaw-page-help-trigger>`;
+    };
     if (identity.globalRole === "admin") {
       void import("./vm-administration.ts").catch(() => {
         // A stale deployment chunk must not break the upstream Control UI session.
@@ -172,7 +183,8 @@ export class PlatformClawControlUiAdapter {
           html`<p class="muted" role="status">${t("platformClaw.quickActions.loading")}</p>`,
         ),
       renderMainBanner: () => until(joinPrompt, nothing),
-      renderPageHeaderAccessory: (routeId, routeLocation) => html`
+      renderPageHeaderAccessory: renderPageHelpTrigger,
+      renderPageOverlay: (routeId, routeLocation) => html`
         <platformclaw-page-help
           .routeId=${routeId}
           .pathname=${routeLocation?.pathname ?? browserLocation.pathname}
@@ -210,6 +222,7 @@ export class PlatformClawControlUiAdapter {
                 <section class="content-header">
                   <div>
                     <div class="page-title">${t("platformClaw.execCredentials.pageTitle")}</div>
+                    ${renderPageHelpTrigger("credentials")}
                   </div>
                 </section>
                 <main class="platformclaw-credentials-page">
@@ -245,7 +258,10 @@ export class PlatformClawControlUiAdapter {
                     : "overview";
                 return html`
                   <section class="content-header">
-                    <div><div class="page-title">${t("tabs.memory")}</div></div>
+                    <div>
+                      <div class="page-title">${t("tabs.memory")}</div>
+                      ${renderPageHelpTrigger("memory")}
+                    </div>
                   </section>
                   ${agentId
                     ? html`<platformclaw-memory-page
@@ -272,6 +288,7 @@ export class PlatformClawControlUiAdapter {
                 <section class="content-header">
                   <div>
                     <div class="page-title">${t("platformClaw.organization.title")}</div>
+                    ${renderPageHelpTrigger("organization")}
                     <div class="page-subtitle">${t("platformClaw.organization.subtitle")}</div>
                   </div>
                 </section>
@@ -300,6 +317,7 @@ export class PlatformClawControlUiAdapter {
                   <section class="content-header">
                     <div>
                       <div class="page-title">${t("platformClaw.mcp.title")}</div>
+                      ${renderPageHelpTrigger("mcp")}
                     </div>
                   </section>
                   <main class="platformclaw-mcp-page">

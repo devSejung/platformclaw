@@ -374,6 +374,7 @@ class CronPage extends OpenClawLightDomElement {
       <section class="content-header">
         <div>
           <div class="page-title">${titleForRoute("cron")}</div>
+          ${this.context.renderPageHeaderAccessory?.("cron")}
         </div>
         ${this.context.accessMode === "personal-agent"
           ? nothing

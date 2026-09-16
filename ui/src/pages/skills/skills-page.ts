@@ -504,6 +504,7 @@ class SkillsPage extends OpenClawLightDomElement {
       header: html`<section class="content-header content-header--page plugins-content-header">
         <div>
           <h1 class="page-title">${titleForRoute("skills")}</h1>
+          ${this.context.renderPageHeaderAccessory?.("skills")}
         </div>
       </section>`,
       content: renderSettingsWorkspace(html`

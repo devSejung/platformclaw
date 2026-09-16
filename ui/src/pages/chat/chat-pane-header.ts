@@ -169,6 +169,7 @@ export abstract class ChatPaneHeader extends ChatPaneContext {
       mergedChrome: this.mergedChrome,
       navDrawerOpen: this.navDrawerOpen,
       title: this.paneTitle,
+      titleAccessory: this.context.renderPageHeaderAccessory?.("chat"),
       session: row,
       showOwnerChip:
         (

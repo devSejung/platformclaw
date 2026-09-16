@@ -985,6 +985,7 @@ class PluginsPage extends OpenClawLightDomElement {
       header: html`<section class="content-header content-header--page plugins-content-header">
         <div>
           <h1 class="page-title">${titleForRoute("plugins")}</h1>
+          ${this.context.renderPageHeaderAccessory?.("plugins")}
           <div class="page-subtitle">
             ${subtitleForRoute("plugins")}
             ${renderDocsLink(PLUGINS_DOCS_URL, t("common.learnMore"))}

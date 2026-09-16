@@ -1,4 +1,6 @@
+import { consume } from "@lit/context";
 import { state } from "lit/decorators.js";
+import { applicationContext, type ApplicationContext } from "../../app/context.ts";
 import { t } from "../../i18n/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import {
@@ -15,6 +17,8 @@ import {
 import type { SkillHubAdminAction, SkillHubAdminDraft } from "./admin.ts";
 
 export abstract class SkillHubAdminController extends OpenClawLightDomElement {
+  @consume({ context: applicationContext, subscribe: true })
+  protected context!: ApplicationContext;
   @state() protected error: string | null = null;
   @state() protected message: PlatformClawSkillHubMessage | null = null;
   @state() protected adminOpen = false;

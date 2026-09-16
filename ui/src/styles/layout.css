@@ -1269,7 +1269,6 @@ html.openclaw-native-macos
    between customizable pages and the live Threads list. */
 .sidebar-memory-nav {
   margin-top: 8px;
-  padding: 0 8px;
 }
 
 .sidebar-sessions {
@@ -3917,6 +3916,10 @@ html:not(.openclaw-native-macos):not(.openclaw-native-nav):not(.openclaw-native-
   letter-spacing: -0.03em;
   line-height: 1.2;
   color: var(--accent);
+}
+
+.page-title:has(+ platformclaw-page-help-trigger) {
+  display: inline-block;
 }
 
 .page-subtitle {

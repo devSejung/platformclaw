@@ -263,7 +263,30 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect.poll(() => appSidebar.isVisible()).toBe(true);
     await expect.poll(() => page.locator(".settings-sidebar").count()).toBe(0);
     await expect.poll(() => page.locator(".page-title").textContent()).toBe("Memory");
-    await expect.poll(() => page.locator("platformclaw-page-help").count()).toBe(1);
+    await expect
+      .poll(() => page.locator(".page-title + platformclaw-page-help-trigger").count())
+      .toBe(1);
+    await expect
+      .poll(() =>
+        appSidebar.evaluate((sidebar) => {
+          const coordinates = (selector: string) => {
+            const link = sidebar.querySelector<HTMLElement>(selector);
+            return [
+              link?.getBoundingClientRect().x,
+              link?.querySelector(".nav-item__icon")?.getBoundingClientRect().x,
+              link?.querySelector(".nav-item__text")?.getBoundingClientRect().x,
+            ];
+          };
+          return {
+            memory: coordinates(".sidebar-memory-nav .nav-item"),
+            page: coordinates(".sidebar-nav .nav-item"),
+            threadsMargin: getComputedStyle(
+              sidebar.querySelector<HTMLElement>(".sidebar-recent-sessions")!,
+            ).marginLeft,
+          };
+        }),
+      )
+      .toEqual({ memory: [10, 20, 44], page: [10, 20, 44], threadsMargin: "-8px" });
     if (captureUiProofEnabled) {
       await page.screenshot({
         animations: "disabled",
@@ -339,7 +362,9 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     expect(await settingsSidebar.getByRole("link", { name: "Memory", exact: true }).count()).toBe(
       0,
     );
-    await expect.poll(() => page.locator("platformclaw-page-help").count()).toBe(1);
+    await expect
+      .poll(() => page.locator(".page-title + platformclaw-page-help-trigger").count())
+      .toBe(1);
     await expect.poll(() => page.locator(".page-title").textContent()).toBe("Usage");
     if (captureUiProofEnabled) {
       await page.screenshot({

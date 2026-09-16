@@ -1529,6 +1529,7 @@ class SessionsPage extends OpenClawLightDomElement {
       ${renderSessionsHubHeader({
         active: "sessions",
         title: titleForRoute("sessions"),
+        titleAccessory: context.renderPageHeaderAccessory?.("sessions"),
         subtitle: html`${subtitleForRoute("sessions")}
         ${renderDocsLink(SESSIONS_DOCS_URL, t("common.learnMore"))}`,
         actions: renderAgentScopeControl({

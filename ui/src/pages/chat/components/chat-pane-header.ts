@@ -30,6 +30,7 @@ type ChatPaneHeaderProps = {
   mergedChrome: boolean;
   navDrawerOpen?: boolean;
   title: string;
+  titleAccessory?: unknown;
   session: GatewaySessionRow | undefined;
   showOwnerChip?: boolean;
   catalog: boolean;
@@ -314,6 +315,7 @@ export function renderChatPaneHeader(props: ChatPaneHeaderProps) {
             >
               ${props.title}
             </button>`}
+      ${props.titleAccessory ?? nothing}
       ${renderSessionOwnerChip(
         props.showOwnerChip ? props.session?.createdActor : undefined,
         "header",

@@ -18,6 +18,7 @@ export function renderUsagePageShell(
     <section class="content-header content-header--page">
       <div>
         <div class="page-title">${titleForRoute("usage")}</div>
+        ${context.renderPageHeaderAccessory?.("usage")}
       </div>
       ${renderAgentScopeControl({
         agents: context.agents.state.agentsList?.agents ?? [],

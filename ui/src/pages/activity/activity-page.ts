@@ -208,6 +208,7 @@ class ActivityPage extends OpenClawLightDomElement {
       <section class="content-header">
         <div>
           <div class="page-title">${titleForRoute("activity")}</div>
+          ${this.context.renderPageHeaderAccessory?.("activity")}
         </div>
       </section>
       ${renderSettingsWorkspace(body, { fillHeight: true })}
