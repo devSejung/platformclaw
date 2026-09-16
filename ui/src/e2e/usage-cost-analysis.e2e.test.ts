@@ -63,112 +63,170 @@ const daily = [
   dailyEntry(0, 11, 1_100_000),
 ];
 
-const usageIdentityTraceKey = "__openclawUsageIdentityTrace";
+const usageLifecycleTraceKey = "__openclawUsageLifecycleTrace";
 
-async function installUsageIdentityTrace(page: Page) {
+async function installUsageLifecycleTrace(page: Page) {
   await page.evaluate((traceKey) => {
     type GatewayChange = {
-      initial: boolean;
-      sourceChanged: boolean;
+      becameConnected: boolean;
       clientChanged: boolean;
       connectionChanged: boolean;
+      initial: boolean;
       snapshot: { phase: string };
+      sourceChanged: boolean;
     };
     type UsageGateway = {
       currentClient?: object | null;
-      currentGateway?: object | null;
-      options?: { onIdentityChange?: (change: GatewayChange) => void };
+      currentSnapshot?: { phase?: string } | null;
+      options?: {
+        invalidateRequests?: (change: GatewayChange) => void;
+        onSnapshot?: (change: GatewayChange) => void;
+      };
     };
-    type UsagePage = HTMLElement & { gateway?: UsageGateway };
-    type TraceEntry = {
-      atMs: number;
-      change: Omit<GatewayChange, "snapshot"> & { phase: string };
-      current: { client: number | null; gateway: number | null };
-      previous: { client: number | null; gateway: number | null };
+    type UsagePage = HTMLElement & {
+      disconnectedCallback?: (...args: unknown[]) => unknown;
+      gateway?: UsageGateway;
+      routeData?: { result?: { totals?: unknown } | null } | undefined;
+      routeDataEnabled?: boolean;
+      routeDataInitialized?: boolean;
+      usageLoading?: boolean;
+      usageResult?: { totals?: unknown } | null;
+      usageTaskActiveClient?: object | null;
+      willUpdate?: (...args: unknown[]) => unknown;
     };
 
     const usagePage = document.querySelector("openclaw-usage-page") as UsagePage | null;
     const gateway = usagePage?.gateway;
     const options = gateway?.options;
-    if (!usagePage || !gateway || !options) {
-      throw new Error("Usage identity trace could not access the Usage Gateway controller");
+    const parent = usagePage?.parentElement;
+    if (!usagePage || !gateway || !options || !parent) {
+      throw new Error("Usage lifecycle trace could not access the Usage page controller");
     }
-
-    const original = options.onIdentityChange;
-    if (!original) {
-      throw new Error("Usage identity trace could not access onIdentityChange");
+    if (
+      !options.onSnapshot ||
+      !options.invalidateRequests ||
+      !usagePage.willUpdate ||
+      !usagePage.disconnectedCallback
+    ) {
+      throw new Error("Usage lifecycle trace could not access lifecycle callbacks");
     }
 
     const ids = new WeakMap<object, number>();
     let nextId = 1;
     const identify = (value: object | null | undefined) => {
-      if (!value) {
-        return null;
-      }
+      if (!value) return null;
       const existing = ids.get(value);
-      if (existing !== undefined) {
-        return existing;
-      }
-      const id = nextId;
-      nextId += 1;
+      if (existing !== undefined) return existing;
+      const id = nextId++;
       ids.set(value, id);
       return id;
     };
     const snapshot = () => ({
-      client: identify(gateway.currentClient),
-      gateway: identify(gateway.currentGateway),
+      activeClient: identify(usagePage.usageTaskActiveClient),
+      gatewayClient: identify(gateway.currentClient),
+      gatewayPhase: gateway.currentSnapshot?.phase ?? null,
+      hasResult: Boolean(usagePage.usageResult),
+      hasTotals: Boolean(usagePage.usageResult?.totals),
+      hostConnected: usagePage.isConnected,
+      hostId: identify(usagePage),
+      inputConnected: Boolean(usagePage.querySelector(".usage-query-input")?.isConnected),
+      loading: Boolean(usagePage.usageLoading),
+      routeDataEnabled: Boolean(usagePage.routeDataEnabled),
+      routeDataInitialized: Boolean(usagePage.routeDataInitialized),
+      routeResult: Boolean(usagePage.routeData?.result),
+      routeTotals: Boolean(usagePage.routeData?.result?.totals),
     });
-    const entries: TraceEntry[] = [];
-    let previous = snapshot();
-    const wrapped = function (this: unknown, change: GatewayChange) {
-      const current = snapshot();
-      entries.push({
-        atMs: Math.round(performance.now()),
-        change: {
-          clientChanged: change.clientChanged,
-          connectionChanged: change.connectionChanged,
-          initial: change.initial,
-          phase: change.snapshot.phase,
-          sourceChanged: change.sourceChanged,
-        },
-        current,
-        previous,
-      });
-      if (entries.length > 12) {
-        entries.splice(0, entries.length - 12);
-      }
-      previous = current;
-      return original.call(this, change);
+    const entries: Array<Record<string, unknown>> = [];
+    const record = (event: string, extra: Record<string, unknown> = {}) => {
+      entries.push({ atMs: Math.round(performance.now()), event, ...snapshot(), ...extra });
+      if (entries.length > 20) entries.splice(0, entries.length - 20);
     };
-    options.onIdentityChange = wrapped;
+
+    const originalSnapshot = options.onSnapshot!;
+    const originalInvalidate = options.invalidateRequests!;
+    const originalWillUpdate = usagePage.willUpdate!;
+    const originalDisconnected = usagePage.disconnectedCallback!;
+    const ownWillUpdate = Object.getOwnPropertyDescriptor(usagePage, "willUpdate");
+    const ownDisconnected = Object.getOwnPropertyDescriptor(usagePage, "disconnectedCallback");
+    const onSnapshot = function (this: unknown, change: GatewayChange) {
+      record("gateway-snapshot", {
+        becameConnected: change.becameConnected,
+        clientChanged: change.clientChanged,
+        connectionChanged: change.connectionChanged,
+        initial: change.initial,
+        phase: change.snapshot.phase,
+        sourceChanged: change.sourceChanged,
+      });
+      return originalSnapshot.call(this, change);
+    };
+    const invalidateRequests = function (this: unknown, change: GatewayChange) {
+      record("gateway-invalidate", {
+        connectionChanged: change.connectionChanged,
+        phase: change.snapshot.phase,
+      });
+      return originalInvalidate.call(this, change);
+    };
+    const willUpdate = function (this: unknown, ...args: unknown[]) {
+      const changed = args[0] instanceof Map ? Array.from(args[0].keys()).map(String) : [];
+      record("will-update-before", { changed });
+      const result = originalWillUpdate.apply(this, args);
+      record("will-update-after", { changed });
+      return result;
+    };
+    const disconnected = function (this: unknown, ...args: unknown[]) {
+      record("usage-disconnected");
+      return originalDisconnected.apply(this, args);
+    };
+    const observer = new MutationObserver(() => {
+      const state = snapshot();
+      if (!state.hostConnected || !state.inputConnected) record("parent-mutation");
+    });
+    options.onSnapshot = onSnapshot;
+    options.invalidateRequests = invalidateRequests;
+    Object.defineProperty(usagePage, "willUpdate", { configurable: true, value: willUpdate });
+    Object.defineProperty(usagePage, "disconnectedCallback", {
+      configurable: true,
+      value: disconnected,
+    });
+    observer.observe(parent, { childList: true, subtree: true });
     (globalThis as typeof globalThis & Record<string, unknown>)[traceKey] = {
-      entries,
       dispose: () => {
-        if (options.onIdentityChange === wrapped) {
-          options.onIdentityChange = original;
-        }
+        observer.disconnect();
+        if (options.onSnapshot === onSnapshot) options.onSnapshot = originalSnapshot;
+        if (options.invalidateRequests === invalidateRequests)
+          options.invalidateRequests = originalInvalidate;
+        if (ownWillUpdate) Object.defineProperty(usagePage, "willUpdate", ownWillUpdate);
+        else delete usagePage.willUpdate;
+        if (ownDisconnected)
+          Object.defineProperty(usagePage, "disconnectedCallback", ownDisconnected);
+        else delete usagePage.disconnectedCallback;
         delete (globalThis as typeof globalThis & Record<string, unknown>)[traceKey];
       },
+      entries,
+      snapshot,
     };
-  }, usageIdentityTraceKey);
+  }, usageLifecycleTraceKey);
 }
 
-async function disposeUsageIdentityTrace(page: Page, includeEntries = false) {
+async function disposeUsageLifecycleTrace(page: Page, includeTrace = false) {
   return await page.evaluate(
     ({ traceKey, include }) => {
       const probe = (
         globalThis as typeof globalThis & {
-          [key: string]: { dispose?: () => void; entries?: unknown[] } | undefined;
+          [key: string]:
+            | { dispose?: () => void; entries?: unknown[]; snapshot?: () => unknown }
+            | undefined;
         }
       )[traceKey];
-      const entries = include ? (probe?.entries ?? []) : [];
+      const trace = include
+        ? { entries: probe?.entries ?? [], failure: probe?.snapshot?.() ?? null }
+        : null;
       probe?.dispose?.();
-      return entries;
+      return trace;
     },
-    { include: includeEntries, traceKey: usageIdentityTraceKey },
+    { include: includeTrace, traceKey: usageLifecycleTraceKey },
   );
 }
-
 describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => {
   beforeAll(async () => {
     if (!chromiumAvailable) {
@@ -492,12 +550,12 @@ describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => 
       },
     });
 
-    let usageIdentityTraceInstalled = false;
+    let usageLifecycleTraceInstalled = false;
     try {
       await page.goto(`${server.baseUrl}usage`);
       await page.locator(".daily-chart-compact").waitFor({ state: "visible", timeout: 10_000 });
-      await installUsageIdentityTrace(page);
-      usageIdentityTraceInstalled = true;
+      await installUsageLifecycleTrace(page);
+      usageLifecycleTraceInstalled = true;
       const agentScope = page.locator(".agent-scope-control openclaw-agent-select");
       await agentScope.locator(".agent-select__trigger").click();
       await agentScope
@@ -576,8 +634,8 @@ describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => 
         await page.locator(".usage-query-input").fill("missing-session");
         await page.locator(".usage-query-input").press("Enter");
       } catch (error) {
-        const trace = await disposeUsageIdentityTrace(page, true);
-        usageIdentityTraceInstalled = false;
+        const trace = await disposeUsageLifecycleTrace(page, true);
+        usageLifecycleTraceInstalled = false;
         throw new Error(`Usage query input failed with lifecycle trace: ${JSON.stringify(trace)}`, {
           cause: error,
         });
@@ -599,8 +657,8 @@ describeControlUiE2e("Control UI usage cost analysis mocked Gateway E2E", () => 
         });
       }
     } finally {
-      if (usageIdentityTraceInstalled) {
-        await disposeUsageIdentityTrace(page);
+      if (usageLifecycleTraceInstalled) {
+        await disposeUsageLifecycleTrace(page);
       }
       await context.close();
     }
