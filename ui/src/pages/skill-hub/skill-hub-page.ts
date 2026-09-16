@@ -552,7 +552,7 @@ class SkillHubPage extends SkillHubAdminController {
       header: html`<section class="content-header content-header--page plugins-content-header">
         <div>
           <h1 class="page-title">${titleForRoute("skill-hub")}</h1>
-          ${this.context.renderPageHeaderAccessory?.("skill-hub")}
+          ${this.context?.renderPageHeaderAccessory?.("skill-hub")}
           <div class="page-subtitle">${t("subtitles.skillHub")}</div>
         </div>
         <div class="skill-hub-header-actions">
