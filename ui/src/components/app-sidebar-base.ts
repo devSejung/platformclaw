@@ -22,6 +22,7 @@ import { parseAgentSessionKey } from "../lib/sessions/session-key.ts";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
 import type { NewSessionTarget } from "../pages/new-session/location.ts";
 import type { SidebarWorkboardBoard, SidebarWorkboardRenderers } from "./app-sidebar-workboard.ts";
+import type { SettingsSaveIndicatorProps } from "./settings-save-indicator.ts";
 
 /** Stable custom-element inputs. Behavior is layered in focused sidebar modules. */
 export abstract class AppSidebarBase extends OpenClawLightDomContentsElement {
@@ -66,6 +67,7 @@ export abstract class AppSidebarBase extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) accountPrimaryLabel = "";
   @property({ attribute: false }) accountSecondaryLabel = "";
   @property({ attribute: false }) renderAccountFooterAccessory?: () => unknown;
+  @property({ attribute: false }) saveIndicator?: SettingsSaveIndicatorProps;
   @property({ attribute: false }) onLogout?: () => Promise<void>;
   @property({ attribute: false })
   onNavigate?: (routeId: NavigationRouteId, options?: ApplicationNavigationOptions) => void;

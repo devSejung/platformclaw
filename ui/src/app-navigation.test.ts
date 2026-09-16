@@ -137,6 +137,7 @@ const ALL_ROUTES: RouteId[] = Array.from(
     "skill-hub",
     // Hub tabs and settings subpages route without their own nav entry.
     "worktrees",
+    "memory",
     "memory-import",
     "ai-agents",
     "model-setup",
@@ -163,8 +164,11 @@ const SETTINGS_ROUTE_PATHS = [
     path: "/settings/infrastructure",
     alias: "/infrastructure",
   },
-  { routeId: "worktrees", path: "/worktrees", alias: "/settings/worktrees" },
-  { routeId: "sessions", path: "/sessions", alias: "/settings/sessions" },
+  { routeId: "worktrees", path: "/settings/worktrees", alias: "/worktrees" },
+  { routeId: "sessions", path: "/settings/sessions", alias: "/sessions" },
+  { routeId: "usage", path: "/settings/usage", alias: "/usage" },
+  { routeId: "tasks", path: "/settings/tasks", alias: "/tasks" },
+  { routeId: "activity", path: "/settings/activity", alias: "/activity" },
   { routeId: "nodes", path: "/settings/devices", alias: "/nodes" },
   { routeId: "cron", path: "/automations", alias: "/cron" },
   { routeId: "agents", path: "/settings/agents", alias: "/agents" },
@@ -442,7 +446,7 @@ describe("pathForRoute", () => {
 
   it("prepends base path", () => {
     expect(pathForRoute("chat", "/ui")).toBe("/ui/chat");
-    expect(pathForRoute("sessions", "/apps/openclaw")).toBe("/apps/openclaw/sessions");
+    expect(pathForRoute("sessions", "/apps/openclaw")).toBe("/apps/openclaw/settings/sessions");
   });
 });
 
@@ -831,11 +835,14 @@ describe("SIDEBAR_NAV_ROUTES", () => {
       "communications",
       "talk",
       "nodes",
+      "usage",
+      "tasks",
+      "sessions",
+      "activity",
       "agents",
       "labs",
       "model-providers",
       "mcp",
-      "memory",
       "organization",
       "automation",
       "security",
@@ -859,6 +866,12 @@ describe("SIDEBAR_NAV_ROUTES", () => {
       "credentials",
       "appearance",
       "notifications",
+    ]);
+    expect(SETTINGS_NAVIGATION_GROUPS[2]?.routes).toEqual([
+      "usage",
+      "tasks",
+      "sessions",
+      "activity",
     ]);
     for (const group of SETTINGS_NAVIGATION_GROUPS.slice(1)) {
       expect(group.labelKey).toBeTruthy();

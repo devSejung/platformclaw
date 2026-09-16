@@ -12,6 +12,7 @@ import {
   settingsNavigationOwnerRoute,
   sidebarMoreRoutes,
 } from "./app-navigation.ts";
+import { pathForRoute } from "./app-route-paths.ts";
 
 const settingsRoutes = SETTINGS_NAVIGATION_GROUPS.flatMap((group) => group.routes);
 
@@ -22,15 +23,20 @@ describe("sidebar entries", () => {
   });
 
   it("drops retired routes from persisted entries", () => {
-    expect(normalizeSidebarEntries(["route:overview", "route:usage"])).toEqual(["route:usage"]);
+    expect(normalizeSidebarEntries(["route:overview", "route:usage"])).toEqual([]);
   });
 
-  it("keeps management surfaces in the workspace, not settings", () => {
-    for (const routeId of ["sessions", "activity"] as const) {
-      expect(SIDEBAR_NAV_ROUTES).toContain(routeId);
-      expect(settingsRoutes).not.toContain(routeId);
+  it("keeps Memory with workspace sessions and operational history in Settings", () => {
+    expect(SIDEBAR_NAV_ROUTES).not.toContain("memory");
+    expect(settingsRoutes).not.toContain("memory");
+    expect(isSettingsNavigationRoute("memory")).toBe(false);
+    expect(pathForRoute("memory")).toBe("/settings/memory");
+    for (const routeId of ["usage", "tasks", "sessions", "activity"] as const) {
+      expect(SIDEBAR_NAV_ROUTES).not.toContain(routeId);
+      expect(settingsRoutes).toContain(routeId);
     }
-    expect(settingsRoutes).not.toContain("worktrees");
+    expect(isSettingsNavigationRoute("worktrees")).toBe(true);
+    expect(settingsNavigationOwnerRoute("worktrees")).toBe("sessions");
     expect(settingsRoutes).not.toContain("memory-import");
   });
 
@@ -39,7 +45,7 @@ describe("sidebar entries", () => {
     expect(isSessionsHubRoute("sessions")).toBe(true);
     expect(isSessionsHubRoute("worktrees")).toBe(true);
     expect(isSessionsHubRoute("chat")).toBe(false);
-    expect(normalizeSidebarEntries(["route:worktrees", "route:usage"])).toEqual(["route:usage"]);
+    expect(normalizeSidebarEntries(["route:worktrees", "route:usage"])).toEqual([]);
   });
 
   it("keeps settings pages out of the customizable sidebar", () => {
@@ -71,7 +77,7 @@ describe("sidebar entries", () => {
   it("keeps devices in connection settings and drops stale pinned entries", () => {
     expect(SIDEBAR_NAV_ROUTES).not.toContain("nodes");
     expect(settingsRoutes).toContain("nodes");
-    expect(normalizeSidebarEntries(["route:nodes", "route:usage"])).toEqual(["route:usage"]);
+    expect(normalizeSidebarEntries(["route:nodes", "route:cron"])).toEqual(["route:cron"]);
   });
 
   it("keeps the apps promo page unpinned by default but customizable", () => {
@@ -85,14 +91,13 @@ describe("sidebar entries", () => {
   it("keeps the plugin manager in customizable workspace routes", () => {
     expect(normalizeSidebarEntries(["route:plugins", "route:usage", "route:plugins"])).toEqual([
       "route:plugins",
-      "route:usage",
     ]);
-    expect(sidebarMoreRoutes(["route:usage", "session:agent:main:test"])).toContain("plugins");
+    expect(sidebarMoreRoutes(["route:cron", "session:agent:main:test"])).toContain("plugins");
     expect(settingsRoutes).not.toContain("plugins");
   });
 
   it("round-trips route, Workboard, and session entries", () => {
-    expect(parseSidebarEntry("route:usage")).toEqual({ type: "route", route: "usage" });
+    expect(parseSidebarEntry("route:plugins")).toEqual({ type: "route", route: "plugins" });
     expect(parseSidebarEntry("session:agent:main:test")).toEqual({
       type: "session",
       key: "agent:main:test",
@@ -108,16 +113,16 @@ describe("sidebar entries", () => {
   it("normalizes persisted entries, dropping malformed and duplicate values", () => {
     expect(
       normalizeSidebarEntries([
-        "route:usage",
+        "route:plugins",
         "session:agent:main:test",
-        "route:tasks",
-        "route:usage",
+        "route:cron",
+        "route:plugins",
         "route:worktrees",
         "session:",
         "usage",
         7,
       ]),
-    ).toEqual(["route:usage", "session:agent:main:test", "route:tasks"]);
+    ).toEqual(["route:plugins", "session:agent:main:test", "route:cron"]);
     expect(normalizeSidebarEntries([])).toEqual([]);
   });
 
@@ -125,7 +130,9 @@ describe("sidebar entries", () => {
     expect(SIDEBAR_NAV_ROUTES).not.toContain("custodian");
     expect(settingsRoutes).toContain("custodian");
     expect(isSettingsNavigationRoute("custodian")).toBe(true);
-    expect(normalizeSidebarEntries(["route:custodian", "route:usage"])).toEqual(["route:usage"]);
+    expect(normalizeSidebarEntries(["route:custodian", "route:plugins"])).toEqual([
+      "route:plugins",
+    ]);
   });
 
   it("falls back to null for non-list values so callers use defaults", () => {
@@ -135,10 +142,10 @@ describe("sidebar entries", () => {
   });
 
   it("puts every hidden nav route into the More section", () => {
-    const entries = ["route:tasks", "session:agent:main:test", "route:usage"] as const;
+    const entries = ["route:cron", "session:agent:main:test", "route:plugins"] as const;
     const more = sidebarMoreRoutes(entries);
-    expect(more).not.toContain("tasks");
-    expect(more).not.toContain("usage");
-    expect(new Set(["tasks", "usage", ...more])).toEqual(new Set(SIDEBAR_NAV_ROUTES));
+    expect(more).not.toContain("cron");
+    expect(more).not.toContain("plugins");
+    expect(new Set(["cron", "plugins", ...more])).toEqual(new Set(SIDEBAR_NAV_ROUTES));
   });
 });

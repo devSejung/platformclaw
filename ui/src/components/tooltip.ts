@@ -356,7 +356,8 @@ class Tooltip extends OpenClawLitElement {
     this.suppressPointerFocus = false;
   };
   private readonly handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && this.webAwesomeTooltip?.open) {
+      event.stopPropagation();
       this.close();
     }
   };

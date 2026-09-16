@@ -188,6 +188,22 @@ export function renderApplicationShell(host: ShellViewHost) {
   const inlineApproval = isSessionRouteId(activeRoute)
     ? findInlineApproval(overlaySnapshot.approvalQueue, host.activeSessionKey)
     : null;
+  const saveIndicator = {
+    status: runtimeConfig.configAutoSaveStatus,
+    lastError: runtimeConfig.lastError,
+    needsApply: runtimeConfig.configNeedsApply,
+    applying: runtimeConfig.configApplying,
+    applyDisabled:
+      context.runtimeConfig.canApply === false ||
+      runtimeConfig.configLoading ||
+      runtimeConfig.configSaving ||
+      (runtimeConfig.configFormDirty && runtimeConfig.configFormMode === "raw") ||
+      overlaySnapshot.updateRunning ||
+      overlaySnapshot.updateReconciliationPending,
+    onRetry: () => void context.runtimeConfig.save(),
+    onReload: () => void context.runtimeConfig.discardDraft(),
+    onApply: () => void context.runtimeConfig.apply(),
+  };
   if (!settingsTakeover) {
     Object.assign(host.navigationSidebar, {
       basePath: context.basePath,
@@ -233,6 +249,7 @@ export function renderApplicationShell(host: ShellViewHost) {
       accountPrimaryLabel: runtime.shellSession?.primaryLabel ?? "",
       accountSecondaryLabel: runtime.shellSession?.secondaryLabel ?? "",
       renderAccountFooterAccessory: runtime.shellSession?.renderFooterAccessory,
+      saveIndicator: activeRoute === "memory" ? saveIndicator : undefined,
       onLogout: runtime.shellSession?.onLogout,
     });
   }
@@ -263,22 +280,7 @@ export function renderApplicationShell(host: ShellViewHost) {
         },
         renderFooterAccessory: runtime.shellSession?.renderFooterAccessory,
         preloadTimers: host.settingsPreloadTimers,
-        saveIndicator: {
-          status: runtimeConfig.configAutoSaveStatus,
-          lastError: runtimeConfig.lastError,
-          needsApply: runtimeConfig.configNeedsApply,
-          applying: runtimeConfig.configApplying,
-          applyDisabled:
-            context.runtimeConfig.canApply === false ||
-            runtimeConfig.configLoading ||
-            runtimeConfig.configSaving ||
-            (runtimeConfig.configFormDirty && runtimeConfig.configFormMode === "raw") ||
-            overlaySnapshot.updateRunning ||
-            overlaySnapshot.updateReconciliationPending,
-          onRetry: () => void context.runtimeConfig.save(),
-          onReload: () => void context.runtimeConfig.discardDraft(),
-          onApply: () => void context.runtimeConfig.apply(),
-        },
+        saveIndicator,
         navigationCopy: runtime.navigationCopy,
       })
     : host.navigationSidebar;
@@ -450,12 +452,17 @@ export function renderApplicationShell(host: ShellViewHost) {
           updateRunning: overlaySnapshot.updateRunning,
           onUpdate: () => void context.overlays.runUpdate(),
         })}
-        ${runtime.shellSession?.renderMainBanner?.() ?? nothing}
+        ${runtime.shellSession?.renderMainBanner?.(activeRoute, host.routeState.location) ??
+        nothing}
         <openclaw-router-outlet
           .router=${runtime.router}
           .retryContext=${context}
           .onNotFound=${() => host.replaceChatWithCurrentSession()}
         ></openclaw-router-outlet>
+        ${runtime.shellSession?.renderPageHeaderAccessory?.(
+          activeRoute,
+          host.routeState.location,
+        ) ?? nothing}
       </main>
       <openclaw-terminal-panel
         .client=${gatewayConnected ? gatewaySnapshot.client : null}

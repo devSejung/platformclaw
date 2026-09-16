@@ -5,18 +5,18 @@ import { reconcileSidebarZone } from "./sidebar-zone.ts";
 describe("reconcileSidebarZone", () => {
   it("preserves route and pinned-session interleaving", () => {
     const result = reconcileSidebarZone(
-      ["route:usage", "session:agent:main:alpha", "route:plugins"],
+      ["route:cron", "session:agent:main:alpha", "route:plugins"],
       [{ key: "agent:main:alpha" }],
       SIDEBAR_NAV_ROUTES,
     );
 
     expect(result.entries).toEqual([
-      { type: "route", route: "usage" },
+      { type: "route", route: "cron" },
       { type: "session", key: "agent:main:alpha" },
       { type: "route", route: "plugins" },
     ]);
     expect(result.sidebarEntries).toEqual([
-      "route:usage",
+      "route:cron",
       "session:agent:main:alpha",
       "route:plugins",
     ]);
@@ -24,14 +24,14 @@ describe("reconcileSidebarZone", () => {
 
   it("prunes known-unpinned sessions and appends server-pinned sessions", () => {
     const result = reconcileSidebarZone(
-      ["session:agent:main:stale", "route:usage", "session:agent:main:alpha"],
+      ["session:agent:main:stale", "route:cron", "session:agent:main:alpha"],
       [{ key: "agent:main:alpha" }, { key: "agent:main:beta" }],
       SIDEBAR_NAV_ROUTES,
       new Set(["agent:main:stale"]),
     );
 
     expect(result.sidebarEntries).toEqual([
-      "route:usage",
+      "route:cron",
       "session:agent:main:alpha",
       "session:agent:main:beta",
     ]);
@@ -41,27 +41,27 @@ describe("reconcileSidebarZone", () => {
     // agent-b's pinned session is not loaded in this view; its slot must
     // survive a canonical write or synced prefs lose cross-agent order.
     const result = reconcileSidebarZone(
-      ["session:agent:b:remote", "route:usage", "session:agent:main:alpha"],
+      ["session:agent:b:remote", "route:cron", "session:agent:main:alpha"],
       [{ key: "agent:main:alpha" }],
       SIDEBAR_NAV_ROUTES,
       new Set(["agent:main:other"]),
     );
 
     expect(result.entries).toEqual([
-      { type: "route", route: "usage" },
+      { type: "route", route: "cron" },
       { type: "session", key: "agent:main:alpha" },
     ]);
     expect(result.sidebarEntries).toEqual([
       "session:agent:b:remote",
-      "route:usage",
+      "route:cron",
       "session:agent:main:alpha",
     ]);
   });
 
   it("drops routes outside the supplied valid route set", () => {
     expect(
-      reconcileSidebarZone(["route:usage", "route:plugins"], [], ["usage"]).sidebarEntries,
-    ).toEqual(["route:usage"]);
+      reconcileSidebarZone(["route:cron", "route:plugins"], [], ["cron"]).sidebarEntries,
+    ).toEqual(["route:cron"]);
   });
 
   it("keeps active Workboard boards and drops stale or plugin-off pins", () => {
@@ -71,7 +71,7 @@ describe("reconcileSidebarZone", () => {
     ];
     expect(
       reconcileSidebarZone(
-        ["workboard:ops", "workboard:deleted", "route:usage"],
+        ["workboard:ops", "workboard:deleted", "route:cron"],
         [],
         SIDEBAR_NAV_ROUTES,
         new Set(),
@@ -79,10 +79,10 @@ describe("reconcileSidebarZone", () => {
         true,
         true,
       ).sidebarEntries,
-    ).toEqual(["workboard:ops", "route:usage"]);
+    ).toEqual(["workboard:ops", "route:cron"]);
     expect(
       reconcileSidebarZone(
-        ["workboard:ops", "route:usage"],
+        ["workboard:ops", "route:cron"],
         [],
         SIDEBAR_NAV_ROUTES,
         new Set(),
@@ -90,13 +90,13 @@ describe("reconcileSidebarZone", () => {
         false,
         true,
       ).sidebarEntries,
-    ).toEqual(["route:usage"]);
+    ).toEqual(["route:cron"]);
   });
 
   it("preserves Workboard pins until the active plugin's board catalog is authoritative", () => {
     expect(
       reconcileSidebarZone(
-        ["workboard:ops", "route:usage"],
+        ["workboard:ops", "route:cron"],
         [],
         SIDEBAR_NAV_ROUTES,
         new Set(),
@@ -105,8 +105,8 @@ describe("reconcileSidebarZone", () => {
         false,
       ),
     ).toEqual({
-      entries: [{ type: "route", route: "usage" }],
-      sidebarEntries: ["workboard:ops", "route:usage"],
+      entries: [{ type: "route", route: "cron" }],
+      sidebarEntries: ["workboard:ops", "route:cron"],
     });
   });
 });

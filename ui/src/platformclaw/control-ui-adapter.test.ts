@@ -18,7 +18,6 @@ describe("PlatformClawControlUiAdapter", () => {
   beforeEach(() => {
     document.head.innerHTML = "";
     document.body.innerHTML = "";
-    localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
   });
 
   afterEach(() => {
@@ -88,16 +87,7 @@ describe("PlatformClawControlUiAdapter", () => {
         "mcp",
       ],
       navigation: {
-        sidebarEntries: [
-          "route:usage",
-          "route:tasks",
-          "route:sessions",
-          "route:activity",
-          "route:cron",
-          "route:skills",
-          "route:skill-workshop",
-          "route:skill-hub",
-        ],
+        sidebarEntries: ["route:cron", "route:skills", "route:skill-workshop", "route:skill-hub"],
       },
       gateway: {
         url: "wss://platformclaw.example/platformclaw/gateway",
@@ -111,6 +101,7 @@ describe("PlatformClawControlUiAdapter", () => {
     });
     expect(options.routeOverrides?.organization).toBeDefined();
     expect(options.shellSession?.renderMainBanner).toEqual(expect.any(Function));
+    expect(options.shellSession?.renderPageHeaderAccessory).toEqual(expect.any(Function));
     const organizationTitle = options.navigation?.routeCopy?.organization?.title;
     expect(typeof organizationTitle === "function" ? organizationTitle() : organizationTitle).toBe(
       "Organization",
@@ -323,10 +314,6 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(adminOptions.enabledRouteIds).toContain("mcp");
     expect(adminOptions.enabledRouteIds).toContain("credentials");
     expect(adminOptions.navigation?.sidebarEntries).toEqual([
-      "route:usage",
-      "route:tasks",
-      "route:sessions",
-      "route:activity",
       "route:cron",
       "route:skills",
       "route:skill-workshop",
@@ -343,7 +330,7 @@ describe("PlatformClawControlUiAdapter", () => {
     const adminQuickActions = document.querySelector("platformclaw-quick-actions")!;
     await (adminQuickActions as HTMLElement & { updateComplete: Promise<unknown> }).updateComplete;
     expect(
-      adminQuickActions.shadowRoot?.querySelectorAll('[data-tour="work-location"]'),
+      adminQuickActions.shadowRoot?.querySelectorAll('[data-action="work-location"]'),
     ).toHaveLength(1);
     expect(
       adminQuickActions.shadowRoot?.querySelectorAll("platformclaw-vm-administration"),
@@ -381,10 +368,6 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(memberOptions.enabledRouteIds).toContain("mcp");
     expect(memberOptions.enabledRouteIds).toContain("credentials");
     expect(memberOptions.navigation?.sidebarEntries).toEqual([
-      "route:usage",
-      "route:tasks",
-      "route:sessions",
-      "route:activity",
       "route:cron",
       "route:skills",
       "route:skill-workshop",
@@ -400,7 +383,7 @@ describe("PlatformClawControlUiAdapter", () => {
     const memberQuickActions = document.querySelector("platformclaw-quick-actions")!;
     await (memberQuickActions as HTMLElement & { updateComplete: Promise<unknown> }).updateComplete;
     expect(
-      memberQuickActions.shadowRoot?.querySelectorAll('[data-tour="work-location"]'),
+      memberQuickActions.shadowRoot?.querySelectorAll('[data-action="work-location"]'),
     ).toHaveLength(1);
     expect(document.querySelectorAll("platformclaw-mcp-settings")).toHaveLength(0);
     expect(

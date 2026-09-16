@@ -250,8 +250,8 @@ suite.define(() => {
       await sidebar
         .locator('wa-dropdown.sidebar-identity-menu wa-dropdown-item[value="command:usage"]')
         .click();
-      await waitForControlUiRoute(page, { pathname: "/usage", routeId: "usage" });
-      await sidebar.getByRole("link", { name: "Home" }).click();
+      await waitForControlUiRoute(page, { pathname: "/settings/usage", routeId: "usage" });
+      await page.getByRole("button", { name: "Back to app" }).click();
       await waitForControlUiRoute(page, { pathname: "/chat/main", routeId: "chat" });
       await assertActiveTurnVisible(page, streamText);
       expect(await readWorkingStartedAts(page)).toContain(startedAt);

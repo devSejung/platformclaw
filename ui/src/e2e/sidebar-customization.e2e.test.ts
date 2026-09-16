@@ -468,8 +468,8 @@ describeControlUiE2e("Control UI sidebar customization mocked Gateway E2E", () =
       await expect
         .poll(() => trimmedTextContents(menu.getByRole("menuitemcheckbox")))
         .not.toContain("Workboard");
-      const tasksItem = menu.getByRole("menuitemcheckbox", { name: "Tasks" });
-      await expect.poll(() => tasksItem.getAttribute("aria-checked")).toBe("false");
+      const appsItem = menu.getByRole("menuitemcheckbox", { name: "Apps" });
+      await expect.poll(() => appsItem.getAttribute("aria-checked")).toBe("false");
       // Ask OpenClaw moved to Settings (#111686): custodian is not a sidebar
       // nav route anymore, so the pin editor does not offer it.
       await expect
@@ -477,14 +477,14 @@ describeControlUiE2e("Control UI sidebar customization mocked Gateway E2E", () =
         .toBe(0);
       await captureUiProof(page, "02-customize-menu.png");
 
-      await tasksItem.click();
+      await appsItem.click();
       await expect
         .poll(() => trimmedTextContents(pinnedItems))
-        .toEqual(["Automations", "Plugins", "Tasks"]);
+        .toEqual(["Automations", "Plugins", "Apps"]);
       await page.reload();
       await expect
         .poll(() => trimmedTextContents(pinnedItems))
-        .toEqual(["Automations", "Plugins", "Tasks"]);
+        .toEqual(["Automations", "Plugins", "Apps"]);
       // The More menu is transient: closed after reload, unpinned routes inside.
       await expect.poll(() => moreButton.getAttribute("aria-expanded")).toBe("false");
       await moreButton.click();
@@ -495,7 +495,7 @@ describeControlUiE2e("Control UI sidebar customization mocked Gateway E2E", () =
       await expect.poll(() => editPersistedPinnedItems.isVisible()).toBe(true);
       await expect
         .poll(() => trimmedTextContents(moreMenu.getByRole("menuitem")))
-        .not.toContain("Tasks");
+        .not.toContain("Apps");
       await captureUiProof(page, "03-persisted-customization.png");
 
       await editPersistedPinnedItems.click();

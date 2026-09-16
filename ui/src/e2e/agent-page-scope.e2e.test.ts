@@ -126,10 +126,11 @@ describeControlUiE2e("Control UI agent page scope", () => {
     });
 
     try {
-      await page.goto(`${server.baseUrl}usage`);
-      await gateway.waitForRequest("agents.list");
+      await page.goto(`${server.baseUrl}chat`);
       const sidebar = page.locator("openclaw-app-sidebar");
-      await sidebar.getByRole("button", { name: /Switch agent/ }).click();
+      const switchAgent = sidebar.getByRole("button", { name: /Switch agent/ });
+      await expect.poll(() => switchAgent.isVisible()).toBe(true);
+      await switchAgent.click();
       const agentMenu = sidebar.locator("wa-dropdown.sidebar-agent-menu");
       // The card sits at the top of the sidebar: the menu drops below it so the
       // agent you clicked (and its checkmark row) stays visible.
@@ -159,7 +160,7 @@ describeControlUiE2e("Control UI agent page scope", () => {
       await sidebar
         .locator('wa-dropdown.sidebar-identity-menu wa-dropdown-item[value="command:usage"]')
         .click();
-      await expect.poll(() => new URL(page.url()).pathname).toBe("/usage");
+      await expect.poll(() => new URL(page.url()).pathname).toBe("/settings/usage");
       await waitForRequest(gateway, "sessions.usage", (params) => params.agentId === "writer");
       const pageScope = page.locator(".agent-scope-control openclaw-agent-select");
       await expect
@@ -169,6 +170,8 @@ describeControlUiE2e("Control UI agent page scope", () => {
         .toBe("writer");
       await screenshot(page, "01-writer-usage.png");
 
+      await page.getByRole("button", { name: "Back to app" }).click();
+      await expect.poll(() => new URL(page.url()).pathname).toBe("/chat/writer");
       await sidebar.getByRole("button", { name: /Switch agent/ }).click();
       await sidebar
         .locator("wa-dropdown.sidebar-agent-menu")

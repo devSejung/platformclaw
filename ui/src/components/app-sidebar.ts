@@ -1,11 +1,13 @@
 import { html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { state } from "lit/decorators.js";
 import type { SessionObserverDigest } from "../../../packages/gateway-protocol/src/schema/sessions.js";
+import { titleForRoute } from "../app-navigation.ts";
 import { isSessionRouteId } from "../app-route-paths.ts";
 import { beginNativeWindowDragFromTopInset } from "../app/native-window-drag.ts";
 import { BoardAvailabilityController } from "../lib/board/availability-controller.ts";
 import "./menu-surface.ts";
 import "./session-menu.ts";
+import "./settings-save-indicator.ts";
 import "./sidebar-agent-card.ts";
 import "./sidebar-attention.ts";
 import "./sidebar-update-card.ts";
@@ -472,6 +474,9 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                 )}
               </div>
             </nav>
+            <nav class="sidebar-memory-nav" aria-label=${titleForRoute("memory")}>
+              ${this.sidebarMenus.renderRoute("memory")}
+            </nav>
             ${this.renderSessions()}
           </div>
           <div class="sidebar-shell__footer">
@@ -505,6 +510,11 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                     <span class="sidebar-footer-branch__name">${this.devGitBranch}</span>
                   </div>
                 </openclaw-tooltip>`
+              : nothing}
+            ${this.saveIndicator
+              ? html`<openclaw-settings-save-indicator
+                  .props=${this.saveIndicator}
+                ></openclaw-settings-save-indicator>`
               : nothing}
             ${renderAppSidebarFooterBar(this)}
           </div>

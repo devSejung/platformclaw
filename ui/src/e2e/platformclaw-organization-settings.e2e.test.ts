@@ -608,24 +608,16 @@ describeE2e("PlatformClaw Organization settings", () => {
 
       await page.goto(`${server.baseUrl}platformclaw/app/chat`);
       const dismissGuide = page.getByRole("button", { name: "다시 보지 않기", exact: true });
-      if (name === "PC") {
-        await dismissGuide.waitFor();
-        await dismissGuide.click();
-      } else {
-        expect(await dismissGuide.count()).toBe(0);
-      }
+      expect(await dismissGuide.count()).toBe(0);
       await expect.poll(() => page.getByText("조직에 가입하세요").isVisible()).toBe(true);
       await page.getByRole("button", { name: "나중에" }).click();
       await expect.poll(() => page.getByText("조직에 가입하세요").count()).toBe(0);
       await page.evaluate(() => sessionStorage.clear());
       await page.reload();
-      if (name === "PC" && (await dismissGuide.isVisible())) {
-        await dismissGuide.click();
-      }
       await expect.poll(() => page.getByText("조직에 가입하세요").isVisible()).toBe(true);
       await page.getByRole("link", { name: "조직 찾기" }).click();
       await expect.poll(() => new URL(page.url()).searchParams.get("tab")).toBe("requests");
-      await expect.poll(() => page.getByText("조직 가입").isVisible()).toBe(true);
+      await expect.poll(() => page.getByText("조직 가입", { exact: true }).isVisible()).toBe(true);
       expect(await page.getByRole("tab", { name: "감사" }).count()).toBe(0);
       await page.locator(".organization-request-list .primary").click();
       if (name === "PC") {

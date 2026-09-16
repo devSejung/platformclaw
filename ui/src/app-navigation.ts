@@ -29,15 +29,13 @@ type NavigationItem = {
 // list and Settings/Docs live in the sidebar footer, so neither is listed here.
 // Skills, Skill Workshop, and Skill Hub are standalone destinations. The Plugins
 // route remains available for administrator plugin management through More.
-// Worktrees is a tab of the Sessions hub, so it is not listed either.
+// Worktrees is a tab of the Sessions hub, so it is not listed either. Memory
+// is a fixed personal-workspace row at the session-list boundary rather than a
+// customizable page pin.
 export const SIDEBAR_NAV_ROUTES = [
   "workboard",
   "dashboards",
-  "usage",
   "cron",
-  "tasks",
-  "sessions",
-  "activity",
   "plugins",
   "skills",
   "skill-workshop",
@@ -197,8 +195,9 @@ export function settingsSearchTextMatches(value: string, query: string): boolean
 
 // Grouping feeds the full-page settings sidebar (settings-sidebar.ts). Ordered
 // by user attention: personal/look-and-feel first, system plumbing last.
-// Management surfaces (sessions, worktrees, activity, memory import) are
-// workspace destinations, not settings; model setup is a subpage of Models.
+// Worktrees and memory import remain nested destinations; model setup is a
+// subpage of Models. Operational history and diagnostics live together here,
+// while personal Memory stays in the workspace sidebar beside chat sessions.
 export const SETTINGS_NAVIGATION_GROUPS = [
   {
     labelKey: null,
@@ -209,8 +208,12 @@ export const SETTINGS_NAVIGATION_GROUPS = [
     routes: ["connection", "channels", "communications", "talk", "nodes"],
   },
   {
+    labelKey: "nav.settingsGroupChatSessions",
+    routes: ["usage", "tasks", "sessions", "activity"],
+  },
+  {
     labelKey: "nav.settingsGroupAgents",
-    routes: ["agents", "labs", "model-providers", "mcp", "memory", "organization", "automation"],
+    routes: ["agents", "labs", "model-providers", "mcp", "organization", "automation"],
   },
   {
     labelKey: "nav.settingsGroupSecurity",
@@ -229,6 +232,7 @@ const SETTINGS_SUBPAGE_ROUTES: readonly NavigationRouteId[] = [
   "ai-agents",
   "model-setup",
   "lobsterdex",
+  "worktrees",
 ];
 export const SETTINGS_SEARCHABLE_SUBPAGE_ROUTES: readonly NavigationRouteId[] = ["ai-agents"];
 const SETTINGS_SUBPAGE_OWNER_ROUTES: Partial<
@@ -236,6 +240,7 @@ const SETTINGS_SUBPAGE_OWNER_ROUTES: Partial<
 > = {
   "ai-agents": "agents",
   "model-setup": "model-providers",
+  worktrees: "sessions",
 };
 
 const SETTINGS_NAVIGATION_ROUTES: ReadonlySet<NavigationRouteId> = new Set([

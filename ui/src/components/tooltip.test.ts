@@ -345,6 +345,30 @@ describe("openclaw-tooltip", () => {
     expectOpenCount(0);
   });
 
+  it("owns Escape while closing a focused tooltip", async () => {
+    const { tooltip, trigger } = createTooltip("Escape tooltip");
+    const onDocumentKeydown = vi.fn();
+    document.addEventListener("keydown", onDocumentKeydown);
+    document.body.append(tooltip);
+    await tooltip.updateComplete;
+
+    try {
+      focusTrigger(trigger);
+      expectOpenCount(1);
+
+      trigger.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+
+      expectOpenCount(0);
+      expect(onDocumentKeydown).not.toHaveBeenCalled();
+
+      trigger.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+
+      expect(onDocumentKeydown).toHaveBeenCalledOnce();
+    } finally {
+      document.removeEventListener("keydown", onDocumentKeydown);
+    }
+  });
+
   it("releases the active provider reference when an open tooltip is removed", async () => {
     const provider = createProvider();
     provider.delay = 40;

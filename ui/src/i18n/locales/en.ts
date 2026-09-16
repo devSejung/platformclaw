@@ -104,7 +104,6 @@ export const en: TranslationMap = {
     quickActions: {
       label: "PlatformClaw quick actions",
       voc: "VOC",
-      guide: "Guide",
       loading: "Loading quick actions…",
       unavailable: "Quick actions are unavailable. Refresh the page and try again.",
     },
@@ -2067,6 +2066,7 @@ export const en: TranslationMap = {
     settings: "Settings",
     askOpenClaw: "Ask OpenClaw",
     settingsGroupConnections: "Connections",
+    settingsGroupChatSessions: "Chat & Sessions",
     settingsGroupAgents: "Agents & Tools",
     settingsGroupSecurity: "Privacy & Security",
     settingsGroupSystem: "System",

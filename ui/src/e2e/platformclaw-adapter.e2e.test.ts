@@ -14,7 +14,6 @@ import {
   type ControlUiE2eServer,
   type ControlUiMockGatewayScenario,
 } from "../test-helpers/control-ui-e2e.ts";
-import { runPlatformClawSettingsAndMemoryGuide } from "./platformclaw-guide-flow.test-support.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
@@ -270,7 +269,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     expect(await gateway.getRequests("sessions.files.list")).toHaveLength(0);
   });
 
-  it("shows the first-run guide and keeps the compact quick actions available", async () => {
+  it("shows route help without the retired guided tour", async () => {
     const { page } = await newPage();
     await installPlatformClawDocument(
       page,
@@ -335,87 +334,61 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => quickActions.getByRole("button", { name: "VOC" }).isVisible())
       .toBe(true);
-    await expect.poll(() => page.locator(".tour-popover").isVisible()).toBe(true);
+    await expect.poll(() => quickActions.getByRole("button", { name: "Guide" }).count()).toBe(0);
+    await expect.poll(() => page.locator(".tour-popover").count()).toBe(0);
+    const chatHelp = page.getByRole("button", {
+      name: "Help for Home: start a conversation with your Agent",
+    });
+    await expect.poll(() => chatHelp.isVisible()).toBe(true);
+    await expect.poll(() => page.locator("platformclaw-page-help").count()).toBe(1);
+    await chatHelp.click();
     await expect
-      .poll(() => page.getByRole("heading", { name: "Welcome to PlatformClaw" }).isVisible())
+      .poll(() =>
+        page
+          .getByRole("heading", { name: "Home: start a conversation with your Agent" })
+          .isVisible(),
+      )
       .toBe(true);
-
     if (captureUiProofEnabled) {
       await page.screenshot({
         fullPage: true,
-        path: path.join(proofDir, "05-first-run-guide.png"),
+        path: path.join(proofDir, "05-page-help-chat.png"),
       });
     }
+    await page.getByRole("button", { name: "Close" }).click();
 
-    const sidebarGuideSteps = [
-      ["Home: start a conversation with your Agent", ".nav-item--home"],
-      ["Usage: understand tokens and cost", '[data-sidebar-entry="route:usage"] > .nav-item'],
-      ["Tasks: follow assigned work", '[data-sidebar-entry="route:tasks"] > .nav-item'],
-      [
-        "Threads: continue an earlier conversation",
-        '[data-sidebar-entry="route:sessions"] > .nav-item',
-      ],
-      ["Activity: inspect what the Agent did", '[data-sidebar-entry="route:activity"] > .nav-item'],
-      ["Automations: schedule recurring work", '[data-sidebar-entry="route:cron"] > .nav-item'],
-      [
-        "Skills: instructions your Agent can reuse",
-        '[data-sidebar-entry="route:skills"] > .nav-item',
-      ],
-      [
-        "Workshop: review skill changes safely",
-        '[data-sidebar-entry="route:skill-workshop"] > .nav-item',
-      ],
-      [
-        "Skill Hub: install and share company skills",
-        '[data-sidebar-entry="route:skill-hub"] > .nav-item',
-      ],
-    ] as const;
-    let previousTargetTop = -1;
-    const homePath = "/platformclaw/app/chat/person_one";
-    for (const [index, [heading, selector]] of sidebarGuideSteps.entries()) {
-      await page.getByRole("button", { name: "Next" }).click();
-      await expect.poll(() => page.getByRole("heading", { name: heading }).isVisible()).toBe(true);
-      const target = page.locator("openclaw-app-sidebar").locator(selector);
-      await expect.poll(() => target.isVisible()).toBe(true);
-      await expect.poll(() => page.locator(".tour-next").isEnabled()).toBe(true);
-      const targetBox = await target.boundingBox();
-      const highlightBox = await page.locator(".tour-highlight").boundingBox();
-      expect(targetBox).not.toBeNull();
-      expect(highlightBox).not.toBeNull();
-      // Use actual rendered target positions, not just matching a sequence of titles.
-      expect(targetBox!.y).toBeGreaterThanOrEqual(previousTargetTop);
-      expect(Math.abs(highlightBox!.y - targetBox!.y)).toBeLessThanOrEqual(8);
-      previousTargetTop = targetBox!.y;
-      await expect.poll(() => new URL(page.url()).pathname).toBe(homePath);
-      if (captureUiProofEnabled) {
-        await page.screenshot({
-          fullPage: true,
-          path: path.join(proofDir, "05a-sidebar-" + String(index + 1).padStart(2, "0") + ".png"),
-        });
-      }
-    }
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.goto(`${server.baseUrl}platformclaw/app/settings/usage`);
     await expect
-      .poll(() => page.getByRole("heading", { name: "Choose where work runs" }).isVisible())
+      .poll(() => page.getByText("Chat & Sessions", { exact: true }).isVisible())
       .toBe(true);
-    const workLocationBox = await quickActions.locator('[data-tour="work-location"]').boundingBox();
-    expect(workLocationBox!.y).toBeGreaterThanOrEqual(previousTargetTop);
-    await expect.poll(() => new URL(page.url()).pathname).toBe(homePath);
-    await page.getByRole("button", { name: "Next" }).click();
+    for (const label of ["Usage", "Tasks", "Threads", "Activity"]) {
+      await expect
+        .poll(() =>
+          page.locator(".settings-sidebar__item-label", { hasText: label }).first().isVisible(),
+        )
+        .toBe(true);
+    }
+    expect(await page.locator(".settings-sidebar__item-label", { hasText: "Memory" }).count()).toBe(
+      0,
+    );
+    await expect.poll(() => page.locator(".page-title").textContent()).toBe("Usage");
+    const usageHelp = page.getByRole("button", {
+      name: "Help for Usage: understand tokens and cost",
+    });
+    await expect.poll(() => usageHelp.isVisible()).toBe(true);
+    await usageHelp.click();
     await expect
       .poll(() =>
-        page.getByRole("heading", { name: "Terminal: run commands while you chat" }).isVisible(),
+        page.getByRole("heading", { name: "Usage: understand tokens and cost" }).isVisible(),
       )
       .toBe(true);
-    await expect.poll(() => page.locator(".chat-terminal-toggle").isVisible()).toBe(true);
-    await expect.poll(() => new URL(page.url()).pathname).toBe(homePath);
-
-    await runPlatformClawSettingsAndMemoryGuide({
-      captureUiProofEnabled,
-      page,
-      proofDir,
-      quickActions,
-    });
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(proofDir, "06-page-help-usage-settings.png"),
+      });
+    }
+    await page.getByRole("button", { name: "Close" }).click();
   });
 
   it("keeps a pending VOC visible through failure and retry", async () => {
@@ -423,9 +396,6 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await installPlatformClawDocument(page, {
       ...PLATFORMCLAW_WEB_DESCRIPTOR,
       vocEnabled: true,
-    });
-    await page.addInitScript(() => {
-      localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
     });
     await page.route("**/platformclaw/api/auth/session", (route) =>
       route.fulfill({ json: activeSession(), status: 200 }),
@@ -735,9 +705,6 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
   it("uses PlatformClaw identity and mascot across hosted product surfaces", async () => {
     const { page } = await newPage({ height: 844, width: 390 });
     await installPlatformClawDocument(page);
-    await page.addInitScript(() => {
-      localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
-    });
     await page.route("**/platformclaw/api/auth/session", (route) =>
       route.fulfill({ json: activeSession(), status: 200 }),
     );

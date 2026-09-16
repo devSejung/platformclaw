@@ -118,7 +118,6 @@ export function renderChatControls(props: ChatControlsProps) {
             <button
               class="chat-view-menu-trigger chat-terminal-toggle"
               type="button"
-              data-tour="terminal"
               aria-label=${t("terminal.toggle")}
               aria-keyshortcuts="Control+Backquote"
               @click=${props.onToggleTerminal}
