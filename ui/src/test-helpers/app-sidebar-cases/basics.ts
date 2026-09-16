@@ -79,6 +79,30 @@ describe("AppSidebar update card wiring", () => {
     expect(onUpdate).toHaveBeenCalledOnce();
   });
 
+  it("renders config save feedback in the workspace footer when supplied", async () => {
+    const gateway = createGateway({} as GatewayBrowserClient);
+    const { sidebar } = await mountSidebar(gateway, createSessions("main", ["agent:main:main"]));
+    sidebar.saveIndicator = {
+      status: "error",
+      lastError: "Save failed",
+      needsApply: false,
+      applying: false,
+      applyDisabled: false,
+      onRetry: vi.fn(),
+      onReload: vi.fn(),
+      onApply: vi.fn(),
+    };
+    await sidebar.updateComplete;
+
+    const indicator = sidebar.querySelector("openclaw-settings-save-indicator");
+    await (indicator as { updateComplete?: Promise<unknown> } | null)?.updateComplete;
+    expect(indicator?.textContent).toContain("Autosave failed");
+    const footerBar = sidebar.querySelector(".sidebar-footer-bar");
+    expect(footerBar).not.toBeNull();
+    expect(
+      indicator?.compareDocumentPosition(footerBar!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
   it("renders application shell controls inside the account footer", async () => {
     const gateway = createGateway({} as GatewayBrowserClient);
     const { sidebar } = await mountSidebar(gateway, createSessions("main", ["agent:main:main"]));

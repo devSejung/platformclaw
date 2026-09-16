@@ -7,6 +7,7 @@ import { beginNativeWindowDragFromTopInset } from "../app/native-window-drag.ts"
 import { BoardAvailabilityController } from "../lib/board/availability-controller.ts";
 import "./menu-surface.ts";
 import "./session-menu.ts";
+import "./settings-save-indicator.ts";
 import "./sidebar-agent-card.ts";
 import "./sidebar-attention.ts";
 import "./sidebar-update-card.ts";
@@ -509,6 +510,11 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                     <span class="sidebar-footer-branch__name">${this.devGitBranch}</span>
                   </div>
                 </openclaw-tooltip>`
+              : nothing}
+            ${this.saveIndicator
+              ? html`<openclaw-settings-save-indicator
+                  .props=${this.saveIndicator}
+                ></openclaw-settings-save-indicator>`
               : nothing}
             ${renderAppSidebarFooterBar(this)}
           </div>

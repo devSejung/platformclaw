@@ -3624,6 +3624,11 @@ wa-dropdown.sidebar-identity-menu::part(menu) {
   text-decoration: none;
 }
 
+.sidebar-shell__footer > openclaw-settings-save-indicator {
+  display: block;
+  margin: 0 10px 4px;
+  padding: 2px 8px;
+}
 /* Dev-checkout branch strip: only rendered when the gateway runs from a git
    checkout off main. Sits on its own row above the icon bar so the full branch
    name stays readable without crowding the footer controls. */

@@ -438,7 +438,7 @@ describe("settings sidebar search", () => {
     expect(input?.placeholder).toBe("Search settings…");
     expect(allLabels).toContain("Activity");
     expect(allLabels).toContain("Threads");
-    expect(allLabels).toContain("Memory");
+    expect(allLabels).not.toContain("Memory");
     expect(container.textContent).toContain("Chat & Sessions");
     expect(allLabels).toContain("Privacy & Security");
     expect(allLabels.indexOf("About")).toBe(allLabels.indexOf("Logs") + 1);
