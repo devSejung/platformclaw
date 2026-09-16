@@ -4,7 +4,6 @@ import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import { loadAllPlatformClawLocales, loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
-import "./page-help.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
