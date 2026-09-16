@@ -771,7 +771,7 @@ export function createMemorySearchTool(options: {
                 pausedIndexIdentityReason =
                   resolvePausedMemoryIndexIdentityReason(statusBeforeRetry);
                 if (pausedIndexIdentityReason) {
-                  return;
+                  return false;
                 }
                 // One-shot CLI managers have no background lifecycle, so keep their bootstrap
                 // retry. Long-lived QMD managers must not run update work in the tool hot path.
@@ -791,7 +791,7 @@ export function createMemorySearchTool(options: {
                     activeMemory.manager.status(),
                   );
                   if (pausedIndexIdentityReason) {
-                    return;
+                    return false;
                   }
                 }
                 rawResults = await runWithDefaultDeadline(
