@@ -156,7 +156,8 @@ export class PlatformClawControlUiAdapter {
         ></platformclaw-organization-join-prompt>`,
       )
       .catch(() => nothing);
-    const pageHelp = Promise.all([import("./page-help.ts"), loadPlatformClawLocale()]);
+    void Promise.all([import("./page-help.ts"), loadPlatformClawLocale()]).catch(() => undefined);
+    const browserLocation = new URL(this.location.href);
     if (identity.globalRole === "admin") {
       void import("./vm-administration.ts").catch(() => {
         // A stale deployment chunk must not break the upstream Control UI session.
@@ -170,18 +171,13 @@ export class PlatformClawControlUiAdapter {
           quickActions,
           html`<p class="muted" role="status">${t("platformClaw.quickActions.loading")}</p>`,
         ),
-      renderMainBanner: (routeId, routeLocation) => html`
-        ${until(joinPrompt, nothing)}
-        ${until(
-          pageHelp.then(
-            () => html`<platformclaw-page-help
-              .routeId=${routeId}
-              .pathname=${routeLocation?.pathname ?? this.location.pathname}
-              .search=${routeLocation?.search ?? this.location.search}
-            ></platformclaw-page-help>`,
-          ),
-          nothing,
-        )}
+      renderMainBanner: () => until(joinPrompt, nothing),
+      renderPageHeaderAccessory: (routeId, routeLocation) => html`
+        <platformclaw-page-help
+          .routeId=${routeId}
+          .pathname=${routeLocation?.pathname ?? browserLocation.pathname}
+          .search=${routeLocation?.search ?? browserLocation.search}
+        ></platformclaw-page-help>
       `,
       onLogout,
     };

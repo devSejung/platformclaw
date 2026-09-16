@@ -188,7 +188,7 @@ describeControlUiE2e("Control UI usage proxy reconnect lifecycle", () => {
       await sidebar
         .locator('wa-dropdown.sidebar-identity-menu wa-dropdown-item[value="command:usage"]')
         .click();
-      await expect.poll(() => new URL(page.url()).pathname).toBe("/usage");
+      await expect.poll(() => new URL(page.url()).pathname).toBe("/settings/usage");
       await waitForRequestCount(gateway, "sessions.usage", 1);
       await waitForRequestCount(gateway, "usage.cost", 1);
       await page.locator(".daily-chart-compact").waitFor({ timeout: 10_000 });

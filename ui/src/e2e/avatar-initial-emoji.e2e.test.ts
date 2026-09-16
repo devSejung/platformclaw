@@ -100,12 +100,12 @@ describeControlUiE2e("Control UI grapheme-aware avatar initials", () => {
     });
 
     try {
-      const response = await page.goto(`${server.baseUrl}usage`);
+      const response = await page.goto(`${server.baseUrl}chat`);
       expect(response?.status()).toBe(200);
-      await gateway.waitForRequest("agents.list");
       const sidebar = page.locator("openclaw-app-sidebar");
-
-      await sidebar.getByRole("button", { name: /Switch agent/ }).click();
+      const switchAgent = sidebar.getByRole("button", { name: /Switch agent/ });
+      await expect.poll(() => switchAgent.isVisible()).toBe(true);
+      await switchAgent.click();
       const emojiRow = sidebar
         .locator("wa-dropdown.sidebar-agent-menu")
         .getByRole("menuitemradio", { name: "🚀Rocket", exact: true });

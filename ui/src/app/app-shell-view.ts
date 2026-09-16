@@ -457,6 +457,10 @@ export function renderApplicationShell(host: ShellViewHost) {
           .retryContext=${context}
           .onNotFound=${() => host.replaceChatWithCurrentSession()}
         ></openclaw-router-outlet>
+        ${runtime.shellSession?.renderPageHeaderAccessory?.(
+          activeRoute,
+          host.routeState.location,
+        ) ?? nothing}
       </main>
       <openclaw-terminal-panel
         .client=${gatewayConnected ? gatewaySnapshot.client : null}

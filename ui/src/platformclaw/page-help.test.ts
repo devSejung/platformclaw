@@ -11,15 +11,20 @@ describe("PlatformClaw page help", () => {
   });
 
   it("uses the current route's guide without navigation controls", async () => {
+    const heading = document.createElement("h1");
+    heading.className = "page-title";
+    heading.textContent = "Usage";
+    document.body.append(heading);
     const element = document.createElement("platformclaw-page-help") as PlatformClawPageHelpElement;
     element.routeId = "usage";
     document.body.append(element);
     await element.updateComplete;
 
-    expect(element.shadowRoot?.querySelector<HTMLButtonElement>(".help-button")?.ariaLabel).toBe(
+    const trigger = document.querySelector("platformclaw-page-help-trigger");
+    expect(trigger?.shadowRoot?.querySelector<HTMLButtonElement>("button")?.ariaLabel).toBe(
       "Help for Usage: understand tokens and cost",
     );
-    element.shadowRoot?.querySelector<HTMLButtonElement>(".help-button")?.click();
+    trigger?.shadowRoot?.querySelector<HTMLButtonElement>("button")?.click();
     await element.updateComplete;
     expect(element.shadowRoot?.querySelector(".help-panel h2")?.textContent).toBe(
       "Usage: understand tokens and cost",

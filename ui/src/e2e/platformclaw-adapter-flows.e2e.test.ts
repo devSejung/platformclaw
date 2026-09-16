@@ -244,12 +244,35 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       sessionKey: "agent:person_one:main",
     });
 
-    await page.goto(`${server.baseUrl}platformclaw/app/settings/agents/person_one/files`);
-    const settingsSidebar = page.locator(".settings-sidebar");
-    await expect.poll(() => settingsSidebar.isVisible()).toBe(true);
-    await settingsSidebar.getByRole("link", { name: "Memory", exact: true }).click();
+    await page.goto(`${server.baseUrl}platformclaw/app/chat`);
+    const appSidebar = page.locator("openclaw-app-sidebar");
+    const memoryLink = appSidebar.locator(".sidebar-memory-nav").getByRole("link", {
+      name: "Memory",
+      exact: true,
+    });
+    await expect.poll(() => memoryLink.isVisible()).toBe(true);
+    await expect
+      .poll(() =>
+        appSidebar
+          .locator(".sidebar-memory-nav")
+          .evaluate((nav) => nav.nextElementSibling?.classList.contains("sidebar-sessions")),
+      )
+      .toBe(true);
+    await memoryLink.click();
     await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/memory");
+    await expect.poll(() => appSidebar.isVisible()).toBe(true);
+    await expect.poll(() => page.locator(".settings-sidebar").count()).toBe(0);
     await expect.poll(() => page.locator(".page-title").textContent()).toContain("Memory");
+    await expect
+      .poll(() => page.locator(".page-title platformclaw-page-help-trigger").count())
+      .toBe(1);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        animations: "disabled",
+        fullPage: true,
+        path: path.join(proofDir, "06a-memory-in-session-sidebar.png"),
+      });
+    }
     const memoryTabs = page.locator(".platformclaw-memory-page__tabs");
     const memoryPanel = page.locator("#platformclaw-memory-panel");
     await expect.poll(() => memoryTabs.getByRole("tab").count()).toBe(5);
@@ -303,7 +326,29 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       await page.screenshot({
         animations: "disabled",
         fullPage: true,
-        path: path.join(proofDir, "06-memory-wiki-from-settings.png"),
+        path: path.join(proofDir, "06-memory-wiki-from-sidebar.png"),
+      });
+    }
+
+    await page.goto(`${server.baseUrl}platformclaw/app/settings/usage`);
+    const settingsSidebar = page.locator(".settings-sidebar");
+    await expect.poll(() => settingsSidebar.isVisible()).toBe(true);
+    for (const label of ["Usage", "Tasks", "Threads", "Activity"]) {
+      await expect
+        .poll(() => settingsSidebar.getByRole("link", { name: label, exact: true }).count())
+        .toBe(1);
+    }
+    expect(await settingsSidebar.getByRole("link", { name: "Memory", exact: true }).count()).toBe(
+      0,
+    );
+    await expect
+      .poll(() => page.locator(".page-title platformclaw-page-help-trigger").count())
+      .toBe(1);
+    if (captureUiProofEnabled) {
+      await page.screenshot({
+        animations: "disabled",
+        fullPage: true,
+        path: path.join(proofDir, "06b-settings-operational-pages-no-memory.png"),
       });
     }
 

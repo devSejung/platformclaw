@@ -29,7 +29,9 @@ type NavigationItem = {
 // list and Settings/Docs live in the sidebar footer, so neither is listed here.
 // Skills, Skill Workshop, and Skill Hub are standalone destinations. The Plugins
 // route remains available for administrator plugin management through More.
-// Worktrees is a tab of the Sessions hub, so it is not listed either.
+// Worktrees is a tab of the Sessions hub, so it is not listed either. Memory
+// is a fixed personal-workspace row at the session-list boundary rather than a
+// customizable page pin.
 export const SIDEBAR_NAV_ROUTES = [
   "workboard",
   "dashboards",
@@ -194,8 +196,8 @@ export function settingsSearchTextMatches(value: string, query: string): boolean
 // Grouping feeds the full-page settings sidebar (settings-sidebar.ts). Ordered
 // by user attention: personal/look-and-feel first, system plumbing last.
 // Worktrees and memory import remain nested destinations; model setup is a
-// subpage of Models. Chat and session history live together so operational
-// context is not split between the workspace sidebar and Settings.
+// subpage of Models. Operational history and diagnostics live together here,
+// while personal Memory stays in the workspace sidebar beside chat sessions.
 export const SETTINGS_NAVIGATION_GROUPS = [
   {
     labelKey: null,
@@ -207,7 +209,7 @@ export const SETTINGS_NAVIGATION_GROUPS = [
   },
   {
     labelKey: "nav.settingsGroupChatSessions",
-    routes: ["sessions", "memory", "usage", "tasks", "activity"],
+    routes: ["usage", "tasks", "sessions", "activity"],
   },
   {
     labelKey: "nav.settingsGroupAgents",

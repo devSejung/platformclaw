@@ -1,6 +1,7 @@
 import { html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { state } from "lit/decorators.js";
 import type { SessionObserverDigest } from "../../../packages/gateway-protocol/src/schema/sessions.js";
+import { titleForRoute } from "../app-navigation.ts";
 import { isSessionRouteId } from "../app-route-paths.ts";
 import { beginNativeWindowDragFromTopInset } from "../app/native-window-drag.ts";
 import { BoardAvailabilityController } from "../lib/board/availability-controller.ts";
@@ -471,6 +472,9 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                   (tab) => renderAppSidebarPluginTabEntry(this, tab),
                 )}
               </div>
+            </nav>
+            <nav class="sidebar-memory-nav" aria-label=${titleForRoute("memory")}>
+              ${this.sidebarMenus.renderRoute("memory")}
             </nav>
             ${this.renderSessions()}
           </div>

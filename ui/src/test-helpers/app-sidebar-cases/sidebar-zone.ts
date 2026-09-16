@@ -78,6 +78,19 @@ function sidebarBoard(id: string, metadata: { color?: string; icon?: string; nam
 }
 
 describe("AppSidebar interleaved zone", () => {
+  it("keeps Memory fixed immediately before the session list", async () => {
+    const { sidebar } = await mountZone();
+    sidebar.sidebarEntries = ["route:cron"];
+    await sidebar.updateComplete;
+
+    const memory = sidebar.querySelector<HTMLAnchorElement>(".sidebar-memory-nav .nav-item");
+    const sessions = sidebar.querySelector(".sidebar-sessions");
+    expect(memory?.textContent).toContain("Memory");
+    expect(memory?.getAttribute("href")).toBe("/settings/memory");
+    expect(memory?.closest(".sidebar-zone-entry")).toBeNull();
+    expect(memory?.parentElement?.nextElementSibling).toBe(sessions);
+  });
+
   it("uses an enabled child route as the landing target for a restricted hub", async () => {
     const { sidebar } = await mountZone();
     const onNavigate = vi.fn();

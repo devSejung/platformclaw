@@ -1265,6 +1265,13 @@ html.openclaw-native-macos
   padding: 0;
 }
 
+/* Memory is personal session context, so it stays fixed at the boundary
+   between customizable pages and the live Threads list. */
+.sidebar-memory-nav {
+  margin-top: 8px;
+  padding: 0 8px;
+}
+
 .sidebar-sessions {
   display: flex;
   flex-direction: column;

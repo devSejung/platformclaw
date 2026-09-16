@@ -12,6 +12,7 @@ import {
   settingsNavigationOwnerRoute,
   sidebarMoreRoutes,
 } from "./app-navigation.ts";
+import { pathForRoute } from "./app-route-paths.ts";
 
 const settingsRoutes = SETTINGS_NAVIGATION_GROUPS.flatMap((group) => group.routes);
 
@@ -25,8 +26,12 @@ describe("sidebar entries", () => {
     expect(normalizeSidebarEntries(["route:overview", "route:usage"])).toEqual([]);
   });
 
-  it("groups chat and session management in Settings", () => {
-    for (const routeId of ["sessions", "memory", "usage", "tasks", "activity"] as const) {
+  it("keeps Memory with workspace sessions and operational history in Settings", () => {
+    expect(SIDEBAR_NAV_ROUTES).not.toContain("memory");
+    expect(settingsRoutes).not.toContain("memory");
+    expect(isSettingsNavigationRoute("memory")).toBe(false);
+    expect(pathForRoute("memory")).toBe("/settings/memory");
+    for (const routeId of ["usage", "tasks", "sessions", "activity"] as const) {
       expect(SIDEBAR_NAV_ROUTES).not.toContain(routeId);
       expect(settingsRoutes).toContain(routeId);
     }

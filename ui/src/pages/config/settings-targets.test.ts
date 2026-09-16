@@ -68,9 +68,9 @@ describe("settings search target manifest", () => {
         "#settings-appearance-connection",
       ],
       ["notifications", "/settings/notifications", "", "#settings-communications-notifications"],
-      ["usage", "/usage", "", ""],
-      ["sessions", "/sessions", "", ""],
-      ["worktrees", "/worktrees", "", ""],
+      ["usage", "/settings/usage", "", ""],
+      ["sessions", "/settings/sessions", "", ""],
+      ["worktrees", "/settings/worktrees", "", ""],
     ]);
   });
 
