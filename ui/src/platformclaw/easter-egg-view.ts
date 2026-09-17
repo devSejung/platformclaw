@@ -6,7 +6,7 @@ import {
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 
-export const BASEBALL_BAT_NAMES: Record<BaseballBatId, string> = {
+const BASEBALL_BAT_NAMES: Record<BaseballBatId, string> = {
   wood: "나무",
   silver: "실버",
   gold: "골드",
@@ -140,7 +140,7 @@ export function renderBaseballGame(params: {
   </div>`;
 }
 
-export function renderBaseballStickman() {
+function renderBaseballStickman() {
   return html`<svg viewBox="0 0 48 64" role="presentation" focusable="false">
     <circle cx="24" cy="10" r="6" fill="currentColor" />
     <path
@@ -154,7 +154,7 @@ export function renderBaseballStickman() {
   </svg>`;
 }
 
-export function renderBaseballShop(params: {
+function renderBaseballShop(params: {
   progress: BaseballProgress | null;
   busy: boolean;
   pending: boolean;

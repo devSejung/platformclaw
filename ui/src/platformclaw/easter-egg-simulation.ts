@@ -10,8 +10,8 @@ export const BASEBALL_WORLD = {
   gravity: 9.81,
 } as const;
 
-export const PITCH_SPEED_RANGE_KPH = { min: 115, max: 155 } as const;
-export const SIMULATION_STEP_MS = 5;
+const PITCH_SPEED_RANGE_KPH = { min: 115, max: 155 } as const;
+const SIMULATION_STEP_MS = 5;
 
 export type BaseballPoint = { x: number; y: number };
 
@@ -21,7 +21,7 @@ export type Pitch = {
   idealContactTimeMs: number;
 };
 
-export type AtBatResult = {
+type AtBatResult = {
   kind: "OUT" | "HIT" | "HOME_RUN";
   atMs: number;
   distanceM: number;

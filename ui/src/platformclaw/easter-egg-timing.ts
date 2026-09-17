@@ -1,7 +1,7 @@
 const PERFECT_WINDOW_MS = 25;
 const GOOD_WINDOW_MS = 50;
 export const HIT_WINDOW_MS = 100;
-export type TimingOutcome = "PERFECT" | "GOOD" | "HIT" | "MISS";
+type TimingOutcome = "PERFECT" | "GOOD" | "HIT" | "MISS";
 
 export function classifyTimingDelta(deltaMs: number): TimingOutcome {
   const absolute = Math.abs(deltaMs);

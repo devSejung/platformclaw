@@ -356,7 +356,7 @@ export type SkillHubNamespaceBindingRow = {
   updated_at: number;
 };
 
-export type BaseballGameProgressRow = {
+type BaseballGameProgressRow = {
   user_id: string;
   gold: number;
   equipped_bat_id: string;
@@ -365,12 +365,12 @@ export type BaseballGameProgressRow = {
   revision: number;
 };
 
-export type BaseballOwnedBatRow = {
+type BaseballOwnedBatRow = {
   user_id: string;
   bat_id: string;
 };
 
-export type BaseballIdempotencyRow = {
+type BaseballIdempotencyRow = {
   user_id: string;
   request_id: string;
   operation: string;
