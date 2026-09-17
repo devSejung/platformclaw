@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BASEBALL_RPC,
+  type BaseballLeaderboard,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import { classifyTimingDelta, formatTimingFeedback } from "./easter-egg-timing.ts";
@@ -21,7 +22,17 @@ function progress(overrides: Partial<BaseballProgress> = {}): BaseballProgress {
     equippedBatId: "wood",
     totalHomers: 0,
     bestDistanceM: 0,
+    currentHomeRunStreak: 0,
+    bestHomeRunStreak: 0,
     revision: 0,
+    ...overrides,
+  };
+}
+
+function leaderboard(overrides: Partial<BaseballLeaderboard> = {}): BaseballLeaderboard {
+  return {
+    distance: [],
+    homeRunStreak: [],
     ...overrides,
   };
 }
@@ -93,7 +104,9 @@ describe("PlatformClaw easter egg", () => {
     expect(game?.getAttribute("aria-label")).toBe("PlatformClaw Stickman Baseball");
     expect(egg.querySelector(".platformclaw-easter-egg__hud")?.textContent).toContain("안타 0");
     expect(egg.querySelector(".platformclaw-easter-egg__hud")?.textContent).toContain("홈런 0");
-    expect(egg.querySelector(".platformclaw-easter-egg__hud")?.textContent).toContain("연속 0");
+    expect(egg.querySelector(".platformclaw-easter-egg__hud")?.textContent).toContain(
+      "연속 홈런 0",
+    );
     expect(egg.querySelector(".platformclaw-easter-egg__hud")?.textContent).toContain("최고 0m");
     expect(egg.querySelector(".platformclaw-easter-egg__player-label")).toBeNull();
     expect(egg.querySelector(".platformclaw-easter-egg__target-label")).toBeNull();
@@ -127,12 +140,31 @@ describe("PlatformClaw easter egg", () => {
     egg.now = () => Date.now();
     egg.random = () => 0;
     egg.client = {
-      request: async <T>(): Promise<T> => progress({ gold: 50, bestDistanceM: 168 }) as T,
+      request: async <T>(method: string): Promise<T> => {
+        if (method === BASEBALL_RPC.progress) {
+          return progress({ gold: 50, bestDistanceM: 168, currentHomeRunStreak: 2 }) as T;
+        }
+        if (method === BASEBALL_RPC.leaderboard) {
+          return leaderboard({
+            distance: [
+              { displayName: "Person B", value: 172, isCurrentUser: false },
+              { displayName: "Person A", value: 168, isCurrentUser: true },
+            ],
+            homeRunStreak: [{ displayName: "Person A", value: 4, isCurrentUser: true }],
+          }) as T;
+        }
+        throw new Error(`unexpected method: ${method}`);
+      },
     };
     window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
     await flush(egg);
     expect(egg.textContent).toContain("골드 50");
     expect(egg.textContent).toContain("최고 168m");
+    expect(egg.textContent).toContain("연속 홈런 2");
+    expect(egg.textContent).toContain("비거리 TOP 5");
+    expect(egg.textContent).toContain("1. Person B");
+    expect(egg.textContent).toContain("2. Person A (나)");
+    expect(egg.textContent).toContain("연속 홈런 TOP 5");
 
     (egg.querySelector(".platformclaw-easter-egg__hud button") as HTMLButtonElement).click();
     await egg.updateComplete;
@@ -161,6 +193,9 @@ describe("PlatformClaw easter egg", () => {
       request: async <T>(method: string, params?: unknown): Promise<T> => {
         if (method === BASEBALL_RPC.progress) {
           return progress({ gold: 50 }) as T;
+        }
+        if (method === BASEBALL_RPC.leaderboard) {
+          return leaderboard() as T;
         }
         if (method === BASEBALL_RPC.purchaseBat) {
           purchaseParams.push(params);
@@ -200,6 +235,99 @@ describe("PlatformClaw easter egg", () => {
     expect(egg.textContent).toContain("장착");
   });
 
+  it("keeps the newest leaderboard when an older refresh finishes later", async () => {
+    vi.useFakeTimers();
+    const egg = document.querySelector("platformclaw-easter-egg") as EasterEggElement;
+    egg.now = () => Date.now();
+    egg.random = () => 0;
+    let releaseFirstLeaderboard!: (value: BaseballLeaderboard) => void;
+    const firstLeaderboard = new Promise<BaseballLeaderboard>((resolve) => {
+      releaseFirstLeaderboard = resolve;
+    });
+    let leaderboardRequests = 0;
+    egg.client = {
+      request: async <T>(method: string): Promise<T> => {
+        if (method === BASEBALL_RPC.progress) {
+          return progress() as T;
+        }
+        if (method === BASEBALL_RPC.leaderboard) {
+          leaderboardRequests += 1;
+          if (leaderboardRequests === 1) {
+            return firstLeaderboard as Promise<T>;
+          }
+          return leaderboard({
+            distance: [{ displayName: "Newest", value: 160, isCurrentUser: false }],
+          }) as T;
+        }
+        if (method === BASEBALL_RPC.plateAppearance) {
+          return { awardedGold: 0, progress: progress() } as T;
+        }
+        throw new Error(`unexpected method: ${method}`);
+      },
+    };
+    await egg.updateComplete;
+
+    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await flush(egg);
+    expect(leaderboardRequests).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1_600);
+    await flush(egg);
+    expect(leaderboardRequests).toBe(2);
+    expect(egg.textContent).toContain("Newest");
+
+    releaseFirstLeaderboard(
+      leaderboard({
+        distance: [{ displayName: "Stale", value: 120, isCurrentUser: false }],
+      }),
+    );
+    await flush(egg);
+    expect(egg.textContent).toContain("Newest");
+    expect(egg.textContent).not.toContain("Stale");
+  });
+
+  it("keeps existing leaderboard rows visible when a refresh fails", async () => {
+    vi.useFakeTimers();
+    const egg = document.querySelector("platformclaw-easter-egg") as EasterEggElement;
+    egg.now = () => Date.now();
+    egg.random = () => 0;
+    let leaderboardRequests = 0;
+    egg.client = {
+      request: async <T>(method: string): Promise<T> => {
+        if (method === BASEBALL_RPC.progress) {
+          return progress() as T;
+        }
+        if (method === BASEBALL_RPC.leaderboard) {
+          leaderboardRequests += 1;
+          if (leaderboardRequests === 1) {
+            return leaderboard({
+              distance: [{ displayName: "Existing", value: 150, isCurrentUser: true }],
+            }) as T;
+          }
+          throw new Error("leaderboard unavailable");
+        }
+        if (method === BASEBALL_RPC.plateAppearance) {
+          return { awardedGold: 0, progress: progress() } as T;
+        }
+        throw new Error(`unexpected method: ${method}`);
+      },
+    };
+    await egg.updateComplete;
+
+    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await flush(egg);
+    await vi.waitFor(() => expect(leaderboardRequests).toBe(1));
+    await flush(egg);
+    expect(egg.textContent).toContain("Existing");
+
+    await vi.advanceTimersByTimeAsync(1_600);
+    await flush(egg);
+    await vi.waitFor(() => expect(leaderboardRequests).toBe(2));
+    await flush(egg);
+    expect(egg.textContent).toContain("Existing");
+    expect(egg.textContent).toContain("랭킹 불러오기 실패");
+  });
+
   it("ignores a late progress response after the gateway client changes", async () => {
     const egg = document.querySelector("platformclaw-easter-egg") as EasterEggElement;
     let releaseFirst!: (value: BaseballProgress) => void;
@@ -211,7 +339,10 @@ describe("PlatformClaw easter egg", () => {
     await egg.updateComplete;
 
     egg.client = {
-      request: async <T>(): Promise<T> => progress({ gold: 7, revision: 2 }) as T,
+      request: async <T>(method: string): Promise<T> =>
+        (method === BASEBALL_RPC.leaderboard
+          ? leaderboard()
+          : progress({ gold: 7, revision: 2 })) as T,
     };
     await flush(egg);
     releaseFirst(progress({ gold: 999, revision: 99 }));

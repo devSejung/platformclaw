@@ -3,6 +3,7 @@ import {
   BASEBALL_BATS,
   BASEBALL_RPC,
   type BaseballBatId,
+  type BaseballLeaderboard,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
@@ -82,12 +83,15 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   @state() private playerState: AnimationState = "idle";
   @state() private pitcherState: AnimationState = "idle";
   @state() private progress: BaseballProgress | null = null;
+  @state() private leaderboard: BaseballLeaderboard | null = null;
+  @state() private leaderboardStatus = "";
   @state() private persistenceStatus = "";
   @state() private persistenceBusy = false;
 
   private animationFrame = 0;
   private playSequence = 0;
   private clientEpoch = 0;
+  private leaderboardRequest = 0;
   private pitch: Pitch | null = null;
   private pitchElapsedMs = 0;
   private battedBall: BattedBallSimulation | null = null;
@@ -142,6 +146,8 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       this.pendingMutation = null;
       this.persistenceBusy = false;
       this.progress = null;
+      this.leaderboard = null;
+      this.leaderboardStatus = "";
       if (this.active) {
         this.persistenceStatus = this.client ? "진행도 다시 불러오는 중" : "진행 저장 불가";
         void this.loadProgress(this.playSequence);
@@ -170,6 +176,8 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       playerState: this.playerState,
       pitcherState: this.pitcherState,
       progress: this.progress,
+      leaderboard: this.leaderboard,
+      leaderboardStatus: this.leaderboardStatus,
       persistenceStatus: this.persistenceStatus,
       persistenceBusy: this.persistenceBusy,
       pendingMutationMethod: this.pendingMutation?.method ?? null,
@@ -195,6 +203,8 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     this.streak = 0;
     this.result = "";
     this.lastDistance = null;
+    this.leaderboard = null;
+    this.leaderboardStatus = "";
     this.persistenceStatus = this.client ? "진행도 불러오는 중" : "진행 저장 불가";
     await this.updateComplete;
     this.querySelector<HTMLElement>('[role="application"]')?.focus();
@@ -214,8 +224,10 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
         return;
       }
       this.progress = progress;
+      this.streak = progress.currentHomeRunStreak;
       this.persistenceStatus = "";
       this.startRound(sequence);
+      void this.loadLeaderboard(sequence);
     } catch {
       if (this.isCurrentRequest(client, epoch, sequence)) {
         this.persistenceStatus = "진행 저장 불가";
@@ -223,6 +235,28 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     } finally {
       if (this.isCurrentRequest(client, epoch, sequence)) {
         this.persistenceBusy = false;
+      }
+    }
+  }
+
+  private async loadLeaderboard(sequence: number): Promise<void> {
+    const client = this.client;
+    const epoch = this.clientEpoch;
+    const request = ++this.leaderboardRequest;
+    if (!client || !this.active || sequence !== this.playSequence) {
+      return;
+    }
+    this.leaderboardStatus = "랭킹 불러오는 중";
+    try {
+      const leaderboard = await client.request<BaseballLeaderboard>(BASEBALL_RPC.leaderboard, {});
+      if (!this.isCurrentRequest(client, epoch, sequence) || this.leaderboardRequest !== request) {
+        return;
+      }
+      this.leaderboard = leaderboard;
+      this.leaderboardStatus = "";
+    } catch {
+      if (this.isCurrentRequest(client, epoch, sequence) && this.leaderboardRequest === request) {
+        this.leaderboardStatus = "랭킹 불러오기 실패";
       }
     }
   }
@@ -348,7 +382,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     } else if (outcome === "hit") {
       this.result = "안타";
       this.hits += 1;
-      this.streak += 1;
+      this.streak = 0;
       this.lastDistance = distanceM ?? null;
     } else if (outcome === "out") {
       this.result = "아웃";
@@ -405,10 +439,14 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       }
       if (!this.progress || response.progress.revision >= this.progress.revision) {
         this.progress = response.progress;
+        this.streak = response.progress.currentHomeRunStreak;
       }
       this.pendingMutation = null;
       this.persistenceStatus = "";
       mutation.onSuccess?.();
+      if (mutation.method === BASEBALL_RPC.plateAppearance) {
+        void this.loadLeaderboard(sequence);
+      }
     } catch {
       if (this.isCurrentRequest(client, epoch, sequence)) {
         this.persistenceStatus = mutation.label;
@@ -686,6 +724,8 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     this.active = false;
     this.shopOpen = false;
     this.progress = null;
+    this.leaderboard = null;
+    this.leaderboardStatus = "";
     this.persistenceStatus = "";
   }
 

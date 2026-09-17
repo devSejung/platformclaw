@@ -77,6 +77,8 @@ describe("SqliteControlPlaneStore baseball state", () => {
       equippedBatId: "wood",
       totalHomers: 0,
       bestDistanceM: 0,
+      currentHomeRunStreak: 0,
+      bestHomeRunStreak: 0,
       revision: 0,
     });
     const homeRun = await first.rewardBaseballPlateAppearance({
@@ -87,7 +89,14 @@ describe("SqliteControlPlaneStore baseball state", () => {
     });
     expect(homeRun).toMatchObject({
       awardedGold: 1,
-      progress: { gold: 1, totalHomers: 1, bestDistanceM: 132, revision: 1 },
+      progress: {
+        gold: 1,
+        totalHomers: 1,
+        bestDistanceM: 132,
+        currentHomeRunStreak: 1,
+        bestHomeRunStreak: 1,
+        revision: 1,
+      },
     });
     await expect(
       first.rewardBaseballPlateAppearance({
@@ -98,7 +107,14 @@ describe("SqliteControlPlaneStore baseball state", () => {
       }),
     ).resolves.toMatchObject({
       awardedGold: 0,
-      progress: { gold: 1, totalHomers: 1, bestDistanceM: 140, revision: 2 },
+      progress: {
+        gold: 1,
+        totalHomers: 1,
+        bestDistanceM: 140,
+        currentHomeRunStreak: 0,
+        bestHomeRunStreak: 1,
+        revision: 2,
+      },
     });
     await expect(
       first.rewardBaseballPlateAppearance({
@@ -130,6 +146,8 @@ describe("SqliteControlPlaneStore baseball state", () => {
       equippedBatId: "wood",
       totalHomers: 1,
       bestDistanceM: 140,
+      currentHomeRunStreak: 0,
+      bestHomeRunStreak: 1,
       revision: 2,
     });
     reopened.close();
@@ -163,6 +181,8 @@ describe("SqliteControlPlaneStore baseball state", () => {
       gold: 1,
       totalHomers: 1,
       bestDistanceM: 125,
+      currentHomeRunStreak: 1,
+      bestHomeRunStreak: 1,
       revision: 1,
     });
     store.close();
@@ -196,6 +216,78 @@ describe("SqliteControlPlaneStore baseball state", () => {
       gold: 0,
       totalHomers: 0,
       bestDistanceM: 90,
+    });
+    store.close();
+  });
+
+  it("ranks best distance and consecutive home runs across active users", async () => {
+    const databasePath = createDatabasePath();
+    const store = createStore(databasePath);
+    const userA = await seedUser(store);
+    const userB = (await store.upsertPrincipal(principal("member.b"), 1_001)).user;
+    const userC = (await store.upsertPrincipal(principal("member.c"), 1_002)).user;
+    const userD = (await store.upsertPrincipal(principal("member.disabled"), 1_003)).user;
+
+    await store.rewardBaseballPlateAppearance({
+      userId: userA.id,
+      requestId: "a-1",
+      outcome: "home_run",
+      distanceM: 130,
+    });
+    await store.rewardBaseballPlateAppearance({
+      userId: userA.id,
+      requestId: "a-2",
+      outcome: "home_run",
+      distanceM: 135,
+    });
+    await store.rewardBaseballPlateAppearance({
+      userId: userB.id,
+      requestId: "b-1",
+      outcome: "hit",
+      distanceM: 150,
+    });
+    await store.rewardBaseballPlateAppearance({
+      userId: userC.id,
+      requestId: "c-1",
+      outcome: "home_run",
+      distanceM: 140,
+    });
+    await store.rewardBaseballPlateAppearance({
+      userId: userC.id,
+      requestId: "c-2",
+      outcome: "out",
+    });
+    await store.rewardBaseballPlateAppearance({
+      userId: userD.id,
+      requestId: "d-1",
+      outcome: "home_run",
+      distanceM: 999,
+    });
+    await store.setManagedUserStatus({
+      actorUserId: userA.id,
+      targetUserId: userD.id,
+      status: "disabled",
+      changedAt: 1_004,
+    });
+
+    await expect(store.loadBaseballProgress(userA.id)).resolves.toMatchObject({
+      currentHomeRunStreak: 2,
+      bestHomeRunStreak: 2,
+    });
+    await expect(store.loadBaseballProgress(userC.id)).resolves.toMatchObject({
+      currentHomeRunStreak: 0,
+      bestHomeRunStreak: 1,
+    });
+    await expect(store.loadBaseballLeaderboard(userA.id)).resolves.toEqual({
+      distance: [
+        { displayName: "member.b", value: 150, isCurrentUser: false },
+        { displayName: "member.c", value: 140, isCurrentUser: false },
+        { displayName: "admin.user", value: 135, isCurrentUser: true },
+      ],
+      homeRunStreak: [
+        { displayName: "admin.user", value: 2, isCurrentUser: true },
+        { displayName: "member.c", value: 1, isCurrentUser: false },
+      ],
     });
     store.close();
   });
@@ -267,6 +359,8 @@ describe("SqliteControlPlaneStore baseball state", () => {
       gold: 3,
       totalHomers: 3,
       bestDistanceM: 123,
+      currentHomeRunStreak: 3,
+      bestHomeRunStreak: 3,
       revision: 3,
     });
 

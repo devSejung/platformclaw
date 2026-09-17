@@ -26,6 +26,7 @@ export const BASEBALL_RPC_METHODS = [
   "platformclaw.baseball.plateAppearance",
   "platformclaw.baseball.purchaseBat",
   "platformclaw.baseball.equipBat",
+  "platformclaw.baseball.leaderboard",
 ] as const;
 
 export type BaseballRpcMethod = (typeof BASEBALL_RPC_METHODS)[number];
@@ -35,6 +36,7 @@ export const BASEBALL_RPC = {
   plateAppearance: BASEBALL_RPC_METHODS[1],
   purchaseBat: BASEBALL_RPC_METHODS[2],
   equipBat: BASEBALL_RPC_METHODS[3],
+  leaderboard: BASEBALL_RPC_METHODS[4],
 } as const;
 
 const BASEBALL_RPC_METHOD_SET = new Set<string>(BASEBALL_RPC_METHODS);
@@ -51,7 +53,20 @@ export type BaseballProgress = {
   equippedBatId: BaseballBatId;
   totalHomers: number;
   bestDistanceM: number;
+  currentHomeRunStreak: number;
+  bestHomeRunStreak: number;
   revision: number;
+};
+
+export type BaseballLeaderboardEntry = {
+  displayName: string;
+  value: number;
+  isCurrentUser: boolean;
+};
+
+export type BaseballLeaderboard = {
+  distance: BaseballLeaderboardEntry[];
+  homeRunStreak: BaseballLeaderboardEntry[];
 };
 
 export type BaseballPlateAppearanceRequest = {
@@ -106,6 +121,7 @@ export class BaseballGameError extends Error {
 
 export interface BaseballGameStore {
   loadBaseballProgress(userId: string): Promise<BaseballProgress>;
+  loadBaseballLeaderboard(userId: string): Promise<BaseballLeaderboard>;
   rewardBaseballPlateAppearance(params: {
     userId: string;
     requestId: string;

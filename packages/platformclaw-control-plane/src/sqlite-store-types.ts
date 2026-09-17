@@ -370,6 +370,12 @@ type BaseballOwnedBatRow = {
   bat_id: string;
 };
 
+type BaseballHomeRunStreakRow = {
+  user_id: string;
+  current_streak: number;
+  best_streak: number;
+};
+
 type BaseballIdempotencyRow = {
   user_id: string;
   request_id: string;
@@ -485,5 +491,6 @@ export type ControlPlaneDatabase = {
   skill_hub_namespace_bindings: SkillHubNamespaceBindingRow;
   baseball_game_progress: BaseballGameProgressRow;
   baseball_owned_bats: BaseballOwnedBatRow;
+  baseball_home_run_streaks: BaseballHomeRunStreakRow;
   baseball_idempotency: BaseballIdempotencyRow;
 };

@@ -22,7 +22,8 @@ platformclaw-easter-egg {
 .platformclaw-easter-egg__hud,
 .platformclaw-easter-egg__result,
 .platformclaw-easter-egg__distance,
-.platformclaw-easter-egg__save-status {
+.platformclaw-easter-egg__save-status,
+.platformclaw-easter-egg__leaderboards {
   position: absolute;
   left: 8px;
   z-index: 12;
@@ -38,6 +39,64 @@ platformclaw-easter-egg {
   gap: 8px;
   align-items: center;
   opacity: 0.72;
+}
+
+.platformclaw-easter-egg__leaderboards {
+  bottom: 214px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(118px, 180px));
+  gap: 12px;
+  max-width: calc(100vw - 16px);
+  opacity: 0.82;
+}
+
+.platformclaw-easter-egg__leaderboard-status {
+  grid-column: 1 / -1;
+  color: var(--danger, #c2413b);
+}
+
+.platformclaw-easter-egg__leaderboards section,
+.platformclaw-easter-egg__leaderboards ol {
+  display: grid;
+  gap: 2px;
+}
+
+.platformclaw-easter-egg__leaderboards section {
+  min-width: 0;
+}
+
+.platformclaw-easter-egg__leaderboards ol {
+  min-width: 118px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.platformclaw-easter-egg__leaderboards li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.platformclaw-easter-egg__leaderboards li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platformclaw-easter-egg__leaderboards li > strong {
+  flex: none;
+}
+
+.platformclaw-easter-egg__leaderboard-current {
+  color: var(--text);
+}
+
+.platformclaw-easter-egg__leaderboard-empty {
+  margin-top: 2px;
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .platformclaw-easter-egg__hud button,
@@ -363,7 +422,8 @@ platformclaw-easter-egg {
   .platformclaw-easter-egg__hud,
   .platformclaw-easter-egg__result,
   .platformclaw-easter-egg__distance,
-  .platformclaw-easter-egg__save-status {
+  .platformclaw-easter-egg__save-status,
+  .platformclaw-easter-egg__leaderboards {
     left: 5px;
   }
 
@@ -371,6 +431,13 @@ platformclaw-easter-egg {
     max-width: calc(100vw - 10px);
     flex-wrap: wrap;
     gap: 4px;
+    font-size: 9px;
+  }
+
+  .platformclaw-easter-egg__leaderboards {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    max-width: calc(100vw - 10px);
     font-size: 9px;
   }
 }

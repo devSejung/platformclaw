@@ -79,6 +79,9 @@ export async function requestBrowserBaseball(params: {
     if (params.method === BASEBALL_RPC.progress) {
       return { handled: true, result: await params.store.loadBaseballProgress(params.userId) };
     }
+    if (params.method === BASEBALL_RPC.leaderboard) {
+      return { handled: true, result: await params.store.loadBaseballLeaderboard(params.userId) };
+    }
     if (params.method === BASEBALL_RPC.plateAppearance) {
       const requestId = requiredRequestId(params.request.requestId);
       const outcome = plateAppearanceOutcome(params.request.outcome);

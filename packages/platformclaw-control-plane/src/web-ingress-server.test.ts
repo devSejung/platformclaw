@@ -228,6 +228,7 @@ describe("PlatformClawWebIngressServer", () => {
             "platformclaw.baseball.plateAppearance",
             "platformclaw.baseball.purchaseBat",
             "platformclaw.baseball.equipBat",
+            "platformclaw.baseball.leaderboard",
           ],
         },
         snapshot: {

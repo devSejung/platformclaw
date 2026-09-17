@@ -4,6 +4,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   BASEBALL_RPC,
+  type BaseballLeaderboard,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
@@ -38,7 +39,15 @@ const progress = (overrides: Partial<BaseballProgress> = {}): BaseballProgress =
   equippedBatId: "wood",
   totalHomers: 0,
   bestDistanceM: 0,
+  currentHomeRunStreak: 0,
+  bestHomeRunStreak: 0,
   revision: 0,
+  ...overrides,
+});
+
+const leaderboard = (overrides: Partial<BaseballLeaderboard> = {}): BaseballLeaderboard => ({
+  distance: [],
+  homeRunStreak: [],
   ...overrides,
 });
 
@@ -162,6 +171,10 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     });
     const accountA = await newAccountPage("person.a", "person_a", {
       [BASEBALL_RPC.progress]: { sequence: [initialA, equippedA] },
+      [BASEBALL_RPC.leaderboard]: leaderboard({
+        distance: [{ displayName: "person.a", value: 138, isCurrentUser: true }],
+        homeRunStreak: [{ displayName: "person.a", value: 2, isCurrentUser: true }],
+      }),
       [BASEBALL_RPC.purchaseBat]: {
         batId: "silver",
         price: 50,
@@ -173,8 +186,20 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
 
     await openGame(accountA.page);
     expect((await accountA.gateway.waitForRequest(BASEBALL_RPC.progress)).params).toEqual({});
+    expect((await accountA.gateway.waitForRequest(BASEBALL_RPC.leaderboard)).params).toEqual({});
     const game = accountA.page.locator('platformclaw-easter-egg [role="application"]');
     await expect.poll(() => game.getByText("골드 50", { exact: true }).isVisible()).toBe(true);
+    const distanceBoard = game.locator(".platformclaw-easter-egg__leaderboards section").filter({
+      hasText: "비거리 TOP 5",
+    });
+    const streakBoard = game.locator(".platformclaw-easter-egg__leaderboards section").filter({
+      hasText: "연속 홈런 TOP 5",
+    });
+    await expect.poll(() => distanceBoard.isVisible()).toBe(true);
+    await expect
+      .poll(() => distanceBoard.getByText("1. person.a (나)", { exact: true }).isVisible())
+      .toBe(true);
+    await expect.poll(() => streakBoard.isVisible()).toBe(true);
     await game.getByRole("button", { name: "나무 배트 · 상점" }).click();
 
     const dialog = game.getByRole("dialog", { name: "배트 상점" });
@@ -206,6 +231,9 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     await expect
       .poll(async () => (await accountA.gateway.getRequests(BASEBALL_RPC.progress)).length)
       .toBe(2);
+    await expect
+      .poll(async () => (await accountA.gateway.getRequests(BASEBALL_RPC.leaderboard)).length)
+      .toBe(2);
     const reopened = accountA.page.locator('platformclaw-easter-egg [role="application"]');
     await expect
       .poll(() => reopened.getByRole("button", { name: "실버 배트 · 상점" }).isVisible())
@@ -213,10 +241,17 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     await expect
       .poll(() => reopened.getByText("최고 138m", { exact: true }).isVisible())
       .toBe(true);
+    const reopenedDistanceBoard = reopened
+      .locator(".platformclaw-easter-egg__leaderboards section")
+      .filter({ hasText: "비거리 TOP 5" });
+    await expect
+      .poll(() => reopenedDistanceBoard.getByText("1. person.a (나)", { exact: true }).isVisible())
+      .toBe(true);
     await capture(accountA.page, "02-restored-account-a.png");
 
     const accountB = await newAccountPage("person.b", "person_b", {
       [BASEBALL_RPC.progress]: progress(),
+      [BASEBALL_RPC.leaderboard]: leaderboard(),
     });
     await openGame(accountB.page);
     expect((await accountB.gateway.waitForRequest(BASEBALL_RPC.progress)).params).toEqual({});
