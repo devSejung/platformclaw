@@ -18,6 +18,8 @@ function progress(overrides: Partial<BaseballProgress> = {}): BaseballProgress {
     equippedBatId: "wood",
     totalHomers: 0,
     bestDistanceM: 0,
+    currentHomeRunStreak: 0,
+    bestHomeRunStreak: 0,
     revision: 0,
     ...overrides,
   };
@@ -26,6 +28,10 @@ function progress(overrides: Partial<BaseballProgress> = {}): BaseballProgress {
 function baseballStore() {
   return {
     loadBaseballProgress: vi.fn<BaseballGameStore["loadBaseballProgress"]>(async () => progress()),
+    loadBaseballLeaderboard: vi.fn<BaseballGameStore["loadBaseballLeaderboard"]>(async () => ({
+      distance: [{ displayName: "Person One", value: 140, isCurrentUser: true }],
+      homeRunStreak: [{ displayName: "Person One", value: 3, isCurrentUser: true }],
+    })),
     rewardBaseballPlateAppearance: vi.fn<BaseballGameStore["rewardBaseballPlateAppearance"]>(
       async () => ({
         awardedGold: 1 as const,
@@ -57,6 +63,11 @@ describe("BrowserGatewayProxy baseball BFF", () => {
 
     await expect(proxy.request(token, BASEBALL_RPC.progress, {})).resolves.toEqual(progress());
     expect(game.loadBaseballProgress).toHaveBeenCalledWith(user.id);
+    await expect(proxy.request(token, BASEBALL_RPC.leaderboard, {})).resolves.toMatchObject({
+      distance: [{ value: 140, isCurrentUser: true }],
+      homeRunStreak: [{ value: 3, isCurrentUser: true }],
+    });
+    expect(game.loadBaseballLeaderboard).toHaveBeenCalledWith(user.id);
     await expect(
       proxy.request(token, BASEBALL_RPC.plateAppearance, {
         requestId: "plate-1",
@@ -109,7 +120,11 @@ describe("BrowserGatewayProxy baseball BFF", () => {
         distanceM: 130,
       }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, BASEBALL_RPC.leaderboard, { userId: "user-other" }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
     expect(game.loadBaseballProgress).not.toHaveBeenCalled();
+    expect(game.loadBaseballLeaderboard).not.toHaveBeenCalled();
     expect(game.rewardBaseballPlateAppearance).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
   });

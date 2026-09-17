@@ -162,6 +162,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   [BASEBALL_RPC_METHODS[1], new Set(["requestId", "outcome", "distanceM"])],
   [BASEBALL_RPC_METHODS[2], new Set(["requestId", "batId"])],
   [BASEBALL_RPC_METHODS[3], new Set(["requestId", "batId"])],
+  [BASEBALL_RPC_METHODS[4], new Set()],
   [
     "platformclaw.memory.promotion.previewReferences",
     new Set([

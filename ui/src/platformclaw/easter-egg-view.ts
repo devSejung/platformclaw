@@ -3,6 +3,8 @@ import {
   BASEBALL_BATS,
   BASEBALL_RPC,
   type BaseballBatId,
+  type BaseballLeaderboard,
+  type BaseballLeaderboardEntry,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 
@@ -32,6 +34,8 @@ export function renderBaseballGame(params: {
   playerState: string;
   pitcherState: string;
   progress: BaseballProgress | null;
+  leaderboard: BaseballLeaderboard | null;
+  leaderboardStatus: string;
   persistenceStatus: string;
   persistenceBusy: boolean;
   pendingMutationMethod: string | null;
@@ -62,13 +66,15 @@ export function renderBaseballGame(params: {
   >
     <div class="platformclaw-easter-egg__hud" aria-live="polite">
       <span>안타 ${params.hits}</span><span>홈런 ${params.homeRuns}</span>
-      <span>연속 ${params.streak}</span><span>최고 ${params.progress?.bestDistanceM ?? 0}m</span>
+      <span>연속 홈런 ${params.streak}</span
+      ><span>최고 ${params.progress?.bestDistanceM ?? 0}m</span>
       <span>골드 ${params.progress?.gold ?? 0}</span>
       <span>${params.pitchSpeedKph === null ? "" : `${Math.round(params.pitchSpeedKph)}km/h`}</span>
       <button type="button" @click=${params.onOpenShop}>
         ${BASEBALL_BAT_NAMES[equipped]} 배트 · 상점
       </button>
     </div>
+    ${renderBaseballLeaderboards(params.leaderboard, params.leaderboardStatus)}
     ${params.persistenceStatus
       ? html`<div class="platformclaw-easter-egg__save-status" role="status">
           <span>${params.persistenceStatus}</span>
@@ -138,6 +144,45 @@ export function renderBaseballGame(params: {
         })
       : nothing}
   </div>`;
+}
+
+function renderBaseballLeaderboards(leaderboard: BaseballLeaderboard | null, status: string) {
+  if (!leaderboard) {
+    return status
+      ? html`<div class="platformclaw-easter-egg__leaderboards" role="status">${status}</div>`
+      : nothing;
+  }
+  return html`<div class="platformclaw-easter-egg__leaderboards" aria-label="야구 랭킹">
+    ${status
+      ? html`<span class="platformclaw-easter-egg__leaderboard-status" role="status"
+          >${status}</span
+        >`
+      : nothing}
+    <section>
+      <strong>비거리 TOP 5</strong>
+      ${renderBaseballLeaderboardRows(leaderboard.distance, "m")}
+    </section>
+    <section>
+      <strong>연속 홈런 TOP 5</strong>
+      ${renderBaseballLeaderboardRows(leaderboard.homeRunStreak, "")}
+    </section>
+  </div>`;
+}
+
+function renderBaseballLeaderboardRows(entries: BaseballLeaderboardEntry[], suffix: string) {
+  if (entries.length === 0) {
+    return html`<span class="platformclaw-easter-egg__leaderboard-empty">기록 없음</span>`;
+  }
+  return html`<ol>
+    ${entries.map(
+      (entry, index) => html`<li
+        class=${entry.isCurrentUser ? "platformclaw-easter-egg__leaderboard-current" : ""}
+      >
+        <span>${index + 1}. ${entry.displayName}${entry.isCurrentUser ? " (나)" : ""}</span>
+        <strong>${entry.value}${suffix}</strong>
+      </li>`,
+    )}
+  </ol>`;
 }
 
 function renderBaseballStickman() {

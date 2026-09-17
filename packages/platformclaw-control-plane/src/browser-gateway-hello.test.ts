@@ -118,6 +118,7 @@ describe("projectPlatformClawBrowserHello", () => {
         "platformclaw.baseball.plateAppearance",
         "platformclaw.baseball.purchaseBat",
         "platformclaw.baseball.equipBat",
+        "platformclaw.baseball.leaderboard",
         "sessions.branches.list",
         "sessions.branches.switch",
         "sessions.compaction.branch",

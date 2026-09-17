@@ -17,6 +17,16 @@ CREATE TABLE IF NOT EXISTS baseball_game_progress (
   FOREIGN KEY (user_id, equipped_bat_id)
     REFERENCES baseball_owned_bats(user_id, bat_id) ON DELETE RESTRICT
 ) STRICT;
+CREATE INDEX IF NOT EXISTS baseball_game_progress_best_distance
+  ON baseball_game_progress(best_distance_m DESC);
+
+CREATE TABLE IF NOT EXISTS baseball_home_run_streaks (
+  user_id TEXT PRIMARY KEY REFERENCES platform_users(id) ON DELETE CASCADE,
+  current_streak INTEGER NOT NULL CHECK (current_streak >= 0),
+  best_streak INTEGER NOT NULL CHECK (best_streak >= 0)
+) STRICT;
+CREATE INDEX IF NOT EXISTS baseball_home_run_streaks_best
+  ON baseball_home_run_streaks(best_streak DESC);
 
 CREATE TABLE IF NOT EXISTS baseball_idempotency (
   user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,

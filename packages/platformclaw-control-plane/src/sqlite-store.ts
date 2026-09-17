@@ -9,6 +9,7 @@ import {
   type BaseballEquipBatResult,
   type BaseballGameErrorCode,
   type BaseballGameStore,
+  type BaseballLeaderboard,
   type BaseballPlateAppearanceOutcome,
   type BaseballPlateAppearanceResult,
   type BaseballProgress,
@@ -26,7 +27,12 @@ import {
   type PlatformUserStatus,
 } from "./contracts.js";
 import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
-import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
+import {
+  executeSync,
+  runImmediateTransaction,
+  runReadTransaction,
+  takeFirstSync,
+} from "./kysely-sync.js";
 import { ensureBaseballGameSchema } from "./sqlite-schema-baseball.js";
 import { normalizeAccountId } from "./sqlite-store-core.js";
 import { SqliteControlPlaneOrganizationKnowledgeStore } from "./sqlite-store-organization-knowledge.js";
@@ -36,6 +42,8 @@ type BaseballOperationEnvelope<T> =
   | { ok: false; error: { code: BaseballGameErrorCode; message: string } };
 
 type BaseballOperationName = "plate_appearance" | "purchase_bat" | "equip_bat";
+
+const BASEBALL_LEADERBOARD_LIMIT = 5;
 
 function normalizeBaseballRequestId(requestId: string): string {
   const normalized = requestId.trim();
@@ -68,6 +76,55 @@ export class SqliteControlPlaneStore
     });
   }
 
+  async loadBaseballLeaderboard(userId: string): Promise<BaseballLeaderboard> {
+    this.ensureBaseballGameSchema();
+    return runReadTransaction(this.db, () => {
+      const distance = executeSync(
+        this.db,
+        this.query
+          .selectFrom("baseball_game_progress as game")
+          .innerJoin("platform_users as user", "user.id", "game.user_id")
+          .select([
+            "game.user_id as user_id",
+            "game.best_distance_m as value",
+            "user.account_id as account_id",
+            "user.display_name as display_name",
+          ])
+          .where("user.status", "=", "active")
+          .where("game.best_distance_m", ">", 0)
+          .orderBy("game.best_distance_m", "desc")
+          .orderBy("user.account_id", "asc")
+          .limit(BASEBALL_LEADERBOARD_LIMIT),
+      ).rows.map((row) => ({
+        displayName: row.display_name?.trim() || row.account_id,
+        value: row.value,
+        isCurrentUser: row.user_id === userId,
+      }));
+      const homeRunStreak = executeSync(
+        this.db,
+        this.query
+          .selectFrom("baseball_home_run_streaks as streak")
+          .innerJoin("platform_users as user", "user.id", "streak.user_id")
+          .select([
+            "streak.user_id as user_id",
+            "streak.best_streak as value",
+            "user.account_id as account_id",
+            "user.display_name as display_name",
+          ])
+          .where("user.status", "=", "active")
+          .where("streak.best_streak", ">", 0)
+          .orderBy("streak.best_streak", "desc")
+          .orderBy("user.account_id", "asc")
+          .limit(BASEBALL_LEADERBOARD_LIMIT),
+      ).rows.map((row) => ({
+        displayName: row.display_name?.trim() || row.account_id,
+        value: row.value,
+        isCurrentUser: row.user_id === userId,
+      }));
+      return { distance, homeRunStreak };
+    });
+  }
+
   async rewardBaseballPlateAppearance(params: {
     userId: string;
     requestId: string;
@@ -83,13 +140,29 @@ export class SqliteControlPlaneStore
       { outcome: params.outcome, distanceM: distanceM ?? null },
       () => {
         const current = this.ensureBaseballProgress(params.userId);
+        const streak = this.requireBaseballHomeRunStreakRow(params.userId);
         const awardedGold = params.outcome === "home_run" ? 1 : 0;
         const bestDistanceM =
           distanceM === undefined
             ? current.best_distance_m
             : Math.max(current.best_distance_m, distanceM);
         const totalHomers = current.total_homers + awardedGold;
-        const changed = awardedGold === 1 || bestDistanceM !== current.best_distance_m;
+        const currentHomeRunStreak = params.outcome === "home_run" ? streak.current_streak + 1 : 0;
+        const bestHomeRunStreak = Math.max(streak.best_streak, currentHomeRunStreak);
+        const streakChanged =
+          currentHomeRunStreak !== streak.current_streak ||
+          bestHomeRunStreak !== streak.best_streak;
+        if (streakChanged) {
+          executeSync(
+            this.db,
+            this.query
+              .updateTable("baseball_home_run_streaks")
+              .set({ current_streak: currentHomeRunStreak, best_streak: bestHomeRunStreak })
+              .where("user_id", "=", params.userId),
+          );
+        }
+        const changed =
+          awardedGold === 1 || bestDistanceM !== current.best_distance_m || streakChanged;
         if (changed) {
           executeSync(
             this.db,
@@ -254,6 +327,13 @@ export class SqliteControlPlaneStore
         })
         .onConflict((conflict) => conflict.column("user_id").doNothing()),
     );
+    executeSync(
+      this.db,
+      this.query
+        .insertInto("baseball_home_run_streaks")
+        .values({ user_id: userId, current_streak: 0, best_streak: 0 })
+        .onConflict((conflict) => conflict.column("user_id").doNothing()),
+    );
     return this.requireBaseballProgressRow(userId);
   }
 
@@ -268,8 +348,20 @@ export class SqliteControlPlaneStore
     return row;
   }
 
+  private requireBaseballHomeRunStreakRow(userId: string) {
+    const row = takeFirstSync(
+      this.db,
+      this.query.selectFrom("baseball_home_run_streaks").selectAll().where("user_id", "=", userId),
+    );
+    if (!row) {
+      throw new ControlPlaneStateError("baseball home-run streak is missing");
+    }
+    return row;
+  }
+
   private readBaseballProgress(userId: string): BaseballProgress {
     const row = this.requireBaseballProgressRow(userId);
+    const streak = this.requireBaseballHomeRunStreakRow(userId);
     if (!isBaseballBatId(row.equipped_bat_id)) {
       throw new ControlPlaneStateError(`baseball equipped bat is invalid: ${row.equipped_bat_id}`);
     }
@@ -290,6 +382,8 @@ export class SqliteControlPlaneStore
       equippedBatId: row.equipped_bat_id,
       totalHomers: row.total_homers,
       bestDistanceM: row.best_distance_m,
+      currentHomeRunStreak: streak.current_streak,
+      bestHomeRunStreak: streak.best_streak,
       revision: row.revision,
     };
   }
