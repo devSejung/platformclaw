@@ -119,6 +119,26 @@ describe("archive utils", () => {
     },
   );
 
+  it("extracts zero-byte ZIP files", async () => {
+    await withArchiveCase("zip", async ({ archivePath, extractDir }) => {
+      const zip = new JSZip();
+      zip.file("package/SKILL.md", "skill");
+      zip.file("package/scripts/__init__.py", "");
+      await fs.writeFile(archivePath, await zip.generateAsync({ type: "nodebuffer" }));
+
+      await extractArchive({
+        archivePath,
+        destDir: extractDir,
+        timeoutMs: ARCHIVE_EXTRACT_TIMEOUT_MS,
+      });
+
+      const rootDir = await resolvePackedRootDir(extractDir);
+      await expect(fs.readFile(path.join(rootDir, "scripts", "__init__.py"))).resolves.toEqual(
+        Buffer.alloc(0),
+      );
+    });
+  });
+
   it.each([{ ext: "zip" as const }, { ext: "tar" as const }])(
     "rejects $ext extraction when destination dir is a symlink",
     async ({ ext }) => {
