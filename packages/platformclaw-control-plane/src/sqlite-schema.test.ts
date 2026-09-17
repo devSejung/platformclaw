@@ -46,6 +46,7 @@ describe("PlatformClaw control schema migrations", () => {
         .all(),
     ).toEqual([
       { name: "baseball_game_progress" },
+      { name: "baseball_home_run_streaks" },
       { name: "baseball_idempotency" },
       { name: "baseball_owned_bats" },
     ]);
