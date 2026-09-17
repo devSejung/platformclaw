@@ -127,7 +127,7 @@ describe("PlatformClaw easter egg", () => {
     egg.now = () => Date.now();
     egg.random = () => 0;
     egg.client = {
-      request: vi.fn(async () => progress({ gold: 50, bestDistanceM: 168 })),
+      request: async <T>(): Promise<T> => progress({ gold: 50, bestDistanceM: 168 }) as T,
     };
     window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
     await flush(egg);
@@ -158,7 +158,7 @@ describe("PlatformClaw easter egg", () => {
     const purchaseParams: unknown[] = [];
     let purchases = 0;
     egg.client = {
-      request: vi.fn(async <T>(method: string, params?: unknown): Promise<T> => {
+      request: async <T>(method: string, params?: unknown): Promise<T> => {
         if (method === BASEBALL_RPC.progress) {
           return progress({ gold: 50 }) as T;
         }
@@ -180,7 +180,7 @@ describe("PlatformClaw easter egg", () => {
           } as T;
         }
         throw new Error(`unexpected method: ${method}`);
-      }),
+      },
     };
     window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
     await flush(egg);
@@ -206,11 +206,13 @@ describe("PlatformClaw easter egg", () => {
     const firstProgress = new Promise<BaseballProgress>((resolve) => {
       releaseFirst = resolve;
     });
-    egg.client = { request: vi.fn(async () => firstProgress) };
+    egg.client = { request: async <T>(): Promise<T> => firstProgress as Promise<T> };
     window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
     await egg.updateComplete;
 
-    egg.client = { request: vi.fn(async () => progress({ gold: 7, revision: 2 })) };
+    egg.client = {
+      request: async <T>(): Promise<T> => progress({ gold: 7, revision: 2 }) as T,
+    };
     await flush(egg);
     releaseFirst(progress({ gold: 999, revision: 99 }));
     await flush(egg);
