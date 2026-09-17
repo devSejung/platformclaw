@@ -356,6 +356,28 @@ export type SkillHubNamespaceBindingRow = {
   updated_at: number;
 };
 
+type BaseballGameProgressRow = {
+  user_id: string;
+  gold: number;
+  equipped_bat_id: string;
+  total_homers: number;
+  best_distance_m: number;
+  revision: number;
+};
+
+type BaseballOwnedBatRow = {
+  user_id: string;
+  bat_id: string;
+};
+
+type BaseballIdempotencyRow = {
+  user_id: string;
+  request_id: string;
+  operation: string;
+  payload_digest: string;
+  result_json: string;
+};
+
 export type ControlPlaneDatabase = {
   organization_memory_promotion_reference_inputs: { request_id: string; input_json: string };
   organization_memory_claim_references: {
@@ -461,4 +483,7 @@ export type ControlPlaneDatabase = {
   skill_hub_notifications: SkillHubNotificationRow;
   skill_hub_governance_jobs: SkillHubGovernanceJobRow;
   skill_hub_namespace_bindings: SkillHubNamespaceBindingRow;
+  baseball_game_progress: BaseballGameProgressRow;
+  baseball_owned_bats: BaseballOwnedBatRow;
+  baseball_idempotency: BaseballIdempotencyRow;
 };

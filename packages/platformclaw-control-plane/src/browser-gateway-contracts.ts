@@ -1,3 +1,4 @@
+import type { BaseballGameStore } from "./baseball-contracts.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import type {
   ControlPlaneAuditWriter,
@@ -69,6 +70,7 @@ export type BrowserGatewayProxyOptions = {
   store: ControlPlaneStore;
   auditWriter: ControlPlaneAuditWriter;
   gateway: BrowserGatewayRpc;
+  baseballStore?: BaseballGameStore;
   buildAgentMainSessionKey(params: { agentId: string }): string;
   resolveAgentIdFromSessionKey(sessionKey: string): string | null;
   searchOrganizationMemory?(params: {

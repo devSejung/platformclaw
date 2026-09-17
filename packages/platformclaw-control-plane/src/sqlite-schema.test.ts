@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
+  ensureBaseballGameSchema,
   ensureVmHostExecutionEnvironmentSchema,
   ensureSkillHubStateSchema,
   initializeControlPlaneSchema,
@@ -11,6 +12,47 @@ import {
 } from "./sqlite-schema.js";
 
 describe("PlatformClaw control schema migrations", () => {
+  it("lazily upgrades an existing v3 database with baseball tables without changing its version", () => {
+    const directory = mkdtempSync(join(tmpdir(), "platformclaw-baseball-schema-"));
+    const databasePath = join(directory, "control.sqlite");
+    const initial = new DatabaseSync(databasePath);
+    initializeControlPlaneSchema(initial, databasePath);
+    const version = (initial.prepare("PRAGMA user_version").get() as { user_version: number })
+      .user_version;
+    expect(
+      initial
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'baseball_%'")
+        .all(),
+    ).toEqual([]);
+    initial.close();
+
+    const db = new DatabaseSync(databasePath);
+    initializeControlPlaneSchema(db, databasePath);
+
+    ensureBaseballGameSchema(db);
+    ensureBaseballGameSchema(db);
+
+    expect(version).toBe(PLATFORMCLAW_CONTROL_SCHEMA_VERSION);
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({
+      user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+    });
+    expect(
+      db
+        .prepare(
+          `SELECT name FROM sqlite_master
+           WHERE type = 'table' AND name LIKE 'baseball_%'
+           ORDER BY name`,
+        )
+        .all(),
+    ).toEqual([
+      { name: "baseball_game_progress" },
+      { name: "baseball_idempotency" },
+      { name: "baseball_owned_bats" },
+    ]);
+    db.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+
   it("atomically migrates populated v2 organization data and restricts legacy Global bindings", () => {
     const directory = mkdtempSync(join(tmpdir(), "platformclaw-schema-v3-"));
     const databasePath = join(directory, "control.sqlite");

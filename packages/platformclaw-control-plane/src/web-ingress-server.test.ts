@@ -224,6 +224,10 @@ describe("PlatformClawWebIngressServer", () => {
             "platformclaw.memory.knowledge.decide",
             "platformclaw.memory.knowledge.apply",
             "platformclaw.memory.knowledge.comparePromotion",
+            "platformclaw.baseball.progress",
+            "platformclaw.baseball.plateAppearance",
+            "platformclaw.baseball.purchaseBat",
+            "platformclaw.baseball.equipBat",
           ],
         },
         snapshot: {

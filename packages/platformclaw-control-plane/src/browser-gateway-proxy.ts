@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isBaseballRpcMethod } from "./baseball-contracts.js";
 import { resolveBrowserGatewayCommandSuppression } from "./browser-command-policy.js";
 import {
   createBrowserSenderAttribution,
@@ -361,18 +362,20 @@ export class BrowserGatewayProxy {
     }
     const params = { ...asObject(rawParams, `${method} params`) };
     this.assertions.methodParams(method, params);
-    const selfServiceParams = prepareBrowserSelfServiceRequest({
-      method,
-      params,
-      agentId: access.binding.agentId,
-      assertOptionalAgentId: (value) =>
-        this.assertions.optionalAgentId(access.binding.agentId, value, method),
-      assertOwnedSessionKey: (value, label) =>
-        this.assertions.ownedSessionKey(access.binding.agentId, value, label),
-      deny: (message) => {
-        throw new BrowserGatewayProxyError("method-not-allowed", message);
-      },
-    });
+    const selfServiceParams = isBaseballRpcMethod(method)
+      ? params
+      : prepareBrowserSelfServiceRequest({
+          method,
+          params,
+          agentId: access.binding.agentId,
+          assertOptionalAgentId: (value) =>
+            this.assertions.optionalAgentId(access.binding.agentId, value, method),
+          assertOwnedSessionKey: (value, label) =>
+            this.assertions.ownedSessionKey(access.binding.agentId, value, label),
+          deny: (message) => {
+            throw new BrowserGatewayProxyError("method-not-allowed", message);
+          },
+        });
     if (selfServiceParams !== undefined) {
       return selfServiceParams;
     }

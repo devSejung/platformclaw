@@ -1,4 +1,5 @@
 export * from "./browser-auth-service.js";
+export * from "./baseball-contracts.js";
 export * from "./admin-cli.js";
 export * from "./browser-auth-http.js";
 export * from "./browser-auth-runtime.js";

@@ -1,3 +1,4 @@
+import { requestBrowserBaseball } from "./browser-gateway-baseball.js";
 import type {
   BrowserGatewayAccess,
   BrowserGatewayProxyOptions,
@@ -27,6 +28,15 @@ export async function requestBrowserGatewayLocal(
     return { handled: true, result: { subscribed: true } };
   }
   try {
+    const baseball = await requestBrowserBaseball({
+      store: options.baseballStore,
+      userId: access.user.id,
+      method,
+      request,
+    });
+    if (baseball.handled) {
+      return baseball;
+    }
     const knowledge = await requestBrowserOrganizationKnowledge({
       store: options.organizationKnowledgeStore,
       service: options.organizationKnowledgeService,

@@ -1,15 +1,35 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  classifyHitResult,
-  classifyTimingDelta,
-  distanceForTiming,
-  formatHitResult,
-  formatTimingFeedback,
-} from "./easter-egg-timing.ts";
+  BASEBALL_RPC,
+  type BaseballProgress,
+} from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import { classifyTimingDelta, formatTimingFeedback } from "./easter-egg-timing.ts";
 import { PLATFORMCLAW_EASTER_EGG_EVENT, recordPlatformClawEasterEggClick } from "./easter-egg.ts";
 import "./easter-egg-game.ts";
 
-type EasterEggElement = HTMLElement & { updateComplete: Promise<unknown> };
+type EasterEggElement = HTMLElement & {
+  client: { request<T>(method: string, params?: unknown): Promise<T> } | null;
+  now: () => number;
+  random: () => number;
+  updateComplete: Promise<unknown>;
+};
+
+function progress(overrides: Partial<BaseballProgress> = {}): BaseballProgress {
+  return {
+    gold: 0,
+    ownedBatIds: ["wood"],
+    equippedBatId: "wood",
+    totalHomers: 0,
+    bestDistanceM: 0,
+    revision: 0,
+    ...overrides,
+  };
+}
+
+async function flush(element: EasterEggElement): Promise<void> {
+  await Promise.resolve();
+  await element.updateComplete;
+}
 
 describe("PlatformClaw easter egg", () => {
   beforeEach(() => {
@@ -54,20 +74,11 @@ describe("PlatformClaw easter egg", () => {
     expect(classifyTimingDelta(101)).toBe("MISS");
   });
 
-  it("formats timing feedback and scales distance with accuracy", () => {
+  it("formats timing feedback", () => {
     expect(formatTimingFeedback(0, "PERFECT")).toBe("PERFECT");
     expect(formatTimingFeedback(-54, "GOOD")).toBe("54ms 빠름");
     expect(formatTimingFeedback(32, "HIT")).toBe("32ms 느림");
     expect(formatTimingFeedback(101, "MISS")).toBe("MISS");
-    expect(distanceForTiming(0, 150, 70)).toBe(150);
-    expect(distanceForTiming(100, 150, 70)).toBe(70);
-  });
-
-  it("distinguishes ordinary hits from home runs by distance", () => {
-    expect(classifyHitResult(119)).toBe("HIT");
-    expect(classifyHitResult(120)).toBe("HOME_RUN");
-    expect(formatHitResult("HIT")).toBe("안타");
-    expect(formatHitResult("HOME_RUN")).toBe("홈런");
   });
 
   it("starts a baseball game, ignores Space in inputs, and closes on Escape", async () => {
@@ -108,5 +119,104 @@ describe("PlatformClaw easter egg", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
     await egg.updateComplete;
     expect(egg.querySelector('[role="application"]')).toBeNull();
+  });
+
+  it("loads account progress, pauses game timers in the shop, and lets Escape close only the shop", async () => {
+    vi.useFakeTimers();
+    const egg = document.querySelector("platformclaw-easter-egg") as EasterEggElement;
+    egg.now = () => Date.now();
+    egg.random = () => 0;
+    egg.client = {
+      request: async <T>(): Promise<T> => progress({ gold: 50, bestDistanceM: 168 }) as T,
+    };
+    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await flush(egg);
+    expect(egg.textContent).toContain("골드 50");
+    expect(egg.textContent).toContain("최고 168m");
+
+    (egg.querySelector(".platformclaw-easter-egg__hud button") as HTMLButtonElement).click();
+    await egg.updateComplete;
+    expect(egg.querySelector('[role="dialog"]')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(egg.querySelector('[role="application"]')?.getAttribute("data-pitch-state")).toBe(
+      "ready",
+    );
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    await egg.updateComplete;
+    expect(egg.querySelector('[role="dialog"]')).toBeNull();
+    expect(egg.querySelector('[role="application"]')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(710);
+    await egg.updateComplete;
+    expect(egg.querySelector('[role="application"]')?.getAttribute("data-pitch-state")).toBe(
+      "pitch",
+    );
+  });
+
+  it("retries a purchase with the same request id and applies the confirmed server revision", async () => {
+    const egg = document.querySelector("platformclaw-easter-egg") as EasterEggElement;
+    const purchaseParams: unknown[] = [];
+    let purchases = 0;
+    egg.client = {
+      request: async <T>(method: string, params?: unknown): Promise<T> => {
+        if (method === BASEBALL_RPC.progress) {
+          return progress({ gold: 50 }) as T;
+        }
+        if (method === BASEBALL_RPC.purchaseBat) {
+          purchaseParams.push(params);
+          purchases += 1;
+          if (purchases === 1) {
+            throw new Error("response lost");
+          }
+          return {
+            purchased: true,
+            batId: "silver",
+            price: 50,
+            progress: progress({
+              gold: 0,
+              ownedBatIds: ["wood", "silver"],
+              revision: 1,
+            }),
+          } as T;
+        }
+        throw new Error(`unexpected method: ${method}`);
+      },
+    };
+    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await flush(egg);
+    (egg.querySelector(".platformclaw-easter-egg__hud button") as HTMLButtonElement).click();
+    await egg.updateComplete;
+    (egg.querySelector('[data-shop-bat="silver"]') as HTMLButtonElement).click();
+    await flush(egg);
+    expect(egg.textContent).toContain("배트 구매 실패");
+    const retry = Array.from(egg.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "재시도",
+    ) as HTMLButtonElement;
+    retry.click();
+    await flush(egg);
+    expect(purchaseParams).toHaveLength(2);
+    expect(purchaseParams[1]).toEqual(purchaseParams[0]);
+    expect(egg.textContent).toContain("골드 0");
+    expect(egg.textContent).toContain("장착");
+  });
+
+  it("ignores a late progress response after the gateway client changes", async () => {
+    const egg = document.querySelector("platformclaw-easter-egg") as EasterEggElement;
+    let releaseFirst!: (value: BaseballProgress) => void;
+    const firstProgress = new Promise<BaseballProgress>((resolve) => {
+      releaseFirst = resolve;
+    });
+    egg.client = { request: async <T>(): Promise<T> => firstProgress as Promise<T> };
+    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await egg.updateComplete;
+
+    egg.client = {
+      request: async <T>(): Promise<T> => progress({ gold: 7, revision: 2 }) as T,
+    };
+    await flush(egg);
+    releaseFirst(progress({ gold: 999, revision: 99 }));
+    await flush(egg);
+    expect(egg.textContent).toContain("골드 7");
+    expect(egg.textContent).not.toContain("골드 999");
   });
 });
