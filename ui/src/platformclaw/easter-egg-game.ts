@@ -11,7 +11,8 @@ import "../styles/platformclaw-easter-egg.css";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
 import { PausableGameClock } from "./easter-egg-clock.ts";
 import {
-  baseballWorldScreenX,
+  layoutBaseballStaticField,
+  renderBaseballProjectile,
   resolveBaseballFieldLayout,
   setBaseballWorldPosition,
 } from "./easter-egg-layout.ts";
@@ -657,26 +658,16 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   }
 
   private layoutStaticField(): void {
-    const layout = resolveBaseballFieldLayout(this, this.arenaElement);
-    setBaseballWorldPosition(this.playerElement, BASEBALL_WORLD.contactX, 0, layout);
-    setBaseballWorldPosition(this.pitcherElement, BASEBALL_WORLD.pitcherX, 0, layout, 1, true);
-    setBaseballWorldPosition(
-      this.outfielderElement,
-      this.battedBall?.outfielder.x ?? 55,
-      0,
-      layout,
-    );
-    this.style.setProperty("--platformclaw-baseball-ui-left", `${layout.uiLeft}px`);
-    if (this.fenceElement) {
-      const fenceX = baseballWorldScreenX(BASEBALL_WORLD.fenceX, layout);
-      this.fenceElement.style.left = `${fenceX}px`;
-      this.fenceElement.style.top = `${layout.groundY - BASEBALL_WORLD.fenceHeight * layout.scale}px`;
-      this.fenceElement.style.height = `${BASEBALL_WORLD.fenceHeight * layout.scale}px`;
-      if (this.leaderboardElement) {
-        this.leaderboardElement.style.right = `${Math.max(8, layout.width - fenceX - 2)}px`;
-        this.leaderboardElement.style.bottom = `${layout.height - layout.groundY + BASEBALL_WORLD.fenceHeight * layout.scale}px`;
-      }
-    }
+    layoutBaseballStaticField({
+      arena: this.arenaElement,
+      fence: this.fenceElement,
+      host: this,
+      leaderboard: this.leaderboardElement,
+      outfielder: this.outfielderElement,
+      outfielderX: this.battedBall?.outfielder.x ?? 55,
+      pitcher: this.pitcherElement,
+      player: this.playerElement,
+    });
   }
 
   private currentBallPoint(): BaseballPoint | null {
@@ -694,39 +685,15 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   }
 
   private renderProjectile(): void {
-    const point = this.currentBallPoint();
-    const pitchProjection = this.phase === "pitch";
-    const layout = resolveBaseballFieldLayout(this, this.arenaElement);
-    if (this.projectileElement) {
-      this.projectileElement.style.opacity = point ? "1" : "0";
-      if (point) {
-        setBaseballWorldPosition(
-          this.projectileElement,
-          point.x,
-          point.y,
-          layout,
-          1,
-          pitchProjection,
-        );
-      }
-    }
-    const points = this.trail.slice(-BASEBALL_TRAIL_POINTS);
-    this.trailElements.forEach((element, index) => {
-      const trailPoint = points[points.length - 1 - index];
-      if (!trailPoint) {
-        element.style.opacity = "0";
-        return;
-      }
-      const age = index / Math.max(1, BASEBALL_TRAIL_POINTS - 1);
-      element.style.opacity = String((1 - age) * 0.42);
-      setBaseballWorldPosition(
-        element,
-        trailPoint.x,
-        trailPoint.y,
-        layout,
-        0.92 - age * 0.28,
-        pitchProjection,
-      );
+    renderBaseballProjectile({
+      arena: this.arenaElement,
+      host: this,
+      pitchProjection: this.phase === "pitch",
+      point: this.currentBallPoint(),
+      projectile: this.projectileElement,
+      trail: this.trail,
+      trailElements: this.trailElements,
+      trailPointLimit: BASEBALL_TRAIL_POINTS,
     });
   }
 

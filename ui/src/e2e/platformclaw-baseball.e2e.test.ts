@@ -112,7 +112,10 @@ async function capture(page: Page, fileName: string): Promise<void> {
 async function captureMotionPhase(page: Page, state: string, fileName: string): Promise<string> {
   const actor = page.locator(".platformclaw-easter-egg__target");
   await actor.evaluate((element, phase) => {
-    element.className = `platformclaw-easter-egg__target platformclaw-easter-egg__target--${phase}`;
+    element.setAttribute(
+      "class",
+      `platformclaw-easter-egg__target platformclaw-easter-egg__target--${phase}`,
+    );
   }, state);
   const handle = await actor.elementHandle();
   if (!handle) {
@@ -337,7 +340,11 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
         [BASEBALL_RPC.progress]: progress({ bestDistanceM: 180 }),
         [BASEBALL_RPC.leaderboard]: leaderboard({
           distance: entries,
-          homeRunStreak: entries.map((entry, index) => ({ ...entry, value: 9 - index })),
+          homeRunStreak: entries.map((entry, index) => ({
+            displayName: entry.displayName,
+            isCurrentUser: entry.isCurrentUser,
+            value: 9 - index,
+          })),
         }),
         [BASEBALL_RPC.plateAppearance]: {
           awardedGold: 0,
