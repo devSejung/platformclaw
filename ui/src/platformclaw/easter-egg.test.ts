@@ -108,18 +108,32 @@ describe("PlatformClaw easter egg", () => {
       "연속 홈런 0",
     );
     expect(egg.querySelector(".platformclaw-easter-egg__hud")?.textContent).toContain("최고 0m");
-    expect(egg.querySelector(".platformclaw-easter-egg__player-label")).toBeNull();
-    expect(egg.querySelector(".platformclaw-easter-egg__target-label")).toBeNull();
+    expect(egg.querySelector(".platformclaw-easter-egg__player")?.textContent).toContain("타자");
+    expect(egg.querySelector(".platformclaw-easter-egg__target")?.textContent).toContain("투수");
     expect(egg.querySelector(".platformclaw-easter-egg__wind")).toBeNull();
     expect(egg.querySelector(".platformclaw-easter-egg__home-plate")).toBeNull();
     expect(
       egg.querySelector(".platformclaw-easter-egg__player .platformclaw-easter-egg__bat"),
     ).not.toBeNull();
     expect(
+      egg.querySelector('.platformclaw-easter-egg__player [data-player-role="batter"]'),
+    ).not.toBeNull();
+    expect(
+      egg.querySelector('.platformclaw-easter-egg__target [data-player-role="pitcher"]'),
+    ).not.toBeNull();
+    expect(
+      egg.querySelector('.platformclaw-easter-egg__outfielder [data-player-role="outfielder"]'),
+    ).not.toBeNull();
+    expect(
+      egg.querySelector(
+        ".platformclaw-easter-egg__target .platformclaw-easter-egg__figure-arm-front",
+      ),
+    ).not.toBeNull();
+    expect(
       egg.querySelectorAll(".platformclaw-easter-egg__player, .platformclaw-easter-egg__target"),
     ).toHaveLength(2);
     expect(egg.querySelector(".platformclaw-easter-egg__trajectory-line")).toBeNull();
-    expect(egg.querySelectorAll(".platformclaw-easter-egg__trail-dot")).toHaveLength(7);
+    expect(egg.querySelectorAll(".platformclaw-easter-egg__trail-dot")).toHaveLength(9);
 
     const input = document.createElement("input");
     document.body.append(input);
@@ -165,6 +179,9 @@ describe("PlatformClaw easter egg", () => {
     expect(egg.textContent).toContain("1. Person B");
     expect(egg.textContent).toContain("2. Person A (나)");
     expect(egg.textContent).toContain("연속 홈런 TOP 5");
+    expect(
+      egg.querySelector(".platformclaw-easter-egg__arena > .platformclaw-easter-egg__leaderboards"),
+    ).not.toBeNull();
 
     (egg.querySelector(".platformclaw-easter-egg__hud button") as HTMLButtonElement).click();
     await egg.updateComplete;

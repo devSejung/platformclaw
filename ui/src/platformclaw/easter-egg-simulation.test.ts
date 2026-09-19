@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { BASEBALL_BATS } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import {
   BASEBALL_WORLD,
   advanceBattedBall,
@@ -8,8 +9,11 @@ import {
 } from "./easter-egg-simulation.ts";
 import { classifyTimingDelta } from "./easter-egg-timing.ts";
 
-function playToResult(timingDeltaMs: number, batPower = 1, frameMs = 16) {
+function playToResult(timingDeltaMs: number, batPower = 1, frameMs = 16, fielded = true) {
   const simulation = createBattedBall({ timingDeltaMs, batPower });
+  if (!fielded) {
+    simulation.outfielder.reactionDelayMs = Number.POSITIVE_INFINITY;
+  }
   for (let elapsed = 0; elapsed < 10_000 && !simulation.result; elapsed += frameMs) {
     advanceBattedBall(simulation, frameMs);
   }
@@ -62,18 +66,52 @@ describe("PlatformClaw easter egg simulation", () => {
     expect(longFrame.result).toEqual(shortFrames.result);
   });
 
-  it("moves the outfielder only after the reaction delay and can record a catch", () => {
-    const simulation = createBattedBall({ timingDeltaMs: 100, batPower: 1 });
+  it("moves the outfielder toward the projected landing point after reacting", () => {
+    const simulation = createBattedBall({ timingDeltaMs: 50, batPower: 1 });
     const startingX = simulation.outfielder.x;
 
     advanceBattedBall(simulation, simulation.outfielder.reactionDelayMs - 5);
     expect(simulation.outfielder.x).toBe(startingX);
     advanceBattedBall(simulation, 10);
-    expect(simulation.outfielder.x).toBeLessThan(startingX);
+    expect(simulation.outfielder.x).toBeGreaterThan(startingX);
 
-    const result = playToResult(100);
+    const result = playToResult(50);
     expect(result.result?.kind).toBe("OUT");
     expect(result.result?.distanceM).toBeLessThan(BASEBALL_WORLD.fenceX);
+  });
+
+  it("keeps the perfect window fair while late contact loses distance monotonically", () => {
+    const distance = (timingDeltaMs: number) =>
+      playToResult(timingDeltaMs, 1, 16, false).result?.distanceM ?? 0;
+
+    expect(distance(-25)).toBeCloseTo(distance(25), 10);
+    expect(distance(0)).toBeGreaterThan(110);
+    expect(distance(0)).toBeLessThan(145);
+    expect(distance(40)).toBeLessThan(80);
+    expect(distance(50)).toBeLessThan(distance(40));
+    expect(distance(60)).toBeLessThan(distance(50));
+    expect(distance(100)).toBeLessThan(20);
+  });
+
+  it("produces balanced deterministic outcomes across every bat", () => {
+    const results = BASEBALL_BATS.flatMap((bat) =>
+      Array.from(
+        { length: 41 },
+        (_, index) => playToResult(index * 5 - 100, bat.exitVelocityMultiplier).result?.kind,
+      ),
+    );
+    const homeRuns = results.filter((result) => result === "HOME_RUN").length;
+    const outs = results.filter((result) => result === "OUT").length;
+    const hits = results.filter((result) => result === "HIT").length;
+
+    expect(homeRuns / results.length).toBeGreaterThan(0.35);
+    expect(homeRuns / results.length).toBeLessThan(0.45);
+    expect(outs / results.length).toBeGreaterThan(0.35);
+    expect(outs / results.length).toBeLessThan(0.45);
+    expect(hits / results.length).toBeGreaterThan(0.18);
+    expect(hits / results.length).toBeLessThan(0.26);
+    expect(outs / (outs + hits)).toBeGreaterThan(0.6);
+    expect(outs / (outs + hits)).toBeLessThan(0.7);
   });
 
   it("records an ordinary landing inside the fence when no fielder can reach it", () => {

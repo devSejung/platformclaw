@@ -18,7 +18,7 @@ const BASEBALL_BAT_NAMES: Record<BaseballBatId, string> = {
   diamond: "다이아몬드",
 };
 
-export const BASEBALL_TRAIL_POINTS = 7;
+export const BASEBALL_TRAIL_POINTS = 9;
 
 export function renderBaseballGame(params: {
   active: boolean;
@@ -74,7 +74,6 @@ export function renderBaseballGame(params: {
         ${BASEBALL_BAT_NAMES[equipped]} 배트 · 상점
       </button>
     </div>
-    ${renderBaseballLeaderboards(params.leaderboard, params.leaderboardStatus)}
     ${params.persistenceStatus
       ? html`<div class="platformclaw-easter-egg__save-status" role="status">
           <span>${params.persistenceStatus}</span>
@@ -106,6 +105,7 @@ export function renderBaseballGame(params: {
           ${params.lastDistance}m
         </div>`}
     <div class="platformclaw-easter-egg__arena">
+      ${renderBaseballLeaderboards(params.leaderboard, params.leaderboardStatus)}
       <div class="platformclaw-easter-egg__trail" aria-hidden="true">
         ${Array.from(
           { length: BASEBALL_TRAIL_POINTS },
@@ -119,16 +119,19 @@ export function renderBaseballGame(params: {
         class="platformclaw-easter-egg__player platformclaw-easter-egg__player--${params.playerState}"
         aria-hidden="true"
       >
-        ${renderBaseballStickman()}<span class="platformclaw-easter-egg__bat"></span>
+        ${renderBaseballStickman("batter")}<span class="platformclaw-easter-egg__bat"></span
+        ><span class="platformclaw-easter-egg__figure-label">타자</span>
       </div>
       <div
         class="platformclaw-easter-egg__target platformclaw-easter-egg__target--${params.pitcherState}"
         aria-hidden="true"
       >
-        ${renderBaseballStickman()}
+        ${renderBaseballStickman("pitcher")}<span class="platformclaw-easter-egg__figure-label"
+          >투수</span
+        >
       </div>
       <div class="platformclaw-easter-egg__outfielder" aria-hidden="true">
-        ${renderBaseballStickman()}
+        ${renderBaseballStickman("outfielder")}
       </div>
       <div class="platformclaw-easter-egg__fence" aria-hidden="true"></div>
       <span class="platformclaw-easter-egg__projectile" aria-hidden="true"></span>
@@ -185,17 +188,23 @@ function renderBaseballLeaderboardRows(entries: BaseballLeaderboardEntry[], suff
   </ol>`;
 }
 
-function renderBaseballStickman() {
-  return html`<svg viewBox="0 0 48 64" role="presentation" focusable="false">
-    <circle cx="24" cy="10" r="6" fill="currentColor" />
-    <path
-      d="M24 17v20m0-14L12 30m12-7 12 7M24 37 13 54m11-17 14 14"
-      fill="none"
-      stroke="currentColor"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width="3.5"
-    />
+function renderBaseballStickman(role: "batter" | "pitcher" | "outfielder") {
+  const frontArm = role === "batter" ? "M24 23 39 29" : "M24 23 12 30";
+  const backArm = role === "pitcher" ? "M24 23 38 17" : "M24 23 36 30";
+  const frontLeg = role === "pitcher" ? "M24 37 13 48 25 49" : "M24 37 13 54";
+  return html`<svg
+    class="platformclaw-easter-egg__figure platformclaw-easter-egg__figure--${role}"
+    data-player-role=${role}
+    viewBox="8 0 34 56"
+    role="presentation"
+    focusable="false"
+  >
+    <circle class="platformclaw-easter-egg__figure-head" cx="24" cy="10" r="6" />
+    <path class="platformclaw-easter-egg__figure-torso" d="M24 17v20" />
+    <path class="platformclaw-easter-egg__figure-arm-back" d=${backArm} />
+    <path class="platformclaw-easter-egg__figure-arm-front" d=${frontArm} />
+    <path class="platformclaw-easter-egg__figure-leg-back" d="M24 37 38 51" />
+    <path class="platformclaw-easter-egg__figure-leg-front" d=${frontLeg} />
   </svg>`;
 }
 
