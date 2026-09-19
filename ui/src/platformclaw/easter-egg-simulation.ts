@@ -12,6 +12,7 @@ export const BASEBALL_WORLD = {
 
 const PITCH_SPEED_RANGE_KPH = { min: 115, max: 155 } as const;
 const SIMULATION_STEP_MS = 5;
+const MAX_LATE_CONTACT_SPEED_PENALTY = 0.4;
 
 export type BaseballPoint = { x: number; y: number };
 
@@ -74,7 +75,11 @@ export function createBattedBall(options: {
     throw new Error("batPower must be positive");
   }
   const contactQuality = Math.max(0, 1 - Math.abs(options.timingDeltaMs) / HIT_WINDOW_MS);
-  const launchSpeed = (22 + contactQuality * 24) * options.batPower;
+  const lateContact = Math.max(0, (options.timingDeltaMs - 25) / (HIT_WINDOW_MS - 25));
+  const launchSpeed =
+    (20 + contactQuality * 18) *
+    options.batPower *
+    (1 - lateContact * MAX_LATE_CONTACT_SPEED_PENALTY);
   const launchAngle = ((28 + contactQuality * 10) * Math.PI) / 180;
   return {
     elapsedMs: 0,
@@ -87,9 +92,9 @@ export function createBattedBall(options: {
     },
     outfielder: {
       x: 55,
-      reactionDelayMs: 250,
-      speedMps: 7,
-      catchRadiusM: 1.35,
+      reactionDelayMs: 200,
+      speedMps: 9,
+      catchRadiusM: 1.5,
       catchHeightM: 1.5,
     },
     result: null,
@@ -123,9 +128,10 @@ function advanceFixedStep(simulation: BattedBallSimulation): void {
   simulation.ball.vy -= BASEBALL_WORLD.gravity * dt;
 
   if (nextElapsedMs >= simulation.outfielder.reactionDelayMs) {
+    // Chasing the airborne ball itself sends the fielder the wrong way before routine fly balls.
     const targetX = Math.min(
       BASEBALL_WORLD.fenceX,
-      Math.max(BASEBALL_WORLD.contactX, simulation.ball.x),
+      Math.max(BASEBALL_WORLD.contactX, projectedLandingX(simulation.ball)),
     );
     const maxMove = simulation.outfielder.speedMps * dt;
     simulation.outfielder.x += Math.max(

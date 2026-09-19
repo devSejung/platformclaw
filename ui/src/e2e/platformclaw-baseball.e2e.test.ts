@@ -75,7 +75,7 @@ async function installPlatformClawDocument(page: Page): Promise<void> {
     route.fulfill({
       body: source.replace(
         "</head>",
-        `<meta name="platformclaw-web-descriptor" content='${JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR)}'></head>`,
+        `<meta name="platformclaw-web-descriptor" content='${JSON.stringify({ ...PLATFORMCLAW_WEB_DESCRIPTOR, vocEnabled: true })}'></head>`,
       ),
       headers: response.headers(),
       status: response.status(),
@@ -109,15 +109,73 @@ async function capture(page: Page, fileName: string): Promise<void> {
   });
 }
 
+async function captureMotionPhase(page: Page, state: string, fileName: string): Promise<string> {
+  const actor = page.locator(".platformclaw-easter-egg__target");
+  await actor.evaluate((element, phase) => {
+    element.className = `platformclaw-easter-egg__target platformclaw-easter-egg__target--${phase}`;
+  }, state);
+  const handle = await actor.elementHandle();
+  if (!handle) {
+    throw new Error(`missing pitcher state ${state}`);
+  }
+  await page.waitForTimeout(70);
+  const pose = await handle.evaluate((element) => {
+    const transforms: string[] = [];
+    for (const part of element.querySelectorAll<HTMLElement>("[class*='__figure-']")) {
+      const transform = getComputedStyle(part).transform;
+      transforms.push(transform);
+      part.style.transform = transform;
+      part.style.animation = "none";
+    }
+    return transforms.join("|");
+  });
+  expect(pose).toMatch(/matrix/u);
+  if (captureProof) {
+    await mkdir(artifactDir, { recursive: true });
+    await page.screenshot({
+      animations: "allow",
+      fullPage: true,
+      path: path.join(artifactDir, fileName),
+    });
+    const bounds = await handle.boundingBox();
+    if (bounds) {
+      const padding = 48;
+      await page.screenshot({
+        animations: "allow",
+        clip: {
+          x: Math.max(0, bounds.x - padding),
+          y: Math.max(0, bounds.y - padding),
+          width: Math.min(page.viewportSize()?.width ?? 0, bounds.width + padding * 2),
+          height: Math.min(page.viewportSize()?.height ?? 0, bounds.height + padding * 2),
+        },
+        path: path.join(artifactDir, fileName.replace(".png", "-detail.png")),
+      });
+    }
+  }
+  await handle.evaluate((element) => {
+    for (const part of element.querySelectorAll<HTMLElement>("[class*='__figure-']")) {
+      part.style.removeProperty("animation");
+      part.style.removeProperty("transform");
+    }
+  });
+  return pose;
+}
+
 async function newAccountPage(
   accountId: string,
   agentId: string,
   methodResponses: Record<string, unknown>,
+  viewport = { height: 900, width: 760 },
 ) {
+  if (captureProof) {
+    await mkdir(artifactDir, { recursive: true });
+  }
   const context = await browser.newContext({
     locale: "ko-KR",
+    recordVideo:
+      captureProof && viewport.width === 1280 ? { dir: artifactDir, size: viewport } : undefined,
     serviceWorkers: "block",
-    viewport: { height: 900, width: 760 },
+    viewport,
   });
   contexts.add(context);
   const page = await context.newPage();
@@ -262,5 +320,346 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     await expect.poll(() => gameB.getByText("최고 0m", { exact: true }).isVisible()).toBe(true);
     expect(await gameB.getByText("최고 138m", { exact: true }).count()).toBe(0);
     await capture(accountB.page, "03-isolated-account-b.png");
+  });
+
+  it("anchors articulated players and the ranking board inside the desktop field", async () => {
+    const entries = Array.from({ length: 5 }, (_, index) => ({
+      displayName: `아주 긴 세션 이름 ${index + 1} — platform laboratory`,
+      value: 180 - index * 7,
+      isCurrentUser: index === 2,
+    }));
+
+    const viewport = { height: 800, width: 1280 };
+    const account = await newAccountPage(
+      "visual-desktop",
+      "visual_desktop",
+      {
+        [BASEBALL_RPC.progress]: progress({ bestDistanceM: 180 }),
+        [BASEBALL_RPC.leaderboard]: leaderboard({
+          distance: entries,
+          homeRunStreak: entries.map((entry, index) => ({ ...entry, value: 9 - index })),
+        }),
+        [BASEBALL_RPC.plateAppearance]: {
+          awardedGold: 0,
+          progress: progress({ bestDistanceM: 180 }),
+        },
+      },
+      viewport,
+    );
+    await openGame(account.page);
+    const game = account.page.locator('platformclaw-easter-egg [role="application"]');
+    const board = game.locator(".platformclaw-easter-egg__leaderboards");
+    await board.waitFor();
+    const poses = [
+      await captureMotionPhase(account.page, "leg-lift", "visual-1280-leg-lift.png"),
+      await captureMotionPhase(account.page, "throw", "visual-1280-throw.png"),
+      await captureMotionPhase(account.page, "follow-through", "visual-1280-follow-through.png"),
+    ];
+    expect(new Set(poses).size).toBe(3);
+
+    const geometry = await game.evaluate((root) => {
+      const rect = (selector: string) => {
+        const bounds = root.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+        if (!bounds) {
+          throw new Error(`missing ${selector}`);
+        }
+        return {
+          bottom: bounds.bottom,
+          height: bounds.height,
+          left: bounds.left,
+          right: bounds.right,
+          top: bounds.top,
+          width: bounds.width,
+        };
+      };
+      return {
+        arena: rect(".platformclaw-easter-egg__arena"),
+        bat: rect(".platformclaw-easter-egg__bat"),
+        board: rect(".platformclaw-easter-egg__leaderboards"),
+        boardPaint: (() => {
+          const style = getComputedStyle(
+            root.querySelector<HTMLElement>(".platformclaw-easter-egg__leaderboards")!,
+          );
+          return {
+            background: style.backgroundColor,
+            borderWidth: style.borderTopWidth,
+            color: style.color,
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            lineHeight: style.lineHeight,
+            opacity: style.opacity,
+            padding: style.padding,
+            shadow: style.boxShadow,
+          };
+        })(),
+        fence: rect(".platformclaw-easter-egg__fence"),
+        hud: rect(".platformclaw-easter-egg__hud"),
+        lastNavBottom: Math.max(
+          0,
+          ...Array.from(document.querySelectorAll<HTMLElement>(".sidebar .nav-item")).map(
+            (element) => element.getBoundingClientRect().bottom,
+          ),
+        ),
+        navRight: Number.parseFloat(getComputedStyle(root).getPropertyValue("--shell-nav-width")),
+        overlayPointerEvents: getComputedStyle(root.closest("platformclaw-easter-egg")!)
+          .pointerEvents,
+        outfielder: rect(".platformclaw-easter-egg__outfielder"),
+        pitcher: rect(".platformclaw-easter-egg__target"),
+        player: rect(".platformclaw-easter-egg__player"),
+        voc: (() => {
+          const quickActions = document.querySelector<HTMLElement>("platformclaw-quick-actions");
+          const bounds = quickActions?.shadowRoot
+            ?.querySelector<HTMLElement>('button[aria-label="VOC"]')
+            ?.getBoundingClientRect();
+          if (!bounds) {
+            throw new Error("missing VOC anchor");
+          }
+          return {
+            bottom: bounds.bottom,
+            left: bounds.left,
+            right: bounds.right,
+            top: bounds.top,
+          };
+        })(),
+        labelPaint: (() => {
+          const style = getComputedStyle(
+            root.querySelector<HTMLElement>(".platformclaw-easter-egg__figure-label")!,
+          );
+          return {
+            color: style.color,
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            lineHeight: style.lineHeight,
+            opacity: style.opacity,
+          };
+        })(),
+        scrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    const overlaps = (
+      a: { bottom: number; left: number; right: number; top: number },
+      b: { bottom: number; left: number; right: number; top: number },
+    ) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+    expect(Math.abs(geometry.player.bottom - geometry.fence.bottom)).toBeLessThanOrEqual(2);
+    expect(geometry.arena.left).toBe(0);
+    expect(geometry.arena.width).toBe(geometry.viewportWidth);
+    expect(Math.abs(geometry.pitcher.bottom - geometry.fence.bottom)).toBeLessThanOrEqual(2);
+    expect(Math.abs(geometry.outfielder.bottom - geometry.fence.bottom)).toBeLessThanOrEqual(2);
+    expect(overlaps(geometry.bat, geometry.player)).toBe(true);
+    expect(overlaps(geometry.board, geometry.hud)).toBe(false);
+    expect(overlaps(geometry.board, geometry.player)).toBe(false);
+    expect(overlaps(geometry.board, geometry.pitcher)).toBe(false);
+    expect(overlaps(geometry.hud, geometry.player)).toBe(false);
+    expect(geometry.player.left).toBeGreaterThanOrEqual(geometry.voc.left);
+    expect(geometry.player.right).toBeLessThan(geometry.voc.right);
+    expect(geometry.bat.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.bat.right).toBeLessThan(geometry.navRight);
+    expect(geometry.pitcher.left).toBeGreaterThan(geometry.player.right);
+    expect(geometry.pitcher.right).toBeLessThanOrEqual(geometry.voc.right + 2);
+    expect(geometry.pitcher.right).toBeLessThan(geometry.navRight);
+    expect(geometry.player.bottom).toBeLessThan(geometry.voc.top);
+    expect(geometry.pitcher.bottom).toBeLessThan(geometry.voc.top);
+    expect(geometry.player.top).toBeGreaterThan(geometry.lastNavBottom + 16);
+    expect(geometry.pitcher.top).toBeGreaterThan(geometry.lastNavBottom + 16);
+    expect(geometry.voc.top - geometry.player.bottom).toBeGreaterThanOrEqual(8);
+    expect(geometry.voc.top - geometry.player.bottom).toBeLessThanOrEqual(16);
+    expect(geometry.hud.left).toBeGreaterThanOrEqual(geometry.navRight + 24);
+    expect((geometry.player.left + geometry.player.right) / 2).toBeGreaterThanOrEqual(56);
+    expect((geometry.player.left + geometry.player.right) / 2).toBeLessThanOrEqual(60);
+    expect(geometry.player.width).toBeGreaterThanOrEqual(32);
+    expect(geometry.player.height).toBeGreaterThanOrEqual(44);
+    expect(geometry.pitcher.width).toBeGreaterThanOrEqual(30);
+    expect(geometry.pitcher.height).toBeGreaterThanOrEqual(42);
+    expect(geometry.outfielder.width).toBeGreaterThanOrEqual(26);
+    expect(geometry.outfielder.height).toBeGreaterThanOrEqual(38);
+    expect(
+      (geometry.pitcher.left + geometry.pitcher.right) / 2 -
+        (geometry.player.left + geometry.player.right) / 2,
+    ).toBeGreaterThanOrEqual(160);
+    expect(
+      (geometry.pitcher.left + geometry.pitcher.right) / 2 -
+        (geometry.player.left + geometry.player.right) / 2,
+    ).toBeLessThanOrEqual(164);
+    expect((geometry.outfielder.left + geometry.outfielder.right) / 2).toBeGreaterThanOrEqual(690);
+    expect((geometry.outfielder.left + geometry.outfielder.right) / 2).toBeLessThanOrEqual(708);
+    expect(geometry.fence.left).toBeGreaterThanOrEqual(1_207);
+    expect(geometry.fence.left).toBeLessThanOrEqual(1_217);
+    expect(geometry.pitcher.right).toBeLessThan(geometry.outfielder.left);
+    expect(geometry.outfielder.right).toBeLessThan(geometry.fence.left);
+    expect(geometry.bat.width).toBeGreaterThanOrEqual(28);
+    expect(geometry.bat.height).toBeGreaterThanOrEqual(4);
+    expect(geometry.bat.right - geometry.player.right).toBeGreaterThanOrEqual(10);
+    expect(geometry.board.right).toBeGreaterThan(geometry.viewportWidth / 2);
+    expect(geometry.board.width).toBeLessThanOrEqual(238);
+    expect(geometry.board.height).toBeLessThanOrEqual(84);
+    expect(Math.abs(geometry.board.right - geometry.fence.right)).toBeLessThanOrEqual(4);
+    expect(Math.abs(geometry.board.bottom - geometry.fence.top)).toBeLessThanOrEqual(4);
+    expect(geometry.board.right).toBeLessThanOrEqual(geometry.viewportWidth);
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+    expect(geometry.overlayPointerEvents).toBe("none");
+    expect(geometry.boardPaint).toMatchObject({
+      background: "rgba(0, 0, 0, 0)",
+      borderWidth: "0px",
+      padding: "0px",
+      shadow: "none",
+    });
+    expect(geometry.boardPaint.color).toBe(geometry.labelPaint.color);
+    expect(geometry.boardPaint.fontSize).toBe(geometry.labelPaint.fontSize);
+    expect(geometry.boardPaint.fontWeight).toBe(geometry.labelPaint.fontWeight);
+    expect(geometry.boardPaint.lineHeight).toBe(geometry.labelPaint.lineHeight);
+    expect(geometry.boardPaint.opacity).toBe(geometry.labelPaint.opacity);
+
+    await capture(account.page, "visual-1280-desktop.png");
+  });
+
+  it("renders a continuous launch, arc, and descent for a batted ball", async () => {
+    const account = await newAccountPage(
+      "ball-flight",
+      "ball_flight",
+      {
+        [BASEBALL_RPC.progress]: progress(),
+        [BASEBALL_RPC.leaderboard]: leaderboard(),
+        [BASEBALL_RPC.plateAppearance]: {
+          awardedGold: 0,
+          progress: progress(),
+        },
+      },
+      { height: 800, width: 1280 },
+    );
+    await account.page.locator("platformclaw-easter-egg").evaluate((element) => {
+      (element as HTMLElement & { random: () => number }).random = () => 0;
+    });
+    await openGame(account.page);
+    const game = account.page.locator('platformclaw-easter-egg [role="application"]');
+    await expect.poll(() => game.getAttribute("data-pitch-state")).toBe("pitch");
+    const releaseDelta = await account.page
+      .locator("platformclaw-easter-egg")
+      .evaluate((element) => {
+        const gameElement = element as HTMLElement & {
+          pitchElapsedMs: number;
+          renderProjectile: () => void;
+        };
+        gameElement.pitchElapsedMs = 0;
+        gameElement.renderProjectile();
+        const centerX = (selector: string) => {
+          const bounds = element.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+          if (!bounds) {
+            throw new Error(`missing ${selector}`);
+          }
+          return bounds.left + bounds.width / 2;
+        };
+        return Math.abs(
+          centerX(".platformclaw-easter-egg__projectile") -
+            centerX(".platformclaw-easter-egg__target"),
+        );
+      });
+    expect(releaseDelta).toBeLessThanOrEqual(1);
+    const contactDelta = await account.page
+      .locator("platformclaw-easter-egg")
+      .evaluate((element) => {
+        const gameElement = element as HTMLElement & {
+          animationFrame: number;
+          renderProjectile: () => void;
+          pitch?: { idealContactTimeMs: number };
+          pitchElapsedMs: number;
+          stopAnimationLoop: () => void;
+        };
+        if (!gameElement.pitch) {
+          throw new Error("missing active pitch");
+        }
+        gameElement.pitchElapsedMs = gameElement.pitch.idealContactTimeMs + 40;
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", cancelable: true }));
+        gameElement.stopAnimationLoop();
+        gameElement.animationFrame = -1;
+        gameElement.renderProjectile();
+        const centerX = (selector: string) => {
+          const bounds = element.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+          if (!bounds) {
+            throw new Error(`missing ${selector}`);
+          }
+          return bounds.left + bounds.width / 2;
+        };
+        return Math.abs(
+          centerX(".platformclaw-easter-egg__projectile") -
+            centerX(".platformclaw-easter-egg__player"),
+        );
+      });
+    expect(contactDelta).toBeLessThanOrEqual(1);
+    await expect.poll(() => game.getAttribute("data-pitch-state")).toBe("in-play");
+    await account.page.locator("platformclaw-easter-egg").evaluate((element) => {
+      const simulation = (
+        element as HTMLElement & {
+          battedBall?: { outfielder: { reactionDelayMs: number } };
+        }
+      ).battedBall;
+      if (!simulation) {
+        throw new Error("missing active batted-ball simulation");
+      }
+      simulation.outfielder.reactionDelayMs = Number.POSITIVE_INFINITY;
+    });
+
+    const ball = game.locator(".platformclaw-easter-egg__projectile");
+    expect(await ball.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+      "rgb(0, 0, 0)",
+    );
+    expect(
+      await game
+        .locator(".platformclaw-easter-egg__trail-dot")
+        .first()
+        .evaluate((element) => getComputedStyle(element).backgroundColor),
+    ).toBe("rgb(0, 0, 0)");
+    const ballRect = async () => {
+      const bounds = await ball.boundingBox();
+      if (!bounds) {
+        throw new Error("missing rendered baseball");
+      }
+      return bounds;
+    };
+    const launch = await ballRect();
+    expect(launch.width).toBe(10);
+    expect(launch.height).toBe(10);
+    await capture(account.page, "visual-1280-ball-launch.png");
+    await account.page.locator("platformclaw-easter-egg").evaluate((element) => {
+      const gameElement = element as HTMLElement & {
+        animationFrame: number;
+        ensureAnimationLoop: () => void;
+      };
+      gameElement.animationFrame = 0;
+      gameElement.ensureAnimationLoop();
+    });
+
+    await account.page.waitForTimeout(900);
+    const midflight = await ballRect();
+    await capture(account.page, "visual-1280-ball-midflight.png");
+    expect(midflight.x).toBeGreaterThan(launch.x + 30);
+    expect(midflight.y).toBeLessThan(launch.y - 20);
+    const visibleTrail = await game
+      .locator(".platformclaw-easter-egg__trail-dot")
+      .evaluateAll((elements) =>
+        elements
+          .filter((element) => getComputedStyle(element).opacity !== "0")
+          .map((element) => ({
+            x: element.getBoundingClientRect().x,
+            scale: (element as HTMLElement).style.scale,
+            transform: (element as HTMLElement).style.transform,
+          })),
+      );
+    expect(visibleTrail.length).toBeGreaterThan(2);
+    expect(Math.min(...visibleTrail.map(({ x }) => x))).toBeGreaterThanOrEqual(launch.x - 8);
+    expect(visibleTrail.every(({ scale }) => scale === "")).toBe(true);
+    expect(visibleTrail.every(({ transform }) => transform.includes(" scale("))).toBe(true);
+
+    await expect
+      .poll(async () => {
+        const bounds = await ballRect();
+        return bounds.y > midflight.y + 20;
+      })
+      .toBe(true);
+    const descent = await ballRect();
+    await capture(account.page, "visual-1280-ball-landing.png");
+    expect(descent.x).toBeGreaterThan(midflight.x + 30);
+    expect(descent.y).toBeGreaterThan(midflight.y + 20);
   });
 });
