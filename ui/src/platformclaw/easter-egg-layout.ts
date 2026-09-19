@@ -64,7 +64,7 @@ export function resolveBaseballFieldLayout(
   };
 }
 
-export function baseballWorldScreenX(
+function baseballWorldScreenX(
   x: number,
   layout: BaseballFieldLayout,
   pitchProjection = false,
