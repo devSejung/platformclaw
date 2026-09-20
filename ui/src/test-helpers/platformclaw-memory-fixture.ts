@@ -2,6 +2,11 @@ import type { Browser, BrowserContext, Page } from "playwright";
 import type { ThemeName } from "../app/theme.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import { controlUiBundledGatewayUrl, type ControlUiMockGatewayScenario } from "./control-ui-e2e.ts";
+import {
+  organizationMemoryGetCases,
+  organizationMemoryGraphCases,
+  organizationMemoryLifecycle,
+} from "./platformclaw-organization-memory-fixture-data.ts";
 
 export const platformClawMemoryAgentId = "assigned-personal";
 
@@ -79,6 +84,7 @@ export const platformClawMemoryMethods = [
   "doctor.memory.status",
   "memory.search",
   "platformclaw.memory.get",
+  "platformclaw.memory.graph",
   "platformclaw.memory.lifecycle",
   "wiki.document.get",
   "wiki.graph",
@@ -145,7 +151,7 @@ export const platformClawMemoryResponses: PlatformClawMemoryResponses = {
       {
         source: "organization",
         corpus: "platformclaw-organization",
-        path: "organization/group/group-platform",
+        path: "organization/group/platform-release-policy",
         title: "Platform release policy",
         kind: "group",
         provenanceLabel: "Platform",
@@ -208,34 +214,9 @@ export const platformClawMemoryResponses: PlatformClawMemoryResponses = {
       truncated: false,
     },
   },
-  "platformclaw.memory.get": {
-    content: "# Platform release policy\n\nTwo approvals are required before production rollout.",
-    fromLine: 1,
-    lineCount: 3,
-  },
-  "platformclaw.memory.lifecycle": {
-    scopes: [
-      {
-        kind: "part",
-        id: "part-runtime",
-        name: "Runtime",
-        canRead: true,
-        canAdminister: false,
-      },
-    ],
-    personalTargets: [
-      {
-        kind: "part",
-        scopeId: "part-runtime",
-        scopeName: "Runtime",
-        mode: "request",
-      },
-    ],
-    claims: [],
-    submitted: [],
-    reviewable: [],
-    canApproveGlobal: false,
-  },
+  "platformclaw.memory.get": { cases: organizationMemoryGetCases },
+  "platformclaw.memory.graph": { cases: organizationMemoryGraphCases },
+  "platformclaw.memory.lifecycle": organizationMemoryLifecycle,
   "wiki.overview": {
     totalItems: 2,
     totalPages: 2,

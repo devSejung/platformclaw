@@ -3,6 +3,13 @@ import {
   platformClawMemoryAgentId,
   platformClawMemoryResponses,
 } from "./platformclaw-memory-fixture.ts";
+import {
+  organizationMemoryBusyGetCases,
+  organizationMemoryBusyGraphCases,
+  organizationMemoryBusyLifecycle,
+  organizationMemoryEmptyGraphCases,
+  organizationMemoryEmptyLifecycle,
+} from "./platformclaw-organization-memory-fixture-data.ts";
 
 type PlatformClawMemoryResponses = NonNullable<ControlUiMockGatewayScenario["methodResponses"]>;
 type BusyWikiKind = "entity" | "concept" | "source" | "synthesis" | "report";
@@ -179,6 +186,9 @@ const busyWikiEdges = [
 
 export const platformClawMemoryBusyResponses: PlatformClawMemoryResponses = {
   ...platformClawMemoryResponses,
+  "platformclaw.memory.get": { cases: organizationMemoryBusyGetCases },
+  "platformclaw.memory.graph": { cases: organizationMemoryBusyGraphCases },
+  "platformclaw.memory.lifecycle": organizationMemoryBusyLifecycle,
   "wiki.search": busyWikiDocuments.slice(0, 8).map((item, index) => ({
     path: item.path,
     title: item.title,
@@ -255,6 +265,9 @@ export const platformClawMemoryEmptyResponses: PlatformClawMemoryResponses = {
     stale: false,
     results: [],
   },
+  "platformclaw.memory.get": { cases: [] },
+  "platformclaw.memory.graph": { cases: organizationMemoryEmptyGraphCases },
+  "platformclaw.memory.lifecycle": organizationMemoryEmptyLifecycle,
   "wiki.search": [],
   "wiki.document.get": { cases: [] },
   "wiki.graph": {
@@ -341,6 +354,9 @@ export const platformClawMemoryErrorResponses: PlatformClawMemoryResponses = {
   "agents.workspace.get": unavailable,
   "agents.workspace.list": unavailable,
   "memory.search": unavailable,
+  "platformclaw.memory.get": unavailable,
+  "platformclaw.memory.graph": unavailable,
+  "platformclaw.memory.lifecycle": unavailable,
   "wiki.search": unavailable,
   "wiki.overview": unavailable,
   "wiki.graph": unavailable,

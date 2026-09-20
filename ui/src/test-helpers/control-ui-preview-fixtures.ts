@@ -58,6 +58,8 @@ function createPlatformClawMemoryFixture(params: {
   description: string;
   responses: typeof platformClawMemoryResponses;
   waitForMemoryFile?: boolean;
+  openOrganizationTab?: boolean;
+  openOrganizationGraph?: boolean;
 }): ControlUiPreviewFixture {
   return {
     id: params.id,
@@ -87,6 +89,12 @@ function createPlatformClawMemoryFixture(params: {
           (!waitForMemoryFile || (surface.textContent ?? "").includes("MEMORY.md"))
         );
       }, params.waitForMemoryFile !== false);
+      if (params.openOrganizationTab) {
+        await page.locator("#platformclaw-memory-tab-organization").click();
+        if (params.openOrganizationGraph) {
+          await page.locator("#platformclaw-memory-organization-tab-graph").click();
+        }
+      }
       return { context, page };
     },
   };
@@ -104,8 +112,18 @@ const platformClawMemoryBusyFixture = createPlatformClawMemoryFixture({
   id: "platformclaw-memory-busy",
   label: "PlatformClaw Memory · Busy",
   description:
-    "Dense synthetic Personal Wiki data for graph navigation, long titles, filters, questions, and contradictions.",
+    "Dense synthetic Personal Wiki and organization knowledge for graph navigation, long titles, edge review, filters, questions, and contradictions.",
   responses: platformClawMemoryBusyResponses,
+});
+
+const platformClawOrganizationMemoryFixture = createPlatformClawMemoryFixture({
+  id: "platformclaw-organization-memory",
+  label: "PlatformClaw Memory · Organization",
+  description:
+    "Populated synthetic Part, Group, Team, and Global knowledge with reference, provenance, and comparison graph edges.",
+  responses: platformClawMemoryBusyResponses,
+  openOrganizationTab: true,
+  openOrganizationGraph: true,
 });
 
 const platformClawMemoryEmptyFixture = createPlatformClawMemoryFixture({
@@ -118,6 +136,7 @@ const platformClawMemoryEmptyFixture = createPlatformClawMemoryFixture({
 
 export const CONTROL_UI_PREVIEW_FIXTURES: readonly ControlUiPreviewFixture[] = [
   platformClawMemoryFixture,
+  platformClawOrganizationMemoryFixture,
   platformClawMemoryBusyFixture,
   platformClawMemoryEmptyFixture,
   createPlatformClawMemoryFixture({

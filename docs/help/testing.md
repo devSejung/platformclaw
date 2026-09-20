@@ -822,6 +822,14 @@ including long titles and a bounded 28-document overview),
 `platformclaw-memory-empty`, and `platformclaw-memory-error`. These scenarios
 share the product E2E helpers and use only synthetic data.
 
+`platformclaw-organization-memory` opens the Organization Graph directly, with
+two readable Parts, Group, Team, and Global scopes. Its Group graph contains 35
+synthetic documents with references, promotion history, and AI comparison
+candidates. Use search, the document picker, connected-only filtering, Focus
+selection, and Fit graph to inspect long titles without opening every document.
+The shared empty/error fixtures also exercise organization states. Organization
+knowledge browsing and graph selection never submit or approve a change.
+
 ### E2E: OpenShell backend smoke
 
 - Command: `pnpm test:e2e:openshell`

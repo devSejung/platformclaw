@@ -10,6 +10,7 @@ import {
   startControlUiE2eServer,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
+import { findControlUiPreviewFixture } from "../test-helpers/control-ui-preview-fixtures.ts";
 
 const executablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const available = canRunPlaywrightChromium(executablePath);
@@ -52,6 +53,21 @@ async function installPlatformClawDocument(page: import("playwright").Page): Pro
       status: 200,
     }),
   );
+}
+
+async function openSharedFixture(
+  id: "platformclaw-memory" | "platformclaw-memory-busy",
+  viewport: { width: number; height: number },
+) {
+  const fixture = findControlUiPreviewFixture(id);
+  if (!fixture) {
+    throw new Error(`Missing preview fixture: ${id}`);
+  }
+  return fixture.open({
+    browser,
+    server,
+    options: { locale: "en-US", mode: "light", theme: "platformclaw", viewport },
+  });
 }
 
 suite("PlatformClaw organization memory Settings E2E", () => {
@@ -322,13 +338,22 @@ suite("PlatformClaw organization memory Settings E2E", () => {
             page.locator('[data-organization-node="organization/group/platform-policy"]').count(),
           )
           .toBe(1);
+        const viewport = page.locator("[data-svg-graph-viewport]");
+        const beforeZoom = Number(
+          (await viewport.getAttribute("transform"))?.match(/scale\(([^)]+)\)/u)?.[1],
+        );
         await page.getByRole("button", { name: "Zoom in" }).click();
         await expect
-          .poll(() => page.locator("[data-svg-graph-viewport]").getAttribute("transform"))
-          .toContain("scale(1.2)");
-        await page
-          .locator('[data-organization-node="organization/group/platform-policy"] circle')
-          .click();
+          .poll(async () =>
+            Number((await viewport.getAttribute("transform"))?.match(/scale\(([^)]+)\)/u)?.[1]),
+          )
+          .toBeCloseTo(beforeZoom * 1.2, 8);
+        await page.locator('[data-organization-node="organization/group/platform-policy"]').click();
+        await expect
+          .poll(() => page.locator(".organization-memory-graph__selection").textContent())
+          .toContain("Platform policy");
+        expect(await gateway.getRequests("platformclaw.memory.get")).toHaveLength(0);
+        await page.getByRole("button", { name: "Open document", exact: true }).click();
         await expect
           .poll(() =>
             page
@@ -346,6 +371,13 @@ suite("PlatformClaw organization memory Settings E2E", () => {
             },
           }),
         ]);
+        expect(
+          (await gateway.getRequests()).filter(({ method }) =>
+            /platformclaw\.memory\.(?:promotion\.|claim\.|knowledge\.(?:generate|decide|apply))/u.test(
+              method,
+            ),
+          ),
+        ).toEqual([]);
       }
       if (capture) {
         await page.screenshot({
@@ -354,6 +386,179 @@ suite("PlatformClaw organization memory Settings E2E", () => {
           path: path.join(proofDir, `organization-memory-${scenario.proofName}.png`),
         });
       }
+      await context.close();
+    }
+  });
+
+  it("uses the shared base fixture to browse readable scopes and opens only after explicit selection", async () => {
+    const { page, context } = await openSharedFixture("platformclaw-memory", {
+      width: 1440,
+      height: 900,
+    });
+    try {
+      await page.locator("#platformclaw-memory-tab-organization").click();
+      await page.locator("#platformclaw-memory-organization-tab-graph").click();
+      const graph = page.locator("platformclaw-organization-memory-graph");
+      await expect
+        .poll(() => graph.locator(".organization-memory-graph__scope select").inputValue())
+        .toBe("part-runtime");
+      await expect.poll(() => graph.locator("[data-organization-node]").count()).toBe(2);
+
+      await graph
+        .getByRole("combobox", { name: "Select a document" })
+        .selectOption("organization:part:runtime-release-policy");
+      await expect
+        .poll(() => graph.locator(".organization-memory-graph__selection").textContent())
+        .toContain("Runtime release guardrails");
+      expect(
+        await graph
+          .locator("platformclaw-organization-memory-document-preview openclaw-modal-dialog")
+          .count(),
+      ).toBe(0);
+      await graph.getByRole("button", { name: "Open document", exact: true }).click();
+      await expect
+        .poll(() =>
+          graph.locator(".organization-memory-graph__preview .wiki-document__reader").textContent(),
+        )
+        .toContain("Production rollout starts with a bounded canary");
+      await graph.getByRole("button", { name: "Close", exact: true }).click();
+
+      await graph
+        .locator(".organization-memory-graph__scope select")
+        .selectOption("part-silicon-validation");
+      await expect
+        .poll(() =>
+          graph
+            .locator('[data-organization-node="organization/part/silicon-bringup-evidence"]')
+            .count(),
+        )
+        .toBe(1);
+
+      await graph.getByRole("tab", { name: "Group Graph", exact: true }).click();
+      await expect.poll(() => graph.locator("[data-organization-node]").count()).toBe(3);
+      const comparison = graph.locator('line[data-edge-type="comparison"]');
+      await expect.poll(() => comparison.count()).toBe(1);
+      await comparison.press("Enter");
+      await expect
+        .poll(() => graph.locator(".organization-memory-graph__edge-detail").textContent())
+        .toContain("Kept separately");
+
+      await graph.getByRole("tab", { name: "Team knowledge", exact: true }).click();
+      await expect.poll(() => graph.locator("[data-organization-node]").count()).toBe(1);
+      await graph.getByRole("tab", { name: "Global knowledge", exact: true }).click();
+      await expect.poll(() => graph.locator("[data-organization-node]").count()).toBe(1);
+    } finally {
+      await context.close();
+    }
+  });
+
+  it("keeps the dense shared graph usable with search, relation filters, connected-only focus, and mobile controls", async () => {
+    const { page, context } = await openSharedFixture("platformclaw-memory-busy", {
+      width: 390,
+      height: 844,
+    });
+    try {
+      await page.locator("#platformclaw-memory-tab-organization").click();
+      await page.locator("#platformclaw-memory-organization-tab-graph").click();
+      const graph = page.locator("platformclaw-organization-memory-graph");
+      await graph.getByRole("tab", { name: "Group Graph", exact: true }).click();
+      await expect
+        .poll(() => graph.locator("[data-organization-node]").count())
+        .toBeGreaterThan(30);
+      const denseCount = await graph.locator("[data-organization-node]").count();
+
+      const search = graph.getByRole("searchbox", { name: "Search this graph" });
+      await search.fill("DRAM training");
+      await expect.poll(() => graph.locator("[data-organization-node]").count()).toBe(1);
+      await expect
+        .poll(() => graph.locator("[data-organization-node]").first().getAttribute("aria-label"))
+        .toContain("DRAM training");
+      await search.fill("");
+      await expect.poll(() => graph.locator("[data-organization-node]").count()).toBe(denseCount);
+
+      const picker = graph.getByRole("combobox", { name: "Select a document" });
+      const firstDocumentValue = await picker.locator("option").nth(1).getAttribute("value");
+      const firstDocumentTitle = (await picker.locator("option").nth(1).textContent())?.trim();
+      expect(firstDocumentValue).toBeTruthy();
+      expect(firstDocumentTitle).toBeTruthy();
+      await picker.selectOption(firstDocumentValue!);
+      expect(
+        await graph
+          .locator("platformclaw-organization-memory-document-preview openclaw-modal-dialog")
+          .count(),
+      ).toBe(0);
+      await expect
+        .poll(() => graph.getByRole("button", { name: "Focus selection" }).count())
+        .toBe(1);
+      expect(
+        await graph
+          .locator("platformclaw-organization-memory-document-preview openclaw-modal-dialog")
+          .count(),
+      ).toBe(0);
+
+      const connected = graph.getByLabel("Show only connected documents");
+      await connected.check();
+      await expect
+        .poll(() => graph.locator("[data-organization-node]").count())
+        .toBeLessThan(denseCount);
+      await connected.uncheck();
+      await expect.poll(() => graph.locator("[data-organization-node]").count()).toBe(denseCount);
+
+      const reference = graph.locator(
+        '.organization-memory-graph__filters label[data-relation-type="reference"] input',
+      );
+      await reference.uncheck();
+      await expect.poll(() => graph.locator('line[data-edge-type="reference"]').count()).toBe(0);
+      expect(await graph.locator('line[data-edge-type="comparison"]').count()).toBeGreaterThan(0);
+
+      await graph.getByRole("button", { name: "Focus selection", exact: true }).click();
+      const selectedNode = graph.locator(`[data-svg-graph-node="${firstDocumentValue}"]`);
+      const beforeDrag = await selectedNode.boundingBox();
+      expect(beforeDrag).not.toBeNull();
+      await page.mouse.move(
+        beforeDrag!.x + beforeDrag!.width / 2,
+        beforeDrag!.y + beforeDrag!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        beforeDrag!.x + beforeDrag!.width / 2 + 40,
+        beforeDrag!.y + beforeDrag!.height / 2 + 25,
+      );
+      await page.mouse.up();
+      const afterDrag = await selectedNode.boundingBox();
+      expect(afterDrag).not.toBeNull();
+      expect(afterDrag!.x - beforeDrag!.x).toBeCloseTo(40, 0);
+      expect(afterDrag!.y - beforeDrag!.y).toBeCloseTo(25, 0);
+      expect(
+        await graph
+          .locator("platformclaw-organization-memory-document-preview openclaw-modal-dialog")
+          .count(),
+      ).toBe(0);
+      await graph.getByRole("button", { name: "Fit graph", exact: true }).click();
+      await graph.getByRole("button", { name: "Enlarge graph", exact: true }).click();
+      await expect
+        .poll(() => graph.locator(".organization-memory-graph--expanded").count())
+        .toBe(1);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+      ).toBeLessThanOrEqual(1);
+      await graph.getByRole("button", { name: "Open document", exact: true }).click();
+      await expect
+        .poll(() =>
+          graph.locator(".organization-memory-graph__preview .wiki-document__reader").textContent(),
+        )
+        .toContain(firstDocumentTitle!);
+      const readerPanel = graph.locator(".organization-memory-graph__preview");
+      await readerPanel.waitFor({ state: "visible" });
+      const readerBox = await readerPanel.boundingBox();
+      expect(readerBox).not.toBeNull();
+      expect(readerBox!.x).toBeGreaterThanOrEqual(0);
+      expect(readerBox!.x + readerBox!.width).toBeLessThanOrEqual(390);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+      ).toBeLessThanOrEqual(1);
+      await graph.getByRole("button", { name: "Close", exact: true }).click();
+    } finally {
       await context.close();
     }
   });

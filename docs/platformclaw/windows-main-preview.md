@@ -64,6 +64,20 @@ existing reader. Dreaming distinguishes automatic consolidation being enabled
 from a currently executing job; promotion and diary timestamps are not run
 completion timestamps.
 
+For organization knowledge, use `platformclaw-organization-memory` to open the
+graph with Part, Group, Team, and Global data (35 documents in the Group graph):
+
+```powershell
+node --import tsx scripts\control-ui-fixture-preview.ts platformclaw-organization-memory --viewport 1920x1080 --theme platformclaw --mode light --locale ko-KR
+```
+
+Organization knowledge appears before the sharing form with local title/content
+search and scope filters. Graph nodes select a full-title/connected-document
+inspector; **Open document** is a separate read-only action. **Enlarge graph**
+uses the available page width, **Fit graph** frames visible nodes, and **Focus
+selection** makes a chosen node readable on a small screen. Counts and filters
+apply to the loaded snapshot, not an unrestricted organization-wide search.
+
 The launcher never installs dependencies into the source checkout. It fetches
 `origin/main`, exports that exact commit into an isolated cache under
 `%LOCALAPPDATA%`, and uses the repository-pinned pnpm through Corepack. This
