@@ -481,7 +481,7 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
       ],
       stats: { ...base.stats, totalPages: 2, totalNodes: 2, totalEdges: 2 },
     };
-    const request = vi.fn(async () => edgeGraph);
+    const request = vi.fn<Parameters<typeof createGraph>[0]>(async () => edgeGraph);
     const element = createGraph(request);
     await waitForFast(() =>
       expect(element.querySelectorAll(".organization-memory-graph__edges line")).toHaveLength(2),
@@ -504,7 +504,7 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
   });
 
   it("disables document reads when the read capability is unavailable", async () => {
-    const request = vi.fn(async () => graph("part"));
+    const request = vi.fn<Parameters<typeof createGraph>[0]>(async () => graph("part"));
     const element = createGraph(request);
     element.getAdvertised = false;
     await waitForFast(() =>
