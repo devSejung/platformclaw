@@ -1,14 +1,17 @@
 /* A quiet, transparent baseball scene layered over the existing PlatformClaw UI. */
 platformclaw-easter-egg {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  z-index: 2147483647;
   pointer-events: none;
 }
 
 .platformclaw-easter-egg {
   position: absolute;
   inset: 0;
+  z-index: 2147483647;
   overflow: hidden;
   pointer-events: none;
   touch-action: none;
@@ -22,10 +25,9 @@ platformclaw-easter-egg {
 .platformclaw-easter-egg__hud,
 .platformclaw-easter-egg__result,
 .platformclaw-easter-egg__distance,
-.platformclaw-easter-egg__save-status,
-.platformclaw-easter-egg__leaderboards {
+.platformclaw-easter-egg__save-status {
   position: absolute;
-  left: 8px;
+  left: var(--platformclaw-baseball-ui-left, 8px);
   z-index: 12;
   color: color-mix(in srgb, var(--muted) 86%, var(--text));
   font-size: 10px;
@@ -34,7 +36,7 @@ platformclaw-easter-egg {
 }
 
 .platformclaw-easter-egg__hud {
-  bottom: 180px;
+  bottom: 220px;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -42,12 +44,18 @@ platformclaw-easter-egg {
 }
 
 .platformclaw-easter-egg__leaderboards {
-  bottom: 214px;
+  position: absolute;
+  right: 12px;
+  bottom: 172px;
+  z-index: 4;
   display: grid;
-  grid-template-columns: repeat(2, minmax(118px, 180px));
-  gap: 12px;
-  max-width: calc(100vw - 16px);
-  opacity: 0.82;
+  grid-template-columns: repeat(2, minmax(104px, 1fr));
+  gap: 8px;
+  width: min(236px, calc(100vw - 24px));
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .platformclaw-easter-egg__leaderboard-status {
@@ -58,15 +66,17 @@ platformclaw-easter-egg {
 .platformclaw-easter-egg__leaderboards section,
 .platformclaw-easter-egg__leaderboards ol {
   display: grid;
-  gap: 2px;
+  gap: 1px;
 }
 
 .platformclaw-easter-egg__leaderboards section {
   min-width: 0;
+  overflow: hidden;
 }
 
 .platformclaw-easter-egg__leaderboards ol {
-  min-width: 118px;
+  min-width: 0;
+  overflow: hidden;
   margin: 2px 0 0;
   padding: 0;
   list-style: none;
@@ -76,6 +86,9 @@ platformclaw-easter-egg {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .platformclaw-easter-egg__leaderboards li > span {
@@ -90,7 +103,11 @@ platformclaw-easter-egg {
 }
 
 .platformclaw-easter-egg__leaderboard-current {
-  color: var(--text);
+  color: inherit;
+}
+
+.platformclaw-easter-egg__leaderboards section > strong {
+  color: inherit;
 }
 
 .platformclaw-easter-egg__leaderboard-empty {
@@ -112,18 +129,18 @@ platformclaw-easter-egg {
 }
 
 .platformclaw-easter-egg__result {
-  bottom: 163px;
+  bottom: 203px;
   color: var(--text);
   font-weight: 750;
 }
 
 .platformclaw-easter-egg__distance {
-  bottom: 148px;
+  bottom: 188px;
   opacity: 0.8;
 }
 
 .platformclaw-easter-egg__save-status {
-  bottom: 197px;
+  bottom: 237px;
   display: flex;
   gap: 5px;
   align-items: center;
@@ -154,7 +171,7 @@ platformclaw-easter-egg {
   left: 0;
   display: block;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--text) 82%, var(--bg));
+  background: #000;
   opacity: 0;
   transform-origin: 50% 50%;
   will-change: transform, opacity;
@@ -164,12 +181,19 @@ platformclaw-easter-egg {
   z-index: 1;
   width: 5px;
   height: 5px;
+  margin-top: -2.5px;
+  margin-left: -2.5px;
 }
 
 .platformclaw-easter-egg__projectile {
   z-index: 8;
-  width: 7px;
-  height: 7px;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  margin-left: -5px;
+  border: 0;
+  background: #000;
+  box-shadow: none;
 }
 
 .platformclaw-easter-egg__player,
@@ -179,23 +203,31 @@ platformclaw-easter-egg {
   top: 0;
   left: 0;
   z-index: 3;
-  width: 25px;
-  height: 35px;
-  color: color-mix(in srgb, var(--text) 88%, var(--bg));
+  width: 34px;
+  height: 46px;
+  margin-top: -46px;
+  margin-left: -17px;
+  color: color-mix(in srgb, var(--text) 96%, var(--bg));
   transform-origin: 50% 100%;
   will-change: transform;
 }
 
 .platformclaw-easter-egg__target,
 .platformclaw-easter-egg__outfielder {
-  width: 23px;
-  height: 32px;
-  color: color-mix(in srgb, var(--text) 72%, var(--bg));
+  width: 32px;
+  height: 44px;
+  margin-top: -44px;
+  margin-left: -16px;
+  color: color-mix(in srgb, var(--text) 88%, var(--bg));
 }
 
 .platformclaw-easter-egg__outfielder {
   z-index: 2;
-  opacity: 0.82;
+  width: 28px;
+  height: 40px;
+  margin-top: -40px;
+  margin-left: -14px;
+  opacity: 0.86;
 }
 
 .platformclaw-easter-egg__player svg,
@@ -204,7 +236,51 @@ platformclaw-easter-egg {
   display: block;
   width: 100%;
   height: 100%;
-  transform: translate(-50%, -100%);
+  overflow: visible;
+}
+
+.platformclaw-easter-egg__figure-head {
+  fill: currentcolor;
+}
+
+.platformclaw-easter-egg__figure-torso,
+.platformclaw-easter-egg__figure-arm-back,
+.platformclaw-easter-egg__figure-arm-front,
+.platformclaw-easter-egg__figure-leg-back,
+.platformclaw-easter-egg__figure-leg-front {
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.5;
+  transform-box: view-box;
+}
+
+.platformclaw-easter-egg__figure-arm-back,
+.platformclaw-easter-egg__figure-arm-front {
+  transform-origin: 50% 36%;
+}
+
+.platformclaw-easter-egg__figure-leg-back,
+.platformclaw-easter-egg__figure-leg-front {
+  transform-origin: 50% 58%;
+}
+
+.platformclaw-easter-egg__figure-label,
+.platformclaw-easter-egg__leaderboards {
+  color: color-mix(in srgb, var(--muted) 86%, var(--text));
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.1;
+  opacity: 0.72;
+}
+
+.platformclaw-easter-egg__figure-label {
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  white-space: nowrap;
+  transform: translateX(-50%);
 }
 
 .platformclaw-easter-egg__fence {
@@ -222,14 +298,14 @@ platformclaw-easter-egg {
 
 .platformclaw-easter-egg__bat {
   position: absolute;
-  top: -27px;
-  left: 2px;
-  width: 25px;
-  height: 4px;
+  top: 17px;
+  left: 23px;
+  width: 30px;
+  height: 5px;
   border: 1px solid color-mix(in srgb, currentcolor 72%, var(--bg));
   border-radius: 999px 4px 4px 999px;
   background: #9a693f;
-  transform: rotate(-18deg);
+  transform: rotate(-24deg);
   transform-origin: 3px 50%;
 }
 
@@ -360,16 +436,24 @@ platformclaw-easter-egg {
   animation: platformclaw-easter-egg-batter-follow 300ms ease-out;
 }
 
-.platformclaw-easter-egg__target--leg-lift {
-  animation: platformclaw-easter-egg-pitcher-leg-lift 190ms ease-out;
+.platformclaw-easter-egg__target--leg-lift .platformclaw-easter-egg__figure-leg-front {
+  animation: platformclaw-easter-egg-pitcher-leg-lift 190ms ease-out both;
 }
 
-.platformclaw-easter-egg__target--throw {
-  animation: platformclaw-easter-egg-pitcher-throw 220ms ease-out;
+.platformclaw-easter-egg__target--leg-lift .platformclaw-easter-egg__figure-arm-front {
+  animation: platformclaw-easter-egg-pitcher-windup-arm 190ms ease-out both;
 }
 
-.platformclaw-easter-egg__target--follow-through {
-  animation: platformclaw-easter-egg-pitcher-follow 360ms ease-out;
+.platformclaw-easter-egg__target--throw .platformclaw-easter-egg__figure-arm-front {
+  animation: platformclaw-easter-egg-pitcher-throw 220ms ease-out both;
+}
+
+.platformclaw-easter-egg__target--follow-through .platformclaw-easter-egg__figure-arm-front {
+  animation: platformclaw-easter-egg-pitcher-follow 360ms ease-out both;
+}
+
+.platformclaw-easter-egg__target--follow-through .platformclaw-easter-egg__figure-leg-back {
+  animation: platformclaw-easter-egg-pitcher-follow-leg 360ms ease-out both;
 }
 
 @keyframes platformclaw-easter-egg-batter-swing {
@@ -399,22 +483,31 @@ platformclaw-easter-egg {
 
 @keyframes platformclaw-easter-egg-pitcher-leg-lift {
   50% {
-    rotate: -6deg;
-    scale: 0.92;
+    transform: rotate(-52deg);
+  }
+}
+
+@keyframes platformclaw-easter-egg-pitcher-windup-arm {
+  50% {
+    transform: rotate(58deg);
   }
 }
 
 @keyframes platformclaw-easter-egg-pitcher-throw {
   50% {
-    rotate: 7deg;
-    scale: 0.92;
+    transform: rotate(-72deg);
   }
 }
 
 @keyframes platformclaw-easter-egg-pitcher-follow {
   50% {
-    rotate: 11deg;
-    scale: 0.92;
+    transform: rotate(-108deg);
+  }
+}
+
+@keyframes platformclaw-easter-egg-pitcher-follow-leg {
+  50% {
+    transform: rotate(28deg);
   }
 }
 
@@ -444,7 +537,7 @@ platformclaw-easter-egg {
 
 @media (prefers-reduced-motion: reduce) {
   .platformclaw-easter-egg__player,
-  .platformclaw-easter-egg__target,
+  .platformclaw-easter-egg__target *,
   .platformclaw-easter-egg__feedback {
     animation: none;
     transition: none;
