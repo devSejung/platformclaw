@@ -24,6 +24,7 @@
 /* Browse rows have only a chevron, not a form control that needs to stack. */
 .memory-memories__result--browse > .settings-row {
   flex-direction: row;
+  flex-wrap: nowrap;
 }
 
 .memory-memories__result--browse > .settings-row > .settings-row__control {

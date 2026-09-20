@@ -90,6 +90,10 @@ function parseArgs(argv: string[]): PreviewArgs {
   };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index]!;
+    // Package-script runners may forward their leading argument separator.
+    if (index === 0 && arg === "--") {
+      continue;
+    }
     if (arg === "--help" || arg === "-h") {
       parsed.help = true;
       continue;
@@ -138,8 +142,10 @@ function parseArgs(argv: string[]): PreviewArgs {
 }
 
 function printFixtures(): void {
+  const columnWidth =
+    Math.max(...CONTROL_UI_PREVIEW_FIXTURES.map((fixture) => fixture.id.length)) + 2;
   for (const fixture of CONTROL_UI_PREVIEW_FIXTURES) {
-    console.log(fixture.id.padEnd(24) + fixture.label + " - " + fixture.description);
+    console.log(fixture.id.padEnd(columnWidth) + fixture.label + " - " + fixture.description);
   }
 }
 

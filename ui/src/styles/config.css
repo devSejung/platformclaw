@@ -803,12 +803,6 @@
   }
 }
 
-@media (max-width: 640px) {
-  .content:has(.platformclaw-memory-page) .content-header {
-    padding-inline: var(--space-3);
-  }
-}
-
 .platformclaw-memory-page__tabs {
   min-width: 0;
   overflow-x: auto;
