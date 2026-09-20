@@ -340,7 +340,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expectMemoryHelp("Personal Wiki: review reusable source pages");
     const wiki = page.locator(".memory-wiki-page");
     await expect.poll(() => wiki.textContent()).toContain("Person One knowledge");
-    await wiki.getByRole("button", { name: "Open wiki page" }).click();
+    await wiki.getByRole("button", { name: "Person One knowledge", exact: true }).click();
     await expect
       .poll(() => page.locator(".dreams-diary__preview-body .wiki-document__reader").textContent())
       .toContain("Employee browser access stays agent scoped.");

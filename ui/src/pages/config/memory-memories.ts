@@ -15,62 +15,23 @@ import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import "../../styles/memory-memories.css";
 import {
   type BrowserMemorySearchResponse,
+  type BrowseListResult,
+  type BrowserWorkspaceGetResult,
+  type BrowseState,
   type MemoryResultActions,
+  type MemorySourceFilter,
   type DetailState,
   isExpandableResult,
+  renderMemoryConnectionStatus,
   renderMemoryBrowseFile,
-  renderMemorySearchResults,
+  renderMemorySearchState,
   resultKey,
   type SearchResult,
   type SearchState,
   type Translate,
+  type WikiGetResult,
+  type WikiSearchResult,
 } from "./memory-memories-view.ts";
-
-type WikiSearchResult = {
-  path: string;
-  title: string;
-  kind: string;
-  score: number;
-  snippet: string;
-  startLine?: number;
-  endLine?: number;
-};
-type WikiGetResult = {
-  content?: string;
-  displayContent?: string;
-  fromLine?: number;
-  lineCount?: number;
-};
-type BrowseEntry = {
-  path: string;
-  name: string;
-  updatedAtMs?: number;
-};
-type BrowseListResult = {
-  entries: BrowseEntry[];
-  hasAdditionalFolders?: boolean;
-  truncated?: boolean;
-};
-type BrowserWorkspaceGetResult = {
-  file: {
-    path: string;
-    name: string;
-    encoding: "utf8";
-    content: string;
-    missing?: boolean;
-    updatedAtMs?: number;
-  };
-};
-type BrowseState =
-  | { kind: "idle" | "loading" }
-  | {
-      kind: "ready";
-      memory: BrowserWorkspaceGetResult["file"] | null;
-      recent: BrowseEntry[];
-      memoryError: string | null;
-      recentError: string | null;
-      additionalEntries: boolean;
-    };
 
 const RECENT_MEMORY_LIMIT = 7;
 
@@ -100,6 +61,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
 
   @state() private query = "";
   @state() private searchState: SearchState = { kind: "idle" };
+  @state() private sourceFilter: MemorySourceFilter = "all";
   @state() private openResultKey: string | null = null;
   @state() private details = new Map<string, DetailState>();
   @state() private browseState: BrowseState = { kind: "idle" };
@@ -191,6 +153,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     this.searchRequest = null;
     this.clearDetails(false);
     this.query = "";
+    this.sourceFilter = "all";
     this.searchState = { kind: "idle" };
   }
 
@@ -312,6 +275,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     const request = { client, agentId, query: normalizedQuery };
     this.searchRequest = request;
     this.query = normalizedQuery;
+    this.sourceFilter = "all";
     this.searchState = { kind: "loading", query: normalizedQuery };
     this.clearDetails(false);
     const [personal, wiki] = await Promise.all([
@@ -485,6 +449,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     index: number,
     description?: string,
     content?: string,
+    updatedAtMs?: number,
   ) {
     return renderMemoryBrowseFile({
       actions: this.gatewayReady ? this.itemActions : undefined,
@@ -493,6 +458,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
       index,
       description,
       content,
+      updatedAtMs,
       details: this.details,
       openResultKey: this.openResultKey,
       text: this.text.bind(this),
@@ -515,6 +481,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
               -1,
               this.text("memoryPage.memories.previewHint"),
               ready.memory.content,
+              ready.memory.updatedAtMs,
             );
     const longTerm =
       this.gatewayReady && this.personalDetailAdvertised === null
@@ -540,7 +507,14 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
                 ? nothing
                 : renderSettingsEmpty(this.text("memoryPage.memories.recentEmpty"))
               : ready.recent.map((entry, index) =>
-                  this.renderBrowseFile(entry.path, entry.name, -index - 2),
+                  this.renderBrowseFile(
+                    entry.path,
+                    entry.name,
+                    -index - 2,
+                    undefined,
+                    undefined,
+                    entry.updatedAtMs,
+                  ),
                 );
     const refreshBusy = this.browseRefresh === "loading";
     return html`
@@ -622,34 +596,21 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   }
 
   private renderSearchState() {
-    switch (this.searchState.kind) {
-      case "loading":
-        return html`<p class="memory-memories__state" role="status">
-          ${this.text("memoryPage.memories.searching")}
-        </p>`;
-      case "error": {
-        const failed = this.searchState;
-        return html`<div class="memory-memories__state" role="alert">
-          <p>${this.text("memoryPage.memories.error", { message: failed.message })}</p>
-          <button class="btn btn--sm" @click=${() => void this.search(failed.query)}>
-            ${this.text("memoryPage.memories.retry")}
-          </button>
-        </div>`;
-      }
-      case "ready":
-        return renderMemorySearchResults({
-          actions: this.gatewayReady ? this.itemActions : undefined,
-          ready: this.searchState,
-          details: this.details,
-          openResultKey: this.openResultKey,
-          text: this.text.bind(this),
-          canLoadResult: (result) => this.canLoadResult(result),
-          onToggle: (result, index) => this.toggleResult(result, index),
-          onRetry: (key, result) => void this.loadDetail(key, result),
-        });
-      default:
-        return nothing;
-    }
+    return renderMemorySearchState({
+      actions: this.gatewayReady ? this.itemActions : undefined,
+      canLoadResult: (result) => this.canLoadResult(result),
+      details: this.details,
+      onRetry: (key, result) => void this.loadDetail(key, result),
+      onSearch: (query) => void this.search(query),
+      onSourceFilterChange: (source) => {
+        this.sourceFilter = source;
+      },
+      onToggle: (result, index) => this.toggleResult(result, index),
+      openResultKey: this.openResultKey,
+      searchState: this.searchState,
+      sourceFilter: this.sourceFilter,
+      text: this.text.bind(this),
+    });
   }
 
   override render() {
@@ -660,10 +621,12 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
       this.gatewayReady &&
       !searchAvailable &&
       (this.methodAdvertised === null || this.wikiSearchAdvertised === null);
-    const connectionStatus =
-      this.browseEnabled && this.phase !== "connected" && this.browseState.kind === "ready"
-        ? html`<div class="settings-empty" role="status">${this.connectionLabel}</div>`
-        : nothing;
+    const connectionStatus = renderMemoryConnectionStatus({
+      browseEnabled: this.browseEnabled,
+      connected: this.phase === "connected",
+      browseReady: this.browseState.kind === "ready",
+      label: this.connectionLabel,
+    });
     return html`<div class="settings-page memory-memories">
       ${connectionStatus}
       <section class="settings-section">

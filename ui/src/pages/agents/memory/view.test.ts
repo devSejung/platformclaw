@@ -10,6 +10,7 @@ import { loadPlatformClawLocale } from "../../../platformclaw/i18n.ts";
 import { buildDreamingViewProps, type DreamingProps } from "./view.test-helpers.ts";
 import {
   createDreamingViewState,
+  resetWikiLocalState,
   renderDreaming,
   renderWikiKnowledge,
   type DreamingViewState,
@@ -137,11 +138,9 @@ describe("dreaming view", () => {
     viewState = createDreamingViewState();
   });
 
-  it("renders the active dream scene chrome and selects another view", () => {
+  it("renders configured dreaming status with shared settings rows and navigation callbacks", () => {
     const onViewStateChange = vi.fn();
-    const container = renderInto(
-      buildProps({ dreamingOf: "reindexing old chats\u2026", onViewStateChange }),
-    );
+    const container = renderInto(buildProps({ onViewStateChange }));
 
     expectElement(container, ".dreams__lobster svg");
 
@@ -154,80 +153,58 @@ describe("dreaming view", () => {
       container.querySelector<HTMLElement>(".dreams__lobster")?.getAttribute("style"),
     ).toContain("--lob-shell:");
 
-    expect(textItems(container, ".dreams__z")).toEqual(["z", "z", "Z"]);
+    expect(container.querySelector(".dreams__star")).toBeNull();
+    expect(container.querySelector(".dreams__moon")).toBeNull();
+    expect(container.querySelector(".dreams__bubble")).toBeNull();
+    expect(container.querySelector(".dreams__summary-grid")).toBeNull();
+    expect(container.querySelector(".dreams__phase")).toBeNull();
+    expect(container.querySelector(".dreams__status-label")).toBeNull();
+    expect(container.textContent).toContain("Automatic consolidation on");
+    expect(container.textContent).not.toMatch(/running|active/i);
+    expect(container.textContent).toContain("47");
+    expect(container.textContent).toContain("12");
+    expect(container.textContent).toContain("24");
+    expect(container.textContent).toContain("Light");
+    expect(container.textContent).toContain("Deep");
+    expect(container.textContent).toContain("REM");
 
-    const stars = [...container.querySelectorAll<HTMLElement>(".dreams__star")].map((star) => ({
-      top: star.style.top,
-      left: star.style.left,
-      size: star.style.width,
-    }));
-    expect(stars).toEqual([
-      { top: "8%", left: "15%", size: "3px" },
-      { top: "12%", left: "72%", size: "2px" },
-      { top: "22%", left: "35%", size: "3px" },
-      { top: "18%", left: "88%", size: "2px" },
-      { top: "35%", left: "8%", size: "2px" },
-      { top: "45%", left: "92%", size: "2px" },
-      { top: "55%", left: "25%", size: "3px" },
-      { top: "65%", left: "78%", size: "2px" },
-      { top: "75%", left: "45%", size: "2px" },
-      { top: "82%", left: "60%", size: "3px" },
-      { top: "30%", left: "55%", size: "2px" },
-      { top: "88%", left: "18%", size: "2px" },
-    ]);
-
-    expectElement(container, ".dreams__moon");
-
-    const phases = [...container.querySelectorAll(".dreams__phase")].map((phase) => ({
-      name: phase.querySelector(".dreams__phase-name")?.textContent?.trim(),
-      off: phase.classList.contains("dreams__phase--off"),
-    }));
-    expect(phases).toEqual([
-      { name: "Light", off: false },
-      { name: "Deep", off: false },
-      { name: "Rem", off: true },
-    ]);
-    expect(container.querySelector(".dreams__phase--off .dreams__phase-next")?.textContent).toBe(
-      "off",
-    );
-
-    container
-      .querySelector("#dreams-tab-diary")
-      ?.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
+    const summaryNav = [
+      ...container.querySelectorAll<HTMLButtonElement>("button.settings-row--nav"),
+    ];
+    expect(summaryNav).toHaveLength(2);
+    summaryNav[0]?.click();
+    expect(viewState.activeSubTab).toBe("advanced");
+    summaryNav[1]?.click();
     expect(viewState.activeSubTab).toBe("diary");
-    expect(onViewStateChange).toHaveBeenCalledOnce();
-    expectElement(container, ".dreams__bubble");
-    const text = container.querySelector(".dreams__bubble-text");
-    expect(text?.textContent).toBe("reindexing old chats\u2026");
-    const label = container.querySelector(".dreams__status-label");
-    expect(label?.textContent).toBe("Dreaming Active");
-    const detail = container.querySelector(".dreams__status-detail span");
-    expect(detail?.textContent?.trim().replace(/\s+/g, " ")).toBe(
-      "12 promoted · next sweep 4:00 AM · America/Los_Angeles",
-    );
+    expect(onViewStateChange).toHaveBeenCalledTimes(2);
   });
 
-  it("renders idle and unavailable scene states", () => {
+  it("distinguishes disabled configuration from unavailable runtime status", () => {
     const idleContainer = renderInto(buildProps({ active: false }));
-    expect(idleContainer.querySelector(".dreams__bubble")).toBeNull();
-    expect(idleContainer.querySelector(".dreams__status-label")?.textContent).toBe("Dreaming Idle");
+    expect(idleContainer.textContent).toContain("Automatic consolidation off");
     expectElement(idleContainer, ".dreams--idle");
+    expect(idleContainer.textContent).toContain("Off");
 
-    const unknownPhaseContainer = renderInto(buildProps({ phases: undefined }));
-    const statuses = [...unknownPhaseContainer.querySelectorAll(".dreams__phase")].map((phase) => ({
-      status: phase.querySelector(".dreams__phase-next")?.textContent?.trim(),
-      off: phase.classList.contains("dreams__phase--off"),
-    }));
-    expect(statuses).toEqual([
-      { status: "—", off: false },
-      { status: "—", off: false },
-      { status: "—", off: false },
-    ]);
-
-    const errorContainer = renderInto(buildProps({ statusError: "patch failed" }));
-    expect(errorContainer.querySelector(".dreams__controls-error")?.textContent?.trim()).toBe(
-      "patch failed",
+    const unavailableContainer = renderInto(
+      buildProps({
+        statusAvailable: false,
+        statusLoading: true,
+        shortTermCount: 0,
+        promotedCount: 0,
+        promotedTotal: 0,
+        phases: undefined,
+      }),
     );
+    expect(unavailableContainer.textContent).toContain("Refreshing status");
+    expect(unavailableContainer.textContent).not.toContain("Status unavailable");
+    expect(unavailableContainer.textContent).not.toContain("Promoted today 0");
+    expect(unavailableContainer.textContent).not.toContain("Total promotions 0");
+
+    const errorContainer = renderInto(
+      buildProps({ statusAvailable: false, statusError: "patch failed" }),
+    );
+    expect(errorContainer.textContent).toContain("patch failed");
+    expect(errorContainer.textContent).toContain("Status unavailable");
   });
 
   it("renders imported memory topics inside the diary tab", () => {
@@ -236,9 +213,7 @@ describe("dreaming view", () => {
     const onViewStateChange = vi.fn();
     const container = renderInto(buildProps({ onViewStateChange }));
     const subtabs = [...container.querySelectorAll(".memory-wiki-hub-tabs .hub-tab")];
-    expect(subtabs.map((tab) => tab.textContent?.trim()).join("|")).toBe(
-      "Memory Wiki|Imported Insights",
-    );
+    expect(subtabs.map((tab) => tab.textContent?.trim()).join("|")).toBe("Documents|Imported");
     container
       .querySelector("#memory-wiki-tab-wiki")
       ?.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
@@ -251,7 +226,7 @@ describe("dreaming view", () => {
       "Imported chats clustered around travel.",
     );
     const insight = container.querySelector(".dreams-diary__insight-card");
-    expect(insight?.querySelector(".dreams-diary__insight-title")?.textContent).toBe(
+    expect(insight?.querySelector(".dreams-diary__insight-title")?.textContent?.trim()).toBe(
       "BA flight receipts process",
     );
     expect(compactText(insight?.querySelector(".dreams-diary__insight-badge") ?? null)).toBe(
@@ -299,9 +274,9 @@ describe("dreaming view", () => {
       content: "# ChatGPT Export: BA flight receipts process",
     });
     const container = renderInto(buildProps({ onOpenWikiPage }));
-    const openSourceButton = container.querySelectorAll<HTMLButtonElement>(
-      ".dreams-diary__insight-actions .btn",
-    )[1];
+    const openSourceButton = container.querySelector<HTMLButtonElement>(
+      ".dreams-diary__insight-title",
+    );
     expect(openSourceButton).toBeInstanceOf(HTMLButtonElement);
     if (!(openSourceButton instanceof HTMLButtonElement)) {
       throw new Error("Expected imported source button");
@@ -331,9 +306,9 @@ describe("dreaming view", () => {
     });
     rerender();
 
-    const openSourceButton = container.querySelectorAll<HTMLButtonElement>(
-      ".dreams-diary__insight-actions .btn",
-    )[1];
+    const openSourceButton = container.querySelector<HTMLButtonElement>(
+      ".dreams-diary__insight-title",
+    );
     expect(openSourceButton).toBeInstanceOf(HTMLButtonElement);
     if (!(openSourceButton instanceof HTMLButtonElement)) {
       throw new Error("Expected imported source button");
@@ -361,17 +336,14 @@ describe("dreaming view", () => {
     setDreamSubTab("diary");
     setDreamDiarySubTab("wiki");
     const container = renderInto(buildProps());
-    expect(compactText(container.querySelector(".dreams-diary__date"))).toBe(
-      "Vault · 2 pages · 2 claim rows · 1 open question · 1 contradiction",
+    expect(compactText(container.querySelector(".memory-wiki-filterbar__count"))).toBe(
+      "1 of 1 loaded documents · 2 pages in Wiki",
     );
-    expect(compactText(container.querySelectorAll(".dreams-diary__para").item(0))).toBe(
-      "Full vault breakdown: Sources · 1 page; Syntheses · 1 page.",
-    );
-    expect(compactText(container.querySelectorAll(".dreams-diary__para").item(1))).toContain(
-      "Selected section: Syntheses: 1 page · 2 claim rows · 1 open question on 1 page · 1 contradiction.",
-    );
+    expect(
+      container.querySelector<HTMLInputElement>(".memory-wiki-filterbar__search")?.placeholder,
+    ).toBe("Filter title or path");
     const insight = container.querySelector(".dreams-diary__insight-card");
-    expect(insight?.querySelector(".dreams-diary__insight-title")?.textContent).toBe(
+    expect(insight?.querySelector(".dreams-diary__insight-title")?.textContent?.trim()).toBe(
       "Travel system",
     );
     expect(compactText(insight?.querySelector(".dreams-diary__insight-badge") ?? null)).toBe(
@@ -380,130 +352,107 @@ describe("dreaming view", () => {
     expect(compactText(insight?.querySelector(".dreams-diary__insight-actions .btn") ?? null)).toBe(
       "Details",
     );
-    expect(insight?.querySelector(".dreams-diary__insight-list strong")?.textContent).toBe(
-      "Claims",
-    );
+    expect(insight?.querySelector(".dreams-diary__insight-list")).toBeNull();
+    expect(insight?.querySelectorAll(".dreams-diary__insight-actions button")).toHaveLength(1);
     expect(compactText(container.querySelector(".dreams-diary__explainer"))).toBe(
-      "This is the compiled memory wiki surface the system can search and reason over; use it to inspect actual memory pages, claims, open questions, and contradictions rather than raw imported source chats.",
+      "Find and read your compiled knowledge. Filters apply to the loaded documents.",
     );
     setDreamDiarySubTab("dreams");
     setDreamSubTab("scene");
   });
 
-  it("switches between Cards and Graph and opens a node in the existing preview", async () => {
+  it("filters loaded Wiki documents locally by query, kind, questions, and contradictions", () => {
     setDreamDiarySubTab("wiki");
-    const onSelectWikiGraph = vi.fn();
-    const onOpenWikiPage = vi.fn(async (lookup: string) => ({
-      title: lookup === "concepts/alpha.md" ? "Alpha" : lookup,
-      path: lookup,
-      content: "# Alpha\n\nGraph preview content.",
-      totalLines: 3,
-      truncated: false,
-    }));
+    const base = buildProps();
+    const firstCluster = expectDefined(base.wikiOverview?.clusters[0], "wiki cluster");
+    const secondItem = {
+      ...expectDefined(firstCluster.items[0], "wiki item"),
+      pagePath: "concepts/ownership.md",
+      title: "Release ownership",
+      kind: "concept" as const,
+      questionCount: 0,
+      contradictionCount: 1,
+      questions: [],
+      contradictions: ["Older owner guidance conflicts."],
+    };
+    base.wikiOverview = {
+      ...expectDefined(base.wikiOverview, "wiki overview"),
+      totalItems: 2,
+      totalPages: 4,
+      clusters: [
+        firstCluster,
+        {
+          ...firstCluster,
+          key: "concept",
+          label: "Concepts",
+          items: [secondItem],
+          itemCount: 1,
+          questionCount: 0,
+          contradictionCount: 1,
+        },
+      ],
+    };
     const container = document.createElement("div");
-    const rerender = () => render(renderWikiKnowledge(props), container);
-    const props = buildProps({ onSelectWikiGraph, onOpenWikiPage, onViewStateChange: rerender });
+    const rerender = () => render(renderWikiKnowledge(base), container);
+    base.onViewStateChange = rerender;
     rerender();
 
-    const buttons = [
-      ...container.querySelectorAll<HTMLButtonElement>(".memory-wiki-view-switch button"),
+    const search = expectElement(container, ".memory-wiki-filterbar__search") as HTMLInputElement;
+    search.value = "ownership";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(container.querySelectorAll("[data-wiki-page]")).toHaveLength(1);
+    expect(container.textContent).toContain("1 of 2 loaded documents · 4 pages in Wiki");
+
+    search.value = "";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    const kind = container.querySelector<HTMLSelectElement>(".memory-wiki-filterbar select");
+    expect(kind).toBeInstanceOf(HTMLSelectElement);
+    kind!.value = "concept";
+    kind!.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(container.querySelectorAll("[data-wiki-page]")).toHaveLength(1);
+
+    kind!.value = "all";
+    kind!.dispatchEvent(new Event("change", { bubbles: true }));
+    const checks = [
+      ...container.querySelectorAll<HTMLInputElement>(".memory-wiki-filterbar__check input"),
     ];
-    expect(buttons.map((button) => button.textContent?.trim())).toEqual(["Cards", "Graph"]);
-    expect(buttons[0]?.getAttribute("aria-pressed")).toBe("true");
-    expect(container.querySelector(".memory-wiki-graph")).toBeNull();
+    checks[0]!.checked = true;
+    checks[0]!.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(container.querySelectorAll("[data-wiki-page]")).toHaveLength(1);
+    expect(container.textContent).toContain("Travel system");
 
-    buttons[1]?.click();
-    expect(onSelectWikiGraph).toHaveBeenCalledOnce();
-    expect(viewState.wikiLayout).toBe("graph");
-    const edge = expectElement(container, ".memory-wiki-graph__edges line");
-    expect(edge.namespaceURI).toBe("http://www.w3.org/2000/svg");
-    const node = expectElement(container, "[data-wiki-node='concepts/alpha.md']");
-    expect(node.namespaceURI).toBe("http://www.w3.org/2000/svg");
-    node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
-    await vi.waitFor(() => {
-      expect(onOpenWikiPage).toHaveBeenCalledWith("concepts/alpha.md");
-      expect(container.querySelector(".wiki-document__reader")?.textContent).toContain(
-        "Graph preview content.",
-      );
-    });
+    checks[0]!.checked = false;
+    checks[0]!.dispatchEvent(new Event("change", { bubbles: true }));
+    checks[1]!.checked = true;
+    checks[1]!.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(container.querySelectorAll("[data-wiki-page]")).toHaveLength(2);
   });
 
-  it("filters the Personal Wiki graph by safe top-level directory with induced edges", () => {
-    setDreamDiarySubTab("wiki");
-    viewState.wikiLayout = "graph";
-    const container = document.createElement("div");
-    const rerender = () => render(renderWikiKnowledge(props), container);
-    const props = buildProps({
-      onViewStateChange: rerender,
-      wikiGraph: {
-        nodes: [
-          { id: "home.md", title: "Home", kind: "concept" },
-          { id: "raw/source.md", title: "Source", kind: "source" },
-          { id: "syntheses/summary.md", title: "Summary", kind: "synthesis" },
-        ],
-        edges: [
-          { source: "home.md", target: "raw/source.md", type: "reference" },
-          { source: "raw/source.md", target: "syntheses/summary.md", type: "reference" },
-        ],
-        stats: {
-          totalPages: 3,
-          totalNodes: 3,
-          totalEdges: 2,
-          unresolvedLinks: 1,
-          truncated: false,
-        },
-      },
-    });
-    rerender();
+  it("resets local Wiki filters, expansion, page, and preview state", () => {
+    viewState.diaryPage = 2;
+    viewState.expandedInsightCards.add("sources/import.md");
+    viewState.expandedWikiCards.add("concepts/ownership.md");
+    viewState.wikiQuery = "owner";
+    viewState.wikiKind = "concept";
+    viewState.wikiQuestionsOnly = true;
+    viewState.wikiContradictionsOnly = true;
+    viewState.wikiPreviewOpen = true;
+    viewState.wikiPreviewPath = "concepts/ownership.md";
 
-    expect(container.textContent).toContain("Root");
-    const raw = [...container.querySelectorAll("label")].find((label) =>
-      label.textContent?.includes("raw"),
-    )!;
-    const input = raw.querySelector("input") as HTMLInputElement;
-    input.checked = false;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    resetWikiLocalState(viewState);
 
-    expect(container.querySelector('[data-wiki-node="raw/source.md"]')).toBeNull();
-    expect(container.querySelectorAll(".memory-wiki-graph__edges line")).toHaveLength(0);
-    expect(container.textContent).toContain("2 nodes");
-    expect(container.textContent).toContain("0 links");
-    expect(container.textContent).not.toContain("unresolved");
+    expect(viewState.diaryPage).toBe(0);
+    expect(viewState.expandedInsightCards.size).toBe(0);
+    expect(viewState.expandedWikiCards.size).toBe(0);
+    expect(viewState.wikiQuery).toBe("");
+    expect(viewState.wikiKind).toBe("all");
+    expect(viewState.wikiQuestionsOnly).toBe(false);
+    expect(viewState.wikiContradictionsOnly).toBe(false);
+    expect(viewState.wikiPreviewOpen).toBe(false);
+    expect(viewState.wikiPreviewPath).toBe("");
   });
 
-  it.each([
-    {
-      name: "empty",
-      overrides: {
-        wikiGraph: {
-          nodes: [],
-          edges: [],
-          stats: {
-            totalPages: 0,
-            totalNodes: 0,
-            totalEdges: 0,
-            unresolvedLinks: 0,
-            truncated: false,
-          },
-        },
-      },
-      expected: "No linked wiki pages yet",
-    },
-    {
-      name: "error",
-      overrides: { wikiGraph: null, wikiGraphError: "gateway unavailable" },
-      expected: "Could not load the wiki graph",
-    },
-  ])("renders the graph $name state", ({ overrides, expected }) => {
-    setDreamSubTab("diary");
-    setDreamDiarySubTab("wiki");
-    viewState.wikiLayout = "graph";
-    const container = renderInto(buildProps(overrides));
-    expect(container.textContent).toContain(expected);
-  });
-
-  it("keeps non-report wiki overview card clicks on details", () => {
+  it("expands wiki document details only from the Details button", () => {
     setDreamSubTab("diary");
     setDreamDiarySubTab("wiki");
     const container = document.createElement("div");
@@ -512,14 +461,23 @@ describe("dreaming view", () => {
     rerender();
 
     const card = expectElement(container, "[data-wiki-page='syntheses/travel-system.md']");
-    card.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const details = card.querySelector<HTMLButtonElement>(".dreams-diary__insight-actions .btn");
+    expect(details?.getAttribute("aria-expanded")).toBe("false");
+    expect(details?.getAttribute("aria-controls")).toBe(
+      "wiki-card-details-syntheses%2Ftravel-system.md",
+    );
+    details?.click();
 
+    const expandedDetails = container.querySelector<HTMLButtonElement>(
+      "[data-wiki-page='syntheses/travel-system.md'] .dreams-diary__insight-actions .btn",
+    );
+    expect(expandedDetails?.getAttribute("aria-expanded")).toBe("true");
     expect(textItems(container, ".dreams-diary__insight-list strong")).toContain("Page details");
     setDreamDiarySubTab("dreams");
     setDreamSubTab("scene");
   });
 
-  it("opens report wiki overview cards on primary click", async () => {
+  it("opens wiki documents from the keyboard-accessible title control", async () => {
     setDreamSubTab("diary");
     setDreamDiarySubTab("wiki");
     const onOpenWikiPage = vi.fn().mockResolvedValue({
@@ -577,7 +535,9 @@ describe("dreaming view", () => {
     rerender();
 
     const card = expectElement(container, "[data-wiki-page='reports/weekly-stock.md']");
-    card.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const title = card.querySelector<HTMLButtonElement>(".memory-wiki-card__title");
+    expect(title).toBeInstanceOf(HTMLButtonElement);
+    title?.click();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -763,7 +723,6 @@ describe("dreaming view", () => {
   it.each([
     { tab: "dreams", labels: ["1/2", "1/1"] },
     { tab: "insights", labels: ["Travel", "Health"] },
-    { tab: "wiki", labels: ["Syntheses", "Concepts"] },
   ] as const)("keeps $tab navigation inside the sticky diary controls", ({ tab, labels }) => {
     setDreamSubTab("diary");
     setDreamDiarySubTab(tab);
@@ -779,17 +738,6 @@ describe("dreaming view", () => {
       ].join("\n\n"),
       onViewStateChange: vi.fn(),
     });
-    const wikiOverview = props.wikiOverview;
-    if (wikiOverview) {
-      const firstCluster = expectDefined(wikiOverview.clusters[0], "first memory wiki cluster");
-      props.wikiOverview = {
-        ...wikiOverview,
-        clusters: [
-          ...wikiOverview.clusters,
-          { ...firstCluster, key: "concept", label: "Concepts" },
-        ],
-      };
-    }
 
     const container = renderInto(props);
     const stickyChrome = expectElement(container, ".dreams-diary__chrome");
@@ -806,6 +754,22 @@ describe("dreaming view", () => {
     buttons[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(viewState.diaryPage).toBe(1);
     expect(props.onViewStateChange).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the Wiki document list free of cluster daychip navigation", () => {
+    setDreamSubTab("diary");
+    setDreamDiarySubTab("wiki");
+    const props = buildProps();
+    const wikiOverview = expectDefined(props.wikiOverview, "wiki overview");
+    const firstCluster = expectDefined(wikiOverview.clusters[0], "first memory wiki cluster");
+    props.wikiOverview = {
+      ...wikiOverview,
+      clusters: [...wikiOverview.clusters, { ...firstCluster, key: "concept", label: "Concepts" }],
+    };
+
+    const container = renderInto(props);
+    expect(container.querySelector(".dreams-diary__daychips")).toBeNull();
+    expect(container.querySelectorAll("[data-wiki-page]")).toHaveLength(2);
   });
 
   it("renders diary empty, error, and removed-navigation states", () => {

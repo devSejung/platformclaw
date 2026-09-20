@@ -363,7 +363,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
       </main>`;
     }
     return html`
-      <main class="settings-page platformclaw-memory-page">
+      <main class="settings-page settings-page--wide platformclaw-memory-page">
         ${this.actionMessage ? html`<p role="status">${this.actionMessage}</p>` : nothing}
         <nav class="platformclaw-memory-page__tabs">
           ${renderHubTabs<PersonalMemoryTab>({

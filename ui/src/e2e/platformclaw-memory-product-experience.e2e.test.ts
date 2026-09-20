@@ -189,6 +189,11 @@ suite("PlatformClaw search-first Memory product experience", () => {
       await expect.poll(() => wikiPanel.locator(".memory-wiki-graph__edges line").count()).toBe(1);
       await wikiPanel.locator('[data-wiki-node="syntheses/release-preflight.md"] circle').click();
       await expect
+        .poll(() => wikiPanel.locator(".memory-wiki-graph__inspector").textContent())
+        .toContain("Release ownership");
+      expect(await gateway.getRequests("wiki.document.get")).toHaveLength(0);
+      await wikiPanel.locator(".memory-wiki-graph__open").click();
+      await expect
         .poll(async () => (await gateway.getRequests("wiki.document.get")).length)
         .toBe(1);
       await expect

@@ -817,6 +817,11 @@ The preview starts the source Vite server, opens Chromium, and stays alive until
 the browser closes or you press Ctrl-C. It is for manual UI inspection; the
 automated E2E lane remains the pass/fail proof.
 
+The Memory preview also provides `platformclaw-memory-busy` (32 Wiki documents,
+including long titles and a bounded 28-document overview),
+`platformclaw-memory-empty`, and `platformclaw-memory-error`. These scenarios
+share the product E2E helpers and use only synthetic data.
+
 ### E2E: OpenShell backend smoke
 
 - Command: `pnpm test:e2e:openshell`

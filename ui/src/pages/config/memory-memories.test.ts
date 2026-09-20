@@ -63,6 +63,7 @@ describe("MemoryMemoriesElement", () => {
           path: params.path,
           name: String(params.path).split("/").at(-1),
           encoding: "utf8",
+          updatedAtMs: 1_778_457_600_000,
           content:
             params.path === "MEMORY.md" ? "# Durable\nLong-term context." : "# Daily\nRecent note.",
         },
@@ -106,6 +107,7 @@ describe("MemoryMemoriesElement", () => {
       expect(recentTitles).not.toContain("2026-08-01.md");
       expect(recentSection.textContent).not.toContain("memory/2026-08-09.md");
       expect(recentSection.querySelectorAll(".settings-row__chevron")).toHaveLength(7);
+      expect(recentSection.textContent).toContain("Updated");
 
       const memoryRow = [...element.querySelectorAll<HTMLButtonElement>("article > button")].find(
         (button) => button.textContent?.includes("MEMORY.md"),
@@ -509,7 +511,9 @@ describe("MemoryMemoriesElement", () => {
       expect(element.textContent?.replace(/\s+/g, " ")).toContain(
         "memory/people/ada.md · lines 2–3",
       );
-      expect(element.textContent).toContain("score 0.88");
+      expect(element.querySelector(".memory-memories__source")?.getAttribute("title")).toBe(
+        "Search relevance 0.88; not a confidence score",
+      );
       expect(element.textContent).toContain("memory");
       const summary = element.querySelector('.memory-memories__results-heading[role="status"]');
       expect(summary?.getAttribute("aria-live")).toBe("polite");
@@ -697,6 +701,33 @@ describe("MemoryMemoriesElement", () => {
       expect(element.textContent).toContain("Group release policy");
       expect(element.textContent).toContain("Personal Wiki");
       expect(element.textContent).toContain("organization · Platform");
+
+      const sourceGroup = element.querySelector<HTMLElement>(
+        ".memory-memories__filters wa-radio-group",
+      );
+      expect(sourceGroup).not.toBeNull();
+      const sourceOptions = [...(sourceGroup?.querySelectorAll("wa-radio") ?? [])].map((node) =>
+        node.textContent?.replace(/\s+/g, " ").trim(),
+      );
+      expect(sourceOptions).toEqual(["All 3", "memory 1", "Personal Wiki 1", "Organization 1"]);
+
+      const callsBeforeFilter = request.mock.calls.length;
+      if (sourceGroup) {
+        (sourceGroup as HTMLElement & { value: string }).value = "wiki";
+        sourceGroup.dispatchEvent(new Event("change", { bubbles: true }));
+        await element.updateComplete;
+      }
+      expect(element.querySelectorAll(".memory-memories__results article")).toHaveLength(1);
+      expect(element.textContent).toContain("Personal release notes");
+      expect(element.textContent).not.toContain("Group release policy");
+      expect(request.mock.calls).toHaveLength(callsBeforeFilter);
+
+      if (sourceGroup) {
+        (sourceGroup as HTMLElement & { value: string }).value = "all";
+        sourceGroup.dispatchEvent(new Event("change", { bubbles: true }));
+        await element.updateComplete;
+      }
+      expect(element.querySelectorAll(".memory-memories__results article")).toHaveLength(3);
 
       const articles = [...element.querySelectorAll("article")];
       const wiki = articles.find((article) =>

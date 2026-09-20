@@ -10,7 +10,6 @@ import {
   startSvgGraphPointer,
   svgGraphTransform,
 } from "../../../components/svg-graph-interaction.ts";
-import { platformClawT as t } from "../../../platformclaw/i18n.ts";
 import type { WikiGraphRendererProps } from "./view.ts";
 
 const WIDTH = 960;
@@ -23,7 +22,7 @@ type PositionedNode = WikiGraphRendererProps["graph"] extends infer Graph
     : never
   : never;
 
-type DirectoryFilter = { directories: string[]; selected: Set<string> };
+type DirectoryFilter = { directories: string[]; selected: Set<string>; nodeId: string | null };
 const directoryFilters = new WeakMap<object, DirectoryFilter>();
 const ROOT_DIRECTORY = "";
 
@@ -45,14 +44,14 @@ function getDirectoryFilter(graph: NonNullable<WikiGraphRendererProps["graph"]>)
       (left, right) =>
         left === ROOT_DIRECTORY ? -1 : right === ROOT_DIRECTORY ? 1 : left < right ? -1 : 1,
     );
-    filter = { directories, selected: new Set(directories) };
+    filter = { directories, selected: new Set(directories), nodeId: null };
     directoryFilters.set(graph, filter);
   }
   return filter;
 }
 
 function truncateLabel(value: string): string {
-  return value.length <= 28 ? value : `${value.slice(0, 27)}…`;
+  return value.length <= 34 ? value : `${value.slice(0, 33)}…`;
 }
 
 function positionNodes(
@@ -114,6 +113,7 @@ function renderState(
 }
 
 export function renderWikiGraph(props: WikiGraphRendererProps) {
+  const t = props.text;
   if (props.error) {
     return renderState(
       t("dreaming.wiki.graphError"),
@@ -157,6 +157,26 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
     };
   });
   const renderedPositions = new Map(positioned.map((node) => [node.id, node] as const));
+  // Selection belongs to this graph snapshot. Filtering out a selected node
+  // also clears its inspector, rather than exposing hidden document state.
+  if (filter.nodeId && !visibleIds.has(filter.nodeId)) {
+    filter.nodeId = null;
+  }
+  const selectedNode = visibleNodes.find((node) => node.id === filter.nodeId);
+  const connections = visibleGraph.edges.filter(
+    (edge) => edge.source === filter.nodeId || edge.target === filter.nodeId,
+  );
+  const neighbors = new Set(connections.flatMap((edge) => [edge.source, edge.target]));
+  const selectNode = (id: string) => {
+    filter.nodeId = id || null;
+    props.onChange();
+  };
+  const relationKeys = {
+    membership: "graphMembership",
+    reference: "graphReference",
+    related: "graphRelated",
+    candidate: "graphCandidate",
+  } as const;
   const allDirectoriesSelected = filter.selected.size === filter.directories.length;
   const updateSelection = (directory: string, selected: boolean) => {
     if (selected) {
@@ -220,48 +240,109 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
             >`
           : nothing}
       </div>
-      <div class="memory-wiki-graph__legend">
-        <span data-edge-type="membership">${t("dreaming.wiki.graphMembership")}</span>
-        <span data-edge-type="reference">${t("dreaming.wiki.graphReference")}</span>
-        <span data-edge-type="related">${t("dreaming.wiki.graphRelated")}</span>
-        <span data-edge-type="candidate">${t("dreaming.wiki.graphCandidate")}</span>
-      </div>
-      <div class="memory-wiki-graph__canvas">
-        <svg
-          viewBox="0 0 ${WIDTH} ${HEIGHT}"
-          aria-label=${t("dreaming.wiki.graphView")}
-          @wheel=${(event: WheelEvent) => handleSvgGraphWheel(event, interaction)}
-          @pointerdown=${(event: PointerEvent) => startSvgGraphPointer(event, interaction, null)}
-          @pointermove=${(event: PointerEvent) => moveSvgGraphPointer(event, interaction)}
-          @pointerup=${(event: PointerEvent) => {
-            const nodeId = endSvgGraphPointer(event, interaction);
-            if (nodeId) {
-              props.onOpenNode(nodeId);
-            }
-          }}
-          @pointercancel=${(event: PointerEvent) => endSvgGraphPointer(event, interaction, false)}
-          @lostpointercapture=${(event: PointerEvent) =>
-            endSvgGraphPointer(event, interaction, false)}
+      <details class="memory-wiki-graph__legend">
+        <summary>${props.text("dreaming.wiki.graphLegend")}</summary>
+        ${Object.entries(relationKeys).map(
+          ([type, key]) => html`<span data-edge-type=${type}>${t(`dreaming.wiki.${key}`)}</span>`,
+        )}
+      </details>
+      <div class="memory-wiki-graph__body">
+        <aside
+          class="memory-wiki-graph__inspector"
+          aria-label=${props.text("dreaming.wiki.graphConnections")}
         >
-          <g data-svg-graph-viewport transform=${svgGraphTransform(interaction)}>
-            <g class="memory-wiki-graph__edges" aria-hidden="true">
-              ${visibleGraph.edges.map((edge) => {
-                const source = renderedPositions.get(edge.source);
-                const target = renderedPositions.get(edge.target);
-                return source && target
-                  ? svg`<line data-edge-type=${edge.type} data-edge-kind=${edge.kind ?? ""} data-svg-graph-source=${edge.source} data-svg-graph-target=${edge.target} x1=${source.x} y1=${source.y} x2=${target.x} y2=${target.y}></line>`
-                  : nothing;
-              })}
-            </g>
-            <g class="memory-wiki-graph__nodes">
-              ${positioned.map(
-                (node) => svg`
+          <label class="memory-wiki-graph__picker">
+            <span>${props.text("dreaming.wiki.graphSelectDocument")}</span>
+            <select
+              class="settings-select"
+              .value=${filter.nodeId ?? ""}
+              @change=${(event: Event) =>
+                selectNode((event.currentTarget as HTMLSelectElement).value)}
+            >
+              <option value="">${props.text("dreaming.wiki.graphSelectDocument")}</option>
+              ${visibleNodes
+                .toSorted((left, right) => left.title.localeCompare(right.title))
+                .map((node) => html`<option value=${node.id}>${node.title}</option>`)}
+            </select>
+          </label>
+          ${selectedNode
+            ? html`<div class="settings-group" aria-live="polite">
+                <div class="settings-row settings-row--stacked">
+                  <div class="settings-row__text">
+                    <strong class="settings-row__title">${selectedNode.title}</strong>
+                    <span class="settings-row__desc">${selectedNode.id}</span>
+                  </div>
+                  <button
+                    class="btn btn--sm memory-wiki-graph__open"
+                    type="button"
+                    @click=${() => props.onOpenNode(selectedNode.id)}
+                  >
+                    ${props.text("dreaming.wiki.openDocument")}
+                  </button>
+                </div>
+                <div class="settings-row__desc memory-wiki-graph__connection-label">
+                  ${props.text("dreaming.wiki.graphConnections")}
+                  <span class="settings-count">${connections.length}</span>
+                </div>
+                ${connections.map((edge) => {
+                  const id = edge.source === selectedNode.id ? edge.target : edge.source;
+                  const neighbor = renderedPositions.get(id)!;
+                  return html`<button
+                    type="button"
+                    class="settings-row settings-row--nav"
+                    @click=${() => selectNode(id)}
+                  >
+                    <span class="settings-row__text"
+                      ><span class="settings-row__title">${neighbor.title}</span>
+                      <span class="settings-row__desc"
+                        >${t(`dreaming.wiki.${relationKeys[edge.type]}`)}</span
+                      ></span
+                    >
+                  </button>`;
+                })}
+              </div>`
+            : html`<p class="settings-row__desc">
+                ${props.text("dreaming.wiki.graphInspectHint")}
+              </p>`}
+        </aside>
+        <div class="memory-wiki-graph__canvas">
+          <svg
+            viewBox="0 0 ${WIDTH} ${HEIGHT}"
+            aria-label=${t("dreaming.wiki.graphView")}
+            @wheel=${(event: WheelEvent) => handleSvgGraphWheel(event, interaction)}
+            @pointerdown=${(event: PointerEvent) => startSvgGraphPointer(event, interaction, null)}
+            @pointermove=${(event: PointerEvent) => moveSvgGraphPointer(event, interaction)}
+            @pointerup=${(event: PointerEvent) => {
+              const nodeId = endSvgGraphPointer(event, interaction);
+              if (nodeId) {
+                selectNode(nodeId);
+              }
+            }}
+            @pointercancel=${(event: PointerEvent) => endSvgGraphPointer(event, interaction, false)}
+            @lostpointercapture=${(event: PointerEvent) =>
+              endSvgGraphPointer(event, interaction, false)}
+          >
+            <g data-svg-graph-viewport transform=${svgGraphTransform(interaction)}>
+              <g class="memory-wiki-graph__edges" aria-hidden="true">
+                ${visibleGraph.edges.map((edge) => {
+                  const source = renderedPositions.get(edge.source);
+                  const target = renderedPositions.get(edge.target);
+                  return source && target
+                    ? svg`<line data-active=${!selectedNode || edge.source === filter.nodeId || edge.target === filter.nodeId} data-edge-type=${edge.type} data-edge-kind=${edge.kind ?? ""} data-svg-graph-source=${edge.source} data-svg-graph-target=${edge.target} x1=${source.x} y1=${source.y} x2=${target.x} y2=${target.y}></line>`
+                    : nothing;
+                })}
+              </g>
+              <g class="memory-wiki-graph__nodes">
+                ${positioned.map(
+                  (node) => svg`
                 <g
                   class="memory-wiki-graph__node memory-wiki-graph__node--${node.kind}"
                   transform="translate(${node.x} ${node.y})"
                   role="button"
                   tabindex="0"
                   aria-label=${node.title}
+                  aria-pressed=${String(filter.nodeId === node.id)}
+                  data-active=${!selectedNode || filter.nodeId === node.id || neighbors.has(node.id)}
                   data-wiki-node=${node.id}
                   @contextmenu=${
                     props.wikiActions
@@ -273,13 +354,13 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
                     startSvgGraphPointer(event, interaction, node.id)}
                   @click=${() => {
                     if (shouldActivateSvgGraphNode(interaction, node.id)) {
-                      props.onOpenNode(node.id);
+                      selectNode(node.id);
                     }
                   }}
                   @keydown=${(event: KeyboardEvent) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      props.onOpenNode(node.id);
+                      selectNode(node.id);
                     }
                   }}
                 >
@@ -288,10 +369,11 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
                   <title>${node.title} · ${node.kind}</title>
                 </g>
               `,
-              )}
+                )}
+              </g>
             </g>
-          </g>
-        </svg>
+          </svg>
+        </div>
       </div>
     </div>
   `;

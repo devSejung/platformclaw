@@ -1147,6 +1147,7 @@ describe("dreaming controller", () => {
       found: true,
       path: "DREAMS.md",
       content: "## Dream Diary\n- recurring glacier thoughts",
+      updatedAtMs: 1_765_432_100_000,
     });
 
     await loadDreamDiary(state);
@@ -1154,6 +1155,7 @@ describe("dreaming controller", () => {
     expect(request).toHaveBeenCalledWith("doctor.memory.dreamDiary", {});
     expect(state.dreamDiaryPath).toBe("DREAMS.md");
     expect(state.dreamDiaryContent).toBe("## Dream Diary\n- recurring glacier thoughts");
+    expect(state.dreamDiaryUpdatedAtMs).toBe(1_765_432_100_000);
     expect(state.dreamDiaryError).toBeNull();
   });
 
@@ -1255,6 +1257,7 @@ describe("dreaming controller", () => {
 
     expect(state.dreamDiaryPath).toBe("DREAMS.md");
     expect(state.dreamDiaryContent).toBeNull();
+    expect(state.dreamDiaryUpdatedAtMs).toBeNull();
     expect(state.dreamDiaryError).toBeNull();
   });
 

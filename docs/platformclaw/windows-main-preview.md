@@ -55,6 +55,15 @@ for manual clicking until you close it or press Ctrl-C. Fixture preview uses
 synthetic data and does not start a real Gateway or control service, so use the
 Windows main preview before treating a backend integration change as validated.
 
+Use `platformclaw-memory-busy` to inspect long titles, local document filters,
+and a denser graph, `platformclaw-memory-empty` for genuinely empty Memory/Wiki
+states, and `platformclaw-memory-error` for unavailable-service messages and
+retry controls. Wiki filters apply to the loaded overview, not every document
+in the vault. The graph inspector lists connected documents before opening the
+existing reader. Dreaming distinguishes automatic consolidation being enabled
+from a currently executing job; promotion and diary timestamps are not run
+completion timestamps.
+
 The launcher never installs dependencies into the source checkout. It fetches
 `origin/main`, exports that exact commit into an isolated cache under
 `%LOCALAPPDATA%`, and uses the repository-pinned pnpm through Corepack. This
