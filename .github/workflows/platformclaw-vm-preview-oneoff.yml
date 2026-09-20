@@ -1,0 +1,367 @@
+name: PlatformClaw VM Preview One-off
+
+on:
+  push:
+    branches:
+      - release/vm-preview-20260920-build
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  TARGET_SHA: 2a2db0a4819bfb0df2f59a4c538fce39bc1d0dc9
+  VERSION: 2026.7.2
+  TAG_NAME: platformclaw-vm-preview-20260920
+  RELEASE_TITLE: PlatformClaw VM Preview 2026-09-20
+  PIP_CONFIG_SHA256: 5317d79a34afd58e8d529fb5c80161f41de8a4fa50ee09b13c76b757adbc806f
+
+jobs:
+  build-and-release:
+    name: Build and publish VM preview
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact clean source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: "false"
+          install-deps: "false"
+
+      - name: Restore verified pip configuration
+        shell: bash
+        env:
+          PLATFORMCLAW_RELEASE_PIP_CONF_B64: ${{ secrets.PLATFORMCLAW_RELEASE_PIP_CONF_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$PLATFORMCLAW_RELEASE_PIP_CONF_B64"
+          umask 077
+          mkdir -p .artifacts/release-inputs
+          printf '%s' "$PLATFORMCLAW_RELEASE_PIP_CONF_B64" \
+            | base64 --decode >.artifacts/release-inputs/pip.conf
+          printf '%s  %s\n' \
+            "$PIP_CONFIG_SHA256" \
+            .artifacts/release-inputs/pip.conf \
+            | sha256sum -c -
+
+      - name: Build and smoke-test release images
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/platformclaw-build.mjs \
+            --version "$VERSION" \
+            --output-dir .artifacts/platformclaw-release \
+            --pip-config .artifacts/release-inputs/pip.conf
+
+      - name: Package and validate release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          short_sha="${TARGET_SHA:0:12}"
+          output_dir=.artifacts/platformclaw-release
+          stage_dir=.artifacts/deployment-stage
+          notes_file=.artifacts/release-notes.md
+          image_name="platformclaw-${VERSION}-${short_sha}.tar"
+          deployment_name="platformclaw-deployment-${VERSION}-${short_sha}.tar.gz"
+          image_path="${output_dir}/${image_name}"
+          deployment_path="${output_dir}/${deployment_name}"
+          manifest_path="${output_dir}/release-manifest.json"
+
+          test -f "$image_path"
+          test -f "${image_path}.sha256"
+          rm -rf "$stage_dir"
+          mkdir -p "$stage_dir"
+
+          install -m 0755 docker/platformclaw-runtime/bootstrap-skillhub.mjs \
+            "$stage_dir/bootstrap-skillhub.mjs"
+          install -m 0644 docker/platformclaw-runtime/compose.jira-voc.yaml \
+            "$stage_dir/compose.jira-voc.yaml"
+          install -m 0644 docker/platformclaw-runtime/compose.yaml \
+            "$stage_dir/compose.yaml"
+          install -m 0644 docker/platformclaw-runtime/deployment.env.example \
+            "$stage_dir/deployment.env.example"
+          install -m 0755 docker/platformclaw-runtime/init-state \
+            "$stage_dir/init-state"
+          install -m 0755 docker/platformclaw-runtime/migrate-workspace-owner \
+            "$stage_dir/migrate-workspace-owner"
+          install -m 0755 docker/platformclaw-runtime/migrate-workspaces \
+            "$stage_dir/migrate-workspaces"
+          install -m 0644 docker/platformclaw-runtime/OPERATIONS.ko.md \
+            "$stage_dir/platformclaw-company-install-ko.md"
+          install -m 0755 docker/platformclaw-runtime/platformclaw-compose \
+            "$stage_dir/platformclaw-compose"
+          install -m 0755 docker/platformclaw-runtime/platformclaw-deploy \
+            "$stage_dir/platformclaw-deploy"
+          install -m 0644 docker/platformclaw-runtime/SKILLHUB-LICENSE.txt \
+            "$stage_dir/SKILLHUB-LICENSE.txt"
+          install -m 0644 docker/platformclaw-runtime/SKILLHUB-NOTICE.md \
+            "$stage_dir/SKILLHUB-NOTICE.md"
+
+          source_date_epoch="$(git show -s --format=%ct "$TARGET_SHA")"
+          tar \
+            --sort=name \
+            --mtime="@${source_date_epoch}" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            -czf "$deployment_path" \
+            -C "$stage_dir" \
+            .
+
+          deployment_sha="$(sha256sum "$deployment_path" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$deployment_sha" "$deployment_name" \
+            >"${deployment_path}.sha256"
+
+          cat >"$notes_file" <<'EOF'
+          # PlatformClaw VM Preview (2026-09-20)
+
+          회사 환경 반입 전 검증용 prerelease입니다. 대상 commit은 `2a2db0a4819bfb0df2f59a4c538fce39bc1d0dc9`입니다.
+
+          ## 포함 내용
+
+          - 왼쪽 사이드바의 VOC 바로 위에 타자와 투수 무대를 복원하고, 투구부터 타격·외야 수비·펜스까지 하나의 연속된 화면 투영으로 정리했습니다.
+          - 공 궤적의 이동과 크기 변환을 하나의 transform으로 합쳐 비정상적인 대각선 점프를 제거하고, 늦은 타격의 비거리와 외야수 포구 동작을 보정했습니다.
+          - 2026-09-19 VM Preview 이후 PR #238의 최신 `main` 변경과 브라우저 E2E·시뮬레이션·스타트업 예산 검증을 포함합니다.
+
+          ## 배포 자산
+
+          - `platformclaw-2026.7.2-2a2db0a4819b.tar` 및 SHA-256 checksum
+          - `platformclaw-deployment-2026.7.2-2a2db0a4819b.tar.gz` 및 SHA-256 checksum
+          - `release-manifest.json`
+
+          ## 검증
+
+          - 정확한 대상 commit을 체크아웃한 GitHub Actions Ubuntu 22.04 runner에서 공식 `scripts/platformclaw-build.mjs` 빌드를 완료했습니다.
+          - Jammy main/sandbox 이미지 smoke, 비정적 UID 1003 NSS identity, 번들 플러그인 로드, sandbox Python 패키지 및 `/etc/pip.conf` 검증을 통과했습니다.
+          - PR #238의 exact-head GitHub CI, PlatformClaw CI, PlatformClaw Docker Smoke 및 UI E2E가 통과했습니다.
+
+          ## 설치와 업데이트
+
+          - 배포 번들을 먼저 교체한 뒤, 같은 SHA의 이미지 archive로 `./platformclaw-deploy image update <archive> platformclaw:2a2db0a4819b platformclaw-sandbox:2a2db0a4819b`를 실행합니다.
+          - 기존 데이터와 secrets는 유지합니다. 업데이트 실패 시 배포 도구가 이전 이미지와 Gateway 상태를 복원합니다.
+
+          ## 주의
+
+          - 기존 배포의 `deployment.env`, secrets, 인증서, 데이터 디렉터리는 archive로 덮어쓰지 마십시오.
+          - 이전 이미지로 돌아가려면 배포 호스트에서 `./platformclaw-deploy image rollback`을 사용하십시오.
+          EOF
+          sed -i 's/^          //' "$notes_file"
+
+          export RELEASE_OUTPUT_DIR="$output_dir"
+          export RELEASE_IMAGE_NAME="$image_name"
+          export RELEASE_DEPLOYMENT_NAME="$deployment_name"
+          export RELEASE_MANIFEST_PATH="$manifest_path"
+          python3 <<'PY'
+          import hashlib
+          import json
+          import os
+          import tarfile
+          from pathlib import Path
+
+          output_dir = Path(os.environ["RELEASE_OUTPUT_DIR"])
+          image_name = os.environ["RELEASE_IMAGE_NAME"]
+          deployment_name = os.environ["RELEASE_DEPLOYMENT_NAME"]
+          manifest_path = Path(os.environ["RELEASE_MANIFEST_PATH"])
+          full_sha = os.environ["TARGET_SHA"]
+          short_sha = full_sha[:12]
+
+          image_path = output_dir / image_name
+          image_checksum_path = output_dir / f"{image_name}.sha256"
+          deployment_path = output_dir / deployment_name
+          deployment_checksum_path = output_dir / f"{deployment_name}.sha256"
+
+          def sha256(path: Path) -> str:
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          image_digest = sha256(image_path)
+          checksum_tokens = image_checksum_path.read_text(encoding="utf-8").strip().split()
+          if not checksum_tokens or checksum_tokens[0].lower() != image_digest:
+              raise SystemExit("Image checksum file does not match the exported archive")
+          if image_path.stat().st_size >= 2_147_483_648:
+              raise SystemExit(
+                  f"Image archive exceeds GitHub's 2 GiB asset limit: {image_path.stat().st_size}"
+              )
+
+          with tarfile.open(image_path, mode="r:") as archive:
+              manifest_file = archive.extractfile("manifest.json")
+              if manifest_file is None:
+                  raise SystemExit("Docker archive manifest.json is missing")
+              docker_manifest = json.load(manifest_file)
+
+          actual_tags = {
+              tag for entry in docker_manifest for tag in entry.get("RepoTags", [])
+          }
+          expected_tags = {
+              f"platformclaw:{short_sha}",
+              f"platformclaw-sandbox:{short_sha}",
+              "platformclaw-skillhub-server:6e133c006e49",
+              "platformclaw-skillhub-scanner:6e133c006e49",
+              "platformclaw-skillhub-postgres:44c4ee9810ef",
+              "platformclaw-skillhub-redis:e7723ff73d96",
+          }
+          if actual_tags != expected_tags:
+              raise SystemExit(f"Docker archive tag mismatch: {sorted(actual_tags)}")
+
+          deployment_digest = sha256(deployment_path)
+          deployment_tokens = deployment_checksum_path.read_text(
+              encoding="utf-8"
+          ).strip().split()
+          if not deployment_tokens or deployment_tokens[0].lower() != deployment_digest:
+              raise SystemExit("Deployment checksum file does not match the bundle")
+
+          assets = []
+          for path in (
+              image_path,
+              image_checksum_path,
+              deployment_path,
+              deployment_checksum_path,
+          ):
+              assets.append(
+                  {
+                      "name": path.name,
+                      "size": path.stat().st_size,
+                      "sha256": sha256(path),
+                  }
+              )
+
+          manifest = {
+              "schema": 1,
+              "kind": "vm-preview",
+              "tagName": os.environ["TAG_NAME"],
+              "title": os.environ["RELEASE_TITLE"],
+              "targetCommit": full_sha,
+              "version": os.environ["VERSION"],
+              "prerelease": True,
+              "notesFile": "release-notes.md",
+              "manifestFile": "release-manifest.json",
+              "assets": assets,
+          }
+          manifest_path.write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({"dockerTags": sorted(actual_tags), "assets": assets}))
+          PY
+
+          tar -tzf "$deployment_path"
+          cat "$manifest_path"
+
+      - name: Preserve validated assets as workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: platformclaw-vm-preview-20260920
+          path: |
+            .artifacts/platformclaw-release/platformclaw-2026.7.2-2a2db0a4819b.tar
+            .artifacts/platformclaw-release/platformclaw-2026.7.2-2a2db0a4819b.tar.sha256
+            .artifacts/platformclaw-release/platformclaw-deployment-2026.7.2-2a2db0a4819b.tar.gz
+            .artifacts/platformclaw-release/platformclaw-deployment-2026.7.2-2a2db0a4819b.tar.gz.sha256
+            .artifacts/platformclaw-release/release-manifest.json
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Create draft release and upload validated assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          short_sha="${TARGET_SHA:0:12}"
+          output_dir=.artifacts/platformclaw-release
+          notes_file=.artifacts/release-notes.md
+          image_name="platformclaw-${VERSION}-${short_sha}.tar"
+          deployment_name="platformclaw-deployment-${VERSION}-${short_sha}.tar.gz"
+
+          if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            release_state="$(
+              gh release view "$TAG_NAME" \
+                --repo "$GITHUB_REPOSITORY" \
+                --json isDraft,targetCommitish \
+                --jq '[.isDraft, .targetCommitish] | @tsv'
+            )"
+            test "$release_state" = $'true\t'"$TARGET_SHA"
+          else
+            gh release create "$TAG_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_SHA" \
+              --title "$RELEASE_TITLE" \
+              --notes-file "$notes_file" \
+              --prerelease \
+              --draft
+          fi
+
+          gh release upload "$TAG_NAME" \
+            "$output_dir/$image_name" \
+            "$output_dir/$image_name.sha256" \
+            "$output_dir/$deployment_name" \
+            "$output_dir/$deployment_name.sha256" \
+            "$output_dir/release-manifest.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+          export RELEASE_REMOTE_JSON=.artifacts/release-remote.json
+          gh release view "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets,isDraft,isPrerelease,tagName,targetCommitish,url \
+            >"$RELEASE_REMOTE_JSON"
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          release = json.loads(Path(os.environ["RELEASE_REMOTE_JSON"]).read_text())
+          full_sha = os.environ["TARGET_SHA"]
+          short_sha = full_sha[:12]
+          version = os.environ["VERSION"]
+          expected_names = {
+              f"platformclaw-{version}-{short_sha}.tar",
+              f"platformclaw-{version}-{short_sha}.tar.sha256",
+              f"platformclaw-deployment-{version}-{short_sha}.tar.gz",
+              f"platformclaw-deployment-{version}-{short_sha}.tar.gz.sha256",
+              "release-manifest.json",
+          }
+          actual_names = {asset["name"] for asset in release["assets"]}
+          if actual_names != expected_names:
+              raise SystemExit(f"Remote release asset mismatch: {sorted(actual_names)}")
+          if not release["isDraft"] or not release["isPrerelease"]:
+              raise SystemExit("Remote release is not a draft prerelease")
+          if release["targetCommitish"] != full_sha:
+              raise SystemExit(
+                  f"Remote release target mismatch: {release['targetCommitish']}"
+              )
+          print(json.dumps(release))
+          PY
+
+          gh release edit "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false \
+            --prerelease=true
+
+          gh release view "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets,isDraft,isPrerelease,tagName,targetCommitish,url
+
+      - name: Remove decoded pip configuration
+        if: always()
+        shell: bash
+        run: rm -f .artifacts/release-inputs/pip.conf
