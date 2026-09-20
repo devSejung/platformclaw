@@ -12,7 +12,7 @@ import {
   type ConfirmDialogOptions,
 } from "../../../components/confirm-dialog.ts";
 import type { MemoryItemActions } from "../../../components/memory-item-actions.ts";
-import { renderSettingsDefaultState, renderSettingsRow } from "../../../components/settings-ui.ts";
+import { renderSettingsDefaultState } from "../../../components/settings-ui.ts";
 import { t } from "../../../i18n/index.ts";
 import { currentConfigObject } from "../../../lib/config/index.ts";
 import { isGatewayMethodAdvertised } from "../../../lib/gateway-methods.ts";
@@ -39,8 +39,9 @@ import {
 } from "./dreaming.ts";
 import {
   createMemoryPanelGatewayState,
+  dreamingStatusViewProps,
   preventDirtyWikiUnload,
-  resolveDreamingNextCycle,
+  renderMemoryPanelSummary,
   type DreamingTaskScope,
 } from "./memory-panel-helpers.ts";
 import { renderDreamingToggleConfirmation } from "./toggle-confirmation.ts";
@@ -48,7 +49,7 @@ import {
   createDreamingViewState,
   renderDreaming,
   renderWikiKnowledge,
-  resetWikiPreview,
+  resetWikiLocalState,
   wikiDocumentT,
   type DreamingViewState,
   type WikiGraphRenderer,
@@ -166,7 +167,7 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   }
 
   private resetTransientState() {
-    resetWikiPreview(this.viewState);
+    resetWikiLocalState(this.viewState);
     this.toggleConfirmOpen = false;
     this.toggleConfirmLoading = false;
     this.pendingEnabled = null;
@@ -217,7 +218,11 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   }
 
   private syncConfigSnapshot() {
+    const wikiAvailable = isMemoryWikiAvailable(this.dreaming);
     this.dreaming.configSnapshot = this.context.runtimeConfig.state.configSnapshot;
+    if (wikiAvailable !== isMemoryWikiAvailable(this.dreaming)) {
+      resetWikiLocalState(this.viewState);
+    }
   }
 
   private async runDreamingTask<T>(
@@ -539,46 +544,13 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
     const selectedAgentId = dreaming.selectedAgentId ?? this.agentId;
 
     if (this.summaryOnly) {
-      const statusTitle = configuredDreaming.engineOff
-        ? t("memoryPage.overview.hero.hibernating")
-        : dreaming.dreamingStatusError
-          ? t("memoryPage.overview.hero.needsAttention")
-          : dreaming.dreamingStatusLoading
-            ? t("memoryPage.overview.hero.waking")
-            : t("memoryPage.overview.hero.awake");
-      const statusDescription = configuredDreaming.engineOff
-        ? t("memoryPage.overview.hero.offDescription")
-        : (dreaming.dreamingStatusError ??
-          (dreaming.dreamingStatusLoading
-            ? t("memoryPage.overview.hero.loadingDescription")
-            : t(dreamingOn ? "dreaming.status.active" : "dreaming.status.idle")));
-      return html`<section class="settings-group agent-memory-panel__summary">
-        ${renderSettingsRow({
-          title: statusTitle,
-          description: statusDescription,
-          control: html`<button
-            class="btn btn--sm"
-            ?disabled=${refreshLoading}
-            @click=${() => void this.loadAll(true)}
-          >
-            ${refreshLoading
-              ? t("dreaming.header.refreshing")
-              : t("memoryPage.overview.hero.refresh")}
-          </button>`,
-        })}
-        ${renderSettingsRow({
-          title: t("memoryPage.overview.activity.shortTermCount"),
-          control: html`<span class="settings-row__value"
-            >${dreamingStatus?.shortTermCount ?? 0}</span
-          >`,
-        })}
-        ${renderSettingsRow({
-          title: t("memoryPage.overview.activity.promotedToday"),
-          control: html`<span class="settings-row__value"
-            >${dreamingStatus?.promotedToday ?? 0}</span
-          >`,
-        })}
-      </section>`;
+      return renderMemoryPanelSummary({
+        dreaming,
+        dreamingStatus,
+        dreamingOn,
+        refreshLoading,
+        onRefresh: () => void this.loadAll(true),
+      });
     }
 
     return html`
@@ -644,17 +616,12 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
           canEditWiki: isGatewayMethodAdvertised(dreaming, "wiki.document.save") === true,
         },
         viewState: this.viewState,
-        active: dreamingOn,
-        selectedAgentId,
-        shortTermCount: dreamingStatus?.shortTermCount ?? 0,
-        promotedCount: dreamingStatus?.promotedToday ?? 0,
-        phases: dreamingStatus?.phases ?? undefined,
-        shortTermEntries: dreamingStatus?.shortTermEntries ?? [],
-        promotedEntries: dreamingStatus?.promotedEntries ?? [],
-        dreamingOf: null,
-        nextCycle: resolveDreamingNextCycle(dreamingStatus),
-        timezone: dreamingStatus?.timezone ?? null,
-        statusError: dreaming.dreamingStatusError,
+        ...dreamingStatusViewProps({
+          dreaming,
+          status: dreamingStatus,
+          active: dreamingOn,
+          selectedAgentId,
+        }),
         modeSaving: dreaming.dreamingModeSaving,
         dreamDiaryLoading: dreaming.dreamDiaryLoading,
         dreamDiaryActionLoading: dreaming.dreamDiaryActionLoading,
@@ -662,6 +629,7 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
         dreamDiaryActionArchivePath: dreaming.dreamDiaryActionArchivePath,
         dreamDiaryError: dreaming.dreamDiaryError,
         dreamDiaryContent: dreaming.dreamDiaryContent,
+        dreamDiaryUpdatedAtMs: dreaming.dreamDiaryUpdatedAtMs,
         memoryWikiEnabled: isMemoryWikiAvailable(dreaming),
         wikiImportInsightsLoading: dreaming.wikiImportInsightsLoading,
         wikiImportInsightsError: dreaming.wikiImportInsightsError,

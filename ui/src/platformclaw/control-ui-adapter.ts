@@ -255,7 +255,7 @@ export class PlatformClawControlUiAdapter {
                     data.initialTab === "organization" ||
                     data.initialTab === "dreaming")
                     ? data.initialTab
-                    : "overview";
+                    : "memory";
                 return html`
                   <section class="content-header">
                     <div>

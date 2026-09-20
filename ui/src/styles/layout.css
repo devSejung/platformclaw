@@ -3875,14 +3875,14 @@ wa-dropdown.sidebar-identity-menu::part(menu) {
    Settings, mobile drawers, and native hosts own different chrome. */
 html:not(.openclaw-native-macos):not(.openclaw-native-nav):not(.openclaw-native-web-chrome)
   .shell:not(.shell--nav-collapsed):not(.shell--mobile-nav):not(.shell--settings)
-  .content:not(.content--chat)
+  .content:not(.content--chat):not(:has(.platformclaw-memory-page))
   .content-header {
   padding-left: 88px;
 }
 
 html:not(.openclaw-native-macos):not(.openclaw-native-nav):not(.openclaw-native-web-chrome)
   .shell--nav-collapsed:not(.shell--mobile-nav):not(.shell--settings)
-  .content:not(.content--chat)
+  .content:not(.content--chat):not(:has(.platformclaw-memory-page))
   .content-header {
   padding-left: 124px;
 }

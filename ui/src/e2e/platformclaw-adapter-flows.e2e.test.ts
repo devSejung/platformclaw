@@ -309,12 +309,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       await page.keyboard.press("Escape");
       await expect.poll(() => helpHeading.count()).toBe(0);
     };
-    await expect.poll(() => memoryTabs.getByRole("tab").count()).toBe(5);
-    await expectMemoryHelp("Memory: five views for retained knowledge");
-    await memoryTabs.getByRole("tab", { name: "Memory", exact: true }).click();
-    await expect
-      .poll(() => new URL(page.url()).pathname)
-      .toBe("/platformclaw/app/settings/memory/memories");
+    await expect.poll(() => memoryTabs.getByRole("tab").count()).toBe(4);
     await expect
       .poll(() => memoryPanel.getAttribute("aria-labelledby"))
       .toBe("platformclaw-memory-tab-memory");
@@ -345,7 +340,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expectMemoryHelp("Personal Wiki: review reusable source pages");
     const wiki = page.locator(".memory-wiki-page");
     await expect.poll(() => wiki.textContent()).toContain("Person One knowledge");
-    await wiki.getByRole("button", { name: "Open wiki page" }).click();
+    await wiki.getByRole("button", { name: "Person One knowledge", exact: true }).click();
     await expect
       .poll(() => page.locator(".dreams-diary__preview-body .wiki-document__reader").textContent())
       .toContain("Employee browser access stays agent scoped.");
@@ -356,9 +351,11 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       .poll(() => new URL(page.url()).pathname)
       .toBe("/platformclaw/app/settings/memory/organization");
     await expectMemoryHelp("Organization: promote personal knowledge to your Part");
-    await memoryTabs.getByRole("tab", { name: "Overview", exact: true }).click();
-    await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/settings/memory");
-    await expectMemoryHelp("Memory: five views for retained knowledge");
+    await memoryTabs.getByRole("tab", { name: "Memory", exact: true }).click();
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe("/platformclaw/app/settings/memory/memories");
+    await expectMemoryHelp("Memory: search personal recall");
 
     expect(await gateway.getRequests("config.get")).toHaveLength(0);
     expect(await page.getByText("foreign-agent", { exact: false }).count()).toBe(0);

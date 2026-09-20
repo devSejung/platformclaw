@@ -10,7 +10,6 @@ import {
 } from "../app-route-paths.ts";
 import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { renderHubTabs } from "../components/hub-tabs.ts";
-import { renderSettingsRow, renderSettingsSection } from "../components/settings-ui.ts";
 import { isGatewayMethodAdvertised } from "../lib/gateway-methods.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
@@ -24,7 +23,7 @@ import "./memory-item-menu.ts";
 import "./memory-delete-dialog.ts";
 import type { MemoryMenuAction } from "./memory-item-menu.ts";
 
-type PersonalMemoryTab = "overview" | "memory" | "wiki" | "organization" | "dreaming";
+type PersonalMemoryTab = "memory" | "wiki" | "organization" | "dreaming";
 
 const PANEL_ID = "platformclaw-memory-panel";
 
@@ -33,7 +32,7 @@ export function platformClawMemoryTabFromLocation(
   basePath = "",
 ): PersonalMemoryTab {
   // Dynamic hub routes travel through the exact-match Memory route. Recover the
-  // original path so deep links do not silently fall back to Overview.
+  // original path so deep links do not silently fall back to the root Memory view.
   const routedPath =
     new URLSearchParams(location.search).get(INTERNAL_MEMORY_PATH_PARAM) ?? location.pathname;
   const routeTab = memoryTabFromPath(routedPath, basePath) ?? memoryTabFromPath(routedPath);
@@ -43,7 +42,7 @@ export function platformClawMemoryTabFromLocation(
       ? routeTab
       : routeTab === "dreams"
         ? "dreaming"
-        : "overview";
+        : "memory";
 }
 
 class PlatformClawMemoryPage extends OpenClawLightDomElement {
@@ -51,8 +50,8 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
   private context!: ApplicationContext;
 
   @property() agentId: string | null = null;
-  @property() initialTab: PersonalMemoryTab = "overview";
-  @state() private activeTab: PersonalMemoryTab = "overview";
+  @property() initialTab: PersonalMemoryTab = "memory";
+  @state() private activeTab: PersonalMemoryTab = "memory";
   @state() private menu: {
     lookup: string;
     kind: "memory" | "wiki";
@@ -260,56 +259,6 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     `;
   }
 
-  private renderOverview() {
-    return html`
-      <div class="settings-page platformclaw-memory-overview">
-        ${renderSettingsSection(
-          {
-            title: t("platformClaw.memory.overview.title"),
-            description: t("platformClaw.memory.overview.description"),
-          },
-          html`
-            ${renderSettingsRow({
-              title: "MEMORY.md",
-              description: t("platformClaw.memory.overview.memoryDescription"),
-              control: html`<button class="btn btn--sm" @click=${() => this.selectTab("memory")}>
-                ${t("platformClaw.memory.overview.openMemory")}
-              </button>`,
-            })}
-            ${renderSettingsRow({
-              title: "Personal Wiki",
-              description: t("platformClaw.memory.overview.wikiDescription"),
-              control: html`<button class="btn btn--sm" @click=${() => this.selectTab("wiki")}>
-                ${t("platformClaw.memory.overview.openWiki")}
-              </button>`,
-            })}
-            ${renderSettingsRow({
-              title: t("platformClaw.memory.tabs.organization"),
-              description: t("platformClaw.memory.overview.organizationDescription"),
-              control: html`<button
-                class="btn btn--sm"
-                @click=${() => this.selectTab("organization")}
-              >
-                ${t("platformClaw.memory.overview.openOrganization")}
-              </button>`,
-            })}
-            ${renderSettingsRow({
-              title: "Dreaming",
-              description: t("platformClaw.memory.overview.dreamingDescription"),
-              control: html`<button class="btn btn--sm" @click=${() => this.selectTab("dreaming")}>
-                ${t("platformClaw.memory.overview.openDreaming")}
-              </button>`,
-            })}
-          `,
-        )}
-        <openclaw-agent-memory-panel
-          .agentId=${this.agentId ?? ""}
-          .summaryOnly=${true}
-        ></openclaw-agent-memory-panel>
-      </div>
-    `;
-  }
-
   private renderPanel() {
     const gateway = this.context.gateway.snapshot;
     switch (this.activeTab) {
@@ -400,9 +349,8 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           .agentId=${this.agentId ?? ""}
           surface="dreaming"
         ></openclaw-agent-memory-panel>`;
-      default:
-        return this.renderOverview();
     }
+    return nothing;
   }
 
   override render() {
@@ -415,14 +363,13 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
       </main>`;
     }
     return html`
-      <main class="settings-page platformclaw-memory-page">
+      <main class="settings-page settings-page--wide platformclaw-memory-page">
         ${this.actionMessage ? html`<p role="status">${this.actionMessage}</p>` : nothing}
         <nav class="platformclaw-memory-page__tabs">
           ${renderHubTabs<PersonalMemoryTab>({
             id: "platformclaw-memory",
             active: this.activeTab,
             tabs: [
-              { value: "overview", label: t("platformClaw.memory.tabs.overview") },
               { value: "memory", label: "Memory" },
               { value: "wiki", label: "Personal Wiki" },
               { value: "organization", label: t("platformClaw.memory.tabs.organization") },

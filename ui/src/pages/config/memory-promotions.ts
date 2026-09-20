@@ -15,19 +15,20 @@ import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "../../platformclaw/i18n.ts";
 import { renderOrganizationMemoryDocumentPreview } from "../../platformclaw/organization-memory-document-preview.ts";
+import { renderPromotionClaimsBrowser } from "./memory-promotion-claims-view.ts";
+import "../../styles/sidebar-markdown.css";
+import "../../styles/memory-promotions.css";
+import "./memory-promotion-source-picker.ts";
 import {
   retirePromotionClaim,
   renderPromotionDecisionDialog,
   renderPromotionReferencesConfirmation,
   renderPromotionRequest,
-  promotionStatusLabel,
   promotionSourceClaims,
   promotionTargetScopes,
   type PromotionReferencesPreview,
   type PromotionReferenceConfirmation,
 } from "./memory-promotion-review.ts";
-import "../../styles/sidebar-markdown.css";
-import "./memory-promotion-source-picker.ts";
 import type { PersonalWikiSourceSelected } from "./memory-promotion-source-picker.ts";
 
 class MemoryPromotionsElement extends OpenClawLightDomElement {
@@ -56,6 +57,8 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
   @state() private evidence = "";
   @state() private reason = "";
   @state() private success: string | null = null;
+  @state() private claimQuery = "";
+  @state() private claimScope = "";
   @state() private referencesPreview: PromotionReferenceConfirmation | null = null;
   @state() private pendingDecision: {
     request: OrganizationMemoryPromotionRequest;
@@ -447,6 +450,21 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
       ${renderOrganizationMemoryDocumentPreview(this, this.referencePath, () => {
         this.referencePath = null;
       })}
+      ${!this.formOnly
+        ? renderPromotionClaimsBrowser({
+            snapshot: this.snapshot,
+            query: this.claimQuery,
+            scope: this.claimScope,
+            connected: this.connected,
+            getAdvertised: this.getAdvertised,
+            loading: this.loading,
+            onQueryChange: (query) => (this.claimQuery = query),
+            onScopeChange: (scope) => (this.claimScope = scope),
+            onOpen: (path) => (this.referencePath = path),
+            onRetire: (claimId, purge) => void this.retire(claimId, purge),
+            onLoadMore: () => void this.load(this.snapshot?.next),
+          })
+        : nothing}
       <section class="settings-section">
         <header class="settings-section__header">
           <div>
@@ -655,55 +673,6 @@ class MemoryPromotionsElement extends OpenClawLightDomElement {
                       ${t("memoryPage.promotions.noRequests")}
                     </p>`}
               </div>
-            </section>
-            <section class="settings-section">
-              <header class="settings-section__header">
-                <h3 class="settings-section__heading">${t("memoryPage.promotions.claims")}</h3>
-              </header>
-              <div class="settings-group">
-                ${(this.snapshot?.claims ?? []).length > 0
-                  ? this.snapshot!.claims.map(
-                      (claim) => html`<div class="settings-row">
-                        <span class="settings-row__text">
-                          <span class="settings-row__title">${claim.title}</span>
-                          <span class="settings-row__desc"
-                            >${claim.scopeName} · ${promotionStatusLabel(claim.status)}</span
-                          >
-                        </span>
-                        <span class="settings-row__control">
-                          ${claim.status === "active" && claim.canRetire
-                            ? html`<button
-                                class="btn btn--sm"
-                                ?disabled=${this.loading}
-                                @click=${() => void this.retire(claim.id, false)}
-                              >
-                                ${t("memoryPage.promotions.retire")}
-                              </button>`
-                            : claim.status === "retired" && claim.canPurge
-                              ? html`<button
-                                  class="btn btn--sm danger"
-                                  ?disabled=${this.loading}
-                                  @click=${() => void this.retire(claim.id, true)}
-                                >
-                                  ${t("memoryPage.promotions.purge")}
-                                </button>`
-                              : nothing}
-                        </span>
-                      </div>`,
-                    )
-                  : html`<p class="memory-promotions__empty">
-                      ${t("memoryPage.promotions.noClaims")}
-                    </p>`}
-              </div>
-              ${this.snapshot?.next
-                ? html`<button
-                    class="btn btn--sm"
-                    ?disabled=${this.loading}
-                    @click=${() => void this.load(this.snapshot?.next)}
-                  >
-                    ${t("memoryPage.promotions.loadMore")}
-                  </button>`
-                : nothing}
             </section>
             ${this.renderDecisionDialog()}`}
     </div>`;

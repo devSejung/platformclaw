@@ -41,7 +41,6 @@ export const memoryWikiTranslations: Readonly<Record<string, string>> = {
     "이 Wiki 페이지를 사용할 수 없습니다. 다른 원본을 선택하세요.",
   "platformClaw.memory.unassigned": "이 계정에 할당된 개인 Agent가 없습니다.",
   "platformClaw.memory.tabs.label": "Memory 및 지식 영역",
-  "platformClaw.memory.tabs.overview": "개요",
   "platformClaw.memory.tabs.organization": "조직 지식",
   "platformClaw.memory.organization.views": "조직 지식 보기",
   "platformClaw.memory.organization.sharing": "공유 및 검토",

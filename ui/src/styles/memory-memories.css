@@ -6,6 +6,31 @@
 
 .memory-memories__search .settings-input {
   flex: 1;
+  min-width: 0;
+}
+
+.memory-memories__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.memory-memories__detail .wiki-document__reader {
+  max-width: 80ch;
+}
+
+/* Browse rows have only a chevron, not a form control that needs to stack. */
+.memory-memories__result--browse > .settings-row {
+  flex-direction: row;
+  flex-wrap: nowrap;
+}
+
+.memory-memories__result--browse > .settings-row > .settings-row__control {
+  flex: 0 0 auto;
+  width: auto;
+  align-self: center;
 }
 
 .memory-memories__state {

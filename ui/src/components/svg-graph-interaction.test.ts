@@ -1,9 +1,11 @@
 /* @vitest-environment jsdom */
 
 import { render } from "lit";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   endSvgGraphPointer,
+  fitSvgGraphView,
+  focusSvgGraphNode,
   getSvgGraphInteraction,
   handleSvgGraphWheel,
   moveSvgGraphPointer,
@@ -37,6 +39,62 @@ function wheel(currentTarget: EventTarget, deltaY: number) {
 }
 
 describe("SVG graph interaction", () => {
+  it("moves nodes and the view in SVG coordinates at a responsive display scale", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const node = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    svg.append(node);
+    Object.assign(svg, { getScreenCTM: () => ({ inverse: () => ({ a: 2, d: 2 }) }) });
+    vi.stubGlobal(
+      "DOMPoint",
+      class {
+        constructor(
+          readonly x: number,
+          readonly y: number,
+        ) {}
+        matrixTransform(matrix: { a: number; d: number }) {
+          return { x: this.x * matrix.a, y: this.y * matrix.d };
+        }
+      },
+    );
+    try {
+      const interaction = getSvgGraphInteraction({}, new Map([["one", { x: 20, y: 30 }]]));
+      interaction.scale = 2;
+      startSvgGraphPointer(pointer(node, { clientX: 10, clientY: 10 }), interaction, "one");
+      moveSvgGraphPointer(pointer(svg, { clientX: 40, clientY: 30 }), interaction);
+      expect(interaction.positions.get("one")).toEqual({ x: 50, y: 50 });
+      endSvgGraphPointer(pointer(svg, {}), interaction);
+      startSvgGraphPointer(pointer(svg, { clientX: 10, clientY: 10 }), interaction, null);
+      moveSvgGraphPointer(pointer(svg, { clientX: 40, clientY: 30 }), interaction);
+      expect({ x: interaction.x, y: interaction.y }).toEqual({ x: 60, y: 40 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("fits visible bounds without losing dragged positions and focuses a document", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const viewport = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    viewport.dataset.svgGraphViewport = "";
+    Object.assign(viewport, { getBBox: () => ({ x: -100, y: -100, width: 4000, height: 2000 }) });
+    Object.defineProperty(svg, "viewBox", {
+      value: { baseVal: { x: 0, y: 0, width: 960, height: 600 } },
+    });
+    Object.assign(svg, { getScreenCTM: () => null });
+    svg.append(viewport);
+    const interaction = getSvgGraphInteraction({}, new Map([["one", { x: 20, y: 30 }]]));
+    interaction.positions.set("one", { x: 1600, y: 850 });
+    fitSvgGraphView(svg, interaction);
+    expect(interaction.scale).toBeCloseTo(896 / 4000);
+    expect(interaction.positions.get("one")).toEqual({ x: 1600, y: 850 });
+    expect(interaction.x + 1900 * interaction.scale).toBeCloseTo(480);
+    const fittedScale = interaction.scale;
+    handleSvgGraphWheel(wheel(svg, -1), interaction);
+    expect(interaction.scale).toBeCloseTo(fittedScale * 1.15);
+    focusSvgGraphNode(svg, interaction, "one");
+    expect(interaction.x + 1600 * interaction.scale).toBeCloseTo(480);
+    expect(interaction.y + 850 * interaction.scale).toBeCloseTo(300);
+  });
+
   it("preserves parallel edge lanes when dragging while zero-offset edges stay centered", () => {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     const node = document.createElementNS("http://www.w3.org/2000/svg", "g");

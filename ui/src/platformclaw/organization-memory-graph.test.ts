@@ -104,9 +104,13 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
         scopeId: "p1",
       }),
     );
-    expect(element.querySelectorAll("select option")).toHaveLength(2);
+    expect(
+      element.querySelectorAll(".organization-memory-graph__scope select option"),
+    ).toHaveLength(2);
     expect(element.textContent).not.toContain("Management only");
-    const select = element.querySelector<HTMLSelectElement>("select")!;
+    const select = element.querySelector<HTMLSelectElement>(
+      ".organization-memory-graph__scope select",
+    )!;
     select.value = "p2";
     select.dispatchEvent(new Event("change"));
     await waitForFast(() =>
@@ -126,7 +130,10 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
         expect(request).toHaveBeenCalledWith("platformclaw.memory.graph", { kind, scopeId }),
       );
       await waitForFast(() =>
-        expect(element.querySelector<HTMLSelectElement>("select")!.value).toBe(scopeId),
+        expect(
+          element.querySelector<HTMLSelectElement>(".organization-memory-graph__scope select")!
+            .value,
+        ).toBe(scopeId),
       );
     }
     element
@@ -135,7 +142,7 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
     await waitForFast(() =>
       expect(request).toHaveBeenCalledWith("platformclaw.memory.graph", { kind: "global" }),
     );
-    expect(element.querySelector("select")).toBeNull();
+    expect(element.querySelector(".organization-memory-graph__scope select")).toBeNull();
     scopes = [];
     element.agentId = "unrelated";
     await waitForFast(() =>
@@ -149,9 +156,14 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
       .querySelector<HTMLButtonElement>("#organization-memory-graph-kind-tab-part")!
       .dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     await waitForFast(() =>
-      expect(element.querySelector<HTMLSelectElement>("select")!.disabled).toBe(true),
+      expect(
+        element.querySelector<HTMLSelectElement>(".organization-memory-graph__scope select")!
+          .disabled,
+      ).toBe(true),
     );
-    expect(element.querySelectorAll("select option")).toHaveLength(0);
+    expect(
+      element.querySelectorAll(".organization-memory-graph__scope select option"),
+    ).toHaveLength(0);
     expect(
       request.mock.calls.some(
         ([method, params]) =>
@@ -205,6 +217,14 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
         .querySelector(".organization-memory-graph__edge-detail")
         ?.textContent?.replace(/\s+/g, " "),
     ).toContain("Referenced knowledge · r2");
+    const referenceFilter = element.querySelector<HTMLInputElement>(
+      '.organization-memory-graph__filters label[data-relation-type="reference"] input',
+    )!;
+    referenceFilter.checked = false;
+    referenceFilter.dispatchEvent(new Event("change", { bubbles: true }));
+    await element.updateComplete;
+    expect(element.querySelector('line[data-edge-type="reference"]')).toBeNull();
+    expect(element.querySelector(".organization-memory-graph__edge-detail")).toBeNull();
   });
   it("distinguishes inferred undirected comparison edges and opens their keyboard details", async () => {
     const base = graph("part");
@@ -286,7 +306,7 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
     );
     expect(request).toHaveBeenCalledTimes(2);
   });
-  it("loads Part and Group separately and opens nodes through the existing organization preview RPC", async () => {
+  it("loads Part and Group separately, selects without reading, then explicitly opens the pinned document", async () => {
     const request = vi.fn(async (method: string, params: unknown) => {
       if (method === "platformclaw.memory.graph") {
         const kind = (params as { kind: "part" | "group" | "team" | "global" }).kind;
@@ -341,6 +361,17 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
       '[data-organization-node="organization/group/claim-1"]',
     )!;
     node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await element.updateComplete;
+    expect(node.getAttribute("aria-pressed")).toBe("true");
+    expect(request.mock.calls.some(([method]) => method === "platformclaw.memory.get")).toBe(false);
+    expect(element.querySelector(".organization-memory-graph__inspector")?.textContent).toContain(
+      "group knowledge",
+    );
+    const open = [...element.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Open document",
+    );
+    expect(open).toBeInstanceOf(HTMLButtonElement);
+    open!.click();
     await waitForFast(() =>
       expect(request).toHaveBeenCalledWith("platformclaw.memory.get", {
         agentId: "personal-agent",
@@ -354,8 +385,141 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
         "Shared guidance",
       ),
     );
-    expect(element.querySelector("[data-memory-verification]")?.textContent).toContain("4");
-    expect(element.querySelector("[data-memory-verification]")?.textContent).toContain("2");
+    const readerVerification = element.querySelector(
+      ".organization-memory-graph__preview [data-memory-verification]",
+    );
+    expect(readerVerification?.textContent).toContain("4");
+    expect(readerVerification?.textContent).toContain("2");
+  });
+
+  it("filters the graph locally, clears hidden selection, and can restrict to connected documents", async () => {
+    const base = graph("part", "Alpha rollout policy");
+    const first = firstNode(base);
+    const filteredGraph = {
+      ...base,
+      nodes: [
+        ...base.nodes,
+        { ...first, id: "beta", path: "organization/part/beta", title: "Beta incident guide" },
+        { ...first, id: "gamma", path: "organization/part/gamma", title: "Gamma release notes" },
+      ],
+      edges: [
+        {
+          source: first.id,
+          target: "beta",
+          type: "reference" as const,
+          sourceRevision: 3,
+          targetRevision: 3,
+          inputStatus: "current" as const,
+        },
+        { source: "beta", target: "gamma", type: "promotion" as const },
+      ],
+      stats: { ...base.stats, totalPages: 3, totalNodes: 3, totalEdges: 2 },
+    };
+    const request = vi.fn(async () => filteredGraph);
+    const element = createGraph(request);
+    await waitForFast(() =>
+      expect(element.querySelectorAll("[data-organization-node]")).toHaveLength(3),
+    );
+
+    element
+      .querySelector<SVGGElement>(`[data-svg-graph-node="${first.id}"]`)!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await element.updateComplete;
+    expect(
+      element.querySelector(`[data-svg-graph-node="${first.id}"]`)?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    const connected = [...element.querySelectorAll<HTMLLabelElement>("label")].find((label) =>
+      label.textContent?.includes("Show only connected documents"),
+    )!;
+    const connectedInput = connected.querySelector("input") as HTMLInputElement;
+    connectedInput.checked = true;
+    connectedInput.dispatchEvent(new Event("change", { bubbles: true }));
+    await element.updateComplete;
+    expect(element.querySelectorAll("[data-organization-node]")).toHaveLength(2);
+    expect(element.querySelector('[data-svg-graph-node="gamma"]')).toBeNull();
+
+    const search = element.querySelector<HTMLInputElement>(
+      ".organization-memory-graph__search input",
+    )!;
+    search.value = "Gamma";
+    search.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await element.updateComplete;
+    expect(element.querySelectorAll("[data-organization-node]")).toHaveLength(1);
+    expect(element.querySelector('[data-svg-graph-node="gamma"]')).not.toBeNull();
+    expect(element.querySelector('[aria-pressed="true"][data-svg-graph-node]')).toBeNull();
+
+    search.value = "no match";
+    search.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await element.updateComplete;
+    expect(element.querySelectorAll("[data-organization-node]")).toHaveLength(0);
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Clear search")!
+      .click();
+    await element.updateComplete;
+    expect(element.querySelectorAll("[data-organization-node]")).toHaveLength(3);
+  });
+
+  it("filters edge types without writes and keeps the document picker aligned with visible nodes", async () => {
+    const base = graph("part");
+    const first = firstNode(base);
+    const edgeGraph = {
+      ...base,
+      nodes: [
+        ...base.nodes,
+        { ...first, id: "second", path: "organization/part/second", title: "Second policy" },
+      ],
+      edges: [
+        {
+          source: first.id,
+          target: "second",
+          type: "reference" as const,
+          sourceRevision: 3,
+          targetRevision: 3,
+          inputStatus: "current" as const,
+        },
+        { source: first.id, target: "second", type: "promotion" as const },
+      ],
+      stats: { ...base.stats, totalPages: 2, totalNodes: 2, totalEdges: 2 },
+    };
+    const request = vi.fn<Parameters<typeof createGraph>[0]>(async () => edgeGraph);
+    const element = createGraph(request);
+    await waitForFast(() =>
+      expect(element.querySelectorAll(".organization-memory-graph__edges line")).toHaveLength(2),
+    );
+    expect(
+      [
+        ...element.querySelectorAll<HTMLOptionElement>(".organization-memory-graph__picker option"),
+      ].map((option) => option.textContent?.trim()),
+    ).toContain("Second policy");
+
+    const reference = element.querySelector<HTMLInputElement>(
+      '.organization-memory-graph__filters label[data-relation-type="reference"] input',
+    )!;
+    reference.checked = false;
+    reference.dispatchEvent(new Event("change", { bubbles: true }));
+    await element.updateComplete;
+    expect(element.querySelector('line[data-edge-type="reference"]')).toBeNull();
+    expect(element.querySelector('line[data-edge-type="promotion"]')).not.toBeNull();
+    expect(request.mock.calls.some(([method]) => method.includes("promotion"))).toBe(false);
+  });
+
+  it("disables document reads when the read capability is unavailable", async () => {
+    const request = vi.fn<Parameters<typeof createGraph>[0]>(async () => graph("part"));
+    const element = createGraph(request);
+    element.getAdvertised = false;
+    await waitForFast(() =>
+      expect(element.querySelector("[data-organization-node]")).not.toBeNull(),
+    );
+    element
+      .querySelector<SVGGElement>("[data-organization-node]")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await element.updateComplete;
+    const open = [...element.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Open document",
+    )!;
+    expect(open.disabled).toBe(true);
+    open.click();
+    expect(request.mock.calls.some(([method]) => method === "platformclaw.memory.get")).toBe(false);
   });
 
   it("zooms and drags nodes without opening the preview", async () => {
@@ -383,10 +547,30 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
     node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(request.mock.calls.some(([method]) => method === "platformclaw.memory.get")).toBe(false);
 
+    const viewport = element.querySelector("[data-svg-graph-viewport]")!;
+    const beforeZoom = Number(viewport.getAttribute("transform")?.match(/scale\(([^)]+)\)/u)?.[1]);
     element.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click();
+    const afterZoom = Number(viewport.getAttribute("transform")?.match(/scale\(([^)]+)\)/u)?.[1]);
+    expect(afterZoom).toBeCloseTo(beforeZoom * 1.2, 8);
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Fit graph")!
+      .click();
     expect(element.querySelector("[data-svg-graph-viewport]")?.getAttribute("transform")).toContain(
-      "scale(1.2)",
+      "scale(",
     );
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await element.updateComplete;
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Focus selection")!
+      .click();
+    expect(element.querySelector("[data-svg-graph-viewport]")?.getAttribute("transform")).toContain(
+      "translate(",
+    );
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Enlarge graph")!
+      .click();
+    await element.updateComplete;
+    expect(element.querySelector(".organization-memory-graph--expanded")).not.toBeNull();
   });
 
   it("renders empty, partial, error, and unavailable states", async () => {
@@ -416,5 +600,20 @@ describe("PlatformClawOrganizationMemoryGraph", () => {
     element.methodAdvertised = false;
     await element.updateComplete;
     expect(element.textContent).toContain("requires a newer PlatformClaw Gateway");
+  });
+
+  it("renders the offline state without requesting inventory or graph data", async () => {
+    const request = vi.fn(async () => graph("part"));
+    const element = createGraph(request);
+    await waitForFast(() =>
+      expect(element.querySelector("[data-organization-node]")).not.toBeNull(),
+    );
+    request.mockClear();
+    element.connected = false;
+    await element.updateComplete;
+    expect(element.textContent).toContain(
+      "Reconnect to the Gateway to load organization knowledge.",
+    );
+    expect(request).not.toHaveBeenCalled();
   });
 });

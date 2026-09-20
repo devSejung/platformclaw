@@ -790,6 +790,19 @@
   padding-top: 0;
 }
 
+.content:has(.platformclaw-memory-page) .content-header {
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+}
+
+@media (max-width: 640px) {
+  .content:has(.platformclaw-memory-page) .content-header {
+    padding-inline: var(--space-3);
+  }
+}
+
 .platformclaw-memory-page__tabs {
   min-width: 0;
   overflow-x: auto;
@@ -801,136 +814,32 @@
 }
 
 .platformclaw-memory-page__panel > .settings-page,
-.platformclaw-memory-page__panel > openclaw-memory-memories > .settings-page {
+.platformclaw-memory-page__panel > openclaw-memory-memories > .settings-page,
+.platformclaw-memory-page__panel :is(.memory-promotions, .organization-memory-graph) {
+  max-width: none;
   padding-inline: 0;
   padding-bottom: 0;
 }
 
-.platformclaw-memory-organization,
-.organization-memory-graph {
-  display: grid;
-  gap: 16px;
+/* All Memory surfaces share the existing wide settings inset. Readers retain
+   their own line length; nested pages must not add another narrow column. */
+.platformclaw-memory-page__panel :is(.dreams-diary, .dreams-advanced) {
+  padding: var(--space-3) 0 var(--space-5);
 }
 
-.organization-memory-graph {
-  max-width: none;
-}
-
-.organization-memory-graph__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.organization-memory-graph__header h2,
-.organization-memory-graph__header p {
-  margin: 0;
-}
-
-.organization-memory-graph__header p {
-  margin-top: 4px;
-  color: var(--muted);
-}
-
-.organization-memory-graph__state {
-  min-height: 320px;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 8px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.organization-memory-graph__stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  margin-bottom: 8px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.organization-memory-graph > .svg-graph-controls {
-  justify-content: flex-end;
-}
-
-.organization-memory-graph__canvas {
-  min-height: 420px;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
-}
-
-.organization-memory-graph__canvas svg {
-  display: block;
+.platformclaw-memory-page__panel :is(.agent-memory-panel__toolbar, .dreams-diary__chrome) {
   width: 100%;
-  min-width: 720px;
-  min-height: 420px;
-  touch-action: none;
-  cursor: grab;
+  max-width: none;
+  padding-inline: 0;
 }
 
-.organization-memory-graph__canvas svg.svg-graph-canvas--dragging {
-  cursor: grabbing;
+.platformclaw-memory-page__panel .dreams__topbar {
+  padding: 0 0 var(--space-3);
 }
 
-.organization-memory-graph__edges line {
-  stroke: color-mix(in srgb, var(--text) 52%, var(--panel));
-  stroke-width: 1.6;
-  opacity: 0.9;
-}
-
-.organization-memory-graph__edges line[data-edge-type="comparison"] {
-  stroke-dasharray: 5 4;
-  stroke-width: 3;
-  cursor: pointer;
-}
-
-.organization-memory-graph__edges line[data-edge-type="reference"] {
-  stroke: var(--accent);
-  stroke-width: 2.5;
-  cursor: pointer;
-}
-
-.organization-memory-graph__reference-legend {
-  color: var(--accent);
-}
-
-.organization-memory-graph__edges line:focus {
-  stroke-width: 4;
-  outline: none;
-}
-
-.organization-memory-graph__legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  font-size: 12px;
-  margin-block: 12px;
-}
-
-.organization-memory-graph__legend-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.organization-memory-graph__legend-item svg {
-  flex: 0 0 64px;
-}
-
-.organization-memory-graph__scope label {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.organization-memory-graph__scope select {
-  max-width: 100%;
+.platformclaw-memory-organization {
+  display: grid;
+  gap: 16px;
 }
 
 .organization-memory-graph__preview.dreams-diary__preview-panel {
@@ -957,39 +866,6 @@
 
 .organization-memory-graph__preview .md-preview-dialog__reader pre {
   filter: none;
-}
-
-.organization-memory-graph__edge-detail {
-  padding: 12px;
-  background: var(--card);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
-}
-
-.organization-memory-graph__node {
-  cursor: grab;
-  color: var(--text);
-}
-
-.organization-memory-graph__node circle {
-  fill: var(--accent);
-  stroke: var(--panel);
-  stroke-width: 2;
-}
-
-.organization-memory-graph__node text {
-  fill: currentColor;
-  font-size: 12px;
-  paint-order: stroke;
-  stroke: var(--panel);
-  stroke-width: 3px;
-  stroke-linejoin: round;
-}
-
-.organization-memory-graph__node:hover circle,
-.organization-memory-graph__node:focus-visible circle {
-  filter: brightness(1.2);
-  stroke: var(--focus);
 }
 
 .organization-memory-graph__preview {
@@ -1245,5 +1121,27 @@
 @media (max-width: 768px) {
   .settings-theme-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Organization graph expansion stays within the page instead of trapping
+   keyboard focus in a second full-screen modal. */
+.platformclaw-memory-page:has(.organization-memory-graph--expanded) {
+  max-width: none;
+}
+
+/* Organization documents are working references, not display headlines. */
+.organization-memory-graph__preview .wiki-document__reader h1 {
+  font-family: inherit;
+  font-size: 1.8rem;
+  line-height: 1.35;
+  letter-spacing: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .organization-memory-graph__preview .wiki-document__reader h1 {
+    font-size: 1.35rem;
   }
 }

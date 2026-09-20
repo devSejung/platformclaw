@@ -1,0 +1,84 @@
+.memory-promotions__claims-header {
+  align-items: center;
+}
+
+.memory-promotions__claims-count {
+  color: var(--muted);
+  font-size: var(--control-ui-text-sm);
+  white-space: nowrap;
+}
+
+.memory-promotions__claims-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.memory-promotions__claims-toolbar label {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--control-ui-text-sm);
+}
+
+.memory-promotions__claims-list {
+  margin: 0;
+  max-height: min(60dvh, 600px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.memory-promotions__claim-row {
+  align-items: flex-start;
+}
+
+.memory-promotions__claim-title {
+  width: fit-content;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.memory-promotions__claim-title:hover,
+.memory-promotions__claim-title:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.memory-promotions__claim-snippet {
+  display: -webkit-box;
+  max-width: 76ch;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--control-ui-text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.memory-promotions__claims-load-more {
+  width: fit-content;
+  margin: var(--space-3) var(--space-4);
+}
+
+@media (max-width: 640px) {
+  .memory-promotions__claims-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .memory-promotions__claims-count {
+    white-space: normal;
+  }
+}

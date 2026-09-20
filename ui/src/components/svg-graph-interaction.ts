@@ -15,12 +15,15 @@ type DragState = {
   pointerId: number;
   startClient: SvgGraphPoint;
   startGraph: SvgGraphPoint;
+  startPointer: SvgGraphPoint;
   nodeId: string | null;
   moved: boolean;
 };
 
 type SvgGraphInteraction = {
   scale: number;
+  minimumScale: number;
+  initialView: { scale: number; x: number; y: number };
   x: number;
   y: number;
   positions: Map<string, SvgGraphPoint>;
@@ -42,6 +45,8 @@ export function getSvgGraphInteraction(
   if (!interaction) {
     interaction = {
       scale: 1,
+      minimumScale: MIN_SCALE,
+      initialView: { scale: 1, x: 0, y: 0 },
       x: 0,
       y: 0,
       positions: new Map(positions),
@@ -106,11 +111,17 @@ function zoomSvgGraph(
   factor: number,
   client?: SvgGraphPoint,
 ) {
-  const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, interaction.scale * factor));
+  const nextScale = Math.min(
+    MAX_SCALE,
+    Math.max(interaction.minimumScale, interaction.scale * factor),
+  );
   if (nextScale === interaction.scale) {
     return;
   }
-  const anchor = client ? graphPoint(svg, client.x, client.y) : { x: 480, y: 300 };
+  const box = svg.viewBox?.baseVal;
+  const anchor = client
+    ? graphPoint(svg, client.x, client.y)
+    : { x: (box?.x ?? 0) + (box?.width || 960) / 2, y: (box?.y ?? 0) + (box?.height || 600) / 2 };
   const graphX = (anchor.x - interaction.x) / interaction.scale;
   const graphY = (anchor.y - interaction.y) / interaction.scale;
   interaction.x = anchor.x - graphX * nextScale;
@@ -120,9 +131,10 @@ function zoomSvgGraph(
 }
 
 function resetSvgGraph(svg: SVGSVGElement, interaction: SvgGraphInteraction) {
-  interaction.scale = 1;
-  interaction.x = 0;
-  interaction.y = 0;
+  interaction.scale = interaction.initialView.scale;
+  interaction.minimumScale = Math.min(MIN_SCALE, interaction.scale);
+  interaction.x = interaction.initialView.x;
+  interaction.y = interaction.initialView.y;
   interaction.positions = new Map(interaction.initialPositions);
   interaction.drag = null;
   interaction.suppressedNode = null;
@@ -162,6 +174,7 @@ export function startSvgGraphPointer(
   interaction.drag = {
     pointerId: event.pointerId,
     startClient: { x: event.clientX, y: event.clientY },
+    startPointer: start,
     startGraph: nodeId
       ? {
           x: (interaction.positions.get(nodeId) ?? start).x,
@@ -183,14 +196,19 @@ export function moveSvgGraphPointer(event: PointerEvent, interaction: SvgGraphIn
   const dx = event.clientX - drag.startClient.x;
   const dy = event.clientY - drag.startClient.y;
   drag.moved ||= Math.hypot(dx, dy) >= DRAG_THRESHOLD;
+  // Responsive SVGs scale client pixels independently from graph zoom. Use
+  // the same coordinate space as pointerdown so a node stays under the finger.
+  const point = graphPoint(event.currentTarget as SVGSVGElement, event.clientX, event.clientY);
+  const graphDx = point.x - drag.startPointer.x;
+  const graphDy = point.y - drag.startPointer.y;
   if (drag.nodeId) {
     interaction.positions.set(drag.nodeId, {
-      x: drag.startGraph.x + dx / interaction.scale,
-      y: drag.startGraph.y + dy / interaction.scale,
+      x: drag.startGraph.x + graphDx / interaction.scale,
+      y: drag.startGraph.y + graphDy / interaction.scale,
     });
   } else {
-    interaction.x = drag.startGraph.x + dx;
-    interaction.y = drag.startGraph.y + dy;
+    interaction.x = drag.startGraph.x + graphDx;
+    interaction.y = drag.startGraph.y + graphDy;
   }
   updateSvg(event.currentTarget as SVGSVGElement, interaction);
 }
@@ -225,6 +243,42 @@ export function shouldActivateSvgGraphNode(
   }
   interaction.suppressedNode = null;
   return false;
+}
+
+export function fitSvgGraphView(svg: SVGSVGElement, interaction: SvgGraphInteraction) {
+  const bounds = svg.querySelector<SVGGElement>("[data-svg-graph-viewport]")?.getBBox?.();
+  if (!bounds || !bounds.width || !bounds.height) {
+    return;
+  }
+  const box = svg.viewBox?.baseVal ?? { x: 0, y: 0, width: 960, height: 600 };
+  // Fit the visible snapshot, including labels, without undoing dragged nodes.
+  interaction.scale = Math.min(
+    MAX_SCALE,
+    Math.max(1, box.width - 64) / bounds.width,
+    Math.max(1, box.height - 64) / bounds.height,
+  );
+  // A fitted large graph may need a wider range than ordinary wheel zoom.
+  interaction.minimumScale = Math.min(MIN_SCALE, interaction.scale);
+  interaction.x = box.x + box.width / 2 - (bounds.x + bounds.width / 2) * interaction.scale;
+  interaction.y = box.y + box.height / 2 - (bounds.y + bounds.height / 2) * interaction.scale;
+  updateSvg(svg, interaction);
+}
+
+export function focusSvgGraphNode(
+  svg: SVGSVGElement,
+  interaction: SvgGraphInteraction,
+  id: string,
+) {
+  const point = interaction.positions.get(id);
+  if (!point) {
+    return;
+  }
+  const box = svg.viewBox?.baseVal ?? { x: 0, y: 0, width: 960, height: 600 };
+  const screenScale = Math.abs(svg.getScreenCTM?.()?.a ?? 1) || 1;
+  interaction.scale = Math.min(MAX_SCALE, Math.max(1, 1.25 / screenScale));
+  interaction.x = box.x + box.width / 2 - point.x * interaction.scale;
+  interaction.y = box.y + box.height / 2 - point.y * interaction.scale;
+  updateSvg(svg, interaction);
 }
 
 export function renderSvgGraphControls(params: {

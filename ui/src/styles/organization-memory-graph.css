@@ -1,0 +1,362 @@
+.organization-memory-graph {
+  max-width: none;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.organization-memory-graph__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.organization-memory-graph__header h2,
+.organization-memory-graph__header p {
+  margin: 0;
+}
+
+.organization-memory-graph__header p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.organization-memory-graph__state {
+  min-height: 320px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.organization-memory-graph__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.organization-memory-graph > .svg-graph-controls {
+  justify-content: flex-end;
+}
+
+.organization-memory-graph__canvas {
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+}
+
+.organization-memory-graph__canvas svg {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: clamp(420px, 55vh, 620px);
+  min-height: 420px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.organization-memory-graph__canvas svg.svg-graph-canvas--dragging {
+  cursor: grabbing;
+}
+
+.organization-memory-graph__edges line {
+  stroke: color-mix(in srgb, var(--text) 52%, var(--panel));
+  stroke-width: 1.6;
+  opacity: 0.9;
+}
+
+.organization-memory-graph__edges line[data-edge-type="comparison"] {
+  stroke-dasharray: 5 4;
+  stroke-width: 3;
+  cursor: pointer;
+}
+
+.organization-memory-graph__edges line[data-edge-type="reference"] {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  cursor: pointer;
+}
+
+.organization-memory-graph__reference-legend {
+  color: var(--accent);
+}
+
+.organization-memory-graph__edges line:focus {
+  stroke-width: 4;
+  outline: none;
+}
+
+.organization-memory-graph__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 12px;
+  margin-block: 12px;
+}
+
+.organization-memory-graph__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.organization-memory-graph__legend-item svg {
+  flex: 0 0 64px;
+}
+
+.organization-memory-graph__scope label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.organization-memory-graph__scope select {
+  max-width: 100%;
+}
+
+.organization-memory-graph__edge-detail {
+  padding: 12px;
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
+.organization-memory-graph__node {
+  cursor: grab;
+  color: var(--text);
+}
+
+.organization-memory-graph__node circle {
+  fill: var(--accent);
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.organization-memory-graph__node text {
+  fill: currentColor;
+  font-size: 16px;
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.organization-memory-graph__node:hover circle,
+.organization-memory-graph__node:focus-visible circle {
+  filter: brightness(1.2);
+  stroke: var(--focus);
+}
+
+.organization-memory-graph__explorer,
+.organization-memory-graph__inspector,
+.organization-memory-graph__selection,
+.organization-memory-graph__picker,
+.organization-memory-graph__search {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.organization-memory-graph__toolbar,
+.organization-memory-graph__view-controls,
+.organization-memory-graph__selection-actions,
+.organization-memory-graph__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.organization-memory-graph__toolbar {
+  justify-content: space-between;
+  align-items: end;
+}
+
+.organization-memory-graph__search {
+  flex: 1 1 220px;
+}
+
+.organization-memory-graph__view-controls .btn,
+.organization-memory-graph__selection-actions .btn {
+  min-height: 36px;
+}
+
+.organization-memory-graph__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.organization-memory-graph__inspector {
+  grid-column: 2;
+  grid-row: 1;
+  padding: var(--space-3);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow-wrap: anywhere;
+  font-size: var(--control-ui-text-sm);
+}
+
+.organization-memory-graph__body > :not(.organization-memory-graph__inspector) {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.organization-memory-graph__picker select {
+  width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.organization-memory-graph__selection :is(h3, h4, p),
+.organization-memory-graph__inspector > p,
+.organization-memory-graph__scope p {
+  margin: 0;
+}
+
+.organization-memory-graph__selection h3 {
+  font-size: var(--control-ui-text-base);
+  line-height: 1.5;
+}
+
+.organization-memory-graph__selection :is(p, time),
+.organization-memory-graph__hint,
+.organization-memory-graph__explanation,
+.organization-memory-graph__scope p {
+  color: var(--muted);
+  font-size: var(--control-ui-text-sm);
+}
+
+.organization-memory-graph__scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.organization-memory-graph__explanation {
+  margin-top: var(--space-2);
+}
+
+.organization-memory-graph__connections {
+  display: grid;
+  max-height: 320px;
+  overflow: auto;
+  gap: var(--space-2);
+}
+
+.organization-memory-graph__connection {
+  display: grid;
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2);
+  gap: var(--space-1);
+}
+
+.organization-memory-graph__connection .btn {
+  text-align: start;
+  justify-content: flex-start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  height: auto;
+}
+
+.organization-memory-graph__filters {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  font-size: var(--control-ui-text-sm);
+}
+
+.organization-memory-graph__filters legend {
+  margin-bottom: var(--space-2);
+  color: var(--muted);
+}
+
+.organization-memory-graph__filters label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 32px;
+}
+
+.organization-memory-graph__filters [data-relation-type] span::before {
+  content: "";
+  display: inline-block;
+  width: 20px;
+  vertical-align: middle;
+  margin-inline-end: 6px;
+  border-top: 2px solid var(--muted);
+}
+
+.organization-memory-graph__filters [data-relation-type="reference"] span::before {
+  border-color: var(--accent);
+}
+
+.organization-memory-graph__filters [data-relation-type="comparison"] span::before {
+  border-top-style: dashed;
+}
+
+.organization-memory-graph__node circle.organization-memory-graph__hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+
+.organization-memory-graph__node[data-active="false"] {
+  opacity: 0.3;
+}
+
+.organization-memory-graph__edges line[data-active="false"] {
+  opacity: 0.12;
+}
+
+.organization-memory-graph__node[aria-pressed="true"]
+  > circle:not(.organization-memory-graph__hit) {
+  stroke: var(--focus);
+  stroke-width: 4;
+}
+
+.organization-memory-graph__node[aria-pressed="true"] text {
+  font-weight: 700;
+}
+
+.organization-memory-graph--expanded .organization-memory-graph__canvas svg {
+  height: 70dvh;
+}
+
+@media (max-width: 900px) {
+  .organization-memory-graph__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .organization-memory-graph__inspector {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .organization-memory-graph__connections {
+    max-height: 240px;
+  }
+
+  .organization-memory-graph__canvas svg {
+    height: 400px;
+    min-height: 0;
+  }
+
+  .organization-memory-graph__canvas {
+    min-height: 0;
+  }
+}

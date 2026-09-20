@@ -805,6 +805,31 @@ Native dependency policy:
   - No real Gateway, agents, or provider keys required
   - Browser dependency must be present (`pnpm --dir ui exec playwright install chromium`)
 
+For interactive visual work against the same mocked-Gateway fixtures, use the
+headed fixture preview instead of editing an E2E test to pause:
+
+```bash
+pnpm ui:fixture-preview -- --list
+pnpm ui:fixture-preview -- platformclaw-memory --viewport 1920x1080 --theme platformclaw --mode light
+```
+
+The preview starts the source Vite server, opens Chromium, and stays alive until
+the browser closes or you press Ctrl-C. It is for manual UI inspection; the
+automated E2E lane remains the pass/fail proof.
+
+The Memory preview also provides `platformclaw-memory-busy` (32 Wiki documents,
+including long titles and a bounded 28-document overview),
+`platformclaw-memory-empty`, and `platformclaw-memory-error`. These scenarios
+share the product E2E helpers and use only synthetic data.
+
+`platformclaw-organization-memory` opens the Organization Graph directly, with
+two readable Parts, Group, Team, and Global scopes. Its Group graph contains 35
+synthetic documents with references, promotion history, and AI comparison
+candidates. Use search, the document picker, connected-only filtering, Focus
+selection, and Fit graph to inspect long titles without opening every document.
+The shared empty/error fixtures also exercise organization states. Organization
+knowledge browsing and graph selection never submit or approve a change.
+
 ### E2E: OpenShell backend smoke
 
 - Command: `pnpm test:e2e:openshell`

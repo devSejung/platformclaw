@@ -335,16 +335,16 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
         pathname: "/settings/memory/wiki",
       });
       const wiki = page.locator(".memory-wiki-page");
-      await wiki.getByRole("tab", { name: "Imported Insights" }).click();
+      await wiki.getByRole("tab", { name: "Imported", exact: true }).click();
       await expect.poll(() => wiki.textContent()).toContain("Assigned platform notes");
       await expectRequestsPinned(gateway, "wiki.importInsights");
       await screenshot(page, "02-imported-insights.png");
 
-      await wiki.getByRole("tab", { name: "Memory Wiki" }).click();
+      await wiki.getByRole("tab", { name: "Documents", exact: true }).click();
       await expect.poll(() => wiki.textContent()).toContain("Assigned platform knowledge");
       await expectRequestsPinned(gateway, "wiki.overview");
       expect(await gateway.getRequests("wiki.graph")).toHaveLength(0);
-      await wiki.getByRole("button", { name: "Open wiki page" }).click();
+      await wiki.locator(".memory-wiki-card__title").first().click();
       await expectRequestsPinned(gateway, "wiki.document.get");
       await expect
         .poll(() => page.locator(".wiki-document__reader").textContent())
@@ -387,6 +387,7 @@ describeControlUiE2e("PlatformClaw personal Memory Wiki mocked Gateway E2E", () 
       await concepts.check();
       await screenshot(page, "08-memory-wiki-graph.png");
       await wiki.locator('[data-wiki-node="syntheses/assigned-platform.md"] circle').click();
+      await wiki.locator(".memory-wiki-graph__open").click();
       await expect
         .poll(() => page.locator(".wiki-document__reader").textContent())
         .toContain("Employee browser access stays strictly agent scoped.");

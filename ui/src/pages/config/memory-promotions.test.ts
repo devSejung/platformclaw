@@ -15,6 +15,7 @@ type MemoryPromotionsTestElement = HTMLElement & {
   wikiGetAdvertised: boolean;
   comparisonAdvertised: boolean;
   referencesAdvertised: boolean;
+  getAdvertised: boolean;
   agentId: string | null;
   initialPersonalLookup: string | null;
   formOnly: boolean;
@@ -127,14 +128,15 @@ describe("MemoryPromotionsElement", () => {
         },
       }),
     );
-    const target = element.querySelectorAll<HTMLSelectElement>("select")[1]!;
+    const shareForm = element.querySelector(".memory-promotions > .settings-section fieldset")!;
+    const target = shareForm.querySelectorAll<HTMLSelectElement>("select")[1]!;
     target.value = "part-1";
     target.dispatchEvent(new Event("change"));
-    const reason = element.querySelector<HTMLInputElement>(".memory-promotions__field input")!;
+    const reason = shareForm.querySelector<HTMLInputElement>(".memory-promotions__field input")!;
     reason.value = "Review links";
     reason.dispatchEvent(new InputEvent("input"));
     await element.updateComplete;
-    element.querySelector<HTMLButtonElement>("button.primary")!.click();
+    shareForm.querySelector<HTMLButtonElement>("button.primary")!.click();
     await waitForFast(() => expect(element.querySelector("openclaw-modal-dialog")).not.toBeNull());
     const dialog = element.querySelector("openclaw-modal-dialog")!;
     expect(dialog.textContent).toContain("Approved target");
@@ -368,7 +370,8 @@ describe("MemoryPromotionsElement", () => {
     expect(
       request.mock.calls.some(([method]) => method.startsWith("platformclaw.memory.promotion.")),
     ).toBe(false);
-    const target = element.querySelectorAll<HTMLSelectElement>("select")[1]!;
+    const shareForm = element.querySelector(".memory-promotions > .settings-section fieldset")!;
+    const target = shareForm.querySelectorAll<HTMLSelectElement>("select")[1]!;
     target.value = "part-1";
     target.dispatchEvent(new Event("change", { bubbles: true }));
     await element.updateComplete;
@@ -418,6 +421,191 @@ describe("MemoryPromotionsElement", () => {
     element.remove();
   });
 
+  it("puts searchable organization knowledge before the share form and opens only readable active claims", async () => {
+    const claims = [
+      {
+        id: "runtime-policy",
+        scopeKind: "part" as const,
+        scopeId: "part-1",
+        scopeName: "Runtime",
+        title: "Runtime restart policy",
+        text: "Drain jobs before restarting the service.",
+        revision: 4,
+        status: "active" as const,
+        createdAt: 1,
+        updatedAt: 2,
+        canRetire: false,
+        canPurge: false,
+      },
+      {
+        id: "platform-note",
+        scopeKind: "group" as const,
+        scopeId: "group-1",
+        scopeName: "Platform",
+        title: "Platform deployment note",
+        text: "Validate the rollout after deployment.",
+        revision: 2,
+        status: "active" as const,
+        createdAt: 1,
+        updatedAt: 3,
+        canRetire: false,
+        canPurge: false,
+      },
+      {
+        id: "retired-runtime-note",
+        scopeKind: "part" as const,
+        scopeId: "part-1",
+        scopeName: "Runtime",
+        title: "Retired restart note",
+        text: "Historical restart guidance.",
+        revision: 7,
+        status: "retired" as const,
+        createdAt: 1,
+        updatedAt: 4,
+        canRetire: false,
+        canPurge: false,
+      },
+    ];
+    const request = vi.fn(async (method: string) => {
+      if (method === "platformclaw.memory.lifecycle") {
+        return { ...snapshot, claims, next: { claims: 200 } };
+      }
+      if (method === "platformclaw.memory.get") {
+        return {
+          path: "organization/part/runtime-policy",
+          kind: "part",
+          provenanceLabel: "Runtime",
+          title: "Runtime restart policy",
+          content: "# Runtime restart policy",
+          fromLine: 1,
+          lineCount: 1,
+          totalLines: 1,
+          updatedAt: "now",
+        };
+      }
+      return {};
+    });
+    const element = createElement(request);
+    element.getAdvertised = true;
+    await waitForFast(() => expect(element.textContent).toContain("Runtime restart policy"));
+
+    const browser = element.querySelector(".memory-promotions__claims-browser")!;
+    const share = [...element.querySelectorAll(".settings-section")].find((section) =>
+      section.textContent?.includes("Share Wiki knowledge"),
+    )!;
+    expect(browser.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(browser.textContent).toContain("revision 4");
+    expect(browser.textContent).toContain("3");
+
+    const query = browser.querySelector<HTMLInputElement>('input[type="search"]')!;
+    query.value = "rollout";
+    query.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await element.updateComplete;
+    expect(browser.textContent).toContain("Platform deployment note");
+    expect(browser.textContent).not.toContain("Runtime restart policy");
+
+    query.value = "";
+    query.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await element.updateComplete;
+    const scope = browser.querySelector<HTMLSelectElement>("select")!;
+    scope.value = "part:part-1";
+    scope.dispatchEvent(new Event("change", { bubbles: true }));
+    await element.updateComplete;
+    expect(browser.textContent).toContain("Runtime restart policy");
+    expect(browser.textContent).toContain("Retired restart note");
+    expect(browser.textContent).not.toContain("Platform deployment note");
+
+    const title = [
+      ...browser.querySelectorAll<HTMLButtonElement>(".memory-promotions__claim-title"),
+    ].find((button) => button.textContent?.trim() === "Runtime restart policy")!;
+    title.click();
+    await waitForFast(() =>
+      expect(request).toHaveBeenCalledWith("platformclaw.memory.get", {
+        agentId: "personal-agent",
+        path: "organization/part/runtime-policy",
+        fromLine: 1,
+        lineCount: 200,
+      }),
+    );
+    expect(
+      [...browser.querySelectorAll<HTMLButtonElement>(".memory-promotions__claim-title")].some(
+        (button) => button.textContent?.trim() === "Retired restart note",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the organization browser out of form-only sharing dialogs", async () => {
+    const request = vi.fn(async (method: string) =>
+      method === "platformclaw.memory.lifecycle"
+        ? {
+            ...snapshot,
+            claims: [
+              {
+                id: "claim-1",
+                scopeKind: "part",
+                scopeId: "part-1",
+                scopeName: "Runtime",
+                title: "Browsable knowledge",
+                text: "Browsable content",
+                revision: 1,
+                status: "active",
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            ],
+          }
+        : {},
+    );
+    const element = createElement(request);
+    element.formOnly = true;
+    await waitForFast(() => expect(element.textContent).toContain("Share Wiki knowledge"));
+    expect(element.querySelector(".memory-promotions__claims-browser")).toBeNull();
+  });
+
+  it("keeps unreadable administered claim bodies out of both snippets and local search", async () => {
+    const request = vi.fn(async () => ({
+      ...snapshot,
+      scopes: [
+        {
+          kind: "part",
+          id: "managed-part",
+          name: "Managed scope",
+          canRead: false,
+          canAdminister: true,
+        },
+      ],
+      claims: [
+        {
+          id: "managed-claim",
+          scopeKind: "part",
+          scopeId: "managed-part",
+          scopeName: "Managed scope",
+          title: "Managed policy",
+          text: "restricted-body-marker",
+          status: "active",
+          revision: 1,
+          createdAt: 1,
+          updatedAt: 2,
+          canRetire: true,
+          canPurge: false,
+        },
+      ],
+    }));
+    const element = createElement(request);
+    element.getAdvertised = true;
+    await waitForFast(() => expect(element.textContent).toContain("Managed policy"));
+    const browser = element.querySelector(".memory-promotions__claims-browser")!;
+    expect(browser.textContent).not.toContain("restricted-body-marker");
+    expect(browser.querySelector(".memory-promotions__claim-title")).toBeNull();
+    expect(browser.textContent).toContain("Retire");
+    const query = browser.querySelector<HTMLInputElement>('input[type="search"]')!;
+    query.value = "restricted-body-marker";
+    query.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await element.updateComplete;
+    expect(browser.querySelectorAll(".memory-promotions__claim-row")).toHaveLength(0);
+    expect(request.mock.calls).toHaveLength(1);
+  });
+
   it("collects an explicit decision reason in an accessible modal", async () => {
     const request = vi.fn(async (method: string) =>
       method === "platformclaw.memory.lifecycle" ? snapshot : { status: "approved" },
@@ -463,16 +651,15 @@ describe("MemoryPromotionsElement", () => {
         },
       }),
     );
-    const target = element.querySelectorAll<HTMLSelectElement>("select")[1]!;
+    const shareForm = element.querySelector(".memory-promotions > .settings-section fieldset")!;
+    const target = shareForm.querySelectorAll<HTMLSelectElement>("select")[1]!;
     target.value = "part-1";
     target.dispatchEvent(new Event("change", { bubbles: true }));
-    const reason = element.querySelector<HTMLInputElement>(
-      ".memory-promotions .memory-promotions__field input",
-    )!;
+    const reason = shareForm.querySelector<HTMLInputElement>(".memory-promotions__field input")!;
     reason.value = "Reusable runbook";
     reason.dispatchEvent(new InputEvent("input", { bubbles: true }));
     await element.updateComplete;
-    element.querySelector<HTMLButtonElement>("button.primary")!.click();
+    shareForm.querySelector<HTMLButtonElement>("button.primary")!.click();
     await waitForFast(() =>
       expect(request).toHaveBeenCalledWith(
         "platformclaw.memory.promotion.submit",
@@ -520,7 +707,11 @@ describe("MemoryPromotionsElement", () => {
       submitted: 200,
       reviewable: 1,
     });
-    expect(element.textContent?.match(/Policy/gu)).toHaveLength(1);
+    expect(
+      [...element.querySelectorAll(".memory-promotions__claim-row .settings-row__title")].filter(
+        (title) => title.textContent?.trim() === "Policy",
+      ),
+    ).toHaveLength(1);
     element.remove();
   });
 
@@ -568,18 +759,19 @@ describe("MemoryPromotionsElement", () => {
     );
     const element = createElement(request);
     await waitForFast(() => expect(element.textContent).toContain("Wiki 지식 공유"));
-    const sourceKind = element.querySelectorAll<HTMLSelectElement>("select")[0]!;
+    const shareForm = element.querySelector(".memory-promotions > .settings-section fieldset")!;
+    const sourceKind = shareForm.querySelectorAll<HTMLSelectElement>("select")[0]!;
     sourceKind.value = "team";
     sourceKind.dispatchEvent(new Event("change", { bubbles: true }));
     await element.updateComplete;
-    const sourceClaim = element.querySelectorAll<HTMLSelectElement>("select")[1]!;
+    const sourceClaim = shareForm.querySelectorAll<HTMLSelectElement>("select")[1]!;
     expect([...sourceClaim.options].map((option) => option.value)).not.toContain(
       "managed-only-team-claim",
     );
     sourceClaim.value = "team-claim";
     sourceClaim.dispatchEvent(new Event("change", { bubbles: true }));
     await element.updateComplete;
-    const target = element.querySelectorAll<HTMLSelectElement>("select")[2]!;
+    const target = shareForm.querySelectorAll<HTMLSelectElement>("select")[2]!;
     target.value = "global";
     target.dispatchEvent(new Event("change", { bubbles: true }));
     await element.updateComplete;

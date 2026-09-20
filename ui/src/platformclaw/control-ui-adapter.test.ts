@@ -185,7 +185,7 @@ describe("PlatformClawControlUiAdapter", () => {
         } as never,
         { location: { pathname: "/settings/memory" } } as never,
       ),
-    ).resolves.toEqual({ agentId: "assigned-personal", initialTab: "overview" });
+    ).resolves.toEqual({ agentId: "assigned-personal", initialTab: "memory" });
     await expect(
       loader?.(
         {
@@ -234,7 +234,7 @@ describe("PlatformClawControlUiAdapter", () => {
       } as never,
       { location: { pathname: "/settings/memory" } } as never,
     );
-    expect(routeData).toEqual({ agentId: "assigned-personal", initialTab: "overview" });
+    expect(routeData).toEqual({ agentId: "assigned-personal", initialTab: "memory" });
 
     const component = await options.routeOverrides?.memory?.component?.();
     const container = document.createElement("div");

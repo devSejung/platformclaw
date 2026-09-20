@@ -466,15 +466,14 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
     const toggle = container.querySelector<HTMLButtonElement>(".dreams__phase-toggle");
     expect(toggle?.textContent).toContain("Off");
     expect(toggle?.classList.contains("dreams__phase-toggle--on")).toBe(false);
-    expect(container.querySelector(".dreams__status-label")?.textContent).toContain("Idle");
-    expect(container.textContent).toContain("0 promoted");
-    expect(container.textContent).not.toContain("7 promoted");
+    expect(container.querySelector(".dreams__status-label")).toBeNull();
+    expect(container.querySelector(".dreams__phase")).toBeNull();
+    expect(container.textContent).toContain("Status unavailable");
+    expect(container.textContent).not.toContain("Promoted today 0");
+    expect(container.textContent).not.toContain("Total promotions 0");
+    expect(container.textContent).not.toContain("Promoted today 7");
     expect(container.textContent).not.toContain("Mars/Base");
-    expect(
-      [...container.querySelectorAll(".dreams__phase-next")].every(
-        (phase) => phase.textContent?.trim() === "—",
-      ),
-    ).toBe(true);
+    expect(container.textContent).not.toContain("* * * * *");
   });
 
   it("omits default provenance and reset when engine Off has no latent override", () => {

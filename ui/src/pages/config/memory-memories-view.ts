@@ -4,10 +4,56 @@ import type { MemorySearchResponse } from "../../../../src/gateway/server-method
 import { icons } from "../../components/icons.ts";
 import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { renderMemoryItemActions } from "../../components/memory-item-actions.ts";
-import { renderSettingsRow } from "../../components/settings-ui.ts";
+import { renderSettingsRow, renderSettingsSegmented } from "../../components/settings-ui.ts";
+import { formatDateTimeMs } from "../../lib/format.ts";
 import "../../styles/sidebar-markdown.css";
 
 export type Translate = (key: string, params?: Record<string, string>) => string;
+type BrowseEntry = {
+  path: string;
+  name: string;
+  updatedAtMs?: number;
+};
+export type BrowseListResult = {
+  entries: BrowseEntry[];
+  hasAdditionalFolders?: boolean;
+  truncated?: boolean;
+};
+export type BrowserWorkspaceGetResult = {
+  file: {
+    path: string;
+    name: string;
+    encoding: "utf8";
+    content: string;
+    missing?: boolean;
+    updatedAtMs?: number;
+  };
+};
+export type BrowseState =
+  | { kind: "idle" | "loading" }
+  | {
+      kind: "ready";
+      memory: BrowserWorkspaceGetResult["file"] | null;
+      recent: BrowseEntry[];
+      memoryError: string | null;
+      recentError: string | null;
+      additionalEntries: boolean;
+    };
+export type WikiSearchResult = {
+  path: string;
+  title: string;
+  kind: string;
+  score: number;
+  snippet: string;
+  startLine?: number;
+  endLine?: number;
+};
+export type WikiGetResult = {
+  content?: string;
+  displayContent?: string;
+  fromLine?: number;
+  lineCount?: number;
+};
 export type MemoryResultActions = {
   label: string;
   available: (result: SearchResult) => boolean;
@@ -41,10 +87,22 @@ export type SearchState =
   | { kind: "loading"; query: string }
   | ({ kind: "ready"; query: string } & BrowserMemorySearchResponse)
   | { kind: "error"; query: string; message: string };
+export type MemorySourceFilter = "all" | "memory" | "wiki" | "organization" | "sessions";
 export type DetailState =
   | { kind: "loading" }
   | { kind: "ready"; content: string }
   | { kind: "error"; message: string };
+
+export function renderMemoryConnectionStatus(options: {
+  browseEnabled: boolean;
+  connected: boolean;
+  browseReady: boolean;
+  label: string;
+}) {
+  return options.browseEnabled && !options.connected && options.browseReady
+    ? html`<div class="settings-empty" role="status">${options.label}</div>`
+    : nothing;
+}
 
 export function resultKey(result: SearchResult, index: number): string {
   return `${index}:${result.path}:${result.startLine}:${result.endLine}`;
@@ -133,6 +191,7 @@ export function renderMemoryBrowseFile(options: {
   openResultKey: string | null;
   path: string;
   text: Translate;
+  updatedAtMs?: number;
 }) {
   const result: SearchResult = {
     path: options.path,
@@ -144,14 +203,21 @@ export function renderMemoryBrowseFile(options: {
   };
   const key = resultKey(result, options.index);
   const cached = options.content !== undefined || options.details.get(key)?.kind === "ready";
+  const modified = formatDateTimeMs(options.updatedAtMs, undefined, "");
+  const description = [
+    options.description,
+    modified ? options.text("memoryPage.memories.lastModified", { date: modified }) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   if (!cached && !options.canLoadResult(result)) {
-    return renderSettingsRow({ title: options.name, description: options.description });
+    return renderSettingsRow({ title: options.name, description });
   }
   const panelId =
     options.index === -1 ? "memory-long-term-detail" : `memory-browse-detail-${-options.index}`;
   const actions = resultActions(result, options.actions);
   return html`<article
-    class="memory-memories__result"
+    class="memory-memories__result memory-memories__result--browse"
     @contextmenu=${actions ? (event: MouseEvent) => actions.open(result.path, event) : nothing}
   >
     <button
@@ -163,9 +229,7 @@ export function renderMemoryBrowseFile(options: {
     >
       <span class="settings-row__text">
         <span class="settings-row__title">${options.name}</span>
-        ${options.description === undefined
-          ? nothing
-          : html`<span class="settings-row__desc">${options.description}</span>`}
+        ${description ? html`<span class="settings-row__desc">${description}</span>` : nothing}
       </span>
       <span class="settings-row__control">
         <span class="settings-row__chevron" aria-hidden="true"
@@ -186,7 +250,52 @@ export function renderMemoryBrowseFile(options: {
   </article>`;
 }
 
-export function renderMemorySearchResults(options: {
+export function renderMemorySearchState(options: {
+  actions?: MemoryResultActions;
+  canLoadResult: (result: SearchResult) => boolean;
+  details: ReadonlyMap<string, DetailState>;
+  onRetry: (key: string, result: SearchResult) => void;
+  onSearch: (query: string) => void;
+  onSourceFilterChange: (source: MemorySourceFilter) => void;
+  onToggle: (result: SearchResult, index: number) => void;
+  openResultKey: string | null;
+  searchState: SearchState;
+  sourceFilter: MemorySourceFilter;
+  text: Translate;
+}) {
+  switch (options.searchState.kind) {
+    case "loading":
+      return html`<p class="memory-memories__state" role="status">
+        ${options.text("memoryPage.memories.searching")}
+      </p>`;
+    case "error": {
+      const failed = options.searchState;
+      return html`<div class="memory-memories__state" role="alert">
+        <p>${options.text("memoryPage.memories.error", { message: failed.message })}</p>
+        <button class="btn btn--sm" @click=${() => options.onSearch(failed.query)}>
+          ${options.text("memoryPage.memories.retry")}
+        </button>
+      </div>`;
+    }
+    case "ready":
+      return renderMemorySearchResults({
+        actions: options.actions,
+        ready: options.searchState,
+        sourceFilter: options.sourceFilter,
+        onSourceFilterChange: options.onSourceFilterChange,
+        details: options.details,
+        openResultKey: options.openResultKey,
+        text: options.text,
+        canLoadResult: options.canLoadResult,
+        onToggle: options.onToggle,
+        onRetry: options.onRetry,
+      });
+    default:
+      return nothing;
+  }
+}
+
+function renderMemorySearchResults(options: {
   actions?: MemoryResultActions;
   canLoadResult: (result: SearchResult) => boolean;
   details: ReadonlyMap<string, DetailState>;
@@ -195,14 +304,23 @@ export function renderMemorySearchResults(options: {
   openResultKey: string | null;
   ready: Extract<SearchState, { kind: "ready" }>;
   text: Translate;
+  sourceFilter: MemorySourceFilter;
+  onSourceFilterChange: (source: MemorySourceFilter) => void;
 }) {
   const { ready, text } = options;
+  // Filter after recording original positions: detail caches and async requests
+  // belong to the full result set, not the index within a filtered view.
+  const visible = ready.results
+    .map((result, index) => ({ result, index }))
+    .filter(
+      ({ result }) => options.sourceFilter === "all" || result.source === options.sourceFilter,
+    );
   const mode =
     ready.searchMode === "hybrid"
       ? text("memoryPage.memories.hybridSearch")
       : text("memoryPage.memories.keywordSearch");
   const resultCount = text("memoryPage.memories.results", {
-    count: String(ready.results.length),
+    count: String(visible.length),
   });
   const sourceNotices = [
     ready.personalMemoryUnavailable
@@ -226,6 +344,33 @@ export function renderMemorySearchResults(options: {
     ...sourceNotices,
   ].join(" ");
   return html`
+    ${ready.results.length > 0
+      ? html` <div class="memory-memories__filters">
+          ${renderSettingsSegmented<MemorySourceFilter>({
+            value: options.sourceFilter,
+            ariaLabel: text("memoryPage.memories.sourceFilter"),
+            onChange: options.onSourceFilterChange,
+            options: (
+              [
+                ["all", text("memoryPage.memories.sourceAll")],
+                ["memory", text("memoryPage.memories.sourceMemory")],
+                ["wiki", text("memoryPage.memories.sourceWiki")],
+                ["organization", text("memoryPage.memories.sourceOrganizationFilter")],
+                ["sessions", text("memoryPage.memories.sourceSessions")],
+              ] as const
+            ).flatMap(([value, label]) => {
+              const count =
+                value === "all"
+                  ? ready.results.length
+                  : ready.results.filter((item) => item.source === value).length;
+              return count > 0
+                ? [{ value, label: html`${label} <span class="settings-count">${count}</span>` }]
+                : [];
+            }),
+          })}
+          <span class="settings-row__desc">${text("memoryPage.memories.sourceFilterHint")}</span>
+        </div>`
+      : nothing}
     <div
       class="memory-memories__results-heading"
       role="status"
@@ -247,7 +392,7 @@ export function renderMemorySearchResults(options: {
           ${text("memoryPage.memories.empty", { query: ready.query })}
         </p>`
       : html`<div class="settings-group memory-memories__results">
-          ${ready.results.map((result, index) => {
+          ${visible.map(({ result, index }) => {
             const key = resultKey(result, index);
             const open = options.openResultKey === key;
             const expandable =
@@ -270,7 +415,9 @@ export function renderMemorySearchResults(options: {
                 >
               </span>
               <span class="settings-row__control memory-memories__meta">
-                <span class="memory-memories__source"
+                <span
+                  class="memory-memories__source"
+                  title=${text("memoryPage.memories.score", { score: result.score.toFixed(2) })}
                   >${result.source === "organization"
                     ? text("memoryPage.memories.sourceOrganization", {
                         scope: result.provenanceLabel ?? "",
@@ -283,14 +430,17 @@ export function renderMemorySearchResults(options: {
                             : "memoryPage.memories.sourceMemory",
                         )}</span
                 >
-                <span
-                  >${text("memoryPage.memories.score", { score: result.score.toFixed(2) })}</span
-                >
+                ${expandable
+                  ? html`<span class="settings-row__chevron" aria-hidden="true"
+                      >${open ? icons.chevronDown : icons.chevronRight}</span
+                    >`
+                  : nothing}
               </span>
             `;
             const actions = resultActions(result, options.actions);
             return html`<article
               class="memory-memories__result"
+              data-memory-source=${result.source}
               @contextmenu=${actions
                 ? (event: MouseEvent) => actions.open(result.path, event)
                 : nothing}

@@ -42,16 +42,32 @@ function selectWikiDocumentAction(container: Element, value: string): void {
   );
 }
 
+function selectGraphDocumentAndOpen(container: Element, id = "concepts/alpha.md"): void {
+  expectElement(container, `[data-wiki-node='${id}']`).dispatchEvent(
+    new MouseEvent("click", { bubbles: true }),
+  );
+  const open = expectElement(container, ".memory-wiki-graph__open") as HTMLButtonElement;
+  open.click();
+}
+
 describe("Wiki document preview and editing", () => {
   it("owns document labels without fetching overlays and responds to the active locale", () => {
     const locale = vi.spyOn(i18n, "getLocale");
     try {
+      expect(Object.keys(wikiDocumentTranslations.en).toSorted()).toEqual(
+        Object.keys(wikiDocumentTranslations.ko).toSorted(),
+      );
       for (const selected of ["en", "ko", "fr"] as const) {
         locale.mockReturnValue(selected);
         const labels = wikiDocumentTranslations[selected === "ko" ? "ko" : "en"];
         for (const [key, label] of Object.entries(labels)) {
-          expect(wikiDocumentT(key)).toBe(label);
-          expect(label).not.toMatch(/\{\w+\}/u);
+          const placeholders = [...label.matchAll(/\{(\w+)\}/gu)].map((match) => match[1]!);
+          const params = Object.fromEntries(placeholders.map((name) => [name, `sample-${name}`]));
+          const expected = placeholders.reduce(
+            (value, name) => value.replaceAll(`{${name}}`, `sample-${name}`),
+            label,
+          );
+          expect(wikiDocumentT(key, params)).toBe(expected);
         }
       }
     } finally {
@@ -94,9 +110,7 @@ describe("Wiki document preview and editing", () => {
     const rerender = () => render(renderWikiKnowledge(props), container);
     const props = buildProps({ onOpenWikiPage, onSaveWikiPage, onViewStateChange: rerender });
     rerender();
-    container
-      .querySelector("[data-wiki-node='concepts/alpha.md']")
-      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    selectGraphDocumentAndOpen(container);
     await vi.waitFor(() =>
       expect(container.querySelector(".wiki-document__reader h1")).not.toBeNull(),
     );
@@ -157,9 +171,7 @@ describe("Wiki document preview and editing", () => {
       onViewStateChange: rerender,
     });
     rerender();
-    container
-      .querySelector("[data-wiki-node='concepts/alpha.md']")
-      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    selectGraphDocumentAndOpen(container);
     await vi.waitFor(() =>
       expect(container.querySelector(".wiki-document__menu button")).not.toBeNull(),
     );
@@ -202,9 +214,7 @@ describe("Wiki document preview and editing", () => {
       onViewStateChange: rerender,
     });
     rerender();
-    container
-      .querySelector("[data-wiki-node='concepts/alpha.md']")
-      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    selectGraphDocumentAndOpen(container);
     await vi.waitFor(() => expect(container.querySelector(".wiki-document__menu")).not.toBeNull());
     selectWikiDocumentAction(container, "edit");
     const textarea = expectElement(container, ".wiki-document__editor") as HTMLTextAreaElement;
@@ -232,9 +242,7 @@ describe("Wiki document preview and editing", () => {
     const rerender = () => render(renderWikiKnowledge(props), container);
     const props = buildProps({ onOpenWikiPage, onViewStateChange: rerender });
     rerender();
-    container
-      .querySelector("[data-wiki-node='concepts/alpha.md']")
-      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    selectGraphDocumentAndOpen(container);
     await vi.waitFor(() =>
       expect(container.querySelector(".wiki-document__reader a")).not.toBeNull(),
     );
