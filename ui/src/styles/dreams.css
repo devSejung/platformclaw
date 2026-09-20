@@ -514,13 +514,15 @@
 
 .dreams-diary__insight-topline {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 6px;
 }
 
 .dreams-diary__insight-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
@@ -534,6 +536,9 @@
 
 .dreams-diary__insight-badge {
   display: inline-flex;
+  /* Localized kind/risk labels keep their width; only the title wraps. */
+  flex-shrink: 0;
+  white-space: nowrap;
   align-items: center;
   border-radius: 999px;
   padding: 3px 8px;

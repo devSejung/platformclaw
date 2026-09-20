@@ -34,7 +34,13 @@ async function noOverflow(page: Page) {
   ).toBeLessThanOrEqual(1);
 }
 
-async function openFixture(id: string, width: number, height: number, mode: "light" | "dark") {
+async function openFixture(
+  id: string,
+  width: number,
+  height: number,
+  mode: "light" | "dark",
+  locale = "en-US",
+) {
   const fixture = findControlUiPreviewFixture(id);
   if (!fixture) {
     throw new Error(`Missing preview fixture: ${id}`);
@@ -42,7 +48,7 @@ async function openFixture(id: string, width: number, height: number, mode: "lig
   return fixture.open({
     browser,
     server,
-    options: { locale: "en-US", mode, theme: "platformclaw", viewport: { width, height } },
+    options: { locale, mode, theme: "platformclaw", viewport: { width, height } },
   });
 }
 
@@ -185,6 +191,75 @@ suite("PlatformClaw Memory usability", () => {
         await expect
           .poll(() => page.locator(".wiki-document__reader").textContent())
           .toContain("Release canary ownership and rollback decision record");
+      } finally {
+        await context.close();
+      }
+    },
+    60_000,
+  );
+
+  it.each([
+    { width: 1920, height: 1080, mode: "light" as const, locale: "ko-KR" },
+    { width: 390, height: 844, mode: "dark" as const, locale: "ko-KR" },
+    { width: 1920, height: 1080, mode: "dark" as const, locale: "en-US" },
+    { width: 390, height: 844, mode: "light" as const, locale: "en-US" },
+  ])(
+    "keeps localized Wiki badges on one line at $width in $locale",
+    async ({ width, height, mode, locale }) => {
+      const { page, context } = await openFixture(
+        "platformclaw-memory-busy",
+        width,
+        height,
+        mode,
+        locale,
+      );
+      try {
+        await page.locator("#platformclaw-memory-tab-wiki").click();
+        const cards = page.locator("[data-wiki-page]");
+        await expect.poll(() => cards.count()).toBe(28);
+        await page.evaluate(() => document.fonts.ready);
+        const badges = await cards.evaluateAll((elements) =>
+          elements.map((card) => {
+            const badge = card.querySelector<HTMLElement>(".dreams-diary__insight-badge")!;
+            const title = card.querySelector<HTMLElement>(".memory-wiki-card__title")!;
+            const range = document.createRange();
+            range.selectNodeContents(badge);
+            const textRects = [...range.getClientRects()].filter((rect) => rect.width > 0);
+            const badgeRect = badge.getBoundingClientRect();
+            const titleRect = title.getBoundingClientRect();
+            const cardRect = card.getBoundingClientRect();
+            return {
+              label: badge.textContent!.trim(),
+              lines: new Set(textRects.map((rect) => Math.round(rect.top))).size,
+              readable: textRects.every(
+                (rect) =>
+                  rect.left >= badgeRect.left &&
+                  rect.right <= badgeRect.right &&
+                  rect.top >= badgeRect.top &&
+                  rect.bottom <= badgeRect.bottom,
+              ),
+              separated: titleRect.right <= badgeRect.left,
+              contained: titleRect.left >= cardRect.left && badgeRect.right <= cardRect.right,
+              titleClipped:
+                title.scrollWidth > title.clientWidth || title.scrollHeight > title.clientHeight,
+            };
+          }),
+        );
+        expect(new Set(badges.map((badge) => badge.label)).size).toBe(5);
+        expect(badges.map((badge) => badge.label)).toContain(
+          locale === "ko-KR" ? "개념" : "concept",
+        );
+        await capture(page, `badges-${width}-${locale}-${mode}`);
+        for (const badge of badges) {
+          expect(badge).toMatchObject({
+            lines: 1,
+            readable: true,
+            separated: true,
+            contained: true,
+            titleClipped: false,
+          });
+        }
+        await noOverflow(page);
       } finally {
         await context.close();
       }
