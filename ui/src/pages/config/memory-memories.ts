@@ -665,7 +665,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
         ? html`<div class="settings-empty" role="status">${this.connectionLabel}</div>`
         : nothing;
     return html`<div class="settings-page memory-memories">
-      ${connectionStatus}${this.renderBrowse()}
+      ${connectionStatus}
       <section class="settings-section">
         <div class="settings-section__header">
           <h2 class="settings-section__heading">${this.text("memoryPage.memories.searchTitle")}</h2>
@@ -717,6 +717,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
                 : nothing}
               ${this.renderSearchState()}`}
       </section>
+      ${this.renderBrowse()}
     </div>`;
   }
 }

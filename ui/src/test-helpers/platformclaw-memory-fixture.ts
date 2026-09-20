@@ -14,6 +14,8 @@ export const platformClawMemoryMethods = [
   "memory.search",
   "platformclaw.memory.get",
   "platformclaw.memory.lifecycle",
+  "wiki.document.get",
+  "wiki.graph",
   "wiki.get",
   "wiki.overview",
   "wiki.search",
@@ -120,6 +122,47 @@ export const platformClawMemoryResponses: NonNullable<
     fromLine: 1,
     lineCount: 3,
   },
+  "wiki.document.get": {
+    title: "Release preflight synthesis",
+    path: "syntheses/release-preflight.md",
+    kind: "synthesis",
+    displayContent:
+      "# Release preflight synthesis\n\nRecord canary health and the responsible owner.",
+    sourceContent:
+      "# Release preflight synthesis\n\nRecord canary health and the responsible owner.",
+    editMode: "body",
+    editableContent:
+      "# Release preflight synthesis\n\nRecord canary health and the responsible owner.",
+    revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  },
+  "wiki.graph": {
+    nodes: [
+      {
+        id: "syntheses/release-preflight.md",
+        title: "Release preflight synthesis",
+        kind: "synthesis",
+      },
+      {
+        id: "concepts/release-ownership.md",
+        title: "Release ownership",
+        kind: "concept",
+      },
+    ],
+    edges: [
+      {
+        source: "syntheses/release-preflight.md",
+        target: "concepts/release-ownership.md",
+        type: "reference",
+      },
+    ],
+    stats: {
+      totalPages: 2,
+      totalNodes: 2,
+      totalEdges: 1,
+      unresolvedLinks: 0,
+      truncated: false,
+    },
+  },
   "platformclaw.memory.get": {
     content: "# Platform release policy\n\nTwo approvals are required before production rollout.",
     fromLine: 1,
@@ -213,7 +256,7 @@ export const platformClawMemoryResponses: NonNullable<
   },
 };
 
-export type PlatformClawMemoryFixtureRole = "admin" | "member";
+type PlatformClawMemoryFixtureRole = "admin" | "member";
 
 export async function installPlatformClawMemoryDocument(
   page: Page,

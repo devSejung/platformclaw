@@ -46,7 +46,7 @@ describe("MemoryMemoriesElement", () => {
     }
   });
 
-  it("browses MEMORY.md and seven newest top-level daily files before search", async () => {
+  it("renders search before MEMORY.md and seven newest top-level daily files", async () => {
     const entries = Array.from({ length: 9 }, (_, index) => ({
       path: `memory/2026-08-${String(index + 1).padStart(2, "0")}.md`,
       name: `2026-08-${String(index + 1).padStart(2, "0")}.md`,
@@ -87,7 +87,17 @@ describe("MemoryMemoriesElement", () => {
         request.mock.calls.filter(([method]) => method === "agents.workspace.list"),
       ).toHaveLength(1);
       expect(element.textContent).not.toContain("Long-term context.");
-      const recentSection = element.querySelectorAll(".settings-section")[1]!;
+      const sections = [...element.querySelectorAll<HTMLElement>(".settings-section")];
+      expect(
+        sections.map((section) =>
+          section.querySelector(".settings-section__heading")?.textContent?.trim(),
+        ),
+      ).toEqual(["Search all knowledge", "Long-term memory", "Recent daily memory"]);
+      const recentSection = sections.find(
+        (section) =>
+          section.querySelector(".settings-section__heading")?.textContent?.trim() ===
+          "Recent daily memory",
+      )!;
       const recentTitles = [
         ...recentSection.querySelectorAll(".memory-memories__result .settings-row__title"),
       ].map((node) => node.textContent?.trim());
@@ -111,7 +121,7 @@ describe("MemoryMemoriesElement", () => {
       expect(element.textContent).toContain("This is a partial list");
       expect(element.textContent).toContain("Additional top-level entries");
       expect(element.textContent).not.toContain("older top-level entries");
-      const searchMore = [...element.querySelectorAll<HTMLButtonElement>("button")].find(
+      const searchMore = [...recentSection.querySelectorAll<HTMLButtonElement>("button")].find(
         (button) => button.textContent?.trim() === "Search",
       );
       searchMore?.click();

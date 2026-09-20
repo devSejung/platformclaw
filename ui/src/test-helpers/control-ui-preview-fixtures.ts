@@ -28,7 +28,7 @@ export type ControlUiPreviewSession = {
   page: Page;
 };
 
-export type ControlUiPreviewFixture = {
+type ControlUiPreviewFixture = {
   id: string;
   label: string;
   description: string;

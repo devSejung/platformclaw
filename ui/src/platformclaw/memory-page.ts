@@ -350,6 +350,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           surface="dreaming"
         ></openclaw-agent-memory-panel>`;
     }
+    return nothing;
   }
 
   override render() {

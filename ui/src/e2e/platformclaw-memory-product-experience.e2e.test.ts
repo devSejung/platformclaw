@@ -119,7 +119,7 @@ function requestParams(request: { params?: unknown }) {
     : {};
 }
 
-suite("PlatformClaw browse-first Memory product experience", () => {
+suite("PlatformClaw search-first Memory product experience", () => {
   beforeAll(async () => {
     if (!chromiumAvailable) {
       throw new Error(`Playwright Chromium is unavailable at ${executablePath}`);
@@ -169,12 +169,32 @@ suite("PlatformClaw browse-first Memory product experience", () => {
       await expect
         .poll(() => page.locator("openclaw-memory-memories").textContent())
         .toContain("MEMORY.md");
+      await expect
+        .poll(async () =>
+          (
+            await page
+              .locator("openclaw-memory-memories .settings-section__heading")
+              .allTextContents()
+          ).map((text) => text.trim()),
+        )
+        .toEqual(["Search all knowledge", "Long-term memory", "Recent daily memory"]);
 
       await memoryTabs.getByRole("tab", { name: "Personal Wiki", exact: true }).click();
       await expectActive("Personal Wiki", "wiki", "/platformclaw/app/settings/memory/wiki");
+      const wikiPanel = page.locator("openclaw-agent-memory-panel");
+      await expect.poll(() => wikiPanel.textContent()).toContain("Release preflight synthesis");
+      await wikiPanel.getByRole("button", { name: "Graph", exact: true }).click();
+      await expect.poll(async () => (await gateway.getRequests("wiki.graph")).length).toBe(1);
+      await expect.poll(() => wikiPanel.locator(".memory-wiki-graph svg").count()).toBe(1);
+      await expect.poll(() => wikiPanel.locator(".memory-wiki-graph__edges line").count()).toBe(1);
+      await wikiPanel.locator('[data-wiki-node="syntheses/release-preflight.md"] circle').click();
       await expect
-        .poll(() => page.locator("openclaw-agent-memory-panel").textContent())
-        .toContain("Release preflight synthesis");
+        .poll(async () => (await gateway.getRequests("wiki.document.get")).length)
+        .toBe(1);
+      await expect
+        .poll(() => page.locator(".wiki-document__reader").textContent())
+        .toContain("Record canary health and the responsible owner.");
+      await page.getByRole("button", { name: "Close" }).click();
 
       await memoryTabs.getByRole("tab", { name: "Organization", exact: true }).click();
       await expectActive(

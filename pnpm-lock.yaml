@@ -33,6 +33,7 @@ overrides:
   qs: 6.15.3
   sharp: 0.35.4
   node-domexception: npm:@nolyfill/domexception@1.0.28
+  acpx>tsx: 4.23.13
   typebox: 1.3.6
   tar: 7.5.22
   tough-cookie: 5.1.2
