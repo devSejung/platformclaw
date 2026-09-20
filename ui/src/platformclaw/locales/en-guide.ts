@@ -305,7 +305,6 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.organization.errors.noMembershipRemoved":
     "No membership was removed. The roster was refreshed; review its current state.",
   "platformClaw.memory.tabs.label": "Memory and knowledge sections",
-  "platformClaw.memory.tabs.overview": "Overview",
   "platformClaw.memory.tabs.organization": "Organization",
   "platformClaw.memory.organization.views": "Organization knowledge views",
   "platformClaw.memory.organization.sharing": "Sharing & review",
@@ -336,21 +335,6 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.memory.organization.graphPreviewLoading": "Loading knowledge…",
   "platformClaw.memory.organization.graphPreviewMissing":
     "This knowledge is no longer available to your account.",
-  "platformClaw.memory.overview.title": "Memory and knowledge",
-  "platformClaw.memory.overview.description":
-    "Memory recalls personal context, Personal Wiki keeps reusable documents, and Dreaming organizes durable knowledge.",
-  "platformClaw.memory.overview.memoryDescription":
-    "Search MEMORY.md, daily memory, and other indexed personal context.",
-  "platformClaw.memory.overview.wikiDescription":
-    "Browse structured pages that can be reviewed and shared with your organization.",
-  "platformClaw.memory.overview.organizationDescription":
-    "Share and review Personal Wiki knowledge for your Part, Group, Team, or the whole organization.",
-  "platformClaw.memory.overview.dreamingDescription":
-    "Review consolidation status, Dream Diary, and memory activity.",
-  "platformClaw.memory.overview.openMemory": "Open Memory",
-  "platformClaw.memory.overview.openWiki": "Open Personal Wiki",
-  "platformClaw.memory.overview.openOrganization": "Open organization sharing",
-  "platformClaw.memory.overview.openDreaming": "Open Dreaming",
   "memoryPage.promotions.loading": "Loading organization knowledge…",
   "memoryPage.promotions.target": "Target scope",
   "memoryPage.promotions.scope": "Organization scope",
@@ -416,11 +400,6 @@ export const translations: Readonly<Record<string, string>> = {
     "Organization shows your Team, Group, and Part membership, your primary scope, and available join requests.",
   "platformClaw.guide.organizationNavDetails":
     "Overview shows current membership and inherited access.|Requests is where you apply to join and track the decision.|Delegated leaders and administrators manage members and structure only within their allowed scope.|Audit appears only to users with permission.|This Settings category is separate from the Organization knowledge-promotion tab inside Memory.",
-  "platformClaw.guide.memoryOverviewTitle": "Memory: five views for retained knowledge",
-  "platformClaw.guide.memoryOverviewBody":
-    "This screen separates raw recall, compiled pages, organization sharing, and consolidation history.",
-  "platformClaw.guide.memoryOverviewDetails":
-    "Overview summarizes the available stores.|Memory searches personal recall.|Personal Wiki opens reusable compiled pages.|Organization submits and reviews knowledge promotions.|Dreaming shows how durable memory was consolidated.",
   "platformClaw.guide.personalMemoryTitle": "Memory: search personal recall",
   "platformClaw.guide.personalMemoryBody":
     "Search for details your Agent retained from your own work and conversations.",

@@ -805,6 +805,18 @@ Native dependency policy:
   - No real Gateway, agents, or provider keys required
   - Browser dependency must be present (`pnpm --dir ui exec playwright install chromium`)
 
+For interactive visual work against the same mocked-Gateway fixtures, use the
+headed fixture preview instead of editing an E2E test to pause:
+
+```bash
+pnpm ui:fixture-preview -- --list
+pnpm ui:fixture-preview -- platformclaw-memory --viewport 1920x1080 --theme platformclaw --mode light
+```
+
+The preview starts the source Vite server, opens Chromium, and stays alive until
+the browser closes or you press Ctrl-C. It is for manual UI inspection; the
+automated E2E lane remains the pass/fail proof.
+
 ### E2E: OpenShell backend smoke
 
 - Command: `pnpm test:e2e:openshell`

@@ -250,21 +250,6 @@ export const translations: Readonly<Record<string, string>> = {
     "빠른 실행을 사용할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
   "platformClaw.memory.unavailable": "메모리를 사용할 수 없음",
   ...organizationMemoryGraphTranslations,
-  "platformClaw.memory.overview.title": "Memory 및 지식",
-  "platformClaw.memory.overview.description":
-    "Memory는 개인 맥락을 회상하고, Personal Wiki는 재사용할 문서를 보관하며, Dreaming은 장기 지식을 정리합니다.",
-  "platformClaw.memory.overview.memoryDescription":
-    "MEMORY.md, 일일 Memory와 색인된 개인 맥락을 검색합니다.",
-  "platformClaw.memory.overview.wikiDescription":
-    "검토 후 조직에 공유할 수 있는 구조화된 문서를 확인합니다.",
-  "platformClaw.memory.overview.organizationDescription":
-    "Personal Wiki 지식을 소속 Part, Group, Team 또는 전사 범위에 공유하고 검토합니다.",
-  "platformClaw.memory.overview.dreamingDescription":
-    "정리 상태, Dream Diary와 Memory 활동을 확인합니다.",
-  "platformClaw.memory.overview.openMemory": "Memory 열기",
-  "platformClaw.memory.overview.openWiki": "Personal Wiki 열기",
-  "platformClaw.memory.overview.openOrganization": "조직 공유 열기",
-  "platformClaw.memory.overview.openDreaming": "Dreaming 열기",
   "memoryPage.memories.longTermTitle": "장기 Memory",
   "memoryPage.memories.longTermDescription": "Agent가 MEMORY.md에 보관하는 지속적인 맥락입니다.",
   "memoryPage.memories.longTermEmpty": "MEMORY.md가 비어 있습니다. 장기 내용은 여기에 저장됩니다.",
@@ -435,11 +420,6 @@ export const translations: Readonly<Record<string, string>> = {
     "조직에서는 내 Team·Group·Part 소속과 기본 조직 범위를 확인하고 가입을 요청할 수 있습니다.",
   "platformClaw.guide.organizationNavDetails":
     "개요에서 현재 소속과 상속받은 접근 범위를 확인합니다.|요청에서 조직 가입을 신청하고 처리 상태를 봅니다.|위임받은 리더와 관리자는 허용된 범위의 멤버와 조직 구조를 관리합니다.|감사 기록은 권한이 있는 사용자에게만 표시됩니다.|이 설정 카테고리는 Memory 안의 조직 지식 승격 탭과 다른 기능입니다.",
-  "platformClaw.guide.memoryOverviewTitle": "메모리: 다섯 가지 지식 보기",
-  "platformClaw.guide.memoryOverviewBody":
-    "이 화면은 개인 회상, 정리된 문서, 조직 공유, 장기 지식 정리 기록을 나누어 보여줍니다.",
-  "platformClaw.guide.memoryOverviewDetails":
-    "개요는 사용할 수 있는 저장소를 요약합니다.|Memory는 개인 기억을 검색합니다.|Personal Wiki는 재사용할 수 있게 정리된 문서를 엽니다.|조직 지식은 지식 승격을 요청하고 승인합니다.|Dreaming은 장기 기억이 정리된 기록을 보여줍니다.",
   "platformClaw.guide.personalMemoryTitle": "Memory: 개인 기억 검색하기",
   "platformClaw.guide.personalMemoryBody":
     "내 작업과 대화에서 Agent가 기억한 내용을 구체적인 문구로 검색합니다.",

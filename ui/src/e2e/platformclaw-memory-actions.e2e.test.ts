@@ -291,7 +291,14 @@ suite("PlatformClaw memory actions E2E", () => {
       });
       await page.goto(`${server.baseUrl}platformclaw/app/settings/memory`);
       await expect.poll(() => page.locator("platformclaw-memory-page").isVisible()).toBe(true);
-      await page.getByRole("tab", { name: "Memory", exact: true }).click();
+      await expect
+        .poll(() =>
+          page
+            .locator(".platformclaw-memory-page__tabs")
+            .getByRole("tab", { name: "Memory", exact: true })
+            .getAttribute("aria-selected"),
+        )
+        .toBe("true");
       const memoryRow = page.locator(".memory-memories__result").filter({ hasText: "MEMORY.md" });
       await expect.poll(() => memoryRow.isVisible()).toBe(true);
       await screenshot("01-personal-memory");

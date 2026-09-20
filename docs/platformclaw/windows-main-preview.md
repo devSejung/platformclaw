@@ -12,6 +12,49 @@ Use the Windows preview launcher for the short browser feedback loop. It runs a
 synthetic employee-auth service, one private OpenClaw Gateway, and the
 PlatformClaw control service. Linux Docker remains the final runtime authority.
 
+## Choose the lightest preview that fits
+
+PlatformClaw has several browser and UI development loops. Use the lightest one
+that proves the behavior you are working on:
+
+| Mode                  | Command                                                            | What it runs                                                                 | Best for                                                                     |
+| --------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Control UI source dev | `pnpm ui:dev`                                                      | Vite source server only; connect it to a real Gateway                        | HMR while changing generic Control UI code                                   |
+| Fixture preview       | `pnpm ui:fixture-preview -- <fixture>`                             | Vite source server + headed Chromium + deterministic in-browser Gateway mock | Fast layout, responsive, theme, and interaction review without backend setup |
+| Static Vite preview   | `pnpm --dir ui preview`                                            | An already-built UI bundle only                                              | Checking static build output when a Gateway is already available             |
+| Mocked browser E2E    | `pnpm test:ui:e2e`                                                 | Built Control UI + headless Playwright + deterministic Gateway mocks         | Automated browser regression proof                                           |
+| Windows main preview  | `.\scripts\platformclaw-windows.ps1 -Action Start -SourceRef HEAD` | Synthetic employee auth + real private Gateway + control service + built UI  | Login, routing, Gateway integration, and current-checkout behavior           |
+| VM preview            | `.\scripts\platformclaw-vm-preview.ps1 -Action Start`              | Docker stack + Fake SafeConnect + VM execution path                          | Full VM registration, credential, and execution integration                  |
+
+`pnpm ui:fixture-preview` reuses the same fixture helpers as Control UI E2E.
+List the available named fixtures first:
+
+```powershell
+pnpm ui:fixture-preview -- --list
+```
+
+For example, this opens the populated PlatformClaw Memory fixture at an FHD CSS
+viewport:
+
+```powershell
+pnpm ui:fixture-preview -- platformclaw-memory --viewport 1920x1080 --theme platformclaw --mode light --locale ko-KR
+```
+
+On Windows, a dependency-less linked worktree intentionally blocks `pnpm`
+dependency reconciliation. In that case, reuse the primary checkout toolchain
+through the Node entry point instead of installing dependencies in the worktree:
+
+```powershell
+node --import tsx scripts\control-ui-fixture-preview.ts platformclaw-memory --viewport 1920x1080 --theme platformclaw --mode light --locale ko-KR
+```
+
+Viewport presets are `desktop`, `fhd`, and `mobile`; an explicit `WIDTHxHEIGHT`
+also works. Built-in theme families are `platformclaw`, `claw`, `knot`, and
+`dash`, with `light` or `dark` mode selected separately. The browser stays open
+for manual clicking until you close it or press Ctrl-C. Fixture preview uses
+synthetic data and does not start a real Gateway or control service, so use the
+Windows main preview before treating a backend integration change as validated.
+
 The launcher never installs dependencies into the source checkout. It fetches
 `origin/main`, exports that exact commit into an isolated cache under
 `%LOCALAPPDATA%`, and uses the repository-pinned pnpm through Corepack. This

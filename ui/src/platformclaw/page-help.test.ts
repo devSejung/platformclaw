@@ -68,7 +68,7 @@ describe("PlatformClaw page help", () => {
   });
 
   it.each([
-    ["/settings/memory", "Memory: five views for retained knowledge"],
+    ["/settings/memory", "Memory: search personal recall"],
     ["/settings/memory/memories", "Memory: search personal recall"],
     ["/settings/memory/wiki", "Personal Wiki: review reusable source pages"],
     ["/settings/memory/organization", "Organization: promote personal knowledge to your Part"],

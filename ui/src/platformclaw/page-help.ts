@@ -48,7 +48,7 @@ function memoryGuide(pathname: string, search: string): string {
   if (/\/dreams\/?$/.test(routedPath)) {
     return "dreaming";
   }
-  return "memoryOverview";
+  return "personalMemory";
 }
 
 function pluginGuide(pathname: string): string {
