@@ -100,7 +100,7 @@ export function readPitchTiming(host: Locator) {
   });
 }
 
-export function batterPoseDrift(
+function batterPoseDrift(
   reference: Awaited<ReturnType<typeof readBatterPose>>,
   sample: Awaited<ReturnType<typeof readBatterPose>>,
 ): number[] {
