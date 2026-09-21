@@ -590,7 +590,7 @@ export function toStreamingMarkdownHtml(
   }
   const tailHtml =
     tailRepairStart === null
-      ? renderSanitizedMarkdown(streamingTail, renderOptions)
+      ? renderSanitizedMarkdown(streamingTail, { ...renderOptions, streamingOpenFence: true })
       : renderSanitizedMarkdown(
           repairStreamingMarkdownTail(streamingTail, tailRepairStart - boundary),
           renderOptions,
