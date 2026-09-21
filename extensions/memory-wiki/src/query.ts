@@ -115,7 +115,7 @@ type QueryDigestBundle = {
   claims: QueryDigestClaim[];
 };
 
-export type WikiSearchResult = {
+type WikiSearchResult = {
   corpus: string;
   path: string;
   title: string;
@@ -144,7 +144,7 @@ export type WikiSearchResult = {
   evidenceSourceIds?: string[];
 };
 
-export type WikiGetResult = {
+type WikiGetResult = {
   /** Revision of the entire raw Wiki artifact, including frontmatter, not the body excerpt. */
   contentHash?: string;
   deletionUnavailableReason?: "shared-vault" | "page-too-large" | "generated-page";
