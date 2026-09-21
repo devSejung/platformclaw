@@ -64,15 +64,14 @@ export function renderBaseballGame(params: {
     data-bat-id=${params.roundBatId}
     data-pitch-state=${params.phase}
   >
-    <div class="platformclaw-easter-egg__hud" aria-live="polite">
+    <div class="platformclaw-easter-egg__score" aria-live="polite">
       <span>안타 ${params.hits}</span><span>홈런 ${params.homeRuns}</span>
+    </div>
+    <div class="platformclaw-easter-egg__hud" aria-live="polite">
       <span>연속 홈런 ${params.streak}</span
       ><span>최고 ${params.progress?.bestDistanceM ?? 0}m</span>
       <span>골드 ${params.progress?.gold ?? 0}</span>
       <span>${params.pitchSpeedKph === null ? "" : `${Math.round(params.pitchSpeedKph)}km/h`}</span>
-      <button type="button" @click=${params.onOpenShop}>
-        ${BASEBALL_BAT_NAMES[equipped]} 배트 · 상점
-      </button>
     </div>
     ${params.persistenceStatus
       ? html`<div class="platformclaw-easter-egg__save-status" role="status">
@@ -105,7 +104,12 @@ export function renderBaseballGame(params: {
           ${params.lastDistance}m
         </div>`}
     <div class="platformclaw-easter-egg__arena">
-      ${renderBaseballLeaderboards(params.leaderboard, params.leaderboardStatus)}
+      ${renderBaseballLeaderboards(
+        params.leaderboard,
+        params.leaderboardStatus,
+        equipped,
+        params.onOpenShop,
+      )}
       <div class="platformclaw-easter-egg__trail" aria-hidden="true">
         ${Array.from(
           { length: BASEBALL_TRAIL_POINTS },
@@ -149,26 +153,31 @@ export function renderBaseballGame(params: {
   </div>`;
 }
 
-function renderBaseballLeaderboards(leaderboard: BaseballLeaderboard | null, status: string) {
-  if (!leaderboard) {
-    return status
-      ? html`<div class="platformclaw-easter-egg__leaderboards" role="status">${status}</div>`
-      : nothing;
-  }
+function renderBaseballLeaderboards(
+  leaderboard: BaseballLeaderboard | null,
+  status: string,
+  equipped: BaseballBatId,
+  onOpenShop: (event: Event) => void,
+) {
   return html`<div class="platformclaw-easter-egg__leaderboards" aria-label="야구 랭킹">
+    <button class="platformclaw-easter-egg__shop-trigger" type="button" @click=${onOpenShop}>
+      ${BASEBALL_BAT_NAMES[equipped]} 배트 · 상점
+    </button>
     ${status
       ? html`<span class="platformclaw-easter-egg__leaderboard-status" role="status"
           >${status}</span
         >`
       : nothing}
-    <section>
-      <strong>비거리 TOP 5</strong>
-      ${renderBaseballLeaderboardRows(leaderboard.distance, "m")}
-    </section>
-    <section>
-      <strong>연속 홈런 TOP 5</strong>
-      ${renderBaseballLeaderboardRows(leaderboard.homeRunStreak, "")}
-    </section>
+    ${leaderboard
+      ? html`<section>
+            <strong>비거리 TOP 5</strong>
+            ${renderBaseballLeaderboardRows(leaderboard.distance, "m")}
+          </section>
+          <section>
+            <strong>연속 홈런 TOP 5</strong>
+            ${renderBaseballLeaderboardRows(leaderboard.homeRunStreak, "")}
+          </section>`
+      : nothing}
   </div>`;
 }
 

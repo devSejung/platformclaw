@@ -43,6 +43,16 @@ platformclaw-easter-egg {
   opacity: 0.72;
 }
 
+.platformclaw-easter-egg__score {
+  position: absolute;
+  left: 0;
+  z-index: 12;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  width: var(--shell-nav-width);
+}
+
 .platformclaw-easter-egg__leaderboards {
   position: absolute;
   right: 12px;
@@ -61,6 +71,12 @@ platformclaw-easter-egg {
 .platformclaw-easter-egg__leaderboard-status {
   grid-column: 1 / -1;
   color: var(--danger, #c2413b);
+}
+
+.platformclaw-easter-egg__shop-trigger {
+  grid-column: 1 / -1;
+  justify-self: end;
+  margin-right: 6px;
 }
 
 .platformclaw-easter-egg__leaderboards section,
@@ -116,7 +132,7 @@ platformclaw-easter-egg {
   font-weight: 500;
 }
 
-.platformclaw-easter-egg__hud button,
+.platformclaw-easter-egg__shop-trigger,
 .platformclaw-easter-egg__save-status button {
   padding: 2px 6px;
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
@@ -171,7 +187,7 @@ platformclaw-easter-egg {
   left: 0;
   display: block;
   border-radius: 50%;
-  background: #000;
+  background: #fff;
   opacity: 0;
   transform-origin: 50% 50%;
   will-change: transform, opacity;
@@ -192,8 +208,12 @@ platformclaw-easter-egg {
   margin-top: -5px;
   margin-left: -5px;
   border: 0;
-  background: #000;
   box-shadow: none;
+}
+
+:root[data-theme-mode="light"] .platformclaw-easter-egg__trail-dot,
+:root[data-theme-mode="light"] .platformclaw-easter-egg__projectile {
+  background: #000;
 }
 
 .platformclaw-easter-egg__player,
@@ -267,6 +287,7 @@ platformclaw-easter-egg {
 }
 
 .platformclaw-easter-egg__figure-label,
+.platformclaw-easter-egg__score,
 .platformclaw-easter-egg__leaderboards {
   color: color-mix(in srgb, var(--muted) 86%, var(--text));
   font-size: 9px;
@@ -424,16 +445,22 @@ platformclaw-easter-egg {
   transform: rotate(-12deg);
 }
 
-.platformclaw-easter-egg__player--swing {
-  animation: platformclaw-easter-egg-batter-swing 190ms ease-out;
+.platformclaw-easter-egg__player--swing .platformclaw-easter-egg__bat,
+.platformclaw-easter-egg__player--swing-perfect .platformclaw-easter-egg__bat {
+  animation: platformclaw-easter-egg-batter-swing 190ms ease-out both;
 }
 
-.platformclaw-easter-egg__player--swing-perfect {
-  animation: platformclaw-easter-egg-batter-swing-perfect 150ms ease-out;
+.platformclaw-easter-egg__player--swing .platformclaw-easter-egg__figure-arm-front,
+.platformclaw-easter-egg__player--swing-perfect .platformclaw-easter-egg__figure-arm-front {
+  animation: platformclaw-easter-egg-batter-arm 190ms ease-out both;
 }
 
-.platformclaw-easter-egg__player--follow-through {
-  animation: platformclaw-easter-egg-batter-follow 300ms ease-out;
+.platformclaw-easter-egg__player--follow-through .platformclaw-easter-egg__bat {
+  transform: rotate(10deg);
+}
+
+.platformclaw-easter-egg__player--follow-through .platformclaw-easter-egg__figure-arm-front {
+  transform: rotate(-14deg);
 }
 
 .platformclaw-easter-egg__target--leg-lift .platformclaw-easter-egg__figure-leg-front {
@@ -457,27 +484,20 @@ platformclaw-easter-egg {
 }
 
 @keyframes platformclaw-easter-egg-batter-swing {
-  50% {
-    rotate: -8deg;
+  45% {
+    transform: rotate(-10deg);
   }
   100% {
-    rotate: 14deg;
+    transform: rotate(10deg);
   }
 }
 
-@keyframes platformclaw-easter-egg-batter-swing-perfect {
-  50% {
-    rotate: -11deg;
-    scale: 1.03;
+@keyframes platformclaw-easter-egg-batter-arm {
+  45% {
+    transform: rotate(10deg);
   }
   100% {
-    rotate: 18deg;
-  }
-}
-
-@keyframes platformclaw-easter-egg-batter-follow {
-  50% {
-    rotate: 8deg;
+    transform: rotate(-14deg);
   }
 }
 
@@ -535,8 +555,14 @@ platformclaw-easter-egg {
   }
 }
 
+@media (min-width: 601px) {
+  body.platformclaw-baseball-active .sidebar-shell__body {
+    margin-bottom: 88px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .platformclaw-easter-egg__player,
+  .platformclaw-easter-egg__player *,
   .platformclaw-easter-egg__target *,
   .platformclaw-easter-egg__feedback {
     animation: none;

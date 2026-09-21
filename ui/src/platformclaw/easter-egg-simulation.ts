@@ -10,9 +10,9 @@ export const BASEBALL_WORLD = {
   gravity: 9.81,
 } as const;
 
-const PITCH_SPEED_RANGE_KPH = { min: 115, max: 155 } as const;
 const SIMULATION_STEP_MS = 5;
 const MAX_LATE_CONTACT_SPEED_PENALTY = 0.4;
+const LAUNCH_SPEED_SCALE = 0.88;
 
 export type BaseballPoint = { x: number; y: number };
 
@@ -44,8 +44,7 @@ export type BattedBallSimulation = {
 
 export function createPitch(random: () => number = Math.random): Pitch {
   const sample = Math.min(1, Math.max(0, random()));
-  const speedKph =
-    PITCH_SPEED_RANGE_KPH.min + sample * (PITCH_SPEED_RANGE_KPH.max - PITCH_SPEED_RANGE_KPH.min);
+  const speedKph = sample < 0.5 ? 115 + sample * 20 : 145 + (sample - 0.5) * 20;
   const speedMps = speedKph / 3.6;
   return {
     speedKph,
@@ -79,7 +78,8 @@ export function createBattedBall(options: {
   const launchSpeed =
     (20 + contactQuality * 18) *
     options.batPower *
-    (1 - lateContact * MAX_LATE_CONTACT_SPEED_PENALTY);
+    (1 - lateContact * MAX_LATE_CONTACT_SPEED_PENALTY) *
+    LAUNCH_SPEED_SCALE;
   const launchAngle = ((28 + contactQuality * 10) * Math.PI) / 180;
   return {
     elapsedMs: 0,

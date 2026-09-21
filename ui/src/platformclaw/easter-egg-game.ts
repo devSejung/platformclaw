@@ -103,6 +103,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   private readonly clock = new PausableGameClock<TimerKey>(() => this.now());
   private arenaElement: HTMLElement | null = null;
   private playerElement: HTMLElement | null = null;
+  private scoreElement: HTMLElement | null = null;
   private pitcherElement: HTMLElement | null = null;
   private outfielderElement: HTMLElement | null = null;
   private fenceElement: HTMLElement | null = null;
@@ -198,6 +199,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   private async startGame(): Promise<void> {
     const sequence = ++this.playSequence;
     this.resetRuntime();
+    document.body.classList.add("platformclaw-baseball-active");
     this.active = true;
     this.round = 0;
     this.hits = 0;
@@ -641,6 +643,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   private cacheElements(): void {
     this.arenaElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__arena");
     this.playerElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__player");
+    this.scoreElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__score");
     this.pitcherElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__target");
     this.outfielderElement = this.querySelector<HTMLElement>(
       ".platformclaw-easter-egg__outfielder",
@@ -667,6 +670,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       outfielderX: this.battedBall?.outfielder.x ?? 55,
       pitcher: this.pitcherElement,
       player: this.playerElement,
+      score: this.scoreElement,
     });
   }
 
@@ -700,6 +704,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   private finishGame(): void {
     this.playSequence += 1;
     this.resetRuntime();
+    document.body.classList.remove("platformclaw-baseball-active");
     this.active = false;
     this.shopOpen = false;
     this.progress = null;

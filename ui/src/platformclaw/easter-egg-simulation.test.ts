@@ -26,15 +26,23 @@ describe("PlatformClaw easter egg simulation", () => {
     const pitch = createPitch(random);
 
     expect(random).toHaveBeenCalledOnce();
-    expect(pitch.speedKph).toBe(125);
+    expect(pitch.speedKph).toBe(120);
     expect(pitchPositionAt(pitch, 0).x).toBe(BASEBALL_WORLD.pitcherX);
     expect(pitchPositionAt(pitch, pitch.idealContactTimeMs).x).toBeCloseTo(
       BASEBALL_WORLD.contactX,
       10,
     );
-    expect(createPitch(() => 0).idealContactTimeMs).toBeGreaterThan(
-      createPitch(() => 1).idealContactTimeMs,
-    );
+    const slow = createPitch(() => 0);
+    const fast = createPitch(() => 0.5);
+    expect(slow.speedKph).toBe(115);
+    expect(createPitch(() => 0.499_999).speedKph).toBeCloseTo(125, 4);
+    expect(fast.speedKph).toBe(145);
+    expect(createPitch(() => 1).speedKph).toBe(155);
+    expect(slow.idealContactTimeMs - fast.idealContactTimeMs).toBeGreaterThan(100);
+    for (let index = 0; index <= 100; index += 1) {
+      const speed = createPitch(() => index / 100).speedKph;
+      expect(speed <= 125 || speed >= 145).toBe(true);
+    }
   });
 
   it("applies bat power to launch physics without changing timing boundaries", () => {
@@ -73,7 +81,7 @@ describe("PlatformClaw easter egg simulation", () => {
     advanceBattedBall(simulation, simulation.outfielder.reactionDelayMs - 5);
     expect(simulation.outfielder.x).toBe(startingX);
     advanceBattedBall(simulation, 10);
-    expect(simulation.outfielder.x).toBeGreaterThan(startingX);
+    expect(simulation.outfielder.x).toBeLessThan(startingX);
 
     const result = playToResult(50);
     expect(result.result?.kind).toBe("OUT");
@@ -85,9 +93,9 @@ describe("PlatformClaw easter egg simulation", () => {
       playToResult(timingDeltaMs, 1, 16, false).result?.distanceM ?? 0;
 
     expect(distance(-25)).toBeCloseTo(distance(25), 10);
-    expect(distance(0)).toBeGreaterThan(110);
-    expect(distance(0)).toBeLessThan(145);
-    expect(distance(40)).toBeLessThan(80);
+    expect(distance(0)).toBeGreaterThan(105);
+    expect(distance(0)).toBeLessThan(120);
+    expect(distance(40)).toBeLessThan(65);
     expect(distance(50)).toBeLessThan(distance(40));
     expect(distance(60)).toBeLessThan(distance(50));
     expect(distance(100)).toBeLessThan(20);
@@ -104,14 +112,27 @@ describe("PlatformClaw easter egg simulation", () => {
     const outs = results.filter((result) => result === "OUT").length;
     const hits = results.filter((result) => result === "HIT").length;
 
-    expect(homeRuns / results.length).toBeGreaterThan(0.35);
-    expect(homeRuns / results.length).toBeLessThan(0.45);
-    expect(outs / results.length).toBeGreaterThan(0.35);
-    expect(outs / results.length).toBeLessThan(0.45);
-    expect(hits / results.length).toBeGreaterThan(0.18);
-    expect(hits / results.length).toBeLessThan(0.26);
-    expect(outs / (outs + hits)).toBeGreaterThan(0.6);
-    expect(outs / (outs + hits)).toBeLessThan(0.7);
+    expect(homeRuns / results.length).toBeGreaterThan(0.22);
+    expect(homeRuns / results.length).toBeLessThan(0.29);
+    expect(outs / results.length).toBeGreaterThan(0.4);
+    expect(outs / results.length).toBeLessThan(0.49);
+    expect(hits / results.length).toBeGreaterThan(0.27);
+    expect(hits / results.length).toBeLessThan(0.36);
+    expect(outs / (outs + hits)).toBeGreaterThan(0.55);
+    expect(outs / (outs + hits)).toBeLessThan(0.65);
+
+    const homeRunRates = BASEBALL_BATS.map((bat) => {
+      const batResults = Array.from(
+        { length: 41 },
+        (_, index) => playToResult(index * 5 - 100, bat.exitVelocityMultiplier).result?.kind,
+      );
+      return batResults.filter((result) => result === "HOME_RUN").length / batResults.length;
+    });
+    expect(homeRunRates[0]).toBeGreaterThan(0.05);
+    expect(homeRunRates[0]).toBeLessThan(0.12);
+    expect(homeRunRates.at(-1)).toBeGreaterThan(0.35);
+    expect(homeRunRates.at(-1)).toBeLessThan(0.47);
+    expect(homeRunRates).toEqual(homeRunRates.toSorted((left, right) => left - right));
   });
 
   it("records an ordinary landing inside the fence when no fielder can reach it", () => {

@@ -101,9 +101,16 @@ describe("PlatformClaw easter egg", () => {
 
     const game = egg.querySelector('[role="application"]');
     expect(game).not.toBeNull();
+    expect(document.body.classList.contains("platformclaw-baseball-active")).toBe(true);
     expect(game?.getAttribute("aria-label")).toBe("PlatformClaw Stickman Baseball");
-    expect(egg.querySelector(".platformclaw-easter-egg__hud")?.textContent).toContain("안타 0");
-    expect(egg.querySelector(".platformclaw-easter-egg__hud")?.textContent).toContain("홈런 0");
+    expect(egg.querySelector(".platformclaw-easter-egg__score")?.textContent).toContain("안타 0");
+    expect(egg.querySelector(".platformclaw-easter-egg__score")?.textContent).toContain("홈런 0");
+    const hudMetrics = Array.from(
+      egg.querySelectorAll<HTMLElement>(".platformclaw-easter-egg__hud > span"),
+      (element) => element.textContent,
+    );
+    expect(hudMetrics).not.toContain("안타 0");
+    expect(hudMetrics).not.toContain("홈런 0");
     expect(egg.querySelector(".platformclaw-easter-egg__hud")?.textContent).toContain(
       "연속 홈런 0",
     );
@@ -146,6 +153,7 @@ describe("PlatformClaw easter egg", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
     await egg.updateComplete;
     expect(egg.querySelector('[role="application"]')).toBeNull();
+    expect(document.body.classList.contains("platformclaw-baseball-active")).toBe(false);
   });
 
   it("loads account progress, pauses game timers in the shop, and lets Escape close only the shop", async () => {
@@ -183,7 +191,7 @@ describe("PlatformClaw easter egg", () => {
       egg.querySelector(".platformclaw-easter-egg__arena > .platformclaw-easter-egg__leaderboards"),
     ).not.toBeNull();
 
-    (egg.querySelector(".platformclaw-easter-egg__hud button") as HTMLButtonElement).click();
+    (egg.querySelector(".platformclaw-easter-egg__shop-trigger") as HTMLButtonElement).click();
     await egg.updateComplete;
     expect(egg.querySelector('[role="dialog"]')).not.toBeNull();
     await vi.advanceTimersByTimeAsync(5_000);
@@ -236,7 +244,7 @@ describe("PlatformClaw easter egg", () => {
     };
     window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
     await flush(egg);
-    (egg.querySelector(".platformclaw-easter-egg__hud button") as HTMLButtonElement).click();
+    (egg.querySelector(".platformclaw-easter-egg__shop-trigger") as HTMLButtonElement).click();
     await egg.updateComplete;
     (egg.querySelector('[data-shop-bat="silver"]') as HTMLButtonElement).click();
     await flush(egg);

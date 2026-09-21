@@ -16,6 +16,7 @@ import {
   startControlUiE2eServer,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
+import * as baseballProof from "./platformclaw-baseball.e2e-helpers.ts";
 
 const executablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(executablePath);
@@ -217,6 +218,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
   });
 
   it("buys and equips a bat, restores progress, and isolates another account", async () => {
+    const viewport = { height: 800, width: 1280 };
     const initialA = progress({ gold: 50, totalHomers: 3, bestDistanceM: 138, revision: 1 });
     const purchasedA = progress({
       gold: 0,
@@ -230,20 +232,25 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
       equippedBatId: "silver",
       revision: 3,
     });
-    const accountA = await newAccountPage("person.a", "person_a", {
-      [BASEBALL_RPC.progress]: { sequence: [initialA, equippedA] },
-      [BASEBALL_RPC.leaderboard]: leaderboard({
-        distance: [{ displayName: "person.a", value: 138, isCurrentUser: true }],
-        homeRunStreak: [{ displayName: "person.a", value: 2, isCurrentUser: true }],
-      }),
-      [BASEBALL_RPC.purchaseBat]: {
-        batId: "silver",
-        price: 50,
-        purchased: true,
-        progress: purchasedA,
+    const accountA = await newAccountPage(
+      "person.a",
+      "person_a",
+      {
+        [BASEBALL_RPC.progress]: { sequence: [initialA, equippedA] },
+        [BASEBALL_RPC.leaderboard]: leaderboard({
+          distance: [{ displayName: "person.a", value: 138, isCurrentUser: true }],
+          homeRunStreak: [{ displayName: "person.a", value: 2, isCurrentUser: true }],
+        }),
+        [BASEBALL_RPC.purchaseBat]: {
+          batId: "silver",
+          price: 50,
+          purchased: true,
+          progress: purchasedA,
+        },
+        [BASEBALL_RPC.equipBat]: { batId: "silver", changed: true, progress: equippedA },
       },
-      [BASEBALL_RPC.equipBat]: { batId: "silver", changed: true, progress: equippedA },
-    });
+      viewport,
+    );
 
     await openGame(accountA.page);
     expect((await accountA.gateway.waitForRequest(BASEBALL_RPC.progress)).params).toEqual({});
@@ -261,7 +268,14 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
       .poll(() => distanceBoard.getByText("1. person.a (나)", { exact: true }).isVisible())
       .toBe(true);
     await expect.poll(() => streakBoard.isVisible()).toBe(true);
-    await game.getByRole("button", { name: "나무 배트 · 상점" }).click();
+    const initialShop = game.getByRole("button", { name: "나무 배트 · 상점" });
+    const initialShopBounds = await initialShop.boundingBox();
+    expect(initialShopBounds).not.toBeNull();
+    expect(initialShopBounds!.x).toBeGreaterThanOrEqual(0);
+    expect(initialShopBounds!.x + initialShopBounds!.width).toBeLessThanOrEqual(viewport.width);
+    expect(initialShopBounds!.y).toBeGreaterThanOrEqual(0);
+    expect(initialShopBounds!.y + initialShopBounds!.height).toBeLessThanOrEqual(viewport.height);
+    await initialShop.click();
 
     const dialog = game.getByRole("dialog", { name: "배트 상점" });
     await dialog.waitFor();
@@ -310,10 +324,15 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
       .toBe(true);
     await capture(accountA.page, "02-restored-account-a.png");
 
-    const accountB = await newAccountPage("person.b", "person_b", {
-      [BASEBALL_RPC.progress]: progress(),
-      [BASEBALL_RPC.leaderboard]: leaderboard(),
-    });
+    const accountB = await newAccountPage(
+      "person.b",
+      "person_b",
+      {
+        [BASEBALL_RPC.progress]: progress(),
+        [BASEBALL_RPC.leaderboard]: leaderboard(),
+      },
+      viewport,
+    );
     await openGame(accountB.page);
     expect((await accountB.gateway.waitForRequest(BASEBALL_RPC.progress)).params).toEqual({});
     const gameB = accountB.page.locator('platformclaw-easter-egg [role="application"]');
@@ -353,10 +372,28 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
       },
       viewport,
     );
+    await account.page.locator("platformclaw-easter-egg").evaluate((element) => {
+      (element as HTMLElement & { random: () => number }).random = () => 0.5;
+    });
     await openGame(account.page);
     const game = account.page.locator('platformclaw-easter-egg [role="application"]');
     const board = game.locator(".platformclaw-easter-egg__leaderboards");
     await board.waitFor();
+    await expect.poll(() => game.getByText("145km/h", { exact: true }).isVisible()).toBe(true);
+    const phaseBeforeShop = await game.getAttribute("data-pitch-state");
+    const plateAppearancesBeforeShop = (
+      await account.gateway.getRequests(BASEBALL_RPC.plateAppearance)
+    ).length;
+    await game.getByRole("button", { name: "나무 배트 · 상점" }).click();
+    const shopDialog = game.getByRole("dialog", { name: "배트 상점" });
+    await shopDialog.waitFor();
+    await account.page.waitForTimeout(250);
+    expect(await game.getAttribute("data-pitch-state")).toBe(phaseBeforeShop);
+    expect((await account.gateway.getRequests(BASEBALL_RPC.plateAppearance)).length).toBe(
+      plateAppearancesBeforeShop,
+    );
+    await shopDialog.getByRole("button", { name: "닫기" }).click();
+    expect(await baseballProof.denseSessionOverlapCounts(account.page)).toEqual([0, 0, 0]);
     const poses = [
       await captureMotionPhase(account.page, "leg-lift", "visual-1280-leg-lift.png"),
       await captureMotionPhase(account.page, "throw", "visual-1280-throw.png"),
@@ -401,6 +438,20 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
         })(),
         fence: rect(".platformclaw-easter-egg__fence"),
         hud: rect(".platformclaw-easter-egg__hud"),
+        composer: (() => {
+          const bounds = document
+            .querySelector<HTMLElement>(".agent-chat__composer-shell")
+            ?.getBoundingClientRect();
+          if (!bounds) {
+            throw new Error("missing composer");
+          }
+          return {
+            bottom: bounds.bottom,
+            left: bounds.left,
+            right: bounds.right,
+            top: bounds.top,
+          };
+        })(),
         lastNavBottom: Math.max(
           0,
           ...Array.from(document.querySelectorAll<HTMLElement>(".sidebar .nav-item")).map(
@@ -413,6 +464,56 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
         outfielder: rect(".platformclaw-easter-egg__outfielder"),
         pitcher: rect(".platformclaw-easter-egg__target"),
         player: rect(".platformclaw-easter-egg__player"),
+        score: rect(".platformclaw-easter-egg__score"),
+        scorePaint: (() => {
+          const style = getComputedStyle(
+            root.querySelector<HTMLElement>(".platformclaw-easter-egg__score")!,
+          );
+          return {
+            color: style.color,
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            lineHeight: style.lineHeight,
+            opacity: style.opacity,
+          };
+        })(),
+        scoreText: Array.from(
+          root.querySelectorAll<HTMLElement>(".platformclaw-easter-egg__score > span"),
+        ).map((element) => element.textContent),
+        hudMetrics: Array.from(
+          root.querySelectorAll<HTMLElement>(".platformclaw-easter-egg__hud > span"),
+        ).map((element) => element.textContent),
+        sidebarBody: (() => {
+          const bounds = document
+            .querySelector<HTMLElement>(".sidebar-shell__body")
+            ?.getBoundingClientRect();
+          if (!bounds) {
+            throw new Error("missing sidebar body");
+          }
+          return {
+            bottom: bounds.bottom,
+            height: bounds.height,
+            left: bounds.left,
+            right: bounds.right,
+            top: bounds.top,
+            width: bounds.width,
+          };
+        })(),
+        shop: rect(".platformclaw-easter-egg__shop-trigger"),
+        shopPointerEvents: getComputedStyle(
+          root.querySelector<HTMLElement>(".platformclaw-easter-egg__shop-trigger")!,
+        ).pointerEvents,
+        rankingSections: Array.from(
+          root.querySelectorAll<HTMLElement>(".platformclaw-easter-egg__leaderboards section"),
+        ).map((element) => {
+          const bounds = element.getBoundingClientRect();
+          return {
+            bottom: bounds.bottom,
+            left: bounds.left,
+            right: bounds.right,
+            top: bounds.top,
+          };
+        }),
         voc: (() => {
           const quickActions = document.querySelector<HTMLElement>("platformclaw-quick-actions");
           const bounds = quickActions?.shadowRoot
@@ -458,7 +559,33 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(overlaps(geometry.board, geometry.hud)).toBe(false);
     expect(overlaps(geometry.board, geometry.player)).toBe(false);
     expect(overlaps(geometry.board, geometry.pitcher)).toBe(false);
+    expect(overlaps(geometry.shop, geometry.fence)).toBe(false);
+    expect(overlaps(geometry.shop, geometry.outfielder)).toBe(false);
+    expect(overlaps(geometry.shop, geometry.composer)).toBe(false);
+    expect(geometry.rankingSections.every((section) => !overlaps(geometry.shop, section))).toBe(
+      true,
+    );
+    const rankingGap =
+      Math.min(...geometry.rankingSections.map((section) => section.top)) - geometry.shop.bottom;
+    expect(rankingGap).toBeGreaterThanOrEqual(4);
+    expect(rankingGap).toBeLessThanOrEqual(10);
+    expect(Math.abs(geometry.shop.right - (geometry.board.right - 6))).toBeLessThanOrEqual(2);
+    expect(geometry.shop.left).toBeGreaterThanOrEqual(geometry.board.left);
+    expect(geometry.shop.right).toBeLessThanOrEqual(geometry.board.right);
+    expect(geometry.shop.right).toBeLessThanOrEqual(geometry.viewportWidth);
+    expect(geometry.shopPointerEvents).toBe("auto");
     expect(overlaps(geometry.hud, geometry.player)).toBe(false);
+    expect(overlaps(geometry.score, geometry.player)).toBe(false);
+    expect(overlaps(geometry.score, geometry.pitcher)).toBe(false);
+    expect(overlaps(geometry.score, geometry.voc)).toBe(false);
+    expect(geometry.sidebarBody.bottom).toBeLessThanOrEqual(geometry.score.top);
+    expect(geometry.sidebarBody.bottom).toBeLessThanOrEqual(geometry.player.top);
+    expect(geometry.sidebarBody.bottom).toBeLessThanOrEqual(geometry.pitcher.top);
+    expect(geometry.score.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.score.right).toBeLessThanOrEqual(geometry.navRight);
+    expect(geometry.scoreText).toEqual(["안타 0", "홈런 0"]);
+    expect(geometry.hudMetrics).not.toContain("안타 0");
+    expect(geometry.hudMetrics).not.toContain("홈런 0");
     expect(geometry.player.left).toBeGreaterThanOrEqual(geometry.voc.left);
     expect(geometry.player.right).toBeLessThan(geometry.voc.right);
     expect(geometry.bat.left).toBeGreaterThanOrEqual(0);
@@ -500,7 +627,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(geometry.bat.right - geometry.player.right).toBeGreaterThanOrEqual(10);
     expect(geometry.board.right).toBeGreaterThan(geometry.viewportWidth / 2);
     expect(geometry.board.width).toBeLessThanOrEqual(238);
-    expect(geometry.board.height).toBeLessThanOrEqual(84);
+    expect(geometry.board.height).toBeLessThanOrEqual(108);
     expect(Math.abs(geometry.board.right - geometry.fence.right)).toBeLessThanOrEqual(4);
     expect(Math.abs(geometry.board.bottom - geometry.fence.top)).toBeLessThanOrEqual(4);
     expect(geometry.board.right).toBeLessThanOrEqual(geometry.viewportWidth);
@@ -517,6 +644,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(geometry.boardPaint.fontWeight).toBe(geometry.labelPaint.fontWeight);
     expect(geometry.boardPaint.lineHeight).toBe(geometry.labelPaint.lineHeight);
     expect(geometry.boardPaint.opacity).toBe(geometry.labelPaint.opacity);
+    expect(geometry.scorePaint).toEqual(geometry.labelPaint);
 
     await capture(account.page, "visual-1280-desktop.png");
   });
@@ -529,8 +657,8 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
         [BASEBALL_RPC.progress]: progress(),
         [BASEBALL_RPC.leaderboard]: leaderboard(),
         [BASEBALL_RPC.plateAppearance]: {
-          awardedGold: 0,
-          progress: progress(),
+          awardedGold: 1,
+          progress: progress({ gold: 1, revision: 1 }),
         },
       },
       { height: 800, width: 1280 },
@@ -541,6 +669,12 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     await openGame(account.page);
     const game = account.page.locator('platformclaw-easter-egg [role="application"]');
     await expect.poll(() => game.getAttribute("data-pitch-state")).toBe("pitch");
+    await expect.poll(() => game.getByText("115km/h", { exact: true }).isVisible()).toBe(true);
+    const pitchTiming = await baseballProof.readPitchTiming(
+      account.page.locator("platformclaw-easter-egg"),
+    );
+    expect(pitchTiming.speedKph).toBe(115);
+    expect(pitchTiming.idealContactTimeMs).toBeCloseTo((18.44 / (115 / 3.6)) * 1_000, 8);
     const releaseDelta = await account.page
       .locator("platformclaw-easter-egg")
       .evaluate((element) => {
@@ -563,6 +697,19 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
         );
       });
     expect(releaseDelta).toBeLessThanOrEqual(1);
+    expect(await baseballProof.readBaseballPaint(game)).toEqual({
+      projectile: "rgb(0, 0, 0)",
+      trail: ["rgb(0, 0, 0)"],
+    });
+    await capture(account.page, "visual-1280-light-pitch.png");
+    await baseballProof.setThemeMode(account.page, "dark");
+    expect(await baseballProof.readBaseballPaint(game)).toEqual({
+      projectile: "rgb(255, 255, 255)",
+      trail: ["rgb(255, 255, 255)"],
+    });
+    await capture(account.page, "visual-1280-dark-pitch.png");
+    await baseballProof.setThemeMode(account.page, "light");
+    const idleBatter = await baseballProof.readBatterPose(game);
     const contactDelta = await account.page
       .locator("platformclaw-easter-egg")
       .evaluate((element) => {
@@ -595,6 +742,18 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
       });
     expect(contactDelta).toBeLessThanOrEqual(1);
     await expect.poll(() => game.getAttribute("data-pitch-state")).toBe("in-play");
+    await account.page.waitForTimeout(95);
+    const contactBatter = await baseballProof.readBatterPose(game);
+    await capture(account.page, "visual-1280-batter-contact.png");
+    await account.page.waitForTimeout(110);
+    const followBatter = await baseballProof.readBatterPose(game);
+    await capture(account.page, "visual-1280-batter-follow.png");
+    expect(baseballProof.summarizeBatterMotion(idleBatter, contactBatter, followBatter)).toEqual({
+      contactChanged: true,
+      contactPlanted: true,
+      followChanged: true,
+      followPlanted: true,
+    });
     await account.page.locator("platformclaw-easter-egg").evaluate((element) => {
       const simulation = (
         element as HTMLElement & {
@@ -608,15 +767,10 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     });
 
     const ball = game.locator(".platformclaw-easter-egg__projectile");
-    expect(await ball.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
-      "rgb(0, 0, 0)",
-    );
-    expect(
-      await game
-        .locator(".platformclaw-easter-egg__trail-dot")
-        .first()
-        .evaluate((element) => getComputedStyle(element).backgroundColor),
-    ).toBe("rgb(0, 0, 0)");
+    expect(await baseballProof.readBaseballPaint(game)).toEqual({
+      projectile: "rgb(0, 0, 0)",
+      trail: ["rgb(0, 0, 0)"],
+    });
     const ballRect = async () => {
       const bounds = await ball.boundingBox();
       if (!bounds) {
@@ -628,6 +782,12 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(launch.width).toBe(10);
     expect(launch.height).toBe(10);
     await capture(account.page, "visual-1280-ball-launch.png");
+    await baseballProof.setThemeMode(account.page, "dark");
+    expect(await baseballProof.readBaseballPaint(game)).toEqual({
+      projectile: "rgb(255, 255, 255)",
+      trail: ["rgb(255, 255, 255)"],
+    });
+    await capture(account.page, "visual-1280-dark-ball-launch.png");
     await account.page.locator("platformclaw-easter-egg").evaluate((element) => {
       const gameElement = element as HTMLElement & {
         animationFrame: number;
@@ -668,5 +828,8 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     await capture(account.page, "visual-1280-ball-landing.png");
     expect(descent.x).toBeGreaterThan(midflight.x + 30);
     expect(descent.y).toBeGreaterThan(midflight.y + 20);
+    const plateAppearance = await account.gateway.waitForRequest(BASEBALL_RPC.plateAppearance);
+    expect(plateAppearance.params).toMatchObject({ outcome: "hit" });
+    await expect.poll(() => game.getByText("골드 1", { exact: true }).isVisible()).toBe(true);
   });
 });
