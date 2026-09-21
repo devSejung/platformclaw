@@ -76,7 +76,7 @@ export type BaseballPlateAppearanceRequest = {
 };
 
 export type BaseballPlateAppearanceResult = {
-  awardedGold: 0 | 1;
+  awardedGold: number;
   progress: BaseballProgress;
 };
 

@@ -21,6 +21,7 @@ type BaseballStaticFieldParams = {
   outfielderX: number;
   pitcher: HTMLElement | null;
   player: HTMLElement | null;
+  score: HTMLElement | null;
 };
 
 type BaseballProjectileParams = {
@@ -92,6 +93,9 @@ export function layoutBaseballStaticField(params: BaseballStaticFieldParams): vo
   setBaseballWorldPosition(params.pitcher, BASEBALL_WORLD.pitcherX, 0, layout, 1, true);
   setBaseballWorldPosition(params.outfielder, params.outfielderX, 0, layout);
   params.host.style.setProperty("--platformclaw-baseball-ui-left", `${layout.uiLeft}px`);
+  if (params.score) {
+    params.score.style.bottom = `${layout.height - layout.groundY + 68}px`;
+  }
   if (!params.fence) {
     return;
   }

@@ -141,13 +141,16 @@ export class SqliteControlPlaneStore
       () => {
         const current = this.ensureBaseballProgress(params.userId);
         const streak = this.requireBaseballHomeRunStreakRow(params.userId);
-        const awardedGold = params.outcome === "home_run" ? 1 : 0;
+        const isHomeRun = params.outcome === "home_run";
+        const totalHomers = current.total_homers + (isHomeRun ? 1 : 0);
+        const awardedGold =
+          (isHomeRun || params.outcome === "hit" ? 1 : 0) +
+          (isHomeRun && totalHomers % 5 === 0 ? 5 : 0);
         const bestDistanceM =
           distanceM === undefined
             ? current.best_distance_m
             : Math.max(current.best_distance_m, distanceM);
-        const totalHomers = current.total_homers + awardedGold;
-        const currentHomeRunStreak = params.outcome === "home_run" ? streak.current_streak + 1 : 0;
+        const currentHomeRunStreak = isHomeRun ? streak.current_streak + 1 : 0;
         const bestHomeRunStreak = Math.max(streak.best_streak, currentHomeRunStreak);
         const streakChanged =
           currentHomeRunStreak !== streak.current_streak ||
@@ -162,7 +165,7 @@ export class SqliteControlPlaneStore
           );
         }
         const changed =
-          awardedGold === 1 || bestDistanceM !== current.best_distance_m || streakChanged;
+          awardedGold > 0 || bestDistanceM !== current.best_distance_m || streakChanged;
         if (changed) {
           executeSync(
             this.db,
@@ -178,7 +181,7 @@ export class SqliteControlPlaneStore
           );
         }
         return {
-          awardedGold: awardedGold as 0 | 1,
+          awardedGold,
           progress: this.readBaseballProgress(params.userId),
         };
       },
