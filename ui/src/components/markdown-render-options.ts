@@ -8,7 +8,9 @@ export type MarkdownRenderOptions = {
   wikiLinks?: boolean;
 };
 
-export type MarkdownRenderEnv = Required<MarkdownRenderOptions>;
+export type MarkdownRenderEnv = Required<MarkdownRenderOptions> & {
+  streamingOpenFence?: boolean;
+};
 
 export function normalizeMarkdownRenderOptions(
   options: MarkdownRenderOptions = {},
