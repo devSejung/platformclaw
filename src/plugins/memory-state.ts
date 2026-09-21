@@ -22,6 +22,7 @@ import { requireActivePluginRegistry, resolveDirectPluginRegistrationOwner } fro
 const log = createSubsystemLogger("plugins/memory-state");
 
 export type {
+  MemoryCorpusGetResult,
   MemoryCorpusSearchResult,
   MemoryCorpusSupplement,
   MemoryFlushPlan,

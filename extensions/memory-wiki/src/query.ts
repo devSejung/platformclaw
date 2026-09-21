@@ -3,6 +3,10 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { filterMemorySearchHitsBySessionVisibility } from "@openclaw/memory-core/api.js";
+import type {
+  MemoryCorpusGetResult,
+  MemoryCorpusSearchResult,
+} from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import type { MemorySearchResult } from "openclaw/plugin-sdk/memory-core-host-runtime-files";
 import { resolveDefaultAgentId, resolveSessionAgentId } from "openclaw/plugin-sdk/memory-host-core";
 import { getActiveMemorySearchManager } from "openclaw/plugin-sdk/memory-host-search";
@@ -111,11 +115,11 @@ type QueryDigestBundle = {
   claims: QueryDigestClaim[];
 };
 
-type WikiSearchResult = {
-  corpus: "wiki" | "memory";
+export type WikiSearchResult = {
+  corpus: string;
   path: string;
   title: string;
-  kind: WikiPageSummary["kind"] | "memory";
+  kind: string;
   score: number;
   snippet: string;
   id?: string;
@@ -140,14 +144,14 @@ type WikiSearchResult = {
   evidenceSourceIds?: string[];
 };
 
-type WikiGetResult = {
+export type WikiGetResult = {
   /** Revision of the entire raw Wiki artifact, including frontmatter, not the body excerpt. */
   contentHash?: string;
   deletionUnavailableReason?: "shared-vault" | "page-too-large" | "generated-page";
-  corpus: "wiki" | "memory";
+  corpus: string;
   path: string;
   title: string;
-  kind: WikiPageSummary["kind"] | "index" | "memory";
+  kind: string;
   content: string;
   fromLine: number;
   lineCount: number;
@@ -181,7 +185,7 @@ function sortWikiSearchResults(results: WikiSearchResult[]): WikiSearchResult[] 
   });
 }
 
-function mergeWikiSearchCorpusResults(params: {
+export function mergeWikiSearchCorpusResults(params: {
   wikiResults: WikiSearchResult[];
   memoryResults: WikiSearchResult[];
   maxResults: number;
@@ -1318,6 +1322,26 @@ function toMemoryWikiSearchResult(
   };
 }
 
+export function toSupplementWikiSearchResult(
+  result: MemoryCorpusSearchResult,
+  mode: WikiSearchMode,
+): WikiSearchResult {
+  return {
+    ...result,
+    title: result.title ?? buildMemorySearchTitle(result.path),
+    kind: result.kind ?? result.corpus,
+    searchMode: mode,
+  };
+}
+
+export function toSupplementWikiGetResult(result: MemoryCorpusGetResult): WikiGetResult {
+  return {
+    ...result,
+    title: result.title ?? buildMemorySearchTitle(result.path),
+    kind: result.kind ?? result.corpus,
+  };
+}
+
 async function searchWikiCorpus(params: {
   config: ResolvedMemoryWikiConfig;
   query: string;
@@ -1468,7 +1492,6 @@ export async function searchMemoryWiki(input: {
     });
   }
   const memoryResults = rawMemoryResults.map((result) => toMemoryWikiSearchResult(result, mode));
-
   return mergeWikiSearchCorpusResults({
     wikiResults,
     memoryResults,

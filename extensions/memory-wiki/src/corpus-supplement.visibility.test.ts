@@ -7,13 +7,14 @@ import {
 } from "openclaw/plugin-sdk/memory-host-core";
 import type { AnyAgentTool, OpenClawPluginToolFactory } from "openclaw/plugin-sdk/plugin-entry";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import memoryCorePlugin from "../../memory-core/index.js";
 import type { OpenClawConfig } from "../api.js";
 import { resolveMemoryWikiAgentConfig } from "./config.js";
 import { createWikiCorpusSupplement } from "./corpus-supplement.js";
 import { renderWikiMarkdown } from "./markdown.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
+import { createWikiGetTool, createWikiSearchTool } from "./tool.js";
 
 const { createVault } = createMemoryWikiTestHarness();
 
@@ -101,6 +102,258 @@ function createMemoryCoreTool(params: {
 }
 
 describe("memory-wiki corpus supplement visibility", () => {
+  it("searches and reauthorizes organization pages without widening personal overrides", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    await fs.writeFile(
+      path.join(rootDir, "concepts", "personal.md"),
+      renderWikiMarkdown({
+        frontmatter: {
+          pageType: "concept",
+          id: "concept.personal",
+          title: "Personal PMU notes",
+        },
+        body: "# Personal PMU notes\n\nPMU register guidance\n",
+      }),
+      "utf8",
+    );
+    let authorized = true;
+    const search = vi.fn(async () =>
+      authorized
+        ? [
+            {
+              corpus: "platformclaw-organization",
+              path: "organization/part/pmu-registers",
+              title: "PMU register map",
+              kind: "part",
+              score: 0.9,
+              snippet: "Approved PMU register guidance",
+              source: "organization",
+              provenanceLabel: "PMU",
+            },
+          ]
+        : [],
+    );
+    const get = vi.fn(async () =>
+      authorized
+        ? {
+            corpus: "platformclaw-organization",
+            path: "organization/part/pmu-registers",
+            title: "PMU register map",
+            kind: "part",
+            content: "Approved PMU register guidance",
+            fromLine: 1,
+            lineCount: 1,
+            provenanceLabel: "PMU",
+          }
+        : null,
+    );
+    const caller = {
+      agentId: "main",
+      agentSessionKey: "agent:main:child-session",
+      sandboxed: true,
+    };
+
+    clearMemoryPluginState();
+    try {
+      registerMemoryCorpusSupplement("platformclaw-org-memory", {
+        includeByDefault: true,
+        status: () => ({ available: true }),
+        search,
+        get,
+      });
+      const searchTool = createWikiSearchTool(config, appConfig, caller);
+      const searchResult = await searchTool.execute("wiki-search-org", {
+        query: "PMU register guidance",
+      });
+      expect(asRecord(searchResult.details).results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: "concepts/personal.md", corpus: "wiki" }),
+          expect.objectContaining({
+            path: "organization/part/pmu-registers",
+            corpus: "platformclaw-organization",
+            provenanceLabel: "PMU",
+          }),
+        ]),
+      );
+      expect(search).toHaveBeenCalledWith({
+        query: "PMU register guidance",
+        maxResults: 10,
+        ...caller,
+      });
+
+      const getTool = createWikiGetTool(config, appConfig, caller);
+      const firstGet = await getTool.execute("wiki-get-org", {
+        lookup: "organization/part/pmu-registers",
+      });
+      expect(asRecord(firstGet.details)).toMatchObject({
+        found: true,
+        path: "organization/part/pmu-registers",
+        content: "Approved PMU register guidance",
+      });
+      expect(get).toHaveBeenLastCalledWith({
+        lookup: "organization/part/pmu-registers",
+        fromLine: 1,
+        lineCount: 200,
+        ...caller,
+      });
+
+      authorized = false;
+      const revokedGet = await getTool.execute("wiki-get-org-revoked", {
+        lookup: "organization/part/pmu-registers",
+      });
+      expect(asRecord(revokedGet.details)).toMatchObject({ found: false });
+      expect(get).toHaveBeenCalledTimes(2);
+
+      await searchTool.execute("wiki-search-personal-only", {
+        query: "PMU register guidance",
+        corpus: "wiki",
+      });
+      await getTool.execute("wiki-get-personal-only", {
+        lookup: "concepts/personal.md",
+        corpus: "wiki",
+      });
+      expect(search).toHaveBeenCalledTimes(1);
+      expect(get).toHaveBeenCalledTimes(2);
+    } finally {
+      clearMemoryPluginState();
+    }
+  });
+
+  it.each([
+    {
+      name: "unavailable",
+      status: () => ({ available: false as const, reason: "not-configured" as const }),
+      expectedStatus: "unavailable",
+      expectedWarning: "not configured",
+    },
+    {
+      name: "failed",
+      status: () => ({ available: true as const }),
+      expectedStatus: "failed",
+      expectedWarning: "temporarily unavailable",
+    },
+  ])("keeps personal Wiki usable when organization memory is $name", async (scenario) => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    await fs.writeFile(
+      path.join(rootDir, "concepts", "personal.md"),
+      renderWikiMarkdown({
+        frontmatter: {
+          pageType: "concept",
+          id: "concept.personal",
+          title: "Personal fallback",
+        },
+        body: "# Personal fallback\n\nLOCAL_ONLY_MARKER\n",
+      }),
+      "utf8",
+    );
+    const search = vi.fn(async () => {
+      throw new Error("organization search offline");
+    });
+    const get = vi.fn(async () => {
+      throw new Error("organization get offline");
+    });
+
+    clearMemoryPluginState();
+    try {
+      registerMemoryCorpusSupplement("platformclaw-org-memory", {
+        includeByDefault: true,
+        status: scenario.status,
+        search,
+        get,
+      });
+      const searchResult = await createWikiSearchTool(config, appConfig, {
+        agentId: "main",
+      }).execute("wiki-search-personal", { query: "LOCAL_ONLY_MARKER" });
+      expect(asRecord(searchResult.details)).toMatchObject({
+        results: [expect.objectContaining({ path: "concepts/personal.md" })],
+        warnings: [expect.stringContaining(scenario.expectedWarning)],
+        corpusStatus: [{ pluginId: "platformclaw-org-memory", status: scenario.expectedStatus }],
+      });
+      expect(search).toHaveBeenCalledTimes(scenario.name === "failed" ? 1 : 0);
+
+      const getResult = await createWikiGetTool(config, appConfig, {
+        agentId: "main",
+      }).execute("wiki-get-org-unavailable", {
+        lookup: "organization/part/missing",
+      });
+      expect(asRecord(getResult.details)).toMatchObject({
+        found: false,
+        warnings: [expect.stringContaining(scenario.expectedWarning)],
+        corpusStatus: [{ pluginId: "platformclaw-org-memory", status: scenario.expectedStatus }],
+      });
+      expect(get).toHaveBeenCalledTimes(scenario.name === "failed" ? 1 : 0);
+    } finally {
+      clearMemoryPluginState();
+    }
+  });
+
+  it("queries organization memory once when memory_search includes the Wiki supplement", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    await fs.writeFile(
+      path.join(rootDir, "concepts", "personal.md"),
+      renderWikiMarkdown({
+        frontmatter: {
+          pageType: "concept",
+          id: "concept.personal",
+          title: "Personal PMU notes",
+        },
+        body: "# Personal PMU notes\n\nPMU register guidance\n",
+      }),
+      "utf8",
+    );
+    const organizationSearch = vi.fn(async () => [
+      {
+        corpus: "platformclaw-organization",
+        path: "organization/part/pmu-registers",
+        title: "PMU register map",
+        kind: "part",
+        score: 0.9,
+        snippet: "Approved PMU register guidance",
+      },
+    ]);
+
+    clearMemoryPluginState();
+    try {
+      registerMemoryCorpusSupplement(
+        "memory-wiki",
+        createWikiCorpusSupplement({
+          getAppConfig: () => appConfig,
+          resolveConfig: (agentId, currentAppConfig) =>
+            resolveMemoryWikiAgentConfig({ config, appConfig: currentAppConfig, agentId }),
+        }),
+      );
+      registerMemoryCorpusSupplement("platformclaw-org-memory", {
+        includeByDefault: true,
+        search: organizationSearch,
+        get: async () => null,
+      });
+      const tool = createMemoryCoreTool({
+        factories: registerMemoryCoreToolFactories(),
+        name: "memory_search",
+        agentId: "main",
+        sandboxed: true,
+      });
+
+      const result = await tool.execute("memory-search-wiki-org", {
+        query: "PMU register guidance",
+        corpus: "wiki",
+      });
+
+      expect(asRecord(result.details).results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ corpus: "wiki", path: "concepts/personal.md" }),
+          expect.objectContaining({
+            corpus: "platformclaw-organization",
+            path: "organization/part/pmu-registers",
+          }),
+        ]),
+      );
+      expect(organizationSearch).toHaveBeenCalledTimes(1);
+    } finally {
+      clearMemoryPluginState();
+    }
+  });
+
   it("enforces bridge ownership through direct and registered corpus fallbacks", async () => {
     const { rootDir, config } = await createVault({
       initialize: true,

@@ -175,7 +175,7 @@ export type MemoryCorpusSearchResult = {
   updatedAt?: string;
 };
 
-type MemoryCorpusGetResult = {
+export type MemoryCorpusGetResult = {
   corpus: string;
   path: string;
   title?: string;

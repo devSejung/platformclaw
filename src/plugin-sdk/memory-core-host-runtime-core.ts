@@ -26,11 +26,17 @@ export { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.j
 export type { MemoryCitationsMode } from "../config/types.memory.js";
 
 export type {
+  MemoryCorpusGetResult,
   MemoryCorpusSearchResult,
   MemoryFlushPlan,
   MemoryPluginRuntime,
   MemoryPromptSectionBuilder,
 } from "../plugins/memory-state.js";
+export {
+  getMemoryCorpusSupplementResult,
+  searchMemoryCorpusSupplements,
+  type MemoryCorpusSupplementStatus,
+} from "../plugins/memory-corpus-runtime.js";
 export {
   clearMemoryPluginState,
   listMemoryCorpusSupplements,

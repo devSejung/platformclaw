@@ -913,6 +913,37 @@ describe("memory tools", () => {
     });
   });
 
+  it.each([
+    {
+      name: "unavailable",
+      status: () => ({ available: false as const, reason: "not-configured" as const }),
+      message: "organization memory is not configured",
+    },
+    {
+      name: "failed",
+      status: () => ({ available: true as const }),
+      message: "organization memory read failed",
+    },
+  ])("preserves memory_get failure semantics when a supplement is $name", async (scenario) => {
+    const get = vi.fn(async () => {
+      throw new Error(scenario.message);
+    });
+    registerMemoryCorpusSupplement("organization", {
+      status: scenario.status,
+      search: async () => [],
+      get,
+    });
+
+    const tool = createMemoryGetToolOrThrow();
+    await expect(
+      tool.execute(`call_get_${scenario.name}`, {
+        path: "organization/part/pmu-registers",
+        corpus: "wiki",
+      }),
+    ).rejects.toThrow(scenario.message);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["wiki", "all"] as const)(
     "forwards effective agent context to memory_get corpus=%s supplements",
     async (corpus) => {

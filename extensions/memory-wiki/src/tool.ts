@@ -1,6 +1,10 @@
 // Memory Wiki plugin module implements tool behavior.
 import path from "node:path";
 import { optionalFiniteNumberSchema } from "openclaw/plugin-sdk/channel-actions";
+import {
+  getMemoryCorpusSupplementResult,
+  searchMemoryCorpusSupplements,
+} from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
 import type { AnyAgentTool, OpenClawConfig } from "../api.js";
@@ -12,7 +16,14 @@ import {
   type ResolvedMemoryWikiConfig,
 } from "./config.js";
 import { lintMemoryWikiVault } from "./lint.js";
-import { getMemoryWikiPage, searchMemoryWiki, WIKI_SEARCH_MODES } from "./query.js";
+import {
+  getMemoryWikiPage,
+  mergeWikiSearchCorpusResults,
+  searchMemoryWiki,
+  toSupplementWikiGetResult,
+  toSupplementWikiSearchResult,
+  WIKI_SEARCH_MODES,
+} from "./query.js";
 import { syncMemoryWikiImportedSources } from "./source-sync.js";
 import { renderMemoryWikiStatus, resolveMemoryWikiStatus } from "./status.js";
 
@@ -136,6 +147,23 @@ type WikiToolMemoryContext = {
   conversationRecall?: OpenClawPluginToolContext["conversationRecall"];
 };
 
+type WikiCorpusStatus = {
+  pluginId: string;
+  status: "ok" | "empty" | "unavailable" | "failed";
+};
+
+function wikiCorpusWarnings(statuses: WikiCorpusStatus[]): string[] {
+  return statuses.flatMap(({ pluginId, status }) =>
+    status === "unavailable" || status === "failed"
+      ? [
+          `Wiki corpus from plugin "${pluginId}" is ${
+            status === "unavailable" ? "not configured" : "temporarily unavailable"
+          }.`,
+        ]
+      : [],
+  );
+}
+
 export function createWikiStatusTool(
   config: ResolvedMemoryWikiConfig,
   appConfig?: OpenClawConfig,
@@ -170,7 +198,7 @@ export function createWikiSearchTool(
     name: "wiki_search",
     label: "Wiki Search",
     description:
-      "Search the configured personal Wiki pages by title, path, id, or body text. This tool does not search organization knowledge; use ordinary memory_search for workplace knowledge. Generated indexes stay out of ranking and are browsed with wiki_get.",
+      "Search personal Wiki pages and authorized organization knowledge by title, path, id, or body text. Explicit backend, corpus, or mode overrides keep the search personal-only. Generated indexes stay out of ranking and are browsed with wiki_get.",
     parameters: WikiSearchSchema,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as {
@@ -181,7 +209,8 @@ export function createWikiSearchTool(
         mode?: (typeof WIKI_SEARCH_MODES)[number];
       };
       await syncImportedSourcesIfNeeded(config, appConfig);
-      const results = await searchMemoryWiki({
+      const corpusStatus: WikiCorpusStatus[] = [];
+      const personalResults = await searchMemoryWiki({
         config,
         appConfig,
         agentId: memoryContext.agentId,
@@ -194,7 +223,29 @@ export function createWikiSearchTool(
         ...(params.corpus ? { searchCorpus: params.corpus } : {}),
         ...(params.mode ? { mode: params.mode } : {}),
       });
-      const text =
+      const hasExplicitPersonalOverride = Boolean(params.backend || params.corpus || params.mode);
+      const maxResults = Math.max(1, Math.floor(params.maxResults ?? 10));
+      const supplementResults = hasExplicitPersonalOverride
+        ? []
+        : (
+            await searchMemoryCorpusSupplements({
+              query: params.query,
+              maxResults,
+              agentId: memoryContext.agentId,
+              agentSessionKey: memoryContext.agentSessionKey,
+              sandboxed: memoryContext.sandboxed,
+              excludePluginId: "memory-wiki",
+              onSupplementStatus: (pluginId, status) => corpusStatus.push({ pluginId, status }),
+            })
+          ).map((result) => toSupplementWikiSearchResult(result, params.mode ?? "auto"));
+      const results = mergeWikiSearchCorpusResults({
+        wikiResults: personalResults,
+        memoryResults: supplementResults,
+        maxResults,
+        balanceCorpora: true,
+      });
+      const warnings = wikiCorpusWarnings(corpusStatus);
+      const resultText =
         results.length === 0
           ? "No wiki or memory results."
           : results
@@ -203,9 +254,14 @@ export function createWikiSearchTool(
                   `${index + 1}. ${result.title} (${result.corpus}/${result.kind})\nPath: ${result.path}${typeof result.startLine === "number" && typeof result.endLine === "number" ? `\nLines: ${result.startLine}-${result.endLine}` : ""}${result.provenanceLabel ? `\nProvenance: ${result.provenanceLabel}` : ""}${result.matchedClaimId ? `\nClaim: ${result.matchedClaimId}` : ""}${result.evidenceKinds && result.evidenceKinds.length > 0 ? `\nEvidence: ${result.evidenceKinds.join(", ")}` : ""}\nSnippet: ${result.snippet}`,
               )
               .join("\n\n");
+      const text = [...warnings, resultText].join("\n\n");
       return {
         content: [{ type: "text", text }],
-        details: { results },
+        details: {
+          results,
+          ...(warnings.length > 0 ? { warnings } : {}),
+          ...(corpusStatus.length > 0 ? { corpusStatus } : {}),
+        },
       };
     },
   };
@@ -307,7 +363,7 @@ export function createWikiGetTool(
     name: "wiki_get",
     label: "Wiki Get",
     description:
-      "Read a configured personal Wiki page or generated index by id or relative path. Start with index.md to browse the whole Wiki, then follow exact returned paths. This tool does not read organization knowledge.",
+      "Read a personal Wiki page, generated index, or authorized organization page by exact id or relative path. Start with index.md to browse the Personal Wiki, or use an organization path returned by wiki_search. Explicit backend or corpus overrides keep the read personal-only.",
     parameters: WikiGetSchema,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as {
@@ -318,7 +374,8 @@ export function createWikiGetTool(
         corpus?: ResolvedMemoryWikiConfig["search"]["corpus"];
       };
       await syncImportedSourcesIfNeeded(config, appConfig);
-      const result = await getMemoryWikiPage({
+      const corpusStatus: WikiCorpusStatus[] = [];
+      let result = await getMemoryWikiPage({
         config,
         appConfig,
         agentId: memoryContext.agentId,
@@ -331,15 +388,44 @@ export function createWikiGetTool(
         ...(params.backend ? { searchBackend: params.backend } : {}),
         ...(params.corpus ? { searchCorpus: params.corpus } : {}),
       });
+      if (!result && !params.backend && !params.corpus) {
+        const supplement = await getMemoryCorpusSupplementResult({
+          lookup: params.lookup,
+          fromLine: Math.max(1, Math.floor(params.fromLine ?? 1)),
+          lineCount: Math.max(1, Math.floor(params.lineCount ?? 200)),
+          failurePolicy: "continue",
+          agentId: memoryContext.agentId,
+          agentSessionKey: memoryContext.agentSessionKey,
+          sandboxed: memoryContext.sandboxed,
+          excludePluginId: "memory-wiki",
+          onSupplementStatus: (pluginId, status) => corpusStatus.push({ pluginId, status }),
+        });
+        result = supplement ? toSupplementWikiGetResult(supplement) : null;
+      }
+      const warnings = wikiCorpusWarnings(corpusStatus);
       if (!result) {
         return {
-          content: [{ type: "text", text: `Wiki page not found: ${params.lookup}` }],
-          details: { found: false },
+          content: [
+            {
+              type: "text",
+              text: [...warnings, `Wiki page not found: ${params.lookup}`].join("\n\n"),
+            },
+          ],
+          details: {
+            found: false,
+            ...(warnings.length > 0 ? { warnings } : {}),
+            ...(corpusStatus.length > 0 ? { corpusStatus } : {}),
+          },
         };
       }
       return {
         content: [{ type: "text", text: result.content }],
-        details: { found: true, ...result },
+        details: {
+          found: true,
+          ...result,
+          ...(warnings.length > 0 ? { warnings } : {}),
+          ...(corpusStatus.length > 0 ? { corpusStatus } : {}),
+        },
       };
     },
   };
