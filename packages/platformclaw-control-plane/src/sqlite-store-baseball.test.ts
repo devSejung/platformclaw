@@ -468,7 +468,7 @@ describe("SqliteControlPlaneStore baseball state", () => {
       }),
     ]);
 
-    expect(rewards.map((reward) => reward.awardedGold).toSorted()).toEqual([1, 6]);
+    expect(rewards.map((reward) => reward.awardedGold).toSorted((a, b) => a - b)).toEqual([1, 6]);
     await expect(first.loadBaseballProgress(user.id)).resolves.toMatchObject({
       gold: 11,
       totalHomers: 6,
