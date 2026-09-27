@@ -33,6 +33,26 @@ FINAL_REPORT = {
 
 
 class AutoreviewTrufflehogTests(unittest.TestCase):
+    def test_preflight_passes_normalized_git_source_and_preserves_scan_flags(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="autoreview-preflight-test.") as tempdir:
+            repo = Path(tempdir)
+            completed = subprocess.CompletedProcess([], 0, "", "")
+            with (
+                mock.patch.object(AUTOREVIEW, "find_command", return_value="trufflehog"),
+                mock.patch.object(AUTOREVIEW, "safe_temp_root", return_value=repo),
+                mock.patch.object(AUTOREVIEW, "prepare_trufflehog_history", return_value="base"),
+                mock.patch.object(AUTOREVIEW, "trufflehog_git_source", return_value="normalized-source") as source,
+                mock.patch.object(AUTOREVIEW, "run", return_value=completed) as scanner,
+            ):
+                AUTOREVIEW.run_trufflehog_preflight(repo, "branch", "base", "HEAD")
+
+            source.assert_called_once()
+            argv = scanner.call_args.args[0]
+            self.assertEqual(argv[:3], ["trufflehog", "git", "normalized-source"])
+            self.assertIn("--results=verified,unknown", argv)
+            self.assertIn("--fail", argv)
+            self.assertIn("--fail-on-scan-errors", argv)
+
     def test_windows_git_source_avoids_trufflehog_drive_duplication(self) -> None:
         source = AUTOREVIEW.normalize_trufflehog_git_uri("file:///C:/review", platform="nt")
 
