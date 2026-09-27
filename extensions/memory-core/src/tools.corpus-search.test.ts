@@ -57,7 +57,8 @@ describe("memory corpus search supplements", () => {
     expect(search).toHaveBeenCalledWith(
       expect.objectContaining({ runId: "host-run", agentId: "main" }),
     );
-    expect(tool!.parameters.properties).not.toHaveProperty("runId");
+    expect(tool!.parameters).toHaveProperty("properties");
+    expect(tool!.parameters).not.toHaveProperty("properties.runId");
   });
   it("bounds caller-requested search counts and long supplement excerpts", async () => {
     const search = vi.fn(async () =>

@@ -2,7 +2,7 @@ import path from "node:path";
 import { buildCodeSpanIndex } from "@openclaw/markdown-core/code-spans";
 import { ControlPlaneStateError } from "./contracts.js";
 
-export type KnowledgeVaultDerived = { chunks: string[]; links: string[] };
+type KnowledgeVaultDerived = { chunks: string[]; links: string[] };
 
 export function knowledgeVaultPath(value: string): string {
   if (

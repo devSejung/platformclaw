@@ -1,4 +1,4 @@
-export type KnowledgeVaultType = "personal" | "shared" | "managed";
+type KnowledgeVaultType = "personal" | "shared" | "managed";
 export type KnowledgeVaultRole = "reader" | "editor" | "owner";
 
 export class KnowledgeVaultSearchError extends Error {
@@ -94,13 +94,13 @@ export type KnowledgeVaultDocumentSummary = {
   compile: KnowledgeVaultCompile;
 };
 
-export type KnowledgeVaultLink = { documentId: string | null; logicalPath: string; title: string };
+type KnowledgeVaultLink = { documentId: string | null; logicalPath: string; title: string };
 export type KnowledgeVaultDocument = KnowledgeVaultDocumentSummary & {
   content: string;
   links: KnowledgeVaultLink[];
   backlinks: KnowledgeVaultLink[];
 };
-export type KnowledgeVaultAttachment = {
+type KnowledgeVaultAttachment = {
   path: string;
   mediaType: string;
   bytes: number;

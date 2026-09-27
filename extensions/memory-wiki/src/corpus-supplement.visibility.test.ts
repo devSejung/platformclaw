@@ -283,7 +283,8 @@ describe("memory-wiki corpus supplement visibility", () => {
       expect(search).toHaveBeenCalledWith(
         expect.objectContaining({ runId: "host-run", agentId: "main" }),
       );
-      expect(tool.parameters.properties).not.toHaveProperty("runId");
+      expect(tool.parameters).toHaveProperty("properties");
+      expect(tool.parameters).not.toHaveProperty("properties.runId");
       const memoryTool = createMemoryCoreTool({
         factories: registerMemoryCoreToolFactories(),
         name: "memory_search",

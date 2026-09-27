@@ -294,6 +294,7 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.memories.hybridSearch": "하이브리드 검색",
   "memoryPage.memories.keywordSearch": "키워드 검색",
   "memoryPage.memories.lineRange": "{start}–{end}행",
+  "memoryPage.memories.revision": "버전 {revision}",
   "memoryPage.memories.score": "검색 관련도 {score} · 정확도나 신뢰도 점수가 아닙니다",
   "memoryPage.memories.sourceMemory": "개인 Memory",
   "memoryPage.memories.sourceSessions": "세션",

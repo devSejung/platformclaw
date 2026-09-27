@@ -242,7 +242,7 @@ export class PlatformClawControlUiAdapter {
             return { agentId: identity.agentId, initialTab };
           },
           component: async () => {
-            const [memoryPage] = await Promise.all([
+            const [{ isPlatformClawMemoryTab }] = await Promise.all([
               import("./memory-page.ts"),
               loadPlatformClawLocale(),
             ]);
@@ -252,7 +252,7 @@ export class PlatformClawControlUiAdapter {
                 const agentId =
                   isRecord(data) && typeof data.agentId === "string" ? data.agentId : null;
                 const initialTab =
-                  isRecord(data) && memoryPage.isPlatformClawMemoryTab(data.initialTab)
+                  isRecord(data) && isPlatformClawMemoryTab(data.initialTab)
                     ? data.initialTab
                     : "memory";
                 return html`

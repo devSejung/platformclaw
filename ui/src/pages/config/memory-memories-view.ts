@@ -418,7 +418,8 @@ function renderMemorySearchResults(options: {
                 ${result.vaultId
                   ? html`<span class="settings-row__desc" data-vault-provenance>
                       ${result.vaultName} · ${result.vaultType} · ${result.vaultId} ·
-                      ${result.documentId} · r${result.revision}
+                      ${result.documentId} ·
+                      ${text("memoryPage.memories.revision", { revision: String(result.revision) })}
                     </span>`
                   : nothing}
                 ${result.title

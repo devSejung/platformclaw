@@ -6,7 +6,7 @@ import { ControlPlaneStateError } from "./contracts.js";
 import { knowledgeVaultPath } from "./knowledge-vault-compiler.js";
 import { KNOWLEDGE_VAULT_LIMITS } from "./knowledge-vault-contracts.js";
 
-export type KnowledgeVaultArchive = {
+type KnowledgeVaultArchive = {
   name: string;
   description: string;
   documents: Array<{ title: string; logicalPath: string; content: string }>;
