@@ -92,8 +92,9 @@ reads are off, those commands keep local/offline behavior.
   .openclaw-wiki/
 ```
 
-Managed content stays inside generated blocks; human note blocks are
-preserved across regeneration.
+Compile preserves authored Markdown byte for byte. Generated navigation and
+dashboards use their own managed blocks. Authored documents at reserved report
+paths remain unchanged.
 
 - `sources/`: imported raw material and bridge/unsafe-local-backed pages
 - `entities/`: durable things, people, systems, projects, objects
@@ -225,14 +226,21 @@ their recovery paths in plugin state, so an interrupted rollback can reconcile
 the recovery directory and report the same preserved pages on retry. Target
 recovery finishes before a persisted process-restart fence. After that point,
 retries rebuild derived indexes, dashboards, and compiled caches without
-rewriting source pages or moving or deleting recovery artifacts. A later normal
-compile may refresh machine-managed Related blocks. This covers in-process
+rewriting source pages or moving or deleting recovery artifacts. Normal compile
+also preserves authored pages, including existing Related blocks. This covers in-process
 failure and process restart after ordinary filesystem calls return. It does not
 guarantee write ordering across kernel or host power loss. A pathname write
 racing fence persistence either remains after a successful fence or is
 preserved under `recovered/` by a pre-fence retry. Writes through a file
 descriptor opened before an import-owned inode is classified and unlinked are
 not guaranteed and may be lost.
+Failed compile preserves originals and the last successful search snapshot.
+Results retain that snapshot's title, snippet, and source revision, with a
+failure marker; status records the cause and next retry. The running plugin
+retries with bounded backoff. Use `openclaw wiki compile` or `wiki_apply` with
+`op: "refresh"` for a manual rebuild. A vault without a snapshot compiles on
+its first search; initial compile failure is reported explicitly.
+
 Compiled caches are rebuildable: cache rows from before publication epochs are
 treated as misses and replaced by the next compile; they are not migrated.
 
@@ -255,14 +263,31 @@ When `render.createDashboards` is enabled, compile maintains dashboards under
 
 ## Search and retrieval
 
-Two search backends:
+Agent retrieval selects accessible sources on the server. `wiki_search` accepts
+`query`, optional `maxResults`, optional `mode`, and an optional explicit Vault
+selector. Use `vaultId` from a prior result, or `vaultName` for an exact Shared or
+Managed name supported by its server owner, never both. Set a selector only when
+the user explicitly chooses a vault; otherwise registered
+owners choose the default sources using current permissions and user selections.
+`wiki_get` reads a returned path without backend or corpus selection. Personal
+content requires an explicit Publish or copy before it enters a Shared Vault.
+Use short, distinctive keywords. Supplemental owners provide their own ranking;
+`mode` changes Personal Wiki ranking only. Name ambiguity requires user selection
+from authorized choices rather than an agent guess.
+
+Results carry `vaultId`, `vaultName`, `vaultType`, `documentId`, `title`, `path`,
+`snippet`, and `revision` or `sourceVersion`. Links and backlinks support
+navigation and impact inspection; search does not depend on their presence.
+
+Operator configuration and CLI retain two search backends:
 
 - `shared`: use the shared memory search flow when available
 - `local`: search the wiki locally
 
 Three corpora: `wiki`, `memory`, `all`.
 
-- `wiki_search` / `wiki_get` use compiled digests as a first pass when possible
+- search uses the accepted immutable source snapshot; get reads the selected page
+- generated dashboards are excluded from search so they do not duplicate source hits
 - claim ids resolve back to the owning page
 - contested/stale/fresh claims influence ranking
 - provenance labels survive into results
@@ -284,13 +309,13 @@ includes compact `Claim:` and `Evidence:` lines when available.
 
 ## Agent tools
 
-| Tool          | Purpose                                                                                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wiki_status` | current vault mode and scope, resolved agent, health, Obsidian CLI availability                                                                               |
-| `wiki_search` | search wiki pages and, when configured, the shared memory corpus; accepts `mode` for person lookup, question routing, source evidence, or raw claim drilldown |
-| `wiki_get`    | read a wiki page by id/path, falling back to the shared memory corpus when shared search is enabled and the lookup misses                                     |
-| `wiki_apply`  | narrow synthesis/metadata mutations without freeform page surgery                                                                                             |
-| `wiki_lint`   | structural checks, provenance gaps, contradictions, open questions                                                                                            |
+| Tool          | Purpose                                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `wiki_status` | current vault mode and scope, resolved agent, health, Obsidian CLI availability                                      |
+| `wiki_search` | search accessible vaults with an optional explicit ID or Shared/Managed name; `mode` tunes Personal Wiki ranking     |
+| `wiki_get`    | read a personal, shared, or managed page by returned path; server owners enforce access                              |
+| `wiki_apply`  | Personal Wiki synthesis/metadata mutations and Personal index refresh; Shared writes and rebuilds use their owner UI |
+| `wiki_lint`   | Personal Wiki structural checks, provenance gaps, contradictions, open questions                                     |
 
 The plugin also registers a non-exclusive memory corpus supplement, so shared
 `memory_search` and `memory_get` can reach the wiki when the active memory
@@ -396,7 +421,7 @@ Key toggles:
 | `search.backend`                           | `shared` (default), `local`                    |                                                                               |
 | `search.corpus`                            | `wiki` (default), `memory`, `all`              |                                                                               |
 | `context.includeCompiledDigestPrompt`      | default `false`                                | append the selected agent's compact digest snapshot to memory prompt sections |
-| `render.createBacklinks`                   | default `true`                                 | generate deterministic related blocks                                         |
+| `render.createBacklinks`                   | default `true`                                 | accepted in existing config; compile never rewrites source bodies             |
 | `render.createDashboards`                  | default `true`                                 | generate dashboard pages                                                      |
 
 ### Per-agent vaults

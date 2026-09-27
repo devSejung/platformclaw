@@ -40,6 +40,135 @@ beforeEach(() => {
 });
 
 describe("memory corpus search supplements", () => {
+  it("forwards trusted run identity to supplemental search without a model argument", async () => {
+    const search = vi.fn(async () => []);
+    registerMemoryCorpusSupplement("knowledge", {
+      includeByDefault: true,
+      search,
+      get: async () => null,
+    });
+    const tool = createMemorySearchTool({
+      config: asOpenClawConfig({ agents: { list: [{ id: "main", default: true }] } }),
+      runId: "host-run",
+      agentId: "main",
+    });
+    expect(tool).not.toBeNull();
+    await tool!.execute("call", { query: "spec" });
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "host-run", agentId: "main" }),
+    );
+    expect(tool!.parameters.properties).not.toHaveProperty("runId");
+  });
+  it("bounds caller-requested search counts and long supplement excerpts", async () => {
+    const search = vi.fn(async () =>
+      Array.from({ length: 60 }, (_, index) => ({
+        corpus: "knowledge",
+        vaultId: "shared-a",
+        path: `shared/a/${index}`,
+        score: 1,
+        snippet: "x".repeat(5_000),
+        indexStatus: "failed" as const,
+        indexError: "e".repeat(2_000),
+      })),
+    );
+    registerMemoryCorpusSupplement("knowledge", {
+      includeByDefault: true,
+      search,
+      get: async () => null,
+    });
+    const result = await createMemorySearchToolOrThrow().execute("bounds", {
+      query: "x",
+      vaultId: "shared-a",
+      maxResults: 10_000,
+    });
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ maxResults: 50 }));
+    const hits = (result.details as { results: Array<{ snippet: string; indexError: string }> })
+      .results;
+    expect(hits).toHaveLength(50);
+    expect(hits.every((hit) => hit.snippet.length === 1_200 && hit.indexError.length === 500)).toBe(
+      true,
+    );
+  });
+  it("scopes a named vault before search and rejects results from another vault", async () => {
+    const search = vi.fn(async () => [
+      {
+        corpus: "knowledge",
+        vaultId: "vault-b",
+        path: "shared/vault-b/doc",
+        score: 1,
+        snippet: "foreign",
+      },
+      {
+        corpus: "knowledge",
+        vaultId: "vault-a",
+        vaultName: "Project A",
+        vaultType: "shared" as const,
+        documentId: "doc",
+        title: "Spec",
+        revision: 3,
+        indexStatus: "failed" as const,
+        indexError: "compile interrupted",
+        nextRetryAt: 12345,
+        path: "shared/vault-a/doc",
+        score: 0.5,
+        snippet: "authorized",
+      },
+    ]);
+    registerMemoryCorpusSupplement("knowledge", {
+      includeByDefault: true,
+      search,
+      get: async () => null,
+    });
+    const result = await createMemorySearchToolOrThrow().execute("vault", {
+      query: "spec",
+      vaultId: "vault-a",
+    });
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ vaultId: "vault-a" }));
+    expect(getMemorySearchManagerMockCalls()).toBe(0);
+    expect(result.details).toMatchObject({
+      results: [
+        {
+          vaultId: "vault-a",
+          vaultName: "Project A",
+          vaultType: "shared",
+          documentId: "doc",
+          revision: 3,
+          indexStatus: "failed",
+          indexError: "compile interrupted",
+          nextRetryAt: 12345,
+        },
+      ],
+      warnings: [expect.stringContaining("last successful index")],
+    });
+  });
+
+  it("includes personal vault identity and the indexed source version", async () => {
+    setMemorySearchImpl(async () => [
+      {
+        path: "MEMORY.md",
+        source: "memory",
+        sourceVersion: "indexed-source-hash",
+        startLine: 1,
+        endLine: 1,
+        score: 1,
+        snippet: "saved",
+      },
+    ]);
+    const result = await createMemorySearchToolOrThrow().execute("personal", { query: "saved" });
+    expect(result.details).toMatchObject({
+      results: [
+        {
+          vaultId: "personal:main",
+          vaultName: "Personal",
+          vaultType: "personal",
+          documentId: "memory:MEMORY.md",
+          title: "MEMORY.md",
+          sourceVersion: "indexed-source-hash",
+        },
+      ],
+    });
+  });
+
   it("searches registered wiki corpus supplements without calling memory search", async () => {
     registerMemoryCorpusSupplement("memory-wiki", {
       search: async () => [

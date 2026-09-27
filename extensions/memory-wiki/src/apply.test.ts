@@ -281,11 +281,11 @@ describe("applyMemoryWikiMutation", () => {
     });
 
     expect(result.changed).toBe(true);
-    expect(result.compile?.pageCounts.source).toBe(0);
-    expect(result.compile?.pageCounts.synthesis).toBe(1);
-    expect(result.compile?.frontmatterErrors).toEqual([
-      expect.objectContaining({ relativePath: "sources/broken.md" }),
-    ]);
+    expect(result.indexesRefreshed).toBe(false);
+    expect(result.compile).toBeUndefined();
+    await expect(fs.readFile(path.join(rootDir, result.pagePath), "utf8")).resolves.toContain(
+      "Healthy summary body.",
+    );
     await expect(fs.readFile(brokenPath, "utf8")).resolves.toBe(brokenPage);
   });
 

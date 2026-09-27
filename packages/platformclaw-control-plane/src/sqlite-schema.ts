@@ -12,6 +12,10 @@ export {
   ensureOrganizationKnowledgeSchema,
 } from "./sqlite-schema-organization-knowledge.js";
 export { BASEBALL_GAME_SCHEMA, ensureBaseballGameSchema } from "./sqlite-schema-baseball.js";
+export {
+  KNOWLEDGE_VAULT_SCHEMA,
+  ensureKnowledgeVaultSchema,
+} from "./sqlite-schema-knowledge-vault.js";
 
 export const PLATFORMCLAW_CONTROL_SCHEMA_VERSION = 3;
 

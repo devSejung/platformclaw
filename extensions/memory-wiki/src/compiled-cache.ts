@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
+import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import type { PluginBlobStore } from "openclaw/plugin-sdk/plugin-state-runtime";
 import type { WikiFreshnessLevel } from "./claim-health.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
@@ -69,6 +70,8 @@ export type MemoryWikiCompiledClaim = {
 };
 
 export type MemoryWikiCompiledCacheSnapshot = {
+  /** Immutable search input. Original files are never used to repair a failed index. */
+  searchPages?: Array<{ relativePath: string; raw: string }>;
   digest: {
     claimCount: number;
     contradictionCount: number;
@@ -91,10 +94,17 @@ type ActiveVault = {
   path: string;
   vaultGeneration: string;
   compiledCachePublicationId?: string;
+  searchPublicationId?: string;
   reconciled: boolean;
 };
 
 type MemoryWikiCompiledCacheStore = {
+  readSearch(config: ResolvedMemoryWikiConfig): Promise<MemoryWikiCompiledCacheSnapshot | null>;
+  readFailure(config: ResolvedMemoryWikiConfig): Promise<MemoryWikiCompileFailure | null>;
+  recordFailure(
+    config: ResolvedMemoryWikiConfig,
+    failure: MemoryWikiCompileFailure | null,
+  ): Promise<void>;
   read(config: ResolvedMemoryWikiConfig): Promise<MemoryWikiCompiledCacheSnapshot | null>;
   write(
     config: ResolvedMemoryWikiConfig,
@@ -112,6 +122,13 @@ type MemoryWikiCompiledCacheStore = {
   delete(config: ResolvedMemoryWikiConfig): Promise<void>;
   deletePublication(config: ResolvedMemoryWikiConfig, publicationId: string): Promise<void>;
   deleteOwnersExcept(ownerIds: ReadonlySet<string>): Promise<number>;
+};
+
+export type MemoryWikiCompileFailure = {
+  error: string;
+  failedAt: number;
+  nextRetryAt: number;
+  attempts: number;
 };
 
 let configuredStore: MemoryWikiCompiledCacheStore | undefined;
@@ -161,6 +178,7 @@ export function activateMemoryWikiCompiledCacheOwner(
     path: path.resolve(config.vault.path),
     vaultGeneration: normalizedVaultGeneration,
     compiledCachePublicationId: compiledCachePublicationId?.trim() || undefined,
+    searchPublicationId: compiledCachePublicationId?.trim() || undefined,
     reconciled: false,
   });
 }
@@ -223,7 +241,7 @@ export function createMemoryWikiCompiledCacheStore(
     maxEntries: number;
     maxBytesPerEntry: number;
     maxBytesPerNamespace: number;
-    overflowPolicy: "evict-oldest";
+    overflowPolicy: "reject-new";
   }) => PluginBlobStore<TMetadata>,
   options: { onReadError?: (error: unknown) => void } = {},
 ): MemoryWikiCompiledCacheStore {
@@ -232,13 +250,82 @@ export function createMemoryWikiCompiledCacheStore(
     maxEntries: COMPILED_CACHE_MAX_ENTRIES,
     maxBytesPerEntry: COMPILED_CACHE_MAX_BYTES_PER_ENTRY,
     maxBytesPerNamespace: COMPILED_CACHE_MAX_BYTES,
-    overflowPolicy: "evict-oldest",
+    // A candidate must never evict the last accepted index before validation.
+    overflowPolicy: "reject-new",
   });
   async function deleteKey(key: string): Promise<void> {
     await store.delete(key);
   }
 
+  function failureKey(config: ResolvedMemoryWikiConfig) {
+    return `compile-failure:${resolveMemoryWikiCompiledCacheOwnerId(config)}`;
+  }
+
+  async function readPublication(
+    config: ResolvedMemoryWikiConfig,
+    vaultGeneration: string,
+    publicationId: string,
+  ) {
+    const ownerId = resolveMemoryWikiCompiledCacheOwnerId(config);
+    const entry = await store.lookup(publicationKey(ownerId, publicationId));
+    const metadata = entry?.metadata;
+    if (
+      !entry ||
+      !isMetadata(metadata) ||
+      metadata.ownerId !== ownerId ||
+      metadata.vaultPath !== path.resolve(config.vault.path) ||
+      metadata.vaultGeneration !== vaultGeneration ||
+      metadata.publicationId !== publicationId
+    ) {
+      return null;
+    }
+    return parseSnapshot(entry.bytes, metadata.generation);
+  }
+
   return {
+    async readSearch(config) {
+      const active = resolveActiveVault(config);
+      if (!active?.reconciled || !active.searchPublicationId) {
+        return null;
+      }
+      // Lifecycle activation owns durable identity reads. Explicit search retains
+      // the accepted publication when edited sources invalidate prompt preparation.
+      const snapshot = await readPublication(
+        config,
+        active.vaultGeneration,
+        active.searchPublicationId,
+      );
+      return resolveActiveVault(config) === active ? snapshot : null;
+    },
+    async readFailure(config) {
+      const entry = await store.lookup(failureKey(config));
+      if (!entry || entry.metadata?.vaultPath !== path.resolve(config.vault.path)) {
+        return null;
+      }
+      const active = resolveActiveVault(config);
+      if (!active || entry.metadata.vaultGeneration !== active.vaultGeneration) {
+        return null;
+      }
+      return JSON.parse(gunzipSync(entry.bytes).toString("utf8")) as MemoryWikiCompileFailure;
+    },
+    async recordFailure(config, failure) {
+      const key = failureKey(config);
+      if (!failure) {
+        await store.delete(key);
+        return;
+      }
+      const active = resolveActiveVault(config);
+      const serialized = JSON.stringify(failure);
+      await store.register(key, gzipSync(serialized), {
+        version: COMPILED_CACHE_VERSION,
+        ownerId: resolveMemoryWikiCompiledCacheOwnerId(config),
+        vaultPath: path.resolve(config.vault.path),
+        vaultGeneration: active?.vaultGeneration ?? "uninitialized",
+        publicationId: "compile-failure",
+        generation: createHash("sha256").update(serialized).digest("hex"),
+        encoding: "gzip-json",
+      });
+    },
     async read(config) {
       const ownerId = resolveMemoryWikiCompiledCacheOwnerId(config);
       const activeVault = resolveActiveVault(config);
@@ -336,6 +423,8 @@ export function createMemoryWikiCompiledCacheStore(
         path: activeVault.path,
         vaultGeneration: confirmedIdentity.vaultGeneration,
         compiledCachePublicationId: confirmedIdentity.compiledCachePublicationId ?? undefined,
+        searchPublicationId:
+          confirmedIdentity.compiledCachePublicationId ?? activeVault.searchPublicationId,
         reconciled: true,
       });
     },
@@ -388,6 +477,46 @@ export async function loadMemoryWikiCompiledCache(
   config: ResolvedMemoryWikiConfig,
 ): Promise<MemoryWikiCompiledCacheSnapshot | null> {
   return await requireConfiguredStore().read(config);
+}
+
+export async function loadMemoryWikiSearchSnapshot(config: ResolvedMemoryWikiConfig) {
+  return await requireConfiguredStore().readSearch(config);
+}
+
+export async function readMemoryWikiCompileFailure(config: ResolvedMemoryWikiConfig) {
+  // Status/doctor can inspect configuration before the full plugin runtime starts.
+  return configuredStore ? await configuredStore.readFailure(config) : null;
+}
+
+export async function recordMemoryWikiCompileFailure(
+  config: ResolvedMemoryWikiConfig,
+  error: unknown,
+) {
+  const store = requireConfiguredStore();
+  if (error === null) {
+    await store.recordFailure(config, null);
+    return;
+  }
+  const previous = await store.readFailure(config);
+  const attempts = (previous?.attempts ?? 0) + 1;
+  const failedAt = Date.now();
+  await store.recordFailure(config, {
+    error: formatErrorMessage(error).slice(0, 2_000),
+    failedAt,
+    nextRetryAt: failedAt + Math.min(15 * 60_000, 30_000 * 2 ** Math.min(attempts - 1, 5)),
+    attempts,
+  });
+}
+
+/** Source edits invalidate prompt preparation, while search keeps its accepted revision. */
+export function invalidateMemoryWikiCompiledPrompt(config: ResolvedMemoryWikiConfig): void {
+  const active = resolveActiveVault(config);
+  if (active) {
+    activeVaults.set(resolveMemoryWikiCompiledCacheOwnerId(config), {
+      ...active,
+      compiledCachePublicationId: undefined,
+    });
+  }
 }
 
 export async function invalidateMemoryWikiCompiledCache(
@@ -460,6 +589,7 @@ export async function writeMemoryWikiCompiledCache(
   activeVaults.set(resolveMemoryWikiCompiledCacheOwnerId(config), {
     ...activeVault,
     compiledCachePublicationId: publicationId,
+    searchPublicationId: publicationId,
     reconciled: true,
   });
 }

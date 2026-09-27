@@ -139,8 +139,8 @@ describe("Memory Wiki prompt section", () => {
       availableTools: new Set(["memory_search", "memory_get", "wiki_search", "wiki_get"]),
     });
 
-    expect(lines.join("\n")).toContain("`memory_search` with `corpus=all`");
-    expect(lines.join("\n")).toContain("`memory_get` with `corpus=wiki` or `corpus=all`");
+    expect(lines.join("\n")).toContain("`memory_search` with selectors omitted");
+    expect(lines.join("\n")).toContain("`memory_get` with the exact returned path");
     expect(lines.join("\n")).toContain("wiki-specific ranking or provenance details");
   });
 

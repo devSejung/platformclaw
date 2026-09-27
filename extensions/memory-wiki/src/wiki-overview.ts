@@ -1,5 +1,6 @@
 // Memory Wiki plugin module implements the memory wiki overview.
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { readMemoryWikiCompileFailure, type MemoryWikiCompileFailure } from "./compiled-cache.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { parseWikiMarkdown, type WikiPageKind } from "./markdown.js";
 import { readQueryableWikiPages } from "./query.js";
@@ -44,6 +45,7 @@ type MemoryWikiOverviewCluster = {
 type MemoryWikiOverviewPageCounts = Record<WikiPageKind, number>;
 
 type MemoryWikiOverviewStatus = {
+  compileFailure?: MemoryWikiCompileFailure;
   totalItems: number;
   totalPages: number;
   pageCounts: MemoryWikiOverviewPageCounts;
@@ -153,7 +155,9 @@ export async function listMemoryWikiOverview(
     ) satisfies MemoryWikiOverviewCluster;
   }).filter((entry): entry is MemoryWikiOverviewCluster => entry !== null);
 
+  const compileFailure = await readMemoryWikiCompileFailure(config);
   return {
+    ...(compileFailure ? { compileFailure } : {}),
     totalItems: items.length,
     totalPages: pages.length,
     pageCounts,

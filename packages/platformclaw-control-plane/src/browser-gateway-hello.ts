@@ -9,6 +9,7 @@ import {
   PLATFORMCLAW_WEB_GATEWAY_EVENTS,
   type BrowserGatewayAccess,
 } from "./browser-gateway-proxy.js";
+import { isKnowledgeVaultRpc } from "./browser-gateway-vault-policy.js";
 
 const BROWSER_OPERATOR_SCOPES = [
   "operator.read",
@@ -25,6 +26,7 @@ export function projectPlatformClawBrowserHello(params: {
   clientInstanceId?: string;
   maxPayloadBytes?: number;
   canvasSurfaceUrl?: string;
+  hasKnowledgeVaultService?: boolean;
 }): HelloOk {
   const upstreamMethods = new Set(params.upstream.features.methods);
   const upstreamEvents = new Set(params.upstream.features.events);
@@ -38,8 +40,12 @@ export function projectPlatformClawBrowserHello(params: {
     features: {
       methods: PLATFORMCLAW_WEB_GATEWAY_METHODS.filter(
         (method) =>
+          (!isKnowledgeVaultRpc(method) || params.hasKnowledgeVaultService === true) &&
           (method !== "plugin.surface.refresh" || Boolean(params.canvasSurfaceUrl)) &&
-          (PLATFORMCLAW_WEB_LOCAL_METHODS.has(method) || upstreamMethods.has(method)) &&
+          (PLATFORMCLAW_WEB_LOCAL_METHODS.has(method) ||
+            (params.hasKnowledgeVaultService &&
+              (method === "memory.search" || method === "wiki.search")) ||
+            upstreamMethods.has(method)) &&
           (params.access.user.globalRole === "admin" ||
             !PLATFORMCLAW_WEB_ADMIN_METHODS.has(method)),
       ),

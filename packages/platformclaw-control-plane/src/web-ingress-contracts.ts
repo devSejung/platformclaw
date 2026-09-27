@@ -70,6 +70,7 @@ export type PlatformClawWebIngressOptions = {
   execCredentialService?: ExecCredentialService;
   vocService?: JiraVocService;
   skillHubService?: SkillHubService;
+  vaultService?: import("./knowledge-vault-service.js").KnowledgeVaultService;
   knoxRouting?: { service: KnoxRoutingService; serviceToken: string };
   knoxIngressProxy?: { targetUrl: string };
   mediaRelay?: PlatformClawBrowserMediaRelay;

@@ -322,6 +322,21 @@ capturing one global path during registration. If an agent id is required but
 missing in a multi-agent operation, fail closed rather than choosing an
 arbitrary agent.
 
+Search adapters also receive optional explicit `vaultId` or `vaultName` selectors
+and trusted `runId` context. Resolve names under the caller's current permissions;
+do not guess between duplicate names. The registry filters returned Vault identity
+again so an adapter that ignores a selector cannot broaden the result scope.
+
+An adapter can attach a `memoryCorpusFailure` object to a thrown error when it
+has a safe, user-facing recovery message. The registry bounds its `error` and
+optional `action` to 300 characters each, validates an optional `code`, and accepts
+at most five authorized `vaultChoices`. Raw exception messages are not forwarded
+to model context. Keep credentials, paths to runtime storage, and internal
+service details out of this explicitly approved message.
+For exact reads, this marker also claims ownership of the requested path and stops
+fallback to another document owner. Return `null` for unrelated paths; attach the
+marker only after confirming that the path belongs to this adapter.
+
 Use `registerMemoryPromptPreparation(...)` when prompt text depends on async
 plugin state. The callback runs once before each full agent prompt and receives
 the same tool, agent, session, and sandbox context as synchronous memory prompt
@@ -421,6 +436,12 @@ Use the grouped namespaces for new plugin code:
 - `api.agent.events.emitAgentEvent(...)`
 - `api.runContext.setRunContext(...)` / `getRunContext(...)` / `clearRunContext(...)`
 - `api.lifecycle.registerRuntimeLifecycle(...)`
+
+Agent tool factories receive an optional `ctx.runId` matching the run in
+`before_prompt_build`. Use it with `api.runContext` to carry prepared facts through
+tool calls and retry attempts within that run. The host clears this state when
+the run ends. Direct Gateway calls can omit `runId`; it is trusted runtime
+context, not a model-facing tool parameter.
 
 The equivalent flat methods remain available as deprecated compatibility
 aliases for existing plugins. Do not add new plugin code that calls

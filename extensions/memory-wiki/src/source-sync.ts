@@ -2,7 +2,6 @@
 import type { OpenClawConfig } from "../api.js";
 import { syncMemoryWikiBridgeSources, type BridgeMemoryWikiResult } from "./bridge.js";
 import {
-  compileMemoryWikiVault,
   refreshMemoryWikiIndexesAfterImport,
   type RefreshMemoryWikiIndexesResult,
 } from "./compile.js";
@@ -16,7 +15,7 @@ import { syncMemoryWikiUnsafeLocalSources } from "./unsafe-local.js";
 export type MemoryWikiImportedSourceSyncResult = BridgeMemoryWikiResult & {
   indexesRefreshed: boolean;
   indexUpdatedFiles: string[];
-  indexRefreshReason: RefreshMemoryWikiIndexesResult["reason"] | "forced";
+  indexRefreshReason: RefreshMemoryWikiIndexesResult["reason"];
 };
 
 type SyncMemoryWikiImportedSourcesParams = {
@@ -68,18 +67,13 @@ async function syncMemoryWikiImportedSourcesOnce(
   const refreshResult = await refreshMemoryWikiIndexesAfterImport({
     config: params.config,
     syncResult,
+    ...(params.forceSync ? { forceCompile: true } : {}),
   });
-  // A prior prune may have committed before compilation failed. A post-mutation
-  // retry must rebuild even when source tracking now reports no further changes.
-  const forcedCompile =
-    params.forceSync && refreshResult.reason === "no-import-changes"
-      ? await compileMemoryWikiVault(params.config)
-      : undefined;
   return {
     ...syncResult,
-    indexesRefreshed: refreshResult.refreshed || forcedCompile !== undefined,
-    indexUpdatedFiles: forcedCompile?.updatedFiles ?? refreshResult.compile?.updatedFiles ?? [],
-    indexRefreshReason: forcedCompile ? "forced" : refreshResult.reason,
+    indexesRefreshed: refreshResult.refreshed,
+    indexUpdatedFiles: refreshResult.compile?.updatedFiles ?? [],
+    indexRefreshReason: refreshResult.reason,
   };
 }
 

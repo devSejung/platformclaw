@@ -143,12 +143,12 @@ function buildWikiToolGuidance(availableTools: Set<string>): string[] {
 
   if (hasMemorySearch) {
     lines.push(
-      "Prefer `memory_search` with `corpus=all` for one recall pass across durable memory and the compiled wiki when both are relevant.",
+      "Prefer `memory_search` with selectors omitted for one recall pass across Personal and server-selected knowledge. Use short distinctive keywords.",
     );
   }
   if (hasMemoryGet) {
     lines.push(
-      "Use `memory_get` with `corpus=wiki` or `corpus=all` when you already know the page path and want a small excerpt without leaving the shared memory tool flow.",
+      "Use `memory_get` with the exact returned path for a small excerpt; the server selects the authorized source without a corpus choice.",
     );
   }
 
@@ -168,12 +168,12 @@ function buildWikiToolGuidance(availableTools: Set<string>): string[] {
 
   if (hasWikiApply) {
     lines.push(
-      "Use `wiki_apply` for narrow synthesis filing and metadata repair instead of rewriting managed markdown blocks by hand.",
+      "Use `wiki_apply` only for Personal Wiki synthesis filing, metadata repair, or Personal index refresh. Edit or rebuild Shared/Managed documents through their Vault UI.",
     );
   }
   if (hasWikiApply && hasWikiSearch && hasWikiGet) {
     lines.push(
-      "Before filing a synthesis, search the Wiki corpus for related material and inspect candidate pages. Add [[exact-returned-path-or-id]] links only when their contents support the relationship; keep unrelated material separate and never invent a target or use a private alias as evidence.",
+      "Before filing a Personal synthesis, search for related material and inspect Personal Wiki candidate pages. Add [[exact-returned-path-or-id]] links only when their contents support the relationship; keep unrelated material separate and never invent a target or use a private alias as evidence.",
     );
   }
   if (hasWikiLint) {

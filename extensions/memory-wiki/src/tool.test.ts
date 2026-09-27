@@ -5,7 +5,12 @@ import { describe, expect, it } from "vitest";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { lintMemoryWikiVault } from "./lint.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
-import { createWikiApplyTool, createWikiLintTool } from "./tool.js";
+import {
+  createWikiApplyTool,
+  createWikiGetTool,
+  createWikiLintTool,
+  createWikiSearchTool,
+} from "./tool.js";
 
 function asSchemaObject(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -36,9 +41,28 @@ describe("memory-wiki tools", () => {
     expect(unionLiteralValues(opSchema)).toEqual([
       "create_synthesis",
       "metadata",
+      "refresh",
       "synthesis",
       "update_metadata",
     ]);
+  });
+
+  it("keeps backend selection out of the agent retrieval schemas", () => {
+    const config = {} as ResolvedMemoryWikiConfig;
+    const search = asSchemaObject(
+      asSchemaObject(createWikiSearchTool(config).parameters).properties,
+    );
+    const get = asSchemaObject(asSchemaObject(createWikiGetTool(config).parameters).properties);
+    expect(Object.keys(search).toSorted()).toEqual([
+      "maxResults",
+      "mode",
+      "query",
+      "vaultId",
+      "vaultName",
+    ]);
+    expect(search.vaultId).toMatchObject({ maxLength: 256 });
+    expect(search.maxResults).toMatchObject({ maximum: 50 });
+    expect(Object.keys(get).toSorted()).toEqual(["fromLine", "lineCount", "lookup"]);
   });
 
   it("allows provenance metadata in wiki_apply claim evidence", () => {

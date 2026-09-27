@@ -7,6 +7,7 @@ export type OrganizationMemoryPromotionStatus = "pending" | "approved" | "reject
 
 export type OrganizationMemorySearchHit = {
   id: string;
+  revision?: number;
   path: string;
   scopeKind: OrganizationMemoryScopeKind;
   scopeId?: string;

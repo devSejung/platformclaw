@@ -2,13 +2,97 @@ import { describe, expect, it, vi } from "vitest";
 import { createOrganizationMemorySupplement } from "./supplement.js";
 
 describe("PlatformClaw organization memory supplement", () => {
+  it("forwards an explicit name without a captured scope and preserves safe disambiguation", async () => {
+    const failure = {
+      error: "Multiple accessible Vaults have that exact name",
+      action: "Ask the user to select a Vault",
+      vaultChoices: [{ vaultId: "one", vaultName: "PHY", vaultType: "shared" }],
+    };
+    const search = vi.fn(async () => {
+      throw Object.assign(new Error(failure.error), { memoryCorpusFailure: failure });
+    });
+    const getTurnScope = vi.fn(() => {
+      throw new Error("must not capture");
+    });
+    const supplement = createOrganizationMemorySupplement(
+      { search, get: vi.fn() },
+      { warn: vi.fn() },
+      getTurnScope,
+    );
+    await expect(
+      supplement.search({
+        query: "training",
+        agentId: "person_one",
+        vaultName: "PHY",
+        runId: "run",
+      }),
+    ).rejects.toMatchObject({ memoryCorpusFailure: failure });
+    expect(search).toHaveBeenCalledWith({
+      query: "training",
+      agentId: "person_one",
+      vaultName: "PHY",
+    });
+    expect(getTurnScope).not.toHaveBeenCalled();
+    await expect(
+      createOrganizationMemorySupplement(null, { warn: vi.fn() }).get({
+        lookup: "concepts/private.md",
+        agentId: "person_one",
+      }),
+    ).resolves.toBeNull();
+  });
+  it("forwards explicit vault scope and reads shared documents through the same client", async () => {
+    const identity = {
+      vaultId: "project-one",
+      vaultName: "Project One",
+      vaultType: "shared",
+      documentId: "doc-one",
+      revision: 7,
+      indexStatus: "failed",
+      indexError: "compile interrupted",
+      nextRetryAt: 12345,
+    };
+    const search = vi.fn(async () => [
+      {
+        ...identity,
+        path: "shared/project-one/doc-one",
+        title: "Spec",
+        snippet: "training",
+        score: 1,
+      },
+    ]);
+    const get = vi.fn(async () => ({
+      ...identity,
+      path: "shared/project-one/doc-one",
+      title: "Spec",
+      content: "training",
+      fromLine: 1,
+      lineCount: 1,
+    }));
+    const supplement = createOrganizationMemorySupplement({ search, get }, { warn: vi.fn() });
+    await expect(
+      supplement.search({ query: "training", agentId: "person_one", vaultId: "project-one" }),
+    ).resolves.toEqual([expect.objectContaining(identity)]);
+    expect(search).toHaveBeenCalledWith({
+      query: "training",
+      agentId: "person_one",
+      vaultId: "project-one",
+    });
+    await expect(
+      supplement.get({ lookup: "shared/project-one/doc-one", agentId: "person_one" }),
+    ).resolves.toMatchObject({
+      vaultId: identity.vaultId,
+      revision: identity.revision,
+      content: "training",
+    });
+  });
+
   it("declares default participation and reports missing managed wiring", async () => {
     const supplement = createOrganizationMemorySupplement(null, { warn: vi.fn() });
 
     expect(supplement.includeByDefault).toBe(true);
     expect(supplement.status()).toEqual({ available: false, reason: "not-configured" });
     await expect(supplement.search({ query: "release", agentId: "person_one" })).rejects.toThrow(
-      "not configured",
+      "Knowledge Vault service is unavailable",
     );
   });
 
@@ -17,7 +101,11 @@ describe("PlatformClaw organization memory supplement", () => {
       {
         path: "organization/team/page-1",
         title: "Release policy",
-        scopeName: "Platform",
+        vaultId: "managed:team:platform",
+        vaultName: "Platform",
+        vaultType: "managed",
+        documentId: "page-1",
+        revision: 1,
         snippet: "Two approvals",
         score: 0.9,
         updatedAt: 1_000,
@@ -26,7 +114,11 @@ describe("PlatformClaw organization memory supplement", () => {
     const get = vi.fn(async () => ({
       path: "organization/team/page-1",
       title: "Release policy",
-      scopeName: "Platform",
+      vaultId: "managed:team:platform",
+      vaultName: "Platform",
+      vaultType: "managed",
+      documentId: "page-1",
+      revision: 1,
       content: "Two approvals",
       fromLine: 1,
       lineCount: 1,
@@ -65,7 +157,7 @@ describe("PlatformClaw organization memory supplement", () => {
       { warn },
     );
     await expect(supplement.search({ query: "x", agentId: "person_one" })).rejects.toThrow(
-      "offline",
+      "Knowledge Vault service is unavailable",
     );
     await expect(
       supplement.get({ lookup: "/srv/private/page", agentId: "person_one" }),

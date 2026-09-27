@@ -50,6 +50,10 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   @property({ attribute: false }) methodAdvertised: boolean | null = true;
   @property({ attribute: false }) wikiSearchAdvertised: boolean | null = false;
   @property({ type: Boolean }) browseEnabled = false;
+  @property({ type: Boolean }) unifiedSearch = false;
+  @property({ type: Boolean }) vaultGetAdvertised = false;
+  @property() vaultId: string | null = null;
+  @property() searchScope: "connected" | "all" = "connected";
   @property({ attribute: false }) browseListAdvertised: boolean | null = false;
   @property({ attribute: false }) personalDetailAdvertised: boolean | null = true;
   @property({ attribute: false }) wikiGetAdvertised: boolean | null = false;
@@ -74,7 +78,13 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   protected override willUpdate(changed: PropertyValues<this>) {
     const identityChanged = changed.has("agentId") || changed.has("client");
     const connectionChanged = changed.has("connected") || changed.has("connectionPhase");
-    if (identityChanged || changed.has("refreshRevision")) {
+    if (
+      identityChanged ||
+      changed.has("refreshRevision") ||
+      changed.has("vaultId") ||
+      changed.has("searchScope") ||
+      changed.has("unifiedSearch")
+    ) {
       this.resetSearch();
       this.resetBrowse();
     } else if (connectionChanged && !this.gatewayReady) {
@@ -284,14 +294,17 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
             client.request<BrowserMemorySearchResponse>("memory.search", {
               query: normalizedQuery,
               agentId,
+              ...(this.vaultId ? { vaultId: this.vaultId } : {}),
+              ...(this.unifiedSearch && this.searchScope === "all" ? { scope: "all" } : {}),
             }),
           )
         : Promise.resolve(null),
-      this.wikiSearchAdvertised === true
+      !this.unifiedSearch && this.wikiSearchAdvertised === true
         ? requestOutcome(
             client.request<WikiSearchResult[]>("wiki.search", {
               query: normalizedQuery,
               agentId,
+              ...(this.vaultId ? { vaultId: this.vaultId } : {}),
               maxResults: 50,
             }),
           )
@@ -339,14 +352,14 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
       kind: "ready",
       query: normalizedQuery,
       ...result,
-      results: [...result.results, ...wikiResults].toSorted(
-        (left, right) => right.score - left.score,
-      ),
+      results: this.unifiedSearch
+        ? result.results
+        : [...result.results, ...wikiResults].toSorted((left, right) => right.score - left.score),
       ...(personal === null && this.methodAdvertised === false
         ? { personalMemoryMethodUnavailable: true }
         : {}),
       ...(personal?.ok === false ? { personalMemoryUnavailable: true } : {}),
-      ...(wiki === null && this.wikiSearchAdvertised === false
+      ...(!this.unifiedSearch && wiki === null && this.wikiSearchAdvertised === false
         ? { personalWikiMethodUnavailable: true }
         : {}),
       ...(wiki?.ok === false ? { personalWikiUnavailable: true } : {}),
@@ -377,11 +390,13 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     if (!this.gatewayReady || !isExpandableResult(result)) {
       return false;
     }
-    return result.source === "wiki"
-      ? this.wikiGetAdvertised === true
-      : result.source === "organization"
-        ? this.organizationGetAdvertised === true
-        : this.personalDetailAdvertised === true;
+    return result.vaultType === "shared"
+      ? this.vaultGetAdvertised
+      : result.source === "wiki"
+        ? this.wikiGetAdvertised === true
+        : result.source === "organization"
+          ? this.organizationGetAdvertised === true
+          : this.personalDetailAdvertised === true;
   }
 
   private async loadDetail(key: string, result: SearchResult) {
@@ -395,20 +410,25 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     this.details = new Map(this.details).set(key, { kind: "loading" });
     try {
       const response =
-        result.source === "wiki"
-          ? await client.request<WikiGetResult>("wiki.document.get", {
-              agentId,
-              lookup: result.path,
+        result.vaultType === "shared"
+          ? await client.request<WikiGetResult>("platformclaw.vault.document.get", {
+              vaultId: result.vaultId,
+              documentId: result.documentId,
             })
-          : result.source === "organization"
-            ? await client.request<WikiGetResult | null>("platformclaw.memory.get", {
+          : result.source === "wiki"
+            ? await client.request<WikiGetResult>("wiki.document.get", {
                 agentId,
-                path: result.path,
+                lookup: result.path,
               })
-            : await client.request<AgentsWorkspaceGetResult>("agents.workspace.get", {
-                agentId,
-                path: result.path,
-              });
+            : result.source === "organization"
+              ? await client.request<WikiGetResult | null>("platformclaw.memory.get", {
+                  agentId,
+                  path: result.path,
+                })
+              : await client.request<AgentsWorkspaceGetResult>("agents.workspace.get", {
+                  agentId,
+                  path: result.path,
+                });
       if (this.detailRequests.get(key) !== request || !this.isCurrentRequest(request)) {
         return;
       }

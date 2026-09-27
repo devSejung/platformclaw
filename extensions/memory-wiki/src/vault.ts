@@ -16,6 +16,7 @@ import {
   appendMemoryWikiLog,
   ensureMemoryWikiVaultGeneration,
   loadMemoryWikiValidatedVaultIdentity,
+  loadMemoryWikiVaultIdentity,
 } from "./log.js";
 import { WIKI_RAW_SOURCE_MARKER } from "./markdown.js";
 import { resolveMemoryWikiTimestamp } from "./time.js";
@@ -171,7 +172,7 @@ export async function activateExistingMemoryWikiVault(
   config: ResolvedMemoryWikiConfig,
 ): Promise<void> {
   const rootDir = config.vault.path;
-  const identity = await loadMemoryWikiValidatedVaultIdentity(rootDir);
+  const identity = await loadMemoryWikiVaultIdentity(rootDir);
   if (!identity.vaultGeneration) {
     throw new Error(`Memory Wiki vault generation is missing: ${rootDir}`);
   }

@@ -242,18 +242,17 @@ export class PlatformClawControlUiAdapter {
             return { agentId: identity.agentId, initialTab };
           },
           component: async () => {
-            await Promise.all([import("./memory-page.ts"), loadPlatformClawLocale()]);
+            const [memoryPage] = await Promise.all([
+              import("./memory-page.ts"),
+              loadPlatformClawLocale(),
+            ]);
             return {
               header: true,
               render: (data: unknown) => {
                 const agentId =
                   isRecord(data) && typeof data.agentId === "string" ? data.agentId : null;
                 const initialTab =
-                  isRecord(data) &&
-                  (data.initialTab === "memory" ||
-                    data.initialTab === "wiki" ||
-                    data.initialTab === "organization" ||
-                    data.initialTab === "dreaming")
+                  isRecord(data) && memoryPage.isPlatformClawMemoryTab(data.initialTab)
                     ? data.initialTab
                     : "memory";
                 return html`

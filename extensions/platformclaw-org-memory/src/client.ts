@@ -1,13 +1,25 @@
 import { readFileSync } from "node:fs";
 import { request } from "node:http";
 import path from "node:path";
+import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
-const SEARCH_PATH = "/platformclaw/internal/memory/organization/search";
-const GET_PATH = "/platformclaw/internal/memory/organization/get";
+const SEARCH_PATH = "/platformclaw/internal/memory/vaults/search";
+const GET_PATH = "/platformclaw/internal/memory/vaults/get";
+const SCOPE_PATH = "/platformclaw/internal/memory/vaults/scope";
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
+export type VaultTurnScope = { revision: number; vaultIds: string[] };
+
 export type OrganizationMemoryClient = {
-  search(params: { agentId: string; query: string; maxResults?: number }): Promise<unknown>;
+  captureScope(params: { agentId: string }): Promise<unknown>;
+  search(params: {
+    agentId: string;
+    query: string;
+    maxResults?: number;
+    vaultId?: string;
+    vaultName?: string;
+    turnScope?: VaultTurnScope;
+  }): Promise<unknown>;
   get(params: {
     agentId: string;
     path: string;
@@ -15,6 +27,56 @@ export type OrganizationMemoryClient = {
     lineCount?: number;
   }): Promise<unknown>;
 };
+
+export function vaultServiceUnavailable(status?: number): Error {
+  const error = `Memory Hub service is unavailable${status ? ` (${status})` : ""}`;
+  return Object.assign(new Error(error), {
+    memoryCorpusFailure: {
+      error,
+      action:
+        "Retry the search. If it keeps failing, ask an administrator to check the Memory Hub service.",
+    },
+  });
+}
+
+function responseError(status: number, body: string): Error {
+  let value: Record<string, unknown> | undefined;
+  try {
+    value = asOptionalRecord(JSON.parse(body));
+  } catch {
+    return vaultServiceUnavailable(status);
+  }
+  if (
+    value?.code !== "vault-name-ambiguous" &&
+    value?.code !== "vault-name-not-found" &&
+    value?.code !== "vault-query-invalid"
+  ) {
+    return vaultServiceUnavailable(status);
+  }
+  if (typeof value.error !== "string" || typeof value.action !== "string") {
+    return vaultServiceUnavailable(status);
+  }
+  const choices = Array.isArray(value.vaultChoices)
+    ? value.vaultChoices.slice(0, 5).flatMap((entry) => {
+        const choice = asOptionalRecord(entry);
+        return choice &&
+          typeof choice.vaultId === "string" &&
+          choice.vaultId.length <= 512 &&
+          typeof choice.vaultName === "string" &&
+          choice.vaultName.length <= 240 &&
+          (choice.vaultType === "shared" || choice.vaultType === "managed")
+          ? [{ vaultId: choice.vaultId, vaultName: choice.vaultName, vaultType: choice.vaultType }]
+          : [];
+      })
+    : [];
+  const failure = {
+    error: value.error.slice(0, 500),
+    code: value.code,
+    action: value.action.slice(0, 500),
+    vaultChoices: choices,
+  };
+  return Object.assign(new Error(failure.error), { memoryCorpusFailure: failure });
+}
 
 function handoffAddress(brokerAddress: string): string {
   return process.platform === "win32"
@@ -37,6 +99,8 @@ async function call(socketPath: string, token: string, route: string, body: unkn
         },
       },
       (res) => {
+        res.once("aborted", () => reject(new Error("organization memory response interrupted")));
+        res.once("error", reject);
         const chunks: Buffer[] = [];
         let size = 0;
         res.on("data", (chunk: Buffer) => {
@@ -49,7 +113,7 @@ async function call(socketPath: string, token: string, route: string, body: unkn
         });
         res.once("end", () => {
           if ((res.statusCode ?? 500) < 200 || (res.statusCode ?? 500) >= 300) {
-            reject(new Error(`organization memory request failed (${res.statusCode ?? 500})`));
+            reject(responseError(res.statusCode ?? 500, Buffer.concat(chunks).toString("utf8")));
             return;
           }
           try {
@@ -80,6 +144,7 @@ export function createOrganizationMemoryClient(
   }
   const socketPath = handoffAddress(broker);
   return {
+    captureScope: async (params) => await call(socketPath, token, SCOPE_PATH, params),
     search: async (params) => await call(socketPath, token, SEARCH_PATH, params),
     get: async (params) => await call(socketPath, token, GET_PATH, params),
   };

@@ -175,6 +175,7 @@ describe("QmdMemoryManager slugified path resolution", () => {
             return (params.exactPaths ?? []).map((pathValue) => ({
               path: pathValue,
               modified_at: TEST_OBSERVED_AT,
+              hash: "indexed-source-hash",
             }));
           }
           if (query.includes("collection = ? AND active = 1")) {
@@ -182,6 +183,7 @@ describe("QmdMemoryManager slugified path resolution", () => {
             return (params.allPaths ?? [params.actualPath]).map((pathValue) => ({
               path: pathValue,
               modified_at: TEST_OBSERVED_AT,
+              hash: "indexed-source-hash",
             }));
           }
           throw new Error(`unexpected sqlite query: ${query}`);
@@ -274,6 +276,7 @@ describe("QmdMemoryManager slugified path resolution", () => {
         score: 0.73,
         snippet: "@@ -2,1\nline-2",
         source: "memory",
+        sourceVersion: "indexed-source-hash",
         provenance: {
           originClass: "untrusted",
           sessionKind: "unknown",
@@ -352,6 +355,7 @@ describe("QmdMemoryManager slugified path resolution", () => {
         score: 0.81,
         snippet: "@@ -1,1\nvault memory",
         source: "memory",
+        sourceVersion: "indexed-source-hash",
         provenance: {
           originClass: "untrusted",
           sessionKind: "unknown",
@@ -417,6 +421,7 @@ describe("QmdMemoryManager slugified path resolution", () => {
         score: 0.79,
         snippet: "@@ -1,1\nexact slugified path",
         source: "memory",
+        sourceVersion: "indexed-source-hash",
         provenance: {
           originClass: "untrusted",
           sessionKind: "unknown",

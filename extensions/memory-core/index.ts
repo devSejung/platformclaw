@@ -27,12 +27,19 @@ import type { MemoryCoreAcquireLocalService } from "./src/memory/embedding-local
 import type { MemoryCoreRuntimeHost } from "./src/memory/runtime-host.js";
 import { buildPromptSection } from "./src/prompt-section.js";
 import { registerSessionBackfillGatewayMethods } from "./src/session-backfill-gateway.js";
+import {
+  MemorySearchSchema,
+  MemoryGetSchema,
+  MEMORY_SEARCH_DESCRIPTION,
+  MEMORY_GET_DESCRIPTION,
+} from "./src/tool-contract.js";
 
 type MemoryToolsModule = typeof import("./src/tools.js");
 type StandingIntentToolModule = typeof import("./src/standing-intents-tool.js");
 type MemoryWriteToolModule = typeof import("./src/write-tool.js");
 
 type MemoryToolOptions = {
+  runId?: string;
   config?: OpenClawConfig;
   getConfig?: () => OpenClawConfig | undefined;
   agentId?: string;
@@ -75,30 +82,6 @@ function hasMemoryToolContext(options: MemoryToolOptions): boolean {
   });
   return Boolean(resolveMemorySearchConfig(cfg, agentId));
 }
-
-const MemorySearchSchema = {
-  type: "object",
-  properties: {
-    query: { type: "string" },
-    maxResults: { type: "integer", minimum: 1 },
-    minScore: { type: "number" },
-    corpus: { type: "string", enum: ["memory", "wiki", "all", "sessions"] },
-  },
-  required: ["query"],
-  additionalProperties: false,
-} as const satisfies TSchema;
-
-const MemoryGetSchema = {
-  type: "object",
-  properties: {
-    path: { type: "string" },
-    from: { type: "integer", minimum: 1 },
-    lines: { type: "integer", minimum: 1 },
-    corpus: { type: "string", enum: ["memory", "wiki", "all"] },
-  },
-  required: ["path"],
-  additionalProperties: false,
-} as const satisfies TSchema;
 
 const MemoryWriteSchema = {
   type: "object",
@@ -151,8 +134,7 @@ function createLazyMemorySearchTool(options: MemoryToolOptions): AnyAgentTool | 
     options,
     label: "Memory Search",
     name: "memory_search",
-    description:
-      "Mandatory recall step: semantically search accessible personal memory, personal Wiki, and registered default knowledge corpora before answering questions about prior work, decisions, dates, people, preferences, todos, or workplace knowledge. Omit corpus for ordinary recall. Use `corpus=memory` only for an explicitly personal-memory-only request, `corpus=sessions` only for session recall, and `corpus=wiki` or `corpus=all` for an explicit broad supplement search. Report corpusStatus/warnings instead of treating an unavailable corpus as no knowledge.",
+    description: MEMORY_SEARCH_DESCRIPTION,
     parameters: MemorySearchSchema,
     load: (module, loadOptions) => module.createMemorySearchTool(loadOptions),
   });
@@ -163,8 +145,7 @@ function createLazyMemoryGetTool(options: MemoryToolOptions): AnyAgentTool | nul
     options,
     label: "Memory Get",
     name: "memory_get",
-    description:
-      "Safe exact excerpt read from MEMORY.md or memory/*.md. Defaults to a bounded excerpt when lines are omitted, includes truncation/continuation info when more content exists, and `corpus=wiki` reads from registered compiled-wiki supplements.",
+    description: MEMORY_GET_DESCRIPTION,
     parameters: MemoryGetSchema,
     load: (module, loadOptions) => module.createMemoryGetTool(loadOptions),
   });
@@ -273,6 +254,7 @@ function resolveMemoryToolOptions(
   return {
     config,
     getConfig,
+    runId: ctx.runId,
     agentId: ctx.agentId,
     agentSessionKey: ctx.sessionKey,
     sandboxed: ctx.sandboxed,

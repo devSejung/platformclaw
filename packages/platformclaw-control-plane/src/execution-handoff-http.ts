@@ -7,6 +7,11 @@ import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
 import lockfile from "proper-lockfile";
 import type { OrganizationMemoryDocument, OrganizationMemorySearchHit } from "./contracts.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
+import {
+  KnowledgeVaultSearchError,
+  type KnowledgeVaultTurnScope,
+} from "./knowledge-vault-contracts.js";
+import type { KnowledgeVaultService } from "./knowledge-vault-service.js";
 
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
 export const PLATFORMCLAW_EXECUTION_GRANT_PATH = "/platformclaw/internal/execution/grant";
@@ -21,13 +26,19 @@ export const PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH =
   "/platformclaw/internal/memory/organization/search";
 export const PLATFORMCLAW_ORGANIZATION_MEMORY_GET_PATH =
   "/platformclaw/internal/memory/organization/get";
+export const PLATFORMCLAW_VAULT_SEARCH_PATH = "/platformclaw/internal/memory/vaults/search";
+export const PLATFORMCLAW_VAULT_GET_PATH = "/platformclaw/internal/memory/vaults/get";
+export const PLATFORMCLAW_VAULT_SCOPE_PATH = "/platformclaw/internal/memory/vaults/scope";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
+// Turn selections travel between trusted services, never in the model's tool schema.
+const MAX_VAULT_SEARCH_BYTES = 144 * 1024;
 
 type ExecutionHandoffHandler = Pick<
   ExecutionHandoffService,
   "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
 > & {
+  vaultService?: Pick<KnowledgeVaultService, "search" | "get" | "captureScope">;
   resolveMcpConnection?: (
     agentId: string,
     serverName: string,
@@ -132,13 +143,13 @@ function tokenDigest(token: string): Buffer {
   return createHash("sha256").update(token, "utf8").digest();
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(req: IncomingMessage, maxBytes = MAX_REQUEST_BYTES): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const rawChunk of req) {
     const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
     size += chunk.length;
-    if (size > MAX_REQUEST_BYTES) {
+    if (size > maxBytes) {
       throw new Error("request too large");
     }
     chunks.push(chunk);
@@ -159,6 +170,26 @@ function requestAgentId(body: Record<string, unknown>): string {
     throw new Error("invalid agent id");
   }
   return agentId;
+}
+
+function readVaultTurnScope(value: unknown): KnowledgeVaultTurnScope | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const scope = objectBody(value);
+  if (
+    !Number.isSafeInteger(scope.revision) ||
+    (scope.revision as number) < 0 ||
+    !Array.isArray(scope.vaultIds) ||
+    scope.vaultIds.length > 256 ||
+    scope.vaultIds.some(
+      (id) => typeof id !== "string" || id.length > 512 || !/^[a-zA-Z0-9:._-]+$/u.test(id),
+    ) ||
+    new Set(scope.vaultIds).size !== scope.vaultIds.length
+  ) {
+    throw new Error("Invalid vault turn scope");
+  }
+  return { revision: scope.revision as number, vaultIds: scope.vaultIds as string[] };
 }
 
 export class PlatformClawExecutionHandoffServer {
@@ -307,14 +338,96 @@ export class PlatformClawExecutionHandoffServer {
         pathname !== PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH &&
         pathname !== PLATFORMCLAW_MCP_CONNECTION_PATH &&
+        pathname !== PLATFORMCLAW_VAULT_SEARCH_PATH &&
+        pathname !== PLATFORMCLAW_VAULT_GET_PATH &&
+        pathname !== PLATFORMCLAW_VAULT_SCOPE_PATH &&
         pathname !== PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH &&
         pathname !== PLATFORMCLAW_ORGANIZATION_MEMORY_GET_PATH
       ) {
         sendJson(res, 404, { error: "not found" });
         return;
       }
-      const body = objectBody(await readJson(req));
+      const body = objectBody(
+        await readJson(
+          req,
+          pathname === PLATFORMCLAW_VAULT_SEARCH_PATH ? MAX_VAULT_SEARCH_BYTES : MAX_REQUEST_BYTES,
+        ),
+      );
       const agentId = requestAgentId(body);
+      if (
+        pathname === PLATFORMCLAW_VAULT_SEARCH_PATH ||
+        pathname === PLATFORMCLAW_VAULT_GET_PATH ||
+        pathname === PLATFORMCLAW_VAULT_SCOPE_PATH
+      ) {
+        if (!this.service.vaultService) {
+          sendJson(res, 503, { error: "Memory Hub unavailable" });
+          return;
+        }
+        if (pathname === PLATFORMCLAW_VAULT_SEARCH_PATH) {
+          let turnScope: KnowledgeVaultTurnScope | undefined;
+          try {
+            turnScope = readVaultTurnScope(body.turnScope);
+          } catch {
+            sendJson(res, 400, { error: "Invalid vault turn scope" });
+            return;
+          }
+          if (
+            typeof body.query !== "string" ||
+            !body.query.trim() ||
+            body.query.length > 1000 ||
+            (body.vaultId !== undefined &&
+              (typeof body.vaultId !== "string" || !body.vaultId || body.vaultId.length > 256)) ||
+            (body.vaultName !== undefined &&
+              (typeof body.vaultName !== "string" ||
+                !body.vaultName.trim() ||
+                body.vaultName.length > 240)) ||
+            (body.vaultId !== undefined && body.vaultName !== undefined) ||
+            (body.maxResults !== undefined &&
+              (!Number.isSafeInteger(body.maxResults) ||
+                (body.maxResults as number) < 1 ||
+                (body.maxResults as number) > 50))
+          ) {
+            sendJson(res, 400, { error: "Invalid vault search" });
+            return;
+          }
+          sendJson(
+            res,
+            200,
+            await this.service.vaultService.search({
+              agentId,
+              query: body.query,
+              ...(body.vaultId === undefined ? {} : { vaultId: body.vaultId as string }),
+              ...(body.vaultName === undefined ? {} : { vaultName: body.vaultName as string }),
+              ...(body.maxResults === undefined ? {} : { maxResults: body.maxResults as number }),
+              ...(turnScope === undefined ? {} : { turnScope }),
+            }),
+          );
+        } else if (pathname === PLATFORMCLAW_VAULT_SCOPE_PATH) {
+          sendJson(res, 200, this.service.vaultService.captureScope({ agentId }));
+        } else {
+          if (
+            typeof body.path !== "string" ||
+            body.path.length > 1024 ||
+            (body.fromLine !== undefined &&
+              (!Number.isSafeInteger(body.fromLine) || (body.fromLine as number) < 1)) ||
+            (body.lineCount !== undefined &&
+              (!Number.isSafeInteger(body.lineCount) ||
+                (body.lineCount as number) < 1 ||
+                (body.lineCount as number) > 200))
+          ) {
+            sendJson(res, 400, { error: "Invalid vault document request" });
+            return;
+          }
+          const result = await this.service.vaultService.get({
+            agentId,
+            path: body.path,
+            ...(body.fromLine === undefined ? {} : { fromLine: body.fromLine as number }),
+            ...(body.lineCount === undefined ? {} : { lineCount: body.lineCount as number }),
+          });
+          sendJson(res, result ? 200 : 404, result ?? { error: "Vault document unavailable" });
+        }
+        return;
+      }
       if (pathname === PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH) {
         if (!this.service.resolveExecCredentials) {
           sendJson(res, 503, { error: "exec credentials unavailable" });
@@ -496,7 +609,18 @@ export class PlatformClawExecutionHandoffServer {
           }),
         );
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof KnowledgeVaultSearchError) {
+        // Only the Vault owner may expose authorized disambiguation choices.
+        // Other failures retain the generic response instead of leaking internal errors.
+        sendJson(res, 409, {
+          error: error.message.slice(0, 500),
+          code: error.code,
+          action: error.action.slice(0, 500),
+          vaultChoices: error.vaultChoices.slice(0, 5),
+        });
+        return;
+      }
       sendJson(res, 409, { error: "execution target unavailable" });
     }
   }

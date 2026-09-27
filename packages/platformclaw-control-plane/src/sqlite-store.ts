@@ -33,6 +33,7 @@ import {
   runReadTransaction,
   takeFirstSync,
 } from "./kysely-sync.js";
+import { SqliteKnowledgeVaultStore } from "./sqlite-knowledge-vault-store.js";
 import { ensureBaseballGameSchema } from "./sqlite-schema-baseball.js";
 import { normalizeAccountId } from "./sqlite-store-core.js";
 import { SqliteControlPlaneOrganizationKnowledgeStore } from "./sqlite-store-organization-knowledge.js";
@@ -66,6 +67,7 @@ export class SqliteControlPlaneStore
     ControlPlaneExecutionManagementStore,
     BaseballGameStore
 {
+  readonly vaults = new SqliteKnowledgeVaultStore(this.db);
   private baseballGameSchemaReady = false;
 
   async loadBaseballProgress(userId: string): Promise<BaseballProgress> {

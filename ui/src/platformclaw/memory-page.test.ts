@@ -6,6 +6,7 @@ describe("platformClawMemoryTabFromLocation", () => {
     ["/settings/memory", "", "", "memory"],
     ["/settings/memory/memories", "", "", "memory"],
     ["/settings/memory/wiki", "", "", "wiki"],
+    ["/settings/memory/vaults", "", "", "vaults"],
     ["/settings/memory/organization", "", "", "organization"],
     ["/settings/memory/dreams", "", "", "dreaming"],
     ["/platformclaw/app/settings/memory", "", "/platformclaw/app", "memory"],

@@ -12,11 +12,16 @@ export function createWikiCorpusSupplement(params: {
     status: () => ({ available: true as const }),
     search: async (input: {
       query: string;
+      vaultId?: string;
+      vaultName?: string;
       maxResults?: number;
       agentId?: string;
       agentSessionKey?: string;
       sandboxed?: boolean;
     }) => {
+      if (input.vaultName) {
+        return [];
+      }
       const appConfig = params.getAppConfig();
       const config = params.resolveConfig(input.agentId, appConfig);
       return await searchMemoryWiki({
@@ -26,6 +31,7 @@ export function createWikiCorpusSupplement(params: {
         agentSessionKey: input.agentSessionKey,
         sandboxed: input.sandboxed,
         query: input.query,
+        ...(input.vaultId ? { vaultId: input.vaultId } : {}),
         maxResults: input.maxResults,
         searchBackend: "local",
         searchCorpus: "wiki",

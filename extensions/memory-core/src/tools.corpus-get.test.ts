@@ -18,6 +18,46 @@ beforeEach(() => {
 });
 
 describe("memory corpus get supplements", () => {
+  it.each([true, false])(
+    "only marked owner failures block a Personal same-path read: %s",
+    async (marked) => {
+      const read = vi.fn(async () => ({
+        path: "memory/spec.md",
+        text: "Personal same-path document",
+        from: 1,
+        lines: 1,
+      }));
+      setMemoryReadFileImpl(read);
+      registerMemoryCorpusSupplement("document-owner", {
+        includeByDefault: true,
+        search: async () => [],
+        get: async () => {
+          const error = new Error("internal read failure");
+          throw marked
+            ? Object.assign(error, {
+                memoryCorpusFailure: {
+                  error: "Document permission was revoked.",
+                  action: "Ask the Vault owner for access.",
+                },
+              })
+            : error;
+        },
+      });
+      const result = await createMemoryGetToolOrThrow().execute("owner", {
+        path: "memory/spec.md",
+      });
+      if (marked) {
+        expect(read).not.toHaveBeenCalled();
+        expect(result.details).toMatchObject({ disabled: true, text: "" });
+        expect(JSON.stringify(result.content)).toContain("Ask the Vault owner");
+        expect(JSON.stringify(result)).not.toContain("Personal same-path document");
+      } else {
+        expect(read).toHaveBeenCalledTimes(1);
+        expect(result.details).toMatchObject({ text: "Personal same-path document" });
+      }
+      expect(JSON.stringify(result)).not.toContain("internal read failure");
+    },
+  );
   it("falls back to a wiki corpus supplement for memory_get corpus=all", async () => {
     setMemoryReadFileImpl(async () => {
       throw new Error("path required");
@@ -65,7 +105,7 @@ describe("memory corpus get supplements", () => {
       status: () => ({ available: true as const }),
       message: "organization memory read failed",
     },
-  ])("preserves memory_get failure semantics when a supplement is $name", async (scenario) => {
+  ])("reports a document owner failure safely when a supplement is $name", async (scenario) => {
     const get = vi.fn(async () => {
       throw new Error(scenario.message);
     });
@@ -76,13 +116,17 @@ describe("memory corpus get supplements", () => {
     });
 
     const tool = createMemoryGetToolOrThrow();
-    await expect(
-      tool.execute(`call_get_${scenario.name}`, {
-        path: "organization/part/pmu-registers",
-        corpus: "wiki",
-      }),
-    ).rejects.toThrow(scenario.message);
-    expect(get).toHaveBeenCalledTimes(1);
+    const result = await tool.execute(`call_get_${scenario.name}`, {
+      path: "organization/part/pmu-registers",
+      corpus: "wiki",
+    });
+    expect(result.details).toMatchObject({
+      disabled: true,
+      corpusStatus: [{ pluginId: "organization", status: scenario.name }],
+    });
+    expect(JSON.stringify(result.content)).toContain("unavailable");
+    expect(JSON.stringify(result)).not.toContain(scenario.message);
+    expect(get).toHaveBeenCalledTimes(scenario.name === "unavailable" ? 0 : 1);
   });
 
   it.each(["wiki", "all"] as const)(
@@ -228,11 +272,13 @@ describe("memory corpus get supplements", () => {
       corpus: "all",
     });
 
-    expect(result.details).toEqual({
+    expect(result.details).toMatchObject({
       path: "entities/alpha.md",
       text: "",
       disabled: true,
       error: "primary read failed",
+      corpusStatus: [{ pluginId: "memory-wiki", status: "failed" }],
     });
+    expect(JSON.stringify(result)).not.toContain("supplement lookup failed");
   });
 });

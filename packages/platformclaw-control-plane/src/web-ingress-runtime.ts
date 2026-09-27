@@ -30,6 +30,7 @@ import {
   PlatformClawGatewayRuntimeClient,
   type PlatformClawGatewayRuntimeClientOptions,
 } from "./gateway-runtime-client.js";
+import { KnowledgeVaultService } from "./knowledge-vault-service.js";
 import { KnoxRoutingService, type KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
 import { createOrganizationKnowledgeAnalyzer } from "./organization-knowledge-analysis.js";
 import { OrganizationKnowledgeService } from "./organization-knowledge-service.js";
@@ -147,6 +148,7 @@ export function createPlatformClawWebIngressRuntime(
   if (options.credentialBrokerAddress && !auth.credentialVault) {
     throw new Error("credential broker requires an SSH credential vault");
   }
+  const vaultService = new KnowledgeVaultService(auth.store, gateway);
   const credentialBroker =
     options.credentialBrokerAddress && auth.credentialVault
       ? new SshCredentialBroker(options.credentialBrokerAddress, auth.credentialVault)
@@ -180,6 +182,7 @@ export function createPlatformClawWebIngressRuntime(
       ? new PlatformClawExecutionHandoffServer(
           options.executionServiceToken,
           {
+            vaultService,
             resolveTarget: (agentId) => executionService.resolveTarget(agentId),
             resolveConnectionTarget: (agentId) => executionService.resolveConnectionTarget(agentId),
             changeTarget: (params) => executionService.changeTarget(params),
@@ -297,6 +300,7 @@ export function createPlatformClawWebIngressRuntime(
     authService: auth.service,
     store: auth.store,
     baseballStore: auth.store,
+    vaultService,
     auditWriter: auth.store,
     gateway,
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
@@ -345,6 +349,7 @@ export function createPlatformClawWebIngressRuntime(
     loginRateLimiter: new MemoryBrowserLoginRateLimiter(options.loginRateLimiter),
     gatewayProxy,
     gateway,
+    vaultService,
     ...(mediaRelay ? { mediaRelay } : {}),
     ...(canvasRelay ? { canvasRelay } : {}),
     executionService: employeeExecution,
@@ -366,11 +371,24 @@ export function createPlatformClawWebIngressRuntime(
     ...options.ingress,
   });
   let closed = false;
+  let vaultRetryTimer: ReturnType<typeof setInterval> | undefined;
   let preparing: Promise<RestartReconciliationSummary> | undefined;
   const prepare = (): Promise<RestartReconciliationSummary> => {
     preparing ??= restartReconciler.reconcile().then(async (summary) => {
       await skillHub?.processGovernanceQueue();
       organizationKnowledge.kick();
+      if (closed) {
+        return summary;
+      }
+      auth.store.vaults.retryFailed();
+      vaultRetryTimer = setInterval(() => {
+        try {
+          auth.store.vaults.retryFailed();
+        } catch {
+          /* Durable failed jobs remain eligible for the next tick. */
+        }
+      }, 60_000);
+      vaultRetryTimer.unref();
       return summary;
     });
     return preparing;
@@ -400,6 +418,7 @@ export function createPlatformClawWebIngressRuntime(
         return;
       }
       closed = true;
+      clearInterval(vaultRetryTimer);
       try {
         await server.close();
       } finally {

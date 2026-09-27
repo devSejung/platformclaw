@@ -16,6 +16,7 @@ import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import "../pages/agents/memory/memory-panel.ts";
 import "../pages/config/memory-memories.ts";
 import "./memory-organization.ts";
+import "./memory-vaults.ts";
 import "../pages/config/memory-promotions.ts";
 import { isExpandableResult, type SearchResult } from "../pages/config/memory-memories-view.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
@@ -23,7 +24,12 @@ import "./memory-item-menu.ts";
 import "./memory-delete-dialog.ts";
 import type { MemoryMenuAction } from "./memory-item-menu.ts";
 
-type PersonalMemoryTab = "memory" | "wiki" | "organization" | "dreaming";
+const PERSONAL_MEMORY_TABS = ["memory", "wiki", "organization", "vaults", "dreaming"] as const;
+type PersonalMemoryTab = (typeof PERSONAL_MEMORY_TABS)[number];
+
+export function isPlatformClawMemoryTab(value: unknown): value is PersonalMemoryTab {
+  return PERSONAL_MEMORY_TABS.some((tab) => tab === value);
+}
 
 const PANEL_ID = "platformclaw-memory-panel";
 
@@ -36,13 +42,8 @@ export function platformClawMemoryTabFromLocation(
   const routedPath =
     new URLSearchParams(location.search).get(INTERNAL_MEMORY_PATH_PARAM) ?? location.pathname;
   const routeTab = memoryTabFromPath(routedPath, basePath) ?? memoryTabFromPath(routedPath);
-  return routeTab === "memories"
-    ? "memory"
-    : routeTab === "wiki" || routeTab === "organization"
-      ? routeTab
-      : routeTab === "dreams"
-        ? "dreaming"
-        : "memory";
+  const tab = routeTab === "memories" ? "memory" : routeTab === "dreams" ? "dreaming" : routeTab;
+  return isPlatformClawMemoryTab(tab) ? tab : "memory";
 }
 
 class PlatformClawMemoryPage extends OpenClawLightDomElement {
@@ -270,6 +271,12 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           .methodAdvertised=${isGatewayMethodAdvertised(gateway, "memory.search")}
           .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search")}
           .browseEnabled=${true}
+          .unifiedSearch=${isGatewayMethodAdvertised(gateway, "platformclaw.vault.snapshot") ===
+          true}
+          .vaultGetAdvertised=${isGatewayMethodAdvertised(
+            gateway,
+            "platformclaw.vault.document.get",
+          ) === true}
           .browseListAdvertised=${isGatewayMethodAdvertised(gateway, "agents.workspace.list")}
           .personalDetailAdvertised=${isGatewayMethodAdvertised(gateway, "agents.workspace.get")}
           .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.document.get")}
@@ -290,6 +297,16 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           }}
           .agentId=${this.agentId}
         ></openclaw-memory-memories>`;
+      case "vaults":
+        return html`<platformclaw-memory-vaults
+          @vault-navigate=${(event: CustomEvent<"wiki" | "organization">) =>
+            this.selectTab(event.detail)}
+          .client=${gateway.client}
+          .connected=${gateway.phase === "connected"}
+          .methodAdvertised=${isGatewayMethodAdvertised(gateway, "platformclaw.vault.snapshot") ===
+          true}
+          .agentId=${this.agentId}
+        ></platformclaw-memory-vaults>`;
       case "wiki":
         return html`<openclaw-agent-memory-panel
           .agentId=${this.agentId ?? ""}
@@ -372,6 +389,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
             tabs: [
               { value: "memory", label: "Memory" },
               { value: "wiki", label: "Personal Wiki" },
+              { value: "vaults", label: t("platformClaw.vault.title") },
               { value: "organization", label: t("platformClaw.memory.tabs.organization") },
               { value: "dreaming", label: "Dreaming" },
             ],

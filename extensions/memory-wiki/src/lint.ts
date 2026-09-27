@@ -11,7 +11,7 @@ import {
   buildClaimContradictionClusters,
   collectWikiClaimHealth,
 } from "./claim-health.js";
-import { compileMemoryWikiVault } from "./compile.js";
+import { scanMemoryWikiVaultPages } from "./compile.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { appendMemoryWikiLog } from "./log.js";
 import {
@@ -22,6 +22,7 @@ import {
   type WikiPageSummary,
 } from "./markdown.js";
 import { readMemoryWikiSourceSyncState } from "./source-sync-state.js";
+import { initializeMemoryWikiVault } from "./vault.js";
 
 type MemoryWikiLintIssue = {
   severity: "error" | "warning";
@@ -504,13 +505,15 @@ async function writeLintReport(rootDir: string, issues: MemoryWikiLintIssue[]): 
 export async function lintMemoryWikiVault(
   config: ResolvedMemoryWikiConfig,
 ): Promise<LintMemoryWikiResult> {
-  const compileResult = await compileMemoryWikiVault(config);
+  // Diagnostics must remain usable when malformed sources prevent compilation.
+  await initializeMemoryWikiVault(config);
+  const scan = await scanMemoryWikiVaultPages(config.vault.path);
   const sourceSyncState = await readMemoryWikiSourceSyncState(config.vault.path);
   const managedImportedSourcePagePaths = new Set(
     Object.values(sourceSyncState.entries).map((entry) => entry.pagePath.split(path.sep).join("/")),
   );
   const issues = [
-    ...compileResult.frontmatterErrors.map(
+    ...scan.frontmatterErrors.map(
       (error): MemoryWikiLintIssue => ({
         severity: "error",
         category: "structure",
@@ -519,7 +522,7 @@ export async function lintMemoryWikiVault(
         message: `Frontmatter failed to parse: ${error.message}`,
       }),
     ),
-    ...collectPageIssues(compileResult.pages, managedImportedSourcePagePaths),
+    ...collectPageIssues(scan.pages, managedImportedSourcePagePaths),
   ].toSorted((left, right) => left.path.localeCompare(right.path));
   const issuesByCategory = buildIssuesByCategory(issues);
   const reportPath = await writeLintReport(config.vault.path, issues);

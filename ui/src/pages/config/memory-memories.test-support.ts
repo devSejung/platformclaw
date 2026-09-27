@@ -7,6 +7,10 @@ type MemoryMemoriesTestElement = HTMLElement & {
   methodAdvertised: boolean | null;
   wikiSearchAdvertised: boolean | null;
   browseEnabled: boolean;
+  unifiedSearch: boolean;
+  vaultGetAdvertised: boolean;
+  vaultId: string | null;
+  searchScope: "connected" | "all";
   browseListAdvertised: boolean | null;
   personalDetailAdvertised: boolean | null;
   wikiGetAdvertised: boolean | null;

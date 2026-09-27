@@ -16,13 +16,16 @@ import {
   normalizeLowercaseStringOrEmpty,
   uniqueStrings,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import pMap, { pMapSkip } from "p-map";
 import type { OpenClawConfig } from "../api.js";
 import { walkMemoryWikiDirectory } from "./bounded-walk.js";
 import { assessClaimFreshness, isClaimContestedStatus } from "./claim-health.js";
-import { isGeneratedMemoryWikiPage } from "./compile.js";
+import { compileMemoryWikiVault, isGeneratedMemoryWikiPage } from "./compile.js";
 import {
   loadMemoryWikiCompiledCache,
+  loadMemoryWikiSearchSnapshot,
+  readMemoryWikiCompileFailure,
   type MemoryWikiCompiledClaim,
   type MemoryWikiCompiledDigestPage,
 } from "./compiled-cache.js";
@@ -38,6 +41,8 @@ import { initializeMemoryWikiVault } from "./vault.js";
 
 const QUERY_DIRS = ["entities", "concepts", "sources", "syntheses", "reports"] as const;
 const QUERY_PAGE_READ_CONCURRENCY = 16;
+// Bound each excerpt independently so a single long authored line cannot flood tool context.
+const MAX_SEARCH_SNIPPET_CHARS = 1_200;
 const RELATED_BLOCK_PATTERN =
   /<!-- openclaw:wiki:related:start -->[\s\S]*?<!-- openclaw:wiki:related:end -->/g;
 const MARKDOWN_FRONTMATTER_PATTERN = /^\s*---\r?\n[\s\S]*?\r?\n---\r?\n?/;
@@ -116,6 +121,15 @@ type QueryDigestBundle = {
 };
 
 type WikiSearchResult = {
+  indexStatus?: "failed";
+  indexError?: string;
+  nextRetryAt?: number;
+  vaultId?: string;
+  vaultName?: string;
+  vaultType?: "personal" | "shared" | "managed";
+  documentId?: string;
+  revision?: string | number;
+  sourceVersion?: string;
   corpus: string;
   path: string;
   title: string;
@@ -277,7 +291,10 @@ function buildSnippet(raw: string, query: string): string {
       }))
       .toSorted((left, right) => right.hits - left.hits)
       .find((candidate) => candidate.hits > 0)?.line;
-  return matchingLine?.trim() || lines.find((line) => line.trim() !== "---")?.trim() || "";
+  return truncateUtf16Safe(
+    matchingLine?.trim() || lines.find((line) => line.trim() !== "---")?.trim() || "",
+    MAX_SEARCH_SNIPPET_CHARS,
+  );
 }
 
 function buildPageSearchText(page: QueryableWikiPage): string {
@@ -366,50 +383,6 @@ function lineMatchesQuery(lineLower: string, queryLower: string, queryTokens: st
   return queryTokens.length > 0 && queryTokens.every((token) => lineLower.includes(token));
 }
 
-function buildDigestPageSearchText(page: QueryDigestPage, claims: QueryDigestClaim[]): string {
-  return [
-    page.title,
-    page.path,
-    page.id ?? "",
-    page.pageType ?? "",
-    page.entityType ?? "",
-    page.canonicalId ?? "",
-    page.aliases?.join(" ") ?? "",
-    page.sourceIds.join(" "),
-    page.questions.join(" "),
-    page.contradictions.join(" "),
-    page.privacyTier ?? "",
-    page.bestUsedFor?.join(" ") ?? "",
-    page.notEnoughFor?.join(" ") ?? "",
-    page.personCard?.canonicalId ?? "",
-    page.personCard?.handles.join(" ") ?? "",
-    page.personCard?.socials.join(" ") ?? "",
-    page.personCard?.emails.join(" ") ?? "",
-    page.personCard?.timezone ?? "",
-    page.personCard?.lane ?? "",
-    page.personCard?.askFor.join(" ") ?? "",
-    page.personCard?.avoidAskingFor.join(" ") ?? "",
-    page.personCard?.bestUsedFor.join(" ") ?? "",
-    page.personCard?.notEnoughFor.join(" ") ?? "",
-    page.topRelationships
-      ?.flatMap((relationship) => [
-        relationship.targetId ?? "",
-        relationship.targetPath ?? "",
-        relationship.targetTitle ?? "",
-        relationship.kind ?? "",
-        relationship.evidenceKind ?? "",
-        relationship.note ?? "",
-      ])
-      .join(" ") ?? "",
-    claims.map((claim) => claim.text).join(" "),
-    claims.map((claim) => claim.id ?? "").join(" "),
-    claims.map((claim) => claim.evidenceKinds?.join(" ") ?? "").join(" "),
-    claims.map((claim) => claim.privacyTiers?.join(" ") ?? "").join(" "),
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 function isClaimTextOrIdMatch(
   claim: Pick<QueryDigestClaim, "id" | "text"> | Pick<WikiClaim, "id" | "text">,
   queryLower: string,
@@ -466,18 +439,6 @@ function scoreClaimMatch(params: {
   }
   score += isClaimContestedStatus(params.status) ? -6 : 4;
   return score;
-}
-
-function scoreDigestClaimMatch(claim: QueryDigestClaim, queryLower: string): number {
-  return scoreClaimMatch({
-    text: claim.text,
-    id: claim.id,
-    confidence: claim.confidence,
-    status: claim.status,
-    freshnessLevel: claim.freshnessLevel,
-    queryLower,
-    queryTokens: buildQueryTokens(queryLower),
-  });
 }
 
 function scoreWikiMetadataMatch(params: {
@@ -543,23 +504,6 @@ function buildPageRouteQuestionFields(page: QueryableWikiPage): string[] {
       relationship.targetTitle,
       relationship.note,
     ]),
-  ].filter((value): value is string => Boolean(value));
-}
-
-function buildDigestRouteQuestionFields(page: QueryDigestPage): string[] {
-  return [
-    page.personCard?.lane,
-    ...(page.personCard?.askFor ?? []),
-    ...(page.personCard?.avoidAskingFor ?? []),
-    ...(page.bestUsedFor ?? []),
-    ...(page.notEnoughFor ?? []),
-    ...(page.personCard?.bestUsedFor ?? []),
-    ...(page.personCard?.notEnoughFor ?? []),
-    ...(page.topRelationships?.flatMap((relationship) => [
-      relationship.kind,
-      relationship.targetTitle,
-      relationship.note,
-    ]) ?? []),
   ].filter((value): value is string => Boolean(value));
 }
 
@@ -651,143 +595,6 @@ function scorePageSearchModeBoost(params: {
   return 0;
 }
 
-function scoreDigestSearchModeBoost(params: {
-  page: QueryDigestPage;
-  claims: readonly QueryDigestClaim[];
-  matchingClaims: readonly QueryDigestClaim[];
-  queryLower: string;
-  queryTokens: readonly string[];
-  mode: WikiSearchMode;
-}): number {
-  const { page, queryLower, queryTokens } = params;
-  switch (params.mode) {
-    case "auto":
-      return 0;
-    case "find-person": {
-      let score = isPersonLikeSummary(page) ? 24 : -4;
-      if (
-        hasAnyQueryMatch(
-          [
-            page.canonicalId,
-            ...(page.aliases ?? []),
-            page.personCard?.canonicalId,
-            ...(page.personCard?.handles ?? []),
-            ...(page.personCard?.emails ?? []),
-            ...(page.personCard?.socials ?? []),
-          ],
-          queryLower,
-          queryTokens,
-        )
-      ) {
-        score += 24;
-      }
-      return score;
-    }
-    case "route-question": {
-      let score = isPersonLikeSummary(page) ? 14 : 0;
-      if (hasRouteQuestionMatch(buildDigestRouteQuestionFields(page), queryLower)) {
-        score += 32;
-      }
-      score += Math.min(8, (page.relationshipCount ?? 0) * 2);
-      return score;
-    }
-    case "source-evidence": {
-      let score = page.kind === "source" ? 22 : 0;
-      if (
-        hasAnyQueryMatch(
-          [
-            ...page.sourceIds,
-            ...params.claims.flatMap((claim) => [
-              ...(claim.sourceIds ?? []),
-              ...(claim.evidenceKinds ?? []),
-              ...(claim.privacyTiers ?? []),
-            ]),
-          ],
-          queryLower,
-          queryTokens,
-        )
-      ) {
-        score += 30;
-      }
-      return score;
-    }
-    case "raw-claim":
-      return params.matchingClaims.length > 0 ? 42 : 0;
-  }
-  return 0;
-}
-
-function buildDigestCandidatePaths(params: {
-  digest: QueryDigestBundle;
-  query: string;
-  maxResults: number;
-  mode: WikiSearchMode;
-}): string[] {
-  const queryLower = normalizeLowercaseStringOrEmpty(params.query);
-  const queryTokens = buildQueryTokens(queryLower);
-  const claimsByPage = new Map<string, QueryDigestClaim[]>();
-  for (const claim of params.digest.claims) {
-    const current = claimsByPage.get(claim.pagePath) ?? [];
-    current.push(claim);
-    claimsByPage.set(claim.pagePath, current);
-  }
-
-  return params.digest.pages
-    .map((page) => {
-      const claims = claimsByPage.get(page.path) ?? [];
-      const metadataLower = normalizeLowercaseStringOrEmpty(
-        buildDigestPageSearchText(page, claims),
-      );
-      if (
-        !metadataLower.includes(queryLower) &&
-        !(
-          params.mode === "route-question" &&
-          hasRouteQuestionMatch(buildDigestRouteQuestionFields(page), queryLower)
-        )
-      ) {
-        return { path: page.path, score: 0 };
-      }
-      let score =
-        1 +
-        scoreWikiMetadataMatch({
-          title: page.title,
-          path: page.path,
-          id: page.id,
-          sourceIds: page.sourceIds,
-          queryLower,
-        });
-      const matchingClaims = claims
-        .filter((claim) => isClaimTextOrIdMatch(claim, queryLower, queryTokens))
-        .toSorted(
-          (left, right) =>
-            scoreDigestClaimMatch(right, queryLower) - scoreDigestClaimMatch(left, queryLower),
-        );
-      const [bestMatchingClaim] = matchingClaims;
-      if (bestMatchingClaim) {
-        score += scoreDigestClaimMatch(bestMatchingClaim, queryLower);
-        score += Math.min(10, (matchingClaims.length - 1) * 2);
-      }
-      score += scoreDigestSearchModeBoost({
-        page,
-        claims,
-        matchingClaims,
-        queryLower,
-        queryTokens,
-        mode: params.mode,
-      });
-      return { path: page.path, score };
-    })
-    .filter((candidate) => candidate.score > 0)
-    .toSorted((left, right) => {
-      if (left.score !== right.score) {
-        return right.score - left.score;
-      }
-      return left.path.localeCompare(right.path);
-    })
-    .slice(0, Math.max(params.maxResults * 4, 20))
-    .map((candidate) => candidate.path);
-}
-
 function isClaimMatch(
   claim: WikiClaim,
   queryLower: string,
@@ -829,7 +636,7 @@ function buildPageSnippet(page: QueryableWikiPage, query: string): string {
   const queryLower = normalizeLowercaseStringOrEmpty(query);
   const matchingClaim = getMatchingClaims(page, queryLower)[0];
   if (matchingClaim) {
-    return matchingClaim.text;
+    return truncateUtf16Safe(matchingClaim.text, MAX_SEARCH_SNIPPET_CHARS);
   }
   return buildSnippet(page.raw, query);
 }
@@ -1292,6 +1099,8 @@ function toWikiSearchResult(
   const matchingClaim = getMatchingClaims(page, queryLower)[0];
   return {
     corpus: "wiki",
+    revision: createHash("sha256").update(page.raw).digest("hex"),
+    documentId: page.id ?? `wiki:${page.relativePath}`,
     path: page.relativePath,
     title: page.title,
     kind: page.kind,
@@ -1309,6 +1118,8 @@ function toMemoryWikiSearchResult(
 ): WikiSearchResult {
   return {
     corpus: "memory",
+    documentId: `${result.source}:${result.path}`,
+    sourceVersion: result.sourceVersion,
     path: result.path,
     title: buildMemorySearchTitle(result.path),
     kind: "memory",
@@ -1328,6 +1139,8 @@ export function toSupplementWikiSearchResult(
 ): WikiSearchResult {
   return {
     ...result,
+    snippet: truncateUtf16Safe(result.snippet, MAX_SEARCH_SNIPPET_CHARS),
+    ...(result.indexError ? { indexError: truncateUtf16Safe(result.indexError, 500) } : {}),
     title: result.title ?? buildMemorySearchTitle(result.path),
     kind: result.kind ?? result.corpus,
     searchMode: mode,
@@ -1349,45 +1162,52 @@ async function searchWikiCorpus(params: {
   mode: WikiSearchMode;
   canReadPage: (page: QueryableWikiPage) => boolean;
 }): Promise<WikiSearchResult[]> {
-  const digest = await readQueryDigestBundle(params.config);
-  const rootDir = params.config.vault.path;
-  const candidatePaths = digest
-    ? buildDigestCandidatePaths({
-        digest,
-        query: params.query,
-        maxResults: params.maxResults,
-        mode: params.mode,
-      })
-    : [];
-  const seenPaths = new Set<string>();
-  const candidatePages =
-    candidatePaths.length > 0
-      ? await readQueryableWikiPagesByPaths(rootDir, candidatePaths)
-      : await readQueryableWikiPages(rootDir);
-  for (const page of candidatePages) {
-    seenPaths.add(page.relativePath);
+  let snapshot = await loadMemoryWikiSearchSnapshot(params.config);
+  let failure = await readMemoryWikiCompileFailure(params.config);
+  if (!snapshot?.searchPages) {
+    if (failure && failure.nextRetryAt > Date.now()) {
+      throw new Error(
+        `Wiki search index is unavailable: ${failure.error.slice(0, 500)}. Automatic retry is scheduled; rebuild the Wiki index after correcting the source.`,
+      );
+    }
+    // First search compiles missing/older derived data; a failed first compile
+    // reports its cause instead of silently hiding unindexed authored documents.
+    await compileMemoryWikiVault(params.config);
+    failure = null;
+    snapshot = await loadMemoryWikiSearchSnapshot(params.config);
   }
-
-  const results = candidatePages
-    .filter(params.canReadPage)
-    .map((page) => toWikiSearchResult(page, params.query, params.mode))
-    .filter((page) => page.score > 0);
-  if (candidatePaths.length === 0 || results.length >= params.maxResults) {
-    return results;
+  if (!snapshot?.searchPages) {
+    throw new Error("Wiki search index is unavailable. Rebuild the Wiki index.");
   }
-
-  const remainingPaths = (await listWikiMarkdownFiles(rootDir)).filter(
-    (relativePath) => !seenPaths.has(relativePath),
-  );
-  const remainingPages = (await readQueryableWikiPagesByPaths(rootDir, remainingPaths)).filter(
-    params.canReadPage,
-  );
-  return [
-    ...results,
-    ...remainingPages
-      .map((page) => toWikiSearchResult(page, params.query, params.mode))
-      .filter((page) => page.score > 0),
-  ];
+  return snapshot.searchPages.flatMap(({ relativePath, raw }) => {
+    const page = toWikiPageSummary({
+      absolutePath: path.join(params.config.vault.path, relativePath),
+      relativePath,
+      raw,
+    });
+    if (!page) {
+      return [];
+    }
+    const queryPage = { ...page, raw };
+    if (!params.canReadPage(queryPage)) {
+      return [];
+    }
+    const result = toWikiSearchResult(queryPage, params.query, params.mode);
+    return result.score > 0
+      ? [
+          {
+            ...result,
+            ...(failure
+              ? {
+                  indexStatus: "failed" as const,
+                  indexError: failure.error.slice(0, 500),
+                  nextRetryAt: failure.nextRetryAt,
+                }
+              : {}),
+          },
+        ]
+      : [];
+  });
 }
 
 function resolveDigestClaimLookup(digest: QueryDigestBundle, lookup: string): string | null {
@@ -1414,6 +1234,7 @@ export function resolveQueryableWikiPageByLookup(
 }
 
 export async function searchMemoryWiki(input: {
+  vaultId?: string;
   config: ResolvedMemoryWikiConfig;
   appConfig?: OpenClawConfig;
   agentId?: string;
@@ -1427,6 +1248,10 @@ export async function searchMemoryWiki(input: {
   mode?: WikiSearchMode;
 }): Promise<WikiSearchResult[]> {
   const agentId = resolveActiveMemoryAgentId(input);
+  const personalVaultId = `personal:${agentId ?? input.config.agentId ?? "main"}`;
+  if (input.vaultId && input.vaultId !== personalVaultId) {
+    return [];
+  }
   const params = agentId ? { ...input, agentId } : input;
   const protectedSessionRecall = params.conversationRecall?.corpus === "sessions";
   // Recall scope is runtime-owned; model corpus/backend overrides cannot widen it.
@@ -1444,7 +1269,6 @@ export async function searchMemoryWiki(input: {
     sandboxed: params.sandboxed,
     operation: "wiki_search",
   });
-  await initializeMemoryWikiVault(effectiveConfig);
   const maxResults = normalizePositiveInteger(params.maxResults, 10);
   const mode = params.mode ?? "auto";
 
@@ -1497,7 +1321,13 @@ export async function searchMemoryWiki(input: {
     memoryResults,
     maxResults,
     balanceCorpora: effectiveConfig.search.corpus === "all",
-  });
+  }).map((result) =>
+    Object.assign({}, result, {
+      vaultId: personalVaultId,
+      vaultName: "Personal",
+      vaultType: "personal" as const,
+    }),
+  );
 }
 
 export async function getMemoryWikiPage(input: {

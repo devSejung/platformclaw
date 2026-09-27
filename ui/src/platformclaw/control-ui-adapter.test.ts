@@ -210,6 +210,37 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(ensureList).not.toHaveBeenCalled();
   });
 
+  it("preserves the Vault tab through loader and rendered route data", async () => {
+    installDescriptor();
+    const options = createPlatformClawControlUiAdapter()!.applicationOptions(
+      {
+        accountId: "person.one",
+        agentId: "assigned-personal",
+        displayName: "Person One",
+        department: "Platform",
+        globalRole: "member",
+      },
+      vi.fn(),
+    );
+    const route = options.routeOverrides!.memory!;
+    const routeData = await route.loader!(
+      { basePath: "/platformclaw/app" } as never,
+      {
+        location: {
+          pathname: "/platformclaw/app/settings/memory",
+          search: "?__openclawMemoryPath=%2Fplatformclaw%2Fapp%2Fsettings%2Fmemory%2Fvaults",
+        },
+      } as never,
+    );
+    const component = await route.component!();
+    const container = document.createElement("div");
+    render(component.render(routeData), container);
+    const page = container.querySelector("platformclaw-memory-page") as HTMLElement & {
+      initialTab: string;
+    };
+    expect(page.initialTab).toBe("vaults");
+  });
+
   it("uses the authenticated personal binding before the Gateway agent list loads", async () => {
     installDescriptor();
     const adapter = createPlatformClawControlUiAdapter()!;

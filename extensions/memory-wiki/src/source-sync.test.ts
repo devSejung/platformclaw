@@ -7,11 +7,10 @@ import { resolveMemoryWikiConfig } from "./config.js";
 import { withMemoryWikiVaultMutation } from "./mutation-coordinator.js";
 import { syncMemoryWikiImportedSources } from "./source-sync.js";
 
-const { syncBridgeMock, syncUnsafeLocalMock, refreshIndexesMock, compileMock } = vi.hoisted(() => ({
+const { syncBridgeMock, syncUnsafeLocalMock, refreshIndexesMock } = vi.hoisted(() => ({
   syncBridgeMock: vi.fn(),
   syncUnsafeLocalMock: vi.fn(),
   refreshIndexesMock: vi.fn(),
-  compileMock: vi.fn(),
 }));
 
 vi.mock("./bridge.js", () => ({
@@ -23,7 +22,6 @@ vi.mock("./unsafe-local.js", () => ({
 }));
 
 vi.mock("./compile.js", () => ({
-  compileMemoryWikiVault: compileMock,
   refreshMemoryWikiIndexesAfterImport: refreshIndexesMock,
 }));
 
@@ -69,8 +67,6 @@ describe("syncMemoryWikiImportedSources", () => {
     syncBridgeMock.mockReset();
     syncUnsafeLocalMock.mockReset();
     refreshIndexesMock.mockReset();
-    compileMock.mockReset();
-    compileMock.mockResolvedValue({ updatedFiles: ["index.md"] });
     syncBridgeMock.mockResolvedValue(bridgeResult);
     syncUnsafeLocalMock.mockResolvedValue({
       ...bridgeResult,
@@ -152,12 +148,15 @@ describe("syncMemoryWikiImportedSources", () => {
       updatedCount: 0,
       removedCount: 0,
     });
-    refreshIndexesMock.mockRejectedValueOnce(new Error("compile failed after pruning"));
-    refreshIndexesMock.mockResolvedValueOnce({ refreshed: false, reason: "no-import-changes" });
+    refreshIndexesMock.mockResolvedValueOnce({ refreshed: false, reason: "compile-failed" });
+    refreshIndexesMock.mockResolvedValueOnce({
+      refreshed: true,
+      reason: "forced",
+      compile: { updatedFiles: ["index.md"] },
+    });
     await expect(
       syncMemoryWikiImportedSources({ config, appConfig, forceSync: true }),
-    ).rejects.toThrow("compile failed after pruning");
-    expect(compileMock).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ indexesRefreshed: false, indexRefreshReason: "compile-failed" });
     await expect(
       syncMemoryWikiImportedSources({ config, appConfig, forceSync: true }),
     ).resolves.toMatchObject({
@@ -166,7 +165,9 @@ describe("syncMemoryWikiImportedSources", () => {
       indexRefreshReason: "forced",
       indexUpdatedFiles: ["index.md"],
     });
-    expect(compileMock).toHaveBeenCalledExactlyOnceWith(config);
+    expect(refreshIndexesMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ config, forceCompile: true }),
+    );
   });
 
   it("coalesces separately resolved equivalent configs for one vault", async () => {

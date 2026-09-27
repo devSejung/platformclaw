@@ -15,6 +15,8 @@ export type MemoryEntryProvenance = {
 
 /** One ranked memory search hit with optional vector/text scoring details. */
 export type MemorySearchResult = {
+  /** Version of the indexed source, never a hash of the presentation snippet. */
+  sourceVersion?: string;
   path: string;
   startLine: number;
   endLine: number;

@@ -1,0 +1,79 @@
+.vault-graph {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+.vault-graph__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.vault-graph__toolbar > input {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.vault-graph__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 14px;
+}
+.vault-graph__canvas {
+  min-width: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.vault-graph__canvas svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: auto;
+  touch-action: none;
+  cursor: grab;
+}
+.vault-graph__canvas marker path,
+.vault-graph__node circle {
+  fill: var(--accent);
+}
+.vault-graph__edges line,
+.vault-graph__self {
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: none;
+}
+.vault-graph__node {
+  cursor: pointer;
+}
+.vault-graph__node text {
+  fill: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+.vault-graph__node[aria-pressed="true"] circle,
+.vault-graph__node:focus-visible circle {
+  stroke: var(--text);
+  stroke-width: 3;
+}
+.vault-graph__inspector {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.vault-graph__inspector label,
+.vault-graph__inspector section {
+  display: grid;
+  gap: 8px;
+}
+.vault-graph__inspector h4 {
+  margin: 0;
+  font-size: 13px;
+}
+@media (max-width: 900px) {
+  .vault-graph__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

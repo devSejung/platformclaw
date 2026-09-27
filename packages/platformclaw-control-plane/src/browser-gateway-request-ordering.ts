@@ -27,5 +27,10 @@ const MUTATING_BROWSER_METHODS = new Set([
 ]);
 
 export function isMutatingBrowserGatewayMethod(method: string): boolean {
-  return MUTATING_BROWSER_METHODS.has(method);
+  return (
+    MUTATING_BROWSER_METHODS.has(method) ||
+    (method.startsWith("platformclaw.vault.") &&
+      method !== "platformclaw.vault.snapshot" &&
+      method !== "platformclaw.vault.document.get")
+  );
 }

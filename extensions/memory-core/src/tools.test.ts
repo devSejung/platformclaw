@@ -668,7 +668,7 @@ describe("memory_search unavailable payloads", () => {
     }
   });
 
-  it("keeps qmd-configured wiki-only searches on the default deadline", async () => {
+  it("bounds qmd-configured wiki-only searches at the independent corpus deadline", async () => {
     vi.useFakeTimers();
     try {
       setMemoryBackend("qmd");
@@ -685,11 +685,18 @@ describe("memory_search unavailable payloads", () => {
           settled = true;
           return result;
         });
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
 
       expect(settled).toBe(true);
       const result = await resultPromise;
-      expectMemorySearchTimeout(result.details, 15);
+      expect(result.details).toMatchObject({
+        results: [],
+        corpusStatus: [{ pluginId: "memory-wiki", status: "failed" }],
+        warnings: ['Memory corpus from plugin "memory-wiki" is temporarily unavailable.'],
+      });
+      expect(JSON.stringify(result)).not.toContain("embedding/provider");
       expect(getMemorySearchManagerMockCalls()).toBe(0);
     } finally {
       vi.useRealTimers();
@@ -763,6 +770,7 @@ describe("memory_search unavailable payloads", () => {
           score: 0.9,
           snippet: "Thread-hidden codename: ORBIT-22.",
           source: "memory" as const,
+          sourceVersion: "a".repeat(64),
         },
       ];
     });
@@ -784,6 +792,12 @@ describe("memory_search unavailable payloads", () => {
         score: 0.9,
         snippet: "Thread-hidden codename: ORBIT-22.",
         source: "memory",
+        sourceVersion: "a".repeat(64),
+        vaultId: "personal:main",
+        vaultName: "Personal",
+        vaultType: "personal",
+        documentId: "memory:MEMORY.md",
+        title: "MEMORY.md",
       },
     ]);
     expect(searchCalls).toBe(2);
@@ -913,6 +927,7 @@ describe("memory_search unavailable payloads", () => {
           score: 0.9,
           snippet: "Thread-hidden codename: ORBIT-22.",
           source: "memory" as const,
+          sourceVersion: "a".repeat(64),
         },
       ];
     });
@@ -935,6 +950,12 @@ describe("memory_search unavailable payloads", () => {
         score: 0.9,
         snippet: "Thread-hidden codename: ORBIT-22.",
         source: "memory",
+        sourceVersion: "a".repeat(64),
+        vaultId: "personal:main",
+        vaultName: "Personal",
+        vaultType: "personal",
+        documentId: "memory:MEMORY.md",
+        title: "MEMORY.md",
       },
     ]);
     expect(searchCalls).toBe(2);
@@ -1719,6 +1740,7 @@ describe("memory_search corpus labels", () => {
         score: 0.95,
         snippet: "Durable memory note",
         source: "memory" as const,
+        sourceVersion: "a".repeat(64),
       },
       {
         path: "sessions/thread-1.jsonl",
@@ -1727,6 +1749,7 @@ describe("memory_search corpus labels", () => {
         score: 0.9,
         snippet: "Thread transcript note",
         source: "sessions" as const,
+        sourceVersion: "b".repeat(64),
       },
     ]);
 
@@ -1759,6 +1782,12 @@ describe("memory_search corpus labels", () => {
         score: 0.95,
         snippet: "Durable memory note",
         source: "memory",
+        sourceVersion: "a".repeat(64),
+        vaultId: "personal:main",
+        vaultName: "Personal",
+        vaultType: "personal",
+        documentId: "memory:MEMORY.md",
+        title: "MEMORY.md",
       },
       {
         corpus: "sessions",
@@ -1768,6 +1797,12 @@ describe("memory_search corpus labels", () => {
         score: 0.9,
         snippet: "Thread transcript note",
         source: "sessions",
+        sourceVersion: "b".repeat(64),
+        vaultId: "personal:main",
+        vaultName: "Personal",
+        vaultType: "personal",
+        documentId: "sessions:sessions/thread-1.jsonl",
+        title: "thread-1.jsonl",
       },
     ]);
   });

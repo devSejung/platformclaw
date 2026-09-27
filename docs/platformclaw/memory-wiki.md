@@ -11,7 +11,7 @@ title: "Memory Wiki rollout"
 
 PlatformClaw adopts the bundled OpenClaw `memory-wiki` plugin instead of
 building a second wiki engine. The rollout keeps durable personal memory,
-compiled wiki pages, and future shared knowledge as distinct product layers.
+compiled wiki pages, and shared knowledge as distinct product layers.
 
 ## Layer model
 
@@ -113,8 +113,8 @@ Users access the feature through **Settings > Memory**. PlatformClaw groups the
 native surfaces into one hub without merging their data models:
 
 - **Memory** searches the personal Agent's durable recall, Personal Wiki, and
-  every organization scope the employee can currently read. Personal, Wiki,
-  and organization results are labeled and open in place.
+  connected Shared and Managed Vaults. An explicit browser scope can search all
+  accessible Vaults. Results are labeled and open in place.
 - **Personal Wiki** opens compiled Wiki pages and imported insights.
 - **Dreaming** contains Overview, Dream Diary, and Activity views for scheduled
   memory consolidation.
@@ -122,8 +122,9 @@ native surfaces into one hub without merging their data models:
   Group knowledge graphs.
 
 The hub keeps only one surface open at a time, so Dreaming and organization
-administration do not create one unbounded Settings page. The browser combines
-the bounded `memory.search` and `wiki.search` reads in one user-facing search.
+administration do not create one unbounded Settings page. PlatformClaw's server
+combines authorized Personal, Shared, and Managed results for the browser's
+single `memory.search` request. Backend ranking scales do not compete directly.
 Personal files still open through `agents.workspace.get`, Wiki pages through
 `wiki.get`, and organization pages through the local, Agent-pinned
 `platformclaw.memory.get` BFF method.
@@ -558,6 +559,143 @@ references. Adding new document links requires the sharing preview flow. Native
 contains identities, revisions, offsets, and a text hash, with no linked private
 document body or title. Synthetic tool and compiler checks verify this workflow;
 they do not establish a live model's document selection quality.
+
+## Memory Hub
+
+Open **Settings > Memory > Memory Hub** (**메모리 허브** in Korean).
+Memory Hub is the catalog; each Vault is a separate knowledge space with its own
+documents and access permissions.
+Use one Shared Vault for a project or subject, such as **Ulysses PHY Spec**,
+**DRAM Controller**, **DDRPHY**, or **LPDDR Training**.
+
+The existing Memory, Personal Wiki, Organization, and Dreaming tabs remain in
+place. Memory Hub adds **My vaults** and **Find vaults** inside the Memory
+hub, using the same tabs, cards, search fields, and dialogs as its other pages.
+Find vaults searches the names and descriptions of Shared and Managed Vaults
+you can already access. Open a card to inspect it, then choose **Add to my vaults**.
+My vaults shows the connected sources your AI will use alongside Personal knowledge.
+
+Adding or disconnecting a Vault applies to the **next agent turn**. An active
+turn retains its starting selection, while permissions are checked again on
+every read. Disconnecting does not delete documents or remove membership.
+Previously retrieved text remains in the conversation; start a new conversation
+when that existing context must be excluded. Creating or importing a Shared
+Vault connects it for its creator; invited members choose their own connections.
+Each employee can connect up to 256 Shared and Managed Vaults. Personal knowledge
+remains available independently of those connections.
+
+| Type     | Purpose                                    | Authority                                               |
+| -------- | ------------------------------------------ | ------------------------------------------------------- |
+| Personal | Private recall and Personal Wiki           | Authenticated personal Agent                            |
+| Shared   | Collaborative project or subject documents | Explicit Vault membership                               |
+| Managed  | Approved organization knowledge            | Existing organization membership and publication policy |
+
+Create a Shared Vault, then use **Members and permissions** to add an existing
+employee account. Reader can read and download individual documents; Editor can
+also write, upload, move, and rebuild; Owner can also manage members. Whole-Vault
+ZIP download is a separate permission, not a consequence of Reader or Editor.
+Removing the last active Owner is rejected until another Owner is assigned.
+
+Write Markdown or upload a Markdown document, review its title and path, then
+save. Attachments use a separate upload/download area. Editing the path moves a
+document without changing its stable identity. Links and backlinks show related
+and affected documents; documents without links remain searchable.
+
+Personal knowledge is never automatically shared. **Publish from Personal Wiki**
+loads a complete source preview. Review it and explicitly publish a copy into the
+selected Shared Vault. A changed source requires a fresh preview; the Personal
+original remains intact. Organization publication retains its existing review
+and approval workflow.
+
+Search defaults to Personal knowledge and **My vaults**. The browser also offers
+an explicit **All accessible vaults** search without changing AI connections.
+For an explicit selection, agents pass either the exact `vaultId` from a result
+or the user-provided Shared/Managed `vaultName`, never both. The server resolves
+an exact name within current permissions, including accessible disconnected
+Vaults. Duplicate names return bounded choices for the user; the agent must not
+guess. Agents continue using `memory_search` and `wiki_search`, without
+choosing storage backends or receiving a large Vault catalog. The server resolves
+membership before searching and merges only authorized results from the selected
+scope. Vault contents are retrieved as needed, not injected in full into every
+prompt. Each result
+carries `vaultId`, `vaultName`, `vaultType`, `documentId`, `title`, `path`, `snippet`,
+and a revision or indexed source version. Shared document paths use stable IDs;
+the displayed logical path can change when the document moves.
+
+Use short, distinctive search keywords (at most 16 for Shared search). Shared search matches keywords across
+title, content, path, and document identity; it does not infer synonyms or answer
+questions by itself. Pass a returned `path` unchanged to `memory_get` or
+`wiki_get`; the registered owner reads it under current permissions. Ordinary
+search and exact reads do not require a `corpus` selector. Read up to 200 lines
+per call and request the next line range when more context is needed.
+
+Agent searches default to 10 hits and accept at most 50. Each tool snippet is
+bounded to 1,200 characters and each index error to 500. Multi-document results
+can exceed 1,000 tokens because each excerpt retains its required source identity;
+document bodies are fetched separately.
+
+The search index is a derived lookup of document text and source versions. It
+lets search find matching excerpts without changing the original documents.
+Compilation never rewrites authored Markdown. Shared compilation splits source
+text into search chunks, extracts authored Markdown links and wiki links, and
+resolves document identities. Reverse references become backlinks. For example,
+`[Training](training.md)` in `overview.md` creates an outgoing link from Overview
+and a backlink on Training; no source text is changed. It does not invent semantic
+relationships or use an LLM to rewrite documents. A failed compile preserves the
+original and the last successful search snapshot, records the reason, and schedules
+a retry. The UI shows the failed status and indexed revision. Use **Rebuild search and links**
+for Shared Vaults or the existing Personal Wiki rebuild action to retry manually.
+Shared retries run every minute with bounded exponential backoff up to an hour.
+Personal retries check every 30 seconds with bounded backoff. The Personal-only
+`wiki_apply` refresh operation cannot rebuild a Shared Vault; use that Vault's
+**Rebuild search and links** action.
+
+Open a Shared Vault and select **Document graph** to see its documents and directed links.
+Select a node to inspect its incoming and outgoing references, then open the
+document. Documents without links still appear. Search titles and paths to narrow
+the graph; zoom, pan, drag nodes, or fit the view using the graph controls.
+The graph uses the compiler's saved link relationships, not inferred similarity.
+It displays up to 2,000 distinct directed connections and explicitly indicates
+when additional connections are omitted. Individual document links and backlinks
+remain available.
+
+An indexing failure means the latest search and link data could not be generated;
+it does not mean the source was lost. Document titles and paths show the current
+source, while outgoing graph connections retain the last successful compiled
+revision. Failed or pending documents show their indexed revision, error, and
+retry information. A document that has never compiled successfully has no saved
+outgoing links yet. Rebuild updates search and links together after success.
+
+Personal Wiki and Organization retain their existing graph views.
+The Personal graph reads current source files, while search retains its accepted
+index after a compile failure; those views can differ until a successful rebuild.
+
+**Download Vault ZIP** includes `vault.json`, Markdown under `documents/`, and
+files under `attachments/`. It excludes indexes, derived links, and access grants.
+**Import Vault ZIP** creates a new Shared Vault owned by the importer and rebuilds
+derived data; it never merges or overwrites an existing Vault. The new Owner grants
+membership explicitly. Current limits are 1 MiB per Markdown document, 8 MiB per
+attachment, 999 source files and 31 MiB of source data per Vault, and a 32 MiB ZIP
+with at most 64 MiB expanded data.
+
+Move-related references retain document identity inside the original Vault.
+Because ZIP excludes the derived graph, a reference that still names a target's
+old path can require manual repair after import. Reserving old paths as portable
+document metadata needs an explicit product decision before this limitation is
+removed; source text must not be silently rewritten.
+
+Shared source and derived data live in additive tables in the existing Control
+Plane SQLite store; no database schema-version bump is needed. Personal Wiki
+continues using its native source files and compiled cache. Managed search adapts
+the existing Organization Memory read model into the common result shape. It
+does not delete, copy, migrate, or replace Organization claims, memberships,
+approval records, or promotion flows. A later storage consolidation requires a
+separate approved migration plan.
+
+Follow-up: **Personal Wiki state-store migration**. Existing source-sync and
+publication-log formats remain intact; consolidating that legacy state requires
+a separate migration review. Search reads the active publication rather than
+re-reading its publication log for every query.
 
 ## Non-goals
 

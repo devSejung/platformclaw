@@ -25,6 +25,8 @@ export type OpenClawPluginToolContext = {
   workspaceDir?: string;
   agentDir?: string;
   agentId?: string;
+  /** Trusted current run identity for turn-scoped plugin state; never a model argument. */
+  runId?: string;
   sessionKey?: string;
   /** Ephemeral session UUID - regenerated on /new and /reset. Use for per-conversation isolation. */
   sessionId?: string;

@@ -79,6 +79,7 @@ describe("memory-wiki plugin", () => {
       "wiki.unsafeLocal.import",
       "wiki.search",
       "wiki.apply",
+      "wiki.references.resolve",
       "wiki.get",
       "wiki.obsidian.status",
       "wiki.obsidian.search",

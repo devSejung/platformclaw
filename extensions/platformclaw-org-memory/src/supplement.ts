@@ -1,7 +1,38 @@
-import { asRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
-import type { OrganizationMemoryClient } from "./client.js";
+import type { MemoryCorpusSearchResult } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
+import { asRecord, asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import {
+  vaultServiceUnavailable,
+  type OrganizationMemoryClient,
+  type VaultTurnScope,
+} from "./client.js";
 
-const PATH = /^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
+const PATH =
+  /^(?:organization\/(?:global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}|shared\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/u;
+
+function vaultIdentity(record: Record<string, unknown>): {
+  vaultId: string;
+  vaultName: string;
+  vaultType: "shared" | "managed";
+  documentId: string;
+  revision: string | number;
+} {
+  if (
+    typeof record.vaultId !== "string" ||
+    typeof record.vaultName !== "string" ||
+    (record.vaultType !== "shared" && record.vaultType !== "managed") ||
+    typeof record.documentId !== "string" ||
+    (typeof record.revision !== "string" && typeof record.revision !== "number")
+  ) {
+    throw new Error("knowledge vault provenance is invalid");
+  }
+  return {
+    vaultId: record.vaultId,
+    vaultName: record.vaultName,
+    vaultType: record.vaultType,
+    documentId: record.documentId,
+    revision: record.revision,
+  };
+}
 
 function agentId(value?: string): string {
   if (!value?.trim()) {
@@ -11,8 +42,9 @@ function agentId(value?: string): string {
 }
 
 export function createOrganizationMemorySupplement(
-  client: OrganizationMemoryClient | null,
+  client: Pick<OrganizationMemoryClient, "search" | "get"> | null,
   logger: { warn(message: string): void },
+  getTurnScope?: (context: { runId?: string; agentId: string }) => VaultTurnScope | undefined,
 ) {
   return {
     includeByDefault: true,
@@ -20,14 +52,29 @@ export function createOrganizationMemorySupplement(
       client
         ? ({ available: true } as const)
         : ({ available: false, reason: "not-configured" } as const),
-    search: async (params: { query: string; maxResults?: number; agentId?: string }) => {
+    search: async (params: {
+      query: string;
+      maxResults?: number;
+      agentId?: string;
+      vaultId?: string;
+      vaultName?: string;
+      runId?: string;
+    }) => {
       try {
         if (!client) {
           throw new Error("organization memory is not configured");
         }
+        const ownerAgentId = agentId(params.agentId);
+        const turnScope =
+          params.vaultId || params.vaultName
+            ? undefined
+            : getTurnScope?.({ runId: params.runId, agentId: ownerAgentId });
         const value = await client.search({
-          agentId: agentId(params.agentId),
+          agentId: ownerAgentId,
           query: params.query,
+          ...(turnScope ? { turnScope } : {}),
+          ...(params.vaultId ? { vaultId: params.vaultId } : {}),
+          ...(params.vaultName ? { vaultName: params.vaultName } : {}),
           ...(params.maxResults ? { maxResults: params.maxResults } : {}),
         });
         if (!Array.isArray(value) || value.length > 50) {
@@ -40,31 +87,39 @@ export function createOrganizationMemorySupplement(
             typeof record.path !== "string" ||
             !PATH.test(record.path) ||
             typeof record.title !== "string" ||
-            typeof record.scopeName !== "string" ||
             typeof record.snippet !== "string" ||
-            typeof record.score !== "number" ||
-            typeof record.updatedAt !== "number"
+            typeof record.score !== "number"
           ) {
             throw new Error("invalid result");
           }
-          return {
+          const identity = vaultIdentity(record);
+          const result: MemoryCorpusSearchResult = Object.assign({}, identity, {
             corpus: "platformclaw-organization",
             path: record.path,
             title: record.title,
-            kind: PATH.exec(record.path)?.[1],
+            kind: identity.vaultType,
             score: record.score,
             snippet: record.snippet,
-            source: "organization",
-            provenanceLabel: record.scopeName,
-            sourceType: "organization-read-model",
-            updatedAt: new Date(record.updatedAt).toISOString(),
-          };
+            source: record.vaultType === "shared" ? "shared" : "organization",
+            provenanceLabel: String(record.vaultName),
+            sourceType: record.vaultType === "shared" ? "shared-vault" : "organization-read-model",
+          });
+          if (record.indexStatus === "failed") {
+            result.indexStatus = "failed";
+            if (typeof record.indexError === "string") {
+              result.indexError = record.indexError.slice(0, 500);
+            }
+            if (typeof record.nextRetryAt === "number" && Number.isFinite(record.nextRetryAt)) {
+              result.nextRetryAt = record.nextRetryAt;
+            }
+          }
+          return result;
         });
       } catch (error) {
         logger.warn(
           `organization memory search unavailable: ${error instanceof Error ? error.message : String(error)}`,
         );
-        throw error;
+        throw asOptionalRecord(error)?.memoryCorpusFailure ? error : vaultServiceUnavailable();
       }
     },
     get: async (params: {
@@ -73,11 +128,11 @@ export function createOrganizationMemorySupplement(
       lineCount?: number;
       agentId?: string;
     }) => {
-      if (!client) {
-        throw new Error("organization memory is not configured");
-      }
       if (!PATH.test(params.lookup)) {
         return null;
+      }
+      if (!client) {
+        throw vaultServiceUnavailable();
       }
       const value = await client.get({
         agentId: agentId(params.agentId),
@@ -91,23 +146,24 @@ export function createOrganizationMemorySupplement(
         typeof record.path !== "string" ||
         !PATH.test(record.path) ||
         typeof record.title !== "string" ||
-        typeof record.scopeName !== "string" ||
         typeof record.content !== "string" ||
         typeof record.fromLine !== "number" ||
         typeof record.lineCount !== "number"
       ) {
         throw new Error("organization memory document is invalid");
       }
+      const identity = vaultIdentity(record);
       return {
+        ...identity,
         corpus: "platformclaw-organization",
         path: record.path,
         title: record.title,
-        kind: PATH.exec(record.path)?.[1],
+        kind: identity.vaultType,
         content: record.content,
         fromLine: record.fromLine,
         lineCount: record.lineCount,
-        provenanceLabel: record.scopeName,
-        sourceType: "organization-read-model",
+        provenanceLabel: String(record.vaultName),
+        sourceType: record.vaultType === "shared" ? "shared-vault" : "organization-read-model",
       };
     },
   };

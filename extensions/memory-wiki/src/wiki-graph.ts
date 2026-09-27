@@ -153,7 +153,7 @@ export async function listMemoryWikiGraph(
       totalEdges: edges.length,
       unresolvedLinks: unresolvedLinkKeys.size,
       truncated:
-        pages.length > MAX_MEMORY_WIKI_GRAPH_NODES ||
+        pages.length > selectedPages.length ||
         allEdges.length > MAX_MEMORY_WIKI_GRAPH_EDGES ||
         omittedEdge,
     },

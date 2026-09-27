@@ -24,6 +24,7 @@ type HybridVectorResult = {
   triggers?: string;
   projectKey?: string;
   exactPathSpecificity?: ExactPathSpecificity;
+  sourceVersion?: string;
   provenance?: MemoryEntryProvenance;
 };
 
@@ -41,6 +42,7 @@ type HybridKeywordResult = {
   rankingScore?: number;
   pathScore?: number;
   exactPathSpecificity?: ExactPathSpecificity;
+  sourceVersion?: string;
   provenance?: MemoryEntryProvenance;
 };
 
@@ -94,6 +96,7 @@ export async function mergeHybridResults(params: {
     importance?: number;
     triggers?: string;
     projectKey?: string;
+    sourceVersion?: string;
     provenance?: MemoryEntryProvenance;
   }>
 > {
@@ -116,6 +119,7 @@ export async function mergeHybridResults(params: {
       importance?: number;
       triggers?: string;
       projectKey?: string;
+      sourceVersion?: string;
       provenance?: MemoryEntryProvenance;
     }
   >();
@@ -128,6 +132,7 @@ export async function mergeHybridResults(params: {
       endLine: r.endLine,
       source: r.source,
       snippet: r.snippet,
+      sourceVersion: r.sourceVersion,
       vectorScore: r.vectorScore,
       textScore: 0,
       rankingScore: 0,
@@ -162,6 +167,7 @@ export async function mergeHybridResults(params: {
       }
       if (r.snippet && r.snippet.length > 0) {
         existing.snippet = r.snippet;
+        existing.sourceVersion = r.sourceVersion;
       }
     } else {
       byId.set(r.id, {
@@ -171,6 +177,7 @@ export async function mergeHybridResults(params: {
         endLine: r.endLine,
         source: r.source,
         snippet: r.snippet,
+        sourceVersion: r.sourceVersion,
         vectorScore: 0,
         textScore: r.textScore,
         rankingScore: r.rankingScore ?? r.textScore,
@@ -226,6 +233,7 @@ export async function mergeHybridResults(params: {
       exactPathSpecificity: entry.exactPathSpecificity,
       hasWeightedContentRelevance,
       snippet: entry.snippet,
+      sourceVersion: entry.sourceVersion,
       source: entry.source,
       importance: entry.importance,
       triggers: entry.triggers,

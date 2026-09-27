@@ -2,8 +2,10 @@ import { executionTranslations } from "./ko-execution.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
 import { organizationMemoryGraphTranslations } from "./ko-organization-memory-graph.ts";
 import { organizationMemoryKnowledgeTranslations } from "./ko-organization-memory-knowledge.ts";
+import { vaultTranslations } from "./ko-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
+  ...vaultTranslations,
   "platformClaw.memory.organization.scopeSelect": "조직 선택",
   "platformClaw.memory.organization.noReadableScope": "읽을 수 있는 조직 지식 범위가 없습니다.",
   "platformClaw.memory.organization.partAudience": "선택한 Part에 승인·공유된 지식입니다.",
@@ -273,9 +275,10 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.memories.reconnecting": "Gateway에 다시 연결 중입니다. 연결되면 새로고칩니다.",
   "memoryPage.memories.offline": "Gateway가 오프라인입니다. 개인 Memory를 보려면 다시 연결하세요.",
   "memoryPage.memories.searchTitle": "전체 지식 검색",
-  "memoryPage.memories.searchDescription": "개인 Memory, Personal Wiki와 조직 지식을 검색합니다.",
+  "memoryPage.memories.searchDescription":
+    "선택한 범위의 Personal 메모리·Wiki, Shared 볼트, Managed 조직 지식을 검색합니다.",
   "memoryPage.memories.searchLabel": "전체 Memory 검색",
-  "memoryPage.memories.searchPlaceholder": "개인 Memory, Personal Wiki, 접근 가능한 조직 지식 검색",
+  "memoryPage.memories.searchPlaceholder": "Personal·Shared·Managed 지식 검색",
   "memoryPage.memories.searchButton": "검색",
   "memoryPage.memories.searching": "Memory 검색 중…",
   "memoryPage.memories.results": "결과 {count}개",

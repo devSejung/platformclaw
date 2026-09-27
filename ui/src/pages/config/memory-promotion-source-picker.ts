@@ -108,6 +108,7 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
     try {
       const results = await this.client.request<WikiSearchResult[]>("wiki.search", {
         agentId: this.agentId,
+        vaultId: `personal:${this.agentId}`,
         query,
         maxResults: 20,
       });

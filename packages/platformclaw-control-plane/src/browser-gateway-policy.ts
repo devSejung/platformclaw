@@ -1,6 +1,11 @@
 import { BASEBALL_RPC_METHODS } from "./baseball-contracts.js";
+import {
+  KNOWLEDGE_VAULT_RPC_METHODS,
+  KNOWLEDGE_VAULT_RPC_PARAMS,
+} from "./browser-gateway-vault-policy.js";
 
 export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
+  ...KNOWLEDGE_VAULT_RPC_METHODS,
   "agent.identity.get",
   "agents.files.get",
   "agents.files.list",
@@ -140,6 +145,7 @@ export type PlatformClawWebGatewayMethod = (typeof PLATFORMCLAW_WEB_GATEWAY_METH
 
 export const PLATFORMCLAW_WEB_ALLOWED_METHODS = new Set<string>(PLATFORMCLAW_WEB_GATEWAY_METHODS);
 export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
+  ...KNOWLEDGE_VAULT_RPC_METHODS,
   ...BASEBALL_RPC_METHODS,
   "platformclaw.memory.knowledge.comparePromotion",
   "platformclaw.memory.knowledge.apply",
@@ -158,6 +164,10 @@ export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
   "platformclaw.memory.promotion.submit",
 ]);
 export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<string>>([
+  ...KNOWLEDGE_VAULT_RPC_METHODS.map((method): [string, ReadonlySet<string>] => [
+    method,
+    new Set(KNOWLEDGE_VAULT_RPC_PARAMS[method]),
+  ]),
   [BASEBALL_RPC_METHODS[0], new Set()],
   [BASEBALL_RPC_METHODS[1], new Set(["requestId", "outcome", "distanceM"])],
   [BASEBALL_RPC_METHODS[2], new Set(["requestId", "batId"])],
@@ -302,7 +312,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["doctor.memory.resetGroundedShortTerm", new Set(["agentId"])],
   ["doctor.memory.status", new Set(["agentId", "probe"])],
   ["models.list", new Set(["view"])],
-  ["memory.search", new Set(["agentId", "query"])],
+  ["memory.search", new Set(["agentId", "query", "vaultId", "maxResults", "scope"])],
   ["memory.delete", new Set(["agentId", "path", "expectedContentHash"])],
   ["approval.history", new Set(["agentId", "cursor", "kind", "limit"])],
   ["approval.get", new Set(["id"])],
@@ -559,7 +569,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["wiki.graph", new Set(["agentId"])],
   ["wiki.importInsights", new Set(["agentId"])],
   ["wiki.overview", new Set(["agentId"])],
-  ["wiki.search", new Set(["agentId", "query", "maxResults", "mode"])],
+  ["wiki.search", new Set(["agentId", "query", "maxResults", "mode", "vaultId", "scope"])],
   ["wiki.status", new Set(["agentId"])],
 ]);
 

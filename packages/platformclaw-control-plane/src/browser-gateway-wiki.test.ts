@@ -59,6 +59,23 @@ function dreamingStatus(
 }
 
 describe("BrowserGatewayProxy personal memory wiki", () => {
+  it("shows a bounded compile failure even when the Personal overview is empty", async () => {
+    const { proxy, request, token } = await setup();
+    request.mockResolvedValueOnce({
+      totalItems: 0,
+      totalPages: 0,
+      pageCounts: emptyCounts,
+      totalClaims: 0,
+      totalQuestions: 0,
+      totalContradictions: 0,
+      clusters: [],
+      compileFailure: { error: "x".repeat(2000), failedAt: 100, nextRetryAt: 200, attempts: 1 },
+    });
+    await expect(proxy.request(token, "wiki.overview", {})).resolves.toMatchObject({
+      totalItems: 0,
+      compileFailure: { error: "x".repeat(500), failedAt: 100, nextRetryAt: 200, attempts: 1 },
+    });
+  });
   it("pins native Memory UI reads to the personal Agent", async () => {
     const { binding, proxy, request, token } = await setup();
     request

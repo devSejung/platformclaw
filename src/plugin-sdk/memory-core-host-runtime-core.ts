@@ -35,6 +35,8 @@ export type {
 export {
   getMemoryCorpusSupplementResult,
   searchMemoryCorpusSupplements,
+  formatMemoryCorpusSupplementFailure,
+  type MemoryCorpusSupplementFailure,
   type MemoryCorpusSupplementStatus,
 } from "../plugins/memory-corpus-runtime.js";
 export {

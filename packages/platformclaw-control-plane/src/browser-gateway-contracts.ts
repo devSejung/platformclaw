@@ -71,6 +71,7 @@ export type BrowserGatewayProxyOptions = {
   auditWriter: ControlPlaneAuditWriter;
   gateway: BrowserGatewayRpc;
   baseballStore?: BaseballGameStore;
+  vaultService?: import("./knowledge-vault-service.js").KnowledgeVaultService;
   buildAgentMainSessionKey(params: { agentId: string }): string;
   resolveAgentIdFromSessionKey(sessionKey: string): string | null;
   searchOrganizationMemory?(params: {

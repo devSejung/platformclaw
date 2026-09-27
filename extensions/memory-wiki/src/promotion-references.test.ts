@@ -58,7 +58,7 @@ describe("native personal promotion references", () => {
     expect((await listMemoryWikiGraph(personal)).edges).toContainEqual({
       source: filed.pagePath,
       target: hit.path,
-      type: "link",
+      type: "reference",
     });
     const refs = await resolveMemoryWikiPromotionReferences({
       config: personal,

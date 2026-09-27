@@ -7,12 +7,14 @@ import {
 } from "openclaw/plugin-sdk/memory-host-core";
 import type { AnyAgentTool, OpenClawPluginToolFactory } from "openclaw/plugin-sdk/plugin-entry";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
+import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vitest";
 import memoryCorePlugin from "../../memory-core/index.js";
 import type { OpenClawConfig } from "../api.js";
 import { resolveMemoryWikiAgentConfig } from "./config.js";
 import { createWikiCorpusSupplement } from "./corpus-supplement.js";
 import { renderWikiMarkdown } from "./markdown.js";
+import * as sourceSync from "./source-sync.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
 import { createWikiGetTool, createWikiSearchTool } from "./tool.js";
 
@@ -81,6 +83,7 @@ function createMemoryCoreTool(params: {
   factories: Map<string, OpenClawPluginToolFactory>;
   name: "memory_search" | "memory_get";
   agentId: string;
+  runId?: string;
   sandboxed: boolean;
 }): AnyAgentTool {
   const factory = params.factories.get(params.name);
@@ -92,6 +95,7 @@ function createMemoryCoreTool(params: {
     runtimeConfig: appConfig,
     getRuntimeConfig: () => appConfig,
     agentId: params.agentId,
+    runId: params.runId,
     sessionKey: `agent:${params.agentId}:child-session`,
     sandboxed: params.sandboxed,
   });
@@ -102,7 +106,203 @@ function createMemoryCoreTool(params: {
 }
 
 describe("memory-wiki corpus supplement visibility", () => {
-  it("searches and reauthorizes organization pages without widening personal overrides", async () => {
+  it("validates the registered search-to-read conversation, name choices, and safe owner failures", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    const hit = {
+      corpus: "knowledge",
+      path: "shared/project-a/spec",
+      vaultId: "project-a",
+      vaultName: "DDRPHY",
+      vaultType: "shared" as const,
+      documentId: "spec",
+      title: "Training",
+      revision: 3,
+      score: 1,
+      snippet: "training",
+    };
+    let revoked = false;
+    let unavailable = false;
+    const search = vi.fn(async ({ vaultName }: { vaultName?: string }) => {
+      if (unavailable) {
+        throw Object.assign(new Error("SQL private/internal must not escape"), {
+          memoryCorpusFailure: {
+            error: "Vault connections are unavailable for this turn.",
+            action:
+              "Retry in your next message; enable hooks.allowPromptInjection if this persists.",
+          },
+        });
+      }
+      if (vaultName === "Duplicate") {
+        throw Object.assign(new Error("name ambiguity"), {
+          memoryCorpusFailure: {
+            error: "More than one accessible vault has this name.",
+            action: "Ask the user to select a vaultId.",
+            code: "vault-name-ambiguous",
+            vaultChoices: [
+              { vaultId: "project-a", vaultName: "Duplicate", vaultType: "shared" },
+              { vaultId: "project-b", vaultName: "Duplicate", vaultType: "shared" },
+            ],
+          },
+        });
+      }
+      return [hit];
+    });
+    const get = vi.fn(async ({ lookup }: { lookup: string }) => {
+      if (lookup !== hit.path) {
+        return null;
+      }
+      if (revoked) {
+        throw Object.assign(new Error("private ACL row"), {
+          memoryCorpusFailure: {
+            error: "Document access is unavailable.",
+            action: "Ask a Vault owner to review your access.",
+          },
+        });
+      }
+      return { ...hit, content: "Authorized training details", fromLine: 1, lineCount: 1 };
+    });
+    clearMemoryPluginState();
+    try {
+      await fs.writeFile(
+        path.join(rootDir, "concepts", "collision.md"),
+        renderWikiMarkdown({
+          frontmatter: { pageType: "concept", id: hit.path, title: "Personal collision" },
+          body: "Personal same-path candidate must not replace a failed Shared owner.",
+        }),
+        "utf8",
+      );
+      const wikiGet = createWikiGetTool(config, appConfig, { agentId: "main" });
+      const collision = await wikiGet.execute("prove-collision", { lookup: hit.path });
+      expect(JSON.stringify(collision.content)).toContain("Personal same-path candidate");
+      registerMemoryCorpusSupplement("knowledge", { includeByDefault: true, search, get });
+      // An older provider that ignores selectors must not broaden a named search.
+      registerMemoryCorpusSupplement("unscoped", {
+        includeByDefault: true,
+        search: async () => [
+          { ...hit, vaultId: "foreign", vaultName: "Other", path: "shared/foreign/spec" },
+        ],
+        get: async () => null,
+      });
+      const factories = registerMemoryCoreToolFactories();
+      const memorySearch = createMemoryCoreTool({
+        factories,
+        name: "memory_search",
+        agentId: "main",
+        runId: "contract-run",
+        sandboxed: false,
+      });
+      const memoryGet = createMemoryCoreTool({
+        factories,
+        name: "memory_get",
+        agentId: "main",
+        sandboxed: false,
+      });
+      const wikiSearch = createWikiSearchTool(config, appConfig, {
+        agentId: "main",
+        runId: "contract-run",
+      });
+      const invoke = async (tool: AnyAgentTool, input: Record<string, unknown>) => {
+        expect(Value.Check(tool.parameters, input), `${tool.name}: ${JSON.stringify(input)}`).toBe(
+          true,
+        );
+        return await tool.execute("validated-call", input);
+      };
+      expect(Value.Check(memoryGet.parameters, { path: hit.path, lines: 200 })).toBe(true);
+      expect(Value.Check(memoryGet.parameters, { path: hit.path, lines: 201 })).toBe(false);
+      expect(Value.Check(wikiGet.parameters, { lookup: hit.path, lineCount: 200 })).toBe(true);
+      expect(Value.Check(wikiGet.parameters, { lookup: hit.path, lineCount: 201 })).toBe(false);
+      for (const tool of [memorySearch, wikiSearch]) {
+        expect(Value.Check(tool.parameters, { query: "training", vaultId: "project-a" })).toBe(
+          true,
+        );
+        expect(Value.Check(tool.parameters, { query: "training", vaultName: "DDRPHY" })).toBe(true);
+        expect(
+          Value.Check(tool.parameters, {
+            query: "training",
+            vaultId: "project-a",
+            vaultName: "DDRPHY",
+          }),
+        ).toBe(false);
+        expect(Value.Check(tool.parameters, { query: "training", maxResults: 51 })).toBe(false);
+        expect(Value.Check(tool.parameters, { query: "training", runId: "forged" })).toBe(false);
+        const named = await invoke(tool, { query: "training", vaultName: " ddrphy " });
+        expect(named.details).toMatchObject({
+          results: [expect.objectContaining({ vaultId: "project-a" })],
+        });
+        const ambiguous = await invoke(tool, { query: "training", vaultName: "Duplicate" });
+        expect(JSON.stringify(ambiguous.content)).toContain("Ask the user to select a vaultId");
+        expect(JSON.stringify(ambiguous.content)).toContain("project-b");
+        const selected = await invoke(tool, { query: "training", vaultId: "project-a" });
+        expect(selected.details).toMatchObject({
+          results: [expect.objectContaining({ path: hit.path })],
+        });
+      }
+      const read = await invoke(memoryGet, { path: hit.path });
+      expect(read.details).toMatchObject({
+        text: "Authorized training details",
+        vaultId: "project-a",
+      });
+      expect(get).toHaveBeenCalledWith(
+        expect.objectContaining({ lookup: hit.path, agentId: "main" }),
+      );
+      revoked = true;
+      const denied = await invoke(memoryGet, { path: hit.path });
+      expect(denied.details).toMatchObject({
+        disabled: true,
+        text: "",
+        error: "The document owner could not provide this path. Follow the reported action.",
+      });
+      expect(JSON.stringify(denied.content)).toContain("Ask a Vault owner");
+      expect(JSON.stringify(denied)).not.toContain("private ACL row");
+      const deniedWiki = await invoke(wikiGet, { lookup: hit.path });
+      expect(deniedWiki.details).toMatchObject({ found: false, disabled: true });
+      expect(JSON.stringify(deniedWiki.content)).toContain("Ask a Vault owner");
+      expect(JSON.stringify(deniedWiki)).not.toContain("Personal same-path candidate");
+      unavailable = true;
+      for (const tool of [memorySearch, wikiSearch]) {
+        const failed = await invoke(tool, { query: "training", vaultName: "DDRPHY" });
+        expect(JSON.stringify(failed.content)).toContain("hooks.allowPromptInjection");
+        expect(JSON.stringify(failed)).not.toContain("SQL private/internal");
+      }
+    } finally {
+      clearMemoryPluginState();
+    }
+  });
+  it("carries trusted run identity into the shared search registry", async () => {
+    const { config } = await createVault({ initialize: true });
+    const search = vi.fn(async () => []);
+    clearMemoryPluginState();
+    try {
+      registerMemoryCorpusSupplement("knowledge", {
+        includeByDefault: true,
+        search,
+        get: async () => null,
+      });
+      const tool = createWikiSearchTool(config, appConfig, { agentId: "main", runId: "host-run" });
+      await tool.execute("call", { query: "spec", vaultId: "shared-one" });
+      expect(search).toHaveBeenCalledWith(
+        expect.objectContaining({ runId: "host-run", agentId: "main" }),
+      );
+      expect(tool.parameters.properties).not.toHaveProperty("runId");
+      const memoryTool = createMemoryCoreTool({
+        factories: registerMemoryCoreToolFactories(),
+        name: "memory_search",
+        agentId: "main",
+        runId: "registered-host-run",
+        sandboxed: false,
+      });
+      await memoryTool.execute("registered-call", { query: "spec", vaultId: "shared-one" });
+      expect(search).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          runId: "registered-host-run",
+          agentId: "main",
+        }),
+      );
+    } finally {
+      clearMemoryPluginState();
+    }
+  });
+  it("searches and reauthorizes organization pages while respecting an explicit personal vault", async () => {
     const { rootDir, config } = await createVault({ initialize: true });
     await fs.writeFile(
       path.join(rootDir, "concepts", "personal.md"),
@@ -122,6 +322,11 @@ describe("memory-wiki corpus supplement visibility", () => {
         ? [
             {
               corpus: "platformclaw-organization",
+              vaultId: "managed:part:pmu",
+              vaultName: "PMU",
+              vaultType: "managed" as const,
+              documentId: "pmu-registers",
+              revision: 1,
               path: "organization/part/pmu-registers",
               title: "PMU register map",
               kind: "part",
@@ -206,15 +411,64 @@ describe("memory-wiki corpus supplement visibility", () => {
 
       await searchTool.execute("wiki-search-personal-only", {
         query: "PMU register guidance",
-        corpus: "wiki",
+        vaultId: "personal:main",
       });
       await getTool.execute("wiki-get-personal-only", {
         lookup: "concepts/personal.md",
-        corpus: "wiki",
       });
-      expect(search).toHaveBeenCalledTimes(1);
-      expect(get).toHaveBeenCalledTimes(2);
+      expect(search).toHaveBeenCalledTimes(2);
+      expect(search).toHaveBeenLastCalledWith(
+        expect.objectContaining({ vaultId: "personal:main" }),
+      );
+      expect(get).toHaveBeenCalledTimes(3);
     } finally {
+      clearMemoryPluginState();
+    }
+  });
+
+  it("reads a Shared document through its owner when Personal source sync fails", async () => {
+    const { config } = await createVault({ initialize: true });
+    const sync = vi
+      .spyOn(sourceSync, "syncMemoryWikiImportedSources")
+      .mockRejectedValue(new Error("Personal source sync offline"));
+    clearMemoryPluginState();
+    try {
+      registerMemoryCorpusSupplement("shared-documents", {
+        includeByDefault: true,
+        search: async () => [],
+        get: async ({ lookup }) =>
+          lookup === "shared/project/spec"
+            ? {
+                corpus: "shared-documents",
+                vaultId: "project",
+                vaultName: "Project",
+                vaultType: "shared",
+                documentId: "spec",
+                revision: 3,
+                path: lookup,
+                title: "Spec",
+                kind: "shared",
+                content: "Shared document remains available.",
+                fromLine: 1,
+                lineCount: 1,
+              }
+            : null,
+      });
+      const tool = createWikiGetTool(config, appConfig, { agentId: "main" });
+      await expect(tool.execute("personal", { lookup: "sources/personal.md" })).rejects.toThrow(
+        "Personal source sync offline",
+      );
+      sync.mockClear();
+      const result = await tool.execute("shared", { lookup: "shared/project/spec" });
+      expect(asRecord(result.details)).toMatchObject({
+        found: true,
+        vaultId: "project",
+        revision: 3,
+        content: "Shared document remains available.",
+      });
+      expect(sync).not.toHaveBeenCalled();
+    } finally {
+      sync.mockRestore();
       clearMemoryPluginState();
     }
   });

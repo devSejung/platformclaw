@@ -246,6 +246,7 @@ export abstract class QmdManagerSearch extends QmdManagerSearchSupport {
       }
       const result: MemorySearchResult = {
         path: doc.rel,
+        sourceVersion: doc.sourceVersion,
         startLine: lines.startLine,
         endLine: lines.endLine,
         score,

@@ -1131,6 +1131,11 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
       minScore: candidateMinScore,
     });
     const ranked = applyProjectRanking(results, opts?.activeProjectKeys);
+    if (ranked.some((result) => !result.sourceVersion)) {
+      throw new Error(
+        "Memory index source version is unavailable. Rebuild the memory index and retry.",
+      );
+    }
     return hasActiveProject
       ? ranked.filter((entry) => entry.score >= minScore).slice(0, maxResults)
       : ranked;
@@ -1863,6 +1868,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
         endLine: r.endLine,
         source: r.source,
         snippet: r.snippet,
+        sourceVersion: r.sourceVersion,
         vectorScore: r.score,
         importance: r.importance,
         triggers: r.triggers,
@@ -1877,6 +1883,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
         endLine: r.endLine,
         source: r.source,
         snippet: r.snippet,
+        sourceVersion: r.sourceVersion,
         textScore: r.textScore,
         importance: r.importance,
         triggers: r.triggers,
