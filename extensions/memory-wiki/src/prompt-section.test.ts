@@ -225,7 +225,7 @@ describe("Memory Wiki prompt section", () => {
         title: `Page ${pageIndex}`,
         kind: "entity" as const,
         claimCount: 2,
-        topClaims: Array.from({ length: 2 }, (_, claimIndex) => ({
+        topClaims: [0, 1].map((claimIndex) => ({
           text: `claim ${pageIndex}-${claimIndex} ${"x".repeat(680)}`,
         })),
       })),
