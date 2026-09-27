@@ -104,6 +104,7 @@ function createMemoryCoreTool(params: {
 describe("memory-wiki corpus supplement visibility", () => {
   it("searches and reauthorizes organization pages without widening personal overrides", async () => {
     const { rootDir, config } = await createVault({ initialize: true });
+    const personalLine = `PMU register guidance${"x".repeat(900)}`;
     await fs.writeFile(
       path.join(rootDir, "concepts", "personal.md"),
       renderWikiMarkdown({
@@ -112,27 +113,23 @@ describe("memory-wiki corpus supplement visibility", () => {
           id: "concept.personal",
           title: "Personal PMU notes",
         },
-        body: "# Personal PMU notes\n\nPMU register guidance\n",
+        body: `# Personal PMU notes\n\n${personalLine}\n`,
       }),
       "utf8",
     );
     let authorized = true;
-    const search = vi.fn(async () =>
-      authorized
-        ? [
-            {
-              corpus: "platformclaw-organization",
-              path: "organization/part/pmu-registers",
-              title: "PMU register map",
-              kind: "part",
-              score: 0.9,
-              snippet: "Approved PMU register guidance",
-              source: "organization",
-              provenanceLabel: "PMU",
-            },
-          ]
-        : [],
-    );
+    const organizationSnippet = `${"o".repeat(699)}🤖${"o".repeat(900)}`;
+    const organizationResult = Object.freeze({
+      corpus: "platformclaw-organization",
+      path: "organization/part/pmu-registers",
+      title: "PMU register map",
+      kind: "part",
+      score: 0.9,
+      snippet: organizationSnippet,
+      source: "organization",
+      provenanceLabel: "PMU",
+    });
+    const search = vi.fn(async () => (authorized ? [organizationResult] : []));
     const get = vi.fn(async () =>
       authorized
         ? {
@@ -175,6 +172,17 @@ describe("memory-wiki corpus supplement visibility", () => {
           }),
         ]),
       );
+      const results = asRecord(searchResult.details).results as Array<{
+        corpus: string;
+        snippet: string;
+      }>;
+      expect(results.find((result) => result.corpus === "wiki")?.snippet).toBe(
+        personalLine.slice(0, 700),
+      );
+      expect(results.find((result) => result.corpus === "platformclaw-organization")?.snippet).toBe(
+        "o".repeat(699),
+      );
+      expect(organizationResult.snippet).toBe(organizationSnippet);
       expect(search).toHaveBeenCalledWith({
         query: "PMU register guidance",
         maxResults: 10,

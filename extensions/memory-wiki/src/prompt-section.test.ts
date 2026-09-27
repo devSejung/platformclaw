@@ -184,6 +184,63 @@ describe("Memory Wiki prompt section", () => {
     expect(lines.join("\n")).toContain("Alpha uses PostgreSQL for production writes.");
   });
 
+  it("bounds each title and formatted claim while preserving a short claim", async () => {
+    const config = resolveMemoryWikiConfig({
+      vault: { path: path.join(suiteRoot, "digest-individual-bounds") },
+      context: { includeCompiledDigestPrompt: true },
+    });
+    await seedCompiledDigest({
+      config,
+      claimCount: 2,
+      pages: [
+        {
+          title: `${"T".repeat(159)}🤖${"T".repeat(1000)}`,
+          kind: "entity",
+          claimCount: 2,
+          topClaims: [
+            { text: `${"c".repeat(699)}🤖${"c".repeat(1000)}`, confidence: 0.9 },
+            { text: "Short claim", confidence: 0.8 },
+          ],
+        },
+      ],
+    });
+
+    const prompt = (await createStaticPreparer(config)({ availableTools: new Set() })).join("\n");
+    expect(prompt).toContain(`- ${"T".repeat(159)}: entity`);
+    expect(prompt).toContain(`  - ${"c".repeat(699)}\n`);
+    expect(prompt).toContain("Short claim (status supported, confidence 0.80, freshness unknown)");
+    expect(prompt).not.toContain("🤖");
+    expect(prompt.length).toBeLessThanOrEqual(2_800);
+  });
+
+  it("bounds the complete digest including headers and separators", async () => {
+    const config = resolveMemoryWikiConfig({
+      vault: { path: path.join(suiteRoot, "digest-total-bound") },
+      context: { includeCompiledDigestPrompt: true },
+    });
+    await seedCompiledDigest({
+      config,
+      claimCount: 8,
+      pages: Array.from({ length: 4 }, (_, pageIndex) => ({
+        title: `Page ${pageIndex}`,
+        kind: "entity" as const,
+        claimCount: 2,
+        topClaims: Array.from({ length: 2 }, (_, claimIndex) => ({
+          text: `claim ${pageIndex}-${claimIndex} ${"x".repeat(680)}`,
+        })),
+      })),
+    });
+
+    const prompt = (await createStaticPreparer(config)({ availableTools: new Set() })).join("\n");
+    expect(prompt.startsWith("## Compiled Wiki Snapshot\n")).toBe(true);
+    expect(prompt).toContain("claim 0-0");
+    expect(prompt).not.toContain("claim 3-1");
+    expect(prompt.length).toBeLessThanOrEqual(2_800);
+    expect(prompt).not.toMatch(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u,
+    );
+  });
+
   it("keeps the digest disabled by default", async () => {
     const config = resolveMemoryWikiConfig({
       vault: { path: path.join(suiteRoot, "digest-disabled") },

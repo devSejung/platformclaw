@@ -1,4 +1,5 @@
 // Memory Wiki tests cover query plugin behavior.
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,11 +8,12 @@ import type { MemorySearchResult } from "openclaw/plugin-sdk/memory-core-host-ru
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../api.js";
 import { compileMemoryWikiVault } from "./compile.js";
-import type { MemoryWikiPluginConfig } from "./config.js";
+import { resolveMemoryWikiAgentConfig, type MemoryWikiPluginConfig } from "./config.js";
 import { renderWikiMarkdown } from "./markdown.js";
 import { getMemoryWikiPage, searchMemoryWiki } from "./query.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
 import { createWikiGetTool } from "./tool.js";
+import { initializeMemoryWikiVault } from "./vault.js";
 
 const {
   getActiveMemorySearchManagerMock,
@@ -654,6 +656,80 @@ describe("searchMemoryWiki", () => {
       path: "entities/alpha.md",
       snippet: "Alpha uses PostgreSQL for production writes.",
     });
+  });
+
+  it.each([
+    { length: 699, expectedLength: 699 },
+    { length: 700, expectedLength: 700 },
+    { length: 701, expectedLength: 700 },
+  ])(
+    "bounds a $length-character Korean body preview without changing wiki_get",
+    async ({ length, expectedLength }) => {
+      const { config: rootConfig } = await createQueryVault({
+        config: { vault: { scope: "agent" } },
+      });
+      const appConfig = createAppConfig();
+      const config = resolveMemoryWikiAgentConfig({
+        config: rootConfig,
+        appConfig,
+        agentId: "main",
+      });
+      await initializeMemoryWikiVault(config);
+      const rootDir = config.vault.path;
+      const line = `한글${"x".repeat(length - 2)}`;
+      const raw = renderWikiMarkdown({
+        frontmatter: { pageType: "entity", id: "entity.long-body", title: "Long body" },
+        body: `# Long body\n\n${line}\n`,
+      });
+      await fs.writeFile(path.join(rootDir, "entities", "long-body.md"), raw, "utf8");
+
+      const [result] = await searchMemoryWiki({
+        config,
+        appConfig,
+        agentId: "main",
+        query: "한글",
+      });
+      expect(result?.snippet).toBe(line.slice(0, expectedLength));
+      expect(result?.snippet.length).toBe(expectedLength);
+      const read = await createWikiGetTool(config, appConfig, { agentId: "main" }).execute(
+        "wiki-get-long-body",
+        {
+          lookup: result?.path,
+        },
+      );
+      expect(read.details).toMatchObject({ found: true, path: "entities/long-body.md" });
+      expect((read.details as { content: string }).content).toContain(line);
+      const storedRaw = await fs.readFile(path.join(rootDir, "entities", "long-body.md"), "utf8");
+      expect(storedRaw).toContain(line);
+      expect((read.details as { contentHash: string }).contentHash).toBe(
+        createHash("sha256").update(storedRaw).digest("hex"),
+      );
+    },
+  );
+
+  it("bounds a structured claim without splitting a surrogate pair", async () => {
+    const { rootDir, config } = await createQueryVault({ initialize: true });
+    const claim = `한글${"x".repeat(697)}🤖${"z".repeat(200)}`;
+    await fs.writeFile(
+      path.join(rootDir, "entities", "long-claim.md"),
+      renderWikiMarkdown({
+        frontmatter: {
+          pageType: "entity",
+          id: "entity.long-claim",
+          title: "Long claim",
+          claims: [{ id: "claim.long", text: claim }],
+        },
+        body: "# Long claim\n",
+      }),
+      "utf8",
+    );
+
+    const [result] = await searchMemoryWiki({ config, query: "한글" });
+    expect(result?.snippet).toBe(claim.slice(0, 699));
+    expect(result?.snippet).not.toContain("🤖");
+    expect(result?.snippet).not.toMatch(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u,
+    );
   });
 
   it("ranks fresh supported claims ahead of stale contested claims", async () => {
