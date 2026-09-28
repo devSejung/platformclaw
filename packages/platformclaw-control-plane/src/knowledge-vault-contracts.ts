@@ -128,8 +128,9 @@ export type KnowledgeVaultDocumentInput = {
   userId: string;
   vaultId: string;
   documentId?: string;
-  title: string;
-  logicalPath: string;
+  title?: string;
+  logicalPath?: string;
+  filename?: string;
   content: string;
   expectedRevision?: number;
 };

@@ -29,6 +29,9 @@ export function renderVaultCatalog(options: {
       (options.tab === "discover" || vault.connected) &&
       `${vault.name} ${vault.description}`.toLocaleLowerCase().includes(query),
   );
+  const showPersonal =
+    options.tab === "mine" &&
+    `${t("personalTitle")} Personal Wiki`.toLocaleLowerCase().includes(query);
   return html` <header class="vaults__heading">
       <div>
         <h2>${t("title")}</h2>
@@ -79,7 +82,7 @@ export function renderVaultCatalog(options: {
         ${options.tab === "mine" ? t("nextTurnHint") : t("accessibleHint")}
       </p>
       <div class="vaults__grid">
-        ${options.tab === "mine" && !query
+        ${showPersonal
           ? html`<article class="vaults__card vaults__card--personal" data-vault-card="personal">
               <div class="vaults__card-top">
                 <span class="vaults__type">Personal</span
@@ -142,7 +145,7 @@ export function renderVaultCatalog(options: {
           </article>`,
         )}
       </div>
-      ${!visible.length
+      ${!visible.length && (!query || !showPersonal)
         ? html`<div class="vaults__empty">
             <p>
               ${query ? t("noMatches") : options.tab === "mine" ? t("noConnected") : t("empty")}
@@ -162,7 +165,7 @@ export function renderVaultDialog(options: {
   content: unknown;
   busy: boolean;
   error: string;
-  onClose: () => void;
+  onClose: () => boolean | void;
 }) {
   return html`<openclaw-modal-dialog
     class="vaults__modal"
@@ -170,8 +173,8 @@ export function renderVaultDialog(options: {
     @modal-cancel=${(event: Event) => {
       if (options.busy) {
         event.preventDefault();
-      } else {
-        options.onClose();
+      } else if (options.onClose() === false) {
+        event.preventDefault();
       }
     }}
   >
@@ -197,10 +200,12 @@ export function renderVaultDialog(options: {
 export function renderVaultSearch(options: {
   client: GatewayBrowserClient | null;
   connected: boolean;
+  methods: readonly string[];
   agentId: string | null;
   scope: "connected" | "all" | "selected";
   vaultId: string | null;
   revision: number;
+  onOpen: (vaultId: string, documentId: string) => void;
   onScope: (scope: "connected" | "all" | "selected") => void;
 }) {
   return html`<details class="vaults__search-panel" ?open=${Boolean(options.vaultId)}>
@@ -226,16 +231,22 @@ export function renderVaultSearch(options: {
       <openclaw-memory-memories
         .client=${options.client}
         .connected=${options.connected}
-        .methodAdvertised=${true}
+        .methodAdvertised=${options.methods.includes("memory.search")}
         .unifiedSearch=${true}
-        .vaultGetAdvertised=${true}
-        .wikiGetAdvertised=${true}
-        .organizationGetAdvertised=${true}
+        .compactSearch=${true}
+        .searchPlaceholder=${t(
+          options.scope === "selected" ? "searchWithinVault" : "searchDocuments",
+        )}
+        .vaultGetAdvertised=${options.methods.includes("platformclaw.vault.document.get")}
+        .wikiGetAdvertised=${options.methods.includes("wiki.document.get")}
+        .organizationGetAdvertised=${options.methods.includes("platformclaw.memory.get")}
+        .personalDetailAdvertised=${options.methods.includes("agents.workspace.get")}
         .agentId=${options.agentId}
         .searchScope=${options.scope === "all" ? "all" : "connected"}
         .refreshRevision=${options.revision}
         .vaultId=${options.scope === "selected" ? options.vaultId : null}
         .translator=${platformClawT}
+        .openSharedDocument=${options.onOpen}
       ></openclaw-memory-memories>
     </div>
   </details>`;

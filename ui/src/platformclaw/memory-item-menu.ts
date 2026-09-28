@@ -5,7 +5,7 @@ import "../components/web-awesome.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { platformClawT as t } from "./i18n.ts";
 
-export type MemoryMenuAction = "delete" | "share";
+export type MemoryMenuAction = "delete" | "share" | "publish";
 
 class PlatformClawMemoryItemMenu extends OpenClawLightDomElement {
   @property({ attribute: false }) x = 0;
@@ -57,11 +57,13 @@ class PlatformClawMemoryItemMenu extends OpenClawLightDomElement {
       ${this.actions.map(
         (action) => html`<wa-dropdown-item value=${action}>
           ${t(
-            action === "share"
-              ? "platformClaw.memory.share"
-              : this.kind === "wiki"
-                ? "platformClaw.wiki.delete"
-                : "platformClaw.memory.delete",
+            action === "publish"
+              ? "platformClaw.vault.publish"
+              : action === "share"
+                ? "platformClaw.memory.share"
+                : this.kind === "wiki"
+                  ? "platformClaw.wiki.delete"
+                  : "platformClaw.memory.delete",
           )}
         </wa-dropdown-item>`,
       )}

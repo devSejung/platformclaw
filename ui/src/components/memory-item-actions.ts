@@ -3,6 +3,7 @@ import { html, nothing } from "lit";
 export type MemoryItemActions = {
   label: string;
   open: (lookup: string, event: Event) => void;
+  primary?: { label: string; run: (lookup: string) => void };
 };
 
 export function renderMemoryItemActions(lookup: string, actions?: MemoryItemActions) {

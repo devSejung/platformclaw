@@ -21,6 +21,7 @@ import {
   type KnowledgeVaultDocumentInput,
   type KnowledgeVaultSnapshot,
 } from "./knowledge-vault-contracts.js";
+import { resolveKnowledgeVaultDocumentMetadata } from "./knowledge-vault-document.js";
 import {
   executeSync,
   runImmediateTransaction,
@@ -41,14 +42,6 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
   }
   saveDocument(params: KnowledgeVaultDocumentInput): KnowledgeVaultDocument {
     this.access(params.userId, params.vaultId, "edit");
-    const title = requireKnowledgeVaultText(params.title, "Document title", 240);
-    const logicalPath = knowledgeVaultPath(params.logicalPath);
-    if (!/\.md$/iu.test(logicalPath)) {
-      throw new ControlPlaneStateError("Document path must end with .md");
-    }
-    if (Buffer.byteLength(params.content) > KNOWLEDGE_VAULT_LIMITS.documentBytes) {
-      throw new ControlPlaneStateError("Document exceeds 1 MiB");
-    }
     const id = params.documentId ?? randomUUID();
     runImmediateTransaction(this.db, () => {
       this.access(params.userId, params.vaultId, "edit");
@@ -59,6 +52,8 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
           "Document changed; reload before saving",
         );
       }
+      // Allocate generated paths under the write lock so concurrent creates cannot overwrite.
+      const { title, logicalPath } = this.documentMetadata(params, prior);
       const collision = takeFirstSync(
         this.db,
         this.query
@@ -113,6 +108,35 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
     });
     this.compileDocument(id);
     return this.readDocument({ ...params, documentId: id });
+  }
+
+  previewDocument(params: KnowledgeVaultDocumentInput): { title: string; logicalPath: string } {
+    this.access(params.userId, params.vaultId, "edit");
+    return runReadTransaction(this.db, () => this.documentMetadata(params));
+  }
+
+  private documentMetadata(
+    params: KnowledgeVaultDocumentInput,
+    prior?: { title: string; logical_path: string },
+  ) {
+    const metadata = resolveKnowledgeVaultDocumentMetadata(params, prior);
+    if (params.logicalPath !== undefined || prior) {
+      return metadata;
+    }
+    const paths = new Set(
+      executeSync(
+        this.db,
+        this.query
+          .selectFrom("knowledge_vault_documents")
+          .select("logical_path")
+          .where("vault_id", "=", params.vaultId),
+      ).rows.map((row) => row.logical_path),
+    );
+    const stem = metadata.logicalPath.slice(0, -3);
+    for (let suffix = 2; paths.has(metadata.logicalPath); suffix++) {
+      metadata.logicalPath = `${stem}-${suffix}.md`;
+    }
+    return metadata;
   }
 
   private compileDocument(documentId: string): void {

@@ -736,6 +736,25 @@ function renderWikiPreviewOverlay(props: DreamingProps) {
             </div>
           </div>
           <div class="wiki-document__actions">
+            ${props.wikiActions?.primary &&
+            !state.wikiPreviewLoading &&
+            !state.wikiPreviewError &&
+            state.wikiPreviewMode !== "edit"
+              ? html`<button
+                  class="btn btn--sm"
+                  type="button"
+                  @click=${async () => {
+                    const lookup = state.wikiPreviewPath;
+                    await closeWikiPreview(props);
+                    // Close the reader through its draft owner before opening an external action dialog.
+                    if (!state.wikiPreviewOpen) {
+                      props.wikiActions?.primary?.run(lookup);
+                    }
+                  }}
+                >
+                  ${props.wikiActions.primary.label}
+                </button>`
+              : nothing}
             ${!state.wikiPreviewLoading &&
             !state.wikiPreviewError &&
             props.access.canEditWiki &&

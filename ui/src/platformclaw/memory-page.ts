@@ -17,12 +17,15 @@ import "../pages/agents/memory/memory-panel.ts";
 import "../pages/config/memory-memories.ts";
 import "./memory-organization.ts";
 import "./memory-vaults.ts";
-import "../pages/config/memory-promotions.ts";
 import { isExpandableResult, type SearchResult } from "../pages/config/memory-memories-view.ts";
+import "../pages/config/memory-promotions.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
+import type { MemoryMenuAction } from "./memory-item-menu.ts";
 import "./memory-item-menu.ts";
 import "./memory-delete-dialog.ts";
-import type { MemoryMenuAction } from "./memory-item-menu.ts";
+import "./memory-vault-reader.ts";
+import type { VaultAuthorSaved } from "./memory-vault-author.ts";
+import type { VaultReaderSelection } from "./memory-vault-reader.ts";
 
 const PERSONAL_MEMORY_TABS = ["memory", "wiki", "organization", "vaults", "dreaming"] as const;
 type PersonalMemoryTab = (typeof PERSONAL_MEMORY_TABS)[number];
@@ -60,6 +63,10 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     y: number;
     trigger: HTMLElement | null;
   } | null = null;
+  @state() private sharedReader: VaultReaderSelection | null = null;
+  @state() private publishLookup = "";
+  @state() private published: VaultAuthorSaved | null = null;
+  @state() private vaultTarget: { vaultId: string; documentId: string } | null = null;
   @state() private promotionLookup = "";
   @state() private promotionBusy = false;
   @state() private deleteTarget: { kind: "memory" | "wiki"; path: string } | null = null;
@@ -85,6 +92,10 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     if (changed.has("agentId") || this.context.gateway.snapshot.phase !== "connected") {
       this.menu = null;
       this.promotionLookup = "";
+      this.publishLookup = "";
+      this.published = null;
+      this.vaultTarget = null;
+      this.sharedReader = null;
       this.promotionBusy = false;
       this.deleteTarget = null;
       this.actionMessage = "";
@@ -110,6 +121,17 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     const has = (methods: string[]) =>
       methods.every((method) => isGatewayMethodAdvertised(gateway, method) === true);
     const actions: MemoryMenuAction[] = [];
+    if (
+      kind === "wiki" &&
+      has([
+        "platformclaw.vault.snapshot",
+        "platformclaw.vault.publish",
+        "platformclaw.vault.document.preview",
+        "wiki.document.get",
+      ])
+    ) {
+      actions.push("publish");
+    }
     if (
       kind === "wiki" &&
       has([
@@ -155,6 +177,16 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     const gateway = this.context.gateway.snapshot;
     const menu = this.menu;
     return html`
+      ${this.sharedReader
+        ? html`<platformclaw-vault-reader
+            .client=${gateway.client}
+            .connected=${gateway.phase === "connected"}
+            .agentId=${this.agentId}
+            .methods=${gateway.hello?.features?.methods ?? []}
+            .selection=${this.sharedReader}
+            @reader-close=${() => (this.sharedReader = null)}
+          ></platformclaw-vault-reader>`
+        : nothing}
       ${menu
         ? html`<platformclaw-memory-item-menu
             .x=${menu.x}
@@ -170,11 +202,27 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
               this.actionMessage = "";
               if (action === "delete") {
                 this.deleteTarget = { kind: menu.kind, path: menu.lookup };
+              } else if (action === "publish") {
+                this.publishLookup = menu.lookup;
               } else {
                 this.promotionLookup = menu.lookup;
               }
             }}
           ></platformclaw-memory-item-menu>`
+        : nothing}
+      ${this.publishLookup
+        ? html`<platformclaw-vault-author
+            .methods=${gateway.hello?.features?.methods ?? []}
+            .client=${gateway.client}
+            .connected=${gateway.phase === "connected"}
+            .agentId=${this.agentId}
+            .initialPersonalLookup=${this.publishLookup}
+            @author-close=${() => (this.publishLookup = "")}
+            @author-saved=${(event: CustomEvent<VaultAuthorSaved>) => {
+              this.publishLookup = "";
+              this.published = event.detail;
+            }}
+          ></platformclaw-vault-author>`
         : nothing}
       ${this.promotionLookup
         ? html`<openclaw-modal-dialog
@@ -270,6 +318,9 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           .connectionPhase=${gateway.phase}
           .methodAdvertised=${isGatewayMethodAdvertised(gateway, "memory.search")}
           .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search")}
+          .openSharedDocument=${(vaultId: string, documentId: string) => {
+            this.sharedReader = { vaultId, documentId };
+          }}
           .browseEnabled=${true}
           .unifiedSearch=${isGatewayMethodAdvertised(gateway, "platformclaw.vault.snapshot") ===
           true}
@@ -299,6 +350,9 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
         ></openclaw-memory-memories>`;
       case "vaults":
         return html`<platformclaw-memory-vaults
+          .methods=${gateway.hello?.features?.methods ?? []}
+          .initialVaultId=${this.vaultTarget?.vaultId ?? ""}
+          .initialDocumentId=${this.vaultTarget?.documentId ?? ""}
           @vault-navigate=${(event: CustomEvent<"wiki" | "organization">) =>
             this.selectTab(event.detail)}
           .client=${gateway.client}
@@ -316,6 +370,14 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
             ? {
                 label: t("platformClaw.memory.actions"),
                 open: (lookup: string, event: Event) => this.openActions("wiki", lookup, event),
+                ...(this.availableActions("wiki").includes("publish")
+                  ? {
+                      primary: {
+                        label: t("platformClaw.vault.publish"),
+                        run: (lookup: string) => (this.publishLookup = lookup),
+                      },
+                    }
+                  : {}),
               }
             : undefined}
         ></openclaw-agent-memory-panel>`;
@@ -382,6 +444,27 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     return html`
       <main class="settings-page settings-page--wide platformclaw-memory-page">
         ${this.actionMessage ? html`<p role="status">${this.actionMessage}</p>` : nothing}
+        ${this.published
+          ? html`<div class="callout success" role="status">
+              <p>
+                ${this.published.document.title} · ${this.published.vaultName} —
+                ${t("platformClaw.vault.published")}
+              </p>
+              <button
+                class="btn btn--sm"
+                @click=${() => {
+                  this.vaultTarget = {
+                    vaultId: this.published!.vaultId,
+                    documentId: this.published!.document.id,
+                  };
+                  this.published = null;
+                  this.selectTab("vaults");
+                }}
+              >
+                ${t("platformClaw.vault.viewPublished")}
+              </button>
+            </div>`
+          : nothing}
         <nav class="platformclaw-memory-page__tabs">
           ${renderHubTabs<PersonalMemoryTab>({
             id: "platformclaw-memory",

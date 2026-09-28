@@ -596,16 +596,36 @@ also write, upload, move, and rebuild; Owner can also manage members. Whole-Vaul
 ZIP download is a separate permission, not a consequence of Reader or Editor.
 Removing the last active Owner is rejected until another Owner is assigned.
 
-Write Markdown or upload a Markdown document, review its title and path, then
-save. Attachments use a separate upload/download area. Editing the path moves a
-document without changing its stable identity. Links and backlinks show related
-and affected documents; documents without links remain searchable.
+Use **Add knowledge** inside a Shared Vault to write a document, select a Personal
+Wiki document, or upload Markdown. A `.md` or `.markdown` upload opens a draft;
+review it before saving. Ordinary UTF-8 Markdown needs no Personal Wiki fields or
+template. The server previews a suggested title from a valid YAML `title` string,
+then the first level-one heading, then the filename. You can change the display title
+without changing the Markdown. A document without those values starts with
+`Untitled document`.
 
-Personal knowledge is never automatically shared. **Publish from Personal Wiki**
-loads a complete source preview. Review it and explicitly publish a copy into the
-selected Shared Vault. A changed source requires a fresh preview; the Personal
-original remains intact. Organization publication retains its existing review
-and approval workflow.
+New documents receive a path automatically. An occupied generated path gets a
+numeric suffix; it never replaces another document. Use the advanced path field
+only to choose a specific location. An explicit path collision requires another
+path. Editing an existing document keeps its title and path unless you change
+them; changing the path moves it without changing its stable identity. Open a
+saved document or search result in the document dialog to read or edit it.
+Closing the dialog returns to the same search query and results, including when
+the result belongs to another accessible Vault.
+
+Personal knowledge is never automatically shared. From a Personal Wiki document,
+choose **Publish to Shared vault**, select a Vault where you can edit, and review
+the copy. You can also search for the source from **Add knowledge** in a Shared
+Vault. Edit the copy if needed, then explicitly publish it. The complete Personal
+source is checked again before publication; a changed source requires a fresh
+preview. The Personal original remains private and unchanged. Publication copies
+one document, not its attachments or linked documents, and later edits do not
+synchronize. Organization publication retains its existing review and approval
+workflow.
+
+Attachments use a separate upload/download area. PDF and Word files are stored
+as attachments; their contents are not extracted or searched. Convert their
+content to Markdown and add it as a document when it must be searchable.
 
 Search defaults to Personal knowledge and **My vaults**. The browser also offers
 an explicit **All accessible vaults** search without changing AI connections.
@@ -650,6 +670,14 @@ Personal retries check every 30 seconds with bounded backoff. The Personal-only
 `wiki_apply` refresh operation cannot rebuild a Shared Vault; use that Vault's
 **Rebuild search and links** action.
 
+Wiki links resolve exact paths within the same Vault, with an optional `.md`
+extension, rather than guessing display titles. For a document titled
+`DRAM controller` at `specs/dram.md`, write `[[specs/dram|DRAM controller]]`.
+Markdown links such as `[DRAM](../specs/dram.md)` resolve relative to the source
+document's folder. An unresolved link stays visible as missing and does not block
+search; creating the matching document resolves it. A heading anchor identifies
+the same document in the graph, not a separate section node.
+
 Open a Shared Vault and select **Document graph** to see its documents and directed links.
 Select a node to inspect its incoming and outgoing references, then open the
 document. Documents without links still appear. Search titles and paths to narrow
@@ -670,11 +698,13 @@ Personal Wiki and Organization retain their existing graph views.
 The Personal graph reads current source files, while search retains its accepted
 index after a compile failure; those views can differ until a successful rebuild.
 
-**Download Vault ZIP** includes `vault.json`, Markdown under `documents/`, and
+**Download entire vault ZIP** includes `vault.json`, Markdown under `documents/`, and
 files under `attachments/`. It excludes indexes, derived links, and access grants.
-**Import Vault ZIP** creates a new Shared Vault owned by the importer and rebuilds
+**Import ZIP as new vault** creates a new Shared Vault owned by the importer and rebuilds
 derived data; it never merges or overwrites an existing Vault. The new Owner grants
-membership explicitly. Current limits are 1 MiB per Markdown document, 8 MiB per
+membership explicitly. Import accepts the PlatformClaw export format, including
+its `vault.json` manifest; arbitrary repository or Obsidian ZIP files are not
+accepted as-is. Current limits are 1 MiB per Markdown document, 8 MiB per
 attachment, 999 source files and 31 MiB of source data per Vault, and a 32 MiB ZIP
 with at most 64 MiB expanded data.
 

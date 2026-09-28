@@ -107,6 +107,81 @@ async function setup() {
 }
 
 describe("knowledge vault browser boundary", () => {
+  it("previews bounded metadata without writing, allocates unique paths and retains edited metadata", async () => {
+    const { store, user, proxy, token } = await setup();
+    const vault = store.vaults.createVault({
+      userId: user.id,
+      name: "Shared",
+      ownerCanExport: true,
+    });
+    const input = {
+      vaultId: vault.id,
+      filename: "training.markdown",
+      content: "---\r\ntitle: Training guide\r\n---\r\n# Training\r\n",
+    };
+    expect(await proxy.request(token, "platformclaw.vault.document.preview", input)).toEqual({
+      title: "Training guide",
+      logicalPath: "training.md",
+    });
+    expect(
+      store.vaults.snapshot({ userId: user.id, vaultId: vault.id }).selected?.documents,
+    ).toHaveLength(0);
+    // Two drafts may preview the same free path; the serialized writes must allocate separately.
+    const save = () =>
+      proxy.request<{ id: string; logicalPath: string; content: string; revision: number }>(
+        token,
+        "platformclaw.vault.document.save",
+        input,
+      );
+    const [first, second] = await Promise.all([save(), save()]);
+    expect([first.logicalPath, second.logicalPath].toSorted()).toEqual([
+      "training-2.md",
+      "training.md",
+    ]);
+    expect(first.content).toBe(input.content);
+    expect(
+      await proxy.request(token, "platformclaw.vault.document.save", {
+        vaultId: vault.id,
+        documentId: first.id,
+        expectedRevision: first.revision,
+        content: "# Changed heading",
+      }),
+    ).toMatchObject({ title: "Training guide", logicalPath: first.logicalPath });
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.save", {
+        ...input,
+        logicalPath: first.logicalPath,
+      }),
+    ).rejects.toThrow("already exists");
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.preview", {
+        ...input,
+        content: "가".repeat(400_000),
+      }),
+    ).rejects.toThrow("1 MiB");
+    const { user: owner } = await store.upsertPrincipal(
+      { provider: "ldap", subject: "other", accountId: "other", employeeId: "other" },
+      Date.now(),
+    );
+    const readOnly = store.vaults.createVault({
+      userId: owner.id,
+      name: "Read only",
+      ownerCanExport: true,
+    });
+    store.vaults.setMember({
+      userId: owner.id,
+      vaultId: readOnly.id,
+      memberUserId: user.id,
+      role: "reader",
+      canExport: false,
+    });
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.preview", {
+        ...input,
+        vaultId: readOnly.id,
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+  });
   it("resolves only exact authorized names, including disconnected Vaults, and disambiguates duplicates", async () => {
     const { store, user, binding, vaultService } = await setup();
     const { user: owner } = await store.upsertPrincipal(
@@ -599,6 +674,25 @@ describe("knowledge vault browser boundary", () => {
       params,
     );
     expect(published.content).toBe(sourceContent);
+    const reviewedContent = "# Public copy\r\nOnly reviewed facts.\r\n";
+    const edited = await proxy.request<{ content: string; title: string }>(
+      token,
+      "platformclaw.vault.publish",
+      {
+        ...params,
+        path: undefined,
+        title: "Reviewed public title",
+        content: reviewedContent,
+      },
+    );
+    expect(edited).toMatchObject({ title: "Reviewed public title", content: reviewedContent });
+    await expect(
+      proxy.request(token, "platformclaw.vault.publish", {
+        ...params,
+        content: reviewedContent,
+        expectedRevision: "c".repeat(64),
+      }),
+    ).rejects.toThrow("changed");
     expect(request).toHaveBeenLastCalledWith("wiki.document.get", {
       agentId: binding.agentId,
       lookup: params.lookup,

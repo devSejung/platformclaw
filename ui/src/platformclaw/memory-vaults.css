@@ -255,3 +255,33 @@
     padding: 18px;
   }
 }
+
+.vaults__author-preview {
+  max-height: 360px;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.vaults__relationships {
+  margin-top: 18px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.vaults__relationships summary {
+  cursor: pointer;
+  padding-block: 8px;
+}
+.vaults__relationships h4 {
+  margin-block: 12px 6px;
+}
+.vaults__selected .vaults__search-panel {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.vaults__search-panel .memory-memories {
+  max-width: none;
+  margin: 0;
+  padding: 12px 0 0;
+}

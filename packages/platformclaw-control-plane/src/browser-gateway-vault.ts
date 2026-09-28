@@ -70,14 +70,19 @@ export async function requestBrowserKnowledgeVault(params: {
         agentId: access.binding.agentId,
         lookup: field("lookup"),
         targetVaultId: field("targetVaultId"),
-        path: field("path"),
+        ...(request.path === undefined ? {} : { path: field("path") }),
         expectedRevision: field("expectedRevision", 64),
+        ...(request.title === undefined ? {} : { title: field("title", 240) }),
+        ...(request.content === undefined ? {} : { content: field("content", 1024 * 1024, true) }),
       });
     } else {
       const vaultId = field("vaultId");
       if (method === "platformclaw.vault.document.get") {
         result = vaults.readDocument({ userId, vaultId, documentId: field("documentId") });
-      } else if (method === "platformclaw.vault.document.save") {
+      } else if (
+        method === "platformclaw.vault.document.save" ||
+        method === "platformclaw.vault.document.preview"
+      ) {
         if (
           request.expectedRevision !== undefined &&
           (!Number.isSafeInteger(request.expectedRevision) ||
@@ -85,17 +90,22 @@ export async function requestBrowserKnowledgeVault(params: {
         ) {
           throw new ControlPlaneStateError("expectedRevision must be a positive integer");
         }
-        result = vaults.saveDocument({
+        const document = {
           userId,
           vaultId,
-          title: field("title", 240),
-          logicalPath: field("logicalPath"),
+          ...(request.title === undefined ? {} : { title: field("title", 240) }),
+          ...(request.logicalPath === undefined ? {} : { logicalPath: field("logicalPath") }),
+          ...(request.filename === undefined ? {} : { filename: field("filename") }),
           content: field("content", 1024 * 1024, true),
           ...(request.documentId === undefined ? {} : { documentId: field("documentId") }),
           ...(request.expectedRevision === undefined
             ? {}
             : { expectedRevision: request.expectedRevision as number }),
-        });
+        };
+        result =
+          method === "platformclaw.vault.document.preview"
+            ? vaults.previewDocument(document)
+            : vaults.saveDocument(document);
       } else if (method === "platformclaw.vault.member.set") {
         if (
           !["reader", "editor", "owner"].includes(String(request.role)) ||

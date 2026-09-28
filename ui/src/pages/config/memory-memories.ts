@@ -25,6 +25,7 @@ import {
   renderMemoryConnectionStatus,
   renderMemoryBrowseFile,
   renderMemorySearchState,
+  renderMemorySearchForm,
   resultKey,
   type SearchResult,
   type SearchState,
@@ -51,6 +52,8 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   @property({ attribute: false }) wikiSearchAdvertised: boolean | null = false;
   @property({ type: Boolean }) browseEnabled = false;
   @property({ type: Boolean }) unifiedSearch = false;
+  @property({ type: Boolean }) compactSearch = false;
+  @property() searchPlaceholder: string | null = null;
   @property({ type: Boolean }) vaultGetAdvertised = false;
   @property() vaultId: string | null = null;
   @property() searchScope: "connected" | "all" = "connected";
@@ -62,6 +65,10 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   @property() agentId: string | null = null;
   @property({ attribute: false }) itemActions?: MemoryResultActions;
   @property({ type: Number }) refreshRevision = 0;
+  @property({ attribute: false }) openSharedDocument?: (
+    vaultId: string,
+    documentId: string,
+  ) => void;
 
   @state() private query = "";
   @state() private searchState: SearchState = { kind: "idle" };
@@ -368,6 +375,17 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   }
 
   private toggleResult(result: SearchResult, index: number, content?: string) {
+    if (
+      result.vaultType === "shared" &&
+      result.vaultId &&
+      result.documentId &&
+      this.openSharedDocument
+    ) {
+      if (this.canLoadResult(result)) {
+        this.openSharedDocument(result.vaultId, result.documentId);
+      }
+      return;
+    }
     const key = resultKey(result, index);
     const cached = content !== undefined || this.details.get(key)?.kind === "ready";
     if (!cached && !this.canLoadResult(result)) {
@@ -628,6 +646,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
       onToggle: (result, index) => this.toggleResult(result, index),
       openResultKey: this.openResultKey,
       searchState: this.searchState,
+      sharedDocumentDialog: Boolean(this.openSharedDocument),
       sourceFilter: this.sourceFilter,
       text: this.text.bind(this),
     });
@@ -650,55 +669,42 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     return html`<div class="settings-page memory-memories">
       ${connectionStatus}
       <section class="settings-section">
-        <div class="settings-section__header">
-          <h2 class="settings-section__heading">${this.text("memoryPage.memories.searchTitle")}</h2>
-        </div>
-        <p class="settings-section__desc">${this.text("memoryPage.memories.searchDescription")}</p>
+        ${this.compactSearch
+          ? nothing
+          : html`<div class="settings-section__header">
+                <h2 class="settings-section__heading">
+                  ${this.text("memoryPage.memories.searchTitle")}
+                </h2>
+              </div>
+              <p class="settings-section__desc">
+                ${this.text("memoryPage.memories.searchDescription")}
+              </p>`}
         ${searchUnavailable
           ? renderSettingsEmpty(this.text("memoryPage.memories.gatewayUpdateRequired"))
-          : html`<form
-                class="memory-memories__search"
-                role="search"
-                @submit=${(event: SubmitEvent) => {
-                  event.preventDefault();
-                  void this.search(this.query);
-                }}
-              >
-                <label class="settings-control__sr-label" for="memory-search-input"
-                  >${this.text("memoryPage.memories.searchLabel")}</label
-                >
-                <input
-                  id="memory-search-input"
-                  type="search"
-                  class="settings-input"
-                  .value=${this.query}
-                  placeholder=${this.text("memoryPage.memories.searchPlaceholder")}
-                  @input=${(event: InputEvent) => {
-                    const next = (event.currentTarget as HTMLInputElement).value;
-                    if (next !== this.query) {
-                      this.cancelPendingSearch();
-                      this.clearDetails(false);
-                      this.searchState = { kind: "idle" };
-                    }
-                    this.query = next;
-                  }}
-                />
-                <button
-                  class="btn btn--sm primary"
-                  type="submit"
-                  ?disabled=${!this.gatewayReady ||
-                  !searchAvailable ||
-                  !this.agentId ||
-                  !this.query.trim() ||
-                  this.searchState.kind === "loading"}
-                >
-                  ${this.text("memoryPage.memories.searchButton")}
-                </button>
-              </form>
-              ${searchCapabilitiesLoading
-                ? html`<p role="status">${this.text("memoryPage.memories.capabilitiesLoading")}</p>`
-                : nothing}
-              ${this.renderSearchState()}`}
+          : html`${renderMemorySearchForm({
+              text: this.text.bind(this),
+              query: this.query,
+              placeholder: this.searchPlaceholder,
+              disabled:
+                !this.gatewayReady ||
+                !searchAvailable ||
+                !this.agentId ||
+                !this.query.trim() ||
+                this.searchState.kind === "loading",
+              onSubmit: () => void this.search(this.query),
+              onInput: (next) => {
+                if (next !== this.query) {
+                  this.cancelPendingSearch();
+                  this.clearDetails(false);
+                  this.searchState = { kind: "idle" };
+                }
+                this.query = next;
+              },
+            })}
+            ${searchCapabilitiesLoading
+              ? html`<p role="status">${this.text("memoryPage.memories.capabilitiesLoading")}</p>`
+              : nothing}
+            ${this.renderSearchState()}`}
       </section>
       ${this.renderBrowse()}
     </div>`;

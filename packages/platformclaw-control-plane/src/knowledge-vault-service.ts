@@ -199,8 +199,10 @@ export class KnowledgeVaultService {
     agentId: string;
     lookup: string;
     targetVaultId: string;
-    path: string;
+    path?: string;
     expectedRevision: string;
+    title?: string;
+    content?: string;
   }) {
     const target = this.store.vaults.snapshot({
       userId: params.userId,
@@ -241,9 +243,9 @@ export class KnowledgeVaultService {
     return this.store.vaults.saveDocument({
       userId: params.userId,
       vaultId: params.targetVaultId,
-      title: String(document.title),
+      title: params.title ?? String(document.title),
       logicalPath: params.path,
-      content: document.sourceContent,
+      content: params.content ?? document.sourceContent,
     });
   }
 }

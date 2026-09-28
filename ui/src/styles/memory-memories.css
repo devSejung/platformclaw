@@ -88,6 +88,21 @@
   font-family: var(--mono);
 }
 
+.memory-memories__provenance-details {
+  padding: 0 var(--space-4) var(--space-3);
+  color: var(--muted);
+  font-size: var(--control-ui-text-xs);
+}
+
+.memory-memories__provenance-details > summary {
+  cursor: pointer;
+}
+
+.memory-memories__provenance-details > span {
+  display: block;
+  margin-block-start: var(--space-1);
+}
+
 .memory-memories__snippet {
   display: -webkit-box;
   overflow: hidden;

@@ -102,6 +102,8 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.managed":
     "Managed knowledge continues in Organization Memory with its existing approval and access rules.",
   "platformClaw.vault.shared": "Shared",
+  "platformClaw.vault.typePersonal": "Personal",
+  "platformClaw.vault.typeManaged": "Managed",
   "platformClaw.vault.new": "Create Shared vault",
   "platformClaw.vault.name": "Vault name",
   "platformClaw.vault.description": "Description",
@@ -115,24 +117,23 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.refresh": "Refresh",
   "platformClaw.vault.import": "Import ZIP as new vault",
   "platformClaw.vault.importHint":
-    "Import creates a new Shared vault. Existing vaults are never merged. Members are not automatically invited; indexes are rebuilt.",
+    "Choose a PlatformClaw vault export ZIP, not a general document archive. This creates a new Shared vault without merging. Members are not invited automatically; search and links are rebuilt.",
   "platformClaw.vault.export": "Download entire vault ZIP",
   "platformClaw.vault.exportHint":
     "Entire-vault download requires its own permission, separate from reading documents.",
   "platformClaw.vault.documents": "Documents",
   "platformClaw.vault.noDocuments":
-    "No documents yet. Add Markdown or publish a Personal Wiki copy.",
+    "No documents yet. Use Add knowledge to write, choose Personal knowledge, or import Markdown.",
   "platformClaw.vault.newDocument": "Write document",
   "platformClaw.vault.uploadMarkdown": "Upload Markdown",
   "platformClaw.vault.path": "Document path",
   "platformClaw.vault.documentTitle": "Document title",
-  "platformClaw.vault.body": "Original Markdown",
-  "platformClaw.vault.save": "Save original",
+  "platformClaw.vault.body": "Markdown content",
+  "platformClaw.vault.save": "Save document",
   "platformClaw.vault.cancel": "Cancel",
   "platformClaw.vault.edit": "Edit / move",
   "platformClaw.vault.download": "Download Markdown",
-  "platformClaw.vault.saved":
-    "Saved. Original content is preserved; search index status appears below.",
+  "platformClaw.vault.saved": "Document saved. Search and link status is shown with the document.",
   "platformClaw.vault.members": "Members and permissions",
   "platformClaw.vault.account": "Employee account ID",
   "platformClaw.vault.role": "Role",
@@ -154,12 +155,12 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.retryAt": "Next retry",
   "platformClaw.vault.links": "Links",
   "platformClaw.vault.backlinks": "Backlinks / affected documents",
-  "platformClaw.vault.publish": "Publish Personal Wiki copy",
+  "platformClaw.vault.publish": "Publish to Shared vault",
   "platformClaw.vault.sourcePath": "Personal Wiki source path",
   "platformClaw.vault.previewSource": "Review source",
-  "platformClaw.vault.publishConfirm": "Publish reviewed copy to this Shared vault",
+  "platformClaw.vault.publishConfirm": "Publish shared copy",
   "platformClaw.vault.publishHint":
-    "Only the reviewed document is copied. Your Personal original remains private and unchanged.",
+    "Review the copy that vault members will see. Your Personal original remains private and unchanged. Later edits are independent; copies do not sync.",
   "platformClaw.vault.published": "Published a copy. Personal original unchanged.",
   "platformClaw.vault.searchScope": "Search scope",
   "platformClaw.vault.allVaults": "All accessible vaults",
@@ -169,4 +170,37 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.sourceUnavailable":
     "This source cannot be published. Choose a complete, revisioned Personal Wiki document.",
   "platformClaw.vault.close": "Close document",
+  "platformClaw.vault.addKnowledge": "Add knowledge",
+  "platformClaw.vault.personalSource": "From Personal Wiki",
+  "platformClaw.vault.chooseMarkdown": "Choose Markdown file",
+  "platformClaw.vault.markdownHint":
+    "Import one UTF-8 .md or .markdown file (up to 1 MB). Review and edit before saving.",
+  "platformClaw.vault.automaticTitle": "Detect from Markdown or filename",
+  "platformClaw.vault.writeCopy": "Edit content",
+  "platformClaw.vault.previewCopy": "Review before sharing",
+  "platformClaw.vault.advancedPath": "Advanced: document path",
+  "platformClaw.vault.automaticPath": "Created automatically",
+  "platformClaw.vault.automaticPathHint":
+    "Leave blank to create a unique path automatically. Set a path only when organizing or moving documents.",
+  "platformClaw.vault.noEditableVault":
+    "No Shared vaults you can edit. Create one in Memory Hub or ask an Owner for Editor access.",
+  "platformClaw.vault.linkReviewHint":
+    "Links resolve within the destination vault after saving. Missing targets are shown in the document; text is still searchable.",
+  "platformClaw.vault.attachmentHint":
+    "Attachments, including PDF files, are for download only. Their contents are not included in search or the graph. Add Markdown to make knowledge searchable.",
+  "platformClaw.vault.readerEmpty":
+    "No documents yet. An Editor or Owner can add knowledge to this vault.",
+  "platformClaw.vault.unresolvedNotice":
+    "Some links have no matching document in this vault. Review document links below. The document remains searchable.",
+  "platformClaw.vault.relationships": "Document links and backlinks",
+  "platformClaw.vault.documentDetails": "Document details",
+  "platformClaw.vault.discardTitle": "Discard unsaved changes?",
+  "platformClaw.vault.discardDescription":
+    "Your edits have not been saved. Keep editing, or discard them to continue.",
+  "platformClaw.vault.keepEditing": "Keep editing",
+  "platformClaw.vault.discard": "Discard changes",
+  "platformClaw.vault.changeSource": "Choose another Personal document",
+  "platformClaw.vault.viewPublished": "Open shared copy",
+  "platformClaw.vault.searchWithinVault": "Search this vault’s document contents",
+  "platformClaw.vault.selectedPersonalSource": "Personal source",
 };

@@ -82,7 +82,9 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
   private renderGraph(selected: SelectedVault) {
     const { documents, graph } = selected;
     if (!documents.length) {
-      return html`<p class="vaults__empty" role="status">${t("graphEmpty")}</p>`;
+      return html`<p class="vaults__empty" role="status">
+        ${t(selected.vault.canEdit ? "graphEmpty" : "readerEmpty")}
+      </p>`;
     }
     const query = this.query.trim().toLocaleLowerCase();
     const nodes = documents
@@ -341,6 +343,7 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
           ? this.renderGraph(selected)
           : renderVaultDocumentList({
               documents: selected.documents,
+              canEdit: selected.vault.canEdit,
               busy: this.busy,
               onOpen: (id) => this.open(id),
             })}

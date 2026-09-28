@@ -102,7 +102,21 @@ describe("server unified Vault search", () => {
         });
         expect(
           element.querySelector("[data-vault-provenance]")?.textContent?.replace(/\s+/gu, " "),
-        ).toContain(`PHY · shared · v1 · d1 · ${locale === "ko" ? "버전" : "Revision"} 7`);
+        ).toContain(
+          `PHY · ${locale === "ko" ? "공유 · Shared" : "Shared"} · ${locale === "ko" ? "버전" : "Revision"} 7`,
+        );
+        const provenance = element.querySelector<HTMLDetailsElement>(
+          ".memory-memories__provenance-details",
+        )!;
+        expect(provenance.open).toBe(false);
+        expect(provenance.closest("button")).toBeNull();
+        expect(provenance.textContent).toContain("v1 · d1");
+        expect(provenance.textContent).toContain(hit.path);
+        expect(element.querySelector("[aria-controls=memory-detail-0]")?.textContent).not.toContain(
+          hit.path,
+        );
+        provenance.querySelector("summary")!.click();
+        expect(provenance.open).toBe(true);
         element.querySelector<HTMLButtonElement>("[aria-controls=memory-detail-0]")!.click();
         await waitForFast(() =>
           expect(element.querySelector("#memory-detail-0 h1")?.textContent).toBe("Shared training"),

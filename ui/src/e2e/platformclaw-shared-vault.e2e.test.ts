@@ -89,9 +89,9 @@ function snapshot(owner: boolean, connected = true, selected = false): Knowledge
         id: "vault-dram",
         name: "DRAM Controller",
         description: "Controller architecture, timing constraints, and integration notes.",
-        role: "reader",
+        role: owner ? "editor" : "reader",
         connected: false,
-        canEdit: false,
+        canEdit: owner,
         canManageMembers: false,
         canExport: false,
         documentCount: 8,
@@ -217,6 +217,7 @@ suite("Shared Knowledge Vault browser experience", () => {
               "create",
               "document.get",
               "document.save",
+              "document.preview",
               "member.set",
               "member.remove",
               "rebuild",
@@ -232,11 +233,49 @@ suite("Shared Knowledge Vault browser experience", () => {
                 { match: { connected: false }, response: snapshot(owner, false) },
               ],
             },
-            [`${rpc}document.get`]: doc,
+            [`${rpc}document.get`]: {
+              cases: [
+                {
+                  match: { vaultId: "vault-dram" },
+                  response: {
+                    ...doc,
+                    vaultId: "vault-dram",
+                    id: "doc-dram",
+                    title: "Controller training",
+                  },
+                },
+                { match: {}, response: doc },
+              ],
+            },
             [`${rpc}document.save`]: { ...doc, revision: 4 },
+            [`${rpc}document.preview`]: {
+              cases: [
+                {
+                  match: { filename: "imported.markdown" },
+                  response: { title: "Extracted training title", logicalPath: "imported.md" },
+                },
+                {
+                  match: { title: "New training notes" },
+                  response: { title: "New training notes", logicalPath: "new-training.md" },
+                },
+                {
+                  match: {},
+                  response: { title: "Personal training notes", logicalPath: "training.md" },
+                },
+              ],
+            },
+            "wiki.search": [
+              {
+                path: "concepts/personal-training.md",
+                title: "Personal training notes",
+                snippet: "Reviewed original",
+              },
+            ],
             [`${rpc}publish`]: doc,
             "wiki.document.get": {
+              path: "concepts/personal-training.md",
               title: "Personal training notes",
+              displayContent: personalSource,
               sourceContent: personalSource,
               revision: "body-only-revision",
               truncated: false,
@@ -352,50 +391,87 @@ suite("Shared Knowledge Vault browser experience", () => {
           .getByRole("button", { name: owner ? "문서 열기" : "Open document", exact: true })
           .click();
         await expect
-          .poll(() => panel.locator("[data-vault-document] h3").textContent())
+          .poll(() =>
+            panel.locator("[data-vault-document] .dreams-diary__preview-title").textContent(),
+          )
           .toBe(doc.title);
+        await page.keyboard.press("Escape");
+        await expect.poll(() => panel.locator("[data-vault-document]").count()).toBe(0);
         await panel.locator("#vault-documents-tab-documents").click();
         if (owner) {
-          await panel.getByRole("button", { name: "문서 작성", exact: true }).click();
+          await panel.getByRole("button", { name: "지식 추가", exact: true }).click();
           const editor = panel.locator("[data-vault-editor]");
           await editor.locator("[name=title]").fill("New training notes");
-          await editor.locator("[name=path]").fill("guides/new-training.md");
+
           await editor.locator("[name=content]").fill("# Authored\n\n  Preserve these spaces.  \n");
           await screenshot(page, `${caseName}-editor.png`, editor);
-          await editor.getByRole("button", { name: "원본 저장", exact: true }).click();
+          await editor.locator("button.primary").click();
+          await expect.poll(() => editor.locator(".vaults__author-preview").count()).toBe(1);
+          await editor.getByRole("button", { name: "문서 저장", exact: true }).click();
           const saved = await gateway.waitForRequest(`${rpc}document.save`);
           expect(saved.params).toEqual({
             vaultId: "vault-phy",
             title: "New training notes",
-            logicalPath: "guides/new-training.md",
             content: "# Authored\n\n  Preserve these spaces.  \n",
           });
           await expect.poll(() => editor.count()).toBe(0);
-          await panel.getByRole("button", { name: "Personal Wiki 사본 게시", exact: true }).click();
-          await panel.locator("[name=lookup]").fill("concepts/personal-training.md");
-          await panel.getByRole("button", { name: "원본 확인", exact: true }).click();
+          await page.keyboard.press("Escape");
+          await panel.getByRole("button", { name: "지식 추가", exact: true }).click();
+          await panel.locator("#vault-author-source-tab-upload").click();
+          const importedContent =
+            "\uFEFF---\r\ntitle: Extracted training title\r\n---\r\n# Training\r\n\r\n  Preserve original.  \r\n";
+          await panel.locator('input[accept=".md,.markdown,text/markdown"]').setInputFiles({
+            name: "imported.markdown",
+            mimeType: "text/markdown",
+            buffer: Buffer.from(importedContent),
+          });
           await expect
-            .poll(() => panel.locator(".vaults__source").textContent())
+            .poll(() => panel.locator("[name=title]").inputValue())
+            .toBe("Extracted training title");
+          expect(await gateway.getRequests(`${rpc}document.save`)).toHaveLength(1);
+          await panel.getByRole("button", { name: "문서 저장", exact: true }).click();
+          await expect
+            .poll(async () => (await gateway.getRequests(`${rpc}document.save`)).at(-1)?.params)
+            .toEqual({
+              vaultId: "vault-phy",
+              title: "Extracted training title",
+              content: importedContent,
+              filename: "imported.markdown",
+            });
+          await expect.poll(() => panel.locator("platformclaw-vault-author").count()).toBe(0);
+          await page.keyboard.press("Escape");
+          await panel.getByRole("button", { name: "지식 추가", exact: true }).click();
+          await panel.locator("#vault-author-source-tab-personal").click();
+          const sourceQuery = panel.locator("#memory-source-query");
+          await sourceQuery.fill("training");
+          await sourceQuery.press("Enter");
+          await panel.locator(".memory-source-picker__result").click();
+          await expect
+            .poll(() => panel.locator("[name=content]").inputValue())
             .toBe(personalSource);
+          await panel.locator("[name=content]").fill("# Team training\n\nReviewed shared copy.");
           expect(await gateway.getRequests(`${rpc}publish`)).toHaveLength(0);
+          await panel.locator("[data-vault-editor] button.primary").click();
+          await expect.poll(() => panel.locator(".vaults__author-preview").count()).toBe(1);
           await screenshot(
             page,
             `${caseName}-publish-review.png`,
-            panel.locator(".vaults__source"),
+            panel.locator(".vaults__author-preview"),
           );
-          await panel
-            .getByRole("button", { name: "확인한 사본을 이 Shared 볼트에 게시", exact: true })
-            .click();
+          await panel.getByRole("button", { name: "공유 사본 게시", exact: true }).click();
           const published = await gateway.waitForRequest(`${rpc}publish`);
           expect(published.params).toEqual({
             lookup: "concepts/personal-training.md",
             targetVaultId: "vault-phy",
-            path: "concepts/personal-training.md",
+            title: "Personal training notes",
+            content: "# Team training\n\nReviewed shared copy.",
             expectedRevision: createHash("sha256").update(personalSource).digest("hex"),
           });
+          await expect.poll(() => panel.locator("platformclaw-vault-author").count()).toBe(0);
+          await page.keyboard.press("Escape");
         } else {
           expect(
-            await panel.getByRole("button", { name: "Write document", exact: true }).count(),
+            await panel.getByRole("button", { name: "Add knowledge", exact: true }).count(),
           ).toBe(0);
           expect(
             await panel
@@ -408,13 +484,12 @@ suite("Shared Knowledge Vault browser experience", () => {
           .poll(() => panel.locator("[data-vault-document] h1").textContent())
           .toBe("Training sequence");
         await screenshot(page, `${caseName}-document.png`, panel.locator("[data-vault-document]"));
+        const bounds = await panel.locator("[data-vault-document]").boundingBox();
+        expect(bounds!.width).toBeLessThanOrEqual(width);
+        expect(bounds!.height).toBeLessThanOrEqual(viewport.height);
+        await page.keyboard.press("Escape");
+        await expect.poll(() => panel.locator("[data-vault-document]").count()).toBe(0);
         const input = panel.locator("#memory-search-input");
-        expect(
-          await panel
-            .locator("openclaw-memory-memories .settings-section__desc")
-            .first()
-            .textContent(),
-        ).toContain(locale === "ko-KR" ? "Shared 볼트" : "Shared project vaults");
         await input.fill("training");
         await input.press("Enter");
         const search = await gateway.waitForRequest("memory.search");
@@ -426,7 +501,7 @@ suite("Shared Knowledge Vault browser experience", () => {
         await expect
           .poll(() => panel.locator("[data-vault-provenance]").textContent())
           .toContain("Ulysses PHY Spec");
-        expect(await gateway.getRequests("wiki.search")).toHaveLength(0);
+        expect(await gateway.getRequests("wiki.search")).toHaveLength(owner ? 1 : 0);
         await screenshot(page, `${caseName}-search.png`, panel.locator(".memory-memories__result"));
         if (capture) {
           const provenance = await panel.locator("[data-vault-provenance]").boundingBox();
@@ -434,13 +509,148 @@ suite("Shared Knowledge Vault browser experience", () => {
           expect(provenance!.y).toBeGreaterThanOrEqual(0);
           expect(provenance!.y + provenance!.height).toBeLessThanOrEqual(viewport.height);
         }
+        await panel.locator(".memory-memories__result > button.settings-row").click();
+        await expect
+          .poll(() =>
+            panel.locator("[data-vault-document] .dreams-diary__preview-title").textContent(),
+          )
+          .toBe(doc.title);
+        await page.keyboard.press("Escape");
+        await expect.poll(() => input.inputValue()).toBe("training");
         await panel.locator("#vault-search-tab-all").click();
+        await gateway.setMethodResponse("memory.search", {
+          agentId: platformClawMemoryAgentId,
+          provider: "local",
+          results: [
+            {
+              vaultId: "vault-dram",
+              vaultName: "DRAM Controller",
+              vaultType: "shared",
+              documentId: "doc-dram",
+              title: "Controller training",
+              path: "shared/vault-dram/doc-dram",
+              snippet: "Cross-vault training",
+              revision: 3,
+              score: 1,
+              source: "shared",
+              startLine: 1,
+              endLine: 3,
+            },
+          ],
+        });
         await input.fill("all training");
         await input.press("Enter");
         await expect
           .poll(async () => (await gateway.getRequests("memory.search")).at(-1)?.params)
           .toEqual({ agentId: platformClawMemoryAgentId, query: "all training", scope: "all" });
+        await panel.locator(".memory-memories__result > button.settings-row").click();
+        await expect
+          .poll(() =>
+            panel.locator("[data-vault-document] .dreams-diary__preview-meta").textContent(),
+          )
+          .toContain("DRAM Controller");
+        expect(await panel.locator(".vaults__selected > header h2").textContent()).toBe(
+          "Ulysses PHY Spec",
+        );
         if (owner) {
+          await panel.getByRole("button", { name: "편집 · 이동", exact: true }).click();
+          const crossAuthor = panel.locator("platformclaw-vault-author");
+          expect(await crossAuthor.textContent()).toContain("DRAM Controller");
+          await crossAuthor.getByRole("button", { name: "취소", exact: true }).click();
+        } else {
+          expect(
+            await panel
+              .locator("[data-vault-document]")
+              .getByRole("button", { name: "Edit / move", exact: true })
+              .count(),
+          ).toBe(0);
+        }
+        await page.keyboard.press("Escape");
+        await expect.poll(() => input.inputValue()).toBe("all training");
+        expect(await panel.locator(".memory-memories__result").count()).toBe(1);
+        await memoryTabs.locator("#platformclaw-memory-tab-memory").click();
+        await gateway.setMethodResponse("memory.search", {
+          agentId: platformClawMemoryAgentId,
+          results: [
+            {
+              vaultId: "vault-phy",
+              vaultName: "Ulysses PHY Spec",
+              vaultType: "shared",
+              documentId: doc.id,
+              title: doc.title,
+              path: doc.logicalPath,
+              snippet: "Training",
+              revision: 3,
+              source: "shared",
+              score: 1,
+              startLine: 1,
+              endLine: 3,
+            },
+          ],
+        });
+        const memorySearch = page.locator("openclaw-memory-memories #memory-search-input");
+        await memorySearch.fill("general shared training");
+        await memorySearch.press("Enter");
+        await page.locator('[data-memory-source="shared"] > button.settings-row').click();
+        const sharedReader = page.locator("platformclaw-vault-reader");
+        await expect.poll(() => sharedReader.locator("[data-vault-document]").count()).toBe(1);
+        await waitForControlUiRoute(page, {
+          routeId: "memory",
+          pathname: "/platformclaw/app/settings/memory/memories",
+        });
+        expect(await page.locator(".memory-memories__detail").count()).toBe(0);
+        await screenshot(page, `${caseName}-general-memory-reader.png`, sharedReader);
+        if (owner) {
+          await sharedReader.getByRole("button", { name: "편집 · 이동", exact: true }).click();
+          const draft = sharedReader.locator("platformclaw-vault-author");
+          await draft.locator("[name=content]").fill("# Unsaved shared edit");
+          await page.keyboard.press("Escape");
+          await expect.poll(() => draft.textContent()).toContain("저장하지 않은 변경을 버릴까요?");
+          await screenshot(page, "dirty-draft-confirmation-ko-desktop.png", draft);
+          await draft.getByRole("button", { name: "계속 편집", exact: true }).click();
+          expect(await draft.locator("[name=content]").inputValue()).toBe("# Unsaved shared edit");
+          await draft.getByRole("button", { name: "취소", exact: true }).click();
+          await draft.getByRole("button", { name: "변경 버리기", exact: true }).click();
+          await expect.poll(() => sharedReader.locator("[data-vault-document]").count()).toBe(1);
+        }
+        await page.keyboard.press("Escape");
+        await expect.poll(() => sharedReader.count()).toBe(0);
+        expect(await memorySearch.inputValue()).toBe("general shared training");
+        expect(await page.locator('[data-memory-source="shared"]').count()).toBe(1);
+        if (owner) {
+          await memoryTabs.locator("#platformclaw-memory-tab-wiki").click();
+          await page
+            .locator('[data-wiki-page="syntheses/release-preflight.md"] .memory-wiki-card__title')
+            .click();
+          const personalReader = page.locator("openclaw-agent-memory-panel openclaw-modal-dialog");
+          await personalReader
+            .getByRole("button", { name: "공유 볼트에 게시", exact: true })
+            .click();
+          const author = page.locator("platformclaw-vault-author");
+          await author.locator(".vaults__select select").selectOption("vault-phy");
+          await expect
+            .poll(() => author.locator("[name=content]").inputValue())
+            .toBe(personalSource);
+          expect(await personalReader.count()).toBe(0);
+          expect(await page.locator("openclaw-modal-dialog").count()).toBe(1);
+          await author
+            .locator("[name=content]")
+            .fill("# Explicit shared copy\nReviewed independently.");
+          await author.locator("[data-vault-editor] button.primary").click();
+          await screenshot(page, "personal-to-shared-review-ko-desktop.png", author);
+          await author.getByRole("button", { name: "공유 사본 게시", exact: true }).click();
+          await expect
+            .poll(async () => (await gateway.getRequests(`${rpc}publish`)).at(-1)?.params)
+            .toEqual({
+              targetVaultId: "vault-phy",
+              lookup: "concepts/personal-training.md",
+              title: "Personal training notes",
+              content: "# Explicit shared copy\nReviewed independently.",
+              expectedRevision: createHash("sha256").update(personalSource).digest("hex"),
+            });
+          await page.getByRole("button", { name: "공유 사본 열기", exact: true }).click();
+          await expect.poll(() => panel.locator("[data-vault-document]").count()).toBe(1);
+          await page.keyboard.press("Escape");
           for (const [tab, pathname] of [
             ["memory", "memories"],
             ["wiki", "wiki"],

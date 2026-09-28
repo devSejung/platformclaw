@@ -95,6 +95,8 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.managed":
     "Managed 지식은 기존 Organization Memory의 승인·접근 규칙을 유지합니다.",
   "platformClaw.vault.shared": "공유 · Shared",
+  "platformClaw.vault.typePersonal": "개인 · Personal",
+  "platformClaw.vault.typeManaged": "조직 관리 · Managed",
   "platformClaw.vault.new": "공유 볼트 만들기",
   "platformClaw.vault.name": "볼트 이름",
   "platformClaw.vault.description": "설명",
@@ -109,22 +111,22 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.refresh": "새로 고침",
   "platformClaw.vault.import": "ZIP을 새 볼트로 가져오기",
   "platformClaw.vault.importHint":
-    "새 Shared 볼트를 만듭니다. 기존 볼트와 병합하거나 멤버를 자동 초대하지 않습니다. 검색 색인은 재생성합니다.",
+    "PlatformClaw에서 내보낸 볼트 ZIP만 지원합니다. 일반 문서 압축파일은 지원하지 않습니다. 기존 볼트에 합치지 않고 새 공유 볼트로 만듭니다. 멤버는 자동 초대하지 않으며 검색·링크는 다시 생성합니다.",
   "platformClaw.vault.export": "볼트 전체 ZIP 다운로드",
   "platformClaw.vault.exportHint": "볼트 전체 다운로드는 문서 읽기와 별도 권한입니다.",
   "platformClaw.vault.documents": "문서",
   "platformClaw.vault.noDocuments":
-    "문서가 없습니다. Markdown을 작성·업로드하거나 Personal Wiki 사본을 게시하세요.",
+    "아직 문서가 없습니다. 지식 추가에서 직접 작성하거나 개인 지식·Markdown을 가져오세요.",
   "platformClaw.vault.newDocument": "문서 작성",
   "platformClaw.vault.uploadMarkdown": "Markdown 업로드",
   "platformClaw.vault.path": "문서 경로",
   "platformClaw.vault.documentTitle": "문서 제목",
-  "platformClaw.vault.body": "원본 Markdown",
-  "platformClaw.vault.save": "원본 저장",
+  "platformClaw.vault.body": "Markdown 본문",
+  "platformClaw.vault.save": "문서 저장",
   "platformClaw.vault.cancel": "취소",
   "platformClaw.vault.edit": "편집 · 이동",
   "platformClaw.vault.download": "Markdown 다운로드",
-  "platformClaw.vault.saved": "저장했습니다. 원본은 보존되며 검색 색인 상태는 아래에 표시됩니다.",
+  "platformClaw.vault.saved": "문서를 저장했습니다. 검색·링크 상태는 문서에서 확인하세요.",
   "platformClaw.vault.members": "멤버 · 권한",
   "platformClaw.vault.account": "직원 계정 ID",
   "platformClaw.vault.role": "역할",
@@ -146,12 +148,12 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.retryAt": "다음 재시도",
   "platformClaw.vault.links": "링크",
   "platformClaw.vault.backlinks": "역링크 · 영향받는 문서",
-  "platformClaw.vault.publish": "Personal Wiki 사본 게시",
+  "platformClaw.vault.publish": "공유 볼트에 게시",
   "platformClaw.vault.sourcePath": "Personal Wiki 원본 경로",
   "platformClaw.vault.previewSource": "원본 확인",
-  "platformClaw.vault.publishConfirm": "확인한 사본을 이 Shared 볼트에 게시",
+  "platformClaw.vault.publishConfirm": "공유 사본 게시",
   "platformClaw.vault.publishHint":
-    "확인한 문서만 복사합니다. Personal 원본은 비공개로 유지됩니다.",
+    "볼트 멤버에게 공유할 사본을 확인하세요. 개인 원본은 비공개로 유지됩니다. 이후 수정은 서로 반영되지 않습니다.",
   "platformClaw.vault.published": "사본을 게시했습니다. Personal 원본은 유지됩니다.",
   "platformClaw.vault.searchScope": "검색 범위",
   "platformClaw.vault.allVaults": "접근 가능한 전체 볼트",
@@ -161,4 +163,37 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.sourceUnavailable":
     "게시할 수 없는 원본입니다. 버전이 있는 전체 Personal Wiki 문서를 선택하세요.",
   "platformClaw.vault.close": "문서 닫기",
+  "platformClaw.vault.addKnowledge": "지식 추가",
+  "platformClaw.vault.personalSource": "개인 지식에서 선택",
+  "platformClaw.vault.chooseMarkdown": "Markdown 파일 선택",
+  "platformClaw.vault.markdownHint":
+    "UTF-8 .md 또는 .markdown 파일 1개(최대 1 MB)를 가져옵니다. 내용을 확인·수정한 뒤 저장하세요.",
+  "platformClaw.vault.automaticTitle": "Markdown 본문 또는 파일명에서 자동 설정",
+  "platformClaw.vault.writeCopy": "내용 편집",
+  "platformClaw.vault.previewCopy": "공유할 내용 확인",
+  "platformClaw.vault.advancedPath": "고급: 문서 경로",
+  "platformClaw.vault.automaticPath": "자동으로 생성",
+  "platformClaw.vault.automaticPathHint":
+    "비워 두면 겹치지 않는 경로를 자동으로 만듭니다. 폴더를 정리하거나 문서를 이동할 때만 지정하세요.",
+  "platformClaw.vault.noEditableVault":
+    "편집 가능한 공유 볼트가 없습니다. 메모리 허브에서 새로 만들거나 Owner에게 Editor 권한을 요청하세요.",
+  "platformClaw.vault.linkReviewHint":
+    "저장 후 대상 볼트 안에서 링크를 연결합니다. 대상이 없는 링크는 문서에 안내되며 본문 검색은 가능합니다.",
+  "platformClaw.vault.attachmentHint":
+    "PDF 등 첨부파일은 다운로드용입니다. 파일 본문은 검색·그래프에 포함되지 않습니다. 검색할 지식은 Markdown으로 추가하세요.",
+  "platformClaw.vault.readerEmpty":
+    "아직 문서가 없습니다. Editor 또는 Owner가 이 볼트에 지식을 추가할 수 있습니다.",
+  "platformClaw.vault.unresolvedNotice":
+    "이 볼트에서 대상을 찾지 못한 링크가 있습니다. 아래 문서 관계에서 확인하세요. 본문 검색은 정상적으로 가능합니다.",
+  "platformClaw.vault.relationships": "문서 링크·역참조",
+  "platformClaw.vault.documentDetails": "문서 상세 정보",
+  "platformClaw.vault.discardTitle": "저장하지 않은 변경을 버릴까요?",
+  "platformClaw.vault.discardDescription":
+    "수정한 내용이 아직 저장되지 않았습니다. 계속 편집하거나 변경을 버리고 진행하세요.",
+  "platformClaw.vault.keepEditing": "계속 편집",
+  "platformClaw.vault.discard": "변경 버리기",
+  "platformClaw.vault.changeSource": "다른 개인 문서 선택",
+  "platformClaw.vault.viewPublished": "공유 사본 열기",
+  "platformClaw.vault.searchWithinVault": "이 볼트의 문서 내용 검색",
+  "platformClaw.vault.selectedPersonalSource": "선택한 개인 원본",
 };

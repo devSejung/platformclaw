@@ -102,6 +102,40 @@ export type DetailState =
   | { kind: "ready"; content: string }
   | { kind: "error"; message: string };
 
+export function renderMemorySearchForm(options: {
+  text: Translate;
+  query: string;
+  placeholder: string | null;
+  disabled: boolean;
+  onSubmit: () => void;
+  onInput: (value: string) => void;
+}) {
+  return html`<form
+    class="memory-memories__search"
+    role="search"
+    @submit=${(event: SubmitEvent) => {
+      event.preventDefault();
+      options.onSubmit();
+    }}
+  >
+    <label class="settings-control__sr-label" for="memory-search-input"
+      >${options.placeholder ?? options.text("memoryPage.memories.searchLabel")}</label
+    >
+    <input
+      id="memory-search-input"
+      type="search"
+      class="settings-input"
+      .value=${options.query}
+      placeholder=${options.placeholder ?? options.text("memoryPage.memories.searchPlaceholder")}
+      @input=${(event: InputEvent) =>
+        options.onInput((event.currentTarget as HTMLInputElement).value)}
+    />
+    <button class="btn btn--sm primary" type="submit" ?disabled=${options.disabled}>
+      ${options.text("memoryPage.memories.searchButton")}
+    </button>
+  </form>`;
+}
+
 export function renderMemoryConnectionStatus(options: {
   browseEnabled: boolean;
   connected: boolean;
@@ -265,6 +299,7 @@ export function renderMemoryBrowseFile(options: {
 export function renderMemorySearchState(options: {
   actions?: MemoryResultActions;
   canLoadResult: (result: SearchResult) => boolean;
+  sharedDocumentDialog?: boolean;
   details: ReadonlyMap<string, DetailState>;
   onRetry: (key: string, result: SearchResult) => void;
   onSearch: (query: string) => void;
@@ -299,6 +334,7 @@ export function renderMemorySearchState(options: {
         openResultKey: options.openResultKey,
         text: options.text,
         canLoadResult: options.canLoadResult,
+        sharedDocumentDialog: options.sharedDocumentDialog,
         onToggle: options.onToggle,
         onRetry: options.onRetry,
       });
@@ -310,6 +346,7 @@ export function renderMemorySearchState(options: {
 function renderMemorySearchResults(options: {
   actions?: MemoryResultActions;
   canLoadResult: (result: SearchResult) => boolean;
+  sharedDocumentDialog?: boolean;
   details: ReadonlyMap<string, DetailState>;
   onRetry: (key: string, result: SearchResult) => void;
   onToggle: (result: SearchResult, index: number) => void;
@@ -412,13 +449,27 @@ function renderMemorySearchResults(options: {
             const expandable =
               options.details.get(key)?.kind === "ready" || options.canLoadResult(result);
             const panelId = `memory-detail-${index}`;
+            const path = html`<span class="settings-row__desc memory-memories__path"
+              >${result.path} ·
+              ${text("memoryPage.memories.lineRange", {
+                start: String(result.startLine),
+                end: String(result.endLine),
+              })}</span
+            >`;
             const summary = html`
               <span class="settings-row__text">
                 <span class="settings-row__title">${result.title ?? result.snippet}</span>
                 ${result.vaultId
                   ? html`<span class="settings-row__desc" data-vault-provenance>
-                      ${result.vaultName} · ${result.vaultType} · ${result.vaultId} ·
-                      ${result.documentId} ·
+                      ${result.vaultName} ·
+                      ${text(
+                        result.vaultType === "shared"
+                          ? "platformClaw.vault.shared"
+                          : result.vaultType === "managed"
+                            ? "platformClaw.vault.typeManaged"
+                            : "platformClaw.vault.typePersonal",
+                      )}
+                      ·
                       ${text("memoryPage.memories.revision", { revision: String(result.revision) })}
                     </span>`
                   : nothing}
@@ -436,13 +487,7 @@ function renderMemorySearchResults(options: {
                         : nothing}
                     </span>`
                   : nothing}
-                <span class="settings-row__desc memory-memories__path"
-                  >${result.path} ·
-                  ${text("memoryPage.memories.lineRange", {
-                    start: String(result.startLine),
-                    end: String(result.endLine),
-                  })}</span
-                >
+                ${result.vaultId ? nothing : path}
               </span>
               <span class="settings-row__control memory-memories__meta">
                 <span
@@ -481,14 +526,30 @@ function renderMemorySearchResults(options: {
                 ? html`<button
                     type="button"
                     class="settings-row settings-row--nav"
-                    aria-expanded=${String(open)}
-                    aria-controls=${panelId}
+                    aria-haspopup=${options.sharedDocumentDialog && result.vaultType === "shared"
+                      ? "dialog"
+                      : nothing}
+                    aria-expanded=${options.sharedDocumentDialog && result.vaultType === "shared"
+                      ? nothing
+                      : String(open)}
+                    aria-controls=${options.sharedDocumentDialog && result.vaultType === "shared"
+                      ? nothing
+                      : panelId}
                     @click=${() => options.onToggle(result, index)}
                   >
                     ${summary}
                   </button>`
                 : html`<div class="settings-row">${summary}</div>`}
               ${renderMemoryItemActions(result.path, actions)}
+              ${result.vaultId
+                ? html`<details class="memory-memories__provenance-details">
+                    <summary>${text("platformClaw.vault.documentDetails")}</summary>
+                    <span class="settings-row__desc memory-memories__path"
+                      >${result.vaultId} · ${result.documentId}</span
+                    >
+                    ${path}
+                  </details>`
+                : nothing}
               ${expandable
                 ? renderDetail({
                     details: options.details,
