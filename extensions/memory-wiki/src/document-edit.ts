@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { withTrailingNewline } from "openclaw/plugin-sdk/memory-host-markdown";
 import { root as fsRoot } from "openclaw/plugin-sdk/security-runtime";
 import { compileMemoryWikiVault, isGeneratedMemoryWikiPage } from "./compile.js";
-import { invalidateMemoryWikiCompiledCache } from "./compiled-cache.js";
+import { invalidateMemoryWikiCompiledPrompt } from "./compiled-cache.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { appendMemoryWikiLog } from "./log.js";
 import {
@@ -202,7 +202,7 @@ export async function saveMemoryWikiDocument(params: {
     const currentRevision = revision(page.raw);
     if (currentRevision !== params.expectedRevision) {
       if (currentEditable === params.content) {
-        await invalidateMemoryWikiCompiledCache(params.config);
+        invalidateMemoryWikiCompiledPrompt(params.config);
         let indexesRefreshed = false;
         try {
           await compileMemoryWikiVault(params.config);
@@ -256,7 +256,7 @@ export async function saveMemoryWikiDocument(params: {
         editMode: params.editMode,
       },
     });
-    await invalidateMemoryWikiCompiledCache(params.config);
+    invalidateMemoryWikiCompiledPrompt(params.config);
     let indexesRefreshed = false;
     try {
       await compileMemoryWikiVault(params.config);

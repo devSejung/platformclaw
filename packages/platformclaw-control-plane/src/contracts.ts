@@ -577,6 +577,7 @@ export interface ControlPlaneManagementStore {
 }
 
 export type ControlPlaneConflictCode =
+  | "knowledge_vault_changed"
   | "account_id_conflict"
   | "account_id_mismatch"
   | "employee_id_conflict"
@@ -611,6 +612,8 @@ export class ControlPlaneNotFoundError extends Error {
   constructor(
     readonly resource:
       | "user"
+      | "knowledge-vault-document"
+      | "knowledge-vault-attachment"
       | "agent-binding"
       | "managed-scope"
       | "organization-join-request"

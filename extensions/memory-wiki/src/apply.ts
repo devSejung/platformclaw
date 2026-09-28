@@ -9,7 +9,7 @@ import { readFiniteNumberParam } from "openclaw/plugin-sdk/param-readers";
 import { FsSafeError, root as fsRoot } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeStringEntries, uniqueStrings } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { compileMemoryWikiVault, type CompileMemoryWikiResult } from "./compile.js";
-import { invalidateMemoryWikiCompiledCache } from "./compiled-cache.js";
+import { invalidateMemoryWikiCompiledPrompt } from "./compiled-cache.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { createWikiLinkTargetIndex, resolveWikiLinkTarget } from "./link-resolution.js";
 import {
@@ -504,7 +504,7 @@ async function applyMemoryWikiMutationUnlocked(params: {
           config: params.config,
           mutation: params.mutation,
         });
-  await invalidateMemoryWikiCompiledCache(params.config);
+  invalidateMemoryWikiCompiledPrompt(params.config);
   try {
     const compile = await compileMemoryWikiVault(params.config);
     return {

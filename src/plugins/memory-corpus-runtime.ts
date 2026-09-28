@@ -1,3 +1,4 @@
+import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { withTimeout } from "../infra/fs-safe.js";
 import { listMemoryCorpusSupplements } from "./memory-state.js";
 import type {
@@ -9,13 +10,77 @@ const MEMORY_CORPUS_SUPPLEMENT_TIMEOUT_MS = 10_000;
 
 export type MemoryCorpusSupplementStatus = "ok" | "empty" | "unavailable" | "failed";
 
+/** Only explicitly marked owner-approved failures may enter model context. */
+export type MemoryCorpusSupplementFailure = {
+  error: string;
+  action?: string;
+  code?: string;
+  vaultChoices?: Array<{ vaultId: string; vaultName: string; vaultType: "shared" | "managed" }>;
+};
+
+function readOwnerFailure(reason: unknown): MemoryCorpusSupplementFailure | undefined {
+  const failure = asOptionalRecord(asOptionalRecord(reason)?.memoryCorpusFailure);
+  if (typeof failure?.error !== "string") {
+    return undefined;
+  }
+  const choices = Array.isArray(failure.vaultChoices)
+    ? failure.vaultChoices
+        .slice(0, 5)
+        .flatMap<NonNullable<MemoryCorpusSupplementFailure["vaultChoices"]>[number]>((value) => {
+          const choice = asOptionalRecord(value);
+          return choice &&
+            typeof choice.vaultId === "string" &&
+            /^[a-zA-Z0-9:._-]{1,256}$/u.test(choice.vaultId) &&
+            typeof choice.vaultName === "string" &&
+            (choice.vaultType === "shared" || choice.vaultType === "managed")
+            ? [
+                {
+                  vaultId: choice.vaultId,
+                  vaultName: choice.vaultName.slice(0, 240),
+                  vaultType: choice.vaultType,
+                },
+              ]
+            : [];
+        })
+    : [];
+  return {
+    error: failure.error.slice(0, 300),
+    ...(typeof failure.action === "string" ? { action: failure.action.slice(0, 300) } : {}),
+    ...(typeof failure.code === "string" && /^[a-z0-9-]{1,64}$/u.test(failure.code)
+      ? { code: failure.code }
+      : {}),
+    ...(choices.length ? { vaultChoices: choices } : {}),
+  };
+}
+
+export function formatMemoryCorpusSupplementFailure(
+  failure: MemoryCorpusSupplementFailure,
+): string {
+  return [
+    failure.error,
+    failure.action,
+    failure.vaultChoices?.length
+      ? `Vault choices: ${JSON.stringify(failure.vaultChoices)}`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 type MemoryCorpusSupplementQuery = {
+  runId?: string;
+  vaultId?: string;
+  vaultName?: string;
   agentId?: string;
   agentSessionKey?: string;
   sandboxed?: boolean;
   corpus?: "memory" | "wiki" | "all" | "sessions";
   excludePluginId?: string;
-  onSupplementStatus?: (pluginId: string, status: MemoryCorpusSupplementStatus) => void;
+  onSupplementStatus?: (
+    pluginId: string,
+    status: MemoryCorpusSupplementStatus,
+    failure?: MemoryCorpusSupplementFailure,
+  ) => void;
 };
 
 type MemoryCorpusGetFailurePolicy = "fail-fast" | "continue";
@@ -54,7 +119,21 @@ export async function searchMemoryCorpusSupplements(
         MEMORY_CORPUS_SUPPLEMENT_TIMEOUT_MS,
         `memory corpus supplement ${registration.pluginId}`,
       );
-      return { results, status: results.length === 0 ? ("empty" as const) : ("ok" as const) };
+      // Owners scope before ranking. Enforce exact identity again so an older
+      // supplement that ignores the new optional filter cannot broaden a search.
+      const scopedResults = params.vaultId
+        ? results.filter((result) => result.vaultId === params.vaultId)
+        : params.vaultName
+          ? results.filter(
+              (result) =>
+                (result.vaultType === "shared" || result.vaultType === "managed") &&
+                result.vaultName?.trim().toLowerCase() === params.vaultName?.trim().toLowerCase(),
+            )
+          : results;
+      return {
+        results: scopedResults,
+        status: scopedResults.length === 0 ? ("empty" as const) : ("ok" as const),
+      };
     }),
   );
   settled.forEach((result, index) => {
@@ -62,7 +141,11 @@ export async function searchMemoryCorpusSupplements(
     if (!pluginId) {
       return;
     }
-    onSupplementStatus?.(pluginId, result.status === "fulfilled" ? result.value.status : "failed");
+    onSupplementStatus?.(
+      pluginId,
+      result.status === "fulfilled" ? result.value.status : "failed",
+      result.status === "rejected" ? readOwnerFailure(result.reason) : undefined,
+    );
   });
   const compareResults = (left: MemoryCorpusSearchResult, right: MemoryCorpusSearchResult) => {
     if (left.score !== right.score) {
@@ -85,7 +168,7 @@ export async function searchMemoryCorpusSupplements(
       if (!result) {
         continue;
       }
-      const key = `${result.corpus}\u0000${result.path}\u0000${result.id ?? ""}`;
+      const key = `${result.vaultId ?? result.corpus}\u0000${result.path}\u0000${result.id ?? ""}`;
       if (!selectedKeys.has(key)) {
         selectedKeys.add(key);
         selected.push(result);
@@ -135,9 +218,15 @@ export async function getMemoryCorpusSupplementResult(
         return result;
       }
     } catch (error) {
-      onSupplementStatus?.(registration.pluginId, "failed");
+      const failure = readOwnerFailure(error);
+      onSupplementStatus?.(registration.pluginId, "failed", failure);
       if (failurePolicy === "fail-fast") {
         throw error;
+      }
+      // A marked get failure claims this exact path. Another owner must not
+      // substitute a same-path document after denial or an owner outage.
+      if (failure) {
+        return null;
       }
     }
   }

@@ -86,6 +86,32 @@ const access: BrowserGatewayAccess = {
 };
 
 describe("projectPlatformClawBrowserHello", () => {
+  it("advertises vault operations and unified search only with their local service", () => {
+    const params = { upstream: upstreamHello(), access, connectionId: "vault-browser" };
+    const unavailable = projectPlatformClawBrowserHello(params).features.methods;
+    expect(unavailable.some((method) => method.startsWith("platformclaw.vault."))).toBe(false);
+    expect(unavailable).not.toContain("memory.search");
+    const available = projectPlatformClawBrowserHello({
+      ...params,
+      hasKnowledgeVaultService: true,
+    }).features.methods;
+    expect(available).toEqual(
+      expect.arrayContaining([
+        "platformclaw.vault.snapshot",
+        "platformclaw.vault.connection.set",
+        "platformclaw.vault.create",
+        "platformclaw.vault.document.get",
+        "platformclaw.vault.document.save",
+        "platformclaw.vault.member.set",
+        "platformclaw.vault.member.remove",
+        "platformclaw.vault.rebuild",
+        "platformclaw.vault.publish",
+        "memory.search",
+        "wiki.search",
+      ]),
+    );
+  });
+
   it("advertises only browser policy and removes private Gateway metadata", () => {
     const projected = projectPlatformClawBrowserHello({
       upstream: upstreamHello(),

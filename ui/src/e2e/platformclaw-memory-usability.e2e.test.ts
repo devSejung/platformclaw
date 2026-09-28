@@ -78,7 +78,13 @@ suite("PlatformClaw Memory usability", () => {
       const name = `${width}-${mode}`;
       try {
         await expect.poll(() => page.locator("#memory-search-input").count()).toBe(1);
-        const geometry = await page.evaluate(() => {
+        const geometry = await page.evaluate(async () => {
+          await document.fonts.ready;
+          // The Memory child activates the header inset through :has(); wait for
+          // that padding transition before measuring the settled page alignment.
+          const header = document.querySelector(".content-header")!;
+          void getComputedStyle(header).paddingLeft;
+          await Promise.all(header.getAnimations().map((animation) => animation.finished));
           const main = document.querySelector(".platformclaw-memory-page")!.getBoundingClientRect();
           const nav = document
             .querySelector(".platformclaw-memory-page__tabs")!

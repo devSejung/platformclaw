@@ -87,8 +87,10 @@ function hasWorkerOverride(env: Record<string, string | undefined>): boolean {
 }
 
 function sourcePackageAlias(packageId: string, subpath?: string) {
+  const specifier = `@openclaw/${packageId}${subpath ? `/${subpath}` : ""}`;
   return {
-    find: `@openclaw/${packageId}${subpath ? `/${subpath}` : ""}`,
+    // Each export maps to one file. A root prefix alias would swallow subpath exports.
+    find: new RegExp(`^${specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
     replacement: path.join(
       repoRoot,
       "packages",

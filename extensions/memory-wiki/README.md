@@ -70,7 +70,7 @@ Put config under `plugins.entries.memory-wiki.config`:
 
   render: {
     preserveHumanBlocks: true,
-    createBacklinks: true, // writes managed ## Related blocks with sources, backlinks, and related pages
+    createBacklinks: true, // accepted for existing configurations; never rewrites source pages
     createDashboards: true,
   },
 }
@@ -141,13 +141,15 @@ The plugin initializes a vault like this:
   .openclaw-wiki/
 ```
 
-Generated content stays inside managed blocks. Human note blocks are preserved.
+Compile preserves authored Markdown byte for byte. Generated navigation and dashboards use their own managed blocks; authored documents at reserved report paths remain unchanged.
 
 Key beliefs can live in structured `claims` frontmatter with per-claim evidence, confidence, and status. Compile also persists a machine-readable snapshot in OpenClaw plugin state so agent/runtime consumers do not have to scrape markdown pages.
 
-When `render.createBacklinks` is enabled, compile adds deterministic `## Related` blocks to pages. Those blocks list source pages, pages that reference the current page, and nearby pages that share the same source ids.
+Links and backlinks are derived metadata for navigation and impact inspection. Search does not require links. Compile never inserts `## Related` blocks into authored pages; `render.createBacklinks` remains accepted for existing configurations without enabling body changes.
 
-When `render.createDashboards` is enabled, compile also maintains report dashboards under `reports/` for open questions, contradictions, low-confidence pages, and stale pages.
+When `render.createDashboards` is enabled, compile also maintains report dashboards under `reports/` for open questions, contradictions, low-confidence pages, and stale pages. Generated dashboards do not duplicate source documents in search results.
+
+A failed compile preserves originals and the last successful search snapshot, including its source versions. Status records the error and next retry; the running plugin retries automatically with bounded backoff. Use `openclaw wiki compile` or `wiki_apply` with `op: "refresh"` to rebuild manually. A vault without a snapshot compiles on its first search; an initial failure is reported explicitly.
 
 Unmanaged raw Markdown can live under `sources/` without OpenClaw page frontmatter. Add `<!-- openclaw:wiki:raw-source -->` near the top of the page body to opt it out of wiki page metadata and freshness lint; generated or source-sync tracked imports still require their structured metadata.
 
@@ -196,6 +198,8 @@ openclaw wiki search "refund policy" --agent support
 
 The plugin also registers a non-exclusive memory corpus supplement, so shared `memory_search` / `memory_get` flows can reach the wiki when the active memory plugin supports corpus selection.
 
+`wiki_search` accepts short search keywords in `query`, optional `maxResults`, optional Personal ranking `mode`, and an explicit Vault selector: either `vaultId` from a result or an exact Shared/Managed `vaultName` supported by its owner, never both. Set a selector only when the user chooses a vault. Otherwise registered server owners choose default sources using current permissions and user selections. Duplicate names require user selection from authorized choices. Results include vault identity, document identity, title, path, snippet, and revision or source version. `wiki_get` reads the returned path without a backend or corpus parameter. Personal content is shared only by an explicit Publish or copy. `wiki_apply`, its refresh operation, and `wiki_lint` operate on Personal Wiki; Shared edits and rebuilds use the Vault UI.
+
 `wiki_apply` accepts structured `claims` payloads for synthesis and metadata updates, so the wiki can store claim-level evidence instead of only page-level prose.
 
 When `context.includeCompiledDigestPrompt` is enabled, the memory prompt supplement also appends a compact snapshot from the lifecycle-owned in-memory cache. Legacy prompt assembly sees that automatically, and non-legacy context engines can pick it up when they explicitly consume memory prompt supplements via `buildActiveMemoryPromptSection(...)`.
@@ -232,7 +236,7 @@ unknown ids fail in multi-agent setups.
 - `unsafe-local` is intentionally experimental and non-portable.
 - Bridge mode reads the active memory plugin through public seams only.
 - Agent scope is incompatible with `unsafe-local` and official Obsidian CLI actions.
-- Wiki pages are compiled artifacts, not the ultimate source of truth. Keep provenance attached to raw sources, memory artifacts, and daily notes.
+- Authored Wiki Markdown is source content. Search indexes, metadata, links, and dashboards are derived artifacts; keep provenance attached to imported sources.
 - The compiled snapshot in shared SQLite plugin state is the stable machine-facing view of the wiki.
 - After editing or restoring vault files, compile again before expecting tools or prompts to use that source state. Lifecycle refresh rejects SQLite snapshots newer than a restored vault, and causal publication chaining rejects compilers started before the restore, without polling or watching files.
 - Rollback quarantine clears immediately for an in-process compile. After a separate compiler process publishes, refresh the plugin lifecycle so the daemon can validate that durable publication.

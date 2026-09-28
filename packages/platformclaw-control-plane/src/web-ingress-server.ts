@@ -32,6 +32,7 @@ import { handlePlatformClawMcpAdministrationRequest } from "./browser-mcp-admin-
 import { handlePlatformClawEmployeeMcpRequest } from "./browser-mcp-http.js";
 import { handlePlatformClawOrganizationRequest } from "./browser-organization-http.js";
 import { handlePlatformClawSkillHubRequest } from "./browser-skill-hub-http.js";
+import { handleKnowledgeVaultHttp } from "./browser-vault-http.js";
 import { handlePlatformClawVmAdministrationRequest } from "./browser-vm-admin-http.js";
 import { handlePlatformClawVocRequest } from "./browser-voc-http.js";
 import { handlePlatformClawKnoxIngressProxy } from "./knox-ingress-proxy.js";
@@ -278,6 +279,9 @@ export class PlatformClawWebIngressServer {
         ...(this.options.employeeSsoService ? { ssoService: this.options.employeeSsoService } : {}),
       });
       if (handled) {
+        return;
+      }
+      if (await handleKnowledgeVaultHttp(req, res, this.options, this.isOriginAllowed.bind(this))) {
         return;
       }
       if (
@@ -571,6 +575,7 @@ export class PlatformClawWebIngressServer {
           upstream,
           access: currentAccess,
           connectionId,
+          hasKnowledgeVaultService: Boolean(this.options.vaultService),
           clientInstanceId: params.client.instanceId,
           maxPayloadBytes: this.options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES,
           ...(canvasSurface ? { canvasSurfaceUrl: canvasSurface.pluginSurfaceUrls.canvas } : {}),

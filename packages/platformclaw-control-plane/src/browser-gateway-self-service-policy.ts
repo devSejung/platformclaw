@@ -1,3 +1,6 @@
+import { isBaseballRpcMethod } from "./baseball-contracts.js";
+import { isKnowledgeVaultRpc } from "./browser-gateway-vault-policy.js";
+
 type JsonObject = Record<string, unknown>;
 
 type PrepareBrowserSelfServiceRequestParams = {
@@ -74,7 +77,11 @@ export function prepareBrowserSelfServiceRequest(
   if (method === "users.self" || method === "plugins.list") {
     return {};
   }
-  if (PASSTHROUGH_METHODS.has(method)) {
+  if (
+    PASSTHROUGH_METHODS.has(method) ||
+    isBaseballRpcMethod(method) ||
+    isKnowledgeVaultRpc(method)
+  ) {
     return params;
   }
   if (method === "usage.cost" || method === "sessions.usage") {

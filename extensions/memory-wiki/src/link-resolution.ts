@@ -2,7 +2,7 @@
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { WikiPageSummary } from "./markdown.js";
 
-export type WikiLinkTargetIndex<T extends WikiPageSummary = WikiPageSummary> = ReadonlyMap<
+type WikiLinkTargetIndex<T extends WikiPageSummary = WikiPageSummary> = ReadonlyMap<
   string,
   readonly T[]
 >;

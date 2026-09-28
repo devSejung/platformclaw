@@ -9,6 +9,13 @@ import { applyPluginToolDeliveryDefaults } from "./plugin-tool-delivery-defaults
 import type { AnyAgentTool } from "./tools/common.js";
 
 describe("openclaw plugin tool context", () => {
+  it("carries the host run identity independently of the session", () => {
+    const result = resolveOpenClawPluginToolInputs({
+      options: { config: {} as never, runId: "run-one", sessionId: "session-one" },
+    });
+    expect(result.context.runId).toBe("run-one");
+    expect(result.context.sessionId).toBe("session-one");
+  });
   it("forwards trusted requester sender identity", () => {
     const result = resolveOpenClawPluginToolInputs({
       options: {

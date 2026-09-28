@@ -67,6 +67,7 @@ type WikiOverviewCluster = {
 };
 
 export type WikiOverview = {
+  compileFailure?: { error: string; failedAt: number; nextRetryAt: number; attempts: number };
   totalItems: number;
   totalPages: number;
   pageCounts: Record<WikiOverviewItem["kind"], number>;

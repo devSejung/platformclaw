@@ -19,6 +19,7 @@ import { resolveWorkspaceRoot } from "./workspace-dir.js";
 /** Options provided by agent runtime callers when invoking OpenClaw plugin tools. */
 export type OpenClawPluginToolOptions = {
   agentSessionKey?: string;
+  runId?: string;
   agentChannel?: GatewayMessageChannel;
   agentAccountId?: string;
   agentTo?: string;
@@ -99,6 +100,7 @@ export function resolveOpenClawPluginToolInputs(params: {
       workspaceDir,
       agentDir: options?.agentDir,
       agentId: sessionAgentId,
+      runId: options?.runId,
       sessionKey: options?.agentSessionKey,
       sessionId: options?.sessionId,
       toolBindings: options?.toolBindings,

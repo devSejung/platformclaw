@@ -1,4 +1,5 @@
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import type { Translate } from "./memory-memories-view.ts";
 
 type MemoryMemoriesTestElement = HTMLElement & {
   client: GatewayBrowserClient | null;
@@ -7,10 +8,15 @@ type MemoryMemoriesTestElement = HTMLElement & {
   methodAdvertised: boolean | null;
   wikiSearchAdvertised: boolean | null;
   browseEnabled: boolean;
+  unifiedSearch: boolean;
+  vaultGetAdvertised: boolean;
+  vaultId: string | null;
+  searchScope: "connected" | "all";
   browseListAdvertised: boolean | null;
   personalDetailAdvertised: boolean | null;
   wikiGetAdvertised: boolean | null;
   organizationGetAdvertised: boolean | null;
+  translator: Translate;
   agentId: string | null;
   updateComplete: Promise<unknown>;
 };

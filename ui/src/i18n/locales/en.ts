@@ -2767,6 +2767,7 @@ export const en: TranslationMap = {
       hybridSearch: "hybrid search",
       keywordSearch: "keyword search",
       lineRange: "lines {start}–{end}",
+      revision: "Revision {revision}",
       score: "Search relevance {score}; not a confidence score",
       sourceMemory: "memory",
       sourceSessions: "sessions",

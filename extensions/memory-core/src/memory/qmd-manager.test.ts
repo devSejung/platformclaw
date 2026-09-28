@@ -970,6 +970,31 @@ describe("QmdMemoryManager", () => {
     return { manager: requireValue(manager, "manager missing"), resolved };
   }
 
+  async function seedQmdIndex(
+    manager: QmdMemoryManager,
+    documents: Array<{ collection: string; path: string; hash: string }>,
+  ): Promise<void> {
+    const indexPath = (manager as unknown as { indexPath: string }).indexPath;
+    await fs.mkdir(path.dirname(indexPath), { recursive: true });
+    const { DatabaseSync } = requireNodeSqlite();
+    const db = new DatabaseSync(indexPath);
+    try {
+      // Search provenance comes from QMD's indexed hash, never current file bytes.
+      db.exec(`CREATE TABLE IF NOT EXISTS documents (
+        collection TEXT NOT NULL, path TEXT NOT NULL, hash TEXT NOT NULL,
+        modified_at TEXT NOT NULL, active INTEGER NOT NULL
+      )`);
+      const insert = db.prepare(
+        "INSERT INTO documents (collection, path, hash, modified_at, active) VALUES (?, ?, ?, ?, 1)",
+      );
+      for (const document of documents) {
+        insert.run(document.collection, document.path, document.hash, "2026-07-01T10:00:00.000Z");
+      }
+    } finally {
+      db.close();
+    }
+  }
+
   function createAbortChildHarness() {
     let child: MockChild | undefined;
     let kill: ReturnType<typeof vi.fn> | undefined;
@@ -2691,12 +2716,16 @@ describe("QmdMemoryManager", () => {
     });
 
     const { manager } = await createManager();
+    await seedQmdIndex(manager, [
+      { collection: "workspace-main", path: "notes/welcome.md", hash: "indexed-welcome" },
+    ]);
 
     await expect(
       manager.search("router glacier backup", { sessionKey: "agent:main:slack:dm:u123" }),
     ).resolves.toEqual([
       {
         path: "notes/welcome.md",
+        sourceVersion: "indexed-welcome",
         startLine: 7,
         endLine: 7,
         score: 0.93,
@@ -2808,20 +2837,9 @@ describe("QmdMemoryManager", () => {
 
     const { manager } = await createManager({ mode: "full" });
     withLeaseMock.mockClear();
-    const inner = manager as unknown as {
-      db: { prepare: (query: string) => { all: (arg: unknown) => unknown }; close: () => void };
-    };
-    inner.db = {
-      prepare: (_query: string) => ({
-        all: (arg: unknown) => {
-          if (typeof arg === "string" && arg.startsWith(expectedDocId)) {
-            return [{ collection: "memory-root-main", path: "MEMORY.md" }];
-          }
-          return [];
-        },
-      }),
-      close: () => {},
-    };
+    await seedQmdIndex(manager, [
+      { collection: "memory-root-main", path: "MEMORY.md", hash: expectedDocId },
+    ]);
 
     const callerController = new AbortController();
     await expect(
@@ -2832,6 +2850,7 @@ describe("QmdMemoryManager", () => {
     ).resolves.toEqual([
       {
         path: "MEMORY.md",
+        sourceVersion: expectedDocId,
         startLine: 1,
         endLine: 1,
         score: 1,
@@ -3700,26 +3719,16 @@ describe("QmdMemoryManager", () => {
     });
 
     const { manager } = await createManager();
-    const inner = manager as unknown as {
-      db: { prepare: (query: string) => { all: (arg: unknown) => unknown }; close: () => void };
-    };
-    inner.db = {
-      prepare: (_query: string) => ({
-        all: (arg: unknown) => {
-          if (typeof arg === "string" && arg.startsWith(expectedDocId)) {
-            return [{ collection: "workspace-main", path: "notes/welcome.md" }];
-          }
-          return [];
-        },
-      }),
-      close: () => {},
-    };
+    await seedQmdIndex(manager, [
+      { collection: "workspace-main", path: "notes/welcome.md", hash: expectedDocId },
+    ]);
 
     await expect(
       manager.search("line one", { sessionKey: "agent:main:slack:dm:u123" }),
     ).resolves.toEqual([
       {
         path: "notes/welcome.md",
+        sourceVersion: expectedDocId,
         startLine: 8,
         endLine: 10,
         score: 0.91,
@@ -3777,15 +3786,9 @@ describe("QmdMemoryManager", () => {
         },
       } as OpenClawConfig;
       const { manager } = await createManager({ cfg: testConfig });
-      const inner = manager as unknown as {
-        db: { prepare: () => { all: () => unknown }; close: () => void };
-      };
-      inner.db = {
-        prepare: () => ({
-          all: () => [{ collection: "workspace-main", path: "notes/unicode.md" }],
-        }),
-        close: () => {},
-      };
+      await seedQmdIndex(manager, [
+        { collection: "workspace-main", path: "notes/unicode.md", hash: expectedDocId },
+      ]);
       const results = await manager.search("unicode", {
         sessionKey: "agent:main:slack:dm:u123",
       });
@@ -3834,26 +3837,16 @@ describe("QmdMemoryManager", () => {
     });
 
     const { manager } = await createManager();
-    const inner = manager as unknown as {
-      db: { prepare: (query: string) => { all: (arg: unknown) => unknown }; close: () => void };
-    };
-    inner.db = {
-      prepare: (_query: string) => ({
-        all: (arg: unknown) => {
-          if (typeof arg === "string" && arg.startsWith(expectedDocId)) {
-            return [{ collection: "workspace-main", path: "notes/welcome.md" }];
-          }
-          return [];
-        },
-      }),
-      close: () => {},
-    };
+    await seedQmdIndex(manager, [
+      { collection: "workspace-main", path: "notes/welcome.md", hash: expectedDocId },
+    ]);
 
     await expect(
       manager.search("line one", { sessionKey: "agent:main:slack:dm:u123" }),
     ).resolves.toEqual([
       {
         path: "notes/welcome.md",
+        sourceVersion: expectedDocId,
         startLine: 8,
         endLine: 10,
         score: 0.73,
@@ -4379,32 +4372,14 @@ describe("QmdMemoryManager", () => {
     });
 
     const { manager } = await createManager();
-    const inner = manager as unknown as {
-      db: { prepare: (_query: string) => { all: (arg: unknown) => unknown }; close: () => void };
-    };
-    inner.db = {
-      prepare: (_query: string) => ({
-        all: (arg: unknown) => {
-          switch (arg) {
-            case "m1":
-              return [{ collection: "workspace-main", path: "memory/facts.md" }];
-            case "s1":
-            case "s2":
-            case "s3":
-            case "s4":
-              return [
-                {
-                  collection: "sessions-main",
-                  path: `${arg}.md`,
-                },
-              ];
-            default:
-              return [];
-          }
-        },
-      }),
-      close: () => {},
-    };
+    await seedQmdIndex(manager, [
+      { collection: "workspace-main", path: "memory/facts.md", hash: "m1" },
+      ...["s1", "s2", "s3", "s4"].map((hash) => ({
+        collection: "sessions-main",
+        path: `${hash}.md`,
+        hash,
+      })),
+    ]);
 
     const results = await manager.search("fact", {
       maxResults: 4,
@@ -5638,73 +5613,61 @@ describe("QmdMemoryManager", () => {
     }
   });
 
-  it("prefers exact docid match before prefix fallback for qmd document lookups", async () => {
-    const prepareCalls: string[] = [];
-    const exactDocid = "abc123";
-    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
-      if (args[0] === "search") {
-        const child = createMockChild({ autoClose: false });
-        emitAndClose(
-          child,
-          "stdout",
-          JSON.stringify([
-            { docid: exactDocid, score: 1, snippet: "@@ -5,2\nremember this\nnext line" },
-          ]),
-        );
-        return child;
+  it.each([false, true])(
+    "prefers exact docid match before prefix fallback (exact match: %s)",
+    async (exactMatch) => {
+      const exactDocid = "abc123";
+      spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+        if (args[0] === "search") {
+          const child = createMockChild({ autoClose: false });
+          emitAndClose(
+            child,
+            "stdout",
+            JSON.stringify([
+              { docid: exactDocid, score: 1, snippet: "@@ -5,2\nremember this\nnext line" },
+            ]),
+          );
+          return child;
+        }
+        return createMockChild();
+      });
+
+      const { manager } = await createManager();
+
+      const prefixHash = exactDocid + "456";
+      await seedQmdIndex(manager, [
+        { collection: "workspace-main", path: "notes/welcome.md", hash: prefixHash },
+        ...(exactMatch
+          ? [{ collection: "workspace-main", path: "notes/exact.md", hash: exactDocid }]
+          : []),
+      ]);
+      const db = (manager as unknown as { ensureDb: () => DatabaseSync }).ensureDb();
+      const prepareSpy = vi.spyOn(db, "prepare");
+
+      const results = await manager.search("test", { sessionKey: "agent:main:slack:dm:u123" });
+      expect(results).toEqual([
+        {
+          path: exactMatch ? "notes/exact.md" : "notes/welcome.md",
+          sourceVersion: exactMatch ? exactDocid : prefixHash,
+          startLine: 5,
+          endLine: 6,
+          score: 1,
+          snippet: "@@ -5,2\nremember this\nnext line",
+          source: "memory",
+          provenance: expectedQmdProvenance("untrusted"),
+        },
+      ]);
+
+      const prepareCalls = prepareSpy.mock.calls.map(([query]) => query);
+      expect(prepareCalls).toHaveLength(exactMatch ? 1 : 2);
+      expect(prepareCalls[0]).toContain("hash = ?");
+      if (!exactMatch) {
+        expect(prepareCalls[1]).toContain("hash LIKE ?");
       }
-      return createMockChild();
-    });
-
-    const { manager } = await createManager();
-
-    const inner = manager as unknown as {
-      db: { prepare: (query: string) => { all: (arg: unknown) => unknown }; close: () => void };
-    };
-    inner.db = {
-      prepare: (query: string) => {
-        prepareCalls.push(query);
-        return {
-          all: (arg: unknown) => {
-            if (query.includes("hash = ?")) {
-              return [];
-            }
-            if (query.includes("hash LIKE ?")) {
-              expect(arg).toBe(`${exactDocid}%`);
-              return [
-                {
-                  collection: "workspace-main",
-                  path: "notes/welcome.md",
-                  modified_at: "2026-07-01T10:00:00.000Z",
-                },
-              ];
-            }
-            throw new Error(`unexpected sqlite query: ${query}`);
-          },
-        };
-      },
-      close: () => {},
-    };
-
-    const results = await manager.search("test", { sessionKey: "agent:main:slack:dm:u123" });
-    expect(results).toEqual([
-      {
-        path: "notes/welcome.md",
-        startLine: 5,
-        endLine: 6,
-        score: 1,
-        snippet: "@@ -5,2\nremember this\nnext line",
-        source: "memory",
-        provenance: expectedQmdProvenance("untrusted"),
-      },
-    ]);
-
-    expect(prepareCalls).toHaveLength(2);
-    expect(prepareCalls[0]).toContain("hash = ?");
-    expect(prepareCalls[1]).toContain("hash LIKE ?");
-    expect(results[0]?.provenance?.observedAt).toBe(Date.parse("2026-07-01T10:00:00.000Z"));
-    await manager.close();
-  });
+      expect(results[0]?.provenance?.observedAt).toBe(Date.parse("2026-07-01T10:00:00.000Z"));
+      await manager.close();
+    },
+  );
 
   it("prefers collection hint when resolving duplicate qmd document hashes", async () => {
     configureQmd({
@@ -5736,28 +5699,17 @@ describe("QmdMemoryManager", () => {
     });
 
     const { manager } = await createManager();
-    const inner = manager as unknown as {
-      db: { prepare: (query: string) => { all: (arg: unknown) => unknown }; close: () => void };
-    };
-    inner.db = {
-      prepare: (_query: string) => ({
-        all: (arg: unknown) => {
-          if (typeof arg === "string" && arg.startsWith(duplicateDocid)) {
-            return [
-              { collection: "stale-workspace", path: "notes/welcome.md" },
-              { collection: "workspace-main", path: "notes/welcome.md" },
-            ];
-          }
-          return [];
-        },
-      }),
-      close: () => {},
-    };
+    await seedQmdIndex(manager, [
+      { collection: "stale-workspace", path: "notes/welcome.md", hash: duplicateDocid },
+      { collection: "notes-main", path: "different.md", hash: duplicateDocid },
+      { collection: "workspace-main", path: "notes/welcome.md", hash: duplicateDocid },
+    ]);
 
     const results = await manager.search("workspace", { sessionKey: "agent:main:slack:dm:u123" });
     expect(results).toEqual([
       {
         path: "notes/welcome.md",
+        sourceVersion: duplicateDocid,
         startLine: 3,
         endLine: 3,
         score: 0.9,
@@ -5792,6 +5744,9 @@ describe("QmdMemoryManager", () => {
     });
 
     const { manager } = await createManager();
+    await seedQmdIndex(manager, [
+      { collection: "workspace-main", path: "notes/welcome.md", hash: "indexed-welcome" },
+    ]);
 
     const results = await manager.search("token unlock", {
       sessionKey: "agent:main:slack:dm:u123",
@@ -5799,6 +5754,7 @@ describe("QmdMemoryManager", () => {
     expect(results).toEqual([
       {
         path: "notes/welcome.md",
+        sourceVersion: "indexed-welcome",
         startLine: 4,
         endLine: 4,
         score: 0.71,
@@ -5838,6 +5794,9 @@ describe("QmdMemoryManager", () => {
     });
 
     const { manager } = await createManager({ mode: "full" });
+    await seedQmdIndex(manager, [
+      { collection: "sessions-main", path: "session-1.md", hash: "indexed-session" },
+    ]);
     const inner = manager as unknown as {
       collectionRoots: Map<string, { path: string }>;
       resolveReadPath: (relPath: string) => string;
@@ -5855,6 +5814,7 @@ describe("QmdMemoryManager", () => {
     expect(results).toEqual([
       {
         path: "qmd/sessions-main/session-1.md",
+        sourceVersion: "indexed-session",
         startLine: 2,
         endLine: 2,
         score: 0.84,
@@ -5938,6 +5898,9 @@ describe("QmdMemoryManager", () => {
     });
 
     const { manager } = await createManager({ mode: "full" });
+    await seedQmdIndex(manager, [
+      { collection: "sessions-main", path: "session-1.md", hash: "indexed-session" },
+    ]);
     const results = await manager.search("hit", {
       sessionKey: "agent:main:slack:dm:u123",
       sources: ["sessions"],
@@ -5947,6 +5910,7 @@ describe("QmdMemoryManager", () => {
     expect(results).toEqual([
       {
         path: "qmd/sessions-main/session-1.md",
+        sourceVersion: "indexed-session",
         startLine: 2,
         endLine: 2,
         score: 0.8,
@@ -6009,6 +5973,10 @@ describe("QmdMemoryManager", () => {
     });
 
     const { manager } = await createManager();
+    await seedQmdIndex(manager, [
+      { collection: "workspace-main", path: "memory/facts.md", hash: "indexed-facts" },
+      { collection: "notes-main", path: "guide.md", hash: "indexed-guide" },
+    ]);
 
     const results = await manager.search("fact", {
       sessionKey: "agent:main:slack:dm:u123",
@@ -6016,6 +5984,7 @@ describe("QmdMemoryManager", () => {
     expect(results).toEqual([
       {
         path: "memory/facts.md",
+        sourceVersion: "indexed-facts",
         startLine: 2,
         endLine: 2,
         score: 0.8,
@@ -6025,6 +5994,7 @@ describe("QmdMemoryManager", () => {
       },
       {
         path: "notes/guide.md",
+        sourceVersion: "indexed-guide",
         startLine: 1,
         endLine: 1,
         score: 0.7,

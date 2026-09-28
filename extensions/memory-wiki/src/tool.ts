@@ -1,20 +1,18 @@
 // Memory Wiki plugin module implements tool behavior.
 import path from "node:path";
-import { optionalFiniteNumberSchema } from "openclaw/plugin-sdk/channel-actions";
+import { optionalFiniteNumberSchema, stringEnum } from "openclaw/plugin-sdk/channel-actions";
 import {
   getMemoryCorpusSupplementResult,
   searchMemoryCorpusSupplements,
+  formatMemoryCorpusSupplementFailure,
+  type MemoryCorpusSupplementFailure,
 } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
 import type { AnyAgentTool, OpenClawConfig } from "../api.js";
 import { applyMemoryWikiMutation, normalizeMemoryWikiMutationInput } from "./apply.js";
 import { compileMemoryWikiVault } from "./compile.js";
-import {
-  WIKI_SEARCH_BACKENDS,
-  WIKI_SEARCH_CORPORA,
-  type ResolvedMemoryWikiConfig,
-} from "./config.js";
+import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { lintMemoryWikiVault } from "./lint.js";
 import {
   getMemoryWikiPage,
@@ -43,28 +41,49 @@ function formatWikiToolReportPath(config: ResolvedMemoryWikiConfig, reportPath: 
 
 const WikiStatusSchema = Type.Object({}, { additionalProperties: false });
 const WikiLintSchema = Type.Object({}, { additionalProperties: false });
-const WikiSearchBackendSchema = Type.Union(
-  WIKI_SEARCH_BACKENDS.map((value) => Type.Literal(value)),
-);
-const WikiSearchCorpusSchema = Type.Union(WIKI_SEARCH_CORPORA.map((value) => Type.Literal(value)));
-const WikiSearchModeSchema = Type.Union(WIKI_SEARCH_MODES.map((value) => Type.Literal(value)));
+const WikiSearchModeSchema = stringEnum(WIKI_SEARCH_MODES);
 const WikiSearchSchema = Type.Object(
   {
-    query: Type.String({ minLength: 1 }),
-    maxResults: Type.Optional(Type.Integer({ minimum: 1 })),
-    backend: Type.Optional(WikiSearchBackendSchema),
-    corpus: Type.Optional(WikiSearchCorpusSchema),
-    mode: Type.Optional(WikiSearchModeSchema),
+    query: Type.String({
+      minLength: 1,
+      description:
+        "Short distinctive keywords from the document; lexical search does not invent synonyms.",
+    }),
+    maxResults: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+    vaultId: Type.Optional(
+      Type.String({
+        minLength: 1,
+        maxLength: 256,
+        description:
+          "Exact vaultId from a result, only when explicitly selected by the user. Do not combine with vaultName.",
+      }),
+    ),
+    vaultName: Type.Optional(
+      Type.String({
+        minLength: 1,
+        maxLength: 240,
+        description:
+          "Exact Shared/Managed vault name explicitly selected by the user. Ask the user to choose if ambiguous; never guess. Do not combine with vaultId.",
+      }),
+    ),
+    mode: Type.Optional({
+      ...WikiSearchModeSchema,
+      description: "Optional Personal Wiki ranking mode; omit for ordinary document search.",
+    }),
   },
-  { additionalProperties: false },
+  { additionalProperties: false, not: { required: ["vaultId", "vaultName"] } },
 );
 const WikiGetSchema = Type.Object(
   {
     lookup: Type.String({ minLength: 1 }),
     fromLine: Type.Optional(Type.Integer({ minimum: 1 })),
-    lineCount: Type.Optional(Type.Integer({ minimum: 1 })),
-    backend: Type.Optional(WikiSearchBackendSchema),
-    corpus: Type.Optional(WikiSearchCorpusSchema),
+    lineCount: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        maximum: 200,
+        description: "Number of lines to read, from 1 to 200.",
+      }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -141,6 +160,7 @@ async function syncImportedSourcesIfNeeded(
 }
 
 type WikiToolMemoryContext = {
+  runId?: string;
   agentId?: string;
   agentSessionKey?: string;
   sandboxed?: boolean;
@@ -150,15 +170,18 @@ type WikiToolMemoryContext = {
 type WikiCorpusStatus = {
   pluginId: string;
   status: "ok" | "empty" | "unavailable" | "failed";
+  failure?: MemoryCorpusSupplementFailure;
 };
 
 function wikiCorpusWarnings(statuses: WikiCorpusStatus[]): string[] {
-  return statuses.flatMap(({ pluginId, status }) =>
+  return statuses.flatMap(({ pluginId, status, failure }) =>
     status === "unavailable" || status === "failed"
       ? [
-          `Wiki corpus from plugin "${pluginId}" is ${
-            status === "unavailable" ? "not configured" : "temporarily unavailable"
-          }.`,
+          failure
+            ? formatMemoryCorpusSupplementFailure(failure)
+            : `Wiki corpus from plugin "${pluginId}" is ${
+                status === "unavailable" ? "not configured" : "temporarily unavailable"
+              }.`,
         ]
       : [],
   );
@@ -173,7 +196,7 @@ export function createWikiStatusTool(
     name: "wiki_status",
     label: "Wiki Status",
     description:
-      "Inspect the current memory wiki vault mode, health, and Obsidian CLI availability.",
+      "Inspect the Personal Wiki mode, health, compilation state, and Obsidian CLI availability. Shared/Managed vault status is available in their Vault UI.",
     parameters: WikiStatusSchema,
     execute: async () => {
       await syncImportedSourcesIfNeeded(config, appConfig);
@@ -198,46 +221,66 @@ export function createWikiSearchTool(
     name: "wiki_search",
     label: "Wiki Search",
     description:
-      "Search personal Wiki pages and authorized organization knowledge by title, path, id, or body text. Explicit backend, corpus, or mode overrides keep the search personal-only. Generated indexes stay out of ranking and are browsed with wiki_get.",
+      "Search accessible document titles and content using short distinctive keywords. Omit vaultId and vaultName for the server-selected scope. Use a returned vaultId or exact Shared/Managed vaultName only when the user explicitly selects a vault. Ambiguous names return choices: ask, never guess. Results include vault identity, exact read path, and document version. Personal Wiki additionally supports path/id matching and ranking modes.",
     parameters: WikiSearchSchema,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as {
         query: string;
         maxResults?: number;
-        backend?: ResolvedMemoryWikiConfig["search"]["backend"];
-        corpus?: ResolvedMemoryWikiConfig["search"]["corpus"];
+        vaultId?: string;
+        vaultName?: string;
         mode?: (typeof WIKI_SEARCH_MODES)[number];
       };
-      await syncImportedSourcesIfNeeded(config, appConfig);
+      if (params.vaultId && params.vaultName) {
+        const error =
+          "Choose only vaultId or vaultName; use the explicitly selected ID or exact Shared/Managed name, never both.";
+        return { content: [{ type: "text", text: error }], details: { results: [], error } };
+      }
       const corpusStatus: WikiCorpusStatus[] = [];
-      const personalResults = await searchMemoryWiki({
-        config,
-        appConfig,
-        agentId: memoryContext.agentId,
-        agentSessionKey: memoryContext.agentSessionKey,
-        sandboxed: memoryContext.sandboxed,
-        conversationRecall: memoryContext.conversationRecall,
-        query: params.query,
-        maxResults: params.maxResults,
-        ...(params.backend ? { searchBackend: params.backend } : {}),
-        ...(params.corpus ? { searchCorpus: params.corpus } : {}),
-        ...(params.mode ? { mode: params.mode } : {}),
+      const maxResults = Math.min(50, Math.max(1, Math.floor(params.maxResults ?? 10)));
+      let personalError: string | undefined;
+      const personalResults = await (async () => {
+        if (params.vaultName) {
+          return [];
+        }
+        if (
+          !params.vaultId ||
+          params.vaultId === `personal:${memoryContext.agentId ?? config.agentId ?? "main"}`
+        ) {
+          await syncImportedSourcesIfNeeded(config, appConfig);
+        }
+        return await searchMemoryWiki({
+          config,
+          appConfig,
+          agentId: memoryContext.agentId,
+          agentSessionKey: memoryContext.agentSessionKey,
+          sandboxed: memoryContext.sandboxed,
+          conversationRecall: memoryContext.conversationRecall,
+          query: params.query,
+          maxResults,
+          ...(params.vaultId ? { vaultId: params.vaultId } : {}),
+          ...(params.mode ? { mode: params.mode } : {}),
+        });
+      })().catch((error: unknown) => {
+        personalError = (error instanceof Error ? error.message : String(error)).slice(0, 500);
+        corpusStatus.push({ pluginId: "memory-wiki", status: "failed" });
+        return [];
       });
-      const hasExplicitPersonalOverride = Boolean(params.backend || params.corpus || params.mode);
-      const maxResults = Math.max(1, Math.floor(params.maxResults ?? 10));
-      const supplementResults = hasExplicitPersonalOverride
-        ? []
-        : (
-            await searchMemoryCorpusSupplements({
-              query: params.query,
-              maxResults,
-              agentId: memoryContext.agentId,
-              agentSessionKey: memoryContext.agentSessionKey,
-              sandboxed: memoryContext.sandboxed,
-              excludePluginId: "memory-wiki",
-              onSupplementStatus: (pluginId, status) => corpusStatus.push({ pluginId, status }),
-            })
-          ).map((result) => toSupplementWikiSearchResult(result, params.mode ?? "auto"));
+      const supplementResults = (
+        await searchMemoryCorpusSupplements({
+          query: params.query,
+          runId: memoryContext.runId,
+          ...(params.vaultId ? { vaultId: params.vaultId } : {}),
+          ...(params.vaultName ? { vaultName: params.vaultName } : {}),
+          maxResults,
+          agentId: memoryContext.agentId,
+          agentSessionKey: memoryContext.agentSessionKey,
+          sandboxed: memoryContext.sandboxed,
+          excludePluginId: "memory-wiki",
+          onSupplementStatus: (pluginId, status, failure) =>
+            corpusStatus.push({ pluginId, status, ...(failure ? { failure } : {}) }),
+        })
+      ).map((result) => toSupplementWikiSearchResult(result, params.mode ?? "auto"));
       const results = mergeWikiSearchCorpusResults({
         wikiResults: personalResults,
         memoryResults: supplementResults,
@@ -245,13 +288,24 @@ export function createWikiSearchTool(
         balanceCorpora: true,
       });
       const warnings = wikiCorpusWarnings(corpusStatus);
+      if (personalError) {
+        warnings.push(
+          `Personal Wiki compile/search failed: ${personalError}. Rebuild the Wiki index.`,
+        );
+      }
+      const failedIndex = results.find((result) => result.indexStatus === "failed");
+      if (failedIndex) {
+        warnings.push(
+          `${failedIndex.vaultName ?? "Wiki"} uses its last successful index: ${failedIndex.indexError ?? "compile failed"}. Automatic retry is scheduled. Correct the source and use Rebuild in that vault's UI; Personal Wiki refresh does not rebuild Shared vaults.`,
+        );
+      }
       const resultText =
         results.length === 0
           ? "No wiki or memory results."
           : results
               .map(
                 (result, index) =>
-                  `${index + 1}. ${result.title} (${result.corpus}/${result.kind})\nPath: ${result.path}${typeof result.startLine === "number" && typeof result.endLine === "number" ? `\nLines: ${result.startLine}-${result.endLine}` : ""}${result.provenanceLabel ? `\nProvenance: ${result.provenanceLabel}` : ""}${result.matchedClaimId ? `\nClaim: ${result.matchedClaimId}` : ""}${result.evidenceKinds && result.evidenceKinds.length > 0 ? `\nEvidence: ${result.evidenceKinds.join(", ")}` : ""}\nSnippet: ${result.snippet}`,
+                  `${index + 1}. ${result.title} (${result.corpus}/${result.kind})\nVault: ${result.vaultName} (${result.vaultType}, ${result.vaultId})\nDocument: ${result.documentId}\nVersion: ${result.revision ?? result.sourceVersion}\nPath: ${result.path}${typeof result.startLine === "number" && typeof result.endLine === "number" ? `\nLines: ${result.startLine}-${result.endLine}` : ""}${result.provenanceLabel ? `\nProvenance: ${result.provenanceLabel}` : ""}${result.matchedClaimId ? `\nClaim: ${result.matchedClaimId}` : ""}${result.evidenceKinds && result.evidenceKinds.length > 0 ? `\nEvidence: ${result.evidenceKinds.join(", ")}` : ""}\nSnippet: ${result.snippet}`,
               )
               .join("\n\n");
       const text = [...warnings, resultText].join("\n\n");
@@ -275,7 +329,7 @@ export function createWikiLintTool(
     name: "wiki_lint",
     label: "Wiki Lint",
     description:
-      "Lint the wiki vault and surface structural issues, provenance gaps, contradictions, and open questions.",
+      "Lint Personal Wiki and surface structural issues, provenance gaps, contradictions, and open questions. This does not lint Shared/Managed vaults.",
     parameters: WikiLintSchema,
     execute: async () => {
       await syncImportedSourcesIfNeeded(config, appConfig);
@@ -317,7 +371,7 @@ export function createWikiApplyTool(
     name: "wiki_apply",
     label: "Wiki Apply",
     description:
-      "Apply narrow personal Wiki mutations. Before a substantive create or update, use wiki_search and wiki_get to compare only relevant candidates, then pass each target's current contentHash as expectedRevision. Targets are re-resolved in this vault: use status=confirmed only for a supported reference and status=candidate for an uncertain duplicate, conflict, enrichment, or condition difference. sourceIds remain provenance, not related-page links. No relationship is required when none is supported.",
+      "Apply narrow Personal Wiki mutations only; op=refresh rebuilds only Personal Wiki. Shared/Managed documents must be edited or rebuilt through their Vault UI with appropriate permissions. Before filing, inspect relevant Personal Wiki candidates; for relationships pass each Personal target's current contentHash as expectedRevision. Use confirmed for supported references, candidate for uncertain relationships. sourceIds are provenance, not links. No relationship is required when unsupported.",
     parameters: WikiApplySchema,
     execute: async (_toolCallId, rawParams) => {
       await syncImportedSourcesIfNeeded(config, appConfig);
@@ -363,44 +417,44 @@ export function createWikiGetTool(
     name: "wiki_get",
     label: "Wiki Get",
     description:
-      "Read a personal Wiki page, generated index, or authorized organization page by exact id or relative path. Start with index.md to browse the Personal Wiki, or use an organization path returned by wiki_search. Explicit backend or corpus overrides keep the read personal-only.",
+      "Read an authorized document using the exact path returned by search. Personal Wiki also accepts its page IDs and index.md for browsing. Shared/Managed documents require the returned full path, not a bare documentId. The server routes the path; no backend or corpus choice is needed.",
     parameters: WikiGetSchema,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as {
         lookup: string;
         fromLine?: number;
         lineCount?: number;
-        backend?: ResolvedMemoryWikiConfig["search"]["backend"];
-        corpus?: ResolvedMemoryWikiConfig["search"]["corpus"];
       };
-      await syncImportedSourcesIfNeeded(config, appConfig);
       const corpusStatus: WikiCorpusStatus[] = [];
-      let result = await getMemoryWikiPage({
-        config,
-        appConfig,
+      // An exact supplementary path belongs to its registered owner. Resolve it
+      // before touching Personal sources so an unrelated sync failure cannot block it.
+      const supplement = await getMemoryCorpusSupplementResult({
+        lookup: params.lookup,
+        fromLine: Math.max(1, Math.floor(params.fromLine ?? 1)),
+        lineCount: Math.max(1, Math.floor(params.lineCount ?? 200)),
+        failurePolicy: "continue",
         agentId: memoryContext.agentId,
         agentSessionKey: memoryContext.agentSessionKey,
         sandboxed: memoryContext.sandboxed,
-        conversationRecall: memoryContext.conversationRecall,
-        lookup: params.lookup,
-        fromLine: params.fromLine,
-        lineCount: params.lineCount,
-        ...(params.backend ? { searchBackend: params.backend } : {}),
-        ...(params.corpus ? { searchCorpus: params.corpus } : {}),
+        excludePluginId: "memory-wiki",
+        onSupplementStatus: (pluginId, status, failure) =>
+          corpusStatus.push({ pluginId, status, ...(failure ? { failure } : {}) }),
       });
-      if (!result && !params.backend && !params.corpus) {
-        const supplement = await getMemoryCorpusSupplementResult({
-          lookup: params.lookup,
-          fromLine: Math.max(1, Math.floor(params.fromLine ?? 1)),
-          lineCount: Math.max(1, Math.floor(params.lineCount ?? 200)),
-          failurePolicy: "continue",
+      let result = supplement ? toSupplementWikiGetResult(supplement) : null;
+      const ownerFailure = corpusStatus.some(({ failure }) => failure);
+      if (!result && !ownerFailure) {
+        await syncImportedSourcesIfNeeded(config, appConfig);
+        result = await getMemoryWikiPage({
+          config,
+          appConfig,
           agentId: memoryContext.agentId,
           agentSessionKey: memoryContext.agentSessionKey,
           sandboxed: memoryContext.sandboxed,
-          excludePluginId: "memory-wiki",
-          onSupplementStatus: (pluginId, status) => corpusStatus.push({ pluginId, status }),
+          conversationRecall: memoryContext.conversationRecall,
+          lookup: params.lookup,
+          fromLine: params.fromLine,
+          lineCount: params.lineCount,
         });
-        result = supplement ? toSupplementWikiGetResult(supplement) : null;
       }
       const warnings = wikiCorpusWarnings(corpusStatus);
       if (!result) {
@@ -408,11 +462,17 @@ export function createWikiGetTool(
           content: [
             {
               type: "text",
-              text: [...warnings, `Wiki page not found: ${params.lookup}`].join("\n\n"),
+              text: [
+                ...warnings,
+                ownerFailure
+                  ? "The document owner could not provide this path. Follow the reported action."
+                  : `Wiki page not found: ${params.lookup}`,
+              ].join("\n\n"),
             },
           ],
           details: {
             found: false,
+            ...(ownerFailure ? { disabled: true } : {}),
             ...(warnings.length > 0 ? { warnings } : {}),
             ...(corpusStatus.length > 0 ? { corpusStatus } : {}),
           },

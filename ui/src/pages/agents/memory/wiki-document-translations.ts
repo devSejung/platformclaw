@@ -3,6 +3,10 @@ export const wikiDocumentTranslations: Readonly<
   Record<"en" | "ko", Readonly<Record<string, string>>>
 > = {
   en: {
+    "dreaming.wiki.compileFailed": "Personal Wiki index update failed",
+    "dreaming.wiki.compileRetained":
+      "Original documents and the last successful index are preserved. Automatic retry is scheduled.",
+    "dreaming.wiki.compileNextRetry": "Next retry: {date}",
     "dreaming.wiki.documentActions": "Document actions",
     "dreaming.wiki.edit": "Edit",
     "dreaming.wiki.editNotes": "Edit notes",
@@ -70,6 +74,10 @@ export const wikiDocumentTranslations: Readonly<
     "dreaming.advanced.maintenance": "Maintenance",
   },
   ko: {
+    "dreaming.wiki.compileFailed": "Personal Wiki 색인 갱신 실패",
+    "dreaming.wiki.compileRetained":
+      "원본 문서와 마지막 정상 색인을 유지합니다. 자동 재시도가 예정되어 있습니다.",
+    "dreaming.wiki.compileNextRetry": "다음 재시도: {date}",
     "dreaming.wiki.documentActions": "문서 작업",
     "dreaming.wiki.edit": "편집",
     "dreaming.wiki.editNotes": "Notes 편집",

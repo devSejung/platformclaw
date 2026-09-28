@@ -1,5 +1,4 @@
 // Memory Core plugin module implements tools.shared behavior.
-import { optionalFiniteNumberSchema, stringEnum } from "openclaw/plugin-sdk/channel-actions";
 import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
 import {
   getMemoryCorpusSupplementResult,
@@ -11,7 +10,8 @@ import {
 } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import type { PluginStateLeaseRunner } from "openclaw/plugin-sdk/plugin-state-runtime";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { Type } from "typebox";
+import { MemorySearchSchema, MemoryGetSchema } from "./tool-contract.js";
+export { MemorySearchSchema, MemoryGetSchema } from "./tool-contract.js";
 import type { MemoryCoreAcquireLocalService } from "./memory/embedding-local-service.js";
 type MemorySearchManagerResult = Awaited<
   ReturnType<(typeof import("./memory/index.js"))["getMemorySearchManager"]>
@@ -28,20 +28,6 @@ type MemoryToolOptions = {
 };
 
 export const loadMemoryToolRuntime = createLazyRuntimeModule(() => import("./tools.runtime.js"));
-
-export const MemorySearchSchema = Type.Object({
-  query: Type.String(),
-  maxResults: Type.Optional(Type.Integer({ minimum: 1 })),
-  minScore: optionalFiniteNumberSchema(),
-  corpus: Type.Optional(stringEnum(["memory", "wiki", "all", "sessions"])),
-});
-
-export const MemoryGetSchema = Type.Object({
-  path: Type.String(),
-  from: Type.Optional(Type.Integer()),
-  lines: Type.Optional(Type.Integer()),
-  corpus: Type.Optional(stringEnum(["memory", "wiki", "all"])),
-});
 
 function resolveMemoryToolContext(options: MemoryToolOptions) {
   const cfg = options.getConfig?.() ?? options.config;

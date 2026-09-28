@@ -158,6 +158,16 @@ export type PreparedMemoryPromptSection = Readonly<{
 }>;
 
 export type MemoryCorpusSearchResult = {
+  /** Vault identity is supplied by the owning backend after authorization. */
+  vaultId?: string;
+  vaultName?: string;
+  vaultType?: "personal" | "shared" | "managed";
+  documentId?: string;
+  revision?: string | number;
+  sourceVersion?: string;
+  indexStatus?: "failed";
+  indexError?: string;
+  nextRetryAt?: number;
   corpus: string;
   path: string;
   title?: string;
@@ -198,6 +208,12 @@ export type MemoryCorpusSupplement = {
     | { available: false; reason: "not-configured" | "temporarily-unavailable" };
   search(params: {
     query: string;
+    /** Trusted run identity for a corpus owner's turn-prepared state. */
+    runId?: string;
+    /** Omit to use the owner-selected authorized scope; never infer a vault from the query. */
+    vaultId?: string;
+    /** Exact Shared/Managed display name explicitly selected by the user; exclusive with vaultId. */
+    vaultName?: string;
     maxResults?: number;
     agentId?: string;
     agentSessionKey?: string;

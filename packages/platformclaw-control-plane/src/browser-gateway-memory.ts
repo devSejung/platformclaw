@@ -232,7 +232,33 @@ export function prepareBrowserMemoryRequest(params: {
     if (!query || query.length > MAX_QUERY_CHARS) {
       return params.fail(`memory search query must contain 1-${MAX_QUERY_CHARS} characters`);
     }
-    return { query, agentId: params.agentId };
+    const vaultId = params.request.vaultId;
+    const maxResults = params.request.maxResults;
+    const scope = params.request.scope;
+    if (scope !== undefined && scope !== "connected" && scope !== "all") {
+      return params.fail("scope must be connected or all");
+    }
+    if (
+      vaultId !== undefined &&
+      (typeof vaultId !== "string" || !vaultId || vaultId.length > 256)
+    ) {
+      return params.fail("vaultId must be a bounded nonempty identifier");
+    }
+    if (
+      maxResults !== undefined &&
+      (!Number.isSafeInteger(maxResults) ||
+        (maxResults as number) < 1 ||
+        (maxResults as number) > MAX_RESULTS)
+    ) {
+      return params.fail("maxResults must be an integer from 1 to 50");
+    }
+    return {
+      query,
+      agentId: params.agentId,
+      ...(vaultId === undefined ? {} : { vaultId }),
+      ...(maxResults === undefined ? {} : { maxResults }),
+      ...(scope === undefined ? {} : { scope }),
+    };
   }
   if (params.method === "platformclaw.memory.get") {
     const path = typeof params.request.path === "string" ? params.request.path : "";

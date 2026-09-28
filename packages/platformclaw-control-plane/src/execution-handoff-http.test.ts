@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExecutionHandoffClient } from "./execution-handoff-client.js";
 import { PlatformClawExecutionHandoffServer } from "./execution-handoff-http.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
+import { KnowledgeVaultSearchError } from "./knowledge-vault-contracts.js";
+import type { KnowledgeVaultService } from "./knowledge-vault-service.js";
 
 const servers: PlatformClawExecutionHandoffServer[] = [];
 const roots: string[] = [];
@@ -21,7 +23,29 @@ afterEach(async () => {
 });
 
 async function startServer() {
+  const vaultHit = {
+    vaultId: "vault-one",
+    vaultName: "DDRPHY",
+    vaultType: "shared" as const,
+    documentId: "doc-one",
+    path: "shared/vault-one/doc-one",
+    title: "Training",
+    snippet: "Reviewed training facts.",
+    revision: 3,
+    score: 0.9,
+  };
   const service = {
+    vaultService: {
+      captureScope: vi.fn(() => ({ revision: 4, vaultIds: ["vault-one"] })),
+      search: vi.fn(async () => [vaultHit]),
+      get: vi.fn(async () => ({
+        ...vaultHit,
+        content: "Reviewed training facts.",
+        fromLine: 2,
+        lineCount: 1,
+        logicalPath: "training.md",
+      })),
+    },
     resolveTarget: vi.fn(async (agentId: string) => ({
       kind: "platform_server" as const,
       agentId,
@@ -73,6 +97,7 @@ async function startServer() {
     ExecutionHandoffService,
     "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
   > & {
+    vaultService: Pick<KnowledgeVaultService, "search" | "get" | "captureScope">;
     resolveMcpConnection(
       agentId: string,
       serverName: string,
@@ -111,6 +136,18 @@ async function startServer() {
 }
 
 async function post(socketPath: string, pathname: string, body: unknown): Promise<unknown> {
+  const response = await postResponse(socketPath, pathname, body);
+  if (response.status >= 300) {
+    throw new Error(`request failed (${response.status})`);
+  }
+  return response.body;
+}
+
+async function postResponse(
+  socketPath: string,
+  pathname: string,
+  body: unknown,
+): Promise<{ status: number; body: unknown }> {
   const payload = Buffer.from(JSON.stringify(body));
   return await new Promise((resolve, reject) => {
     const req = request(
@@ -128,9 +165,10 @@ async function post(socketPath: string, pathname: string, body: unknown): Promis
         const chunks: Buffer[] = [];
         res.on("data", (chunk: Buffer) => chunks.push(chunk));
         res.on("end", () =>
-          (res.statusCode ?? 500) < 300
-            ? resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")))
-            : reject(new Error(`request failed (${res.statusCode ?? 500})`)),
+          resolve({
+            status: res.statusCode ?? 500,
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+          }),
         );
       },
     );
@@ -226,6 +264,157 @@ describe("PlatformClawExecutionHandoffServer", () => {
         path: "file:///srv/private",
       }),
     ).rejects.toThrow("(400)");
+  });
+
+  it("delegates vault search and get with agent identity, optional scope and complete provenance", async () => {
+    const { socketPath, service } = await startServer();
+    await expect(
+      post(socketPath, "/platformclaw/internal/memory/vaults/scope", { agentId: "person_one" }),
+    ).resolves.toEqual({ revision: 4, vaultIds: ["vault-one"] });
+    expect(service.vaultService.captureScope).toHaveBeenCalledWith({ agentId: "person_one" });
+    await expect(
+      post(socketPath, "/platformclaw/internal/memory/vaults/search", {
+        agentId: "person_one",
+        query: "training",
+        vaultId: "vault-one",
+        maxResults: 5,
+      }),
+    ).resolves.toEqual([
+      {
+        vaultId: "vault-one",
+        vaultName: "DDRPHY",
+        vaultType: "shared",
+        documentId: "doc-one",
+        path: "shared/vault-one/doc-one",
+        title: "Training",
+        snippet: "Reviewed training facts.",
+        revision: 3,
+        score: 0.9,
+      },
+    ]);
+    expect(service.vaultService.search).toHaveBeenCalledWith({
+      agentId: "person_one",
+      query: "training",
+      vaultId: "vault-one",
+      maxResults: 5,
+    });
+    await post(socketPath, "/platformclaw/internal/memory/vaults/search", {
+      agentId: "person_one",
+      query: "training",
+    });
+    expect(service.vaultService.search).toHaveBeenLastCalledWith({
+      agentId: "person_one",
+      query: "training",
+    });
+    await post(socketPath, "/platformclaw/internal/memory/vaults/search", {
+      agentId: "person_one",
+      query: "training",
+      vaultName: "DDRPHY",
+    });
+    expect(service.vaultService.search).toHaveBeenLastCalledWith({
+      agentId: "person_one",
+      query: "training",
+      vaultName: "DDRPHY",
+    });
+    // A complete bounded selection may exceed the small execution-command body limit.
+    const turnScope = {
+      revision: 4,
+      vaultIds: Array.from({ length: 128 }, () => randomUUID()),
+    };
+    await post(socketPath, "/platformclaw/internal/memory/vaults/search", {
+      agentId: "person_one",
+      query: "training",
+      turnScope,
+    });
+    expect(service.vaultService.search).toHaveBeenLastCalledWith({
+      agentId: "person_one",
+      query: "training",
+      turnScope,
+    });
+    await expect(
+      post(socketPath, "/platformclaw/internal/memory/vaults/get", {
+        agentId: "person_one",
+        path: "shared/vault-one/doc-one",
+        fromLine: 2,
+        lineCount: 20,
+      }),
+    ).resolves.toMatchObject({
+      vaultId: "vault-one",
+      documentId: "doc-one",
+      revision: 3,
+      content: "Reviewed training facts.",
+    });
+    expect(service.vaultService.get).toHaveBeenCalledWith({
+      agentId: "person_one",
+      path: "shared/vault-one/doc-one",
+      fromLine: 2,
+      lineCount: 20,
+    });
+  });
+
+  it("rejects invalid vault query and document bounds before service dispatch", async () => {
+    const { socketPath, service } = await startServer();
+    for (const invalid of [
+      { query: "" },
+      { maxResults: 51 },
+      { vaultId: "v".repeat(257) },
+      { vaultName: " " },
+      { vaultName: 1 },
+      { vaultName: "v".repeat(241) },
+      { vaultId: "vault-one", vaultName: "DDRPHY" },
+      { turnScope: { revision: -1, vaultIds: [] } },
+      { turnScope: { revision: 1, vaultIds: ["vault-one", "vault-one"] } },
+      { turnScope: { revision: 1, vaultIds: ["../private"] } },
+      { turnScope: { revision: 1, vaultIds: Array.from({ length: 257 }, (_, i) => `v${i}`) } },
+    ]) {
+      await expect(
+        post(socketPath, "/platformclaw/internal/memory/vaults/search", {
+          agentId: "person_one",
+          query: "training",
+          ...invalid,
+        }),
+      ).rejects.toThrow("(400)");
+    }
+    for (const invalid of [{ fromLine: 0 }, { lineCount: 201 }, { path: "p".repeat(1025) }]) {
+      await expect(
+        post(socketPath, "/platformclaw/internal/memory/vaults/get", {
+          agentId: "person_one",
+          path: "shared/vault-one/doc-one",
+          ...invalid,
+        }),
+      ).rejects.toThrow("(400)");
+    }
+    expect(service.vaultService.search).not.toHaveBeenCalled();
+    expect(service.vaultService.get).not.toHaveBeenCalled();
+  });
+
+  it("returns owner-authorized name choices and hides unexpected search failures", async () => {
+    const { socketPath, service } = await startServer();
+    const choices = [{ vaultId: "vault-one", vaultName: "DDRPHY", vaultType: "shared" as const }];
+    service.vaultService.search.mockRejectedValueOnce(
+      new KnowledgeVaultSearchError(
+        "vault-name-ambiguous",
+        "Multiple accessible Vaults have this name.",
+        "Ask the user which Vault to use, then retry with its vaultId.",
+        choices,
+      ),
+    );
+    const searchRequest = { agentId: "person_one", query: "training", vaultName: "DDRPHY" };
+    await expect(
+      postResponse(socketPath, "/platformclaw/internal/memory/vaults/search", searchRequest),
+    ).resolves.toEqual({
+      status: 409,
+      body: {
+        error: "Multiple accessible Vaults have this name.",
+        code: "vault-name-ambiguous",
+        action: "Ask the user which Vault to use, then retry with its vaultId.",
+        vaultChoices: choices,
+      },
+    });
+    service.vaultService.search.mockRejectedValueOnce(new Error("internal SQLite location"));
+    await expect(
+      postResponse(socketPath, "/platformclaw/internal/memory/vaults/search", searchRequest),
+    ).resolves.toEqual({ status: 409, body: { error: "execution target unavailable" } });
   });
 
   it.runIf(process.platform !== "win32")(

@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { compileMemoryWikiVault } from "./compile.js";
 import { renderWikiMarkdown } from "./markdown.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
 import { listMemoryWikiOverview } from "./wiki-overview.js";
@@ -9,6 +10,22 @@ import { listMemoryWikiOverview } from "./wiki-overview.js";
 const { createVault } = createMemoryWikiTestHarness();
 
 describe("listMemoryWikiOverview", () => {
+  it("returns the canonical compile failure even when no search hit matches", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    await compileMemoryWikiVault(config);
+    await fs.writeFile(
+      path.join(rootDir, "sources", "broken.md"),
+      "---\nsourceIds: [broken\n---\nbody",
+    );
+    await expect(compileMemoryWikiVault(config)).rejects.toThrow("sources/broken.md");
+    const overview = await listMemoryWikiOverview(config);
+    expect(overview.compileFailure).toMatchObject({
+      error: expect.stringContaining("sources/broken.md"),
+      attempts: 1,
+      nextRetryAt: expect.any(Number),
+    });
+  });
+
   it("groups wiki pages by kind and surfaces claims, questions, and contradictions", async () => {
     const { rootDir, config } = await createVault({
       prefix: "memory-wiki-overview-",

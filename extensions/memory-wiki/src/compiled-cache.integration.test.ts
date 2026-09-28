@@ -9,6 +9,7 @@ import {
   resetPluginBlobStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyMemoryWikiMutation } from "./apply.js";
 import { compileMemoryWikiVault } from "./compile.js";
 import {
   activateMemoryWikiCompiledCacheOwner,
@@ -17,6 +18,7 @@ import {
   createMemoryWikiCompiledCacheStore,
   deactivateMemoryWikiCompiledCacheOwnersExcept,
   loadMemoryWikiCompiledCache,
+  readMemoryWikiCompileFailure,
   reconcileMemoryWikiCompiledCacheOwner,
   resolveMemoryWikiCompiledCacheGeneration,
   resolveMemoryWikiCompiledCacheOwnerId,
@@ -24,6 +26,7 @@ import {
   type MemoryWikiCompiledCacheSnapshot,
 } from "./compiled-cache.js";
 import { resolveMemoryWikiAgentConfig, resolveMemoryWikiConfig } from "./config.js";
+import { getMemoryWikiDocument, saveMemoryWikiDocument } from "./document-edit.js";
 import {
   appendMemoryWikiLog,
   loadMemoryWikiValidatedVaultIdentity,
@@ -32,9 +35,12 @@ import {
 } from "./log.js";
 import { renderWikiMarkdown } from "./markdown.js";
 import { createWikiPromptSectionPreparer } from "./prompt-section.js";
-import { getMemoryWikiPage } from "./query.js";
+import { getMemoryWikiPage, searchMemoryWiki } from "./query.js";
+import { syncMemoryWikiImportedSources } from "./source-sync.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
-import { initializeMemoryWikiVault } from "./vault.js";
+import { createWikiSearchTool, createWikiStatusTool } from "./tool.js";
+import { activateExistingMemoryWikiVault, initializeMemoryWikiVault } from "./vault.js";
+import { listMemoryWikiOverview } from "./wiki-overview.js";
 
 const { createTempDir, createVault } = createMemoryWikiTestHarness();
 let blobStateDir = "";
@@ -160,6 +166,151 @@ async function preparePrompt(config: ReturnType<typeof resolveMemoryWikiConfig>)
 }
 
 describe("Memory Wiki compiled cache lifecycle", () => {
+  it("keeps first-failure status visible through sync and tools without retrying before backoff", async () => {
+    const { rootDir, config } = await createPersistentVault({ initialize: true });
+    const file = path.join(rootDir, "concepts/broken.md");
+    await fs.writeFile(file, "---\ntitle: [broken\n---\ncalibration");
+    await expect(syncMemoryWikiImportedSources({ config })).resolves.toMatchObject({
+      indexesRefreshed: false,
+      indexRefreshReason: "compile-failed",
+    });
+    const failure = await readMemoryWikiCompileFailure(config);
+    expect(failure?.attempts).toBe(1);
+    await expect(listMemoryWikiOverview(config)).resolves.toMatchObject({
+      compileFailure: failure,
+    });
+    const status = await createWikiStatusTool(config).execute("status", {});
+    expect(JSON.stringify(status)).toContain("broken.md");
+    const search = await createWikiSearchTool(config).execute("search", { query: "calibration" });
+    expect(JSON.stringify(search)).toContain("Automatic retry is scheduled");
+    expect((await readMemoryWikiCompileFailure(config))?.attempts).toBe(1);
+    await expect(syncMemoryWikiImportedSources({ config, forceSync: true })).resolves.toMatchObject(
+      {
+        indexRefreshReason: "compile-failed",
+      },
+    );
+    expect((await readMemoryWikiCompileFailure(config))?.attempts).toBe(2);
+    await fs.writeFile(file, "# Calibration\nrepaired calibration");
+    await syncMemoryWikiImportedSources({ config, forceSync: true });
+    await expect(readMemoryWikiCompileFailure(config)).resolves.toBeNull();
+  });
+
+  it("keeps the last successful search version after failed compilation and restart", async () => {
+    const { rootDir, config } = await createPersistentVault({
+      initialize: true,
+      config: { render: { createDashboards: false } },
+    });
+    const file = path.join(rootDir, "concepts", "training.md");
+    const original =
+      "---\npageType: concept\ntitle: Training\n---\n# Training\nStable calibration steps.\n";
+    await fs.writeFile(file, original);
+    await compileMemoryWikiVault(config);
+    const before = await searchMemoryWiki({
+      config,
+      query: "calibration",
+      searchBackend: "local",
+      searchCorpus: "wiki",
+    });
+    expect(before).toHaveLength(1);
+    const invalid = "---\ntitle: [broken\n---\nUncompiled replacement.\n";
+    await fs.writeFile(file, invalid);
+    await expect(compileMemoryWikiVault(config)).rejects.toThrow("training.md");
+    const failure = await readMemoryWikiCompileFailure(config);
+    expect(failure).toMatchObject({ attempts: 1, error: expect.stringContaining("training.md") });
+    configureMemoryWikiCompiledCacheStore(undefined);
+    configureMemoryWikiCompiledCacheStore(createCacheStore());
+    // Restart activates/reconciles durable identity once before serving requests.
+    await activateExistingMemoryWikiVault(config);
+    const readSpy = vi.spyOn(fs, "readFile");
+    const retained = await searchMemoryWiki({
+      config,
+      query: "calibration",
+      searchBackend: "local",
+      searchCorpus: "wiki",
+    });
+    expect(retained).toEqual([
+      expect.objectContaining({
+        title: before[0]?.title,
+        snippet: before[0]?.snippet,
+        revision: before[0]?.revision,
+        indexStatus: "failed",
+      }),
+    ]);
+    await readMemoryWikiCompileFailure(config);
+    expect(
+      readSpy.mock.calls.some(
+        ([filePath]) => typeof filePath === "string" && filePath.endsWith("log.jsonl"),
+      ),
+    ).toBe(false);
+    readSpy.mockRestore();
+    await expect(fs.readFile(file, "utf8")).resolves.toBe(invalid);
+    await fs.writeFile(file, original.replace("Stable calibration", "Repaired calibration"));
+    await compileMemoryWikiVault(config);
+    await expect(readMemoryWikiCompileFailure(config)).resolves.toBeNull();
+    const repaired = await searchMemoryWiki({
+      config,
+      query: "calibration",
+      searchBackend: "local",
+      searchCorpus: "wiki",
+    });
+    expect(repaired[0]?.revision).not.toBe(before[0]?.revision);
+  });
+
+  it.each(["document-save", "apply"] as const)(
+    "preserves the last accepted SQLite index after %s commits but compile fails",
+    async (operation) => {
+      const { rootDir, config } = await createPersistentVault({ initialize: true });
+      const personal = {
+        ...config,
+        agentId: "main",
+        vault: { ...config.vault, scope: "agent" as const },
+      };
+      const documentPath = "concepts/calibration.md";
+      await fs.writeFile(
+        path.join(rootDir, documentPath),
+        "---\npageType: concept\nid: calibration\ntitle: Calibration\n---\n# Calibration\nStable calibration procedure.\n",
+      );
+      await compileMemoryWikiVault(personal);
+      const before = await searchMemoryWiki({ config: personal, query: "calibration" });
+      const document = await getMemoryWikiDocument({ config: personal, lookup: documentPath });
+      await fs.writeFile(
+        path.join(rootDir, "sources/broken.md"),
+        "---\nsourceIds: [broken\n---\nbody",
+      );
+      const result =
+        operation === "document-save"
+          ? await saveMemoryWikiDocument({
+              config: personal,
+              path: documentPath,
+              editMode: "body",
+              content: "# Calibration\nNew draft calibration procedure.",
+              expectedRevision: document!.revision!,
+            })
+          : await applyMemoryWikiMutation({
+              config: personal,
+              mutation: { op: "update_metadata", lookup: documentPath, status: "review" },
+            });
+      expect(result.indexesRefreshed).toBe(false);
+      await expect(loadMemoryWikiCompiledCache(personal)).resolves.toBeNull();
+      configureMemoryWikiCompiledCacheStore(undefined);
+      configureMemoryWikiCompiledCacheStore(createCacheStore());
+      await activateExistingMemoryWikiVault(personal);
+      const retained = await searchMemoryWiki({ config: personal, query: "calibration" });
+      expect(retained).toEqual([
+        expect.objectContaining({
+          title: before[0]!.title,
+          snippet: before[0]!.snippet,
+          revision: before[0]!.revision,
+          indexStatus: "failed",
+        }),
+      ]);
+      const saved = await fs.readFile(path.join(rootDir, documentPath), "utf8");
+      expect(saved).toContain(
+        operation === "document-save" ? "New draft calibration procedure." : "status: review",
+      );
+    },
+  );
+
   beforeEach(async () => {
     resetPluginBlobStoreForTests();
     configureMemoryWikiCompiledCacheStore(undefined);

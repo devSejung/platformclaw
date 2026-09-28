@@ -10,6 +10,7 @@ import {
   type OrganizationMemoryScopeKind,
   type OrganizationMemorySearchHit,
 } from "./contracts.js";
+import type { KnowledgeVaultCatalogEntry } from "./knowledge-vault-contracts.js";
 import { executeSync, runReadTransaction, takeFirstSync } from "./kysely-sync.js";
 import { ensureOrganizationMemorySchema } from "./sqlite-schema.js";
 import { SqliteControlPlaneSkillHubStore } from "./sqlite-store-skill-hub.js";
@@ -30,6 +31,13 @@ export type AuthorizedOrganizationMemoryScope = {
   name: string;
   parentScopeId?: string;
 };
+
+export function managedKnowledgeVaultId(scope: {
+  kind: OrganizationMemoryScopeKind;
+  id?: string;
+}): string {
+  return `managed:${scope.kind}${scope.id ? `:${scope.id}` : ""}`;
+}
 
 function normalizeQuery(query: string): string {
   const normalized = query.trim();
@@ -169,6 +177,39 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
     return [];
   }
 
+  listManagedKnowledgeVaults(userId: string): KnowledgeVaultCatalogEntry[] {
+    this.ensureOrganizationMemorySchema();
+    return this.authorizedScopesForUser(userId).map((scope) => {
+      const stats = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("organization_memory_pages")
+          .select(({ fn }) => [
+            fn.countAll<number>().as("count"),
+            fn.max("updated_at").as("updated_at"),
+          ])
+          .where("status", "=", "active")
+          .where("scope_kind", "=", scope.kind)
+          .where("scope_id", scope.id ? "=" : "is", scope.id ?? null),
+      )!;
+      return {
+        id: managedKnowledgeVaultId(scope),
+        name: scope.name,
+        type: "managed",
+        description: "",
+        role: "reader",
+        connected: false,
+        canEdit: false,
+        canManageMembers: false,
+        canExport: false,
+        createdAt: 0,
+        updatedAt: stats.updated_at ?? 0,
+        documentCount: stats.count,
+        attachmentCount: 0,
+      };
+    });
+  }
+
   protected organizationMemoryReferenceGraphEdges(_params: {
     kind: OrganizationMemoryGraphKind;
     visibleClaims: ReadonlyMap<string, number>;
@@ -183,6 +224,7 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
   ): OrganizationMemorySearchHit {
     return {
       id: row.id,
+      revision: row.revision,
       path: `organization/${row.scope_kind}/${row.id}`,
       scopeKind: row.scope_kind,
       ...(row.scope_id ? { scopeId: row.scope_id } : {}),
@@ -198,11 +240,21 @@ export abstract class SqliteControlPlaneOrganizationMemoryStore
     agentId: string;
     query: string;
     maxResults?: number;
+    vaultId?: string;
+    vaultIds?: readonly string[];
   }): Promise<OrganizationMemorySearchHit[]> {
     this.ensureOrganizationMemorySchema();
     return runReadTransaction(this.db, () => {
       const query = normalizeQuery(params.query);
-      const scopes = this.authorizedScopes(params.agentId);
+      const scopes = this.authorizedScopes(params.agentId).filter((scope) =>
+        params.vaultId !== undefined
+          ? managedKnowledgeVaultId(scope) === params.vaultId
+          : params.vaultIds === undefined ||
+            params.vaultIds.includes(managedKnowledgeVaultId(scope)),
+      );
+      if (scopes.length === 0) {
+        return [];
+      }
       const scopeByKey = new Map(scopes.map((scope) => [`${scope.kind}:${scope.id ?? ""}`, scope]));
       const pattern = likePattern(query);
       const rows = executeSync(

@@ -7,7 +7,7 @@ import {
   replaceManagedMarkdownBlock,
   withTrailingNewline,
 } from "openclaw/plugin-sdk/memory-host-markdown";
-import { root as fsRoot } from "openclaw/plugin-sdk/security-runtime";
+import { FsSafeError, root as fsRoot } from "openclaw/plugin-sdk/security-runtime";
 import {
   normalizeLowercaseStringOrEmpty,
   uniqueStrings,
@@ -30,16 +30,13 @@ import {
 } from "./claim-health.js";
 import {
   createMemoryWikiCompiledCachePublicationId,
+  readMemoryWikiCompileFailure,
+  recordMemoryWikiCompileFailure,
   resolveMemoryWikiCompiledCacheGeneration,
   writeMemoryWikiCompiledCache,
   type MemoryWikiCompiledCacheSnapshot,
 } from "./compiled-cache.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
-import {
-  createWikiLinkTargetIndex,
-  resolveWikiLinkTarget,
-  type WikiLinkTargetIndex,
-} from "./link-resolution.js";
 import {
   appendMemoryWikiLog,
   loadMemoryWikiValidatedVaultIdentity,
@@ -58,8 +55,6 @@ import {
   type WikiPageKind,
   type WikiPageSummary,
   type WikiRelationship,
-  WIKI_RELATED_END_MARKER,
-  WIKI_RELATED_START_MARKER,
 } from "./markdown.js";
 import { withMemoryWikiVaultMutation } from "./mutation-coordinator.js";
 import { readMemoryWikiSourceSyncState } from "./source-sync-state.js";
@@ -73,8 +68,6 @@ const COMPILE_PAGE_GROUPS: Array<{ kind: WikiPageKind; dir: string; heading: str
   { kind: "report", dir: "reports", heading: "Reports" },
 ];
 const READ_PAGE_SUMMARIES_CONCURRENCY = 16;
-const MAX_RELATED_PAGES_PER_SECTION = 12;
-const MAX_SHARED_SOURCE_FANOUT = 24;
 
 type DashboardPageDefinition = {
   id: string;
@@ -385,7 +378,13 @@ export type CompileMemoryWikiResult = {
 
 export type RefreshMemoryWikiIndexesResult = {
   refreshed: boolean;
-  reason: "auto-compile-disabled" | "no-import-changes" | "missing-indexes" | "import-changed";
+  reason:
+    | "auto-compile-disabled"
+    | "no-import-changes"
+    | "missing-indexes"
+    | "import-changed"
+    | "forced"
+    | "compile-failed";
   compile?: CompileMemoryWikiResult;
 };
 
@@ -398,8 +397,9 @@ async function collectMarkdownFiles(rootDir: string, relativeDir: string): Promi
     .toSorted((left, right) => left.localeCompare(right));
 }
 
-async function readPageSummaries(rootDir: string): Promise<{
+export async function scanMemoryWikiVaultPages(rootDir: string): Promise<{
   pages: WikiPageSummary[];
+  searchPages: Array<{ relativePath: string; raw: string }>;
   frontmatterErrors: WikiPageFrontmatterError[];
 }> {
   const filePaths = (
@@ -413,7 +413,7 @@ async function readPageSummaries(rootDir: string): Promise<{
         () => fs.readFile(absolutePath, "utf8"),
         `read wiki page ${absolutePath}`,
       );
-      return scanWikiPageSummary({ absolutePath, relativePath, raw });
+      return { ...scanWikiPageSummary({ absolutePath, relativePath, raw }), raw, relativePath };
     }),
     limit: READ_PAGE_SUMMARIES_CONCURRENCY,
     errorMode: "stop",
@@ -423,6 +423,21 @@ async function readPageSummaries(rootDir: string): Promise<{
   }
 
   return {
+    searchPages: readResult.results
+      .flatMap((result) =>
+        // Reports duplicate source content. Only compiler-owned reports are excluded;
+        // an authored document at a reserved report path remains searchable.
+        result.status === "valid" &&
+        !(
+          DASHBOARD_PAGES.some((page) => page.relativePath === result.relativePath) &&
+          result.raw.includes(
+            `<!-- openclaw:wiki:${path.basename(result.relativePath, ".md")}:start -->`,
+          )
+        )
+          ? [{ relativePath: result.relativePath, raw: result.raw }]
+          : [],
+      )
+      .toSorted((left, right) => left.relativePath.localeCompare(right.relativePath)),
     pages: readResult.results
       .flatMap((result) => (result.status === "valid" ? [result.page] : []))
       .toSorted((left, right) => left.title.localeCompare(right.title)),
@@ -699,198 +714,6 @@ function formatClaimContradictionClusterLine(
   return `- \`${cluster.label}\`: ${entries.join(" | ")}`;
 }
 
-function uniquePages(pages: WikiPageSummary[]): WikiPageSummary[] {
-  const seen = new Set<string>();
-  const unique: WikiPageSummary[] = [];
-  for (const page of pages) {
-    const key = page.id ?? page.relativePath;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    unique.push(page);
-  }
-  return unique;
-}
-
-function renderWikiPageLinks(params: {
-  config: ResolvedMemoryWikiConfig;
-  pages: WikiPageSummary[];
-  sourceRelativeTo?: string;
-}): string {
-  return params.pages
-    .map(
-      (page) =>
-        `- ${formatWikiLink({
-          renderMode: params.config.vault.renderMode,
-          relativePath: page.relativePath,
-          sourceRelativeTo: params.sourceRelativeTo,
-          title: page.title,
-        })}`,
-    )
-    .join("\n");
-}
-
-function sharedSourceFanout(
-  page: WikiPageSummary,
-  allPages: WikiPageSummary[],
-): Map<string, number> {
-  const sourceIds = new Set(page.sourceIds);
-  const counts = new Map<string, number>();
-  for (const candidate of allPages) {
-    if (candidate.relativePath === page.relativePath) {
-      continue;
-    }
-    for (const sourceId of candidate.sourceIds) {
-      if (!sourceIds.has(sourceId)) {
-        continue;
-      }
-      counts.set(sourceId, (counts.get(sourceId) ?? 0) + 1);
-    }
-  }
-  return counts;
-}
-
-function buildRelatedBlockBody(params: {
-  config: ResolvedMemoryWikiConfig;
-  page: WikiPageSummary;
-  allPages: WikiPageSummary[];
-  linkTargetIndex: WikiLinkTargetIndex;
-}): string {
-  const candidatePages = params.allPages.filter((candidate) => candidate.kind !== "report");
-  const sourceFanout = sharedSourceFanout(params.page, candidatePages);
-  const pagesById = new Map(
-    candidatePages.flatMap((candidate) =>
-      candidate.id ? [[candidate.id, candidate] as const] : [],
-    ),
-  );
-  const sourcePages = uniquePages(
-    params.page.sourceIds.flatMap((sourceId) => {
-      const page = pagesById.get(sourceId);
-      return page ? [page] : [];
-    }),
-  );
-  const backlinks = uniquePages(
-    candidatePages.filter((candidate) => {
-      if (candidate.relativePath === params.page.relativePath) {
-        return false;
-      }
-      if (candidate.sourceIds.includes(params.page.id ?? "")) {
-        return true;
-      }
-      return candidate.linkTargets.some((target) =>
-        resolveWikiLinkTarget(params.linkTargetIndex, target).some(
-          (match) => match.relativePath === params.page.relativePath,
-        ),
-      );
-    }),
-  );
-  const backlinkPages =
-    backlinks.length <= MAX_SHARED_SOURCE_FANOUT
-      ? backlinks.slice(0, MAX_RELATED_PAGES_PER_SECTION)
-      : [];
-  const relatedPages = uniquePages(
-    candidatePages.filter((candidate) => {
-      if (candidate.relativePath === params.page.relativePath) {
-        return false;
-      }
-      if (sourcePages.some((sourcePage) => sourcePage.relativePath === candidate.relativePath)) {
-        return false;
-      }
-      if (backlinkPages.some((backlink) => backlink.relativePath === candidate.relativePath)) {
-        return false;
-      }
-      if (params.page.sourceIds.length === 0 || candidate.sourceIds.length === 0) {
-        return false;
-      }
-      return params.page.sourceIds.some(
-        (sourceId) =>
-          candidate.sourceIds.includes(sourceId) &&
-          (sourceFanout.get(sourceId) ?? 0) <= MAX_SHARED_SOURCE_FANOUT,
-      );
-    }),
-  ).slice(0, MAX_RELATED_PAGES_PER_SECTION);
-
-  const sections: string[] = [];
-  if (sourcePages.length > 0) {
-    sections.push(
-      "### Sources",
-      renderWikiPageLinks({
-        config: params.config,
-        pages: sourcePages,
-        sourceRelativeTo: params.page.relativePath,
-      }),
-    );
-  }
-  if (backlinkPages.length > 0) {
-    sections.push(
-      "### Referenced By",
-      renderWikiPageLinks({
-        config: params.config,
-        pages: backlinkPages,
-        sourceRelativeTo: params.page.relativePath,
-      }),
-    );
-  }
-  if (relatedPages.length > 0) {
-    sections.push(
-      "### Related Pages",
-      renderWikiPageLinks({
-        config: params.config,
-        pages: relatedPages,
-        sourceRelativeTo: params.page.relativePath,
-      }),
-    );
-  }
-  if (sections.length === 0) {
-    return "- No related pages yet.";
-  }
-  return sections.join("\n\n");
-}
-
-async function refreshPageRelatedBlocks(params: {
-  config: ResolvedMemoryWikiConfig;
-  pages: WikiPageSummary[];
-}): Promise<string[]> {
-  if (!params.config.render.createBacklinks) {
-    return [];
-  }
-  const root = await fsRoot(params.config.vault.path);
-  const updatedFiles: string[] = [];
-  const linkTargetIndex = createWikiLinkTargetIndex(
-    params.pages.filter((candidate) => candidate.kind !== "report"),
-  );
-  for (const page of params.pages) {
-    if (page.kind === "report") {
-      continue;
-    }
-    const original = await root.readText(page.relativePath);
-    if (original.trim().length === 0) {
-      continue;
-    }
-    const updated = withTrailingNewline(
-      replaceManagedMarkdownBlock({
-        original,
-        heading: "## Related",
-        startMarker: WIKI_RELATED_START_MARKER,
-        endMarker: WIKI_RELATED_END_MARKER,
-        body: buildRelatedBlockBody({
-          config: params.config,
-          page,
-          allPages: params.pages,
-          linkTargetIndex,
-        }),
-      }),
-    );
-    if (updated === original) {
-      continue;
-    }
-    await root.write(page.relativePath, updated);
-    updatedFiles.push(page.absolutePath);
-  }
-  return updatedFiles;
-}
-
 function renderSectionList(params: {
   config: ResolvedMemoryWikiConfig;
   pages: WikiPageSummary[];
@@ -922,10 +745,25 @@ async function writeManagedMarkdownFile(params: {
   body: string;
 }): Promise<boolean> {
   const root = await fsRoot(params.rootDir);
-  const original = await root.readText(params.relativePath).catch(() => `# ${params.title}\n`);
+  let exists = false;
+  const original = await root
+    .readText(params.relativePath)
+    .then((raw) => {
+      exists = true;
+      return raw;
+    })
+    .catch((error: unknown) => {
+      if (error instanceof FsSafeError && error.code === "not-found") {
+        return `# ${params.title}\n`;
+      }
+      throw error;
+    });
   // Generated indexes bypass page discovery. Parse existing content here so
   // managed-block updates cannot rewrite malformed frontmatter.
   parseWikiMarkdown(original);
+  if (exists && !original.includes(params.startMarker)) {
+    return false;
+  }
   const updated = replaceManagedMarkdownBlock({
     original,
     heading: "## Generated",
@@ -950,24 +788,40 @@ async function writeDashboardPage(params: {
   now: Date;
 }): Promise<boolean> {
   const root = await fsRoot(params.rootDir);
-  const original = await root.readText(params.definition.relativePath).catch(() =>
-    renderWikiMarkdown({
-      frontmatter: {
-        pageType: "report",
-        id: params.definition.id,
-        title: params.definition.title,
-        status: "active",
-      },
-      body: `# ${params.definition.title}\n`,
-    }),
-  );
+  let exists = false;
+  const original = await root
+    .readText(params.definition.relativePath)
+    .then((raw) => {
+      exists = true;
+      return raw;
+    })
+    .catch((error: unknown) => {
+      if (!(error instanceof FsSafeError && error.code === "not-found")) {
+        throw error;
+      }
+      return renderWikiMarkdown({
+        frontmatter: {
+          pageType: "report",
+          id: params.definition.id,
+          title: params.definition.title,
+          status: "active",
+        },
+        body: `# ${params.definition.title}\n`,
+      });
+    });
   const parsed = parseWikiMarkdown(original);
+  const startMarker = `<!-- openclaw:wiki:${path.basename(params.definition.relativePath, ".md")}:start -->`;
+  // Reserved navigation paths can contain user-authored pages. Only an existing
+  // compiler marker grants ownership of their generated content.
+  if (exists && !original.includes(startMarker)) {
+    return false;
+  }
   const originalBody =
     parsed.body.trim().length > 0 ? parsed.body : `# ${params.definition.title}\n`;
   const updatedBody = replaceManagedMarkdownBlock({
     original: originalBody,
     heading: "## Generated",
-    startMarker: `<!-- openclaw:wiki:${path.basename(params.definition.relativePath, ".md")}:start -->`,
+    startMarker,
     endMarker: `<!-- openclaw:wiki:${path.basename(params.definition.relativePath, ".md")}:end -->`,
     body: params.definition.buildBody({
       config: params.config,
@@ -1131,6 +985,7 @@ function sortClaims(page: WikiPageSummary): WikiClaim[] {
 
 function buildCompiledCacheSnapshot(
   pagesInput: WikiPageSummary[],
+  searchPages: Array<{ relativePath: string; raw: string }>,
 ): MemoryWikiCompiledCacheSnapshot {
   const pages = [...pagesInput]
     .toSorted((left, right) => left.relativePath.localeCompare(right.relativePath))
@@ -1215,6 +1070,7 @@ function buildCompiledCacheSnapshot(
         left.pagePath.localeCompare(right.pagePath) || left.text.localeCompare(right.text),
     );
   return {
+    searchPages,
     digest: {
       claimCount: claims.length,
       contradictionCount:
@@ -1263,16 +1119,16 @@ async function compileMemoryWikiVaultUnlocked(
       .filter((entry) => !entry.deleted)
       .map((entry) => entry.pagePath.split(path.sep).join("/")),
   );
-  let scan = await readPageSummaries(rootDir);
-  let pages = scan.pages;
-  const updatedFiles =
-    options?.sourcePageWrites === "preserve"
-      ? []
-      : await refreshPageRelatedBlocks({ config, pages });
-  if (updatedFiles.length > 0) {
-    scan = await readPageSummaries(rootDir);
-    pages = scan.pages;
+  let scan = await scanMemoryWikiVaultPages(rootDir);
+  if (scan.frontmatterErrors.length > 0) {
+    throw new Error(
+      `Wiki compile failed: ${scan.frontmatterErrors.map((entry) => `${entry.relativePath}: ${entry.message}`).join("; ")}`,
+    );
   }
+  let pages = scan.pages;
+  // Compilation owns derived artifacts only. Authored Markdown stays byte-for-byte
+  // intact; links and backlinks remain in the compiled snapshot and graph.
+  const updatedFiles: string[] = [];
   const dashboardUpdatedFiles = await refreshDashboardPages({
     config,
     managedImportedSourcePagePaths,
@@ -1281,11 +1137,11 @@ async function compileMemoryWikiVaultUnlocked(
   });
   updatedFiles.push(...dashboardUpdatedFiles);
   if (dashboardUpdatedFiles.length > 0) {
-    scan = await readPageSummaries(rootDir);
+    scan = await scanMemoryWikiVaultPages(rootDir);
     pages = scan.pages;
   }
   const counts = buildPageCounts(pages);
-  const compiledSnapshot = buildCompiledCacheSnapshot(pages);
+  const compiledSnapshot = buildCompiledCacheSnapshot(pages, scan.searchPages);
   const compiledCacheGeneration = resolveMemoryWikiCompiledCacheGeneration(compiledSnapshot);
   const compiledCachePublicationId = createMemoryWikiCompiledCachePublicationId();
   let compiledCacheSourceGeneration: string | undefined;
@@ -1340,9 +1196,9 @@ async function compileMemoryWikiVaultUnlocked(
         throw new Error("Memory Wiki vault changed while its compiled cache was being built.");
       }
       const sourceGenerationBeforeScan = await resolveMemoryWikiVaultSourceGeneration(rootDir);
-      const verifiedScan = await readPageSummaries(rootDir);
+      const verifiedScan = await scanMemoryWikiVaultPages(rootDir);
       const verifiedGeneration = resolveMemoryWikiCompiledCacheGeneration(
-        buildCompiledCacheSnapshot(verifiedScan.pages),
+        buildCompiledCacheSnapshot(verifiedScan.pages, verifiedScan.searchPages),
       );
       const sourceGenerationAfterScan = await resolveMemoryWikiVaultSourceGeneration(rootDir);
       if (
@@ -1402,9 +1258,16 @@ export async function compileMemoryWikiVault(
   config: ResolvedMemoryWikiConfig,
   options?: { sourcePageWrites?: "update" | "preserve" },
 ): Promise<CompileMemoryWikiResult> {
-  return await withMemoryWikiVaultMutation(config.vault.path, () =>
-    compileMemoryWikiVaultUnlocked(config, options),
-  );
+  return await withMemoryWikiVaultMutation(config.vault.path, async () => {
+    try {
+      const result = await compileMemoryWikiVaultUnlocked(config, options);
+      await recordMemoryWikiCompileFailure(config, null);
+      return result;
+    } catch (error) {
+      await recordMemoryWikiCompileFailure(config, error);
+      throw error;
+    }
+  });
 }
 
 async function hasMissingWikiIndexes(rootDir: string): Promise<boolean> {
@@ -1427,6 +1290,7 @@ async function hasMissingWikiIndexes(rootDir: string): Promise<boolean> {
 export async function refreshMemoryWikiIndexesAfterImport(params: {
   config: ResolvedMemoryWikiConfig;
   syncResult: { importedCount: number; updatedCount: number; removedCount: number };
+  forceCompile?: boolean;
 }): Promise<RefreshMemoryWikiIndexesResult> {
   await initializeMemoryWikiVault(params.config);
   if (!params.config.ingest.autoCompile) {
@@ -1440,17 +1304,32 @@ export async function refreshMemoryWikiIndexesAfterImport(params: {
     params.syncResult.updatedCount > 0 ||
     params.syncResult.removedCount > 0;
   const missingIndexes = await hasMissingWikiIndexes(params.config.vault.path);
-  if (!importChanged && !missingIndexes) {
+  const failure = await readMemoryWikiCompileFailure(params.config);
+  const retryDue = failure && failure.nextRetryAt <= Date.now();
+  if (!params.forceCompile && !importChanged && failure && !retryDue) {
+    return { refreshed: false, reason: "compile-failed" };
+  }
+  if (!params.forceCompile && !importChanged && !missingIndexes && !retryDue) {
     return {
       refreshed: false,
       reason: "no-import-changes",
     };
   }
-  const compile = await compileMemoryWikiVault(params.config);
-  return {
-    refreshed: true,
-    reason: missingIndexes && !importChanged ? "missing-indexes" : "import-changed",
-    compile,
-  };
+  try {
+    const compile = await compileMemoryWikiVault(params.config);
+    return {
+      refreshed: true,
+      reason: params.forceCompile
+        ? "forced"
+        : missingIndexes && !importChanged
+          ? "missing-indexes"
+          : "import-changed",
+      compile,
+    };
+  } catch {
+    // Compilation records its own failure. Source sync remains observable even
+    // before the first index exists; search reports that unavailable index.
+    return { refreshed: false, reason: "compile-failed" };
+  }
 }
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

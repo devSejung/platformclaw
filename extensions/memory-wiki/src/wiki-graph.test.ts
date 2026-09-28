@@ -171,13 +171,13 @@ describe("listMemoryWikiGraph", () => {
     });
   });
 
-  it("caps nodes at 500 and reports omitted documents as truncated", async () => {
+  it.each([494, 495, 501])("reports the node cap accurately for %i documents", async (count) => {
     const { rootDir, config } = await createVault({
       prefix: "memory-wiki-graph-node-cap-",
       initialize: true,
     });
     await Promise.all(
-      Array.from({ length: 501 }, (_, index) =>
+      Array.from({ length: count }, (_, index) =>
         writePage({
           rootDir,
           relativePath: `concepts/page-${index.toString().padStart(3, "0")}.md`,
@@ -193,9 +193,9 @@ describe("listMemoryWikiGraph", () => {
     expect(documents.at(0)?.id).toBe("concepts/page-000.md");
     expect(documents.at(-1)?.id).toBe("concepts/page-493.md");
     expect(graph.stats).toMatchObject({
-      totalPages: 507,
+      totalPages: count + 6,
       totalNodes: 500,
-      truncated: true,
+      truncated: count > 494,
     });
   });
 

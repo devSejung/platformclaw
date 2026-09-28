@@ -135,6 +135,7 @@ describe("MemoryPromotionSourcePickerElement", () => {
     await waitForFast(() => expect(element.textContent).toContain("Recovery"));
     expect(request).toHaveBeenCalledWith("wiki.search", {
       agentId: "personal-agent",
+      vaultId: "personal:personal-agent",
       query: "recovery",
       maxResults: 20,
     });

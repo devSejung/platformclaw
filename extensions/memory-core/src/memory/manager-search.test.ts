@@ -7,7 +7,7 @@ import {
   requireNodeSqlite,
 } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
 import { describe, expect, it, vi } from "vitest";
-import { bm25RankToScore, buildFtsQuery } from "./hybrid.js";
+import { bm25RankToScore, buildFtsQuery, mergeHybridResults } from "./hybrid.js";
 import { searchKeyword, searchPathKeyword, searchVector } from "./manager-search.js";
 import { vectorToBlob } from "./vector-blob.js";
 
@@ -129,6 +129,37 @@ function createMemorySearchDb(options: { ftsTokenizer?: "unicode61" | "trigram" 
 }
 
 describe("memory search provenance", () => {
+  it("captures source versions with SQL hits and retains them across reindex and hybrid merge", async () => {
+    const { db } = createMemorySearchDb();
+    try {
+      insertKeywordFixture(db, {
+        id: "versioned",
+        path: "memory/version.md",
+        text: "version needle",
+        model: "target-model",
+      });
+      db.prepare("UPDATE memory_index_chunks SET embedding = ?").run(JSON.stringify([1, 0]));
+      const keyword = await searchKeywordFixture(db, "needle");
+      const pathHits = await searchPathKeywordFixture(db, "version");
+      const vector = await searchVectorFixture(db);
+      const version = "memory/version.md:memory:hash";
+      expect(keyword[0]?.sourceVersion).toBe(version);
+      expect(pathHits[0]?.sourceVersion).toBe(version);
+      expect(vector[0]?.sourceVersion).toBe(version);
+      // Publishing a newer source before async ranking must not relabel old hits.
+      db.prepare("UPDATE memory_index_sources SET hash = 'newer-source'").run();
+      const merged = await mergeHybridResults({
+        keyword,
+        vector: vector.map((hit) => Object.assign({}, hit, { vectorScore: hit.score })),
+        vectorWeight: 0.5,
+        textWeight: 0.5,
+      });
+      expect(merged).toMatchObject([{ sourceVersion: version, snippet: "version needle" }]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("returns SQLite-owned provenance with keyword hits", async () => {
     const { db } = createMemorySearchDb();
     try {

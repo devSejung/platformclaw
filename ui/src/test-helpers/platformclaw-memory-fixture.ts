@@ -1,4 +1,4 @@
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Browser, BrowserContext, BrowserContextOptions, Page } from "playwright";
 import type { ThemeName } from "../app/theme.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import { controlUiBundledGatewayUrl, type ControlUiMockGatewayScenario } from "./control-ui-e2e.ts";
@@ -435,6 +435,7 @@ export async function createPlatformClawMemoryContext(
     locale: string;
     mode: "dark" | "light";
     theme?: ThemeName;
+    recordVideo?: BrowserContextOptions["recordVideo"];
     viewport: { height: number; width: number };
   },
 ): Promise<BrowserContext> {
@@ -447,6 +448,7 @@ export async function createPlatformClawMemoryContext(
     locale: params.locale,
     serviceWorkers: "block",
     viewport: params.viewport,
+    ...(params.recordVideo ? { recordVideo: params.recordVideo } : {}),
   });
   const theme = params.theme ?? "platformclaw";
   await context.addInitScript(

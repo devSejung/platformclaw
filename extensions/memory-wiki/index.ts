@@ -1,8 +1,10 @@
 // Memory Wiki plugin entrypoint registers its OpenClaw integration.
 import fs from "node:fs/promises";
 import path from "node:path";
+import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { definePluginEntry, type OpenClawConfig } from "./api.js";
 import { registerWikiCli } from "./src/cli.js";
+import { compileMemoryWikiVault } from "./src/compile.js";
 import {
   activateMemoryWikiCompiledCacheOwner,
   configureMemoryWikiCompiledCacheStore,
@@ -10,6 +12,7 @@ import {
   deactivateMemoryWikiCompiledCacheOwnersExcept,
   reconcileMemoryWikiCompiledCacheOwner,
   resolveMemoryWikiCompiledCacheOwnerId,
+  readMemoryWikiCompileFailure,
 } from "./src/compiled-cache.js";
 import {
   memoryWikiConfigSchema,
@@ -27,6 +30,7 @@ import {
 import {
   ensureMemoryWikiVaultGeneration,
   loadMemoryWikiValidatedVaultIdentity,
+  loadMemoryWikiVaultIdentity,
 } from "./src/log.js";
 import {
   createWikiPromptSectionBuilder,
@@ -48,7 +52,7 @@ async function loadConfiguredVaultIdentity(vaultRoot: string): Promise<{
   vaultGeneration: string;
   compiledCachePublicationId: string | null;
 } | null> {
-  const identity = await loadMemoryWikiValidatedVaultIdentity(vaultRoot);
+  const identity = await loadMemoryWikiVaultIdentity(vaultRoot);
   if (identity.vaultGeneration) {
     return {
       vaultGeneration: identity.vaultGeneration,
@@ -105,7 +109,7 @@ export default definePluginEntry({
     );
     const compiledCacheStore = createMemoryWikiCompiledCacheStore(api.runtime.state.openBlobStore, {
       onReadError(error) {
-        api.logger.warn(`memory-wiki: compiled cache unavailable: ${String(error)}`);
+        api.logger.warn(`memory-wiki: compiled cache unavailable: ${formatErrorMessage(error)}`);
       },
     });
     configureMemoryWikiCompiledCacheStore(compiledCacheStore);
@@ -157,6 +161,50 @@ export default definePluginEntry({
       },
     });
 
+    let compileRetryTimer: ReturnType<typeof setInterval> | undefined;
+    let compileRetryTask: Promise<void> | undefined;
+    api.registerService({
+      id: "memory-wiki-compile-retry",
+      start() {
+        compileRetryTimer = setInterval(() => {
+          if (compileRetryTask) {
+            return;
+          }
+          compileRetryTask = (async () => {
+            const appConfig = getAppConfig();
+            const configs =
+              config.vault.scope === "global"
+                ? [resolveConfig(undefined, appConfig)]
+                : resolveMemoryWikiConfiguredAgentIds(appConfig).map((agentId) =>
+                    resolveConfig(agentId, appConfig),
+                  );
+            for (const current of configs) {
+              const failure = await readMemoryWikiCompileFailure(current);
+              if (failure && failure.nextRetryAt <= Date.now()) {
+                await compileMemoryWikiVault(current).catch((error: unknown) =>
+                  api.logger.warn(`memory-wiki: rebuild failed: ${formatErrorMessage(error)}`),
+                );
+              }
+            }
+          })()
+            .catch((error: unknown) =>
+              api.logger.warn(
+                `memory-wiki: rebuild retry unavailable: ${formatErrorMessage(error)}`,
+              ),
+            )
+            .finally(() => {
+              compileRetryTask = undefined;
+            });
+        }, 30_000);
+        compileRetryTimer.unref();
+      },
+      async stop() {
+        clearInterval(compileRetryTimer);
+        compileRetryTimer = undefined;
+        await compileRetryTask;
+      },
+    });
+
     api.registerMemoryPromptSupplement(createWikiPromptSectionBuilder());
     api.registerMemoryPromptPreparation(createWikiPromptSectionPreparer({ config, resolveConfig }));
     api.registerMemoryCorpusSupplement(createWikiCorpusSupplement({ resolveConfig, getAppConfig }));
@@ -199,6 +247,7 @@ export default definePluginEntry({
           return null;
         }
         return createWikiSearchTool(resolved.config, resolved.appConfig, {
+          runId: ctx.runId,
           agentId: resolved.config.agentId ?? ctx.agentId,
           agentSessionKey: ctx.sessionKey,
           sandboxed: ctx.sandboxed,

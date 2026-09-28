@@ -16,6 +16,8 @@ import {
   resolveMemoryDreamingPluginConfig,
   resolveMemorySearchConfig,
   type MemoryCorpusSearchResult,
+  type MemoryCorpusSupplementFailure,
+  formatMemoryCorpusSupplementFailure,
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import type {
@@ -28,6 +30,7 @@ import {
 } from "openclaw/plugin-sdk/memory-core-host-status";
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import type { PluginStateLeaseRunner } from "openclaw/plugin-sdk/plugin-state-runtime";
+import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { asRecord } from "./dreaming-shared.js";
 import type { MemoryCoreAcquireLocalService } from "./memory/embedding-local-service.js";
 import {
@@ -40,6 +43,7 @@ import {
 } from "./memory/search-deadline.js";
 import { filterMemorySearchHitsBySessionVisibility } from "./session-search-visibility.js";
 import { recordShortTermRecalls } from "./short-term-promotion.js";
+import { MEMORY_SEARCH_DESCRIPTION, MEMORY_GET_DESCRIPTION } from "./tool-contract.js";
 import {
   clampResultsByInjectedChars,
   decorateCitations,
@@ -369,6 +373,7 @@ async function getSupplementMemoryReadResult(params: {
   agentSessionKey?: string;
   sandboxed?: boolean;
   corpus?: "memory" | "wiki" | "all";
+  onSupplementStatus?: Parameters<typeof getMemoryCorpusSupplementResult>[0]["onSupplementStatus"];
 }) {
   const supplement = await getMemoryCorpusSupplementResult({
     lookup: params.relPath,
@@ -378,6 +383,8 @@ async function getSupplementMemoryReadResult(params: {
     agentSessionKey: params.agentSessionKey,
     sandboxed: params.sandboxed,
     corpus: params.corpus,
+    failurePolicy: "continue",
+    onSupplementStatus: params.onSupplementStatus,
   });
   if (!supplement) {
     return null;
@@ -389,85 +396,8 @@ async function getSupplementMemoryReadResult(params: {
   };
 }
 
-async function resolveMemoryReadFailureResult(params: {
-  error: unknown;
-  requestedCorpus?: "memory" | "wiki" | "all";
-  relPath: string;
-  from?: number;
-  lines?: number;
-  agentId?: string;
-  agentSessionKey?: string;
-  sandboxed?: boolean;
-}) {
-  if (params.requestedCorpus === "all") {
-    try {
-      const supplement = await getSupplementMemoryReadResult({
-        relPath: params.relPath,
-        from: params.from,
-        lines: params.lines,
-        agentId: params.agentId,
-        agentSessionKey: params.agentSessionKey,
-        sandboxed: params.sandboxed,
-        corpus: params.requestedCorpus,
-      });
-      if (supplement) {
-        return jsonResult(supplement);
-      }
-    } catch {
-      // Supplement lookup is best-effort after the primary memory read failed.
-      // Preserve the original structured error instead of rejecting the tool call.
-    }
-  }
-  const message = formatErrorMessage(params.error);
-  return jsonResult({ path: params.relPath, text: "", disabled: true, error: message });
-}
-
-function isMissingMemoryReadResult(result: MemoryReadResult, relPath: string): boolean {
-  return result.path === relPath && result.text === "" && result.from === undefined;
-}
-
-async function executeMemoryReadResult(params: {
-  read: () => Promise<MemoryReadResult>;
-  requestedCorpus?: "memory" | "wiki" | "all";
-  relPath: string;
-  from?: number;
-  lines?: number;
-  agentId?: string;
-  agentSessionKey?: string;
-  sandboxed?: boolean;
-}) {
-  try {
-    const result = await params.read();
-    if (params.requestedCorpus === "all" && isMissingMemoryReadResult(result, params.relPath)) {
-      const supplement = await getSupplementMemoryReadResult({
-        relPath: params.relPath,
-        from: params.from,
-        lines: params.lines,
-        agentId: params.agentId,
-        agentSessionKey: params.agentSessionKey,
-        sandboxed: params.sandboxed,
-        corpus: params.requestedCorpus,
-      });
-      if (supplement) {
-        return jsonResult(supplement);
-      }
-    }
-    return jsonResult(result);
-  } catch (error) {
-    return await resolveMemoryReadFailureResult({
-      error,
-      requestedCorpus: params.requestedCorpus,
-      relPath: params.relPath,
-      from: params.from,
-      lines: params.lines,
-      agentId: params.agentId,
-      agentSessionKey: params.agentSessionKey,
-      sandboxed: params.sandboxed,
-    });
-  }
-}
-
 export function createMemorySearchTool(options: {
+  runId?: string;
   config?: OpenClawConfig;
   getConfig?: () => OpenClawConfig | undefined;
   agentId?: string;
@@ -483,8 +413,7 @@ export function createMemorySearchTool(options: {
     options,
     label: "Memory Search",
     name: "memory_search",
-    description:
-      "Mandatory recall step: semantically search MEMORY.md + memory/*.md (and optional session transcripts) before answering questions about prior work, decisions, dates, people, preferences, or todos. Optional `corpus=wiki` or `corpus=all` also searches registered compiled-wiki supplements. `corpus=memory` restricts hits to indexed memory files (excludes session transcript chunks from ranking). `corpus=sessions` restricts hits to indexed session transcripts (same visibility rules as session history tools). If response has disabled=true or stale=true, you must tell the user and include the warning/action guidance.",
+    description: MEMORY_SEARCH_DESCRIPTION,
     parameters: MemorySearchSchema,
     execute:
       ({ cfg, agentId }) =>
@@ -494,7 +423,16 @@ export function createMemorySearchTool(options: {
           throw resolveMemorySearchAbortError(callerSignal);
         }
         const query = readStringParam(rawParams, "query", { required: true });
-        const maxResults = readPositiveIntegerParam(rawParams, "maxResults");
+        const vaultId = readStringParam(rawParams, "vaultId");
+        const vaultName = readStringParam(rawParams, "vaultName");
+        if (vaultId && vaultName) {
+          return jsonResult({
+            results: [],
+            error: "Choose only vaultId or vaultName.",
+            action: "Use the explicitly selected ID or exact Shared/Managed name, never both.",
+          });
+        }
+        const maxResults = Math.min(50, readPositiveIntegerParam(rawParams, "maxResults") ?? 10);
         const minScore = readFiniteNumberParam(rawParams, "minScore");
         const modelRequestedCorpus = readCorpusParam(rawParams, [
           "memory",
@@ -510,7 +448,9 @@ export function createMemorySearchTool(options: {
           agentSessionKey: options.agentSessionKey,
         });
         const cooldown =
-          requestedCorpus === "wiki" ? undefined : readMemorySearchToolCooldown(cooldownKey);
+          requestedCorpus === "wiki" || vaultName || (vaultId && vaultId !== `personal:${agentId}`)
+            ? undefined
+            : readMemorySearchToolCooldown(cooldownKey);
         let activeUnavailablePhase: "memory" | "supplement" | undefined;
         let failedUnavailablePhase: "memory" | "supplement" | undefined;
         const runUnavailablePhase = async <T>(
@@ -550,11 +490,16 @@ export function createMemorySearchTool(options: {
               ({ supplement }) =>
                 requestedCorpus !== undefined || supplement.includeByDefault === true,
             );
-          const shouldQueryMemory = requestedCorpus !== "wiki" && !cooldown;
+          const shouldQueryMemory =
+            requestedCorpus !== "wiki" &&
+            !cooldown &&
+            !vaultName &&
+            (!vaultId || vaultId === `personal:${agentId}`);
           const supplementWarnings: string[] = [];
           const supplementStatus: Array<{
             pluginId: string;
             status: "ok" | "empty" | "unavailable" | "failed";
+            failure?: MemoryCorpusSupplementFailure;
           }> = [];
           const recordMemoryFailure = (status: "unavailable" | "failed") => {
             if (supplementStatus.some((entry) => entry.pluginId === "memory-core")) {
@@ -831,6 +776,11 @@ export function createMemorySearchTool(options: {
                 surfacedMemoryResults = memoryResults.map((result) => ({
                   ...result,
                   corpus: result.source,
+                  vaultId: `personal:${agentId}`,
+                  vaultName: "Personal",
+                  vaultType: "personal" as const,
+                  documentId: `${result.source}:${result.path}`,
+                  title: result.path.split("/").at(-1) ?? result.path,
                 }));
                 if (dreamingEnabled) {
                   queueShortTermRecallTracking({
@@ -884,20 +834,29 @@ export function createMemorySearchTool(options: {
                       async () =>
                         await searchMemoryCorpusSupplements({
                           query,
+                          runId: options.runId,
+                          ...(vaultId ? { vaultId } : {}),
+                          ...(vaultName ? { vaultName } : {}),
                           maxResults,
                           agentId,
                           agentSessionKey: options.agentSessionKey,
                           sandboxed: options.sandboxed,
                           corpus: requestedCorpus,
-                          onSupplementStatus: (pluginId, status) => {
-                            supplementStatus.push({ pluginId, status });
+                          onSupplementStatus: (pluginId, status, failure) => {
+                            supplementStatus.push({
+                              pluginId,
+                              status,
+                              ...(failure ? { failure } : {}),
+                            });
                             if (status === "unavailable" || status === "failed") {
                               supplementWarnings.push(
-                                `Memory corpus from plugin "${pluginId}" is ${
-                                  status === "unavailable"
-                                    ? "not configured"
-                                    : "temporarily unavailable"
-                                }.`,
+                                failure
+                                  ? formatMemoryCorpusSupplementFailure(failure)
+                                  : `Memory corpus from plugin "${pluginId}" is ${
+                                      status === "unavailable"
+                                        ? "not configured"
+                                        : "temporarily unavailable"
+                                    }.`,
                               );
                             }
                           },
@@ -913,7 +872,23 @@ export function createMemorySearchTool(options: {
               supplementResults,
               maxResults: effectiveMax,
               balanceCorpora: requestedCorpus == null || requestedCorpus === "all",
-            });
+            }).map((result) =>
+              Object.assign(
+                {},
+                result,
+                { snippet: truncateUtf16Safe(result.snippet, 1_200) },
+                "indexError" in result && result.indexError
+                  ? { indexError: truncateUtf16Safe(result.indexError, 500) }
+                  : {},
+              ),
+            );
+            for (const result of results) {
+              if ("indexStatus" in result && result.indexStatus === "failed") {
+                supplementWarnings.push(
+                  `${result.vaultName ?? "Knowledge vault"} uses its last successful index: ${result.indexError ?? "compile failed"}. Automatic retry is scheduled; correct the source and use Rebuild in that vault's UI.`,
+                );
+              }
+            }
             if (searchDebug) {
               const finalToolMs = Math.max(0, Date.now() - toolStartedAt);
               searchDebug = {
@@ -976,8 +951,7 @@ export function createMemoryGetTool(options: {
     options,
     label: "Memory Get",
     name: "memory_get",
-    description:
-      "Safe exact excerpt read from MEMORY.md or memory/*.md. Defaults to a bounded excerpt when lines are omitted, includes truncation/continuation info when more content exists, and `corpus=wiki` reads from registered compiled-wiki supplements.",
+    description: MEMORY_GET_DESCRIPTION,
     parameters: MemoryGetSchema,
     execute:
       ({ cfg, agentId }) =>
@@ -988,8 +962,27 @@ export function createMemoryGetTool(options: {
         const lines = readPositiveIntegerParam(rawParams, "lines");
         const requestedCorpus = readCorpusParam(rawParams, ["memory", "wiki", "all"]);
         const { readAgentMemoryFile, resolveMemoryBackendConfig } = await loadMemoryToolRuntime();
-        if (requestedCorpus === "wiki") {
-          const supplement = await getSupplementMemoryReadResult({
+        const failures: Array<{
+          pluginId: string;
+          status: string;
+          failure?: MemoryCorpusSupplementFailure;
+        }> = [];
+        const respond = (value: object) =>
+          jsonResult({
+            ...value,
+            ...(failures.length
+              ? {
+                  corpusStatus: failures,
+                  warnings: failures.map(({ pluginId, failure }) =>
+                    failure
+                      ? formatMemoryCorpusSupplementFailure(failure)
+                      : `Knowledge source ${pluginId} is unavailable. Retry or check its configuration.`,
+                  ),
+                }
+              : {}),
+          });
+        const trySupplement = async () =>
+          await getSupplementMemoryReadResult({
             relPath,
             from: from ?? undefined,
             lines: lines ?? undefined,
@@ -997,35 +990,71 @@ export function createMemoryGetTool(options: {
             agentSessionKey: options.agentSessionKey,
             sandboxed: options.sandboxed,
             corpus: requestedCorpus,
+            onSupplementStatus: (pluginId, status, failure) => {
+              if (status === "failed" || status === "unavailable") {
+                failures.push({ pluginId, status, ...(failure ? { failure } : {}) });
+              }
+            },
           });
-          return jsonResult(
-            supplement ?? {
+        // Default exact reads ask document owners first, independent of Personal backend health.
+        // Explicit corpus=all retains its existing Personal-file precedence, including empty ranges.
+        if (requestedCorpus == null || requestedCorpus === "wiki") {
+          const supplement = await trySupplement();
+          if (supplement) {
+            return respond(supplement);
+          }
+          if (requestedCorpus === "wiki" || failures.some(({ failure }) => failure)) {
+            return respond({
               path: relPath,
               text: "",
               disabled: true,
-              error: "wiki corpus result not found",
-            },
-          );
+              error: failures.some(({ failure }) => failure)
+                ? "The document owner could not provide this path. Follow the reported action."
+                : "wiki corpus result not found",
+            });
+          }
         }
+        const read = async (task: () => Promise<MemoryReadResult>) => {
+          try {
+            const result = await task();
+            if (
+              requestedCorpus === "all" &&
+              result.path === relPath &&
+              result.text === "" &&
+              result.from === undefined
+            ) {
+              const supplement = await trySupplement();
+              if (supplement) {
+                return respond(supplement);
+              }
+            }
+            return respond(result);
+          } catch (error) {
+            if (requestedCorpus === "all") {
+              const supplement = await trySupplement();
+              if (supplement) {
+                return respond(supplement);
+              }
+            }
+            return respond({
+              path: relPath,
+              text: "",
+              disabled: true,
+              error: formatErrorMessage(error),
+            });
+          }
+        };
         const resolved = resolveMemoryBackendConfig({ cfg, agentId });
         if (resolved.backend === "builtin") {
-          return await executeMemoryReadResult({
-            read: async () =>
-              await readAgentMemoryFile({
-                cfg,
-                agentId,
-                relPath,
-                from: from ?? undefined,
-                lines: lines ?? undefined,
-              }),
-            requestedCorpus,
-            relPath,
-            from: from ?? undefined,
-            lines: lines ?? undefined,
-            agentId,
-            agentSessionKey: options.agentSessionKey,
-            sandboxed: options.sandboxed,
-          });
+          return await read(() =>
+            readAgentMemoryFile({
+              cfg,
+              agentId,
+              relPath,
+              from: from ?? undefined,
+              lines: lines ?? undefined,
+            }),
+          );
         }
         const memory = await getMemoryManagerContextWithPurpose({
           cfg,
@@ -1035,23 +1064,11 @@ export function createMemoryGetTool(options: {
           withLease: options.withLease,
         });
         if ("error" in memory) {
-          return jsonResult({ path: relPath, text: "", disabled: true, error: memory.error });
+          return respond({ path: relPath, text: "", disabled: true, error: memory.error });
         }
-        return await executeMemoryReadResult({
-          read: async () =>
-            await memory.manager.readFile({
-              relPath,
-              from: from ?? undefined,
-              lines: lines ?? undefined,
-            }),
-          requestedCorpus,
-          relPath,
-          from: from ?? undefined,
-          lines: lines ?? undefined,
-          agentId,
-          agentSessionKey: options.agentSessionKey,
-          sandboxed: options.sandboxed,
-        });
+        return await read(() =>
+          memory.manager.readFile({ relPath, from: from ?? undefined, lines: lines ?? undefined }),
+        );
       },
   });
 }

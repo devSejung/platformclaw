@@ -73,10 +73,19 @@ export type SearchResult = Omit<MemorySearchResponse["results"][number], "source
   title?: string;
   kind?: string;
   provenanceLabel?: string;
+  vaultId?: string;
+  vaultName?: string;
+  vaultType?: "personal" | "shared" | "managed";
+  documentId?: string;
+  revision?: string | number;
+  indexStatus?: "failed";
+  indexError?: string;
+  nextRetryAt?: number;
 };
 export type BrowserMemorySearchResponse = Omit<MemorySearchResponse, "results"> & {
   results: SearchResult[];
   organizationMemoryUnavailable?: boolean;
+  sharedVaultUnavailable?: boolean;
   personalWikiUnavailable?: boolean;
   personalMemoryUnavailable?: boolean;
   personalMemoryMethodUnavailable?: boolean;
@@ -87,7 +96,7 @@ export type SearchState =
   | { kind: "loading"; query: string }
   | ({ kind: "ready"; query: string } & BrowserMemorySearchResponse)
   | { kind: "error"; query: string; message: string };
-export type MemorySourceFilter = "all" | "memory" | "wiki" | "organization" | "sessions";
+export type MemorySourceFilter = "all" | "memory" | "wiki" | "organization" | "shared" | "sessions";
 export type DetailState =
   | { kind: "loading" }
   | { kind: "ready"; content: string }
@@ -109,6 +118,9 @@ export function resultKey(result: SearchResult, index: number): string {
 }
 
 export function isExpandableResult(result: SearchResult): boolean {
+  if (result.vaultType === "shared") {
+    return Boolean(result.vaultId && result.documentId);
+  }
   const normalizedPath = result.path.replaceAll("\\", "/");
   const safeRelativePath =
     !normalizedPath.startsWith("/") &&
@@ -323,6 +335,7 @@ function renderMemorySearchResults(options: {
     count: String(visible.length),
   });
   const sourceNotices = [
+    ready.sharedVaultUnavailable ? text("platformClaw.vault.searchUnavailable") : null,
     ready.personalMemoryUnavailable
       ? text("memoryPage.memories.personalUnavailable")
       : ready.personalMemoryMethodUnavailable
@@ -356,6 +369,7 @@ function renderMemorySearchResults(options: {
                 ["memory", text("memoryPage.memories.sourceMemory")],
                 ["wiki", text("memoryPage.memories.sourceWiki")],
                 ["organization", text("memoryPage.memories.sourceOrganizationFilter")],
+                ["shared", text("platformClaw.vault.shared")],
                 ["sessions", text("memoryPage.memories.sourceSessions")],
               ] as const
             ).flatMap(([value, label]) => {
@@ -401,10 +415,26 @@ function renderMemorySearchResults(options: {
             const summary = html`
               <span class="settings-row__text">
                 <span class="settings-row__title">${result.title ?? result.snippet}</span>
+                ${result.vaultId
+                  ? html`<span class="settings-row__desc" data-vault-provenance>
+                      ${result.vaultName} · ${result.vaultType} · ${result.vaultId} ·
+                      ${result.documentId} ·
+                      ${text("memoryPage.memories.revision", { revision: String(result.revision) })}
+                    </span>`
+                  : nothing}
                 ${result.title
                   ? html`<span class="settings-row__desc memory-memories__snippet"
                       >${result.snippet}</span
                     >`
+                  : nothing}
+                ${result.indexStatus === "failed"
+                  ? html`<span class="settings-row__desc" data-memory-index-warning role="status">
+                      ${text("platformClaw.vault.retainedIndex")} ${result.indexError ?? ""}
+                      ${result.nextRetryAt
+                        ? html`${text("platformClaw.vault.retryAt")}:
+                          ${formatDateTimeMs(result.nextRetryAt)}`
+                        : nothing}
+                    </span>`
                   : nothing}
                 <span class="settings-row__desc memory-memories__path"
                   >${result.path} ·
@@ -418,17 +448,19 @@ function renderMemorySearchResults(options: {
                 <span
                   class="memory-memories__source"
                   title=${text("memoryPage.memories.score", { score: result.score.toFixed(2) })}
-                  >${result.source === "organization"
-                    ? text("memoryPage.memories.sourceOrganization", {
-                        scope: result.provenanceLabel ?? "",
-                      })
-                    : result.source === "wiki"
-                      ? text("memoryPage.memories.sourceWiki")
-                      : text(
-                          result.source === "sessions"
-                            ? "memoryPage.memories.sourceSessions"
-                            : "memoryPage.memories.sourceMemory",
-                        )}</span
+                  >${result.vaultType === "shared"
+                    ? text("platformClaw.vault.shared")
+                    : result.source === "organization"
+                      ? text("memoryPage.memories.sourceOrganization", {
+                          scope: result.provenanceLabel ?? "",
+                        })
+                      : result.source === "wiki"
+                        ? text("memoryPage.memories.sourceWiki")
+                        : text(
+                            result.source === "sessions"
+                              ? "memoryPage.memories.sourceSessions"
+                              : "memoryPage.memories.sourceMemory",
+                          )}</span
                 >
                 ${expandable
                   ? html`<span class="settings-row__chevron" aria-hidden="true"

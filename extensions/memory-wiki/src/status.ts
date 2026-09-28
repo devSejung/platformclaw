@@ -3,9 +3,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { listActiveMemoryPublicArtifacts } from "openclaw/plugin-sdk/memory-host-core";
 import { pathExists } from "openclaw/plugin-sdk/security-runtime";
+import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import type { OpenClawConfig } from "../api.js";
 import { walkMemoryWikiDirectory } from "./bounded-walk.js";
 import { filterMemoryWikiBridgeArtifacts, resolveMemoryWikiVaultAgentId } from "./bridge.js";
+import { readMemoryWikiCompileFailure, type MemoryWikiCompileFailure } from "./compiled-cache.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { toWikiPageSummary, type WikiPageKind } from "./markdown.js";
 import { probeObsidianCli } from "./obsidian.js";
@@ -23,6 +25,7 @@ type MemoryWikiStatusWarning = {
 };
 
 export type MemoryWikiStatus = {
+  compileFailure?: MemoryWikiCompileFailure;
   vaultScope: ResolvedMemoryWikiConfig["vault"]["scope"];
   agentId: string | null;
   vaultMode: ResolvedMemoryWikiConfig["vaultMode"];
@@ -53,7 +56,7 @@ export type MemoryWikiStatus = {
 };
 
 type MemoryWikiDoctorFix = {
-  code: MemoryWikiStatusWarning["code"];
+  code: MemoryWikiStatusWarning["code"] | "compile-failed";
   message: string;
 };
 
@@ -250,7 +253,16 @@ export async function resolveMemoryWikiStatus(
         },
       };
 
+  const compileFailure = vaultExists ? await readMemoryWikiCompileFailure(config) : null;
   return {
+    ...(compileFailure
+      ? {
+          compileFailure: {
+            ...compileFailure,
+            error: truncateUtf16Safe(compileFailure.error, 500),
+          },
+        }
+      : {}),
     vaultScope: config.vault.scope,
     agentId,
     vaultMode: config.vaultMode,
@@ -281,7 +293,7 @@ export async function resolveMemoryWikiStatus(
 }
 
 export function buildMemoryWikiDoctorReport(status: MemoryWikiStatus): MemoryWikiDoctorReport {
-  const fixes = status.warnings.map((warning) => ({
+  const fixes: MemoryWikiDoctorFix[] = status.warnings.map((warning) => ({
     code: warning.code,
     message:
       warning.code === "vault-missing"
@@ -298,9 +310,16 @@ export function buildMemoryWikiDoctorReport(status: MemoryWikiStatus): MemoryWik
                   ? "Add explicit `unsafeLocal.paths` entries before running unsafe-local imports."
                   : "Disable private memory-core access unless you explicitly want unsafe-local mode.",
   }));
+  if (status.compileFailure) {
+    fixes.push({
+      code: "compile-failed",
+      message:
+        "Correct the reported source error, then run `openclaw wiki compile` to rebuild the search index. Automatic retry is also scheduled.",
+    });
+  }
   return {
-    healthy: status.warnings.length === 0,
-    warningCount: status.warnings.length,
+    healthy: fixes.length === 0,
+    warningCount: fixes.length,
     status,
     fixes,
   };
@@ -324,6 +343,12 @@ export function renderMemoryWikiStatus(status: MemoryWikiStatus): string {
     for (const warning of status.warnings) {
       lines.push(`- ${warning.message}`);
     }
+  }
+  if (status.compileFailure) {
+    lines.push(
+      `Compile failed: ${truncateUtf16Safe(status.compileFailure.error, 500)}`,
+      `Any prior successful search index is retained. Automatic retry: ${new Date(status.compileFailure.nextRetryAt).toISOString()}. Rebuild manually with wiki_apply op=refresh.`,
+    );
   }
 
   return lines.join("\n");

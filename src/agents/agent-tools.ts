@@ -690,6 +690,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       ? []
       : resolveOpenClawPluginToolsForOptions({
           options: {
+            runId: options?.runId,
             agentSessionKey: options?.sessionKey,
             agentChannel: resolveGatewayMessageChannel(
               options?.messageChannel ?? options?.messageProvider,

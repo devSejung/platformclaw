@@ -10,6 +10,8 @@ import { requestBrowserOrganizationMemoryLifecycle } from "./browser-gateway-mem
 import { requestBrowserOrganizationMemoryGet } from "./browser-gateway-memory.js";
 import { requestBrowserOrganizationMemoryGraph } from "./browser-gateway-organization-graph.js";
 import { projectBrowserSelfUser } from "./browser-gateway-self-service-projections.js";
+import { requestBrowserKnowledgeVault } from "./browser-gateway-vault.js";
+import { requestBrowserKnowledgeSearch } from "./browser-knowledge-search.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -28,6 +30,19 @@ export async function requestBrowserGatewayLocal(
     return { handled: true, result: { subscribed: true } };
   }
   try {
+    const search = await requestBrowserKnowledgeSearch(options, access, method, request);
+    if (search.handled) {
+      return search;
+    }
+    const vault = await requestBrowserKnowledgeVault({
+      service: options.vaultService,
+      access,
+      method,
+      request,
+    });
+    if (vault.handled) {
+      return vault;
+    }
     const baseball = await requestBrowserBaseball({
       store: options.baseballStore,
       userId: access.user.id,

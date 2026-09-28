@@ -24,11 +24,13 @@ export type QmdDocLocation = {
   collection: string;
   collectionRelativePath: string;
   observedAt: number;
+  sourceVersion?: string;
   rel: string;
   source: MemorySource;
 };
 
 type QmdDocumentRow = {
+  hash?: string;
   collection: string;
   modified_at?: unknown;
   path: string;
@@ -74,13 +76,13 @@ export class QmdDocumentResolver {
       const db = this.ensureDb();
       rows = db
         .prepare(
-          "SELECT collection, path, modified_at FROM documents WHERE hash = ? AND active = 1",
+          "SELECT collection, path, modified_at, hash FROM documents WHERE hash = ? AND active = 1",
         )
         .all(normalized) as QmdDocumentRow[];
       if (rows.length === 0) {
         rows = db
           .prepare(
-            "SELECT collection, path, modified_at FROM documents WHERE hash LIKE ? AND active = 1",
+            "SELECT collection, path, modified_at, hash FROM documents WHERE hash LIKE ? AND active = 1",
           )
           .all(`${normalized}%`) as QmdDocumentRow[];
       }
@@ -200,13 +202,9 @@ export class QmdDocumentResolver {
     if (indexedLocation) {
       return indexedLocation;
     }
-    const collectionRelativePath = this.toCollectionRelativePath(
-      hints.preferredCollection,
-      hints.preferredFile,
+    throw new Error(
+      "QMD indexed source metadata is unavailable. Run qmd update and retry the search.",
     );
-    return collectionRelativePath
-      ? this.toDocLocation(hints.preferredCollection, collectionRelativePath)
-      : null;
   }
 
   private resolveIndexedDocLocationFromHint(
@@ -219,42 +217,55 @@ export class QmdDocumentResolver {
       return null;
     }
     const exactPath = path.normalize(trimmedFile).replace(/\\/g, "/");
-    let rows: Array<{ modified_at?: unknown; path: string }>;
+    let rows: Array<{ modified_at?: unknown; path: string; hash?: string }>;
     try {
       const db = this.ensureDb();
       const exactRows = db
         .prepare(
-          "SELECT path, modified_at FROM documents WHERE collection = ? AND path = ? AND active = 1",
+          "SELECT path, modified_at, hash FROM documents WHERE collection = ? AND path = ? AND active = 1",
         )
-        .all(trimmedCollection, exactPath) as Array<{ modified_at?: unknown; path: string }>;
+        .all(trimmedCollection, exactPath) as Array<{
+        modified_at?: unknown;
+        path: string;
+        hash?: string;
+      }>;
       if (exactRows.length > 0) {
         const exactRow = expectDefined(exactRows.at(0), "single exact QMD document row");
-        return this.toDocLocation(trimmedCollection, exactRow.path, exactRow.modified_at);
+        return this.toDocLocation(
+          trimmedCollection,
+          exactRow.path,
+          exactRow.modified_at,
+          exactRow.hash,
+        );
       }
       rows = db
-        .prepare("SELECT path, modified_at FROM documents WHERE collection = ? AND active = 1")
-        .all(trimmedCollection) as Array<{ modified_at?: unknown; path: string }>;
+        .prepare(
+          "SELECT path, modified_at, hash FROM documents WHERE collection = ? AND active = 1",
+        )
+        .all(trimmedCollection) as Array<{ modified_at?: unknown; path: string; hash?: string }>;
     } catch (err) {
       if (isSqliteBusyError(err)) {
         log.debug(`qmd index is busy while resolving hinted path: ${String(err)}`);
         throw createQmdBusyError(err);
       }
-      log.debug(`qmd index hint lookup skipped: ${String(err)}`);
-      return null;
+      throw new Error(
+        "QMD index metadata could not be read. Run qmd update and retry the search.",
+        { cause: err },
+      );
     }
     const matches = rows.filter((row) => this.matchesPreferredFileHint(row.path, trimmedFile));
     if (matches.length !== 1) {
       return null;
     }
     const match = expectDefined(matches.at(0), "single preferred QMD document match");
-    return this.toDocLocation(trimmedCollection, match.path, match.modified_at);
+    return this.toDocLocation(trimmedCollection, match.path, match.modified_at, match.hash);
   }
 
   private pickDocLocation(rows: QmdDocumentRow[], hints?: QmdDocHints): QmdDocLocation | null {
     if (hints?.preferredCollection) {
       for (const row of rows) {
         if (row.collection === hints.preferredCollection) {
-          const location = this.toDocLocation(row.collection, row.path, row.modified_at);
+          const location = this.toDocLocation(row.collection, row.path, row.modified_at, row.hash);
           if (location) {
             return location;
           }
@@ -264,7 +275,7 @@ export class QmdDocumentResolver {
     if (hints?.preferredFile) {
       for (const row of rows) {
         if (this.matchesPreferredFileHint(row.path, hints.preferredFile)) {
-          const location = this.toDocLocation(row.collection, row.path, row.modified_at);
+          const location = this.toDocLocation(row.collection, row.path, row.modified_at, row.hash);
           if (location) {
             return location;
           }
@@ -272,7 +283,7 @@ export class QmdDocumentResolver {
       }
     }
     for (const row of rows) {
-      const location = this.toDocLocation(row.collection, row.path, row.modified_at);
+      const location = this.toDocLocation(row.collection, row.path, row.modified_at, row.hash);
       if (location) {
         return location;
       }
@@ -301,10 +312,16 @@ export class QmdDocumentResolver {
     collection: string,
     collectionRelativePath: string,
     modifiedAt?: unknown,
+    sourceVersion?: string,
   ): QmdDocLocation | null {
     const rootEntry = this.collectionRoots.get(collection);
     if (!rootEntry) {
       return null;
+    }
+    if (!sourceVersion) {
+      throw new Error(
+        "QMD indexed source version is unavailable. Run qmd update and retry the search.",
+      );
     }
     const normalizedRelative = collectionRelativePath.replace(/\\/g, "/");
     const absPath = path.normalize(path.resolve(rootEntry.path, collectionRelativePath));
@@ -315,6 +332,7 @@ export class QmdDocumentResolver {
       collection,
       collectionRelativePath: normalizedRelative,
       observedAt: parseQmdModifiedAt(modifiedAt),
+      ...(sourceVersion ? { sourceVersion } : {}),
       source: rootEntry.kind,
     };
   }

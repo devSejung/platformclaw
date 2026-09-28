@@ -10,7 +10,9 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../api.js";
 import { syncMemoryWikiBridgeSources } from "./bridge.js";
+import { syncMemoryWikiImportedSources } from "./source-sync.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
+import { createWikiSearchTool } from "./tool.js";
 
 const { createVault } = createMemoryWikiTestHarness();
 
@@ -52,6 +54,53 @@ describe("syncMemoryWikiBridgeSources", () => {
       },
     });
   }
+
+  it("serves the accepted search revision when changed bridge input cannot compile", async () => {
+    const workspaceDir = await createBridgeWorkspace("failed-index-workspace");
+    const { rootDir, config } = await createVault({
+      initialize: true,
+      config: {
+        vaultMode: "bridge",
+        bridge: { enabled: true, readMemoryArtifacts: true, indexMemoryRoot: true },
+      },
+    });
+    const absolutePath = path.join(workspaceDir, "MEMORY.md");
+    await fs.writeFile(absolutePath, "# Calibration\nStable calibration source.");
+    registerBridgeArtifacts([
+      {
+        kind: "memory-root",
+        workspaceDir,
+        relativePath: "MEMORY.md",
+        absolutePath,
+        agentIds: ["main"],
+        contentType: "markdown",
+      },
+    ]);
+    const appConfig: OpenClawConfig = {
+      agents: { list: [{ id: "main", default: true, workspace: workspaceDir }] },
+    };
+    await syncMemoryWikiImportedSources({ config, appConfig });
+    const tool = createWikiSearchTool(config, appConfig);
+    const before = await tool.execute("before", { query: "calibration" });
+    await fs.writeFile(
+      path.join(rootDir, "concepts/broken.md"),
+      "---\ntitle: [broken\n---\nbroken",
+    );
+    await fs.writeFile(absolutePath, "# Calibration\nUncompiled replacement.");
+    const after = await tool.execute("after", { query: "calibration" });
+    const prior = (before.details as { results: Array<{ revision: string; snippet: string }> })
+      .results[0]!;
+    expect(after.details).toMatchObject({
+      results: [
+        expect.objectContaining({
+          revision: prior.revision,
+          snippet: prior.snippet,
+          indexStatus: "failed",
+        }),
+      ],
+      warnings: [expect.stringContaining("last successful index")],
+    });
+  });
 
   it("imports public memory artifacts and stays idempotent across reruns", async () => {
     const workspaceDir = await createBridgeWorkspace("workspace");

@@ -20,6 +20,7 @@ vi.mock("../../../components/confirm-dialog.ts", () => ({ showConfirmDialog: vi.
 type TestMemoryPanel = HTMLElement & {
   context: ApplicationContext;
   agentId: string;
+  surface: "dreaming" | "wiki";
   refreshRevision: number;
   dreaming: DreamingState;
   viewState: DreamingViewState;
@@ -398,6 +399,37 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
 
     expect(context.runtimeConfig.refresh).not.toHaveBeenCalled();
     expect(page.dreaming.dreamingStatusError).toBeNull();
+  });
+
+  it("shows Personal compile failure even when the overview has no documents", () => {
+    const page = document.createElement("openclaw-agent-memory-panel") as TestMemoryPanel;
+    page.context = contextWithGateway({} as GatewayBrowserClient, true);
+    page.surface = "wiki";
+    page.dreaming.hello = { features: { methods: ["wiki.overview"] } } as DreamingState["hello"];
+    page.dreaming.wikiOverview = {
+      totalItems: 0,
+      totalPages: 0,
+      pageCounts: { entity: 0, concept: 0, source: 0, synthesis: 0, report: 0 },
+      totalClaims: 0,
+      totalQuestions: 0,
+      totalContradictions: 0,
+      clusters: [],
+      compileFailure: {
+        error: "Index compiler unavailable",
+        failedAt: 100,
+        nextRetryAt: 200,
+        attempts: 1,
+      },
+    };
+    const container = document.createElement("div");
+    render(page.render(), container);
+    const banner = container.querySelector("[data-personal-wiki-compile-failure]");
+    expect(banner?.textContent).toContain("Personal Wiki index update failed");
+    expect(banner?.textContent).toContain("Index compiler unavailable");
+    expect(banner?.textContent).toContain("Next retry");
+    delete page.dreaming.wikiOverview.compileFailure;
+    render(page.render(), container);
+    expect(container.querySelector("[data-personal-wiki-compile-failure]")).toBeNull();
   });
 
   it("renders explicit engine Off as unavailable while preserving latent override reset", () => {

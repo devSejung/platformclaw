@@ -309,7 +309,11 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       await page.keyboard.press("Escape");
       await expect.poll(() => helpHeading.count()).toBe(0);
     };
-    await expect.poll(() => memoryTabs.getByRole("tab").count()).toBe(4);
+    await expect
+      .poll(async () =>
+        (await memoryTabs.getByRole("tab").allTextContents()).map((label) => label.trim()),
+      )
+      .toEqual(["Memory", "Personal Wiki", "Memory Hub", "Organization", "Dreaming"]);
     await expect
       .poll(() => memoryPanel.getAttribute("aria-labelledby"))
       .toBe("platformclaw-memory-tab-memory");

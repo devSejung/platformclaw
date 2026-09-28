@@ -4,6 +4,7 @@ import path from "node:path";
 import type { MemoryPluginPublicArtifact } from "openclaw/plugin-sdk/memory-host-core";
 import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../api.js";
+import { recordMemoryWikiCompileFailure } from "./compiled-cache.js";
 import { resolveMemoryWikiConfig } from "./config.js";
 import { renderWikiMarkdown } from "./markdown.js";
 import {
@@ -460,6 +461,24 @@ describe("renderMemoryWikiStatus", () => {
 });
 
 describe("memory wiki doctor", () => {
+  it("reports recorded compilation failures as unhealthy and bounds their rendered cause", async () => {
+    const { config } = await createVault({ initialize: true });
+    await recordMemoryWikiCompileFailure(config, new Error("e".repeat(2_000)));
+    const status = await resolveMemoryWikiStatus(config, { resolveCommand: async () => null });
+    expect(status.compileFailure?.error).toHaveLength(500);
+    const report = buildMemoryWikiDoctorReport(status);
+    expect(report.healthy).toBe(false);
+    expect(report.warningCount).toBe(status.warnings.length + 1);
+    expect(report.fixes).toContainEqual(
+      expect.objectContaining({
+        code: "compile-failed",
+        message: expect.stringContaining("openclaw wiki compile"),
+      }),
+    );
+    const text = renderMemoryWikiDoctor(report);
+    expect(text).toContain("Any prior successful search index is retained");
+    expect(text).not.toContain("e".repeat(501));
+  });
   it("builds actionable fixes from status warnings", async () => {
     const config = resolveMemoryWikiConfig(
       {

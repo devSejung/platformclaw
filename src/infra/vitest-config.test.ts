@@ -1,5 +1,6 @@
 // Covers default Vitest scheduling config helpers.
 import { readFileSync } from "node:fs";
+import { buildCodeSpanIndex } from "@openclaw/markdown-core/code-spans";
 import { describe, expect, it } from "vitest";
 import { parseVitestProcessStats } from "../../test/vitest/vitest.system-load.ts";
 import baseConfig, {
@@ -198,6 +199,28 @@ describe("parseVitestProcessStats", () => {
 });
 
 describe("base vitest config", () => {
+  it("resolves public package subpaths without a root alias swallowing them", () => {
+    expect(buildCodeSpanIndex("`example`").isInside(1)).toBe(true);
+    const aliases = baseConfig.resolve?.alias;
+    expect(Array.isArray(aliases)).toBe(true);
+    if (!Array.isArray(aliases)) {
+      throw new Error("Expected ordered source aliases");
+    }
+    for (const specifier of [
+      "@openclaw/markdown-core",
+      "@openclaw/markdown-core/code-spans",
+      "@openclaw/markdown-core/fences",
+    ]) {
+      const alias = aliases.find(({ find }) =>
+        typeof find === "string"
+          ? specifier === find || specifier.startsWith(`${find}/`)
+          : find.test(specifier),
+      );
+      expect(normalizeConfigPath(alias?.replacement)).toMatch(
+        new RegExp(`/packages/markdown-core/src/${specifier.split("/")[2] ?? "index"}\\.ts$`),
+      );
+    }
+  });
   it("defaults the base pool to threads", () => {
     expect(resolveDefaultVitestPool()).toBe("threads");
     expect(baseConfig.test?.pool).toBe("threads");

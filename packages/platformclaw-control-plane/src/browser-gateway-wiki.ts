@@ -37,6 +37,21 @@ const WIKI_METHODS = new Set([
   "wiki.search",
   "wiki.status",
 ]);
+
+function projectCompileFailure(value: unknown, fail: ProjectionFailure): JsonObject {
+  if (value === undefined) {
+    return {};
+  }
+  const failure = failObject(value, "wiki compile failure", fail);
+  return {
+    compileFailure: {
+      error: text(failure.error, "wiki compile error", fail, 2000).slice(0, 500),
+      failedAt: count(failure.failedAt, "wiki compile failedAt", fail),
+      nextRetryAt: count(failure.nextRetryAt, "wiki compile nextRetryAt", fail),
+      attempts: count(failure.attempts, "wiki compile attempts", fail),
+    },
+  };
+}
 const DREAM_ACTION_METHODS = new Set([
   "doctor.memory.backfillDreamDiary",
   "doctor.memory.dedupeDreamDiary",
@@ -381,6 +396,20 @@ export function prepareBrowserWikiRequest(params: {
       return params.fail(`wiki search query must contain 1-${MAX_QUERY_CHARS} characters`);
     }
     prepared.query = query;
+    const scope = optionalEnum(params.request.scope, ["connected", "all"], "scope", params.fail);
+    if (scope) {
+      prepared.scope = scope;
+    }
+    if (params.request.vaultId !== undefined) {
+      if (
+        typeof params.request.vaultId !== "string" ||
+        !params.request.vaultId ||
+        params.request.vaultId.length > 256
+      ) {
+        return params.fail("vaultId must be a bounded nonempty identifier");
+      }
+      prepared.vaultId = params.request.vaultId;
+    }
     // Browser Wiki pickers must never inherit an operator-wide memory/all corpus.
     // Pinning the upstream request keeps Personal Wiki selection document-only.
     prepared.corpus = "wiki";
@@ -541,6 +570,7 @@ export function projectBrowserWikiResult(params: {
     const payload = failObject(params.result, "wiki overview", params.fail);
     const pageCounts = failObject(payload.pageCounts, "wiki page counts", params.fail);
     return {
+      ...projectCompileFailure(payload.compileFailure, params.fail),
       ...(typeof payload.sourceSyncComplete === "boolean"
         ? { sourceSyncComplete: payload.sourceSyncComplete }
         : {}),
@@ -585,6 +615,7 @@ export function projectBrowserWikiResult(params: {
           ? "native"
           : params.fail("Gateway returned non-native wiki render mode"),
       vaultExists: payload.vaultExists === true,
+      ...projectCompileFailure(payload.compileFailure, params.fail),
       pageCounts: Object.fromEntries(
         ["entity", "concept", "source", "synthesis", "report"].map((key) => [
           key,

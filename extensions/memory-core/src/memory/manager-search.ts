@@ -46,8 +46,15 @@ type SearchRowResult = {
   score: number;
   snippet: string;
   source: SearchSource;
+  sourceVersion?: string;
   provenance?: MemoryEntryProvenance;
 };
+
+// Read the source version in the same SQLite statement as its chunk. A later
+// lookup can label an old snippet with a newer version during background sync.
+function sourceVersionColumn(table: string): string {
+  return `(SELECT s.hash FROM memory_index_sources s WHERE s.path = ${table}.path AND s.source = ${table}.source) AS source_version`;
+}
 
 const MEMORY_ORIGIN_CLASSES: ReadonlySet<string> = new Set([
   "owner",
@@ -481,7 +488,7 @@ export async function searchVector(params: {
       params.db
         .prepare(
           `SELECT c.id, c.path, c.start_line, c.end_line, c.text,\n` +
-            `       c.source,\n` +
+            `       c.source, ${sourceVersionColumn("c")},\n` +
             `       vec_distance_cosine(v.embedding, ?) AS dist\n` +
             `  FROM ${params.vectorTable} v\n` +
             `  JOIN memory_index_chunks c ON c.id = v.id\n` +
@@ -503,6 +510,7 @@ export async function searchVector(params: {
         end_line: number;
         text: string;
         source: SearchSource;
+        source_version?: string;
         dist: number;
       }>;
 
@@ -543,6 +551,7 @@ export async function searchVector(params: {
           score: 1 - row.dist,
           snippet: truncateUtf16Safe(row.text, params.snippetMaxChars),
           source: row.source,
+          ...(row.source_version ? { sourceVersion: row.source_version } : {}),
         },
         readChunkProvenance(params.db, row.id),
       ),
@@ -570,7 +579,7 @@ async function searchChunksByEmbedding(params: {
   // table, and do not hold a sqlite iterator open across the setImmediate yield
   // below. The rowid cursor keeps memory bounded without OFFSET rescans.
   const stmt = params.db.prepare(
-    `SELECT rowid, id, path, start_line, end_line, text, embedding, source\n` +
+    `SELECT rowid, id, path, start_line, end_line, text, embedding, source, ${sourceVersionColumn("memory_index_chunks")}\n` +
       `  FROM memory_index_chunks\n` +
       ` WHERE ${modelFilter} AND rowid > ?${params.sourceFilter.sql}\n` +
       ` ORDER BY rowid ASC\n` +
@@ -585,6 +594,7 @@ async function searchChunksByEmbedding(params: {
     text: string;
     embedding: string;
     source: SearchSource;
+    source_version?: string;
   };
 
   const topResults: SearchRowResult[] = [];
@@ -613,6 +623,7 @@ async function searchChunksByEmbedding(params: {
           score,
           snippet: truncateUtf16Safe(row.text, params.snippetMaxChars),
           source: row.source,
+          ...(row.source_version ? { sourceVersion: row.source_version } : {}),
         };
         if (topResults.length < params.limit) {
           topResults.push(result);
@@ -677,6 +688,7 @@ export async function searchKeyword(params: {
     id: string;
     path: string;
     source: SearchSource;
+    source_version?: string;
     start_line: number;
     end_line: number;
     text: string;
@@ -688,7 +700,7 @@ export async function searchKeyword(params: {
     try {
       rows = params.db
         .prepare(
-          `SELECT id, path, source, start_line, end_line, text,\n` +
+          `SELECT id, path, source, start_line, end_line, text, ${sourceVersionColumn(params.ftsTable)},\n` +
             `       bm25(${params.ftsTable}) AS rank\n` +
             `  FROM ${params.ftsTable}\n` +
             ` WHERE ${params.ftsTable} MATCH ?${substringClause}${liveChunkClause}${params.sourceFilter.sql}\n` +
@@ -714,7 +726,7 @@ export async function searchKeyword(params: {
       const fallbackLikeParams = allTerms.map((term) => `%${escapeLikePattern(term)}%`);
       rows = params.db
         .prepare(
-          `SELECT id, path, source, start_line, end_line, text,\n` +
+          `SELECT id, path, source, start_line, end_line, text, ${sourceVersionColumn(params.ftsTable)},\n` +
             `       0 AS rank\n` +
             `  FROM ${params.ftsTable}\n` +
             ` WHERE 1=1${fallbackLikeClause}${liveChunkClause}${params.sourceFilter.sql}\n` +
@@ -725,7 +737,7 @@ export async function searchKeyword(params: {
   } else {
     rows = params.db
       .prepare(
-        `SELECT id, path, source, start_line, end_line, text,\n` +
+        `SELECT id, path, source, start_line, end_line, text, ${sourceVersionColumn(params.ftsTable)},\n` +
           `       0 AS rank\n` +
           `  FROM ${params.ftsTable}\n` +
           ` WHERE 1=1${substringClause}${liveChunkClause}${params.sourceFilter.sql}\n` +
@@ -754,6 +766,7 @@ export async function searchKeyword(params: {
         textScore,
         snippet: truncateUtf16Safe(row.text, params.snippetMaxChars),
         source: row.source,
+        ...(row.source_version ? { sourceVersion: row.source_version } : {}),
       },
       readChunkProvenance(params.db, row.id),
     );
@@ -797,6 +810,7 @@ export async function searchPathKeyword(params: {
     id: string;
     path: string;
     source: SearchSource;
+    source_version?: string;
     start_line: number;
     end_line: number;
     text: string;
@@ -842,7 +856,7 @@ export async function searchPathKeyword(params: {
           `   WHERE exact_path_specificity > 0\n` +
           `)\n` +
           `SELECT c.id, exact_paths.path, exact_paths.source,\n` +
-          `       c.start_line, c.end_line, c.text, exact_paths.exact_path_specificity\n` +
+          `       c.start_line, c.end_line, c.text, ${sourceVersionColumn("c")}, exact_paths.exact_path_specificity\n` +
           `  FROM exact_paths\n` +
           `  JOIN memory_index_chunks c ON c.id = (\n` +
           `    SELECT candidate.id FROM memory_index_chunks candidate\n` +
@@ -883,6 +897,7 @@ export async function searchPathKeyword(params: {
       exactPathSpecificity: row.exact_path_specificity,
       snippet: truncateUtf16Safe(row.text, params.snippetMaxChars),
       source: row.source,
+      sourceVersion: row.source_version || undefined,
     };
     const provenance = readChunkProvenance(params.db, row.id);
     if ("provenance" in provenance) {
@@ -897,6 +912,7 @@ export async function searchPathKeyword(params: {
     id: string;
     path: string;
     source: SearchSource;
+    source_version?: string;
     start_line: number;
     end_line: number;
     text: string;
@@ -925,7 +941,7 @@ export async function searchPathKeyword(params: {
       return params.db
         .prepare(
           `SELECT c.id, ${params.pathFtsTable}.path, ${params.pathFtsTable}.source,\n` +
-            `       c.start_line, c.end_line, c.text,\n` +
+            `       c.start_line, c.end_line, c.text, ${sourceVersionColumn("c")},\n` +
             `       ${matchQuery ? `bm25(${params.pathFtsTable})` : "0"} AS rank\n` +
             `  FROM ${params.pathFtsTable}\n` +
             `  JOIN memory_index_chunks c ON c.id = (\n` +
@@ -955,7 +971,7 @@ export async function searchPathKeyword(params: {
           `   WHERE 1=1${filter.normalizedClause}${normalizedSpecificityClause}\n` +
           `)\n` +
           `SELECT c.id, normalized_paths.path, normalized_paths.source,\n` +
-          `       c.start_line, c.end_line, c.text, normalized_paths.rank\n` +
+          `       c.start_line, c.end_line, c.text, ${sourceVersionColumn("c")}, normalized_paths.rank\n` +
           `  FROM normalized_paths\n` +
           `  JOIN memory_index_chunks c ON c.id = (\n` +
           `    SELECT candidate.id FROM memory_index_chunks candidate\n` +
@@ -1023,6 +1039,7 @@ export async function searchPathKeyword(params: {
         exactPathSpecificity,
         snippet: truncateUtf16Safe(row.text, params.snippetMaxChars),
         source: row.source,
+        ...(row.source_version ? { sourceVersion: row.source_version } : {}),
       };
       Object.assign(result, readChunkProvenance(params.db, row.id));
       const existing = lexicalById.get(result.id);

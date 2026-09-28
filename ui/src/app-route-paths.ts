@@ -14,6 +14,7 @@ export type MemoryRouteTab =
   | "memories"
   | "wiki"
   | "organization"
+  | "vaults"
   | "dreams"
   | "settings";
 export type PluginsHubRouteTab = "installed" | "discover";
@@ -186,6 +187,7 @@ export function memoryTabFromPath(pathname: string, basePath = ""): MemoryRouteT
   return segment === "memories" ||
     segment === "wiki" ||
     segment === "organization" ||
+    segment === "vaults" ||
     segment === "dreams" ||
     segment === "settings"
     ? segment

@@ -225,7 +225,7 @@ describe("getMemoryWikiPage", () => {
     }
 
     await expect(getMemoryWikiPage({ config, lookup })).rejects.toMatchObject({
-      code: expect.stringMatching(/^(?:outside-workspace|symlink)$/u),
+      code: expect.stringMatching(/^(?:outside-workspace|symlink|path-alias)$/u),
     });
   });
 
@@ -297,36 +297,30 @@ describe("searchMemoryWiki", () => {
     expect(getActiveMemorySearchManagerMock).not.toHaveBeenCalled();
   });
 
-  it("skips malformed pages while searching the rest of the vault (#96125)", async () => {
+  it("retains the last successful search index when a new page has malformed frontmatter", async () => {
     const { rootDir, config } = await createQueryVault({ initialize: true });
-    await fs.writeFile(
-      path.join(rootDir, "sources", "broken.md"),
-      [
-        "---",
-        "pageType: source",
-        "id: source.broken",
-        "sourceIds:",
-        '  - **MEMORY.md line 235**:"some quoted, value"',
-        "---",
-        "",
-        "# Broken",
-        "",
-        "poison needle",
-      ].join("\n"),
-      "utf8",
-    );
-    await fs.writeFile(
-      path.join(rootDir, "sources", "healthy.md"),
-      renderWikiMarkdown({
-        frontmatter: { pageType: "source", id: "source.healthy", title: "Healthy Source" },
-        body: "# Healthy Source\n\nhealthy needle\n",
-      }),
-      "utf8",
-    );
+    const healthy = renderWikiMarkdown({
+      frontmatter: { pageType: "source", id: "source.healthy", title: "Healthy Source" },
+      body: "# Healthy Source\n\nhealthy needle\n",
+    });
+    await fs.writeFile(path.join(rootDir, "sources", "healthy.md"), healthy, "utf8");
+    const original = await searchMemoryWiki({ config, query: "needle" });
+    const brokenPath = path.join(rootDir, "sources", "broken.md");
+    const broken = "---\npageType: source\nsourceIds: [unclosed\n---\npoison needle\n";
+    await fs.writeFile(brokenPath, broken, "utf8");
+    await expect(compileMemoryWikiVault(config)).rejects.toThrow("sources/broken.md");
 
     const results = await searchMemoryWiki({ config, query: "needle" });
 
     expect(collectWikiResultPaths(results)).toEqual(["sources/healthy.md"]);
+    expect(results[0]).toMatchObject({
+      title: "Healthy Source",
+      revision: original[0]?.revision,
+      indexStatus: "failed",
+      indexError: expect.stringContaining("sources/broken.md"),
+      nextRetryAt: expect.any(Number),
+    });
+    await expect(fs.readFile(brokenPath, "utf8")).resolves.toBe(broken);
   });
 
   it("uses the default search limit for non-finite maxResults", async () => {

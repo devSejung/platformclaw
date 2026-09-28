@@ -583,6 +583,20 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
             </div>
           </div>`
         : nothing}
+      ${this.surface === "wiki" &&
+      isMemoryWikiAvailable(dreaming) &&
+      dreaming.wikiOverview?.compileFailure
+        ? html`<div class="callout warn" role="alert" data-personal-wiki-compile-failure>
+            <strong>${wikiDocumentT("dreaming.wiki.compileFailed")}</strong>
+            <p>${wikiDocumentT("dreaming.wiki.compileRetained")}</p>
+            <p>${dreaming.wikiOverview.compileFailure.error}</p>
+            <p>
+              ${wikiDocumentT("dreaming.wiki.compileNextRetry", {
+                date: new Date(dreaming.wikiOverview.compileFailure.nextRetryAt).toLocaleString(),
+              })}
+            </p>
+          </div>`
+        : nothing}
       ${(this.surface === "wiki" ? renderWikiKnowledge : renderDreaming)({
         access: {
           canOpenConfig: canCallDreamingMethod(dreaming, "config.openFile", "operator.admin", {
