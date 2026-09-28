@@ -1,6 +1,6 @@
 // @vitest-environment node
 // Control UI tests cover navigation behavior.
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   SETTINGS_NAVIGATION_GROUPS,
   SIDEBAR_NAV_ROUTES,
@@ -33,6 +33,9 @@ type SessionUrlContractCase = {
 };
 
 beforeEach(async () => {
+  await i18n.setLocale("en");
+});
+afterEach(async () => {
   await i18n.setLocale("en");
 });
 

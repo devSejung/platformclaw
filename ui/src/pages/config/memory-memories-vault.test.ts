@@ -1,5 +1,5 @@
 /* @vitest-environment jsdom */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import { loadPlatformClawLocale, platformClawT } from "../../platformclaw/i18n.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
@@ -9,6 +9,9 @@ import "./memory-memories.ts";
 beforeEach(async () => {
   await i18n.setLocale("en");
   await loadPlatformClawLocale();
+});
+afterEach(async () => {
+  await i18n.setLocale("en");
 });
 
 describe("server unified Vault search", () => {

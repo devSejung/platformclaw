@@ -253,8 +253,12 @@ suite("Shared Knowledge Vault browser experience", () => {
             .evaluate((form) => (form as HTMLFormElement).requestSubmit());
           await access.getByRole("button", { name: "선택한 역할 부여", exact: true }).click();
           await gateway.waitForRequest(`${rpc}grant.set`);
+          await expect
+            .poll(() => hub.getByRole("button", { name: "대화상자 닫기", exact: true }).isEnabled())
+            .toBe(true);
           await screenshot(page, "owner-organization-grant.png", access);
           await page.keyboard.press("Escape");
+          await expect.poll(() => access.count()).toBe(0);
           await hub.getByRole("button", { name: "지식 추가", exact: true }).click();
           const draft = hub.locator("platformclaw-vault-author");
           await draft.locator("[name=title]").fill("Draft title");
@@ -383,13 +387,20 @@ suite("Shared Knowledge Vault browser experience", () => {
         const body = author.locator('textarea[name="content"]');
         await body.fill("Before replace after");
         await body.evaluate((node) => (node as HTMLTextAreaElement).setSelectionRange(7, 14));
+        await gateway.deferNext(rpc + "document.targets");
         await author.getByRole("button", { name: "Document link", exact: true }).click();
         const picker = author.locator("platformclaw-vault-link-picker");
+        await gateway.waitForRequest(rpc + "document.targets");
         await picker.getByRole("searchbox").fill("Setup");
         await picker.getByRole("searchbox").press("Enter");
         await expect
           .poll(async () => (await gateway.getRequests(rpc + "document.targets")).at(-1)?.params)
           .toEqual({ vaultId, query: "Setup" });
+        await picker.getByRole("button", { name: /Setup guide/ }).waitFor();
+        await gateway.resolveDeferred(rpc + "document.targets", { items: [], hasMore: false });
+        await expect
+          .poll(() => picker.getByRole("button", { name: /Setup guide/ }).count())
+          .toBe(1);
         await screenshot(page, `${type}-link-picker.png`, picker);
         await picker.getByRole("button", { name: /Setup guide/ }).click();
         expect(await body.inputValue()).toBe(saved.content);

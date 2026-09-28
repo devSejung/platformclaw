@@ -1,8 +1,18 @@
+import type {
+  KnowledgeVaultDocument,
+  KnowledgeVaultSnapshot,
+} from "../../../packages/platformclaw-control-plane/src/knowledge-vault-contracts.js";
 import type { ControlUiMockGatewayScenario } from "./control-ui-e2e.ts";
 import {
   platformClawMemoryAgentId,
   platformClawMemoryResponses,
 } from "./platformclaw-memory-fixture.ts";
+import {
+  wikiHubPersonalId,
+  wikiHubPersonalDocument,
+  wikiHubResponses,
+  wikiHubSnapshot,
+} from "./platformclaw-wiki-hub-fixture.ts";
 
 type PlatformClawMemoryResponses = NonNullable<ControlUiMockGatewayScenario["methodResponses"]>;
 type BusyWikiKind = "entity" | "concept" | "source" | "synthesis" | "report";
@@ -50,44 +60,6 @@ const busyWikiDirectories: Record<BusyWikiKind, string> = {
   source: "sources",
   entity: "entities",
 };
-const busyWikiLabels: Record<BusyWikiKind, string> = {
-  concept: "Concepts",
-  synthesis: "Syntheses",
-  report: "Reports",
-  source: "Sources",
-  entity: "Entities",
-};
-
-function busyWikiDocument(params: {
-  path: string;
-  title: string;
-  kind: BusyWikiKind;
-  content: string;
-  revision: string;
-  updatedAt: string;
-}) {
-  const common = {
-    title: params.title,
-    path: params.path,
-    kind: params.kind,
-    displayContent: params.content,
-    sourceContent: params.content,
-    updatedAt: params.updatedAt,
-  };
-  if (params.kind === "report") {
-    return { ...common, editMode: null, readOnlyReason: "generated-report" };
-  }
-  if (params.kind === "source") {
-    return { ...common, editMode: null, readOnlyReason: "source-managed" };
-  }
-  return {
-    ...common,
-    editMode: "body",
-    editableContent: params.content,
-    revision: params.revision,
-  };
-}
-
 const busyWikiDocuments = busyWikiTitles.map((title, index) => {
   const kind = busyWikiKinds[index % busyWikiKinds.length]!;
   const number = String(index + 1).padStart(2, "0");
@@ -121,43 +93,27 @@ const busyWikiDocuments = busyWikiTitles.map((title, index) => {
     claims,
     questions,
     contradictions,
-    snippet: `Synthetic preview page ${number} covers ${kind} behavior with bounded, non-user data.`,
-    document: busyWikiDocument({
-      path,
+    document: {
+      ...wikiHubPersonalDocument,
+      id: path,
+      logicalPath: path,
       title,
-      kind,
+      snippet: `Synthetic preview page ${number} covers ${kind} behavior with bounded, non-user data.`,
       content: detailLines.join("\n"),
+      editableContent: detailLines.join("\n"),
+      sourceContent: detailLines.join("\n"),
       revision: (index + 1).toString(16).padStart(64, "0"),
-      updatedAt,
-    }),
-  };
-});
-
-// The real overview is a bounded projection, not the whole Wiki inventory.
-const busyWikiOverviewDocuments = busyWikiDocuments.slice(0, 28);
-const busyWikiClusters = busyWikiKinds.map((kind) => {
-  const items = busyWikiOverviewDocuments.filter((document) => document.kind === kind);
-  return {
-    key: kind,
-    label: busyWikiLabels[kind],
-    itemCount: items.length,
-    claimCount: items.reduce((sum, item) => sum + item.claims.length, 0),
-    questionCount: items.reduce((sum, item) => sum + item.questions.length, 0),
-    contradictionCount: items.reduce((sum, item) => sum + item.contradictions.length, 0),
-    updatedAt: items[0]?.updatedAt,
-    items: items.map(({ document: _document, ...item }) => ({
-      pagePath: item.path,
-      title: item.title,
-      kind: item.kind,
-      updatedAt: item.updatedAt,
-      claimCount: item.claims.length,
-      questionCount: item.questions.length,
-      contradictionCount: item.contradictions.length,
-      claims: item.claims,
-      questions: item.questions,
-      contradictions: item.contradictions,
-      snippet: item.snippet,
-    })),
+      updatedAt: Date.parse(updatedAt),
+      metadata: { kind, claims, questions, contradictions },
+      links: [],
+      backlinks: [],
+      ...(kind === "report" || kind === "source"
+        ? {
+            editMode: null,
+            readOnlyReason: kind === "report" ? "generated-report" : "source-managed",
+          }
+        : {}),
+    } satisfies KnowledgeVaultDocument,
   };
 });
 
@@ -177,60 +133,55 @@ const busyWikiEdges = [
     })),
 ];
 
+function personalSnapshot(
+  documents: KnowledgeVaultDocument[],
+  edges: Array<{ source: string; target: string }>,
+): KnowledgeVaultSnapshot {
+  const snapshot = wikiHubSnapshot({ selectedId: wikiHubPersonalId });
+  snapshot.vaults = snapshot.vaults.map((vault) =>
+    vault.id === wikiHubPersonalId ? { ...vault, documentCount: documents.length } : vault,
+  );
+  snapshot.selected!.documents = documents;
+  snapshot.selected!.graph = { edges, unresolvedLinks: 0, truncated: false };
+  return snapshot;
+}
+const busyDocuments = busyWikiDocuments.map((item) => item.document);
+const busySnapshot = personalSnapshot(busyDocuments, busyWikiEdges);
 export const platformClawMemoryBusyResponses: PlatformClawMemoryResponses = {
   ...platformClawMemoryResponses,
-  "wiki.search": busyWikiDocuments.slice(0, 8).map((item, index) => ({
-    path: item.path,
-    title: item.title,
-    kind: item.kind,
-    score: 0.96 - index * 0.03,
-    snippet: item.snippet,
-    startLine: 1,
-    endLine: 3,
-  })),
-  "wiki.document.get": {
-    cases: busyWikiDocuments.map((item) => ({
-      match: { lookup: item.path },
-      response: item.document,
-    })),
+  "platformclaw.vault.snapshot": {
+    cases: [
+      { match: { vaultId: wikiHubPersonalId }, response: busySnapshot },
+      ...wikiHubResponses["platformclaw.vault.snapshot"].cases.filter(
+        (item) => "vaultId" in item.match && item.match.vaultId !== wikiHubPersonalId,
+      ),
+      { match: {}, response: { ...busySnapshot, selected: undefined } },
+    ],
   },
-  "wiki.graph": {
-    nodes: busyWikiDocuments.map((item) => ({
-      id: item.path,
-      title: item.title,
-      kind: item.kind,
-      updatedAt: item.updatedAt,
-    })),
-    edges: busyWikiEdges,
-    stats: {
-      totalPages: busyWikiDocuments.length,
-      totalNodes: busyWikiDocuments.length,
-      totalEdges: busyWikiEdges.length,
-      unresolvedLinks: 0,
-      truncated: false,
-    },
-  },
-  "wiki.overview": {
-    totalItems: busyWikiOverviewDocuments.length,
-    totalPages: busyWikiDocuments.length,
-    pageCounts: Object.fromEntries(
-      busyWikiKinds.map((kind) => [
-        kind,
-        busyWikiDocuments.filter((document) => document.kind === kind).length,
-      ]),
-    ),
-    totalClaims: busyWikiOverviewDocuments.reduce((sum, item) => sum + item.claims.length, 0),
-    totalQuestions: busyWikiOverviewDocuments.reduce((sum, item) => sum + item.questions.length, 0),
-    totalContradictions: busyWikiOverviewDocuments.reduce(
-      (sum, item) => sum + item.contradictions.length,
-      0,
-    ),
-    clusters: busyWikiClusters,
+  "platformclaw.vault.document.get": {
+    cases: [
+      ...busyDocuments.map((document) => ({
+        match: { vaultId: wikiHubPersonalId, documentId: document.id },
+        response: document,
+      })),
+      ...wikiHubResponses["platformclaw.vault.document.get"].cases.filter(
+        (item) => item.match.vaultId !== wikiHubPersonalId,
+      ),
+    ],
   },
 };
 
 export const platformClawMemoryEmptyResponses: PlatformClawMemoryResponses = {
   ...platformClawMemoryResponses,
+  "platformclaw.vault.snapshot": {
+    cases: [
+      { match: { vaultId: wikiHubPersonalId }, response: personalSnapshot([], []) },
+      ...wikiHubResponses["platformclaw.vault.snapshot"].cases.filter(
+        (item) => "vaultId" in item.match && item.match.vaultId !== wikiHubPersonalId,
+      ),
+      { match: {}, response: { ...personalSnapshot([], []), selected: undefined } },
+    ],
+  },
   "agents.workspace.get": {
     cases: [
       {
@@ -338,6 +289,7 @@ const unavailable = { __mockError: { code: "UNAVAILABLE", message: "Synthetic se
 
 export const platformClawMemoryErrorResponses: PlatformClawMemoryResponses = {
   ...platformClawMemoryResponses,
+  "platformclaw.vault.snapshot": unavailable,
   "agents.workspace.get": unavailable,
   "agents.workspace.list": unavailable,
   "memory.search": unavailable,

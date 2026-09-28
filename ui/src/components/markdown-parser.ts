@@ -356,12 +356,11 @@ export function createMarkdownParser(): MarkdownIt {
     }
     if (!silent) {
       const open = state.push("link_open", "a", 1);
-      open.markup = "wiki-link";
       open.attrSet("href", target);
       open.attrSet("data-wiki-lookup", target);
       const label = state.push("text", "", 0);
       label.content = (separator < 0 ? target : body.slice(separator + 1).trim()) || target;
-      state.push("link_close", "a", -1).markup = "wiki-link";
+      state.push("link_close", "a", -1);
     }
     state.pos = end + 2;
     return true;

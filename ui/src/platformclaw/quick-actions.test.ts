@@ -38,8 +38,9 @@ describe("platformclaw-quick-actions", () => {
     await i18n.setLocale("en");
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllGlobals();
+    await i18n.setLocale("en");
   });
 
   it("keeps role-aware account actions without the retired Guide", async () => {

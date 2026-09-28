@@ -103,7 +103,12 @@ suite("PlatformClaw Memory usability", () => {
         await page.locator("#memory-search-input").press("Enter");
         await expect
           .poll(() => page.locator(".memory-memories__results .memory-memories__result").count())
-          .toBe(3);
+          .toBe(2);
+        expect(
+          await page
+            .locator("[data-memory-source]")
+            .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-memory-source"))),
+        ).toEqual(["memory", "wiki"]);
         await page.locator('.memory-memories__filters wa-radio[value="wiki"]').click();
         await expect
           .poll(() => page.locator(".memory-memories__results .memory-memories__result").count())
@@ -111,34 +116,43 @@ suite("PlatformClaw Memory usability", () => {
         await noOverflow(page);
         await capture(page, name + "-search");
 
-        await tabs.getByRole("tab", { name: "Personal Wiki", exact: true }).click();
-        const wiki = page.locator(".memory-wiki-page");
-        await expect.poll(() => wiki.locator("[data-wiki-page]").count()).toBe(2);
-        await wiki.getByRole("searchbox", { name: "Filter title or path" }).fill("ownership");
-        await expect.poll(() => wiki.locator("[data-wiki-page]").count()).toBe(1);
-        await wiki.locator(".memory-wiki-card__title").click();
-        await expect
-          .poll(() => page.locator(".wiki-document__reader").textContent())
-          .toContain("Every production rollout");
-        expect(await page.locator("[data-wiki-edit]").count()).toBe(0);
-        await page.getByRole("button", { name: "Close", exact: true }).click();
-        await wiki.getByRole("searchbox").fill("");
-        await capture(page, name + "-wiki");
-        await wiki.getByRole("button", { name: "Graph", exact: true }).click();
-        await expect.poll(() => wiki.locator("[data-wiki-node]").count()).toBe(2);
+        await tabs.getByRole("tab", { name: "Wiki Hub", exact: true }).click();
+        const wiki = page.locator("platformclaw-memory-vaults");
         await wiki
+          .locator('[data-vault-card="personal:assigned-personal"] .vaults__card-title')
+          .click();
+        const documents = wiki.locator("platformclaw-vault-documents");
+        await expect.poll(() => documents.locator(".wiki-hub__document-card").count()).toBe(2);
+        await documents.getByRole("button", { name: "Release ownership", exact: true }).click();
+        const reader = wiki.locator("platformclaw-vault-reader");
+        await expect
+          .poll(() => reader.locator(".wiki-document__reader").textContent())
+          .toContain("Every production rollout");
+        expect(
+          await reader.getByRole("button", { name: "Edit document", exact: true }).count(),
+        ).toBe(1);
+        await reader.getByRole("button", { name: "Close document", exact: true }).click();
+        await capture(page, name + "-wiki");
+        await documents.getByRole("tab", { name: "Document graph", exact: true }).click();
+        await expect.poll(() => documents.locator("[data-svg-graph-node]").count()).toBe(2);
+        await documents
+          .getByRole("searchbox", { name: "Filter graph by title or path" })
+          .fill("ownership");
+        await expect.poll(() => documents.locator("[data-svg-graph-node]").count()).toBe(1);
+        await documents.getByRole("searchbox").fill("");
+        await documents
           .getByRole("combobox", { name: "Select a document" })
           .selectOption("syntheses/release-preflight.md");
         await expect
-          .poll(() => wiki.locator(".memory-wiki-graph__inspector").textContent())
+          .poll(() => documents.locator(".vault-graph__inspector").textContent())
           .toContain("Release ownership");
         await noOverflow(page);
         await capture(page, name + "-graph");
-        await wiki.locator(".memory-wiki-graph__open").click();
+        await documents.getByRole("button", { name: "Open document", exact: true }).click();
         await expect
-          .poll(() => page.locator(".wiki-document__reader").textContent())
+          .poll(() => reader.locator(".wiki-document__reader").textContent())
           .toContain("Record canary health and the responsible owner.");
-        await page.getByRole("button", { name: "Close", exact: true }).click();
+        await reader.getByRole("button", { name: "Close document", exact: true }).click();
 
         await tabs.getByRole("tab", { name: "Dreaming", exact: true }).click();
         await expect
@@ -169,33 +183,33 @@ suite("PlatformClaw Memory usability", () => {
     { width: 1920, height: 1080, mode: "dark" as const },
     { width: 390, height: 844, mode: "light" as const },
   ])(
-    "exposes the loaded versus global inventory at $width in the dense preview",
+    "keeps the dense Wiki inventory and graph consistent at $width",
     async ({ width, height, mode }) => {
       const { page, context } = await openFixture("platformclaw-memory-busy", width, height, mode);
       try {
-        await page
-          .locator(".platformclaw-memory-page__tabs")
-          .getByRole("tab", { name: "Personal Wiki" })
+        await page.locator("#platformclaw-memory-tab-vaults").click();
+        const wiki = page.locator("platformclaw-memory-vaults");
+        await wiki
+          .locator('[data-vault-card="personal:assigned-personal"] .vaults__card-title')
           .click();
-        await expect.poll(() => page.locator("[data-wiki-page]").count()).toBe(28);
-        expect(await page.locator(".memory-wiki-filterbar__count").textContent()).toContain(
-          "32 pages in Wiki",
-        );
-        await page.getByRole("searchbox", { name: "Filter title or path" }).fill("no-such-title");
-        await expect.poll(() => page.locator("[data-wiki-page]").count()).toBe(0);
-        await page.getByRole("button", { name: "Clear filters" }).click();
-        await expect.poll(() => page.locator("[data-wiki-page]").count()).toBe(28);
-        await capture(page, `dense-${width}-${mode}-wiki`);
-        await page.getByRole("button", { name: "Graph", exact: true }).click();
-        await expect.poll(() => page.locator("[data-wiki-node]").count()).toBe(32);
+        const documents = wiki.locator("platformclaw-vault-documents");
+        await expect.poll(() => documents.locator(".wiki-hub__document-card").count()).toBe(32);
+        await capture(page, "dense-" + width + "-" + mode + "-wiki");
+        await documents.getByRole("tab", { name: "Document graph", exact: true }).click();
+        await expect.poll(() => documents.locator("[data-svg-graph-node]").count()).toBe(32);
+        const filter = documents.getByRole("searchbox", { name: "Filter graph by title or path" });
+        await filter.fill("no-such-title");
+        await expect.poll(() => documents.locator("[data-svg-graph-node]").count()).toBe(0);
+        await filter.fill("");
+        await expect.poll(() => documents.locator("[data-svg-graph-node]").count()).toBe(32);
         await noOverflow(page);
-        await page
+        await documents
           .getByRole("combobox", { name: "Select a document" })
           .selectOption("concepts/preview-01.md");
-        await capture(page, `dense-${width}-${mode}-graph`);
-        await page.locator(".memory-wiki-graph__open").click();
+        await capture(page, "dense-" + width + "-" + mode + "-graph");
+        await documents.getByRole("button", { name: "Open document", exact: true }).click();
         await expect
-          .poll(() => page.locator(".wiki-document__reader").textContent())
+          .poll(() => wiki.locator(".wiki-document__reader").textContent())
           .toContain("Release canary ownership and rollback decision record");
       } finally {
         await context.close();
@@ -210,7 +224,7 @@ suite("PlatformClaw Memory usability", () => {
     { width: 1920, height: 1080, mode: "dark" as const, locale: "en-US" },
     { width: 390, height: 844, mode: "light" as const, locale: "en-US" },
   ])(
-    "keeps localized Wiki badges on one line at $width in $locale",
+    "keeps role-only badges and readable document cards at $width in $locale",
     async ({ width, height, mode, locale }) => {
       const { page, context } = await openFixture(
         "platformclaw-memory-busy",
@@ -220,52 +234,55 @@ suite("PlatformClaw Memory usability", () => {
         locale,
       );
       try {
-        await page.locator("#platformclaw-memory-tab-wiki").click();
-        const cards = page.locator("[data-wiki-page]");
-        await expect.poll(() => cards.count()).toBe(28);
+        await page.locator("#platformclaw-memory-tab-vaults").click();
+        const wiki = page.locator("platformclaw-memory-vaults");
+        await expect.poll(() => wiki.locator("[data-vault-card]").count()).toBe(3);
         await page.evaluate(() => document.fonts.ready);
-        const badges = await cards.evaluateAll((elements) =>
-          elements.map((card) => {
-            const badge = card.querySelector<HTMLElement>(".dreams-diary__insight-badge")!;
-            const title = card.querySelector<HTMLElement>(".memory-wiki-card__title")!;
+        const badges = await wiki.locator("[data-vault-role]").evaluateAll((elements) =>
+          elements.map((badge) => {
             const range = document.createRange();
             range.selectNodeContents(badge);
-            const textRects = [...range.getClientRects()].filter((rect) => rect.width > 0);
-            const badgeRect = badge.getBoundingClientRect();
-            const titleRect = title.getBoundingClientRect();
-            const cardRect = card.getBoundingClientRect();
+            const rects = [...range.getClientRects()].filter((rect) => rect.width > 0);
+            const bounds = badge.getBoundingClientRect();
             return {
               label: badge.textContent!.trim(),
-              lines: new Set(textRects.map((rect) => Math.round(rect.top))).size,
-              readable: textRects.every(
+              lines: new Set(rects.map((rect) => Math.round(rect.top))).size,
+              readable: rects.every(
                 (rect) =>
-                  rect.left >= badgeRect.left &&
-                  rect.right <= badgeRect.right &&
-                  rect.top >= badgeRect.top &&
-                  rect.bottom <= badgeRect.bottom,
+                  rect.left >= bounds.left &&
+                  rect.right <= bounds.right &&
+                  rect.top >= bounds.top &&
+                  rect.bottom <= bounds.bottom,
               ),
-              separated: titleRect.right <= badgeRect.left,
-              contained: titleRect.left >= cardRect.left && badgeRect.right <= cardRect.right,
-              titleClipped:
-                title.scrollWidth > title.clientWidth || title.scrollHeight > title.clientHeight,
             };
           }),
         );
-        expect(new Set(badges.map((badge) => badge.label)).size).toBe(5);
-        expect(badges.map((badge) => badge.label)).toContain(
-          locale === "ko-KR" ? "개념" : "concept",
-        );
-        await capture(page, `badges-${width}-${locale}-${mode}`);
+        expect(badges.map((badge) => badge.label)).toEqual(["Owner", "Owner", "Editor"]);
         for (const badge of badges) {
-          expect(badge).toMatchObject({
-            lines: 1,
-            readable: true,
-            separated: true,
-            contained: true,
-            titleClipped: false,
-          });
+          expect(badge).toMatchObject({ lines: 1, readable: true });
         }
+        await wiki
+          .locator('[data-vault-card="personal:assigned-personal"] .vaults__card-title')
+          .click();
+        const cards = wiki.locator("platformclaw-vault-documents .wiki-hub__document-card");
+        await expect.poll(() => cards.count()).toBe(32);
+        expect(await cards.locator(".vaults__badge, .dreams-diary__insight-badge").count()).toBe(0);
+        const titles = await cards.locator(".settings-row__title").evaluateAll((elements) =>
+          elements.map((title) => ({
+            clipped:
+              title.scrollWidth > title.clientWidth || title.scrollHeight > title.clientHeight,
+            contained:
+              title.getBoundingClientRect().right <=
+              title.closest("article")!.getBoundingClientRect().right,
+          })),
+        );
+        for (const title of titles) {
+          expect(title).toEqual({ clipped: false, contained: true });
+        }
+        expect(await cards.first().textContent()).toContain("Synthetic preview page 01");
+        expect(await cards.first().textContent()).not.toContain("Synthetic claim");
         await noOverflow(page);
+        await capture(page, "cards-" + width + "-" + locale + "-" + mode);
       } finally {
         await context.close();
       }
@@ -283,11 +300,16 @@ suite("PlatformClaw Memory usability", () => {
           .toContain(empty ? "MEMORY.md is empty" : "Synthetic service outage");
         await page
           .locator(".platformclaw-memory-page__tabs")
-          .getByRole("tab", { name: "Personal Wiki" })
+          .getByRole("tab", { name: "Wiki Hub" })
           .click();
+        if (empty) {
+          await page
+            .locator('[data-vault-card="personal:assigned-personal"] .vaults__card-title')
+            .click();
+        }
         await expect
-          .poll(() => page.locator(".memory-wiki-page").textContent())
-          .toContain(empty ? "Memory wiki is not populated yet" : "Synthetic service outage");
+          .poll(() => page.locator("platformclaw-memory-vaults").textContent())
+          .toContain(empty ? "No documents yet" : "Synthetic service outage");
         await page
           .locator(".platformclaw-memory-page__tabs")
           .getByRole("tab", { name: "Dreaming" })

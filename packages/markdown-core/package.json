@@ -9,11 +9,6 @@
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "exports": {
-    "./wiki-links": {
-      "types": "./dist/wiki-links.d.mts",
-      "import": "./dist/wiki-links.mjs",
-      "default": "./dist/wiki-links.mjs"
-    },
     ".": {
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs",

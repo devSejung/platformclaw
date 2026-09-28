@@ -38,6 +38,8 @@ class PlatformClawVaultLinkPicker extends OpenClawLightDomElement {
     if (!this.client || !this.vaultId) {
       return;
     }
+    // A typed query can supersede the initial suggestions while they load.
+    // Keep native form submission available; only the latest request owns results.
     const epoch = ++this.epoch;
     this.busy = true;
     this.error = "";
@@ -79,7 +81,7 @@ class PlatformClawVaultLinkPicker extends OpenClawLightDomElement {
           .value=${this.query}
           @input=${(event: Event) => (this.query = (event.currentTarget as HTMLInputElement).value)}
         />
-        <button class="btn" ?disabled=${this.busy}>${t("searchTargets")}</button>
+        <button class="btn">${t("searchTargets")}</button>
       </form>
       ${this.busy
         ? html`<p role="status">${t("loading")}</p>`
