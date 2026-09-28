@@ -1,4 +1,5 @@
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import type { Translate } from "./memory-memories-view.ts";
 
 type MemoryMemoriesTestElement = HTMLElement & {
   client: GatewayBrowserClient | null;
@@ -15,6 +16,7 @@ type MemoryMemoriesTestElement = HTMLElement & {
   personalDetailAdvertised: boolean | null;
   wikiGetAdvertised: boolean | null;
   organizationGetAdvertised: boolean | null;
+  translator: Translate;
   agentId: string | null;
   updateComplete: Promise<unknown>;
 };
